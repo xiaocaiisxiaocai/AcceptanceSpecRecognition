@@ -1,0 +1,69 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* 高亮样式 */
+.highlight-keyword {
+  background-color: #ffff00;
+  font-weight: bold;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.highlight-synonym {
+  background-color: #e6f7ff;
+  font-weight: bold;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Ant Design Tabs 内容区域填充 */
+.ant-tabs {
+  display: flex;
+  flex-direction: column;
+}
+
+.ant-tabs-content-holder {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.ant-tabs-content {
+  height: 100%;
+}
+
+.ant-tabs-tabpane {
+  height: 100%;
+  overflow: hidden;
+}

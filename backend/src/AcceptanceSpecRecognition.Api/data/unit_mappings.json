@@ -1,0 +1,164 @@
+{
+  "version": "1.0",
+  "description": "系统内置单位映射表，无需用户维护",
+  "units": {
+    "V": {
+      "standard": "V",
+      "aliases": ["伏", "伏特", "v", "volt", "volts"]
+    },
+    "kV": {
+      "standard": "kV",
+      "aliases": ["千伏", "kv", "KV", "kilovolt"]
+    },
+    "mV": {
+      "standard": "mV",
+      "aliases": ["毫伏", "mv", "MV", "millivolt"]
+    },
+    "A": {
+      "standard": "A",
+      "aliases": ["安", "安培", "a", "amp", "ampere"]
+    },
+    "mA": {
+      "standard": "mA",
+      "aliases": ["毫安", "ma", "MA", "milliamp"]
+    },
+    "μA": {
+      "standard": "μA",
+      "aliases": ["微安", "ua", "UA", "microamp"]
+    },
+    "W": {
+      "standard": "W",
+      "aliases": ["瓦", "瓦特", "w", "watt", "watts"]
+    },
+    "kW": {
+      "standard": "kW",
+      "aliases": ["千瓦", "kw", "KW", "kilowatt"]
+    },
+    "MW": {
+      "standard": "MW",
+      "aliases": ["兆瓦", "mw", "megawatt"]
+    },
+    "HP": {
+      "standard": "HP",
+      "aliases": ["马力", "hp", "horsepower"]
+    },
+    "Hz": {
+      "standard": "Hz",
+      "aliases": ["赫兹", "hz", "HZ", "hertz"]
+    },
+    "kHz": {
+      "standard": "kHz",
+      "aliases": ["千赫兹", "khz", "KHZ", "kilohertz"]
+    },
+    "MHz": {
+      "standard": "MHz",
+      "aliases": ["兆赫兹", "mhz", "MHZ", "megahertz"]
+    },
+    "°C": {
+      "standard": "°C",
+      "aliases": ["摄氏度", "度", "℃", "C", "celsius"]
+    },
+    "K": {
+      "standard": "K",
+      "aliases": ["开尔文", "kelvin"]
+    },
+    "Ω": {
+      "standard": "Ω",
+      "aliases": ["欧姆", "欧", "ohm", "ohms"]
+    },
+    "kΩ": {
+      "standard": "kΩ",
+      "aliases": ["千欧", "kohm", "kilohm"]
+    },
+    "MΩ": {
+      "standard": "MΩ",
+      "aliases": ["兆欧", "mohm", "megohm"]
+    },
+    "F": {
+      "standard": "F",
+      "aliases": ["法拉", "farad"]
+    },
+    "μF": {
+      "standard": "μF",
+      "aliases": ["微法", "uf", "UF", "microfarad"]
+    },
+    "nF": {
+      "standard": "nF",
+      "aliases": ["纳法", "nf", "NF", "nanofarad"]
+    },
+    "pF": {
+      "standard": "pF",
+      "aliases": ["皮法", "pf", "PF", "picofarad"]
+    },
+    "mm": {
+      "standard": "mm",
+      "aliases": ["毫米", "MM", "millimeter"]
+    },
+    "m": {
+      "standard": "m",
+      "aliases": ["米", "M", "meter"]
+    },
+    "cm": {
+      "standard": "cm",
+      "aliases": ["厘米", "CM", "centimeter"]
+    },
+    "rpm": {
+      "standard": "rpm",
+      "aliases": ["转/分", "转每分", "r/min", "RPM", "转/分钟"]
+    },
+    "m/s": {
+      "standard": "m/s",
+      "aliases": ["米/秒", "米每秒", "M/S"]
+    },
+    "mm/s": {
+      "standard": "mm/s",
+      "aliases": ["毫米/秒", "毫米每秒", "MM/S"]
+    },
+    "Pa": {
+      "standard": "Pa",
+      "aliases": ["帕", "帕斯卡", "pascal"]
+    },
+    "kPa": {
+      "standard": "kPa",
+      "aliases": ["千帕", "kpa", "KPA", "kilopascal"]
+    },
+    "MPa": {
+      "standard": "MPa",
+      "aliases": ["兆帕", "mpa", "MPA", "megapascal"]
+    },
+    "bar": {
+      "standard": "bar",
+      "aliases": ["巴", "BAR"]
+    },
+    "ms": {
+      "standard": "ms",
+      "aliases": ["毫秒", "MS", "millisecond"]
+    },
+    "s": {
+      "standard": "s",
+      "aliases": ["秒", "S", "second"]
+    },
+    "min": {
+      "standard": "min",
+      "aliases": ["分钟", "分", "minute"]
+    },
+    "bps": {
+      "standard": "bps",
+      "aliases": ["比特/秒", "bit/s", "BPS"]
+    },
+    "Mbps": {
+      "standard": "Mbps",
+      "aliases": ["兆比特/秒", "Mbit/s", "MBPS"]
+    },
+    "Gbps": {
+      "standard": "Gbps",
+      "aliases": ["吉比特/秒", "Gbit/s", "GBPS"]
+    }
+  },
+  "electricalPrefixes": {
+    "DC": ["直流", "dc", "D.C."],
+    "AC": ["交流", "ac", "A.C."],
+    "1P": ["单相", "1相", "1-phase", "single-phase"],
+    "3P": ["三相", "3相", "3-phase", "three-phase"]
+  }
+}

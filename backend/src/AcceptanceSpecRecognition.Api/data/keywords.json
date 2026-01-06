@@ -1,0 +1,205 @@
+{
+  "version": "1.0",
+  "keywords": [
+    {
+      "id": "kw_001",
+      "keyword": "三菱",
+      "style": {"color": "#d32f2f", "backgroundColor": "#ffebee", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_001a",
+      "keyword": "Mitsubishi",
+      "style": {"color": "#d32f2f", "backgroundColor": "#ffebee", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_001b",
+      "keyword": "MITSUBISHI",
+      "style": {"color": "#d32f2f", "backgroundColor": "#ffebee", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_002",
+      "keyword": "西门子",
+      "style": {"color": "#1976d2", "backgroundColor": "#e3f2fd", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_002a",
+      "keyword": "Siemens",
+      "style": {"color": "#1976d2", "backgroundColor": "#e3f2fd", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_002b",
+      "keyword": "SIEMENS",
+      "style": {"color": "#1976d2", "backgroundColor": "#e3f2fd", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_003",
+      "keyword": "PLC",
+      "style": {"color": "#388e3c", "backgroundColor": "#e8f5e9", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_003a",
+      "keyword": "可编程逻辑控制器",
+      "style": {"color": "#388e3c", "backgroundColor": "#e8f5e9", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_003b",
+      "keyword": "可编程控制器",
+      "style": {"color": "#388e3c", "backgroundColor": "#e8f5e9", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_004",
+      "keyword": "FX5U",
+      "style": {"color": "#7b1fa2", "backgroundColor": "#f3e5f5", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_004a",
+      "keyword": "FX-5U",
+      "style": {"color": "#7b1fa2", "backgroundColor": "#f3e5f5", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_004b",
+      "keyword": "FX5U系列",
+      "style": {"color": "#7b1fa2", "backgroundColor": "#f3e5f5", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_005",
+      "keyword": "S7-1500",
+      "style": {"color": "#0097a7", "backgroundColor": "#e0f7fa", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_005a",
+      "keyword": "S7-1200",
+      "style": {"color": "#0097a7", "backgroundColor": "#e0f7fa", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_005b",
+      "keyword": "S71500",
+      "style": {"color": "#0097a7", "backgroundColor": "#e0f7fa", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_005c",
+      "keyword": "S71200",
+      "style": {"color": "#0097a7", "backgroundColor": "#e0f7fa", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_006",
+      "keyword": "DC24V",
+      "style": {"color": "#f57c00", "backgroundColor": "#fff3e0", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_006a",
+      "keyword": "直流24V",
+      "style": {"color": "#f57c00", "backgroundColor": "#fff3e0", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_006b",
+      "keyword": "DC 24V",
+      "style": {"color": "#f57c00", "backgroundColor": "#fff3e0", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_007",
+      "keyword": "AC220V",
+      "style": {"color": "#c2185b", "backgroundColor": "#fce4ec", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_007a",
+      "keyword": "交流220V",
+      "style": {"color": "#c2185b", "backgroundColor": "#fce4ec", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_007b",
+      "keyword": "AC 220V",
+      "style": {"color": "#c2185b", "backgroundColor": "#fce4ec", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_008",
+      "keyword": "以太网",
+      "style": {"color": "#5d4037", "backgroundColor": "#efebe9", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_008a",
+      "keyword": "Ethernet",
+      "style": {"color": "#5d4037", "backgroundColor": "#efebe9", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_008b",
+      "keyword": "网口",
+      "style": {"color": "#5d4037", "backgroundColor": "#efebe9", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_009",
+      "keyword": "Modbus",
+      "style": {"color": "#455a64", "backgroundColor": "#eceff1", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_009a",
+      "keyword": "Modbus TCP",
+      "style": {"color": "#455a64", "backgroundColor": "#eceff1", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_009b",
+      "keyword": "Modbus RTU",
+      "style": {"color": "#455a64", "backgroundColor": "#eceff1", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_010",
+      "keyword": "OPC UA",
+      "style": {"color": "#6a1b9a", "backgroundColor": "#f3e5f5", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_010a",
+      "keyword": "OPC-UA",
+      "style": {"color": "#6a1b9a", "backgroundColor": "#f3e5f5", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_010b",
+      "keyword": "OPCUA",
+      "style": {"color": "#6a1b9a", "backgroundColor": "#f3e5f5", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_011",
+      "keyword": "PT100",
+      "style": {"color": "#00695c", "backgroundColor": "#e0f2f1", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_011a",
+      "keyword": "Pt100",
+      "style": {"color": "#00695c", "backgroundColor": "#e0f2f1", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_011b",
+      "keyword": "pt100",
+      "style": {"color": "#00695c", "backgroundColor": "#e0f2f1", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_012",
+      "keyword": "NPN",
+      "style": {"color": "#bf360c", "backgroundColor": "#fbe9e7", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_012a",
+      "keyword": "NPN型",
+      "style": {"color": "#bf360c", "backgroundColor": "#fbe9e7", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_012b",
+      "keyword": "NPN输出",
+      "style": {"color": "#bf360c", "backgroundColor": "#fbe9e7", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_013",
+      "keyword": "PNP",
+      "style": {"color": "#1565c0", "backgroundColor": "#e3f2fd", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_013a",
+      "keyword": "PNP型",
+      "style": {"color": "#1565c0", "backgroundColor": "#e3f2fd", "fontWeight": "bold"}
+    },
+    {
+      "id": "kw_013b",
+      "keyword": "PNP输出",
+      "style": {"color": "#1565c0", "backgroundColor": "#e3f2fd", "fontWeight": "bold"}
+    }
+  ]
+}

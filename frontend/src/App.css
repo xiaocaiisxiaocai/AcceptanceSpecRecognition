@@ -1,0 +1,227 @@
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+/* 响应式设计 - 移动端优先 */
+
+/* 小屏幕 (手机) */
+@media screen and (max-width: 576px) {
+  #root {
+    padding: 0.5rem;
+  }
+
+  .ant-layout-sider {
+    position: fixed !important;
+    z-index: 1000;
+    height: 100vh;
+  }
+
+  .ant-layout-sider-collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+  }
+
+  .ant-card {
+    margin-bottom: 12px;
+  }
+
+  .ant-table {
+    font-size: 12px;
+  }
+
+  .ant-form-item {
+    margin-bottom: 12px;
+  }
+
+  .ant-btn {
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .ant-space {
+    flex-wrap: wrap;
+  }
+
+  .match-result-card {
+    padding: 12px;
+  }
+
+  .highlighted-text {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+}
+
+/* 中等屏幕 (平板) */
+@media screen and (min-width: 577px) and (max-width: 992px) {
+  #root {
+    padding: 1rem;
+  }
+
+  .ant-layout-sider {
+    width: 180px !important;
+    min-width: 180px !important;
+  }
+
+  .ant-card {
+    margin-bottom: 16px;
+  }
+
+  .ant-col-md-12 {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
+
+/* 大屏幕 (桌面) */
+@media screen and (min-width: 993px) {
+  .ant-layout-sider {
+    width: 200px !important;
+    min-width: 200px !important;
+  }
+}
+
+/* 超大屏幕 */
+@media screen and (min-width: 1400px) {
+  #root {
+    max-width: 1600px;
+  }
+}
+
+/* 打印样式 */
+@media print {
+  .ant-layout-sider,
+  .ant-btn,
+  .ant-pagination {
+    display: none !important;
+  }
+
+  .ant-layout-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .ant-card {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+  }
+}
+
+/* 通用响应式工具类 */
+.hide-on-mobile {
+  display: block;
+}
+
+.show-on-mobile {
+  display: none;
+}
+
+@media screen and (max-width: 576px) {
+  .hide-on-mobile {
+    display: none !important;
+  }
+
+  .show-on-mobile {
+    display: block !important;
+  }
+}
+
+/* 表格响应式 */
+.responsive-table {
+  overflow-x: auto;
+}
+
+@media screen and (max-width: 768px) {
+  .responsive-table .ant-table {
+    min-width: 600px;
+  }
+}
+
+/* 表单响应式 */
+.responsive-form .ant-form-item-label {
+  text-align: left;
+}
+
+@media screen and (max-width: 576px) {
+  .responsive-form .ant-form-item-label {
+    padding-bottom: 4px;
+  }
+
+  .responsive-form .ant-form-item-label > label {
+    height: auto;
+  }
+}
+
+/* 卡片网格响应式 */
+.card-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+@media screen and (max-width: 576px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+/* 统计卡片响应式 */
+.stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.stats-row .ant-statistic {
+  min-width: 120px;
+}
+
+@media screen and (max-width: 576px) {
+  .stats-row {
+    gap: 8px;
+  }
+
+  .stats-row .ant-statistic {
+    min-width: 100px;
+    flex: 1 1 45%;
+  }
+}

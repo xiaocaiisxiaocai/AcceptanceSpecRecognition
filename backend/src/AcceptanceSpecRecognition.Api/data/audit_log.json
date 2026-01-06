@@ -1,0 +1,537 @@
+{
+  "entries": [
+    {
+      "id": "143e7d40c3fb483484b8d20cb233c795",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T00:36:39.2849038Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: cache, \u53D8\u66F4: \u7F13\u5B58\u5DF2\u6E05\u9664",
+      "recordId": null
+    },
+    {
+      "id": "0c1fedaa0270484ab33f0709c4c253f5",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T00:36:40.7959494Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: system, \u53D8\u66F4: \u914D\u7F6E\u5DF2\u66F4\u65B0",
+      "recordId": null
+    },
+    {
+      "id": "66adbdfd227c4f8aa68a156724999bac",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T00:36:45.0303245Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: system, \u53D8\u66F4: \u914D\u7F6E\u5DF2\u66F4\u65B0",
+      "recordId": null
+    },
+    {
+      "id": "870f39fbb2ed4651a3bdf1e53fef7113",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:37:01.6423635Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 7068ms",
+      "recordId": null
+    },
+    {
+      "id": "3c3aa3aaa9734f7aac9d3e089c788589",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:37:26.2196864Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.484, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 1812ms",
+      "recordId": null
+    },
+    {
+      "id": "e49be0e8cc2d4da3a04ff7c91e6f9127",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:37:31.1335209Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.484, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 1836ms",
+      "recordId": null
+    },
+    {
+      "id": "5b220fee911241098e47c90c110aef2f",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:38:15.1145802Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.484, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 2462ms",
+      "recordId": null
+    },
+    {
+      "id": "002f31eb2c5e4ca194e0539d9fbdc401",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:38:20.5296905Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.484, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 2000ms",
+      "recordId": null
+    },
+    {
+      "id": "0f478cd506e74b718b02da18e66a9391",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:38:24.3080168Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.484, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 1870ms",
+      "recordId": null
+    },
+    {
+      "id": "0907d3ae367e4a58a7f0ed1cab325f0e",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:38:33.4020458Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.484, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 1848ms",
+      "recordId": null
+    },
+    {
+      "id": "3ffc27e490ca43babe27f34e5d7a9ebd",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:38:39.0685607Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 1746ms",
+      "recordId": null
+    },
+    {
+      "id": "cefdc66ee7c5445890c0ebfe31e60e34",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:38:45.9013075Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 3056ms",
+      "recordId": null
+    },
+    {
+      "id": "24942046d22543d68764b5bc021a2418",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T00:38:50.0360793Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: system, \u53D8\u66F4: \u914D\u7F6E\u5DF2\u66F4\u65B0",
+      "recordId": null
+    },
+    {
+      "id": "b3e41802a0cb4e3ca4bd4d83cb438844",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:39:11.8516997Z",
+      "details": "[Embedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.968, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 2179ms",
+      "recordId": null
+    },
+    {
+      "id": "5c549354edbf471c82ea39fbb4e7cf79",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:39:21.3328981Z",
+      "details": "[Embedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 648ms",
+      "recordId": null
+    },
+    {
+      "id": "561e3a049a974f8d92df105107afe8f5",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:39:42.9210695Z",
+      "details": "[Embedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.078, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 15133ms",
+      "recordId": null
+    },
+    {
+      "id": "af5cb1af8a8640edac829bbe14c08b27",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:40:36.8896456Z",
+      "details": "[Embedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 474ms",
+      "recordId": null
+    },
+    {
+      "id": "e28e9216c02c4cddb4eda36e0a5ee227",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:40:42.0818556Z",
+      "details": "[Embedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.968, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 108ms",
+      "recordId": null
+    },
+    {
+      "id": "69a09a363411487995df2627418da6c9",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:40:44.4978893Z",
+      "details": "[Embedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.968, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 99ms",
+      "recordId": null
+    },
+    {
+      "id": "2ba9625b70e04f1ea17800244b00352b",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:40:45.1623622Z",
+      "details": "[Embedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.968, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 119ms",
+      "recordId": null
+    },
+    {
+      "id": "77948a43f7b349a5bb2b91d79aeca091",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:40:45.3985773Z",
+      "details": "[Embedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.968, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 105ms",
+      "recordId": null
+    },
+    {
+      "id": "d344c51e164947598a663cc0b7d1070b",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:40:45.7932223Z",
+      "details": "[Embedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.968, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 116ms",
+      "recordId": null
+    },
+    {
+      "id": "d2a2873bace743adb365d81d84a839d4",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T00:40:58.4957379Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: system, \u53D8\u66F4: \u914D\u7F6E\u5DF2\u66F4\u65B0",
+      "recordId": null
+    },
+    {
+      "id": "c423e1020bcf4d0ab7875d60651114b3",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:41:13.6741128Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 5828ms",
+      "recordId": null
+    },
+    {
+      "id": "5ab72fa9cfcc487b936110ec2230492d",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:41:30.7624004Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 14826ms",
+      "recordId": null
+    },
+    {
+      "id": "31ec5303d0e84baaa3c2a270b5e0f924",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:41:54.3266086Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 1643ms",
+      "recordId": null
+    },
+    {
+      "id": "1d0c9ece239846468f2f1260e82a8a6e",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:41:58.1064008Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 1090ms",
+      "recordId": null
+    },
+    {
+      "id": "b9a65204092b4ffa80ff9ade18355beb",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:42:01.9121305Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 982ms",
+      "recordId": null
+    },
+    {
+      "id": "1c0e302666f94e8abbdf2652a88685f9",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:42:04.8502573Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 1081ms",
+      "recordId": null
+    },
+    {
+      "id": "5d5c8fd9a4594cfb88cf3de4a92ac506",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:42:07.456773Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 880ms",
+      "recordId": null
+    },
+    {
+      "id": "bb311289d127410c958f105deccd4116",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:42:10.4198345Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 1494ms",
+      "recordId": null
+    },
+    {
+      "id": "7243d681cb8a42398092156bcca20bae",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:42:19.0816063Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 7101ms",
+      "recordId": null
+    },
+    {
+      "id": "287386d4919b4769935d813de6c6b429",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:42:23.2105191Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 883ms",
+      "recordId": null
+    },
+    {
+      "id": "27d3985903f4452fa608f2d7288d28a4",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:42:30.4626395Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B DC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 5929ms",
+      "recordId": null
+    },
+    {
+      "id": "3f36eed1af994205b10783fed35ac0fd",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:42:36.4890388Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u63A7\u5236\u7535\u538B AC24V, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.484, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 1201ms",
+      "recordId": null
+    },
+    {
+      "id": "624fe3875c21492cb5658aa9f3f9cba6",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:43:27.1148092Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u7535\u63A7\u7BB1\u8FDB\u7EBF \u7535\u7F06\u8FDB\u7EBF\u65B9\u5F0F, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 1642ms",
+      "recordId": null
+    },
+    {
+      "id": "3010948d438741c1b330e4980b222de8",
+      "actionType": "confirm_match",
+      "timestamp": "2026-01-06T00:43:29.7242766Z",
+      "details": "",
+      "recordId": "rec_011"
+    },
+    {
+      "id": "61a49be6fd05469ca1e7392fb55ca75a",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:43:36.0049501Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u7535\u7BB1\u8FDB\u7EBF \u7535\u7F06\u8FDB\u7EBF\u65B9\u5F0F, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.946, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 1732ms",
+      "recordId": null
+    },
+    {
+      "id": "75097bd2dfd44c39ae2ff2a9f0b8f991",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T00:43:53.5761301Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: system, \u53D8\u66F4: \u914D\u7F6E\u5DF2\u66F4\u65B0",
+      "recordId": null
+    },
+    {
+      "id": "6df92c09d9914f3f82a71ad81bfc842e",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:44:01.6613918Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u7535\u63A7\u7BB1\u8FDB\u7EBF \u7535\u7F06\u8FDB\u7EBF\u65B9\u5F0F, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 1098ms",
+      "recordId": null
+    },
+    {
+      "id": "19f42adb87db46e6a25a7c966c7b2639",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:44:06.9622106Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u7535\u7BB1\u8FDB\u7EBF \u7535\u7F06\u8FDB\u7EBF\u65B9\u5F0F, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.946, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 1299ms",
+      "recordId": null
+    },
+    {
+      "id": "727ca254393346929bbc77318d1afa14",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T00:44:22.8157894Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: system, \u53D8\u66F4: \u914D\u7F6E\u5DF2\u66F4\u65B0",
+      "recordId": null
+    },
+    {
+      "id": "53c68fba42814562a7d6c544c3238ef6",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:45:05.8610647Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u7535\u7BB1\u8FDB\u7EBF \u7535\u7F06\u8FDB\u7EBF\u65B9\u5F0F, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.946, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 15243ms",
+      "recordId": null
+    },
+    {
+      "id": "e8d326b392b0425690c099b566355478",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:45:17.9566201Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u7535\u7BB1\u8FDB\u7EBF \u7EBF\u7F06\u8FDB\u7EBF\u65B9\u5F0F, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.937, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 2354ms",
+      "recordId": null
+    },
+    {
+      "id": "4603c406590947f6aaf967ebcf121d22",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T00:45:31.7595946Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: system, \u53D8\u66F4: \u914D\u7F6E\u5DF2\u66F4\u65B0",
+      "recordId": null
+    },
+    {
+      "id": "6fd6c34ebd4048e388189af6b71d491a",
+      "actionType": "query",
+      "timestamp": "2026-01-06T00:46:09.0231498Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC\u901A\u8BAF \u6BCF\u4E2APLC\u9700\u9884\u7559\u81F3\u5C11\u4E00\u4E2A\u4EE5\u592A\u7F51\u63A5\u53E3, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 2023ms",
+      "recordId": null
+    },
+    {
+      "id": "33ac64cfcf0143fda2758223368195ab",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T01:05:33.6202779Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: prompts, \u53D8\u66F4: \u7CFB\u7EDF\u63D0\u793A\u8BCD\u5DF2\u91CD\u7F6E\u4E3A\u9ED8\u8BA4\u503C",
+      "recordId": null
+    },
+    {
+      "id": "2b676a21911d423c96d0c514ad04b1d7",
+      "actionType": "query",
+      "timestamp": "2026-01-06T01:07:40.2022811Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u7A7A\u6C14\u5F00\u5173 \u4E3B\u56DE\u8DEF\u4FDD\u62A4, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 7879ms",
+      "recordId": null
+    },
+    {
+      "id": "da0c82c38a014e72a988f7dc03c3da94",
+      "actionType": "query",
+      "timestamp": "2026-01-06T01:08:15.8460429Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u901A\u8BAF\u7AEF\u53E3 \u901A\u8BAF\u7AEF\u53E3\u5FC5\u987B\u5F00\u653E, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 3264ms",
+      "recordId": null
+    },
+    {
+      "id": "40f4df04fd9e41ada9f4d41ac6f72c62",
+      "actionType": "query",
+      "timestamp": "2026-01-06T01:09:05.8756299Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u901A\u8BAF\u7AEF\u53E3 \u7AEF\u53E3\u5FC5\u987B\u5F00\u653E, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.965, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 2707ms",
+      "recordId": null
+    },
+    {
+      "id": "7e3976bea1cd4e19bdb1b7af2878f284",
+      "actionType": "query",
+      "timestamp": "2026-01-06T01:09:47.3287719Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u901A\u8BAF\u7AEF\u53E3 \u901A\u4FE1\u7AEF\u53E3\u5FC5\u987B\u5F00\u653E, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.991, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 7486ms",
+      "recordId": null
+    },
+    {
+      "id": "67a97ae5b50947ce816d34e0f19373dd",
+      "actionType": "query",
+      "timestamp": "2026-01-06T01:11:17.9418828Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u901A\u8BAF\u7AEF\u53E3 \u901A\u8A0A\u7AEF\u53E3\u5FC5\u9808\u958B\u653E, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.934, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 7454ms",
+      "recordId": null
+    },
+    {
+      "id": "c98897a18b3e43c5b5ea70167ea603c5",
+      "actionType": "config_change",
+      "timestamp": "2026-01-06T01:48:19.0674663Z",
+      "details": "\u914D\u7F6E\u533A\u57DF: prompts, \u53D8\u66F4: \u7CFB\u7EDF\u63D0\u793A\u8BCD\u5DF2\u91CD\u7F6E\u4E3A\u9ED8\u8BA4\u503C",
+      "recordId": null
+    },
+    {
+      "id": "6aa129ed3db44ecb86df295f98936eb7",
+      "actionType": "query",
+      "timestamp": "2026-01-06T05:37:54.2912781Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u53F0\u8FBEDVP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 23486ms",
+      "recordId": null
+    },
+    {
+      "id": "7333f678d137499fa79bfde1f35ea6e4",
+      "actionType": "query",
+      "timestamp": "2026-01-06T05:38:37.9569592Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC DVP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.850, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 4459ms",
+      "recordId": null
+    },
+    {
+      "id": "db0c774db5af4156924b97f238d3070b",
+      "actionType": "confirm_match",
+      "timestamp": "2026-01-06T05:39:03.4027016Z",
+      "details": "",
+      "recordId": "rec_171"
+    },
+    {
+      "id": "f2b55cfc3712460abb5abfb9973aa5b0",
+      "actionType": "query",
+      "timestamp": "2026-01-06T05:39:10.5387565Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u53F0\u8FBEDVP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 3562ms",
+      "recordId": null
+    },
+    {
+      "id": "23a68eefdce846f5803a950eeecaff3f",
+      "actionType": "query",
+      "timestamp": "2026-01-06T05:39:41.1550476Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 5638ms",
+      "recordId": null
+    },
+    {
+      "id": "8ac9c988ca824d60ad6bb2e8b93c321b",
+      "actionType": "query",
+      "timestamp": "2026-01-06T05:40:06.6936145Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99 CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.956, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 6179ms",
+      "recordId": null
+    },
+    {
+      "id": "3cfa868e03584f9ab1e39a1df33b477f",
+      "actionType": "query",
+      "timestamp": "2026-01-06T05:40:27.7953537Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC Omron CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.834, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 4603ms",
+      "recordId": null
+    },
+    {
+      "id": "e6db7d96237e4449bf5934234369055e",
+      "actionType": "query",
+      "timestamp": "2026-01-06T05:40:53.1493593Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 2912ms",
+      "recordId": null
+    },
+    {
+      "id": "49172b6177cd468288ca433deeffff87",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:19:02.8734777Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 16768ms",
+      "recordId": null
+    },
+    {
+      "id": "ecf7bf4826e0443b9b3d5939220163b9",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:19:16.1885865Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 2851ms",
+      "recordId": null
+    },
+    {
+      "id": "96ef63475c654ba2b1dc431c9ba57328",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:19:29.4258046Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 10449ms",
+      "recordId": null
+    },
+    {
+      "id": "582016636a8b4acc9649b5665f89812e",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:19:58.1445665Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 15344ms",
+      "recordId": null
+    },
+    {
+      "id": "7ac9c39f4779499a87a1a832945bb571",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:27:25.8994374Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u7535\u6C14\u63A7\u5236\u7CFB\u7EDF DC24V \u8F93\u5165\u6A21\u5757 16\u70B9, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.729, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 10232ms",
+      "recordId": null
+    },
+    {
+      "id": "915bb3e0463148379ca4bda5555f7eab",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:27:25.9061356Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u7535\u6C14\u63A7\u5236\u7CFB\u7EDF AC220V \u8F93\u51FA\u6A21\u5757 8\u70B9, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.720, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 10061ms",
+      "recordId": null
+    },
+    {
+      "id": "9aa3a82719a24bf8afc970f1e5332a35",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:27:25.9080916Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC\u63A7\u5236\u7CFB\u7EDF \u4E09\u76F8\u5F02\u6B65\u7535\u673A 5.5KW, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.682, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 11708ms",
+      "recordId": null
+    },
+    {
+      "id": "ba4d4cffabb942008d7db8d8e04bfab1",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:28:12.3254849Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 16162ms",
+      "recordId": null
+    },
+    {
+      "id": "bba54f860fe949848e3490bda32c2026",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:29:31.5801095Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC Omron CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.834, \u7F6E\u4FE1\u5EA6: Low, \u8017\u65F6: 18274ms",
+      "recordId": null
+    },
+    {
+      "id": "73c74389dd664e308c69f1457a3d0127",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:36:14.0774575Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99 CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.956, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 35364ms",
+      "recordId": null
+    },
+    {
+      "id": "59516a0451a945b5a7ac64554b066da9",
+      "actionType": "query",
+      "timestamp": "2026-01-06T06:36:34.3889254Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC \u6B27\u59C6\u9F99CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 11949ms",
+      "recordId": null
+    },
+    {
+      "id": "009a494631094332811017c139f5bae3",
+      "actionType": "query",
+      "timestamp": "2026-01-06T08:53:15.6572182Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC Omron CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 14853ms",
+      "recordId": null
+    },
+    {
+      "id": "7022a06b71444c17be1c1c0555f4deb5",
+      "actionType": "query",
+      "timestamp": "2026-01-06T08:54:42.1940101Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: \u53EF\u7F16\u7A0B\u63A7\u5236\u5668 Omron CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 0.944, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 16739ms",
+      "recordId": null
+    },
+    {
+      "id": "4244cf8da23648eda82e7b1161e3667e",
+      "actionType": "query",
+      "timestamp": "2026-01-06T08:57:36.9511415Z",
+      "details": "[LLM\u002BEmbedding] \u67E5\u8BE2: PLC Omron CP\u7CFB\u5217, \u7ED3\u679C\u6570: 1, \u6700\u9AD8\u5206: 1.000, \u7F6E\u4FE1\u5EA6: Success, \u8017\u65F6: 15766ms",
+      "recordId": null
+    },
+    {
+      "id": "14ce2be5177841d69dc86b91b3b5cc13",
+      "actionType": "confirm_match",
+      "timestamp": "2026-01-06T08:58:02.2069042Z",
+      "details": "",
+      "recordId": "rec_170"
+    }
+  ],
+  "updatedAt": "2026-01-06T08:58:02.2084457Z"
+}

@@ -1,0 +1,67 @@
+{
+  "_说明": "此文件为配置示例，展示如何配置不同的API提供商",
+  
+  "embedding_openai官方": {
+    "provider": "openai",
+    "model": "text-embedding-3-small",
+    "dimension": 1536,
+    "apiKey": "sk-xxx",
+    "baseUrl": "https://api.openai.com/v1"
+  },
+  
+  "embedding_第三方兼容API示例": {
+    "provider": "openai-compatible",
+    "model": "bge-large-zh-v1.5",
+    "dimension": 1024,
+    "apiKey": "your-api-key",
+    "baseUrl": "https://your-api-provider.com/v1",
+    "_说明": "任何兼容OpenAI Embedding API格式的服务都可以使用"
+  },
+  
+  "embedding_Azure_OpenAI示例": {
+    "provider": "azure",
+    "model": "text-embedding-ada-002",
+    "dimension": 1536,
+    "apiKey": "your-azure-key",
+    "baseUrl": "https://your-resource.openai.azure.com/openai/deployments/your-deployment"
+  },
+  
+  "llm_openai官方": {
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "maxTokens": 2000,
+    "temperature": 0.1,
+    "apiKey": "sk-xxx",
+    "baseUrl": "https://api.openai.com/v1"
+  },
+  
+  "llm_第三方兼容API示例": {
+    "provider": "openai-compatible",
+    "model": "qwen-plus",
+    "maxTokens": 2000,
+    "temperature": 0.1,
+    "apiKey": "your-api-key",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "_说明": "阿里云通义千问兼容OpenAI格式"
+  },
+  
+  "llm_本地Ollama示例": {
+    "provider": "ollama",
+    "model": "qwen2:7b",
+    "maxTokens": 2000,
+    "temperature": 0.1,
+    "apiKey": "",
+    "baseUrl": "http://localhost:11434/v1",
+    "_说明": "Ollama本地部署，无需API Key"
+  },
+  
+  "常用第三方API_BaseUrl参考": {
+    "阿里云通义千问": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "智谱AI": "https://open.bigmodel.cn/api/paas/v4",
+    "月之暗面Kimi": "https://api.moonshot.cn/v1",
+    "DeepSeek": "https://api.deepseek.com/v1",
+    "硅基流动": "https://api.siliconflow.cn/v1",
+    "Ollama本地": "http://localhost:11434/v1",
+    "LM_Studio本地": "http://localhost:1234/v1"
+  }
+}

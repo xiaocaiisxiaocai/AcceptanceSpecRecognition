@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__augment-context-engine__codebase-retrieval",
+      "Bash(npm run build:*)",
+      "Bash(dotnet build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(dotnet add:*)",
+      "WebSearch",
+      "WebFetch(domain:www.nuget.org)",
+      "Bash(dotnet test:*)"
+    ]
+  }
+}
