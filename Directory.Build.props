@@ -1,0 +1,24 @@
+<Project>
+  <PropertyGroup>
+    <!-- 启用Nullable引用类型 -->
+    <Nullable>enable</Nullable>
+    <!-- 启用隐式using -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 将警告作为错误处理 -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- 启用代码分析 -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <!-- 文档生成 -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 代码分析器 -->
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="9.0.*">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>

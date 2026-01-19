@@ -1,0 +1,54 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: acceptance-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-abc+123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-acceptance_spec_db}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-app123}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-abc+123}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: src/AcceptanceSpecSystem.Api/Dockerfile
+    container_name: acceptance-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: >-
+        Server=mysql;Port=3306;Database=${MYSQL_DATABASE:-acceptance_spec_db};User=${MYSQL_USER:-app};Password=${MYSQL_PASSWORD:-app123};CharSet=utf8mb4;
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "5014:8080"
+    volumes:
+      - api_uploads:/app/uploads
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: acceptance-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  mysql_data:
+  api_uploads:
+

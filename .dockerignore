@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/.vscode/
+**/*.user
+**/*.suo
+
+web/node_modules/
+web/dist/
+
+src/AcceptanceSpecSystem.Api/uploads/
+
+tests/**/bin/
+tests/**/obj/
+
+**/.DS_Store
