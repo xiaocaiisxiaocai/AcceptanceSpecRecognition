@@ -8,6 +8,7 @@ const props = defineProps<{
   /** 是否允许多选表格（默认单选） */
   multiple?: boolean;
   modelValue?: number | number[];
+  itemLabel?: string;
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +27,8 @@ const allSelected = computed(() => {
   if (tables.value.length === 0) return false;
   return selectedIndexes.value.length === tables.value.length;
 });
+
+const itemLabel = computed(() => props.itemLabel || "表格");
 
 const toggleSelectAll = (val: boolean) => {
   if (!props.multiple) return;
@@ -114,7 +117,7 @@ const formatPreview = (text?: string) => {
     </div>
 
     <div v-else-if="tables.length === 0" class="empty-container">
-      <el-empty description="该文件中没有表格" />
+      <el-empty :description="`该文件中没有${itemLabel}`" />
     </div>
 
     <div v-else class="table-list">
@@ -145,7 +148,10 @@ const formatPreview = (text?: string) => {
       >
         <div class="table-header">
           <div class="table-title">
-            <span class="table-index">表格 {{ table.index + 1 }}</span>
+            <span class="table-index">
+              {{ itemLabel }} {{ table.index + 1 }}
+              <span v-if="table.name" class="table-name">（{{ table.name }}）</span>
+            </span>
             <span class="table-meta">（{{ table.rowCount }} 行 × {{ table.columnCount }} 列）</span>
           </div>
           <div class="table-tags">
@@ -242,6 +248,12 @@ const formatPreview = (text?: string) => {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
+}
+
+.table-name {
+  font-weight: 400;
+  color: #606266;
+  margin-left: 4px;
 }
 
 .table-title {

@@ -63,6 +63,7 @@ public class DocumentsController : BaseApiController
             {
                 Id = f.Id,
                 FileName = f.FileName,
+                FileType = f.FileType,
                 FileHash = f.FileHash,
                 UploadedAt = f.UploadedAt,
                 SpecCount = f.AcceptanceSpecs?.Count ?? 0
@@ -81,7 +82,7 @@ public class DocumentsController : BaseApiController
     }
 
     /// <summary>
-    /// 上传Word文件
+    /// 上传文件（Word/Excel）
     /// </summary>
     [HttpPost("upload")]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status200OK)]
@@ -95,12 +96,14 @@ public class DocumentsController : BaseApiController
 
         // 检查文件类型
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (extension != ".docx")
+        if (extension != ".docx" && extension != ".xlsx")
         {
-            return Error<FileUploadResponse>(400, "仅支持 .docx 格式的Word文件");
+            return Error<FileUploadResponse>(400, "仅支持 .docx / .xlsx 格式");
         }
 
         // 读取文件内容
+        var fileType = extension == ".xlsx" ? UploadedFileType.ExcelXlsx : UploadedFileType.WordDocx;
+
         byte[] fileContent;
         using (var memoryStream = new MemoryStream())
         {
@@ -125,7 +128,9 @@ public class DocumentsController : BaseApiController
 
                 if (needsWrite)
                 {
-                    var newPath = await _fileStorage.SaveUploadedWordAsync(existingFile.FileName, fileContent);
+                    var newPath = existingFile.FileType == UploadedFileType.ExcelXlsx
+                        ? await _fileStorage.SaveUploadedExcelAsync(existingFile.FileName, fileContent)
+                        : await _fileStorage.SaveUploadedWordAsync(existingFile.FileName, fileContent);
                     existingFile.FilePath = newPath;
                     await _unitOfWork.SaveChangesAsync();
                 }
@@ -140,7 +145,7 @@ public class DocumentsController : BaseApiController
             var tableCount = 0;
             using (var stream = OpenWordFileReadStream(existingFile))
             {
-                var parser = _documentServiceFactory.GetParser(DocumentType.Word);
+                var parser = _documentServiceFactory.GetParser(existingFile.FilePath ?? existingFile.FileName);
                 if (parser != null)
                 {
                     var tables = await parser.GetTablesAsync(stream);
@@ -154,19 +159,23 @@ public class DocumentsController : BaseApiController
                 FileName = existingFile.FileName,
                 FileHash = existingFile.FileHash,
                 IsDuplicate = true,
-                TableCount = tableCount
+                TableCount = tableCount,
+                FileType = existingFile.FileType
             }, "该文件已存在");
         }
 
         // 保存新文件（文件系统存储）
-        var filePath = await _fileStorage.SaveUploadedWordAsync(file.FileName, fileContent);
+        var filePath = fileType == UploadedFileType.ExcelXlsx
+            ? await _fileStorage.SaveUploadedExcelAsync(file.FileName, fileContent)
+            : await _fileStorage.SaveUploadedWordAsync(file.FileName, fileContent);
         var wordFile = new WordFile
         {
             FileName = file.FileName,
             FileContent = Array.Empty<byte>(), // 新存储方式不再写入DB（兼容字段保留）
             FilePath = filePath,
             FileHash = fileHash,
-            UploadedAt = DateTime.Now
+            UploadedAt = DateTime.Now,
+            FileType = fileType
         };
 
         await _unitOfWork.WordFiles.AddAsync(wordFile);
@@ -176,7 +185,9 @@ public class DocumentsController : BaseApiController
         var newTableCount = 0;
         using (var stream = new MemoryStream(fileContent))
         {
-            var parser = _documentServiceFactory.GetParser(DocumentType.Word);
+            var parser = fileType == UploadedFileType.ExcelXlsx
+                ? _documentServiceFactory.GetParser(DocumentType.Excel)
+                : _documentServiceFactory.GetParser(DocumentType.Word);
             if (parser != null)
             {
                 var tables = await parser.GetTablesAsync(stream);
@@ -192,7 +203,8 @@ public class DocumentsController : BaseApiController
             FileName = wordFile.FileName,
             FileHash = wordFile.FileHash,
             IsDuplicate = false,
-            TableCount = newTableCount
+            TableCount = newTableCount,
+            FileType = wordFile.FileType
         }, "文件上传成功");
     }
 
@@ -210,7 +222,9 @@ public class DocumentsController : BaseApiController
             return NotFoundResult<List<TableInfoDto>>("文件不存在");
         }
 
-        var parser = _documentServiceFactory.GetParser(DocumentType.Word);
+        var parser = wordFile.FileType == UploadedFileType.ExcelXlsx
+            ? _documentServiceFactory.GetParser(DocumentType.Excel)
+            : _documentServiceFactory.GetParser(DocumentType.Word);
         if (parser == null)
         {
             return Error<List<TableInfoDto>>(500, "文档解析器不可用");
@@ -222,12 +236,15 @@ public class DocumentsController : BaseApiController
         var result = tables.Select(t => new TableInfoDto
         {
             Index = t.Index,
+            Name = t.Name,
             RowCount = t.RowCount,
             ColumnCount = t.ColumnCount,
             IsNested = t.IsNested,
             PreviewText = t.PreviewText,
             Headers = t.Headers?.ToList() ?? [],
-            HasMergedCells = t.HasMergedCells
+            HasMergedCells = t.HasMergedCells,
+            UsedRangeStartRow = t.UsedRangeStartRow,
+            UsedRangeStartColumn = t.UsedRangeStartColumn
         }).ToList();
 
         return Success(result);
@@ -244,6 +261,7 @@ public class DocumentsController : BaseApiController
         int tableIndex,
         [FromQuery] int previewRows = 0,
         [FromQuery] int headerRowIndex = 0,
+        [FromQuery] int headerRowCount = 1,
         [FromQuery] int dataStartRowIndex = 1)
     {
         var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(id);
@@ -252,7 +270,9 @@ public class DocumentsController : BaseApiController
             return NotFoundResult<TableDataDto>("文件不存在");
         }
 
-        var parser = _documentServiceFactory.GetParser(DocumentType.Word);
+        var parser = wordFile.FileType == UploadedFileType.ExcelXlsx
+            ? _documentServiceFactory.GetParser(DocumentType.Excel)
+            : _documentServiceFactory.GetParser(DocumentType.Word);
         if (parser == null)
         {
             return Error<TableDataDto>(500, "文档解析器不可用");
@@ -261,6 +281,7 @@ public class DocumentsController : BaseApiController
         var mapping = new ColumnMapping
         {
             HeaderRowIndex = headerRowIndex,
+            HeaderRowCount = headerRowCount,
             DataStartRowIndex = dataStartRowIndex
         };
 
@@ -342,6 +363,11 @@ public class DocumentsController : BaseApiController
         if (wordFile == null)
         {
             return Error<ImportResult>(400, "文件不存在");
+        }
+
+        if (wordFile.FileType == UploadedFileType.ExcelXlsx)
+        {
+            return Error<ImportResult>(400, "该文件为 Excel，请使用 Excel 导入接口");
         }
 
         // 验证客户
@@ -499,6 +525,178 @@ public class DocumentsController : BaseApiController
     /// <summary>
     /// 删除已上传的文件
     /// </summary>
+    /// <summary>
+    /// Excel 导入：按列序号配置导入（列号/行号均为 1-based）
+    /// </summary>
+    [HttpPost("excel/import")]
+    [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ImportResult>>> ImportExcelData([FromBody] ExcelImportDataRequest request)
+    {
+        var file = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
+        if (file == null)
+        {
+            return Error<ImportResult>(400, "文件不存在");
+        }
+
+        if (file.FileType != UploadedFileType.ExcelXlsx)
+        {
+            return Error<ImportResult>(400, "该文件不是 Excel（.xlsx）");
+        }
+
+        var customer = await _unitOfWork.Customers.GetByIdAsync(request.CustomerId);
+        if (customer == null)
+        {
+            return Error<ImportResult>(400, "客户不存在");
+        }
+
+        var process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId);
+        if (process == null)
+        {
+            return Error<ImportResult>(400, "制程不存在");
+        }
+
+        if (request.ProjectColumn <= 0 || request.SpecificationColumn <= 0)
+        {
+            return Error<ImportResult>(400, "项目列与规格内容列为必填，且列号必须 >= 1");
+        }
+
+        if (request.HeaderRowStart < 1 || request.HeaderRowCount < 0 || request.DataStartRow < 1)
+        {
+            return Error<ImportResult>(400, "表头行与数据起始行配置不合法");
+        }
+
+        var parser = _documentServiceFactory.GetParser(DocumentType.Excel);
+        if (parser == null)
+        {
+            return Error<ImportResult>(500, "文档解析器不可用");
+        }
+
+        // 获取工作表信息，用于边界校验（已用区域）
+        IReadOnlyList<TableInfo> tables;
+        using (var stream = OpenWordFileReadStream(file))
+        {
+            tables = await parser.GetTablesAsync(stream);
+        }
+
+        if (request.SheetIndex < 0 || request.SheetIndex >= tables.Count)
+        {
+            return Error<ImportResult>(400, "工作表索引超出范围");
+        }
+
+        var sheetInfo = tables[request.SheetIndex];
+        if (sheetInfo.RowCount <= 0 || sheetInfo.ColumnCount <= 0)
+        {
+            return Success(new ImportResult(), "工作表为空，无可导入数据");
+        }
+
+        var usedStartCol = sheetInfo.UsedRangeStartColumn;
+        var usedStartRow = sheetInfo.UsedRangeStartRow;
+        var usedEndCol = usedStartCol + sheetInfo.ColumnCount - 1;
+        var usedEndRow = usedStartRow + sheetInfo.RowCount - 1;
+
+        // 列越界校验（按 Excel 绝对列号）
+        bool IsInUsedCols(int col) => col >= usedStartCol && col <= usedEndCol;
+
+        if (!IsInUsedCols(request.ProjectColumn))
+            return Error<ImportResult>(400, $"列号越界：ProjectColumn，已用区域列范围为 {usedStartCol}~{usedEndCol}");
+        if (!IsInUsedCols(request.SpecificationColumn))
+            return Error<ImportResult>(400, $"列号越界：SpecificationColumn，已用区域列范围为 {usedStartCol}~{usedEndCol}");
+        if (request.AcceptanceColumn.HasValue && !IsInUsedCols(request.AcceptanceColumn.Value))
+            return Error<ImportResult>(400, $"列号越界：AcceptanceColumn，已用区域列范围为 {usedStartCol}~{usedEndCol}");
+        if (request.RemarkColumn.HasValue && !IsInUsedCols(request.RemarkColumn.Value))
+            return Error<ImportResult>(400, $"列号越界：RemarkColumn，已用区域列范围为 {usedStartCol}~{usedEndCol}");
+
+        if (request.DataStartRow > usedEndRow)
+        {
+            return Error<ImportResult>(400, $"数据起始行超出已用区域：{request.DataStartRow} > {usedEndRow}");
+        }
+
+        // 解析数据区：以 UsedRange 作为列范围，行从 DataStartRow 开始读到 UsedRange 末尾
+        var mapping = new ColumnMapping
+        {
+            HeaderRowIndex = Math.Max(0, request.HeaderRowStart - usedStartRow),
+            HeaderRowCount = Math.Max(1, request.HeaderRowCount == 0 ? 1 : request.HeaderRowCount),
+            DataStartRowIndex = Math.Max(0, request.DataStartRow - usedStartRow)
+        };
+
+        TableData tableData;
+        using (var stream = OpenWordFileReadStream(file))
+        {
+            tableData = await parser.ExtractTableDataAsync(stream, request.SheetIndex, mapping);
+        }
+
+        int ToLocalColIndex(int col1Based) => col1Based - usedStartCol;
+
+        var projectCol = ToLocalColIndex(request.ProjectColumn);
+        var specCol = ToLocalColIndex(request.SpecificationColumn);
+        var acceptanceCol = request.AcceptanceColumn.HasValue ? ToLocalColIndex(request.AcceptanceColumn.Value) : (int?)null;
+        var remarkCol = request.RemarkColumn.HasValue ? ToLocalColIndex(request.RemarkColumn.Value) : (int?)null;
+
+        var result = new ImportResult
+        {
+            TotalCount = tableData.Rows.Count
+        };
+
+        foreach (var row in tableData.Rows)
+        {
+            var excelRowNumber = request.DataStartRow + row.Index;
+
+            try
+            {
+                var project = GetCellValue(row, projectCol);
+                var specification = GetCellValue(row, specCol);
+
+                if (string.IsNullOrWhiteSpace(project) && string.IsNullOrWhiteSpace(specification))
+                {
+                    result.SkippedCount++;
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(specification))
+                {
+                    result.FailedCount++;
+                    result.Errors.Add(new ImportError
+                    {
+                        RowIndex = excelRowNumber,
+                        Message = "项目名称和规格内容不能为空"
+                    });
+                    continue;
+                }
+
+                var acceptance = acceptanceCol.HasValue ? GetCellValue(row, acceptanceCol.Value) : null;
+                var remark = remarkCol.HasValue ? GetCellValue(row, remarkCol.Value) : null;
+
+                var spec = new AcceptanceSpec
+                {
+                    CustomerId = request.CustomerId,
+                    ProcessId = request.ProcessId,
+                    Project = project.Trim(),
+                    Specification = specification.Trim(),
+                    Acceptance = string.IsNullOrWhiteSpace(acceptance) ? null : acceptance.Trim(),
+                    Remark = string.IsNullOrWhiteSpace(remark) ? null : remark.Trim(),
+                    WordFileId = request.FileId,
+                    ImportedAt = DateTime.Now
+                };
+
+                await _unitOfWork.AcceptanceSpecs.AddAsync(spec);
+                result.SuccessCount++;
+            }
+            catch (Exception ex)
+            {
+                result.FailedCount++;
+                result.Errors.Add(new ImportError
+                {
+                    RowIndex = excelRowNumber,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+        return Success(result, $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条");
+    }
+
     [HttpDelete("{id}")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]

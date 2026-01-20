@@ -14,6 +14,9 @@ public sealed class TestFileStorageService : IFileStorageService
     public Task<string> SaveUploadedWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
         => SaveAsync("uploads/word-files", originalFileName, content, cancellationToken);
 
+    public Task<string> SaveUploadedExcelAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
+        => SaveAsync("uploads/excel-files", originalFileName, content, cancellationToken);
+
     public Task<string> SaveFilledWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
         => SaveAsync("uploads/filled-files", originalFileName, content, cancellationToken);
 

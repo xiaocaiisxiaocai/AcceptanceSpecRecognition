@@ -20,7 +20,8 @@ public class DocumentServiceFactory
     {
         _parsers = new List<IDocumentParser>
         {
-            new WordDocumentParser()
+            new WordDocumentParser(),
+            new ExcelDocumentParser()
             // 后续可添加 ExcelDocumentParser
         };
 

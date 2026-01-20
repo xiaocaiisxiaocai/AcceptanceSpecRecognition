@@ -11,6 +11,11 @@ public interface IFileStorageService
     Task<string> SaveUploadedWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 保存上传的 Excel 文件到 uploads/excel-files/{yyyy-MM-dd}/{guid}.xlsx，返回相对路径
+    /// </summary>
+    Task<string> SaveUploadedExcelAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 保存填充后的Word文件到 uploads/filled-files/{yyyy-MM-dd}/{guid}.docx，返回相对路径
     /// </summary>
     Task<string> SaveFilledWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);

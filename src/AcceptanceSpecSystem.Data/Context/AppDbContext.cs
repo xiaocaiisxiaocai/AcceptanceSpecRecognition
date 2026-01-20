@@ -188,6 +188,7 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.FileName).IsRequired().HasMaxLength(260);
+            entity.Property(e => e.FileType).IsRequired();
             entity.Property(e => e.FileHash).IsRequired().HasMaxLength(64);
             entity.Property(e => e.FilePath).HasMaxLength(500);
             entity.HasIndex(e => e.FileHash).IsUnique();

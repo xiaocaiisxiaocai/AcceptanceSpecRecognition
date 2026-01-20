@@ -5,6 +5,9 @@ import FileUpload from "./components/FileUpload.vue";
 import TableSelector from "./components/TableSelector.vue";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
+import ExcelColumnMapping, {
+  type ExcelSheetMapping
+} from "./components/ExcelColumnMapping.vue";
 import {
   ColumnMappingMatchMode,
   ColumnMappingTargetField,
@@ -18,10 +21,12 @@ import {
 import { getProcessList, type Process } from "@/api/process";
 import {
   importData,
+  importExcelData,
   type FileUploadResponse,
   type TableInfo,
   type TableData,
   type ColumnMapping as ColumnMappingType,
+  type ExcelImportDataRequest,
   type ImportResult
 } from "@/api/document";
 
@@ -31,16 +36,17 @@ defineOptions({
 
 // 步骤
 const currentStep = ref(0);
-const steps = [
-  { title: "上传文件", description: "选择Word文档" },
-  { title: "选择表格", description: "选择要导入的表格" },
-  { title: "配置映射", description: "设置列映射关系" },
+const steps = computed(() => [
+  { title: "上传文件", description: isExcelFile.value ? "选择 Excel 文件" : "选择 Word 文档" },
+  { title: isExcelFile.value ? "选择工作表" : "选择表格", description: "选择要导入的数据范围" },
+  { title: "配置映射", description: isExcelFile.value ? "按列序号指定字段" : "设置列映射关系" },
   { title: "选择目标", description: "选择导入目标" },
   { title: "确认导入", description: "预览并确认" }
-];
+]);
 
 // 文件上传
 const uploadedFile = ref<FileUploadResponse | null>(null);
+const isExcelFile = computed(() => uploadedFile.value?.fileType === 1);
 
 // 表格选择（支持多选）
 const selectedTableIndexes = ref<number[]>([]);
@@ -50,11 +56,12 @@ const activeTableIndex = ref<number | null>(null);
 type TableImportConfig = {
   tableIndex: number;
   tableInfo?: TableInfo;
-  mapping: ColumnMappingType;
+  wordMapping?: ColumnMappingType;
+  excelMapping?: ExcelSheetMapping;
   previewData: TableData | null;
 };
 
-const defaultMapping = (): ColumnMappingType => ({
+const defaultWordMapping = (): ColumnMappingType => ({
   projectColumn: undefined,
   specificationColumn: undefined,
   acceptanceColumn: undefined,
@@ -62,6 +69,27 @@ const defaultMapping = (): ColumnMappingType => ({
   headerRowIndex: 0,
   dataStartRowIndex: 1
 });
+
+const defaultExcelMapping = (): ExcelSheetMapping => ({
+  projectColumn: undefined,
+  specificationColumn: undefined,
+  acceptanceColumn: undefined,
+  remarkColumn: undefined,
+  headerRowStart: 1,
+  headerRowCount: 1,
+  dataStartRow: 2
+});
+
+const getExcelPreviewOptions = (cfg: TableImportConfig) => {
+  const usedStartRow = cfg.tableInfo?.usedRangeStartRow ?? 1;
+  const m = cfg.excelMapping ?? defaultExcelMapping();
+
+  return {
+    headerRowIndex: Math.max(0, (m.headerRowStart || 1) - usedStartRow),
+    headerRowCount: Math.max(1, m.headerRowCount ?? 1),
+    dataStartRowIndex: Math.max(0, (m.dataStartRow || 1) - usedStartRow)
+  };
+};
 
 const tableConfigs = ref<TableImportConfig[]>([]);
 
@@ -160,11 +188,24 @@ const getMissingMappingFields = (m: ColumnMappingType) => {
   return missing;
 };
 
+const getMissingExcelMappingFields = (m?: ExcelSheetMapping) => {
+  const missing: string[] = [];
+  if (!m) return ["Excel 映射未配置"];
+  if (!m.projectColumn) missing.push("项目列");
+  if (!m.specificationColumn) missing.push("规格列");
+  if (m.headerRowStart < 1) missing.push("表头起始行");
+  if (m.headerRowCount < 0) missing.push("表头行数");
+  if (m.dataStartRow < 1) missing.push("数据起始行");
+  return missing;
+};
+
 const validateAllTableMappings = () => {
   const missingByTable = tableConfigs.value
     .map(cfg => ({
       tableIndex: cfg.tableIndex,
-      missing: getMissingMappingFields(cfg.mapping)
+      missing: isExcelFile.value
+        ? getMissingExcelMappingFields(cfg.excelMapping)
+        : getMissingMappingFields(cfg.wordMapping!)
     }))
     .filter(x => x.missing.length > 0);
 
@@ -204,11 +245,19 @@ const handleTablesSelected = (tables: TableInfo[]) => {
     const old = existing.get(t.index);
     next.push(
       old
-        ? { ...old, tableInfo: t }
+        ? {
+            ...old,
+            tableInfo: t,
+            ...(isExcelFile.value
+              ? { excelMapping: old.excelMapping ?? defaultExcelMapping() }
+              : { wordMapping: old.wordMapping ?? defaultWordMapping() })
+          }
         : {
             tableIndex: t.index,
             tableInfo: t,
-            mapping: defaultMapping(),
+            ...(isExcelFile.value
+              ? { excelMapping: defaultExcelMapping() }
+              : { wordMapping: defaultWordMapping() }),
             previewData: null
           }
     );
@@ -315,7 +364,8 @@ const applyRulesToConfig = (cfg: TableImportConfig, overwrite: boolean) => {
 
   // 注意：ColumnMapping 组件只监听 modelValue 引用变化，因此这里必须“生成新对象”触发刷新
   const used = new Set<number>();
-  const next: ColumnMappingType = { ...cfg.mapping };
+  if (!cfg.wordMapping) cfg.wordMapping = defaultWordMapping();
+  const next: ColumnMappingType = { ...cfg.wordMapping };
 
   const setIfNeed = (key: keyof ColumnMappingType, val?: number) => {
     if (val === undefined) return;
@@ -372,10 +422,11 @@ const applyRulesToConfig = (cfg: TableImportConfig, overwrite: boolean) => {
     )
   );
 
-  cfg.mapping = next;
+  cfg.wordMapping = next;
 };
 
 const applyRulesToAll = (overwrite: boolean) => {
+  if (isExcelFile.value) return;
   if (!mappingRules.value.length) return;
   for (const cfg of tableConfigs.value) {
     applyRulesToConfig(cfg, overwrite);
@@ -432,7 +483,12 @@ const loadProcesses = async () => {
 
 // 监听步骤变化
 watch(currentStep, (step) => {
-  if (step === 2 && mappingRules.value.length === 0 && !loadingMappingRules.value) {
+  if (
+    step === 2 &&
+    !isExcelFile.value &&
+    mappingRules.value.length === 0 &&
+    !loadingMappingRules.value
+  ) {
     loadMappingRules();
   }
   if (step === 3 && customers.value.length === 0) {
@@ -445,7 +501,7 @@ watch(currentStep, (step) => {
 
 // 兼容 keep-alive：从“列映射规则”页面返回导入页时，确保规则能刷新并重新预填
 onActivated(() => {
-  if (currentStep.value === 2) {
+  if (currentStep.value === 2 && !isExcelFile.value) {
     loadMappingRules();
   }
 });
@@ -470,7 +526,7 @@ const goNext = () => {
     }
   }
 
-  if (currentStep.value < steps.length - 1) currentStep.value++;
+  if (currentStep.value < steps.value.length - 1) currentStep.value++;
 };
 
 // 上一步
@@ -493,7 +549,7 @@ const handleImport = async () => {
 
   try {
     await ElMessageBox.confirm(
-      `确定要将 ${tableConfigs.value.length} 个表格的数据导入到所选客户/制程吗？`,
+      `确定要将 ${tableConfigs.value.length} 个${isExcelFile.value ? "工作表" : "表格"}的数据导入到所选客户/制程吗？`,
       "确认导入",
       {
         confirmButtonText: "确定",
@@ -512,13 +568,21 @@ const handleImport = async () => {
     };
 
     for (const cfg of tableConfigs.value) {
-      const res = await importData({
-        fileId: uploadedFile.value.fileId,
-        tableIndex: cfg.tableIndex,
-        customerId: selectedCustomerId.value,
-        processId: selectedProcessId.value,
-        mapping: cfg.mapping
-      });
+      const res = isExcelFile.value
+        ? await importExcelData({
+            fileId: uploadedFile.value.fileId,
+            sheetIndex: cfg.tableIndex,
+            customerId: selectedCustomerId.value,
+            processId: selectedProcessId.value,
+            ...((cfg.excelMapping ?? defaultExcelMapping()) as ExcelImportDataRequest)
+          })
+        : await importData({
+            fileId: uploadedFile.value.fileId,
+            tableIndex: cfg.tableIndex,
+            customerId: selectedCustomerId.value,
+            processId: selectedProcessId.value,
+            mapping: cfg.wordMapping!
+          });
 
       if (res.code !== 0) {
         aggregate.failedCount += 1;
@@ -571,7 +635,9 @@ const previewDataCount = computed(() => {
   if (tableConfigs.value.length === 0) return 0;
   return tableConfigs.value.reduce((sum, cfg) => {
     if (!cfg.previewData) return sum;
-    return sum + (cfg.previewData.totalRows - (cfg.mapping.dataStartRowIndex ?? 1));
+    if (isExcelFile.value) return sum + cfg.previewData.totalRows;
+    const start = cfg.wordMapping?.dataStartRowIndex ?? 1;
+    return sum + Math.max(0, cfg.previewData.totalRows - start);
   }, 0);
 });
 </script>
@@ -611,18 +677,19 @@ const previewDataCount = computed(() => {
       <el-card class="step-content">
       <!-- 步骤1: 上传文件 -->
       <div v-show="currentStep === 0" class="step-panel">
-        <h3 class="step-title">上传Word文档</h3>
-        <p class="step-desc">请选择包含验收规格数据的Word文档（.docx格式）</p>
+        <h3 class="step-title">上传文件</h3>
+        <p class="step-desc">请选择包含验收规格数据的 Word（.docx）或 Excel（.xlsx）文件</p>
         <FileUpload v-model="uploadedFile" @uploaded="handleFileUploaded" />
       </div>
 
       <!-- 步骤2: 选择表格 -->
       <div v-show="currentStep === 1" class="step-panel">
-        <h3 class="step-title">选择表格</h3>
-        <p class="step-desc">请选择要导入数据的表格（可多选）</p>
+        <h3 class="step-title">{{ isExcelFile ? "选择工作表" : "选择表格" }}</h3>
+        <p class="step-desc">请选择要导入数据的{{ isExcelFile ? "工作表" : "表格" }}（可多选）</p>
         <TableSelector
           v-if="uploadedFile"
           :file-id="uploadedFile.fileId"
+          :item-label="isExcelFile ? '工作表' : '表格'"
           multiple
           v-model="selectedTableIndexes"
           @selected-multiple="handleTablesSelected"
@@ -631,12 +698,15 @@ const previewDataCount = computed(() => {
 
       <!-- 步骤3: 配置映射 -->
       <div v-show="currentStep === 2" class="step-panel">
-        <h3 class="step-title">配置列映射</h3>
+        <h3 class="step-title">{{ isExcelFile ? "配置列序号" : "配置列映射" }}</h3>
         <div class="flex items-center justify-between mb-2">
           <p class="step-desc m-0">
-            系统会根据“列映射规则”自动预填映射；若未命中你仍可手动调整
+            <span v-if="!isExcelFile">
+              系统会根据“列映射规则”自动预填映射；若未命中你仍可手动调整
+            </span>
+            <span v-else>按列序号指定字段（列号 1-based：第 1 列为 A）。</span>
           </p>
-          <div class="flex gap-2">
+          <div v-if="!isExcelFile" class="flex gap-2">
             <el-button
               size="small"
               :loading="loadingMappingRules"
@@ -664,24 +734,45 @@ const previewDataCount = computed(() => {
             v-for="cfg in tableConfigs"
             :key="cfg.tableIndex"
             :name="cfg.tableIndex"
-            :label="`表格 ${cfg.tableIndex + 1}`"
+            :label="`${isExcelFile ? '工作表' : '表格'} ${cfg.tableIndex + 1}`"
           >
             <!-- 表格预览 -->
             <div class="preview-section">
-              <h4>表格预览</h4>
+              <h4>{{ isExcelFile ? "工作表预览" : "表格预览" }}</h4>
               <TablePreview
                 :file-id="uploadedFile.fileId"
                 :table-index="cfg.tableIndex"
-                :header-row-index="cfg.mapping.headerRowIndex"
-                :data-start-row-index="cfg.mapping.dataStartRowIndex"
-                :mapping="cfg.mapping"
+                :header-row-index="
+                  isExcelFile
+                    ? getExcelPreviewOptions(cfg).headerRowIndex
+                    : (cfg.wordMapping?.headerRowIndex ?? 0)
+                "
+                :header-row-count="
+                  isExcelFile ? getExcelPreviewOptions(cfg).headerRowCount : 1
+                "
+                :data-start-row-index="
+                  isExcelFile
+                    ? getExcelPreviewOptions(cfg).dataStartRowIndex
+                    : (cfg.wordMapping?.dataStartRowIndex ?? 1)
+                "
+                :mapping="isExcelFile ? undefined : cfg.wordMapping"
                 @loaded="(data) => handlePreviewLoaded(cfg.tableIndex, data)"
               />
             </div>
 
             <!-- 列映射配置 -->
             <div class="mapping-section">
-              <ColumnMapping :table-data="cfg.previewData" v-model="cfg.mapping" />
+              <ExcelColumnMapping
+                v-if="isExcelFile"
+                v-model="cfg.excelMapping"
+                :used-range-start-row="cfg.tableInfo?.usedRangeStartRow"
+                :used-range-start-column="cfg.tableInfo?.usedRangeStartColumn"
+              />
+              <ColumnMapping
+                v-else
+                :table-data="cfg.previewData"
+                v-model="cfg.wordMapping"
+              />
             </div>
           </el-tab-pane>
         </el-tabs>

@@ -19,6 +19,11 @@ public class FileStorageService : IFileStorageService
         return await SaveAsync("uploads/word-files", originalFileName, content, cancellationToken);
     }
 
+    public async Task<string> SaveUploadedExcelAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
+    {
+        return await SaveAsync("uploads/excel-files", originalFileName, content, cancellationToken);
+    }
+
     public async Task<string> SaveFilledWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
     {
         return await SaveAsync("uploads/filled-files", originalFileName, content, cancellationToken);

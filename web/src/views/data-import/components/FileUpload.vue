@@ -20,12 +20,15 @@ const uploadedFile = computed({
   set: (val) => emit("update:modelValue", val)
 });
 
+const isExcel = computed(() => uploadedFile.value?.fileType === 1);
+
 // 自定义上传
 const handleUpload = async (options: UploadRequestOptions) => {
   const file = options.file;
 
   // 检查文件类型
-  if (!file.name.endsWith(".docx")) {
+  const lower = file.name.toLowerCase();
+  if (!lower.endsWith(".docx") && !lower.endsWith(".xlsx")) {
     ElMessage.error("仅支持 .docx 格式的Word文件");
     return;
   }
@@ -71,7 +74,7 @@ const clearFile = () => {
       drag
       :show-file-list="false"
       :http-request="handleUpload"
-      accept=".docx"
+      accept=".docx,.xlsx"
       :disabled="uploading"
     >
       <el-icon class="el-icon--upload" :size="60">
@@ -107,7 +110,9 @@ const clearFile = () => {
             <span v-if="uploadedFile.isDuplicate" class="duplicate-tag">
               已存在
             </span>
-            <span>包含 {{ uploadedFile.tableCount }} 个表格</span>
+            <span>
+              包含 {{ uploadedFile.tableCount }} 个{{ isExcel ? "工作表" : "表格" }}
+            </span>
           </div>
         </div>
         <div class="file-actions">

@@ -23,13 +23,14 @@ public class DocumentServiceFactoryTests
     }
 
     [Fact]
-    public void GetParser_ShouldReturnNull_ForUnsupportedFile()
+    public void GetParser_ShouldReturnExcelParser_ForXlsxFile()
     {
         // Act
         var parser = _factory.GetParser("test.xlsx");
 
         // Assert
-        parser.Should().BeNull();
+        parser.Should().NotBeNull();
+        parser!.DocumentType.Should().Be(DocumentType.Excel);
     }
 
     [Fact]
@@ -83,6 +84,7 @@ public class DocumentServiceFactoryTests
 
         // Assert
         types.Should().Contain(DocumentType.Word);
+        types.Should().Contain(DocumentType.Excel);
     }
 
     [Fact]
@@ -99,7 +101,7 @@ public class DocumentServiceFactoryTests
     public void IsSupported_ShouldReturnFalse_ForUnsupportedFile()
     {
         // Act & Assert
-        _factory.IsSupported("test.xlsx").Should().BeFalse();
+        _factory.IsSupported("test.xlsx").Should().BeTrue();
         _factory.IsSupported("test.doc").Should().BeFalse();
         _factory.IsSupported("test.txt").Should().BeFalse();
     }

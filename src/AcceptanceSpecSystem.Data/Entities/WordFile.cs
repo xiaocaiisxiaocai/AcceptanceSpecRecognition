@@ -16,6 +16,11 @@ public class WordFile
     public string FileName { get; set; } = string.Empty;
 
     /// <summary>
+    /// 文件类型（用于区分 Word/Excel）
+    /// </summary>
+    public UploadedFileType FileType { get; set; } = UploadedFileType.WordDocx;
+
+    /// <summary>
     /// 文件内容（二进制）- 旧存储方式（兼容保留）。新实现优先使用 <see cref="FilePath"/>。
     /// </summary>
     public byte[] FileContent { get; set; } = Array.Empty<byte>();

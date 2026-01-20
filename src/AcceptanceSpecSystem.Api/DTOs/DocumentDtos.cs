@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using AcceptanceSpecSystem.Data.Entities;
 
 namespace AcceptanceSpecSystem.Api.DTOs;
 
@@ -16,6 +17,11 @@ public class WordFileDto
     /// 原始文件名
     /// </summary>
     public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件类型（Word/Excel）
+    /// </summary>
+    public UploadedFileType FileType { get; set; } = UploadedFileType.WordDocx;
 
     /// <summary>
     /// 文件哈希值
@@ -49,6 +55,11 @@ public class FileUploadResponse
     public string FileName { get; set; } = string.Empty;
 
     /// <summary>
+    /// 文件类型（Word/Excel）
+    /// </summary>
+    public UploadedFileType FileType { get; set; } = UploadedFileType.WordDocx;
+
+    /// <summary>
     /// 文件哈希
     /// </summary>
     public string FileHash { get; set; } = string.Empty;
@@ -73,6 +84,11 @@ public class TableInfoDto
     /// 表格索引（从0开始）
     /// </summary>
     public int Index { get; set; }
+
+    /// <summary>
+    /// 名称（Excel：工作表名称；Word：通常为空）
+    /// </summary>
+    public string? Name { get; set; }
 
     /// <summary>
     /// 表格行数
@@ -103,6 +119,16 @@ public class TableInfoDto
     /// 是否包含合并单元格
     /// </summary>
     public bool HasMergedCells { get; set; }
+
+    /// <summary>
+    /// 已用区域起始行（Excel 使用；Word 通常为 0）
+    /// </summary>
+    public int UsedRangeStartRow { get; set; }
+
+    /// <summary>
+    /// 已用区域起始列（Excel 使用；Word 通常为 0）
+    /// </summary>
+    public int UsedRangeStartColumn { get; set; }
 }
 
 /// <summary>

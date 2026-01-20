@@ -5,6 +5,7 @@ import type { ApiResponse, PagedData, PagedRequest } from "./customer";
 export interface WordFile {
   id: number;
   fileName: string;
+  fileType: number;
   fileHash: string;
   uploadedAt: string;
   specCount: number;
@@ -14,6 +15,7 @@ export interface WordFile {
 export interface FileUploadResponse {
   fileId: number;
   fileName: string;
+  fileType: number;
   fileHash: string;
   isDuplicate: boolean;
   tableCount: number;
@@ -22,12 +24,15 @@ export interface FileUploadResponse {
 /** 表格信息 */
 export interface TableInfo {
   index: number;
+  name?: string;
   rowCount: number;
   columnCount: number;
   isNested: boolean;
   previewText?: string;
   headers: string[];
   hasMergedCells: boolean;
+  usedRangeStartRow?: number;
+  usedRangeStartColumn?: number;
 }
 
 /** 表格数据 */
@@ -131,6 +136,7 @@ export const getTablePreview = (
   options?: {
     previewRows?: number;
     headerRowIndex?: number;
+    headerRowCount?: number;
     dataStartRowIndex?: number;
   }
 ) => {
@@ -148,6 +154,30 @@ export const importData = (data: ImportDataRequest) => {
   return http.request<ApiResponse<ImportResult>>("post", `${baseUrl}/import`, {
     data
   });
+};
+
+/** Excel 导入请求（列号/行号均为 1-based） */
+export interface ExcelImportDataRequest {
+  fileId: number;
+  sheetIndex: number;
+  customerId: number;
+  processId: number;
+  headerRowStart: number;
+  headerRowCount: number;
+  dataStartRow: number;
+  projectColumn: number;
+  specificationColumn: number;
+  acceptanceColumn?: number;
+  remarkColumn?: number;
+}
+
+/** Excel 导入（按列序号） */
+export const importExcelData = (data: ExcelImportDataRequest) => {
+  return http.request<ApiResponse<ImportResult>>(
+    "post",
+    `${baseUrl}/excel/import`,
+    { data }
+  );
 };
 
 /** 删除已上传的文件 */

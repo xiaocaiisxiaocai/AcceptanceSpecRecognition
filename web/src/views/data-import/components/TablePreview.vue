@@ -7,6 +7,7 @@ const props = defineProps<{
   fileId: number;
   tableIndex: number;
   headerRowIndex?: number;
+  headerRowCount?: number;
   dataStartRowIndex?: number;
   /** 当前列映射（用于“映射预览”：把原表格映射成 项目/规格/验收/备注 四列） */
   mapping?: ColumnMapping;
@@ -70,6 +71,7 @@ const loadPreview = async () => {
       // 预览全部行（后端约定：previewRows <= 0 表示不限制）
       previewRows: 0,
       headerRowIndex: props.headerRowIndex ?? 0,
+      headerRowCount: props.headerRowCount ?? 1,
       dataStartRowIndex: props.dataStartRowIndex ?? 1
     });
     if (res.code === 0) {
@@ -91,6 +93,7 @@ watch(
     props.fileId,
     props.tableIndex,
     props.headerRowIndex,
+    props.headerRowCount,
     props.dataStartRowIndex
   ],
   () => {

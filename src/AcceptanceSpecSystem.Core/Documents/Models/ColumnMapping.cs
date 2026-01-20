@@ -31,6 +31,11 @@ public class ColumnMapping
     public int HeaderRowIndex { get; set; } = 0;
 
     /// <summary>
+    /// 表头行数（默认 1）。Excel 常见“表头跨行”场景可配置为 2~N，用于组合生成列标题。
+    /// </summary>
+    public int HeaderRowCount { get; set; } = 1;
+
+    /// <summary>
     /// 数据起始行索引（从0开始，默认为1表示从第二行开始是数据）
     /// </summary>
     public int DataStartRowIndex { get; set; } = 1;

@@ -11,6 +11,11 @@ public class TableInfo
     public int Index { get; set; }
 
     /// <summary>
+    /// 表格名称（Word：通常为空；Excel：工作表名称）
+    /// </summary>
+    public string? Name { get; set; }
+
+    /// <summary>
     /// 表格行数
     /// </summary>
     public int RowCount { get; set; }
@@ -44,4 +49,14 @@ public class TableInfo
     /// 是否包含合并单元格
     /// </summary>
     public bool HasMergedCells { get; set; }
+
+    /// <summary>
+    /// 已用区域起始行（Excel 使用；Word 通常为 0）
+    /// </summary>
+    public int UsedRangeStartRow { get; set; }
+
+    /// <summary>
+    /// 已用区域起始列（Excel 使用；Word 通常为 0）
+    /// </summary>
+    public int UsedRangeStartColumn { get; set; }
 }
