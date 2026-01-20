@@ -873,8 +873,8 @@ const previewDataCount = computed(() => {
 
         <!-- 导入确认 -->
         <div v-else class="import-confirm">
-          <el-descriptions :column="2" border>
-            <el-descriptions-item label="源文件">
+          <el-descriptions class="import-confirm-desc" :column="3" border size="small">
+            <el-descriptions-item label="源文件" :span="2">
               {{ uploadedFile?.fileName }}
             </el-descriptions-item>
             <el-descriptions-item label="表格">
@@ -999,12 +999,26 @@ const previewDataCount = computed(() => {
 }
 
 .import-confirm {
-  max-width: 600px;
+  width: 100%;
+  max-width: 900px;
   margin: 0 auto;
 }
 
+.import-confirm-desc {
+  width: 100%;
+}
+
+.import-confirm-desc :deep(.el-descriptions__cell) {
+  padding: 6px 10px;
+}
+
+.import-confirm-desc :deep(.el-descriptions__label) {
+  width: 80px;
+  color: #606266;
+}
+
 .import-actions {
-  margin-top: 32px;
+  margin-top: 20px;
   text-align: center;
 }
 

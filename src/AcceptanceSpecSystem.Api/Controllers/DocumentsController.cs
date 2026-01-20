@@ -444,13 +444,13 @@ public class DocumentsController : BaseApiController
                 }
 
                 // 验证必填字段
-                if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(specification))
+                if (string.IsNullOrWhiteSpace(project))
                 {
                     result.FailedCount++;
                     result.Errors.Add(new ImportError
                     {
                         RowIndex = row.Index,
-                        Message = "项目名称和规格内容不能为空"
+                        Message = "项目名称不能为空"
                     });
                     continue;
                 }
@@ -464,7 +464,9 @@ public class DocumentsController : BaseApiController
                     CustomerId = request.CustomerId,
                     ProcessId = request.ProcessId,
                     Project = project.Trim(),
-                    Specification = specification.Trim(),
+                    Specification = string.IsNullOrWhiteSpace(specification)
+                        ? string.Empty
+                        : specification.Trim(),
                     Acceptance = acceptance?.Trim(),
                     Remark = remark?.Trim(),
                     WordFileId = request.FileId,
@@ -653,13 +655,13 @@ public class DocumentsController : BaseApiController
                     continue;
                 }
 
-                if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(specification))
+                if (string.IsNullOrWhiteSpace(project))
                 {
                     result.FailedCount++;
                     result.Errors.Add(new ImportError
                     {
                         RowIndex = excelRowNumber,
-                        Message = "项目名称和规格内容不能为空"
+                        Message = "项目名称不能为空"
                     });
                     continue;
                 }
@@ -672,7 +674,9 @@ public class DocumentsController : BaseApiController
                     CustomerId = request.CustomerId,
                     ProcessId = request.ProcessId,
                     Project = project.Trim(),
-                    Specification = specification.Trim(),
+                    Specification = string.IsNullOrWhiteSpace(specification)
+                        ? string.Empty
+                        : specification.Trim(),
                     Acceptance = string.IsNullOrWhiteSpace(acceptance) ? null : acceptance.Trim(),
                     Remark = string.IsNullOrWhiteSpace(remark) ? null : remark.Trim(),
                     WordFileId = request.FileId,

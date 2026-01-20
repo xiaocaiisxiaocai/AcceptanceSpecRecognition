@@ -66,6 +66,10 @@ appsettings.Development.json
 appsettings.Local.json
 *.local.json
 
+# Uploaded files
+uploads/
+**/uploads/
+
 # Secrets
 secrets.json
 *.pfx
