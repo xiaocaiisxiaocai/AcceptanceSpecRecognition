@@ -15,7 +15,7 @@ public class MatchingPreviewScoreDetailsTests : IClassFixture<ApiWebApplicationF
     }
 
     [Fact]
-    public async Task Preview_ShouldIncludeScoreDetails_ForEnabledAlgorithms()
+    public async Task Preview_ShouldIncludeEmbeddingScoreDetails()
     {
         var customerId = (await (await _client.PostAsync(
                 "/api/customers",
@@ -47,13 +47,7 @@ public class MatchingPreviewScoreDetailsTests : IClassFixture<ApiWebApplicationF
                 items = new[] { new { rowIndex = 0, project = "P1", specification = "S1" } },
                 customerId,
                 processId,
-                config = new
-                {
-                    useLevenshtein = true,
-                    useJaccard = true,
-                    useCosine = true,
-                    minScoreThreshold = 0.0
-                }
+                config = new { minScoreThreshold = 0.0 }
             }));
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -66,8 +60,9 @@ public class MatchingPreviewScoreDetailsTests : IClassFixture<ApiWebApplicationF
         bestMatch.ValueKind.Should().NotBe(JsonValueKind.Null);
 
         var scoreDetails = bestMatch.GetProperty("scoreDetails");
-        scoreDetails.TryGetProperty("Levenshtein", out _).Should().BeTrue();
-        scoreDetails.TryGetProperty("Jaccard", out _).Should().BeTrue();
-        scoreDetails.TryGetProperty("Cosine", out _).Should().BeTrue();
+        scoreDetails.TryGetProperty("Embedding", out _).Should().BeTrue();
+        scoreDetails.TryGetProperty("Levenshtein", out _).Should().BeFalse();
+        scoreDetails.TryGetProperty("Jaccard", out _).Should().BeFalse();
+        scoreDetails.TryGetProperty("Cosine", out _).Should().BeFalse();
     }
 }

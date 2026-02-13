@@ -3,10 +3,12 @@ using System.Net.Http;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
-using AcceptanceSpecSystem.Core.AI.Interfaces;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.AI;
+using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -17,19 +19,16 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 public class AiServicesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IAiLlmConnectorFactory _llmConnectorFactory;
-    private readonly IAiEmbeddingConnectorFactory _embeddingConnectorFactory;
+    private readonly ISemanticKernelServiceFactory _semanticKernelFactory;
     private readonly ILogger<AiServicesController> _logger;
 
     public AiServicesController(
         IUnitOfWork unitOfWork,
-        IAiLlmConnectorFactory llmConnectorFactory,
-        IAiEmbeddingConnectorFactory embeddingConnectorFactory,
+        ISemanticKernelServiceFactory semanticKernelFactory,
         ILogger<AiServicesController> logger)
     {
         _unitOfWork = unitOfWork;
-        _llmConnectorFactory = llmConnectorFactory;
-        _embeddingConnectorFactory = embeddingConnectorFactory;
+        _semanticKernelFactory = semanticKernelFactory;
         _logger = logger;
     }
 
@@ -108,9 +107,6 @@ public class AiServicesController : BaseApiController
         var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
         if (modelError != null)
             return Error<AiServiceConfigDto>(400, modelError);
-        var uniqueError = await ValidateUniquePurposeAsync(request.Purpose, null);
-        if (uniqueError != null)
-            return Error<AiServiceConfigDto>(400, uniqueError);
 
         var exists = await _unitOfWork.AiServiceConfigs.GetByNameAsync(request.Name.Trim());
         if (exists != null)
@@ -163,9 +159,6 @@ public class AiServicesController : BaseApiController
         var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
         if (modelError != null)
             return Error<AiServiceConfigDto>(400, modelError);
-        var uniqueError = await ValidateUniquePurposeAsync(request.Purpose, id);
-        if (uniqueError != null)
-            return Error<AiServiceConfigDto>(400, uniqueError);
 
         var newName = request.Name.Trim();
         if (!string.Equals(entity.Name, newName, StringComparison.OrdinalIgnoreCase))
@@ -246,8 +239,10 @@ public class AiServicesController : BaseApiController
             {
                 try
                 {
-                    var connector = _llmConnectorFactory.Create(entity);
-                    await connector.GenerateAsync("ping");
+                    var chat = _semanticKernelFactory.CreateChatCompletionService(entity);
+                    var history = new ChatHistory();
+                    history.AddUserMessage("ping");
+                    await chat.GetChatMessageContentAsync(history, cancellationToken: HttpContext.RequestAborted);
                     messages.Add("LLM: OK");
                 }
                 catch (Exception ex)
@@ -261,9 +256,9 @@ public class AiServicesController : BaseApiController
             {
                 try
                 {
-                    var connector = _embeddingConnectorFactory.Create(entity);
-                    await connector.GenerateEmbeddingAsync("ping");
-                    messages.Add("Embedding: OK");
+                    var embedding = _semanticKernelFactory.CreateEmbeddingGenerator(entity);
+                    var vector = await embedding.GenerateVectorAsync("ping", cancellationToken: HttpContext.RequestAborted);
+                    messages.Add($"Embedding: OK (dim={vector.ToArray().Length})");
                 }
                 catch (Exception ex)
                 {
@@ -577,17 +572,6 @@ public class AiServicesController : BaseApiController
         if (purpose == AiServicePurpose.Embedding && string.IsNullOrWhiteSpace(embeddingModel))
             return "Embedding 模型不能为空";
         return null;
-    }
-
-    private async Task<string?> ValidateUniquePurposeAsync(AiServicePurpose purpose, int? currentId)
-    {
-        var existing = await _unitOfWork.AiServiceConfigs.GetByPurposeAsync(purpose);
-        var conflict = existing.FirstOrDefault(c => !currentId.HasValue || c.Id != currentId.Value);
-        if (conflict == null)
-            return null;
-
-        var label = purpose == AiServicePurpose.Llm ? "LLM" : "Embedding";
-        return $"{label} 服务已存在，请先编辑或删除现有配置";
     }
 
 }

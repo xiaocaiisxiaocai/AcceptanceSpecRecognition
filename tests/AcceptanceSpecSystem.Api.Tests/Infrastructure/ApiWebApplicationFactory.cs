@@ -43,8 +43,10 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
             // Replace LLM services with test doubles to avoid external calls
             services.RemoveAll(typeof(ILlmReviewService));
             services.RemoveAll(typeof(ILlmSuggestionService));
+            services.RemoveAll(typeof(IEmbeddingService));
             services.AddScoped<ILlmReviewService, TestLlmReviewService>();
             services.AddScoped<ILlmSuggestionService, TestLlmSuggestionService>();
+            services.AddScoped<IEmbeddingService, TestEmbeddingService>();
 
             // Ensure schema created
             using var sp = services.BuildServiceProvider();

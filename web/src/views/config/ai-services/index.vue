@@ -110,6 +110,14 @@ const normalizePurpose = (value: number) => {
   return value;
 };
 
+const getDefaultPriority = (purpose: AiServicePurpose) => {
+  const samePurpose = tableData.value
+    .filter((item) => item.purpose === purpose)
+    .map((item) => item.priority ?? 0);
+  if (samePurpose.length === 0) return 0;
+  return Math.max(...samePurpose) + 1;
+};
+
 watch(
   () => formData.purpose,
   (value) => {
@@ -130,7 +138,7 @@ const handleAdd = (purpose: AiServicePurpose) => {
     name: "",
     serviceType: AiServiceType.Ollama,
     purpose,
-    priority: 0,
+    priority: getDefaultPriority(purpose),
     endpoint: "http://localhost:11434",
     apiKey: "",
     embeddingModel: purpose === AiServicePurpose.Embedding ? "nomic-embed-text" : "",
@@ -312,7 +320,7 @@ const handleSubmit = async () => {
     name: formData.name.trim(),
     serviceType: formData.serviceType,
     purpose: formData.purpose,
-    priority: 0,
+    priority: formData.priority,
     endpoint: formData.endpoint?.trim() || null,
     embeddingModel,
     llmModel
@@ -377,14 +385,8 @@ onMounted(loadData);
           <div class="card-header">
             <span>LLM 服务</span>
             <div class="card-actions">
-              <el-button
-                v-if="!llmConfig"
-                type="primary"
-                @click="handleAdd(AiServicePurpose.Llm)"
-              >
-                新增
-              </el-button>
-              <template v-else>
+              <el-button type="primary" @click="handleAdd(AiServicePurpose.Llm)">新增</el-button>
+              <template v-if="llmConfig">
                 <el-button type="primary" link @click="handleEdit(llmConfig)">编辑</el-button>
                 <el-button type="danger" link @click="handleDelete(llmConfig)">删除</el-button>
                 <el-button type="warning" link @click="handleTest(llmConfig)">测试</el-button>
@@ -404,6 +406,10 @@ onMounted(loadData);
             <div class="config-value">{{ getServiceTypeLabel(llmConfig.serviceType) }}</div>
           </div>
           <div class="config-row">
+            <div class="config-label">优先级</div>
+            <div class="config-value">{{ llmConfig.priority }}</div>
+          </div>
+          <div class="config-row">
             <div class="config-label">Endpoint</div>
             <div class="config-value">{{ formatValue(llmConfig.endpoint) }}</div>
           </div>
@@ -419,14 +425,8 @@ onMounted(loadData);
           <div class="card-header">
             <span>Embedding 服务</span>
             <div class="card-actions">
-              <el-button
-                v-if="!embeddingConfig"
-                type="primary"
-                @click="handleAdd(AiServicePurpose.Embedding)"
-              >
-                新增
-              </el-button>
-              <template v-else>
+              <el-button type="primary" @click="handleAdd(AiServicePurpose.Embedding)">新增</el-button>
+              <template v-if="embeddingConfig">
                 <el-button type="primary" link @click="handleEdit(embeddingConfig)">编辑</el-button>
                 <el-button type="danger" link @click="handleDelete(embeddingConfig)">删除</el-button>
                 <el-button type="warning" link @click="handleTest(embeddingConfig)">测试</el-button>
@@ -444,6 +444,10 @@ onMounted(loadData);
           <div class="config-row">
             <div class="config-label">类型</div>
             <div class="config-value">{{ getServiceTypeLabel(embeddingConfig.serviceType) }}</div>
+          </div>
+          <div class="config-row">
+            <div class="config-label">优先级</div>
+            <div class="config-value">{{ embeddingConfig.priority }}</div>
           </div>
           <div class="config-row">
             <div class="config-label">Endpoint</div>
@@ -520,6 +524,14 @@ onMounted(loadData);
               {{ opt.label }}
             </el-radio>
           </el-radio-group>
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-input-number
+            v-model="formData.priority"
+            :min="0"
+            :max="9999"
+            controls-position="right"
+          />
         </el-form-item>
         <el-form-item label="Endpoint">
           <el-input

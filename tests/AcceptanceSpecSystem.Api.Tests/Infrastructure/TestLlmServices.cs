@@ -80,3 +80,64 @@ public class TestLlmSuggestionService : ILlmSuggestionService
         return true;
     }
 }
+
+public class TestEmbeddingService : IEmbeddingService
+{
+    public bool IsAvailable => true;
+
+    public Task<float[]> GenerateEmbeddingAsync(string text, int? serviceId = null, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(CreateVector(text));
+    }
+
+    public Task<List<float[]>> GenerateEmbeddingsAsync(IEnumerable<string> texts, int? serviceId = null, CancellationToken cancellationToken = default)
+    {
+        var vectors = texts.Select(CreateVector).ToList();
+        return Task.FromResult(vectors);
+    }
+
+    public double ComputeSimilarity(float[] embedding1, float[] embedding2)
+    {
+        if (embedding1.Length == 0 || embedding2.Length == 0 || embedding1.Length != embedding2.Length)
+            return 0;
+
+        double dot = 0;
+        double norm1 = 0;
+        double norm2 = 0;
+        for (var i = 0; i < embedding1.Length; i++)
+        {
+            dot += embedding1[i] * embedding2[i];
+            norm1 += embedding1[i] * embedding1[i];
+            norm2 += embedding2[i] * embedding2[i];
+        }
+
+        if (norm1 <= 0 || norm2 <= 0)
+            return 0;
+
+        var score = dot / (Math.Sqrt(norm1) * Math.Sqrt(norm2));
+        return Math.Clamp(score, 0, 1);
+    }
+
+    private static float[] CreateVector(string text)
+    {
+        var value = text ?? string.Empty;
+        var vector = new float[16];
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            var bucket = i % vector.Length;
+            vector[bucket] += value[i];
+        }
+
+        var norm = (float)Math.Sqrt(vector.Sum(v => v * v));
+        if (norm <= 0)
+            return vector;
+
+        for (var i = 0; i < vector.Length; i++)
+        {
+            vector[i] /= norm;
+        }
+
+        return vector;
+    }
+}

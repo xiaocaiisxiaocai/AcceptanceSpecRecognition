@@ -48,13 +48,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
                 items = new[] { new { rowIndex = 0, project = "X", specification = "Y" } },
                 customerId,
                 processId,
-                config = new
-                {
-                    useLevenshtein = true,
-                    useJaccard = true,
-                    useCosine = true,
-                    minScoreThreshold = 0.99
-                }
+                config = new { minScoreThreshold = 0.99 }
             }));
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -102,13 +96,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
                 items = new[] { new { rowIndex = 0, project = "P1", specification = "S1" } },
                 customerId,
                 processId,
-                config = new
-                {
-                    useLevenshtein = true,
-                    useJaccard = true,
-                    useCosine = true,
-                    minScoreThreshold = 0.0
-                }
+                config = new { minScoreThreshold = 0.0 }
             }));
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -134,7 +122,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             {
                 useLlmReview = true,
                 useLlmSuggestion = true,
-                llmSuggestionScoreThreshold = 0.99
+                llmSuggestionScoreThreshold = 1.1
             }
         };
 
