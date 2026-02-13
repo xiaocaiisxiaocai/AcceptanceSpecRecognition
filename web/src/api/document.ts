@@ -77,7 +77,8 @@ export interface ImportDataRequest {
   fileId: number;
   tableIndex: number;
   customerId: number;
-  processId: number;
+  processId?: number;
+  machineModelId?: number;
   mapping: ColumnMapping;
 }
 
@@ -161,7 +162,8 @@ export interface ExcelImportDataRequest {
   fileId: number;
   sheetIndex: number;
   customerId: number;
-  processId: number;
+  processId?: number;
+  machineModelId?: number;
   headerRowStart: number;
   headerRowCount: number;
   dataStartRow: number;

@@ -163,11 +163,11 @@ defineExpose({
 
 .preview-info {
   font-size: 14px;
-  color: #606266;
+  color: #4b5563;
 }
 
 .preview-tip {
-  color: #909399;
+  color: #94a3b8;
   margin-left: 8px;
 }
 
@@ -176,10 +176,15 @@ defineExpose({
   overflow: auto;
 }
 
+.table-preview :deep(.el-table td) {
+  vertical-align: top;
+}
+
 .cell-content {
   display: block;
   max-width: 320px;
   white-space: pre-wrap;
   word-break: break-word;
+  line-height: 1.5;
 }
 </style>

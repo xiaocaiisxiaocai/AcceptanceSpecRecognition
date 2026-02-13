@@ -16,9 +16,14 @@ public class AcceptanceSpec
     public int CustomerId { get; set; }
 
     /// <summary>
-    /// 所属制程ID
+    /// 所属制程ID（可为空）
     /// </summary>
-    public int ProcessId { get; set; }
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 所属机型ID（可为空）
+    /// </summary>
+    public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 项目名称
@@ -58,7 +63,12 @@ public class AcceptanceSpec
     /// <summary>
     /// 导航属性：所属制程
     /// </summary>
-    public Process Process { get; set; } = null!;
+    public Process? Process { get; set; }
+
+    /// <summary>
+    /// 导航属性：所属机型
+    /// </summary>
+    public MachineModel? MachineModel { get; set; }
 
     /// <summary>
     /// 导航属性：来源Word文件

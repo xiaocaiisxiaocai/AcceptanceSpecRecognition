@@ -34,7 +34,8 @@ public class SpecsController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null,
         [FromQuery] int? customerId = null,
-        [FromQuery] int? processId = null)
+        [FromQuery] int? processId = null,
+        [FromQuery] int? machineModelId = null)
     {
         // 需要在列表中展示客户/制程名称，因此必须 eager load 导航属性
         var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
@@ -43,6 +44,11 @@ public class SpecsController : BaseApiController
         if (processId.HasValue)
         {
             allSpecs = allSpecs.Where(s => s.ProcessId == processId.Value).ToList();
+        }
+        // 按机型筛选
+        if (machineModelId.HasValue)
+        {
+            allSpecs = allSpecs.Where(s => s.MachineModelId == machineModelId.Value).ToList();
         }
         // 按客户筛选（直接通过 AcceptanceSpec.CustomerId）
         if (customerId.HasValue)
@@ -70,7 +76,9 @@ public class SpecsController : BaseApiController
                 Id = s.Id,
                 CustomerId = s.CustomerId,
                 ProcessId = s.ProcessId,
+                MachineModelId = s.MachineModelId,
                 ProcessName = s.Process?.Name ?? "",
+                MachineModelName = s.MachineModel?.Name ?? "",
                 CustomerName = s.Customer?.Name ?? "",
                 Project = s.Project,
                 Specification = s.Specification,
@@ -112,7 +120,9 @@ public class SpecsController : BaseApiController
             Id = spec.Id,
             CustomerId = spec.CustomerId,
             ProcessId = spec.ProcessId,
+            MachineModelId = spec.MachineModelId,
             ProcessName = spec.Process?.Name ?? "",
+            MachineModelName = spec.MachineModel?.Name ?? "",
             CustomerName = spec.Customer?.Name ?? "",
             Project = spec.Project,
             Specification = spec.Specification,
@@ -140,10 +150,25 @@ public class SpecsController : BaseApiController
         }
 
         // 检查制程是否存在
-        var process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId);
-        if (process == null)
+        Process? process = null;
+        if (request.ProcessId.HasValue)
         {
-            return Error<AcceptanceSpecDto>(400, "所选制程不存在");
+            process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId.Value);
+            if (process == null)
+            {
+                return Error<AcceptanceSpecDto>(400, "所选制程不存在");
+            }
+        }
+
+        // 检查机型是否存在
+        MachineModel? machineModel = null;
+        if (request.MachineModelId.HasValue)
+        {
+            machineModel = await _unitOfWork.MachineModels.GetByIdAsync(request.MachineModelId.Value);
+            if (machineModel == null)
+            {
+                return Error<AcceptanceSpecDto>(400, "所选机型不存在");
+            }
         }
 
         // 获取或创建一个默认的WordFile记录（手动创建的规格）
@@ -153,6 +178,7 @@ public class SpecsController : BaseApiController
         {
             CustomerId = request.CustomerId,
             ProcessId = request.ProcessId,
+            MachineModelId = request.MachineModelId,
             Project = request.Project,
             Specification = request.Specification,
             Acceptance = request.Acceptance,
@@ -171,7 +197,9 @@ public class SpecsController : BaseApiController
             Id = spec.Id,
             CustomerId = spec.CustomerId,
             ProcessId = spec.ProcessId,
-            ProcessName = process.Name,
+            MachineModelId = spec.MachineModelId,
+            ProcessName = process?.Name ?? "",
+            MachineModelName = machineModel?.Name ?? "",
             CustomerName = customer.Name,
             Project = spec.Project,
             Specification = spec.Specification,
@@ -212,7 +240,9 @@ public class SpecsController : BaseApiController
             Id = spec.Id,
             CustomerId = spec.CustomerId,
             ProcessId = spec.ProcessId,
+            MachineModelId = spec.MachineModelId,
             ProcessName = spec.Process?.Name ?? "",
+            MachineModelName = spec.MachineModel?.Name ?? "",
             CustomerName = spec.Customer?.Name ?? "",
             Project = spec.Project,
             Specification = spec.Specification,
@@ -262,10 +292,24 @@ public class SpecsController : BaseApiController
         }
 
         // 检查制程是否存在
-        var process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId);
-        if (process == null)
+        Process? process = null;
+        if (request.ProcessId.HasValue)
         {
-            return Error<BatchImportResult>(400, "所选制程不存在");
+            process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId.Value);
+            if (process == null)
+            {
+                return Error<BatchImportResult>(400, "所选制程不存在");
+            }
+        }
+
+        // 检查机型是否存在
+        if (request.MachineModelId.HasValue)
+        {
+            var machineModel = await _unitOfWork.MachineModels.GetByIdAsync(request.MachineModelId.Value);
+            if (machineModel == null)
+            {
+                return Error<BatchImportResult>(400, "所选机型不存在");
+            }
         }
 
         // 检查WordFile是否存在
@@ -292,6 +336,7 @@ public class SpecsController : BaseApiController
                 {
                     CustomerId = request.CustomerId,
                     ProcessId = request.ProcessId,
+                    MachineModelId = request.MachineModelId,
                     Project = item.Project.Trim(),
                     Specification = item.Specification.Trim(),
                     Acceptance = item.Acceptance?.Trim(),

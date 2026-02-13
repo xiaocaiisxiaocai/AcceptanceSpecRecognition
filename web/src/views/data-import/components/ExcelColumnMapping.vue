@@ -157,16 +157,17 @@ const normalize = () => {
 }
 
 .group {
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  border: 1px solid #ede7f6;
+  border-radius: 12px;
   padding: 12px;
+  background: #ffffff;
 }
 
 .group-title {
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 8px;
-  color: var(--el-text-color-primary);
+  color: var(--color-text);
 }
 
 .col-input {
@@ -178,7 +179,7 @@ const normalize = () => {
 .col-letter {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
-  color: var(--el-text-color-secondary);
+  color: #6b7280;
 }
 
 @media (max-width: 960px) {

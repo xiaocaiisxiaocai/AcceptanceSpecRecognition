@@ -3,6 +3,8 @@ import { ref, watch } from "vue";
 import { type MatchConfig, defaultMatchConfig } from "@/api/matching";
 import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
+import { getMachineModelList, type MachineModel } from "@/api/machine-model";
+import { getAiServiceList, AiServicePurpose, type AiServiceConfig } from "@/api/ai-service";
 import { ElMessage } from "element-plus";
 
 const props = defineProps<{
@@ -11,7 +13,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: MatchConfig): void;
-  (e: "scopeChange", customerId?: number, processId?: number): void;
+  (e: "scopeChange", customerId?: number, processId?: number, machineModelId?: number): void;
 }>();
 
 // 匹配配置
@@ -20,10 +22,16 @@ const config = ref<MatchConfig>({ ...defaultMatchConfig });
 // 范围选择
 const customers = ref<Customer[]>([]);
 const processes = ref<Process[]>([]);
+const machineModels = ref<MachineModel[]>([]);
 const selectedCustomerId = ref<number | undefined>(undefined);
 const selectedProcessId = ref<number | undefined>(undefined);
+const selectedMachineModelId = ref<number | undefined>(undefined);
 const loadingCustomers = ref(false);
 const loadingProcesses = ref(false);
+const loadingMachineModels = ref(false);
+const loadingAiServices = ref(false);
+const embeddingServices = ref<AiServiceConfig[]>([]);
+const llmServices = ref<AiServiceConfig[]>([]);
 
 // 高级选项展开
 const showAdvanced = ref(false);
@@ -33,7 +41,9 @@ watch(
   () => props.modelValue,
   (val) => {
     if (val) {
-      config.value = { ...val };
+      config.value = { ...defaultMatchConfig, ...val };
+    } else {
+      config.value = { ...defaultMatchConfig };
     }
   },
   { immediate: true }
@@ -76,14 +86,61 @@ const loadProcesses = async () => {
   }
 };
 
+// 加载机型列表
+const loadMachineModels = async () => {
+  loadingMachineModels.value = true;
+  try {
+    const res = await getMachineModelList({ page: 1, pageSize: 1000 });
+    if (res.code === 0) {
+      machineModels.value = res.data.items;
+    }
+  } catch {
+    ElMessage.error("加载机型列表失败");
+  } finally {
+    loadingMachineModels.value = false;
+  }
+};
+
+// 加载 AI 服务列表
+const loadAiServices = async () => {
+  loadingAiServices.value = true;
+  try {
+    const res = await getAiServiceList({ page: 1, pageSize: 200 });
+    if (res.code === 0) {
+      const items = res.data.items;
+      embeddingServices.value = items.filter(
+        (s) =>
+          (s.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
+          !!s.embeddingModel
+      );
+      llmServices.value = items.filter(
+        (s) =>
+          (s.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
+          !!s.llmModel
+      );
+    } else {
+      ElMessage.error(res.message || "加载AI服务失败");
+    }
+  } catch {
+    ElMessage.error("加载AI服务失败");
+  } finally {
+    loadingAiServices.value = false;
+  }
+};
+
 // 监听客户变化
 watch(selectedCustomerId, () => {
-  emit("scopeChange", selectedCustomerId.value, selectedProcessId.value);
+  emit("scopeChange", selectedCustomerId.value, selectedProcessId.value, selectedMachineModelId.value);
 });
 
 // 监听制程变化
 watch(selectedProcessId, () => {
-  emit("scopeChange", selectedCustomerId.value, selectedProcessId.value);
+  emit("scopeChange", selectedCustomerId.value, selectedProcessId.value, selectedMachineModelId.value);
+});
+
+// 监听机型变化
+watch(selectedMachineModelId, () => {
+  emit("scopeChange", selectedCustomerId.value, selectedProcessId.value, selectedMachineModelId.value);
 });
 
 // 重置配置
@@ -94,13 +151,16 @@ const resetConfig = () => {
 // 初始化
 loadCustomers();
 loadProcesses();
+loadMachineModels();
+loadAiServices();
 
 // 暴露方法
 defineExpose({
   resetConfig,
   getScope: () => ({
     customerId: selectedCustomerId.value,
-    processId: selectedProcessId.value
+    processId: selectedProcessId.value,
+    machineModelId: selectedMachineModelId.value
   })
 });
 </script>
@@ -118,7 +178,8 @@ defineExpose({
             :loading="loadingCustomers"
             filterable
             clearable
-            style="width: 200px"
+            class="search-select search-select--200"
+            popper-class="app-select-popper"
           >
             <el-option
               v-for="customer in customers"
@@ -135,13 +196,32 @@ defineExpose({
             :loading="loadingProcesses"
             filterable
             clearable
-            style="width: 200px"
+            class="search-select search-select--200"
+            popper-class="app-select-popper"
           >
             <el-option
               v-for="process in processes"
               :key="process.id"
               :label="process.name"
               :value="process.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="机型">
+          <el-select
+            v-model="selectedMachineModelId"
+            placeholder="全部机型"
+            :loading="loadingMachineModels"
+            filterable
+            clearable
+            class="search-select search-select--200"
+            popper-class="app-select-popper"
+          >
+            <el-option
+              v-for="model in machineModels"
+              :key="model.id"
+              :label="model.name"
+              :value="model.id"
             />
           </el-select>
         </el-form-item>
@@ -158,6 +238,46 @@ defineExpose({
       <el-form label-width="120px">
         <el-row :gutter="20">
           <el-col :span="12">
+            <el-form-item label="Embedding 服务">
+              <el-select
+                v-model="config.embeddingServiceId"
+                placeholder="自动选择（离线优先）"
+                clearable
+                :loading="loadingAiServices"
+                class="search-select search-select--240"
+                popper-class="app-select-popper"
+              >
+                <el-option
+                  v-for="service in embeddingServices"
+                  :key="service.id"
+                  :label="`${service.name}（${service.embeddingModel || '-'}）`"
+                  :value="service.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="LLM 服务">
+              <el-select
+                v-model="config.llmServiceId"
+                placeholder="自动选择（离线优先）"
+                clearable
+                :loading="loadingAiServices"
+                class="search-select search-select--240"
+                popper-class="app-select-popper"
+              >
+                <el-option
+                  v-for="service in llmServices"
+                  :key="service.id"
+                  :label="`${service.name}（${service.llmModel || '-'}）`"
+                  :value="service.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
             <el-form-item label="最小得分阈值">
               <el-slider
                 v-model="config.minScoreThreshold"
@@ -170,16 +290,6 @@ defineExpose({
               />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="最大候选数">
-              <el-input-number
-                v-model="config.maxCandidates"
-                :min="1"
-                :max="20"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
         </el-row>
       </el-form>
     </div>
@@ -187,7 +297,7 @@ defineExpose({
     <!-- 高级选项 -->
     <div class="config-section">
       <div class="section-header" @click="showAdvanced = !showAdvanced">
-        <span class="section-title">算法配置</span>
+        <span class="section-title">LLM 复核与生成</span>
         <el-icon :class="{ rotated: showAdvanced }">
           <ArrowRight />
         </el-icon>
@@ -196,68 +306,36 @@ defineExpose({
       <el-collapse-transition>
         <div v-show="showAdvanced" class="advanced-options">
           <el-form label-width="140px">
-            <!-- Levenshtein -->
-            <el-row :gutter="20" align="middle">
+            <!-- LLM复核 -->
+            <el-row :gutter="20" align="middle" class="llm-row">
               <el-col :span="8">
-                <el-form-item label="Levenshtein距离">
-                  <el-switch v-model="config.useLevenshtein" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="16">
-                <el-form-item label="权重">
-                  <el-slider
-                    v-model="config.levenshteinWeight"
-                    :min="0"
-                    :max="1"
-                    :step="0.1"
-                    :disabled="!config.useLevenshtein"
-                    :format-tooltip="(val: number) => val.toFixed(1)"
-                  />
+                <el-form-item label="LLM复核">
+                  <el-switch v-model="config.useLlmReview" />
                 </el-form-item>
               </el-col>
             </el-row>
 
-            <!-- Jaccard -->
+            <!-- LLM生成建议 -->
             <el-row :gutter="20" align="middle">
               <el-col :span="8">
-                <el-form-item label="Jaccard相似度">
-                  <el-switch v-model="config.useJaccard" />
+                <el-form-item label="LLM生成建议">
+                  <el-switch v-model="config.useLlmSuggestion" />
                 </el-form-item>
               </el-col>
               <el-col :span="16">
-                <el-form-item label="权重">
+                <el-form-item label="触发阈值">
                   <el-slider
-                    v-model="config.jaccardWeight"
+                    v-model="config.llmSuggestionScoreThreshold"
                     :min="0"
                     :max="1"
-                    :step="0.1"
-                    :disabled="!config.useJaccard"
-                    :format-tooltip="(val: number) => val.toFixed(1)"
+                    :step="0.05"
+                    :disabled="!config.useLlmSuggestion"
+                    :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
                   />
                 </el-form-item>
               </el-col>
             </el-row>
-
-            <!-- Cosine -->
-            <el-row :gutter="20" align="middle">
-              <el-col :span="8">
-                <el-form-item label="Cosine相似度">
-                  <el-switch v-model="config.useCosine" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="16">
-                <el-form-item label="权重">
-                  <el-slider
-                    v-model="config.cosineWeight"
-                    :min="0"
-                    :max="1"
-                    :step="0.1"
-                    :disabled="!config.useCosine"
-                    :format-tooltip="(val: number) => val.toFixed(1)"
-                  />
-                </el-form-item>
-              </el-col>
-            </el-row>
+            <div class="llm-hint">LLM 需要配置可用服务与模型，失败将返回明确原因。</div>
 
             <div class="reset-btn">
               <el-button size="small" @click="resetConfig">重置为默认值</el-button>
@@ -284,7 +362,7 @@ export default {
 .config-section {
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .config-section:last-child {
@@ -295,7 +373,7 @@ export default {
 .section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--color-text);
   margin-bottom: 12px;
 }
 
@@ -324,11 +402,21 @@ export default {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #909399;
+  color: #6b7280;
 }
 
 .advanced-options {
   padding-top: 16px;
+}
+
+.llm-row {
+  margin-top: 8px;
+}
+
+.llm-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7280;
 }
 
 .reset-btn {

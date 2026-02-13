@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { MatchPreviewItem, MatchResult } from "@/api/matching";
+import type { MatchPreviewItem } from "@/api/matching";
 
 const props = defineProps<{
   visible: boolean;
@@ -18,6 +18,11 @@ const dialogVisible = computed({
 
 // 格式化得分
 const formatScore = (score: number) => (score * 100).toFixed(1) + "%";
+
+const formatLlmScore = (score?: number) => {
+  if (score === undefined || score === null) return "-";
+  return `${score.toFixed(1)}分`;
+};
 
 // 获取置信度样式
 const getConfidenceClass = (level: string): "success" | "warning" | "danger" | "info" => {
@@ -69,40 +74,42 @@ const getConfidenceText = (level: string) => {
         </el-descriptions>
       </div>
 
-      <!-- 候选列表 -->
+      <!-- 最佳匹配 -->
       <div class="candidates-section">
-        <h4>候选匹配 ({{ item.candidates.length }})</h4>
-        <el-table
-          v-if="item.candidates.length > 0"
-          :data="item.candidates"
-          max-height="300"
-          size="small"
-          border
-        >
-          <el-table-column label="项目" prop="project" min-width="100" />
-          <el-table-column label="规格" prop="specification" min-width="120" />
-          <el-table-column label="验收标准" prop="acceptance" min-width="150" show-overflow-tooltip />
-          <el-table-column label="综合得分" width="90" align="center">
-            <template #default="{ row }">
-              <span class="score-value">{{ formatScore(row.score) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="算法得分" width="200">
-            <template #default="{ row }">
-              <div class="algorithm-scores">
-                <span v-if="row.levenshteinScore !== undefined" class="algo-item">
-                  Lev: {{ formatScore(row.levenshteinScore) }}
-                </span>
-                <span v-if="row.jaccardScore !== undefined" class="algo-item">
-                  Jac: {{ formatScore(row.jaccardScore) }}
-                </span>
-                <span v-if="row.cosineScore !== undefined" class="algo-item">
-                  Cos: {{ formatScore(row.cosineScore) }}
-                </span>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
+        <h4>最佳匹配</h4>
+        <template v-if="item.bestMatch">
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="项目">
+              {{ item.bestMatch.project }}
+            </el-descriptions-item>
+            <el-descriptions-item label="规格">
+              {{ item.bestMatch.specification }}
+            </el-descriptions-item>
+            <el-descriptions-item label="验收标准">
+              {{ item.bestMatch.acceptance || "-" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="基础得分">
+              {{ formatScore(item.bestMatch.score) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="LLM复核得分">
+              {{ formatLlmScore(item.bestMatch.llmScore) }}
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <div class="llm-review">
+            <div class="llm-label">LLM复核原因</div>
+            <div class="llm-text">
+              {{ item.bestMatch.llmReason || item.llmReviewDraft || "-" }}
+            </div>
+            <div class="llm-label">LLM复核过程</div>
+            <div class="llm-text">
+              {{ item.bestMatch.llmCommentary || "-" }}
+            </div>
+            <div v-if="item.llmReviewError" class="llm-error">
+              LLM复核失败：{{ item.llmReviewError }}
+            </div>
+          </div>
+        </template>
         <el-empty v-else description="无匹配结果" :image-size="60" />
       </div>
     </template>
@@ -122,23 +129,35 @@ const getConfidenceText = (level: string) => {
 .candidates-section h4 {
   font-size: 14px;
   font-weight: 500;
-  color: #303133;
+  color: var(--color-text);
   margin-bottom: 12px;
 }
 
 .score-value {
   font-weight: 600;
-  color: #409eff;
+  color: var(--color-primary);
 }
 
-.algorithm-scores {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.llm-review {
+  margin-top: 12px;
+}
+
+.llm-label {
   font-size: 12px;
+  color: #6b7280;
+  margin-top: 6px;
 }
 
-.algo-item {
-  color: #909399;
+.llm-text {
+  font-size: 13px;
+  color: #4b5563;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+.llm-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #f56c6c;
 }
 </style>

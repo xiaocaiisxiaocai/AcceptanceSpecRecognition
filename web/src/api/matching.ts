@@ -3,22 +3,18 @@ import type { ApiResponse } from "./customer";
 
 /** 匹配配置 */
 export interface MatchConfig {
-  /** 是否使用Levenshtein距离 */
-  useLevenshtein?: boolean;
-  /** Levenshtein权重 */
-  levenshteinWeight?: number;
-  /** 是否使用Jaccard相似度 */
-  useJaccard?: boolean;
-  /** Jaccard权重 */
-  jaccardWeight?: number;
-  /** 是否使用Cosine相似度 */
-  useCosine?: boolean;
-  /** Cosine权重 */
-  cosineWeight?: number;
+  /** 选定的 Embedding 服务ID（为空则自动选择） */
+  embeddingServiceId?: number;
+  /** 选定的 LLM 服务ID（为空则自动选择） */
+  llmServiceId?: number;
   /** 最小匹配阈值 */
   minScoreThreshold?: number;
-  /** 返回的最大候选数量 */
-  maxCandidates?: number;
+  /** 是否启用LLM复核 */
+  useLlmReview?: boolean;
+  /** 是否启用LLM生成建议 */
+  useLlmSuggestion?: boolean;
+  /** 生成建议触发阈值 */
+  llmSuggestionScoreThreshold?: number;
 }
 
 /** 待匹配的源项 */
@@ -47,6 +43,8 @@ export interface MatchPreviewRequest {
   customerId?: number;
   /** 目标制程ID（限定匹配范围） */
   processId?: number;
+  /** 目标机型ID（限定匹配范围） */
+  machineModelId?: number;
   /** 匹配配置 */
   config?: MatchConfig;
 }
@@ -65,6 +63,24 @@ export interface MatchResult {
   score: number;
   /** 各算法得分详情 */
   scoreDetails: Record<string, number>;
+  /** LLM复核得分（0-100） */
+  llmScore?: number;
+  /** LLM复核原因 */
+  llmReason?: string;
+  /** LLM评论 */
+  llmCommentary?: string;
+  /** 是否经过LLM复核 */
+  isLlmReviewed?: boolean;
+}
+
+/** LLM生成建议 */
+export interface LlmSuggestion {
+  /** 验收标准建议 */
+  acceptance?: string;
+  /** 备注建议 */
+  remark?: string;
+  /** 生成理由 */
+  reason?: string;
 }
 
 /** 匹配预览项 */
@@ -77,8 +93,18 @@ export interface MatchPreviewItem {
   sourceSpecification: string;
   /** 最佳匹配结果 */
   bestMatch?: MatchResult;
-  /** 候选匹配列表（按得分降序） */
-  candidates: MatchResult[];
+  /** LLM生成建议 */
+  llmSuggestion?: LlmSuggestion;
+  /** LLM生成建议流式内容 */
+  llmSuggestionDraft?: string;
+  /** LLM复核流式内容 */
+  llmReviewDraft?: string;
+  /** LLM复核错误 */
+  llmReviewError?: string;
+  /** LLM生成错误 */
+  llmSuggestionError?: string;
+  /** 不匹配原因 */
+  noMatchReason?: string;
   /** 是否有匹配 */
   hasMatch: boolean;
   /** 置信度级别 */
@@ -104,7 +130,13 @@ export interface FillMapping {
   /** 行索引 */
   rowIndex: number;
   /** 选择的验收规格ID */
-  specId: number;
+  specId?: number;
+  /** 是否使用LLM生成建议 */
+  useLlmSuggestion?: boolean;
+  /** LLM生成的验收标准 */
+  acceptance?: string;
+  /** LLM生成的备注 */
+  remark?: string;
 }
 
 /** 执行填充请求 */
@@ -200,12 +232,8 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
-  useLevenshtein: true,
-  levenshteinWeight: 0.3,
-  useJaccard: true,
-  jaccardWeight: 0.3,
-  useCosine: true,
-  cosineWeight: 0.4,
   minScoreThreshold: 0.3,
-  maxCandidates: 5
+  useLlmReview: false,
+  useLlmSuggestion: false,
+  llmSuggestionScoreThreshold: 0.6
 };

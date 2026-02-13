@@ -20,12 +20,22 @@ public class AcceptanceSpecDto
     /// <summary>
     /// 所属制程ID
     /// </summary>
-    public int ProcessId { get; set; }
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 所属机型ID
+    /// </summary>
+    public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 所属制程名称
     /// </summary>
     public string ProcessName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 所属机型名称
+    /// </summary>
+    public string MachineModelName { get; set; } = string.Empty;
 
     /// <summary>
     /// 所属客户名称
@@ -72,8 +82,12 @@ public class CreateSpecRequest
     /// <summary>
     /// 所属制程ID
     /// </summary>
-    [Required(ErrorMessage = "制程ID不能为空")]
-    public int ProcessId { get; set; }
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 所属机型ID
+    /// </summary>
+    public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 项目名称
@@ -142,8 +156,12 @@ public class BatchImportSpecsRequest
     /// <summary>
     /// 所属制程ID
     /// </summary>
-    [Required(ErrorMessage = "制程ID不能为空")]
-    public int ProcessId { get; set; }
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 所属机型ID
+    /// </summary>
+    public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 来源Word文件ID
@@ -219,6 +237,11 @@ public class SpecFilterRequest
     /// 制程ID（可选）
     /// </summary>
     public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 机型ID（可选）
+    /// </summary>
+    public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 搜索关键字（可选）

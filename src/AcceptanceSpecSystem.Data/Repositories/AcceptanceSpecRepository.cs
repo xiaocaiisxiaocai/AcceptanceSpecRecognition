@@ -18,8 +18,9 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
     }
 
     /// <summary>
-    /// 获取所有验收规格，并包含 <see cref="AcceptanceSpec.Customer"/> 与 <see cref="AcceptanceSpec.Process"/> 导航属性。
-    /// 用途：列表页需要展示客户/制程名称时，避免出现空值。
+    /// 获取所有验收规格，并包含 <see cref="AcceptanceSpec.Customer"/> / <see cref="AcceptanceSpec.Process"/> /
+    /// <see cref="AcceptanceSpec.MachineModel"/> 导航属性。
+    /// 用途：列表页需要展示客户/制程/机型名称时，避免出现空值。
     /// </summary>
     /// <returns>验收规格列表</returns>
     public async Task<IReadOnlyList<AcceptanceSpec>> GetAllWithCustomerAndProcessAsync()
@@ -27,11 +28,13 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
         return await _dbSet
             .Include(s => s.Customer)
             .Include(s => s.Process)
+            .Include(s => s.MachineModel)
             .ToListAsync();
     }
 
     /// <summary>
-    /// 根据ID获取验收规格，并包含 <see cref="AcceptanceSpec.Customer"/> 与 <see cref="AcceptanceSpec.Process"/> 导航属性。
+    /// 根据ID获取验收规格，并包含 <see cref="AcceptanceSpec.Customer"/> / <see cref="AcceptanceSpec.Process"/> /
+    /// <see cref="AcceptanceSpec.MachineModel"/> 导航属性。
     /// </summary>
     /// <param name="id">验收规格ID</param>
     /// <returns>验收规格（包含客户与制程）或 null</returns>
@@ -40,6 +43,7 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
         return await _dbSet
             .Include(s => s.Customer)
             .Include(s => s.Process)
+            .Include(s => s.MachineModel)
             .FirstOrDefaultAsync(s => s.Id == id);
     }
 

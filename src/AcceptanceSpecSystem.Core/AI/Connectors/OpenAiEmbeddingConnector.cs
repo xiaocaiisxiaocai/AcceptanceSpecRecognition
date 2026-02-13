@@ -2,8 +2,6 @@ using System.Text;
 using System.Text.Json;
 using AcceptanceSpecSystem.Core.AI.Interfaces;
 using AcceptanceSpecSystem.Data.Entities;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Connectors.OpenAI;
 
 namespace AcceptanceSpecSystem.Core.AI.Connectors;
 
@@ -24,20 +22,11 @@ public class OpenAiEmbeddingConnector : IAiEmbeddingConnector
         if (string.IsNullOrWhiteSpace(_config.EmbeddingModel))
             throw new InvalidOperationException("EmbeddingModel 未配置");
 
-        // 对于官方 OpenAI（无自定义 endpoint），使用 SK 连接器
-        if (_config.ServiceType == AiServiceType.OpenAI && string.IsNullOrWhiteSpace(_config.Endpoint))
-        {
-            if (string.IsNullOrWhiteSpace(_config.ApiKey))
-                throw new InvalidOperationException("ApiKey 未配置");
-
-            var svc = new OpenAITextEmbeddingGenerationService(_config.EmbeddingModel!, _config.ApiKey!);
-            var embeddings = await svc.GenerateEmbeddingsAsync([text], new Kernel(), cancellationToken);
-            return embeddings[0].Span.ToArray();
-        }
-
-        // OpenAI-compatible：LMStudio / Custom / 指定了 Endpoint 的情况
+        // OpenAI-compatible：官方/LMStudio/Custom/指定了 Endpoint 的情况
         var baseUrl = string.IsNullOrWhiteSpace(_config.Endpoint) ? "https://api.openai.com" : _config.Endpoint!.Trim();
         baseUrl = baseUrl.TrimEnd('/');
+        if (baseUrl.EndsWith("/v1/v1", StringComparison.OrdinalIgnoreCase))
+            baseUrl = baseUrl[..^3];
         if (!baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
             baseUrl += "/v1";
 

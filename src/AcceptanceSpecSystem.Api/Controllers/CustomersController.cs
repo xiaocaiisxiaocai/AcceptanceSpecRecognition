@@ -44,7 +44,9 @@ public class CustomersController : BaseApiController
             : await _unitOfWork.AcceptanceSpecs.FindAsync(s => customerIds.Contains(s.CustomerId));
         var processCountByCustomer = specsForCustomers
             .GroupBy(s => s.CustomerId)
-            .ToDictionary(g => g.Key, g => g.Select(x => x.ProcessId).Distinct().Count());
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => x.ProcessId).Where(id => id.HasValue).Select(id => id!.Value).Distinct().Count());
 
         var total = allCustomers.Count;
         var items = allCustomers
@@ -93,6 +95,8 @@ public class CustomersController : BaseApiController
             CreatedAt = customer.CreatedAt,
             ProcessCount = (await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.CustomerId == id))
                 .Select(s => s.ProcessId)
+                .Where(pid => pid.HasValue)
+                .Select(pid => pid!.Value)
                 .Distinct()
                 .Count()
         };
@@ -175,6 +179,8 @@ public class CustomersController : BaseApiController
             CreatedAt = customer.CreatedAt,
             ProcessCount = (await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.CustomerId == id))
                 .Select(s => s.ProcessId)
+                .Where(pid => pid.HasValue)
+                .Select(pid => pid!.Value)
                 .Distinct()
                 .Count()
         };
@@ -221,6 +227,8 @@ public class CustomersController : BaseApiController
         // 返回“该客户的验规中使用过的制程列表”（非从属关系）
         var specProcessIds = (await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.CustomerId == id))
             .Select(s => s.ProcessId)
+            .Where(pid => pid.HasValue)
+            .Select(pid => pid!.Value)
             .Distinct()
             .ToList();
 

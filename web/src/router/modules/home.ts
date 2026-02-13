@@ -7,7 +7,7 @@ export default {
   component: Layout,
   redirect: "/dashboard",
   meta: {
-    icon: "ep/home-filled",
+    icon: "ri:home-4-line",
     title: "首页",
     rank: 0
   },
@@ -18,7 +18,7 @@ export default {
       component: () => import("@/views/dashboard/index.vue"),
       meta: {
         title: "仪表盘",
-        icon: "ri/dashboard-3-line",
+        icon: "ri:dashboard-3-line",
         showLink: VITE_HIDE_HOME === "true" ? false : true
       }
     },

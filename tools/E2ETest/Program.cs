@@ -91,8 +91,7 @@ static class Program
                     useLevenshtein = true,
                     useJaccard = true,
                     useCosine = true,
-                    minScoreThreshold = 0.0,
-                    maxCandidates = 5
+                    minScoreThreshold = 0.0
                 }
             }, json);
         Console.WriteLine("\n=== PREVIEW ===");

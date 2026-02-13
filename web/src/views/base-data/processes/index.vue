@@ -145,7 +145,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="main">
+  <div class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">制程管理</div>
+        <div class="page-subtitle">维护制程信息，支持搜索与编辑</div>
+      </div>
+    </div>
     <!-- 搜索栏 -->
     <el-card class="mb-4">
       <el-form :inline="true">
@@ -227,7 +233,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.main {
-  padding: 20px;
+.page {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 </style>

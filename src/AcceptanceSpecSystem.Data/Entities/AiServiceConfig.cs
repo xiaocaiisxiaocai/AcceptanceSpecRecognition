@@ -21,6 +21,16 @@ public class AiServiceConfig
     public AiServiceType ServiceType { get; set; }
 
     /// <summary>
+    /// 服务用途（LLM/Embedding）
+    /// </summary>
+    public AiServicePurpose Purpose { get; set; } = AiServicePurpose.Llm;
+
+    /// <summary>
+    /// 优先级（越小越优先）
+    /// </summary>
+    public int Priority { get; set; } = 0;
+
+    /// <summary>
     /// API密钥（加密存储）
     /// </summary>
     public string? ApiKey { get; set; }
@@ -39,11 +49,6 @@ public class AiServiceConfig
     /// LLM模型名称
     /// </summary>
     public string? LlmModel { get; set; }
-
-    /// <summary>
-    /// 是否为默认配置
-    /// </summary>
-    public bool IsDefault { get; set; }
 
     /// <summary>
     /// 创建时间

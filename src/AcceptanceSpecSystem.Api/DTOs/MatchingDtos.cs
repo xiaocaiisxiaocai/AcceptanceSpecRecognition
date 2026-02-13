@@ -43,6 +43,11 @@ public class MatchPreviewRequest
     public int? ProcessId { get; set; }
 
     /// <summary>
+    /// 目标机型ID（限定匹配范围）
+    /// </summary>
+    public int? MachineModelId { get; set; }
+
+    /// <summary>
     /// 匹配配置
     /// </summary>
     public MatchConfigDto? Config { get; set; }
@@ -80,34 +85,14 @@ public class MatchSourceItem
 public class MatchConfigDto
 {
     /// <summary>
-    /// 是否使用Levenshtein距离
+    /// 选定的 Embedding 服务ID（为空则自动选择）
     /// </summary>
-    public bool UseLevenshtein { get; set; } = true;
+    public int? EmbeddingServiceId { get; set; }
 
     /// <summary>
-    /// Levenshtein权重
+    /// 选定的 LLM 服务ID（为空则自动选择）
     /// </summary>
-    public double LevenshteinWeight { get; set; } = 0.3;
-
-    /// <summary>
-    /// 是否使用Jaccard相似度
-    /// </summary>
-    public bool UseJaccard { get; set; } = true;
-
-    /// <summary>
-    /// Jaccard权重
-    /// </summary>
-    public double JaccardWeight { get; set; } = 0.3;
-
-    /// <summary>
-    /// 是否使用Cosine相似度
-    /// </summary>
-    public bool UseCosine { get; set; } = true;
-
-    /// <summary>
-    /// Cosine权重
-    /// </summary>
-    public double CosineWeight { get; set; } = 0.4;
+    public int? LlmServiceId { get; set; }
 
     /// <summary>
     /// 最小匹配阈值
@@ -115,9 +100,20 @@ public class MatchConfigDto
     public double MinScoreThreshold { get; set; } = 0.3;
 
     /// <summary>
-    /// 返回的最大候选数量
+    /// 是否启用LLM复核
     /// </summary>
-    public int MaxCandidates { get; set; } = 5;
+    public bool UseLlmReview { get; set; } = false;
+
+    /// <summary>
+    /// 是否启用LLM生成建议
+    /// </summary>
+    public bool UseLlmSuggestion { get; set; } = false;
+
+    /// <summary>
+    /// 生成建议触发阈值（最佳得分低于该值）
+    /// </summary>
+    public double LlmSuggestionScoreThreshold { get; set; } = 0.6;
+
 }
 
 /// <summary>
@@ -177,9 +173,14 @@ public class MatchPreviewItem
     public MatchResultDto? BestMatch { get; set; }
 
     /// <summary>
-    /// 候选匹配列表（按得分降序）
+    /// LLM 生成建议（低置信度/无匹配时）
     /// </summary>
-    public List<MatchResultDto> Candidates { get; set; } = [];
+    public LlmSuggestionDto? LlmSuggestion { get; set; }
+
+    /// <summary>
+    /// 不匹配原因
+    /// </summary>
+    public string? NoMatchReason { get; set; }
 
     /// <summary>
     /// 是否有匹配
@@ -232,6 +233,26 @@ public class MatchResultDto
     /// 各算法得分详情
     /// </summary>
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
+
+    /// <summary>
+    /// LLM复核得分（0-100）
+    /// </summary>
+    public double? LlmScore { get; set; }
+
+    /// <summary>
+    /// LLM复核原因
+    /// </summary>
+    public string? LlmReason { get; set; }
+
+    /// <summary>
+    /// LLM复核评论
+    /// </summary>
+    public string? LlmCommentary { get; set; }
+
+    /// <summary>
+    /// 是否经过LLM复核
+    /// </summary>
+    public bool IsLlmReviewed { get; set; }
 }
 
 /// <summary>
@@ -295,6 +316,21 @@ public class FillMapping
     /// 选择的验收规格ID（旧字段，兼容保留）
     /// </summary>
     public int? SelectedSpecId { get; set; }
+
+    /// <summary>
+    /// 是否使用LLM生成建议
+    /// </summary>
+    public bool UseLlmSuggestion { get; set; }
+
+    /// <summary>
+    /// LLM生成的验收标准（可选）
+    /// </summary>
+    public string? Acceptance { get; set; }
+
+    /// <summary>
+    /// LLM生成的备注（可选）
+    /// </summary>
+    public string? Remark { get; set; }
 }
 
 /// <summary>
@@ -360,4 +396,77 @@ public class SimilarityResponse
     /// 各算法得分详情
     /// </summary>
     public Dictionary<string, double> Scores { get; set; } = [];
+}
+
+/// <summary>
+/// LLM 流式请求
+/// </summary>
+public class MatchLlmStreamRequest
+{
+    /// <summary>
+    /// 待复核/生成的行列表
+    /// </summary>
+    public List<MatchLlmStreamItem> Items { get; set; } = [];
+
+    /// <summary>
+    /// 匹配配置
+    /// </summary>
+    public MatchConfigDto? Config { get; set; }
+}
+
+/// <summary>
+/// LLM 流式请求项
+/// </summary>
+public class MatchLlmStreamItem
+{
+    /// <summary>
+    /// 行索引
+    /// </summary>
+    public int RowIndex { get; set; }
+
+    /// <summary>
+    /// 源项目名称
+    /// </summary>
+    public string SourceProject { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 源规格内容
+    /// </summary>
+    public string SourceSpecification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 最佳匹配的验收规格ID
+    /// </summary>
+    public int? BestMatchSpecId { get; set; }
+
+    /// <summary>
+    /// 最佳匹配基础得分
+    /// </summary>
+    public double? BestMatchScore { get; set; }
+
+    /// <summary>
+    /// 算法得分明细
+    /// </summary>
+    public Dictionary<string, double>? ScoreDetails { get; set; }
+}
+
+/// <summary>
+/// LLM生成建议DTO
+/// </summary>
+public class LlmSuggestionDto
+{
+    /// <summary>
+    /// 验收标准建议
+    /// </summary>
+    public string? Acceptance { get; set; }
+
+    /// <summary>
+    /// 备注建议
+    /// </summary>
+    public string? Remark { get; set; }
+
+    /// <summary>
+    /// 生成理由
+    /// </summary>
+    public string? Reason { get; set; }
 }

@@ -12,6 +12,7 @@ import Table from "@pureadmin/table";
 // import PureDescriptions from "@pureadmin/descriptions";
 
 // 引入重置样式
+import "./style/fonts.scss";
 import "./style/reset.scss";
 // 导入公共样式
 import "./style/index.scss";

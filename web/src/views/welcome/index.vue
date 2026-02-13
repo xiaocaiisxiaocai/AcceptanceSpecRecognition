@@ -14,5 +14,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <div style="padding: 20px">正在跳转到仪表盘...</div>
+  <div class="page welcome">正在跳转到仪表盘...</div>
 </template>
+
+<style scoped>
+.welcome {
+  font-size: 14px;
+  color: #6b7280;
+}
+</style>

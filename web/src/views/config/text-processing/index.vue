@@ -20,8 +20,6 @@ const formData = reactive<UpdateTextProcessingConfigRequest>({
   conversionMode: ChineseConversionMode.None,
   enableSynonym: true,
   enableOkNgConversion: true,
-  okStandardFormat: "OK",
-  ngStandardFormat: "NG",
   enableKeywordHighlight: false,
   highlightColorHex: "#FFFF00"
 });
@@ -37,7 +35,8 @@ const load = async () => {
   try {
     const res = await getTextProcessingConfig();
     if (res.code === 0) {
-      Object.assign(formData, res.data);
+      const { okStandardFormat, ngStandardFormat, ...rest } = res.data;
+      Object.assign(formData, rest);
     } else {
       ElMessage.error(res.message);
     }
@@ -49,15 +48,11 @@ const load = async () => {
 };
 
 const save = async () => {
-  if (!formData.okStandardFormat?.trim() || !formData.ngStandardFormat?.trim()) {
-    ElMessage.warning("OK/NG 标准格式不能为空");
-    return;
-  }
   try {
     const res = await saveTextProcessingConfig({
       ...formData,
-      okStandardFormat: formData.okStandardFormat.trim(),
-      ngStandardFormat: formData.ngStandardFormat.trim(),
+      okStandardFormat: null,
+      ngStandardFormat: null,
       highlightColorHex: formData.highlightColorHex?.trim() || "#FFFF00"
     });
     if (res.code === 0) {
@@ -81,7 +76,8 @@ const reset = async () => {
     const res = await resetTextProcessingConfig();
     if (res.code === 0) {
       ElMessage.success("已重置");
-      Object.assign(formData, res.data);
+      const { okStandardFormat, ngStandardFormat, ...rest } = res.data;
+      Object.assign(formData, rest);
     } else {
       ElMessage.error(res.message);
     }
@@ -94,7 +90,13 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="main">
+  <div class="page config-page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">文本预处理</div>
+        <div class="page-subtitle">配置清洗与处理策略</div>
+      </div>
+    </div>
     <el-card>
       <template #header>
         <div class="flex justify-between items-center">
@@ -114,8 +116,8 @@ onMounted(load);
         <el-form-item label="转换模式">
           <el-select
             v-model="formData.conversionMode"
-            class="w-full"
             :disabled="!formData.enableChineseConversion"
+            popper-class="config-select-popper"
           >
             <el-option
               v-for="opt in conversionModeOptions"
@@ -133,11 +135,8 @@ onMounted(load);
         <el-form-item label="启用 OK/NG 格式转换">
           <el-switch v-model="formData.enableOkNgConversion" />
         </el-form-item>
-        <el-form-item label="OK 标准格式" required>
-          <el-input v-model="formData.okStandardFormat" style="max-width: 240px" />
-        </el-form-item>
-        <el-form-item label="NG 标准格式" required>
-          <el-input v-model="formData.ngStandardFormat" style="max-width: 240px" />
+        <el-form-item label="OK/NG 格式">
+          <span class="form-tip">由上传文件定义，无需在此配置</span>
         </el-form-item>
 
         <el-divider content-position="left">关键字高亮（预留）</el-divider>
@@ -154,8 +153,17 @@ onMounted(load);
 </template>
 
 <style scoped>
-.main {
-  padding: 20px;
+.page {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
+
+.form-tip {
+  font-size: 12px;
+  color: #6b7280;
+}
+
 </style>
 

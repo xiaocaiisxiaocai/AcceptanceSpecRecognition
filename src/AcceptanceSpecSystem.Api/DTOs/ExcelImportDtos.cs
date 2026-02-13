@@ -28,8 +28,12 @@ public class ExcelImportDataRequest
     /// <summary>
     /// 目标制程ID
     /// </summary>
-    [Required(ErrorMessage = "制程ID不能为空")]
-    public int ProcessId { get; set; }
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 目标机型ID
+    /// </summary>
+    public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 表头起始行（1-based）
@@ -68,4 +72,3 @@ public class ExcelImportDataRequest
     /// </summary>
     public int? RemarkColumn { get; set; }
 }
-

@@ -25,8 +25,8 @@ export interface UpdateTextProcessingConfigRequest {
   conversionMode: ChineseConversionMode;
   enableSynonym: boolean;
   enableOkNgConversion: boolean;
-  okStandardFormat: string;
-  ngStandardFormat: string;
+  okStandardFormat?: string | null;
+  ngStandardFormat?: string | null;
   enableKeywordHighlight: boolean;
   highlightColorHex: string;
 }

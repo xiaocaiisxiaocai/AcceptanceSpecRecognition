@@ -1,40 +1,25 @@
-using AcceptanceSpecSystem.Core.Matching.Algorithms;
+﻿using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
+using Microsoft.Extensions.Logging;
 
 namespace AcceptanceSpecSystem.Core.Matching.Services;
 
 /// <summary>
-/// 混合匹配服务实现
-/// 结合多种相似度算法进行综合匹配
+/// 兼容旧命名的匹配服务实现（已切换为 Embedding 主链路）
 /// </summary>
+[Obsolete("已被 SemanticKernelMatchingService 替代，仅用于兼容编译")]
 public class HybridMatchingService : IMatchingService
 {
-    private readonly Dictionary<string, ISimilarityAlgorithm> _algorithms;
     private readonly IEmbeddingService _embeddingService;
+    private readonly ILogger<HybridMatchingService> _logger;
 
-    /// <summary>
-    /// 创建混合匹配服务实例
-    /// </summary>
-    public HybridMatchingService(IEmbeddingService? embeddingService = null)
+    public HybridMatchingService(IEmbeddingService embeddingService, ILogger<HybridMatchingService> logger)
     {
-        _algorithms = new Dictionary<string, ISimilarityAlgorithm>
-        {
-            ["Levenshtein"] = new LevenshteinSimilarity(),
-            ["Jaccard"] = new JaccardSimilarity(),
-            ["Cosine"] = new CosineSimilarity()
-        };
-
-        _embeddingService = embeddingService ?? new DefaultEmbeddingService();
+        _embeddingService = embeddingService;
+        _logger = logger;
     }
 
-    /// <summary>
-    /// 为单条源文本在候选集中查找匹配结果。
-    /// </summary>
-    /// <param name="sourceText">源文本</param>
-    /// <param name="candidates">候选项集合</param>
-    /// <param name="config">匹配配置（可选）</param>
-    /// <returns>匹配结果列表（按得分降序，最多返回 MaxResults）</returns>
     public async Task<List<MatchResult>> FindMatchesAsync(
         string sourceText,
         IEnumerable<MatchCandidate> candidates,
@@ -48,66 +33,49 @@ public class HybridMatchingService : IMatchingService
             return [];
         }
 
-        var results = new List<MatchResult>();
-        var weights = config.GetNormalizedWeights();
-
-        // 如果启用Embedding且服务可用，预先计算源文本的Embedding
-        float[]? sourceEmbedding = null;
-        if (config.UseEmbedding && _embeddingService.IsAvailable)
+        float[] sourceEmbedding;
+        try
         {
-            try
-            {
-                sourceEmbedding = await _embeddingService.GenerateEmbeddingAsync(sourceText);
-            }
-            catch
-            {
-                // Embedding计算失败，降级为不使用Embedding
-                weights.Remove("Embedding");
-                NormalizeWeights(weights);
-            }
+            sourceEmbedding = await _embeddingService.GenerateEmbeddingAsync(sourceText, config.EmbeddingServiceId);
+        }
+        catch (AiServiceUnavailableException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "生成源文本 Embedding 失败");
+            throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
         }
 
-        foreach (var candidate in candidateList)
+        var candidateTexts = candidateList.Select(c => c.CombinedText).ToList();
+        List<float[]> candidateEmbeddings;
+        try
         {
-            var scoreDetails = new Dictionary<string, double>();
-            double totalScore = 0;
+            candidateEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(candidateTexts, config.EmbeddingServiceId);
+        }
+        catch (AiServiceUnavailableException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "生成候选 Embedding 失败");
+            throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
+        }
 
-            // 计算各算法得分
-            foreach (var (algorithmName, weight) in weights)
+        var results = new List<MatchResult>();
+        for (var i = 0; i < candidateList.Count; i++)
+        {
+            var candidate = candidateList[i];
+            var embedding = candidateEmbeddings.Count > i ? candidateEmbeddings[i] : Array.Empty<float>();
+            var score = _embeddingService.ComputeSimilarity(sourceEmbedding, embedding);
+            var scoreDetails = new Dictionary<string, double>
             {
-                if (algorithmName == "Embedding")
-                {
-                    // Embedding相似度单独处理
-                    if (sourceEmbedding != null)
-                    {
-                        try
-                        {
-                            var candidateEmbedding = candidate.Embedding;
-                            if (candidateEmbedding == null)
-                            {
-                                candidateEmbedding = await _embeddingService.GenerateEmbeddingAsync(candidate.CombinedText);
-                            }
-                            var embeddingScore = _embeddingService.ComputeSimilarity(sourceEmbedding, candidateEmbedding);
-                            scoreDetails[algorithmName] = embeddingScore;
-                            totalScore += embeddingScore * weight;
-                        }
-                        catch
-                        {
-                            // 单个Embedding计算失败，跳过
-                            scoreDetails[algorithmName] = 0;
-                        }
-                    }
-                }
-                else if (_algorithms.TryGetValue(algorithmName, out var algorithm))
-                {
-                    var score = algorithm.Calculate(sourceText, candidate.CombinedText);
-                    scoreDetails[algorithmName] = score;
-                    totalScore += score * weight;
-                }
-            }
+                ["Embedding"] = score
+            };
 
-            // 只添加超过阈值的结果
-            if (totalScore >= config.MinScoreThreshold)
+            if (score >= config.MinScoreThreshold)
             {
                 results.Add(new MatchResult
                 {
@@ -117,26 +85,18 @@ public class HybridMatchingService : IMatchingService
                     MatchedProject = candidate.Project,
                     MatchedSpecification = candidate.Specification,
                     MatchedAcceptance = candidate.Acceptance,
-                    Score = totalScore,
+                    Score = score,
                     ScoreDetails = scoreDetails
                 });
             }
         }
 
-        // 按得分降序排列，取前N个
         return results
             .OrderByDescending(r => r.Score)
-            .Take(config.MaxResults)
+            .Take(1)
             .ToList();
     }
 
-    /// <summary>
-    /// 批量匹配：对每条源文本在候选集中选择最佳匹配。
-    /// </summary>
-    /// <param name="sourceTexts">源文本集合</param>
-    /// <param name="candidates">候选项集合</param>
-    /// <param name="config">匹配配置（可选）</param>
-    /// <returns>批量匹配结果</returns>
     public async Task<BatchMatchResult> BatchMatchAsync(
         IEnumerable<string> sourceTexts,
         IEnumerable<MatchCandidate> candidates,
@@ -149,8 +109,6 @@ public class HybridMatchingService : IMatchingService
         foreach (var sourceText in sourceTexts)
         {
             var matches = await FindMatchesAsync(sourceText, candidateList, config);
-
-            // 取最佳匹配
             var bestMatch = matches.FirstOrDefault();
             if (bestMatch != null)
             {
@@ -158,7 +116,6 @@ public class HybridMatchingService : IMatchingService
             }
             else
             {
-                // 没有匹配，添加空结果
                 result.Results.Add(new MatchResult
                 {
                     SourceText = sourceText,
@@ -170,63 +127,20 @@ public class HybridMatchingService : IMatchingService
         return result;
     }
 
-    /// <summary>
-    /// 计算两段文本在各启用算法下的相似度明细，并计算加权总分。
-    /// </summary>
-    /// <param name="text1">文本1</param>
-    /// <param name="text2">文本2</param>
-    /// <param name="config">匹配配置（可选）</param>
-    /// <returns>得分明细字典（包含 Total）</returns>
-    public Task<Dictionary<string, double>> ComputeSimilarityAsync(
+    public async Task<Dictionary<string, double>> ComputeSimilarityAsync(
         string text1,
         string text2,
         MatchingConfig? config = null)
     {
         config ??= new MatchingConfig();
-        var scores = new Dictionary<string, double>();
+        var embedding1 = await _embeddingService.GenerateEmbeddingAsync(text1, config.EmbeddingServiceId);
+        var embedding2 = await _embeddingService.GenerateEmbeddingAsync(text2, config.EmbeddingServiceId);
+        var score = _embeddingService.ComputeSimilarity(embedding1, embedding2);
 
-        if (config.UseLevenshtein)
+        return new Dictionary<string, double>
         {
-            scores["Levenshtein"] = _algorithms["Levenshtein"].Calculate(text1, text2);
-        }
-
-        if (config.UseJaccard)
-        {
-            scores["Jaccard"] = _algorithms["Jaccard"].Calculate(text1, text2);
-        }
-
-        if (config.UseCosine)
-        {
-            scores["Cosine"] = _algorithms["Cosine"].Calculate(text1, text2);
-        }
-
-        // 计算加权总分
-        var weights = config.GetNormalizedWeights();
-        double totalScore = 0;
-        foreach (var (name, score) in scores)
-        {
-            if (weights.TryGetValue(name, out var weight))
-            {
-                totalScore += score * weight;
-            }
-        }
-        scores["Total"] = totalScore;
-
-        return Task.FromResult(scores);
-    }
-
-    /// <summary>
-    /// 归一化权重
-    /// </summary>
-    private static void NormalizeWeights(Dictionary<string, double> weights)
-    {
-        var total = weights.Values.Sum();
-        if (total > 0)
-        {
-            foreach (var key in weights.Keys.ToList())
-            {
-                weights[key] /= total;
-            }
-        }
+            ["Embedding"] = score,
+            ["Total"] = score
+        };
     }
 }

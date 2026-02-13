@@ -1,11 +1,11 @@
 .login-page {
   /* 仅对登录页覆盖 element-plus 主色，避免影响系统其它页面 */
-  --el-color-primary: #064790;
-  --el-color-primary-light-3: #1c599b;
-  --el-color-primary-light-5: #2f6bb0;
-  --el-color-primary-light-7: #6f9bcf;
-  --el-color-primary-light-9: #d9e6f5;
-  --el-color-primary-dark-2: #053a75;
+  --el-color-primary: #7c3aed;
+  --el-color-primary-light-3: #8b5cf6;
+  --el-color-primary-light-5: #a78bfa;
+  --el-color-primary-light-7: #c4b5fd;
+  --el-color-primary-light-9: #ede9fe;
+  --el-color-primary-dark-2: #6d28d9;
 }
 
 .login-container {
@@ -17,9 +17,9 @@
   align-items: center;
   padding: 0 16px;
   background:
-    radial-gradient(1200px 800px at 20% 20%, rgba(6, 71, 144, 0.12), transparent 60%),
-    radial-gradient(900px 600px at 80% 30%, rgba(28, 89, 155, 0.10), transparent 55%),
-    linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
+    radial-gradient(1200px 800px at 20% 20%, rgba(124, 58, 237, 0.16), transparent 60%),
+    radial-gradient(900px 600px at 80% 30%, rgba(167, 139, 250, 0.14), transparent 55%),
+    linear-gradient(180deg, #ffffff 0%, #f9f5ff 100%);
 }
 
 .login-box {
@@ -34,8 +34,8 @@
   padding: 28px 28px 22px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(6, 71, 144, 0.10);
-  box-shadow: 0 18px 50px rgba(6, 71, 144, 0.12);
+  border: 1px solid rgba(124, 58, 237, 0.12);
+  box-shadow: 0 18px 50px rgba(124, 58, 237, 0.16);
 }
 
 .avatar {
@@ -46,7 +46,7 @@
 
 .login-form h2 {
   margin: 10px 0 18px;
-  color: #0b1b3a;
+  color: #4c1d95;
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 1px;

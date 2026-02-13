@@ -78,7 +78,8 @@ defineExpose({
               v-model="mapping.projectColumn"
               placeholder="请选择"
               clearable
-              class="w-full"
+              class="dialog-select dialog-select--320"
+              popper-class="app-select-popper"
               @change="updateMapping"
             >
               <el-option
@@ -96,7 +97,8 @@ defineExpose({
               v-model="mapping.specificationColumn"
               placeholder="请选择"
               clearable
-              class="w-full"
+              class="dialog-select dialog-select--320"
+              popper-class="app-select-popper"
               @change="updateMapping"
             >
               <el-option
@@ -117,7 +119,8 @@ defineExpose({
               v-model="mapping.acceptanceColumn"
               placeholder="请选择"
               clearable
-              class="w-full"
+              class="dialog-select dialog-select--320"
+              popper-class="app-select-popper"
               @change="updateMapping"
             >
               <el-option
@@ -135,7 +138,8 @@ defineExpose({
               v-model="mapping.remarkColumn"
               placeholder="请选择"
               clearable
-              class="w-full"
+              class="dialog-select dialog-select--320"
+              popper-class="app-select-popper"
               @change="updateMapping"
             >
               <el-option
@@ -194,7 +198,7 @@ defineExpose({
 .title {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--color-text);
 }
 
 .actions {
@@ -212,7 +216,7 @@ defineExpose({
 
 .form-tip {
   font-size: 12px;
-  color: #909399;
+  color: #6b7280;
   margin-top: 4px;
 }
 

@@ -6,7 +6,7 @@ export default {
   component: Layout,
   redirect: "/data-import/import",
   meta: {
-    icon: "ri/upload-cloud-2-line",
+    icon: "ri:upload-cloud-2-line",
     title: "数据导入",
     rank: 2
   },
@@ -16,7 +16,7 @@ export default {
       name: "ImportData",
       component: () => import("@/views/data-import/index.vue"),
       meta: {
-        icon: "ri/file-upload-line",
+        icon: "ri:file-upload-line",
         title: "导入数据"
       }
     }

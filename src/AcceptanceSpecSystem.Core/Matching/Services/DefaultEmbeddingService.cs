@@ -19,8 +19,10 @@ public class DefaultEmbeddingService : IEmbeddingService
     /// 默认实现不可用，会抛出异常提示需要先配置 AI 服务。
     /// </summary>
     /// <param name="text">文本</param>
+    /// <param name="serviceId">指定服务ID（可选）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>向量</returns>
-    public Task<float[]> GenerateEmbeddingAsync(string text)
+    public Task<float[]> GenerateEmbeddingAsync(string text, int? serviceId = null, CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Embedding服务不可用，请先配置AI服务");
     }
@@ -30,8 +32,10 @@ public class DefaultEmbeddingService : IEmbeddingService
     /// 默认实现不可用，会抛出异常提示需要先配置 AI 服务。
     /// </summary>
     /// <param name="texts">文本集合</param>
+    /// <param name="serviceId">指定服务ID（可选）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>向量列表</returns>
-    public Task<List<float[]>> GenerateEmbeddingsAsync(IEnumerable<string> texts)
+    public Task<List<float[]>> GenerateEmbeddingsAsync(IEnumerable<string> texts, int? serviceId = null, CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Embedding服务不可用，请先配置AI服务");
     }

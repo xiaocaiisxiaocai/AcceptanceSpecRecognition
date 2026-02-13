@@ -83,7 +83,6 @@ $previewBody = @{
     useJaccard = $true
     useCosine = $true
     minScoreThreshold = 0.0
-    maxCandidates = 5
   }
 } | ConvertTo-Json -Depth 8
 

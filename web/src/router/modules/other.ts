@@ -6,7 +6,7 @@ export default {
   component: Layout,
   redirect: "/other/synonyms",
   meta: {
-    icon: "ri/apps-line",
+    icon: "ri:apps-line",
     title: "其他",
     rank: 5
   },
@@ -16,7 +16,7 @@ export default {
       name: "Synonyms",
       component: () => import("@/views/other/synonyms/index.vue"),
       meta: {
-        icon: "ri/translate-2",
+        icon: "ri:translate-2",
         title: "同义词管理"
       }
     },
@@ -25,7 +25,7 @@ export default {
       name: "Keywords",
       component: () => import("@/views/other/keywords/index.vue"),
       meta: {
-        icon: "ri/hashtag",
+        icon: "ri:hashtag",
         title: "关键字管理"
       }
     },
@@ -34,7 +34,7 @@ export default {
       name: "OperationHistory",
       component: () => import("@/views/other/history/index.vue"),
       meta: {
-        icon: "ri/history-line",
+        icon: "ri:history-line",
         title: "操作历史"
       }
     }

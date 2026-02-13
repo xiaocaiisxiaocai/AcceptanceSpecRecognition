@@ -139,7 +139,13 @@ onMounted(loadData);
 </script>
 
 <template>
-  <div class="main">
+  <div class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">同义词管理</div>
+        <div class="page-subtitle">维护标准词与同义词关系</div>
+      </div>
+    </div>
     <el-card class="mb-4">
       <el-form :inline="true">
         <el-form-item label="关键词">
@@ -227,8 +233,11 @@ onMounted(loadData);
 </template>
 
 <style scoped>
-.main {
-  padding: 20px;
+.page {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 </style>
 

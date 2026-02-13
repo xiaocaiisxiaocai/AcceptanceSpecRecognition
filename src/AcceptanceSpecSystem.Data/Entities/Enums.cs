@@ -55,6 +55,28 @@ public enum AiServiceType
 }
 
 /// <summary>
+/// AI服务用途枚举（可组合）
+/// </summary>
+[Flags]
+public enum AiServicePurpose
+{
+    /// <summary>
+    /// 未指定
+    /// </summary>
+    None = 0,
+
+    /// <summary>
+    /// LLM 推理
+    /// </summary>
+    Llm = 1,
+
+    /// <summary>
+    /// 向量 Embedding
+    /// </summary>
+    Embedding = 2
+}
+
+/// <summary>
 /// 简繁转换模式枚举
 /// </summary>
 public enum ChineseConversionMode

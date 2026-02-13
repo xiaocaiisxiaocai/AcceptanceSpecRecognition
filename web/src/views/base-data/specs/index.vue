@@ -12,6 +12,7 @@ import {
 } from "@/api/spec";
 import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
+import { getMachineModelList, type MachineModel } from "@/api/machine-model";
 
 defineOptions({
   name: "AcceptanceSpecs"
@@ -25,9 +26,10 @@ const total = ref(0);
 // 选中的行
 const selectedRows = ref<AcceptanceSpec[]>([]);
 
-// 客户和制程列表（用于下拉选择）
+// 客户、制程、机型列表（用于下拉选择）
 const customerList = ref<Customer[]>([]);
 const processList = ref<Process[]>([]);
+const machineModelList = ref<MachineModel[]>([]);
 
 // 查询参数
 const queryParams = reactive<SpecListRequest>({
@@ -35,7 +37,8 @@ const queryParams = reactive<SpecListRequest>({
   pageSize: 20,
   keyword: "",
   customerId: undefined,
-  processId: undefined
+  processId: undefined,
+  machineModelId: undefined
 });
 
 // 对话框
@@ -46,6 +49,7 @@ const formData = reactive({
   id: 0,
   customerId: undefined as number | undefined,
   processId: undefined as number | undefined,
+  machineModelId: undefined as number | undefined,
   project: "",
   specification: "",
   acceptance: "",
@@ -74,6 +78,18 @@ const loadProcesses = async () => {
     const res = await getProcessList({ pageSize: 1000 });
     if (res.code === 0) {
       processList.value = res.data.items;
+    }
+  } catch {
+    // 忽略错误
+  }
+};
+
+// 加载机型列表
+const loadMachineModels = async () => {
+  try {
+    const res = await getMachineModelList({ pageSize: 1000 });
+    if (res.code === 0) {
+      machineModelList.value = res.data.items;
     }
   } catch {
     // 忽略错误
@@ -109,6 +125,7 @@ const handleReset = () => {
   queryParams.keyword = "";
   queryParams.customerId = undefined;
   queryParams.processId = undefined;
+  queryParams.machineModelId = undefined;
   queryParams.page = 1;
   loadData();
 };
@@ -126,6 +143,7 @@ const handleAdd = () => {
   formData.id = 0;
   formData.customerId = undefined;
   formData.processId = undefined;
+  formData.machineModelId = undefined;
   formData.project = "";
   formData.specification = "";
   formData.acceptance = "";
@@ -140,6 +158,7 @@ const handleEdit = (row: AcceptanceSpec) => {
   formData.id = row.id;
   formData.customerId = row.customerId;
   formData.processId = row.processId;
+  formData.machineModelId = row.machineModelId;
   formData.project = row.project;
   formData.specification = row.specification;
   formData.acceptance = row.acceptance || "";
@@ -226,10 +245,6 @@ const handleSubmit = async () => {
     ElMessage.warning("请选择所属客户");
     return;
   }
-  if (!isEdit.value && !formData.processId) {
-    ElMessage.warning("请选择所属制程");
-    return;
-  }
   try {
     const res = isEdit.value
       ? await updateSpec(formData.id, {
@@ -240,7 +255,8 @@ const handleSubmit = async () => {
         })
       : await createSpec({
           customerId: formData.customerId!,
-          processId: formData.processId!,
+          processId: formData.processId || undefined,
+          machineModelId: formData.machineModelId || undefined,
           project: formData.project,
           specification: formData.specification,
           acceptance: formData.acceptance || undefined,
@@ -274,12 +290,19 @@ const handleSizeChange = (size: number) => {
 onMounted(() => {
   loadCustomers();
   loadProcesses();
+  loadMachineModels();
   loadData();
 });
 </script>
 
 <template>
-  <div class="main">
+  <div class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">验收规格</div>
+        <div class="page-subtitle">管理验收规格条目与详情</div>
+      </div>
+    </div>
     <!-- 搜索栏 -->
     <el-card class="mb-4">
       <el-form :inline="true">
@@ -288,7 +311,8 @@ onMounted(() => {
             v-model="queryParams.customerId"
             placeholder="全部客户"
             clearable
-            style="width: 150px"
+            class="search-select search-select--300"
+            popper-class="app-select-popper"
             @change="handleCustomerChange"
           >
             <el-option
@@ -304,10 +328,27 @@ onMounted(() => {
             v-model="queryParams.processId"
             placeholder="全部制程"
             clearable
-            style="width: 150px"
+            class="search-select search-select--300"
+            popper-class="app-select-popper"
           >
             <el-option
               v-for="item in processList"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="所属机型">
+          <el-select
+            v-model="queryParams.machineModelId"
+            placeholder="全部机型"
+            clearable
+            class="search-select search-select--300"
+            popper-class="app-select-popper"
+          >
+            <el-option
+              v-for="item in machineModelList"
               :key="item.id"
               :label="item.name"
               :value="item.id"
@@ -356,7 +397,18 @@ onMounted(() => {
         <el-table-column type="selection" width="50" />
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="customerName" label="客户" width="120" />
-        <el-table-column prop="processName" label="制程" width="120" />
+        <el-table-column prop="processName" label="制程" width="120">
+          <template #default="{ row }">
+            <span v-if="row.processName">{{ row.processName }}</span>
+            <span v-else class="text-gray-400">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="machineModelName" label="机型" width="120">
+          <template #default="{ row }">
+            <span v-if="row.machineModelName">{{ row.machineModelName }}</span>
+            <span v-else class="text-gray-400">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="project" label="项目" min-width="150">
           <template #default="{ row }">
             <el-tooltip :content="row.project" placement="top">
@@ -436,7 +488,8 @@ onMounted(() => {
           <el-select
             v-model="formData.customerId"
             placeholder="请选择客户"
-            style="width: 100%"
+            class="dialog-select dialog-select--320"
+            popper-class="app-select-popper"
             @change="handleFormCustomerChange"
           >
             <el-option
@@ -447,14 +500,30 @@ onMounted(() => {
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="所属制程" required v-if="!isEdit">
+        <el-form-item label="所属制程" v-if="!isEdit">
           <el-select
             v-model="formData.processId"
             placeholder="请选择制程"
-            style="width: 100%"
+            class="dialog-select dialog-select--320"
+            popper-class="app-select-popper"
           >
             <el-option
               v-for="item in processList"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="所属机型" v-if="!isEdit">
+          <el-select
+            v-model="formData.machineModelId"
+            placeholder="请选择机型"
+            class="dialog-select dialog-select--320"
+            popper-class="app-select-popper"
+          >
+            <el-option
+              v-for="item in machineModelList"
               :key="item.id"
               :label="item.name"
               :value="item.id"
@@ -507,7 +576,10 @@ onMounted(() => {
           detailData.customerName
         }}</el-descriptions-item>
         <el-descriptions-item label="制程">{{
-          detailData.processName
+          detailData.processName || "-"
+        }}</el-descriptions-item>
+        <el-descriptions-item label="机型">{{
+          detailData.machineModelName || "-"
         }}</el-descriptions-item>
         <el-descriptions-item label="项目">{{
           detailData.project
@@ -535,8 +607,11 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.main {
-  padding: 20px;
+.page {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .line-clamp-1 {

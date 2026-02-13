@@ -214,8 +214,11 @@ public class ProcessesController : BaseApiController
             .Select(s => new AcceptanceSpecDto
             {
                 Id = s.Id,
+                CustomerId = s.CustomerId,
                 ProcessId = s.ProcessId,
+                MachineModelId = s.MachineModelId,
                 ProcessName = process.Name,
+                MachineModelName = s.MachineModel?.Name ?? "",
                 CustomerName = s.Customer?.Name ?? "",
                 Project = s.Project,
                 Specification = s.Specification,

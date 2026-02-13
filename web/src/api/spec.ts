@@ -5,8 +5,10 @@ import type { ApiResponse, PagedData, PagedRequest } from "./customer";
 export interface AcceptanceSpec {
   id: number;
   customerId: number;
-  processId: number;
+  processId?: number;
+  machineModelId?: number;
   processName: string;
+  machineModelName: string;
   customerName: string;
   project: string;
   specification: string;
@@ -18,7 +20,8 @@ export interface AcceptanceSpec {
 /** 创建验收规格请求 */
 export interface CreateSpecRequest {
   customerId: number;
-  processId: number;
+  processId?: number;
+  machineModelId?: number;
   project: string;
   specification: string;
   acceptance?: string;
@@ -37,6 +40,7 @@ export interface UpdateSpecRequest {
 export interface SpecListRequest extends PagedRequest {
   customerId?: number;
   processId?: number;
+  machineModelId?: number;
 }
 
 /** 导入规格项 */
@@ -50,7 +54,8 @@ export interface SpecImportItem {
 /** 批量导入请求 */
 export interface BatchImportSpecsRequest {
   customerId: number;
-  processId: number;
+  processId?: number;
+  machineModelId?: number;
   wordFileId: number;
   items: SpecImportItem[];
 }

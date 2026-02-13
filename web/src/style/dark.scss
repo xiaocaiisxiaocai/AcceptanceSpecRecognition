@@ -8,6 +8,15 @@ html.dark {
   /* 自定义深色背景颜色 */
   // --el-bg-color: #020409;
 
+  --color-background: #0b0c12;
+  --color-text: #e5e7eb;
+  --el-bg-color: #0b0c12;
+  --el-card-bg-color: #0f1117;
+  --el-card-border-color: #232633;
+  --el-table-border-color: #232633;
+  --el-table-header-bg-color: #1f2432;
+  --el-table-row-hover-bg-color: #141824;
+
   /* 常用border-color 需要时可取用 */
   --pure-border-color: rgb(253 253 253 / 12%);
 
@@ -81,6 +90,30 @@ html.dark {
 
   .el-card {
     --el-card-bg-color: var(--el-bg-color);
+  }
+
+  .el-card__header {
+    background: #151924;
+    border-bottom-color: #232633;
+  }
+
+  .el-button--default {
+    background-color: #121521;
+    border-color: #2a2f3a;
+    color: rgb(235 235 235 / 85%);
+  }
+
+  .el-button--default:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+
+  .el-table--striped .el-table__body tr.el-table__row--striped td {
+    background: #121621;
+  }
+
+  .el-empty__description {
+    color: rgb(235 235 235 / 60%);
   }
 
   .el-backtop {

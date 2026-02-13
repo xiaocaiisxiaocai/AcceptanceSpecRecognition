@@ -22,8 +22,8 @@ public class UpdateTextProcessingConfigRequest
     public ChineseConversionMode ConversionMode { get; set; }
     public bool EnableSynonym { get; set; }
     public bool EnableOkNgConversion { get; set; }
-    public string OkStandardFormat { get; set; } = "OK";
-    public string NgStandardFormat { get; set; } = "NG";
+    public string? OkStandardFormat { get; set; }
+    public string? NgStandardFormat { get; set; }
     public bool EnableKeywordHighlight { get; set; }
     public string HighlightColorHex { get; set; } = "#FFFF00";
 }

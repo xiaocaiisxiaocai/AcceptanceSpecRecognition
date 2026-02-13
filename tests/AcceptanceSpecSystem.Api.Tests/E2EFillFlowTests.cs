@@ -63,7 +63,7 @@ public class E2EFillFlowTests : IClassFixture<ApiWebApplicationFactory>
                 specificationColumnIndex = 1,
                 customerId,
                 processId,
-                config = new { useLevenshtein = true, useJaccard = true, useCosine = true, minScoreThreshold = 0.0, maxCandidates = 5 }
+                config = new { useLevenshtein = true, useJaccard = true, useCosine = true, minScoreThreshold = 0.0 }
             }));
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();

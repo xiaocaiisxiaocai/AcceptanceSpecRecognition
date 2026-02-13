@@ -29,7 +29,7 @@ const handleUpload = async (options: UploadRequestOptions) => {
   // 检查文件类型
   const lower = file.name.toLowerCase();
   if (!lower.endsWith(".docx") && !lower.endsWith(".xlsx")) {
-    ElMessage.error("仅支持 .docx 格式的Word文件");
+    ElMessage.error("仅支持 .docx / .xlsx 格式文件");
     return;
   }
 
@@ -83,12 +83,12 @@ const clearFile = () => {
       <div class="el-upload__text">
         <span v-if="uploading">上传中...</span>
         <span v-else>
-          将Word文件拖到此处，或
+          将 Word/Excel 文件拖到此处，或
           <em>点击上传</em>
         </span>
       </div>
       <template #tip>
-        <div class="el-upload__tip">仅支持 .docx 格式，文件大小不超过 50MB</div>
+        <div class="el-upload__tip">仅支持 .docx / .xlsx 格式，文件大小不超过 50MB</div>
       </template>
     </el-upload>
 
@@ -139,6 +139,17 @@ const clearFile = () => {
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  border-radius: 12px;
+  border-color: #e4d7fb;
+  background: #ffffff;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.upload-area :deep(.el-upload-dragger:hover) {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .uploaded-info {
@@ -162,13 +173,13 @@ const clearFile = () => {
 .file-name {
   font-size: 16px;
   font-weight: 500;
-  color: #303133;
+  color: var(--color-text);
 }
 
 .file-meta {
   margin-top: 4px;
   font-size: 14px;
-  color: #909399;
+  color: #6b7280;
   display: flex;
   align-items: center;
   gap: 8px;

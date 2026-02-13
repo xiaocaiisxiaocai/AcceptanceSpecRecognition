@@ -19,6 +19,7 @@ import {
   type Customer
 } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
+import { getMachineModelList, type MachineModel } from "@/api/machine-model";
 import {
   importData,
   importExcelData,
@@ -37,7 +38,7 @@ defineOptions({
 // 步骤
 const currentStep = ref(0);
 const steps = computed(() => [
-  { title: "上传文件", description: isExcelFile.value ? "选择 Excel 文件" : "选择 Word 文档" },
+  { title: "上传文件", description: isExcelFile.value ? "选择 Excel 文件" : "选择 Word/Excel 文件" },
   { title: isExcelFile.value ? "选择工作表" : "选择表格", description: "选择要导入的数据范围" },
   { title: "配置映射", description: isExcelFile.value ? "按列序号指定字段" : "设置列映射关系" },
   { title: "选择目标", description: "选择导入目标" },
@@ -100,10 +101,13 @@ const loadingMappingRules = ref(false);
 // 目标选择
 const customers = ref<Customer[]>([]);
 const processes = ref<Process[]>([]);
+const machineModels = ref<MachineModel[]>([]);
 const selectedCustomerId = ref<number | undefined>(undefined);
 const selectedProcessId = ref<number | undefined>(undefined);
+const selectedMachineModelId = ref<number | undefined>(undefined);
 const loadingCustomers = ref(false);
 const loadingProcesses = ref(false);
+const loadingMachineModels = ref(false);
 
 // 导入结果
 const importing = ref(false);
@@ -170,7 +174,7 @@ const canGoNext = computed(() => {
       return tableConfigs.value.length > 0;
     case 3:
       return (
-        selectedCustomerId.value !== undefined && selectedProcessId.value !== undefined
+        selectedCustomerId.value !== undefined
       );
     case 4:
       return true;
@@ -481,6 +485,21 @@ const loadProcesses = async () => {
   }
 };
 
+// 加载机型列表
+const loadMachineModels = async () => {
+  loadingMachineModels.value = true;
+  try {
+    const res = await getMachineModelList({ page: 1, pageSize: 1000 });
+    if (res.code === 0) {
+      machineModels.value = res.data.items;
+    }
+  } catch {
+    ElMessage.error("加载机型列表失败");
+  } finally {
+    loadingMachineModels.value = false;
+  }
+};
+
 // 监听步骤变化
 watch(currentStep, (step) => {
   if (
@@ -496,6 +515,9 @@ watch(currentStep, (step) => {
   }
   if (step === 3 && processes.value.length === 0) {
     loadProcesses();
+  }
+  if (step === 3 && machineModels.value.length === 0) {
+    loadMachineModels();
   }
 });
 
@@ -541,15 +563,14 @@ const handleImport = async () => {
   if (
     !uploadedFile.value ||
     tableConfigs.value.length === 0 ||
-    !selectedCustomerId.value ||
-    !selectedProcessId.value
+    !selectedCustomerId.value
   ) {
     return;
   }
 
   try {
     await ElMessageBox.confirm(
-      `确定要将 ${tableConfigs.value.length} 个${isExcelFile.value ? "工作表" : "表格"}的数据导入到所选客户/制程吗？`,
+      `确定要将 ${tableConfigs.value.length} 个${isExcelFile.value ? "工作表" : "表格"}的数据导入到所选客户/制程/机型吗？`,
       "确认导入",
       {
         confirmButtonText: "确定",
@@ -573,14 +594,16 @@ const handleImport = async () => {
             fileId: uploadedFile.value.fileId,
             sheetIndex: cfg.tableIndex,
             customerId: selectedCustomerId.value,
-            processId: selectedProcessId.value,
+            processId: selectedProcessId.value || undefined,
+            machineModelId: selectedMachineModelId.value || undefined,
             ...((cfg.excelMapping ?? defaultExcelMapping()) as ExcelImportDataRequest)
           })
         : await importData({
             fileId: uploadedFile.value.fileId,
             tableIndex: cfg.tableIndex,
             customerId: selectedCustomerId.value,
-            processId: selectedProcessId.value,
+            processId: selectedProcessId.value || undefined,
+            machineModelId: selectedMachineModelId.value || undefined,
             mapping: cfg.wordMapping!
           });
 
@@ -627,6 +650,7 @@ const handleRestart = () => {
   tableConfigs.value = [];
   selectedCustomerId.value = undefined;
   selectedProcessId.value = undefined;
+  selectedMachineModelId.value = undefined;
   importResult.value = null;
 };
 
@@ -643,7 +667,13 @@ const previewDataCount = computed(() => {
 </script>
 
 <template>
-  <div class="data-import">
+  <div class="page data-import">
+    <div class="page-header">
+      <div>
+        <div class="page-title">数据导入</div>
+        <div class="page-subtitle">导入验收规格数据，支持 Word/Excel</div>
+      </div>
+    </div>
     <!-- 步骤条 -->
     <el-affix v-if="affixTarget" :offset="affixOffset" :target="affixTarget">
       <div class="steps-affix">
@@ -781,7 +811,7 @@ const previewDataCount = computed(() => {
       <!-- 步骤4: 选择目标 -->
       <div v-show="currentStep === 3" class="step-panel">
         <h3 class="step-title">选择导入目标</h3>
-        <p class="step-desc">请选择数据要导入的客户和制程</p>
+        <p class="step-desc">请选择数据要导入的客户、制程与机型（制程/机型可选）</p>
 
         <el-form label-width="100px" class="target-form">
           <el-form-item label="选择客户" required>
@@ -790,7 +820,8 @@ const previewDataCount = computed(() => {
               placeholder="请选择客户"
               :loading="loadingCustomers"
               filterable
-              class="w-full"
+              class="dialog-select dialog-select--320"
+              popper-class="app-select-popper"
             >
               <el-option
                 v-for="customer in customers"
@@ -801,19 +832,37 @@ const previewDataCount = computed(() => {
             </el-select>
           </el-form-item>
 
-          <el-form-item label="选择制程" required>
+          <el-form-item label="选择制程">
             <el-select
               v-model="selectedProcessId"
-              placeholder="请选择制程"
+              placeholder="请选择制程（可选）"
               :loading="loadingProcesses"
               filterable
-              class="w-full"
+              class="dialog-select dialog-select--320"
+              popper-class="app-select-popper"
             >
               <el-option
                 v-for="process in processes"
                 :key="process.id"
                 :label="process.name"
                 :value="process.id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="选择机型">
+            <el-select
+              v-model="selectedMachineModelId"
+              placeholder="请选择机型（可选）"
+              :loading="loadingMachineModels"
+              filterable
+              class="dialog-select dialog-select--320"
+              popper-class="app-select-popper"
+            >
+              <el-option
+                v-for="model in machineModels"
+                :key="model.id"
+                :label="model.name"
+                :value="model.id"
               />
             </el-select>
           </el-form-item>
@@ -886,7 +935,10 @@ const previewDataCount = computed(() => {
               {{ customers.find((c) => c.id === selectedCustomerId)?.name }}
             </el-descriptions-item>
             <el-descriptions-item label="目标制程">
-              {{ processes.find((p) => p.id === selectedProcessId)?.name }}
+              {{ processes.find((p) => p.id === selectedProcessId)?.name || "-" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="目标机型">
+              {{ machineModels.find((m) => m.id === selectedMachineModelId)?.name || "-" }}
             </el-descriptions-item>
             <el-descriptions-item label="预计导入">
               约 {{ previewDataCount }} 条数据
@@ -927,14 +979,17 @@ const previewDataCount = computed(() => {
 
 <style scoped>
 .data-import {
-  padding: 0;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .steps-affix {
   width: 100%;
   background: var(--el-bg-color);
   /* 不要顶部 padding，否则 Affix 需要先滚动一段才会触发“固定” */
-  padding: 0 20px 16px;
+  padding: 0 0 16px;
   /* 让固定时更有层次感，避免和内容“糊在一起” */
   border-bottom: 1px solid var(--el-border-color-lighter);
   /* 防止底下内容滚动时“透出来” */
@@ -943,10 +998,10 @@ const previewDataCount = computed(() => {
 }
 
 .data-import-body {
-  padding: 0 20px;
+  padding: 0;
   /* 给固定底部操作栏预留空间，避免遮挡内容 */
   padding-bottom: 84px;
-  padding-top: 20px;
+  padding-top: 4px;
 }
 
 .steps-card {
@@ -964,13 +1019,13 @@ const previewDataCount = computed(() => {
 .step-title {
   font-size: 18px;
   font-weight: 600;
-  color: #303133;
+  color: var(--color-text);
   margin-bottom: 8px;
 }
 
 .step-desc {
   font-size: 14px;
-  color: #909399;
+  color: #6b7280;
   margin-bottom: 24px;
 }
 
@@ -982,7 +1037,7 @@ const previewDataCount = computed(() => {
 .error-list h4 {
   font-size: 14px;
   font-weight: 500;
-  color: #606266;
+  color: #4b5563;
   margin-bottom: 12px;
 }
 
@@ -1014,7 +1069,7 @@ const previewDataCount = computed(() => {
 
 .import-confirm-desc :deep(.el-descriptions__label) {
   width: 80px;
-  color: #606266;
+  color: #6b7280;
 }
 
 .import-actions {
@@ -1047,7 +1102,7 @@ const previewDataCount = computed(() => {
 .stat-label {
   display: block;
   font-size: 14px;
-  color: #909399;
+  color: #6b7280;
   margin-top: 4px;
 }
 

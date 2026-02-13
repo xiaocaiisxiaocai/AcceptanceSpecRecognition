@@ -7,10 +7,12 @@ using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -26,10 +28,16 @@ public class MatchingController : BaseApiController
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IFileStorageService _fileStorage;
     private readonly ITextPreprocessingPipeline _textPipeline;
+    private readonly ILlmReviewService _llmReviewService;
+    private readonly ILlmSuggestionService _llmSuggestionService;
     private readonly ILogger<MatchingController> _logger;
 
     // 存储填充任务结果（生产环境应使用Redis或数据库）
     private static readonly ConcurrentDictionary<string, FillTaskResult> _fillTaskResults = new();
+    private static readonly JsonSerializerOptions SseJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     /// <summary>
     /// 创建匹配控制器实例
@@ -40,6 +48,8 @@ public class MatchingController : BaseApiController
         DocumentServiceFactory documentServiceFactory,
         IFileStorageService fileStorage,
         ITextPreprocessingPipeline textPipeline,
+        ILlmReviewService llmReviewService,
+        ILlmSuggestionService llmSuggestionService,
         ILogger<MatchingController> logger)
     {
         _unitOfWork = unitOfWork;
@@ -47,6 +57,8 @@ public class MatchingController : BaseApiController
         _documentServiceFactory = documentServiceFactory;
         _fileStorage = fileStorage;
         _textPipeline = textPipeline;
+        _llmReviewService = llmReviewService;
+        _llmSuggestionService = llmSuggestionService;
         _logger = logger;
     }
 
@@ -54,7 +66,7 @@ public class MatchingController : BaseApiController
     /// 匹配预览
     /// </summary>
     /// <remarks>
-    /// 对输入的文本列表进行匹配预览，返回每个项的最佳匹配结果和候选列表
+    /// 对输入的文本列表进行匹配预览，仅返回每个项的最佳匹配结果
     /// </remarks>
     [HttpPost("preview")]
     [ProducesResponseType(typeof(ApiResponse<MatchPreviewResponse>), StatusCodes.Status200OK)]
@@ -90,29 +102,36 @@ public class MatchingController : BaseApiController
             }
         }
 
+        // 转换匹配配置
+        var config = ConvertToMatchingConfig(request.Config);
+
         // 获取候选验收规格
-        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId);
+        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId);
         if (candidates.Count == 0)
         {
-            return Success(new MatchPreviewResponse
+            var emptyItems = new List<MatchPreviewItem>();
+            foreach (var item in request.Items)
             {
-                Items = request.Items.Select(item => new MatchPreviewItem
+                emptyItems.Add(new MatchPreviewItem
                 {
                     RowIndex = item.RowIndex,
                     SourceProject = item.Project,
                     SourceSpecification = item.Specification,
                     BestMatch = null,
-                    Candidates = []
-                }).ToList(),
+                    LlmSuggestion = null,
+                    NoMatchReason = "范围内无候选数据"
+                });
+            }
+
+            return Success(new MatchPreviewResponse
+            {
+                Items = emptyItems,
                 TotalMatched = 0,
                 HighConfidenceCount = 0,
                 MediumConfidenceCount = 0,
                 LowConfidenceCount = 0
             }, "没有找到可匹配的验收规格");
         }
-
-        // 转换匹配配置
-        var config = ConvertToMatchingConfig(request.Config);
 
         // 创建文本处理会话（按 TextProcessingConfig 开关做预处理）
         var tpSession = await _textPipeline.CreateSessionAsync();
@@ -137,15 +156,32 @@ public class MatchingController : BaseApiController
             var processedSpec = tpSession.Process(item.Specification);
             var sourceText = $"{processedProject} {processedSpec}".Trim();
 
-            var matches = await _matchingService.FindMatchesAsync(sourceText, processedCandidates, config);
+            MatchResult? bestMatch = null;
+            string? noMatchReason = null;
+            try
+            {
+                var matches = await _matchingService.FindMatchesAsync(sourceText, processedCandidates, config);
+                bestMatch = matches.FirstOrDefault();
+                if (bestMatch == null)
+                {
+                    noMatchReason = processedCandidates.Count == 0
+                        ? "范围内无候选数据"
+                        : "最佳得分低于阈值";
+                }
+            }
+            catch (AiServiceUnavailableException ex)
+            {
+                noMatchReason = ex.Reason;
+            }
 
             var previewItem = new MatchPreviewItem
             {
                 RowIndex = item.RowIndex,
                 SourceProject = item.Project,
                 SourceSpecification = item.Specification,
-                BestMatch = matches.FirstOrDefault() != null ? ConvertToMatchResultDto(matches.First()) : null,
-                Candidates = matches.Select(ConvertToMatchResultDto).ToList()
+                BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
+                LlmSuggestion = null,
+                NoMatchReason = noMatchReason
             };
 
             previewItems.Add(previewItem);
@@ -174,6 +210,43 @@ public class MatchingController : BaseApiController
             request.Items.Count, response.TotalMatched, highCount, mediumCount, lowCount);
 
         return Success(response);
+    }
+
+    /// <summary>
+    /// LLM 复核/生成流式输出（SSE）
+    /// </summary>
+    [HttpPost("llm-stream")]
+    public async Task LlmStream([FromBody] MatchLlmStreamRequest request)
+    {
+        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.TryAdd("X-Accel-Buffering", "no");
+        Response.ContentType = "text/event-stream";
+
+        if (request.Items == null || request.Items.Count == 0)
+        {
+            await WriteSseEventAsync("error", new { message = "Items不能为空" }, HttpContext.RequestAborted);
+            return;
+        }
+
+        var config = ConvertToMatchingConfig(request.Config);
+        var cancellationToken = HttpContext.RequestAborted;
+
+        foreach (var item in request.Items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (config.UseLlmReview && item.BestMatchSpecId.HasValue)
+            {
+                await StreamLlmReviewAsync(item, config, cancellationToken);
+            }
+
+            if (config.UseLlmSuggestion &&
+                (!item.BestMatchSpecId.HasValue ||
+                 (item.BestMatchScore ?? 0) < config.LlmSuggestionScoreThreshold))
+            {
+                await StreamLlmSuggestionAsync(item, config, cancellationToken);
+            }
+        }
     }
 
     /// <summary>
@@ -213,20 +286,26 @@ public class MatchingController : BaseApiController
         }
 
         // 获取所有相关的验收规格
+        var hasLlmSuggestions = request.Mappings.Any(m => m.UseLlmSuggestion);
         var specIds = request.Mappings
+            .Where(m => !m.UseLlmSuggestion)
             .Select(m => m.SpecId ?? m.SelectedSpecId)
             .Where(id => id.HasValue && id.Value > 0)
             .Select(id => id!.Value)
             .Distinct()
             .ToList();
 
-        if (specIds.Count == 0)
+        if (specIds.Count == 0 && !hasLlmSuggestions)
         {
             return Error<ExecuteFillResponse>(400, "未提供有效的验收规格ID");
         }
 
-        var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => specIds.Contains(s.Id));
-        var specDict = specs.ToDictionary(s => s.Id);
+        var specDict = new Dictionary<int, AcceptanceSpec>();
+        if (specIds.Count > 0)
+        {
+            var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => specIds.Contains(s.Id));
+            specDict = specs.ToDictionary(s => s.Id);
+        }
 
         // 获取文档解析器
         var parser = _documentServiceFactory.GetParser(DocumentType.Word);
@@ -269,6 +348,27 @@ public class MatchingController : BaseApiController
 
         foreach (var fillMapping in request.Mappings)
         {
+            if (fillMapping.UseLlmSuggestion)
+            {
+                var acceptance = fillMapping.Acceptance?.Trim();
+                var remark = fillMapping.Remark?.Trim();
+                if (string.IsNullOrWhiteSpace(acceptance) && string.IsNullOrWhiteSpace(remark))
+                {
+                    skippedCount++;
+                    continue;
+                }
+
+                fillResults.Add(new FillResult
+                {
+                    RowIndex = fillMapping.RowIndex,
+                    SpecId = 0,
+                    Acceptance = acceptance ?? "",
+                    Remark = remark
+                });
+                filledCount++;
+                continue;
+            }
+
             var selectedSpecId = (fillMapping.SpecId ?? fillMapping.SelectedSpecId) ?? 0;
             if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
             {
@@ -466,7 +566,15 @@ public class MatchingController : BaseApiController
         var t2 = tpSession.Process(request.Text2);
 
         var config = ConvertToMatchingConfig(request.Config);
-        var scores = await _matchingService.ComputeSimilarityAsync(t1, t2, config);
+        Dictionary<string, double> scores;
+        try
+        {
+            scores = await _matchingService.ComputeSimilarityAsync(t1, t2, config);
+        }
+        catch (AiServiceUnavailableException ex)
+        {
+            return Error<SimilarityResponse>(400, ex.Reason);
+        }
 
         var response = new SimilarityResponse
         {
@@ -480,15 +588,32 @@ public class MatchingController : BaseApiController
     /// <summary>
     /// 获取候选验收规格列表
     /// </summary>
-    private async Task<List<MatchCandidate>> GetCandidatesAsync(int? customerId, int? processId)
+    private async Task<List<MatchCandidate>> GetCandidatesAsync(int? customerId, int? processId, int? machineModelId)
     {
         IEnumerable<Data.Entities.AcceptanceSpec> specs;
 
         // 优先按“客户 + 制程”组合筛选（即“一整份验规”的范围）
-        if (customerId.HasValue && processId.HasValue)
+        if (customerId.HasValue && processId.HasValue && machineModelId.HasValue)
+        {
+            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
+                s.CustomerId == customerId.Value &&
+                s.ProcessId == processId.Value &&
+                s.MachineModelId == machineModelId.Value);
+        }
+        else if (customerId.HasValue && processId.HasValue)
         {
             specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
                 s.CustomerId == customerId.Value && s.ProcessId == processId.Value);
+        }
+        else if (customerId.HasValue && machineModelId.HasValue)
+        {
+            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
+                s.CustomerId == customerId.Value && s.MachineModelId == machineModelId.Value);
+        }
+        else if (processId.HasValue && machineModelId.HasValue)
+        {
+            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
+                s.ProcessId == processId.Value && s.MachineModelId == machineModelId.Value);
         }
         else if (customerId.HasValue)
         {
@@ -497,6 +622,10 @@ public class MatchingController : BaseApiController
         else if (processId.HasValue)
         {
             specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.ProcessId == processId.Value);
+        }
+        else if (machineModelId.HasValue)
+        {
+            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.MachineModelId == machineModelId.Value);
         }
         else
         {
@@ -524,14 +653,12 @@ public class MatchingController : BaseApiController
 
         return new MatchingConfig
         {
-            UseLevenshtein = dto.UseLevenshtein,
-            LevenshteinWeight = dto.LevenshteinWeight,
-            UseJaccard = dto.UseJaccard,
-            JaccardWeight = dto.JaccardWeight,
-            UseCosine = dto.UseCosine,
-            CosineWeight = dto.CosineWeight,
+            EmbeddingServiceId = dto.EmbeddingServiceId,
+            LlmServiceId = dto.LlmServiceId,
             MinScoreThreshold = dto.MinScoreThreshold,
-            MaxResults = dto.MaxCandidates
+            UseLlmReview = dto.UseLlmReview,
+            UseLlmSuggestion = dto.UseLlmSuggestion,
+            LlmSuggestionScoreThreshold = dto.LlmSuggestionScoreThreshold
         };
     }
 
@@ -547,8 +674,166 @@ public class MatchingController : BaseApiController
             Specification = result.MatchedSpecification ?? "",
             Acceptance = result.MatchedAcceptance,
             Score = result.Score,
-            ScoreDetails = result.ScoreDetails
+            ScoreDetails = result.ScoreDetails,
+            LlmScore = result.LlmScore,
+            LlmReason = result.LlmReason,
+            LlmCommentary = result.LlmCommentary,
+            IsLlmReviewed = result.IsLlmReviewed
         };
+    }
+
+    private async Task StreamLlmReviewAsync(MatchLlmStreamItem item, MatchingConfig config, CancellationToken cancellationToken)
+    {
+        var specId = item.BestMatchSpecId ?? 0;
+        if (specId <= 0)
+            return;
+
+        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(specId);
+        if (spec == null)
+        {
+            await WriteSseEventAsync("review.error", new
+            {
+                rowIndex = item.RowIndex,
+                message = "最佳匹配规格不存在"
+            }, cancellationToken);
+            return;
+        }
+
+        var reviewRequest = new LlmReviewRequest
+        {
+            SourceProject = item.SourceProject,
+            SourceSpecification = item.SourceSpecification,
+            BestMatchProject = spec.Project,
+            BestMatchSpecification = spec.Specification,
+            BestMatchAcceptance = spec.Acceptance,
+            BaseScore = (item.BestMatchScore ?? 0) * 100,
+            ScoreDetails = item.ScoreDetails ?? new Dictionary<string, double>(),
+            LlmServiceId = config.LlmServiceId
+        };
+
+        await WriteSseEventAsync("review.start", new { rowIndex = item.RowIndex }, cancellationToken);
+
+        var buffer = new StringBuilder();
+        try
+        {
+            await foreach (var chunk in _llmReviewService.ReviewStreamAsync(reviewRequest, cancellationToken))
+            {
+                buffer.Append(chunk);
+                await WriteSseEventAsync("review.delta", new
+                {
+                    rowIndex = item.RowIndex,
+                    chunk
+                }, cancellationToken);
+            }
+
+            if (_llmReviewService.TryParseReviewResult(buffer.ToString(), out var result))
+            {
+                await WriteSseEventAsync("review.done", new
+                {
+                    rowIndex = item.RowIndex,
+                    score = result.Score,
+                    reason = result.Reason,
+                    commentary = result.Commentary
+                }, cancellationToken);
+            }
+            else
+            {
+                await WriteSseEventAsync("review.error", new
+                {
+                    rowIndex = item.RowIndex,
+                    message = "LLM复核输出解析失败"
+                }, cancellationToken);
+            }
+        }
+        catch (AiServiceUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "LLM复核失败");
+            await WriteSseEventAsync("review.error", new
+            {
+                rowIndex = item.RowIndex,
+                message = ex.Reason
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LLM复核失败");
+            await WriteSseEventAsync("review.error", new
+            {
+                rowIndex = item.RowIndex,
+                message = "LLM复核失败"
+            }, cancellationToken);
+        }
+    }
+
+    private async Task StreamLlmSuggestionAsync(MatchLlmStreamItem item, MatchingConfig config, CancellationToken cancellationToken)
+    {
+        var request = new LlmSuggestionRequest
+        {
+            SourceProject = item.SourceProject,
+            SourceSpecification = item.SourceSpecification,
+            LlmServiceId = config.LlmServiceId
+        };
+
+        await WriteSseEventAsync("suggestion.start", new { rowIndex = item.RowIndex }, cancellationToken);
+
+        var buffer = new StringBuilder();
+        try
+        {
+            await foreach (var chunk in _llmSuggestionService.GenerateSuggestionStreamAsync(request, cancellationToken))
+            {
+                buffer.Append(chunk);
+                await WriteSseEventAsync("suggestion.delta", new
+                {
+                    rowIndex = item.RowIndex,
+                    chunk
+                }, cancellationToken);
+            }
+
+            if (_llmSuggestionService.TryParseSuggestionResult(buffer.ToString(), out var result))
+            {
+                await WriteSseEventAsync("suggestion.done", new
+                {
+                    rowIndex = item.RowIndex,
+                    acceptance = result.Acceptance,
+                    remark = result.Remark,
+                    reason = result.Reason
+                }, cancellationToken);
+            }
+            else
+            {
+                await WriteSseEventAsync("suggestion.error", new
+                {
+                    rowIndex = item.RowIndex,
+                    message = "LLM生成输出解析失败"
+                }, cancellationToken);
+            }
+        }
+        catch (AiServiceUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "LLM生成建议失败");
+            await WriteSseEventAsync("suggestion.error", new
+            {
+                rowIndex = item.RowIndex,
+                message = ex.Reason
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LLM生成建议失败");
+            await WriteSseEventAsync("suggestion.error", new
+            {
+                rowIndex = item.RowIndex,
+                message = "LLM生成建议失败"
+            }, cancellationToken);
+        }
+    }
+
+    private async Task WriteSseEventAsync(string eventName, object data, CancellationToken cancellationToken)
+    {
+        var json = JsonSerializer.Serialize(data, SseJsonOptions);
+        await Response.WriteAsync($"event: {eventName}\n", cancellationToken);
+        await Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+        await Response.Body.FlushAsync(cancellationToken);
     }
 
     private async Task<List<MatchSourceItem>> ExtractMatchSourceItemsFromFileAsync(

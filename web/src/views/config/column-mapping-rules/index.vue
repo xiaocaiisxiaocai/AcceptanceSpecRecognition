@@ -17,6 +17,8 @@ defineOptions({
 
 const loading = ref(false);
 const rules = ref<ColumnMappingRule[]>([]);
+const tableSelectWidth = 320;
+const tableSelectClass = `table-select table-select--${tableSelectWidth}`;
 
 const activeTarget = ref<ColumnMappingTargetField>(ColumnMappingTargetField.Project);
 
@@ -167,7 +169,13 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="p-4">
+  <div class="page column-rules config-page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">列映射规则</div>
+        <div class="page-subtitle">表头关键字映射与优先级配置</div>
+      </div>
+    </div>
     <el-card>
       <template #header>
         <div class="flex justify-between items-center">
@@ -193,12 +201,13 @@ onMounted(load);
 
       <el-table v-loading="loading" :data="filteredRules" stripe border>
         <el-table-column prop="pattern" label="匹配词" min-width="200" />
-        <el-table-column label="匹配模式" width="120">
+        <el-table-column label="匹配模式" :width="tableSelectWidth">
           <template #default="{ row }">
             <el-select
               v-model="row.matchMode"
               size="small"
-              style="width: 100%"
+              :class="tableSelectClass"
+              popper-class="config-select-popper"
               @change="
                 () =>
                   updateColumnMappingRule(row.id, {
@@ -257,7 +266,7 @@ onMounted(load);
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="520">
       <el-form label-width="90px">
         <el-form-item label="目标字段" required>
-          <el-select v-model="form.targetField" style="width: 100%">
+          <el-select v-model="form.targetField" popper-class="config-select-popper">
             <el-option
               v-for="t in targetOptions"
               :key="t.value"
@@ -267,7 +276,7 @@ onMounted(load);
           </el-select>
         </el-form-item>
         <el-form-item label="匹配模式">
-          <el-select v-model="form.matchMode" style="width: 100%">
+          <el-select v-model="form.matchMode" popper-class="config-select-popper">
             <el-option
               v-for="m in matchModeOptions"
               :key="m.value"

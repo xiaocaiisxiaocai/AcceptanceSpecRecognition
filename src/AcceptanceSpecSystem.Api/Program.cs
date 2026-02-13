@@ -5,8 +5,9 @@ using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.TextProcessing.Services;
-using AcceptanceSpecSystem.Core.AI.Interfaces;
 using AcceptanceSpecSystem.Core.AI.Connectors;
+using AcceptanceSpecSystem.Core.AI.Interfaces;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -50,11 +51,17 @@ builder.Services.AddSingleton<IFileStorageService, FileStorageService>();
 
 // 注册文档服务
 builder.Services.AddSingleton<DocumentServiceFactory>();
+builder.Services.AddScoped<IFileCompareService, FileCompareService>();
 
-// 注册匹配服务
+// 注册匹配服务（Semantic Kernel）
+builder.Services.AddScoped<AiServiceSelector>();
+builder.Services.AddScoped<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
+builder.Services.AddScoped<IAiLlmConnectorFactory, AiLlmConnectorFactory>();
 builder.Services.AddScoped<IAiEmbeddingConnectorFactory, AiEmbeddingConnectorFactory>();
-builder.Services.AddScoped<IEmbeddingService, ConfigurableEmbeddingService>();
-builder.Services.AddScoped<IMatchingService, HybridMatchingService>();
+builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
+builder.Services.AddScoped<IMatchingService, SemanticKernelMatchingService>();
+builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
+builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();
 
 // 文本处理（Core 4.1）
 builder.Services.AddScoped<IChineseConversionService, OpenCcChineseConversionService>();

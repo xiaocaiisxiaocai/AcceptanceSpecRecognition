@@ -1,5 +1,6 @@
 .el-form-item__label {
   font-weight: 700;
+  color: var(--color-text);
 }
 
 .el-breadcrumb__inner,
@@ -15,6 +16,123 @@
   z-index: 9999 !important;
 }
 
+/* 卡片与表格统一风格 */
+.el-card {
+  border-radius: 12px;
+  border-color: var(--el-card-border-color);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.el-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.el-card__header {
+  font-weight: 600;
+  color: var(--color-text);
+  border-bottom-color: var(--el-card-border-color);
+  background: #f8f5ff;
+}
+
+.el-card__body {
+  padding: 16px;
+}
+
+.el-form-item {
+  margin-bottom: 12px;
+}
+
+.el-form--inline .el-form-item {
+  margin-right: 12px;
+}
+
+.el-table {
+  --el-table-header-text-color: var(--color-text);
+  font-size: 13px;
+}
+
+.el-table .el-table__cell {
+  padding: 8px 0;
+}
+
+.el-table__header th {
+  font-weight: 600;
+}
+
+.el-table .cell {
+  line-height: 1.4;
+  color: var(--color-text);
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td {
+  background: #faf7ff;
+}
+
+.el-table__row {
+  transition: background-color 0.2s ease;
+}
+
+.el-button {
+  border-radius: var(--el-border-radius-base);
+  font-weight: 600;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.el-button--primary {
+  box-shadow: var(--shadow-sm);
+}
+
+.el-button--default {
+  border-color: #e4d7fb;
+}
+
+.el-button--default:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.el-button.is-text,
+.el-button--text {
+  font-weight: 500;
+}
+
+.el-input__wrapper,
+.el-textarea__inner {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.el-empty {
+  padding: 24px 0;
+}
+
+.el-empty__description {
+  color: #6b7280;
+}
+
+.el-pagination {
+  --el-pagination-button-width: 32px;
+  --el-pagination-button-height: 32px;
+  font-size: 12px;
+}
+
+.el-tag {
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .el-card,
+  .el-button,
+  .el-input__wrapper,
+  .el-textarea__inner {
+    transition: none;
+  }
+}
+
 /* 重置 el-button 中 icon 的 margin */
 .reset-margin [class*="el-icon"] + span {
   margin-left: 2px !important;
@@ -23,6 +141,22 @@
 /* 自定义 popover 的类名 */
 .pure-popper {
   padding: 0 !important;
+}
+
+.config-select-popper {
+  min-width: 320px;
+}
+
+.config-select-popper .el-select-dropdown__item {
+  height: 36px;
+  line-height: 36px;
+  font-size: 14px;
+}
+
+.app-select-popper .el-select-dropdown__item {
+  height: 36px;
+  line-height: 36px;
+  font-size: 14px;
 }
 
 /* nprogress 适配 element-plus 的主题色 */

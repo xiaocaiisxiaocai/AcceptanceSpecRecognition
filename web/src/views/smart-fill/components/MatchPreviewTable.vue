@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import type { MatchPreviewItem, MatchResult } from "@/api/matching";
+import type { MatchPreviewItem } from "@/api/matching";
 
 const props = defineProps<{
   items: MatchPreviewItem[];
@@ -8,19 +8,23 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "select", rowIndex: number, spec: MatchResult | null): void;
+  (e: "select", rowIndex: number, spec: MatchPreviewItem["bestMatch"] | null): void;
   (e: "showDetail", item: MatchPreviewItem): void;
 }>();
 
-// 选中的匹配（rowIndex -> specId）
-const selectedSpecs = ref<Map<number, number | null>>(new Map());
+type Selection =
+  | { type: "best" }
+  | { type: "llm"; acceptance?: string; remark?: string };
+
+// 选中的匹配（rowIndex -> Selection）
+const selectedSpecs = ref<Map<number, Selection | null>>(new Map());
 
 // 初始化选中项（默认选择最佳匹配）
 const initSelections = () => {
   selectedSpecs.value.clear();
   props.items.forEach((item) => {
     if (item.bestMatch) {
-      selectedSpecs.value.set(item.rowIndex, item.bestMatch.specId);
+      selectedSpecs.value.set(item.rowIndex, { type: "best" });
     } else {
       selectedSpecs.value.set(item.rowIndex, null);
     }
@@ -32,14 +36,42 @@ import { watch } from "vue";
 watch(() => props.items, initSelections, { immediate: true });
 
 // 获取选中的specId
-const getSelectedSpecId = (rowIndex: number) => {
-  return selectedSpecs.value.get(rowIndex);
+const getSelection = (rowIndex: number) => selectedSpecs.value.get(rowIndex);
+
+const isLlmSelected = (rowIndex: number) => {
+  return selectedSpecs.value.get(rowIndex)?.type === "llm";
+};
+
+const hasSuggestionContent = (item: MatchPreviewItem) => {
+  return Boolean(item.llmSuggestion?.acceptance || item.llmSuggestion?.remark);
 };
 
 // 选择匹配
-const handleSelect = (item: MatchPreviewItem, spec: MatchResult | null) => {
-  selectedSpecs.value.set(item.rowIndex, spec?.specId ?? null);
-  emit("select", item.rowIndex, spec);
+const handleSelectBest = (item: MatchPreviewItem) => {
+  if (item.bestMatch) {
+    selectedSpecs.value.set(item.rowIndex, { type: "best" });
+  } else {
+    selectedSpecs.value.set(item.rowIndex, null);
+  }
+  emit("select", item.rowIndex, item.bestMatch ?? null);
+};
+
+const handleSelectSuggestion = (item: MatchPreviewItem) => {
+  selectedSpecs.value.set(item.rowIndex, {
+    type: "llm",
+    acceptance: item.llmSuggestion?.acceptance,
+    remark: item.llmSuggestion?.remark
+  });
+  emit("select", item.rowIndex, null);
+};
+
+const handleClearSelection = (item: MatchPreviewItem) => {
+  selectedSpecs.value.set(item.rowIndex, null);
+  emit("select", item.rowIndex, null);
+};
+
+const clearSelectionByRow = (rowIndex: number) => {
+  selectedSpecs.value.set(rowIndex, null);
 };
 
 // 获取置信度样式
@@ -88,15 +120,33 @@ const stats = computed(() => {
 // 暴露方法
 defineExpose({
   getSelections: () => {
-    const selections: Array<{ rowIndex: number; specId: number }> = [];
-    selectedSpecs.value.forEach((specId, rowIndex) => {
-      if (specId !== null) {
-        selections.push({ rowIndex, specId });
+    const selections: Array<{
+      rowIndex: number;
+      specId?: number;
+      useLlmSuggestion?: boolean;
+      acceptance?: string;
+      remark?: string;
+    }> = [];
+    selectedSpecs.value.forEach((selection, rowIndex) => {
+      if (!selection) return;
+      if (selection.type === "best") {
+        const item = props.items.find((i) => i.rowIndex === rowIndex);
+        if (item?.bestMatch) {
+          selections.push({ rowIndex, specId: item.bestMatch.specId });
+        }
+      } else {
+        selections.push({
+          rowIndex,
+          useLlmSuggestion: true,
+          acceptance: selection.acceptance,
+          remark: selection.remark
+        });
       }
     });
     return selections;
   },
-  initSelections
+  initSelections,
+  clearSelectionByRow
 });
 </script>
 
@@ -150,33 +200,14 @@ defineExpose({
         </template>
       </el-table-column>
 
-      <!-- 匹配结果选择 -->
-      <el-table-column label="匹配结果" min-width="280">
+      <!-- 最佳匹配 -->
+      <el-table-column label="最佳匹配" min-width="260">
         <template #default="{ row }">
-          <div v-if="row.candidates.length > 0" class="match-select">
-            <el-select
-              :model-value="getSelectedSpecId(row.rowIndex)"
-              placeholder="选择匹配项"
-              clearable
-              @change="(val: number | null) => handleSelect(row, row.candidates.find((c: MatchResult) => c.specId === val) || null)"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="candidate in row.candidates"
-                :key="candidate.specId"
-                :value="candidate.specId"
-                :label="`${candidate.project} - ${candidate.specification}`"
-              >
-                <div class="candidate-option">
-                  <span class="candidate-text">
-                    {{ candidate.project }} - {{ candidate.specification }}
-                  </span>
-                  <span class="candidate-score">
-                    {{ formatScore(candidate.score) }}
-                  </span>
-                </div>
-              </el-option>
-            </el-select>
+          <div v-if="row.bestMatch" class="match-best">
+            <div class="match-text">
+              {{ row.bestMatch.project }} - {{ row.bestMatch.specification }}
+            </div>
+            <div class="match-score">{{ formatScore(row.bestMatch.score) }}</div>
           </div>
           <div v-else class="no-match">
             <el-tag type="info" size="small">无匹配</el-tag>
@@ -195,33 +226,69 @@ defineExpose({
       </el-table-column>
 
       <!-- 验收标准预览 -->
-      <el-table-column label="验收标准" min-width="150">
+      <el-table-column label="验收标准" min-width="180">
         <template #default="{ row }">
-          <template v-if="getSelectedSpecId(row.rowIndex)">
+          <template v-if="getSelection(row.rowIndex)?.type === 'best'">
             <span class="acceptance-text">
-              {{
-                row.candidates.find(
-                  (c: MatchResult) => c.specId === getSelectedSpecId(row.rowIndex)
-                )?.acceptance || "-"
-              }}
+              {{ row.bestMatch?.acceptance || "-" }}
+            </span>
+          </template>
+          <template v-else-if="isLlmSelected(row.rowIndex)">
+            <span class="acceptance-text">
+              {{ row.llmSuggestion?.acceptance || row.llmSuggestionDraft || "-" }}
             </span>
           </template>
           <span v-else class="acceptance-none">-</span>
         </template>
       </el-table-column>
 
-      <!-- 操作 -->
-      <el-table-column label="操作" width="80" align="center" fixed="right">
+      <!-- 不匹配原因 -->
+      <el-table-column label="不匹配原因" min-width="160">
         <template #default="{ row }">
-          <el-button
-            v-if="row.hasMatch"
-            type="primary"
-            link
-            size="small"
-            @click="emit('showDetail', row)"
-          >
-            详情
-          </el-button>
+          <span v-if="!row.hasMatch" class="reason-text">
+            {{ row.noMatchReason || "-" }}
+          </span>
+          <span v-else class="reason-none">-</span>
+        </template>
+      </el-table-column>
+
+      <!-- 操作 -->
+      <el-table-column label="操作" width="160" align="center" fixed="right">
+        <template #default="{ row }">
+          <div class="action-buttons">
+            <el-button
+              v-if="row.bestMatch"
+              type="primary"
+              link
+              size="small"
+              @click="emit('showDetail', row)"
+            >
+              详情
+            </el-button>
+            <el-button
+              v-if="row.bestMatch && getSelection(row.rowIndex)?.type !== 'best'"
+              size="small"
+              @click="handleSelectBest(row)"
+            >
+              使用匹配
+            </el-button>
+            <el-button
+              v-if="row.llmSuggestion || row.llmSuggestionDraft"
+              size="small"
+              type="success"
+              :disabled="!hasSuggestionContent(row)"
+              @click="handleSelectSuggestion(row)"
+            >
+              {{ isLlmSelected(row.rowIndex) ? "已选建议" : "采用建议" }}
+            </el-button>
+            <el-button
+              v-if="getSelection(row.rowIndex)"
+              size="small"
+              @click="handleClearSelection(row)"
+            >
+              不填充
+            </el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -238,11 +305,11 @@ defineExpose({
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: #f5f7fa;
-  border-radius: 4px;
+  background: #f8f5ff;
+  border-radius: 8px;
   margin-bottom: 12px;
   font-size: 14px;
-  color: #606266;
+  color: #4b5563;
 }
 
 .divider {
@@ -250,7 +317,7 @@ defineExpose({
 }
 
 .selected {
-  color: #409eff;
+  color: var(--color-primary);
   font-weight: 500;
 }
 
@@ -260,12 +327,12 @@ defineExpose({
 
 .source-project {
   font-weight: 500;
-  color: #303133;
+  color: var(--color-text);
 }
 
 .source-spec {
   font-size: 12px;
-  color: #909399;
+  color: #6b7280;
   margin-top: 4px;
 }
 
@@ -289,38 +356,34 @@ defineExpose({
   border-color: #909399 !important;
 }
 
-.match-select {
-  width: 100%;
-}
-
-.candidate-option {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
-
-.candidate-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.candidate-score {
-  flex-shrink: 0;
-  margin-left: 8px;
-  color: #409eff;
-  font-weight: 500;
-}
-
 .no-match {
   text-align: center;
 }
 
+.match-best {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.match-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.match-score {
+  flex-shrink: 0;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
 .score {
   font-weight: 600;
-  color: #409eff;
+  color: var(--color-primary);
 }
 
 .score-none,
@@ -328,8 +391,24 @@ defineExpose({
   color: #c0c4cc;
 }
 
+.reason-text {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.reason-none {
+  color: #c0c4cc;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
 .acceptance-text {
   font-size: 13px;
-  color: #606266;
+  color: #4b5563;
 }
 </style>

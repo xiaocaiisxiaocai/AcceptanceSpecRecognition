@@ -1,5 +1,6 @@
 using System.Data.Common;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Data.Context;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -38,6 +39,12 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
             _tempRoot = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem.Api.Tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_tempRoot);
             services.AddSingleton<IFileStorageService>(new TestFileStorageService(_tempRoot));
+
+            // Replace LLM services with test doubles to avoid external calls
+            services.RemoveAll(typeof(ILlmReviewService));
+            services.RemoveAll(typeof(ILlmSuggestionService));
+            services.AddScoped<ILlmReviewService, TestLlmReviewService>();
+            services.AddScoped<ILlmSuggestionService, TestLlmSuggestionService>();
 
             // Ensure schema created
             using var sp = services.BuildServiceProvider();

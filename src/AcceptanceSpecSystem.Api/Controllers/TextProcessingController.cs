@@ -39,11 +39,13 @@ public class TextProcessingController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<TextProcessingConfigDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<TextProcessingConfigDto>>> SaveConfig([FromBody] UpdateTextProcessingConfigRequest request)
     {
-        // 基础校验
-        if (string.IsNullOrWhiteSpace(request.OkStandardFormat))
-            return Error<TextProcessingConfigDto>(400, "OK标准格式不能为空");
-        if (string.IsNullOrWhiteSpace(request.NgStandardFormat))
-            return Error<TextProcessingConfigDto>(400, "NG标准格式不能为空");
+        var existing = await _unitOfWork.TextProcessingConfigs.GetConfigAsync();
+        var okStandard = string.IsNullOrWhiteSpace(request.OkStandardFormat)
+            ? existing.OkStandardFormat
+            : request.OkStandardFormat.Trim();
+        var ngStandard = string.IsNullOrWhiteSpace(request.NgStandardFormat)
+            ? existing.NgStandardFormat
+            : request.NgStandardFormat.Trim();
 
         var cfg = new TextProcessingConfig
         {
@@ -51,8 +53,8 @@ public class TextProcessingController : BaseApiController
             ConversionMode = request.ConversionMode,
             EnableSynonym = request.EnableSynonym,
             EnableOkNgConversion = request.EnableOkNgConversion,
-            OkStandardFormat = request.OkStandardFormat.Trim(),
-            NgStandardFormat = request.NgStandardFormat.Trim(),
+            OkStandardFormat = okStandard,
+            NgStandardFormat = ngStandard,
             EnableKeywordHighlight = request.EnableKeywordHighlight,
             HighlightColorHex = string.IsNullOrWhiteSpace(request.HighlightColorHex) ? "#FFFF00" : request.HighlightColorHex.Trim(),
             UpdatedAt = DateTime.Now

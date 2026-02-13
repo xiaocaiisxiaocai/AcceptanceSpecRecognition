@@ -46,6 +46,26 @@ public class MatchResult
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
 
     /// <summary>
+    /// LLM 复核得分（0-100，可选）
+    /// </summary>
+    public double? LlmScore { get; set; }
+
+    /// <summary>
+    /// LLM 复核原因（可选）
+    /// </summary>
+    public string? LlmReason { get; set; }
+
+    /// <summary>
+    /// LLM 复核评论（可选）
+    /// </summary>
+    public string? LlmCommentary { get; set; }
+
+    /// <summary>
+    /// 是否经过 LLM 复核
+    /// </summary>
+    public bool IsLlmReviewed => LlmScore.HasValue;
+
+    /// <summary>
     /// 是否为高置信度匹配
     /// </summary>
     public bool IsHighConfidence => Score >= 0.8;
@@ -103,44 +123,14 @@ public class MatchCandidate
 public class MatchingConfig
 {
     /// <summary>
-    /// 是否使用Levenshtein距离
+    /// 使用的 Embedding 服务ID（为空则自动选择）
     /// </summary>
-    public bool UseLevenshtein { get; set; } = true;
+    public int? EmbeddingServiceId { get; set; }
 
     /// <summary>
-    /// Levenshtein权重
+    /// 使用的 LLM 服务ID（为空则自动选择）
     /// </summary>
-    public double LevenshteinWeight { get; set; } = 0.3;
-
-    /// <summary>
-    /// 是否使用Jaccard相似度
-    /// </summary>
-    public bool UseJaccard { get; set; } = true;
-
-    /// <summary>
-    /// Jaccard权重
-    /// </summary>
-    public double JaccardWeight { get; set; } = 0.3;
-
-    /// <summary>
-    /// 是否使用Cosine相似度
-    /// </summary>
-    public bool UseCosine { get; set; } = true;
-
-    /// <summary>
-    /// Cosine权重
-    /// </summary>
-    public double CosineWeight { get; set; } = 0.4;
-
-    /// <summary>
-    /// 是否使用Embedding匹配
-    /// </summary>
-    public bool UseEmbedding { get; set; } = false;
-
-    /// <summary>
-    /// Embedding权重（使用时会重新归一化其他权重）
-    /// </summary>
-    public double EmbeddingWeight { get; set; } = 0.5;
+    public int? LlmServiceId { get; set; }
 
     /// <summary>
     /// 最小匹配阈值
@@ -148,53 +138,19 @@ public class MatchingConfig
     public double MinScoreThreshold { get; set; } = 0.3;
 
     /// <summary>
-    /// 返回的最大匹配数量
+    /// 是否启用 LLM 复核
     /// </summary>
-    public int MaxResults { get; set; } = 5;
+    public bool UseLlmReview { get; set; } = false;
 
     /// <summary>
-    /// 获取归一化后的权重
+    /// 是否启用 LLM 生成建议
     /// </summary>
-    public Dictionary<string, double> GetNormalizedWeights()
-    {
-        var weights = new Dictionary<string, double>();
-        double total = 0;
+    public bool UseLlmSuggestion { get; set; } = false;
 
-        if (UseLevenshtein)
-        {
-            weights["Levenshtein"] = LevenshteinWeight;
-            total += LevenshteinWeight;
-        }
-
-        if (UseJaccard)
-        {
-            weights["Jaccard"] = JaccardWeight;
-            total += JaccardWeight;
-        }
-
-        if (UseCosine)
-        {
-            weights["Cosine"] = CosineWeight;
-            total += CosineWeight;
-        }
-
-        if (UseEmbedding)
-        {
-            weights["Embedding"] = EmbeddingWeight;
-            total += EmbeddingWeight;
-        }
-
-        // 归一化
-        if (total > 0)
-        {
-            foreach (var key in weights.Keys.ToList())
-            {
-                weights[key] /= total;
-            }
-        }
-
-        return weights;
-    }
+    /// <summary>
+    /// 生成建议触发阈值（最佳得分低于该值）
+    /// </summary>
+    public double LlmSuggestionScoreThreshold { get; set; } = 0.6;
 }
 
 /// <summary>

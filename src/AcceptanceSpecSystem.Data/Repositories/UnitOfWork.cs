@@ -13,6 +13,7 @@ public class UnitOfWork : IUnitOfWork
 
     private ICustomerRepository? _customers;
     private IProcessRepository? _processes;
+    private IMachineModelRepository? _machineModels;
     private IAcceptanceSpecRepository? _acceptanceSpecs;
     private IEmbeddingCacheRepository? _embeddingCaches;
     private IOperationHistoryRepository? _operationHistories;
@@ -46,6 +47,12 @@ public class UnitOfWork : IUnitOfWork
     /// </summary>
     public IProcessRepository Processes =>
         _processes ??= new ProcessRepository(_context);
+
+    /// <summary>
+    /// 机型数据仓储。
+    /// </summary>
+    public IMachineModelRepository MachineModels =>
+        _machineModels ??= new MachineModelRepository(_context);
 
     /// <summary>
     /// 验收规格数据仓储。

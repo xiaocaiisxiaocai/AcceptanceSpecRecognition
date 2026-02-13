@@ -90,11 +90,23 @@ onMounted(loadData);
 </script>
 
 <template>
-  <div class="main">
+  <div class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">操作历史</div>
+        <div class="page-subtitle">追踪导入与填充等操作记录</div>
+      </div>
+    </div>
     <el-card class="mb-4">
       <el-form :inline="true">
         <el-form-item label="类型">
-          <el-select v-model="queryParams.operationType" clearable placeholder="全部">
+          <el-select
+            v-model="queryParams.operationType"
+            clearable
+            placeholder="全部"
+            class="search-select search-select--300"
+            popper-class="app-select-popper"
+          >
             <el-option
               v-for="opt in typeOptions"
               :key="opt.value"
@@ -104,7 +116,13 @@ onMounted(loadData);
           </el-select>
         </el-form-item>
         <el-form-item label="可撤销">
-          <el-select v-model="queryParams.canUndo" clearable placeholder="全部">
+          <el-select
+            v-model="queryParams.canUndo"
+            clearable
+            placeholder="全部"
+            class="search-select search-select--300"
+            popper-class="app-select-popper"
+          >
             <el-option :label="'是'" :value="true" />
             <el-option :label="'否'" :value="false" />
           </el-select>
@@ -182,8 +200,11 @@ onMounted(loadData);
 </template>
 
 <style scoped>
-.main {
-  padding: 20px;
+.page {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 </style>
 

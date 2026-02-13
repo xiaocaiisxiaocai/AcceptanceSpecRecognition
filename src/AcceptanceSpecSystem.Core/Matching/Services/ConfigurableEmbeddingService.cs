@@ -1,4 +1,6 @@
 using AcceptanceSpecSystem.Core.AI.Interfaces;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 
@@ -34,20 +36,20 @@ public class ConfigurableEmbeddingService : IEmbeddingService
         }
     }
 
-    public async Task<float[]> GenerateEmbeddingAsync(string text)
+    public async Task<float[]> GenerateEmbeddingAsync(string text, int? serviceId = null, CancellationToken cancellationToken = default)
     {
-        var connector = await GetConnectorAsync();
-        return await connector.GenerateEmbeddingAsync(text);
+        var connector = await GetConnectorAsync(serviceId);
+        return await connector.GenerateEmbeddingAsync(text, cancellationToken);
     }
 
-    public async Task<List<float[]>> GenerateEmbeddingsAsync(IEnumerable<string> texts)
+    public async Task<List<float[]>> GenerateEmbeddingsAsync(IEnumerable<string> texts, int? serviceId = null, CancellationToken cancellationToken = default)
     {
-        var connector = await GetConnectorAsync();
+        var connector = await GetConnectorAsync(serviceId);
         var list = texts.ToList();
         var results = new List<float[]>(list.Count);
         foreach (var t in list)
         {
-            results.Add(await connector.GenerateEmbeddingAsync(t));
+            results.Add(await connector.GenerateEmbeddingAsync(t, cancellationToken));
         }
         return results;
     }
@@ -70,7 +72,7 @@ public class ConfigurableEmbeddingService : IEmbeddingService
         return Math.Clamp(cos, 0, 1);
     }
 
-    private async Task<IAiEmbeddingConnector> GetConnectorAsync()
+    private async Task<IAiEmbeddingConnector> GetConnectorAsync(int? serviceId)
     {
         lock (CacheLock)
         {
@@ -80,9 +82,11 @@ public class ConfigurableEmbeddingService : IEmbeddingService
             }
         }
 
-        var cfg = await _unitOfWork.AiServiceConfigs.GetDefaultAsync();
+        var selector = new AiServiceSelector(_unitOfWork);
+        var candidates = await selector.GetCandidatesAsync(AiServicePurpose.Embedding, serviceId);
+        var cfg = candidates.FirstOrDefault();
         if (cfg == null)
-            throw new InvalidOperationException("未配置默认 AI 服务（AiServiceConfig.IsDefault）");
+            throw new InvalidOperationException("未配置可用的 Embedding 服务");
 
         lock (CacheLock)
         {

@@ -19,6 +19,11 @@ public class AppDbContext : DbContext
     public DbSet<Process> Processes => Set<Process>();
 
     /// <summary>
+    /// 机型表
+    /// </summary>
+    public DbSet<MachineModel> MachineModels => Set<MachineModel>();
+
+    /// <summary>
     /// 验收规格表
     /// </summary>
     public DbSet<AcceptanceSpec> AcceptanceSpecs => Set<AcceptanceSpec>();
@@ -143,13 +148,21 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Name);
         });
 
+        // MachineModel配置
+        modelBuilder.Entity<MachineModel>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.HasIndex(e => e.Name);
+        });
+
         // AcceptanceSpec配置
         modelBuilder.Entity<AcceptanceSpec>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Project).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Specification).IsRequired();
-            entity.HasIndex(e => new { e.CustomerId, e.ProcessId });
+            entity.HasIndex(e => new { e.CustomerId, e.ProcessId, e.MachineModelId });
             entity.HasOne(e => e.Customer)
                   .WithMany(c => c.AcceptanceSpecs)
                   .HasForeignKey(e => e.CustomerId)
@@ -157,6 +170,10 @@ public class AppDbContext : DbContext
             entity.HasOne(e => e.Process)
                   .WithMany(p => p.AcceptanceSpecs)
                   .HasForeignKey(e => e.ProcessId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.MachineModel)
+                  .WithMany(m => m.AcceptanceSpecs)
+                  .HasForeignKey(e => e.MachineModelId)
                   .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.WordFile)
                   .WithMany(w => w.AcceptanceSpecs)

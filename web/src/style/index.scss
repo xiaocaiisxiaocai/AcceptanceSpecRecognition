@@ -6,6 +6,24 @@
 
 /* 自定义全局 CssVar */
 :root {
+  /* 设计系统基础变量 */
+  --color-primary: #7c3aed;
+  --color-secondary: #a78bfa;
+  --color-cta: #f97316;
+  --color-background: #faf5ff;
+  --color-text: #4c1d95;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 5%);
+  --shadow-md: 0 4px 6px rgb(0 0 0 / 10%);
+  --shadow-lg: 0 10px 15px rgb(0 0 0 / 10%);
+  --shadow-xl: 0 20px 25px rgb(0 0 0 / 15%);
+
   /* 左侧菜单展开、收起动画时长 */
   --pure-transition-duration: 0.3s;
 
@@ -24,6 +42,135 @@
   --pure-theme-sidebar-logo: none;
   --pure-theme-menu-title-hover: initial;
   --pure-theme-menu-active-before: transparent;
+
+  /* Element Plus 细节 */
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 999px;
+  --el-text-color-primary: var(--color-text);
+  --el-color-primary: var(--color-primary);
+  --el-font-size-base: 14px;
+  --el-font-size-small: 12px;
+  --el-component-size: 36px;
+  --el-form-item-margin-bottom: 12px;
+  --el-box-shadow: var(--shadow-md);
+  --el-box-shadow-light: var(--shadow-md);
+  --el-box-shadow-lighter: var(--shadow-sm);
+  --el-table-border-color: #ede7f6;
+  --el-table-header-bg-color: #f3e8ff;
+  --el-table-row-hover-bg-color: #f5f3ff;
+  --el-card-border-color: #ede7f6;
+  --el-card-bg-color: #ffffff;
+  --el-fill-color-blank: #ffffff;
+}
+
+.page {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100%;
+}
+
+.config-page .el-form-item .el-select,
+.config-page .el-form-item .el-select-v2 {
+  width: 320px;
+  max-width: 100%;
+}
+
+.table-select {
+  width: var(--table-select-width, 320px);
+  min-width: var(--table-select-width, 320px);
+}
+
+.table-select--280 {
+  --table-select-width: 280px;
+}
+
+.table-select--320 {
+  --table-select-width: 320px;
+}
+
+.table-select--360 {
+  --table-select-width: 360px;
+}
+
+.search-select {
+  width: var(--search-select-width, 240px);
+  min-width: var(--search-select-width, 240px);
+  flex: 0 0 var(--search-select-width, 240px);
+  max-width: 100%;
+}
+
+.el-form--inline .el-form-item .search-select {
+  width: var(--search-select-width, 240px) !important;
+  min-width: var(--search-select-width, 240px) !important;
+  flex: 0 0 var(--search-select-width, 240px) !important;
+}
+
+.el-form--inline .el-form-item .search-select .el-select__wrapper {
+  width: 100% !important;
+  min-width: 100% !important;
+}
+.search-select--200 {
+  --search-select-width: 200px;
+}
+
+.search-select--220 {
+  --search-select-width: 220px;
+}
+
+.search-select--260 {
+  --search-select-width: 260px;
+}
+
+.search-select--300 {
+  --search-select-width: 300px;
+}
+
+.search-select--160 {
+  --search-select-width: 160px;
+}
+
+.search-select--240 {
+  --search-select-width: 240px;
+}
+
+/* 非配置页弹窗内下拉统一宽度档位：默认 320，可按 280/360 选择 */
+.dialog-select {
+  width: var(--dialog-select-width, 320px);
+  max-width: 100%;
+}
+
+.dialog-select--280 {
+  --dialog-select-width: 280px;
+}
+
+.dialog-select--320 {
+  --dialog-select-width: 320px;
+}
+
+.dialog-select--360 {
+  --dialog-select-width: 360px;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.page-subtitle {
+  font-size: 13px;
+  color: #6b7280;
+  margin-top: 4px;
 }
 
 /* 灰色模式 */

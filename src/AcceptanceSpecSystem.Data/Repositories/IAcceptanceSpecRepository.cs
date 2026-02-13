@@ -8,12 +8,12 @@ namespace AcceptanceSpecSystem.Data.Repositories;
 public interface IAcceptanceSpecRepository : IRepository<AcceptanceSpec>
 {
     /// <summary>
-    /// 获取所有验收规格（包含 Customer/Process 导航属性，用于列表展示名称）
+    /// 获取所有验收规格（包含 Customer/Process/MachineModel 导航属性，用于列表展示名称）
     /// </summary>
     Task<IReadOnlyList<AcceptanceSpec>> GetAllWithCustomerAndProcessAsync();
 
     /// <summary>
-    /// 获取单条验收规格（包含 Customer/Process 导航属性）
+    /// 获取单条验收规格（包含 Customer/Process/MachineModel 导航属性）
     /// </summary>
     Task<AcceptanceSpec?> GetByIdWithCustomerAndProcessAsync(int id);
 

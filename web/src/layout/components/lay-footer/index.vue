@@ -2,13 +2,14 @@
 import { getConfig } from "@/config";
 
 const TITLE = getConfig("Title");
+const YEAR_TEXT = new Date().getFullYear().toString();
 </script>
 
 <template>
   <footer
     class="layout-footer text-[rgba(0,0,0,0.6)] dark:text-[rgba(220,220,242,0.8)]"
   >
-    Copyright © 2020-present
+    Copyright © {{ YEAR_TEXT }}
     <a
       class="hover:text-primary!"
       href="https://github.com/pure-admin"

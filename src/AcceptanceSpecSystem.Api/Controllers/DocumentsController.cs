@@ -300,7 +300,7 @@ public class DocumentsController : BaseApiController
         var rowSource = previewRows <= 0 ? tableData.Rows : tableData.Rows.Take(previewRows);
 
         var rows = rowSource
-            .Select(r => r.Cells.Select(c => c.Value ?? "").ToList())
+            .Select(r => r.Cells.Select(FormatPreviewCellText).ToList())
             .ToList();
 
         var structuredRows = rowSource
@@ -350,6 +350,80 @@ public class DocumentsController : BaseApiController
         };
     }
 
+    private static readonly System.Text.RegularExpressions.Regex ListPrefixRegex =
+        new(@"^(?<indent>\s*)(?<num>\d+)\s*(?<sep>[、:：])(?<space>\s*)(?<rest>.*)$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static string FormatPreviewCellText(CellData cell)
+    {
+        var structuredText = ExtractStructuredText(cell.StructuredValue);
+        var rawText = string.IsNullOrWhiteSpace(structuredText)
+            ? cell.Value ?? string.Empty
+            : structuredText;
+        return AlignListPrefixes(rawText);
+    }
+
+    private static string ExtractStructuredText(StructuredCellValue? value)
+    {
+        if (value?.Parts == null || value.Parts.Count == 0)
+            return string.Empty;
+
+        var texts = value.Parts
+            .Where(p => p.Type == "text" && !string.IsNullOrWhiteSpace(p.Text))
+            .Select(p => p.Text!.TrimEnd());
+
+        return string.Join("\n", texts);
+    }
+
+    private static string AlignListPrefixes(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        var normalized = text.Replace("\r\n", "\n").Replace("\r", "\n");
+        var lines = normalized.Split('\n');
+        if (lines.Length < 2)
+            return normalized;
+
+        var items = new List<(bool HasPrefix, string Original, string Indent, string Num, string Sep, string Space, string Tail)>();
+        foreach (var line in lines)
+        {
+            var match = ListPrefixRegex.Match(line);
+            if (match.Success)
+            {
+                items.Add((
+                    true,
+                    line,
+                    match.Groups["indent"].Value,
+                    match.Groups["num"].Value,
+                    match.Groups["sep"].Value,
+                    match.Groups["space"].Value,
+                    match.Groups["rest"].Value
+                ));
+            }
+            else
+            {
+                items.Add((false, line, "", "", "", "", ""));
+            }
+        }
+
+        var listItems = items.Where(i => i.HasPrefix).ToList();
+        if (listItems.Count < 2)
+            return normalized;
+
+        var maxDigits = listItems.Max(i => i.Num.Length);
+        var formatted = items.Select(i =>
+        {
+            if (!i.HasPrefix)
+                return i.Original;
+
+            var paddedNum = i.Num.PadLeft(maxDigits);
+            return $"{i.Indent}{paddedNum}{i.Sep}{i.Space}{i.Tail}";
+        });
+
+        return string.Join("\n", formatted);
+    }
+
     /// <summary>
     /// 导入表格数据到验收规格
     /// </summary>
@@ -378,10 +452,23 @@ public class DocumentsController : BaseApiController
         }
 
         // 验证制程
-        var process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId);
-        if (process == null)
+        if (request.ProcessId.HasValue)
         {
-            return Error<ImportResult>(400, "制程不存在");
+            var process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId.Value);
+            if (process == null)
+            {
+                return Error<ImportResult>(400, "制程不存在");
+            }
+        }
+
+        // 验证机型
+        if (request.MachineModelId.HasValue)
+        {
+            var machineModel = await _unitOfWork.MachineModels.GetByIdAsync(request.MachineModelId.Value);
+            if (machineModel == null)
+            {
+                return Error<ImportResult>(400, "机型不存在");
+            }
         }
 
         // 验证列映射
@@ -463,6 +550,7 @@ public class DocumentsController : BaseApiController
                 {
                     CustomerId = request.CustomerId,
                     ProcessId = request.ProcessId,
+                    MachineModelId = request.MachineModelId,
                     Project = project.Trim(),
                     Specification = string.IsNullOrWhiteSpace(specification)
                         ? string.Empty
@@ -502,6 +590,7 @@ public class DocumentsController : BaseApiController
                     tableIndex = request.TableIndex,
                     customerId = request.CustomerId,
                     processId = request.ProcessId,
+                    machineModelId = request.MachineModelId,
                     success = result.SuccessCount,
                     failed = result.FailedCount,
                     skipped = result.SkippedCount
@@ -518,8 +607,8 @@ public class DocumentsController : BaseApiController
         }
 
         _logger.LogInformation(
-            "导入完成: 文件{FileId}, 表格{TableIndex}, 客户{CustomerId}, 制程{ProcessId}, 成功{Success}, 失败{Failed}, 跳过{Skipped}",
-            request.FileId, request.TableIndex, request.CustomerId, request.ProcessId, result.SuccessCount, result.FailedCount, result.SkippedCount);
+            "导入完成: 文件{FileId}, 表格{TableIndex}, 客户{CustomerId}, 制程{ProcessId}, 机型{MachineModelId}, 成功{Success}, 失败{Failed}, 跳过{Skipped}",
+            request.FileId, request.TableIndex, request.CustomerId, request.ProcessId, request.MachineModelId, result.SuccessCount, result.FailedCount, result.SkippedCount);
 
         return Success(result, $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条");
     }
@@ -552,10 +641,22 @@ public class DocumentsController : BaseApiController
             return Error<ImportResult>(400, "客户不存在");
         }
 
-        var process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId);
-        if (process == null)
+        if (request.ProcessId.HasValue)
         {
-            return Error<ImportResult>(400, "制程不存在");
+            var process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId.Value);
+            if (process == null)
+            {
+                return Error<ImportResult>(400, "制程不存在");
+            }
+        }
+
+        if (request.MachineModelId.HasValue)
+        {
+            var machineModel = await _unitOfWork.MachineModels.GetByIdAsync(request.MachineModelId.Value);
+            if (machineModel == null)
+            {
+                return Error<ImportResult>(400, "机型不存在");
+            }
         }
 
         if (request.ProjectColumn <= 0 || request.SpecificationColumn <= 0)
@@ -673,6 +774,7 @@ public class DocumentsController : BaseApiController
                 {
                     CustomerId = request.CustomerId,
                     ProcessId = request.ProcessId,
+                    MachineModelId = request.MachineModelId,
                     Project = project.Trim(),
                     Specification = string.IsNullOrWhiteSpace(specification)
                         ? string.Empty

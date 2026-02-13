@@ -298,8 +298,12 @@ public class ImportDataRequest
     /// <summary>
     /// 目标制程ID
     /// </summary>
-    [Required(ErrorMessage = "制程ID不能为空")]
-    public int ProcessId { get; set; }
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 目标机型ID
+    /// </summary>
+    public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 列映射配置

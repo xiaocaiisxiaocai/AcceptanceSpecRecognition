@@ -175,7 +175,7 @@ const formatPreview = (text?: string) => {
           "
           class="selected-indicator"
         >
-          <el-icon color="#409EFF">
+          <el-icon style="color: var(--color-primary)">
             <svg viewBox="0 0 24 24" fill="currentColor">
               <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
             </svg>
@@ -207,34 +207,34 @@ const formatPreview = (text?: string) => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid #ebeef5;
+  border: 1px solid #e7dbff;
   border-radius: 8px;
-  background: #fafafa;
+  background: #f9f5ff;
 }
 
 .bulk-tip {
   font-size: 12px;
-  color: #909399;
+  color: #6b7280;
   margin-right: auto;
 }
 
 .table-item {
   position: relative;
   padding: 16px;
-  border: 2px solid #e4e7ed;
-  border-radius: 8px;
+  border: 2px solid #ede7f6;
+  border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .table-item:hover {
-  border-color: #c0c4cc;
-  background-color: #f5f7fa;
+  border-color: #c4b5fd;
+  background-color: #f8f5ff;
 }
 
 .table-item.selected {
-  border-color: #409eff;
-  background-color: #ecf5ff;
+  border-color: var(--color-primary);
+  background-color: #f4efff;
 }
 
 .table-header {
@@ -247,12 +247,12 @@ const formatPreview = (text?: string) => {
 .table-index {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--color-text);
 }
 
 .table-name {
   font-weight: 400;
-  color: #606266;
+  color: #6b7280;
   margin-left: 4px;
 }
 
@@ -265,7 +265,7 @@ const formatPreview = (text?: string) => {
 
 .table-meta {
   font-size: 13px;
-  color: #909399;
+  color: #6b7280;
   white-space: nowrap;
 }
 
@@ -276,7 +276,7 @@ const formatPreview = (text?: string) => {
 
 .table-headers {
   font-size: 13px;
-  color: #909399;
+  color: #6b7280;
   margin-bottom: 8px;
   display: flex;
   align-items: flex-start;

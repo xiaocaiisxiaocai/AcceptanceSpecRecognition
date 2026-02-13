@@ -14,15 +14,19 @@ public interface IEmbeddingService
     /// 生成文本的Embedding向量
     /// </summary>
     /// <param name="text">输入文本</param>
+    /// <param name="serviceId">指定服务ID（可选）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>Embedding向量</returns>
-    Task<float[]> GenerateEmbeddingAsync(string text);
+    Task<float[]> GenerateEmbeddingAsync(string text, int? serviceId = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 批量生成Embedding向量
     /// </summary>
     /// <param name="texts">输入文本列表</param>
+    /// <param name="serviceId">指定服务ID（可选）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>Embedding向量列表</returns>
-    Task<List<float[]>> GenerateEmbeddingsAsync(IEnumerable<string> texts);
+    Task<List<float[]>> GenerateEmbeddingsAsync(IEnumerable<string> texts, int? serviceId = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 计算两个向量的余弦相似度

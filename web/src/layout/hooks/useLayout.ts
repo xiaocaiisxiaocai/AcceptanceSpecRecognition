@@ -39,6 +39,13 @@ export function useLayout() {
         stretch: $config?.Stretch ?? false
       };
     }
+    if (
+      $config?.MultiTagsCache === true &&
+      $storage.configure?.multiTagsCache !== true
+    ) {
+      $storage.configure.multiTagsCache = true;
+      useMultiTagsStore().multiTagsCacheChange(true);
+    }
   };
 
   /** 清空缓存后从platform-config.json读取默认配置并赋值到storage中 */

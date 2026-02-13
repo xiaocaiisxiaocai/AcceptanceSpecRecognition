@@ -16,6 +16,11 @@ public interface IUnitOfWork : IDisposable
     IProcessRepository Processes { get; }
 
     /// <summary>
+    /// 机型Repository
+    /// </summary>
+    IMachineModelRepository MachineModels { get; }
+
+    /// <summary>
     /// 验收规格Repository
     /// </summary>
     IAcceptanceSpecRepository AcceptanceSpecs { get; }

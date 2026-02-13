@@ -49,6 +49,8 @@ const matchConfigRef = ref<InstanceType<typeof MatchConfig> | null>(null);
 const previewItems = ref<MatchPreviewItem[]>([]);
 const previewTableRef = ref<InstanceType<typeof MatchPreviewTable> | null>(null);
 const loading = ref(false);
+const llmStreaming = ref(false);
+const llmStreamController = ref<AbortController | null>(null);
 
 // 详情弹窗
 const detailVisible = ref(false);
@@ -104,7 +106,7 @@ const doPreview = async () => {
 
   loading.value = true;
   try {
-    const scope = matchConfigRef.value?.getScope() ?? { customerId: undefined, processId: undefined };
+    const scope = matchConfigRef.value?.getScope() ?? { customerId: undefined, processId: undefined, machineModelId: undefined };
     const res = await previewMatch({
       fileId: uploadedFile.value.fileId,
       tableIndex: selectedTableIndex.value,
@@ -112,6 +114,7 @@ const doPreview = async () => {
       specificationColumnIndex: columnConfig.value.specificationColumnIndex,
       customerId: scope.customerId,
       processId: scope.processId,
+      machineModelId: scope.machineModelId,
       config: matchConfig.value
     });
 
@@ -120,6 +123,7 @@ const doPreview = async () => {
       if (res.data.items.length === 0) {
         ElMessage.warning("未找到可匹配的数据");
       }
+      startLlmStream();
     } else {
       ElMessage.error(res.message || "匹配预览失败");
     }
@@ -127,6 +131,144 @@ const doPreview = async () => {
     ElMessage.error("匹配预览失败");
   } finally {
     loading.value = false;
+  }
+};
+
+const stopLlmStream = () => {
+  llmStreamController.value?.abort();
+  llmStreamController.value = null;
+  llmStreaming.value = false;
+};
+
+const startLlmStream = async () => {
+  stopLlmStream();
+
+  if (!previewItems.value.length) return;
+  if (!matchConfig.value.useLlmReview && !matchConfig.value.useLlmSuggestion) return;
+
+  const controller = new AbortController();
+  llmStreamController.value = controller;
+  llmStreaming.value = true;
+
+  const payload = {
+    items: previewItems.value.map((item) => ({
+      rowIndex: item.rowIndex,
+      sourceProject: item.sourceProject,
+      sourceSpecification: item.sourceSpecification,
+      bestMatchSpecId: item.bestMatch?.specId,
+      bestMatchScore: item.bestMatch?.score,
+      scoreDetails: item.bestMatch?.scoreDetails
+    })),
+    config: matchConfig.value
+  };
+
+  try {
+    const response = await fetch("/api/matching/llm-stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    if (!response.ok || !response.body) {
+      ElMessage.warning("LLM流式输出不可用，已降级");
+      llmStreaming.value = false;
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() || "";
+
+      for (const part of parts) {
+        handleSseEvent(part);
+      }
+    }
+  } catch {
+    if (!controller.signal.aborted) {
+      ElMessage.warning("LLM流式输出中断，已降级");
+    }
+  } finally {
+    llmStreaming.value = false;
+  }
+};
+
+const handleSseEvent = (raw: string) => {
+  const lines = raw.split("\n").filter((line) => line.trim().length > 0);
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("event:")) {
+      event = line.replace("event:", "").trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.replace("data:", "").trim());
+    }
+  }
+
+  if (dataLines.length === 0) return;
+
+  try {
+    const data = JSON.parse(dataLines.join("\n"));
+    applySseUpdate(event, data);
+  } catch {
+    // ignore malformed chunk
+  }
+};
+
+const applySseUpdate = (event: string, data: any) => {
+  const row = previewItems.value.find((item) => item.rowIndex === data.rowIndex);
+  if (!row) return;
+
+  switch (event) {
+    case "review.start":
+      row.llmReviewDraft = "";
+      row.llmReviewError = undefined;
+      break;
+    case "review.delta":
+      row.llmReviewDraft = (row.llmReviewDraft || "") + (data.chunk || "");
+      break;
+    case "review.done":
+      if (row.bestMatch) {
+        row.bestMatch.llmScore = data.score;
+        row.bestMatch.llmReason = data.reason;
+        row.bestMatch.llmCommentary = data.commentary;
+        row.bestMatch.isLlmReviewed = true;
+      }
+      row.llmReviewDraft = "";
+      break;
+    case "review.error":
+      row.llmReviewError = data.message || "LLM复核失败";
+      row.llmReviewDraft = "";
+      break;
+    case "suggestion.start":
+      row.llmSuggestionDraft = "";
+      row.llmSuggestionError = undefined;
+      break;
+    case "suggestion.delta":
+      row.llmSuggestionDraft = (row.llmSuggestionDraft || "") + (data.chunk || "");
+      break;
+    case "suggestion.done":
+      row.llmSuggestion = {
+        acceptance: data.acceptance,
+        remark: data.remark,
+        reason: data.reason
+      };
+      row.llmSuggestionDraft = "";
+      break;
+    case "suggestion.error":
+      row.llmSuggestionError = data.message;
+      row.llmSuggestionDraft = "";
+      break;
+    default:
+      break;
   }
 };
 
@@ -166,7 +308,10 @@ const handleExecute = async () => {
       remarkColumnIndex: columnConfig.value.remarkColumnIndex,
       mappings: selections.map((s) => ({
         rowIndex: s.rowIndex,
-        specId: s.specId
+        specId: s.specId,
+        useLlmSuggestion: s.useLlmSuggestion,
+        acceptance: s.acceptance,
+        remark: s.remark
       }))
     });
 
@@ -215,6 +360,7 @@ const goPrev = () => {
 
 // 重新开始
 const handleRestart = () => {
+  stopLlmStream();
   currentStep.value = 0;
   uploadedFile.value = null;
   selectedTableIndex.value = undefined;
@@ -226,7 +372,13 @@ const handleRestart = () => {
 </script>
 
 <template>
-  <div class="smart-fill">
+  <div class="page smart-fill">
+    <div class="page-header">
+      <div>
+        <div class="page-title">智能填充</div>
+        <div class="page-subtitle">匹配验收规格并批量回写文档</div>
+      </div>
+    </div>
     <!-- 步骤条 -->
     <el-card class="mb-4">
       <el-steps :active="currentStep" finish-status="success">
@@ -359,7 +511,10 @@ const handleRestart = () => {
 
 <style scoped>
 .smart-fill {
-  padding: 20px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .mb-4 {
@@ -381,13 +536,13 @@ const handleRestart = () => {
 .step-title {
   font-size: 18px;
   font-weight: 600;
-  color: #303133;
+  color: var(--color-text);
   margin-bottom: 8px;
 }
 
 .step-desc {
   font-size: 14px;
-  color: #909399;
+  color: #6b7280;
   margin-bottom: 24px;
 }
 
@@ -405,7 +560,7 @@ const handleRestart = () => {
 .step-actions {
   margin-top: 32px;
   padding-top: 16px;
-  border-top: 1px solid #e4e7ed;
+  border-top: 1px solid var(--el-border-color-lighter);
   display: flex;
   justify-content: center;
   gap: 16px;

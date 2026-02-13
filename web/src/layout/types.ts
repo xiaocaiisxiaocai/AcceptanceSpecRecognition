@@ -9,7 +9,7 @@ export const routerArrays: Array<RouteConfigs> =
           name: "Dashboard",
           meta: {
             title: "首页",
-            icon: "ep/home-filled"
+            icon: "ri:home-4-line"
           }
         }
       ]

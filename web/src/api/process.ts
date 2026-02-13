@@ -27,8 +27,10 @@ export interface ProcessListRequest extends PagedRequest {
 export interface AcceptanceSpec {
   id: number;
   customerId: number;
-  processId: number;
+  processId?: number;
+  machineModelId?: number;
   processName: string;
+  machineModelName: string;
   customerName: string;
   project: string;
   specification: string;

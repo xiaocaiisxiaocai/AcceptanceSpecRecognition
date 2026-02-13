@@ -503,7 +503,7 @@ public class WordDocumentParser : IDocumentParser
         var result = new StructuredCellValue();
 
         // 1) 段落文字：保留换行（前端可 pre-wrap 展示），并尽量保留段落前的序号（Word 编号列表）
-        var paragraphTexts = GetCellParagraphLinesWithNumbering(cell);
+        var paragraphTexts = GetCellParagraphLinesWithNumbering(cell, includeIndentation: true);
 
         if (paragraphTexts.Count > 0)
         {
@@ -591,7 +591,7 @@ public class WordDocumentParser : IDocumentParser
     /// </summary>
     private static string GetCellText(TableCell cell)
     {
-        var texts = new List<string>(GetCellParagraphLinesWithNumbering(cell));
+        var texts = new List<string>(GetCellParagraphLinesWithNumbering(cell, includeIndentation: false));
 
         // 2) 嵌套表格（Table in TableCell）：序列化为多行文本，便于前端在预览中展示
         // 注意：只处理单元格内的嵌套表格，不包含外层表格本身
@@ -614,7 +614,7 @@ public class WordDocumentParser : IDocumentParser
             foreach (var cell in cells)
             {
                 // 递归读取嵌套表格的文字会导致指数膨胀，这里只取该单元格的段落文字（含编号前缀）
-                var cellText = string.Join(" ", GetCellParagraphLinesWithNumbering(cell)).Trim();
+                var cellText = string.Join(" ", GetCellParagraphLinesWithNumbering(cell, includeIndentation: false)).Trim();
                 parts.Add(cellText);
             }
             if (parts.Count > 0)
@@ -630,12 +630,12 @@ public class WordDocumentParser : IDocumentParser
     /// 说明：Word 的编号不在 Run 文本里，而在 ParagraphProperties.NumberingProperties 里。
     /// 这里按“每个单元格内、每个 numId 单独计数”的方式生成序号，满足预览/导入的可读性需求。
     /// </summary>
-    private static List<string> GetCellParagraphLinesWithNumbering(TableCell cell)
+    private static List<string> GetCellParagraphLinesWithNumbering(TableCell cell, bool includeIndentation)
     {
         var lines = new List<string>();
 
         // 先收集段落，判断“是否需要保留序号”
-        var items = new List<(Paragraph P, string Text, bool HasNumbering)>();
+        var items = new List<(string Text, bool HasNumbering, int Level)>();
         foreach (var paragraph in cell.Elements<Paragraph>())
         {
             var text = GetParagraphPlainText(paragraph);
@@ -643,7 +643,7 @@ public class WordDocumentParser : IDocumentParser
                 continue;
 
             text = text.Trim();
-            var hasNum = TryGetParagraphNumbering(paragraph, out _, out _);
+            var hasNum = TryGetParagraphNumbering(paragraph, out _, out var level);
 
             // 统一把段落开头的“①② / (1) / 1、 / 1. ”规范成 “1、” 这种格式（仅处理明确的列表前缀）
             // 注意：必须避免把 “2.4” 这类小数误判为编号前缀
@@ -651,7 +651,7 @@ public class WordDocumentParser : IDocumentParser
             {
                 text = NormalizeLeadingListPrefix(text);
             }
-            items.Add((paragraph, text, hasNum));
+            items.Add((text, hasNum, level));
         }
 
         // 规则：只有当同一个单元格里出现 2 条及以上“编号段落”时，才补上序号；否则不补（避免单条内容也显示 1、 的噪音）
@@ -660,17 +660,21 @@ public class WordDocumentParser : IDocumentParser
 
         foreach (var it in items)
         {
+            var lineText = it.Text;
             if (shouldPrefix && it.HasNumbering)
             {
                 seq++;
                 // 多条列表时：统一用系统生成的 1、2、…；若段落文本里本身带了前缀则去掉，避免重复
                 var bodyText = StripLeadingListPrefix(it.Text).Trim();
-                lines.Add($"{seq}、{bodyText}");
+                lineText = $"{seq}、{bodyText}";
             }
-            else
+
+            if (includeIndentation && it.HasNumbering && it.Level > 0)
             {
-                lines.Add(it.Text);
+                lineText = new string(' ', it.Level * 2) + lineText;
             }
+
+            lines.Add(lineText);
         }
 
         return lines;

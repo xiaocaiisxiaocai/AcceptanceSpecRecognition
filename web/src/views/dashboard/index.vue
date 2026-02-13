@@ -54,10 +54,16 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="main">
+  <div class="page dashboard">
+    <div class="page-header">
+      <div>
+        <div class="page-title">系统概览</div>
+        <div class="page-subtitle">关键指标与最近操作概览</div>
+      </div>
+    </div>
     <el-row :gutter="16">
       <el-col :xs="24" :sm="12" :md="6">
-        <el-card v-loading="loading">
+        <el-card v-loading="loading" class="stat-card">
           <div class="stat">
             <div class="stat-title">客户</div>
             <div class="stat-value">{{ customerTotal }}</div>
@@ -65,7 +71,7 @@ onMounted(load);
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :md="6">
-        <el-card v-loading="loading">
+        <el-card v-loading="loading" class="stat-card">
           <div class="stat">
             <div class="stat-title">制程</div>
             <div class="stat-value">{{ processTotal }}</div>
@@ -73,7 +79,7 @@ onMounted(load);
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :md="6">
-        <el-card v-loading="loading">
+        <el-card v-loading="loading" class="stat-card">
           <div class="stat">
             <div class="stat-title">验收规格</div>
             <div class="stat-value">{{ specTotal }}</div>
@@ -81,7 +87,7 @@ onMounted(load);
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :md="6">
-        <el-card v-loading="loading">
+        <el-card v-loading="loading" class="stat-card">
           <div class="stat">
             <div class="stat-title">已上传文件</div>
             <div class="stat-value">{{ fileTotal }}</div>
@@ -116,8 +122,16 @@ onMounted(load);
 </template>
 
 <style scoped>
-.main {
-  padding: 20px;
+.page {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stat-card {
+  border: 1px solid var(--el-card-border-color);
+  background: linear-gradient(180deg, #ffffff 0%, #fbf9ff 100%);
 }
 .stat {
   display: flex;
@@ -131,6 +145,7 @@ onMounted(load);
 .stat-value {
   font-size: 28px;
   font-weight: 600;
+  color: var(--color-text);
 }
 </style>
 

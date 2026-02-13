@@ -39,7 +39,10 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<DateTime>("ImportedAt")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<int>("ProcessId")
+                    b.Property<int?>("MachineModelId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ProcessId")
                         .HasColumnType("int");
 
                     b.Property<string>("Project")
@@ -59,11 +62,13 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("MachineModelId");
+
                     b.HasIndex("ProcessId");
 
                     b.HasIndex("WordFileId");
 
-                    b.HasIndex("CustomerId", "ProcessId");
+                    b.HasIndex("CustomerId", "ProcessId", "MachineModelId");
 
                     b.ToTable("AcceptanceSpecs");
                 });
@@ -88,9 +93,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<string>("Endpoint")
                         .HasColumnType("longtext");
 
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("tinyint(1)");
-
                     b.Property<string>("LlmModel")
                         .HasColumnType("longtext");
 
@@ -98,6 +100,12 @@ namespace AcceptanceSpecSystem.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Purpose")
+                        .HasColumnType("int");
 
                     b.Property<int>("ServiceType")
                         .HasColumnType("int");
@@ -230,6 +238,29 @@ namespace AcceptanceSpecSystem.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Keywords");
+                });
+
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MachineModel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name");
+
+                    b.ToTable("MachineModels");
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.OperationHistory", b =>
@@ -461,11 +492,15 @@ namespace AcceptanceSpecSystem.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("AcceptanceSpecSystem.Data.Entities.MachineModel", "MachineModel")
+                        .WithMany("AcceptanceSpecs")
+                        .HasForeignKey("MachineModelId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
                     b.HasOne("AcceptanceSpecSystem.Data.Entities.Process", "Process")
                         .WithMany("AcceptanceSpecs")
                         .HasForeignKey("ProcessId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("AcceptanceSpecSystem.Data.Entities.WordFile", "WordFile")
                         .WithMany("AcceptanceSpecs")
@@ -474,6 +509,8 @@ namespace AcceptanceSpecSystem.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Customer");
+
+                    b.Navigation("MachineModel");
 
                     b.Navigation("Process");
 
@@ -508,6 +545,11 @@ namespace AcceptanceSpecSystem.Data.Migrations
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.Customer", b =>
+                {
+                    b.Navigation("AcceptanceSpecs");
+                });
+
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MachineModel", b =>
                 {
                     b.Navigation("AcceptanceSpecs");
                 });
