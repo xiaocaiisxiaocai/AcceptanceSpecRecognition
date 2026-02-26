@@ -1,7 +1,9 @@
 using System.Data.Common;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
+using AcceptanceSpecSystem.Core.Matching.Services;
 using AcceptanceSpecSystem.Data.Context;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -44,9 +46,14 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll(typeof(ILlmReviewService));
             services.RemoveAll(typeof(ILlmSuggestionService));
             services.RemoveAll(typeof(IEmbeddingService));
+            services.RemoveAll(typeof(ITextSimilarityService));
             services.AddScoped<ILlmReviewService, TestLlmReviewService>();
             services.AddScoped<ILlmSuggestionService, TestLlmSuggestionService>();
             services.AddScoped<IEmbeddingService, TestEmbeddingService>();
+            services.AddSingleton<ITextSimilarityService, TestTextSimilarityService>();
+
+            // DataProtection 测试隔离（Ephemeral 密钥不持久化）
+            services.AddDataProtection().UseEphemeralDataProtectionProvider();
 
             // Ensure schema created
             using var sp = services.BuildServiceProvider();

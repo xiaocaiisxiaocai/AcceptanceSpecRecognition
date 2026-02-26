@@ -1,5 +1,7 @@
 using AcceptanceSpecSystem.Data.Entities;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace AcceptanceSpecSystem.Data.Context;
 
@@ -8,6 +10,11 @@ namespace AcceptanceSpecSystem.Data.Context;
 /// </summary>
 public class AppDbContext : DbContext
 {
+    /// <summary>
+    /// 数据保护提供者（用于 ApiKey 加密）
+    /// </summary>
+    private readonly IDataProtectionProvider? _dataProtectionProvider;
+
     /// <summary>
     /// 客户表
     /// </summary>
@@ -109,9 +116,11 @@ public class AppDbContext : DbContext
     /// 创建DbContext实例（使用DbContextOptions）
     /// </summary>
     /// <param name="options">DbContext选项</param>
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    /// <param name="dataProtectionProvider">数据保护提供者（可选，用于加密 ApiKey）</param>
+    public AppDbContext(DbContextOptions<AppDbContext> options, IDataProtectionProvider? dataProtectionProvider = null) : base(options)
     {
         _connectionString = string.Empty;
+        _dataProtectionProvider = dataProtectionProvider;
     }
 
     /// <summary>
@@ -217,6 +226,16 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
             entity.HasIndex(e => e.Name).IsUnique();
+
+            // ApiKey 加密存储（DataProtection ValueConverter）
+            if (_dataProtectionProvider != null)
+            {
+                var protector = _dataProtectionProvider.CreateProtector("AiServiceConfig.ApiKey");
+                entity.Property(e => e.ApiKey).HasConversion(
+                    new ValueConverter<string?, string?>(
+                        v => EncryptApiKey(v, protector),
+                        v => DecryptApiKey(v, protector)));
+            }
         });
 
         // SynonymGroup配置
@@ -270,5 +289,30 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.TargetField, e.Pattern });
             entity.HasIndex(e => new { e.TargetField, e.Priority });
         });
+    }
+
+    /// <summary>
+    /// 加密 ApiKey（空值透传）
+    /// </summary>
+    private static string? EncryptApiKey(string? value, IDataProtector protector)
+    {
+        return string.IsNullOrEmpty(value) ? value : protector.Protect(value);
+    }
+
+    /// <summary>
+    /// 解密 ApiKey（向后兼容：旧明文数据解密失败时原样返回，下次保存时自动加密）
+    /// </summary>
+    private static string? DecryptApiKey(string? value, IDataProtector protector)
+    {
+        if (string.IsNullOrEmpty(value)) return value;
+        try
+        {
+            return protector.Unprotect(value);
+        }
+        catch
+        {
+            // 旧明文数据兼容：解密失败时原样返回，下次保存时自动加密
+            return value;
+        }
     }
 }

@@ -1,21 +1,26 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onBeforeUnmount } from "vue";
 import { ElMessage } from "element-plus";
 import FileUpload from "@/views/data-import/components/FileUpload.vue";
 import TableSelector from "@/views/data-import/components/TableSelector.vue";
 import MatchConfig from "./components/MatchConfig.vue";
 import MatchPreviewTable from "./components/MatchPreviewTable.vue";
+import BatchTableConfig from "./components/BatchTableConfig.vue";
+import BatchPreviewTabs from "./components/BatchPreviewTabs.vue";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
+import type { BatchTableConfigItem } from "./components/BatchTableConfig.vue";
 import {
-  previewMatch,
-  executeFill,
+  batchPreviewMatch,
+  batchExecuteFill,
   downloadFillResult,
   type MatchPreviewItem,
   type MatchConfig as MatchConfigType,
   type MatchResult,
+  type BatchTablePreviewResult,
   defaultMatchConfig
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
+import { getFileTables } from "@/api/document";
 
 defineOptions({ name: "SmartFill" });
 
@@ -23,34 +28,36 @@ defineOptions({ name: "SmartFill" });
 const currentStep = ref(0);
 const steps = [
   { title: "上传文件", description: "选择目标文档" },
-  { title: "选择表格", description: "选择要填充的表格" },
+  { title: "选择表格", description: "选择要填充的表格并配置列索引" },
   { title: "配置匹配", description: "设置匹配参数" },
   { title: "预览确认", description: "确认匹配结果" }
 ];
 
 // 文件上传
 const uploadedFile = ref<FileUploadResponse | null>(null);
-const selectedTableIndex = ref<number | undefined>(undefined);
-const selectedTableInfo = ref<TableInfo | null>(null);
 
-// 列索引配置（0-based，必须由用户指定）
-const columnConfig = ref({
-  projectColumnIndex: 0,
-  specificationColumnIndex: 1,
-  acceptanceColumnIndex: 2,
-  remarkColumnIndex: 3
-});
+// 所有表格信息
+const allTables = ref<TableInfo[]>([]);
+// 批量表格配置
+const batchTableConfigs = ref<BatchTableConfigItem[]>([]);
 
 // 匹配配置
 const matchConfig = ref<MatchConfigType>({ ...defaultMatchConfig });
 const matchConfigRef = ref<InstanceType<typeof MatchConfig> | null>(null);
 
-// 匹配预览
-const previewItems = ref<MatchPreviewItem[]>([]);
-const previewTableRef = ref<InstanceType<typeof MatchPreviewTable> | null>(null);
+// 批量预览结果
+const batchPreviewResults = ref<BatchTablePreviewResult[]>([]);
+const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
+  null
+);
 const loading = ref(false);
 const llmStreaming = ref(false);
 const llmStreamController = ref<AbortController | null>(null);
+
+// 页面卸载时清理 SSE 连接，防止连接泄漏
+onBeforeUnmount(() => {
+  stopLlmStream();
+});
 
 // 详情弹窗
 const detailVisible = ref(false);
@@ -60,58 +67,87 @@ const detailItem = ref<MatchPreviewItem | null>(null);
 const executing = ref(false);
 const taskId = ref<string | null>(null);
 
+// 选中的表格数量
+const selectedTableCount = computed(
+  () => batchTableConfigs.value.filter((t) => t.selected).length
+);
+
+// 所有预览项（扁平化）
+const allPreviewItems = computed(() =>
+  batchPreviewResults.value.flatMap((t) => t.items)
+);
+
 // 计算属性
 const canGoNext = computed(() => {
   switch (currentStep.value) {
-    case 0: return uploadedFile.value !== null;
-    case 1: return selectedTableIndex.value !== undefined;
-    case 2: return true;
-    case 3: return previewItems.value.length > 0;
-    default: return false;
+    case 0:
+      return uploadedFile.value !== null;
+    case 1:
+      return selectedTableCount.value > 0;
+    case 2:
+      return true;
+    case 3:
+      return allPreviewItems.value.length > 0;
+    default:
+      return false;
   }
 });
 
 // 文件上传完成
-const handleFileUploaded = (file: FileUploadResponse) => {
+const handleFileUploaded = async (file: FileUploadResponse) => {
   uploadedFile.value = file;
-  selectedTableIndex.value = undefined;
-  selectedTableInfo.value = null;
-  previewItems.value = [];
-  // 重置列索引为常见默认值（用户可手动修改）
-  columnConfig.value = {
-    projectColumnIndex: 0,
-    specificationColumnIndex: 1,
-    acceptanceColumnIndex: 2,
-    remarkColumnIndex: 3
-  };
+  batchTableConfigs.value = [];
+  batchPreviewResults.value = [];
+  taskId.value = null;
+
+  // 自动获取文件中的表格列表
+  try {
+    const res = await getFileTables(file.fileId);
+    if (res.code === 0) {
+      allTables.value = res.data;
+      // 初始化批量配置（默认全选，列索引用常见默认值）
+      batchTableConfigs.value = res.data.map((t) => ({
+        tableIndex: t.index,
+        projectColumnIndex: 0,
+        specificationColumnIndex: 1,
+        acceptanceColumnIndex: 2,
+        remarkColumnIndex: 3,
+        selected: res.data.length === 1, // 单表格时默认选中
+        tableInfo: t
+      }));
+    }
+  } catch {
+    ElMessage.warning("获取表格列表失败");
+  }
 };
 
-// 表格选择
-const handleTableSelected = (table: TableInfo) => {
-  selectedTableInfo.value = table;
-};
-
-// 执行匹配预览
+// 执行批量匹配预览
 const doPreview = async () => {
-  if (!uploadedFile.value || selectedTableIndex.value === undefined) return;
+  if (!uploadedFile.value) return;
 
-  // 必填：项目列/规格列
-  if (
-    columnConfig.value.projectColumnIndex === undefined ||
-    columnConfig.value.specificationColumnIndex === undefined
-  ) {
-    ElMessage.warning("请先手动指定项目列与规格列索引");
+  const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
+  if (selectedConfigs.length === 0) {
+    ElMessage.warning("请至少选择一个表格");
     return;
   }
 
   loading.value = true;
   try {
-    const scope = matchConfigRef.value?.getScope() ?? { customerId: undefined, processId: undefined, machineModelId: undefined };
-    const res = await previewMatch({
+    const scope = matchConfigRef.value?.getScope() ?? {
+      customerId: undefined,
+      processId: undefined,
+      machineModelId: undefined
+    };
+
+    const res = await batchPreviewMatch({
       fileId: uploadedFile.value.fileId,
-      tableIndex: selectedTableIndex.value,
-      projectColumnIndex: columnConfig.value.projectColumnIndex,
-      specificationColumnIndex: columnConfig.value.specificationColumnIndex,
+      tables: selectedConfigs.map((t) => ({
+        tableIndex: t.tableIndex,
+        projectColumnIndex: t.projectColumnIndex,
+        specificationColumnIndex: t.specificationColumnIndex,
+        acceptanceColumnIndex: t.acceptanceColumnIndex,
+        remarkColumnIndex: t.remarkColumnIndex
+      })),
       customerId: scope.customerId,
       processId: scope.processId,
       machineModelId: scope.machineModelId,
@@ -119,8 +155,8 @@ const doPreview = async () => {
     });
 
     if (res.code === 0) {
-      previewItems.value = res.data.items;
-      if (res.data.items.length === 0) {
+      batchPreviewResults.value = res.data.tables;
+      if (res.data.totalMatched === 0) {
         ElMessage.warning("未找到可匹配的数据");
       }
       startLlmStream();
@@ -143,15 +179,16 @@ const stopLlmStream = () => {
 const startLlmStream = async () => {
   stopLlmStream();
 
-  if (!previewItems.value.length) return;
-  if (!matchConfig.value.useLlmReview && !matchConfig.value.useLlmSuggestion) return;
+  if (!allPreviewItems.value.length) return;
+  if (!matchConfig.value.useLlmReview && !matchConfig.value.useLlmSuggestion)
+    return;
 
   const controller = new AbortController();
   llmStreamController.value = controller;
   llmStreaming.value = true;
 
   const payload = {
-    items: previewItems.value.map((item) => ({
+    items: allPreviewItems.value.map((item) => ({
       rowIndex: item.rowIndex,
       sourceProject: item.sourceProject,
       sourceSpecification: item.sourceSpecification,
@@ -224,7 +261,12 @@ const handleSseEvent = (raw: string) => {
 };
 
 const applySseUpdate = (event: string, data: any) => {
-  const row = previewItems.value.find((item) => item.rowIndex === data.rowIndex);
+  // 在所有表格的预览项中查找匹配的行
+  let row: MatchPreviewItem | undefined;
+  for (const tableResult of batchPreviewResults.value) {
+    row = tableResult.items.find((item) => item.rowIndex === data.rowIndex);
+    if (row) break;
+  }
   if (!row) return;
 
   switch (event) {
@@ -253,7 +295,8 @@ const applySseUpdate = (event: string, data: any) => {
       row.llmSuggestionError = undefined;
       break;
     case "suggestion.delta":
-      row.llmSuggestionDraft = (row.llmSuggestionDraft || "") + (data.chunk || "");
+      row.llmSuggestionDraft =
+        (row.llmSuggestionDraft || "") + (data.chunk || "");
       break;
     case "suggestion.done":
       row.llmSuggestion = {
@@ -279,40 +322,69 @@ const handleShowDetail = (item: MatchPreviewItem) => {
 };
 
 // 选择变化
-const handleSelect = (_rowIndex: number, _spec: MatchResult | null) => {
+const handleSelect = (
+  _tableIndex: number,
+  _rowIndex: number,
+  _spec: MatchResult | null
+) => {
   // 可用于实时更新统计
 };
 
 // 执行填充
 const handleExecute = async () => {
-  if (!uploadedFile.value || selectedTableIndex.value === undefined) return;
+  if (!uploadedFile.value) return;
 
-  // 必填：验收列
-  if (columnConfig.value.acceptanceColumnIndex === undefined) {
-    ElMessage.warning("请先手动指定验收列索引");
+  const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
+  if (selectedConfigs.length === 0) return;
+
+  // 获取各表格的选择结果
+  const allSelections = batchPreviewTabsRef.value?.getAllSelections();
+  if (!allSelections || allSelections.size === 0) {
+    ElMessage.warning("请至少选择一项匹配结果");
     return;
   }
 
-  const selections = previewTableRef.value?.getSelections() || [];
-  if (selections.length === 0) {
+  // 构建批量填充请求
+  const tables = selectedConfigs
+    .map((config) => {
+      const selections = allSelections.get(config.tableIndex) || [];
+      if (selections.length === 0) return null;
+      return {
+        tableIndex: config.tableIndex,
+        acceptanceColumnIndex: config.acceptanceColumnIndex,
+        remarkColumnIndex: config.remarkColumnIndex,
+        mappings: selections.map((s) => ({
+          rowIndex: s.rowIndex,
+          specId: s.specId,
+          useLlmSuggestion: s.useLlmSuggestion,
+          acceptance: s.acceptance,
+          remark: s.remark
+        }))
+      };
+    })
+    .filter(Boolean) as Array<{
+    tableIndex: number;
+    acceptanceColumnIndex: number;
+    remarkColumnIndex?: number;
+    mappings: Array<{
+      rowIndex: number;
+      specId?: number;
+      useLlmSuggestion?: boolean;
+      acceptance?: string;
+      remark?: string;
+    }>;
+  }>;
+
+  if (tables.length === 0) {
     ElMessage.warning("请至少选择一项匹配结果");
     return;
   }
 
   executing.value = true;
   try {
-    const res = await executeFill({
+    const res = await batchExecuteFill({
       fileId: uploadedFile.value.fileId,
-      tableIndex: selectedTableIndex.value,
-      acceptanceColumnIndex: columnConfig.value.acceptanceColumnIndex,
-      remarkColumnIndex: columnConfig.value.remarkColumnIndex,
-      mappings: selections.map((s) => ({
-        rowIndex: s.rowIndex,
-        specId: s.specId,
-        useLlmSuggestion: s.useLlmSuggestion,
-        acceptance: s.acceptance,
-        remark: s.remark
-      }))
+      tables
     });
 
     if (res.code === 0) {
@@ -363,9 +435,9 @@ const handleRestart = () => {
   stopLlmStream();
   currentStep.value = 0;
   uploadedFile.value = null;
-  selectedTableIndex.value = undefined;
-  selectedTableInfo.value = null;
-  previewItems.value = [];
+  allTables.value = [];
+  batchTableConfigs.value = [];
+  batchPreviewResults.value = [];
   taskId.value = null;
   matchConfig.value = { ...defaultMatchConfig };
 };
@@ -400,15 +472,22 @@ const handleRestart = () => {
         <FileUpload v-model="uploadedFile" @uploaded="handleFileUploaded" />
       </div>
 
-      <!-- 步骤2: 选择表格 -->
+      <!-- 步骤2: 选择表格 + 配置列索引 -->
       <div v-show="currentStep === 1" class="step-panel">
-        <h3 class="step-title">选择表格</h3>
-        <p class="step-desc">请选择要填充的表格</p>
-        <TableSelector
-          v-if="uploadedFile"
-          :file-id="uploadedFile.fileId"
-          v-model="selectedTableIndex"
-          @selected="handleTableSelected"
+        <h3 class="step-title">选择表格并配置列索引</h3>
+        <p class="step-desc">
+          勾选需要填充的表格，并为每个表格指定各列的索引（从0开始）
+        </p>
+
+        <BatchTableConfig
+          v-if="batchTableConfigs.length > 0"
+          v-model="batchTableConfigs"
+          :tables="allTables"
+        />
+
+        <el-empty
+          v-else-if="uploadedFile"
+          description="未检测到表格，请确认文档格式"
         />
       </div>
 
@@ -417,27 +496,6 @@ const handleRestart = () => {
         <h3 class="step-title">配置匹配参数</h3>
         <p class="step-desc">设置匹配范围和算法参数</p>
         <MatchConfig ref="matchConfigRef" v-model="matchConfig" />
-
-        <el-divider />
-
-        <h3 class="step-title">列索引配置（手动）</h3>
-        <p class="step-desc">
-          请输入表格中各列的索引（从0开始）。例如：第1列=0，第2列=1。
-        </p>
-        <el-form label-width="140px" style="max-width: 520px">
-          <el-form-item label="项目列索引">
-            <el-input-number v-model="columnConfig.projectColumnIndex" :min="0" :max="50" />
-          </el-form-item>
-          <el-form-item label="规格列索引">
-            <el-input-number v-model="columnConfig.specificationColumnIndex" :min="0" :max="50" />
-          </el-form-item>
-          <el-form-item label="验收列索引（填充）">
-            <el-input-number v-model="columnConfig.acceptanceColumnIndex" :min="0" :max="50" />
-          </el-form-item>
-          <el-form-item label="备注列索引（可选）">
-            <el-input-number v-model="columnConfig.remarkColumnIndex" :min="0" :max="50" />
-          </el-form-item>
-        </el-form>
       </div>
 
       <!-- 步骤4: 预览确认 -->
@@ -445,30 +503,28 @@ const handleRestart = () => {
         <h3 class="step-title">匹配预览</h3>
         <p class="step-desc">确认匹配结果，可手动调整选择</p>
 
-        <MatchPreviewTable
-          ref="previewTableRef"
-          :items="previewItems"
+        <BatchPreviewTabs
+          ref="batchPreviewTabsRef"
+          :results="batchPreviewResults"
           :loading="loading"
           @select="handleSelect"
           @show-detail="handleShowDetail"
         />
 
         <!-- 操作按钮 -->
-        <div v-if="previewItems.length > 0" class="action-bar">
-          <el-button @click="doPreview" :loading="loading">重新匹配</el-button>
+        <div v-if="allPreviewItems.length > 0" class="action-bar">
+          <el-button @click="doPreview" :loading="loading">
+            重新匹配
+          </el-button>
           <el-button
             type="primary"
             :loading="executing"
-            :disabled="!previewItems.length"
+            :disabled="!allPreviewItems.length"
             @click="handleExecute"
           >
             执行填充
           </el-button>
-          <el-button
-            v-if="taskId"
-            type="success"
-            @click="handleDownload"
-          >
+          <el-button v-if="taskId" type="success" @click="handleDownload">
             下载结果
           </el-button>
         </div>

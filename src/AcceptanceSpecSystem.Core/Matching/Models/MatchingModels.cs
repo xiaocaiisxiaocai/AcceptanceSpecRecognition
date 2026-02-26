@@ -79,6 +79,16 @@ public class MatchResult
     /// 是否为低置信度匹配
     /// </summary>
     public bool IsLowConfidence => Score < 0.6;
+
+    /// <summary>
+    /// 是否为降级结果（Embedding 不可用时回退到文本相似度）
+    /// </summary>
+    public bool IsDegraded { get; set; }
+
+    /// <summary>
+    /// 降级原因说明
+    /// </summary>
+    public string? DegradationReason { get; set; }
 }
 
 /// <summary>

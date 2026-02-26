@@ -237,3 +237,103 @@ export const defaultMatchConfig: MatchConfig = {
   useLlmSuggestion: false,
   llmSuggestionScoreThreshold: 0.6
 };
+
+// ===== 批量填充 =====
+
+/** 批量表格配置 */
+export interface BatchTableConfig {
+  /** 表格索引 */
+  tableIndex: number;
+  /** 项目列索引 */
+  projectColumnIndex: number;
+  /** 规格列索引 */
+  specificationColumnIndex: number;
+  /** 验收列索引 */
+  acceptanceColumnIndex: number;
+  /** 备注列索引（可选） */
+  remarkColumnIndex?: number;
+}
+
+/** 批量预览请求 */
+export interface BatchPreviewRequest {
+  /** 文件ID */
+  fileId: number;
+  /** 各表格配置列表 */
+  tables: BatchTableConfig[];
+  /** 客户ID */
+  customerId?: number;
+  /** 制程ID */
+  processId?: number;
+  /** 机型ID */
+  machineModelId?: number;
+  /** 匹配配置 */
+  config?: MatchConfig;
+}
+
+/** 单个表格的预览结果 */
+export interface BatchTablePreviewResult {
+  /** 表格索引 */
+  tableIndex: number;
+  /** 匹配结果列表 */
+  items: MatchPreviewItem[];
+  /** 总匹配数 */
+  totalMatched: number;
+  /** 高置信度 */
+  highConfidenceCount: number;
+  /** 中置信度 */
+  mediumConfidenceCount: number;
+  /** 低置信度 */
+  lowConfidenceCount: number;
+}
+
+/** 批量预览响应 */
+export interface BatchPreviewResponse {
+  /** 各表格预览结果 */
+  tables: BatchTablePreviewResult[];
+  /** 汇总匹配数 */
+  totalMatched: number;
+  /** 汇总高置信度 */
+  highConfidenceCount: number;
+  /** 汇总中置信度 */
+  mediumConfidenceCount: number;
+  /** 汇总低置信度 */
+  lowConfidenceCount: number;
+}
+
+/** 批量表格填充映射 */
+export interface BatchTableFillMapping {
+  /** 表格索引 */
+  tableIndex: number;
+  /** 验收列索引 */
+  acceptanceColumnIndex: number;
+  /** 备注列索引 */
+  remarkColumnIndex?: number;
+  /** 填充映射列表 */
+  mappings: FillMapping[];
+}
+
+/** 批量执行填充请求 */
+export interface BatchExecuteFillRequest {
+  /** 文件ID */
+  fileId: number;
+  /** 各表格的填充映射 */
+  tables: BatchTableFillMapping[];
+}
+
+/** 批量匹配预览 */
+export const batchPreviewMatch = (data: BatchPreviewRequest) => {
+  return http.request<ApiResponse<BatchPreviewResponse>>(
+    "post",
+    `${baseUrl}/batch-preview`,
+    { data }
+  );
+};
+
+/** 批量执行填充 */
+export const batchExecuteFill = (data: BatchExecuteFillRequest) => {
+  return http.request<ApiResponse<ExecuteFillResponse>>(
+    "post",
+    `${baseUrl}/batch-execute`,
+    { data }
+  );
+};

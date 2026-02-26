@@ -9,6 +9,7 @@ using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,6 +36,9 @@ builder.Services.AddSwaggerGen(options =>
 // HttpClient（用于AI连接测试等外部调用）
 builder.Services.AddHttpClient();
 
+// 注册DataProtection（用于ApiKey加密存储）
+builder.Services.AddDataProtection();
+
 // 配置MySQL数据库连接
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? AppDbContext.DefaultConnectionString;
@@ -55,6 +59,7 @@ builder.Services.AddScoped<IFileCompareService, FileCompareService>();
 builder.Services.AddScoped<AiServiceSelector>();
 builder.Services.AddScoped<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
 builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
+builder.Services.AddSingleton<ITextSimilarityService, TextSimilarityService>();
 builder.Services.AddScoped<IMatchingService, SemanticKernelMatchingService>();
 builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();

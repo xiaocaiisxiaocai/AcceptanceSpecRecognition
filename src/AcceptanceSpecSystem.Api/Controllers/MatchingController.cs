@@ -448,35 +448,6 @@ public class MatchingController : BaseApiController
         }
 
         // 构建写入操作列表
-        var operations = new List<CellWriteOperation>();
-
-        foreach (var r in taskResult.FillResults)
-        {
-            operations.Add(new CellWriteOperation
-            {
-                RowIndex = r.RowIndex,
-                ColumnIndex = taskResult.AcceptanceColumnIndex ?? 0,
-                Value = r.Acceptance,
-                PreserveFormatting = true
-            });
-
-            if (taskResult.RemarkColumnIndex.HasValue && !string.IsNullOrWhiteSpace(r.Remark))
-            {
-                // 避免与验收列重复写
-                if (taskResult.RemarkColumnIndex.Value != (taskResult.AcceptanceColumnIndex ?? 0))
-                {
-                    operations.Add(new CellWriteOperation
-                    {
-                        RowIndex = r.RowIndex,
-                        ColumnIndex = taskResult.RemarkColumnIndex.Value,
-                        Value = r.Remark!,
-                        PreserveFormatting = true
-                    });
-                }
-            }
-        }
-
-        // 复制原文件并执行写入
         byte[] resultContent;
         using (var resultStream = new MemoryStream())
         {
@@ -489,8 +460,74 @@ public class MatchingController : BaseApiController
 
             try
             {
-                // 执行写入操作
-                await writer.WriteTableDataAsync(resultStream, taskResult.SourceTableIndex, operations);
+                if (taskResult.IsBatchMode)
+                {
+                    // 批量模式：多表格一次性写入
+                    var tableOperations = new Dictionary<int, List<CellWriteOperation>>();
+
+                    foreach (var entry in taskResult.TableEntries)
+                    {
+                        var ops = new List<CellWriteOperation>();
+                        foreach (var r in entry.FillResults)
+                        {
+                            ops.Add(new CellWriteOperation
+                            {
+                                RowIndex = r.RowIndex,
+                                ColumnIndex = entry.AcceptanceColumnIndex,
+                                Value = r.Acceptance,
+                                PreserveFormatting = true
+                            });
+
+                            if (entry.RemarkColumnIndex.HasValue && !string.IsNullOrWhiteSpace(r.Remark))
+                            {
+                                if (entry.RemarkColumnIndex.Value != entry.AcceptanceColumnIndex)
+                                {
+                                    ops.Add(new CellWriteOperation
+                                    {
+                                        RowIndex = r.RowIndex,
+                                        ColumnIndex = entry.RemarkColumnIndex.Value,
+                                        Value = r.Remark!,
+                                        PreserveFormatting = true
+                                    });
+                                }
+                            }
+                        }
+                        tableOperations[entry.TableIndex] = ops;
+                    }
+
+                    await writer.WriteMultipleTablesAsync(resultStream, tableOperations);
+                }
+                else
+                {
+                    // 单表模式（原有逻辑）
+                    var operations = new List<CellWriteOperation>();
+                    foreach (var r in taskResult.FillResults)
+                    {
+                        operations.Add(new CellWriteOperation
+                        {
+                            RowIndex = r.RowIndex,
+                            ColumnIndex = taskResult.AcceptanceColumnIndex ?? 0,
+                            Value = r.Acceptance,
+                            PreserveFormatting = true
+                        });
+
+                        if (taskResult.RemarkColumnIndex.HasValue && !string.IsNullOrWhiteSpace(r.Remark))
+                        {
+                            if (taskResult.RemarkColumnIndex.Value != (taskResult.AcceptanceColumnIndex ?? 0))
+                            {
+                                operations.Add(new CellWriteOperation
+                                {
+                                    RowIndex = r.RowIndex,
+                                    ColumnIndex = taskResult.RemarkColumnIndex.Value,
+                                    Value = r.Remark!,
+                                    PreserveFormatting = true
+                                });
+                            }
+                        }
+                    }
+                    await writer.WriteTableDataAsync(resultStream, taskResult.SourceTableIndex, operations);
+                }
+
                 resultContent = resultStream.ToArray();
             }
             catch (Exception ex)
@@ -546,6 +583,250 @@ public class MatchingController : BaseApiController
         _logger.LogInformation("下载填充结果: 任务{TaskId}, 文件{FileName}", taskId, downloadFileName);
 
         return File(resultContent, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", downloadFileName);
+    }
+
+    /// <summary>
+    /// 批量匹配预览（多表格一次性预览）
+    /// </summary>
+    [HttpPost("batch-preview")]
+    [ProducesResponseType(typeof(ApiResponse<BatchPreviewResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<BatchPreviewResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<BatchPreviewResponse>>> BatchPreview([FromBody] BatchPreviewRequest request)
+    {
+        if (request.Tables == null || request.Tables.Count == 0)
+        {
+            return Error<BatchPreviewResponse>(400, "请至少选择一个表格");
+        }
+
+        if (request.FileId <= 0)
+        {
+            return Error<BatchPreviewResponse>(400, "文件ID不能为空");
+        }
+
+        // 一次获取候选集
+        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId);
+        var config = ConvertToMatchingConfig(request.Config);
+
+        // 创建文本处理会话
+        var tpSession = await _textPipeline.CreateSessionAsync();
+
+        // 预处理候选项
+        var processedCandidates = candidates.Select(c => new MatchCandidate
+        {
+            SpecId = c.SpecId,
+            Project = tpSession.Process(c.Project),
+            Specification = tpSession.Process(c.Specification),
+            Acceptance = c.Acceptance,
+            Embedding = c.Embedding
+        }).ToList();
+
+        var response = new BatchPreviewResponse();
+
+        foreach (var tableConfig in request.Tables)
+        {
+            // 提取每个表格的匹配源数据
+            var extracted = await ExtractMatchSourceItemsFromFileAsync(
+                request.FileId,
+                tableConfig.TableIndex,
+                tableConfig.ProjectColumnIndex,
+                tableConfig.SpecificationColumnIndex);
+
+            var tableResult = new BatchTablePreviewResult { TableIndex = tableConfig.TableIndex };
+            int highCount = 0, mediumCount = 0, lowCount = 0;
+
+            foreach (var item in extracted)
+            {
+                var processedProject = tpSession.Process(item.Project);
+                var processedSpec = tpSession.Process(item.Specification);
+                var sourceText = $"{processedProject} {processedSpec}".Trim();
+
+                MatchResult? bestMatch = null;
+                string? noMatchReason = null;
+
+                if (processedCandidates.Count == 0)
+                {
+                    noMatchReason = "范围内无候选数据";
+                }
+                else
+                {
+                    try
+                    {
+                        var matches = await _matchingService.FindMatchesAsync(sourceText, processedCandidates, config);
+                        bestMatch = matches.FirstOrDefault();
+                        if (bestMatch == null)
+                        {
+                            noMatchReason = "最佳得分低于阈值";
+                        }
+                    }
+                    catch (AiServiceUnavailableException ex)
+                    {
+                        noMatchReason = ex.Reason;
+                    }
+                }
+
+                var previewItem = new MatchPreviewItem
+                {
+                    RowIndex = item.RowIndex,
+                    SourceProject = item.Project,
+                    SourceSpecification = item.Specification,
+                    BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
+                    LlmSuggestion = null,
+                    NoMatchReason = noMatchReason
+                };
+
+                tableResult.Items.Add(previewItem);
+
+                if (previewItem.BestMatch != null)
+                {
+                    var score = previewItem.BestMatch.Score;
+                    if (score >= 0.8) highCount++;
+                    else if (score >= 0.6) mediumCount++;
+                    else lowCount++;
+                }
+            }
+
+            tableResult.TotalMatched = tableResult.Items.Count(i => i.HasMatch);
+            tableResult.HighConfidenceCount = highCount;
+            tableResult.MediumConfidenceCount = mediumCount;
+            tableResult.LowConfidenceCount = lowCount;
+
+            response.Tables.Add(tableResult);
+        }
+
+        _logger.LogInformation(
+            "批量匹配预览完成: {TableCount}个表格, 总匹配{Total}, 高{High}/中{Medium}/低{Low}",
+            request.Tables.Count, response.TotalMatched,
+            response.HighConfidenceCount, response.MediumConfidenceCount, response.LowConfidenceCount);
+
+        return Success(response);
+    }
+
+    /// <summary>
+    /// 批量执行填充（多表格一次性填充）
+    /// </summary>
+    [HttpPost("batch-execute")]
+    [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ExecuteFillResponse>>> BatchExecuteFill([FromBody] BatchExecuteFillRequest request)
+    {
+        if (request.Tables == null || request.Tables.Count == 0)
+        {
+            return Error<ExecuteFillResponse>(400, "请至少提供一个表格的填充映射");
+        }
+
+        if (request.FileId <= 0)
+        {
+            return Error<ExecuteFillResponse>(400, "文件ID不能为空");
+        }
+
+        // 获取源文件
+        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
+        if (wordFile == null)
+        {
+            return Error<ExecuteFillResponse>(400, "源文件不存在");
+        }
+
+        // 收集所有 specId 一次查 DB
+        var allSpecIds = request.Tables
+            .SelectMany(t => t.Mappings)
+            .Where(m => !m.UseLlmSuggestion)
+            .Select(m => m.SpecId ?? m.SelectedSpecId)
+            .Where(id => id.HasValue && id.Value > 0)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        var specDict = new Dictionary<int, Data.Entities.AcceptanceSpec>();
+        if (allSpecIds.Count > 0)
+        {
+            var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => allSpecIds.Contains(s.Id));
+            specDict = specs.ToDictionary(s => s.Id);
+        }
+
+        // 遍历每个表格生成 TableFillEntry
+        int totalFilled = 0, totalSkipped = 0;
+        var tableEntries = new List<TableFillEntry>();
+
+        foreach (var tableFill in request.Tables)
+        {
+            var entry = new TableFillEntry
+            {
+                TableIndex = tableFill.TableIndex,
+                AcceptanceColumnIndex = tableFill.AcceptanceColumnIndex,
+                RemarkColumnIndex = tableFill.RemarkColumnIndex
+            };
+
+            foreach (var mapping in tableFill.Mappings)
+            {
+                if (mapping.UseLlmSuggestion)
+                {
+                    var acceptance = mapping.Acceptance?.Trim();
+                    var remark = mapping.Remark?.Trim();
+                    if (string.IsNullOrWhiteSpace(acceptance) && string.IsNullOrWhiteSpace(remark))
+                    {
+                        totalSkipped++;
+                        continue;
+                    }
+
+                    entry.FillResults.Add(new FillResult
+                    {
+                        RowIndex = mapping.RowIndex,
+                        SpecId = 0,
+                        Acceptance = acceptance ?? "",
+                        Remark = remark
+                    });
+                    totalFilled++;
+                }
+                else
+                {
+                    var selectedSpecId = (mapping.SpecId ?? mapping.SelectedSpecId) ?? 0;
+                    if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
+                    {
+                        totalSkipped++;
+                        continue;
+                    }
+
+                    entry.FillResults.Add(new FillResult
+                    {
+                        RowIndex = mapping.RowIndex,
+                        SpecId = spec.Id,
+                        Acceptance = spec.Acceptance ?? "",
+                        Remark = spec.Remark
+                    });
+                    totalFilled++;
+                }
+            }
+
+            tableEntries.Add(entry);
+        }
+
+        // 生成任务ID
+        var taskId = Guid.NewGuid().ToString("N");
+
+        _fillTaskResults[taskId] = new FillTaskResult
+        {
+            TaskId = taskId,
+            SourceFileId = request.FileId,
+            IsBatchMode = true,
+            TableEntries = tableEntries,
+            CreatedAt = DateTime.Now
+        };
+
+        CleanupExpiredTasks();
+
+        var response = new ExecuteFillResponse
+        {
+            TaskId = taskId,
+            FilledCount = totalFilled,
+            SkippedCount = totalSkipped,
+            DownloadUrl = $"/api/matching/download/{taskId}"
+        };
+
+        _logger.LogInformation(
+            "批量填充完成: 任务{TaskId}, {TableCount}个表格, 填充{Filled}行, 跳过{Skipped}行",
+            taskId, request.Tables.Count, totalFilled, totalSkipped);
+
+        return Success(response, $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行");
     }
 
     /// <summary>
@@ -960,6 +1241,27 @@ internal class FillTaskResult
     public List<FillResult> FillResults { get; set; } = [];
     public string? FilledFilePath { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// 是否为批量模式（多表格一次性填充）
+    /// </summary>
+    public bool IsBatchMode { get; set; }
+
+    /// <summary>
+    /// 批量模式下各表格的填充条目
+    /// </summary>
+    public List<TableFillEntry> TableEntries { get; set; } = [];
+}
+
+/// <summary>
+/// 单个表格的填充条目（批量模式）
+/// </summary>
+internal class TableFillEntry
+{
+    public int TableIndex { get; set; }
+    public int AcceptanceColumnIndex { get; set; }
+    public int? RemarkColumnIndex { get; set; }
+    public List<FillResult> FillResults { get; set; } = [];
 }
 
 /// <summary>

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
+using AcceptanceSpecSystem.Core.Matching.Services;
 
 namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
@@ -139,5 +140,18 @@ public class TestEmbeddingService : IEmbeddingService
         }
 
         return vector;
+    }
+}
+
+/// <summary>
+/// 测试用文本相似度服务（复用 Levenshtein 实现）
+/// </summary>
+public class TestTextSimilarityService : ITextSimilarityService
+{
+    private readonly TextSimilarityService _inner = new();
+
+    public double ComputeSimilarity(string text1, string text2)
+    {
+        return _inner.ComputeSimilarity(text1, text2);
     }
 }

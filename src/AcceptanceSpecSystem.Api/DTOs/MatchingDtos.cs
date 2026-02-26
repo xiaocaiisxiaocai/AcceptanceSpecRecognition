@@ -470,3 +470,181 @@ public class LlmSuggestionDto
     /// </summary>
     public string? Reason { get; set; }
 }
+
+// ===== 批量填充 DTO =====
+
+/// <summary>
+/// 批量表格配置（单个表格的列索引）
+/// </summary>
+public class BatchTableConfig
+{
+    /// <summary>
+    /// 表格索引
+    /// </summary>
+    public int TableIndex { get; set; }
+
+    /// <summary>
+    /// 项目列索引
+    /// </summary>
+    public int ProjectColumnIndex { get; set; }
+
+    /// <summary>
+    /// 规格列索引
+    /// </summary>
+    public int SpecificationColumnIndex { get; set; }
+
+    /// <summary>
+    /// 验收列索引
+    /// </summary>
+    public int AcceptanceColumnIndex { get; set; }
+
+    /// <summary>
+    /// 备注列索引（可选）
+    /// </summary>
+    public int? RemarkColumnIndex { get; set; }
+}
+
+/// <summary>
+/// 批量预览请求
+/// </summary>
+public class BatchPreviewRequest
+{
+    /// <summary>
+    /// 文件ID
+    /// </summary>
+    public int FileId { get; set; }
+
+    /// <summary>
+    /// 各表格配置列表
+    /// </summary>
+    public List<BatchTableConfig> Tables { get; set; } = [];
+
+    /// <summary>
+    /// 匹配范围：客户ID
+    /// </summary>
+    public int? CustomerId { get; set; }
+
+    /// <summary>
+    /// 匹配范围：制程ID
+    /// </summary>
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 匹配范围：机型ID
+    /// </summary>
+    public int? MachineModelId { get; set; }
+
+    /// <summary>
+    /// 匹配配置
+    /// </summary>
+    public MatchConfigDto? Config { get; set; }
+}
+
+/// <summary>
+/// 单个表格的批量预览结果
+/// </summary>
+public class BatchTablePreviewResult
+{
+    /// <summary>
+    /// 表格索引
+    /// </summary>
+    public int TableIndex { get; set; }
+
+    /// <summary>
+    /// 匹配结果列表
+    /// </summary>
+    public List<MatchPreviewItem> Items { get; set; } = [];
+
+    /// <summary>
+    /// 总匹配数
+    /// </summary>
+    public int TotalMatched { get; set; }
+
+    /// <summary>
+    /// 高置信度匹配数
+    /// </summary>
+    public int HighConfidenceCount { get; set; }
+
+    /// <summary>
+    /// 中置信度匹配数
+    /// </summary>
+    public int MediumConfidenceCount { get; set; }
+
+    /// <summary>
+    /// 低置信度匹配数
+    /// </summary>
+    public int LowConfidenceCount { get; set; }
+}
+
+/// <summary>
+/// 批量预览响应
+/// </summary>
+public class BatchPreviewResponse
+{
+    /// <summary>
+    /// 各表格预览结果
+    /// </summary>
+    public List<BatchTablePreviewResult> Tables { get; set; } = [];
+
+    /// <summary>
+    /// 汇总：总匹配数
+    /// </summary>
+    public int TotalMatched => Tables.Sum(t => t.TotalMatched);
+
+    /// <summary>
+    /// 汇总：高置信度
+    /// </summary>
+    public int HighConfidenceCount => Tables.Sum(t => t.HighConfidenceCount);
+
+    /// <summary>
+    /// 汇总：中置信度
+    /// </summary>
+    public int MediumConfidenceCount => Tables.Sum(t => t.MediumConfidenceCount);
+
+    /// <summary>
+    /// 汇总：低置信度
+    /// </summary>
+    public int LowConfidenceCount => Tables.Sum(t => t.LowConfidenceCount);
+}
+
+/// <summary>
+/// 批量填充映射（按表格分组）
+/// </summary>
+public class BatchTableFillMapping
+{
+    /// <summary>
+    /// 表格索引
+    /// </summary>
+    public int TableIndex { get; set; }
+
+    /// <summary>
+    /// 验收列索引
+    /// </summary>
+    public int AcceptanceColumnIndex { get; set; }
+
+    /// <summary>
+    /// 备注列索引（可选）
+    /// </summary>
+    public int? RemarkColumnIndex { get; set; }
+
+    /// <summary>
+    /// 该表格的填充映射列表
+    /// </summary>
+    public List<FillMapping> Mappings { get; set; } = [];
+}
+
+/// <summary>
+/// 批量执行填充请求
+/// </summary>
+public class BatchExecuteFillRequest
+{
+    /// <summary>
+    /// 文件ID
+    /// </summary>
+    public int FileId { get; set; }
+
+    /// <summary>
+    /// 各表格的填充映射
+    /// </summary>
+    public List<BatchTableFillMapping> Tables { get; set; } = [];
+}

@@ -109,6 +109,56 @@ public class WordDocumentWriter : IDocumentWriter
     }
 
     /// <summary>
+    /// 批量写入多个表格（一次 Open / Save）
+    /// </summary>
+    public Task<int> WriteMultipleTablesAsync(Stream stream, Dictionary<int, List<CellWriteOperation>> tableOperations)
+    {
+        return Task.Run(() => WriteMultipleTablesInternal(stream, tableOperations));
+    }
+
+    /// <summary>
+    /// 多表写入内部实现
+    /// </summary>
+    private int WriteMultipleTablesInternal(Stream stream, Dictionary<int, List<CellWriteOperation>> tableOperations)
+    {
+        if (tableOperations == null || tableOperations.Count == 0)
+            return 0;
+
+        using var doc = WordprocessingDocument.Open(stream, true);
+        var body = doc.MainDocumentPart?.Document.Body;
+        if (body == null)
+            throw new InvalidOperationException("文档为空或格式无效");
+
+        var tables = body.Descendants<Table>().ToList();
+        int totalSuccess = 0;
+
+        foreach (var (tableIndex, operations) in tableOperations)
+        {
+            if (operations == null || operations.Count == 0)
+                continue;
+
+            if (tableIndex < 0 || tableIndex >= tables.Count)
+                throw new ArgumentOutOfRangeException(nameof(tableIndex),
+                    $"表格索引 {tableIndex} 超出范围。文档共有 {tables.Count} 个表格。");
+
+            var table = tables[tableIndex];
+            var rows = table.Elements<TableRow>().ToList();
+            var cellMap = BuildCellMap(rows);
+
+            foreach (var operation in operations)
+            {
+                if (TryWriteCell(cellMap, rows, operation))
+                {
+                    totalSuccess++;
+                }
+            }
+        }
+
+        doc.MainDocumentPart?.Document.Save();
+        return totalSuccess;
+    }
+
+    /// <summary>
     /// 内部写入实现
     /// </summary>
     private int WriteTableDataInternal(Stream stream, int tableIndex, IEnumerable<CellWriteOperation> operations)

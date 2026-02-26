@@ -7,15 +7,21 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 
 /// <summary>
 /// 基于 Semantic Kernel Embedding 的匹配服务
+/// Embedding 不可用时自动降级到 Levenshtein 文本相似度
 /// </summary>
 public class SemanticKernelMatchingService : IMatchingService
 {
     private readonly IEmbeddingService _embeddingService;
+    private readonly ITextSimilarityService _textSimilarity;
     private readonly ILogger<SemanticKernelMatchingService> _logger;
 
-    public SemanticKernelMatchingService(IEmbeddingService embeddingService, ILogger<SemanticKernelMatchingService> logger)
+    public SemanticKernelMatchingService(
+        IEmbeddingService embeddingService,
+        ITextSimilarityService textSimilarity,
+        ILogger<SemanticKernelMatchingService> logger)
     {
         _embeddingService = embeddingService;
+        _textSimilarity = textSimilarity;
         _logger = logger;
     }
 
@@ -32,6 +38,25 @@ public class SemanticKernelMatchingService : IMatchingService
             return [];
         }
 
+        try
+        {
+            return await FindMatchesByEmbeddingAsync(sourceText, candidateList, config);
+        }
+        catch (AiServiceUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "Embedding 服务不可用，降级到 Levenshtein 文本相似度");
+            return FindMatchesByTextSimilarity(sourceText, candidateList, config, ex.Reason);
+        }
+    }
+
+    /// <summary>
+    /// 使用 Embedding 向量进行匹配
+    /// </summary>
+    private async Task<List<MatchResult>> FindMatchesByEmbeddingAsync(
+        string sourceText,
+        List<MatchCandidate> candidateList,
+        MatchingConfig config)
+    {
         float[] sourceEmbedding;
         try
         {
@@ -86,6 +111,45 @@ public class SemanticKernelMatchingService : IMatchingService
                     MatchedAcceptance = candidate.Acceptance,
                     Score = score,
                     ScoreDetails = scoreDetails
+                });
+            }
+        }
+
+        return results
+            .OrderByDescending(r => r.Score)
+            .Take(1)
+            .ToList();
+    }
+
+    /// <summary>
+    /// 降级方案：使用 Levenshtein 文本相似度进行匹配
+    /// </summary>
+    private List<MatchResult> FindMatchesByTextSimilarity(
+        string sourceText,
+        List<MatchCandidate> candidateList,
+        MatchingConfig config,
+        string degradationReason)
+    {
+        var results = new List<MatchResult>();
+
+        foreach (var candidate in candidateList)
+        {
+            var score = _textSimilarity.ComputeSimilarity(sourceText, candidate.CombinedText);
+
+            if (score >= config.MinScoreThreshold)
+            {
+                results.Add(new MatchResult
+                {
+                    SourceText = sourceText,
+                    MatchedText = candidate.CombinedText,
+                    MatchedSpecId = candidate.SpecId,
+                    MatchedProject = candidate.Project,
+                    MatchedSpecification = candidate.Specification,
+                    MatchedAcceptance = candidate.Acceptance,
+                    Score = score,
+                    ScoreDetails = new Dictionary<string, double> { ["Levenshtein"] = score },
+                    IsDegraded = true,
+                    DegradationReason = degradationReason
                 });
             }
         }
