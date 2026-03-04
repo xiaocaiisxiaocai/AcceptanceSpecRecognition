@@ -12,6 +12,7 @@ using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -30,6 +31,7 @@ public class MatchingController : BaseApiController
     private readonly ITextPreprocessingPipeline _textPipeline;
     private readonly ILlmReviewService _llmReviewService;
     private readonly ILlmSuggestionService _llmSuggestionService;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<MatchingController> _logger;
 
     // 存储填充任务结果（生产环境应使用Redis或数据库）
@@ -50,6 +52,7 @@ public class MatchingController : BaseApiController
         ITextPreprocessingPipeline textPipeline,
         ILlmReviewService llmReviewService,
         ILlmSuggestionService llmSuggestionService,
+        IServiceScopeFactory scopeFactory,
         ILogger<MatchingController> logger)
     {
         _unitOfWork = unitOfWork;
@@ -59,6 +62,7 @@ public class MatchingController : BaseApiController
         _textPipeline = textPipeline;
         _llmReviewService = llmReviewService;
         _llmSuggestionService = llmSuggestionService;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -73,6 +77,9 @@ public class MatchingController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<MatchPreviewResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<MatchPreviewResponse>>> Preview([FromBody] MatchPreviewRequest request)
     {
+        var sw = Stopwatch.StartNew();
+        var config = ConvertToMatchingConfig(request.Config);
+
         // 兼容前端：如果未传Items，则尝试从文件表格提取项目/规格作为待匹配项
         if (request.Items == null || request.Items.Count == 0)
         {
@@ -87,7 +94,11 @@ public class MatchingController : BaseApiController
                     request.FileId.Value,
                     request.TableIndex.Value,
                     request.ProjectColumnIndex.Value,
-                    request.SpecificationColumnIndex.Value);
+                    request.SpecificationColumnIndex.Value,
+                    request.HeaderRowStart,
+                    request.HeaderRowCount,
+                    request.DataStartRow,
+                    config.FilterEmptySourceRows);
 
                 if (extracted.Count == 0)
                 {
@@ -101,9 +112,6 @@ public class MatchingController : BaseApiController
                 return Error<MatchPreviewResponse>(400, "待匹配文本列表不能为空");
             }
         }
-
-        // 转换匹配配置
-        var config = ConvertToMatchingConfig(request.Config);
 
         // 获取候选验收规格
         var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId);
@@ -143,35 +151,45 @@ public class MatchingController : BaseApiController
             Project = tpSession.Process(c.Project),
             Specification = tpSession.Process(c.Specification),
             Acceptance = c.Acceptance,
+            Remark = c.Remark,
             Embedding = c.Embedding
         }).ToList();
 
-        // 执行匹配
-        var previewItems = new List<MatchPreviewItem>();
-        int highCount = 0, mediumCount = 0, lowCount = 0;
-
+        // 批量收集源文本，一次性调用 BatchMatchAsync
+        var sourceTexts = new List<string>();
         foreach (var item in request.Items)
         {
             var processedProject = tpSession.Process(item.Project);
             var processedSpec = tpSession.Process(item.Specification);
-            var sourceText = $"{processedProject} {processedSpec}".Trim();
+            sourceTexts.Add($"{processedProject} {processedSpec}".Trim());
+        }
 
+        var previewItems = new List<MatchPreviewItem>();
+        int highCount = 0, mediumCount = 0, lowCount = 0;
+
+        BatchMatchResult batchResult;
+        try
+        {
+            batchResult = await _matchingService.BatchMatchAsync(sourceTexts, processedCandidates, config);
+        }
+        catch (AiServiceUnavailableException ex)
+        {
+            return Error<MatchPreviewResponse>(400, $"Embedding 服务不可用: {ex.Reason}");
+        }
+
+        for (var idx = 0; idx < request.Items.Count; idx++)
+        {
+            var item = request.Items[idx];
             MatchResult? bestMatch = null;
             string? noMatchReason = null;
-            try
+
+            if (idx < batchResult.Results.Count)
             {
-                var matches = await _matchingService.FindMatchesAsync(sourceText, processedCandidates, config);
-                bestMatch = matches.FirstOrDefault();
-                if (bestMatch == null)
-                {
-                    noMatchReason = processedCandidates.Count == 0
-                        ? "范围内无候选数据"
-                        : "最佳得分低于阈值";
-                }
-            }
-            catch (AiServiceUnavailableException ex)
-            {
-                noMatchReason = ex.Reason;
+                var mr = batchResult.Results[idx];
+                if (mr.MatchedSpecId.HasValue)
+                    bestMatch = mr;
+                else
+                    noMatchReason = processedCandidates.Count == 0 ? "范围内无候选数据" : "最佳得分低于阈值";
             }
 
             var previewItem = new MatchPreviewItem
@@ -186,7 +204,6 @@ public class MatchingController : BaseApiController
 
             previewItems.Add(previewItem);
 
-            // 统计置信度
             if (previewItem.BestMatch != null)
             {
                 var score = previewItem.BestMatch.Score;
@@ -205,9 +222,10 @@ public class MatchingController : BaseApiController
             LowConfidenceCount = lowCount
         };
 
+        sw.Stop();
         _logger.LogInformation(
-            "匹配预览完成: 共{Total}项, 匹配{Matched}项, 高置信度{High}, 中置信度{Medium}, 低置信度{Low}",
-            request.Items.Count, response.TotalMatched, highCount, mediumCount, lowCount);
+            "匹配预览完成: 共{Total}项, 匹配{Matched}项, 高{High}/中{Medium}/低{Low}, 耗时{Elapsed}ms",
+            request.Items.Count, response.TotalMatched, highCount, mediumCount, lowCount, sw.ElapsedMilliseconds);
 
         return Success(response);
     }
@@ -224,29 +242,70 @@ public class MatchingController : BaseApiController
 
         if (request.Items == null || request.Items.Count == 0)
         {
-            await WriteSseEventAsync("error", new { message = "Items不能为空" }, HttpContext.RequestAborted);
+            await WriteSseEventAsync("error", new { message = "Items不能为空" }, CancellationToken.None);
             return;
         }
 
         var config = ConvertToMatchingConfig(request.Config);
         var cancellationToken = HttpContext.RequestAborted;
 
-        foreach (var item in request.Items)
+        // 并行处理：每行独立创建 DI 作用域（DbContext 非线程安全），SSE 写入用信号量串行化
+        var sseWriteLock = new SemaphoreSlim(1, 1);
+        var sw = Stopwatch.StartNew();
+
+        var parallelism = config.LlmParallelism;
+
+        _logger.LogInformation(
+            "[LLM-Stream] 开始并行处理 {Count} 行 (maxParallelism={Parallelism}), useLlmReview={Review}, useLlmSuggestion={Suggestion}, suggestionThreshold={Threshold}",
+            request.Items.Count, parallelism, config.UseLlmReview, config.UseLlmSuggestion, config.LlmSuggestionScoreThreshold);
+
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            await Parallel.ForEachAsync(
+                request.Items,
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = parallelism,
+                    CancellationToken = cancellationToken
+                },
+                async (item, ct) =>
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+                    var reviewService = scope.ServiceProvider.GetRequiredService<ILlmReviewService>();
+                    var suggestionService = scope.ServiceProvider.GetRequiredService<ILlmSuggestionService>();
 
-            if (config.UseLlmReview && item.BestMatchSpecId.HasValue)
-            {
-                await StreamLlmReviewAsync(item, config, cancellationToken);
-            }
+                    // 同一行内：先复核，再生成建议（顺序执行）
+                    if (config.UseLlmReview && item.BestMatchSpecId.HasValue)
+                    {
+                        _logger.LogDebug("[LLM-Stream] 行{Row}: 开始复核 (specId={SpecId}, score={Score:P1})",
+                            item.RowIndex, item.BestMatchSpecId, item.BestMatchScore ?? 0);
+                        await StreamLlmReviewAsync(item, config, ct, unitOfWork, reviewService, sseWriteLock);
+                    }
 
-            if (config.UseLlmSuggestion &&
-                (!item.BestMatchSpecId.HasValue ||
-                 (item.BestMatchScore ?? 0) < config.LlmSuggestionScoreThreshold))
-            {
-                await StreamLlmSuggestionAsync(item, config, cancellationToken);
-            }
+                    if (ct.IsCancellationRequested) return;
+
+                    if (config.UseLlmSuggestion &&
+                        (!item.BestMatchSpecId.HasValue ||
+                         (item.BestMatchScore ?? 0) < config.LlmSuggestionScoreThreshold))
+                    {
+                        _logger.LogDebug("[LLM-Stream] 行{Row}: 开始生成建议 (specId={SpecId}, score={Score}, threshold={Threshold})",
+                            item.RowIndex, item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
+                            config.LlmSuggestionScoreThreshold);
+                        await StreamLlmSuggestionAsync(item, config, ct, unitOfWork, suggestionService, sseWriteLock);
+                    }
+                });
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("LLM 流式输出：客户端已断开连接");
+        }
+        finally
+        {
+            sseWriteLock.Dispose();
+        }
+
+        _logger.LogInformation("[LLM-Stream] 全部完成, 耗时 {Elapsed}ms", sw.ElapsedMilliseconds);
     }
 
     /// <summary>
@@ -308,7 +367,7 @@ public class MatchingController : BaseApiController
         }
 
         // 获取文档解析器
-        var parser = _documentServiceFactory.GetParser(DocumentType.Word);
+        var parser = _documentServiceFactory.GetParser(GetDocumentType(wordFile.FileType));
         if (parser == null)
         {
             return Error<ExecuteFillResponse>(500, "文档解析器不可用");
@@ -389,9 +448,7 @@ public class MatchingController : BaseApiController
 
         // 生成任务ID
         var taskId = Guid.NewGuid().ToString("N");
-
-        // 存储填充结果（包含原文件和填充信息）
-        _fillTaskResults[taskId] = new FillTaskResult
+        var taskResult = new FillTaskResult
         {
             TaskId = taskId,
             SourceFileId = fileId.Value,
@@ -402,22 +459,48 @@ public class MatchingController : BaseApiController
             CreatedAt = DateTime.Now
         };
 
-        // 清理过期的任务结果（保留1小时）
-        CleanupExpiredTasks();
+        var isExcelSource = wordFile.FileType == UploadedFileType.ExcelXlsx;
+        if (isExcelSource)
+        {
+            var writer = _documentServiceFactory.GetWriter(DocumentType.Excel);
+            if (writer == null)
+            {
+                return Error<ExecuteFillResponse>(500, "Excel 文档写入器不可用");
+            }
+
+            try
+            {
+                await ApplyFillResultToSourceFileAsync(wordFile, taskResult, writer);
+                await _unitOfWork.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "执行填充后写回 Excel 失败: 文件{FileId}", wordFile.Id);
+                return Error<ExecuteFillResponse>(500, $"写回 Excel 失败: {ex.Message}");
+            }
+        }
+        else
+        {
+            // Word 保持原逻辑：保存任务，供下载结果文件
+            _fillTaskResults[taskId] = taskResult;
+            CleanupExpiredTasks();
+        }
 
         var response = new ExecuteFillResponse
         {
             TaskId = taskId,
             FilledCount = filledCount,
             SkippedCount = skippedCount,
-            DownloadUrl = $"/api/matching/download/{taskId}"
+            DownloadUrl = isExcelSource ? string.Empty : $"/api/matching/download/{taskId}"
         };
 
         _logger.LogInformation(
-            "执行填充完成: 任务{TaskId}, 填充{Filled}行, 跳过{Skipped}行",
-            taskId, filledCount, skippedCount);
+            "执行填充完成: 任务{TaskId}, 文件类型{FileType}, 填充{Filled}行, 跳过{Skipped}行",
+            taskId, wordFile.FileType, filledCount, skippedCount);
 
-        return Success(response, $"填充完成：已填充{filledCount}行，跳过{skippedCount}行");
+        return Success(response, isExcelSource
+            ? $"填充完成：已填充{filledCount}行，跳过{skippedCount}行，已写回当前 Excel"
+            : $"填充完成：已填充{filledCount}行，跳过{skippedCount}行");
     }
 
     /// <summary>
@@ -441,7 +524,7 @@ public class MatchingController : BaseApiController
         }
 
         // 获取文档写入器
-        var writer = _documentServiceFactory.GetWriter(DocumentType.Word);
+        var writer = _documentServiceFactory.GetWriter(GetDocumentType(wordFile.FileType));
         if (writer == null)
         {
             return BadRequest(ApiResponse.Error(500, "文档写入器不可用"));
@@ -537,25 +620,13 @@ public class MatchingController : BaseApiController
             }
         }
 
-        // 落盘保存填充结果（文件系统存储）
-        try
-        {
-            var relative = await _fileStorage.SaveFilledWordAsync(wordFile.FileName, resultContent);
-            taskResult.FilledFilePath = relative;
-        }
-        catch (Exception ex)
-        {
-            // 不影响下载（只记录日志）
-            _logger.LogWarning(ex, "保存填充结果到文件系统失败: {TaskId}", taskId);
-        }
-
-        // 写入操作历史（填充）
+        // 写入操作历史（填充），TargetFile 记录文件名而非路径
         try
         {
             var history = new OperationHistory
             {
                 OperationType = OperationType.Fill,
-                TargetFile = taskResult.FilledFilePath,
+                TargetFile = wordFile.FileName,
                 Details = JsonSerializer.Serialize(new
                 {
                     taskId,
@@ -576,13 +647,27 @@ public class MatchingController : BaseApiController
             _logger.LogWarning(ex, "写入填充操作历史失败: {TaskId}", taskId);
         }
 
+        // 下载后清理源文件（不再持久化存储）
+        try
+        {
+            await _fileStorage.DeleteIfExistsAsync(wordFile.FilePath);
+            wordFile.FilePath = null;
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "填充下载后清理源文件失败: {TaskId}", taskId);
+        }
+
         // 生成下载文件名
         var originalFileName = Path.GetFileNameWithoutExtension(wordFile.FileName);
-        var downloadFileName = $"{originalFileName}_filled_{DateTime.Now:yyyyMMddHHmmss}.docx";
+        var fileExtension = GetDownloadFileExtension(wordFile.FileType);
+        var contentType = GetDownloadContentType(wordFile.FileType);
+        var downloadFileName = $"{originalFileName}_filled_{DateTime.Now:yyyyMMddHHmmss}{fileExtension}";
 
         _logger.LogInformation("下载填充结果: 任务{TaskId}, 文件{FileName}", taskId, downloadFileName);
 
-        return File(resultContent, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", downloadFileName);
+        return File(resultContent, contentType, downloadFileName);
     }
 
     /// <summary>
@@ -593,6 +678,8 @@ public class MatchingController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<BatchPreviewResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<BatchPreviewResponse>>> BatchPreview([FromBody] BatchPreviewRequest request)
     {
+        var sw = Stopwatch.StartNew();
+
         if (request.Tables == null || request.Tables.Count == 0)
         {
             return Error<BatchPreviewResponse>(400, "请至少选择一个表格");
@@ -617,51 +704,81 @@ public class MatchingController : BaseApiController
             Project = tpSession.Process(c.Project),
             Specification = tpSession.Process(c.Specification),
             Acceptance = c.Acceptance,
+            Remark = c.Remark,
             Embedding = c.Embedding
         }).ToList();
 
         var response = new BatchPreviewResponse();
 
+        // Phase 1: 提取所有表格的源数据并预处理
+        var allTableData = new List<(BatchTableConfig Config, List<MatchSourceItem> Items, List<string> SourceTexts)>();
         foreach (var tableConfig in request.Tables)
         {
-            // 提取每个表格的匹配源数据
             var extracted = await ExtractMatchSourceItemsFromFileAsync(
                 request.FileId,
                 tableConfig.TableIndex,
                 tableConfig.ProjectColumnIndex,
-                tableConfig.SpecificationColumnIndex);
+                tableConfig.SpecificationColumnIndex,
+                tableConfig.HeaderRowStart,
+                tableConfig.HeaderRowCount,
+                tableConfig.DataStartRow,
+                tableConfig.FilterEmptySourceRows ?? config.FilterEmptySourceRows);
 
+            var sourceTexts = extracted.Select(item =>
+            {
+                var p = tpSession.Process(item.Project);
+                var s = tpSession.Process(item.Specification);
+                return $"{p} {s}".Trim();
+            }).ToList();
+
+            allTableData.Add((tableConfig, extracted, sourceTexts));
+        }
+
+        // Phase 2: 合并所有表格的源文本，对 BatchMatchAsync 只调用一次
+        var allSourceTexts = allTableData.SelectMany(t => t.SourceTexts).ToList();
+
+        if (processedCandidates.Count == 0)
+        {
+            return Error<BatchPreviewResponse>(400, "范围内无候选数据");
+        }
+
+        BatchMatchResult batchResult;
+        if (allSourceTexts.Count > 0)
+        {
+            try
+            {
+                batchResult = await _matchingService.BatchMatchAsync(allSourceTexts, processedCandidates, config);
+            }
+            catch (AiServiceUnavailableException ex)
+            {
+                return Error<BatchPreviewResponse>(400, $"Embedding 服务不可用: {ex.Reason}");
+            }
+        }
+        else
+        {
+            batchResult = new BatchMatchResult();
+        }
+
+        // Phase 3: 按表格分发匹配结果
+        var resultOffset = 0;
+        foreach (var (tableConfig, extracted, sourceTexts) in allTableData)
+        {
             var tableResult = new BatchTablePreviewResult { TableIndex = tableConfig.TableIndex };
             int highCount = 0, mediumCount = 0, lowCount = 0;
 
-            foreach (var item in extracted)
+            for (var idx = 0; idx < extracted.Count; idx++)
             {
-                var processedProject = tpSession.Process(item.Project);
-                var processedSpec = tpSession.Process(item.Specification);
-                var sourceText = $"{processedProject} {processedSpec}".Trim();
-
+                var item = extracted[idx];
                 MatchResult? bestMatch = null;
                 string? noMatchReason = null;
 
-                if (processedCandidates.Count == 0)
+                if ((resultOffset + idx) < batchResult.Results.Count)
                 {
-                    noMatchReason = "范围内无候选数据";
-                }
-                else
-                {
-                    try
-                    {
-                        var matches = await _matchingService.FindMatchesAsync(sourceText, processedCandidates, config);
-                        bestMatch = matches.FirstOrDefault();
-                        if (bestMatch == null)
-                        {
-                            noMatchReason = "最佳得分低于阈值";
-                        }
-                    }
-                    catch (AiServiceUnavailableException ex)
-                    {
-                        noMatchReason = ex.Reason;
-                    }
+                    var mr = batchResult.Results[resultOffset + idx];
+                    if (mr.MatchedSpecId.HasValue)
+                        bestMatch = mr;
+                    else
+                        noMatchReason = "最佳得分低于阈值";
                 }
 
                 var previewItem = new MatchPreviewItem
@@ -685,6 +802,8 @@ public class MatchingController : BaseApiController
                 }
             }
 
+            resultOffset += extracted.Count;
+
             tableResult.TotalMatched = tableResult.Items.Count(i => i.HasMatch);
             tableResult.HighConfidenceCount = highCount;
             tableResult.MediumConfidenceCount = mediumCount;
@@ -693,10 +812,12 @@ public class MatchingController : BaseApiController
             response.Tables.Add(tableResult);
         }
 
+        sw.Stop();
         _logger.LogInformation(
-            "批量匹配预览完成: {TableCount}个表格, 总匹配{Total}, 高{High}/中{Medium}/低{Low}",
+            "批量匹配预览完成: {TableCount}个表格, 总匹配{Total}, 高{High}/中{Medium}/低{Low}, 耗时{Elapsed}ms",
             request.Tables.Count, response.TotalMatched,
-            response.HighConfidenceCount, response.MediumConfidenceCount, response.LowConfidenceCount);
+            response.HighConfidenceCount, response.MediumConfidenceCount, response.LowConfidenceCount,
+            sw.ElapsedMilliseconds);
 
         return Success(response);
     }
@@ -802,8 +923,7 @@ public class MatchingController : BaseApiController
 
         // 生成任务ID
         var taskId = Guid.NewGuid().ToString("N");
-
-        _fillTaskResults[taskId] = new FillTaskResult
+        var taskResult = new FillTaskResult
         {
             TaskId = taskId,
             SourceFileId = request.FileId,
@@ -812,21 +932,48 @@ public class MatchingController : BaseApiController
             CreatedAt = DateTime.Now
         };
 
-        CleanupExpiredTasks();
+        var isExcelSource = wordFile.FileType == UploadedFileType.ExcelXlsx;
+        if (isExcelSource)
+        {
+            var writer = _documentServiceFactory.GetWriter(DocumentType.Excel);
+            if (writer == null)
+            {
+                return Error<ExecuteFillResponse>(500, "Excel 文档写入器不可用");
+            }
+
+            try
+            {
+                await ApplyFillResultToSourceFileAsync(wordFile, taskResult, writer);
+                await _unitOfWork.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "批量填充后写回 Excel 失败: 文件{FileId}", wordFile.Id);
+                return Error<ExecuteFillResponse>(500, $"写回 Excel 失败: {ex.Message}");
+            }
+        }
+        else
+        {
+            // Word 保持原逻辑：保存任务，供下载结果文件
+            _fillTaskResults[taskId] = taskResult;
+            CleanupExpiredTasks();
+        }
 
         var response = new ExecuteFillResponse
         {
             TaskId = taskId,
             FilledCount = totalFilled,
             SkippedCount = totalSkipped,
-            DownloadUrl = $"/api/matching/download/{taskId}"
+            DownloadUrl = isExcelSource ? string.Empty : $"/api/matching/download/{taskId}"
         };
 
         _logger.LogInformation(
-            "批量填充完成: 任务{TaskId}, {TableCount}个表格, 填充{Filled}行, 跳过{Skipped}行",
-            taskId, request.Tables.Count, totalFilled, totalSkipped);
+            "批量填充完成: 任务{TaskId}, 文件类型{FileType}, {TableCount}个表格, 填充{Filled}行, 跳过{Skipped}行",
+            taskId, wordFile.FileType, request.Tables.Count, totalFilled, totalSkipped);
 
-        return Success(response, $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行");
+        return Success(response, isExcelSource
+            ? $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行，已写回当前 Excel"
+            : $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行");
     }
 
     /// <summary>
@@ -913,13 +1060,51 @@ public class MatchingController : BaseApiController
             specs = await _unitOfWork.AcceptanceSpecs.GetAllAsync();
         }
 
-        return specs.Select(s => new MatchCandidate
+        // 同一范围内可能存在重复导入（项目+规格相同，但验收/备注完整度不同）。
+        // 这里先做候选去重，优先保留“验收标准非空 > 备注非空 > 导入时间新 > ID大”的记录，
+        // 避免匹配命中到信息缺失的旧记录。
+        var dedupedSpecs = specs
+            .GroupBy(s => BuildCandidateDedupKey(s.Project, s.Specification))
+            .Select(g => g
+                .OrderByDescending(s => HasText(s.Acceptance))
+                .ThenByDescending(s => HasText(s.Remark))
+                .ThenByDescending(s => s.ImportedAt)
+                .ThenByDescending(s => s.Id)
+                .First())
+            .ToList();
+
+        _logger.LogInformation(
+            "匹配候选去重: 原始{RawCount}条 -> 去重后{DedupedCount}条 (customerId={CustomerId}, processId={ProcessId}, machineModelId={MachineModelId})",
+            specs.Count(), dedupedSpecs.Count, customerId, processId, machineModelId);
+
+        return dedupedSpecs.Select(s => new MatchCandidate
         {
             SpecId = s.Id,
             Project = s.Project,
             Specification = s.Specification,
-            Acceptance = s.Acceptance
+            Acceptance = s.Acceptance,
+            Remark = s.Remark
         }).ToList();
+    }
+
+    private static string BuildCandidateDedupKey(string? project, string? specification)
+    {
+        return $"{NormalizeForDedup(project)}\u001f{NormalizeForDedup(specification)}";
+    }
+
+    private static string NormalizeForDedup(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return string.Join(" ", value
+            .Trim()
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static bool HasText(string? value)
+    {
+        return !string.IsNullOrWhiteSpace(value);
     }
 
     /// <summary>
@@ -939,7 +1124,9 @@ public class MatchingController : BaseApiController
             MinScoreThreshold = dto.MinScoreThreshold,
             UseLlmReview = dto.UseLlmReview,
             UseLlmSuggestion = dto.UseLlmSuggestion,
-            LlmSuggestionScoreThreshold = dto.LlmSuggestionScoreThreshold
+            LlmSuggestionScoreThreshold = dto.LlmSuggestionScoreThreshold,
+            LlmParallelism = Math.Clamp(dto.LlmParallelism, 1, 10),
+            FilterEmptySourceRows = dto.FilterEmptySourceRows
         };
     }
 
@@ -954,6 +1141,7 @@ public class MatchingController : BaseApiController
             Project = result.MatchedProject ?? "",
             Specification = result.MatchedSpecification ?? "",
             Acceptance = result.MatchedAcceptance,
+            Remark = result.MatchedRemark,
             Score = result.Score,
             ScoreDetails = result.ScoreDetails,
             LlmScore = result.LlmScore,
@@ -963,22 +1151,34 @@ public class MatchingController : BaseApiController
         };
     }
 
-    private async Task StreamLlmReviewAsync(MatchLlmStreamItem item, MatchingConfig config, CancellationToken cancellationToken)
+    private async Task StreamLlmReviewAsync(
+        MatchLlmStreamItem item,
+        MatchingConfig config,
+        CancellationToken cancellationToken,
+        IUnitOfWork unitOfWork,
+        ILlmReviewService reviewService,
+        SemaphoreSlim sseWriteLock)
     {
         var specId = item.BestMatchSpecId ?? 0;
         if (specId <= 0)
             return;
 
-        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(specId);
+        var spec = await unitOfWork.AcceptanceSpecs.GetByIdAsync(specId);
         if (spec == null)
         {
-            await WriteSseEventAsync("review.error", new
+            _logger.LogWarning("[LLM复核] 行{Row}: 最佳匹配规格ID={SpecId}不存在", item.RowIndex, specId);
+            await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
             {
                 rowIndex = item.RowIndex,
                 message = "最佳匹配规格不存在"
             }, cancellationToken);
             return;
         }
+
+        _logger.LogInformation(
+            "[LLM复核] 行{Row}: 源=[{SrcProj}/{SrcSpec}] 匹配=[{MatchProj}/{MatchSpec}] 基础得分={Score:P1}",
+            item.RowIndex, item.SourceProject, item.SourceSpecification,
+            spec.Project, spec.Specification, item.BestMatchScore ?? 0);
 
         var reviewRequest = new LlmReviewRequest
         {
@@ -987,29 +1187,32 @@ public class MatchingController : BaseApiController
             BestMatchProject = spec.Project,
             BestMatchSpecification = spec.Specification,
             BestMatchAcceptance = spec.Acceptance,
+            BestMatchRemark = spec.Remark,
             BaseScore = (item.BestMatchScore ?? 0) * 100,
             ScoreDetails = item.ScoreDetails ?? new Dictionary<string, double>(),
             LlmServiceId = config.LlmServiceId
         };
 
-        await WriteSseEventAsync("review.start", new { rowIndex = item.RowIndex }, cancellationToken);
+        await WriteSseEventLockedAsync(sseWriteLock, "review.start", new { rowIndex = item.RowIndex }, cancellationToken);
 
         var buffer = new StringBuilder();
         try
         {
-            await foreach (var chunk in _llmReviewService.ReviewStreamAsync(reviewRequest, cancellationToken))
+            await foreach (var chunk in reviewService.ReviewStreamAsync(reviewRequest, cancellationToken))
             {
                 buffer.Append(chunk);
-                await WriteSseEventAsync("review.delta", new
+                await WriteSseEventLockedAsync(sseWriteLock, "review.delta", new
                 {
                     rowIndex = item.RowIndex,
                     chunk
                 }, cancellationToken);
             }
 
-            if (_llmReviewService.TryParseReviewResult(buffer.ToString(), out var result))
+            if (reviewService.TryParseReviewResult(buffer.ToString(), out var result))
             {
-                await WriteSseEventAsync("review.done", new
+                _logger.LogInformation("[LLM复核] 行{Row}: 完成, score={Score}, reason={Reason}",
+                    item.RowIndex, result.Score, result.Reason);
+                await WriteSseEventLockedAsync(sseWriteLock, "review.done", new
                 {
                     rowIndex = item.RowIndex,
                     score = result.Score,
@@ -1019,17 +1222,22 @@ public class MatchingController : BaseApiController
             }
             else
             {
-                await WriteSseEventAsync("review.error", new
+                _logger.LogWarning("[LLM复核] 行{Row}: JSON解析失败, 原始输出: {Raw}", item.RowIndex, buffer.ToString());
+                await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
                 {
                     rowIndex = item.RowIndex,
                     message = "LLM复核输出解析失败"
                 }, cancellationToken);
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (AiServiceUnavailableException ex)
         {
             _logger.LogWarning(ex, "LLM复核失败");
-            await WriteSseEventAsync("review.error", new
+            await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
             {
                 rowIndex = item.RowIndex,
                 message = ex.Reason
@@ -1038,7 +1246,7 @@ public class MatchingController : BaseApiController
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "LLM复核失败");
-            await WriteSseEventAsync("review.error", new
+            await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
             {
                 rowIndex = item.RowIndex,
                 message = "LLM复核失败"
@@ -1046,7 +1254,13 @@ public class MatchingController : BaseApiController
         }
     }
 
-    private async Task StreamLlmSuggestionAsync(MatchLlmStreamItem item, MatchingConfig config, CancellationToken cancellationToken)
+    private async Task StreamLlmSuggestionAsync(
+        MatchLlmStreamItem item,
+        MatchingConfig config,
+        CancellationToken cancellationToken,
+        IUnitOfWork unitOfWork,
+        ILlmSuggestionService suggestionService,
+        SemaphoreSlim sseWriteLock)
     {
         var request = new LlmSuggestionRequest
         {
@@ -1055,24 +1269,45 @@ public class MatchingController : BaseApiController
             LlmServiceId = config.LlmServiceId
         };
 
-        await WriteSseEventAsync("suggestion.start", new { rowIndex = item.RowIndex }, cancellationToken);
+        // 如果有最佳匹配（虽然得分低于阈值），包含为参考数据
+        if (item.BestMatchSpecId.HasValue && item.BestMatchSpecId.Value > 0)
+        {
+            var spec = await unitOfWork.AcceptanceSpecs.GetByIdAsync(item.BestMatchSpecId.Value);
+            if (spec != null)
+            {
+                request.BestMatchProject = spec.Project;
+                request.BestMatchSpecification = spec.Specification;
+                request.BestMatchAcceptance = spec.Acceptance;
+                request.BestMatchRemark = spec.Remark;
+                request.BestMatchScore = item.BestMatchScore;
+            }
+        }
+
+        _logger.LogInformation(
+            "[LLM建议] 行{Row}: 源=[{SrcProj}/{SrcSpec}] 参考=[{RefProj}] 得分={Score}",
+            item.RowIndex, item.SourceProject, item.SourceSpecification,
+            request.BestMatchProject ?? "(无)", item.BestMatchScore?.ToString("P1") ?? "N/A");
+
+        await WriteSseEventLockedAsync(sseWriteLock, "suggestion.start", new { rowIndex = item.RowIndex }, cancellationToken);
 
         var buffer = new StringBuilder();
         try
         {
-            await foreach (var chunk in _llmSuggestionService.GenerateSuggestionStreamAsync(request, cancellationToken))
+            await foreach (var chunk in suggestionService.GenerateSuggestionStreamAsync(request, cancellationToken))
             {
                 buffer.Append(chunk);
-                await WriteSseEventAsync("suggestion.delta", new
+                await WriteSseEventLockedAsync(sseWriteLock, "suggestion.delta", new
                 {
                     rowIndex = item.RowIndex,
                     chunk
                 }, cancellationToken);
             }
 
-            if (_llmSuggestionService.TryParseSuggestionResult(buffer.ToString(), out var result))
+            if (suggestionService.TryParseSuggestionResult(buffer.ToString(), out var result))
             {
-                await WriteSseEventAsync("suggestion.done", new
+                _logger.LogInformation("[LLM建议] 行{Row}: 完成, acceptance={Acceptance}, remark={Remark}",
+                    item.RowIndex, result.Acceptance ?? "(空)", result.Remark ?? "(空)");
+                await WriteSseEventLockedAsync(sseWriteLock, "suggestion.done", new
                 {
                     rowIndex = item.RowIndex,
                     acceptance = result.Acceptance,
@@ -1082,17 +1317,22 @@ public class MatchingController : BaseApiController
             }
             else
             {
-                await WriteSseEventAsync("suggestion.error", new
+                _logger.LogWarning("[LLM建议] 行{Row}: JSON解析失败, 原始输出: {Raw}", item.RowIndex, buffer.ToString());
+                await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
                 {
                     rowIndex = item.RowIndex,
                     message = "LLM生成输出解析失败"
                 }, cancellationToken);
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (AiServiceUnavailableException ex)
         {
             _logger.LogWarning(ex, "LLM生成建议失败");
-            await WriteSseEventAsync("suggestion.error", new
+            await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
             {
                 rowIndex = item.RowIndex,
                 message = ex.Reason
@@ -1101,7 +1341,7 @@ public class MatchingController : BaseApiController
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "LLM生成建议失败");
-            await WriteSseEventAsync("suggestion.error", new
+            await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
             {
                 rowIndex = item.RowIndex,
                 message = "LLM生成建议失败"
@@ -1117,11 +1357,58 @@ public class MatchingController : BaseApiController
         await Response.Body.FlushAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// 安全写入 SSE 事件：连接已断开时静默忽略，不抛异常
+    /// </summary>
+    private async Task WriteSseEventSafeAsync(string eventName, object data, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested) return;
+        try
+        {
+            await WriteSseEventAsync(eventName, data, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw; // 让调用方的 catch(OperationCanceledException) 处理
+        }
+        catch (ObjectDisposedException)
+        {
+            // Response 已释放，连接已断开
+        }
+    }
+
+    /// <summary>
+    /// 线程安全的 SSE 写入：用信号量串行化并发写入（Parallel.ForEachAsync 场景）
+    /// </summary>
+    private async Task WriteSseEventLockedAsync(
+        SemaphoreSlim sseWriteLock,
+        string eventName,
+        object data,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested) return;
+        await sseWriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteSseEventAsync(eventName, data, cancellationToken);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (ObjectDisposedException) { /* Response 已释放 */ }
+        finally
+        {
+            sseWriteLock.Release();
+        }
+    }
+
     private async Task<List<MatchSourceItem>> ExtractMatchSourceItemsFromFileAsync(
         int fileId,
         int tableIndex,
         int projectColumnIndex,
-        int specificationColumnIndex)
+        int specificationColumnIndex,
+        int? headerRowStart = null,
+        int? headerRowCount = null,
+        int? dataStartRow = null,
+        bool filterEmptySourceRows = true)
     {
         var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId);
         if (wordFile == null)
@@ -1129,7 +1416,7 @@ public class MatchingController : BaseApiController
             return [];
         }
 
-        var parser = _documentServiceFactory.GetParser(DocumentType.Word);
+        var parser = _documentServiceFactory.GetParser(GetDocumentType(wordFile.FileType));
         if (parser == null)
         {
             return [];
@@ -1137,13 +1424,61 @@ public class MatchingController : BaseApiController
 
         using var stream = OpenWordFileReadStream(wordFile);
         TableData tableData;
+        int excelDataStartRowIndexForWriteBack = 1;
         try
         {
-            tableData = await parser.ExtractTableDataAsync(stream, tableIndex, new ColumnMapping
+            var mapping = new ColumnMapping
             {
                 HeaderRowIndex = 0,
+                HeaderRowCount = 1,
                 DataStartRowIndex = 1
-            });
+            };
+
+            if (wordFile.FileType == UploadedFileType.ExcelXlsx)
+            {
+                IReadOnlyList<TableInfo> tables;
+                using (var metaStream = OpenWordFileReadStream(wordFile))
+                {
+                    tables = await parser.GetTablesAsync(metaStream);
+                }
+
+                if (tableIndex < 0 || tableIndex >= tables.Count)
+                {
+                    return [];
+                }
+
+                var sheetInfo = tables[tableIndex];
+                var usedStartRow = Math.Max(1, sheetInfo.UsedRangeStartRow);
+
+                var normalizedHeaderRowStart = headerRowStart.GetValueOrDefault(usedStartRow);
+                if (normalizedHeaderRowStart < usedStartRow)
+                {
+                    normalizedHeaderRowStart = usedStartRow;
+                }
+
+                var normalizedHeaderRowCount = headerRowCount.GetValueOrDefault(1);
+                if (normalizedHeaderRowCount < 0)
+                {
+                    normalizedHeaderRowCount = 0;
+                }
+
+                var minDataStartRow = normalizedHeaderRowStart + normalizedHeaderRowCount;
+                var normalizedDataStartRow = dataStartRow.GetValueOrDefault(minDataStartRow);
+                if (normalizedDataStartRow < minDataStartRow)
+                {
+                    normalizedDataStartRow = minDataStartRow;
+                }
+
+                mapping = new ColumnMapping
+                {
+                    HeaderRowIndex = Math.Max(0, normalizedHeaderRowStart - usedStartRow),
+                    HeaderRowCount = Math.Max(1, normalizedHeaderRowCount == 0 ? 1 : normalizedHeaderRowCount),
+                    DataStartRowIndex = Math.Max(0, normalizedDataStartRow - usedStartRow)
+                };
+                excelDataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
+            }
+
+            tableData = await parser.ExtractTableDataAsync(stream, tableIndex, mapping);
         }
         catch
         {
@@ -1172,20 +1507,159 @@ public class MatchingController : BaseApiController
             var project = row.GetValue(projectColumnIndex) ?? "";
             var spec = row.GetValue(specificationColumnIndex) ?? "";
 
-            if (string.IsNullOrWhiteSpace(project) && string.IsNullOrWhiteSpace(spec))
+            if (filterEmptySourceRows &&
+                string.IsNullOrWhiteSpace(project) &&
+                string.IsNullOrWhiteSpace(spec))
             {
                 continue;
             }
 
+            // Excel 解析器的数据行索引从 0 开始（对应 DataStartRowIndex），
+            // 回写时需要加回 DataStartRowIndex，才能定位到 UsedRange 内的真实行。
+            var writeBackRowIndex = row.Index;
+            if (wordFile.FileType == UploadedFileType.ExcelXlsx)
+            {
+                writeBackRowIndex += excelDataStartRowIndexForWriteBack;
+            }
+
             items.Add(new MatchSourceItem
             {
-                RowIndex = row.Index,
+                RowIndex = writeBackRowIndex,
                 Project = project.Trim(),
                 Specification = spec.Trim()
             });
         }
 
         return items;
+    }
+
+    /// <summary>
+    /// 将填充结果直接写回源文件（用于 Excel 回写模式）。
+    /// </summary>
+    private async Task ApplyFillResultToSourceFileAsync(WordFile wordFile, FillTaskResult taskResult, IDocumentWriter writer)
+    {
+        using var resultStream = new MemoryStream();
+        await using (var sourceStream = OpenWordFileReadStream(wordFile))
+        {
+            await sourceStream.CopyToAsync(resultStream);
+        }
+        resultStream.Position = 0;
+
+        if (taskResult.IsBatchMode)
+        {
+            var tableOperations = new Dictionary<int, List<CellWriteOperation>>();
+            foreach (var entry in taskResult.TableEntries)
+            {
+                var operations = BuildCellWriteOperations(entry.FillResults, entry.AcceptanceColumnIndex, entry.RemarkColumnIndex);
+                if (operations.Count > 0)
+                {
+                    tableOperations[entry.TableIndex] = operations;
+                }
+            }
+
+            if (tableOperations.Count > 0)
+            {
+                await writer.WriteMultipleTablesAsync(resultStream, tableOperations);
+            }
+        }
+        else
+        {
+            var operations = BuildCellWriteOperations(
+                taskResult.FillResults,
+                taskResult.AcceptanceColumnIndex ?? 0,
+                taskResult.RemarkColumnIndex);
+
+            if (operations.Count > 0)
+            {
+                await writer.WriteTableDataAsync(resultStream, taskResult.SourceTableIndex, operations);
+            }
+        }
+
+        var updatedContent = resultStream.ToArray();
+        await PersistUpdatedSourceFileAsync(wordFile, updatedContent);
+    }
+
+    /// <summary>
+    /// 构建单表/多表通用的单元格写入操作列表。
+    /// </summary>
+    private static List<CellWriteOperation> BuildCellWriteOperations(
+        List<FillResult> fillResults,
+        int acceptanceColumnIndex,
+        int? remarkColumnIndex)
+    {
+        var operations = new List<CellWriteOperation>();
+        foreach (var fillResult in fillResults)
+        {
+            operations.Add(new CellWriteOperation
+            {
+                RowIndex = fillResult.RowIndex,
+                ColumnIndex = acceptanceColumnIndex,
+                Value = fillResult.Acceptance,
+                PreserveFormatting = true
+            });
+
+            if (remarkColumnIndex.HasValue &&
+                remarkColumnIndex.Value != acceptanceColumnIndex &&
+                !string.IsNullOrWhiteSpace(fillResult.Remark))
+            {
+                operations.Add(new CellWriteOperation
+                {
+                    RowIndex = fillResult.RowIndex,
+                    ColumnIndex = remarkColumnIndex.Value,
+                    Value = fillResult.Remark!,
+                    PreserveFormatting = true
+                });
+            }
+        }
+
+        return operations;
+    }
+
+    /// <summary>
+    /// 持久化更新后的源文件内容（文件系统优先，DB二进制兜底）。
+    /// </summary>
+    private async Task PersistUpdatedSourceFileAsync(WordFile wordFile, byte[] updatedContent)
+    {
+        if (!string.IsNullOrWhiteSpace(wordFile.FilePath))
+        {
+            var fullPath = _fileStorage.GetAbsolutePath(wordFile.FilePath);
+            var directory = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            await System.IO.File.WriteAllBytesAsync(fullPath, updatedContent);
+        }
+        else
+        {
+            wordFile.FilePath = wordFile.FileType == UploadedFileType.ExcelXlsx
+                ? await _fileStorage.SaveUploadedExcelAsync(wordFile.FileName, updatedContent)
+                : await _fileStorage.SaveUploadedWordAsync(wordFile.FileName, updatedContent);
+        }
+
+        // 与现有兼容模型保持一致：同步更新 DB 二进制和哈希。
+        wordFile.FileContent = updatedContent;
+        wordFile.FileHash = FileStorageService.ComputeSha256(updatedContent);
+    }
+
+    private static DocumentType GetDocumentType(UploadedFileType fileType)
+    {
+        return fileType == UploadedFileType.ExcelXlsx
+            ? DocumentType.Excel
+            : DocumentType.Word;
+    }
+
+    private static string GetDownloadFileExtension(UploadedFileType fileType)
+    {
+        return fileType == UploadedFileType.ExcelXlsx ? ".xlsx" : ".docx";
+    }
+
+    private static string GetDownloadContentType(UploadedFileType fileType)
+    {
+        return fileType == UploadedFileType.ExcelXlsx
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     }
 
     /// <summary>

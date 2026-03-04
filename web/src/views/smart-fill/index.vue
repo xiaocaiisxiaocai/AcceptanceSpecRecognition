@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount } from "vue";
 import { ElMessage } from "element-plus";
+import { Loading } from "@element-plus/icons-vue";
 import FileUpload from "@/views/data-import/components/FileUpload.vue";
 import TableSelector from "@/views/data-import/components/TableSelector.vue";
 import MatchConfig from "./components/MatchConfig.vue";
@@ -21,6 +22,12 @@ import {
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
 import { getFileTables } from "@/api/document";
+import {
+  getEffectiveColumnMappingRules,
+  ColumnMappingTargetField,
+  ColumnMappingMatchMode,
+  type ColumnMappingRule
+} from "@/api/column-mapping-rules";
 
 defineOptions({ name: "SmartFill" });
 
@@ -35,6 +42,7 @@ const steps = [
 
 // 文件上传
 const uploadedFile = ref<FileUploadResponse | null>(null);
+const isExcelFile = computed(() => uploadedFile.value?.fileType === 1);
 
 // 所有表格信息
 const allTables = ref<TableInfo[]>([]);
@@ -100,24 +108,114 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   batchPreviewResults.value = [];
   taskId.value = null;
 
-  // 自动获取文件中的表格列表
+  // 并行获取表格列表和列映射规则
+  let tables: TableInfo[] = [];
+  let rules: ColumnMappingRule[] = [];
   try {
-    const res = await getFileTables(file.fileId);
-    if (res.code === 0) {
-      allTables.value = res.data;
-      // 初始化批量配置（默认全选，列索引用常见默认值）
-      batchTableConfigs.value = res.data.map((t) => ({
-        tableIndex: t.index,
-        projectColumnIndex: 0,
-        specificationColumnIndex: 1,
-        acceptanceColumnIndex: 2,
-        remarkColumnIndex: 3,
-        selected: res.data.length === 1, // 单表格时默认选中
-        tableInfo: t
-      }));
-    }
+    const [tablesRes, rulesRes] = await Promise.all([
+      getFileTables(file.fileId),
+      getEffectiveColumnMappingRules()
+    ]);
+    if (tablesRes.code === 0) tables = tablesRes.data;
+    if (rulesRes.code === 0) rules = rulesRes.data;
   } catch {
     ElMessage.warning("获取表格列表失败");
+    return;
+  }
+
+  allTables.value = tables;
+
+  // 用列映射规则自动匹配表头索引
+  batchTableConfigs.value = tables.map((t) => ({
+    tableIndex: t.index,
+    ...autoMatchColumns(t.headers, rules),
+    headerRowStart: Math.max(1, t.usedRangeStartRow ?? 1),
+    headerRowCount: 1,
+    dataStartRow: Math.max(1, t.usedRangeStartRow ?? 1) + 1,
+    resolvedHeaders: t.headers,
+    selected: tables.length === 1,
+    tableInfo: t
+  }));
+};
+
+/**
+ * 根据列映射规则自动匹配表头，返回各列的索引。
+ * 匹配逻辑：遍历每个字段的规则（按优先级排序），逐个表头检测是否命中。
+ * 未命中则回退到硬编码默认值 0/1/2/3。
+ */
+const autoMatchColumns = (
+  headers: string[],
+  rules: ColumnMappingRule[]
+) => {
+  const fieldMap: Record<number, keyof ReturnType<typeof defaults>> = {
+    [ColumnMappingTargetField.Project]: "projectColumnIndex",
+    [ColumnMappingTargetField.Specification]: "specificationColumnIndex",
+    [ColumnMappingTargetField.Acceptance]: "acceptanceColumnIndex",
+    [ColumnMappingTargetField.Remark]: "remarkColumnIndex"
+  };
+
+  const defaults = () => ({
+    projectColumnIndex: 0,
+    specificationColumnIndex: 1,
+    acceptanceColumnIndex: 2,
+    remarkColumnIndex: 3 as number | undefined
+  });
+
+  const result = defaults();
+  if (headers.length === 0 || rules.length === 0) return result;
+
+  // 按 targetField 分组，组内按 priority 升序（越小越优先）
+  const rulesByField = new Map<number, ColumnMappingRule[]>();
+  for (const r of rules) {
+    if (!rulesByField.has(r.targetField)) rulesByField.set(r.targetField, []);
+    rulesByField.get(r.targetField)!.push(r);
+  }
+  for (const arr of rulesByField.values()) {
+    arr.sort((a, b) => a.priority - b.priority);
+  }
+
+  const matched = new Set<number>(); // 已被占用的列索引
+
+  for (const [targetField, fieldKey] of Object.entries(fieldMap)) {
+    const fieldRules = rulesByField.get(Number(targetField));
+    if (!fieldRules) continue;
+
+    let found = false;
+    for (const rule of fieldRules) {
+      for (let i = 0; i < headers.length; i++) {
+        if (matched.has(i)) continue;
+        if (matchHeader(headers[i], rule)) {
+          (result as any)[fieldKey] = i;
+          matched.add(i);
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+  }
+
+  return result;
+};
+
+/** 判断表头是否命中映射规则 */
+const matchHeader = (header: string, rule: ColumnMappingRule): boolean => {
+  if (!header) return false;
+  const h = header.toLowerCase();
+  const p = rule.pattern.toLowerCase();
+  switch (rule.matchMode) {
+    case ColumnMappingMatchMode.Contains:
+      return h.includes(p);
+    case ColumnMappingMatchMode.Equals:
+      return h === p;
+    case ColumnMappingMatchMode.Regex:
+      try {
+        return new RegExp(rule.pattern, "i").test(header);
+      } catch {
+        return false;
+      }
+    default:
+      return false;
   }
 };
 
@@ -146,7 +244,11 @@ const doPreview = async () => {
         projectColumnIndex: t.projectColumnIndex,
         specificationColumnIndex: t.specificationColumnIndex,
         acceptanceColumnIndex: t.acceptanceColumnIndex,
-        remarkColumnIndex: t.remarkColumnIndex
+        remarkColumnIndex: t.remarkColumnIndex,
+        headerRowStart: t.headerRowStart,
+        headerRowCount: t.headerRowCount,
+        dataStartRow: t.dataStartRow,
+        filterEmptySourceRows: t.filterEmptySourceRows
       })),
       customerId: scope.customerId,
       processId: scope.processId,
@@ -389,7 +491,31 @@ const handleExecute = async () => {
 
     if (res.code === 0) {
       taskId.value = res.data.taskId;
-      ElMessage.success(`填充完成，共填充 ${res.data.filledCount} 条`);
+      if (isExcelFile.value) {
+        ElMessage.success(
+          `填充完成，共填充 ${res.data.filledCount} 条，已写回当前上传 Excel`
+        );
+      } else {
+        try {
+          const blob = await downloadFillResult(res.data.taskId);
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          const originalName = uploadedFile.value.fileName || "filled.docx";
+          const dotIndex = originalName.lastIndexOf(".");
+          const baseName =
+            dotIndex > 0 ? originalName.slice(0, dotIndex) : originalName;
+          const ext = dotIndex > 0 ? originalName.slice(dotIndex) : ".docx";
+          a.download = `${baseName}_filled_${Date.now()}${ext}`;
+          a.click();
+          window.URL.revokeObjectURL(url);
+          ElMessage.success(
+            `填充完成，共填充 ${res.data.filledCount} 条，已下载结果文档`
+          );
+        } catch {
+          ElMessage.warning("填充完成，但结果文件下载失败，请重试");
+        }
+      }
     } else {
       ElMessage.error(res.message || "填充失败");
     }
@@ -397,23 +523,6 @@ const handleExecute = async () => {
     ElMessage.error("填充失败");
   } finally {
     executing.value = false;
-  }
-};
-
-// 下载结果
-const handleDownload = async () => {
-  if (!taskId.value) return;
-
-  try {
-    const blob = await downloadFillResult(taskId.value);
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `filled_${uploadedFile.value?.fileName || "result.docx"}`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-  } catch {
-    ElMessage.error("下载失败");
   }
 };
 
@@ -468,7 +577,7 @@ const handleRestart = () => {
       <!-- 步骤1: 上传文件 -->
       <div v-show="currentStep === 0" class="step-panel">
         <h3 class="step-title">上传目标文档</h3>
-        <p class="step-desc">请选择需要填充验收标准的Word文档</p>
+        <p class="step-desc">请选择需要填充验收标准的 Word/Excel 文档</p>
         <FileUpload v-model="uploadedFile" @uploaded="handleFileUploaded" />
       </div>
 
@@ -476,12 +585,15 @@ const handleRestart = () => {
       <div v-show="currentStep === 1" class="step-panel">
         <h3 class="step-title">选择表格并配置列索引</h3>
         <p class="step-desc">
-          勾选需要填充的表格，并为每个表格指定各列的索引（从0开始）
+          勾选需要填充的表格，并为每个表格指定各列索引（从0开始）
+          <span v-if="isExcelFile">；若表头不在首行，请先调整行配置并刷新表头</span>
         </p>
 
         <BatchTableConfig
           v-if="batchTableConfigs.length > 0"
           v-model="batchTableConfigs"
+          :file-id="uploadedFile?.fileId"
+          :is-excel="isExcelFile"
           :tables="allTables"
         />
 
@@ -503,12 +615,48 @@ const handleRestart = () => {
         <h3 class="step-title">匹配预览</h3>
         <p class="step-desc">确认匹配结果，可手动调整选择</p>
 
+        <!-- LLM 流式处理提示 -->
+        <el-alert
+          v-if="llmStreaming"
+          title="AI 正在处理中..."
+          description="LLM 正在逐行复核/生成建议，请等待完成后再执行填充"
+          type="info"
+          show-icon
+          :closable="false"
+          class="llm-streaming-alert"
+        />
+
+        <!-- 匹配进行中遮罩 -->
+        <div v-if="loading" class="loading-overlay">
+          <el-icon class="is-loading" :size="32"><Loading /></el-icon>
+          <p class="loading-text">正在匹配中，请耐心等待...</p>
+          <p class="loading-hint">
+            正在对 {{ selectedTableCount }} 个表格执行 Embedding
+            向量匹配，视数据量可能需要数十秒
+          </p>
+        </div>
+
         <BatchPreviewTabs
           ref="batchPreviewTabsRef"
           :results="batchPreviewResults"
           :loading="loading"
+          :llm-streaming="llmStreaming"
           @select="handleSelect"
           @show-detail="handleShowDetail"
+        />
+
+        <!-- 填充完成提示（紧凑内联） -->
+        <el-alert
+          v-if="taskId"
+          :title="
+            isExcelFile
+              ? '填充完成 — 内容已回写到当前上传文档'
+              : '填充完成 — 已生成并下载结果文档（源文档保持不变）'
+          "
+          type="success"
+          show-icon
+          closable
+          class="fill-done-alert"
         />
 
         <!-- 操作按钮 -->
@@ -519,26 +667,12 @@ const handleRestart = () => {
           <el-button
             type="primary"
             :loading="executing"
-            :disabled="!allPreviewItems.length"
+            :disabled="!!taskId"
             @click="handleExecute"
           >
             执行填充
           </el-button>
-          <el-button v-if="taskId" type="success" @click="handleDownload">
-            下载结果
-          </el-button>
-        </div>
-
-        <!-- 完成提示 -->
-        <div v-if="taskId" class="success-tip">
-          <el-alert
-            title="填充完成"
-            type="success"
-            description="验收标准已填充到文档中，点击下载结果获取文件"
-            show-icon
-            :closable="false"
-          />
-          <el-button type="primary" class="mt-4" @click="handleRestart">
+          <el-button v-if="taskId" @click="handleRestart">
             继续填充其他文档
           </el-button>
         </div>
@@ -577,10 +711,6 @@ const handleRestart = () => {
   margin-bottom: 16px;
 }
 
-.mt-4 {
-  margin-top: 16px;
-}
-
 .step-content {
   min-height: 500px;
 }
@@ -608,9 +738,12 @@ const handleRestart = () => {
   gap: 12px;
 }
 
-.success-tip {
-  margin-top: 24px;
-  text-align: center;
+.fill-done-alert {
+  margin-top: 16px;
+}
+
+.llm-streaming-alert {
+  margin-bottom: 12px;
 }
 
 .step-actions {
@@ -620,5 +753,27 @@ const handleRestart = () => {
   display: flex;
   justify-content: center;
   gap: 16px;
+}
+
+.loading-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--el-color-primary);
+}
+
+.loading-text {
+  margin-top: 16px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.loading-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #9ca3af;
 }
 </style>
