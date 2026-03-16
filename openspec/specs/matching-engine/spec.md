@@ -1,34 +1,28 @@
 # Matching Engine Capability
 
 ## Purpose
-定义当前已实现的文本相似度匹配、候选排序、阈值过滤与文本预处理行为，作为智能匹配与预览结果输出的基础能力说明。
+定义当前已实现的 Embedding 匹配、候选排序、阈值过滤与文本预处理行为，作为智能匹配与预览结果输出的基础能力说明。
 
 ## Requirements
 
-### Requirement: 文本相似度匹配
-系统必须（SHALL）支持基于文本相似度算法的匹配功能。
+### Requirement: Embedding 向量匹配
+系统必须（SHALL）使用 Embedding 向量相似度进行匹配。
 
-#### Scenario: Levenshtein距离匹配
-- **GIVEN** 用户启用Levenshtein算法
-- **AND** 输入查询文本"不锈钢管材"
+#### Scenario: Embedding 相似度匹配
+- **GIVEN** 输入查询文本"不锈钢管材"
 - **WHEN** 系统执行匹配
-- **THEN** 系统计算查询文本与候选【项目+规格】组合文本的Levenshtein相似度
+- **THEN** 系统计算查询文本与候选【项目+规格】组合文本的 Embedding 相似度
 - **AND** 返回相似度得分（0-1之间，1为完全匹配）
 
-#### Scenario: Jaccard相似度匹配
-- **GIVEN** 用户启用Jaccard算法
-- **AND** 输入查询文本"304不锈钢 外径50mm"
-- **WHEN** 系统执行匹配
-- **THEN** 系统对文本进行分词并计算词集合的Jaccard系数
-- **AND** 返回相似度得分（0-1之间）
+---
 
-#### Scenario: 余弦相似度匹配
-- **GIVEN** 用户启用Cosine算法
-- **AND** 输入查询文本
+### Requirement: Embedding 服务不可用时返回失败
+系统必须（SHALL）在 Embedding 服务不可用时返回失败，而不是降级到其他算法。
+
+#### Scenario: Embedding 服务不可用
+- **GIVEN** Embedding 服务不可用
 - **WHEN** 系统执行匹配
-- **THEN** 系统将文本向量化（TF-IDF或词频）
-- **AND** 计算向量间的余弦相似度
-- **AND** 返回相似度得分（0-1之间）
+- **THEN** 系统返回“Embedding 服务不可用”的错误
 
 ---
 
@@ -46,12 +40,11 @@
 ### Requirement: 候选结果排序与Top-N
 系统必须（SHALL）按得分降序返回候选结果，并限制返回数量。
 
-#### Scenario: Top-N候选
+#### Scenario: 返回最佳候选
 - **GIVEN** 匹配结果包含多条候选
-- **AND** 用户配置最大候选数为5
 - **WHEN** 系统返回匹配结果
-- **THEN** 仅返回得分最高的前5条候选
-- **AND** 候选列表按得分降序排列
+- **THEN** 返回得分最高的1条候选作为最佳匹配
+- **AND** 最佳匹配来源于按得分降序排序后的首项
 
 ---
 
@@ -76,10 +69,9 @@
 ### Requirement: 匹配结果包含算法得分明细
 系统必须（SHALL）在匹配结果中返回各算法的得分明细。
 
-#### Scenario: 返回算法得分明细
-- **GIVEN** 用户启用Levenshtein、Jaccard、Cosine算法
+#### Scenario: 返回 Embedding 得分明细
 - **WHEN** 系统返回候选结果
-- **THEN** 每条结果包含各算法的得分明细（如"Levenshtein"、"Jaccard"、"Cosine"）
+- **THEN** 每条结果包含 "Embedding" 得分明细
 
 ---
 
