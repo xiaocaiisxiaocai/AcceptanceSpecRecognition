@@ -22,6 +22,28 @@ const tables = ref<TableInfo[]>([]);
 const selectedIndex = ref<number | null>(null);
 const selectedIndexes = ref<number[]>([]);
 
+const syncLocalSelectionFromModel = () => {
+  if (props.multiple) {
+    selectedIndexes.value = Array.isArray(props.modelValue)
+      ? [...props.modelValue]
+      : props.modelValue !== undefined && props.modelValue !== null
+        ? [props.modelValue]
+        : [];
+  } else {
+    selectedIndex.value = Array.isArray(props.modelValue)
+      ? (props.modelValue[0] ?? null)
+      : (props.modelValue ?? null);
+  }
+};
+
+const emitMultipleSelection = () => {
+  emit("update:modelValue", [...selectedIndexes.value]);
+  emit(
+    "selectedMultiple",
+    tables.value.filter(t => selectedIndexes.value.includes(t.index))
+  );
+};
+
 const allSelected = computed(() => {
   if (!props.multiple) return false;
   if (tables.value.length === 0) return false;
@@ -37,11 +59,7 @@ const toggleSelectAll = (val: boolean) => {
   } else {
     selectedIndexes.value = [];
   }
-  emit("update:modelValue", [...selectedIndexes.value]);
-  emit(
-    "selectedMultiple",
-    tables.value.filter(t => selectedIndexes.value.includes(t.index))
-  );
+  emitMultipleSelection();
 };
 
 // 加载表格列表
@@ -53,18 +71,8 @@ const loadTables = async () => {
     const res = await getFileTables(props.fileId);
     if (res.code === 0) {
       tables.value = res.data;
-      // 如果有modelValue，选中对应表格
-      if (props.modelValue !== undefined) {
-        if (props.multiple) {
-          selectedIndexes.value = Array.isArray(props.modelValue)
-            ? props.modelValue
-            : [props.modelValue];
-        } else {
-          selectedIndex.value = Array.isArray(props.modelValue)
-            ? (props.modelValue[0] ?? null)
-            : props.modelValue;
-        }
-      }
+      // 根据外部 modelValue 同步本地选中态
+      syncLocalSelectionFromModel();
     } else {
       ElMessage.error(res.message || "加载表格列表失败");
     }
@@ -82,11 +90,7 @@ const handleSelect = (table: TableInfo) => {
     if (idx >= 0) selectedIndexes.value.splice(idx, 1);
     else selectedIndexes.value.push(table.index);
     selectedIndexes.value.sort((a, b) => a - b);
-    emit("update:modelValue", [...selectedIndexes.value]);
-    emit(
-      "selectedMultiple",
-      tables.value.filter(t => selectedIndexes.value.includes(t.index))
-    );
+    emitMultipleSelection();
   } else {
     selectedIndex.value = table.index;
     emit("update:modelValue", table.index);
@@ -101,6 +105,13 @@ watch(
     loadTables();
   },
   { immediate: true }
+);
+
+watch(
+  () => props.modelValue,
+  () => {
+    syncLocalSelectionFromModel();
+  }
 );
 
 // 格式化预览文本

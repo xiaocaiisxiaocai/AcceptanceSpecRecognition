@@ -21,6 +21,7 @@ import {
 import { getProcessList, type Process } from "@/api/process";
 import { getMachineModelList, type MachineModel } from "@/api/machine-model";
 import {
+  getFileTables,
   importData,
   importExcelData,
   type FileUploadResponse,
@@ -81,18 +82,46 @@ const defaultExcelMapping = (): ExcelSheetMapping => ({
   dataStartRow: 2
 });
 
-const getExcelPreviewOptions = (cfg: TableImportConfig) => {
-  const usedStartRow = cfg.tableInfo?.usedRangeStartRow ?? 1;
-  const m = cfg.excelMapping ?? defaultExcelMapping();
+const normalizeExcelMappingByTable = (
+  tableInfo: TableInfo | undefined,
+  mapping?: ExcelSheetMapping
+): ExcelSheetMapping => {
+  const usedStartRow = Math.max(1, tableInfo?.usedRangeStartRow ?? 1);
+  const current = mapping ?? defaultExcelMapping();
+  const headerRowCount = Math.max(0, current.headerRowCount ?? 1);
+  const headerRowStart = Math.max(usedStartRow, current.headerRowStart || usedStartRow);
+  const minDataStart = headerRowStart + headerRowCount;
+  const dataStartRow = Math.max(minDataStart, current.dataStartRow || minDataStart);
 
   return {
-    headerRowIndex: Math.max(0, (m.headerRowStart || 1) - usedStartRow),
+    ...current,
+    headerRowStart,
+    headerRowCount,
+    dataStartRow
+  };
+};
+
+const createDefaultExcelMapping = (tableInfo?: TableInfo): ExcelSheetMapping => {
+  return normalizeExcelMappingByTable(tableInfo, defaultExcelMapping());
+};
+
+const getExcelPreviewOptions = (cfg: TableImportConfig) => {
+  const usedStartRow = cfg.tableInfo?.usedRangeStartRow ?? 1;
+  const m = normalizeExcelMappingByTable(cfg.tableInfo, cfg.excelMapping);
+
+  return {
+    headerRowIndex: Math.max(0, (m.headerRowStart || usedStartRow) - usedStartRow),
     headerRowCount: Math.max(1, m.headerRowCount ?? 1),
-    dataStartRowIndex: Math.max(0, (m.dataStartRow || 1) - usedStartRow)
+    dataStartRowIndex: Math.max(0, (m.dataStartRow || usedStartRow) - usedStartRow)
   };
 };
 
 const tableConfigs = ref<TableImportConfig[]>([]);
+type MappingClipboard =
+  | { kind: "excel"; value: ExcelSheetMapping }
+  | { kind: "word"; value: ColumnMappingType };
+const mappingClipboard = ref<MappingClipboard | null>(null);
+const mappingClipboardSourceIndex = ref<number | null>(null);
 
 // 全局列映射规则（用于自动预填）
 const mappingRules = ref<ColumnMappingRule[]>([]);
@@ -112,10 +141,21 @@ const loadingMachineModels = ref(false);
 // 导入结果
 const importing = ref(false);
 type ImportErrorWithTable = { tableIndex: number } & ImportResult["errors"][number];
-type CombinedImportResult = Omit<ImportResult, "errors"> & {
+type ImportSkippedRowWithTable = { tableIndex: number } & NonNullable<ImportResult["skippedRows"]>[number];
+type ImportPendingDifferenceWithTable = { tableIndex: number } & NonNullable<
+  ImportResult["pendingDifferences"]
+>[number];
+type DifferenceDecision = "import" | "skip";
+type CombinedImportResult = Omit<ImportResult, "errors" | "skippedRows" | "pendingDifferences"> & {
   errors: ImportErrorWithTable[];
+  skippedRows: ImportSkippedRowWithTable[];
+  pendingDifferences: ImportPendingDifferenceWithTable[];
 };
 const importResult = ref<CombinedImportResult | null>(null);
+const previewSkippedRows = ref(false);
+const differenceDecisionMap = ref<Record<string, DifferenceDecision | undefined>>(
+  {}
+);
 
 // 让步骤条吸顶到实际滚动容器（pure-admin 使用 el-scrollbar）
 const affixTarget = ref<string>("");
@@ -168,7 +208,12 @@ const canGoNext = computed(() => {
     case 0:
       return uploadedFile.value !== null;
     case 1:
-      return selectedTableIndexes.value.length > 0;
+      return (
+        selectedTableIndexes.value.length > 0 ||
+        selectedTables.value.length > 0 ||
+        tableConfigs.value.length > 0 ||
+        (uploadedFile.value?.tableCount ?? 0) > 0
+      );
     case 2:
       // 映射步骤允许点击“下一步”，在 goNext 中做校验并提示缺失项，避免按钮直接置灰导致“卡死”
       return tableConfigs.value.length > 0;
@@ -220,6 +265,8 @@ const validateAllTableMappings = () => {
 };
 
 const nextDisabled = computed(() => {
+  // 步骤1（选择工作表）不置灰，点击后在 goNext 内做兜底同步，避免被状态不同步卡住
+  if (currentStep.value === 1) return false;
   // 步骤2（配置映射）永不置灰：允许点击后提示缺失项
   if (currentStep.value === 2) return !canGoNext.value;
   return !canGoNext.value;
@@ -233,6 +280,8 @@ const handleFileUploaded = (file: FileUploadResponse) => {
   selectedTables.value = [];
   activeTableIndex.value = null;
   tableConfigs.value = [];
+  mappingClipboard.value = null;
+  mappingClipboardSourceIndex.value = null;
 };
 
 // 表格选择（多选）
@@ -253,14 +302,14 @@ const handleTablesSelected = (tables: TableInfo[]) => {
             ...old,
             tableInfo: t,
             ...(isExcelFile.value
-              ? { excelMapping: old.excelMapping ?? defaultExcelMapping() }
+              ? { excelMapping: normalizeExcelMappingByTable(t, old.excelMapping) }
               : { wordMapping: old.wordMapping ?? defaultWordMapping() })
           }
         : {
             tableIndex: t.index,
             tableInfo: t,
             ...(isExcelFile.value
-              ? { excelMapping: defaultExcelMapping() }
+              ? { excelMapping: createDefaultExcelMapping(t) }
               : { wordMapping: defaultWordMapping() }),
             previewData: null
           }
@@ -298,6 +347,92 @@ const handlePreviewLoaded = (tableIndex: number, data: TableData) => {
     // 表头/预览更新后，若尚未选择映射列，则再次尝试按规则自动预填（不覆盖手工选择）
     applyRulesToConfig(cfg, false);
   }
+};
+
+const getActiveTableConfig = (): TableImportConfig | null => {
+  if (tableConfigs.value.length === 0) return null;
+  if (activeTableIndex.value === null) return tableConfigs.value[0];
+  return (
+    tableConfigs.value.find(c => c.tableIndex === activeTableIndex.value) ??
+    tableConfigs.value[0]
+  );
+};
+
+const canPasteClipboard = computed(() => {
+  if (!mappingClipboard.value) return false;
+  if (isExcelFile.value) return mappingClipboard.value.kind === "excel";
+  return mappingClipboard.value.kind === "word";
+});
+
+const copyActiveMappingConfig = () => {
+  const activeCfg = getActiveTableConfig();
+  if (!activeCfg) {
+    ElMessage.warning(`请先选择一个${isExcelFile.value ? "工作表" : "表格"}`);
+    return;
+  }
+
+  if (isExcelFile.value) {
+    const normalized = normalizeExcelMappingByTable(
+      activeCfg.tableInfo,
+      activeCfg.excelMapping ?? defaultExcelMapping()
+    );
+    mappingClipboard.value = {
+      kind: "excel",
+      value: { ...normalized }
+    };
+  } else {
+    mappingClipboard.value = {
+      kind: "word",
+      value: { ...(activeCfg.wordMapping ?? defaultWordMapping()) }
+    };
+  }
+
+  mappingClipboardSourceIndex.value = activeCfg.tableIndex;
+  ElMessage.success(
+    `已复制${isExcelFile.value ? "工作表" : "表格"} ${activeCfg.tableIndex + 1} 的配置`
+  );
+};
+
+const pasteMappingConfigToOthers = () => {
+  const activeCfg = getActiveTableConfig();
+  if (!activeCfg) {
+    ElMessage.warning(`请先选择一个${isExcelFile.value ? "工作表" : "表格"}`);
+    return;
+  }
+
+  if (!mappingClipboard.value || !canPasteClipboard.value) {
+    ElMessage.warning(
+      `请先复制${isExcelFile.value ? "Excel 列序号配置" : "列映射配置"}`
+    );
+    return;
+  }
+
+  let pastedCount = 0;
+  for (const cfg of tableConfigs.value) {
+    if (cfg.tableIndex === activeCfg.tableIndex) continue;
+
+    if (isExcelFile.value && mappingClipboard.value.kind === "excel") {
+      cfg.excelMapping = normalizeExcelMappingByTable(cfg.tableInfo, {
+        ...mappingClipboard.value.value
+      });
+      pastedCount++;
+      continue;
+    }
+
+    if (!isExcelFile.value && mappingClipboard.value.kind === "word") {
+      cfg.wordMapping = { ...mappingClipboard.value.value };
+      pastedCount++;
+    }
+  }
+
+  if (pastedCount === 0) {
+    ElMessage.warning(`没有可粘贴的其他${isExcelFile.value ? "工作表" : "表格"}`);
+    return;
+  }
+
+  ElMessage.success(
+    `已粘贴到 ${pastedCount} 个其他${isExcelFile.value ? "工作表" : "表格"}`
+  );
 };
 
 const normalizeHeader = (s?: string) => (s || "").trim().toLowerCase();
@@ -374,7 +509,6 @@ const applyRulesToConfig = (cfg: TableImportConfig, overwrite: boolean) => {
   const setIfNeed = (key: keyof ColumnMappingType, val?: number) => {
     if (val === undefined) return;
     if (overwrite || next[key] === undefined) {
-      // @ts-expect-error - key is one of numeric fields
       next[key] = val;
       used.add(val);
     } else if (typeof next[key] === "number") {
@@ -529,7 +663,54 @@ onActivated(() => {
 });
 
 // 下一步
-const goNext = () => {
+const ensureStepTwoSelection = async () => {
+  if (selectedTableIndexes.value.length > 0 || selectedTables.value.length > 0 || tableConfigs.value.length > 0) {
+    return true;
+  }
+
+  if (!uploadedFile.value?.fileId) {
+    ElMessage.warning("请先上传文件");
+    return false;
+  }
+
+  try {
+    const res = await getFileTables(uploadedFile.value.fileId);
+    if (res.code !== 0 || !res.data?.length) {
+      ElMessage.warning("请至少选择一个工作表");
+      return false;
+    }
+
+    // 兜底：父状态丢失时自动补齐为“全选”，避免界面卡死在步骤2
+    handleTablesSelected(res.data);
+    return true;
+  } catch {
+    ElMessage.warning("请至少选择一个工作表");
+    return false;
+  }
+};
+
+const goNext = async () => {
+  // 步骤1（选择工作表）：不依赖 canGoNext，统一走兜底同步
+  if (currentStep.value === 1) {
+    if (selectedTableIndexes.value.length === 0) {
+      if (selectedTables.value.length > 0) {
+        selectedTableIndexes.value = selectedTables.value
+          .map(t => t.index)
+          .sort((a, b) => a - b);
+      } else if (tableConfigs.value.length > 0) {
+        selectedTableIndexes.value = tableConfigs.value
+          .map(c => c.tableIndex)
+          .sort((a, b) => a - b);
+      } else {
+        const ok = await ensureStepTwoSelection();
+        if (!ok) return;
+      }
+    }
+
+    if (currentStep.value < steps.value.length - 1) currentStep.value++;
+    return;
+  }
+
   if (!canGoNext.value) return;
 
   // 步骤3：配置映射。这里做完整校验，缺失则提示并跳转到对应表格，避免“按钮置灰卡死”
@@ -558,13 +739,150 @@ const goPrev = () => {
   }
 };
 
-// 执行导入
+const buildEmptyImportAggregate = (): CombinedImportResult => ({
+  successCount: 0,
+  failedCount: 0,
+  skippedCount: 0,
+  totalCount: 0,
+  errors: [],
+  skippedRows: [],
+  requiresConfirmation: false,
+  pendingCount: 0,
+  pendingDifferences: []
+});
+
+const buildDifferenceKeysByTable = (tableIndex: number) => {
+  const confirmed: string[] = [];
+  const skipped: string[] = [];
+  for (const item of pendingDifferences.value) {
+    if (item.tableIndex !== tableIndex) continue;
+    const decision = differenceDecisionMap.value[item.key];
+    if (decision === "import") confirmed.push(item.key);
+    if (decision === "skip") skipped.push(item.key);
+  }
+  return { confirmed, skipped };
+};
+
+const executeImportBatch = async (
+  configs: TableImportConfig[],
+  includeDifferenceDecisions: boolean
+) => {
+  const aggregate = buildEmptyImportAggregate();
+  let hasPendingEncountered = false;
+
+  for (const [idx, cfg] of configs.entries()) {
+    const cleanupSourceFile = !hasPendingEncountered && idx === configs.length - 1;
+    const { confirmed, skipped } = includeDifferenceDecisions
+      ? buildDifferenceKeysByTable(cfg.tableIndex)
+      : { confirmed: [] as string[], skipped: [] as string[] };
+
+    const res = isExcelFile.value
+      ? await importExcelData({
+          fileId: uploadedFile.value!.fileId,
+          sheetIndex: cfg.tableIndex,
+          customerId: selectedCustomerId.value!,
+          processId: selectedProcessId.value || undefined,
+          machineModelId: selectedMachineModelId.value || undefined,
+          cleanupSourceFile,
+          previewSkippedRows: previewSkippedRows.value,
+          confirmedDifferenceKeys: confirmed,
+          skippedDifferenceKeys: skipped,
+          ...(normalizeExcelMappingByTable(
+            cfg.tableInfo,
+            cfg.excelMapping ?? defaultExcelMapping()
+          ) as ExcelImportDataRequest)
+        })
+      : await importData({
+          fileId: uploadedFile.value!.fileId,
+          tableIndex: cfg.tableIndex,
+          customerId: selectedCustomerId.value!,
+          processId: selectedProcessId.value || undefined,
+          machineModelId: selectedMachineModelId.value || undefined,
+          cleanupSourceFile,
+          previewSkippedRows: previewSkippedRows.value,
+          confirmedDifferenceKeys: confirmed,
+          skippedDifferenceKeys: skipped,
+          mapping: cfg.wordMapping!
+        });
+
+    if (res.code !== 0) {
+      aggregate.failedCount += 1;
+      aggregate.errors.push({
+        tableIndex: cfg.tableIndex,
+        rowIndex: 0,
+        message: res.message || "导入失败"
+      });
+      continue;
+    }
+
+    if (res.data.requiresConfirmation && (res.data.pendingCount || 0) > 0) {
+      hasPendingEncountered = true;
+    }
+
+    aggregate.successCount += res.data.successCount;
+    aggregate.failedCount += res.data.failedCount;
+    aggregate.skippedCount += res.data.skippedCount;
+    aggregate.totalCount += res.data.totalCount;
+    aggregate.requiresConfirmation =
+      aggregate.requiresConfirmation || !!res.data.requiresConfirmation;
+    aggregate.pendingCount += res.data.pendingCount || 0;
+    aggregate.errors.push(
+      ...(res.data.errors || []).map(e => ({
+        tableIndex: cfg.tableIndex,
+        ...e
+      }))
+    );
+    aggregate.skippedRows.push(
+      ...((res.data.skippedRows || []).map(s => ({
+        tableIndex: cfg.tableIndex,
+        ...s
+      })))
+    );
+    aggregate.pendingDifferences.push(
+      ...((res.data.pendingDifferences || []).map(d => ({
+        tableIndex: cfg.tableIndex,
+        ...d
+      })))
+    );
+  }
+
+  return aggregate;
+};
+
 const handleImport = async () => {
-  if (
-    !uploadedFile.value ||
-    tableConfigs.value.length === 0 ||
-    !selectedCustomerId.value
-  ) {
+  if (!uploadedFile.value || tableConfigs.value.length === 0 || !selectedCustomerId.value) {
+    return;
+  }
+
+  const isConfirmingDifferences =
+    importResult.value?.requiresConfirmation && pendingDifferences.value.length > 0;
+
+  if (isConfirmingDifferences) {
+    if (pendingUndecidedCount.value > 0) {
+      ElMessage.warning(`请先逐条确认差异（仍有 ${pendingUndecidedCount.value} 条未选择）`);
+      return;
+    }
+
+    importing.value = true;
+    try {
+      const pendingSet = new Set(pendingTableIndexes.value);
+      const pendingConfigs = tableConfigs.value.filter(cfg => pendingSet.has(cfg.tableIndex));
+      const aggregate = await executeImportBatch(pendingConfigs, true);
+      importResult.value = aggregate;
+
+      if (aggregate.requiresConfirmation && aggregate.pendingDifferences.length > 0) {
+        for (const d of aggregate.pendingDifferences) {
+          differenceDecisionMap.value[d.key] = differenceDecisionMap.value[d.key];
+        }
+        ElMessage.warning(`仍有 ${aggregate.pendingCount || 0} 条差异未确认`);
+        return;
+      }
+
+      differenceDecisionMap.value = {};
+      ElMessage.success(`导入完成：成功${aggregate.successCount}条，失败${aggregate.failedCount}条`);
+    } finally {
+      importing.value = false;
+    }
     return;
   }
 
@@ -580,59 +898,21 @@ const handleImport = async () => {
     );
 
     importing.value = true;
-    const aggregate: CombinedImportResult = {
-      successCount: 0,
-      failedCount: 0,
-      skippedCount: 0,
-      totalCount: 0,
-      errors: []
-    };
+    const aggregate = await executeImportBatch(tableConfigs.value, false);
+    importResult.value = aggregate;
 
-    for (const cfg of tableConfigs.value) {
-      const res = isExcelFile.value
-        ? await importExcelData({
-            fileId: uploadedFile.value.fileId,
-            sheetIndex: cfg.tableIndex,
-            customerId: selectedCustomerId.value,
-            processId: selectedProcessId.value || undefined,
-            machineModelId: selectedMachineModelId.value || undefined,
-            ...((cfg.excelMapping ?? defaultExcelMapping()) as ExcelImportDataRequest)
-          })
-        : await importData({
-            fileId: uploadedFile.value.fileId,
-            tableIndex: cfg.tableIndex,
-            customerId: selectedCustomerId.value,
-            processId: selectedProcessId.value || undefined,
-            machineModelId: selectedMachineModelId.value || undefined,
-            mapping: cfg.wordMapping!
-          });
-
-      if (res.code !== 0) {
-        aggregate.failedCount += 1;
-        aggregate.errors.push({
-          tableIndex: cfg.tableIndex,
-          rowIndex: 0,
-          message: res.message || "导入失败"
-        });
-        continue;
+    if (aggregate.requiresConfirmation && aggregate.pendingDifferences.length > 0) {
+      const nextDecisionMap: Record<string, DifferenceDecision | undefined> = {};
+      for (const item of aggregate.pendingDifferences) {
+        nextDecisionMap[item.key] = undefined;
       }
-
-      aggregate.successCount += res.data.successCount;
-      aggregate.failedCount += res.data.failedCount;
-      aggregate.skippedCount += res.data.skippedCount;
-      aggregate.totalCount += res.data.totalCount;
-      aggregate.errors.push(
-        ...(res.data.errors || []).map(e => ({
-          tableIndex: cfg.tableIndex,
-          ...e
-        }))
-      );
+      differenceDecisionMap.value = nextDecisionMap;
+      ElMessage.warning(`检测到 ${aggregate.pendingCount || 0} 条差异，请逐条确认后导入`);
+      return;
     }
 
-    importResult.value = aggregate;
-    ElMessage.success(
-      `导入完成：成功${aggregate.successCount}条，失败${aggregate.failedCount}条`
-    );
+    differenceDecisionMap.value = {};
+    ElMessage.success(`导入完成：成功${aggregate.successCount}条，失败${aggregate.failedCount}条`);
   } catch {
     // 用户取消
   } finally {
@@ -652,17 +932,80 @@ const handleRestart = () => {
   selectedProcessId.value = undefined;
   selectedMachineModelId.value = undefined;
   importResult.value = null;
+  previewSkippedRows.value = false;
+  differenceDecisionMap.value = {};
+  mappingClipboard.value = null;
+  mappingClipboardSourceIndex.value = null;
 };
 
-// 预览数据条数
+// 预览数据条数（totalRows 已是纯数据行数，无需再减表头）
 const previewDataCount = computed(() => {
   if (tableConfigs.value.length === 0) return 0;
   return tableConfigs.value.reduce((sum, cfg) => {
     if (!cfg.previewData) return sum;
-    if (isExcelFile.value) return sum + cfg.previewData.totalRows;
-    const start = cfg.wordMapping?.dataStartRowIndex ?? 1;
-    return sum + Math.max(0, cfg.previewData.totalRows - start);
+    return sum + cfg.previewData.totalRows;
   }, 0);
+});
+
+const pendingDifferences = computed<ImportPendingDifferenceWithTable[]>(() => {
+  return importResult.value?.pendingDifferences || [];
+});
+
+const pendingUndecidedCount = computed(() => {
+  return pendingDifferences.value.filter(
+    item => !differenceDecisionMap.value[item.key]
+  ).length;
+});
+
+const pendingTableIndexes = computed<number[]>(() => {
+  return Array.from(new Set(pendingDifferences.value.map(item => item.tableIndex)));
+});
+
+type SkippedPreviewColumn = { index: number; label: string };
+type SkippedRowsGroup = {
+  tableIndex: number;
+  rows: ImportSkippedRowWithTable[];
+  columns: SkippedPreviewColumn[];
+};
+
+const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
+  const rows = importResult.value?.skippedRows || [];
+  if (rows.length === 0) return [];
+
+  const grouped = new Map<number, ImportSkippedRowWithTable[]>();
+  for (const row of rows) {
+    const list = grouped.get(row.tableIndex) || [];
+    list.push(row);
+    grouped.set(row.tableIndex, list);
+  }
+
+  return Array.from(grouped.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([tableIndex, groupRows]) => {
+      const tableCfg = tableConfigs.value.find(cfg => cfg.tableIndex === tableIndex);
+      const headers = tableCfg?.previewData?.headers || tableCfg?.tableInfo?.headers || [];
+      const maxColumnCount = groupRows.reduce(
+        (max, row) => Math.max(max, row.rowValues?.length || 0),
+        0
+      );
+
+      const columns: SkippedPreviewColumn[] = Array.from(
+        { length: maxColumnCount },
+        (_, i) => {
+          const header = (headers[i] || "").trim();
+          return {
+            index: i,
+            label: header || `列${i + 1}`
+          };
+        }
+      );
+
+      return {
+        tableIndex,
+        rows: groupRows,
+        columns
+      };
+    });
 });
 </script>
 
@@ -751,6 +1094,25 @@ const previewDataCount = computed(() => {
               >重新应用规则</el-button
             >
           </div>
+        </div>
+        <div v-if="uploadedFile && tableConfigs.length > 0" class="mapping-quick-actions">
+          <el-button
+            size="small"
+            @click="copyActiveMappingConfig"
+          >
+            复制当前{{ isExcelFile ? "工作表" : "表格" }}配置
+          </el-button>
+          <el-button
+            size="small"
+            type="primary"
+            :disabled="tableConfigs.length < 2 || !canPasteClipboard"
+            @click="pasteMappingConfigToOthers"
+          >
+            粘贴到其他{{ isExcelFile ? "工作表" : "表格" }}
+          </el-button>
+          <span v-if="mappingClipboardSourceIndex !== null" class="mapping-clipboard-tip">
+            已复制{{ isExcelFile ? "工作表" : "表格" }} {{ mappingClipboardSourceIndex + 1 }} 的配置
+          </span>
         </div>
 
         <el-tabs
@@ -877,8 +1239,8 @@ const previewDataCount = computed(() => {
         <!-- 导入结果 -->
         <div v-if="importResult" class="import-result">
           <el-result
-            :icon="importResult.failedCount === 0 ? 'success' : 'warning'"
-            :title="importResult.failedCount === 0 ? '导入成功' : '导入完成'"
+            :icon="importResult.requiresConfirmation ? 'warning' : (importResult.failedCount === 0 ? 'success' : 'warning')"
+            :title="importResult.requiresConfirmation ? '发现差异，待确认' : (importResult.failedCount === 0 ? '导入成功' : '导入完成')"
           >
             <template #sub-title>
               <div class="result-stats">
@@ -894,12 +1256,74 @@ const previewDataCount = computed(() => {
                   <span class="stat-value">{{ importResult.failedCount }}</span>
                   <span class="stat-label">失败</span>
                 </div>
+                <div v-if="importResult.requiresConfirmation" class="stat-item warning">
+                  <span class="stat-value">{{ importResult.pendingCount || 0 }}</span>
+                  <span class="stat-label">待确认</span>
+                </div>
               </div>
             </template>
             <template #extra>
+              <el-button
+                v-if="importResult.requiresConfirmation"
+                type="primary"
+                :loading="importing"
+                :disabled="pendingUndecidedCount > 0"
+                @click="handleImport"
+              >
+                {{ importing ? "处理中..." : "确认差异并导入" }}
+              </el-button>
               <el-button type="primary" @click="handleRestart">继续导入</el-button>
             </template>
           </el-result>
+
+          <div
+            v-if="importResult.requiresConfirmation && importResult.pendingDifferences.length > 0"
+            class="error-list"
+          >
+            <h4>差异确认</h4>
+            <el-alert
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="`检测到 ${importResult.pendingCount || 0} 条与数据库已有数据不一致，请逐条选择“导入”或“跳过”。`"
+            />
+            <el-table
+              :data="importResult.pendingDifferences"
+              max-height="320"
+              size="small"
+              style="margin-top: 12px"
+            >
+              <el-table-column prop="tableIndex" label="表格" width="70">
+                <template #default="{ row }">
+                  {{ row.tableIndex + 1 }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="rowIndex" label="行号" width="80" />
+              <el-table-column prop="incomingProject" label="导入-项目" min-width="140" />
+              <el-table-column prop="incomingSpecification" label="导入-规格" min-width="180" />
+              <el-table-column prop="incomingAcceptance" label="导入-验收" min-width="130">
+                <template #default="{ row }">
+                  {{ row.incomingAcceptance || "-" }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="existingProject" label="库中-项目" min-width="140" />
+              <el-table-column prop="existingSpecification" label="库中-规格" min-width="180" />
+              <el-table-column prop="existingAcceptance" label="库中-验收" min-width="130">
+                <template #default="{ row }">
+                  {{ row.existingAcceptance || "-" }}
+                </template>
+              </el-table-column>
+              <el-table-column label="处理" width="180" fixed="right">
+                <template #default="{ row }">
+                  <el-radio-group v-model="differenceDecisionMap[row.key]" size="small">
+                    <el-radio-button label="import">导入</el-radio-button>
+                    <el-radio-button label="skip">跳过</el-radio-button>
+                  </el-radio-group>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="pending-tip">未选择条数：{{ pendingUndecidedCount }}</div>
+          </div>
 
           <!-- 错误详情 -->
           <div v-if="importResult.errors.length > 0" class="error-list">
@@ -917,6 +1341,47 @@ const previewDataCount = computed(() => {
               </el-table-column>
               <el-table-column prop="message" label="错误信息" />
             </el-table>
+          </div>
+
+          <div v-if="importResult.skippedCount > 0" class="error-list">
+            <h4>未导入（跳过）详情</h4>
+            <el-alert
+              v-if="!importResult.skippedRows.length"
+              type="info"
+              :closable="false"
+              show-icon
+              title="已跳过部分数据（未开启明细预览）"
+              description="如需查看具体哪些行被跳过，请在导入前开启“预览未导入明细”。"
+            />
+            <div v-else>
+              <div
+                v-for="group in skippedRowsGroups"
+                :key="`skip-group-${group.tableIndex}`"
+                class="skipped-group"
+              >
+                <div v-if="skippedRowsGroups.length > 1" class="skipped-group-title">
+                  表格 {{ group.tableIndex + 1 }}
+                </div>
+                <el-table :data="group.rows" max-height="220" size="small">
+                  <el-table-column prop="tableIndex" label="表格" width="80">
+                    <template #default="{ row }">
+                      {{ row.tableIndex + 1 }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="rowIndex" label="行号" width="100" />
+                  <el-table-column
+                    v-for="col in group.columns"
+                    :key="`skip-col-${group.tableIndex}-${col.index}`"
+                    :label="col.label"
+                    min-width="140"
+                  >
+                    <template #default="{ row }">
+                      <div class="skipped-cell-value">{{ row.rowValues?.[col.index] || "" }}</div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -946,6 +1411,15 @@ const previewDataCount = computed(() => {
           </el-descriptions>
 
           <div class="import-actions">
+            <div class="skip-preview-switch">
+              <span class="label">预览未导入明细</span>
+              <el-switch
+                v-model="previewSkippedRows"
+                :disabled="importing"
+                active-text="开启"
+                inactive-text="关闭"
+              />
+            </div>
             <el-button
               type="primary"
               size="large"
@@ -1045,6 +1519,18 @@ const previewDataCount = computed(() => {
   margin-top: 24px;
 }
 
+.mapping-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mapping-clipboard-tip {
+  font-size: 12px;
+  color: #6b7280;
+}
+
 .target-form {
   max-width: 500px;
 }
@@ -1074,11 +1560,27 @@ const previewDataCount = computed(() => {
 
 .import-actions {
   margin-top: 20px;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.skip-preview-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+.skip-preview-switch .label {
+  font-weight: 500;
 }
 
 .import-result {
-  max-width: 600px;
+  width: 100%;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
@@ -1120,6 +1622,30 @@ const previewDataCount = computed(() => {
 
 .error-list {
   margin-top: 24px;
+}
+
+.pending-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.skipped-group + .skipped-group {
+  margin-top: 12px;
+}
+
+.skipped-group-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.skipped-cell-value {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #4b5563;
+  line-height: 1.5;
+  font-size: 12px;
 }
 
 .step-actions {

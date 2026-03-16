@@ -310,6 +310,27 @@ public class ImportDataRequest
     /// </summary>
     [Required(ErrorMessage = "列映射配置不能为空")]
     public ColumnMappingDto Mapping { get; set; } = new();
+
+    /// <summary>
+    /// 是否在本次导入后清理源文件。
+    /// 多表格/多工作表分批导入时，建议仅最后一次请求传 true。
+    /// </summary>
+    public bool CleanupSourceFile { get; set; } = true;
+
+    /// <summary>
+    /// 是否返回“未导入（跳过）”明细（默认不返回，减少响应体）
+    /// </summary>
+    public bool PreviewSkippedRows { get; set; } = false;
+
+    /// <summary>
+    /// 差异行中“确认导入”的键集合（用于二次确认提交）
+    /// </summary>
+    public List<string> ConfirmedDifferenceKeys { get; set; } = [];
+
+    /// <summary>
+    /// 差异行中“确认跳过”的键集合（用于二次确认提交）
+    /// </summary>
+    public List<string> SkippedDifferenceKeys { get; set; } = [];
 }
 
 /// <summary>
@@ -341,6 +362,26 @@ public class ImportResult
     /// 错误详情
     /// </summary>
     public List<ImportError> Errors { get; set; } = [];
+
+    /// <summary>
+    /// 未导入（跳过）明细（按请求决定是否返回）
+    /// </summary>
+    public List<ImportSkippedRow> SkippedRows { get; set; } = [];
+
+    /// <summary>
+    /// 是否需要用户确认差异后再导入
+    /// </summary>
+    public bool RequiresConfirmation { get; set; }
+
+    /// <summary>
+    /// 待确认差异数量
+    /// </summary>
+    public int PendingCount { get; set; }
+
+    /// <summary>
+    /// 待确认差异明细
+    /// </summary>
+    public List<ImportPendingDifference> PendingDifferences { get; set; } = [];
 }
 
 /// <summary>
@@ -357,4 +398,91 @@ public class ImportError
     /// 错误信息
     /// </summary>
     public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 未导入（跳过）明细
+/// </summary>
+public class ImportSkippedRow
+{
+    /// <summary>
+    /// 行号
+    /// </summary>
+    public int RowIndex { get; set; }
+
+    /// <summary>
+    /// 跳过原因
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 整行数据（按列顺序）
+    /// </summary>
+    public List<string> RowValues { get; set; } = [];
+}
+
+/// <summary>
+/// 待确认差异明细
+/// </summary>
+public class ImportPendingDifference
+{
+    /// <summary>
+    /// 差异键（前端回传该键用于确认导入/跳过）
+    /// </summary>
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 行号
+    /// </summary>
+    public int RowIndex { get; set; }
+
+    /// <summary>
+    /// 整行数据（按列顺序）
+    /// </summary>
+    public List<string> RowValues { get; set; } = [];
+
+    /// <summary>
+    /// 导入数据：项目
+    /// </summary>
+    public string IncomingProject { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 导入数据：规格
+    /// </summary>
+    public string IncomingSpecification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 导入数据：验收标准
+    /// </summary>
+    public string? IncomingAcceptance { get; set; }
+
+    /// <summary>
+    /// 导入数据：备注
+    /// </summary>
+    public string? IncomingRemark { get; set; }
+
+    /// <summary>
+    /// 库中已有记录ID
+    /// </summary>
+    public int ExistingSpecId { get; set; }
+
+    /// <summary>
+    /// 库中已有：项目
+    /// </summary>
+    public string ExistingProject { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 库中已有：规格
+    /// </summary>
+    public string ExistingSpecification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 库中已有：验收标准
+    /// </summary>
+    public string? ExistingAcceptance { get; set; }
+
+    /// <summary>
+    /// 库中已有：备注
+    /// </summary>
+    public string? ExistingRemark { get; set; }
 }

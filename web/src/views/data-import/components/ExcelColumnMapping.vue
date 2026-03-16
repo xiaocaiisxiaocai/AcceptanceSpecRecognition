@@ -32,19 +32,87 @@ const defaultMapping: ExcelSheetMapping = {
 };
 
 const mapping = ref<ExcelSheetMapping>({ ...defaultMapping });
+function buildNormalizedMapping(source?: Partial<ExcelSheetMapping>): ExcelSheetMapping {
+  const merged: ExcelSheetMapping = {
+    ...defaultMapping,
+    ...(source || {})
+  };
+
+  const baseRow = Math.max(1, props.usedRangeStartRow || 1);
+  const headerRowStart = Math.max(
+    baseRow,
+    merged.headerRowStart || baseRow
+  );
+  const headerRowCount = Math.max(0, merged.headerRowCount ?? 1);
+  const dataStartRow = Math.max(baseRow, merged.dataStartRow || baseRow);
+
+  return {
+    ...merged,
+    headerRowStart,
+    headerRowCount,
+    dataStartRow:
+    dataStartRow < headerRowStart + headerRowCount
+      ? headerRowStart + headerRowCount
+      : dataStartRow
+  };
+}
+
+function isSameMapping(
+  a?: Partial<ExcelSheetMapping> | null,
+  b?: Partial<ExcelSheetMapping> | null
+) {
+  const aa = buildNormalizedMapping(a || {});
+  const bb = buildNormalizedMapping(b || {});
+  return (
+    aa.projectColumn === bb.projectColumn &&
+    aa.specificationColumn === bb.specificationColumn &&
+    aa.acceptanceColumn === bb.acceptanceColumn &&
+    aa.remarkColumn === bb.remarkColumn &&
+    aa.headerRowStart === bb.headerRowStart &&
+    aa.headerRowCount === bb.headerRowCount &&
+    aa.dataStartRow === bb.dataStartRow
+  );
+}
+
+function normalize() {
+  const normalized = buildNormalizedMapping(mapping.value);
+  if (!isSameMapping(mapping.value, normalized)) {
+    mapping.value = normalized;
+  }
+}
 
 watch(
   () => props.modelValue,
   (val) => {
-    mapping.value = { ...defaultMapping, ...(val || {}) };
+    const normalized = buildNormalizedMapping(val || {});
+    if (!isSameMapping(mapping.value, normalized)) {
+      mapping.value = normalized;
+    }
   },
-  { immediate: true }
+  { immediate: true, deep: true }
 );
 
 watch(
   () => mapping.value,
-  (val) => emit("update:modelValue", { ...val }),
+  (val) => {
+    const normalized = buildNormalizedMapping(val || {});
+    if (!isSameMapping(val, normalized)) {
+      mapping.value = normalized;
+      return;
+    }
+
+    if (!isSameMapping(normalized, props.modelValue || {})) {
+      emit("update:modelValue", { ...normalized });
+    }
+  },
   { deep: true }
+);
+
+watch(
+  () => props.usedRangeStartRow,
+  () => {
+    normalize();
+  }
 );
 
 const colLetter = (n?: number) => {
@@ -65,19 +133,6 @@ const columnHint = computed(() => ({
   acceptance: colLetter(mapping.value.acceptanceColumn),
   remark: colLetter(mapping.value.remarkColumn)
 }));
-
-const normalize = () => {
-  const headerRowStart = Math.max(1, mapping.value.headerRowStart || 1);
-  const headerRowCount = Math.max(0, mapping.value.headerRowCount ?? 1);
-  const dataStartRow = Math.max(1, mapping.value.dataStartRow || 1);
-
-  mapping.value.headerRowStart = headerRowStart;
-  mapping.value.headerRowCount = headerRowCount;
-  mapping.value.dataStartRow =
-    dataStartRow < headerRowStart + headerRowCount
-      ? headerRowStart + headerRowCount
-      : dataStartRow;
-};
 </script>
 
 <template>
@@ -93,15 +148,30 @@ const normalize = () => {
     <div class="grid">
       <div class="group">
         <div class="group-title">行范围</div>
-        <el-form label-width="110px" @change="normalize">
+        <el-form label-width="110px">
           <el-form-item label="表头起始行">
-            <el-input-number v-model="mapping.headerRowStart" :min="1" :step="1" />
+            <el-input-number
+              v-model="mapping.headerRowStart"
+              :min="Math.max(1, props.usedRangeStartRow || 1)"
+              :step="1"
+              @change="normalize"
+            />
           </el-form-item>
           <el-form-item label="表头行数">
-            <el-input-number v-model="mapping.headerRowCount" :min="0" :step="1" />
+            <el-input-number
+              v-model="mapping.headerRowCount"
+              :min="0"
+              :step="1"
+              @change="normalize"
+            />
           </el-form-item>
           <el-form-item label="数据起始行">
-            <el-input-number v-model="mapping.dataStartRow" :min="1" :step="1" />
+            <el-input-number
+              v-model="mapping.dataStartRow"
+              :min="Math.max(1, props.usedRangeStartRow || 1)"
+              :step="1"
+              @change="normalize"
+            />
           </el-form-item>
         </el-form>
       </div>

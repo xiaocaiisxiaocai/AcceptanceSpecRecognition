@@ -71,4 +71,25 @@ public class ExcelImportDataRequest
     /// 备注列（可选，1-based）
     /// </summary>
     public int? RemarkColumn { get; set; }
+
+    /// <summary>
+    /// 是否在本次导入后清理源文件。
+    /// 多工作表分批导入时，建议仅最后一次请求传 true。
+    /// </summary>
+    public bool CleanupSourceFile { get; set; } = true;
+
+    /// <summary>
+    /// 是否返回“未导入（跳过）”明细（默认不返回，减少响应体）
+    /// </summary>
+    public bool PreviewSkippedRows { get; set; } = false;
+
+    /// <summary>
+    /// 差异行中“确认导入”的键集合（用于二次确认提交）
+    /// </summary>
+    public List<string> ConfirmedDifferenceKeys { get; set; } = [];
+
+    /// <summary>
+    /// 差异行中“确认跳过”的键集合（用于二次确认提交）
+    /// </summary>
+    public List<string> SkippedDifferenceKeys { get; set; } = [];
 }

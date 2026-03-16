@@ -1,5 +1,5 @@
-using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
@@ -83,6 +83,7 @@ public class DocumentsController : BaseApiController
 
     /// <summary>
     /// 上传文件（Word/Excel）
+    /// 文件仅做临时保存，不做哈希去重，处理完后自动清理
     /// </summary>
     [HttpPost("upload")]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status200OK)]
@@ -101,7 +102,6 @@ public class DocumentsController : BaseApiController
             return Error<FileUploadResponse>(400, "仅支持 .docx / .xlsx 格式");
         }
 
-        // 读取文件内容
         var fileType = extension == ".xlsx" ? UploadedFileType.ExcelXlsx : UploadedFileType.WordDocx;
 
         byte[] fileContent;
@@ -111,69 +111,17 @@ public class DocumentsController : BaseApiController
             fileContent = memoryStream.ToArray();
         }
 
-        // 计算文件哈希
-        var fileHash = ComputeFileHash(fileContent);
-
-        // 检查是否为重复文件
-        var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(f => f.FileHash == fileHash);
-        if (existingFile != null)
-        {
-            // 若历史数据仍存DB二进制且未落盘，则在“重复上传”时顺便迁移到文件系统存储
-            // （避免后续读写总是依赖 FileContent）
-            try
-            {
-                var needsWrite =
-                    string.IsNullOrWhiteSpace(existingFile.FilePath) ||
-                    !System.IO.File.Exists(_fileStorage.GetAbsolutePath(existingFile.FilePath));
-
-                if (needsWrite)
-                {
-                    var newPath = existingFile.FileType == UploadedFileType.ExcelXlsx
-                        ? await _fileStorage.SaveUploadedExcelAsync(existingFile.FileName, fileContent)
-                        : await _fileStorage.SaveUploadedWordAsync(existingFile.FileName, fileContent);
-                    existingFile.FilePath = newPath;
-                    await _unitOfWork.SaveChangesAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                // 不影响返回（只记录日志）
-                _logger.LogWarning(ex, "重复文件落盘迁移失败: {FileId} - {FileName}", existingFile.Id, existingFile.FileName);
-            }
-
-            // 获取表格数量
-            var tableCount = 0;
-            using (var stream = OpenWordFileReadStream(existingFile))
-            {
-                var parser = _documentServiceFactory.GetParser(existingFile.FilePath ?? existingFile.FileName);
-                if (parser != null)
-                {
-                    var tables = await parser.GetTablesAsync(stream);
-                    tableCount = tables.Count;
-                }
-            }
-
-            return Success(new FileUploadResponse
-            {
-                FileId = existingFile.Id,
-                FileName = existingFile.FileName,
-                FileHash = existingFile.FileHash,
-                IsDuplicate = true,
-                TableCount = tableCount,
-                FileType = existingFile.FileType
-            }, "该文件已存在");
-        }
-
-        // 保存新文件（文件系统存储）
+        // 保存为临时文件（不做哈希去重）
         var filePath = fileType == UploadedFileType.ExcelXlsx
             ? await _fileStorage.SaveUploadedExcelAsync(file.FileName, fileContent)
             : await _fileStorage.SaveUploadedWordAsync(file.FileName, fileContent);
+
         var wordFile = new WordFile
         {
             FileName = file.FileName,
-            FileContent = Array.Empty<byte>(), // 新存储方式不再写入DB（兼容字段保留）
+            FileContent = Array.Empty<byte>(),
             FilePath = filePath,
-            FileHash = fileHash,
+            FileHash = Guid.NewGuid().ToString("N"),
             UploadedAt = DateTime.Now,
             FileType = fileType
         };
@@ -182,7 +130,7 @@ public class DocumentsController : BaseApiController
         await _unitOfWork.SaveChangesAsync();
 
         // 获取表格数量
-        var newTableCount = 0;
+        var tableCount = 0;
         using (var stream = new MemoryStream(fileContent))
         {
             var parser = fileType == UploadedFileType.ExcelXlsx
@@ -191,19 +139,19 @@ public class DocumentsController : BaseApiController
             if (parser != null)
             {
                 var tables = await parser.GetTablesAsync(stream);
-                newTableCount = tables.Count;
+                tableCount = tables.Count;
             }
         }
 
-        _logger.LogInformation("文件上传成功: {FileId} - {FileName}", wordFile.Id, wordFile.FileName);
+        _logger.LogInformation("文件临时上传成功: {FileId} - {FileName}", wordFile.Id, wordFile.FileName);
 
         return Success(new FileUploadResponse
         {
             FileId = wordFile.Id,
             FileName = wordFile.FileName,
-            FileHash = wordFile.FileHash,
+            FileHash = Guid.NewGuid().ToString("N"),
             IsDuplicate = false,
-            TableCount = newTableCount,
+            TableCount = tableCount,
             FileType = wordFile.FileType
         }, "文件上传成功");
     }
@@ -516,6 +464,21 @@ public class DocumentsController : BaseApiController
             TotalCount = tableData.Rows.Count
         };
 
+        // 比较范围（严格同范围）：客户 + 制程 + 机型 完全一致（含空值一致）才参与重复/差异判断
+        var existingSpecsInScope = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
+            s.CustomerId == request.CustomerId &&
+            s.ProcessId == request.ProcessId &&
+            s.MachineModelId == request.MachineModelId);
+
+        var compareBuffer = existingSpecsInScope.ToList();
+        var specsToInsert = new List<AcceptanceSpec>();
+        var confirmedDifferenceKeys = (request.ConfirmedDifferenceKeys ?? [])
+            .Where(k => !string.IsNullOrWhiteSpace(k))
+            .ToHashSet(StringComparer.Ordinal);
+        var skippedDifferenceKeys = (request.SkippedDifferenceKeys ?? [])
+            .Where(k => !string.IsNullOrWhiteSpace(k))
+            .ToHashSet(StringComparer.Ordinal);
+
         foreach (var row in tableData.Rows)
         {
             try
@@ -523,46 +486,134 @@ public class DocumentsController : BaseApiController
                 var project = GetCellValue(row, request.Mapping.ProjectColumn!.Value);
                 var specification = GetCellValue(row, request.Mapping.SpecificationColumn!.Value);
 
-                // 跳过空行
-                if (string.IsNullOrWhiteSpace(project) && string.IsNullOrWhiteSpace(specification))
+                // 项目列与规格列必须同时有值，任一为空则跳过
+                if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(specification))
                 {
                     result.SkippedCount++;
-                    continue;
-                }
 
-                // 验证必填字段
-                if (string.IsNullOrWhiteSpace(project))
-                {
-                    result.FailedCount++;
-                    result.Errors.Add(new ImportError
+                    if (request.PreviewSkippedRows)
                     {
-                        RowIndex = row.Index,
-                        Message = "项目名称不能为空"
-                    });
+                        var skipReason = string.IsNullOrWhiteSpace(project) && string.IsNullOrWhiteSpace(specification)
+                            ? "项目列与规格列均为空"
+                            : string.IsNullOrWhiteSpace(project)
+                                ? "项目列为空"
+                                : "规格列为空";
+                        result.SkippedRows.Add(new ImportSkippedRow
+                        {
+                            RowIndex = row.Index,
+                            Message = skipReason,
+                            RowValues = GetRowValues(row)
+                        });
+                    }
                     continue;
                 }
 
                 // 列映射已校验必填，这里直接读取（单元格内容仍允许为空）
                 var acceptance = GetCellValue(row, request.Mapping.AcceptanceColumn!.Value);
                 var remark = GetCellValue(row, request.Mapping.RemarkColumn!.Value);
+                var normalizedProject = NormalizeText(project);
+                var normalizedSpecification = NormalizeText(specification);
+                var normalizedAcceptance = NormalizeText(acceptance);
+                var normalizedRemark = NormalizeText(remark);
 
-                var spec = new AcceptanceSpec
+                var exactExisting = compareBuffer.FirstOrDefault(s =>
+                    IsSameContent(s, normalizedProject, normalizedSpecification, normalizedAcceptance, normalizedRemark));
+
+                if (exactExisting != null)
                 {
-                    CustomerId = request.CustomerId,
-                    ProcessId = request.ProcessId,
-                    MachineModelId = request.MachineModelId,
-                    Project = project.Trim(),
-                    Specification = string.IsNullOrWhiteSpace(specification)
-                        ? string.Empty
-                        : specification.Trim(),
-                    Acceptance = acceptance?.Trim(),
-                    Remark = remark?.Trim(),
-                    WordFileId = request.FileId,
-                    ImportedAt = DateTime.Now
-                };
+                    result.SkippedCount++;
+                    if (request.PreviewSkippedRows)
+                    {
+                        result.SkippedRows.Add(new ImportSkippedRow
+                        {
+                            RowIndex = row.Index,
+                            Message = "数据库已存在完全相同数据",
+                            RowValues = GetRowValues(row)
+                        });
+                    }
+                    continue;
+                }
 
-                await _unitOfWork.AcceptanceSpecs.AddAsync(spec);
-                result.SuccessCount++;
+                // 差异定义：项目 + 规格 相同，但验收/备注不一致（完全一致已在上方 exactExisting 处理）
+                var projectConflict = compareBuffer
+                    .Where(s =>
+                        NormalizeText(s.Project) == normalizedProject &&
+                        NormalizeText(s.Specification) == normalizedSpecification)
+                    .OrderBy(s => s.Id)
+                    .FirstOrDefault();
+
+                if (projectConflict != null)
+                {
+                    var diffKey = BuildDifferenceKey(
+                        request.TableIndex,
+                        row.Index,
+                        normalizedProject,
+                        normalizedSpecification,
+                        normalizedAcceptance,
+                        normalizedRemark);
+
+                    if (confirmedDifferenceKeys.Contains(diffKey))
+                    {
+                        var confirmedSpec = CreateAcceptanceSpec(
+                            request.CustomerId,
+                            request.ProcessId,
+                            request.MachineModelId,
+                            request.FileId,
+                            project,
+                            specification,
+                            acceptance,
+                            remark);
+                        specsToInsert.Add(confirmedSpec);
+                        compareBuffer.Add(confirmedSpec);
+                        continue;
+                    }
+
+                    if (skippedDifferenceKeys.Contains(diffKey))
+                    {
+                        result.SkippedCount++;
+                        if (request.PreviewSkippedRows)
+                        {
+                            result.SkippedRows.Add(new ImportSkippedRow
+                            {
+                                RowIndex = row.Index,
+                                Message = "差异行已确认跳过",
+                                RowValues = GetRowValues(row)
+                            });
+                        }
+                        continue;
+                    }
+
+                    result.RequiresConfirmation = true;
+                    result.PendingCount++;
+                    result.PendingDifferences.Add(new ImportPendingDifference
+                    {
+                        Key = diffKey,
+                        RowIndex = row.Index,
+                        RowValues = GetRowValues(row),
+                        IncomingProject = project?.Trim() ?? string.Empty,
+                        IncomingSpecification = specification?.Trim() ?? string.Empty,
+                        IncomingAcceptance = NormalizeNullable(acceptance),
+                        IncomingRemark = NormalizeNullable(remark),
+                        ExistingSpecId = projectConflict.Id,
+                        ExistingProject = projectConflict.Project,
+                        ExistingSpecification = projectConflict.Specification,
+                        ExistingAcceptance = projectConflict.Acceptance,
+                        ExistingRemark = projectConflict.Remark
+                    });
+                    continue;
+                }
+
+                var spec = CreateAcceptanceSpec(
+                    request.CustomerId,
+                    request.ProcessId,
+                    request.MachineModelId,
+                    request.FileId,
+                    project,
+                    specification,
+                    acceptance,
+                    remark);
+                specsToInsert.Add(spec);
+                compareBuffer.Add(spec);
             }
             catch (Exception ex)
             {
@@ -575,7 +626,32 @@ public class DocumentsController : BaseApiController
             }
         }
 
-        await _unitOfWork.SaveChangesAsync();
+        if (result.PendingCount > 0)
+        {
+            return Success(result, $"检测到{result.PendingCount}条差异，请逐条确认后再导入");
+        }
+
+        if (specsToInsert.Count > 0)
+        {
+            await _unitOfWork.AcceptanceSpecs.AddRangeAsync(specsToInsert);
+            await _unitOfWork.SaveChangesAsync();
+            result.SuccessCount = specsToInsert.Count;
+        }
+
+        // 导入完成后按需清理源文件（多表格分批导入时仅最后一次清理）
+        if (request.CleanupSourceFile)
+        {
+            try
+            {
+                await _fileStorage.DeleteIfExistsAsync(wordFile.FilePath);
+                wordFile.FilePath = null;
+                await _unitOfWork.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "导入后清理源文件失败: fileId={FileId}", request.FileId);
+            }
+        }
 
         // 写入操作历史（导入）
         try
@@ -583,7 +659,7 @@ public class DocumentsController : BaseApiController
             var history = new OperationHistory
             {
                 OperationType = OperationType.Import,
-                TargetFile = wordFile.FilePath,
+                TargetFile = wordFile.FileName,
                 Details = JsonSerializer.Serialize(new
                 {
                     fileId = request.FileId,
@@ -741,6 +817,21 @@ public class DocumentsController : BaseApiController
             TotalCount = tableData.Rows.Count
         };
 
+        // 比较范围（严格同范围）：客户 + 制程 + 机型 完全一致（含空值一致）才参与重复/差异判断
+        var existingSpecsInScope = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
+            s.CustomerId == request.CustomerId &&
+            s.ProcessId == request.ProcessId &&
+            s.MachineModelId == request.MachineModelId);
+
+        var compareBuffer = existingSpecsInScope.ToList();
+        var specsToInsert = new List<AcceptanceSpec>();
+        var confirmedDifferenceKeys = (request.ConfirmedDifferenceKeys ?? [])
+            .Where(k => !string.IsNullOrWhiteSpace(k))
+            .ToHashSet(StringComparer.Ordinal);
+        var skippedDifferenceKeys = (request.SkippedDifferenceKeys ?? [])
+            .Where(k => !string.IsNullOrWhiteSpace(k))
+            .ToHashSet(StringComparer.Ordinal);
+
         foreach (var row in tableData.Rows)
         {
             var excelRowNumber = request.DataStartRow + row.Index;
@@ -750,43 +841,133 @@ public class DocumentsController : BaseApiController
                 var project = GetCellValue(row, projectCol);
                 var specification = GetCellValue(row, specCol);
 
-                if (string.IsNullOrWhiteSpace(project) && string.IsNullOrWhiteSpace(specification))
+                // 项目列与规格列必须同时有值，任一为空则跳过
+                if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(specification))
                 {
                     result.SkippedCount++;
-                    continue;
-                }
 
-                if (string.IsNullOrWhiteSpace(project))
-                {
-                    result.FailedCount++;
-                    result.Errors.Add(new ImportError
+                    if (request.PreviewSkippedRows)
                     {
-                        RowIndex = excelRowNumber,
-                        Message = "项目名称不能为空"
-                    });
+                        var skipReason = string.IsNullOrWhiteSpace(project) && string.IsNullOrWhiteSpace(specification)
+                            ? "项目列与规格列均为空"
+                            : string.IsNullOrWhiteSpace(project)
+                                ? "项目列为空"
+                                : "规格列为空";
+                        result.SkippedRows.Add(new ImportSkippedRow
+                        {
+                            RowIndex = excelRowNumber,
+                            Message = skipReason,
+                            RowValues = GetRowValues(row)
+                        });
+                    }
                     continue;
                 }
 
                 var acceptance = acceptanceCol.HasValue ? GetCellValue(row, acceptanceCol.Value) : null;
                 var remark = remarkCol.HasValue ? GetCellValue(row, remarkCol.Value) : null;
+                var normalizedProject = NormalizeText(project);
+                var normalizedSpecification = NormalizeText(specification);
+                var normalizedAcceptance = NormalizeText(acceptance);
+                var normalizedRemark = NormalizeText(remark);
 
-                var spec = new AcceptanceSpec
+                var exactExisting = compareBuffer.FirstOrDefault(s =>
+                    IsSameContent(s, normalizedProject, normalizedSpecification, normalizedAcceptance, normalizedRemark));
+
+                if (exactExisting != null)
                 {
-                    CustomerId = request.CustomerId,
-                    ProcessId = request.ProcessId,
-                    MachineModelId = request.MachineModelId,
-                    Project = project.Trim(),
-                    Specification = string.IsNullOrWhiteSpace(specification)
-                        ? string.Empty
-                        : specification.Trim(),
-                    Acceptance = string.IsNullOrWhiteSpace(acceptance) ? null : acceptance.Trim(),
-                    Remark = string.IsNullOrWhiteSpace(remark) ? null : remark.Trim(),
-                    WordFileId = request.FileId,
-                    ImportedAt = DateTime.Now
-                };
+                    result.SkippedCount++;
+                    if (request.PreviewSkippedRows)
+                    {
+                        result.SkippedRows.Add(new ImportSkippedRow
+                        {
+                            RowIndex = excelRowNumber,
+                            Message = "数据库已存在完全相同数据",
+                            RowValues = GetRowValues(row)
+                        });
+                    }
+                    continue;
+                }
 
-                await _unitOfWork.AcceptanceSpecs.AddAsync(spec);
-                result.SuccessCount++;
+                // 差异定义：项目 + 规格 相同，但验收/备注不一致（完全一致已在上方 exactExisting 处理）
+                var projectConflict = compareBuffer
+                    .Where(s =>
+                        NormalizeText(s.Project) == normalizedProject &&
+                        NormalizeText(s.Specification) == normalizedSpecification)
+                    .OrderBy(s => s.Id)
+                    .FirstOrDefault();
+
+                if (projectConflict != null)
+                {
+                    var diffKey = BuildDifferenceKey(
+                        request.SheetIndex,
+                        excelRowNumber,
+                        normalizedProject,
+                        normalizedSpecification,
+                        normalizedAcceptance,
+                        normalizedRemark);
+
+                    if (confirmedDifferenceKeys.Contains(diffKey))
+                    {
+                        var confirmedSpec = CreateAcceptanceSpec(
+                            request.CustomerId,
+                            request.ProcessId,
+                            request.MachineModelId,
+                            request.FileId,
+                            project,
+                            specification,
+                            acceptance,
+                            remark);
+                        specsToInsert.Add(confirmedSpec);
+                        compareBuffer.Add(confirmedSpec);
+                        continue;
+                    }
+
+                    if (skippedDifferenceKeys.Contains(diffKey))
+                    {
+                        result.SkippedCount++;
+                        if (request.PreviewSkippedRows)
+                        {
+                            result.SkippedRows.Add(new ImportSkippedRow
+                            {
+                                RowIndex = excelRowNumber,
+                                Message = "差异行已确认跳过",
+                                RowValues = GetRowValues(row)
+                            });
+                        }
+                        continue;
+                    }
+
+                    result.RequiresConfirmation = true;
+                    result.PendingCount++;
+                    result.PendingDifferences.Add(new ImportPendingDifference
+                    {
+                        Key = diffKey,
+                        RowIndex = excelRowNumber,
+                        RowValues = GetRowValues(row),
+                        IncomingProject = project?.Trim() ?? string.Empty,
+                        IncomingSpecification = specification?.Trim() ?? string.Empty,
+                        IncomingAcceptance = NormalizeNullable(acceptance),
+                        IncomingRemark = NormalizeNullable(remark),
+                        ExistingSpecId = projectConflict.Id,
+                        ExistingProject = projectConflict.Project,
+                        ExistingSpecification = projectConflict.Specification,
+                        ExistingAcceptance = projectConflict.Acceptance,
+                        ExistingRemark = projectConflict.Remark
+                    });
+                    continue;
+                }
+
+                var spec = CreateAcceptanceSpec(
+                    request.CustomerId,
+                    request.ProcessId,
+                    request.MachineModelId,
+                    request.FileId,
+                    project,
+                    specification,
+                    acceptance,
+                    remark);
+                specsToInsert.Add(spec);
+                compareBuffer.Add(spec);
             }
             catch (Exception ex)
             {
@@ -799,7 +980,33 @@ public class DocumentsController : BaseApiController
             }
         }
 
-        await _unitOfWork.SaveChangesAsync();
+        if (result.PendingCount > 0)
+        {
+            return Success(result, $"检测到{result.PendingCount}条差异，请逐条确认后再导入");
+        }
+
+        if (specsToInsert.Count > 0)
+        {
+            await _unitOfWork.AcceptanceSpecs.AddRangeAsync(specsToInsert);
+            await _unitOfWork.SaveChangesAsync();
+            result.SuccessCount = specsToInsert.Count;
+        }
+
+        // 导入完成后按需清理源文件（多工作表分批导入时仅最后一次清理）
+        if (request.CleanupSourceFile)
+        {
+            try
+            {
+                await _fileStorage.DeleteIfExistsAsync(file.FilePath);
+                file.FilePath = null;
+                await _unitOfWork.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Excel导入后清理源文件失败: fileId={FileId}", request.FileId);
+            }
+        }
+
         return Success(result, $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条");
     }
 
@@ -852,13 +1059,77 @@ public class DocumentsController : BaseApiController
     }
 
     /// <summary>
-    /// 计算文件哈希
+    /// 创建验收规格实体
     /// </summary>
-    private static string ComputeFileHash(byte[] content)
+    private static AcceptanceSpec CreateAcceptanceSpec(
+        int customerId,
+        int? processId,
+        int? machineModelId,
+        int wordFileId,
+        string? project,
+        string? specification,
+        string? acceptance,
+        string? remark)
     {
-        using var sha256 = SHA256.Create();
-        var hashBytes = sha256.ComputeHash(content);
-        return Convert.ToHexString(hashBytes).ToLowerInvariant();
+        return new AcceptanceSpec
+        {
+            CustomerId = customerId,
+            ProcessId = processId,
+            MachineModelId = machineModelId,
+            Project = project?.Trim() ?? string.Empty,
+            Specification = specification?.Trim() ?? string.Empty,
+            Acceptance = NormalizeNullable(acceptance),
+            Remark = NormalizeNullable(remark),
+            WordFileId = wordFileId,
+            ImportedAt = DateTime.Now
+        };
+    }
+
+    /// <summary>
+    /// 规范化文本（用于比较）
+    /// </summary>
+    private static string NormalizeText(string? value)
+    {
+        return (value ?? string.Empty).Trim();
+    }
+
+    /// <summary>
+    /// 规范化可空文本（用于入库/返回）
+    /// </summary>
+    private static string? NormalizeNullable(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    /// <summary>
+    /// 判断库中规格与导入内容是否完全一致
+    /// </summary>
+    private static bool IsSameContent(
+        AcceptanceSpec spec,
+        string project,
+        string specification,
+        string acceptance,
+        string remark)
+    {
+        return NormalizeText(spec.Project) == project &&
+               NormalizeText(spec.Specification) == specification &&
+               NormalizeText(spec.Acceptance) == acceptance &&
+               NormalizeText(spec.Remark) == remark;
+    }
+
+    /// <summary>
+    /// 构造差异确认键
+    /// </summary>
+    private static string BuildDifferenceKey(
+        int tableIndex,
+        int rowIndex,
+        string project,
+        string specification,
+        string acceptance,
+        string remark)
+    {
+        var raw = $"{tableIndex}|{rowIndex}|{project}|{specification}|{acceptance}|{remark}";
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(raw));
     }
 
     /// <summary>
@@ -867,6 +1138,30 @@ public class DocumentsController : BaseApiController
     private static string? GetCellValue(RowData row, int columnIndex)
     {
         return row.GetValue(columnIndex);
+    }
+
+    /// <summary>
+    /// 获取整行列值（按列索引顺序）
+    /// </summary>
+    private static List<string> GetRowValues(RowData row)
+    {
+        if (row.Cells == null || row.Cells.Count == 0)
+        {
+            return [];
+        }
+
+        var maxColumnIndex = row.Cells.Max(c => c.ColumnIndex);
+        var valuesByColumn = row.Cells
+            .GroupBy(c => c.ColumnIndex)
+            .ToDictionary(g => g.Key, g => g.FirstOrDefault()?.Value ?? string.Empty);
+
+        var values = new List<string>(maxColumnIndex + 1);
+        for (var col = 0; col <= maxColumnIndex; col++)
+        {
+            values.Add(valuesByColumn.TryGetValue(col, out var value) ? value : string.Empty);
+        }
+
+        return values;
     }
 
     /// <summary>

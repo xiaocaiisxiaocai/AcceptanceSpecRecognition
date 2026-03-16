@@ -19,6 +19,7 @@ const emit = defineEmits<{
 
 const loading = ref(false);
 const tableData = ref<TableData | null>(null);
+let latestRequestId = 0;
 
 const hasAnyMapping = computed(() => {
   const m = props.mapping;
@@ -65,15 +66,21 @@ const displayColumnCount = computed(() => {
 const loadPreview = async () => {
   if (!props.fileId || props.tableIndex === undefined) return;
 
+  const requestId = ++latestRequestId;
+  const query = {
+    previewRows: 0,
+    headerRowIndex: props.headerRowIndex ?? 0,
+    headerRowCount: props.headerRowCount ?? 1,
+    dataStartRowIndex: props.dataStartRowIndex ?? 1
+  };
   loading.value = true;
   try {
-    const res = await getTablePreview(props.fileId, props.tableIndex, {
-      // 预览全部行（后端约定：previewRows <= 0 表示不限制）
-      previewRows: 0,
-      headerRowIndex: props.headerRowIndex ?? 0,
-      headerRowCount: props.headerRowCount ?? 1,
-      dataStartRowIndex: props.dataStartRowIndex ?? 1
-    });
+    const res = await getTablePreview(props.fileId, props.tableIndex, query);
+    // 只处理最新一次请求，避免旧请求回包覆盖新配置
+    if (requestId !== latestRequestId) {
+      return;
+    }
+
     if (res.code === 0) {
       tableData.value = res.data;
       emit("loaded", res.data);
@@ -81,8 +88,10 @@ const loadPreview = async () => {
       ElMessage.error(res.message || "加载预览失败");
     }
   } catch (error) {
+    if (requestId !== latestRequestId) return;
     ElMessage.error("加载预览失败");
   } finally {
+    if (requestId !== latestRequestId) return;
     loading.value = false;
   }
 };

@@ -45,11 +45,7 @@ const handleUpload = async (options: UploadRequestOptions) => {
     if (res.code === 0) {
       uploadedFile.value = res.data;
       emit("uploaded", res.data);
-      if (res.data.isDuplicate) {
-        ElMessage.warning("该文件已存在，使用已有文件");
-      } else {
-        ElMessage.success("文件上传成功");
-      }
+      ElMessage.success("文件上传成功");
     } else {
       ElMessage.error(res.message || "上传失败");
     }
@@ -107,9 +103,6 @@ const clearFile = () => {
         <div class="file-details">
           <div class="file-name">{{ uploadedFile.fileName }}</div>
           <div class="file-meta">
-            <span v-if="uploadedFile.isDuplicate" class="duplicate-tag">
-              已存在
-            </span>
             <span>
               包含 {{ uploadedFile.tableCount }} 个{{ isExcel ? "工作表" : "表格" }}
             </span>
@@ -183,14 +176,6 @@ const clearFile = () => {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.duplicate-tag {
-  background: #e6a23c;
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
 }
 
 .file-actions {

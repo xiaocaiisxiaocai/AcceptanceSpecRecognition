@@ -80,6 +80,10 @@ export interface ImportDataRequest {
   processId?: number;
   machineModelId?: number;
   mapping: ColumnMapping;
+  cleanupSourceFile?: boolean;
+  previewSkippedRows?: boolean;
+  confirmedDifferenceKeys?: string[];
+  skippedDifferenceKeys?: string[];
 }
 
 /** 导入结果 */
@@ -89,12 +93,39 @@ export interface ImportResult {
   skippedCount: number;
   totalCount: number;
   errors: ImportError[];
+  skippedRows?: ImportSkippedRow[];
+  requiresConfirmation?: boolean;
+  pendingCount?: number;
+  pendingDifferences?: ImportPendingDifference[];
 }
 
 /** 导入错误详情 */
 export interface ImportError {
   rowIndex: number;
   message: string;
+}
+
+/** 跳过详情 */
+export interface ImportSkippedRow {
+  rowIndex: number;
+  message: string;
+  rowValues?: string[];
+}
+
+/** 待确认差异详情 */
+export interface ImportPendingDifference {
+  key: string;
+  rowIndex: number;
+  rowValues?: string[];
+  incomingProject: string;
+  incomingSpecification: string;
+  incomingAcceptance?: string;
+  incomingRemark?: string;
+  existingSpecId: number;
+  existingProject: string;
+  existingSpecification: string;
+  existingAcceptance?: string;
+  existingRemark?: string;
 }
 
 const baseUrl = "/api/documents";
@@ -171,6 +202,10 @@ export interface ExcelImportDataRequest {
   specificationColumn: number;
   acceptanceColumn?: number;
   remarkColumn?: number;
+  cleanupSourceFile?: boolean;
+  previewSkippedRows?: boolean;
+  confirmedDifferenceKeys?: string[];
+  skippedDifferenceKeys?: string[];
 }
 
 /** Excel 导入（按列序号） */
