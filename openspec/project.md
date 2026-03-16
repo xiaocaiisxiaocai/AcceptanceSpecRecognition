@@ -1,129 +1,133 @@
 # Project Context
 
 ## Purpose
-验收规格管理系统（Acceptance Specification System）是一个Windows桌面应用程序，用于帮助企业验收工程师高效管理和复用验收规格数据。系统从Word文档中提取验收表格数据，存储到本地数据库，并在新文档中通过AI智能匹配技术自动填充历史验收数据。
+验收规格管理系统（Acceptance Specification System）是一个基于 Web 的验规数据管理平台，用于帮助验收工程师将历史 Word/Excel 文档中的验收规格沉淀为结构化数据，并通过 Embedding 匹配与可选 LLM 辅助，自动填充到新的验收文档中。
 
 ### 核心目标
-1. 批量提取Word文档中的验收表格数据
-2. 按客户和制程维度组织存储数据
-3. 通过智能匹配（相似度/Embedding/LLM）自动填充新文档
-4. 提供配置复用和操作历史管理
-5. **支持在线AI服务和本地私有化部署，满足不同安全需求**
+1. 从 Word / Excel 文档中批量提取验收规格数据并导入数据库。
+2. 按客户、机型、制程维度组织和检索验收规格。
+3. 通过 Embedding 主匹配能力对新文档进行智能填充。
+4. 在低置信度场景下提供可选的 LLM 复核和建议生成能力。
+5. 支持文件对比、配置管理、历史追踪等配套能力。
+6. 同时支持在线 AI 服务与本地私有化 AI 服务接入。
 
 ## Tech Stack
 
-### 核心框架
+### 核心架构
 | 层次 | 技术选型 | 说明 |
 |------|----------|------|
-| UI框架 | WinForms (.NET 8) | 桌面应用界面 |
-| 后端 | C# .NET 8 | 业务逻辑处理 |
-| ORM | **Entity Framework Core** | **Code First模式** |
-| 数据库 | SQLite | 本地数据存储 |
-| Word处理 | DocumentFormat.OpenXml | Office文档操作 |
-| AI框架 | Microsoft Semantic Kernel | AI服务编排 |
+| 前端 | Vue 3 + TypeScript + Vite + Element Plus | 管理后台 SPA |
+| API | ASP.NET Core 8 Web API | HTTP 接口、Swagger、中间件 |
+| Core | C# .NET 8 类库 | 匹配、AI、文本预处理、文档处理 |
+| Data | EF Core 8 + Pomelo MySQL | 数据访问、迁移、仓储 |
+| 数据库 | MySQL 8 | 主业务数据存储 |
+| 文档处理 | OpenXML + ClosedXML | Word / Excel 解析与写入 |
+| AI 编排 | Microsoft Semantic Kernel | LLM 与 Embedding 服务统一接入 |
 
-### AI服务支持
+### 当前运行形态
+| 场景 | 端口 / 形态 | 说明 |
+|------|-------------|------|
+| 前端开发 | Vite Dev Server | 本地开发调试 |
+| 后端开发 | `http://localhost:5290` | 见 `src/AcceptanceSpecSystem.Api/Properties/launchSettings.json` |
+| 生产部署 | Docker Compose | `web + api + mysql` 三容器 |
+| 文件存储 | `uploads/` 目录 | Word、Excel、填充结果文件 |
 
-#### 在线服务
-| 服务 | 用途 | 特点 |
+### AI 服务支持
+| 服务 | 用途 | 说明 |
 |------|------|------|
-| OpenAI API | LLM + Embedding | 最新模型、快速集成 |
-| Azure OpenAI | LLM + Embedding | 企业合规、SLA保障 |
-
-#### 本地私有化服务
-| 服务 | 用途 | 特点 |
-|------|------|------|
-| Ollama | LLM + Embedding | 开源免费、离线可用 |
-| LM Studio | LLM + Embedding | GUI友好、易于管理 |
-| 自定义端点 | LLM + Embedding | OpenAI兼容API |
-
-### NuGet包
-- Microsoft.EntityFrameworkCore.Sqlite
-- Microsoft.EntityFrameworkCore.Design
-- DocumentFormat.OpenXml
-- Microsoft.SemanticKernel
-- Microsoft.SemanticKernel.Connectors.OpenAI
-- Newtonsoft.Json
-- OpenCCDotNet（简繁转换）
+| OpenAI | LLM / Embedding | 云端通用方案 |
+| Azure OpenAI | LLM / Embedding | 企业合规场景 |
+| Ollama | LLM / Embedding | 本地私有化优先方案 |
+| LM Studio | LLM / Embedding | 本地桌面式接入 |
+| OpenAI 兼容端点 | LLM / Embedding | 自定义服务接入 |
 
 ## Project Conventions
 
 ### Code Style
-- 命名规范：C#标准PascalCase（类、方法）、camelCase（局部变量）
-- 接口命名：以I开头（如IMatchService）
-- 异步方法：以Async后缀（如GetDataAsync）
-- 注释语言：中文注释，关键逻辑必须注释
+- 交流、注释、文档统一使用中文。
+- C# 类型、方法、属性使用 PascalCase；局部变量使用 camelCase。
+- TypeScript / Vue 遵循现有仓库风格，优先保持已有命名和组件拆分方式。
+- 异步方法统一使用 `Async` 后缀。
+- 复杂业务逻辑可以加简短中文注释，但避免解释显而易见的代码。
 
 ### Architecture Patterns
-- **分层架构**：Presentation → Business → Data
-- **依赖注入**：通过构造函数注入，使用Microsoft.Extensions.DependencyInjection
-- **EF Core Code First**：实体优先，迁移管理Schema变更
-- **工厂模式**：AI服务创建使用工厂模式支持多提供商
+- **分层架构**：`Api -> Core -> Data`，禁止反向依赖。
+- **仓储 + 工作单元**：通过 `IUnitOfWork` 聚合仓储访问。
+- **工厂模式**：文档解析/写入与 Semantic Kernel 服务构建都通过工厂统一封装。
+- **管道模式**：文本预处理通过可配置 pipeline 执行。
+- **显式失败策略**：当前匹配主流程以 Embedding 为准，Embedding 服务不可用时直接报错，不做静默降级。
 
-### EF Core Conventions
-- 实体类放置在`Entities`文件夹
-- DbContext配置使用Fluent API
-- 迁移文件统一放置在`Migrations`文件夹
-- 使用`dotnet ef migrations add`生成迁移
-- 启动时自动应用待执行迁移
+### Data & Persistence Conventions
+- EF Core 使用 Code First 和 Migration 管理 Schema。
+- 启动时自动应用迁移；测试环境使用 SQLite InMemory 替代 MySQL。
+- 业务主数据集中在 `AcceptanceSpec`、`Customer`、`Process`、`MachineModel`、`WordFile`、`EmbeddingCache` 等实体。
+- 文件内容优先落地到文件系统，数据库二进制字段作为兼容兜底。
+
+### Frontend Conventions
+- 页面主流程以向导式交互为主，降低操作门槛。
+- API 封装集中在 `web/src/api`。
+- 匹配、导入等长耗时请求要显式考虑超时、加载状态和错误提示。
+- LLM 流式输出基于 SSE，前后端改动时要同步考虑代理超时与客户端中断处理。
 
 ### Testing Strategy
-- 单元测试：xUnit + Moq
-- 数据层测试：使用InMemory SQLite
-- AI集成测试：Mock AI服务响应
-- 覆盖率目标：核心业务逻辑≥80%
+- API 集成测试：`AcceptanceSpecSystem.Api.Tests`，基于 `WebApplicationFactory`。
+- Core 单元测试：`AcceptanceSpecSystem.Core.Tests`，覆盖匹配、文档、异常路径。
+- Data 测试：`AcceptanceSpecSystem.Data.Tests`，覆盖仓储与工作单元行为。
+- 前端至少保证 `pnpm build` 可通过；后端至少保证 `dotnet test AcceptanceSpecSystem.sln -c Debug` 可通过。
 
 ### Git Workflow
-- 主分支：main
-- 功能分支：feature/xxx
-- 修复分支：fix/xxx
-- 提交信息：中文，格式为"类型: 描述"（如"feat: 添加Embedding匹配功能"）
+- 主分支为 `main`。
+- 提交信息使用中文，格式建议为 `type: 描述`，如 `feat: 完善智能填充配置`。
+- 大改动优先拆成多个可回溯的主题提交，避免把文档、功能、清理混在一起。
 
 ## Domain Context
 
-### 验收规格数据结构
-- **项目**：验收项目名称（如"不锈钢管材"）
-- **规格**：具体规格参数（如"Φ50×3mm"）
-- **验收**：验收标准和方法
-- **备注**：补充说明
+### 核心业务对象
+- **项目（Project）**：匹配主键的一部分。
+- **规格（Specification）**：匹配主键的一部分。
+- **验收（Acceptance）**：填充目标字段。
+- **备注（Remark）**：填充目标字段。
 
-### 匹配逻辑
-- 查找依据：【项目】+【规格】组合
-- 填充目标：【验收】+【备注】列
-- 多结果处理：取最高匹配分
-- 阈值过滤：低于阈值的结果自动丢弃
+### 数据组织方式
+- 业务筛选维度为：**客户 → 机型 → 制程**。
+- 导入和匹配时，`项目 + 规格` 是主要查找键。
+- 文档来源保留到 `WordFile`，用于溯源、预览、填充和后续比对。
 
-### 数据组织
-- 按【客户】→【制程】层级组织
-- 每条数据记录来源Word文件
-- 支持数据溯源和撤销
+### 文档处理范围
+- 当前正式支持 `.docx` 与 `.xlsx`。
+- Word 与 Excel 都支持上传、表格预览、导入与智能填充。
+- Excel 已支持“直接写回源文件”模式；Word 仍保留“生成结果文件供下载”的模式。
 
-### AI服务部署模式
-- **在线模式**：使用云端API（OpenAI/Azure），需要网络连接
-- **私有化模式**：使用本地服务（Ollama/LM Studio），离线可用
-- **混合模式**：优先本地，本地不可用时降级到在线或相似度匹配
+### 匹配与 AI 规则
+- 当前主匹配策略是 **Embedding 主匹配**。
+- LLM 仅作为复核和建议生成能力，不替代主匹配排序。
+- 低于阈值的结果会被过滤或触发建议生成，具体由配置决定。
 
 ## Important Constraints
-- **离线支持**：相似度匹配和本地AI服务必须支持离线使用
-- **数据安全**：API Key等敏感信息加密存储
-- **文件格式**：仅支持.docx格式
-- **语言**：界面仅支持中文
-- **单机部署**：无需服务端，本地运行
-- **EF Core迁移**：Schema变更必须通过迁移管理，保证数据安全
+- 必须保持中文界面与中文业务语义一致，不要把核心术语改成英文主导。
+- 涉及 API、数据库、架构、匹配行为的实质变更，优先通过 OpenSpec 变更提案管理。
+- 对已有用户数据和导入流程的修改要优先考虑兼容性，避免破坏历史文件和历史数据。
+- 文档解析与回写需要同时考虑 Word 和 Excel，不要只修一端。
+- AI 服务配置包含敏感信息，必须走现有加密与配置管理路径，不能明文扩散。
+- 长耗时接口、SSE、文件写入这三类改动都要补充验证，避免只看编译通过。
 
 ## External Dependencies
 
-### AI服务
-| 服务类型 | 服务名称 | 用途 | 必需 |
-|----------|----------|------|------|
-| 在线 | OpenAI API | LLM + Embedding | 可选 |
-| 在线 | Azure OpenAI | LLM + Embedding | 可选 |
-| 本地 | Ollama | LLM + Embedding | 可选 |
-| 本地 | LM Studio | LLM + Embedding | 可选 |
-| 本地 | 自定义端点 | LLM + Embedding | 可选 |
+### 基础设施
+| 类型 | 依赖 | 说明 |
+|------|------|------|
+| 数据库 | MySQL 8 | 生产主库 |
+| 容器 | Docker / Docker Compose | 生产部署 |
+| 文件系统 | 本地目录或容器卷 | 上传与填充文件存储 |
 
-### 推荐本地模型
-| 用途 | 推荐模型 | 说明 |
-|------|----------|------|
-| LLM | qwen2:7b, llama3:8b | 中文能力强 |
-| Embedding | nomic-embed-text, bge-m3 | 中文向量化 |
+### 第三方库
+| 分类 | 依赖 |
+|------|------|
+| 后端 | ASP.NET Core, EF Core, Pomelo MySQL, Semantic Kernel, OpenXML, ClosedXML, OpenCCNET |
+| 前端 | Vue 3, Vite, Element Plus, Pinia, Axios, Tailwind CSS, Pure Admin Thin |
+| 测试 | xUnit, FluentAssertions, Microsoft.AspNetCore.Mvc.Testing |
+
+### 推荐本地开发检查
+1. `dotnet test AcceptanceSpecSystem.sln -c Debug`
+2. `pnpm build`（目录：`web/`）
+3. 必要时再启动前后端做上传、导入、匹配、填充的冒烟验证
