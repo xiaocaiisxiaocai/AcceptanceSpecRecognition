@@ -54,4 +54,10 @@ public interface IAcceptanceSpecRepository : IRepository<AcceptanceSpec>
     /// <param name="searchTerm">搜索关键词</param>
     /// <returns>验收规格列表</returns>
     Task<IReadOnlyList<AcceptanceSpec>> SearchAsync(int processId, string searchTerm);
+
+    /// <summary>
+    /// 获取按（客户、机型、制程）分组的汇总信息，返回每组的名称和规格数量。
+    /// 用途：左侧分组树构建。
+    /// </summary>
+    Task<IReadOnlyList<(int CustomerId, string CustomerName, int? MachineModelId, string? MachineModelName, int? ProcessId, string? ProcessName, int SpecCount)>> GetGroupSummaryAsync();
 }

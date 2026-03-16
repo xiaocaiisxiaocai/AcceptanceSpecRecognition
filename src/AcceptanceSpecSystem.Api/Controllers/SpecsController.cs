@@ -25,6 +25,29 @@ public class SpecsController : BaseApiController
     }
 
     /// <summary>
+    /// 获取验收规格分组汇总（按客户 → 机型 → 制程分组，返回每组规格数量）
+    /// </summary>
+    [HttpGet("groups")]
+    [ProducesResponseType(typeof(ApiResponse<List<SpecGroupDto>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<SpecGroupDto>>>> GetGroups()
+    {
+        var groups = await _unitOfWork.AcceptanceSpecs.GetGroupSummaryAsync();
+
+        var dtos = groups.Select(g => new SpecGroupDto
+        {
+            CustomerId = g.CustomerId,
+            CustomerName = g.CustomerName,
+            MachineModelId = g.MachineModelId,
+            MachineModelName = g.MachineModelName,
+            ProcessId = g.ProcessId,
+            ProcessName = g.ProcessName,
+            SpecCount = g.SpecCount
+        }).ToList();
+
+        return Success(dtos);
+    }
+
+    /// <summary>
     /// 获取验收规格列表（支持筛选）
     /// </summary>
     [HttpGet]
@@ -35,7 +58,9 @@ public class SpecsController : BaseApiController
         [FromQuery] string? keyword = null,
         [FromQuery] int? customerId = null,
         [FromQuery] int? processId = null,
-        [FromQuery] int? machineModelId = null)
+        [FromQuery] int? machineModelId = null,
+        [FromQuery] bool? processIdIsNull = null,
+        [FromQuery] bool? machineModelIdIsNull = null)
     {
         // 需要在列表中展示客户/制程名称，因此必须 eager load 导航属性
         var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
@@ -45,10 +70,18 @@ public class SpecsController : BaseApiController
         {
             allSpecs = allSpecs.Where(s => s.ProcessId == processId.Value).ToList();
         }
+        else if (processIdIsNull == true)
+        {
+            allSpecs = allSpecs.Where(s => s.ProcessId == null).ToList();
+        }
         // 按机型筛选
         if (machineModelId.HasValue)
         {
             allSpecs = allSpecs.Where(s => s.MachineModelId == machineModelId.Value).ToList();
+        }
+        else if (machineModelIdIsNull == true)
+        {
+            allSpecs = allSpecs.Where(s => s.MachineModelId == null).ToList();
         }
         // 按客户筛选（直接通过 AcceptanceSpec.CustomerId）
         if (customerId.HasValue)

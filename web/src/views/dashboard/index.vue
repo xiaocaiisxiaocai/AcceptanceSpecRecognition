@@ -4,7 +4,6 @@ import { ElMessage } from "element-plus";
 import { getCustomerList } from "@/api/customer";
 import { getProcessList } from "@/api/process";
 import { getSpecList } from "@/api/spec";
-import { getFileList } from "@/api/document";
 import { getHistoryList, OperationType, type OperationHistory } from "@/api/history";
 
 defineOptions({
@@ -16,7 +15,6 @@ const loading = ref(false);
 const customerTotal = ref(0);
 const processTotal = ref(0);
 const specTotal = ref(0);
-const fileTotal = ref(0);
 
 const recentHistory = ref<OperationHistory[]>([]);
 
@@ -30,18 +28,16 @@ const typeLabel = (t: OperationType) => {
 const load = async () => {
   loading.value = true;
   try {
-    const [c, p, s, f, h] = await Promise.all([
+    const [c, p, s, h] = await Promise.all([
       getCustomerList({ page: 1, pageSize: 1 }),
       getProcessList({ page: 1, pageSize: 1 }),
       getSpecList({ page: 1, pageSize: 1 }),
-      getFileList({ page: 1, pageSize: 1 }),
       getHistoryList({ page: 1, pageSize: 10 })
     ]);
 
     if (c.code === 0) customerTotal.value = c.data.total;
     if (p.code === 0) processTotal.value = p.data.total;
     if (s.code === 0) specTotal.value = s.data.total;
-    if (f.code === 0) fileTotal.value = f.data.total;
     if (h.code === 0) recentHistory.value = h.data.items;
   } catch {
     ElMessage.error("加载仪表盘数据失败");
@@ -62,7 +58,7 @@ onMounted(load);
       </div>
     </div>
     <el-row :gutter="16">
-      <el-col :xs="24" :sm="12" :md="6">
+      <el-col :xs="24" :sm="12" :md="8">
         <el-card v-loading="loading" class="stat-card">
           <div class="stat">
             <div class="stat-title">客户</div>
@@ -70,7 +66,7 @@ onMounted(load);
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :sm="12" :md="6">
+      <el-col :xs="24" :sm="12" :md="8">
         <el-card v-loading="loading" class="stat-card">
           <div class="stat">
             <div class="stat-title">制程</div>
@@ -78,19 +74,11 @@ onMounted(load);
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :sm="12" :md="6">
+      <el-col :xs="24" :sm="12" :md="8">
         <el-card v-loading="loading" class="stat-card">
           <div class="stat">
             <div class="stat-title">验收规格</div>
             <div class="stat-value">{{ specTotal }}</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :md="6">
-        <el-card v-loading="loading" class="stat-card">
-          <div class="stat">
-            <div class="stat-title">已上传文件</div>
-            <div class="stat-value">{{ fileTotal }}</div>
           </div>
         </el-card>
       </el-col>
@@ -109,7 +97,6 @@ onMounted(load);
         <el-table-column prop="operationType" label="类型" width="90">
           <template #default="{ row }">{{ typeLabel(row.operationType) }}</template>
         </el-table-column>
-        <el-table-column prop="targetFile" label="目标文件" min-width="220" />
         <el-table-column prop="details" label="详情" min-width="320" />
         <el-table-column prop="createdAt" label="时间" width="180">
           <template #default="{ row }">
@@ -148,4 +135,3 @@ onMounted(load);
   color: var(--color-text);
 }
 </style>
-

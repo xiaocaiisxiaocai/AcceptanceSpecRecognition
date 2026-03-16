@@ -224,6 +224,47 @@ public class BatchImportResult
 }
 
 /// <summary>
+/// 验收规格分组汇总（按客户 + 机型 + 制程分组）
+/// </summary>
+public class SpecGroupDto
+{
+    /// <summary>
+    /// 客户ID
+    /// </summary>
+    public int CustomerId { get; set; }
+
+    /// <summary>
+    /// 客户名称
+    /// </summary>
+    public string CustomerName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 机型ID（可为空）
+    /// </summary>
+    public int? MachineModelId { get; set; }
+
+    /// <summary>
+    /// 机型名称（可为空）
+    /// </summary>
+    public string? MachineModelName { get; set; }
+
+    /// <summary>
+    /// 制程ID（可为空）
+    /// </summary>
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 制程名称（可为空）
+    /// </summary>
+    public string? ProcessName { get; set; }
+
+    /// <summary>
+    /// 该分组下的规格数量
+    /// </summary>
+    public int SpecCount { get; set; }
+}
+
+/// <summary>
 /// 验收规格筛选请求
 /// </summary>
 public class SpecFilterRequest

@@ -117,4 +117,35 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
                         (s.Remark != null && s.Remark.ToLower().Contains(term))))
             .ToListAsync();
     }
+
+    /// <summary>
+    /// 获取按（客户、机型、制程）分组的汇总信息。
+    /// 利用已有的 eager load 方法加载后在内存中 GroupBy（数据量可控）。
+    /// </summary>
+    public async Task<IReadOnlyList<(int CustomerId, string CustomerName, int? MachineModelId, string? MachineModelName, int? ProcessId, string? ProcessName, int SpecCount)>> GetGroupSummaryAsync()
+    {
+        var allSpecs = await GetAllWithCustomerAndProcessAsync();
+
+        var groups = allSpecs
+            .GroupBy(s => new { s.CustomerId, s.MachineModelId, s.ProcessId })
+            .Select(g =>
+            {
+                var first = g.First();
+                return (
+                    CustomerId: g.Key.CustomerId,
+                    CustomerName: first.Customer?.Name ?? "",
+                    MachineModelId: g.Key.MachineModelId,
+                    MachineModelName: first.MachineModel?.Name,
+                    ProcessId: g.Key.ProcessId,
+                    ProcessName: first.Process?.Name,
+                    SpecCount: g.Count()
+                );
+            })
+            .OrderBy(g => g.CustomerName)
+            .ThenBy(g => g.MachineModelName)
+            .ThenBy(g => g.ProcessName)
+            .ToList();
+
+        return groups;
+    }
 }

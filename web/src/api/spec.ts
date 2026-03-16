@@ -41,6 +41,19 @@ export interface SpecListRequest extends PagedRequest {
   customerId?: number;
   processId?: number;
   machineModelId?: number;
+  processIdIsNull?: boolean;
+  machineModelIdIsNull?: boolean;
+}
+
+/** 验收规格分组汇总 */
+export interface SpecGroup {
+  customerId: number;
+  customerName: string;
+  machineModelId?: number;
+  machineModelName?: string;
+  processId?: number;
+  processName?: string;
+  specCount: number;
 }
 
 /** 导入规格项 */
@@ -68,6 +81,11 @@ export interface BatchImportResult {
 }
 
 const baseUrl = "/api/specs";
+
+/** 获取验收规格分组汇总 */
+export const getSpecGroups = () => {
+  return http.request<ApiResponse<SpecGroup[]>>("get", `${baseUrl}/groups`);
+};
 
 /** 获取验收规格列表 */
 export const getSpecList = (params?: SpecListRequest) => {
