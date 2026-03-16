@@ -28,6 +28,21 @@ public class MatchPreviewRequest
     public int? SpecificationColumnIndex { get; set; }
 
     /// <summary>
+    /// Excel 表头起始行（1-based，可选；未传则默认已用区域首行）
+    /// </summary>
+    public int? HeaderRowStart { get; set; }
+
+    /// <summary>
+    /// Excel 表头行数（可选；未传默认 1）
+    /// </summary>
+    public int? HeaderRowCount { get; set; }
+
+    /// <summary>
+    /// Excel 数据起始行（1-based，可选；未传则默认紧随表头）
+    /// </summary>
+    public int? DataStartRow { get; set; }
+
+    /// <summary>
     /// 待匹配的文本列表
     /// </summary>
     public List<MatchSourceItem> Items { get; set; } = [];
@@ -113,6 +128,16 @@ public class MatchConfigDto
     /// 生成建议触发阈值（最佳得分低于该值）
     /// </summary>
     public double LlmSuggestionScoreThreshold { get; set; } = 0.6;
+
+    /// <summary>
+    /// LLM 并行处理数（1~10，默认3）
+    /// </summary>
+    public int LlmParallelism { get; set; } = 3;
+
+    /// <summary>
+    /// 是否过滤项目列与规格列都为空的源行（默认过滤）
+    /// </summary>
+    public bool FilterEmptySourceRows { get; set; } = true;
 
 }
 
@@ -223,6 +248,11 @@ public class MatchResultDto
     /// 匹配的验收标准
     /// </summary>
     public string? Acceptance { get; set; }
+
+    /// <summary>
+    /// 匹配的备注
+    /// </summary>
+    public string? Remark { get; set; }
 
     /// <summary>
     /// 综合得分（0-1）
@@ -502,6 +532,26 @@ public class BatchTableConfig
     /// 备注列索引（可选）
     /// </summary>
     public int? RemarkColumnIndex { get; set; }
+
+    /// <summary>
+    /// Excel 表头起始行（1-based，可选；未传则默认已用区域首行）
+    /// </summary>
+    public int? HeaderRowStart { get; set; }
+
+    /// <summary>
+    /// Excel 表头行数（可选；未传默认 1）
+    /// </summary>
+    public int? HeaderRowCount { get; set; }
+
+    /// <summary>
+    /// Excel 数据起始行（1-based，可选；未传则默认紧随表头）
+    /// </summary>
+    public int? DataStartRow { get; set; }
+
+    /// <summary>
+    /// 是否过滤项目列与规格列都为空的源行（表格级，可选；未传时走全局配置）
+    /// </summary>
+    public bool? FilterEmptySourceRows { get; set; }
 }
 
 /// <summary>

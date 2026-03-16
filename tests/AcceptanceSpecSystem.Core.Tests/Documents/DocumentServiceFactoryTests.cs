@@ -45,13 +45,14 @@ public class DocumentServiceFactoryTests
     }
 
     [Fact]
-    public void GetWriter_ShouldReturnNull_ForUnsupportedFile()
+    public void GetWriter_ShouldReturnExcelWriter_ForXlsxFile()
     {
         // Act
         var writer = _factory.GetWriter("test.xlsx");
 
         // Assert
-        writer.Should().BeNull();
+        writer.Should().NotBeNull();
+        writer!.DocumentType.Should().Be(DocumentType.Excel);
     }
 
     [Fact]
@@ -74,6 +75,17 @@ public class DocumentServiceFactoryTests
         // Assert
         writer.Should().NotBeNull();
         writer!.DocumentType.Should().Be(DocumentType.Word);
+    }
+
+    [Fact]
+    public void GetWriter_ByExcelDocumentType_ShouldReturnExcelWriter()
+    {
+        // Act
+        var writer = _factory.GetWriter(DocumentType.Excel);
+
+        // Assert
+        writer.Should().NotBeNull();
+        writer!.DocumentType.Should().Be(DocumentType.Excel);
     }
 
     [Fact]

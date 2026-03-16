@@ -11,7 +11,7 @@ public enum DocumentType
     Word,
 
     /// <summary>
-    /// Excel文档 (.xlsx) - 预留，暂不实现
+    /// Excel文档 (.xlsx)
     /// </summary>
     Excel
 }

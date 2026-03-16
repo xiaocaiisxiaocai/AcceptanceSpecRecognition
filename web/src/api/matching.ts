@@ -15,6 +15,10 @@ export interface MatchConfig {
   useLlmSuggestion?: boolean;
   /** 生成建议触发阈值 */
   llmSuggestionScoreThreshold?: number;
+  /** LLM 并行处理数（1~10） */
+  llmParallelism?: number;
+  /** 是否过滤项目/规格均为空的行 */
+  filterEmptySourceRows?: boolean;
 }
 
 /** 待匹配的源项 */
@@ -37,6 +41,12 @@ export interface MatchPreviewRequest {
   projectColumnIndex?: number;
   /** 规格列索引（必须由用户指定，0-based） */
   specificationColumnIndex?: number;
+  /** Excel 表头起始行（1-based，可选） */
+  headerRowStart?: number;
+  /** Excel 表头行数（可选） */
+  headerRowCount?: number;
+  /** Excel 数据起始行（1-based，可选） */
+  dataStartRow?: number;
   /** 待匹配的文本列表（直接模式） */
   items?: MatchSourceItem[];
   /** 目标客户ID（限定匹配范围） */
@@ -59,6 +69,8 @@ export interface MatchResult {
   specification: string;
   /** 匹配的验收标准 */
   acceptance?: string;
+  /** 匹配的备注 */
+  remark?: string;
   /** 综合得分（0-1） */
   score: number;
   /** 各算法得分详情 */
@@ -185,25 +197,21 @@ export interface SimilarityResponse {
 
 const baseUrl = "/api/matching";
 
-/** 匹配预览 */
+/** 匹配预览（长超时：5分钟） */
 export const previewMatch = (data: MatchPreviewRequest) => {
   return http.request<ApiResponse<MatchPreviewResponse>>(
     "post",
     `${baseUrl}/preview`,
-    {
-      data
-    }
+    { data, timeout: 300000 }
   );
 };
 
-/** 执行填充 */
+/** 执行填充（长超时：5分钟） */
 export const executeFill = (data: ExecuteFillRequest) => {
   return http.request<ApiResponse<ExecuteFillResponse>>(
     "post",
     `${baseUrl}/execute`,
-    {
-      data
-    }
+    { data, timeout: 300000 }
   );
 };
 
@@ -232,10 +240,12 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
-  minScoreThreshold: 0.3,
+  minScoreThreshold: 0.95,
   useLlmReview: false,
-  useLlmSuggestion: false,
-  llmSuggestionScoreThreshold: 0.6
+  useLlmSuggestion: true,
+  llmSuggestionScoreThreshold: 0.6,
+  llmParallelism: 3,
+  filterEmptySourceRows: true
 };
 
 // ===== 批量填充 =====
@@ -252,6 +262,14 @@ export interface BatchTableConfig {
   acceptanceColumnIndex: number;
   /** 备注列索引（可选） */
   remarkColumnIndex?: number;
+  /** Excel 表头起始行（1-based，可选） */
+  headerRowStart?: number;
+  /** Excel 表头行数（可选） */
+  headerRowCount?: number;
+  /** Excel 数据起始行（1-based，可选） */
+  dataStartRow?: number;
+  /** 是否过滤项目/规格均为空的行（表格级，可选；未传时走全局配置） */
+  filterEmptySourceRows?: boolean;
 }
 
 /** 批量预览请求 */
@@ -320,20 +338,20 @@ export interface BatchExecuteFillRequest {
   tables: BatchTableFillMapping[];
 }
 
-/** 批量匹配预览 */
+/** 批量匹配预览（长超时：5分钟） */
 export const batchPreviewMatch = (data: BatchPreviewRequest) => {
   return http.request<ApiResponse<BatchPreviewResponse>>(
     "post",
     `${baseUrl}/batch-preview`,
-    { data }
+    { data, timeout: 300000 }
   );
 };
 
-/** 批量执行填充 */
+/** 批量执行填充（长超时：5分钟） */
 export const batchExecuteFill = (data: BatchExecuteFillRequest) => {
   return http.request<ApiResponse<ExecuteFillResponse>>(
     "post",
     `${baseUrl}/batch-execute`,
-    { data }
+    { data, timeout: 300000 }
   );
 };

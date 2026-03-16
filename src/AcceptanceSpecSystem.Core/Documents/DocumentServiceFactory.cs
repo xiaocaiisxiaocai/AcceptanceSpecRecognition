@@ -22,13 +22,12 @@ public class DocumentServiceFactory
         {
             new WordDocumentParser(),
             new ExcelDocumentParser()
-            // 后续可添加 ExcelDocumentParser
         };
 
         _writers = new List<IDocumentWriter>
         {
-            new WordDocumentWriter()
-            // 后续可添加 ExcelDocumentWriter
+            new WordDocumentWriter(),
+            new ExcelDocumentWriter()
         };
     }
 

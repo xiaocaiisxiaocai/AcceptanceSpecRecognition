@@ -57,7 +57,7 @@ builder.Services.AddScoped<IFileCompareService, FileCompareService>();
 
 // 注册匹配服务（Semantic Kernel）
 builder.Services.AddScoped<AiServiceSelector>();
-builder.Services.AddScoped<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
+builder.Services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
 builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
 builder.Services.AddSingleton<ITextSimilarityService, TextSimilarityService>();
 builder.Services.AddScoped<IMatchingService, SemanticKernelMatchingService>();

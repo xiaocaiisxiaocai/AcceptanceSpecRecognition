@@ -36,6 +36,11 @@ public class MatchResult
     public string? MatchedAcceptance { get; set; }
 
     /// <summary>
+    /// 匹配的备注
+    /// </summary>
+    public string? MatchedRemark { get; set; }
+
+    /// <summary>
     /// 综合相似度得分（0-1）
     /// </summary>
     public double Score { get; set; }
@@ -117,6 +122,11 @@ public class MatchCandidate
     public string? Acceptance { get; set; }
 
     /// <summary>
+    /// 备注
+    /// </summary>
+    public string? Remark { get; set; }
+
+    /// <summary>
     /// 用于匹配的组合文本
     /// </summary>
     public string CombinedText => $"{Project} {Specification}".Trim();
@@ -161,6 +171,16 @@ public class MatchingConfig
     /// 生成建议触发阈值（最佳得分低于该值）
     /// </summary>
     public double LlmSuggestionScoreThreshold { get; set; } = 0.6;
+
+    /// <summary>
+    /// LLM 并行处理数（1~10，默认3）
+    /// </summary>
+    public int LlmParallelism { get; set; } = 3;
+
+    /// <summary>
+    /// 是否过滤项目列与规格列都为空的源行（默认过滤）
+    /// </summary>
+    public bool FilterEmptySourceRows { get; set; } = true;
 }
 
 /// <summary>

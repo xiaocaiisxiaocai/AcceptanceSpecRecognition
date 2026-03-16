@@ -9,6 +9,8 @@ const props = defineProps<{
   results: BatchTablePreviewResult[];
   /** 加载状态 */
   loading?: boolean;
+  /** LLM 流式处理是否进行中 */
+  llmStreaming?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -86,6 +88,7 @@ defineExpose({ getAllSelections });
           :ref="(el: any) => setTableRef(tableResult.tableIndex, el)"
           :items="tableResult.items"
           :loading="loading"
+          :llm-streaming="llmStreaming"
           @select="
             (rowIndex, spec) => emit('select', tableResult.tableIndex, rowIndex, spec)
           "

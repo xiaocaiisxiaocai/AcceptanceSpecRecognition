@@ -30,6 +30,11 @@ public class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // 客户端主动断开连接（SSE / 长轮询等场景），不需要处理
+            _logger.LogDebug("客户端断开连接: {Path}", context.Request.Path);
+        }
         catch (Exception ex)
         {
             await HandleExceptionAsync(context, ex);
@@ -39,6 +44,13 @@ public class ExceptionHandlingMiddleware
     private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
         _logger.LogError(exception, "发生未处理的异常: {Message}", exception.Message);
+
+        // 响应已开始写入（如 SSE），无法再修改 Header / StatusCode
+        if (context.Response.HasStarted)
+        {
+            _logger.LogWarning("响应已开始，无法写入错误响应");
+            return;
+        }
 
         var response = context.Response;
         response.ContentType = "application/json; charset=utf-8";

@@ -36,14 +36,20 @@ const llmServices = ref<AiServiceConfig[]>([]);
 // 高级选项展开
 const showAdvanced = ref(false);
 
-// 同步modelValue
+// 标记：正在从内部更新到外部，避免回写时触发整体替换
+let isInternalUpdate = false;
+
+// 同步 modelValue → config（仅在外部驱动时逐属性更新，避免整体替换导致 el-select 失去选中状态）
 watch(
   () => props.modelValue,
   (val) => {
-    if (val) {
-      config.value = { ...defaultMatchConfig, ...val };
-    } else {
-      config.value = { ...defaultMatchConfig };
+    if (isInternalUpdate) return;
+    const source = { ...defaultMatchConfig, ...val };
+    const keys = Object.keys(source) as (keyof typeof source)[];
+    for (const key of keys) {
+      if ((config.value as any)[key] !== (source as any)[key]) {
+        (config.value as any)[key] = (source as any)[key];
+      }
     }
   },
   { immediate: true }
@@ -51,7 +57,12 @@ watch(
 
 // 触发配置更新
 const updateConfig = () => {
+  isInternalUpdate = true;
   emit("update:modelValue", { ...config.value });
+  // 下一个微任务恢复标记
+  Promise.resolve().then(() => {
+    isInternalUpdate = false;
+  });
 };
 
 watch(config, updateConfig, { deep: true });
@@ -118,6 +129,13 @@ const loadAiServices = async () => {
           (s.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
           !!s.llmModel
       );
+      // 自动选择第一个可用服务（如果尚未选择）
+      if (!config.value.embeddingServiceId && embeddingServices.value.length > 0) {
+        config.value.embeddingServiceId = embeddingServices.value[0].id;
+      }
+      if (!config.value.llmServiceId && llmServices.value.length > 0) {
+        config.value.llmServiceId = llmServices.value[0].id;
+      }
     } else {
       ElMessage.error(res.message || "加载AI服务失败");
     }
@@ -178,6 +196,7 @@ defineExpose({
             :loading="loadingCustomers"
             filterable
             clearable
+            :teleported="true"
             class="search-select search-select--200"
             popper-class="app-select-popper"
           >
@@ -196,6 +215,7 @@ defineExpose({
             :loading="loadingProcesses"
             filterable
             clearable
+            :teleported="true"
             class="search-select search-select--200"
             popper-class="app-select-popper"
           >
@@ -214,6 +234,7 @@ defineExpose({
             :loading="loadingMachineModels"
             filterable
             clearable
+            :teleported="true"
             class="search-select search-select--200"
             popper-class="app-select-popper"
           >
@@ -235,47 +256,41 @@ defineExpose({
     <!-- 基础配置 -->
     <div class="config-section">
       <div class="section-title">匹配设置</div>
-      <el-form label-width="120px">
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="Embedding 服务">
-              <el-select
-                v-model="config.embeddingServiceId"
-                placeholder="自动选择（离线优先）"
-                clearable
-                :loading="loadingAiServices"
-                class="search-select search-select--240"
-                popper-class="app-select-popper"
-              >
-                <el-option
-                  v-for="service in embeddingServices"
-                  :key="service.id"
-                  :label="`${service.name}（${service.embeddingModel || '-'}）`"
-                  :value="service.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="LLM 服务">
-              <el-select
-                v-model="config.llmServiceId"
-                placeholder="自动选择（离线优先）"
-                clearable
-                :loading="loadingAiServices"
-                class="search-select search-select--240"
-                popper-class="app-select-popper"
-              >
-                <el-option
-                  v-for="service in llmServices"
-                  :key="service.id"
-                  :label="`${service.name}（${service.llmModel || '-'}）`"
-                  :value="service.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
+      <el-form label-width="130px">
+        <el-form-item label="Embedding 服务">
+          <el-select
+            v-model="config.embeddingServiceId"
+            placeholder="请选择 Embedding 服务"
+            :teleported="true"
+            :loading="loadingAiServices"
+            style="width: 100%; max-width: 400px"
+            popper-class="app-select-popper"
+          >
+            <el-option
+              v-for="service in embeddingServices"
+              :key="service.id"
+              :label="`${service.name}（${service.embeddingModel || '-'}）`"
+              :value="service.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="LLM 服务">
+          <el-select
+            v-model="config.llmServiceId"
+            placeholder="请选择 LLM 服务"
+            :teleported="true"
+            :loading="loadingAiServices"
+            style="width: 100%; max-width: 400px"
+            popper-class="app-select-popper"
+          >
+            <el-option
+              v-for="service in llmServices"
+              :key="service.id"
+              :label="`${service.name}（${service.llmModel || '-'}）`"
+              :value="service.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="最小得分阈值">
@@ -288,6 +303,18 @@ defineExpose({
                 show-input
                 :show-input-controls="false"
               />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="过滤空行">
+              <el-switch
+                v-model="config.filterEmptySourceRows"
+                active-text="开启"
+                inactive-text="关闭"
+              />
+              <div class="form-inline-tip">
+                关闭后会保留项目列和规格列都为空的行
+              </div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -333,6 +360,28 @@ defineExpose({
                     :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
                   />
                 </el-form-item>
+              </el-col>
+            </el-row>
+
+            <!-- LLM并行度 -->
+            <el-row :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="LLM并行数">
+                  <el-input-number
+                    v-model="config.llmParallelism"
+                    :min="1"
+                    :max="10"
+                    :step="1"
+                    :disabled="!config.useLlmReview && !config.useLlmSuggestion"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  同时处理的行数，值越大速度越快但占用资源越多
+                </span>
               </el-col>
             </el-row>
             <div class="llm-hint">LLM 需要配置可用服务与模型，失败将返回明确原因。</div>
@@ -417,6 +466,18 @@ export default {
   margin-top: 4px;
   font-size: 12px;
   color: #6b7280;
+}
+
+.parallelism-hint {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 32px;
+}
+
+.form-inline-tip {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #9ca3af;
 }
 
 .reset-btn {

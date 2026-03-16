@@ -5,6 +5,8 @@ import type { MatchPreviewItem } from "@/api/matching";
 const props = defineProps<{
   items: MatchPreviewItem[];
   loading?: boolean;
+  /** LLM 流式处理是否进行中 */
+  llmStreaming?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -19,11 +21,21 @@ type Selection =
 // 选中的匹配（rowIndex -> Selection）
 const selectedSpecs = ref<Map<number, Selection | null>>(new Map());
 
+// 无明确答案的占位行：默认不自动选中匹配，保持填充为空
+const isNoAnswerPlaceholderRow = (item: MatchPreviewItem) => {
+  const project = (item.sourceProject || "").trim();
+  const specification = (item.sourceSpecification || "").trim();
+  if (specification) return false;
+
+  const placeholderProjects = new Set(["其他", "-", "/", "无", "n/a", "na"]);
+  return placeholderProjects.has(project.toLowerCase());
+};
+
 // 初始化选中项（默认选择最佳匹配）
 const initSelections = () => {
   selectedSpecs.value.clear();
   props.items.forEach((item) => {
-    if (item.bestMatch) {
+    if (item.bestMatch && !isNoAnswerPlaceholderRow(item)) {
       selectedSpecs.value.set(item.rowIndex, { type: "best" });
     } else {
       selectedSpecs.value.set(item.rowIndex, null);
@@ -107,15 +119,63 @@ const formatScore = (score: number) => {
   return (score * 100).toFixed(1) + "%";
 };
 
+// LLM 复核状态
+type LlmStatus = "none" | "waiting" | "streaming" | "done" | "error";
+
+const getReviewStatus = (item: MatchPreviewItem): LlmStatus => {
+  if (item.llmReviewError) return "error";
+  if (item.bestMatch?.isLlmReviewed) return "done";
+  if (item.llmReviewDraft !== undefined) return "streaming";
+  if (props.llmStreaming && item.hasMatch) return "waiting";
+  return "none";
+};
+
+const getSuggestionStatus = (item: MatchPreviewItem): LlmStatus => {
+  if (item.llmSuggestionError) return "error";
+  if (item.llmSuggestion) return "done";
+  if (item.llmSuggestionDraft !== undefined) return "streaming";
+  if (props.llmStreaming) return "waiting";
+  return "none";
+};
+
+const formatLlmScore = (score?: number) => {
+  if (score === undefined || score === null) return "-";
+  return `${score.toFixed(0)}`;
+};
+
 // 统计信息
 const stats = computed(() => {
   const total = props.items.length;
   const matched = props.items.filter((i) => i.hasMatch).length;
+  const perfect = props.items.filter(
+    (i) => i.hasMatch && i.bestMatch && i.bestMatch.score >= 0.9995
+  ).length;
+  const imperfect = total - perfect;
   const selected = Array.from(selectedSpecs.value.values()).filter(
     (v) => v !== null
   ).length;
-  return { total, matched, selected };
+  return { total, matched, perfect, imperfect, selected };
 });
+
+// 筛选
+type ScoreFilter = "all" | "perfect" | "imperfect";
+const scoreFilter = ref<ScoreFilter>("all");
+
+const filteredItems = computed(() => {
+  if (scoreFilter.value === "all") return props.items;
+  if (scoreFilter.value === "perfect") {
+    return props.items.filter(
+      (i) => i.hasMatch && i.bestMatch && i.bestMatch.score >= 0.9995
+    );
+  }
+  // imperfect: 低于100% 或无匹配
+  return props.items.filter(
+    (i) => !i.hasMatch || !i.bestMatch || i.bestMatch.score < 0.9995
+  );
+});
+
+// 是否存在未匹配行（控制"不匹配原因"列显隐）
+const hasUnmatched = computed(() => props.items.some((i) => !i.hasMatch));
 
 // 暴露方法
 defineExpose({
@@ -152,18 +212,35 @@ defineExpose({
 
 <template>
   <div class="match-preview-table">
-    <!-- 统计栏 -->
+    <!-- 统计栏 + 筛选 -->
     <div class="stats-bar">
-      <span>共 {{ stats.total }} 行</span>
-      <span class="divider">|</span>
-      <span>已匹配 {{ stats.matched }} 行</span>
-      <span class="divider">|</span>
-      <span class="selected">已选择 {{ stats.selected }} 行</span>
+      <div class="stats-info">
+        <span>共 {{ stats.total }} 行</span>
+        <span class="divider">|</span>
+        <span>已匹配 {{ stats.matched }} 行</span>
+        <span class="divider">|</span>
+        <span class="selected">已选择 {{ stats.selected }} 行</span>
+      </div>
+      <el-radio-group
+        v-model="scoreFilter"
+        size="small"
+        class="score-filter"
+      >
+        <el-radio-button value="all">
+          全部 ({{ stats.total }})
+        </el-radio-button>
+        <el-radio-button value="perfect">
+          100% ({{ stats.perfect }})
+        </el-radio-button>
+        <el-radio-button value="imperfect">
+          需关注 ({{ stats.imperfect }})
+        </el-radio-button>
+      </el-radio-group>
     </div>
 
     <!-- 表格 -->
     <el-table
-      :data="items"
+      :data="filteredItems"
       v-loading="loading"
       stripe
       border
@@ -215,45 +292,153 @@ defineExpose({
         </template>
       </el-table-column>
 
-      <!-- 得分 -->
-      <el-table-column label="得分" width="80" align="center">
+      <!-- AI状态 -->
+      <el-table-column label="AI状态" width="130" align="center">
         <template #default="{ row }">
-          <span v-if="row.bestMatch" class="score">
-            {{ formatScore(row.bestMatch.score) }}
-          </span>
-          <span v-else class="score-none">-</span>
+          <div class="ai-status-cell">
+            <!-- LLM 复核状态 -->
+            <template v-if="getReviewStatus(row) !== 'none'">
+              <div class="ai-status-row">
+                <span class="ai-label">复核</span>
+                <el-tag
+                  v-if="getReviewStatus(row) === 'waiting'"
+                  size="small"
+                  type="info"
+                >
+                  等待中
+                </el-tag>
+                <el-tag
+                  v-else-if="getReviewStatus(row) === 'streaming'"
+                  size="small"
+                  type="warning"
+                  class="ai-streaming"
+                >
+                  复核中...
+                </el-tag>
+                <el-tag
+                  v-else-if="getReviewStatus(row) === 'done'"
+                  size="small"
+                  type="success"
+                >
+                  {{ formatLlmScore(row.bestMatch?.llmScore) }}分
+                </el-tag>
+                <el-tag
+                  v-else-if="getReviewStatus(row) === 'error'"
+                  size="small"
+                  type="danger"
+                >
+                  失败
+                </el-tag>
+              </div>
+            </template>
+
+            <!-- LLM 建议状态 -->
+            <template v-if="getSuggestionStatus(row) !== 'none'">
+              <div class="ai-status-row">
+                <span class="ai-label">建议</span>
+                <el-tag
+                  v-if="getSuggestionStatus(row) === 'waiting'"
+                  size="small"
+                  type="info"
+                >
+                  等待中
+                </el-tag>
+                <el-tag
+                  v-else-if="getSuggestionStatus(row) === 'streaming'"
+                  size="small"
+                  type="warning"
+                  class="ai-streaming"
+                >
+                  生成中...
+                </el-tag>
+                <el-tag
+                  v-else-if="getSuggestionStatus(row) === 'done'"
+                  size="small"
+                  type="success"
+                >
+                  已生成
+                </el-tag>
+                <el-tag
+                  v-else-if="getSuggestionStatus(row) === 'error'"
+                  size="small"
+                  type="danger"
+                >
+                  失败
+                </el-tag>
+              </div>
+            </template>
+          </div>
         </template>
       </el-table-column>
 
       <!-- 验收标准预览 -->
       <el-table-column label="验收标准" min-width="180">
         <template #default="{ row }">
+          <!-- 已选择最佳匹配 -->
           <template v-if="getSelection(row.rowIndex)?.type === 'best'">
             <span class="acceptance-text">
               {{ row.bestMatch?.acceptance || "-" }}
             </span>
           </template>
+          <!-- 已选择LLM建议 -->
           <template v-else-if="isLlmSelected(row.rowIndex)">
-            <span class="acceptance-text">
-              {{ row.llmSuggestion?.acceptance || row.llmSuggestionDraft || "-" }}
+            <span class="acceptance-text suggestion-selected">
+              {{ row.llmSuggestion?.acceptance || "-" }}
+            </span>
+          </template>
+          <!-- 未选择但有LLM建议内容：预览 -->
+          <template v-else-if="row.llmSuggestion?.acceptance">
+            <span class="suggestion-preview">
+              {{ row.llmSuggestion.acceptance }}
             </span>
           </template>
           <span v-else class="acceptance-none">-</span>
         </template>
       </el-table-column>
 
-      <!-- 不匹配原因 -->
-      <el-table-column label="不匹配原因" min-width="160">
+      <!-- 备注预览 -->
+      <el-table-column label="备注" min-width="150">
         <template #default="{ row }">
-          <span v-if="!row.hasMatch" class="reason-text">
-            {{ row.noMatchReason || "-" }}
-          </span>
+          <template v-if="getSelection(row.rowIndex)?.type === 'best'">
+            <span class="acceptance-text">
+              {{ row.bestMatch?.remark || "-" }}
+            </span>
+          </template>
+          <template v-else-if="isLlmSelected(row.rowIndex)">
+            <span class="acceptance-text suggestion-selected">
+              {{ row.llmSuggestion?.remark || "-" }}
+            </span>
+          </template>
+          <!-- 未选择但有LLM建议备注：预览 -->
+          <template v-else-if="row.llmSuggestion?.remark">
+            <span class="suggestion-preview">
+              {{ row.llmSuggestion.remark }}
+            </span>
+          </template>
+          <span v-else class="acceptance-none">-</span>
+        </template>
+      </el-table-column>
+
+      <!-- 不匹配原因 / AI说明 -->
+      <el-table-column v-if="hasUnmatched" label="不匹配原因" min-width="200">
+        <template #default="{ row }">
+          <div v-if="!row.hasMatch || row.llmSuggestion?.reason" class="reason-cell">
+            <div v-if="!row.hasMatch && row.noMatchReason" class="reason-text">
+              {{ row.noMatchReason }}
+            </div>
+            <div
+              v-if="row.llmSuggestion?.reason"
+              class="suggestion-reason"
+            >
+              AI: {{ row.llmSuggestion.reason }}
+            </div>
+          </div>
           <span v-else class="reason-none">-</span>
         </template>
       </el-table-column>
 
       <!-- 操作 -->
-      <el-table-column label="操作" width="160" align="center" fixed="right">
+      <el-table-column label="操作" width="140" align="center" fixed="right">
         <template #default="{ row }">
           <div class="action-buttons">
             <el-button
@@ -273,16 +458,16 @@ defineExpose({
               使用匹配
             </el-button>
             <el-button
-              v-if="row.llmSuggestion || row.llmSuggestionDraft"
+              v-if="hasSuggestionContent(row)"
               size="small"
               type="success"
-              :disabled="!hasSuggestionContent(row)"
               @click="handleSelectSuggestion(row)"
             >
               {{ isLlmSelected(row.rowIndex) ? "已选建议" : "采用建议" }}
             </el-button>
             <el-button
               v-if="getSelection(row.rowIndex)"
+              link
               size="small"
               @click="handleClearSelection(row)"
             >
@@ -303,13 +488,23 @@ defineExpose({
 .stats-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
   padding: 12px 16px;
   background: #f8f5ff;
   border-radius: 8px;
   margin-bottom: 12px;
   font-size: 14px;
   color: #4b5563;
+}
+
+.stats-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.score-filter {
+  flex-shrink: 0;
 }
 
 .divider {
@@ -381,12 +576,6 @@ defineExpose({
   font-weight: 600;
 }
 
-.score {
-  font-weight: 600;
-  color: var(--color-primary);
-}
-
-.score-none,
 .acceptance-none {
   color: #c0c4cc;
 }
@@ -396,19 +585,75 @@ defineExpose({
   font-size: 12px;
 }
 
+.reason-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .reason-none {
   color: #c0c4cc;
 }
 
 .action-buttons {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 4px;
   align-items: center;
+  justify-content: center;
 }
 
 .acceptance-text {
   font-size: 13px;
   color: #4b5563;
+}
+
+.suggestion-selected {
+  color: #67c23a;
+}
+
+.suggestion-preview {
+  font-size: 13px;
+  color: #a78bfa;
+  font-style: italic;
+}
+
+.suggestion-reason {
+  font-size: 12px;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.ai-status-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-status-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ai-label {
+  font-size: 11px;
+  color: #9ca3af;
+  min-width: 24px;
+}
+
+.ai-streaming {
+  animation: ai-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes ai-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 </style>
