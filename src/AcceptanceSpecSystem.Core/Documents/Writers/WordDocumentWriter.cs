@@ -16,6 +16,18 @@ public class WordDocumentWriter : IDocumentWriter
     private static readonly string[] SupportedExtensions = { ".docx" };
 
     /// <summary>
+    /// 获取文档中的顶层表格。
+    /// 需要与 WordDocumentParser 保持一致，避免解析/写入对表格索引的定义不同。
+    /// </summary>
+    private static List<Table> GetTopLevelTables(Body body)
+    {
+        return body
+            .Descendants<Table>()
+            .Where(t => !t.Ancestors<TableCell>().Any())
+            .ToList();
+    }
+
+    /// <summary>
     /// 写入器支持的文档类型。
     /// </summary>
     public Models.DocumentType DocumentType => Models.DocumentType.Word;
@@ -129,7 +141,7 @@ public class WordDocumentWriter : IDocumentWriter
         if (body == null)
             throw new InvalidOperationException("文档为空或格式无效");
 
-        var tables = body.Descendants<Table>().ToList();
+        var tables = GetTopLevelTables(body);
         int totalSuccess = 0;
 
         foreach (var (tableIndex, operations) in tableOperations)
@@ -172,7 +184,7 @@ public class WordDocumentWriter : IDocumentWriter
         if (body == null)
             throw new InvalidOperationException("文档为空或格式无效");
 
-        var tables = body.Descendants<Table>().ToList();
+        var tables = GetTopLevelTables(body);
         if (tableIndex < 0 || tableIndex >= tables.Count)
             throw new ArgumentOutOfRangeException(nameof(tableIndex), $"表格索引超出范围。文档共有 {tables.Count} 个表格。");
 

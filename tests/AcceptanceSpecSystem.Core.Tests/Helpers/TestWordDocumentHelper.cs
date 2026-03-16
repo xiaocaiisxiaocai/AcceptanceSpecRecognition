@@ -146,6 +146,62 @@ public static class TestWordDocumentHelper
     }
 
     /// <summary>
+    /// 创建包含“顶层表格 + 嵌套表格 + 第二个顶层表格”的文档。
+    /// 用于验证解析器和写入器都只按顶层表格编号。
+    /// </summary>
+    public static MemoryStream CreateDocumentWithNestedAndMultipleTopLevelTables()
+    {
+        var stream = new MemoryStream();
+
+        using (var doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document, true))
+        {
+            var mainPart = doc.AddMainDocumentPart();
+            mainPart.Document = new Document(new Body());
+            var body = mainPart.Document.Body!;
+
+            var outerTable = new Table();
+            var outerHeader = new TableRow();
+            outerHeader.Append(CreateCell("外层表1-列1"));
+            outerHeader.Append(CreateCell("外层表1-列2"));
+            outerTable.Append(outerHeader);
+
+            var outerDataRow = new TableRow();
+            outerDataRow.Append(CreateCell("外层表1-数据1"));
+
+            var nestedTable = new Table();
+            var nestedRow1 = new TableRow();
+            nestedRow1.Append(CreateCell("嵌套表-列1"));
+            nestedRow1.Append(CreateCell("嵌套表-列2"));
+            nestedTable.Append(nestedRow1);
+            var nestedRow2 = new TableRow();
+            nestedRow2.Append(CreateCell("嵌套表-数据1"));
+            nestedRow2.Append(CreateCell("嵌套表-数据2"));
+            nestedTable.Append(nestedRow2);
+
+            var nestedCell = new TableCell();
+            nestedCell.Append(new Paragraph(new Run(new Text("嵌套容器"))));
+            nestedCell.Append(nestedTable);
+            outerDataRow.Append(nestedCell);
+            outerTable.Append(outerDataRow);
+
+            body.Append(outerTable);
+            body.Append(new Paragraph());
+
+            var secondTopLevelTable = CreateTable(new string[,]
+            {
+                { "目标表-项目", "目标表-规格", "目标表-验收", "目标表-备注" },
+                { "项目1", "规格1", "", "" }
+            });
+            body.Append(secondTopLevelTable);
+
+            mainPart.Document.Save();
+        }
+
+        stream.Position = 0;
+        return stream;
+    }
+
+    /// <summary>
     /// 创建表格
     /// </summary>
     private static Table CreateTable(string[,] data)

@@ -177,6 +177,34 @@ public class WordDocumentWriterTests
     }
 
     [Fact]
+    public async Task WriteTableDataAsync_ShouldUseTopLevelTableIndex_WhenNestedTableExists()
+    {
+        // Arrange
+        using var stream = TestWordDocumentHelper.CreateDocumentWithNestedAndMultipleTopLevelTables();
+        var operations = new List<CellWriteOperation>
+        {
+            CellWriteOperation.Create(1, 2, "已写入验收"),
+            CellWriteOperation.Create(1, 3, "已写入备注")
+        };
+
+        // Act
+        var count = await _writer.WriteTableDataAsync(stream, 1, operations);
+
+        // Assert
+        count.Should().Be(2);
+
+        stream.Position = 0;
+        var targetTable = await _parser.ExtractTableDataAsync(stream, 1);
+        targetTable.Rows[0].GetValue(2).Should().Be("已写入验收");
+        targetTable.Rows[0].GetValue(3).Should().Be("已写入备注");
+
+        stream.Position = 0;
+        var outerTable = await _parser.ExtractTableDataAsync(stream, 0);
+        outerTable.Rows[0].Cells.Should().NotContain(c => c.Value == "已写入验收");
+        outerTable.Rows[0].Cells.Should().NotContain(c => c.Value == "已写入备注");
+    }
+
+    [Fact]
     public async Task WriteToNewFileAsync_ShouldCreateNewFile()
     {
         // Arrange

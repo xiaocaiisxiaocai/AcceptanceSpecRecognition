@@ -81,6 +81,21 @@ public class WordDocumentParserTests
     }
 
     [Fact]
+    public async Task GetTablesAsync_ShouldIgnoreNestedTables_WhenAssigningIndexes()
+    {
+        // Arrange
+        using var stream = TestWordDocumentHelper.CreateDocumentWithNestedAndMultipleTopLevelTables();
+
+        // Act
+        var tables = await _parser.GetTablesAsync(stream);
+
+        // Assert
+        tables.Should().HaveCount(2);
+        tables[0].Headers.Should().Contain("外层表1-列1", "外层表1-列2");
+        tables[1].Headers.Should().Contain("目标表-项目", "目标表-规格", "目标表-验收", "目标表-备注");
+    }
+
+    [Fact]
     public async Task ExtractTableDataAsync_ShouldExtractAllData()
     {
         // Arrange
