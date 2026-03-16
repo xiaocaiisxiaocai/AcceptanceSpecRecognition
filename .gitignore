@@ -74,3 +74,9 @@ uploads/
 secrets.json
 *.pfx
 *.key
+
+# Local scratch / generated artifacts
+.claude/plan.md
+.tmpbuild/
+artifacts/
+docs/design-overview.pdf
