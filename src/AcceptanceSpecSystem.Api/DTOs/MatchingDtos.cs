@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using AcceptanceSpecSystem.Core.Matching.Models;
 
 namespace AcceptanceSpecSystem.Api.DTOs;
 
@@ -100,6 +101,11 @@ public class MatchSourceItem
 public class MatchConfigDto
 {
     /// <summary>
+    /// 匹配策略
+    /// </summary>
+    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
+
+    /// <summary>
     /// 选定的 Embedding 服务ID（为空则自动选择）
     /// </summary>
     public int? EmbeddingServiceId { get; set; }
@@ -115,6 +121,16 @@ public class MatchConfigDto
     public double MinScoreThreshold { get; set; } = 0.3;
 
     /// <summary>
+    /// 多阶段模式下第一阶段召回数量
+    /// </summary>
+    public int RecallTopK { get; set; } = 5;
+
+    /// <summary>
+    /// 多阶段模式下的歧义分差阈值
+    /// </summary>
+    public double AmbiguityMargin { get; set; } = 0.03;
+
+    /// <summary>
     /// 是否启用LLM复核
     /// </summary>
     public bool UseLlmReview { get; set; } = false;
@@ -123,6 +139,11 @@ public class MatchConfigDto
     /// 是否启用LLM生成建议
     /// </summary>
     public bool UseLlmSuggestion { get; set; } = false;
+
+    /// <summary>
+    /// 是否对完全无匹配的行也生成建议
+    /// </summary>
+    public bool SuggestNoMatchRows { get; set; } = false;
 
     /// <summary>
     /// 生成建议触发阈值（最佳得分低于该值）
@@ -170,6 +191,11 @@ public class MatchPreviewResponse
     /// 低置信度匹配数
     /// </summary>
     public int LowConfidenceCount { get; set; }
+
+    /// <summary>
+    /// 高歧义样本数
+    /// </summary>
+    public int AmbiguousCount { get; set; }
 }
 
 /// <summary>
@@ -260,9 +286,39 @@ public class MatchResultDto
     public double Score { get; set; }
 
     /// <summary>
+    /// Embedding 原始得分（0-1）
+    /// </summary>
+    public double EmbeddingScore { get; set; }
+
+    /// <summary>
     /// 各算法得分详情
     /// </summary>
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
+
+    /// <summary>
+    /// 匹配策略
+    /// </summary>
+    public MatchingStrategy MatchingStrategy { get; set; }
+
+    /// <summary>
+    /// 第一阶段召回候选数
+    /// </summary>
+    public int RecalledCandidateCount { get; set; }
+
+    /// <summary>
+    /// 是否为高歧义样本
+    /// </summary>
+    public bool IsAmbiguous { get; set; }
+
+    /// <summary>
+    /// Top1 与 Top2 的最终分差
+    /// </summary>
+    public double? ScoreGap { get; set; }
+
+    /// <summary>
+    /// 重排摘要
+    /// </summary>
+    public string? RerankSummary { get; set; }
 
     /// <summary>
     /// LLM复核得分（0-100）
@@ -450,6 +506,11 @@ public class MatchLlmStreamRequest
 public class MatchLlmStreamItem
 {
     /// <summary>
+    /// 表格索引（多表场景下用于唯一定位）
+    /// </summary>
+    public int? TableIndex { get; set; }
+
+    /// <summary>
     /// 行索引
     /// </summary>
     public int RowIndex { get; set; }
@@ -624,6 +685,11 @@ public class BatchTablePreviewResult
     /// 低置信度匹配数
     /// </summary>
     public int LowConfidenceCount { get; set; }
+
+    /// <summary>
+    /// 高歧义样本数
+    /// </summary>
+    public int AmbiguousCount { get; set; }
 }
 
 /// <summary>
@@ -655,6 +721,11 @@ public class BatchPreviewResponse
     /// 汇总：低置信度
     /// </summary>
     public int LowConfidenceCount => Tables.Sum(t => t.LowConfidenceCount);
+
+    /// <summary>
+    /// 汇总：高歧义样本
+    /// </summary>
+    public int AmbiguousCount => Tables.Sum(t => t.AmbiguousCount);
 }
 
 /// <summary>

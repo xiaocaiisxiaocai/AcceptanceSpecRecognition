@@ -62,6 +62,71 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
+    public async Task Preview_MultiStage_ShouldReturnRerankMetadata()
+    {
+        var customerId = (await (await _client.PostAsync(
+                "/api/customers",
+                ApiClientJson.ToJsonContent(new { name = "MultiStage-C" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var processId = (await (await _client.PostAsync(
+                "/api/processes",
+                ApiClientJson.ToJsonContent(new { name = "MultiStage-P" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        await _client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                project = "项目A",
+                specification = "规格A",
+                acceptance = "OK-1",
+                remark = "R1"
+            }));
+
+        await _client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                project = "项目A",
+                specification = "规格A",
+                acceptance = (string?)null,
+                remark = "R2"
+            }));
+
+        var previewResp = await _client.PostAsync(
+            "/api/matching/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                items = new[] { new { rowIndex = 0, project = "项目A", specification = "规格A" } },
+                customerId,
+                processId,
+                config = new
+                {
+                    matchingStrategy = 2,
+                    minScoreThreshold = 0.0,
+                    recallTopK = 5,
+                    ambiguityMargin = 0.05
+                }
+            }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+
+        var bestMatch = previewJson.Data.GetProperty("items")[0].GetProperty("bestMatch");
+        bestMatch.GetProperty("matchingStrategy").GetInt32().Should().Be(2);
+        bestMatch.GetProperty("recalledCandidateCount").GetInt32().Should().BeGreaterThanOrEqualTo(1);
+        bestMatch.TryGetProperty("isAmbiguous", out _).Should().BeTrue();
+        bestMatch.GetProperty("embeddingScore").GetDouble().Should().BeGreaterThan(0);
+        bestMatch.GetProperty("rerankSummary").GetString().Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
     public async Task LlmStream_ShouldEmitReviewAndSuggestion()
     {
         var customerId = (await (await _client.PostAsync(
@@ -145,6 +210,45 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
         var suggest = events.First(e => e.Event == "suggestion.done").Data;
         suggest.GetProperty("acceptance").GetString().Should().Be("LLM-AC");
         suggest.GetProperty("remark").GetString().Should().Be("LLM-REM");
+    }
+
+    [Fact]
+    public async Task LlmStream_ShouldSkipSuggestion_ForNoMatchRows_WhenSuggestNoMatchDisabled()
+    {
+        var streamRequest = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    rowIndex = 0,
+                    sourceProject = "无匹配项目",
+                    sourceSpecification = "无匹配规格",
+                    bestMatchSpecId = (int?)null,
+                    bestMatchScore = (double?)null,
+                    scoreDetails = (object?)null
+                }
+            },
+            config = new
+            {
+                useLlmReview = false,
+                useLlmSuggestion = true,
+                suggestNoMatchRows = false,
+                llmSuggestionScoreThreshold = 0.6
+            }
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/llm-stream")
+        {
+            Content = ApiClientJson.ToJsonContent(streamRequest)
+        };
+
+        using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var events = await ReadSseEventsAsync(response);
+        events.Should().BeEmpty();
     }
 
     private static async Task<List<SseEvent>> ReadSseEventsAsync(HttpResponseMessage response)

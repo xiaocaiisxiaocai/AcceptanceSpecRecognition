@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { type MatchConfig, defaultMatchConfig } from "@/api/matching";
+import {
+  type MatchConfig,
+  defaultMatchConfig,
+  MatchingStrategy
+} from "@/api/matching";
 import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
 import { getMachineModelList, type MachineModel } from "@/api/machine-model";
@@ -32,6 +36,18 @@ const loadingMachineModels = ref(false);
 const loadingAiServices = ref(false);
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
+const strategyOptions = [
+  {
+    value: MatchingStrategy.SingleStage,
+    label: "基础方式",
+    description: "保持当前 Top1 匹配行为，速度更快。"
+  },
+  {
+    value: MatchingStrategy.MultiStage,
+    label: "多阶段重排",
+    description: "先召回 TopK，再按规则重排，适合复杂文档。"
+  }
+] as const;
 
 // 高级选项展开
 const showAdvanced = ref(false);
@@ -66,6 +82,21 @@ const updateConfig = () => {
 };
 
 watch(config, updateConfig, { deep: true });
+
+watch(
+  () => config.value.matchingStrategy,
+  (strategy) => {
+    if (strategy === MatchingStrategy.MultiStage) {
+      if (!config.value.recallTopK || config.value.recallTopK < 1) {
+        config.value.recallTopK = defaultMatchConfig.recallTopK;
+      }
+      if (config.value.ambiguityMargin === undefined || config.value.ambiguityMargin === null) {
+        config.value.ambiguityMargin = defaultMatchConfig.ambiguityMargin;
+      }
+    }
+  },
+  { immediate: true }
+);
 
 // 加载客户列表
 const loadCustomers = async () => {
@@ -293,6 +324,26 @@ defineExpose({
         </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
+            <el-form-item label="匹配策略">
+              <el-radio-group v-model="config.matchingStrategy">
+                <el-radio-button
+                  v-for="option in strategyOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </el-radio-button>
+              </el-radio-group>
+              <div class="strategy-tip">
+                {{
+                  strategyOptions.find(
+                    (option) => option.value === config.matchingStrategy
+                  )?.description
+                }}
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
             <el-form-item label="最小得分阈值">
               <el-slider
                 v-model="config.minScoreThreshold"
@@ -314,6 +365,40 @@ defineExpose({
               />
               <div class="form-inline-tip">
                 关闭后会保留项目列和规格列都为空的行
+              </div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row
+          v-if="config.matchingStrategy === MatchingStrategy.MultiStage"
+          :gutter="20"
+        >
+          <el-col :span="12">
+            <el-form-item label="召回候选数">
+              <el-input-number
+                v-model="config.recallTopK"
+                :min="1"
+                :max="20"
+                :step="1"
+                controls-position="right"
+              />
+              <div class="form-inline-tip">
+                第一阶段最多保留多少个候选进入重排
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="歧义分差阈值">
+              <el-input-number
+                v-model="config.ambiguityMargin"
+                :min="0"
+                :max="1"
+                :step="0.01"
+                :precision="2"
+                controls-position="right"
+              />
+              <div class="form-inline-tip">
+                Top1 与 Top2 分差不超过该值时标记为高歧义
               </div>
             </el-form-item>
           </el-col>
@@ -360,6 +445,22 @@ defineExpose({
                     :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
                   />
                 </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-row :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="无匹配也建议">
+                  <el-switch
+                    v-model="config.suggestNoMatchRows"
+                    :disabled="!config.useLlmSuggestion"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  默认关闭。开启后会对完全无匹配的行也调用 LLM，耗时会明显增加
+                </span>
               </el-col>
             </el-row>
 
@@ -478,6 +579,12 @@ export default {
   margin-left: 8px;
   font-size: 12px;
   color: #9ca3af;
+}
+
+.strategy-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6b7280;
 }
 
 .reset-btn {

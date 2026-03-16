@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { MatchPreviewItem } from "@/api/matching";
+import {
+  type MatchPreviewItem,
+  MatchingStrategy
+} from "@/api/matching";
 
 const props = defineProps<{
   visible: boolean;
@@ -22,6 +25,15 @@ const formatScore = (score: number) => (score * 100).toFixed(1) + "%";
 const formatLlmScore = (score?: number) => {
   if (score === undefined || score === null) return "-";
   return `${score.toFixed(1)}分`;
+};
+
+const getStrategyText = (strategy?: MatchingStrategy) => {
+  return strategy === MatchingStrategy.MultiStage ? "多阶段重排" : "基础单阶段";
+};
+
+const formatOptionalScore = (score?: number) => {
+  if (score === undefined || score === null) return "-";
+  return formatScore(score);
 };
 
 // 获取置信度样式
@@ -85,16 +97,43 @@ const getConfidenceText = (level: string) => {
             <el-descriptions-item label="规格">
               {{ item.bestMatch.specification }}
             </el-descriptions-item>
+            <el-descriptions-item label="匹配策略">
+              {{ getStrategyText(item.bestMatch.matchingStrategy) }}
+            </el-descriptions-item>
             <el-descriptions-item label="验收标准">
               {{ item.bestMatch.acceptance || "-" }}
             </el-descriptions-item>
-            <el-descriptions-item label="基础得分">
+            <el-descriptions-item label="最终得分">
               {{ formatScore(item.bestMatch.score) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Embedding得分">
+              {{ formatScore(item.bestMatch.embeddingScore) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="召回候选数">
+              {{ item.bestMatch.recalledCandidateCount || "-" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Top1/Top2分差">
+              {{ formatOptionalScore(item.bestMatch.scoreGap) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="高歧义">
+              <el-tag
+                :type="item.bestMatch.isAmbiguous ? 'warning' : 'success'"
+                size="small"
+              >
+                {{ item.bestMatch.isAmbiguous ? "是" : "否" }}
+              </el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="LLM复核得分">
               {{ formatLlmScore(item.bestMatch.llmScore) }}
             </el-descriptions-item>
           </el-descriptions>
+
+          <div v-if="item.bestMatch.rerankSummary" class="rerank-info">
+            <div class="llm-label">重排摘要</div>
+            <div class="llm-text">
+              {{ item.bestMatch.rerankSummary }}
+            </div>
+          </div>
 
           <div class="llm-review">
             <div class="llm-label">LLM复核原因</div>
@@ -139,6 +178,10 @@ const getConfidenceText = (level: string) => {
 }
 
 .llm-review {
+  margin-top: 12px;
+}
+
+.rerank-info {
   margin-top: 12px;
 }
 

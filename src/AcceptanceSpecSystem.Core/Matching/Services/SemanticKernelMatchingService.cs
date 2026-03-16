@@ -1,4 +1,5 @@
-﻿using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using System.Text.RegularExpressions;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using Microsoft.Extensions.Logging;
@@ -12,6 +13,27 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 public class SemanticKernelMatchingService : IMatchingService
 {
     private const double ScoreTieEpsilon = 1e-9;
+    private static readonly Regex NumericTokenRegex = new(
+        @"[<>≤≥]?\s*\d+(?:\.\d+)?(?:\s*[x×~～\-]\s*\d+(?:\.\d+)?)*(?:\s*(?:mm|cm|m|kg|g|inch|in|pcs|台|%|℃|°|kpa|mpa|nm|w|kw|v|a|hz|s|min|hr|hrs|小时|秒|ms))?",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex KeywordTokenRegex = new(
+        @"[A-Za-z]{2,}[A-Za-z0-9\-]*|[\u4e00-\u9fff]{2,}",
+        RegexOptions.Compiled);
+    private static readonly HashSet<string> KeywordStopWords =
+    [
+        "the", "and", "for", "with", "from", "into", "onto", "shall", "must", "need",
+        "项目", "规格", "要求", "技术", "参数", "内容", "方式", "备注", "进行", "支持", "具备", "根据"
+    ];
+    private static readonly (string Left, string Right)[] ConflictPairs =
+    [
+        ("投板", "收板"),
+        ("放板", "收板"),
+        ("上料", "下料"),
+        ("进板", "出板"),
+        ("入口", "出口"),
+        ("loading", "unloading"),
+        ("loader", "unloader")
+    ];
 
     private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<SemanticKernelMatchingService> _logger;
@@ -25,119 +47,21 @@ public class SemanticKernelMatchingService : IMatchingService
     }
 
     public async Task<List<MatchResult>> FindMatchesAsync(
-        string sourceText,
+        MatchSource source,
         IEnumerable<MatchCandidate> candidates,
         MatchingConfig? config = null)
     {
         config ??= new MatchingConfig();
         var candidateList = candidates.ToList();
 
-        if (string.IsNullOrWhiteSpace(sourceText) || candidateList.Count == 0)
+        if (string.IsNullOrWhiteSpace(source?.CombinedText) || candidateList.Count == 0)
         {
             return [];
         }
 
-        return await FindMatchesByEmbeddingAsync(sourceText, candidateList, config);
-    }
-
-    /// <summary>
-    /// 使用 Embedding 向量进行匹配
-    /// 候选项的 Embedding 会缓存到 candidate.Embedding，跨行复用避免重复生成
-    /// </summary>
-    private async Task<List<MatchResult>> FindMatchesByEmbeddingAsync(
-        string sourceText,
-        List<MatchCandidate> candidateList,
-        MatchingConfig config)
-    {
-        float[] sourceEmbedding;
-        try
-        {
-            sourceEmbedding = await _embeddingService.GenerateEmbeddingAsync(sourceText, config.EmbeddingServiceId);
-        }
-        catch (AiServiceUnavailableException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "生成源文本 Embedding 失败");
-            throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
-        }
-
-        // 只对尚未生成 Embedding 的候选项调用远程 API，已有的直接复用
-        var missingIndices = new List<int>();
-        for (var i = 0; i < candidateList.Count; i++)
-        {
-            if (candidateList[i].Embedding == null)
-                missingIndices.Add(i);
-        }
-
-        if (missingIndices.Count > 0)
-        {
-            var missingTexts = missingIndices.Select(i => candidateList[i].CombinedText).ToList();
-            List<float[]> newEmbeddings;
-            try
-            {
-                newEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(missingTexts, config.EmbeddingServiceId);
-            }
-            catch (AiServiceUnavailableException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "生成候选 Embedding 失败");
-                throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
-            }
-
-            // 将生成的 Embedding 回写到候选项，后续行可直接复用
-            for (var j = 0; j < missingIndices.Count && j < newEmbeddings.Count; j++)
-            {
-                candidateList[missingIndices[j]].Embedding = newEmbeddings[j];
-            }
-
-            _logger.LogInformation("生成 {Count}/{Total} 个候选项 Embedding（复用 {Cached} 个已缓存）",
-                missingIndices.Count, candidateList.Count, candidateList.Count - missingIndices.Count);
-        }
-        else
-        {
-            _logger.LogDebug("全部 {Count} 个候选项 Embedding 已缓存，跳过远程调用", candidateList.Count);
-        }
-
-        var results = new List<MatchResult>();
-        for (var i = 0; i < candidateList.Count; i++)
-        {
-            var candidate = candidateList[i];
-            var embedding = candidate.Embedding ?? Array.Empty<float>();
-            var score = _embeddingService.ComputeSimilarity(sourceEmbedding, embedding);
-            var scoreDetails = new Dictionary<string, double>
-            {
-                ["Embedding"] = score
-            };
-
-            if (score >= config.MinScoreThreshold)
-            {
-                results.Add(new MatchResult
-                {
-                    SourceText = sourceText,
-                    MatchedText = candidate.CombinedText,
-                    MatchedSpecId = candidate.SpecId,
-                    MatchedProject = candidate.Project,
-                    MatchedSpecification = candidate.Specification,
-                    MatchedAcceptance = candidate.Acceptance,
-                    MatchedRemark = candidate.Remark,
-                    Score = score,
-                    ScoreDetails = scoreDetails
-                });
-            }
-        }
-
-        return results
-            .OrderByDescending(r => r.Score)
-            .ThenByDescending(r => HasText(r.MatchedAcceptance))
-            .ThenByDescending(r => HasText(r.MatchedRemark))
-            .ThenByDescending(r => r.MatchedSpecId ?? 0)
-            .Take(1)
+        var batchResult = await BatchMatchAsync([source], candidateList, config);
+        return batchResult.Results
+            .Where(r => r.MatchedSpecId.HasValue)
             .ToList();
     }
 
@@ -146,37 +70,38 @@ public class SemanticKernelMatchingService : IMatchingService
     /// 注意：不会静默降级到文本相似度，Embedding 不可用时直接抛出异常
     /// </summary>
     public async Task<BatchMatchResult> BatchMatchAsync(
-        IEnumerable<string> sourceTexts,
+        IEnumerable<MatchSource> sources,
         IEnumerable<MatchCandidate> candidates,
         MatchingConfig? config = null)
     {
         config ??= new MatchingConfig();
-        var sourceTextList = sourceTexts.ToList();
+        var sourceList = sources.ToList();
         var candidateList = candidates.ToList();
 
-        if (sourceTextList.Count == 0)
+        if (sourceList.Count == 0)
             return new BatchMatchResult();
 
-        return await BatchMatchByEmbeddingAsync(sourceTextList, candidateList, config);
+        return await BatchMatchByEmbeddingAsync(sourceList, candidateList, config);
     }
 
     /// <summary>
     /// 批量 Embedding 匹配：
     /// 步骤1 - 一次性批量生成所有源文本 Embedding
     /// 步骤2 - 一次性批量生成所有缺失候选 Embedding（复用已有缓存）
-    /// 步骤3 - CPU 并行计算所有相似度
+    /// 步骤3 - 对每条源文本按配置选择单阶段或多阶段结果
     /// </summary>
     private async Task<BatchMatchResult> BatchMatchByEmbeddingAsync(
-        List<string> sourceTextList,
+        List<MatchSource> sourceList,
         List<MatchCandidate> candidateList,
         MatchingConfig config)
     {
-        // 步骤1: 批量生成源文本 Embedding（N个源文本 → 1次 API 调用）
         List<float[]> sourceEmbeddings;
         try
         {
-            sourceEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(sourceTextList, config.EmbeddingServiceId);
-            _logger.LogInformation("批量生成 {Count} 个源文本 Embedding 完成", sourceTextList.Count);
+            sourceEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(
+                sourceList.Select(s => s.CombinedText),
+                config.EmbeddingServiceId);
+            _logger.LogInformation("批量生成 {Count} 个源文本 Embedding 完成", sourceList.Count);
         }
         catch (AiServiceUnavailableException)
         {
@@ -188,7 +113,27 @@ public class SemanticKernelMatchingService : IMatchingService
             throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
         }
 
-        // 步骤2: 批量生成缺失候选 Embedding（顺序执行，避免 DbContext 并发冲突）
+        await EnsureCandidateEmbeddingsAsync(candidateList, config);
+
+        var result = new BatchMatchResult();
+        for (var s = 0; s < sourceList.Count; s++)
+        {
+            var source = sourceList[s];
+            var sourceEmbedding = s < sourceEmbeddings.Count ? sourceEmbeddings[s] : Array.Empty<float>();
+            var eligibleCandidates = EvaluateCandidates(source, sourceEmbedding, candidateList, config);
+
+            var match = config.MatchingStrategy == MatchingStrategy.MultiStage
+                ? SelectBestByMultiStage(source, eligibleCandidates, config)
+                : SelectBestBySingleStage(source, eligibleCandidates);
+
+            result.Results.Add(match ?? CreateEmptyResult(source, config.MatchingStrategy));
+        }
+
+        return result;
+    }
+
+    private async Task EnsureCandidateEmbeddingsAsync(List<MatchCandidate> candidateList, MatchingConfig config)
+    {
         var missingIndices = new List<int>();
         for (var i = 0; i < candidateList.Count; i++)
         {
@@ -196,105 +141,331 @@ public class SemanticKernelMatchingService : IMatchingService
                 missingIndices.Add(i);
         }
 
-        if (missingIndices.Count > 0)
-        {
-            var missingTexts = missingIndices.Select(i => candidateList[i].CombinedText).ToList();
-            List<float[]> newEmbeddings;
-            try
-            {
-                newEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(missingTexts, config.EmbeddingServiceId);
-            }
-            catch (AiServiceUnavailableException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "批量生成候选 Embedding 失败");
-                throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
-            }
-
-            for (var j = 0; j < missingIndices.Count && j < newEmbeddings.Count; j++)
-            {
-                candidateList[missingIndices[j]].Embedding = newEmbeddings[j];
-            }
-
-            _logger.LogInformation("生成 {Count}/{Total} 个候选项 Embedding（复用 {Cached} 个已缓存）",
-                missingIndices.Count, candidateList.Count, candidateList.Count - missingIndices.Count);
-        }
-        else
+        if (missingIndices.Count == 0)
         {
             _logger.LogDebug("全部 {Count} 个候选项 Embedding 已缓存，跳过远程调用", candidateList.Count);
+            return;
         }
 
-        // 步骤3: 并行计算所有相似度并汇总结果（纯 CPU 计算，毫秒级）
-        var result = new BatchMatchResult();
-        for (var s = 0; s < sourceTextList.Count; s++)
+        var missingTexts = missingIndices.Select(i => candidateList[i].CombinedText).ToList();
+        List<float[]> newEmbeddings;
+        try
         {
-            var sourceText = sourceTextList[s];
-            var sourceEmb = sourceEmbeddings[s];
-            MatchResult? bestMatch = null;
-            var bestScore = double.MinValue;
-
-            for (var c = 0; c < candidateList.Count; c++)
-            {
-                var candidate = candidateList[c];
-                var embedding = candidate.Embedding ?? Array.Empty<float>();
-                var score = _embeddingService.ComputeSimilarity(sourceEmb, embedding);
-
-                if (score < config.MinScoreThreshold)
-                    continue;
-
-                if (ShouldReplaceBestCandidate(score, candidate, bestScore, bestMatch))
-                {
-                    bestScore = score;
-                    bestMatch = new MatchResult
-                    {
-                        SourceText = sourceText,
-                        MatchedText = candidate.CombinedText,
-                        MatchedSpecId = candidate.SpecId,
-                        MatchedProject = candidate.Project,
-                        MatchedSpecification = candidate.Specification,
-                        MatchedAcceptance = candidate.Acceptance,
-                        MatchedRemark = candidate.Remark,
-                        Score = score,
-                        ScoreDetails = new Dictionary<string, double> { ["Embedding"] = score }
-                    };
-                }
-            }
-
-            result.Results.Add(bestMatch ?? new MatchResult { SourceText = sourceText, Score = 0 });
+            newEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(missingTexts, config.EmbeddingServiceId);
+        }
+        catch (AiServiceUnavailableException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "批量生成候选 Embedding 失败");
+            throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
         }
 
-        return result;
+        for (var j = 0; j < missingIndices.Count && j < newEmbeddings.Count; j++)
+        {
+            candidateList[missingIndices[j]].Embedding = newEmbeddings[j];
+        }
+
+        _logger.LogInformation("生成 {Count}/{Total} 个候选项 Embedding（复用 {Cached} 个已缓存）",
+            missingIndices.Count, candidateList.Count, candidateList.Count - missingIndices.Count);
     }
 
-    private static bool ShouldReplaceBestCandidate(
-        double score,
-        MatchCandidate candidate,
-        double bestScore,
-        MatchResult? bestMatch)
+    private List<EvaluatedCandidate> EvaluateCandidates(
+        MatchSource source,
+        float[] sourceEmbedding,
+        List<MatchCandidate> candidateList,
+        MatchingConfig config)
     {
-        if (bestMatch == null)
-            return true;
+        var evaluations = new List<EvaluatedCandidate>();
+        foreach (var candidate in candidateList)
+        {
+            var embedding = candidate.Embedding ?? Array.Empty<float>();
+            var embeddingScore = _embeddingService.ComputeSimilarity(sourceEmbedding, embedding);
+            if (embeddingScore < config.MinScoreThreshold)
+                continue;
 
-        if (score > bestScore + ScoreTieEpsilon)
-            return true;
+            evaluations.Add(new EvaluatedCandidate
+            {
+                Source = source,
+                Candidate = candidate,
+                EmbeddingScore = embeddingScore,
+                FinalScore = embeddingScore
+            });
+        }
 
-        if (Math.Abs(score - bestScore) > ScoreTieEpsilon)
-            return false;
+        return evaluations;
+    }
 
-        var currentHasAcceptance = HasText(candidate.Acceptance);
-        var bestHasAcceptance = HasText(bestMatch.MatchedAcceptance);
-        if (currentHasAcceptance != bestHasAcceptance)
-            return currentHasAcceptance;
+    private MatchResult? SelectBestBySingleStage(MatchSource source, List<EvaluatedCandidate> eligibleCandidates)
+    {
+        var best = OrderByEmbedding(eligibleCandidates).FirstOrDefault();
+        return best == null
+            ? null
+            : BuildMatchResult(best, MatchingStrategy.SingleStage, eligibleCandidates.Count, isAmbiguous: false, scoreGap: null);
+    }
 
-        var currentHasRemark = HasText(candidate.Remark);
-        var bestHasRemark = HasText(bestMatch.MatchedRemark);
-        if (currentHasRemark != bestHasRemark)
-            return currentHasRemark;
+    private MatchResult? SelectBestByMultiStage(
+        MatchSource source,
+        List<EvaluatedCandidate> eligibleCandidates,
+        MatchingConfig config)
+    {
+        var recallTopK = Math.Clamp(config.RecallTopK, 1, 20);
+        var recalled = OrderByEmbedding(eligibleCandidates)
+            .Take(recallTopK)
+            .ToList();
 
-        return candidate.SpecId > (bestMatch.MatchedSpecId ?? 0);
+        if (recalled.Count == 0)
+            return null;
+
+        foreach (var candidate in recalled)
+        {
+            candidate.ProjectScore = ComputeProjectScore(source.Project, candidate.Candidate.Project);
+            candidate.NumericScore = ComputeNumericScore(source.Specification, candidate.Candidate.Specification);
+            candidate.KeywordScore = ComputeKeywordScore(source.Specification, candidate.Candidate.Specification);
+            candidate.ConflictPenalty = ComputeConflictPenalty(source, candidate.Candidate);
+            candidate.FinalScore = ComputeFinalScore(candidate);
+            candidate.RerankSummary = BuildRerankSummary(candidate);
+        }
+
+        var ordered = OrderByFinal(recalled).ToList();
+        var best = ordered[0];
+        var second = ordered.Count > 1 ? ordered[1] : null;
+        double? scoreGap = second == null ? null : best.FinalScore - second.FinalScore;
+        var isAmbiguous = second != null && scoreGap <= config.AmbiguityMargin + ScoreTieEpsilon;
+
+        return BuildMatchResult(best, MatchingStrategy.MultiStage, recalled.Count, isAmbiguous, scoreGap);
+    }
+
+    private static IEnumerable<EvaluatedCandidate> OrderByEmbedding(IEnumerable<EvaluatedCandidate> candidates)
+    {
+        return candidates
+            .OrderByDescending(c => c.EmbeddingScore)
+            .ThenByDescending(c => HasText(c.Candidate.Acceptance))
+            .ThenByDescending(c => HasText(c.Candidate.Remark))
+            .ThenByDescending(c => c.Candidate.SpecId);
+    }
+
+    private static IEnumerable<EvaluatedCandidate> OrderByFinal(IEnumerable<EvaluatedCandidate> candidates)
+    {
+        return candidates
+            .OrderByDescending(c => c.FinalScore)
+            .ThenByDescending(c => c.EmbeddingScore)
+            .ThenByDescending(c => HasText(c.Candidate.Acceptance))
+            .ThenByDescending(c => HasText(c.Candidate.Remark))
+            .ThenByDescending(c => c.Candidate.SpecId);
+    }
+
+    private static MatchResult BuildMatchResult(
+        EvaluatedCandidate candidate,
+        MatchingStrategy strategy,
+        int recalledCandidateCount,
+        bool isAmbiguous,
+        double? scoreGap)
+    {
+        var scoreDetails = new Dictionary<string, double>
+        {
+            ["Embedding"] = candidate.EmbeddingScore
+        };
+
+        if (strategy == MatchingStrategy.MultiStage)
+        {
+            scoreDetails["Final"] = candidate.FinalScore;
+            scoreDetails["ProjectMatch"] = candidate.ProjectScore;
+            scoreDetails["NumberUnit"] = candidate.NumericScore;
+            scoreDetails["KeywordOverlap"] = candidate.KeywordScore;
+            scoreDetails["ConflictPenalty"] = candidate.ConflictPenalty;
+        }
+
+        return new MatchResult
+        {
+            SourceText = candidate.Source.CombinedText,
+            MatchedText = candidate.Candidate.CombinedText,
+            MatchedSpecId = candidate.Candidate.SpecId,
+            MatchedProject = candidate.Candidate.Project,
+            MatchedSpecification = candidate.Candidate.Specification,
+            MatchedAcceptance = candidate.Candidate.Acceptance,
+            MatchedRemark = candidate.Candidate.Remark,
+            Score = strategy == MatchingStrategy.MultiStage ? candidate.FinalScore : candidate.EmbeddingScore,
+            EmbeddingScore = candidate.EmbeddingScore,
+            ScoreDetails = scoreDetails,
+            MatchingStrategy = strategy,
+            RecalledCandidateCount = recalledCandidateCount,
+            IsAmbiguous = isAmbiguous,
+            ScoreGap = scoreGap,
+            RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null
+        };
+    }
+
+    private static MatchResult CreateEmptyResult(MatchSource source, MatchingStrategy strategy)
+    {
+        return new MatchResult
+        {
+            SourceText = source.CombinedText,
+            Score = 0,
+            EmbeddingScore = 0,
+            MatchingStrategy = strategy,
+            RecalledCandidateCount = 0,
+            IsAmbiguous = false
+        };
+    }
+
+    private static double ComputeFinalScore(EvaluatedCandidate candidate)
+    {
+        var finalScore =
+            candidate.EmbeddingScore * 0.70 +
+            candidate.ProjectScore * 0.15 +
+            candidate.NumericScore * 0.10 +
+            candidate.KeywordScore * 0.05 -
+            candidate.ConflictPenalty * 0.15;
+
+        return Math.Clamp(finalScore, 0, 1);
+    }
+
+    private static double ComputeProjectScore(string sourceProject, string candidateProject)
+    {
+        var source = NormalizeComparableText(sourceProject);
+        var candidate = NormalizeComparableText(candidateProject);
+
+        if (string.IsNullOrWhiteSpace(source) && string.IsNullOrWhiteSpace(candidate))
+            return 1.0;
+
+        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(candidate))
+            return 0;
+
+        if (source == candidate)
+            return 1.0;
+
+        if (source.Contains(candidate, StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains(source, StringComparison.OrdinalIgnoreCase))
+            return 0.85;
+
+        var sourceTokens = ExtractKeywordTokens(sourceProject);
+        var candidateTokens = ExtractKeywordTokens(candidateProject);
+        return ComputeOverlapRatio(sourceTokens, candidateTokens);
+    }
+
+    private static double ComputeNumericScore(string sourceSpecification, string candidateSpecification)
+    {
+        var source = NormalizeComparableText(sourceSpecification);
+        var candidate = NormalizeComparableText(candidateSpecification);
+
+        if (!string.IsNullOrWhiteSpace(source) && source == candidate)
+            return 1.0;
+
+        var sourceTokens = ExtractNumericTokens(sourceSpecification);
+        var candidateTokens = ExtractNumericTokens(candidateSpecification);
+
+        if (sourceTokens.Count == 0 && candidateTokens.Count == 0)
+            return 0.5;
+
+        if (sourceTokens.Count == 0)
+            return 0.5;
+
+        if (candidateTokens.Count == 0)
+            return 0;
+
+        return ComputeOverlapRatio(sourceTokens, candidateTokens);
+    }
+
+    private static double ComputeKeywordScore(string sourceSpecification, string candidateSpecification)
+    {
+        var sourceTokens = ExtractKeywordTokens(sourceSpecification);
+        var candidateTokens = ExtractKeywordTokens(candidateSpecification);
+
+        if (sourceTokens.Count == 0 && candidateTokens.Count == 0)
+            return 0.5;
+
+        if (sourceTokens.Count == 0 || candidateTokens.Count == 0)
+            return 0;
+
+        return ComputeOverlapRatio(sourceTokens, candidateTokens);
+    }
+
+    private static double ComputeConflictPenalty(MatchSource source, MatchCandidate candidate)
+    {
+        var sourceText = NormalizeComparableText($"{source.Project} {source.Specification}");
+        var candidateText = NormalizeComparableText($"{candidate.Project} {candidate.Specification}");
+
+        foreach (var (left, right) in ConflictPairs)
+        {
+            var sourceHasLeft = sourceText.Contains(left, StringComparison.OrdinalIgnoreCase);
+            var sourceHasRight = sourceText.Contains(right, StringComparison.OrdinalIgnoreCase);
+            var candidateHasLeft = candidateText.Contains(left, StringComparison.OrdinalIgnoreCase);
+            var candidateHasRight = candidateText.Contains(right, StringComparison.OrdinalIgnoreCase);
+
+            if (sourceHasLeft && !sourceHasRight && candidateHasRight && !candidateHasLeft)
+                return 1.0;
+
+            if (sourceHasRight && !sourceHasLeft && candidateHasLeft && !candidateHasRight)
+                return 1.0;
+        }
+
+        return 0;
+    }
+
+    private static string BuildRerankSummary(EvaluatedCandidate candidate)
+    {
+        var reasons = new List<string>();
+
+        if (candidate.ProjectScore >= 0.99)
+            reasons.Add("项目一致");
+        else if (candidate.ProjectScore >= 0.75)
+            reasons.Add("项目接近");
+
+        if (candidate.NumericScore >= 0.99)
+            reasons.Add("数值单位一致");
+        else if (candidate.NumericScore >= 0.60)
+            reasons.Add("数值单位部分匹配");
+
+        if (candidate.KeywordScore >= 0.60)
+            reasons.Add("关键词重合高");
+
+        if (candidate.ConflictPenalty > 0)
+            reasons.Add("存在冲突词已降权");
+
+        if (reasons.Count == 0)
+            reasons.Add("主要依据Embedding排序");
+
+        return string.Join("；", reasons);
+    }
+
+    private static HashSet<string> ExtractNumericTokens(string value)
+    {
+        var matches = NumericTokenRegex.Matches(value ?? string.Empty);
+        return matches
+            .Select(m => NormalizeComparableText(m.Value))
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> ExtractKeywordTokens(string value)
+    {
+        var matches = KeywordTokenRegex.Matches(value ?? string.Empty);
+        return matches
+            .Select(m => NormalizeComparableText(m.Value))
+            .Where(v => !string.IsNullOrWhiteSpace(v) && !KeywordStopWords.Contains(v))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeComparableText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var normalized = Regex.Replace(value.Trim().ToLowerInvariant(), @"\s+", " ");
+        normalized = normalized.Replace("（", "(").Replace("）", ")");
+        return normalized;
+    }
+
+    private static double ComputeOverlapRatio(HashSet<string> sourceTokens, HashSet<string> candidateTokens)
+    {
+        if (sourceTokens.Count == 0 || candidateTokens.Count == 0)
+            return 0;
+
+        var overlap = sourceTokens.Intersect(candidateTokens, StringComparer.OrdinalIgnoreCase).Count();
+        return overlap / (double)sourceTokens.Count;
     }
 
     private static bool HasText(string? value)
@@ -317,5 +488,18 @@ public class SemanticKernelMatchingService : IMatchingService
             ["Embedding"] = score,
             ["Total"] = score
         };
+    }
+
+    private sealed class EvaluatedCandidate
+    {
+        public required MatchSource Source { get; init; }
+        public required MatchCandidate Candidate { get; init; }
+        public double EmbeddingScore { get; init; }
+        public double FinalScore { get; set; }
+        public double ProjectScore { get; set; }
+        public double NumericScore { get; set; }
+        public double KeywordScore { get; set; }
+        public double ConflictPenalty { get; set; }
+        public string? RerankSummary { get; set; }
     }
 }

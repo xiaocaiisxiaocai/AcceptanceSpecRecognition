@@ -82,6 +82,14 @@ defineExpose({ getAllSelections });
           <el-tag type="danger" size="small">
             低 {{ tableResult.lowConfidenceCount }}
           </el-tag>
+          <el-tag
+            v-if="tableResult.ambiguousCount > 0"
+            type="warning"
+            size="small"
+            effect="plain"
+          >
+            歧义 {{ tableResult.ambiguousCount }}
+          </el-tag>
         </div>
 
         <MatchPreviewTable

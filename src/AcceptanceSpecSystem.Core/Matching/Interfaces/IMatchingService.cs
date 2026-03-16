@@ -10,24 +10,24 @@ public interface IMatchingService
     /// <summary>
     /// 查找单个文本的最佳匹配
     /// </summary>
-    /// <param name="sourceText">源文本</param>
+    /// <param name="source">源项</param>
     /// <param name="candidates">候选列表</param>
     /// <param name="config">匹配配置</param>
     /// <returns>匹配结果（按得分排序）</returns>
     Task<List<MatchResult>> FindMatchesAsync(
-        string sourceText,
+        MatchSource source,
         IEnumerable<MatchCandidate> candidates,
         MatchingConfig? config = null);
 
     /// <summary>
     /// 批量匹配
     /// </summary>
-    /// <param name="sourceTexts">源文本列表</param>
+    /// <param name="sources">源项列表</param>
     /// <param name="candidates">候选列表</param>
     /// <param name="config">匹配配置</param>
     /// <returns>批量匹配结果</returns>
     Task<BatchMatchResult> BatchMatchAsync(
-        IEnumerable<string> sourceTexts,
+        IEnumerable<MatchSource> sources,
         IEnumerable<MatchCandidate> candidates,
         MatchingConfig? config = null);
 

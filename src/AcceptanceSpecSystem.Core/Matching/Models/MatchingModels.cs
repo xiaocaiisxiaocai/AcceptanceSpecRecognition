@@ -1,6 +1,43 @@
 namespace AcceptanceSpecSystem.Core.Matching.Models;
 
 /// <summary>
+/// 源匹配项
+/// </summary>
+public class MatchSource
+{
+    /// <summary>
+    /// 项目名称
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格内容
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 组合文本
+    /// </summary>
+    public string CombinedText => $"{Project} {Specification}".Trim();
+}
+
+/// <summary>
+/// 匹配策略
+/// </summary>
+public enum MatchingStrategy
+{
+    /// <summary>
+    /// 单阶段匹配（当前默认行为）
+    /// </summary>
+    SingleStage = 1,
+
+    /// <summary>
+    /// 多阶段匹配（TopK召回 + 规则重排）
+    /// </summary>
+    MultiStage = 2
+}
+
+/// <summary>
 /// 匹配结果
 /// </summary>
 public class MatchResult
@@ -46,9 +83,39 @@ public class MatchResult
     public double Score { get; set; }
 
     /// <summary>
+    /// Embedding 原始得分（0-1）
+    /// </summary>
+    public double EmbeddingScore { get; set; }
+
+    /// <summary>
     /// 各算法得分详情
     /// </summary>
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
+
+    /// <summary>
+    /// 匹配策略
+    /// </summary>
+    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
+
+    /// <summary>
+    /// 第一阶段召回候选数
+    /// </summary>
+    public int RecalledCandidateCount { get; set; }
+
+    /// <summary>
+    /// 是否为高歧义样本
+    /// </summary>
+    public bool IsAmbiguous { get; set; }
+
+    /// <summary>
+    /// Top1 与 Top2 的最终分差（可选）
+    /// </summary>
+    public double? ScoreGap { get; set; }
+
+    /// <summary>
+    /// 重排摘要（可选）
+    /// </summary>
+    public string? RerankSummary { get; set; }
 
     /// <summary>
     /// LLM 复核得分（0-100，可选）
@@ -143,6 +210,11 @@ public class MatchCandidate
 public class MatchingConfig
 {
     /// <summary>
+    /// 匹配策略
+    /// </summary>
+    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
+
+    /// <summary>
     /// 使用的 Embedding 服务ID（为空则自动选择）
     /// </summary>
     public int? EmbeddingServiceId { get; set; }
@@ -158,6 +230,16 @@ public class MatchingConfig
     public double MinScoreThreshold { get; set; } = 0.3;
 
     /// <summary>
+    /// 多阶段模式下第一阶段召回数量
+    /// </summary>
+    public int RecallTopK { get; set; } = 5;
+
+    /// <summary>
+    /// 多阶段模式下的歧义分差阈值
+    /// </summary>
+    public double AmbiguityMargin { get; set; } = 0.03;
+
+    /// <summary>
     /// 是否启用 LLM 复核
     /// </summary>
     public bool UseLlmReview { get; set; } = false;
@@ -166,6 +248,11 @@ public class MatchingConfig
     /// 是否启用 LLM 生成建议
     /// </summary>
     public bool UseLlmSuggestion { get; set; } = false;
+
+    /// <summary>
+    /// 是否对完全无匹配的行也生成建议
+    /// </summary>
+    public bool SuggestNoMatchRows { get; set; } = false;
 
     /// <summary>
     /// 生成建议触发阈值（最佳得分低于该值）
@@ -189,9 +276,9 @@ public class MatchingConfig
 public class BatchMatchRequest
 {
     /// <summary>
-    /// 待匹配的文本列表
+    /// 待匹配的源项列表
     /// </summary>
-    public List<string> SourceTexts { get; set; } = [];
+    public List<MatchSource> SourceItems { get; set; } = [];
 
     /// <summary>
     /// 目标制程ID（限定匹配范围）
@@ -238,4 +325,9 @@ public class BatchMatchResult
     /// 低置信度匹配数
     /// </summary>
     public int LowConfidenceCount => Results.Count(r => r.IsLowConfidence);
+
+    /// <summary>
+    /// 高歧义样本数
+    /// </summary>
+    public int AmbiguousCount => Results.Count(r => r.IsAmbiguous);
 }

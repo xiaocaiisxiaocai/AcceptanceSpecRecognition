@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import type { MatchPreviewItem } from "@/api/matching";
+import {
+  type MatchPreviewItem,
+  MatchingStrategy
+} from "@/api/matching";
 
 const props = defineProps<{
   items: MatchPreviewItem[];
@@ -119,6 +122,10 @@ const formatScore = (score: number) => {
   return (score * 100).toFixed(1) + "%";
 };
 
+const getStrategyText = (strategy?: MatchingStrategy) => {
+  return strategy === MatchingStrategy.MultiStage ? "多阶段" : "基础";
+};
+
 // LLM 复核状态
 type LlmStatus = "none" | "waiting" | "streaming" | "done" | "error";
 
@@ -154,7 +161,8 @@ const stats = computed(() => {
   const selected = Array.from(selectedSpecs.value.values()).filter(
     (v) => v !== null
   ).length;
-  return { total, matched, perfect, imperfect, selected };
+  const ambiguous = props.items.filter((i) => i.bestMatch?.isAmbiguous).length;
+  return { total, matched, perfect, imperfect, selected, ambiguous };
 });
 
 // 筛选
@@ -220,6 +228,8 @@ defineExpose({
         <span>已匹配 {{ stats.matched }} 行</span>
         <span class="divider">|</span>
         <span class="selected">已选择 {{ stats.selected }} 行</span>
+        <span class="divider">|</span>
+        <span class="ambiguous">高歧义 {{ stats.ambiguous }} 行</span>
       </div>
       <el-radio-group
         v-model="scoreFilter"
@@ -281,8 +291,31 @@ defineExpose({
       <el-table-column label="最佳匹配" min-width="260">
         <template #default="{ row }">
           <div v-if="row.bestMatch" class="match-best">
-            <div class="match-text">
-              {{ row.bestMatch.project }} - {{ row.bestMatch.specification }}
+            <div class="match-main">
+              <div class="match-text">
+                {{ row.bestMatch.project }} - {{ row.bestMatch.specification }}
+              </div>
+              <div class="match-meta">
+                <el-tag size="small" effect="plain">
+                  {{ getStrategyText(row.bestMatch.matchingStrategy) }}
+                </el-tag>
+                <el-tag
+                  v-if="row.bestMatch.matchingStrategy === MatchingStrategy.MultiStage"
+                  size="small"
+                  type="info"
+                  effect="plain"
+                >
+                  召回 {{ row.bestMatch.recalledCandidateCount }}
+                </el-tag>
+                <el-tag
+                  v-if="row.bestMatch.isAmbiguous"
+                  size="small"
+                  type="warning"
+                  effect="plain"
+                >
+                  高歧义
+                </el-tag>
+              </div>
             </div>
             <div class="match-score">{{ formatScore(row.bestMatch.score) }}</div>
           </div>
@@ -516,6 +549,11 @@ defineExpose({
   font-weight: 500;
 }
 
+.ambiguous {
+  color: #b45309;
+  font-weight: 500;
+}
+
 .source-data {
   line-height: 1.5;
 }
@@ -561,13 +599,24 @@ defineExpose({
   gap: 8px;
 }
 
-.match-text {
+.match-main {
   flex: 1;
+  min-width: 0;
+}
+
+.match-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text);
   font-weight: 500;
+}
+
+.match-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .match-score {

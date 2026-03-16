@@ -34,7 +34,14 @@ public class EmbeddingDegradationTests
         };
 
         var config = new MatchingConfig { MinScoreThreshold = 0.0 };
-        var act = async () => await service.FindMatchesAsync("项目A 规格A", candidates, config);
+        var act = async () => await service.FindMatchesAsync(
+            new MatchSource
+            {
+                Project = "项目A",
+                Specification = "规格A"
+            },
+            candidates,
+            config);
 
         // 不再降级，直接抛出 Embedding 不可用异常
         await act.Should().ThrowAsync<AiServiceUnavailableException>()

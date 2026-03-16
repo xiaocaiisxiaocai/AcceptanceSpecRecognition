@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount } from "vue";
+import { ref, computed, onBeforeUnmount, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Loading } from "@element-plus/icons-vue";
 import FileUpload from "@/views/data-import/components/FileUpload.vue";
@@ -61,10 +61,23 @@ const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
 const loading = ref(false);
 const llmStreaming = ref(false);
 const llmStreamController = ref<AbortController | null>(null);
+let previewRequestVersion = 0;
+
+const invalidatePendingPreview = () => {
+  previewRequestVersion++;
+  loading.value = false;
+};
 
 // 页面卸载时清理 SSE 连接，防止连接泄漏
 onBeforeUnmount(() => {
   stopLlmStream();
+});
+
+watch(currentStep, (step) => {
+  if (step !== 3) {
+    invalidatePendingPreview();
+    stopLlmStream();
+  }
 });
 
 // 详情弹窗
@@ -103,6 +116,8 @@ const canGoNext = computed(() => {
 
 // 文件上传完成
 const handleFileUploaded = async (file: FileUploadResponse) => {
+  invalidatePendingPreview();
+  stopLlmStream();
   uploadedFile.value = file;
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
@@ -223,6 +238,10 @@ const matchHeader = (header: string, rule: ColumnMappingRule): boolean => {
 const doPreview = async () => {
   if (!uploadedFile.value) return;
 
+  const requestVersion = ++previewRequestVersion;
+  const fileId = uploadedFile.value.fileId;
+  stopLlmStream();
+
   const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
   if (selectedConfigs.length === 0) {
     ElMessage.warning("请至少选择一个表格");
@@ -257,24 +276,39 @@ const doPreview = async () => {
     });
 
     if (res.code === 0) {
+      if (
+        requestVersion !== previewRequestVersion ||
+        currentStep.value !== 3 ||
+        uploadedFile.value?.fileId !== fileId
+      ) {
+        return;
+      }
+
       batchPreviewResults.value = res.data.tables;
       if (res.data.totalMatched === 0) {
         ElMessage.warning("未找到可匹配的数据");
       }
       startLlmStream();
     } else {
+      if (requestVersion !== previewRequestVersion) return;
       ElMessage.error(res.message || "匹配预览失败");
     }
   } catch {
+    if (requestVersion !== previewRequestVersion) return;
     ElMessage.error("匹配预览失败");
   } finally {
-    loading.value = false;
+    if (requestVersion === previewRequestVersion) {
+      loading.value = false;
+    }
   }
 };
 
 const stopLlmStream = () => {
-  llmStreamController.value?.abort();
-  llmStreamController.value = null;
+  const controller = llmStreamController.value;
+  controller?.abort();
+  if (llmStreamController.value === controller) {
+    llmStreamController.value = null;
+  }
   llmStreaming.value = false;
 };
 
@@ -285,19 +319,31 @@ const startLlmStream = async () => {
   if (!matchConfig.value.useLlmReview && !matchConfig.value.useLlmSuggestion)
     return;
 
+  const llmItems = batchPreviewResults.value.flatMap((tableResult) =>
+    tableResult.items
+      .filter((item) => shouldStreamReview(item) || shouldStreamSuggestion(item))
+      .map((item) => ({
+        tableIndex: tableResult.tableIndex,
+        rowIndex: item.rowIndex,
+        sourceProject: item.sourceProject,
+        sourceSpecification: item.sourceSpecification,
+        bestMatchSpecId: item.bestMatch?.specId,
+        bestMatchScore: item.bestMatch?.score,
+        scoreDetails: item.bestMatch?.scoreDetails
+      }))
+  );
+
+  if (!llmItems.length) {
+    llmStreaming.value = false;
+    return;
+  }
+
   const controller = new AbortController();
   llmStreamController.value = controller;
   llmStreaming.value = true;
 
   const payload = {
-    items: allPreviewItems.value.map((item) => ({
-      rowIndex: item.rowIndex,
-      sourceProject: item.sourceProject,
-      sourceSpecification: item.sourceSpecification,
-      bestMatchSpecId: item.bestMatch?.specId,
-      bestMatchScore: item.bestMatch?.score,
-      scoreDetails: item.bestMatch?.scoreDetails
-    })),
+    items: llmItems,
     config: matchConfig.value
   };
 
@@ -311,7 +357,10 @@ const startLlmStream = async () => {
 
     if (!response.ok || !response.body) {
       ElMessage.warning("LLM流式输出不可用，已降级");
-      llmStreaming.value = false;
+      if (llmStreamController.value === controller) {
+        llmStreamController.value = null;
+        llmStreaming.value = false;
+      }
       return;
     }
 
@@ -320,6 +369,13 @@ const startLlmStream = async () => {
     let buffer = "";
 
     while (true) {
+      if (
+        controller.signal.aborted ||
+        llmStreamController.value !== controller
+      ) {
+        break;
+      }
+
       const { value, done } = await reader.read();
       if (done) break;
 
@@ -328,6 +384,12 @@ const startLlmStream = async () => {
       buffer = parts.pop() || "";
 
       for (const part of parts) {
+        if (
+          controller.signal.aborted ||
+          llmStreamController.value !== controller
+        ) {
+          break;
+        }
         handleSseEvent(part);
       }
     }
@@ -336,7 +398,10 @@ const startLlmStream = async () => {
       ElMessage.warning("LLM流式输出中断，已降级");
     }
   } finally {
-    llmStreaming.value = false;
+    if (llmStreamController.value === controller) {
+      llmStreamController.value = null;
+      llmStreaming.value = false;
+    }
   }
 };
 
@@ -366,6 +431,14 @@ const applySseUpdate = (event: string, data: any) => {
   // 在所有表格的预览项中查找匹配的行
   let row: MatchPreviewItem | undefined;
   for (const tableResult of batchPreviewResults.value) {
+    if (
+      data.tableIndex !== undefined &&
+      data.tableIndex !== null &&
+      tableResult.tableIndex !== data.tableIndex
+    ) {
+      continue;
+    }
+
     row = tableResult.items.find((item) => item.rowIndex === data.rowIndex);
     if (row) break;
   }
@@ -417,6 +490,23 @@ const applySseUpdate = (event: string, data: any) => {
   }
 };
 
+const shouldStreamReview = (item: MatchPreviewItem) => {
+  return !!matchConfig.value.useLlmReview && !!item.bestMatch?.specId;
+};
+
+const shouldStreamSuggestion = (item: MatchPreviewItem) => {
+  if (!matchConfig.value.useLlmSuggestion) return false;
+
+  if (item.bestMatch?.specId) {
+    return (
+      (item.bestMatch.score ?? 0) <
+      (matchConfig.value.llmSuggestionScoreThreshold ?? 0.6)
+    );
+  }
+
+  return !!matchConfig.value.suggestNoMatchRows;
+};
+
 // 显示详情
 const handleShowDetail = (item: MatchPreviewItem) => {
   detailItem.value = item;
@@ -435,6 +525,10 @@ const handleSelect = (
 // 执行填充
 const handleExecute = async () => {
   if (!uploadedFile.value) return;
+  if (llmStreaming.value) {
+    ElMessage.warning("AI 仍在处理中，请等待完成后再执行填充");
+    return;
+  }
 
   const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
   if (selectedConfigs.length === 0) return;
@@ -541,6 +635,7 @@ const goPrev = () => {
 
 // 重新开始
 const handleRestart = () => {
+  invalidatePendingPreview();
   stopLlmStream();
   currentStep.value = 0;
   uploadedFile.value = null;
@@ -667,7 +762,7 @@ const handleRestart = () => {
           <el-button
             type="primary"
             :loading="executing"
-            :disabled="!!taskId"
+            :disabled="!!taskId || llmStreaming || loading"
             @click="handleExecute"
           >
             执行填充

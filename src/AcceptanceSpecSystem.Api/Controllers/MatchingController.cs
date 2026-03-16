@@ -137,7 +137,8 @@ public class MatchingController : BaseApiController
                 TotalMatched = 0,
                 HighConfidenceCount = 0,
                 MediumConfidenceCount = 0,
-                LowConfidenceCount = 0
+                LowConfidenceCount = 0,
+                AmbiguousCount = 0
             }, "没有找到可匹配的验收规格");
         }
 
@@ -155,14 +156,12 @@ public class MatchingController : BaseApiController
             Embedding = c.Embedding
         }).ToList();
 
-        // 批量收集源文本，一次性调用 BatchMatchAsync
-        var sourceTexts = new List<string>();
-        foreach (var item in request.Items)
+        // 批量构建预处理后的源项，一次性调用 BatchMatchAsync
+        var sourceItems = request.Items.Select(item => new MatchSource
         {
-            var processedProject = tpSession.Process(item.Project);
-            var processedSpec = tpSession.Process(item.Specification);
-            sourceTexts.Add($"{processedProject} {processedSpec}".Trim());
-        }
+            Project = tpSession.Process(item.Project),
+            Specification = tpSession.Process(item.Specification)
+        }).ToList();
 
         var previewItems = new List<MatchPreviewItem>();
         int highCount = 0, mediumCount = 0, lowCount = 0;
@@ -170,7 +169,7 @@ public class MatchingController : BaseApiController
         BatchMatchResult batchResult;
         try
         {
-            batchResult = await _matchingService.BatchMatchAsync(sourceTexts, processedCandidates, config);
+            batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
         }
         catch (AiServiceUnavailableException ex)
         {
@@ -219,13 +218,14 @@ public class MatchingController : BaseApiController
             TotalMatched = previewItems.Count(i => i.HasMatch),
             HighConfidenceCount = highCount,
             MediumConfidenceCount = mediumCount,
-            LowConfidenceCount = lowCount
+            LowConfidenceCount = lowCount,
+            AmbiguousCount = previewItems.Count(i => i.BestMatch?.IsAmbiguous == true)
         };
 
         sw.Stop();
         _logger.LogInformation(
-            "匹配预览完成: 共{Total}项, 匹配{Matched}项, 高{High}/中{Medium}/低{Low}, 耗时{Elapsed}ms",
-            request.Items.Count, response.TotalMatched, highCount, mediumCount, lowCount, sw.ElapsedMilliseconds);
+            "匹配预览完成: 共{Total}项, 匹配{Matched}项, 高{High}/中{Medium}/低{Low}, 歧义{Ambiguous}, 耗时{Elapsed}ms",
+            request.Items.Count, response.TotalMatched, highCount, mediumCount, lowCount, response.AmbiguousCount, sw.ElapsedMilliseconds);
 
         return Success(response);
     }
@@ -254,10 +254,13 @@ public class MatchingController : BaseApiController
         var sw = Stopwatch.StartNew();
 
         var parallelism = config.LlmParallelism;
+        var reviewCount = request.Items.Count(item => config.UseLlmReview && item.BestMatchSpecId.HasValue);
+        var suggestionCount = request.Items.Count(item => ShouldGenerateSuggestion(config, item));
 
         _logger.LogInformation(
-            "[LLM-Stream] 开始并行处理 {Count} 行 (maxParallelism={Parallelism}), useLlmReview={Review}, useLlmSuggestion={Suggestion}, suggestionThreshold={Threshold}",
-            request.Items.Count, parallelism, config.UseLlmReview, config.UseLlmSuggestion, config.LlmSuggestionScoreThreshold);
+            "[LLM-Stream] 开始并行处理 {Count} 行 (review={ReviewCount}, suggestion={SuggestionCount}, maxParallelism={Parallelism}), useLlmReview={Review}, useLlmSuggestion={Suggestion}, suggestNoMatch={SuggestNoMatch}, suggestionThreshold={Threshold}",
+            request.Items.Count, reviewCount, suggestionCount, parallelism,
+            config.UseLlmReview, config.UseLlmSuggestion, config.SuggestNoMatchRows, config.LlmSuggestionScoreThreshold);
 
         try
         {
@@ -278,21 +281,25 @@ public class MatchingController : BaseApiController
                     // 同一行内：先复核，再生成建议（顺序执行）
                     if (config.UseLlmReview && item.BestMatchSpecId.HasValue)
                     {
-                        _logger.LogDebug("[LLM-Stream] 行{Row}: 开始复核 (specId={SpecId}, score={Score:P1})",
-                            item.RowIndex, item.BestMatchSpecId, item.BestMatchScore ?? 0);
+                        _logger.LogDebug("[LLM-Stream] {Location}: 开始复核 (specId={SpecId}, score={Score:P1})",
+                            FormatStreamItemLocation(item), item.BestMatchSpecId, item.BestMatchScore ?? 0);
                         await StreamLlmReviewAsync(item, config, ct, unitOfWork, reviewService, sseWriteLock);
                     }
 
                     if (ct.IsCancellationRequested) return;
 
-                    if (config.UseLlmSuggestion &&
-                        (!item.BestMatchSpecId.HasValue ||
-                         (item.BestMatchScore ?? 0) < config.LlmSuggestionScoreThreshold))
+                    if (ShouldGenerateSuggestion(config, item))
                     {
-                        _logger.LogDebug("[LLM-Stream] 行{Row}: 开始生成建议 (specId={SpecId}, score={Score}, threshold={Threshold})",
-                            item.RowIndex, item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
-                            config.LlmSuggestionScoreThreshold);
+                        _logger.LogDebug("[LLM-Stream] {Location}: 开始生成建议 (specId={SpecId}, score={Score}, threshold={Threshold}, suggestNoMatch={SuggestNoMatch})",
+                            FormatStreamItemLocation(item), item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
+                            config.LlmSuggestionScoreThreshold, config.SuggestNoMatchRows);
                         await StreamLlmSuggestionAsync(item, config, ct, unitOfWork, suggestionService, sseWriteLock);
+                    }
+                    else if (config.UseLlmSuggestion)
+                    {
+                        _logger.LogDebug("[LLM-Stream] {Location}: 跳过建议 (specId={SpecId}, score={Score}, threshold={Threshold}, suggestNoMatch={SuggestNoMatch})",
+                            FormatStreamItemLocation(item), item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
+                            config.LlmSuggestionScoreThreshold, config.SuggestNoMatchRows);
                     }
                 });
         }
@@ -711,7 +718,7 @@ public class MatchingController : BaseApiController
         var response = new BatchPreviewResponse();
 
         // Phase 1: 提取所有表格的源数据并预处理
-        var allTableData = new List<(BatchTableConfig Config, List<MatchSourceItem> Items, List<string> SourceTexts)>();
+        var allTableData = new List<(BatchTableConfig Config, List<MatchSourceItem> Items, List<MatchSource> Sources)>();
         foreach (var tableConfig in request.Tables)
         {
             var extracted = await ExtractMatchSourceItemsFromFileAsync(
@@ -724,18 +731,17 @@ public class MatchingController : BaseApiController
                 tableConfig.DataStartRow,
                 tableConfig.FilterEmptySourceRows ?? config.FilterEmptySourceRows);
 
-            var sourceTexts = extracted.Select(item =>
+            var sources = extracted.Select(item => new MatchSource
             {
-                var p = tpSession.Process(item.Project);
-                var s = tpSession.Process(item.Specification);
-                return $"{p} {s}".Trim();
+                Project = tpSession.Process(item.Project),
+                Specification = tpSession.Process(item.Specification)
             }).ToList();
 
-            allTableData.Add((tableConfig, extracted, sourceTexts));
+            allTableData.Add((tableConfig, extracted, sources));
         }
 
-        // Phase 2: 合并所有表格的源文本，对 BatchMatchAsync 只调用一次
-        var allSourceTexts = allTableData.SelectMany(t => t.SourceTexts).ToList();
+        // Phase 2: 合并所有表格的源项，对 BatchMatchAsync 只调用一次
+        var allSources = allTableData.SelectMany(t => t.Sources).ToList();
 
         if (processedCandidates.Count == 0)
         {
@@ -743,11 +749,11 @@ public class MatchingController : BaseApiController
         }
 
         BatchMatchResult batchResult;
-        if (allSourceTexts.Count > 0)
+        if (allSources.Count > 0)
         {
             try
             {
-                batchResult = await _matchingService.BatchMatchAsync(allSourceTexts, processedCandidates, config);
+                batchResult = await _matchingService.BatchMatchAsync(allSources, processedCandidates, config);
             }
             catch (AiServiceUnavailableException ex)
             {
@@ -761,7 +767,7 @@ public class MatchingController : BaseApiController
 
         // Phase 3: 按表格分发匹配结果
         var resultOffset = 0;
-        foreach (var (tableConfig, extracted, sourceTexts) in allTableData)
+        foreach (var (tableConfig, extracted, sources) in allTableData)
         {
             var tableResult = new BatchTablePreviewResult { TableIndex = tableConfig.TableIndex };
             int highCount = 0, mediumCount = 0, lowCount = 0;
@@ -808,15 +814,16 @@ public class MatchingController : BaseApiController
             tableResult.HighConfidenceCount = highCount;
             tableResult.MediumConfidenceCount = mediumCount;
             tableResult.LowConfidenceCount = lowCount;
+            tableResult.AmbiguousCount = tableResult.Items.Count(i => i.BestMatch?.IsAmbiguous == true);
 
             response.Tables.Add(tableResult);
         }
 
         sw.Stop();
         _logger.LogInformation(
-            "批量匹配预览完成: {TableCount}个表格, 总匹配{Total}, 高{High}/中{Medium}/低{Low}, 耗时{Elapsed}ms",
+            "批量匹配预览完成: {TableCount}个表格, 总匹配{Total}, 高{High}/中{Medium}/低{Low}, 歧义{Ambiguous}, 耗时{Elapsed}ms",
             request.Tables.Count, response.TotalMatched,
-            response.HighConfidenceCount, response.MediumConfidenceCount, response.LowConfidenceCount,
+            response.HighConfidenceCount, response.MediumConfidenceCount, response.LowConfidenceCount, response.AmbiguousCount,
             sw.ElapsedMilliseconds);
 
         return Success(response);
@@ -1119,11 +1126,17 @@ public class MatchingController : BaseApiController
 
         return new MatchingConfig
         {
+            MatchingStrategy = Enum.IsDefined(typeof(MatchingStrategy), dto.MatchingStrategy)
+                ? dto.MatchingStrategy
+                : MatchingStrategy.SingleStage,
             EmbeddingServiceId = dto.EmbeddingServiceId,
             LlmServiceId = dto.LlmServiceId,
             MinScoreThreshold = dto.MinScoreThreshold,
+            RecallTopK = Math.Clamp(dto.RecallTopK, 1, 20),
+            AmbiguityMargin = Math.Clamp(dto.AmbiguityMargin, 0, 1),
             UseLlmReview = dto.UseLlmReview,
             UseLlmSuggestion = dto.UseLlmSuggestion,
+            SuggestNoMatchRows = dto.SuggestNoMatchRows,
             LlmSuggestionScoreThreshold = dto.LlmSuggestionScoreThreshold,
             LlmParallelism = Math.Clamp(dto.LlmParallelism, 1, 10),
             FilterEmptySourceRows = dto.FilterEmptySourceRows
@@ -1143,7 +1156,13 @@ public class MatchingController : BaseApiController
             Acceptance = result.MatchedAcceptance,
             Remark = result.MatchedRemark,
             Score = result.Score,
+            EmbeddingScore = result.EmbeddingScore,
             ScoreDetails = result.ScoreDetails,
+            MatchingStrategy = result.MatchingStrategy,
+            RecalledCandidateCount = result.RecalledCandidateCount,
+            IsAmbiguous = result.IsAmbiguous,
+            ScoreGap = result.ScoreGap,
+            RerankSummary = result.RerankSummary,
             LlmScore = result.LlmScore,
             LlmReason = result.LlmReason,
             LlmCommentary = result.LlmCommentary,
@@ -1163,21 +1182,24 @@ public class MatchingController : BaseApiController
         if (specId <= 0)
             return;
 
+        var location = FormatStreamItemLocation(item);
+
         var spec = await unitOfWork.AcceptanceSpecs.GetByIdAsync(specId);
         if (spec == null)
         {
-            _logger.LogWarning("[LLM复核] 行{Row}: 最佳匹配规格ID={SpecId}不存在", item.RowIndex, specId);
+            _logger.LogWarning("[LLM复核] {Location}: 最佳匹配规格ID={SpecId}不存在", location, specId);
             await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
             {
+                tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
                 message = "最佳匹配规格不存在"
             }, cancellationToken);
             return;
         }
 
-        _logger.LogInformation(
-            "[LLM复核] 行{Row}: 源=[{SrcProj}/{SrcSpec}] 匹配=[{MatchProj}/{MatchSpec}] 基础得分={Score:P1}",
-            item.RowIndex, item.SourceProject, item.SourceSpecification,
+        _logger.LogDebug(
+            "[LLM复核] {Location}: 源=[{SrcProj}/{SrcSpec}] 匹配=[{MatchProj}/{MatchSpec}] 基础得分={Score:P1}",
+            location, item.SourceProject, item.SourceSpecification,
             spec.Project, spec.Specification, item.BestMatchScore ?? 0);
 
         var reviewRequest = new LlmReviewRequest
@@ -1193,7 +1215,11 @@ public class MatchingController : BaseApiController
             LlmServiceId = config.LlmServiceId
         };
 
-        await WriteSseEventLockedAsync(sseWriteLock, "review.start", new { rowIndex = item.RowIndex }, cancellationToken);
+        await WriteSseEventLockedAsync(sseWriteLock, "review.start", new
+        {
+            tableIndex = item.TableIndex,
+            rowIndex = item.RowIndex
+        }, cancellationToken);
 
         var buffer = new StringBuilder();
         try
@@ -1203,6 +1229,7 @@ public class MatchingController : BaseApiController
                 buffer.Append(chunk);
                 await WriteSseEventLockedAsync(sseWriteLock, "review.delta", new
                 {
+                    tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
                     chunk
                 }, cancellationToken);
@@ -1210,10 +1237,11 @@ public class MatchingController : BaseApiController
 
             if (reviewService.TryParseReviewResult(buffer.ToString(), out var result))
             {
-                _logger.LogInformation("[LLM复核] 行{Row}: 完成, score={Score}, reason={Reason}",
-                    item.RowIndex, result.Score, result.Reason);
+                _logger.LogDebug("[LLM复核] {Location}: 完成, score={Score}, reason={Reason}",
+                    location, result.Score, result.Reason);
                 await WriteSseEventLockedAsync(sseWriteLock, "review.done", new
                 {
+                    tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
                     score = result.Score,
                     reason = result.Reason,
@@ -1222,9 +1250,10 @@ public class MatchingController : BaseApiController
             }
             else
             {
-                _logger.LogWarning("[LLM复核] 行{Row}: JSON解析失败, 原始输出: {Raw}", item.RowIndex, buffer.ToString());
+                _logger.LogWarning("[LLM复核] {Location}: JSON解析失败, 原始输出: {Raw}", location, buffer.ToString());
                 await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
                 {
+                    tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
                     message = "LLM复核输出解析失败"
                 }, cancellationToken);
@@ -1239,6 +1268,7 @@ public class MatchingController : BaseApiController
             _logger.LogWarning(ex, "LLM复核失败");
             await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
             {
+                tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
                 message = ex.Reason
             }, cancellationToken);
@@ -1248,6 +1278,7 @@ public class MatchingController : BaseApiController
             _logger.LogWarning(ex, "LLM复核失败");
             await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
             {
+                tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
                 message = "LLM复核失败"
             }, cancellationToken);
@@ -1268,6 +1299,7 @@ public class MatchingController : BaseApiController
             SourceSpecification = item.SourceSpecification,
             LlmServiceId = config.LlmServiceId
         };
+        var location = FormatStreamItemLocation(item);
 
         // 如果有最佳匹配（虽然得分低于阈值），包含为参考数据
         if (item.BestMatchSpecId.HasValue && item.BestMatchSpecId.Value > 0)
@@ -1283,12 +1315,16 @@ public class MatchingController : BaseApiController
             }
         }
 
-        _logger.LogInformation(
-            "[LLM建议] 行{Row}: 源=[{SrcProj}/{SrcSpec}] 参考=[{RefProj}] 得分={Score}",
-            item.RowIndex, item.SourceProject, item.SourceSpecification,
+        _logger.LogDebug(
+            "[LLM建议] {Location}: 源=[{SrcProj}/{SrcSpec}] 参考=[{RefProj}] 得分={Score}",
+            location, item.SourceProject, item.SourceSpecification,
             request.BestMatchProject ?? "(无)", item.BestMatchScore?.ToString("P1") ?? "N/A");
 
-        await WriteSseEventLockedAsync(sseWriteLock, "suggestion.start", new { rowIndex = item.RowIndex }, cancellationToken);
+        await WriteSseEventLockedAsync(sseWriteLock, "suggestion.start", new
+        {
+            tableIndex = item.TableIndex,
+            rowIndex = item.RowIndex
+        }, cancellationToken);
 
         var buffer = new StringBuilder();
         try
@@ -1298,6 +1334,7 @@ public class MatchingController : BaseApiController
                 buffer.Append(chunk);
                 await WriteSseEventLockedAsync(sseWriteLock, "suggestion.delta", new
                 {
+                    tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
                     chunk
                 }, cancellationToken);
@@ -1305,10 +1342,11 @@ public class MatchingController : BaseApiController
 
             if (suggestionService.TryParseSuggestionResult(buffer.ToString(), out var result))
             {
-                _logger.LogInformation("[LLM建议] 行{Row}: 完成, acceptance={Acceptance}, remark={Remark}",
-                    item.RowIndex, result.Acceptance ?? "(空)", result.Remark ?? "(空)");
+                _logger.LogDebug("[LLM建议] {Location}: 完成, acceptance={Acceptance}, remark={Remark}",
+                    location, result.Acceptance ?? "(空)", result.Remark ?? "(空)");
                 await WriteSseEventLockedAsync(sseWriteLock, "suggestion.done", new
                 {
+                    tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
                     acceptance = result.Acceptance,
                     remark = result.Remark,
@@ -1317,9 +1355,10 @@ public class MatchingController : BaseApiController
             }
             else
             {
-                _logger.LogWarning("[LLM建议] 行{Row}: JSON解析失败, 原始输出: {Raw}", item.RowIndex, buffer.ToString());
+                _logger.LogWarning("[LLM建议] {Location}: JSON解析失败, 原始输出: {Raw}", location, buffer.ToString());
                 await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
                 {
+                    tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
                     message = "LLM生成输出解析失败"
                 }, cancellationToken);
@@ -1334,6 +1373,7 @@ public class MatchingController : BaseApiController
             _logger.LogWarning(ex, "LLM生成建议失败");
             await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
             {
+                tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
                 message = ex.Reason
             }, cancellationToken);
@@ -1343,10 +1383,33 @@ public class MatchingController : BaseApiController
             _logger.LogWarning(ex, "LLM生成建议失败");
             await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
             {
+                tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
                 message = "LLM生成建议失败"
             }, cancellationToken);
         }
+    }
+
+    private static bool ShouldGenerateSuggestion(MatchingConfig config, MatchLlmStreamItem item)
+    {
+        if (!config.UseLlmSuggestion)
+        {
+            return false;
+        }
+
+        if (item.BestMatchSpecId.HasValue)
+        {
+            return (item.BestMatchScore ?? 0) < config.LlmSuggestionScoreThreshold;
+        }
+
+        return config.SuggestNoMatchRows;
+    }
+
+    private static string FormatStreamItemLocation(MatchLlmStreamItem item)
+    {
+        return item.TableIndex.HasValue
+            ? $"表{item.TableIndex.Value + 1}/行{item.RowIndex + 1}"
+            : $"行{item.RowIndex + 1}";
     }
 
     private async Task WriteSseEventAsync(string eventName, object data, CancellationToken cancellationToken)

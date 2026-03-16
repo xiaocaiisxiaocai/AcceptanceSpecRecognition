@@ -1,18 +1,34 @@
 import { http } from "@/utils/http";
 import type { ApiResponse } from "./customer";
 
+/** 匹配策略 */
+export enum MatchingStrategy {
+  /** 单阶段匹配（原有基础方式） */
+  SingleStage = 1,
+  /** 多阶段匹配（TopK 召回 + 规则重排） */
+  MultiStage = 2
+}
+
 /** 匹配配置 */
 export interface MatchConfig {
+  /** 匹配策略 */
+  matchingStrategy?: MatchingStrategy;
   /** 选定的 Embedding 服务ID（为空则自动选择） */
   embeddingServiceId?: number;
   /** 选定的 LLM 服务ID（为空则自动选择） */
   llmServiceId?: number;
   /** 最小匹配阈值 */
   minScoreThreshold?: number;
+  /** 多阶段模式下第一阶段召回数量 */
+  recallTopK?: number;
+  /** 多阶段模式下的歧义分差阈值 */
+  ambiguityMargin?: number;
   /** 是否启用LLM复核 */
   useLlmReview?: boolean;
   /** 是否启用LLM生成建议 */
   useLlmSuggestion?: boolean;
+  /** 是否对完全无匹配的行也生成建议 */
+  suggestNoMatchRows?: boolean;
   /** 生成建议触发阈值 */
   llmSuggestionScoreThreshold?: number;
   /** LLM 并行处理数（1~10） */
@@ -73,8 +89,20 @@ export interface MatchResult {
   remark?: string;
   /** 综合得分（0-1） */
   score: number;
+  /** Embedding 原始得分（0-1） */
+  embeddingScore: number;
   /** 各算法得分详情 */
   scoreDetails: Record<string, number>;
+  /** 匹配策略 */
+  matchingStrategy: MatchingStrategy;
+  /** 第一阶段召回候选数 */
+  recalledCandidateCount: number;
+  /** 是否为高歧义样本 */
+  isAmbiguous: boolean;
+  /** Top1 与 Top2 的最终分差 */
+  scoreGap?: number;
+  /** 重排摘要 */
+  rerankSummary?: string;
   /** LLM复核得分（0-100） */
   llmScore?: number;
   /** LLM复核原因 */
@@ -135,6 +163,8 @@ export interface MatchPreviewResponse {
   mediumConfidenceCount: number;
   /** 低置信度匹配数 */
   lowConfidenceCount: number;
+  /** 高歧义样本数 */
+  ambiguousCount: number;
 }
 
 /** 填充映射 */
@@ -240,9 +270,13 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
+  matchingStrategy: MatchingStrategy.SingleStage,
   minScoreThreshold: 0.95,
+  recallTopK: 5,
+  ambiguityMargin: 0.03,
   useLlmReview: false,
   useLlmSuggestion: true,
+  suggestNoMatchRows: false,
   llmSuggestionScoreThreshold: 0.6,
   llmParallelism: 3,
   filterEmptySourceRows: true
@@ -302,6 +336,8 @@ export interface BatchTablePreviewResult {
   mediumConfidenceCount: number;
   /** 低置信度 */
   lowConfidenceCount: number;
+  /** 高歧义 */
+  ambiguousCount: number;
 }
 
 /** 批量预览响应 */
@@ -316,6 +352,8 @@ export interface BatchPreviewResponse {
   mediumConfidenceCount: number;
   /** 汇总低置信度 */
   lowConfidenceCount: number;
+  /** 汇总高歧义 */
+  ambiguousCount: number;
 }
 
 /** 批量表格填充映射 */
