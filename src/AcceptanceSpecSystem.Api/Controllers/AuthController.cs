@@ -165,6 +165,11 @@ public class AuthController : ControllerBase
             Success = true,
             Data = new RefreshTokenSuccessData
             {
+                Avatar = access.Avatar,
+                Username = access.Username,
+                Nickname = string.IsNullOrWhiteSpace(access.Nickname) ? access.Username : access.Nickname,
+                Roles = access.Roles.ToList(),
+                Permissions = access.Permissions.ToList(),
                 AccessToken = pair.AccessToken,
                 RefreshToken = pair.RefreshToken,
                 Expires = pair.AccessTokenExpiresAt

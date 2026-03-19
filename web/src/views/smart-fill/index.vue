@@ -21,14 +21,19 @@ import {
   defaultMatchConfig
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
-import { getFileTables } from "@/api/document";
+import { getFileTables, getTablePreview } from "@/api/document";
 import {
   getEffectiveColumnMappingRules,
   ColumnMappingTargetField,
   ColumnMappingMatchMode,
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
-import { getToken, formatToken } from "@/utils/auth";
+import { getToken, formatToken, hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
+import {
+  DEFAULT_EXCEL_PROBE_PREVIEW_ROWS,
+  detectExcelSmartFillConfig
+} from "./excel-auto-detect";
 
 defineOptions({ name: "SmartFill" });
 
@@ -44,6 +49,14 @@ const steps = [
 // 文件上传
 const uploadedFile = ref<FileUploadResponse | null>(null);
 const isExcelFile = computed(() => uploadedFile.value?.fileType === 1);
+const canUploadSourceFile = computed(() => hasPerms("btn:document:upload"));
+const canPreviewMatching = computed(() => hasPerms("btn:matching:preview-batch"));
+const canLlmStream = computed(() => hasPerms("btn:matching:llm-stream"));
+const canExecuteFill = computed(() => hasPerms("btn:matching-fill:execute-batch"));
+const canDownloadFillResult = computed(() => hasPerms("btn:matching:download"));
+const canExecuteAction = computed(
+  () => canExecuteFill.value && canDownloadFillResult.value
+);
 
 // 所有表格信息
 const allTables = ref<TableInfo[]>([]);
@@ -115,6 +128,47 @@ const canGoNext = computed(() => {
   }
 });
 
+const excelProbePreviewRows = DEFAULT_EXCEL_PROBE_PREVIEW_ROWS;
+
+const buildExcelTableConfig = async (
+  fileId: number,
+  table: TableInfo,
+  rules: ColumnMappingRule[],
+  selected: boolean
+): Promise<BatchTableConfigItem> => {
+  let detected = detectExcelSmartFillConfig(table, [], rules);
+
+  try {
+    const previewRes = await getTablePreview(fileId, table.index, {
+      previewRows: excelProbePreviewRows,
+      headerRowIndex: 0,
+      headerRowCount: 1,
+      dataStartRowIndex: 0
+    });
+
+    if (previewRes.code === 0) {
+      detected = detectExcelSmartFillConfig(table, previewRes.data.rows, rules);
+    }
+  } catch {
+    // 探测失败时回退到工作表首行与默认列配置
+  }
+
+  return {
+    tableIndex: table.index,
+    projectColumnIndex: detected.projectColumnIndex,
+    specificationColumnIndex: detected.specificationColumnIndex,
+    acceptanceColumnIndex: detected.acceptanceColumnIndex,
+    remarkColumnIndex: detected.remarkColumnIndex,
+    headerRowStart: detected.headerRowStart,
+    headerRowCount: detected.headerRowCount,
+    dataStartRow: detected.dataStartRow,
+    filterEmptySourceRows: true,
+    selected,
+    tableInfo: table,
+    autoDetection: detected
+  };
+};
+
 // 文件上传完成
 const handleFileUploaded = async (file: FileUploadResponse) => {
   invalidatePendingPreview();
@@ -141,14 +195,23 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
 
   allTables.value = tables;
 
-  // 用列映射规则自动匹配表头索引
+  if (file.fileType === 1) {
+    batchTableConfigs.value = await Promise.all(
+      tables.map((t) =>
+        buildExcelTableConfig(file.fileId, t, rules, tables.length === 1)
+      )
+    );
+    return;
+  }
+
+  // Word 文档仍按列映射规则自动匹配
   batchTableConfigs.value = tables.map((t) => ({
     tableIndex: t.index,
     ...autoMatchColumns(t.headers, rules),
     headerRowStart: Math.max(1, t.usedRangeStartRow ?? 1),
     headerRowCount: 1,
     dataStartRow: Math.max(1, t.usedRangeStartRow ?? 1) + 1,
-    resolvedHeaders: t.headers,
+    filterEmptySourceRows: true,
     selected: tables.length === 1,
     tableInfo: t
   }));
@@ -237,6 +300,9 @@ const matchHeader = (header: string, rule: ColumnMappingRule): boolean => {
 
 // 执行批量匹配预览
 const doPreview = async () => {
+  if (!ensurePermission("btn:matching:preview-batch", "权限不足，无法执行匹配预览")) {
+    return;
+  }
   if (!uploadedFile.value) return;
 
   const requestVersion = ++previewRequestVersion;
@@ -314,6 +380,9 @@ const stopLlmStream = () => {
 };
 
 const startLlmStream = async () => {
+  if (!canLlmStream.value) {
+    return;
+  }
   stopLlmStream();
 
   if (!allPreviewItems.value.length) return;
@@ -531,6 +600,14 @@ const handleSelect = (
 
 // 执行填充
 const handleExecute = async () => {
+  if (
+    !ensurePermission("btn:matching-fill:execute-batch", "权限不足，无法执行智能填充")
+  ) {
+    return;
+  }
+  if (!ensurePermission("btn:matching:download", "权限不足，无法下载填充结果")) {
+    return;
+  }
   if (!uploadedFile.value) return;
   if (llmStreaming.value) {
     ElMessage.warning("AI 仍在处理中，请等待完成后再执行填充");
@@ -634,6 +711,11 @@ const handleExecute = async () => {
 
 // 步骤切换
 const goNext = () => {
+  if (currentStep.value === 2) {
+    if (!ensurePermission("btn:matching:preview-batch", "权限不足，无法执行匹配预览")) {
+      return;
+    }
+  }
   if (!canGoNext.value || currentStep.value >= steps.length - 1) return;
   currentStep.value++;
   if (currentStep.value === 3) {
@@ -685,7 +767,18 @@ const handleRestart = () => {
       <div v-show="currentStep === 0" class="step-panel">
         <h3 class="step-title">上传目标文档</h3>
         <p class="step-desc">请选择需要填充验收标准的 Word/Excel 文档</p>
-        <FileUpload v-model="uploadedFile" @uploaded="handleFileUploaded" />
+        <FileUpload
+          v-if="canUploadSourceFile"
+          v-model="uploadedFile"
+          @uploaded="handleFileUploaded"
+        />
+        <el-alert
+          v-else
+          type="warning"
+          :closable="false"
+          show-icon
+          title="当前账号没有文档上传权限"
+        />
       </div>
 
       <!-- 步骤2: 选择表格 + 配置列索引 -->
@@ -714,7 +807,11 @@ const handleRestart = () => {
       <div v-show="currentStep === 2" class="step-panel">
         <h3 class="step-title">配置匹配参数</h3>
         <p class="step-desc">设置匹配范围和算法参数</p>
-        <MatchConfig ref="matchConfigRef" v-model="matchConfig" />
+        <MatchConfig
+          ref="matchConfigRef"
+          v-model="matchConfig"
+          :allow-llm="canLlmStream"
+        />
       </div>
 
       <!-- 步骤4: 预览确认 -->
@@ -768,10 +865,11 @@ const handleRestart = () => {
 
         <!-- 操作按钮 -->
         <div v-if="allPreviewItems.length > 0" class="action-bar">
-          <el-button @click="doPreview" :loading="loading">
+          <el-button v-if="canPreviewMatching" @click="doPreview" :loading="loading">
             重新匹配
           </el-button>
           <el-button
+            v-if="canExecuteAction"
             type="primary"
             :loading="executing"
             :disabled="!!taskId || llmStreaming || loading"
@@ -779,7 +877,7 @@ const handleRestart = () => {
           >
             执行填充
           </el-button>
-          <el-button v-if="taskId" @click="handleRestart">
+          <el-button v-if="taskId && canUploadSourceFile" @click="handleRestart">
             继续填充其他文档
           </el-button>
         </div>
@@ -793,7 +891,7 @@ const handleRestart = () => {
         <el-button
           v-if="currentStep < steps.length - 1"
           type="primary"
-          :disabled="!canGoNext"
+          :disabled="!canGoNext || (currentStep === 2 && !canPreviewMatching)"
           @click="goNext"
         >
           下一步

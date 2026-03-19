@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Interfaces;
@@ -30,6 +31,7 @@ public class MatchingController : BaseApiController
     private readonly ITextPreprocessingPipeline _textPipeline;
     private readonly ILlmReviewService _llmReviewService;
     private readonly ILlmSuggestionService _llmSuggestionService;
+    private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<MatchingController> _logger;
 
@@ -51,6 +53,7 @@ public class MatchingController : BaseApiController
         ITextPreprocessingPipeline textPipeline,
         ILlmReviewService llmReviewService,
         ILlmSuggestionService llmSuggestionService,
+        IAuthDataScopeService authDataScopeService,
         IServiceScopeFactory scopeFactory,
         ILogger<MatchingController> logger)
     {
@@ -61,6 +64,7 @@ public class MatchingController : BaseApiController
         _textPipeline = textPipeline;
         _llmReviewService = llmReviewService;
         _llmSuggestionService = llmSuggestionService;
+        _authDataScopeService = authDataScopeService;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
@@ -112,8 +116,14 @@ public class MatchingController : BaseApiController
             }
         }
 
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<MatchPreviewResponse>(401, "会话缺少用户上下文");
+        }
+
         // 获取候选验收规格
-        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId);
+        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId, scope);
         if (candidates.Count == 0)
         {
             var emptyItems = new List<MatchPreviewItem>();
@@ -245,8 +255,21 @@ public class MatchingController : BaseApiController
             return;
         }
 
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            await WriteSseEventAsync("error", new { message = "会话缺少用户上下文" }, CancellationToken.None);
+            return;
+        }
+
         var config = ConvertToMatchingConfig(request.Config);
         var cancellationToken = HttpContext.RequestAborted;
+        var accessibleSpecLookup = await GetScopedSpecDictionaryAsync(
+            request.Items.Select(item => item.BestMatchSpecId ?? 0),
+            scope);
+        var normalizedItems = request.Items
+            .Select(item => NormalizeLlmStreamItem(item, accessibleSpecLookup.ContainsKey(item.BestMatchSpecId ?? 0)))
+            .ToList();
 
         // 并行处理：每行独立创建 DI 作用域（DbContext 非线程安全），SSE 写入用信号量串行化
         var sseWriteLock = new SemaphoreSlim(1, 1);
@@ -256,8 +279,8 @@ public class MatchingController : BaseApiController
         var rowTimeoutSeconds = config.LlmRowTimeoutSeconds;
         var retryCount = config.LlmRetryCount;
         var circuitBreakFailures = config.LlmCircuitBreakFailures;
-        var reviewCount = request.Items.Count(item => config.UseLlmReview && item.BestMatchSpecId.HasValue);
-        var suggestionCount = request.Items.Count(item => ShouldGenerateSuggestion(config, item));
+        var reviewCount = normalizedItems.Count(item => config.UseLlmReview && item.BestMatchSpecId.HasValue);
+        var suggestionCount = normalizedItems.Count(item => ShouldGenerateSuggestion(config, item));
         var reviewSuccess = 0;
         var reviewFailed = 0;
         var reviewTimeout = 0;
@@ -271,14 +294,14 @@ public class MatchingController : BaseApiController
 
         _logger.LogInformation(
             "[LLM-Stream] 开始并行处理 {Count} 行 (review={ReviewCount}, suggestion={SuggestionCount}, maxParallelism={Parallelism}), useLlmReview={Review}, useLlmSuggestion={Suggestion}, suggestNoMatch={SuggestNoMatch}, suggestionThreshold={Threshold}, rowTimeoutSec={RowTimeoutSec}, retryCount={RetryCount}, circuitBreakFailures={CircuitBreakFailures}",
-            request.Items.Count, reviewCount, suggestionCount, parallelism,
+            normalizedItems.Count, reviewCount, suggestionCount, parallelism,
             config.UseLlmReview, config.UseLlmSuggestion, config.SuggestNoMatchRows, config.LlmSuggestionScoreThreshold,
             rowTimeoutSeconds, retryCount, circuitBreakFailures);
 
         try
         {
             await Parallel.ForEachAsync(
-                request.Items,
+                normalizedItems,
                 new ParallelOptions
                 {
                     MaxDegreeOfParallelism = parallelism,
@@ -287,7 +310,6 @@ public class MatchingController : BaseApiController
                 async (item, ct) =>
                 {
                     using var scope = _scopeFactory.CreateScope();
-                    var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                     var reviewService = scope.ServiceProvider.GetRequiredService<ILlmReviewService>();
                     var suggestionService = scope.ServiceProvider.GetRequiredService<ILlmSuggestionService>();
                     var location = FormatStreamItemLocation(item);
@@ -309,7 +331,7 @@ public class MatchingController : BaseApiController
                             item,
                             rowTimeoutSeconds,
                             retryCount,
-                            token => StreamLlmReviewAsync(item, config, token, unitOfWork, reviewService, sseWriteLock),
+                            token => StreamLlmReviewAsync(item, config, token, accessibleSpecLookup, reviewService, sseWriteLock),
                             sseWriteLock,
                             ct);
 
@@ -354,7 +376,7 @@ public class MatchingController : BaseApiController
                             item,
                             rowTimeoutSeconds,
                             retryCount,
-                            token => StreamLlmSuggestionAsync(item, config, token, unitOfWork, suggestionService, sseWriteLock),
+                            token => StreamLlmSuggestionAsync(item, config, token, accessibleSpecLookup, suggestionService, sseWriteLock),
                             sseWriteLock,
                             ct);
 
@@ -442,6 +464,12 @@ public class MatchingController : BaseApiController
             return Error<ExecuteFillResponse>(400, "源文件不存在");
         }
 
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<ExecuteFillResponse>(401, "会话缺少用户上下文");
+        }
+
         // 获取所有相关的验收规格
         var hasLlmSuggestions = request.Mappings.Any(m => m.UseLlmSuggestion);
         var specIds = request.Mappings
@@ -457,12 +485,7 @@ public class MatchingController : BaseApiController
             return Error<ExecuteFillResponse>(400, "未提供有效的验收规格ID");
         }
 
-        var specDict = new Dictionary<int, AcceptanceSpec>();
-        if (specIds.Count > 0)
-        {
-            var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => specIds.Contains(s.Id));
-            specDict = specs.ToDictionary(s => s.Id);
-        }
+        var specDict = await GetScopedSpecDictionaryAsync(specIds, scope);
 
         // 获取文档解析器
         var parser = _documentServiceFactory.GetParser(GetDocumentType(wordFile.FileType));
@@ -769,8 +792,14 @@ public class MatchingController : BaseApiController
             return Error<BatchPreviewResponse>(400, "文件ID不能为空");
         }
 
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<BatchPreviewResponse>(401, "会话缺少用户上下文");
+        }
+
         // 一次获取候选集
-        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId);
+        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId, scope);
         var config = ConvertToMatchingConfig(request.Config);
 
         // 创建文本处理会话
@@ -927,6 +956,12 @@ public class MatchingController : BaseApiController
             return Error<ExecuteFillResponse>(400, "源文件不存在");
         }
 
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<ExecuteFillResponse>(401, "会话缺少用户上下文");
+        }
+
         // 收集所有 specId 一次查 DB
         var allSpecIds = request.Tables
             .SelectMany(t => t.Mappings)
@@ -937,12 +972,7 @@ public class MatchingController : BaseApiController
             .Distinct()
             .ToList();
 
-        var specDict = new Dictionary<int, Data.Entities.AcceptanceSpec>();
-        if (allSpecIds.Count > 0)
-        {
-            var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => allSpecIds.Contains(s.Id));
-            specDict = specs.ToDictionary(s => s.Id);
-        }
+        var specDict = await GetScopedSpecDictionaryAsync(allSpecIds, scope);
 
         // 遍历每个表格生成 TableFillEntry
         int totalFilled = 0, totalSkipped = 0;
@@ -1103,7 +1133,11 @@ public class MatchingController : BaseApiController
     /// <summary>
     /// 获取候选验收规格列表
     /// </summary>
-    private async Task<List<MatchCandidate>> GetCandidatesAsync(int? customerId, int? processId, int? machineModelId)
+    private async Task<List<MatchCandidate>> GetCandidatesAsync(
+        int? customerId,
+        int? processId,
+        int? machineModelId,
+        DataScopeResult scope)
     {
         IEnumerable<Data.Entities.AcceptanceSpec> specs;
 
@@ -1147,10 +1181,12 @@ public class MatchingController : BaseApiController
             specs = await _unitOfWork.AcceptanceSpecs.GetAllAsync();
         }
 
+        var scopedSpecs = SpecDataScopeHelper.ApplyScope(specs, scope);
+
         // 同一范围内可能存在重复导入（项目+规格相同，但验收/备注完整度不同）。
         // 这里先做候选去重，优先保留“验收标准非空 > 备注非空 > 导入时间新 > ID大”的记录，
         // 避免匹配命中到信息缺失的旧记录。
-        var dedupedSpecs = specs
+        var dedupedSpecs = scopedSpecs
             .GroupBy(s => BuildCandidateDedupKey(s.Project, s.Specification))
             .Select(g => g
                 .OrderByDescending(s => HasText(s.Acceptance))
@@ -1161,8 +1197,8 @@ public class MatchingController : BaseApiController
             .ToList();
 
         _logger.LogInformation(
-            "匹配候选去重: 原始{RawCount}条 -> 去重后{DedupedCount}条 (customerId={CustomerId}, processId={ProcessId}, machineModelId={MachineModelId})",
-            specs.Count(), dedupedSpecs.Count, customerId, processId, machineModelId);
+            "匹配候选去重: 原始{RawCount}条, 范围内{ScopedCount}条 -> 去重后{DedupedCount}条 (customerId={CustomerId}, processId={ProcessId}, machineModelId={MachineModelId})",
+            specs.Count(), scopedSpecs.Count, dedupedSpecs.Count, customerId, processId, machineModelId);
 
         return dedupedSpecs.Select(s => new MatchCandidate
         {
@@ -1241,6 +1277,21 @@ public class MatchingController : BaseApiController
             Score = result.Score,
             EmbeddingScore = result.EmbeddingScore,
             ScoreDetails = result.ScoreDetails,
+            TopCandidates = result.TopCandidates
+                .Select(candidate => new MatchCandidateDto
+                {
+                    Rank = candidate.Rank,
+                    SpecId = candidate.SpecId,
+                    Project = candidate.Project,
+                    Specification = candidate.Specification,
+                    Acceptance = candidate.Acceptance,
+                    Remark = candidate.Remark,
+                    Score = candidate.Score,
+                    EmbeddingScore = candidate.EmbeddingScore,
+                    ScoreDetails = candidate.ScoreDetails,
+                    RerankSummary = candidate.RerankSummary
+                })
+                .ToList(),
             MatchingStrategy = result.MatchingStrategy,
             RecalledCandidateCount = result.RecalledCandidateCount,
             IsAmbiguous = result.IsAmbiguous,
@@ -1257,7 +1308,7 @@ public class MatchingController : BaseApiController
         MatchLlmStreamItem item,
         MatchingConfig config,
         CancellationToken cancellationToken,
-        IUnitOfWork unitOfWork,
+        IReadOnlyDictionary<int, AcceptanceSpec> accessibleSpecLookup,
         ILlmReviewService reviewService,
         SemaphoreSlim sseWriteLock)
     {
@@ -1267,15 +1318,14 @@ public class MatchingController : BaseApiController
 
         var location = FormatStreamItemLocation(item);
 
-        var spec = await unitOfWork.AcceptanceSpecs.GetByIdAsync(specId);
-        if (spec == null)
+        if (!accessibleSpecLookup.TryGetValue(specId, out var spec))
         {
-            _logger.LogWarning("[LLM复核] {Location}: 最佳匹配规格ID={SpecId}不存在", location, specId);
+            _logger.LogWarning("[LLM复核] {Location}: 最佳匹配规格ID={SpecId}不存在或无权限", location, specId);
             await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
-                message = "最佳匹配规格不存在"
+                message = "最佳匹配规格不存在或无权限"
             }, cancellationToken);
             return LlmStepOutcome.Failed;
         }
@@ -1376,7 +1426,7 @@ public class MatchingController : BaseApiController
         MatchLlmStreamItem item,
         MatchingConfig config,
         CancellationToken cancellationToken,
-        IUnitOfWork unitOfWork,
+        IReadOnlyDictionary<int, AcceptanceSpec> accessibleSpecLookup,
         ILlmSuggestionService suggestionService,
         SemaphoreSlim sseWriteLock)
     {
@@ -1391,8 +1441,7 @@ public class MatchingController : BaseApiController
         // 如果有最佳匹配（虽然得分低于阈值），包含为参考数据
         if (item.BestMatchSpecId.HasValue && item.BestMatchSpecId.Value > 0)
         {
-            var spec = await unitOfWork.AcceptanceSpecs.GetByIdAsync(item.BestMatchSpecId.Value);
-            if (spec != null)
+            if (accessibleSpecLookup.TryGetValue(item.BestMatchSpecId.Value, out var spec))
             {
                 request.BestMatchProject = spec.Project;
                 request.BestMatchSpecification = spec.Specification;
@@ -1606,6 +1655,51 @@ public class MatchingController : BaseApiController
         return string.Equals(stepName, "review", StringComparison.OrdinalIgnoreCase)
             ? "LLM复核"
             : "LLM建议";
+    }
+
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync()
+    {
+        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
+    }
+
+    private async Task<Dictionary<int, AcceptanceSpec>> GetScopedSpecDictionaryAsync(
+        IEnumerable<int> specIds,
+        DataScopeResult scope)
+    {
+        var distinctIds = specIds
+            .Where(id => id > 0)
+            .Distinct()
+            .ToList();
+
+        if (distinctIds.Count == 0)
+        {
+            return new Dictionary<int, AcceptanceSpec>();
+        }
+
+        var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => distinctIds.Contains(s.Id));
+        return SpecDataScopeHelper.ApplyScope(specs, scope)
+            .ToDictionary(spec => spec.Id);
+    }
+
+    private static MatchLlmStreamItem NormalizeLlmStreamItem(
+        MatchLlmStreamItem item,
+        bool hasAccessibleBestMatch)
+    {
+        if (hasAccessibleBestMatch)
+        {
+            return item;
+        }
+
+        return new MatchLlmStreamItem
+        {
+            TableIndex = item.TableIndex,
+            RowIndex = item.RowIndex,
+            SourceProject = item.SourceProject,
+            SourceSpecification = item.SourceSpecification,
+            BestMatchSpecId = null,
+            BestMatchScore = null,
+            ScoreDetails = null
+        };
     }
 
     private async Task WriteSseEventAsync(string eventName, object data, CancellationToken cancellationToken)

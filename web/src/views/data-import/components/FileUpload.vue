@@ -7,6 +7,7 @@ import type { UploadRequestOptions } from "element-plus";
 
 const props = defineProps<{
   modelValue?: FileUploadResponse | null;
+  accept?: string;
 }>();
 
 const emit = defineEmits<{
@@ -21,15 +22,30 @@ const uploadedFile = computed({
 });
 
 const isExcel = computed(() => uploadedFile.value?.fileType === 1);
+const resolvedAccept = computed(() => (props.accept?.trim() || ".docx,.xlsx").toLowerCase());
+const allowedExtensions = computed(() =>
+  resolvedAccept.value
+    .split(",")
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean)
+);
+const uploadHint = computed(() => {
+  const extText = allowedExtensions.value.join(" / ");
+  return `仅支持 ${extText} 格式，文件大小不超过 50MB`;
+});
 
 // 自定义上传
 const handleUpload = async (options: UploadRequestOptions) => {
   const file = options.file;
+  const extensions = allowedExtensions.value;
 
   // 检查文件类型
   const lower = file.name.toLowerCase();
-  if (!lower.endsWith(".docx") && !lower.endsWith(".xlsx")) {
-    ElMessage.error("仅支持 .docx / .xlsx 格式文件");
+  if (
+    extensions.length === 0 ||
+    !extensions.some(extension => lower.endsWith(extension))
+  ) {
+    ElMessage.error(uploadHint.value);
     return;
   }
 
@@ -70,7 +86,7 @@ const clearFile = () => {
       drag
       :show-file-list="false"
       :http-request="handleUpload"
-      accept=".docx,.xlsx"
+      :accept="resolvedAccept"
       :disabled="uploading"
     >
       <el-icon class="el-icon--upload" :size="60">
@@ -84,7 +100,7 @@ const clearFile = () => {
         </span>
       </div>
       <template #tip>
-        <div class="el-upload__tip">仅支持 .docx / .xlsx 格式，文件大小不超过 50MB</div>
+        <div class="el-upload__tip">{{ uploadHint }}</div>
       </template>
     </el-upload>
 

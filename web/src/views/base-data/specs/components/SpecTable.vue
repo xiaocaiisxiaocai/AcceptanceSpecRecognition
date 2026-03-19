@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import { ref, reactive, watch } from "vue";
+import { computed, ref, reactive, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   getSpecList,
+  detectSpecDuplicateGroups,
   createSpec,
   updateSpec,
   deleteSpec,
   batchDeleteSpecs,
   type AcceptanceSpec,
-  type SpecListRequest
+  type SpecListRequest,
+  type SpecDuplicateDetectionResult
 } from "@/api/spec";
+import { hasPerms } from "@/utils/auth";
+import SpecDuplicateDialog from "./SpecDuplicateDialog.vue";
 
 const props = defineProps<{
   customerId: number;
@@ -52,6 +56,28 @@ const formData = reactive({
 // 详情对话框
 const detailDialogVisible = ref(false);
 const detailData = ref<AcceptanceSpec | null>(null);
+const duplicateDialogVisible = ref(false);
+const duplicateLoading = ref(false);
+const duplicateResult = ref<SpecDuplicateDetectionResult | null>(null);
+
+const canCreate = computed(() => hasPerms("btn:spec:create"));
+const canUpdate = computed(() => hasPerms("btn:spec:update"));
+const canDelete = computed(() => hasPerms("btn:spec:delete"));
+const canBatchDelete = computed(() => hasPerms("btn:spec:delete-batch"));
+const canInspectDuplicates = computed(() => hasPerms("api:spec:read"));
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
+const showToolbarRight = computed(
+  () => canCreate.value || canBatchDelete.value || canInspectDuplicates.value
+);
+const actionColumnWidth = computed(() => {
+  const visibleActionCount =
+    1 + Number(canUpdate.value) + Number(canDelete.value);
+  if (visibleActionCount <= 1) return 90;
+  if (visibleActionCount === 2) return 130;
+  return 170;
+});
 
 /** 构建请求参数，包含 IsNull 标志 */
 const buildRequestParams = (): SpecListRequest => {
@@ -102,6 +128,8 @@ watch(
     queryParams.page = 1;
     queryParams.keyword = "";
     selectedRows.value = [];
+    duplicateDialogVisible.value = false;
+    duplicateResult.value = null;
     loadData();
   },
   { immediate: true }
@@ -122,6 +150,10 @@ const handleReset = () => {
 
 // 新增（自动填充当前分组的客户/机型/制程）
 const handleAdd = () => {
+  if (!canCreate.value) {
+    ElMessage.error("权限不足，无法新增规格");
+    return;
+  }
   dialogTitle.value = "新增验收规格";
   isEdit.value = false;
   formData.id = 0;
@@ -134,6 +166,10 @@ const handleAdd = () => {
 
 // 编辑
 const handleEdit = (row: AcceptanceSpec) => {
+  if (!canUpdate.value) {
+    ElMessage.error("权限不足，无法编辑规格");
+    return;
+  }
   dialogTitle.value = "编辑验收规格";
   isEdit.value = true;
   formData.id = row.id;
@@ -152,6 +188,10 @@ const handleView = (row: AcceptanceSpec) => {
 
 // 删除
 const handleDelete = async (row: AcceptanceSpec) => {
+  if (!canDelete.value) {
+    ElMessage.error("权限不足，无法删除规格");
+    return;
+  }
   try {
     await ElMessageBox.confirm(
       `确定要删除项目"${row.project}"的验收规格吗？`,
@@ -173,6 +213,10 @@ const handleDelete = async (row: AcceptanceSpec) => {
 
 // 批量删除
 const handleBatchDelete = async () => {
+  if (!canBatchDelete.value) {
+    ElMessage.error("权限不足，无法批量删除规格");
+    return;
+  }
   if (selectedRows.value.length === 0) {
     ElMessage.warning("请先选择要删除的规格");
     return;
@@ -198,6 +242,35 @@ const handleBatchDelete = async () => {
   }
 };
 
+const handleInspectDuplicates = async () => {
+  if (!canInspectDuplicates.value) {
+    ElMessage.error("权限不足，无法执行重复排查");
+    return;
+  }
+
+  duplicateDialogVisible.value = true;
+  duplicateLoading.value = true;
+  duplicateResult.value = null;
+
+  try {
+    const res = await detectSpecDuplicateGroups({
+      ...buildRequestParams(),
+      maxGroups: 30
+    });
+    if (res.code === 0) {
+      duplicateResult.value = res.data;
+    } else {
+      duplicateResult.value = null;
+      ElMessage.error(res.message);
+    }
+  } catch {
+    duplicateResult.value = null;
+    ElMessage.error("重复排查失败");
+  } finally {
+    duplicateLoading.value = false;
+  }
+};
+
 // 选择变化
 const handleSelectionChange = (rows: AcceptanceSpec[]) => {
   selectedRows.value = rows;
@@ -205,6 +278,10 @@ const handleSelectionChange = (rows: AcceptanceSpec[]) => {
 
 // 提交表单
 const handleSubmit = async () => {
+  if (!canSubmit.value) {
+    ElMessage.error("权限不足，无法提交当前操作");
+    return;
+  }
   if (!formData.project.trim()) {
     ElMessage.warning("请输入项目名称");
     return;
@@ -286,9 +363,15 @@ const groupLabel = () => {
         <el-button type="primary" @click="handleSearch">搜索</el-button>
         <el-button @click="handleReset">重置</el-button>
       </div>
-      <div class="toolbar-right">
-        <el-button type="primary" @click="handleAdd">新增规格</el-button>
+      <div v-if="showToolbarRight" class="toolbar-right">
+        <el-button v-if="canInspectDuplicates" @click="handleInspectDuplicates">
+          重复排查
+        </el-button>
+        <el-button v-if="canCreate" type="primary" @click="handleAdd">
+          新增规格
+        </el-button>
         <el-button
+          v-if="canBatchDelete"
           type="danger"
           :disabled="selectedRows.length === 0"
           @click="handleBatchDelete"
@@ -307,7 +390,7 @@ const groupLabel = () => {
         height="100%"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="50" />
+        <el-table-column v-if="canBatchDelete" type="selection" width="50" />
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="project" label="项目" min-width="150">
           <template #default="{ row }">
@@ -347,15 +430,19 @@ const groupLabel = () => {
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column
+          label="操作"
+          :width="actionColumnWidth"
+          fixed="right"
+        >
           <template #default="{ row }">
             <el-button type="primary" link @click="handleView(row)">
               查看
             </el-button>
-            <el-button type="primary" link @click="handleEdit(row)">
+            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">
               编辑
             </el-button>
-            <el-button type="danger" link @click="handleDelete(row)">
+            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">
               删除
             </el-button>
           </template>
@@ -413,7 +500,9 @@ const groupLabel = () => {
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
+          确定
+        </el-button>
       </template>
     </el-dialog>
 
@@ -456,6 +545,13 @@ const groupLabel = () => {
         <el-button @click="detailDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <SpecDuplicateDialog
+      v-model="duplicateDialogVisible"
+      :loading="duplicateLoading"
+      :result="duplicateResult"
+      :group-label="groupLabel()"
+    />
   </div>
 </template>
 

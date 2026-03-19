@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
@@ -109,6 +110,7 @@ builder.Services.AddSingleton<IAuthTokenService, AuthTokenService>();
 builder.Services.AddSingleton<IAuthPasswordService, AuthPasswordService>();
 builder.Services.AddScoped<IAuthAccessService, AuthAccessService>();
 builder.Services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
+builder.Services.AddScoped<IAuthSessionValidationService, AuthSessionValidationService>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 
 // 注册文档服务
@@ -154,6 +156,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = jwtOptions.Audience,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(1)
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var validationService = context.HttpContext.RequestServices
+                    .GetRequiredService<IAuthSessionValidationService>();
+                var result = await validationService.ValidateAccessTokenAsync(
+                    context.Principal,
+                    context.HttpContext.RequestAborted);
+                if (!result.IsValid)
+                {
+                    context.Fail(result.Message);
+                }
+            }
         };
     });
 

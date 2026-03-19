@@ -15,15 +15,17 @@ import {
 } from "@pureadmin/utils";
 import {
   ascending,
+  filterTree,
+  filterNoPermissionTree,
   getTopMenu,
   initRouter,
-  isOneOfArray,
   getHistoryMode,
   findRouteByPath,
   handleAliveRoute,
   formatTwoStageRoutes,
   formatFlatteningRoutes
 } from "./utils";
+import { hasAnyPermission } from "@/utils/permission";
 import {
   type Router,
   type RouteRecordRaw,
@@ -119,6 +121,21 @@ const whiteList = ["/login"];
 
 const { VITE_HIDE_HOME } = import.meta.env;
 
+function findFirstMenuPath(routes: Array<any>): string | null {
+  for (const route of routes ?? []) {
+    if (route?.children?.length) {
+      const childPath = findFirstMenuPath(route.children);
+      if (childPath) return childPath;
+    }
+
+    if (typeof route?.path === "string" && route.path.length > 0) {
+      return route.path;
+    }
+  }
+
+  return null;
+}
+
 router.beforeEach((to: ToRouteType, _from, next) => {
   to.meta.loaded = loadedPaths.has(to.path);
 
@@ -147,7 +164,47 @@ router.beforeEach((to: ToRouteType, _from, next) => {
   function toCorrectRoute() {
     whiteList.includes(to.fullPath) ? next(_from.fullPath) : next();
   }
+
+  function hasRoutePermission() {
+    const currentPermissions = userInfo?.permissions ?? [];
+    return to.matched.every(item =>
+      hasAnyPermission(
+        currentPermissions,
+        (item.meta?.permissions as Array<string> | undefined) ??
+          (item.meta?.permission as string | undefined)
+      )
+    );
+  }
+
+  function redirectToFirstAuthorizedRoute() {
+    const availableMenus =
+      usePermissionStoreHook().wholeMenus.length > 0
+        ? usePermissionStoreHook().wholeMenus
+        : filterNoPermissionTree(filterTree(constantMenus));
+    const fallbackPath = findFirstMenuPath(availableMenus);
+
+    if (!fallbackPath) {
+      removeToken();
+      next({ path: "/login", replace: true });
+      return;
+    }
+
+    if (fallbackPath === to.path) {
+      next(false);
+      NProgress.done();
+      return;
+    }
+
+    next({ path: fallbackPath, replace: true });
+    NProgress.done();
+  }
+
   if (Cookies.get(multipleTabsKey) && userInfo) {
+    if (!externalLink && to.path !== "/login" && !hasRoutePermission()) {
+      redirectToFirstAuthorizedRoute();
+      return;
+    }
+
     if (_from?.name) {
       // name为超链接
       if (externalLink) {

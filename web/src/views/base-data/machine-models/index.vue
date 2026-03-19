@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, reactive } from "vue";
+import { computed, ref, onMounted, reactive } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   getMachineModelList,
@@ -9,6 +9,7 @@ import {
   type MachineModel,
   type MachineModelListRequest
 } from "@/api/machine-model";
+import { hasPerms } from "@/utils/auth";
 
 defineOptions({
   name: "MachineModels"
@@ -34,6 +35,14 @@ const formData = reactive({
   id: 0,
   name: ""
 });
+
+const canCreate = computed(() => hasPerms("btn:machine-model:create"));
+const canUpdate = computed(() => hasPerms("btn:machine-model:update"));
+const canDelete = computed(() => hasPerms("btn:machine-model:delete"));
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
+const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
 
 // 加载数据
 const loadData = async () => {
@@ -68,6 +77,10 @@ const handleReset = () => {
 
 // 新增
 const handleAdd = () => {
+  if (!canCreate.value) {
+    ElMessage.error("权限不足，无法新增机型");
+    return;
+  }
   dialogTitle.value = "新增机型";
   isEdit.value = false;
   formData.id = 0;
@@ -77,6 +90,10 @@ const handleAdd = () => {
 
 // 编辑
 const handleEdit = (row: MachineModel) => {
+  if (!canUpdate.value) {
+    ElMessage.error("权限不足，无法编辑机型");
+    return;
+  }
   dialogTitle.value = "编辑机型";
   isEdit.value = true;
   formData.id = row.id;
@@ -86,6 +103,10 @@ const handleEdit = (row: MachineModel) => {
 
 // 删除
 const handleDelete = async (row: MachineModel) => {
+  if (!canDelete.value) {
+    ElMessage.error("权限不足，无法删除机型");
+    return;
+  }
   try {
     await ElMessageBox.confirm(`确定要删除机型"${row.name}"吗？`, "提示", {
       confirmButtonText: "确定",
@@ -106,6 +127,10 @@ const handleDelete = async (row: MachineModel) => {
 
 // 提交表单
 const handleSubmit = async () => {
+  if (!canSubmit.value) {
+    ElMessage.error("权限不足，无法提交当前操作");
+    return;
+  }
   if (!formData.name.trim()) {
     ElMessage.warning("请输入机型名称");
     return;
@@ -175,7 +200,9 @@ onMounted(() => {
       <template #header>
         <div class="flex justify-between items-center">
           <span>机型列表</span>
-          <el-button type="primary" @click="handleAdd">新增机型</el-button>
+          <el-button v-if="canCreate" type="primary" @click="handleAdd">
+            新增机型
+          </el-button>
         </div>
       </template>
 
@@ -187,12 +214,17 @@ onMounted(() => {
             {{ new Date(row.createdAt).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column
+          v-if="hasOperationActions"
+          label="操作"
+          width="150"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleEdit(row)"
+            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)"
               >编辑</el-button
             >
-            <el-button type="danger" link @click="handleDelete(row)"
+            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)"
               >删除</el-button
             >
           </template>
@@ -226,7 +258,9 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
+          确定
+        </el-button>
       </template>
     </el-dialog>
   </div>

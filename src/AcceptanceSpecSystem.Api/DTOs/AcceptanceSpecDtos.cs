@@ -309,3 +309,111 @@ public class SpecFilterRequest
     /// </summary>
     public int PageSize { get; set; } = 20;
 }
+
+/// <summary>
+/// 规格重复排查结果
+/// </summary>
+public class SpecDuplicateDetectionResultDto
+{
+    /// <summary>
+    /// 本次扫描的规格数
+    /// </summary>
+    public int ScannedCount { get; set; }
+
+    /// <summary>
+    /// 完全重复分组数
+    /// </summary>
+    public int ExactGroupCount { get; set; }
+
+    /// <summary>
+    /// 近重复分组数
+    /// </summary>
+    public int SimilarGroupCount { get; set; }
+
+    /// <summary>
+    /// 完全重复分组列表
+    /// </summary>
+    public List<SpecDuplicateGroupDto> ExactGroups { get; set; } = [];
+
+    /// <summary>
+    /// 近重复分组列表
+    /// </summary>
+    public List<SpecDuplicateGroupDto> SimilarGroups { get; set; } = [];
+}
+
+/// <summary>
+/// 规格重复分组
+/// </summary>
+public class SpecDuplicateGroupDto
+{
+    /// <summary>
+    /// 分组类型：exact / similar
+    /// </summary>
+    public string GroupType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 代表项目
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 代表规格摘要
+    /// </summary>
+    public string SpecificationPreview { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 相似原因说明
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 相似度分数
+    /// </summary>
+    public double SimilarityScore { get; set; }
+
+    /// <summary>
+    /// 当前分组条数
+    /// </summary>
+    public int ItemCount { get; set; }
+
+    /// <summary>
+    /// 分组内的规格项
+    /// </summary>
+    public List<SpecDuplicateItemDto> Items { get; set; } = [];
+}
+
+/// <summary>
+/// 重复排查中的规格项
+/// </summary>
+public class SpecDuplicateItemDto
+{
+    /// <summary>
+    /// 规格ID
+    /// </summary>
+    public int Id { get; set; }
+
+    /// <summary>
+    /// 项目
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格内容
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 验收标准
+    /// </summary>
+    public string? Acceptance { get; set; }
+
+    /// <summary>
+    /// 备注
+    /// </summary>
+    public string? Remark { get; set; }
+
+    /// <summary>
+    /// 导入时间
+    /// </summary>
+    public DateTime ImportedAt { get; set; }
+}

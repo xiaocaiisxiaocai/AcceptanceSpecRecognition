@@ -64,5 +64,10 @@ public class MatchingPreviewScoreDetailsTests : IClassFixture<ApiWebApplicationF
         scoreDetails.TryGetProperty("Levenshtein", out _).Should().BeFalse();
         scoreDetails.TryGetProperty("Jaccard", out _).Should().BeFalse();
         scoreDetails.TryGetProperty("Cosine", out _).Should().BeFalse();
+
+        var topCandidates = bestMatch.GetProperty("topCandidates");
+        topCandidates.GetArrayLength().Should().BeGreaterThan(0);
+        topCandidates[0].GetProperty("rank").GetInt32().Should().Be(1);
+        topCandidates[0].GetProperty("scoreDetails").TryGetProperty("Embedding", out _).Should().BeTrue();
     }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   batchAddKeywords,
@@ -9,6 +9,8 @@ import {
   updateKeyword,
   type Keyword
 } from "@/api/keyword";
+import { hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
   name: "Keywords"
@@ -61,7 +63,19 @@ const formData = reactive({
   word: ""
 });
 
+const canCreate = computed(() => hasPerms("btn:keyword:create"));
+const canBatchCreate = computed(() => hasPerms("btn:keyword:create-batch"));
+const canUpdate = computed(() => hasPerms("btn:keyword:update"));
+const canDelete = computed(() => hasPerms("btn:keyword:delete"));
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
+const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
+
 const handleAdd = () => {
+  if (!ensurePermission("btn:keyword:create", "权限不足，无法新增关键字")) {
+    return;
+  }
   dialogTitle.value = "新增关键字";
   isEdit.value = false;
   formData.id = 0;
@@ -70,6 +84,9 @@ const handleAdd = () => {
 };
 
 const handleEdit = (row: Keyword) => {
+  if (!ensurePermission("btn:keyword:update", "权限不足，无法编辑关键字")) {
+    return;
+  }
   dialogTitle.value = "编辑关键字";
   isEdit.value = true;
   formData.id = row.id;
@@ -78,6 +95,9 @@ const handleEdit = (row: Keyword) => {
 };
 
 const handleDelete = async (row: Keyword) => {
+  if (!ensurePermission("btn:keyword:delete", "权限不足，无法删除关键字")) {
+    return;
+  }
   try {
     await ElMessageBox.confirm(`确定删除关键字“${row.word}”吗？`, "提示", {
       confirmButtonText: "确定",
@@ -97,6 +117,14 @@ const handleDelete = async (row: Keyword) => {
 };
 
 const handleSubmit = async () => {
+  if (
+    !ensurePermission(
+      isEdit.value ? "btn:keyword:update" : "btn:keyword:create",
+      isEdit.value ? "权限不足，无法保存关键字" : "权限不足，无法新增关键字"
+    )
+  ) {
+    return;
+  }
   if (!formData.word.trim()) {
     ElMessage.warning("请输入关键字");
     return;
@@ -128,11 +156,21 @@ const normalizeWords = (text: string) => {
 };
 
 const handleBatchAdd = () => {
+  if (
+    !ensurePermission("btn:keyword:create-batch", "权限不足，无法批量新增关键字")
+  ) {
+    return;
+  }
   batchText.value = "";
   batchDialogVisible.value = true;
 };
 
 const handleBatchSubmit = async () => {
+  if (
+    !ensurePermission("btn:keyword:create-batch", "权限不足，无法批量新增关键字")
+  ) {
+    return;
+  }
   const words = normalizeWords(batchText.value);
   if (words.length === 0) {
     ElMessage.warning("请输入关键字（可多行/逗号分隔）");
@@ -196,8 +234,12 @@ onMounted(loadData);
         <div class="flex justify-between items-center">
           <span>关键字管理</span>
           <div class="flex gap-2">
-            <el-button @click="handleBatchAdd">批量新增</el-button>
-            <el-button type="primary" @click="handleAdd">新增</el-button>
+            <el-button v-if="canBatchCreate" @click="handleBatchAdd">
+              批量新增
+            </el-button>
+            <el-button v-if="canCreate" type="primary" @click="handleAdd">
+              新增
+            </el-button>
           </div>
         </div>
       </template>
@@ -210,10 +252,19 @@ onMounted(loadData);
             {{ new Date(row.createdAt).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column
+          v-if="hasOperationActions"
+          label="操作"
+          width="150"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleEdit(row)">编辑</el-button>
-            <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
+            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">
+              编辑
+            </el-button>
+            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -239,7 +290,9 @@ onMounted(loadData);
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
+          确定
+        </el-button>
       </template>
     </el-dialog>
 
@@ -256,7 +309,9 @@ onMounted(loadData);
       </el-form>
       <template #footer>
         <el-button @click="batchDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleBatchSubmit">确定</el-button>
+        <el-button v-if="canBatchCreate" type="primary" @click="handleBatchSubmit">
+          确定
+        </el-button>
       </template>
     </el-dialog>
   </div>

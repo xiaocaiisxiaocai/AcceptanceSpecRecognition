@@ -41,11 +41,14 @@ class PureHttp {
   }
 
   /** `token`过期后，暂存待执行的请求 */
-  private static requests = [];
+  private static requests: Array<{
+    resolve: (config: PureHttpRequestConfig) => void;
+    reject: (error: unknown) => void;
+  }> = [];
 
   /** 防止重复刷新`token` */
   private static isRefreshing = false;
-  /** 防止401/403并发时重复提示与跳转 */
+  /** 防止401并发时重复提示与跳转 */
   private static isAuthRedirecting = false;
 
   /** 初始化配置对象 */
@@ -56,12 +59,32 @@ class PureHttp {
 
   /** 重连原始请求 */
   private static retryOriginalRequest(config: PureHttpRequestConfig) {
-    return new Promise(resolve => {
-      PureHttp.requests.push((token: string) => {
-        config.headers["Authorization"] = formatToken(token);
-        resolve(config);
+    return new Promise<PureHttpRequestConfig>((resolve, reject) => {
+      PureHttp.requests.push({
+        resolve: nextConfig => {
+          config.headers = config.headers ?? {};
+          config.headers["Authorization"] = nextConfig.headers?.Authorization;
+          resolve(config);
+        },
+        reject
       });
     });
+  }
+
+  private static resolvePendingRequests(token: string) {
+    PureHttp.requests.forEach(({ resolve }) => {
+      resolve({
+        headers: {
+          Authorization: formatToken(token)
+        }
+      } as PureHttpRequestConfig);
+    });
+    PureHttp.requests = [];
+  }
+
+  private static rejectPendingRequests(error: unknown) {
+    PureHttp.requests.forEach(({ reject }) => reject(error));
+    PureHttp.requests = [];
   }
 
   /** 请求拦截 */
@@ -99,8 +122,10 @@ class PureHttp {
                       .then(res => {
                         const token = res.data.accessToken;
                         config.headers["Authorization"] = formatToken(token);
-                        PureHttp.requests.forEach(cb => cb(token));
-                        PureHttp.requests = [];
+                        PureHttp.resolvePendingRequests(token);
+                      })
+                      .catch(error => {
+                        PureHttp.rejectPendingRequests(error);
                       })
                       .finally(() => {
                         PureHttp.isRefreshing = false;
@@ -149,20 +174,22 @@ class PureHttp {
         const requestUrl = String($error?.config?.url ?? "");
         const skipAuthHandler = requestUrl.endsWith("/login");
 
-        if (!skipAuthHandler && (status === 401 || status === 403)) {
+        if (!skipAuthHandler && status === 401) {
           if (!PureHttp.isAuthRedirecting) {
             PureHttp.isAuthRedirecting = true;
             const backendMessage =
               ($error?.response?.data as any)?.message ??
-              (status === 401
-                ? "登录状态已失效，请重新登录"
-                : "权限不足，请重新登录后重试");
+              "登录状态已失效，请重新登录";
             ElMessage.error(backendMessage);
             useUserStoreHook().logOut();
             setTimeout(() => {
               PureHttp.isAuthRedirecting = false;
             }, 1500);
           }
+        } else if (!skipAuthHandler && status === 403) {
+          const backendMessage =
+            ($error?.response?.data as any)?.message ?? "权限不足，无法执行当前操作";
+          ElMessage.error(backendMessage);
         }
 
         // 所有的响应异常 区分来源为取消请求/非取消请求

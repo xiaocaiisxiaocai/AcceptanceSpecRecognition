@@ -4,6 +4,7 @@ import { ElMessage } from "element-plus";
 import type { TableData, TableInfo } from "@/api/document";
 import TablePreview from "@/views/data-import/components/TablePreview.vue";
 import type { BatchTableConfig } from "@/api/matching";
+import type { SmartFillExcelAutoDetection } from "../excel-auto-detect";
 
 /** 带勾选状态的表格配置项 */
 export interface BatchTableConfigItem extends BatchTableConfig {
@@ -11,6 +12,8 @@ export interface BatchTableConfigItem extends BatchTableConfig {
   selected: boolean;
   /** 表格信息（用于展示） */
   tableInfo: TableInfo;
+  /** 自动识别建议 */
+  autoDetection?: SmartFillExcelAutoDetection;
 }
 
 const props = defineProps<{
@@ -68,6 +71,32 @@ const updateField = (
   const updated = [...items.value];
   updated[index] = { ...updated[index], [field]: value };
   items.value = updated;
+};
+
+/** 应用自动识别建议 */
+const applyAutoDetection = (index: number) => {
+  const current = items.value[index];
+  const detected = current?.autoDetection;
+  if (!current || !detected) return;
+
+  const updated = [...items.value];
+  updated[index] = {
+    ...current,
+    projectColumnIndex: detected.projectColumnIndex,
+    specificationColumnIndex: detected.specificationColumnIndex,
+    acceptanceColumnIndex: detected.acceptanceColumnIndex,
+    remarkColumnIndex: detected.remarkColumnIndex,
+    headerRowStart: detected.headerRowStart,
+    headerRowCount: detected.headerRowCount,
+    dataStartRow: detected.dataStartRow,
+    filterEmptySourceRows: detected.filterEmptySourceRows
+  };
+  items.value = updated;
+  previewHeadersMap.value = {
+    ...previewHeadersMap.value,
+    [current.tableIndex]: []
+  };
+  ElMessage.success(`已应用表格 ${current.tableIndex + 1} 的自动识别建议`);
 };
 
 /** 归一化 Excel 行配置 */
@@ -270,6 +299,22 @@ const allSelected = computed(() => {
 const toggleSelectAll = (val: boolean) => {
   items.value = items.value.map((item) => ({ ...item, selected: val }));
 };
+
+const getDetectionTagType = (item: BatchTableConfigItem) => {
+  const confidence = item.autoDetection?.confidence;
+  if (confidence === "high") return "success";
+  if (confidence === "medium") return "warning";
+  return "info";
+};
+
+const getDetectionTagText = (item: BatchTableConfigItem) => {
+  const detection = item.autoDetection;
+  if (!detection) return "无自动识别";
+  if (detection.mode === "fallback") return "已回退默认值";
+  if (detection.confidence === "high") return "自动识别 高";
+  if (detection.confidence === "medium") return "自动识别 中";
+  return "自动识别 低";
+};
 </script>
 
 <template>
@@ -346,6 +391,31 @@ const toggleSelectAll = (val: boolean) => {
             [{{ hi }}] {{ h || `列${hi + 1}` }}
           </el-tag>
           <span v-if="getDisplayHeaders(item).length > 8" class="more">...</span>
+        </div>
+
+        <div v-if="props.isExcel && item.autoDetection" class="auto-detect-panel">
+          <div class="auto-detect-head">
+            <el-tag size="small" :type="getDetectionTagType(item)">
+              {{ getDetectionTagText(item) }}
+            </el-tag>
+            <el-button
+              size="small"
+              text
+              type="primary"
+              @click="applyAutoDetection(idx)"
+            >
+              应用自动识别建议
+            </el-button>
+          </div>
+          <div class="auto-detect-summary">
+            {{ item.autoDetection.summary }}
+          </div>
+          <div
+            v-if="item.autoDetection.warnings.length > 0"
+            class="auto-detect-warning"
+          >
+            {{ item.autoDetection.warnings.join("；") }}
+          </div>
         </div>
 
         <el-form
@@ -553,6 +623,34 @@ const toggleSelectAll = (val: boolean) => {
 
 .header-tag {
   font-family: monospace;
+}
+
+.auto-detect-panel {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+}
+
+.auto-detect-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.auto-detect-summary {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.auto-detect-warning {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b45309;
 }
 
 .more {

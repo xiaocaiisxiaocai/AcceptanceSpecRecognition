@@ -1,5 +1,7 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Authorization;
+using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -15,14 +17,19 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 public class ProcessesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IAuthDataScopeService _authDataScopeService;
     private readonly ILogger<ProcessesController> _logger;
 
     /// <summary>
     /// 创建制程控制器实例
     /// </summary>
-    public ProcessesController(IUnitOfWork unitOfWork, ILogger<ProcessesController> logger)
+    public ProcessesController(
+        IUnitOfWork unitOfWork,
+        IAuthDataScopeService authDataScopeService,
+        ILogger<ProcessesController> logger)
     {
         _unitOfWork = unitOfWork;
+        _authDataScopeService = authDataScopeService;
         _logger = logger;
     }
 
@@ -36,6 +43,12 @@ public class ProcessesController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<PagedData<ProcessDto>>(401, "会话缺少用户上下文");
+        }
+
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
@@ -55,13 +68,7 @@ public class ProcessesController : BaseApiController
             .ToListAsync();
 
         var processIds = rows.Select(x => x.Id).ToList();
-        var specCountByProcess = processIds.Count == 0
-            ? new Dictionary<int, int>()
-            : await _unitOfWork.AcceptanceSpecs.Query()
-                .Where(s => s.ProcessId.HasValue && processIds.Contains(s.ProcessId.Value))
-                .GroupBy(s => s.ProcessId!.Value)
-                .Select(g => new { ProcessId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.ProcessId, x => x.Count);
+        var specCountByProcess = await BuildProcessSpecCountAsync(processIds, scope);
 
         var items = rows.Select(p => new ProcessDto
         {
@@ -90,6 +97,12 @@ public class ProcessesController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<ProcessDto>>> GetProcess(int id)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<ProcessDto>(401, "会话缺少用户上下文");
+        }
+
         var process = await _unitOfWork.Processes.GetByIdAsync(id);
 
         if (process == null)
@@ -102,7 +115,7 @@ public class ProcessesController : BaseApiController
             Id = process.Id,
             Name = process.Name,
             CreatedAt = process.CreatedAt,
-            SpecCount = process.AcceptanceSpecs?.Count ?? 0
+            SpecCount = await GetProcessSpecCountAsync(id, scope)
         };
 
         return Success(dto);
@@ -149,6 +162,12 @@ public class ProcessesController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ProcessDto>>> UpdateProcess(int id, [FromBody] UpdateProcessRequest request)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<ProcessDto>(401, "会话缺少用户上下文");
+        }
+
         var process = await _unitOfWork.Processes.GetByIdAsync(id);
         if (process == null)
         {
@@ -168,7 +187,7 @@ public class ProcessesController : BaseApiController
             Id = process.Id,
             Name = process.Name,
             CreatedAt = process.CreatedAt,
-            SpecCount = process.AcceptanceSpecs?.Count ?? 0
+            SpecCount = await GetProcessSpecCountAsync(id, scope)
         };
 
         return Success(dto, "更新制程成功");
@@ -209,13 +228,22 @@ public class ProcessesController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
+        }
+
         var process = await _unitOfWork.Processes.GetByIdAsync(id);
         if (process == null)
         {
             return NotFoundResult<PagedData<AcceptanceSpecDto>>("制程不存在");
         }
 
-        var allSpecs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.ProcessId == id);
+        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
+        allSpecs = SpecDataScopeHelper
+            .ApplyScope(allSpecs.Where(s => s.ProcessId == id), scope)
+            .ToList();
 
         // 按关键字筛选
         if (!string.IsNullOrWhiteSpace(keyword))
@@ -256,5 +284,34 @@ public class ProcessesController : BaseApiController
         };
 
         return Success(pagedData);
+    }
+
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync()
+    {
+        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
+    }
+
+    private async Task<Dictionary<int, int>> BuildProcessSpecCountAsync(
+        IReadOnlyCollection<int> processIds,
+        DataScopeResult scope)
+    {
+        if (processIds.Count == 0)
+        {
+            return new Dictionary<int, int>();
+        }
+
+        var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(
+            s => s.ProcessId.HasValue && processIds.Contains(s.ProcessId.Value));
+
+        return SpecDataScopeHelper.ApplyScope(specs, scope)
+            .Where(s => s.ProcessId.HasValue)
+            .GroupBy(s => s.ProcessId!.Value)
+            .ToDictionary(g => g.Key, g => g.Count());
+    }
+
+    private async Task<int> GetProcessSpecCountAsync(int processId, DataScopeResult scope)
+    {
+        var counts = await BuildProcessSpecCountAsync([processId], scope);
+        return counts.TryGetValue(processId, out var count) ? count : 0;
     }
 }

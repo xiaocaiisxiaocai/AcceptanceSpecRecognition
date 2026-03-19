@@ -310,6 +310,11 @@ public class MatchResultDto
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
 
     /// <summary>
+    /// Top候选列表（含Top1）
+    /// </summary>
+    public List<MatchCandidateDto> TopCandidates { get; set; } = [];
+
+    /// <summary>
     /// 匹配策略
     /// </summary>
     public MatchingStrategy MatchingStrategy { get; set; }
@@ -353,6 +358,62 @@ public class MatchResultDto
     /// 是否经过LLM复核
     /// </summary>
     public bool IsLlmReviewed { get; set; }
+}
+
+/// <summary>
+/// 匹配详情中的候选项
+/// </summary>
+public class MatchCandidateDto
+{
+    /// <summary>
+    /// 候选排名（从1开始）
+    /// </summary>
+    public int Rank { get; set; }
+
+    /// <summary>
+    /// 规格ID
+    /// </summary>
+    public int SpecId { get; set; }
+
+    /// <summary>
+    /// 项目名称
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格内容
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 验收标准
+    /// </summary>
+    public string? Acceptance { get; set; }
+
+    /// <summary>
+    /// 备注
+    /// </summary>
+    public string? Remark { get; set; }
+
+    /// <summary>
+    /// 当前候选得分
+    /// </summary>
+    public double Score { get; set; }
+
+    /// <summary>
+    /// Embedding 原始得分
+    /// </summary>
+    public double EmbeddingScore { get; set; }
+
+    /// <summary>
+    /// 各算法得分详情
+    /// </summary>
+    public Dictionary<string, double> ScoreDetails { get; set; } = [];
+
+    /// <summary>
+    /// 重排摘要
+    /// </summary>
+    public string? RerankSummary { get; set; }
 }
 
 /// <summary>

@@ -123,8 +123,29 @@ public class OrgUnitsController : BaseApiController
                 return Error<OrgUnitDto>(400, "上级组织不存在");
         }
 
-        if (!request.ParentId.HasValue && request.UnitType != OrgUnitType.Company)
-            return Error<OrgUnitDto>(400, "非公司节点必须指定上级组织");
+        if (!request.ParentId.HasValue)
+        {
+            if (request.UnitType != OrgUnitType.Company)
+                return Error<OrgUnitDto>(400, "非公司节点必须指定上级组织");
+
+            var rootExists = await _dbContext.OrgUnits.AnyAsync(o =>
+                o.CompanyId == companyId.Value &&
+                o.ParentId == null &&
+                o.UnitType == OrgUnitType.Company);
+            if (rootExists)
+                return Error<OrgUnitDto>(400, "公司根节点已存在，不允许新增顶级组织");
+        }
+        else
+        {
+            if (parent!.UnitType == OrgUnitType.Section)
+                return Error<OrgUnitDto>(400, "课别节点不允许新增下级组织");
+
+            if (request.UnitType == OrgUnitType.Company)
+                return Error<OrgUnitDto>(400, "公司节点只能作为根节点");
+
+            if (request.UnitType <= parent.UnitType)
+                return Error<OrgUnitDto>(400, "下级组织类型必须比上级组织层级更低");
+        }
 
         var now = DateTime.Now;
         var entity = new OrgUnit
@@ -177,6 +198,13 @@ public class OrgUnitsController : BaseApiController
             o.Code == code);
         if (duplicated)
             return Error<OrgUnitDto>(400, "组织编码已存在");
+
+        if (entity.ParentId == null &&
+            entity.UnitType == OrgUnitType.Company &&
+            !request.IsActive)
+        {
+            return Error<OrgUnitDto>(400, "公司根节点不允许停用");
+        }
 
         entity.Code = code;
         entity.Name = request.Name.Trim();

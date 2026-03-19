@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   type MatchConfig,
   defaultMatchConfig,
@@ -13,6 +13,7 @@ import { ElMessage } from "element-plus";
 
 const props = defineProps<{
   modelValue?: MatchConfig;
+  allowLlm?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -36,16 +37,17 @@ const loadingMachineModels = ref(false);
 const loadingAiServices = ref(false);
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
+const allowLlm = computed(() => props.allowLlm !== false);
 const strategyOptions = [
   {
     value: MatchingStrategy.SingleStage,
     label: "基础方式",
-    description: "保持当前 Top1 匹配行为，速度更快。"
+    description: "只按 Embedding Top1 返回，速度更快，但复杂模板更容易漏匹配。"
   },
   {
     value: MatchingStrategy.MultiStage,
     label: "多阶段重排",
-    description: "先召回 TopK，再按规则重排，适合复杂文档。"
+    description: "先召回 TopK，再按项目/规格规则重排，适合作为默认推荐。"
   }
 ] as const;
 
@@ -67,6 +69,10 @@ watch(
         (config.value as any)[key] = (source as any)[key];
       }
     }
+    if (!allowLlm.value) {
+      config.value.useLlmReview = false;
+      config.value.useLlmSuggestion = false;
+    }
   },
   { immediate: true }
 );
@@ -82,6 +88,17 @@ const updateConfig = () => {
 };
 
 watch(config, updateConfig, { deep: true });
+
+watch(
+  allowLlm,
+  enabled => {
+    if (!enabled) {
+      config.value.useLlmReview = false;
+      config.value.useLlmSuggestion = false;
+    }
+  },
+  { immediate: true }
+);
 
 watch(
   () => config.value.matchingStrategy,
@@ -195,6 +212,10 @@ watch(selectedMachineModelId, () => {
 // 重置配置
 const resetConfig = () => {
   config.value = { ...defaultMatchConfig };
+  if (!allowLlm.value) {
+    config.value.useLlmReview = false;
+    config.value.useLlmSuggestion = false;
+  }
 };
 
 // 初始化
@@ -310,6 +331,7 @@ defineExpose({
             v-model="config.llmServiceId"
             placeholder="请选择 LLM 服务"
             :teleported="true"
+            :disabled="!allowLlm"
             :loading="loadingAiServices"
             style="width: 100%; max-width: 400px"
             popper-class="app-select-popper"
@@ -418,11 +440,19 @@ defineExpose({
       <el-collapse-transition>
         <div v-show="showAdvanced" class="advanced-options">
           <el-form label-width="140px">
+            <el-alert
+              v-if="!allowLlm"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="当前账号没有 LLM 流式复核/生成权限，本页仅保留基础匹配能力。"
+              class="mb-4"
+            />
             <!-- LLM复核 -->
             <el-row :gutter="20" align="middle" class="llm-row">
               <el-col :span="8">
                 <el-form-item label="LLM复核">
-                  <el-switch v-model="config.useLlmReview" />
+                  <el-switch v-model="config.useLlmReview" :disabled="!allowLlm" />
                 </el-form-item>
               </el-col>
             </el-row>
@@ -431,7 +461,7 @@ defineExpose({
             <el-row :gutter="20" align="middle">
               <el-col :span="8">
                 <el-form-item label="LLM生成建议">
-                  <el-switch v-model="config.useLlmSuggestion" />
+                  <el-switch v-model="config.useLlmSuggestion" :disabled="!allowLlm" />
                 </el-form-item>
               </el-col>
               <el-col :span="16">
@@ -441,7 +471,7 @@ defineExpose({
                     :min="0"
                     :max="1"
                     :step="0.05"
-                    :disabled="!config.useLlmSuggestion"
+                    :disabled="!allowLlm || !config.useLlmSuggestion"
                     :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
                   />
                 </el-form-item>
@@ -453,7 +483,7 @@ defineExpose({
                 <el-form-item label="无匹配也建议">
                   <el-switch
                     v-model="config.suggestNoMatchRows"
-                    :disabled="!config.useLlmSuggestion"
+                    :disabled="!allowLlm || !config.useLlmSuggestion"
                   />
                 </el-form-item>
               </el-col>
@@ -473,7 +503,9 @@ defineExpose({
                     :min="1"
                     :max="10"
                     :step="1"
-                    :disabled="!config.useLlmReview && !config.useLlmSuggestion"
+                    :disabled="
+                      !allowLlm || (!config.useLlmReview && !config.useLlmSuggestion)
+                    "
                     size="default"
                     controls-position="right"
                   />

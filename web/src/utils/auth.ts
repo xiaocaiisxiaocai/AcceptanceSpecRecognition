@@ -1,6 +1,7 @@
 import Cookies from "js-cookie";
 import { useUserStoreHook } from "@/store/modules/user";
-import { storageLocal, isString, isIncludeAllChildren } from "@pureadmin/utils";
+import { storageLocal, isString } from "@pureadmin/utils";
+import { hasAllPermissions, hasPermission } from "./permission";
 
 export interface DataInfo<T> {
   /** token */
@@ -17,7 +18,7 @@ export interface DataInfo<T> {
   nickname?: string;
   /** 当前登录用户的角色 */
   roles?: Array<string>;
-  /** 当前登录用户的按钮级别权限 */
+  /** 当前登录用户的 permission code 集合 */
   permissions?: Array<string>;
 }
 
@@ -30,6 +31,23 @@ export const TokenKey = "authorized-token";
  * 再次打开浏览器需要重新登录系统
  * */
 export const multipleTabsKey = "multiple-tabs";
+
+function normalizeStringArray(values?: Array<string>) {
+  return [...new Set((values ?? []).filter(Boolean).map(value => value.trim()))]
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function isSameStringArray(left?: Array<string>, right?: Array<string>) {
+  const normalizedLeft = normalizeStringArray(left);
+  const normalizedRight = normalizeStringArray(right);
+
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every((value, index) => value === normalizedRight[index]);
+}
 
 /** 获取`token` */
 export function getToken(): DataInfo<number> {
@@ -63,6 +81,7 @@ export function setToken(data: DataInfo<Date>) {
   let expires = 0;
   const { accessToken, refreshToken } = data;
   const { isRemembered, loginDay } = useUserStoreHook();
+  const previousUserInfo = storageLocal().getItem<DataInfo<number>>(userKey);
   expires = new Date(data.expires).getTime(); // 如果后端直接设置时间戳，将此处代码改为expires = data.expires，然后把上面的DataInfo<Date>改成DataInfo<number>即可
   const cookieString = JSON.stringify({ accessToken, expires, refreshToken });
 
@@ -100,34 +119,25 @@ export function setToken(data: DataInfo<Date>) {
     });
   }
 
-  if (data.username && data.roles) {
-    const { username, roles } = data;
-    setUserKey({
-      avatar: data?.avatar ?? "",
-      username,
-      nickname: data?.nickname ?? "",
-      roles,
-      permissions: data?.permissions ?? []
-    });
-  } else {
-    const avatar =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.avatar ?? "";
-    const username =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.username ?? "";
-    const nickname =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.nickname ?? "";
-    const roles =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.roles ?? [];
-    const permissions =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.permissions ?? [];
-    setUserKey({
-      avatar,
-      username,
-      nickname,
-      roles,
-      permissions
-    });
-  }
+  const roles = data.roles ?? previousUserInfo?.roles ?? [];
+  const permissions = data.permissions ?? previousUserInfo?.permissions ?? [];
+  const username = data.username ?? previousUserInfo?.username ?? "";
+  const nickname = data.nickname ?? previousUserInfo?.nickname ?? "";
+  const avatar = data.avatar ?? previousUserInfo?.avatar ?? "";
+
+  setUserKey({
+    avatar,
+    username,
+    nickname,
+    roles,
+    permissions
+  });
+
+  return {
+    authorizationChanged:
+      !isSameStringArray(previousUserInfo?.roles, roles) ||
+      !isSameStringArray(previousUserInfo?.permissions, permissions)
+  };
 }
 
 /** 删除`token`以及key值为`user-info`的localStorage信息 */
@@ -142,15 +152,13 @@ export const formatToken = (token: string): string => {
   return "Bearer " + token;
 };
 
-/** 是否有按钮级别的权限（根据登录接口返回的`permissions`字段进行判断）*/
+/** 是否拥有指定 permission code（页面、按钮、接口统一使用该字段）*/
 export const hasPerms = (value: string | Array<string>): boolean => {
   if (!value) return false;
-  const allPerms = "*:*:*";
   const { permissions } = useUserStoreHook();
   if (!permissions) return false;
-  if (permissions.length === 1 && permissions[0] === allPerms) return true;
   const isAuths = isString(value)
-    ? permissions.includes(value)
-    : isIncludeAllChildren(value, permissions);
+    ? hasPermission(permissions, value)
+    : hasAllPermissions(permissions, value);
   return isAuths ? true : false;
 };

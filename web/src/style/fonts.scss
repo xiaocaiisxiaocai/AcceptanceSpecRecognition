@@ -1,1 +1,24 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+:root {
+  --app-font-sans:
+    "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+  --app-font-mono:
+    "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+
+html,
+body,
+button,
+input,
+select,
+textarea,
+#app {
+  font-family: var(--app-font-sans);
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--app-font-mono);
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   ChineseConversionMode,
@@ -8,6 +8,8 @@ import {
   saveTextProcessingConfig,
   type UpdateTextProcessingConfigRequest
 } from "@/api/text-processing";
+import { hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
   name: "TextProcessingConfig"
@@ -30,6 +32,9 @@ const conversionModeOptions = [
   { label: "台湾繁体 → 简体", value: ChineseConversionMode.TWToHans }
 ];
 
+const canUpdate = computed(() => hasPerms("btn:text-processing-config:update"));
+const canReset = computed(() => hasPerms("btn:text-processing-config:reset"));
+
 const load = async () => {
   loading.value = true;
   try {
@@ -48,6 +53,9 @@ const load = async () => {
 };
 
 const save = async () => {
+  if (!ensurePermission("btn:text-processing-config:update", "权限不足，无法保存文本处理配置")) {
+    return;
+  }
   try {
     const res = await saveTextProcessingConfig({
       ...formData,
@@ -67,6 +75,9 @@ const save = async () => {
 };
 
 const reset = async () => {
+  if (!ensurePermission("btn:text-processing-config:reset", "权限不足，无法重置文本处理配置")) {
+    return;
+  }
   try {
     await ElMessageBox.confirm("确定重置为默认配置吗？", "提示", {
       confirmButtonText: "确定",
@@ -102,8 +113,10 @@ onMounted(load);
         <div class="flex justify-between items-center">
           <span>文本处理配置</span>
           <div class="flex gap-2">
-            <el-button @click="reset">重置默认</el-button>
-            <el-button type="primary" @click="save">保存</el-button>
+            <el-button v-if="canReset" @click="reset">重置默认</el-button>
+            <el-button v-if="canUpdate" type="primary" @click="save">
+              保存
+            </el-button>
           </div>
         </div>
       </template>

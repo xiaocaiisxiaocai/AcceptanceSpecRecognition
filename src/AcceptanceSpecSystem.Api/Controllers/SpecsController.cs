@@ -93,40 +93,14 @@ public class SpecsController : BaseApiController
         // 需要在列表中展示客户/制程名称，因此必须 eager load 导航属性
         var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
         allSpecs = ApplySpecScope(allSpecs, scope);
-
-        // 按制程筛选
-        if (processId.HasValue)
-        {
-            allSpecs = allSpecs.Where(s => s.ProcessId == processId.Value).ToList();
-        }
-        else if (processIdIsNull == true)
-        {
-            allSpecs = allSpecs.Where(s => s.ProcessId == null).ToList();
-        }
-        // 按机型筛选
-        if (machineModelId.HasValue)
-        {
-            allSpecs = allSpecs.Where(s => s.MachineModelId == machineModelId.Value).ToList();
-        }
-        else if (machineModelIdIsNull == true)
-        {
-            allSpecs = allSpecs.Where(s => s.MachineModelId == null).ToList();
-        }
-        // 按客户筛选（直接通过 AcceptanceSpec.CustomerId）
-        if (customerId.HasValue)
-        {
-            allSpecs = allSpecs.Where(s => s.CustomerId == customerId.Value).ToList();
-        }
-
-        // 按关键字筛选
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            allSpecs = allSpecs.Where(s =>
-                s.Project.Contains(keyword) ||
-                s.Specification.Contains(keyword) ||
-                (s.Acceptance != null && s.Acceptance.Contains(keyword)) ||
-                (s.Remark != null && s.Remark.Contains(keyword))).ToList();
-        }
+        allSpecs = ApplySpecFilters(
+            allSpecs,
+            keyword,
+            customerId,
+            processId,
+            machineModelId,
+            processIdIsNull,
+            machineModelIdIsNull);
 
         var total = allSpecs.Count;
         var items = allSpecs
@@ -161,6 +135,40 @@ public class SpecsController : BaseApiController
         };
 
         return Success(pagedData);
+    }
+
+    /// <summary>
+    /// 规格重复/近重复排查
+    /// </summary>
+    [HttpGet("duplicate-groups")]
+    [ProducesResponseType(typeof(ApiResponse<SpecDuplicateDetectionResultDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<SpecDuplicateDetectionResultDto>>> GetDuplicateGroups(
+        [FromQuery] string? keyword = null,
+        [FromQuery] int? customerId = null,
+        [FromQuery] int? processId = null,
+        [FromQuery] int? machineModelId = null,
+        [FromQuery] bool? processIdIsNull = null,
+        [FromQuery] bool? machineModelIdIsNull = null,
+        [FromQuery] double? minSimilarity = null,
+        [FromQuery] int? maxGroups = null)
+    {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+            return Error<SpecDuplicateDetectionResultDto>(401, "会话缺少用户上下文");
+
+        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
+        allSpecs = ApplySpecScope(allSpecs, scope);
+        allSpecs = ApplySpecFilters(
+            allSpecs,
+            keyword,
+            customerId,
+            processId,
+            machineModelId,
+            processIdIsNull,
+            machineModelIdIsNull);
+
+        var result = SpecDuplicateDetectionService.Detect(allSpecs, minSimilarity, maxGroups);
+        return Success(result);
     }
 
     /// <summary>
@@ -510,42 +518,65 @@ public class SpecsController : BaseApiController
 
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()
     {
-        var userId = AuthClaimHelper.GetUserId(User);
-        var companyId = AuthClaimHelper.GetCompanyId(User);
-        if (!userId.HasValue || !companyId.HasValue)
-            return null;
-
-        return await _authDataScopeService.GetScopeAsync(userId.Value, companyId.Value, "spec");
+        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
     }
 
     private static IReadOnlyList<AcceptanceSpec> ApplySpecScope(
-        IReadOnlyList<AcceptanceSpec> specs,
+        IEnumerable<AcceptanceSpec> specs,
         DataScopeResult scope)
     {
-        if (scope.IsAll)
-            return specs;
-
-        var scopedOrgUnitIds = scope.OrgUnitIds.ToHashSet();
-        return specs.Where(s => CanAccessSpec(s, scope, scopedOrgUnitIds)).ToList();
+        return SpecDataScopeHelper.ApplyScope(specs, scope);
     }
 
     private static bool CanAccessSpec(AcceptanceSpec spec, DataScopeResult scope)
     {
-        return CanAccessSpec(spec, scope, scope.OrgUnitIds.ToHashSet());
+        return SpecDataScopeHelper.CanAccess(spec, scope);
     }
 
-    private static bool CanAccessSpec(AcceptanceSpec spec, DataScopeResult scope, HashSet<int> scopedOrgUnitIds)
+    private static IReadOnlyList<AcceptanceSpec> ApplySpecFilters(
+        IEnumerable<AcceptanceSpec> specs,
+        string? keyword,
+        int? customerId,
+        int? processId,
+        int? machineModelId,
+        bool? processIdIsNull,
+        bool? machineModelIdIsNull)
     {
-        if (scope.IsAll)
-            return true;
+        var query = specs;
 
-        if (scope.IncludeSelf && spec.CreatedByUserId.HasValue && spec.CreatedByUserId.Value == scope.UserId)
-            return true;
+        if (processId.HasValue)
+        {
+            query = query.Where(spec => spec.ProcessId == processId.Value);
+        }
+        else if (processIdIsNull == true)
+        {
+            query = query.Where(spec => spec.ProcessId == null);
+        }
 
-        if (spec.OwnerOrgUnitId.HasValue && scopedOrgUnitIds.Contains(spec.OwnerOrgUnitId.Value))
-            return true;
+        if (machineModelId.HasValue)
+        {
+            query = query.Where(spec => spec.MachineModelId == machineModelId.Value);
+        }
+        else if (machineModelIdIsNull == true)
+        {
+            query = query.Where(spec => spec.MachineModelId == null);
+        }
 
-        return false;
+        if (customerId.HasValue)
+        {
+            query = query.Where(spec => spec.CustomerId == customerId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            query = query.Where(spec =>
+                spec.Project.Contains(keyword) ||
+                spec.Specification.Contains(keyword) ||
+                (spec.Acceptance != null && spec.Acceptance.Contains(keyword)) ||
+                (spec.Remark != null && spec.Remark.Contains(keyword)));
+        }
+
+        return query.ToList();
     }
 
     /// <summary>

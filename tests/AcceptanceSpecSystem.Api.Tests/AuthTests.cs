@@ -66,6 +66,33 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task RefreshToken_WithValidToken_ShouldReturnLatestAuthorizationSnapshot()
+    {
+        var loginResp = await _client.PostAsync(
+            "/login",
+            ApiClientJson.ToJsonContent(new { username = "admin", password = "Admin@123456" }));
+        loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var loginJson = await loginResp.ReadAsAsync<JsonElement>();
+        var refreshToken = loginJson.GetProperty("data").GetProperty("refreshToken").GetString();
+        refreshToken.Should().NotBeNullOrWhiteSpace();
+
+        var refreshResp = await _client.PostAsync(
+            "/refresh-token",
+            ApiClientJson.ToJsonContent(new { refreshToken }));
+        refreshResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var refreshJson = await refreshResp.ReadAsAsync<JsonElement>();
+        var refreshData = refreshJson.GetProperty("data");
+        refreshData.GetProperty("username").GetString().Should().Be("admin");
+        refreshData.GetProperty("roles").EnumerateArray().Select(x => x.GetString())
+            .Should().Contain("admin");
+        refreshData.GetProperty("permissions").EnumerateArray()
+            .Select(x => x.GetString())
+            .Should().Contain(permission => !string.IsNullOrWhiteSpace(permission));
+    }
+
+    [Fact]
     public async Task CommonUser_ShouldAccessAsyncRoutes()
     {
         var loginResp = await _client.PostAsync(

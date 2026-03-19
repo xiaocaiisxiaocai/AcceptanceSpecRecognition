@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createOrgUnit,
@@ -15,6 +15,7 @@ defineOptions({
 
 const loading = ref(false);
 const treeData = ref<OrgUnit[]>([]);
+const deepestUnitType = 3;
 const unitTypeOptions = [
   { label: "公司", value: 0 },
   { label: "事业部", value: 1 },
@@ -72,13 +73,59 @@ const flattenOrgUnits = (nodes: OrgUnit[]): OrgUnit[] => {
   return all;
 };
 
+const flatOrgUnits = computed(() => flattenOrgUnits(treeData.value));
+
+const rootOrgUnit = computed(() => {
+  return (
+    flatOrgUnits.value.find(node => node.parentId == null && node.unitType === 0) ??
+    null
+  );
+});
+
+const parentOptions = computed(() => {
+  return flatOrgUnits.value.filter(node => node.unitType < deepestUnitType);
+});
+
+const findOrgUnit = (id: number | null | undefined) => {
+  if (id == null) return null;
+  return flatOrgUnits.value.find(node => node.id === id) ?? null;
+};
+
+const canCreateChild = (row: OrgUnit) => row.unitType < deepestUnitType;
+
+const createUnitTypeOptions = computed(() => {
+  const parent = findOrgUnit(createForm.parentId);
+  if (!parent) {
+    return rootOrgUnit.value ? [] : unitTypeOptions.filter(item => item.value === 0);
+  }
+
+  return unitTypeOptions.filter(item => item.value > parent.unitType);
+});
+
+const syncCreateUnitType = () => {
+  const options = createUnitTypeOptions.value;
+  if (!options.length) return;
+
+  if (!options.some(option => option.value === createForm.unitType)) {
+    createForm.unitType = options[0].value;
+  }
+};
+
 const openCreateDialog = (parentId?: number | null) => {
-  createForm.parentId = parentId ?? null;
-  createForm.unitType = parentId ? 2 : 1;
+  const targetParentId = parentId ?? rootOrgUnit.value?.id ?? null;
+  const targetParent = findOrgUnit(targetParentId);
+  if (targetParent && !canCreateChild(targetParent)) {
+    ElMessage.warning("课别节点不能新增下级组织");
+    return;
+  }
+
+  createForm.parentId = targetParentId;
+  createForm.unitType = 1;
   createForm.code = "";
   createForm.name = "";
   createForm.sort = 0;
   createForm.isActive = true;
+  syncCreateUnitType();
   createDialogVisible.value = true;
 };
 
@@ -94,6 +141,10 @@ const openEditDialog = (row: OrgUnit) => {
 const handleCreate = async () => {
   if (!createForm.code.trim() || !createForm.name.trim()) {
     ElMessage.warning("编码和名称不能为空");
+    return;
+  }
+  if (!createUnitTypeOptions.value.length) {
+    ElMessage.warning("当前上级组织不允许新增下级节点");
     return;
   }
   try {
@@ -164,6 +215,13 @@ const unitTypeLabel = (type: number) => {
   return unitTypeOptions.find(x => x.value === type)?.label ?? "-";
 };
 
+watch(
+  () => createForm.parentId,
+  () => {
+    syncCreateUnitType();
+  }
+);
+
 onMounted(loadTree);
 </script>
 
@@ -173,7 +231,7 @@ onMounted(loadTree);
       <template #header>
         <div class="flex items-center justify-between">
           <span>组织架构管理</span>
-          <el-button type="primary" v-perms="'btn:org-unit:create'" @click="openCreateDialog(null)">
+          <el-button type="primary" v-perms="'btn:org-unit:create'" @click="openCreateDialog()">
             新增组织
           </el-button>
         </div>
@@ -203,7 +261,13 @@ onMounted(loadTree);
         </el-table-column>
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link v-perms="'btn:org-unit:create'" @click="openCreateDialog(row.id)">
+            <el-button
+              type="primary"
+              link
+              v-perms="'btn:org-unit:create'"
+              :disabled="!canCreateChild(row)"
+              @click="openCreateDialog(row.id)"
+            >
               新增下级
             </el-button>
             <el-button type="primary" link v-perms="'btn:org-unit:update'" @click="openEditDialog(row)">
@@ -220,10 +284,10 @@ onMounted(loadTree);
     <el-dialog v-model="createDialogVisible" title="新增组织" width="520">
       <el-form label-width="90px">
         <el-form-item label="上级组织">
-          <el-select v-model="createForm.parentId" clearable class="w-full">
-            <el-option label="无（顶级）" :value="null" />
+          <el-select v-model="createForm.parentId" class="w-full">
+            <el-option v-if="!rootOrgUnit" label="无（顶级）" :value="null" />
             <el-option
-              v-for="node in flattenOrgUnits(treeData)"
+              v-for="node in parentOptions"
               :key="node.id"
               :label="`${'　'.repeat(node.depth)}${node.name}`"
               :value="node.id"
@@ -233,7 +297,7 @@ onMounted(loadTree);
         <el-form-item label="组织类型">
           <el-select v-model="createForm.unitType" class="w-full">
             <el-option
-              v-for="item in unitTypeOptions"
+              v-for="item in createUnitTypeOptions"
               :key="item.value"
               :label="item.label"
               :value="item.value"
@@ -255,7 +319,14 @@ onMounted(loadTree);
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" v-perms="'btn:org-unit:create'" @click="handleCreate">创建</el-button>
+        <el-button
+          type="primary"
+          v-perms="'btn:org-unit:create'"
+          :disabled="createUnitTypeOptions.length === 0"
+          @click="handleCreate"
+        >
+          创建
+        </el-button>
       </template>
     </el-dialog>
 

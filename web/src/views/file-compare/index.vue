@@ -18,6 +18,8 @@ import {
 } from "@/api/document";
 import CompareTableGrid from "./components/CompareTableGrid.vue";
 import UnifiedDiffView from "./components/UnifiedDiffView.vue";
+import { hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({ name: "FileCompare" });
 
@@ -50,6 +52,12 @@ const rightPaneRef = ref<HTMLElement | null>(null);
 let syncing = false;
 
 const isExcel = computed(() => fileType.value === 1);
+const canUploadCompare = computed(() => hasPerms("btn:file-compare:upload"));
+const canPreviewCompare = computed(() => hasPerms("btn:file-compare:preview"));
+const canDownloadCompare = computed(() => hasPerms("btn:file-compare:download"));
+const canStartCompare = computed(
+  () => canUploadCompare.value && canPreviewCompare.value
+);
 
 const totalCount = computed(() => diffItems.value.length);
 const wordItems = computed(() => {
@@ -142,6 +150,12 @@ const validateFiles = () => {
 };
 
 const startCompare = async () => {
+  if (!ensurePermission("btn:file-compare:upload", "权限不足，无法上传对比文件")) {
+    return;
+  }
+  if (!ensurePermission("btn:file-compare:preview", "权限不足，无法执行文件对比")) {
+    return;
+  }
   if (!validateFiles()) return;
 
   loading.value = true;
@@ -189,6 +203,9 @@ const startCompare = async () => {
 };
 
 const downloadResult = async () => {
+  if (!ensurePermission("btn:file-compare:download", "权限不足，无法下载对比结果")) {
+    return;
+  }
   if (!uploadedA.value || !uploadedB.value) {
     ElMessage.warning("请先完成对比");
     return;
@@ -375,7 +392,14 @@ watch(
         <div class="card-title">文件对比</div>
       </template>
 
-      <el-row :gutter="16">
+      <el-alert
+        v-if="!canUploadCompare"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="当前账号没有文件对比上传权限"
+      />
+      <el-row v-else :gutter="16">
         <el-col :span="12">
           <el-upload
             drag
@@ -403,10 +427,19 @@ watch(
       </el-row>
 
       <div class="actions">
-        <el-button type="primary" :loading="loading" @click="startCompare">
+        <el-button
+          v-if="canStartCompare"
+          type="primary"
+          :loading="loading"
+          @click="startCompare"
+        >
           开始对比
         </el-button>
-        <el-button :disabled="!diffItems.length" @click="downloadResult">
+        <el-button
+          v-if="canDownloadCompare"
+          :disabled="!diffItems.length"
+          @click="downloadResult"
+        >
           下载结果
         </el-button>
       </div>

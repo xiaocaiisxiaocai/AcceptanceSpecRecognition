@@ -16,6 +16,8 @@ import {
   type CreateAiServiceRequest,
   type UpdateAiServiceRequest
 } from "@/api/ai-service";
+import { hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
   name: "AiServicesConfig"
@@ -37,6 +39,22 @@ const purposeOptions = [
   { label: "LLM", value: AiServicePurpose.Llm },
   { label: "Embedding", value: AiServicePurpose.Embedding }
 ];
+
+const canCreate = computed(() => hasPerms("btn:ai-service:create"));
+const canUpdate = computed(() => hasPerms("btn:ai-service:update"));
+const canDelete = computed(() => hasPerms("btn:ai-service:delete"));
+const canTest = computed(() => hasPerms("btn:ai-service:test"));
+const canProbeModels = computed(() => hasPerms("btn:ai-service:models"));
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
+const hasActionButtons = computed(
+  () =>
+    canUpdate.value ||
+    canDelete.value ||
+    canTest.value ||
+    canProbeModels.value
+);
 
 const loadData = async () => {
   loading.value = true;
@@ -132,6 +150,9 @@ watch(
 );
 
 const handleAdd = (purpose: AiServicePurpose) => {
+  if (!ensurePermission("btn:ai-service:create", "权限不足，无法新增AI服务配置")) {
+    return;
+  }
   dialogTitle.value = "新增AI服务配置";
   isEdit.value = false;
   originalApiKey.value = "";
@@ -150,6 +171,9 @@ const handleAdd = (purpose: AiServicePurpose) => {
 };
 
 const handleEdit = async (row: AiServiceConfig) => {
+  if (!ensurePermission("btn:ai-service:update", "权限不足，无法编辑AI服务配置")) {
+    return;
+  }
   dialogTitle.value = "编辑AI服务配置";
   isEdit.value = true;
   try {
@@ -187,6 +211,9 @@ const handleEdit = async (row: AiServiceConfig) => {
 };
 
 const handleDelete = async (row: AiServiceConfig) => {
+  if (!ensurePermission("btn:ai-service:delete", "权限不足，无法删除AI服务配置")) {
+    return;
+  }
   try {
     await ElMessageBox.confirm(`确定删除配置“${row.name}”吗？`, "提示", {
       confirmButtonText: "确定",
@@ -206,6 +233,9 @@ const handleDelete = async (row: AiServiceConfig) => {
 };
 
 const handleTest = async (row: AiServiceConfig) => {
+  if (!ensurePermission("btn:ai-service:test", "权限不足，无法测试AI服务配置")) {
+    return;
+  }
   try {
     const res = await testAiServiceConnection(row.id);
     if (res.code === 0) {
@@ -229,6 +259,9 @@ const handleTest = async (row: AiServiceConfig) => {
 };
 
 const handleProbeModels = async (row: AiServiceConfig) => {
+  if (!ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")) {
+    return;
+  }
   modelsInfo.id = row.id;
   modelsInfo.name = row.name;
   modelsInfo.purpose = row.purpose;
@@ -240,6 +273,9 @@ const handleProbeModels = async (row: AiServiceConfig) => {
 };
 
 const loadModels = async () => {
+  if (!ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")) {
+    return;
+  }
   if (!modelsInfo.id) return;
   modelsLoading.value = true;
   try {
@@ -294,6 +330,14 @@ const formatPurpose = (purpose: number) => {
 };
 
 const handleSubmit = async () => {
+  if (
+    !ensurePermission(
+      isEdit.value ? "btn:ai-service:update" : "btn:ai-service:create",
+      isEdit.value ? "权限不足，无法保存AI服务配置" : "权限不足，无法新增AI服务配置"
+    )
+  ) {
+    return;
+  }
   if (!formData.name.trim()) {
     ElMessage.warning("请输入名称");
     return;
@@ -392,12 +436,27 @@ onMounted(loadData);
           <div class="card-header">
             <span>LLM 服务</span>
             <div class="card-actions">
-              <el-button type="primary" @click="handleAdd(AiServicePurpose.Llm)">新增</el-button>
-              <template v-if="llmConfig">
-                <el-button type="primary" link @click="handleEdit(llmConfig)">编辑</el-button>
-                <el-button type="danger" link @click="handleDelete(llmConfig)">删除</el-button>
-                <el-button type="warning" link @click="handleTest(llmConfig)">测试</el-button>
-                <el-button type="success" link @click="handleProbeModels(llmConfig)">模型</el-button>
+              <el-button v-if="canCreate" type="primary" @click="handleAdd(AiServicePurpose.Llm)">
+                新增
+              </el-button>
+              <template v-if="llmConfig && hasActionButtons">
+                <el-button v-if="canUpdate" type="primary" link @click="handleEdit(llmConfig)">
+                  编辑
+                </el-button>
+                <el-button v-if="canDelete" type="danger" link @click="handleDelete(llmConfig)">
+                  删除
+                </el-button>
+                <el-button v-if="canTest" type="warning" link @click="handleTest(llmConfig)">
+                  测试
+                </el-button>
+                <el-button
+                  v-if="canProbeModels"
+                  type="success"
+                  link
+                  @click="handleProbeModels(llmConfig)"
+                >
+                  模型
+                </el-button>
               </template>
             </div>
           </div>
@@ -432,12 +491,46 @@ onMounted(loadData);
           <div class="card-header">
             <span>Embedding 服务</span>
             <div class="card-actions">
-              <el-button type="primary" @click="handleAdd(AiServicePurpose.Embedding)">新增</el-button>
-              <template v-if="embeddingConfig">
-                <el-button type="primary" link @click="handleEdit(embeddingConfig)">编辑</el-button>
-                <el-button type="danger" link @click="handleDelete(embeddingConfig)">删除</el-button>
-                <el-button type="warning" link @click="handleTest(embeddingConfig)">测试</el-button>
-                <el-button type="success" link @click="handleProbeModels(embeddingConfig)">模型</el-button>
+              <el-button
+                v-if="canCreate"
+                type="primary"
+                @click="handleAdd(AiServicePurpose.Embedding)"
+              >
+                新增
+              </el-button>
+              <template v-if="embeddingConfig && hasActionButtons">
+                <el-button
+                  v-if="canUpdate"
+                  type="primary"
+                  link
+                  @click="handleEdit(embeddingConfig)"
+                >
+                  编辑
+                </el-button>
+                <el-button
+                  v-if="canDelete"
+                  type="danger"
+                  link
+                  @click="handleDelete(embeddingConfig)"
+                >
+                  删除
+                </el-button>
+                <el-button
+                  v-if="canTest"
+                  type="warning"
+                  link
+                  @click="handleTest(embeddingConfig)"
+                >
+                  测试
+                </el-button>
+                <el-button
+                  v-if="canProbeModels"
+                  type="success"
+                  link
+                  @click="handleProbeModels(embeddingConfig)"
+                >
+                  模型
+                </el-button>
               </template>
             </div>
           </div>
@@ -491,12 +584,25 @@ onMounted(loadData);
         <el-table-column prop="endpoint" label="Endpoint" min-width="240" />
         <el-table-column prop="embeddingModel" label="EmbeddingModel" min-width="160" />
         <el-table-column prop="llmModel" label="LLMModel" min-width="160" />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column
+          v-if="hasActionButtons"
+          label="操作"
+          width="220"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleEdit(row)">编辑</el-button>
-            <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
-            <el-button type="warning" link @click="handleTest(row)">测试</el-button>
-            <el-button type="success" link @click="handleProbeModels(row)">模型</el-button>
+            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">
+              编辑
+            </el-button>
+            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">
+              删除
+            </el-button>
+            <el-button v-if="canTest" type="warning" link @click="handleTest(row)">
+              测试
+            </el-button>
+            <el-button v-if="canProbeModels" type="success" link @click="handleProbeModels(row)">
+              模型
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -571,7 +677,9 @@ onMounted(loadData);
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
+          确定
+        </el-button>
       </template>
     </el-dialog>
 
@@ -619,7 +727,9 @@ onMounted(loadData);
       </div>
       <template #footer>
         <el-button @click="modelsDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="loadModels">重新探测</el-button>
+        <el-button v-if="canProbeModels" type="primary" @click="loadModels">
+          重新探测
+        </el-button>
       </template>
     </el-dialog>
   </div>

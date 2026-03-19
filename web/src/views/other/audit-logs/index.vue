@@ -10,6 +10,8 @@ import {
   type AuditLogDetail,
   type AuditLogListItem
 } from "@/api/audit-log";
+import { hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
   name: "AuditLogs"
@@ -45,6 +47,7 @@ const methodOptions = ["POST", "PUT", "DELETE", "PATCH"];
 const detailVisible = ref(false);
 const detailLoading = ref(false);
 const currentDetail = ref<AuditLogDetail | null>(null);
+const canDeleteRange = computed(() => hasPerms("btn:audit-log:delete-range"));
 
 const formattedDetails = computed(() => {
   if (!currentDetail.value?.details) return "-";
@@ -112,6 +115,9 @@ const handleReset = () => {
 };
 
 const handleDeleteByRange = async () => {
+  if (!ensurePermission("btn:audit-log:delete-range", "权限不足，无法删除审计日志")) {
+    return;
+  }
   const [from, to] = deleteRange.value ?? [];
   if (!from && !to) {
     ElMessage.warning("请选择删除时间范围");
@@ -278,7 +284,7 @@ onMounted(loadData);
         </el-form-item>
       </el-form>
 
-      <el-form :inline="true" class="delete-row">
+      <el-form v-if="canDeleteRange" :inline="true" class="delete-row">
         <el-form-item label="删除时间">
           <el-date-picker
             v-model="deleteRange"

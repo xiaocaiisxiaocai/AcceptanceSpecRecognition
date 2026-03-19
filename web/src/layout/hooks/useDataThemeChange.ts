@@ -11,7 +11,7 @@ import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
 import { darken, lighten, useGlobal, storageLocal } from "@pureadmin/utils";
 
 export function useDataThemeChange() {
-  const { layoutTheme, layout } = useLayout();
+  const { layout } = useLayout();
   const themeColors = ref<Array<themeColorsType>>([
     /* 亮白色 */
     { color: "#ffffff", themeColor: "light" },
@@ -32,8 +32,8 @@ export function useDataThemeChange() {
   ]);
 
   const { $storage } = useGlobal<GlobalPropertiesApi>();
-  const dataTheme = ref<boolean>($storage?.layout?.darkMode);
-  const overallStyle = ref<string>($storage?.layout?.overallStyle);
+  const dataTheme = ref<boolean>($storage?.layout?.darkMode ?? false);
+  const overallStyle = ref<string>($storage?.layout?.overallStyle ?? "light");
   const body = document.documentElement as HTMLElement;
 
   function toggleClass(flag: boolean, clsName: string, target?: HTMLElement) {
@@ -48,25 +48,24 @@ export function useDataThemeChange() {
     theme = getConfig().Theme ?? "light",
     isClick = true
   ) {
-    layoutTheme.value.theme = theme;
     document.documentElement.setAttribute("data-theme", theme);
     // 如果非isClick，保留之前的themeColor
-    const storageThemeColor = $storage.layout.themeColor;
+    const storageThemeColor = $storage.layout?.themeColor ?? theme;
     $storage.layout = {
-      layout: layout.value,
+      layout: layout.value ?? getConfig().Layout ?? "vertical",
       theme,
-      darkMode: dataTheme.value,
+      darkMode: dataTheme.value ?? false,
       sidebarStatus: $storage.layout?.sidebarStatus,
       epThemeColor: $storage.layout?.epThemeColor,
       themeColor: isClick ? theme : storageThemeColor,
-      overallStyle: overallStyle.value
+      overallStyle: overallStyle.value ?? "light"
     };
 
     if (theme === "default" || theme === "light") {
       setEpThemeColor(getConfig().EpThemeColor);
     } else {
       const colors = themeColors.value.find(v => v.themeColor === theme);
-      setEpThemeColor(colors.color);
+      setEpThemeColor(colors?.color ?? getConfig().EpThemeColor);
     }
   }
 
@@ -101,7 +100,7 @@ export function useDataThemeChange() {
     if (dataTheme.value) {
       document.documentElement.classList.add("dark");
     } else {
-      if ($storage.layout.themeColor === "light") {
+      if ($storage.layout?.themeColor === "light") {
         setLayoutThemeColor("light", false);
       }
       document.documentElement.classList.remove("dark");
@@ -127,7 +126,6 @@ export function useDataThemeChange() {
     body,
     dataTheme,
     overallStyle,
-    layoutTheme,
     themeColors,
     onReset,
     toggleClass,

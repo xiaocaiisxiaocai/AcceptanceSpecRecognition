@@ -4,7 +4,16 @@ import LayFooter from "../lay-footer/index.vue";
 import { useTags } from "@/layout/hooks/useTag";
 import { useGlobal, isNumber } from "@pureadmin/utils";
 import BackTopIcon from "@/assets/svg/back_top.svg?component";
-import { h, computed, Transition, defineComponent } from "vue";
+import {
+  h,
+  ref,
+  nextTick,
+  computed,
+  onMounted,
+  onUpdated,
+  Transition,
+  defineComponent
+} from "vue";
 import { usePermissionStoreHook } from "@/store/modules/permission";
 
 const props = defineProps({
@@ -35,6 +44,7 @@ const hideFooter = computed(() => {
 const stretch = computed(() => {
   return $storage?.configure.stretch;
 });
+const backTopTarget = ref("");
 
 const layout = computed(() => {
   return $storage?.layout.layout === "vertical";
@@ -71,6 +81,17 @@ const getSectionStyle = computed(() => {
         }`
   ];
 });
+
+const syncBackTopTarget = () => {
+  nextTick(() => {
+    backTopTarget.value = document.querySelector(".app-main .el-scrollbar__wrap")
+      ? ".app-main .el-scrollbar__wrap"
+      : "";
+  });
+};
+
+onMounted(syncBackTopTarget);
+onUpdated(syncBackTopTarget);
 
 const transitionMain = defineComponent({
   props: {
@@ -131,8 +152,9 @@ const transitionMain = defineComponent({
               }"
             >
               <el-backtop
+                v-if="backTopTarget"
                 title="回到顶部"
-                target=".app-main .el-scrollbar__wrap"
+                :target="backTopTarget"
               >
                 <BackTopIcon />
               </el-backtop>

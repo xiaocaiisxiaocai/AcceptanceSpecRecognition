@@ -51,6 +51,12 @@ public class DocumentsController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<PagedData<WordFileDto>>(401, "会话缺少用户上下文");
+        }
+
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
@@ -80,11 +86,11 @@ public class DocumentsController : BaseApiController
         var fileIds = rows.Select(f => f.Id).ToList();
         var specCountByFile = fileIds.Count == 0
             ? new Dictionary<int, int>()
-            : await _unitOfWork.AcceptanceSpecs.Query()
-                .Where(s => fileIds.Contains(s.WordFileId))
+            : SpecDataScopeHelper.ApplyScope(
+                await _unitOfWork.AcceptanceSpecs.FindAsync(s => fileIds.Contains(s.WordFileId)),
+                scope)
                 .GroupBy(s => s.WordFileId)
-                .Select(g => new { FileId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.FileId, x => x.Count);
+                .ToDictionary(g => g.Key, g => g.Count());
 
         var items = rows.Select(f => new WordFileDto
         {
@@ -1058,12 +1064,7 @@ public class DocumentsController : BaseApiController
 
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()
     {
-        var userId = AuthClaimHelper.GetUserId(User);
-        var companyId = AuthClaimHelper.GetCompanyId(User);
-        if (!userId.HasValue || !companyId.HasValue)
-            return null;
-
-        return await _authDataScopeService.GetScopeAsync(userId.Value, companyId.Value, "spec");
+        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
     }
 
     /// <summary>

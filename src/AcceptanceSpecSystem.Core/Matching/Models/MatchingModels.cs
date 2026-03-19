@@ -93,6 +93,11 @@ public class MatchResult
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
 
     /// <summary>
+    /// 用于详情展示的Top候选列表（含Top1）
+    /// </summary>
+    public List<MatchCandidateSnapshot> TopCandidates { get; set; } = [];
+
+    /// <summary>
     /// 匹配策略
     /// </summary>
     public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
@@ -161,6 +166,62 @@ public class MatchResult
     /// 降级原因说明
     /// </summary>
     public string? DegradationReason { get; set; }
+}
+
+/// <summary>
+/// 匹配结果详情中的候选快照
+/// </summary>
+public class MatchCandidateSnapshot
+{
+    /// <summary>
+    /// 候选排名（从1开始）
+    /// </summary>
+    public int Rank { get; set; }
+
+    /// <summary>
+    /// 验收规格ID
+    /// </summary>
+    public int SpecId { get; set; }
+
+    /// <summary>
+    /// 项目名称
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格内容
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 验收标准
+    /// </summary>
+    public string? Acceptance { get; set; }
+
+    /// <summary>
+    /// 备注
+    /// </summary>
+    public string? Remark { get; set; }
+
+    /// <summary>
+    /// 当前候选得分
+    /// </summary>
+    public double Score { get; set; }
+
+    /// <summary>
+    /// Embedding 原始得分
+    /// </summary>
+    public double EmbeddingScore { get; set; }
+
+    /// <summary>
+    /// 各算法得分详情
+    /// </summary>
+    public Dictionary<string, double> ScoreDetails { get; set; } = [];
+
+    /// <summary>
+    /// 重排摘要（多阶段时可用）
+    /// </summary>
+    public string? RerankSummary { get; set; }
 }
 
 /// <summary>

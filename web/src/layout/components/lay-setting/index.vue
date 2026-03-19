@@ -12,6 +12,7 @@ import {
 import { emitter } from "@/utils/mitt";
 import LayPanel from "../lay-panel/index.vue";
 import { useNav } from "@/layout/hooks/useNav";
+import { useLayout } from "@/layout/hooks/useLayout";
 import { useAppStoreHook } from "@/store/modules/app";
 import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
 import Segmented, { type OptionsType } from "@/components/ReSegmented";
@@ -32,11 +33,11 @@ const { $storage } = useGlobal<GlobalPropertiesApi>();
 const mixRef = ref();
 const verticalRef = ref();
 const horizontalRef = ref();
+const { layoutTheme } = useLayout();
 
 const {
   dataTheme,
   overallStyle,
-  layoutTheme,
   themeColors,
   toggleClass,
   dataThemeChange,

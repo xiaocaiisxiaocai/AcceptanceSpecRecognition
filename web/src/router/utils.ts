@@ -9,16 +9,14 @@ import { router } from "./index";
 import { isProxy, toRaw } from "vue";
 import { useTimeoutFn } from "@vueuse/core";
 import {
-  isString,
   cloneDeep,
   isAllEmpty,
-  intersection,
-  storageLocal,
-  isIncludeAllChildren
+  storageLocal
 } from "@pureadmin/utils";
 import { getConfig } from "@/config";
 import { buildHierarchyTree } from "@/utils/tree";
 import { userKey, type DataInfo } from "@/utils/auth";
+import { hasAnyPermission } from "@/utils/permission";
 import { type menuType, routerArrays } from "@/layout/types";
 import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
 import { usePermissionStoreHook } from "@/store/modules/permission";
@@ -72,57 +70,16 @@ function filterChildrenTree(data: RouteComponent[]) {
   return newTree;
 }
 
-/** 判断两个数组彼此是否存在相同值 */
-function isOneOfArray(a: Array<string>, b: Array<string>) {
-  return Array.isArray(a) && Array.isArray(b)
-    ? intersection(a, b).length > 0
-      ? true
-      : false
-    : true;
-}
-
-function matchPermission(granted: string, required: string): boolean {
-  const grantedSeg = granted.split(":");
-  const requiredSeg = required.split(":");
-  if (grantedSeg.length !== requiredSeg.length) return false;
-
-  return grantedSeg.every((seg, idx) => seg === "*" || seg === requiredSeg[idx]);
-}
-
-function hasAnyPermission(
-  required: string | Array<string> | undefined,
-  currentPermissions: Array<string>
-): boolean {
-  if (!required) return true;
-  const requiredList = (Array.isArray(required) ? required : [required]).filter(
-    v => !!v && !!v.trim()
-  );
-  if (!requiredList.length) return true;
-  if (!currentPermissions.length) return false;
-
-  return requiredList.some(requiredCode =>
-    currentPermissions.some(
-      grantedCode =>
-        grantedCode === requiredCode ||
-        grantedCode === "*:*:*" ||
-        matchPermission(grantedCode, requiredCode)
-    )
-  );
-}
-
-/** 从localStorage里取出当前登录用户的角色roles，过滤无权限的菜单 */
+/** 从 localStorage 读取 permission code，过滤无权限菜单 */
 function filterNoPermissionTree(data: RouteComponent[]) {
-  const currentRoles =
-    storageLocal().getItem<DataInfo<number>>(userKey)?.roles ?? [];
   const currentPermissions =
     storageLocal().getItem<DataInfo<number>>(userKey)?.permissions ?? [];
   const newTree = cloneDeep(data).filter((v: any) => {
-    const rolePassed = isOneOfArray(v.meta?.roles, currentRoles);
     const permissionPassed = hasAnyPermission(
-      v.meta?.permissions ?? v.meta?.permission,
-      currentPermissions
+      currentPermissions,
+      v.meta?.permissions ?? v.meta?.permission
     );
-    return rolePassed && permissionPassed;
+    return permissionPassed;
   });
   newTree.forEach(
     (v: any) => v.children && (v.children = filterNoPermissionTree(v.children))
@@ -393,23 +350,6 @@ function getHistoryMode(routerHistory): RouterHistory {
   }
 }
 
-/** 获取当前页面按钮级别的权限 */
-function getAuths(): Array<string> {
-  return router.currentRoute.value.meta.auths as Array<string>;
-}
-
-/** 是否有按钮级别的权限（根据路由`meta`中的`auths`字段进行判断）*/
-function hasAuth(value: string | Array<string>): boolean {
-  if (!value) return false;
-  /** 从当前路由的`meta`字段里获取按钮级别的所有自定义`code`值 */
-  const metaAuths = getAuths();
-  if (!metaAuths) return false;
-  const isAuths = isString(value)
-    ? metaAuths.includes(value)
-    : isIncludeAllChildren(value, metaAuths);
-  return isAuths ? true : false;
-}
-
 function handleTopMenu(route) {
   if (route?.children && route.children.length > 1) {
     if (route.redirect) {
@@ -432,14 +372,12 @@ function getTopMenu(tag = false): menuType {
 }
 
 export {
-  hasAuth,
-  getAuths,
   ascending,
   filterTree,
+  hasAnyPermission,
   initRouter,
   getTopMenu,
   addPathMatch,
-  isOneOfArray,
   getHistoryMode,
   addAsyncRoutes,
   getParentPaths,

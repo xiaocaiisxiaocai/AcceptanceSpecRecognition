@@ -13,6 +13,7 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 public class SemanticKernelMatchingService : IMatchingService
 {
     private const double ScoreTieEpsilon = 1e-9;
+    private const int TopCandidateLimit = 3;
     private static readonly Regex NumericTokenRegex = new(
         @"[<>≤≥]?\s*\d+(?:\.\d+)?(?:\s*[x×~～\-]\s*\d+(?:\.\d+)?)*(?:\s*(?:mm|cm|m|kg|g|inch|in|pcs|台|%|℃|°|kpa|mpa|nm|w|kw|v|a|hz|s|min|hr|hrs|小时|秒|ms))?",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -183,14 +184,27 @@ public class SemanticKernelMatchingService : IMatchingService
         {
             var embedding = candidate.Embedding ?? Array.Empty<float>();
             var embeddingScore = _embeddingService.ComputeSimilarity(sourceEmbedding, embedding);
-            if (embeddingScore < config.MinScoreThreshold)
+            var projectScore = ComputeProjectScore(source.Project, candidate.Project);
+            var specificationTextScore = ComputeSpecificationTextScore(
+                source.Specification,
+                candidate.Specification);
+
+            if (!ShouldKeepCandidate(
+                    embeddingScore,
+                    config.MinScoreThreshold,
+                    projectScore,
+                    specificationTextScore))
+            {
                 continue;
+            }
 
             evaluations.Add(new EvaluatedCandidate
             {
                 Source = source,
                 Candidate = candidate,
                 EmbeddingScore = embeddingScore,
+                ProjectScore = projectScore,
+                SpecificationTextScore = specificationTextScore,
                 FinalScore = embeddingScore
             });
         }
@@ -200,10 +214,17 @@ public class SemanticKernelMatchingService : IMatchingService
 
     private MatchResult? SelectBestBySingleStage(MatchSource source, List<EvaluatedCandidate> eligibleCandidates)
     {
-        var best = OrderByEmbedding(eligibleCandidates).FirstOrDefault();
+        var ordered = OrderByEmbedding(eligibleCandidates).ToList();
+        var best = ordered.FirstOrDefault();
         return best == null
             ? null
-            : BuildMatchResult(best, MatchingStrategy.SingleStage, eligibleCandidates.Count, isAmbiguous: false, scoreGap: null);
+            : BuildMatchResult(
+                best,
+                MatchingStrategy.SingleStage,
+                eligibleCandidates.Count,
+                isAmbiguous: false,
+                scoreGap: null,
+                orderedCandidates: ordered);
     }
 
     private MatchResult? SelectBestByMultiStage(
@@ -221,7 +242,6 @@ public class SemanticKernelMatchingService : IMatchingService
 
         foreach (var candidate in recalled)
         {
-            candidate.ProjectScore = ComputeProjectScore(source.Project, candidate.Candidate.Project);
             candidate.NumericScore = ComputeNumericScore(source.Specification, candidate.Candidate.Specification);
             candidate.KeywordScore = ComputeKeywordScore(source.Specification, candidate.Candidate.Specification);
             candidate.ConflictPenalty = ComputeConflictPenalty(source, candidate.Candidate);
@@ -233,15 +253,23 @@ public class SemanticKernelMatchingService : IMatchingService
         var best = ordered[0];
         var second = ordered.Count > 1 ? ordered[1] : null;
         double? scoreGap = second == null ? null : best.FinalScore - second.FinalScore;
-        var isAmbiguous = second != null && scoreGap <= config.AmbiguityMargin + ScoreTieEpsilon;
+        var isAmbiguous = ShouldMarkAsAmbiguous(best, second, scoreGap, config.AmbiguityMargin);
 
-        return BuildMatchResult(best, MatchingStrategy.MultiStage, recalled.Count, isAmbiguous, scoreGap);
+        return BuildMatchResult(
+            best,
+            MatchingStrategy.MultiStage,
+            recalled.Count,
+            isAmbiguous,
+            scoreGap,
+            orderedCandidates: ordered);
     }
 
     private static IEnumerable<EvaluatedCandidate> OrderByEmbedding(IEnumerable<EvaluatedCandidate> candidates)
     {
         return candidates
             .OrderByDescending(c => c.EmbeddingScore)
+            .ThenByDescending(c => c.ProjectScore)
+            .ThenByDescending(c => c.SpecificationTextScore)
             .ThenByDescending(c => HasText(c.Candidate.Acceptance))
             .ThenByDescending(c => HasText(c.Candidate.Remark))
             .ThenByDescending(c => c.Candidate.SpecId);
@@ -252,6 +280,8 @@ public class SemanticKernelMatchingService : IMatchingService
         return candidates
             .OrderByDescending(c => c.FinalScore)
             .ThenByDescending(c => c.EmbeddingScore)
+            .ThenByDescending(c => c.ProjectScore)
+            .ThenByDescending(c => c.SpecificationTextScore)
             .ThenByDescending(c => HasText(c.Candidate.Acceptance))
             .ThenByDescending(c => HasText(c.Candidate.Remark))
             .ThenByDescending(c => c.Candidate.SpecId);
@@ -262,21 +292,10 @@ public class SemanticKernelMatchingService : IMatchingService
         MatchingStrategy strategy,
         int recalledCandidateCount,
         bool isAmbiguous,
-        double? scoreGap)
+        double? scoreGap,
+        IReadOnlyList<EvaluatedCandidate> orderedCandidates)
     {
-        var scoreDetails = new Dictionary<string, double>
-        {
-            ["Embedding"] = candidate.EmbeddingScore
-        };
-
-        if (strategy == MatchingStrategy.MultiStage)
-        {
-            scoreDetails["Final"] = candidate.FinalScore;
-            scoreDetails["ProjectMatch"] = candidate.ProjectScore;
-            scoreDetails["NumberUnit"] = candidate.NumericScore;
-            scoreDetails["KeywordOverlap"] = candidate.KeywordScore;
-            scoreDetails["ConflictPenalty"] = candidate.ConflictPenalty;
-        }
+        var scoreDetails = CreateScoreDetails(candidate, strategy);
 
         return new MatchResult
         {
@@ -294,7 +313,8 @@ public class SemanticKernelMatchingService : IMatchingService
             RecalledCandidateCount = recalledCandidateCount,
             IsAmbiguous = isAmbiguous,
             ScoreGap = scoreGap,
-            RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null
+            RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null,
+            TopCandidates = BuildTopCandidates(orderedCandidates, strategy)
         };
     }
 
@@ -311,11 +331,56 @@ public class SemanticKernelMatchingService : IMatchingService
         };
     }
 
+    private static Dictionary<string, double> CreateScoreDetails(
+        EvaluatedCandidate candidate,
+        MatchingStrategy strategy)
+    {
+        var scoreDetails = new Dictionary<string, double>
+        {
+            ["Embedding"] = candidate.EmbeddingScore
+        };
+
+        if (strategy == MatchingStrategy.MultiStage)
+        {
+            scoreDetails["Final"] = candidate.FinalScore;
+            scoreDetails["ProjectMatch"] = candidate.ProjectScore;
+            scoreDetails["SpecificationText"] = candidate.SpecificationTextScore;
+            scoreDetails["NumberUnit"] = candidate.NumericScore;
+            scoreDetails["KeywordOverlap"] = candidate.KeywordScore;
+            scoreDetails["ConflictPenalty"] = candidate.ConflictPenalty;
+        }
+
+        return scoreDetails;
+    }
+
+    private static List<MatchCandidateSnapshot> BuildTopCandidates(
+        IReadOnlyList<EvaluatedCandidate> orderedCandidates,
+        MatchingStrategy strategy)
+    {
+        return orderedCandidates
+            .Take(TopCandidateLimit)
+            .Select((candidate, index) => new MatchCandidateSnapshot
+            {
+                Rank = index + 1,
+                SpecId = candidate.Candidate.SpecId,
+                Project = candidate.Candidate.Project,
+                Specification = candidate.Candidate.Specification,
+                Acceptance = candidate.Candidate.Acceptance,
+                Remark = candidate.Candidate.Remark,
+                Score = strategy == MatchingStrategy.MultiStage ? candidate.FinalScore : candidate.EmbeddingScore,
+                EmbeddingScore = candidate.EmbeddingScore,
+                ScoreDetails = CreateScoreDetails(candidate, strategy),
+                RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null
+            })
+            .ToList();
+    }
+
     private static double ComputeFinalScore(EvaluatedCandidate candidate)
     {
         var finalScore =
-            candidate.EmbeddingScore * 0.70 +
+            candidate.EmbeddingScore * 0.55 +
             candidate.ProjectScore * 0.15 +
+            candidate.SpecificationTextScore * 0.15 +
             candidate.NumericScore * 0.10 +
             candidate.KeywordScore * 0.05 -
             candidate.ConflictPenalty * 0.15;
@@ -369,6 +434,29 @@ public class SemanticKernelMatchingService : IMatchingService
         return ComputeOverlapRatio(sourceTokens, candidateTokens);
     }
 
+    private static double ComputeSpecificationTextScore(string sourceSpecification, string candidateSpecification)
+    {
+        var source = NormalizeComparableText(sourceSpecification);
+        var candidate = NormalizeComparableText(candidateSpecification);
+
+        if (string.IsNullOrWhiteSpace(source) && string.IsNullOrWhiteSpace(candidate))
+            return 1.0;
+
+        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(candidate))
+            return 0;
+
+        if (source == candidate)
+            return 1.0;
+
+        if (source.Contains(candidate, StringComparison.OrdinalIgnoreCase) ||
+            candidate.Contains(source, StringComparison.OrdinalIgnoreCase))
+            return 0.88;
+
+        var sourceTokens = ExtractKeywordTokens(sourceSpecification);
+        var candidateTokens = ExtractKeywordTokens(candidateSpecification);
+        return ComputeOverlapRatio(sourceTokens, candidateTokens);
+    }
+
     private static double ComputeKeywordScore(string sourceSpecification, string candidateSpecification)
     {
         var sourceTokens = ExtractKeywordTokens(sourceSpecification);
@@ -414,6 +502,11 @@ public class SemanticKernelMatchingService : IMatchingService
         else if (candidate.ProjectScore >= 0.75)
             reasons.Add("项目接近");
 
+        if (candidate.SpecificationTextScore >= 0.99)
+            reasons.Add("规格文本一致");
+        else if (candidate.SpecificationTextScore >= 0.75)
+            reasons.Add("规格文本接近");
+
         if (candidate.NumericScore >= 0.99)
             reasons.Add("数值单位一致");
         else if (candidate.NumericScore >= 0.60)
@@ -429,6 +522,52 @@ public class SemanticKernelMatchingService : IMatchingService
             reasons.Add("主要依据Embedding排序");
 
         return string.Join("；", reasons);
+    }
+
+    private static bool ShouldKeepCandidate(
+        double embeddingScore,
+        double minScoreThreshold,
+        double projectScore,
+        double specificationTextScore)
+    {
+        if (embeddingScore >= minScoreThreshold)
+            return true;
+
+        if (projectScore >= 0.99 && specificationTextScore >= 0.99)
+            return true;
+
+        var relaxedThreshold = Math.Max(0.35, minScoreThreshold - 0.08);
+        return embeddingScore >= relaxedThreshold &&
+               projectScore >= 0.99 &&
+               specificationTextScore >= 0.88;
+    }
+
+    private static bool ShouldMarkAsAmbiguous(
+        EvaluatedCandidate best,
+        EvaluatedCandidate? second,
+        double? scoreGap,
+        double ambiguityMargin)
+    {
+        if (second == null || !scoreGap.HasValue)
+            return false;
+
+        if (scoreGap.Value > ambiguityMargin + ScoreTieEpsilon)
+            return false;
+
+        var bestIsExact =
+            best.ProjectScore >= 0.99 &&
+            best.SpecificationTextScore >= 0.99 &&
+            best.NumericScore >= 0.99;
+
+        var secondIsAlsoExact =
+            second.ProjectScore >= 0.99 &&
+            second.SpecificationTextScore >= 0.99 &&
+            second.NumericScore >= 0.99;
+
+        if (bestIsExact && !secondIsAlsoExact)
+            return false;
+
+        return true;
     }
 
     private static HashSet<string> ExtractNumericTokens(string value)
@@ -497,6 +636,7 @@ public class SemanticKernelMatchingService : IMatchingService
         public double EmbeddingScore { get; init; }
         public double FinalScore { get; set; }
         public double ProjectScore { get; set; }
+        public double SpecificationTextScore { get; set; }
         public double NumericScore { get; set; }
         public double KeywordScore { get; set; }
         public double ConflictPenalty { get; set; }

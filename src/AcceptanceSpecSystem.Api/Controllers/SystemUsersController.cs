@@ -129,6 +129,7 @@ public class SystemUsersController : BaseApiController
         if (assignedOrgUnits == null)
             return Error<SystemUserDto>(400, "组织节点无效或不属于当前公司");
 
+        var now = DateTime.Now;
         var user = new SystemUser
         {
             CompanyId = companyId.Value,
@@ -138,37 +139,33 @@ public class SystemUsersController : BaseApiController
             Avatar = NormalizeOptional(request.Avatar),
             IsActive = request.IsActive,
             PermissionVersion = 1,
-            CreatedAt = DateTime.Now
+            CreatedAt = now
         };
-
-        await _unitOfWork.SystemUsers.AddAsync(user);
-        await _unitOfWork.SaveChangesAsync();
 
         foreach (var role in roles)
         {
-            await _dbContext.AuthUserRoles.AddAsync(new AuthUserRole
+            user.UserRoles.Add(new AuthUserRole
             {
-                UserId = user.Id,
                 RoleId = role.Id,
                 StartAt = request.RoleStartAt,
                 EndAt = request.RoleEndAt,
-                CreatedAt = DateTime.Now
+                CreatedAt = now
             });
         }
 
         foreach (var org in assignedOrgUnits)
         {
-            await _dbContext.AuthUserOrgUnits.AddAsync(new AuthUserOrgUnit
+            user.UserOrgUnits.Add(new AuthUserOrgUnit
             {
-                UserId = user.Id,
                 OrgUnitId = org.OrgUnitId,
                 IsPrimary = org.IsPrimary,
                 StartAt = request.OrgStartAt,
                 EndAt = request.OrgEndAt,
-                CreatedAt = DateTime.Now
+                CreatedAt = now
             });
         }
 
+        await _unitOfWork.SystemUsers.AddAsync(user);
         await _unitOfWork.SaveChangesAsync();
 
         _logger.LogInformation("创建系统用户成功: {Username}", user.Username);
@@ -382,6 +379,7 @@ public class SystemUsersController : BaseApiController
     private async Task<SystemUser?> LoadUserWithAccessAsync(int id)
     {
         return await _dbContext.SystemUsers
+            .AsSplitQuery()
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
                     .ThenInclude(r => r.RolePermissions)

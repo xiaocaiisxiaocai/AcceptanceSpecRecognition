@@ -14,7 +14,29 @@ import {
   refreshTokenApi
 } from "@/api/user";
 import { useMultiTagsStoreHook } from "./multiTags";
-import { type DataInfo, setToken, removeToken, userKey } from "@/utils/auth";
+import { usePermissionStoreHook } from "./permission";
+import {
+  type DataInfo,
+  setToken,
+  removeToken,
+  userKey
+} from "@/utils/auth";
+import { hasAnyPermission } from "@/utils/permission";
+
+function findFirstMenuPath(routes: Array<any>): string | null {
+  for (const route of routes ?? []) {
+    if (route?.children?.length) {
+      const childPath = findFirstMenuPath(route.children);
+      if (childPath) return childPath;
+    }
+
+    if (typeof route?.path === "string" && route.path.length > 0) {
+      return route.path;
+    }
+  }
+
+  return null;
+}
 
 export const useUserStore = defineStore("pure-user", {
   state: (): userType => ({
@@ -24,9 +46,9 @@ export const useUserStore = defineStore("pure-user", {
     username: storageLocal().getItem<DataInfo<number>>(userKey)?.username ?? "",
     // 昵称
     nickname: storageLocal().getItem<DataInfo<number>>(userKey)?.nickname ?? "",
-    // 页面级别权限
+    // 角色编码
     roles: storageLocal().getItem<DataInfo<number>>(userKey)?.roles ?? [],
-    // 按钮级别权限
+    // 页面/按钮/API 的 permission code 集合
     permissions:
       storageLocal().getItem<DataInfo<number>>(userKey)?.permissions ?? [],
     // 是否勾选了登录页的免登录
@@ -92,7 +114,32 @@ export const useUserStore = defineStore("pure-user", {
         refreshTokenApi(data)
           .then(data => {
             if (data) {
-              setToken(data.data);
+              const { authorizationChanged } = setToken(data.data);
+              if (authorizationChanged) {
+                const asyncRoutes = storageLocal().getItem<Array<any>>("async-routes") ?? [];
+                usePermissionStoreHook().handleWholeMenus(
+                  Array.isArray(asyncRoutes) ? asyncRoutes : []
+                );
+
+                const requiredPermissions =
+                  (router.currentRoute.value.meta?.permissions as
+                    | Array<string>
+                    | undefined) ??
+                  (router.currentRoute.value.meta?.permission as
+                    | string
+                    | undefined);
+
+                if (
+                  requiredPermissions &&
+                  !hasAnyPermission(this.permissions, requiredPermissions)
+                ) {
+                  const fallbackPath =
+                    findFirstMenuPath(usePermissionStoreHook().wholeMenus) ?? "/dashboard";
+                  if (fallbackPath !== router.currentRoute.value.path) {
+                    router.replace(fallbackPath);
+                  }
+                }
+              }
               resolve(data);
             }
           })

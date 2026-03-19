@@ -80,6 +80,44 @@ export interface BatchImportResult {
   totalCount: number;
 }
 
+export interface SpecDuplicateItem {
+  id: number;
+  project: string;
+  specification: string;
+  acceptance?: string;
+  remark?: string;
+  importedAt: string;
+}
+
+export interface SpecDuplicateGroup {
+  groupType: "exact" | "similar";
+  project: string;
+  specificationPreview: string;
+  reason: string;
+  similarityScore: number;
+  itemCount: number;
+  items: SpecDuplicateItem[];
+}
+
+export interface SpecDuplicateDetectionResult {
+  scannedCount: number;
+  exactGroupCount: number;
+  similarGroupCount: number;
+  exactGroups: SpecDuplicateGroup[];
+  similarGroups: SpecDuplicateGroup[];
+}
+
+export interface SpecDuplicateDetectionRequest {
+  keyword?: string;
+  customerId?: number;
+  processId?: number;
+  machineModelId?: number;
+  processIdIsNull?: boolean;
+  machineModelIdIsNull?: boolean;
+  minSimilarity?: number;
+  maxGroups?: number;
+}
+
 const baseUrl = "/api/specs";
 
 /** 获取验收规格分组汇总 */
@@ -130,4 +168,15 @@ export const batchDeleteSpecs = (ids: number[]) => {
   return http.request<ApiResponse<void>>("delete", `${baseUrl}/batch`, {
     data: ids
   });
+};
+
+/** 规格重复/近重复排查 */
+export const detectSpecDuplicateGroups = (
+  params: SpecDuplicateDetectionRequest
+) => {
+  return http.request<ApiResponse<SpecDuplicateDetectionResult>>(
+    "get",
+    `${baseUrl}/duplicate-groups`,
+    { params }
+  );
 };

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createPromptTemplate,
@@ -10,6 +10,8 @@ import {
   updatePromptTemplate,
   type PromptTemplate
 } from "@/api/prompt-template";
+import { hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
   name: "PromptTemplates"
@@ -24,6 +26,18 @@ const queryParams = reactive({
   pageSize: 20,
   keyword: ""
 });
+
+const canLoadDefault = computed(() => hasPerms("btn:prompt-template:default"));
+const canCreate = computed(() => hasPerms("btn:prompt-template:create"));
+const canUpdate = computed(() => hasPerms("btn:prompt-template:update"));
+const canDelete = computed(() => hasPerms("btn:prompt-template:delete"));
+const canSetDefault = computed(() => hasPerms("btn:prompt-template:set-default"));
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
+const hasOperationActions = computed(
+  () => canUpdate.value || canDelete.value || canSetDefault.value
+);
 
 const loadData = async () => {
   loading.value = true;
@@ -54,6 +68,11 @@ const handleReset = () => {
 };
 
 const handleLoadDefault = async () => {
+  if (
+    !ensurePermission("btn:prompt-template:default", "权限不足，无法加载默认模板")
+  ) {
+    return;
+  }
   try {
     const res = await getDefaultPromptTemplate();
     if (res.code === 0) {
@@ -78,6 +97,9 @@ const formData = reactive({
 });
 
 const handleAdd = () => {
+  if (!ensurePermission("btn:prompt-template:create", "权限不足，无法新增Prompt模板")) {
+    return;
+  }
   dialogTitle.value = "新增Prompt模板";
   isEdit.value = false;
   Object.assign(formData, { id: 0, name: "", content: "", isDefault: false });
@@ -85,6 +107,9 @@ const handleAdd = () => {
 };
 
 const handleEdit = (row: PromptTemplate) => {
+  if (!ensurePermission("btn:prompt-template:update", "权限不足，无法编辑Prompt模板")) {
+    return;
+  }
   dialogTitle.value = "编辑Prompt模板";
   isEdit.value = true;
   Object.assign(formData, {
@@ -97,6 +122,9 @@ const handleEdit = (row: PromptTemplate) => {
 };
 
 const handleDelete = async (row: PromptTemplate) => {
+  if (!ensurePermission("btn:prompt-template:delete", "权限不足，无法删除Prompt模板")) {
+    return;
+  }
   try {
     await ElMessageBox.confirm(`确定删除模板“${row.name}”吗？`, "提示", {
       confirmButtonText: "确定",
@@ -116,6 +144,11 @@ const handleDelete = async (row: PromptTemplate) => {
 };
 
 const handleSetDefault = async (row: PromptTemplate) => {
+  if (
+    !ensurePermission("btn:prompt-template:set-default", "权限不足，无法设置默认模板")
+  ) {
+    return;
+  }
   try {
     const res = await setDefaultPromptTemplate(row.id);
     if (res.code === 0) {
@@ -130,6 +163,14 @@ const handleSetDefault = async (row: PromptTemplate) => {
 };
 
 const handleSubmit = async () => {
+  if (
+    !ensurePermission(
+      isEdit.value ? "btn:prompt-template:update" : "btn:prompt-template:create",
+      isEdit.value ? "权限不足，无法保存Prompt模板" : "权限不足，无法新增Prompt模板"
+    )
+  ) {
+    return;
+  }
   if (!formData.name.trim()) {
     ElMessage.warning("请输入名称");
     return;
@@ -206,8 +247,12 @@ onMounted(loadData);
         <div class="flex justify-between items-center">
           <span>Prompt模板</span>
           <div class="flex gap-2">
-            <el-button @click="handleLoadDefault">加载默认模板</el-button>
-            <el-button type="primary" @click="handleAdd">新增</el-button>
+            <el-button v-if="canLoadDefault" @click="handleLoadDefault">
+              加载默认模板
+            </el-button>
+            <el-button v-if="canCreate" type="primary" @click="handleAdd">
+              新增
+            </el-button>
           </div>
         </div>
       </template>
@@ -228,11 +273,21 @@ onMounted(loadData);
             }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column
+          v-if="hasOperationActions"
+          label="操作"
+          width="220"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleEdit(row)">编辑</el-button>
-            <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
+            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">
+              编辑
+            </el-button>
+            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">
+              删除
+            </el-button>
             <el-button
+              v-if="canSetDefault"
               type="success"
               link
               :disabled="row.isDefault"
@@ -276,7 +331,9 @@ onMounted(loadData);
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
+          确定
+        </el-button>
       </template>
     </el-dialog>
   </div>

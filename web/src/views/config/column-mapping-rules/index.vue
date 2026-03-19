@@ -10,6 +10,8 @@ import {
   updateColumnMappingRule,
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
+import { hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
   name: "ColumnMappingRules"
@@ -34,6 +36,14 @@ const matchModeOptions = [
   { label: "相等", value: ColumnMappingMatchMode.Equals },
   { label: "正则", value: ColumnMappingMatchMode.Regex }
 ];
+
+const canCreate = computed(() => hasPerms("btn:column-mapping-rule:create"));
+const canUpdate = computed(() => hasPerms("btn:column-mapping-rule:update"));
+const canDelete = computed(() => hasPerms("btn:column-mapping-rule:delete"));
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
+const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
 
 const filteredRules = computed(() =>
   rules.value
@@ -72,6 +82,9 @@ const form = reactive({
 });
 
 const openAdd = () => {
+  if (!ensurePermission("btn:column-mapping-rule:create", "权限不足，无法新增列映射规则")) {
+    return;
+  }
   isEdit.value = false;
   dialogTitle.value = "新增规则";
   form.id = 0;
@@ -84,6 +97,9 @@ const openAdd = () => {
 };
 
 const openEdit = (row: ColumnMappingRule) => {
+  if (!ensurePermission("btn:column-mapping-rule:update", "权限不足，无法编辑列映射规则")) {
+    return;
+  }
   isEdit.value = true;
   dialogTitle.value = "编辑规则";
   form.id = row.id;
@@ -96,6 +112,14 @@ const openEdit = (row: ColumnMappingRule) => {
 };
 
 const submit = async () => {
+  if (
+    !ensurePermission(
+      isEdit.value ? "btn:column-mapping-rule:update" : "btn:column-mapping-rule:create",
+      isEdit.value ? "权限不足，无法保存列映射规则" : "权限不足，无法新增列映射规则"
+    )
+  ) {
+    return;
+  }
   const pattern = form.pattern.trim();
   if (!pattern) {
     ElMessage.warning("请输入匹配词");
@@ -127,7 +151,12 @@ const submit = async () => {
   }
 };
 
-const toggleEnabled = async (row: ColumnMappingRule) => {
+const persistRow = async (row: ColumnMappingRule) => {
+  if (!ensurePermission("btn:column-mapping-rule:update", "权限不足，无法更新列映射规则")) {
+    await load();
+    return;
+  }
+
   try {
     const res = await updateColumnMappingRule(row.id, {
       targetField: row.targetField,
@@ -146,7 +175,14 @@ const toggleEnabled = async (row: ColumnMappingRule) => {
   }
 };
 
+const toggleEnabled = async (row: ColumnMappingRule) => {
+  await persistRow(row);
+};
+
 const remove = async (row: ColumnMappingRule) => {
+  if (!ensurePermission("btn:column-mapping-rule:delete", "权限不足，无法删除列映射规则")) {
+    return;
+  }
   try {
     await ElMessageBox.confirm(`确定删除匹配词 "${row.pattern}" 吗？`, "提示", {
       confirmButtonText: "确定",
@@ -181,7 +217,9 @@ onMounted(load);
         <div class="flex justify-between items-center">
           <span>列映射规则（全局）</span>
           <div>
-            <el-button type="primary" @click="openAdd">新增规则</el-button>
+            <el-button v-if="canCreate" type="primary" @click="openAdd">
+              新增规则
+            </el-button>
           </div>
         </div>
       </template>
@@ -206,18 +244,10 @@ onMounted(load);
             <el-select
               v-model="row.matchMode"
               size="small"
+              :disabled="!canUpdate"
               :class="tableSelectClass"
               popper-class="config-select-popper"
-              @change="
-                () =>
-                  updateColumnMappingRule(row.id, {
-                    targetField: row.targetField,
-                    matchMode: row.matchMode,
-                    pattern: row.pattern,
-                    priority: row.priority ?? 0,
-                    enabled: row.enabled
-                  }).then(() => load())
-              "
+              @change="() => persistRow(row)"
             >
               <el-option
                 v-for="m in matchModeOptions"
@@ -233,31 +263,36 @@ onMounted(load);
             <el-input-number
               v-model="row.priority"
               size="small"
+              :disabled="!canUpdate"
               :min="-999"
               :max="999"
               controls-position="right"
-              @change="
-                () =>
-                  updateColumnMappingRule(row.id, {
-                    targetField: row.targetField,
-                    matchMode: row.matchMode,
-                    pattern: row.pattern,
-                    priority: row.priority ?? 0,
-                    enabled: row.enabled
-                  }).then(() => load())
-              "
+              @change="() => persistRow(row)"
             />
           </template>
         </el-table-column>
         <el-table-column label="启用" width="90">
           <template #default="{ row }">
-            <el-switch v-model="row.enabled" @change="() => toggleEnabled(row)" />
+            <el-switch
+              v-model="row.enabled"
+              :disabled="!canUpdate"
+              @change="() => toggleEnabled(row)"
+            />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column
+          v-if="hasOperationActions"
+          label="操作"
+          width="150"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button type="primary" link @click="openEdit(row)">编辑</el-button>
-            <el-button type="danger" link @click="remove(row)">删除</el-button>
+            <el-button v-if="canUpdate" type="primary" link @click="openEdit(row)">
+              编辑
+            </el-button>
+            <el-button v-if="canDelete" type="danger" link @click="remove(row)">
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -297,7 +332,9 @@ onMounted(load);
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submit">保存</el-button>
+        <el-button v-if="canSubmit" type="primary" @click="submit">
+          保存
+        </el-button>
       </template>
     </el-dialog>
   </div>

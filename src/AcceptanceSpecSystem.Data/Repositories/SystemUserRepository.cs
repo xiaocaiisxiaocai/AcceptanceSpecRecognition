@@ -28,6 +28,7 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
 
         var now = DateTime.Now;
         return await _dbSet
+            .AsSplitQuery()
             .Include(u => u.UserRoles.Where(r =>
                 (!r.StartAt.HasValue || r.StartAt <= now) &&
                 (!r.EndAt.HasValue || r.EndAt >= now)))
@@ -83,6 +84,7 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
 
         var total = await query.CountAsync();
         var items = await query
+            .AsSplitQuery()
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
                     .ThenInclude(r => r.RolePermissions)

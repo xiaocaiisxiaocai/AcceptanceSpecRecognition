@@ -40,9 +40,15 @@ public class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions
 
         var normalizedRole = role.Trim().ToLowerInvariant();
         var userId = normalizedRole == "admin" ? "1" : "2";
-        var permissions = normalizedRole == "admin"
-            ? new[] { "*:*:*" }
-            : new[] { "api:auth:routes", "page:home:dashboard" };
+        var permissionsHeader = Request.Headers.TryGetValue("X-Test-Permissions", out var permissionValues)
+            ? permissionValues.ToString()
+            : string.Empty;
+        var permissions = !string.IsNullOrWhiteSpace(permissionsHeader)
+            ? permissionsHeader
+                .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : normalizedRole == "admin"
+                ? new[] { "*:*:*" }
+                : new[] { "api:auth:routes", "page:home:dashboard" };
 
         var claims = new List<Claim>
         {

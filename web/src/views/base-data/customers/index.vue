@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, reactive } from "vue";
+import { computed, ref, onMounted, reactive } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   getCustomerList,
@@ -9,6 +9,7 @@ import {
   type Customer,
   type PagedData
 } from "@/api/customer";
+import { hasPerms } from "@/utils/auth";
 
 defineOptions({
   name: "Customers"
@@ -34,6 +35,14 @@ const formData = reactive({
   id: 0,
   name: ""
 });
+
+const canCreate = computed(() => hasPerms("btn:customer:create"));
+const canUpdate = computed(() => hasPerms("btn:customer:update"));
+const canDelete = computed(() => hasPerms("btn:customer:delete"));
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
+const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
 
 // 加载数据
 const loadData = async () => {
@@ -68,6 +77,10 @@ const handleReset = () => {
 
 // 新增
 const handleAdd = () => {
+  if (!canCreate.value) {
+    ElMessage.error("权限不足，无法新增客户");
+    return;
+  }
   dialogTitle.value = "新增客户";
   isEdit.value = false;
   formData.id = 0;
@@ -77,6 +90,10 @@ const handleAdd = () => {
 
 // 编辑
 const handleEdit = (row: Customer) => {
+  if (!canUpdate.value) {
+    ElMessage.error("权限不足，无法编辑客户");
+    return;
+  }
   dialogTitle.value = "编辑客户";
   isEdit.value = true;
   formData.id = row.id;
@@ -86,6 +103,10 @@ const handleEdit = (row: Customer) => {
 
 // 删除
 const handleDelete = async (row: Customer) => {
+  if (!canDelete.value) {
+    ElMessage.error("权限不足，无法删除客户");
+    return;
+  }
   try {
     await ElMessageBox.confirm(`确定要删除客户"${row.name}"吗？`, "提示", {
       confirmButtonText: "确定",
@@ -106,6 +127,10 @@ const handleDelete = async (row: Customer) => {
 
 // 提交表单
 const handleSubmit = async () => {
+  if (!canSubmit.value) {
+    ElMessage.error("权限不足，无法提交当前操作");
+    return;
+  }
   if (!formData.name.trim()) {
     ElMessage.warning("请输入客户名称");
     return;
@@ -175,7 +200,9 @@ onMounted(() => {
       <template #header>
         <div class="flex justify-between items-center">
           <span>客户列表</span>
-          <el-button type="primary" @click="handleAdd">新增客户</el-button>
+          <el-button v-if="canCreate" type="primary" @click="handleAdd">
+            新增客户
+          </el-button>
         </div>
       </template>
 
@@ -187,12 +214,17 @@ onMounted(() => {
             {{ new Date(row.createdAt).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column
+          v-if="hasOperationActions"
+          label="操作"
+          width="150"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleEdit(row)"
+            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)"
               >编辑</el-button
             >
-            <el-button type="danger" link @click="handleDelete(row)"
+            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)"
               >删除</el-button
             >
           </template>
@@ -226,7 +258,9 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
+          确定
+        </el-button>
       </template>
     </el-dialog>
   </div>

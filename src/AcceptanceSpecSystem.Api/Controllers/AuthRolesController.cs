@@ -36,6 +36,7 @@ public class AuthRolesController : BaseApiController
 
         var query = _dbContext.AuthRoles
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(r => r.RolePermissions)
                 .ThenInclude(rp => rp.Permission)
             .Include(r => r.DataScopes)
@@ -68,6 +69,7 @@ public class AuthRolesController : BaseApiController
             return Error<AuthRoleDto>(401, "会话缺少公司上下文");
 
         var role = await _dbContext.AuthRoles
+            .AsSplitQuery()
             .Include(r => r.RolePermissions)
                 .ThenInclude(rp => rp.Permission)
             .Include(r => r.DataScopes)
@@ -110,6 +112,8 @@ public class AuthRolesController : BaseApiController
             CreatedAt = now
         };
 
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
+
         await _dbContext.AuthRoles.AddAsync(role);
         await _dbContext.SaveChangesAsync();
 
@@ -118,10 +122,10 @@ public class AuthRolesController : BaseApiController
             return Error<AuthRoleDto>(400, syncError);
 
         await _dbContext.SaveChangesAsync();
-        await _dbContext.Entry(role).Collection(r => r.RolePermissions).LoadAsync();
-        await _dbContext.Entry(role).Collection(r => r.DataScopes).LoadAsync();
+        await transaction.CommitAsync();
 
         var saved = await _dbContext.AuthRoles
+            .AsSplitQuery()
             .Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
             .Include(r => r.DataScopes).ThenInclude(s => s.Nodes)
             .FirstAsync(r => r.Id == role.Id);
@@ -142,6 +146,7 @@ public class AuthRolesController : BaseApiController
             return Error<AuthRoleDto>(401, "会话缺少公司上下文");
 
         var role = await _dbContext.AuthRoles
+            .AsSplitQuery()
             .Include(r => r.RolePermissions)
             .Include(r => r.DataScopes)
                 .ThenInclude(s => s.Nodes)
@@ -149,21 +154,25 @@ public class AuthRolesController : BaseApiController
         if (role == null)
             return Error<AuthRoleDto>(404, "角色不存在");
 
+        if (role.IsBuiltIn)
+            return Error<AuthRoleDto>(400, "内置角色不允许编辑");
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
         role.Name = request.Name.Trim();
         role.Description = NormalizeOptional(request.Description);
-        if (!role.IsBuiltIn)
-        {
-            role.IsActive = request.IsActive;
-        }
+        role.IsActive = request.IsActive;
         role.UpdatedAt = DateTime.Now;
 
         var syncError = await SyncRoleRelationsAsync(role, request.PermissionCodes, request.DataScopes, companyId.Value);
         if (!string.IsNullOrWhiteSpace(syncError))
             return Error<AuthRoleDto>(400, syncError);
 
+        await TouchUsersByRoleAsync(role.Id);
         await _dbContext.SaveChangesAsync();
+        await transaction.CommitAsync();
 
         var saved = await _dbContext.AuthRoles
+            .AsSplitQuery()
             .Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
             .Include(r => r.DataScopes).ThenInclude(s => s.Nodes)
             .FirstAsync(r => r.Id == role.Id);
@@ -304,6 +313,22 @@ public class AuthRolesController : BaseApiController
     private static string NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+    }
+
+    private async Task TouchUsersByRoleAsync(int roleId)
+    {
+        var users = await _dbContext.SystemUsers
+            .Where(user => user.UserRoles.Any(userRole => userRole.RoleId == roleId))
+            .ToListAsync();
+        if (users.Count == 0)
+            return;
+
+        var now = DateTime.Now;
+        foreach (var user in users)
+        {
+            user.PermissionVersion += 1;
+            user.UpdatedAt = now;
+        }
     }
 
     private static AuthRoleDto ToDto(AuthRole role)

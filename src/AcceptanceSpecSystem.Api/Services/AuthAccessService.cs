@@ -82,6 +82,7 @@ public sealed class AuthAccessService : IAuthAccessService
     public async Task<AuthAccessContext?> GetByUserIdAsync(int userId)
     {
         var user = await _dbContext.SystemUsers
+            .AsSplitQuery()
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
                     .ThenInclude(r => r.RolePermissions)

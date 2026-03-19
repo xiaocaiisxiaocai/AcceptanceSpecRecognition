@@ -302,6 +302,10 @@ const openCreateDialog = () => {
 };
 
 const openEditDialog = (role: AuthRole) => {
+  if (role.isBuiltIn) {
+    ElMessage.warning("内置角色不允许编辑");
+    return;
+  }
   applyRoleToEditForm(role);
   editDialogVisible.value = true;
 };
@@ -523,7 +527,13 @@ onMounted(initPage);
         <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link v-perms="'btn:auth-role:update'" @click="openEditDialog(row)">
+            <el-button
+              type="primary"
+              link
+              v-perms="'btn:auth-role:update'"
+              :disabled="row.isBuiltIn"
+              @click="openEditDialog(row)"
+            >
               编辑
             </el-button>
             <el-button

@@ -481,16 +481,26 @@ public static class AuthUserSeedService
             .Distinct()
             .ToHashSet();
 
-        await SyncRolePermissionsAsync(dbContext, adminRole.Id, allPermissionIds);
-        await SyncRolePermissionsAsync(dbContext, commonRole.Id, commonPermissionIds);
+        var adminPermissionsChanged = await SyncRolePermissionsAsync(dbContext, adminRole.Id, allPermissionIds);
+        var commonPermissionsChanged = await SyncRolePermissionsAsync(dbContext, commonRole.Id, commonPermissionIds);
 
         await EnsureRoleDataScopesAsync(dbContext, adminRole.Id, DataScopeType.All, [], now);
         await EnsureRoleDataScopesAsync(dbContext, commonRole.Id, DataScopeType.OrgSubtree, [rootOrgUnitId], now);
 
+        if (adminPermissionsChanged)
+        {
+            await TouchUsersByRoleAsync(dbContext, adminRole.Id, now);
+        }
+
+        if (commonPermissionsChanged)
+        {
+            await TouchUsersByRoleAsync(dbContext, commonRole.Id, now);
+        }
+
         return roleMap;
     }
 
-    private static async Task SyncRolePermissionsAsync(AppDbContext dbContext, int roleId, HashSet<int> expectedPermissionIds)
+    private static async Task<bool> SyncRolePermissionsAsync(AppDbContext dbContext, int roleId, HashSet<int> expectedPermissionIds)
     {
         var current = await dbContext.AuthRolePermissions
             .Where(rp => rp.RoleId == roleId)
@@ -514,7 +524,9 @@ public static class AuthUserSeedService
             dbContext.AuthRolePermissions.RemoveRange(toRemove);
         }
 
+        var changed = toAdd.Any() || toRemove.Count > 0;
         await dbContext.SaveChangesAsync();
+        return changed;
     }
 
     private static async Task EnsureRoleDataScopesAsync(
@@ -626,6 +638,7 @@ public static class AuthUserSeedService
         DateTime now)
     {
         var users = await dbContext.SystemUsers
+            .AsSplitQuery()
             .Include(u => u.UserRoles)
             .Include(u => u.UserOrgUnits)
             .ToListAsync();
@@ -718,5 +731,22 @@ public static class AuthUserSeedService
 
             await dbContext.SaveChangesAsync();
         }
+    }
+
+    private static async Task TouchUsersByRoleAsync(AppDbContext dbContext, int roleId, DateTime now)
+    {
+        var users = await dbContext.SystemUsers
+            .Where(user => user.UserRoles.Any(userRole => userRole.RoleId == roleId))
+            .ToListAsync();
+        if (users.Count == 0)
+            return;
+
+        foreach (var user in users)
+        {
+            user.PermissionVersion += 1;
+            user.UpdatedAt = now;
+        }
+
+        await dbContext.SaveChangesAsync();
     }
 }

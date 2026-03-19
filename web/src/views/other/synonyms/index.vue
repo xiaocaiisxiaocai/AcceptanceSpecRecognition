@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createSynonymGroup,
@@ -8,6 +8,8 @@ import {
   updateSynonymGroup,
   type SynonymGroup
 } from "@/api/synonym";
+import { hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
   name: "Synonyms"
@@ -59,6 +61,14 @@ const formData = reactive({
   wordsText: ""
 });
 
+const canCreate = computed(() => hasPerms("btn:synonym-group:create"));
+const canUpdate = computed(() => hasPerms("btn:synonym-group:update"));
+const canDelete = computed(() => hasPerms("btn:synonym-group:delete"));
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
+const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
+
 const normalizeWords = (text: string) => {
   return text
     .split(/[\n,，\t ]+/)
@@ -67,6 +77,9 @@ const normalizeWords = (text: string) => {
 };
 
 const handleAdd = () => {
+  if (!ensurePermission("btn:synonym-group:create", "权限不足，无法新增同义词组")) {
+    return;
+  }
   dialogTitle.value = "新增同义词组";
   isEdit.value = false;
   formData.id = 0;
@@ -75,6 +88,9 @@ const handleAdd = () => {
 };
 
 const handleEdit = (row: SynonymGroup) => {
+  if (!ensurePermission("btn:synonym-group:update", "权限不足，无法编辑同义词组")) {
+    return;
+  }
   dialogTitle.value = "编辑同义词组";
   isEdit.value = true;
   formData.id = row.id;
@@ -83,6 +99,9 @@ const handleEdit = (row: SynonymGroup) => {
 };
 
 const handleDelete = async (row: SynonymGroup) => {
+  if (!ensurePermission("btn:synonym-group:delete", "权限不足，无法删除同义词组")) {
+    return;
+  }
   try {
     await ElMessageBox.confirm("确定删除该同义词组吗？", "提示", {
       confirmButtonText: "确定",
@@ -102,6 +121,14 @@ const handleDelete = async (row: SynonymGroup) => {
 };
 
 const handleSubmit = async () => {
+  if (
+    !ensurePermission(
+      isEdit.value ? "btn:synonym-group:update" : "btn:synonym-group:create",
+      isEdit.value ? "权限不足，无法保存同义词组" : "权限不足，无法新增同义词组"
+    )
+  ) {
+    return;
+  }
   const words = normalizeWords(formData.wordsText);
   if (words.length < 2) {
     ElMessage.warning("至少输入2个词（第一个为标准词）");
@@ -167,7 +194,9 @@ onMounted(loadData);
       <template #header>
         <div class="flex justify-between items-center">
           <span>同义词管理</span>
-          <el-button type="primary" @click="handleAdd">新增</el-button>
+          <el-button v-if="canCreate" type="primary" @click="handleAdd">
+            新增
+          </el-button>
         </div>
       </template>
 
@@ -192,10 +221,19 @@ onMounted(loadData);
             {{ new Date((row.updatedAt ?? row.createdAt) as string).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column
+          v-if="hasOperationActions"
+          label="操作"
+          width="150"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleEdit(row)">编辑</el-button>
-            <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
+            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">
+              编辑
+            </el-button>
+            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -226,7 +264,9 @@ onMounted(loadData);
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
+          确定
+        </el-button>
       </template>
     </el-dialog>
   </div>

@@ -31,6 +31,8 @@ import {
   type ExcelImportDataRequest,
   type ImportResult
 } from "@/api/document";
+import { hasPerms } from "@/utils/auth";
+import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
   name: "DataImport"
@@ -49,6 +51,34 @@ const steps = computed(() => [
 // 文件上传
 const uploadedFile = ref<FileUploadResponse | null>(null);
 const isExcelFile = computed(() => uploadedFile.value?.fileType === 1);
+const canUploadSourceFile = computed(() => hasPerms("btn:document:upload"));
+const canImportWord = computed(() => hasPerms("btn:document:import"));
+const canImportExcel = computed(() => hasPerms("btn:excel-document:import"));
+const canImportAny = computed(() => canImportWord.value || canImportExcel.value);
+const canImportCurrentFile = computed(() =>
+  isExcelFile.value ? canImportExcel.value : canImportWord.value
+);
+const currentImportPermissionCode = computed(() =>
+  isExcelFile.value ? "btn:excel-document:import" : "btn:document:import"
+);
+const currentImportPermissionMessage = computed(() =>
+  isExcelFile.value
+    ? "权限不足，无法导入 Excel 数据"
+    : "权限不足，无法导入 Word 数据"
+);
+const uploadAccept = computed(() => {
+  if (canImportWord.value && canImportExcel.value) return ".docx,.xlsx";
+  if (canImportWord.value) return ".docx";
+  if (canImportExcel.value) return ".xlsx";
+  return "";
+});
+const uploadBlockedMessage = computed(() => {
+  if (!canUploadSourceFile.value) {
+    return "当前账号没有文档上传权限";
+  }
+
+  return "当前账号没有数据导入权限";
+});
 
 // 表格选择（支持多选）
 const selectedTableIndexes = ref<number[]>([]);
@@ -859,6 +889,14 @@ const handleImport = async () => {
   if (!uploadedFile.value || tableConfigs.value.length === 0 || !selectedCustomerId.value) {
     return;
   }
+  if (
+    !ensurePermission(
+      currentImportPermissionCode.value,
+      currentImportPermissionMessage.value
+    )
+  ) {
+    return;
+  }
 
   const isConfirmingDifferences =
     importResult.value?.requiresConfirmation && pendingDifferences.value.length > 0;
@@ -1058,7 +1096,19 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
       <div v-show="currentStep === 0" class="step-panel">
         <h3 class="step-title">上传文件</h3>
         <p class="step-desc">请选择包含验收规格数据的 Word（.docx）或 Excel（.xlsx）文件</p>
-        <FileUpload v-model="uploadedFile" @uploaded="handleFileUploaded" />
+        <FileUpload
+          v-if="canUploadSourceFile && canImportAny"
+          v-model="uploadedFile"
+          :accept="uploadAccept"
+          @uploaded="handleFileUploaded"
+        />
+        <el-alert
+          v-else
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="uploadBlockedMessage"
+        />
       </div>
 
       <!-- 步骤2: 选择表格 -->
@@ -1271,7 +1321,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
             </template>
             <template #extra>
               <el-button
-                v-if="importResult.requiresConfirmation"
+                v-if="importResult.requiresConfirmation && canImportCurrentFile"
                 type="primary"
                 :loading="importing"
                 :disabled="pendingUndecidedCount > 0"
@@ -1279,7 +1329,13 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               >
                 {{ importing ? "处理中..." : "确认差异并导入" }}
               </el-button>
-              <el-button type="primary" @click="handleRestart">继续导入</el-button>
+              <el-button
+                v-if="canUploadSourceFile && canImportAny"
+                type="primary"
+                @click="handleRestart"
+              >
+                继续导入
+              </el-button>
             </template>
           </el-result>
 
@@ -1400,6 +1456,14 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
 
         <!-- 导入确认 -->
         <div v-else class="import-confirm">
+          <el-alert
+            v-if="!canImportCurrentFile"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="currentImportPermissionMessage"
+            class="mb-4"
+          />
           <el-descriptions class="import-confirm-desc" :column="3" border size="small">
             <el-descriptions-item label="源文件" :span="2">
               {{ uploadedFile?.fileName }}
@@ -1434,6 +1498,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               />
             </div>
             <el-button
+              v-if="canImportCurrentFile"
               type="primary"
               size="large"
               :loading="importing"

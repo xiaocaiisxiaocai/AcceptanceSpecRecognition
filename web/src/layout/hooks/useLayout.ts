@@ -6,6 +6,31 @@ import { useMultiTagsStore } from "@/store/modules/multiTags";
 export function useLayout() {
   const { $storage, $config } = useGlobal<GlobalPropertiesApi>();
 
+  const resolveLayoutStorage = () => ({
+    layout: $storage.layout?.layout ?? $config?.Layout ?? "vertical",
+    theme: $storage.layout?.theme ?? $config?.Theme ?? "light",
+    darkMode: $storage.layout?.darkMode ?? $config?.DarkMode ?? false,
+    sidebarStatus:
+      $storage.layout?.sidebarStatus ?? $config?.SidebarStatus ?? true,
+    epThemeColor:
+      $storage.layout?.epThemeColor ?? $config?.EpThemeColor ?? "#409EFF",
+    themeColor: $storage.layout?.themeColor ?? $config?.Theme ?? "light",
+    overallStyle:
+      $storage.layout?.overallStyle ?? $config?.OverallStyle ?? "light"
+  });
+
+  const resolveConfigureStorage = () => ({
+    grey: $storage.configure?.grey ?? $config?.Grey ?? false,
+    weak: $storage.configure?.weak ?? $config?.Weak ?? false,
+    hideTabs: $storage.configure?.hideTabs ?? $config?.HideTabs ?? false,
+    hideFooter: $storage.configure?.hideFooter ?? $config.HideFooter ?? true,
+    showLogo: $storage.configure?.showLogo ?? $config?.ShowLogo ?? true,
+    showModel: $storage.configure?.showModel ?? $config?.ShowModel ?? "smart",
+    multiTagsCache:
+      $storage.configure?.multiTagsCache ?? $config?.MultiTagsCache ?? false,
+    stretch: $storage.configure?.stretch ?? $config?.Stretch ?? false
+  });
+
   const initStorage = () => {
     /** 路由 */
     if (
@@ -15,30 +40,9 @@ export function useLayout() {
       $storage.tags = routerArrays;
     }
     /** 导航 */
-    if (!$storage.layout) {
-      $storage.layout = {
-        layout: $config?.Layout ?? "vertical",
-        theme: $config?.Theme ?? "light",
-        darkMode: $config?.DarkMode ?? false,
-        sidebarStatus: $config?.SidebarStatus ?? true,
-        epThemeColor: $config?.EpThemeColor ?? "#409EFF",
-        themeColor: $config?.Theme ?? "light",
-        overallStyle: $config?.OverallStyle ?? "light"
-      };
-    }
+    $storage.layout = resolveLayoutStorage();
     /** 灰色模式、色弱模式、隐藏标签页 */
-    if (!$storage.configure) {
-      $storage.configure = {
-        grey: $config?.Grey ?? false,
-        weak: $config?.Weak ?? false,
-        hideTabs: $config?.HideTabs ?? false,
-        hideFooter: $config.HideFooter ?? true,
-        showLogo: $config?.ShowLogo ?? true,
-        showModel: $config?.ShowModel ?? "smart",
-        multiTagsCache: $config?.MultiTagsCache ?? false,
-        stretch: $config?.Stretch ?? false
-      };
-    }
+    $storage.configure = resolveConfigureStorage();
     if (
       $config?.MultiTagsCache === true &&
       $storage.configure?.multiTagsCache !== true
@@ -48,9 +52,11 @@ export function useLayout() {
     }
   };
 
+  initStorage();
+
   /** 清空缓存后从platform-config.json读取默认配置并赋值到storage中 */
   const layout = computed(() => {
-    return $storage?.layout.layout;
+    return $storage?.layout?.layout ?? $config?.Layout ?? "vertical";
   });
 
   const layoutTheme = computed(() => {

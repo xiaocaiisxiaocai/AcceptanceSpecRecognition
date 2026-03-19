@@ -57,6 +57,16 @@ public class LoginSuccessData
 /// </summary>
 public class RefreshTokenSuccessData
 {
+    public string Avatar { get; set; } = string.Empty;
+
+    public string Username { get; set; } = string.Empty;
+
+    public string Nickname { get; set; } = string.Empty;
+
+    public List<string> Roles { get; set; } = [];
+
+    public List<string> Permissions { get; set; } = [];
+
     public string AccessToken { get; set; } = string.Empty;
 
     public string RefreshToken { get; set; } = string.Empty;

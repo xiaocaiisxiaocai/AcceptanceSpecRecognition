@@ -1,5 +1,7 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Authorization;
+using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -15,14 +17,19 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 public class CustomersController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IAuthDataScopeService _authDataScopeService;
     private readonly ILogger<CustomersController> _logger;
 
     /// <summary>
     /// 创建客户控制器实例
     /// </summary>
-    public CustomersController(IUnitOfWork unitOfWork, ILogger<CustomersController> logger)
+    public CustomersController(
+        IUnitOfWork unitOfWork,
+        IAuthDataScopeService authDataScopeService,
+        ILogger<CustomersController> logger)
     {
         _unitOfWork = unitOfWork;
+        _authDataScopeService = authDataScopeService;
         _logger = logger;
     }
 
@@ -36,6 +43,12 @@ public class CustomersController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<PagedData<CustomerDto>>(401, "会话缺少用户上下文");
+        }
+
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
@@ -56,17 +69,7 @@ public class CustomersController : BaseApiController
 
         // 统计：每个客户在验规中“使用过的制程数量”（distinct ProcessId）
         var customerIds = rows.Select(c => c.Id).ToList();
-        var processCountByCustomer = customerIds.Count == 0
-            ? new Dictionary<int, int>()
-            : await _unitOfWork.AcceptanceSpecs.Query()
-                .Where(s => customerIds.Contains(s.CustomerId) && s.ProcessId.HasValue)
-                .GroupBy(s => s.CustomerId)
-                .Select(g => new
-                {
-                    CustomerId = g.Key,
-                    ProcessCount = g.Select(x => x.ProcessId!.Value).Distinct().Count()
-                })
-                .ToDictionaryAsync(x => x.CustomerId, x => x.ProcessCount);
+        var processCountByCustomer = await BuildCustomerProcessCountAsync(customerIds, scope);
 
         var items = rows.Select(c => new CustomerDto
         {
@@ -95,6 +98,12 @@ public class CustomersController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<CustomerDto>>> GetCustomer(int id)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<CustomerDto>(401, "会话缺少用户上下文");
+        }
+
         var customer = await _unitOfWork.Customers.GetByIdAsync(id);
 
         if (customer == null)
@@ -107,12 +116,7 @@ public class CustomersController : BaseApiController
             Id = customer.Id,
             Name = customer.Name,
             CreatedAt = customer.CreatedAt,
-            ProcessCount = (await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.CustomerId == id))
-                .Select(s => s.ProcessId)
-                .Where(pid => pid.HasValue)
-                .Select(pid => pid!.Value)
-                .Distinct()
-                .Count()
+            ProcessCount = await GetCustomerProcessCountAsync(id, scope)
         };
 
         return Success(dto);
@@ -167,6 +171,12 @@ public class CustomersController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<CustomerDto>>> UpdateCustomer(int id, [FromBody] UpdateCustomerRequest request)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<CustomerDto>(401, "会话缺少用户上下文");
+        }
+
         var customer = await _unitOfWork.Customers.GetByIdAsync(id);
         if (customer == null)
         {
@@ -193,12 +203,7 @@ public class CustomersController : BaseApiController
             Id = customer.Id,
             Name = customer.Name,
             CreatedAt = customer.CreatedAt,
-            ProcessCount = (await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.CustomerId == id))
-                .Select(s => s.ProcessId)
-                .Where(pid => pid.HasValue)
-                .Select(pid => pid!.Value)
-                .Distinct()
-                .Count()
+            ProcessCount = await GetCustomerProcessCountAsync(id, scope)
         };
 
         return Success(dto, "更新客户成功");
@@ -235,6 +240,12 @@ public class CustomersController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<List<ProcessDto>>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<List<ProcessDto>>>> GetCustomerProcesses(int id)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<List<ProcessDto>>(401, "会话缺少用户上下文");
+        }
+
         var customer = await _unitOfWork.Customers.GetByIdAsync(id);
         if (customer == null)
         {
@@ -242,7 +253,14 @@ public class CustomersController : BaseApiController
         }
 
         // 返回“该客户的验规中使用过的制程列表”（非从属关系）
-        var specProcessIds = (await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.CustomerId == id))
+        var scopedSpecs = SpecDataScopeHelper.ApplyScope(
+            await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.CustomerId == id),
+            scope);
+        var specCountByProcess = scopedSpecs
+            .Where(s => s.ProcessId.HasValue)
+            .GroupBy(s => s.ProcessId!.Value)
+            .ToDictionary(g => g.Key, g => g.Count());
+        var specProcessIds = scopedSpecs
             .Select(s => s.ProcessId)
             .Where(pid => pid.HasValue)
             .Select(pid => pid!.Value)
@@ -260,10 +278,41 @@ public class CustomersController : BaseApiController
                 Id = p.Id,
                 Name = p.Name,
                 CreatedAt = p.CreatedAt,
-                SpecCount = p.AcceptanceSpecs?.Count ?? 0
+                SpecCount = specCountByProcess.TryGetValue(p.Id, out var count) ? count : 0
             })
             .ToList();
 
         return Success(dtoList);
+    }
+
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync()
+    {
+        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
+    }
+
+    private async Task<Dictionary<int, int>> BuildCustomerProcessCountAsync(
+        IReadOnlyCollection<int> customerIds,
+        DataScopeResult scope)
+    {
+        if (customerIds.Count == 0)
+        {
+            return new Dictionary<int, int>();
+        }
+
+        var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(
+            s => customerIds.Contains(s.CustomerId) && s.ProcessId.HasValue);
+
+        return SpecDataScopeHelper.ApplyScope(specs, scope)
+            .Where(s => s.ProcessId.HasValue)
+            .GroupBy(s => s.CustomerId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => x.ProcessId!.Value).Distinct().Count());
+    }
+
+    private async Task<int> GetCustomerProcessCountAsync(int customerId, DataScopeResult scope)
+    {
+        var counts = await BuildCustomerProcessCountAsync([customerId], scope);
+        return counts.TryGetValue(customerId, out var count) ? count : 0;
     }
 }

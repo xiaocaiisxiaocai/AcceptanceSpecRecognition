@@ -99,6 +99,8 @@ export interface MatchResult {
   embeddingScore: number;
   /** 各算法得分详情 */
   scoreDetails: Record<string, number>;
+  /** Top候选列表（含Top1） */
+  topCandidates: MatchCandidateOption[];
   /** 匹配策略 */
   matchingStrategy: MatchingStrategy;
   /** 第一阶段召回候选数 */
@@ -117,6 +119,30 @@ export interface MatchResult {
   llmCommentary?: string;
   /** 是否经过LLM复核 */
   isLlmReviewed?: boolean;
+}
+
+/** 匹配详情中的候选项 */
+export interface MatchCandidateOption {
+  /** 候选排名（从1开始） */
+  rank: number;
+  /** 匹配的验收规格ID */
+  specId: number;
+  /** 匹配的项目名称 */
+  project: string;
+  /** 匹配的规格内容 */
+  specification: string;
+  /** 匹配的验收标准 */
+  acceptance?: string;
+  /** 匹配的备注 */
+  remark?: string;
+  /** 当前候选得分 */
+  score: number;
+  /** Embedding 原始得分（0-1） */
+  embeddingScore: number;
+  /** 各算法得分详情 */
+  scoreDetails: Record<string, number>;
+  /** 重排摘要 */
+  rerankSummary?: string;
 }
 
 /** LLM生成建议 */
@@ -276,14 +302,14 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
-  matchingStrategy: MatchingStrategy.SingleStage,
-  minScoreThreshold: 0.95,
-  recallTopK: 5,
+  matchingStrategy: MatchingStrategy.MultiStage,
+  minScoreThreshold: 0.65,
+  recallTopK: 8,
   ambiguityMargin: 0.03,
   useLlmReview: false,
   useLlmSuggestion: true,
   suggestNoMatchRows: false,
-  llmSuggestionScoreThreshold: 0.6,
+  llmSuggestionScoreThreshold: 0.75,
   llmParallelism: 3,
   llmRowTimeoutSeconds: 45,
   llmRetryCount: 1,

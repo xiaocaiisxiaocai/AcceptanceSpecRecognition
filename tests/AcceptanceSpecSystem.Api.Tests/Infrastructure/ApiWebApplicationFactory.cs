@@ -15,10 +15,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
-public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
+public class ApiWebApplicationFactory : WebApplicationFactory<Program>
 {
     private DbConnection? _connection;
     private string? _tempRoot;
+
+    protected virtual bool UseTestAuthentication => true;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -55,13 +57,16 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton<ITextSimilarityService, TestTextSimilarityService>();
 
             // 使用测试鉴权（默认 admin），避免真实 JWT 依赖影响集成测试
-            services.AddAuthentication(options =>
+            if (UseTestAuthentication)
             {
-                options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-            }).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
-                TestAuthHandler.SchemeName,
-                _ => { });
+                services.AddAuthentication(options =>
+                {
+                    options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                    options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
+                }).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
+                    TestAuthHandler.SchemeName,
+                    _ => { });
+            }
 
             // DataProtection 测试隔离（Ephemeral 密钥不持久化）
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
@@ -143,6 +148,27 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
         db.AuthRoles.AddRange(roleAdmin, roleCommon);
         db.SaveChanges();
 
+        var permissionReadSystemUser = new AuthPermission
+        {
+            Code = "api:system-user:read",
+            Name = "接口-系统用户-读取",
+            PermissionType = PermissionType.Api,
+            Resource = "system-user",
+            Action = "read",
+            IsBuiltIn = true,
+            IsActive = true,
+            CreatedAt = DateTime.Now
+        };
+        db.AuthPermissions.Add(permissionReadSystemUser);
+        db.SaveChanges();
+
+        db.AuthRolePermissions.Add(new AuthRolePermission
+        {
+            RoleId = roleAdmin.Id,
+            PermissionId = permissionReadSystemUser.Id
+        });
+        db.SaveChanges();
+
         var passwordService = new AuthPasswordService();
         var admin = new SystemUser
         {
@@ -201,5 +227,10 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
 
         db.SaveChanges();
     }
+}
+
+public sealed class RealJwtApiWebApplicationFactory : ApiWebApplicationFactory
+{
+    protected override bool UseTestAuthentication => false;
 }
 

@@ -41,7 +41,7 @@ app.component("IconifyIconOffline", IconifyIconOffline);
 app.component("IconifyIconOnline", IconifyIconOnline);
 app.component("FontIcon", FontIcon);
 
-// 全局注册按钮级别权限组件
+// 全局注册 permission 组件（Auth 为兼容别名，底层统一走 permission code）
 import { Auth } from "@/components/ReAuth";
 import { Perms } from "@/components/RePerms";
 app.component("Auth", Auth);
