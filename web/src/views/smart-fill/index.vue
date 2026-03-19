@@ -21,7 +21,7 @@ import {
   defaultMatchConfig
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
-import { getFileTables, getTablePreview } from "@/api/document";
+import { getFileTables } from "@/api/document";
 import {
   getEffectiveColumnMappingRules,
   ColumnMappingTargetField,
@@ -30,10 +30,6 @@ import {
 } from "@/api/column-mapping-rules";
 import { getToken, formatToken, hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
-import {
-  DEFAULT_EXCEL_PROBE_PREVIEW_ROWS,
-  detectExcelSmartFillConfig
-} from "./excel-auto-detect";
 
 defineOptions({ name: "SmartFill" });
 
@@ -128,44 +124,27 @@ const canGoNext = computed(() => {
   }
 });
 
-const excelProbePreviewRows = DEFAULT_EXCEL_PROBE_PREVIEW_ROWS;
-
-const buildExcelTableConfig = async (
-  fileId: number,
+const buildExcelTableConfig = (
   table: TableInfo,
-  rules: ColumnMappingRule[],
   selected: boolean
-): Promise<BatchTableConfigItem> => {
-  let detected = detectExcelSmartFillConfig(table, [], rules);
-
-  try {
-    const previewRes = await getTablePreview(fileId, table.index, {
-      previewRows: excelProbePreviewRows,
-      headerRowIndex: 0,
-      headerRowCount: 1,
-      dataStartRowIndex: 0
-    });
-
-    if (previewRes.code === 0) {
-      detected = detectExcelSmartFillConfig(table, previewRes.data.rows, rules);
-    }
-  } catch {
-    // 探测失败时回退到工作表首行与默认列配置
-  }
+): BatchTableConfigItem => {
+  const usedStartRow = Math.max(1, table.usedRangeStartRow ?? 1);
+  const totalColumns = Math.max(table.columnCount, table.headers.length, 1);
+  const clampColumnIndex = (preferredIndex: number) =>
+    Math.min(preferredIndex, totalColumns - 1);
 
   return {
     tableIndex: table.index,
-    projectColumnIndex: detected.projectColumnIndex,
-    specificationColumnIndex: detected.specificationColumnIndex,
-    acceptanceColumnIndex: detected.acceptanceColumnIndex,
-    remarkColumnIndex: detected.remarkColumnIndex,
-    headerRowStart: detected.headerRowStart,
-    headerRowCount: detected.headerRowCount,
-    dataStartRow: detected.dataStartRow,
+    projectColumnIndex: clampColumnIndex(0),
+    specificationColumnIndex: clampColumnIndex(1),
+    acceptanceColumnIndex: clampColumnIndex(2),
+    remarkColumnIndex: totalColumns > 3 ? 3 : undefined,
+    headerRowStart: usedStartRow,
+    headerRowCount: 1,
+    dataStartRow: usedStartRow + 1,
     filterEmptySourceRows: true,
     selected,
-    tableInfo: table,
-    autoDetection: detected
+    tableInfo: table
   };
 };
 
@@ -178,16 +157,17 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   batchPreviewResults.value = [];
   taskId.value = null;
 
-  // 并行获取表格列表和列映射规则
+  // Excel 改为手工配置，不再做自动识别；Word 仍按列映射规则自动匹配
   let tables: TableInfo[] = [];
   let rules: ColumnMappingRule[] = [];
   try {
-    const [tablesRes, rulesRes] = await Promise.all([
-      getFileTables(file.fileId),
-      getEffectiveColumnMappingRules()
-    ]);
+    const tablesRes = await getFileTables(file.fileId);
     if (tablesRes.code === 0) tables = tablesRes.data;
-    if (rulesRes.code === 0) rules = rulesRes.data;
+
+    if (file.fileType !== 1) {
+      const rulesRes = await getEffectiveColumnMappingRules();
+      if (rulesRes.code === 0) rules = rulesRes.data;
+    }
   } catch {
     ElMessage.warning("获取表格列表失败");
     return;
@@ -196,10 +176,8 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   allTables.value = tables;
 
   if (file.fileType === 1) {
-    batchTableConfigs.value = await Promise.all(
-      tables.map((t) =>
-        buildExcelTableConfig(file.fileId, t, rules, tables.length === 1)
-      )
+    batchTableConfigs.value = tables.map((t) =>
+      buildExcelTableConfig(t, tables.length === 1)
     );
     return;
   }
@@ -786,7 +764,7 @@ const handleRestart = () => {
         <h3 class="step-title">选择表格并配置列索引</h3>
         <p class="step-desc">
           勾选需要填充的表格，并为每个表格指定各列索引（从0开始）
-          <span v-if="isExcelFile">；若表头不在首行，请先调整行配置并刷新表头</span>
+          <span v-if="isExcelFile">；Excel 请按实际内容手工调整行配置并刷新表头</span>
         </p>
 
         <BatchTableConfig
