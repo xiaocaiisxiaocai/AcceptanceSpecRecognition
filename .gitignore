@@ -80,6 +80,9 @@ secrets.json
 .tmpbuild/
 artifacts/
 docs/design-overview.pdf
+.cursor/
+.deploy/
+提供测试的文档/
 
 # DataProtection key ring (runtime generated)
 **/data-protection-keys/
