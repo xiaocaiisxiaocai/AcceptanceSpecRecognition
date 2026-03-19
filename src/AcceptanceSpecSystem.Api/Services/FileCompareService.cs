@@ -16,6 +16,7 @@ public class FileCompareResult
 {
     public UploadedFileType FileType { get; set; }
     public List<FileCompareDiffItem> Items { get; set; } = new();
+    public List<FileCompareHunk> Hunks { get; set; } = new();
 }
 
 public class FileCompareDiffItem
@@ -25,6 +26,24 @@ public class FileCompareDiffItem
     public string? OriginalText { get; set; }
     public string? CurrentText { get; set; }
     public string? DisplayLocation { get; set; }
+}
+
+public class FileCompareHunk
+{
+    public int StartItemIndex { get; set; }
+    public int EndItemIndex { get; set; }
+    public string? RangeText { get; set; }
+    public List<FileCompareHunkLine> Lines { get; set; } = new();
+}
+
+public class FileCompareHunkLine
+{
+    public string LineType { get; set; } = string.Empty;
+    public int ItemIndex { get; set; }
+    public string? ChangeGroupId { get; set; }
+    public string? DisplayLocation { get; set; }
+    public string? OriginalText { get; set; }
+    public string? CurrentText { get; set; }
 }
 
 public class FileCompareLocation
@@ -47,6 +66,8 @@ public enum FileCompareDiffType
 
 public class FileCompareService : IFileCompareService
 {
+    private const long MaxLcsMatrixCells = 250_000;
+    private const int ChunkLookAhead = 80;
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IFileStorageService _fileStorage;
 
@@ -82,7 +103,8 @@ public class FileCompareService : IFileCompareService
         return new FileCompareResult
         {
             FileType = UploadedFileType.WordDocx,
-            Items = items
+            Items = items,
+            Hunks = BuildDiffHunks(items)
         };
     }
 
@@ -162,7 +184,8 @@ public class FileCompareService : IFileCompareService
         return new FileCompareResult
         {
             FileType = UploadedFileType.ExcelXlsx,
-            Items = items
+            Items = items,
+            Hunks = BuildDiffHunks(items)
         };
     }
 
@@ -252,6 +275,13 @@ public class FileCompareService : IFileCompareService
     {
         var n = a.Count;
         var m = b.Count;
+
+        // 大文档走分块近似算法，避免 O(n*m) 动态规划造成高延迟与高内存占用
+        if ((long)n * m > MaxLcsMatrixCells)
+        {
+            return BuildParagraphDiffByChunk(a, b, ChunkLookAhead);
+        }
+
         var dp = new int[n + 1, m + 1];
 
         for (var i = 1; i <= n; i++)
@@ -307,6 +337,85 @@ public class FileCompareService : IFileCompareService
 
         ops.Reverse();
         return ops;
+    }
+
+    private static List<DiffOp> BuildParagraphDiffByChunk(
+        IReadOnlyList<string> a,
+        IReadOnlyList<string> b,
+        int lookAhead)
+    {
+        var ops = new List<DiffOp>();
+        var i = 0;
+        var j = 0;
+
+        while (i < a.Count && j < b.Count)
+        {
+            if (a[i] == b[j])
+            {
+                ops.Add(new DiffOp(DiffOpType.Equal, a[i], i, j));
+                i++;
+                j++;
+                continue;
+            }
+
+            var matchInB = FindMatchIndex(b, j + 1, lookAhead, a[i]);
+            var matchInA = FindMatchIndex(a, i + 1, lookAhead, b[j]);
+
+            if (matchInB >= 0 && (matchInA < 0 || matchInB - j <= matchInA - i))
+            {
+                while (j < matchInB)
+                {
+                    ops.Add(new DiffOp(DiffOpType.Add, b[j], -1, j));
+                    j++;
+                }
+                continue;
+            }
+
+            if (matchInA >= 0)
+            {
+                while (i < matchInA)
+                {
+                    ops.Add(new DiffOp(DiffOpType.Remove, a[i], i, -1));
+                    i++;
+                }
+                continue;
+            }
+
+            // 无近邻锚点：按同位置差异处理，后续会组合为 Modified
+            ops.Add(new DiffOp(DiffOpType.Remove, a[i], i, -1));
+            ops.Add(new DiffOp(DiffOpType.Add, b[j], -1, j));
+            i++;
+            j++;
+        }
+
+        while (i < a.Count)
+        {
+            ops.Add(new DiffOp(DiffOpType.Remove, a[i], i, -1));
+            i++;
+        }
+
+        while (j < b.Count)
+        {
+            ops.Add(new DiffOp(DiffOpType.Add, b[j], -1, j));
+            j++;
+        }
+
+        return ops;
+    }
+
+    private static int FindMatchIndex(IReadOnlyList<string> source, int start, int lookAhead, string expected)
+    {
+        if (start >= source.Count)
+            return -1;
+
+        var end = Math.Min(source.Count - 1, start + lookAhead);
+        for (var k = start; k <= end; k++)
+        {
+            if (source[k] == expected)
+                return k;
+        }
+
+        return -1;
     }
 
     private static List<FileCompareDiffItem> BuildWordDiffItems(IReadOnlyList<DiffOp> ops)
@@ -504,6 +613,106 @@ public class FileCompareService : IFileCompareService
         }
 
         return columnName;
+    }
+
+    private static List<FileCompareHunk> BuildDiffHunks(IReadOnlyList<FileCompareDiffItem> items, int contextLineCount = 2)
+    {
+        var changedIndices = items
+            .Select((item, index) => new { item, index })
+            .Where(x => x.item.DiffType != FileCompareDiffType.Unchanged)
+            .Select(x => x.index)
+            .ToList();
+
+        if (changedIndices.Count == 0)
+            return new List<FileCompareHunk>();
+
+        var ranges = new List<(int Start, int End)>();
+        foreach (var index in changedIndices)
+        {
+            var start = Math.Max(0, index - contextLineCount);
+            var end = Math.Min(items.Count - 1, index + contextLineCount);
+            if (ranges.Count == 0 || start > ranges[^1].End + 1)
+            {
+                ranges.Add((start, end));
+                continue;
+            }
+
+            var last = ranges[^1];
+            ranges[^1] = (last.Start, Math.Max(last.End, end));
+        }
+
+        var hunks = new List<FileCompareHunk>();
+        foreach (var (start, end) in ranges)
+        {
+            var hunk = new FileCompareHunk
+            {
+                StartItemIndex = start + 1,
+                EndItemIndex = end + 1,
+                RangeText = BuildHunkRangeText(items, start, end)
+            };
+
+            for (var i = start; i <= end; i++)
+            {
+                var item = items[i];
+                if (item.DiffType == FileCompareDiffType.Modified)
+                {
+                    var groupId = $"m-{i + 1}";
+                    hunk.Lines.Add(new FileCompareHunkLine
+                    {
+                        LineType = "Remove",
+                        ItemIndex = i + 1,
+                        ChangeGroupId = groupId,
+                        DisplayLocation = item.DisplayLocation,
+                        OriginalText = item.OriginalText
+                    });
+                    hunk.Lines.Add(new FileCompareHunkLine
+                    {
+                        LineType = "Add",
+                        ItemIndex = i + 1,
+                        ChangeGroupId = groupId,
+                        DisplayLocation = item.DisplayLocation,
+                        CurrentText = item.CurrentText
+                    });
+                    continue;
+                }
+
+                hunk.Lines.Add(new FileCompareHunkLine
+                {
+                    LineType = item.DiffType switch
+                    {
+                        FileCompareDiffType.Added => "Add",
+                        FileCompareDiffType.Removed => "Remove",
+                        _ => "Context"
+                    },
+                    ItemIndex = i + 1,
+                    DisplayLocation = item.DisplayLocation,
+                    OriginalText = item.OriginalText,
+                    CurrentText = item.CurrentText
+                });
+            }
+
+            hunks.Add(hunk);
+        }
+
+        return hunks;
+    }
+
+    private static string BuildHunkRangeText(IReadOnlyList<FileCompareDiffItem> items, int start, int end)
+    {
+        var first = items[start].DisplayLocation;
+        var last = items[end].DisplayLocation;
+        if (!string.IsNullOrWhiteSpace(first) && !string.IsNullOrWhiteSpace(last))
+        {
+            return string.Equals(first, last, StringComparison.Ordinal)
+                ? first
+                : $"{first} ~ {last}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(first))
+            return first;
+        if (!string.IsNullOrWhiteSpace(last))
+            return last;
+        return $"第{start + 1}项 ~ 第{end + 1}项";
     }
 
     private readonly record struct WordCellKey(int RowIndex, int ColumnIndex);

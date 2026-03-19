@@ -27,6 +27,7 @@ public class FileComparePreviewResponse
 {
     public UploadedFileType FileType { get; set; }
     public List<FileCompareDiffItemDto> Items { get; set; } = new();
+    public List<FileCompareHunkDto> Hunks { get; set; } = new();
     public int AddedCount { get; set; }
     public int RemovedCount { get; set; }
     public int ModifiedCount { get; set; }
@@ -57,4 +58,28 @@ public class FileCompareLocationDto
     public int? RowIndex { get; set; }
     public int? ColumnIndex { get; set; }
     public string? Address { get; set; }
+}
+
+/// <summary>
+/// 差异块（类 Git hunk）
+/// </summary>
+public class FileCompareHunkDto
+{
+    public int StartItemIndex { get; set; }
+    public int EndItemIndex { get; set; }
+    public string? RangeText { get; set; }
+    public List<FileCompareHunkLineDto> Lines { get; set; } = new();
+}
+
+/// <summary>
+/// 差异块行
+/// </summary>
+public class FileCompareHunkLineDto
+{
+    public string LineType { get; set; } = string.Empty;
+    public int ItemIndex { get; set; }
+    public string? ChangeGroupId { get; set; }
+    public string? DisplayLocation { get; set; }
+    public string? OriginalText { get; set; }
+    public string? CurrentText { get; set; }
 }

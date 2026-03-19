@@ -2,7 +2,9 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -10,6 +12,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 /// Prompt模板CRUD API控制器
 /// </summary>
 [Route("api/prompt-templates")]
+[Authorize]
 public class PromptTemplatesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -34,24 +37,26 @@ public class PromptTemplatesController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
-        var all = await _unitOfWork.PromptTemplates.GetAllAsync();
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
 
+        var query = _unitOfWork.PromptTemplates.Query();
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            all = all.Where(t =>
-                    t.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
-                    t.Content.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            var key = keyword.Trim();
+            query = query.Where(t =>
+                t.Name.Contains(key) ||
+                t.Content.Contains(key));
         }
 
-        var total = all.Count;
-        var items = all
+        var total = await query.CountAsync();
+        var rows = await query
             .OrderByDescending(t => t.IsDefault)
             .ThenByDescending(t => t.UpdatedAt ?? t.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(ToDto)
-            .ToList();
+            .ToListAsync();
+        var items = rows.Select(ToDto).ToList();
 
         return Success(new PagedData<PromptTemplateDto>
         {
@@ -93,6 +98,7 @@ public class PromptTemplatesController : BaseApiController
     /// 新增Prompt模板
     /// </summary>
     [HttpPost]
+    [AuditOperation("create", "prompt-template")]
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> Create([FromBody] CreatePromptTemplateRequest request)
     {
@@ -132,6 +138,7 @@ public class PromptTemplatesController : BaseApiController
     /// 更新Prompt模板
     /// </summary>
     [HttpPut("{id}")]
+    [AuditOperation("update", "prompt-template")]
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> Update(int id, [FromBody] UpdatePromptTemplateRequest request)
     {
@@ -173,6 +180,7 @@ public class PromptTemplatesController : BaseApiController
     /// 删除Prompt模板
     /// </summary>
     [HttpDelete("{id}")]
+    [AuditOperation("delete", "prompt-template")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
@@ -189,6 +197,7 @@ public class PromptTemplatesController : BaseApiController
     /// 设置默认Prompt模板
     /// </summary>
     [HttpPost("{id}/set-default")]
+    [AuditOperation("set-default", "prompt-template")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> SetDefault(int id)
     {

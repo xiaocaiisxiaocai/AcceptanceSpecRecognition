@@ -33,6 +33,12 @@ export interface MatchConfig {
   llmSuggestionScoreThreshold?: number;
   /** LLM 并行处理数（1~10） */
   llmParallelism?: number;
+  /** LLM 单行处理超时（秒） */
+  llmRowTimeoutSeconds?: number;
+  /** LLM 单行失败重试次数 */
+  llmRetryCount?: number;
+  /** LLM 熔断阈值（累计失败次数） */
+  llmCircuitBreakFailures?: number;
   /** 是否过滤项目/规格均为空的行 */
   filterEmptySourceRows?: boolean;
 }
@@ -279,6 +285,9 @@ export const defaultMatchConfig: MatchConfig = {
   suggestNoMatchRows: false,
   llmSuggestionScoreThreshold: 0.6,
   llmParallelism: 3,
+  llmRowTimeoutSeconds: 45,
+  llmRetryCount: 1,
+  llmCircuitBreakFailures: 10,
   filterEmptySourceRows: true
 };
 

@@ -2,7 +2,9 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -10,6 +12,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 /// 机型管理API控制器
 /// </summary>
 [Route("api/machine-models")]
+[Authorize]
 public class MachineModelsController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -34,36 +37,40 @@ public class MachineModelsController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
-        var allModels = await _unitOfWork.MachineModels.GetAllAsync();
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
 
-        // 按关键字筛选
+        var query = _unitOfWork.MachineModels.Query();
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            allModels = allModels.Where(m => m.Name.Contains(keyword)).ToList();
+            var key = keyword.Trim();
+            query = query.Where(m => m.Name.Contains(key));
         }
 
-        var modelIds = allModels.Select(m => m.Id).ToList();
-        var specs = modelIds.Count == 0
-            ? []
-            : await _unitOfWork.AcceptanceSpecs.FindAsync(
-                s => s.MachineModelId.HasValue && modelIds.Contains(s.MachineModelId.Value));
-        var specCountByModel = specs
-            .GroupBy(s => s.MachineModelId!.Value)
-            .ToDictionary(g => g.Key, g => g.Count());
-
-        var total = allModels.Count;
-        var items = allModels
+        var total = await query.CountAsync();
+        var rows = await query
             .OrderByDescending(m => m.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(m => new MachineModelDto
-            {
-                Id = m.Id,
-                Name = m.Name,
-                CreatedAt = m.CreatedAt,
-                SpecCount = specCountByModel.TryGetValue(m.Id, out var count) ? count : 0
-            })
-            .ToList();
+            .Select(m => new { m.Id, m.Name, m.CreatedAt })
+            .ToListAsync();
+
+        var modelIds = rows.Select(m => m.Id).ToList();
+        var specCountByModel = modelIds.Count == 0
+            ? new Dictionary<int, int>()
+            : await _unitOfWork.AcceptanceSpecs.Query()
+                .Where(s => s.MachineModelId.HasValue && modelIds.Contains(s.MachineModelId.Value))
+                .GroupBy(s => s.MachineModelId!.Value)
+                .Select(g => new { ModelId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.ModelId, x => x.Count);
+
+        var items = rows.Select(m => new MachineModelDto
+        {
+            Id = m.Id,
+            Name = m.Name,
+            CreatedAt = m.CreatedAt,
+            SpecCount = specCountByModel.TryGetValue(m.Id, out var count) ? count : 0
+        }).ToList();
 
         var pagedData = new PagedData<MachineModelDto>
         {
@@ -110,6 +117,7 @@ public class MachineModelsController : BaseApiController
     /// 创建机型
     /// </summary>
     [HttpPost]
+    [AuditOperation("create", "machine-model")]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<MachineModelDto>>> CreateMachineModel([FromBody] CreateMachineModelRequest request)
@@ -140,6 +148,7 @@ public class MachineModelsController : BaseApiController
     /// 更新机型
     /// </summary>
     [HttpPut("{id}")]
+    [AuditOperation("update", "machine-model")]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<MachineModelDto>>> UpdateMachineModel(int id, [FromBody] UpdateMachineModelRequest request)
@@ -174,6 +183,7 @@ public class MachineModelsController : BaseApiController
     /// 删除机型
     /// </summary>
     [HttpDelete("{id}")]
+    [AuditOperation("delete", "machine-model")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse>> DeleteMachineModel(int id)

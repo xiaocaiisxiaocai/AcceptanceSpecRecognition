@@ -33,10 +33,24 @@ export const multipleTabsKey = "multiple-tabs";
 
 /** 获取`token` */
 export function getToken(): DataInfo<number> {
-  // 此处与`TokenKey`相同，此写法解决初始化时`Cookies`中不存在`TokenKey`报错
-  return Cookies.get(TokenKey)
-    ? JSON.parse(Cookies.get(TokenKey))
-    : storageLocal().getItem(userKey);
+  const localToken = storageLocal().getItem<DataInfo<number>>(userKey);
+  if (localToken?.accessToken && localToken?.refreshToken) {
+    return localToken;
+  }
+
+  const cookieTokenRaw = Cookies.get(TokenKey);
+  if (cookieTokenRaw) {
+    try {
+      const cookieToken = JSON.parse(cookieTokenRaw) as DataInfo<number>;
+      if (cookieToken?.accessToken && cookieToken?.refreshToken) {
+        return cookieToken;
+      }
+    } catch {
+      // cookie 可能因超长被截断，忽略并回退到 localStorage
+    }
+  }
+
+  return (localToken ?? {}) as DataInfo<number>;
 }
 
 /**
@@ -75,6 +89,7 @@ export function setToken(data: DataInfo<Date>) {
     useUserStoreHook().SET_ROLES(roles);
     useUserStoreHook().SET_PERMS(permissions);
     storageLocal().setItem(userKey, {
+      accessToken,
       refreshToken,
       expires,
       avatar,

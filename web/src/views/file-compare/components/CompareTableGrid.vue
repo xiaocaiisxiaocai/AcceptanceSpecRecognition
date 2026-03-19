@@ -20,6 +20,12 @@ const startCol = computed(() => props.tableInfo?.usedRangeStartColumn ?? 1);
 const columnCount = computed(() => props.tableData?.columnCount ?? 0);
 const rows = computed(() => props.tableData?.rows ?? []);
 
+type VisibleRow = {
+  row: string[];
+  rowIndex: number;
+  hasDiff: boolean;
+};
+
 const toExcelColumnName = (columnNumber: number) => {
   let dividend = columnNumber;
   let columnName = "";
@@ -45,6 +51,25 @@ const getDiffType = (rowIndex: number, columnIndex: number) => {
   return props.diffMap.get(key)?.diffType ?? "Unchanged";
 };
 
+const rowHasDiff = (rowIndex: number) => {
+  for (let columnIndex = 0; columnIndex < columnCount.value; columnIndex += 1) {
+    if (getDiffType(rowIndex, columnIndex) !== "Unchanged") {
+      return true;
+    }
+  }
+  return false;
+};
+
+const visibleRows = computed<VisibleRow[]>(() => {
+  const mapped = rows.value.map((row, rowIndex) => ({
+    row,
+    rowIndex,
+    hasDiff: rowHasDiff(rowIndex)
+  }));
+  if (!props.onlyDiff) return mapped;
+  return mapped.filter((item) => item.hasDiff);
+});
+
 const getCellClass = (rowIndex: number, columnIndex: number) => {
   const diffType = getDiffType(rowIndex, columnIndex);
   return {
@@ -56,13 +81,14 @@ const getCellClass = (rowIndex: number, columnIndex: number) => {
   };
 };
 
-const getCellText = (row: string[], columnIndex: number, rowIndex: number) => {
+const getCellText = (row: string[], columnIndex: number) => {
   const raw = row?.[columnIndex] ?? "";
-  if (props.onlyDiff) {
-    const diffType = getDiffType(rowIndex, columnIndex);
-    if (diffType === "Unchanged") return "";
-  }
-  return raw;
+  return raw.trim().length > 0 ? raw : "（空）";
+};
+
+const isEmptyCell = (row: string[], columnIndex: number) => {
+  const raw = row?.[columnIndex] ?? "";
+  return raw.trim().length === 0;
 };
 </script>
 
@@ -76,7 +102,15 @@ const getCellText = (row: string[], columnIndex: number, rowIndex: number) => {
       <el-empty description="暂无表格数据" />
     </div>
 
+    <div v-else-if="onlyDiff && visibleRows.length === 0" class="empty-container">
+      <el-empty description="当前工作表无差异" />
+    </div>
+
     <div v-else class="table-scroll">
+      <div class="table-toolbar">
+        <span>总行数：{{ rows.length }}</span>
+        <span v-if="onlyDiff">差异行：{{ visibleRows.length }}</span>
+      </div>
       <table class="grid-table">
         <thead v-if="isExcel">
           <tr>
@@ -87,16 +121,25 @@ const getCellText = (row: string[], columnIndex: number, rowIndex: number) => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(row, rowIndex) in rows" :key="rowIndex">
+          <tr
+            v-for="item in visibleRows"
+            :key="item.rowIndex"
+            :class="{ 'row-has-diff': item.hasDiff }"
+          >
             <th v-if="isExcel" class="row-header">
-              {{ startRow + rowIndex }}
+              {{ startRow + item.rowIndex }}
             </th>
             <td
               v-for="colIndex in columnCount"
               :key="colIndex"
-              :class="getCellClass(rowIndex, colIndex - 1)"
+              :class="getCellClass(item.rowIndex, colIndex - 1)"
             >
-              <span class="cell-text">{{ getCellText(row, colIndex - 1, rowIndex) }}</span>
+              <span
+                class="cell-text"
+                :class="{ 'cell-placeholder': isEmptyCell(item.row, colIndex - 1) }"
+              >
+                {{ getCellText(item.row, colIndex - 1) }}
+              </span>
             </td>
           </tr>
         </tbody>
@@ -110,6 +153,20 @@ const getCellText = (row: string[], columnIndex: number, rowIndex: number) => {
   width: 100%;
 }
 
+.table-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #6b7280;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-bottom: none;
+}
+
 .table-scroll {
   width: 100%;
   overflow: auto;
@@ -119,14 +176,15 @@ const getCellText = (row: string[], columnIndex: number, rowIndex: number) => {
   border-collapse: collapse;
   width: 100%;
   min-width: max-content;
+  border: 1px solid #e5e7eb;
 }
 
 .grid-table th,
 .grid-table td {
   border: 1px solid #e5e7eb;
-  padding: 6px 8px;
+  padding: 8px 10px;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.5;
   vertical-align: top;
   background: #fff;
 }
@@ -134,7 +192,7 @@ const getCellText = (row: string[], columnIndex: number, rowIndex: number) => {
 .grid-table .corner {
   position: sticky;
   left: 0;
-  top: 0;
+  top: 33px;
   z-index: 3;
   background: #f3f4f6;
   width: 44px;
@@ -142,7 +200,7 @@ const getCellText = (row: string[], columnIndex: number, rowIndex: number) => {
 
 .grid-table .col-header {
   position: sticky;
-  top: 0;
+  top: 33px;
   z-index: 2;
   background: #f3f4f6;
   text-align: center;
@@ -162,7 +220,12 @@ const getCellText = (row: string[], columnIndex: number, rowIndex: number) => {
   display: block;
   white-space: pre-wrap;
   word-break: break-word;
-  min-height: 18px;
+  min-height: 20px;
+}
+
+.cell-placeholder {
+  color: #9ca3af;
+  font-style: italic;
 }
 
 .cell-added {
@@ -185,7 +248,12 @@ const getCellText = (row: string[], columnIndex: number, rowIndex: number) => {
 }
 
 .cell-dim .cell-text {
-  color: #cbd5e1;
+  color: #9ca3af;
+}
+
+.row-has-diff .row-header {
+  font-weight: 600;
+  color: #1f2937;
 }
 
 .empty-container {

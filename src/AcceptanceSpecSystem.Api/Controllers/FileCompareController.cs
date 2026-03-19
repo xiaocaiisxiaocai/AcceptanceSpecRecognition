@@ -41,6 +41,7 @@ public class FileCompareController : BaseApiController
     /// 上传待对比文件（仅支持同类型 Word/Excel）
     /// </summary>
     [HttpPost("upload")]
+    [AuditOperation("upload", "file-compare")]
     [ProducesResponseType(typeof(ApiResponse<FileCompareUploadResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<FileCompareUploadResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<FileCompareUploadResponse>>> Upload(
@@ -245,11 +246,27 @@ public class FileCompareController : BaseApiController
                 Address = i.Location.Address
             }
         }).ToList();
+        var hunks = result.Hunks.Select(h => new FileCompareHunkDto
+        {
+            StartItemIndex = h.StartItemIndex,
+            EndItemIndex = h.EndItemIndex,
+            RangeText = h.RangeText,
+            Lines = h.Lines.Select(line => new FileCompareHunkLineDto
+            {
+                LineType = line.LineType,
+                ItemIndex = line.ItemIndex,
+                ChangeGroupId = line.ChangeGroupId,
+                DisplayLocation = line.DisplayLocation,
+                OriginalText = line.OriginalText,
+                CurrentText = line.CurrentText
+            }).ToList()
+        }).ToList();
 
         return new FileComparePreviewResponse
         {
             FileType = result.FileType,
             Items = items,
+            Hunks = hunks,
             AddedCount = items.Count(i => i.DiffType == FileCompareDiffType.Added.ToString()),
             RemovedCount = items.Count(i => i.DiffType == FileCompareDiffType.Removed.ToString()),
             ModifiedCount = items.Count(i => i.DiffType == FileCompareDiffType.Modified.ToString()),

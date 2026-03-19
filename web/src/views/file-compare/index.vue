@@ -6,7 +6,8 @@ import {
   uploadCompareFiles,
   previewCompare,
   downloadCompare,
-  type FileCompareDiffItem
+  type FileCompareDiffItem,
+  type FileCompareHunk
 } from "@/api/file-compare";
 import {
   getFileTables,
@@ -16,8 +17,12 @@ import {
   type TableData
 } from "@/api/document";
 import CompareTableGrid from "./components/CompareTableGrid.vue";
+import UnifiedDiffView from "./components/UnifiedDiffView.vue";
 
 defineOptions({ name: "FileCompare" });
+
+type CompareViewMode = "document" | "unified";
+type WordPaneSide = "left" | "right";
 
 const fileA = ref<File | null>(null);
 const fileB = ref<File | null>(null);
@@ -27,11 +32,13 @@ const fileType = ref<number | null>(null);
 
 const loading = ref(false);
 const diffItems = ref<FileCompareDiffItem[]>([]);
+const diffHunks = ref<FileCompareHunk[]>([]);
 const addedCount = ref(0);
 const removedCount = ref(0);
 const modifiedCount = ref(0);
 const unchangedCount = ref(0);
 
+const activeView = ref<CompareViewMode>("document");
 const onlyDiff = ref(false);
 const tableInfosA = ref<TableInfo[]>([]);
 const tableInfosB = ref<TableInfo[]>([]);
@@ -87,10 +94,12 @@ const getExt = (name: string) => name.slice(name.lastIndexOf(".")).toLowerCase()
 
 const resetResult = () => {
   diffItems.value = [];
+  diffHunks.value = [];
   addedCount.value = 0;
   removedCount.value = 0;
   modifiedCount.value = 0;
   unchangedCount.value = 0;
+  activeView.value = "document";
   onlyDiff.value = false;
   fileType.value = null;
   tableInfosA.value = [];
@@ -156,10 +165,12 @@ const startCompare = async () => {
     }
 
     diffItems.value = previewRes.data.items || [];
+    diffHunks.value = previewRes.data.hunks || [];
     addedCount.value = previewRes.data.addedCount;
     removedCount.value = previewRes.data.removedCount;
     modifiedCount.value = previewRes.data.modifiedCount;
     unchangedCount.value = previewRes.data.unchangedCount ?? 0;
+    activeView.value = "document";
     onlyDiff.value = false;
     fileType.value = previewRes.data.fileType ?? null;
 
@@ -259,14 +270,6 @@ const formatDiffType = (type: FileCompareDiffItem["diffType"]) => {
   return "修改";
 };
 
-const getRowClass = ({ row }: { row: FileCompareDiffItem }) => {
-  if (row.diffType === "Unchanged") return "diff-row diff-unchanged";
-  if (row.diffType === "Added") return "diff-row diff-added";
-  if (row.diffType === "Removed") return "diff-row diff-removed";
-  if (row.diffType === "Modified") return "diff-row diff-modified";
-  return "diff-row";
-};
-
 const buildLocationText = (row: FileCompareDiffItem) => {
   if (row.displayLocation) return row.displayLocation;
   const loc = row.location || ({} as FileCompareDiffItem["location"]);
@@ -274,12 +277,58 @@ const buildLocationText = (row: FileCompareDiffItem) => {
   return "未定位";
 };
 
-const buildDetailText = (row: FileCompareDiffItem) => {
-  const loc = row.location || ({} as FileCompareDiffItem["location"]);
-  const parts: string[] = [];
-  if (loc.documentType) parts.push(`类型:${loc.documentType}`);
-  if (loc.rowIndex !== undefined) parts.push(`段落:${(loc.rowIndex ?? 0) + 1}`);
-  return parts.join(" / ");
+const getDiffTagType = (type: FileCompareDiffItem["diffType"]) => {
+  if (type === "Unchanged") return "info";
+  if (type === "Added") return "success";
+  if (type === "Removed") return "danger";
+  return "warning";
+};
+
+const getWordParagraphIndex = (row: FileCompareDiffItem, idx: number) => {
+  const rowIndex = row.location?.rowIndex;
+  if (typeof rowIndex === "number") return rowIndex + 1;
+  return idx + 1;
+};
+
+const getWordPaneRawText = (row: FileCompareDiffItem, side: WordPaneSide) => {
+  if (row.diffType === "Added") {
+    return side === "right" ? row.currentText ?? "" : "";
+  }
+  if (row.diffType === "Removed") {
+    return side === "left" ? row.originalText ?? "" : "";
+  }
+  if (row.diffType === "Modified") {
+    return side === "left" ? row.originalText ?? "" : row.currentText ?? "";
+  }
+  return side === "left"
+    ? row.originalText ?? row.currentText ?? ""
+    : row.currentText ?? row.originalText ?? "";
+};
+
+const getWordPaneDisplayText = (row: FileCompareDiffItem, side: WordPaneSide) => {
+  const text = getWordPaneRawText(row, side).trim();
+  if (text.length > 0) return text;
+  if (row.diffType === "Added" && side === "left") return "（该段为新增，仅存在于文件 B）";
+  if (row.diffType === "Removed" && side === "right") return "（该段已删除，仅存在于文件 A）";
+  return "（空白段落）";
+};
+
+const isWordPanePlaceholder = (row: FileCompareDiffItem, side: WordPaneSide) => {
+  return getWordPaneRawText(row, side).trim().length === 0;
+};
+
+const getWordParagraphClass = (row: FileCompareDiffItem, side: WordPaneSide) => {
+  return {
+    "paragraph-card": true,
+    "is-unchanged": row.diffType === "Unchanged",
+    "is-modified-old": row.diffType === "Modified" && side === "left",
+    "is-modified-new": row.diffType === "Modified" && side === "right",
+    "is-added": row.diffType === "Added" && side === "right",
+    "is-removed": row.diffType === "Removed" && side === "left",
+    "is-missing":
+      (row.diffType === "Added" && side === "left") ||
+      (row.diffType === "Removed" && side === "right")
+  };
 };
 
 const syncScroll = (source: "left" | "right") => {
@@ -305,6 +354,15 @@ watch(
   () => {
     if (isExcel.value) {
       loadTablePreviews();
+    }
+  }
+);
+
+watch(
+  () => activeView.value,
+  (view) => {
+    if (view === "unified" && diffItems.value.length > 0 && !onlyDiff.value) {
+      onlyDiff.value = true;
     }
   }
 );
@@ -373,7 +431,14 @@ watch(
         />
       </div>
 
-      <div class="table-controls" v-if="tableOptions.length">
+      <div class="view-switch">
+        <el-radio-group v-model="activeView" size="small">
+          <el-radio-button label="document">原文档视图</el-radio-button>
+          <el-radio-button label="unified">差异视图</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <div class="table-controls" v-if="activeView === 'document' && tableOptions.length">
         <span class="control-label">
           {{ isExcel ? "选择工作表" : "选择表格" }}
         </span>
@@ -387,9 +452,12 @@ watch(
         </el-select>
       </div>
 
-      <div class="compare-grid">
+      <div class="compare-grid" v-if="activeView === 'document'">
         <div class="compare-pane">
-          <div class="pane-title">原值预览</div>
+          <div class="pane-title">
+            <span>文件 A（原文）</span>
+            <span class="pane-file">{{ uploadedA?.fileName }}</span>
+          </div>
           <div class="pane-body" ref="leftPaneRef" @scroll="syncScroll('left')">
             <template v-if="isExcel">
               <CompareTableGrid
@@ -402,40 +470,35 @@ watch(
               />
             </template>
             <template v-else>
-              <div
-                v-for="(row, idx) in wordItems"
-                :key="`${row.displayLocation || idx}-old`"
-                class="pane-row"
-                :class="getRowClass({ row })"
-              >
-                <div class="row-meta">
-                  <el-tag v-if="row.diffType === 'Unchanged'" type="info">
-                    {{ formatDiffType(row.diffType) }}
-                  </el-tag>
-                  <el-tag v-else-if="row.diffType === 'Added'" type="success">
-                    {{ formatDiffType(row.diffType) }}
-                  </el-tag>
-                  <el-tag v-else-if="row.diffType === 'Removed'" type="danger">
-                    {{ formatDiffType(row.diffType) }}
-                  </el-tag>
-                  <el-tag v-else type="warning">
-                    {{ formatDiffType(row.diffType) }}
-                  </el-tag>
-                  <span class="location-text">{{ buildLocationText(row) }}</span>
-                </div>
-                <div class="row-detail">{{ buildDetailText(row) }}</div>
-                <div
-                  class="diff-text"
-                  :class="{ 'diff-old': row.diffType === 'Removed' || row.diffType === 'Modified' }"
+              <div v-if="!wordItems.length" class="pane-empty">
+                <el-empty description="暂无文本内容" :image-size="80" />
+              </div>
+              <div v-else class="doc-pane">
+                <article
+                  v-for="(row, idx) in wordItems"
+                  :key="`${row.displayLocation || idx}-old`"
+                  :class="getWordParagraphClass(row, 'left')"
                 >
-                  {{ row.originalText || "" }}
-                </div>
+                  <header class="paragraph-head">
+                    <span class="paragraph-no">段落 {{ getWordParagraphIndex(row, idx) }}</span>
+                    <span class="paragraph-location">{{ buildLocationText(row) }}</span>
+                    <el-tag :type="getDiffTagType(row.diffType)" size="small" effect="plain">
+                      {{ formatDiffType(row.diffType) }}
+                    </el-tag>
+                  </header>
+                  <p class="paragraph-text" :class="{ 'is-placeholder': isWordPanePlaceholder(row, 'left') }">
+                    {{ getWordPaneDisplayText(row, "left") }}
+                  </p>
+                </article>
               </div>
             </template>
           </div>
         </div>
         <div class="compare-pane">
-          <div class="pane-title">新值预览</div>
+          <div class="pane-title">
+            <span>文件 B（新文）</span>
+            <span class="pane-file">{{ uploadedB?.fileName }}</span>
+          </div>
           <div class="pane-body" ref="rightPaneRef" @scroll="syncScroll('right')">
             <template v-if="isExcel">
               <CompareTableGrid
@@ -448,39 +511,33 @@ watch(
               />
             </template>
             <template v-else>
-              <div
-                v-for="(row, idx) in wordItems"
-                :key="`${row.displayLocation || idx}-new`"
-                class="pane-row"
-                :class="getRowClass({ row })"
-              >
-                <div class="row-meta">
-                  <el-tag v-if="row.diffType === 'Unchanged'" type="info">
-                    {{ formatDiffType(row.diffType) }}
-                  </el-tag>
-                  <el-tag v-else-if="row.diffType === 'Added'" type="success">
-                    {{ formatDiffType(row.diffType) }}
-                  </el-tag>
-                  <el-tag v-else-if="row.diffType === 'Removed'" type="danger">
-                    {{ formatDiffType(row.diffType) }}
-                  </el-tag>
-                  <el-tag v-else type="warning">
-                    {{ formatDiffType(row.diffType) }}
-                  </el-tag>
-                  <span class="location-text">{{ buildLocationText(row) }}</span>
-                </div>
-                <div class="row-detail">{{ buildDetailText(row) }}</div>
-                <div
-                  class="diff-text"
-                  :class="{ 'diff-new': row.diffType === 'Added' || row.diffType === 'Modified' }"
+              <div v-if="!wordItems.length" class="pane-empty">
+                <el-empty description="暂无文本内容" :image-size="80" />
+              </div>
+              <div v-else class="doc-pane">
+                <article
+                  v-for="(row, idx) in wordItems"
+                  :key="`${row.displayLocation || idx}-new`"
+                  :class="getWordParagraphClass(row, 'right')"
                 >
-                  {{ row.currentText || "" }}
-                </div>
+                  <header class="paragraph-head">
+                    <span class="paragraph-no">段落 {{ getWordParagraphIndex(row, idx) }}</span>
+                    <span class="paragraph-location">{{ buildLocationText(row) }}</span>
+                    <el-tag :type="getDiffTagType(row.diffType)" size="small" effect="plain">
+                      {{ formatDiffType(row.diffType) }}
+                    </el-tag>
+                  </header>
+                  <p class="paragraph-text" :class="{ 'is-placeholder': isWordPanePlaceholder(row, 'right') }">
+                    {{ getWordPaneDisplayText(row, "right") }}
+                  </p>
+                </article>
               </div>
             </template>
           </div>
         </div>
       </div>
+
+      <UnifiedDiffView v-else :hunks="diffHunks" :items="diffItems" :only-diff="onlyDiff" />
     </el-card>
   </div>
 </template>
@@ -518,10 +575,15 @@ watch(
   margin-bottom: 12px;
   color: #606266;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .diff-toggle {
   margin-left: auto;
+}
+
+.view-switch {
+  margin-bottom: 12px;
 }
 
 .table-controls {
@@ -558,52 +620,111 @@ watch(
   font-weight: 600;
   background: #f9fafb;
   border-bottom: 1px solid #eef0f3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pane-file {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 400;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pane-body {
-  max-height: 560px;
+  height: min(62vh, 640px);
   overflow: auto;
+  background: #fff;
 }
 
-.pane-row {
+.pane-empty {
+  padding-top: 72px;
+}
+
+.doc-pane {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #f8fafc;
+}
+
+.paragraph-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
 }
 
-.row-meta {
+.paragraph-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
-}
-
-.row-detail {
-  font-size: 12px;
-  color: #94a3b8;
   margin-bottom: 6px;
+  flex-wrap: wrap;
 }
 
-.location-text {
-  font-weight: 500;
-  color: #374151;
+.paragraph-no {
+  font-size: 13px;
+  color: #111827;
+  font-weight: 600;
 }
 
-.diff-text {
+.paragraph-location {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.paragraph-text {
+  margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+  line-height: 1.65;
+  color: #1f2937;
 }
 
-.diff-old {
-  color: #b91c1c;
-  background: rgba(220, 38, 38, 0.08);
-  padding: 2px 4px;
-  border-radius: 4px;
+.paragraph-text.is-placeholder {
+  color: #94a3b8;
+  font-style: italic;
 }
 
-.diff-new {
-  color: #047857;
-  background: rgba(16, 185, 129, 0.08);
-  padding: 2px 4px;
-  border-radius: 4px;
+.paragraph-card.is-added {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.paragraph-card.is-removed {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.paragraph-card.is-modified-old {
+  border-color: #fca5a5;
+  background: #fff7f7;
+}
+
+.paragraph-card.is-modified-new {
+  border-color: #86efac;
+  background: #f7fff8;
+}
+
+.paragraph-card.is-missing {
+  border-style: dashed;
+  background: #f8fafc;
+}
+
+@media (max-width: 1200px) {
+  .compare-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pane-body {
+    height: 520px;
+  }
 }
 </style>

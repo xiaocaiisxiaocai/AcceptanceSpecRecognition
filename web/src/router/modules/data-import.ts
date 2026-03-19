@@ -17,7 +17,8 @@ export default {
       component: () => import("@/views/data-import/index.vue"),
       meta: {
         icon: "ri:file-upload-line",
-        title: "导入数据"
+        title: "导入数据",
+        permissions: ["page:data-import:index"]
       }
     }
   ]

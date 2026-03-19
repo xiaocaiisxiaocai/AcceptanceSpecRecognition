@@ -17,7 +17,8 @@ export default {
       component: () => import("@/views/file-compare/index.vue"),
       meta: {
         icon: "ri:compare-line",
-        title: "文件对比"
+        title: "文件对比",
+        permissions: ["page:file-compare:index"]
       }
     }
   ]

@@ -56,11 +56,11 @@ graph LR
 ```mermaid
 graph TB
     subgraph 前端
-        FE[Vue 3 SPA<br/>Nginx :8080]
+        FE[Vue 3 SPA<br/>IIS 站点 /]
     end
 
     subgraph 后端
-        API[ASP.NET Core 8<br/>Web API :5014]
+        API[ASP.NET Core 8<br/>IIS 子应用 /api]
     end
 
     subgraph 数据层
@@ -90,10 +90,10 @@ graph TB
 开发环境:
   Vite (:8848) ──proxy /api──▶ ASP.NET Core (:5014) ──▶ MySQL (:3306)
 
-生产环境 (Docker Compose):
-  Nginx (:8080) ──proxy /api──▶ ASP.NET Core (:5014) ──▶ MySQL (:3306)
-  │                              │
-  └── 静态资源 (Vue dist)         └── uploads/ (Docker Volume)
+生产环境 (IIS 内网):
+  IIS 站点 (/) ──/api──▶ IIS 子应用 (ASP.NET Core API) ──▶ MySQL (:3306)
+  │                                            │
+  └── 静态资源 (Vue dist)                       └── FileStorage:BasePath
 ```
 
 ---
@@ -590,13 +590,26 @@ erDiagram
         bool IsEnabled
     }
 
-    OperationHistory {
+    SystemUser {
         int Id PK
-        int OperationType "Import/Fill/Delete"
-        string TargetFile
+        string Username UK
+        string PasswordHash "PBKDF2"
+        string RolesJson
+        string PermissionsJson
+        bool IsActive
+        datetime CreatedAt
+    }
+
+    AuditLog {
+        int Id PK
+        int Source "BackendRequest/FrontendEvent"
+        int Level "Information/Warning/Error"
+        string EventType
+        string Username
+        int StatusCode
+        string RequestPath
+        string FrontendRoute
         string Details "JSON"
-        bool CanUndo
-        string UndoData "JSON"
         datetime CreatedAt
     }
 ```
@@ -650,8 +663,10 @@ mindmap
     智能匹配
       POST /api/matching/preview
       POST /api/matching/execute
+      POST /api/matching/batch-preview
+      POST /api/matching/batch-execute
+      POST /api/matching/llm-stream
       GET /api/matching/download/:taskId
-      GET /api/matching/status/:taskId
     验收规格
       GET /api/specs/summary
       GET /api/specs（分页与筛选）
@@ -669,8 +684,9 @@ mindmap
       CRUD /api/column-mapping-rules
       CRUD /api/synonyms
       CRUD /api/keywords
+      CRUD /api/system-users
     辅助
-      GET /api/history
+      GET /api/audit-logs
       POST /api/file-compare
       GET /health
       GET /swagger
@@ -709,7 +725,7 @@ sequenceDiagram
     loop 每一行
         DC->>DB: 创建 AcceptanceSpec
     end
-    DC->>DB: 记录 OperationHistory
+    DC->>DB: 记录审计日志
     DC-->>FE: { importedCount, errors }
 ```
 
@@ -793,7 +809,7 @@ web/src/
 │   ├── column-mapping-rules.ts     列映射规则 API
 │   ├── synonym.ts                  同义词 API
 │   ├── keyword.ts                  关键词 API
-│   ├── history.ts                  历史 API
+│   ├── audit-log.ts                审计日志 API
 │   ├── file-compare.ts             文件对比 API
 │   └── user.ts                     用户认证 API
 ├── router/modules/                 路由模块
@@ -838,9 +854,9 @@ graph TB
 
   subgraph AUX["辅助功能"]
     FC["文件对比<br/>/file-compare"]
+    AUDIT["审计日志<br/>/other/audit-logs"]
     SYN[同义词管理]
     KW[关键词管理]
-    HIS["操作历史<br/>支持撤销"]
   end
 
   DASH --- CUST
@@ -885,7 +901,7 @@ stateDiagram-v2
 |------|---------|------|
 | **多步向导** | `currentStep` ref + `canGoNext` computed | 降低用户认知负担 |
 | **列映射自动识别** | `ColumnMappingRule` 优先级匹配 | Contains / Equals / Regex 三种模式 |
-| **SSE 流式** | EventSource + AbortController | LLM 实时进度推送 |
+| **SSE 流式** | `fetch + ReadableStream` + `AbortController` | LLM 实时进度推送 |
 | **长超时** | Axios 300s + Vite proxy timeout=0 | 适配 AI 长耗时请求 |
 | **Token 刷新** | PureHttp 拦截器队列 | 无感刷新，请求不丢失 |
 | **权限控制** | v-auth / v-perms 指令 + Pinia | 页面级 + 按钮级 |
@@ -1010,66 +1026,42 @@ classDiagram
 
 ## 10. 部署方案
 
-### 10.1 Docker Compose 架构
+### 10.1 IIS 内网架构
 
 ```mermaid
 graph LR
-    subgraph Docker Network
-        NGINX["acceptance-web<br/>Nginx :80<br/>(暴露 :8080)"]
-        API_D["acceptance-api<br/>ASP.NET Core :8080<br/>(暴露 :5014)"]
-        MYSQL["acceptance-mysql<br/>MySQL 8.0 :3306"]
-    end
+    USER["内网用户浏览器"] --> IIS["IIS 站点<br/>前端静态资源 /"]
+    IIS --> API["IIS 子应用 /api<br/>ASP.NET Core API"]
+    API --> MYSQL["MySQL 8.0"]
+    API --> FS["文件存储目录<br/>FileStorage:BasePath"]
 
-    subgraph Volumes
-        V1[(mysql_data)]
-        V2[(api_uploads)]
-    end
-
-    NGINX -- "/api/*" --> API_D
-    API_D -- "EF Core" --> MYSQL
-    MYSQL --- V1
-    API_D --- V2
-
-    style NGINX fill:#4CAF50,color:#fff
-    style API_D fill:#2196F3,color:#fff
+    style IIS fill:#4CAF50,color:#fff
+    style API fill:#2196F3,color:#fff
     style MYSQL fill:#FF9800,color:#fff
+    style FS fill:#607D8B,color:#fff
 ```
 
-### 10.2 构建流程
+### 10.2 发布流程
 
 ```mermaid
 graph TD
-  subgraph API_BUILD["API 构建 · 多阶段 Dockerfile"]
-    A1["SDK 8.0 镜像"] --> A2["dotnet restore"]
-    A2 --> A3["dotnet publish -c Release"]
-    A3 --> A4["Runtime 8.0 镜像<br/>:8080"]
-  end
-
-  subgraph WEB_BUILD["Web 构建 · 多阶段 Dockerfile"]
-    W1["Node 20 Alpine"] --> W2["pnpm install --frozen-lockfile"]
-    W2 --> W3["pnpm build"]
-    W3 --> W4["Nginx Alpine<br/>:80"]
-  end
-
-  subgraph COMPOSE["Compose"]
-    DC["docker compose up -d --build"]
-    DC --> A1
-    DC --> W1
-    DC --> MYSQL_INIT["MySQL 8.0<br/>健康检查后启动 API"]
-  end
+  A1["dotnet publish Api -c Release"] --> A2["发布到 IIS 子应用 /api"]
+  W1["pnpm build (web)"] --> W2["发布 dist 到 IIS 站点根路径"]
+  C1["配置 appsettings.Production.json"] --> A2
+  C1 --> F1["设置 FileStorage:BasePath 目录权限"]
 ```
 
 ### 10.3 环境对照
 
-| 配置项 | 开发环境 | 生产环境 (Docker) |
-|--------|---------|-----------------|
-| 前端端口 | Vite :8848 | Nginx :8080 |
-| 后端端口 | :5014 | :5014 (映射自 :8080) |
-| 数据库 | localhost:3306 | acceptance-mysql:3306 |
-| API 代理 | Vite proxy | Nginx proxy |
-| 文件存储 | 本地 uploads/ | Docker Volume api_uploads |
-| 迁移 | 自动应用 | 自动应用 |
-| Swagger | 启用 | 启用 |
+| 配置项 | 开发环境 | 生产环境 (IIS) |
+|--------|---------|----------------|
+| 前端端口 | Vite :8848 | IIS :80 / :443 |
+| 后端端口 | :5014 | IIS 子应用 `/api` |
+| 数据库 | localhost:3306 | 内网 MySQL |
+| API 路径 | Vite proxy `/api` | 同站点 `/api` |
+| 文件存储 | 项目目录 `uploads/` | `FileStorage:BasePath` 指定目录 |
+| 迁移 | 自动应用 | 自动应用（或发布前手工执行） |
+| Swagger | 启用 | 可启用（按内网策略） |
 
 ---
 
@@ -1130,7 +1122,7 @@ flowchart LR
 | 5 | 前端框架 | **Vue 3 + Pure Admin Thin** | React, Angular | 成熟企业管理后台方案，中文社区活跃 |
 | 6 | 数据库 | **MySQL 8.0 (Pomelo)** | PostgreSQL, SQLite | 生产级 RDBMS，EF Core Migration 管理 Schema |
 | 7 | 向量存储 | **数据库表 (EmbeddingCache)** | Milvus, Qdrant, pgvector | 简单直接，规模可控，无需引入额外基础设施 |
-| 8 | 文件存储 | **文件系统（相对路径）** | 数据库 BLOB, MinIO | 便于跨环境迁移，Docker Volume 持久化 |
+| 8 | 文件存储 | **文件系统（相对路径）** | 数据库 BLOB, MinIO | 便于跨环境迁移，IIS 独立目录持久化 |
 | 9 | AI 服务选择 | **离线优先 + 优先级排序** | 固定服务 | 支持断网环境，灵活切换提供商 |
 | 10 | 文本预处理 | **管道模式（可配置步骤）** | 硬编码处理链 | 步骤可独立开关，运行时加载配置 |
 
@@ -1188,7 +1180,7 @@ graph TB
         UPLOAD --> PARSE[DocumentParser<br/>解析表格结构]
         PARSE --> MAP[ColumnMapping<br/>列映射配置]
         MAP --> IMPORT[逐行创建 AcceptanceSpec<br/>写入数据库]
-        IMPORT --> HIST1[记录 OperationHistory]
+        IMPORT --> LOG1[记录审计日志]
     end
 
     subgraph 匹配阶段
@@ -1211,7 +1203,7 @@ graph TB
         FILL_OPS --> WRITER[WordDocumentWriter<br/>写入目标文档]
         WRITER --> SAVE[保存填充结果<br/>filled-files/]
         SAVE --> DL[用户下载]
-        SAVE --> HIST2[记录 OperationHistory]
+        SAVE --> LOG2[记录审计日志]
     end
 ```
 

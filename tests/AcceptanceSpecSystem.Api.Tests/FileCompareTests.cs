@@ -79,6 +79,10 @@ public class FileCompareTests : IClassFixture<ApiWebApplicationFactory>
         var added = previewJson.Data.GetProperty("addedCount").GetInt32();
         var removed = previewJson.Data.GetProperty("removedCount").GetInt32();
         (modified + added + removed).Should().BeGreaterThan(0, "应检测到段落差异");
+
+        var hunks = previewJson.Data.GetProperty("hunks");
+        hunks.GetArrayLength().Should().BeGreaterThan(0, "有差异时应返回差异块");
+        hunks[0].GetProperty("lines").GetArrayLength().Should().BeGreaterThan(0, "差异块应包含行");
     }
 
     /// <summary>
@@ -107,6 +111,9 @@ public class FileCompareTests : IClassFixture<ApiWebApplicationFactory>
         var hasModified = items.EnumerateArray()
             .Any(i => i.GetProperty("diffType").GetString() == "Modified");
         hasModified.Should().BeTrue("应检测到 B1 单元格的修改");
+
+        var hunks = previewJson.Data.GetProperty("hunks");
+        hunks.GetArrayLength().Should().BeGreaterThan(0, "有差异时应返回差异块");
     }
 
     /// <summary>

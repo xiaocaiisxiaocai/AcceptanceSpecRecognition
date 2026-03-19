@@ -4,20 +4,23 @@ services:
     container_name: acceptance-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-abc+123}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-acceptance_spec_db}
-      MYSQL_USER: ${MYSQL_USER:-app}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-app123}
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
-    ports:
-      - "3306:3306"
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: acceptance_spec_db
+      MYSQL_USER: acceptance
+      MYSQL_PASSWORD: acceptance123
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
     volumes:
-      - mysql_data:/var/lib/mysql
+      - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-abc+123}"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   api:
     build:
@@ -25,22 +28,28 @@ services:
       dockerfile: src/AcceptanceSpecSystem.Api/Dockerfile
     container_name: acceptance-api
     restart: unless-stopped
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: >-
-        Server=mysql;Port=3306;Database=${MYSQL_DATABASE:-acceptance_spec_db};User=${MYSQL_USER:-app};Password=${MYSQL_PASSWORD:-app123};CharSet=utf8mb4;
     depends_on:
       mysql:
         condition: service_healthy
-    ports:
-      - "5014:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Server=mysql;Port=3306;Database=acceptance_spec_db;User=acceptance;Password=acceptance123;CharSet=utf8mb4;
+      FileStorage__BasePath: /data/files
+      DataProtection__KeysPath: /data/dp-keys
+      Cors__AllowedOrigins__0: "*"
+      JwtAuth__SigningKey: AcceptanceSpec_DockerJwtKey_2026_ReplaceWithLongRandom
+      TZ: Asia/Shanghai
     volumes:
-      - api_uploads:/app/uploads
+      - api-files:/data/files
+      - api-dpkeys:/data/dp-keys
+    ports:
+      - "5290:8080"
 
   web:
     build:
-      context: ./web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: web/Dockerfile
     container_name: acceptance-web
     restart: unless-stopped
     depends_on:
@@ -49,6 +58,6 @@ services:
       - "8080:80"
 
 volumes:
-  mysql_data:
-  api_uploads:
-
+  mysql-data:
+  api-files:
+  api-dpkeys:

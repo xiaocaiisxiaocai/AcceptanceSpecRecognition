@@ -2,7 +2,9 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -10,6 +12,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 /// 关键字CRUD API控制器
 /// </summary>
 [Route("api/keywords")]
+[Authorize]
 public class KeywordsController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -29,17 +32,23 @@ public class KeywordsController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
-        var all = string.IsNullOrWhiteSpace(keyword)
-            ? await _unitOfWork.Keywords.GetAllAsync()
-            : await _unitOfWork.Keywords.FindAsync(k => k.Word.Contains(keyword));
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
 
-        var total = all.Count;
-        var items = all
+        var query = _unitOfWork.Keywords.Query();
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            var key = keyword.Trim();
+            query = query.Where(k => k.Word.Contains(key));
+        }
+
+        var total = await query.CountAsync();
+        var items = await query
             .OrderByDescending(k => k.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(k => new KeywordDto { Id = k.Id, Word = k.Word, CreatedAt = k.CreatedAt })
-            .ToList();
+            .ToListAsync();
 
         return Success(new PagedData<KeywordDto>
         {
@@ -54,6 +63,7 @@ public class KeywordsController : BaseApiController
     /// 新增关键字
     /// </summary>
     [HttpPost]
+    [AuditOperation("create", "keyword")]
     [ProducesResponseType(typeof(ApiResponse<KeywordDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<KeywordDto>>> Create([FromBody] CreateKeywordRequest request)
     {
@@ -76,6 +86,7 @@ public class KeywordsController : BaseApiController
     /// 批量新增关键字（自动去重）
     /// </summary>
     [HttpPost("batch")]
+    [AuditOperation("create-batch", "keyword")]
     [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<int>>> BatchAdd([FromBody] BatchAddKeywordsRequest request)
     {
@@ -93,6 +104,7 @@ public class KeywordsController : BaseApiController
     /// 更新关键字
     /// </summary>
     [HttpPut("{id}")]
+    [AuditOperation("update", "keyword")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> Update(int id, [FromBody] UpdateKeywordRequest request)
     {
@@ -118,6 +130,7 @@ public class KeywordsController : BaseApiController
     /// 删除关键字
     /// </summary>
     [HttpDelete("{id}")]
+    [AuditOperation("delete", "keyword")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {

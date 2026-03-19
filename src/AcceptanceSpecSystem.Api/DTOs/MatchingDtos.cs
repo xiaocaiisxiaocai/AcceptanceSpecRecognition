@@ -156,10 +156,24 @@ public class MatchConfigDto
     public int LlmParallelism { get; set; } = 3;
 
     /// <summary>
+    /// LLM 单行处理超时时间（秒，默认45）
+    /// </summary>
+    public int LlmRowTimeoutSeconds { get; set; } = 45;
+
+    /// <summary>
+    /// LLM 单行失败重试次数（默认1）
+    /// </summary>
+    public int LlmRetryCount { get; set; } = 1;
+
+    /// <summary>
+    /// LLM 熔断阈值（累计失败次数达到后停止新任务，默认10）
+    /// </summary>
+    public int LlmCircuitBreakFailures { get; set; } = 10;
+
+    /// <summary>
     /// 是否过滤项目列与规格列都为空的源行（默认过滤）
     /// </summary>
     public bool FilterEmptySourceRows { get; set; } = true;
-
 }
 
 /// <summary>

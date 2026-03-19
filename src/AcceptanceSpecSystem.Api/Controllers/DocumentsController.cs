@@ -1,13 +1,14 @@
-using System.Text.Json;
 using System.Text;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -20,6 +21,7 @@ public class DocumentsController : BaseApiController
     private readonly IUnitOfWork _unitOfWork;
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IFileStorageService _fileStorage;
+    private readonly IAuthDataScopeService _authDataScopeService;
     private readonly ILogger<DocumentsController> _logger;
 
     /// <summary>
@@ -29,11 +31,13 @@ public class DocumentsController : BaseApiController
         IUnitOfWork unitOfWork,
         DocumentServiceFactory documentServiceFactory,
         IFileStorageService fileStorage,
+        IAuthDataScopeService authDataScopeService,
         ILogger<DocumentsController> logger)
     {
         _unitOfWork = unitOfWork;
         _documentServiceFactory = documentServiceFactory;
         _fileStorage = fileStorage;
+        _authDataScopeService = authDataScopeService;
         _logger = logger;
     }
 
@@ -47,28 +51,50 @@ public class DocumentsController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
-        var allFiles = string.IsNullOrWhiteSpace(keyword)
-            ? await _unitOfWork.WordFiles.GetAllAsync()
-            : await _unitOfWork.WordFiles.FindAsync(f => f.FileName.Contains(keyword));
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
 
-        // 排除手动录入的占位文件
-        allFiles = allFiles.Where(f => f.FileName != "__MANUAL_ENTRY__").ToList();
+        var query = _unitOfWork.WordFiles.Query()
+            .Where(f => f.FileName != "__MANUAL_ENTRY__");
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            var key = keyword.Trim();
+            query = query.Where(f => f.FileName.Contains(key));
+        }
 
-        var total = allFiles.Count;
-        var items = allFiles
+        var total = await query.CountAsync();
+        var rows = await query
             .OrderByDescending(f => f.UploadedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(f => new WordFileDto
+            .Select(f => new
             {
-                Id = f.Id,
-                FileName = f.FileName,
-                FileType = f.FileType,
-                FileHash = f.FileHash,
-                UploadedAt = f.UploadedAt,
-                SpecCount = f.AcceptanceSpecs?.Count ?? 0
+                f.Id,
+                f.FileName,
+                f.FileType,
+                f.FileHash,
+                f.UploadedAt
             })
-            .ToList();
+            .ToListAsync();
+
+        var fileIds = rows.Select(f => f.Id).ToList();
+        var specCountByFile = fileIds.Count == 0
+            ? new Dictionary<int, int>()
+            : await _unitOfWork.AcceptanceSpecs.Query()
+                .Where(s => fileIds.Contains(s.WordFileId))
+                .GroupBy(s => s.WordFileId)
+                .Select(g => new { FileId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.FileId, x => x.Count);
+
+        var items = rows.Select(f => new WordFileDto
+        {
+            Id = f.Id,
+            FileName = f.FileName,
+            FileType = f.FileType,
+            FileHash = f.FileHash,
+            UploadedAt = f.UploadedAt,
+            SpecCount = specCountByFile.TryGetValue(f.Id, out var count) ? count : 0
+        }).ToList();
 
         var pagedData = new PagedData<WordFileDto>
         {
@@ -86,6 +112,7 @@ public class DocumentsController : BaseApiController
     /// 文件仅做临时保存，不做哈希去重，处理完后自动清理
     /// </summary>
     [HttpPost("upload")]
+    [AuditOperation("upload", "document")]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<FileUploadResponse>>> UploadFile(IFormFile file)
@@ -376,10 +403,15 @@ public class DocumentsController : BaseApiController
     /// 导入表格数据到验收规格
     /// </summary>
     [HttpPost("import")]
+    [AuditOperation("import", "document")]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ImportResult>>> ImportData([FromBody] ImportDataRequest request)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+            return Error<ImportResult>(401, "会话缺少用户上下文");
+
         // 验证文件
         var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
         if (wordFile == null)
@@ -562,7 +594,9 @@ public class DocumentsController : BaseApiController
                             project,
                             specification,
                             acceptance,
-                            remark);
+                            remark,
+                            scope.UserId,
+                            scope.PrimaryOrgUnitId);
                         specsToInsert.Add(confirmedSpec);
                         compareBuffer.Add(confirmedSpec);
                         continue;
@@ -611,7 +645,9 @@ public class DocumentsController : BaseApiController
                     project,
                     specification,
                     acceptance,
-                    remark);
+                    remark,
+                    scope.UserId,
+                    scope.PrimaryOrgUnitId);
                 specsToInsert.Add(spec);
                 compareBuffer.Add(spec);
             }
@@ -653,35 +689,6 @@ public class DocumentsController : BaseApiController
             }
         }
 
-        // 写入操作历史（导入）
-        try
-        {
-            var history = new OperationHistory
-            {
-                OperationType = OperationType.Import,
-                TargetFile = wordFile.FileName,
-                Details = JsonSerializer.Serialize(new
-                {
-                    fileId = request.FileId,
-                    tableIndex = request.TableIndex,
-                    customerId = request.CustomerId,
-                    processId = request.ProcessId,
-                    machineModelId = request.MachineModelId,
-                    success = result.SuccessCount,
-                    failed = result.FailedCount,
-                    skipped = result.SkippedCount
-                }),
-                CanUndo = false,
-                CreatedAt = DateTime.Now
-            };
-            await _unitOfWork.OperationHistories.AddAsync(history);
-            await _unitOfWork.SaveChangesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "写入导入操作历史失败: fileId={FileId}", request.FileId);
-        }
-
         _logger.LogInformation(
             "导入完成: 文件{FileId}, 表格{TableIndex}, 客户{CustomerId}, 制程{ProcessId}, 机型{MachineModelId}, 成功{Success}, 失败{Failed}, 跳过{Skipped}",
             request.FileId, request.TableIndex, request.CustomerId, request.ProcessId, request.MachineModelId, result.SuccessCount, result.FailedCount, result.SkippedCount);
@@ -696,10 +703,15 @@ public class DocumentsController : BaseApiController
     /// Excel 导入：按列序号配置导入（列号/行号均为 1-based）
     /// </summary>
     [HttpPost("excel/import")]
+    [AuditOperation("import", "excel-document")]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ImportResult>>> ImportExcelData([FromBody] ExcelImportDataRequest request)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+            return Error<ImportResult>(401, "会话缺少用户上下文");
+
         var file = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
         if (file == null)
         {
@@ -916,7 +928,9 @@ public class DocumentsController : BaseApiController
                             project,
                             specification,
                             acceptance,
-                            remark);
+                            remark,
+                            scope.UserId,
+                            scope.PrimaryOrgUnitId);
                         specsToInsert.Add(confirmedSpec);
                         compareBuffer.Add(confirmedSpec);
                         continue;
@@ -965,7 +979,9 @@ public class DocumentsController : BaseApiController
                     project,
                     specification,
                     acceptance,
-                    remark);
+                    remark,
+                    scope.UserId,
+                    scope.PrimaryOrgUnitId);
                 specsToInsert.Add(spec);
                 compareBuffer.Add(spec);
             }
@@ -1011,6 +1027,7 @@ public class DocumentsController : BaseApiController
     }
 
     [HttpDelete("{id}")]
+    [AuditOperation("delete", "document")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse>> DeleteFile(int id)
@@ -1034,28 +1051,19 @@ public class DocumentsController : BaseApiController
         // 删除物理文件（文件系统存储）
         await _fileStorage.DeleteIfExistsAsync(wordFile.FilePath);
 
-        // 写入操作历史（删除）
-        try
-        {
-            var history = new OperationHistory
-            {
-                OperationType = OperationType.Delete,
-                TargetFile = wordFile.FilePath,
-                Details = JsonSerializer.Serialize(new { fileId = id, fileName = wordFile.FileName }),
-                CanUndo = false,
-                CreatedAt = DateTime.Now
-            };
-            await _unitOfWork.OperationHistories.AddAsync(history);
-            await _unitOfWork.SaveChangesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "写入删除操作历史失败: fileId={FileId}", id);
-        }
-
         _logger.LogInformation("删除文件成功: {FileId} - {FileName}", wordFile.Id, wordFile.FileName);
 
         return Success("删除成功");
+    }
+
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync()
+    {
+        var userId = AuthClaimHelper.GetUserId(User);
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        if (!userId.HasValue || !companyId.HasValue)
+            return null;
+
+        return await _authDataScopeService.GetScopeAsync(userId.Value, companyId.Value, "spec");
     }
 
     /// <summary>
@@ -1069,7 +1077,9 @@ public class DocumentsController : BaseApiController
         string? project,
         string? specification,
         string? acceptance,
-        string? remark)
+        string? remark,
+        int createdByUserId,
+        int? ownerOrgUnitId)
     {
         return new AcceptanceSpec
         {
@@ -1080,6 +1090,8 @@ public class DocumentsController : BaseApiController
             Specification = specification?.Trim() ?? string.Empty,
             Acceptance = NormalizeNullable(acceptance),
             Remark = NormalizeNullable(remark),
+            CreatedByUserId = createdByUserId,
+            OwnerOrgUnitId = ownerOrgUnitId,
             WordFileId = wordFileId,
             ImportedAt = DateTime.Now
         };

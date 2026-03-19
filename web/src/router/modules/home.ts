@@ -19,6 +19,7 @@ export default {
       meta: {
         title: "仪表盘",
         icon: "ri:dashboard-3-line",
+        permissions: ["page:home:dashboard"],
         showLink: VITE_HIDE_HOME === "true" ? false : true
       }
     },

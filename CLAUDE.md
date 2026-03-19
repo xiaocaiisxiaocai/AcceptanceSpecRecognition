@@ -62,14 +62,6 @@ pnpm typecheck     # TypeScript + Vue 类型检查
 pnpm lint          # ESLint + Prettier + Stylelint 全量检查
 ```
 
-### Docker
-
-```bash
-docker compose up -d --build   # 一键启动（前端 8080 / 后端 5014 / MySQL 3306）
-docker compose logs -f api     # 查看 API 日志
-docker compose down -v         # 停止并清除数据卷
-```
-
 ### E2E 控制台测试工具
 
 ```bash
@@ -88,7 +80,7 @@ dotnet run --project tools/E2ETest/E2ETest.csproj -c Debug -- \
 ### 整体分层
 
 ```
-前端 SPA (Vue 3)  →  Nginx 反代 (8080)  →  ASP.NET Core API (5014)  →  MySQL (3306)
+前端 SPA (Vue 3)  →  IIS 站点/子应用  →  ASP.NET Core API (IIS)  →  MySQL (3306)
 ```
 
 开发时 Vite 代理 `/api/*` → `http://localhost:5014`，无需手动切换地址。

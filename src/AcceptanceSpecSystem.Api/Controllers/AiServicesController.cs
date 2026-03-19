@@ -6,8 +6,10 @@ using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.AI;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -16,6 +18,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 /// AI服务配置API控制器
 /// </summary>
 [Route("api/ai-services")]
+[Authorize]
 public class AiServicesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -43,29 +46,31 @@ public class AiServicesController : BaseApiController
         [FromQuery] string? keyword = null,
         [FromQuery] AiServiceType? serviceType = null)
     {
-        var all = await _unitOfWork.AiServiceConfigs.GetAllAsync();
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
 
+        var query = _unitOfWork.AiServiceConfigs.Query();
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            all = all.Where(c =>
-                    c.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
-                    (c.Endpoint?.Contains(keyword, StringComparison.OrdinalIgnoreCase) ?? false))
-                .ToList();
+            var key = keyword.Trim();
+            query = query.Where(c =>
+                c.Name.Contains(key) ||
+                (c.Endpoint != null && c.Endpoint.Contains(key)));
         }
 
         if (serviceType.HasValue)
         {
-            all = all.Where(c => c.ServiceType == serviceType.Value).ToList();
+            query = query.Where(c => c.ServiceType == serviceType.Value);
         }
 
-        var total = all.Count;
-        var items = all
+        var total = await query.CountAsync();
+        var rows = await query
             .OrderBy(c => c.Priority)
             .ThenByDescending(c => c.UpdatedAt ?? c.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(ToDto)
-            .ToList();
+            .ToListAsync();
+        var items = rows.Select(ToDto).ToList();
 
         return Success(new PagedData<AiServiceConfigDto>
         {
@@ -95,6 +100,7 @@ public class AiServicesController : BaseApiController
     /// 新增AI服务配置
     /// </summary>
     [HttpPost]
+    [AuditOperation("create", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> Create([FromBody] CreateAiServiceRequest request)
@@ -143,6 +149,7 @@ public class AiServicesController : BaseApiController
     /// 更新AI服务配置
     /// </summary>
     [HttpPut("{id}")]
+    [AuditOperation("update", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> Update(int id, [FromBody] UpdateAiServiceRequest request)
@@ -200,6 +207,7 @@ public class AiServicesController : BaseApiController
     /// 删除AI服务配置
     /// </summary>
     [HttpDelete("{id}")]
+    [AuditOperation("delete", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse>> Delete(int id)

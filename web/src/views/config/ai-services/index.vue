@@ -12,7 +12,9 @@ import {
   testAiServiceConnection,
   updateAiService,
   type AiServiceConfig,
-  type AiServiceModelsResult
+  type AiServiceModelsResult,
+  type CreateAiServiceRequest,
+  type UpdateAiServiceRequest
 } from "@/api/ai-service";
 
 defineOptions({
@@ -316,7 +318,7 @@ const handleSubmit = async () => {
   const apiKey = formData.apiKey.trim();
   const embeddingModel = formData.embeddingModel?.trim() || null;
   const llmModel = formData.llmModel?.trim() || null;
-  const payload: Record<string, any> = {
+  const basePayload: CreateAiServiceRequest = {
     name: formData.name.trim(),
     serviceType: formData.serviceType,
     purpose: formData.purpose,
@@ -326,23 +328,28 @@ const handleSubmit = async () => {
     llmModel
   };
   if (formData.purpose === AiServicePurpose.Llm) {
-    payload.embeddingModel = null;
+    basePayload.embeddingModel = null;
   }
   if (formData.purpose === AiServicePurpose.Embedding) {
-    payload.llmModel = null;
-  }
-  if (isEdit.value) {
-    if (apiKey !== originalApiKey.value) {
-      payload.apiKey = apiKey; // 允许清空
-    }
-  } else {
-    payload.apiKey = apiKey || "";
+    basePayload.llmModel = null;
   }
 
   try {
-    const res = isEdit.value
-      ? await updateAiService(formData.id, payload)
-      : await createAiService(payload);
+    const res = await (async () => {
+      if (isEdit.value) {
+        const updatePayload: UpdateAiServiceRequest = { ...basePayload };
+        if (apiKey !== originalApiKey.value) {
+          updatePayload.apiKey = apiKey; // 允许清空
+        }
+        return updateAiService(formData.id, updatePayload);
+      }
+
+      const createPayload: CreateAiServiceRequest = {
+        ...basePayload,
+        apiKey: apiKey || ""
+      };
+      return createAiService(createPayload);
+    })();
 
     if (res.code === 0) {
       ElMessage.success(isEdit.value ? "更新成功" : "创建成功");

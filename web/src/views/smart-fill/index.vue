@@ -28,6 +28,7 @@ import {
   ColumnMappingMatchMode,
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
+import { getToken, formatToken } from "@/utils/auth";
 
 defineOptions({ name: "SmartFill" });
 
@@ -346,11 +347,17 @@ const startLlmStream = async () => {
     items: llmItems,
     config: matchConfig.value
   };
+  const token = getToken();
 
   try {
     const response = await fetch("/api/matching/llm-stream", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token?.accessToken
+          ? { Authorization: formatToken(token.accessToken) }
+          : {})
+      },
       body: JSON.stringify(payload),
       signal: controller.signal
     });
@@ -585,28 +592,33 @@ const handleExecute = async () => {
 
     if (res.code === 0) {
       taskId.value = res.data.taskId;
-      if (isExcelFile.value) {
-        ElMessage.success(
-          `填充完成，共填充 ${res.data.filledCount} 条，已写回当前上传 Excel`
-        );
-      } else {
-        try {
-          const blob = await downloadFillResult(res.data.taskId);
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          const originalName = uploadedFile.value.fileName || "filled.docx";
-          const dotIndex = originalName.lastIndexOf(".");
-          const baseName =
-            dotIndex > 0 ? originalName.slice(0, dotIndex) : originalName;
-          const ext = dotIndex > 0 ? originalName.slice(dotIndex) : ".docx";
-          a.download = `${baseName}_filled_${Date.now()}${ext}`;
-          a.click();
-          window.URL.revokeObjectURL(url);
+      try {
+        const blob = await downloadFillResult(res.data.taskId);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const originalName = uploadedFile.value.fileName || "filled.docx";
+        const dotIndex = originalName.lastIndexOf(".");
+        const baseName =
+          dotIndex > 0 ? originalName.slice(0, dotIndex) : originalName;
+        const ext = dotIndex > 0 ? originalName.slice(dotIndex) : ".docx";
+        a.download = `${baseName}_filled_${Date.now()}${ext}`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+
+        if (isExcelFile.value) {
+          ElMessage.success(
+            `填充完成，共填充 ${res.data.filledCount} 条，已写回并下载 Excel`
+          );
+        } else {
           ElMessage.success(
             `填充完成，共填充 ${res.data.filledCount} 条，已下载结果文档`
           );
-        } catch {
+        }
+      } catch {
+        if (isExcelFile.value) {
+          ElMessage.warning("填充完成，但 Excel 下载失败，请重试下载");
+        } else {
           ElMessage.warning("填充完成，但结果文件下载失败，请重试");
         }
       }

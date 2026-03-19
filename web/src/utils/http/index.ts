@@ -12,6 +12,12 @@ import type {
 import { stringify } from "qs";
 import { getToken, formatToken } from "@/utils/auth";
 import { useUserStoreHook } from "@/store/modules/user";
+import {
+  createAuditTraceId,
+  getAuditClientId,
+  getCurrentFrontendRoute
+} from "@/utils/audit-context";
+import { ElMessage } from "element-plus";
 
 // 相关配置请参考：www.axios-js.com/zh-cn/docs/#axios-request-config-1
 const defaultConfig: AxiosRequestConfig = {
@@ -39,6 +45,8 @@ class PureHttp {
 
   /** 防止重复刷新`token` */
   private static isRefreshing = false;
+  /** 防止401/403并发时重复提示与跳转 */
+  private static isAuthRedirecting = false;
 
   /** 初始化配置对象 */
   private static initConfig: PureHttpRequestConfig = {};
@@ -69,13 +77,17 @@ class PureHttp {
           PureHttp.initConfig.beforeRequestCallback(config);
           return config;
         }
+        config.headers = config.headers ?? {};
+        config.headers["X-Client-Trace-Id"] = createAuditTraceId();
+        config.headers["X-Client-Id"] = getAuditClientId();
+        config.headers["X-Frontend-Route"] = getCurrentFrontendRoute();
         /** 请求白名单，放置一些不需要`token`的接口（通过设置请求白名单，防止`token`过期后再请求造成的死循环问题） */
         const whiteList = ["/refresh-token", "/login"];
         return whiteList.some(url => config.url.endsWith(url))
           ? config
           : new Promise(resolve => {
               const data = getToken();
-              if (data) {
+              if (data?.accessToken && data?.refreshToken) {
                 const now = new Date().getTime();
                 const expired = parseInt(data.expires) - now <= 0;
                 if (expired) {
@@ -132,6 +144,27 @@ class PureHttp {
       (error: PureHttpError) => {
         const $error = error;
         $error.isCancelRequest = Axios.isCancel($error);
+
+        const status = $error?.response?.status;
+        const requestUrl = String($error?.config?.url ?? "");
+        const skipAuthHandler = requestUrl.endsWith("/login");
+
+        if (!skipAuthHandler && (status === 401 || status === 403)) {
+          if (!PureHttp.isAuthRedirecting) {
+            PureHttp.isAuthRedirecting = true;
+            const backendMessage =
+              ($error?.response?.data as any)?.message ??
+              (status === 401
+                ? "登录状态已失效，请重新登录"
+                : "权限不足，请重新登录后重试");
+            ElMessage.error(backendMessage);
+            useUserStoreHook().logOut();
+            setTimeout(() => {
+              PureHttp.isAuthRedirecting = false;
+            }, 1500);
+          }
+        }
+
         // 所有的响应异常 区分来源为取消请求/非取消请求
         return Promise.reject($error);
       }

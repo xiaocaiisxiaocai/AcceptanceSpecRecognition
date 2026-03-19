@@ -1,4 +1,3 @@
-import { cdn } from "./cdn";
 import vue from "@vitejs/plugin-vue";
 import { viteBuildInfo } from "./info";
 import svgLoader from "vite-svg-loader";
@@ -13,11 +12,12 @@ import removeConsole from "vite-plugin-remove-console";
 import { codeInspectorPlugin } from "code-inspector-plugin";
 import { vitePluginFakeServer } from "vite-plugin-fake-server";
 
-export function getPluginsList(
+export async function getPluginsList(
   VITE_CDN: boolean,
   VITE_COMPRESSION: ViteCompression
-): PluginOption[] {
+): Promise<PluginOption[]> {
   const lifecycle = process.env.npm_lifecycle_event;
+  const cdn = VITE_CDN ? (await import("./cdn")).cdn : null;
   return [
     tailwindcss(),
     vue(),
@@ -45,7 +45,8 @@ export function getPluginsList(
       logger: false,
       include: "mock",
       infixName: false,
-      enableProd: true
+      enableDev: false,
+      enableProd: false
     }),
     // svg组件化支持
     svgLoader(),
@@ -54,7 +55,7 @@ export function getPluginsList(
       compiler: "vue3",
       scale: 1
     }),
-    VITE_CDN ? cdn : null,
+    cdn,
     configCompressPlugin(VITE_COMPRESSION),
     // 线上环境删除console
     removeConsole({ external: ["src/assets/iconfont/iconfont.js"] }),

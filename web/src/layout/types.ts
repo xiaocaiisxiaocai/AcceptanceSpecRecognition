@@ -21,6 +21,7 @@ export type routeMetaType = {
   showLink?: boolean;
   savedPosition?: boolean;
   auths?: Array<string>;
+  permissions?: Array<string>;
 };
 
 export type RouteConfigs = {

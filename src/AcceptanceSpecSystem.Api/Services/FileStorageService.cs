@@ -7,11 +7,23 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// </summary>
 public class FileStorageService : IFileStorageService
 {
-    private readonly string _contentRootPath;
+    private readonly string _basePath;
 
-    public FileStorageService(IWebHostEnvironment env)
+    public FileStorageService(IWebHostEnvironment env, IConfiguration configuration)
     {
-        _contentRootPath = env.ContentRootPath;
+        var configuredBasePath = configuration["FileStorage:BasePath"]?.Trim();
+        if (string.IsNullOrWhiteSpace(configuredBasePath))
+        {
+            _basePath = env.ContentRootPath;
+        }
+        else
+        {
+            _basePath = Path.IsPathRooted(configuredBasePath)
+                ? Path.GetFullPath(configuredBasePath)
+                : Path.GetFullPath(Path.Combine(env.ContentRootPath, configuredBasePath));
+        }
+
+        Directory.CreateDirectory(_basePath);
     }
 
     public async Task<string> SaveUploadedWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
@@ -36,7 +48,19 @@ public class FileStorageService : IFileStorageService
 
         // 统一用 OS 分隔符
         var normalized = relativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
-        return Path.GetFullPath(Path.Combine(_contentRootPath, normalized));
+        var baseFullPath = Path.GetFullPath(_basePath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fullPath = Path.GetFullPath(Path.Combine(baseFullPath, normalized));
+        var baseWithSeparator = baseFullPath + Path.DirectorySeparatorChar;
+
+        // 防止通过相对路径跳出存储根目录
+        if (!fullPath.StartsWith(baseWithSeparator, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(fullPath, baseFullPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("relativePath 非法，超出存储根目录");
+        }
+
+        return fullPath;
     }
 
     public Task DeleteIfExistsAsync(string? relativePath, CancellationToken cancellationToken = default)

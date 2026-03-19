@@ -81,13 +81,49 @@ function isOneOfArray(a: Array<string>, b: Array<string>) {
     : true;
 }
 
+function matchPermission(granted: string, required: string): boolean {
+  const grantedSeg = granted.split(":");
+  const requiredSeg = required.split(":");
+  if (grantedSeg.length !== requiredSeg.length) return false;
+
+  return grantedSeg.every((seg, idx) => seg === "*" || seg === requiredSeg[idx]);
+}
+
+function hasAnyPermission(
+  required: string | Array<string> | undefined,
+  currentPermissions: Array<string>
+): boolean {
+  if (!required) return true;
+  const requiredList = (Array.isArray(required) ? required : [required]).filter(
+    v => !!v && !!v.trim()
+  );
+  if (!requiredList.length) return true;
+  if (!currentPermissions.length) return false;
+
+  return requiredList.some(requiredCode =>
+    currentPermissions.some(
+      grantedCode =>
+        grantedCode === requiredCode ||
+        grantedCode === "*:*:*" ||
+        matchPermission(grantedCode, requiredCode)
+    )
+  );
+}
+
 /** 从localStorage里取出当前登录用户的角色roles，过滤无权限的菜单 */
 function filterNoPermissionTree(data: RouteComponent[]) {
   const currentRoles =
     storageLocal().getItem<DataInfo<number>>(userKey)?.roles ?? [];
-  const newTree = cloneDeep(data).filter((v: any) =>
-    isOneOfArray(v.meta?.roles, currentRoles)
-  );
+  const currentPermissions =
+    storageLocal().getItem<DataInfo<number>>(userKey)?.permissions ?? [];
+  const newTree = cloneDeep(data).filter((v: any) => {
+    const rolePassed = isOneOfArray(v.meta?.roles, currentRoles);
+    const permissionPassed = hasAnyPermission(
+      v.meta?.permissions ?? v.meta?.permission,
+      currentPermissions
+    );
+    return rolePassed && permissionPassed;
+  });
   newTree.forEach(
     (v: any) => v.children && (v.children = filterNoPermissionTree(v.children))
   );

@@ -94,7 +94,6 @@ public class UnitOfWorkTests
         unitOfWork.Processes.Should().NotBeNull();
         unitOfWork.AcceptanceSpecs.Should().NotBeNull();
         unitOfWork.EmbeddingCaches.Should().NotBeNull();
-        unitOfWork.OperationHistories.Should().NotBeNull();
         unitOfWork.WordFiles.Should().NotBeNull();
         unitOfWork.AiServiceConfigs.Should().NotBeNull();
         unitOfWork.Synonyms.Should().NotBeNull();

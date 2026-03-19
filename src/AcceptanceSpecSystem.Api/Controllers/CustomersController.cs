@@ -2,13 +2,16 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
 /// <summary>
 /// 客户管理API控制器
 /// </summary>
+[Authorize]
 public class CustomersController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -33,34 +36,45 @@ public class CustomersController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
-        var allCustomers = string.IsNullOrWhiteSpace(keyword)
-            ? await _unitOfWork.Customers.GetAllAsync()
-            : await _unitOfWork.Customers.FindAsync(c => c.Name.Contains(keyword));
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
 
-        // 统计：每个客户在验规中“使用过的制程数量”（即 distinct ProcessId 的数量）
-        var customerIds = allCustomers.Select(c => c.Id).ToList();
-        var specsForCustomers = customerIds.Count == 0
-            ? []
-            : await _unitOfWork.AcceptanceSpecs.FindAsync(s => customerIds.Contains(s.CustomerId));
-        var processCountByCustomer = specsForCustomers
-            .GroupBy(s => s.CustomerId)
-            .ToDictionary(
-                g => g.Key,
-                g => g.Select(x => x.ProcessId).Where(id => id.HasValue).Select(id => id!.Value).Distinct().Count());
+        var query = _unitOfWork.Customers.Query();
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            var key = keyword.Trim();
+            query = query.Where(c => c.Name.Contains(key));
+        }
 
-        var total = allCustomers.Count;
-        var items = allCustomers
+        var total = await query.CountAsync();
+        var rows = await query
             .OrderByDescending(c => c.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(c => new CustomerDto
-            {
-                Id = c.Id,
-                Name = c.Name,
-                CreatedAt = c.CreatedAt,
-                ProcessCount = processCountByCustomer.TryGetValue(c.Id, out var count) ? count : 0
-            })
-            .ToList();
+            .Select(c => new { c.Id, c.Name, c.CreatedAt })
+            .ToListAsync();
+
+        // 统计：每个客户在验规中“使用过的制程数量”（distinct ProcessId）
+        var customerIds = rows.Select(c => c.Id).ToList();
+        var processCountByCustomer = customerIds.Count == 0
+            ? new Dictionary<int, int>()
+            : await _unitOfWork.AcceptanceSpecs.Query()
+                .Where(s => customerIds.Contains(s.CustomerId) && s.ProcessId.HasValue)
+                .GroupBy(s => s.CustomerId)
+                .Select(g => new
+                {
+                    CustomerId = g.Key,
+                    ProcessCount = g.Select(x => x.ProcessId!.Value).Distinct().Count()
+                })
+                .ToDictionaryAsync(x => x.CustomerId, x => x.ProcessCount);
+
+        var items = rows.Select(c => new CustomerDto
+        {
+            Id = c.Id,
+            Name = c.Name,
+            CreatedAt = c.CreatedAt,
+            ProcessCount = processCountByCustomer.TryGetValue(c.Id, out var count) ? count : 0
+        }).ToList();
 
         var pagedData = new PagedData<CustomerDto>
         {
@@ -108,6 +122,7 @@ public class CustomersController : BaseApiController
     /// 创建客户
     /// </summary>
     [HttpPost]
+    [AuditOperation("create", "customer")]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<CustomerDto>>> CreateCustomer([FromBody] CreateCustomerRequest request)
@@ -146,6 +161,7 @@ public class CustomersController : BaseApiController
     /// 更新客户
     /// </summary>
     [HttpPut("{id}")]
+    [AuditOperation("update", "customer")]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status400BadRequest)]
@@ -192,6 +208,7 @@ public class CustomersController : BaseApiController
     /// 删除客户
     /// </summary>
     [HttpDelete("{id}")]
+    [AuditOperation("delete", "customer")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse>> DeleteCustomer(int id)

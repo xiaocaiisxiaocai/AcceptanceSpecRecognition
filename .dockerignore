@@ -1,17 +1,19 @@
-**/bin/
-**/obj/
-**/.vs/
-**/.idea/
-**/.vscode/
-**/*.user
-**/*.suo
+.git
+.gitignore
+.idea
+.vscode
 
-web/node_modules/
-web/dist/
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.turbo
+**/.nuxt
+**/.next
 
-src/AcceptanceSpecSystem.Api/uploads/
+.tmp*
+publish
 
-tests/**/bin/
-tests/**/obj/
-
-**/.DS_Store
+tests
+tools
+design-system

@@ -46,6 +46,16 @@ public class AcceptanceSpec
     public string? Remark { get; set; }
 
     /// <summary>
+    /// 数据归属组织节点ID（用于数据范围控制）
+    /// </summary>
+    public int? OwnerOrgUnitId { get; set; }
+
+    /// <summary>
+    /// 创建人用户ID
+    /// </summary>
+    public int? CreatedByUserId { get; set; }
+
+    /// <summary>
     /// 来源Word文件ID
     /// </summary>
     public int WordFileId { get; set; }

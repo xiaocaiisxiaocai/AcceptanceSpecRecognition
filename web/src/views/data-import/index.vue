@@ -349,6 +349,12 @@ const handlePreviewLoaded = (tableIndex: number, data: TableData) => {
   }
 };
 
+const updateExcelMapping = (tableIndex: number, value: ExcelSheetMapping) => {
+  const cfg = tableConfigs.value.find(c => c.tableIndex === tableIndex);
+  if (!cfg) return;
+  cfg.excelMapping = normalizeExcelMappingByTable(cfg.tableInfo, value);
+};
+
 const getActiveTableConfig = (): TableImportConfig | null => {
   if (tableConfigs.value.length === 0) return null;
   if (activeTableIndex.value === null) return tableConfigs.value[0];
@@ -1156,9 +1162,10 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
             <div class="mapping-section">
               <ExcelColumnMapping
                 v-if="isExcelFile"
-                v-model="cfg.excelMapping"
+                :model-value="cfg.excelMapping"
                 :used-range-start-row="cfg.tableInfo?.usedRangeStartRow"
                 :used-range-start-column="cfg.tableInfo?.usedRangeStartColumn"
+                @update:model-value="(value) => updateExcelMapping(cfg.tableIndex, value)"
               />
               <ColumnMapping
                 v-else
@@ -1369,6 +1376,12 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
                     </template>
                   </el-table-column>
                   <el-table-column prop="rowIndex" label="行号" width="100" />
+                  <el-table-column
+                    prop="message"
+                    label="跳过原因"
+                    min-width="220"
+                    show-overflow-tooltip
+                  />
                   <el-table-column
                     v-for="col in group.columns"
                     :key="`skip-col-${group.tableIndex}-${col.index}`"

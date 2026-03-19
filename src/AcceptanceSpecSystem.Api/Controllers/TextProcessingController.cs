@@ -2,6 +2,7 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -10,6 +11,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 /// 文本处理配置管理API控制器
 /// </summary>
 [Route("api/text-processing")]
+[Authorize]
 public class TextProcessingController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -36,6 +38,7 @@ public class TextProcessingController : BaseApiController
     /// 保存文本处理配置（单例）
     /// </summary>
     [HttpPut("config")]
+    [AuditOperation("update", "text-processing-config")]
     [ProducesResponseType(typeof(ApiResponse<TextProcessingConfigDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<TextProcessingConfigDto>>> SaveConfig([FromBody] UpdateTextProcessingConfigRequest request)
     {
@@ -72,6 +75,7 @@ public class TextProcessingController : BaseApiController
     /// 重置为默认配置
     /// </summary>
     [HttpPost("config/reset")]
+    [AuditOperation("reset", "text-processing-config")]
     [ProducesResponseType(typeof(ApiResponse<TextProcessingConfigDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<TextProcessingConfigDto>>> Reset()
     {

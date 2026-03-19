@@ -16,7 +16,6 @@ public class UnitOfWork : IUnitOfWork
     private IMachineModelRepository? _machineModels;
     private IAcceptanceSpecRepository? _acceptanceSpecs;
     private IEmbeddingCacheRepository? _embeddingCaches;
-    private IOperationHistoryRepository? _operationHistories;
     private IWordFileRepository? _wordFiles;
     private IAiServiceConfigRepository? _aiServiceConfigs;
     private ISynonymRepository? _synonyms;
@@ -24,6 +23,9 @@ public class UnitOfWork : IUnitOfWork
     private ITextProcessingConfigRepository? _textProcessingConfigs;
     private IPromptTemplateRepository? _promptTemplates;
     private IColumnMappingRuleRepository? _columnMappingRules;
+    private ISystemUserRepository? _systemUsers;
+    private IAuditLogRepository? _auditLogs;
+    private IMatchingFillTaskRepository? _matchingFillTasks;
 
     private bool _disposed;
 
@@ -67,12 +69,6 @@ public class UnitOfWork : IUnitOfWork
         _embeddingCaches ??= new EmbeddingCacheRepository(_context);
 
     /// <summary>
-    /// 操作历史数据仓储。
-    /// </summary>
-    public IOperationHistoryRepository OperationHistories =>
-        _operationHistories ??= new OperationHistoryRepository(_context);
-
-    /// <summary>
     /// Word 文件数据仓储。
     /// </summary>
     public IWordFileRepository WordFiles =>
@@ -113,6 +109,24 @@ public class UnitOfWork : IUnitOfWork
     /// </summary>
     public IColumnMappingRuleRepository ColumnMappingRules =>
         _columnMappingRules ??= new ColumnMappingRuleRepository(_context);
+
+    /// <summary>
+    /// 系统用户仓储。
+    /// </summary>
+    public ISystemUserRepository SystemUsers =>
+        _systemUsers ??= new SystemUserRepository(_context);
+
+    /// <summary>
+    /// 审计日志仓储。
+    /// </summary>
+    public IAuditLogRepository AuditLogs =>
+        _auditLogs ??= new AuditLogRepository(_context);
+
+    /// <summary>
+    /// 智能填充任务仓储。
+    /// </summary>
+    public IMatchingFillTaskRepository MatchingFillTasks =>
+        _matchingFillTasks ??= new MatchingFillTaskRepository(_context);
 
     /// <summary>
     /// 保存所有更改（异步）。

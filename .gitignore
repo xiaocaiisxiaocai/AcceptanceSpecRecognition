@@ -80,3 +80,6 @@ secrets.json
 .tmpbuild/
 artifacts/
 docs/design-overview.pdf
+
+# DataProtection key ring (runtime generated)
+**/data-protection-keys/

@@ -17,7 +17,8 @@ export default {
       component: () => import("@/views/smart-fill/index.vue"),
       meta: {
         icon: "ri:edit-2-line",
-        title: "填充数据"
+        title: "填充数据",
+        permissions: ["page:smart-fill:index"]
       }
     }
   ]

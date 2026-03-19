@@ -1,21 +1,34 @@
+using System.Text;
+using AcceptanceSpecSystem.Api.Authorization;
+using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Middleware;
+using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.Documents;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.TextProcessing.Services;
-using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddScoped<AuditOperationFilter>();
+
 // 添加控制器
-builder.Services.AddControllers()
+builder.Services.AddControllers(options =>
+    {
+        options.Filters.AddService<AuditOperationFilter>();
+    })
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
@@ -25,11 +38,35 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
-    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    options.SwaggerDoc("v1", new OpenApiInfo
     {
         Title = "验收规格管理系统 API",
         Version = "v1",
         Description = "验收规格管理系统的RESTful API接口"
+    });
+
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT 认证头，格式：Bearer {token}",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
     });
 });
 
@@ -37,7 +74,25 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddHttpClient();
 
 // 注册DataProtection（用于ApiKey加密存储）
-builder.Services.AddDataProtection();
+var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"]?.Trim();
+if (string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+{
+    dataProtectionKeysPath = Path.Combine(builder.Environment.ContentRootPath, "data-protection-keys");
+}
+
+var fullDataProtectionKeysPath = Path.IsPathRooted(dataProtectionKeysPath)
+    ? Path.GetFullPath(dataProtectionKeysPath)
+    : Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, dataProtectionKeysPath));
+Directory.CreateDirectory(fullDataProtectionKeysPath);
+
+builder.Services.AddDataProtection()
+    .SetApplicationName("AcceptanceSpecSystem")
+    .PersistKeysToFileSystem(new DirectoryInfo(fullDataProtectionKeysPath));
+
+builder.Services.Configure<JwtAuthOptions>(
+    builder.Configuration.GetSection(JwtAuthOptions.SectionName));
+builder.Services.Configure<AuditLogOptions>(
+    builder.Configuration.GetSection(AuditLogOptions.SectionName));
 
 // 配置MySQL数据库连接
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -50,6 +105,11 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // 文件存储服务（服务器文件系统）
 builder.Services.AddSingleton<IFileStorageService, FileStorageService>();
+builder.Services.AddSingleton<IAuthTokenService, AuthTokenService>();
+builder.Services.AddSingleton<IAuthPasswordService, AuthPasswordService>();
+builder.Services.AddScoped<IAuthAccessService, AuthAccessService>();
+builder.Services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
+builder.Services.AddHostedService<AuditLogCleanupService>();
 
 // 注册文档服务
 builder.Services.AddSingleton<DocumentServiceFactory>();
@@ -71,17 +131,62 @@ builder.Services.AddScoped<ISynonymService, SynonymService>();
 builder.Services.AddScoped<IKeywordService, KeywordService>();
 builder.Services.AddScoped<ITextPreprocessingPipeline, DefaultTextPreprocessingPipeline>();
 
+var jwtOptions = builder.Configuration.GetSection(JwtAuthOptions.SectionName).Get<JwtAuthOptions>()
+    ?? new JwtAuthOptions();
+if (string.IsNullOrWhiteSpace(jwtOptions.SigningKey) || jwtOptions.SigningKey.Length < 32)
+{
+    throw new InvalidOperationException("JwtAuth:SigningKey 至少需要 32 个字符");
+}
+var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey));
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.RequireHttpsMetadata = false;
+        options.SaveToken = true;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = signingKey,
+            ValidateIssuer = true,
+            ValidIssuer = jwtOptions.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtOptions.Audience,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+
 // 配置CORS
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? ["http://localhost:3000", "http://localhost:5173"];
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()?
+    .Where(origin => !string.IsNullOrWhiteSpace(origin))
+    .Select(origin => origin.Trim())
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray()
+    ?? [];
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowVueFrontend", policy =>
     {
-        policy.WithOrigins(allowedOrigins)
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        if (allowedOrigins.Length == 0 || allowedOrigins.Contains("*"))
+        {
+            policy.AllowAnyOrigin()
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
+        else
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
     });
 });
 
@@ -114,13 +219,19 @@ if (app.Environment.IsDevelopment())
 app.UseCors("AllowVueFrontend");
 
 // 使用路由和控制器
+app.UseAuthentication();
+app.UseMiddleware<ApiPermissionMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
+
+// 系统鉴权基础数据初始化（公司、组织、角色、权限、默认账号）
+await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
 
 // 健康检查端点
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
     .WithName("HealthCheck")
-    .WithTags("System");
+    .WithTags("System")
+    .AllowAnonymous();
 
 app.Run();
 

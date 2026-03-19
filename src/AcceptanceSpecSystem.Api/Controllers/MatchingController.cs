@@ -11,7 +11,6 @@ using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -34,12 +33,12 @@ public class MatchingController : BaseApiController
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<MatchingController> _logger;
 
-    // 存储填充任务结果（生产环境应使用Redis或数据库）
-    private static readonly ConcurrentDictionary<string, FillTaskResult> _fillTaskResults = new();
     private static readonly JsonSerializerOptions SseJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
+    private static readonly JsonSerializerOptions FillTaskJsonOptions = new(JsonSerializerDefaults.Web);
+    private const int FillTaskRetentionHours = 24;
 
     /// <summary>
     /// 创建匹配控制器实例
@@ -254,13 +253,27 @@ public class MatchingController : BaseApiController
         var sw = Stopwatch.StartNew();
 
         var parallelism = config.LlmParallelism;
+        var rowTimeoutSeconds = config.LlmRowTimeoutSeconds;
+        var retryCount = config.LlmRetryCount;
+        var circuitBreakFailures = config.LlmCircuitBreakFailures;
         var reviewCount = request.Items.Count(item => config.UseLlmReview && item.BestMatchSpecId.HasValue);
         var suggestionCount = request.Items.Count(item => ShouldGenerateSuggestion(config, item));
+        var reviewSuccess = 0;
+        var reviewFailed = 0;
+        var reviewTimeout = 0;
+        var reviewRetries = 0;
+        var suggestionSuccess = 0;
+        var suggestionFailed = 0;
+        var suggestionTimeout = 0;
+        var suggestionRetries = 0;
+        var totalFailures = 0;
+        var circuitOpened = 0;
 
         _logger.LogInformation(
-            "[LLM-Stream] 开始并行处理 {Count} 行 (review={ReviewCount}, suggestion={SuggestionCount}, maxParallelism={Parallelism}), useLlmReview={Review}, useLlmSuggestion={Suggestion}, suggestNoMatch={SuggestNoMatch}, suggestionThreshold={Threshold}",
+            "[LLM-Stream] 开始并行处理 {Count} 行 (review={ReviewCount}, suggestion={SuggestionCount}, maxParallelism={Parallelism}), useLlmReview={Review}, useLlmSuggestion={Suggestion}, suggestNoMatch={SuggestNoMatch}, suggestionThreshold={Threshold}, rowTimeoutSec={RowTimeoutSec}, retryCount={RetryCount}, circuitBreakFailures={CircuitBreakFailures}",
             request.Items.Count, reviewCount, suggestionCount, parallelism,
-            config.UseLlmReview, config.UseLlmSuggestion, config.SuggestNoMatchRows, config.LlmSuggestionScoreThreshold);
+            config.UseLlmReview, config.UseLlmSuggestion, config.SuggestNoMatchRows, config.LlmSuggestionScoreThreshold,
+            rowTimeoutSeconds, retryCount, circuitBreakFailures);
 
         try
         {
@@ -277,28 +290,100 @@ public class MatchingController : BaseApiController
                     var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                     var reviewService = scope.ServiceProvider.GetRequiredService<ILlmReviewService>();
                     var suggestionService = scope.ServiceProvider.GetRequiredService<ILlmSuggestionService>();
+                    var location = FormatStreamItemLocation(item);
+
+                    if (Volatile.Read(ref circuitOpened) == 1)
+                    {
+                        await WriteCircuitOpenEventsAsync(item, config, sseWriteLock, ct);
+                        return;
+                    }
 
                     // 同一行内：先复核，再生成建议（顺序执行）
                     if (config.UseLlmReview && item.BestMatchSpecId.HasValue)
                     {
                         _logger.LogDebug("[LLM-Stream] {Location}: 开始复核 (specId={SpecId}, score={Score:P1})",
-                            FormatStreamItemLocation(item), item.BestMatchSpecId, item.BestMatchScore ?? 0);
-                        await StreamLlmReviewAsync(item, config, ct, unitOfWork, reviewService, sseWriteLock);
+                            location, item.BestMatchSpecId, item.BestMatchScore ?? 0);
+
+                        var reviewResult = await ExecuteLlmStepWithPolicyAsync(
+                            "review",
+                            item,
+                            rowTimeoutSeconds,
+                            retryCount,
+                            token => StreamLlmReviewAsync(item, config, token, unitOfWork, reviewService, sseWriteLock),
+                            sseWriteLock,
+                            ct);
+
+                        Interlocked.Add(ref reviewRetries, reviewResult.RetriesUsed);
+                        switch (reviewResult.Outcome)
+                        {
+                            case LlmStepOutcome.Success:
+                                Interlocked.Increment(ref reviewSuccess);
+                                break;
+                            case LlmStepOutcome.Timeout:
+                                Interlocked.Increment(ref reviewTimeout);
+                                if (Interlocked.Increment(ref totalFailures) >= circuitBreakFailures)
+                                {
+                                    Interlocked.Exchange(ref circuitOpened, 1);
+                                }
+                                break;
+                            default:
+                                Interlocked.Increment(ref reviewFailed);
+                                if (Interlocked.Increment(ref totalFailures) >= circuitBreakFailures)
+                                {
+                                    Interlocked.Exchange(ref circuitOpened, 1);
+                                }
+                                break;
+                        }
                     }
 
                     if (ct.IsCancellationRequested) return;
+                    if (Volatile.Read(ref circuitOpened) == 1)
+                    {
+                        await WriteCircuitOpenEventsAsync(item, config, sseWriteLock, ct);
+                        return;
+                    }
 
                     if (ShouldGenerateSuggestion(config, item))
                     {
                         _logger.LogDebug("[LLM-Stream] {Location}: 开始生成建议 (specId={SpecId}, score={Score}, threshold={Threshold}, suggestNoMatch={SuggestNoMatch})",
-                            FormatStreamItemLocation(item), item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
+                            location, item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
                             config.LlmSuggestionScoreThreshold, config.SuggestNoMatchRows);
-                        await StreamLlmSuggestionAsync(item, config, ct, unitOfWork, suggestionService, sseWriteLock);
+
+                        var suggestionResult = await ExecuteLlmStepWithPolicyAsync(
+                            "suggestion",
+                            item,
+                            rowTimeoutSeconds,
+                            retryCount,
+                            token => StreamLlmSuggestionAsync(item, config, token, unitOfWork, suggestionService, sseWriteLock),
+                            sseWriteLock,
+                            ct);
+
+                        Interlocked.Add(ref suggestionRetries, suggestionResult.RetriesUsed);
+                        switch (suggestionResult.Outcome)
+                        {
+                            case LlmStepOutcome.Success:
+                                Interlocked.Increment(ref suggestionSuccess);
+                                break;
+                            case LlmStepOutcome.Timeout:
+                                Interlocked.Increment(ref suggestionTimeout);
+                                if (Interlocked.Increment(ref totalFailures) >= circuitBreakFailures)
+                                {
+                                    Interlocked.Exchange(ref circuitOpened, 1);
+                                }
+                                break;
+                            default:
+                                Interlocked.Increment(ref suggestionFailed);
+                                if (Interlocked.Increment(ref totalFailures) >= circuitBreakFailures)
+                                {
+                                    Interlocked.Exchange(ref circuitOpened, 1);
+                                }
+                                break;
+                        }
                     }
                     else if (config.UseLlmSuggestion)
                     {
                         _logger.LogDebug("[LLM-Stream] {Location}: 跳过建议 (specId={SpecId}, score={Score}, threshold={Threshold}, suggestNoMatch={SuggestNoMatch})",
-                            FormatStreamItemLocation(item), item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
+                            location, item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
                             config.LlmSuggestionScoreThreshold, config.SuggestNoMatchRows);
                     }
                 });
@@ -312,7 +397,12 @@ public class MatchingController : BaseApiController
             sseWriteLock.Dispose();
         }
 
-        _logger.LogInformation("[LLM-Stream] 全部完成, 耗时 {Elapsed}ms", sw.ElapsedMilliseconds);
+        _logger.LogInformation(
+            "[LLM-Stream] 全部完成, 耗时 {Elapsed}ms, review(success={ReviewSuccess}, failed={ReviewFailed}, timeout={ReviewTimeout}, retries={ReviewRetries}), suggestion(success={SuggestionSuccess}, failed={SuggestionFailed}, timeout={SuggestionTimeout}, retries={SuggestionRetries}), totalFailures={TotalFailures}, circuitOpened={CircuitOpened}",
+            sw.ElapsedMilliseconds,
+            reviewSuccess, reviewFailed, reviewTimeout, reviewRetries,
+            suggestionSuccess, suggestionFailed, suggestionTimeout, suggestionRetries,
+            totalFailures, circuitOpened == 1);
     }
 
     /// <summary>
@@ -322,6 +412,7 @@ public class MatchingController : BaseApiController
     /// 根据匹配结果，将验收标准填充到源文件中，返回填充后的文件下载链接
     /// </remarks>
     [HttpPost("execute")]
+    [AuditOperation("execute", "matching-fill")]
     [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ExecuteFillResponse>>> ExecuteFill([FromBody] ExecuteFillRequest request)
@@ -477,7 +568,18 @@ public class MatchingController : BaseApiController
 
             try
             {
-                await ApplyFillResultToSourceFileAsync(wordFile, taskResult, writer);
+                var writeBackSummary = await ApplyFillResultToSourceFileAsync(wordFile, taskResult, writer);
+                if (writeBackSummary.RequestedCells > 0 && writeBackSummary.WrittenCells == 0)
+                {
+                    return Error<ExecuteFillResponse>(400, "未写入任何单元格，请检查列索引和行配置是否正确");
+                }
+
+                if (writeBackSummary.WrittenCells < writeBackSummary.RequestedCells)
+                {
+                    _logger.LogWarning(
+                        "Excel回写存在部分未命中: task={TaskId}, requested={Requested}, written={Written}",
+                        taskId, writeBackSummary.RequestedCells, writeBackSummary.WrittenCells);
+                }
                 await _unitOfWork.SaveChangesAsync();
             }
             catch (Exception ex)
@@ -486,12 +588,8 @@ public class MatchingController : BaseApiController
                 return Error<ExecuteFillResponse>(500, $"写回 Excel 失败: {ex.Message}");
             }
         }
-        else
-        {
-            // Word 保持原逻辑：保存任务，供下载结果文件
-            _fillTaskResults[taskId] = taskResult;
-            CleanupExpiredTasks();
-        }
+
+        await SaveFillTaskSnapshotAsync(taskResult);
 
         var response = new ExecuteFillResponse
         {
@@ -506,7 +604,7 @@ public class MatchingController : BaseApiController
             taskId, wordFile.FileType, filledCount, skippedCount);
 
         return Success(response, isExcelSource
-            ? $"填充完成：已填充{filledCount}行，跳过{skippedCount}行，已写回当前 Excel"
+            ? $"填充完成：已填充{filledCount}行，跳过{skippedCount}行，已写回并可下载 Excel"
             : $"填充完成：已填充{filledCount}行，跳过{skippedCount}行");
     }
 
@@ -518,7 +616,8 @@ public class MatchingController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Download(string taskId)
     {
-        if (!_fillTaskResults.TryGetValue(taskId, out var taskResult))
+        var taskResult = await LoadFillTaskSnapshotAsync(taskId);
+        if (taskResult == null)
         {
             return NotFound(ApiResponse.Error(404, "任务不存在或已过期"));
         }
@@ -625,33 +724,6 @@ public class MatchingController : BaseApiController
                 _logger.LogError(ex, "填充文档失败: {TaskId}", taskId);
                 return BadRequest(ApiResponse.Error(500, $"填充文档失败: {ex.Message}"));
             }
-        }
-
-        // 写入操作历史（填充），TargetFile 记录文件名而非路径
-        try
-        {
-            var history = new OperationHistory
-            {
-                OperationType = OperationType.Fill,
-                TargetFile = wordFile.FileName,
-                Details = JsonSerializer.Serialize(new
-                {
-                    taskId,
-                    sourceFileId = taskResult.SourceFileId,
-                    sourceTableIndex = taskResult.SourceTableIndex,
-                    filledCount = taskResult.FillResults.Count,
-                    acceptanceColumnIndex = taskResult.AcceptanceColumnIndex,
-                    remarkColumnIndex = taskResult.RemarkColumnIndex
-                }),
-                CanUndo = false,
-                CreatedAt = DateTime.Now
-            };
-            await _unitOfWork.OperationHistories.AddAsync(history);
-            await _unitOfWork.SaveChangesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "写入填充操作历史失败: {TaskId}", taskId);
         }
 
         // 下载后清理源文件（不再持久化存储）
@@ -833,6 +905,7 @@ public class MatchingController : BaseApiController
     /// 批量执行填充（多表格一次性填充）
     /// </summary>
     [HttpPost("batch-execute")]
+    [AuditOperation("execute-batch", "matching-fill")]
     [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ExecuteFillResponse>>> BatchExecuteFill([FromBody] BatchExecuteFillRequest request)
@@ -950,7 +1023,18 @@ public class MatchingController : BaseApiController
 
             try
             {
-                await ApplyFillResultToSourceFileAsync(wordFile, taskResult, writer);
+                var writeBackSummary = await ApplyFillResultToSourceFileAsync(wordFile, taskResult, writer);
+                if (writeBackSummary.RequestedCells > 0 && writeBackSummary.WrittenCells == 0)
+                {
+                    return Error<ExecuteFillResponse>(400, "未写入任何单元格，请检查列索引和行配置是否正确");
+                }
+
+                if (writeBackSummary.WrittenCells < writeBackSummary.RequestedCells)
+                {
+                    _logger.LogWarning(
+                        "Excel批量回写存在部分未命中: task={TaskId}, requested={Requested}, written={Written}",
+                        taskId, writeBackSummary.RequestedCells, writeBackSummary.WrittenCells);
+                }
                 await _unitOfWork.SaveChangesAsync();
             }
             catch (Exception ex)
@@ -959,12 +1043,8 @@ public class MatchingController : BaseApiController
                 return Error<ExecuteFillResponse>(500, $"写回 Excel 失败: {ex.Message}");
             }
         }
-        else
-        {
-            // Word 保持原逻辑：保存任务，供下载结果文件
-            _fillTaskResults[taskId] = taskResult;
-            CleanupExpiredTasks();
-        }
+
+        await SaveFillTaskSnapshotAsync(taskResult);
 
         var response = new ExecuteFillResponse
         {
@@ -979,7 +1059,7 @@ public class MatchingController : BaseApiController
             taskId, wordFile.FileType, request.Tables.Count, totalFilled, totalSkipped);
 
         return Success(response, isExcelSource
-            ? $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行，已写回当前 Excel"
+            ? $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行，已写回并可下载 Excel"
             : $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行");
     }
 
@@ -1139,6 +1219,9 @@ public class MatchingController : BaseApiController
             SuggestNoMatchRows = dto.SuggestNoMatchRows,
             LlmSuggestionScoreThreshold = dto.LlmSuggestionScoreThreshold,
             LlmParallelism = Math.Clamp(dto.LlmParallelism, 1, 10),
+            LlmRowTimeoutSeconds = Math.Clamp(dto.LlmRowTimeoutSeconds, 5, 300),
+            LlmRetryCount = Math.Clamp(dto.LlmRetryCount, 0, 3),
+            LlmCircuitBreakFailures = Math.Clamp(dto.LlmCircuitBreakFailures, 3, 200),
             FilterEmptySourceRows = dto.FilterEmptySourceRows
         };
     }
@@ -1170,7 +1253,7 @@ public class MatchingController : BaseApiController
         };
     }
 
-    private async Task StreamLlmReviewAsync(
+    private async Task<LlmStepOutcome> StreamLlmReviewAsync(
         MatchLlmStreamItem item,
         MatchingConfig config,
         CancellationToken cancellationToken,
@@ -1180,7 +1263,7 @@ public class MatchingController : BaseApiController
     {
         var specId = item.BestMatchSpecId ?? 0;
         if (specId <= 0)
-            return;
+            return LlmStepOutcome.Failed;
 
         var location = FormatStreamItemLocation(item);
 
@@ -1194,7 +1277,7 @@ public class MatchingController : BaseApiController
                 rowIndex = item.RowIndex,
                 message = "最佳匹配规格不存在"
             }, cancellationToken);
-            return;
+            return LlmStepOutcome.Failed;
         }
 
         _logger.LogDebug(
@@ -1247,6 +1330,7 @@ public class MatchingController : BaseApiController
                     reason = result.Reason,
                     commentary = result.Commentary
                 }, cancellationToken);
+                return LlmStepOutcome.Success;
             }
             else
             {
@@ -1257,6 +1341,7 @@ public class MatchingController : BaseApiController
                     rowIndex = item.RowIndex,
                     message = "LLM复核输出解析失败"
                 }, cancellationToken);
+                return LlmStepOutcome.Failed;
             }
         }
         catch (OperationCanceledException)
@@ -1272,6 +1357,7 @@ public class MatchingController : BaseApiController
                 rowIndex = item.RowIndex,
                 message = ex.Reason
             }, cancellationToken);
+            return LlmStepOutcome.Failed;
         }
         catch (Exception ex)
         {
@@ -1282,10 +1368,11 @@ public class MatchingController : BaseApiController
                 rowIndex = item.RowIndex,
                 message = "LLM复核失败"
             }, cancellationToken);
+            return LlmStepOutcome.Failed;
         }
     }
 
-    private async Task StreamLlmSuggestionAsync(
+    private async Task<LlmStepOutcome> StreamLlmSuggestionAsync(
         MatchLlmStreamItem item,
         MatchingConfig config,
         CancellationToken cancellationToken,
@@ -1352,6 +1439,7 @@ public class MatchingController : BaseApiController
                     remark = result.Remark,
                     reason = result.Reason
                 }, cancellationToken);
+                return LlmStepOutcome.Success;
             }
             else
             {
@@ -1362,6 +1450,7 @@ public class MatchingController : BaseApiController
                     rowIndex = item.RowIndex,
                     message = "LLM生成输出解析失败"
                 }, cancellationToken);
+                return LlmStepOutcome.Failed;
             }
         }
         catch (OperationCanceledException)
@@ -1377,6 +1466,7 @@ public class MatchingController : BaseApiController
                 rowIndex = item.RowIndex,
                 message = ex.Reason
             }, cancellationToken);
+            return LlmStepOutcome.Failed;
         }
         catch (Exception ex)
         {
@@ -1387,6 +1477,7 @@ public class MatchingController : BaseApiController
                 rowIndex = item.RowIndex,
                 message = "LLM生成建议失败"
             }, cancellationToken);
+            return LlmStepOutcome.Failed;
         }
     }
 
@@ -1410,6 +1501,111 @@ public class MatchingController : BaseApiController
         return item.TableIndex.HasValue
             ? $"表{item.TableIndex.Value + 1}/行{item.RowIndex + 1}"
             : $"行{item.RowIndex + 1}";
+    }
+
+    private async Task WriteCircuitOpenEventsAsync(
+        MatchLlmStreamItem item,
+        MatchingConfig config,
+        SemaphoreSlim sseWriteLock,
+        CancellationToken cancellationToken)
+    {
+        const string message = "LLM 失败率过高，已触发熔断，请稍后重试";
+        if (config.UseLlmReview && item.BestMatchSpecId.HasValue)
+        {
+            await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
+            {
+                tableIndex = item.TableIndex,
+                rowIndex = item.RowIndex,
+                message
+            }, cancellationToken);
+        }
+
+        if (ShouldGenerateSuggestion(config, item))
+        {
+            await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
+            {
+                tableIndex = item.TableIndex,
+                rowIndex = item.RowIndex,
+                message
+            }, cancellationToken);
+        }
+    }
+
+    private async Task<LlmStepExecutionResult> ExecuteLlmStepWithPolicyAsync(
+        string stepName,
+        MatchLlmStreamItem item,
+        int timeoutSeconds,
+        int retryCount,
+        Func<CancellationToken, Task<LlmStepOutcome>> executeAsync,
+        SemaphoreSlim sseWriteLock,
+        CancellationToken requestCancellationToken)
+    {
+        for (var attempt = 0; attempt <= retryCount; attempt++)
+        {
+            using var stepCts = CancellationTokenSource.CreateLinkedTokenSource(requestCancellationToken);
+            stepCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+            try
+            {
+                var outcome = await executeAsync(stepCts.Token);
+                if (outcome == LlmStepOutcome.Success || attempt >= retryCount)
+                {
+                    return new LlmStepExecutionResult(outcome, attempt);
+                }
+
+                _logger.LogDebug("[LLM-Stream] {Location}: {Step} 第 {Attempt} 次失败，准备重试",
+                    FormatStreamItemLocation(item), stepName, attempt + 1);
+            }
+            catch (OperationCanceledException) when (requestCancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                if (attempt < retryCount)
+                {
+                    _logger.LogDebug("[LLM-Stream] {Location}: {Step} 第 {Attempt} 次超时，准备重试",
+                        FormatStreamItemLocation(item), stepName, attempt + 1);
+                    continue;
+                }
+
+                await WriteSseEventLockedAsync(sseWriteLock, $"{stepName}.error", new
+                {
+                    tableIndex = item.TableIndex,
+                    rowIndex = item.RowIndex,
+                    message = $"{GetLlmStepDisplayName(stepName)}超时（>{timeoutSeconds}s）"
+                }, requestCancellationToken);
+                return new LlmStepExecutionResult(LlmStepOutcome.Timeout, attempt);
+            }
+            catch (Exception ex)
+            {
+                if (attempt < retryCount)
+                {
+                    _logger.LogWarning(ex, "[LLM-Stream] {Location}: {Step} 第 {Attempt} 次异常，准备重试",
+                        FormatStreamItemLocation(item), stepName, attempt + 1);
+                    continue;
+                }
+
+                _logger.LogWarning(ex, "[LLM-Stream] {Location}: {Step} 重试后仍失败",
+                    FormatStreamItemLocation(item), stepName);
+                await WriteSseEventLockedAsync(sseWriteLock, $"{stepName}.error", new
+                {
+                    tableIndex = item.TableIndex,
+                    rowIndex = item.RowIndex,
+                    message = $"{GetLlmStepDisplayName(stepName)}失败（已达到重试上限）"
+                }, requestCancellationToken);
+                return new LlmStepExecutionResult(LlmStepOutcome.Failed, attempt);
+            }
+        }
+
+        return new LlmStepExecutionResult(LlmStepOutcome.Failed, retryCount);
+    }
+
+    private static string GetLlmStepDisplayName(string stepName)
+    {
+        return string.Equals(stepName, "review", StringComparison.OrdinalIgnoreCase)
+            ? "LLM复核"
+            : "LLM建议";
     }
 
     private async Task WriteSseEventAsync(string eventName, object data, CancellationToken cancellationToken)
@@ -1599,7 +1795,7 @@ public class MatchingController : BaseApiController
     /// <summary>
     /// 将填充结果直接写回源文件（用于 Excel 回写模式）。
     /// </summary>
-    private async Task ApplyFillResultToSourceFileAsync(WordFile wordFile, FillTaskResult taskResult, IDocumentWriter writer)
+    private async Task<WriteBackSummary> ApplyFillResultToSourceFileAsync(WordFile wordFile, FillTaskResult taskResult, IDocumentWriter writer)
     {
         using var resultStream = new MemoryStream();
         await using (var sourceStream = OpenWordFileReadStream(wordFile))
@@ -1607,6 +1803,8 @@ public class MatchingController : BaseApiController
             await sourceStream.CopyToAsync(resultStream);
         }
         resultStream.Position = 0;
+        var requestedCells = 0;
+        var writtenCells = 0;
 
         if (taskResult.IsBatchMode)
         {
@@ -1616,13 +1814,14 @@ public class MatchingController : BaseApiController
                 var operations = BuildCellWriteOperations(entry.FillResults, entry.AcceptanceColumnIndex, entry.RemarkColumnIndex);
                 if (operations.Count > 0)
                 {
+                    requestedCells += operations.Count;
                     tableOperations[entry.TableIndex] = operations;
                 }
             }
 
             if (tableOperations.Count > 0)
             {
-                await writer.WriteMultipleTablesAsync(resultStream, tableOperations);
+                writtenCells += await writer.WriteMultipleTablesAsync(resultStream, tableOperations);
             }
         }
         else
@@ -1634,12 +1833,18 @@ public class MatchingController : BaseApiController
 
             if (operations.Count > 0)
             {
-                await writer.WriteTableDataAsync(resultStream, taskResult.SourceTableIndex, operations);
+                requestedCells += operations.Count;
+                writtenCells += await writer.WriteTableDataAsync(resultStream, taskResult.SourceTableIndex, operations);
             }
         }
 
-        var updatedContent = resultStream.ToArray();
-        await PersistUpdatedSourceFileAsync(wordFile, updatedContent);
+        if (writtenCells > 0)
+        {
+            var updatedContent = resultStream.ToArray();
+            await PersistUpdatedSourceFileAsync(wordFile, updatedContent);
+        }
+
+        return new WriteBackSummary(requestedCells, writtenCells);
     }
 
     /// <summary>
@@ -1748,19 +1953,53 @@ public class MatchingController : BaseApiController
     }
 
     /// <summary>
-    /// 清理过期的任务结果
+    /// 保存填充任务快照（MySQL 持久化，避免 IIS 回收丢失）
     /// </summary>
-    private static void CleanupExpiredTasks()
+    private async Task SaveFillTaskSnapshotAsync(FillTaskResult taskResult)
     {
-        var expireTime = DateTime.Now.AddHours(-1);
-        var expiredKeys = _fillTaskResults
-            .Where(kvp => kvp.Value.CreatedAt < expireTime)
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        foreach (var key in expiredKeys)
+        var payload = JsonSerializer.Serialize(taskResult, FillTaskJsonOptions);
+        var existed = await _unitOfWork.MatchingFillTasks.GetByTaskIdAsync(taskResult.TaskId);
+        if (existed == null)
         {
-            _fillTaskResults.TryRemove(key, out _);
+            await _unitOfWork.MatchingFillTasks.AddAsync(new MatchingFillTask
+            {
+                TaskId = taskResult.TaskId,
+                SourceFileId = taskResult.SourceFileId,
+                PayloadJson = payload,
+                CreatedAt = taskResult.CreatedAt
+            });
+        }
+        else
+        {
+            existed.SourceFileId = taskResult.SourceFileId;
+            existed.PayloadJson = payload;
+            existed.CreatedAt = taskResult.CreatedAt;
+            _unitOfWork.MatchingFillTasks.Update(existed);
+        }
+
+        // 轻量清理历史快照，避免任务表无限增长
+        var expireTime = DateTime.Now.AddHours(-FillTaskRetentionHours);
+        await _unitOfWork.MatchingFillTasks.DeleteBeforeAsync(expireTime);
+        await _unitOfWork.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// 读取填充任务快照
+    /// </summary>
+    private async Task<FillTaskResult?> LoadFillTaskSnapshotAsync(string taskId)
+    {
+        var entity = await _unitOfWork.MatchingFillTasks.GetByTaskIdAsync(taskId);
+        if (entity == null || string.IsNullOrWhiteSpace(entity.PayloadJson))
+            return null;
+
+        try
+        {
+            return JsonSerializer.Deserialize<FillTaskResult>(entity.PayloadJson, FillTaskJsonOptions);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "任务快照反序列化失败: {TaskId}", taskId);
+            return null;
         }
     }
 }
@@ -1811,3 +2050,14 @@ internal class FillResult
     public string Acceptance { get; set; } = string.Empty;
     public string? Remark { get; set; }
 }
+
+internal readonly record struct WriteBackSummary(int RequestedCells, int WrittenCells);
+
+internal enum LlmStepOutcome
+{
+    Success = 0,
+    Failed = 1,
+    Timeout = 2
+}
+
+internal readonly record struct LlmStepExecutionResult(LlmStepOutcome Outcome, int RetriesUsed);

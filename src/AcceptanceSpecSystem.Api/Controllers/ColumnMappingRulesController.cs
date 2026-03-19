@@ -3,6 +3,7 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -11,6 +12,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 /// 导入列映射规则 API（全局）
 /// </summary>
 [Route("api/column-mapping-rules")]
+[Authorize]
 public class ColumnMappingRulesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -58,6 +60,7 @@ public class ColumnMappingRulesController : BaseApiController
     /// 新增规则
     /// </summary>
     [HttpPost]
+    [AuditOperation("create", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse<ColumnMappingRuleDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<ColumnMappingRuleDto>>> Create([FromBody] CreateColumnMappingRuleRequest request)
     {
@@ -92,6 +95,7 @@ public class ColumnMappingRulesController : BaseApiController
     /// 更新规则
     /// </summary>
     [HttpPut("{id}")]
+    [AuditOperation("update", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse<ColumnMappingRuleDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<ColumnMappingRuleDto>>> Update(int id, [FromBody] UpdateColumnMappingRuleRequest request)
     {
@@ -126,6 +130,7 @@ public class ColumnMappingRulesController : BaseApiController
     /// 删除规则
     /// </summary>
     [HttpDelete("{id}")]
+    [AuditOperation("delete", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {

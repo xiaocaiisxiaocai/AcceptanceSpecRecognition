@@ -9,6 +9,12 @@ namespace AcceptanceSpecSystem.Data.Repositories;
 public interface IRepository<TEntity> where TEntity : class
 {
     /// <summary>
+    /// 获取可组合查询（用于数据库侧筛选/分页）
+    /// </summary>
+    /// <param name="asNoTracking">是否禁用跟踪（默认禁用）</param>
+    IQueryable<TEntity> Query(bool asNoTracking = true);
+
+    /// <summary>
     /// 根据ID获取实体
     /// </summary>
     /// <param name="id">实体ID</param>

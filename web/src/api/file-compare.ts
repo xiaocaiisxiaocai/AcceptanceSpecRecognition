@@ -29,9 +29,26 @@ export interface FileCompareDiffItem {
   displayLocation?: string;
 }
 
+export interface FileCompareHunkLine {
+  lineType: "Context" | "Add" | "Remove";
+  itemIndex: number;
+  changeGroupId?: string;
+  displayLocation?: string;
+  originalText?: string;
+  currentText?: string;
+}
+
+export interface FileCompareHunk {
+  startItemIndex: number;
+  endItemIndex: number;
+  rangeText?: string;
+  lines: FileCompareHunkLine[];
+}
+
 export interface FileComparePreviewResponse {
   fileType: number;
   items: FileCompareDiffItem[];
+  hunks: FileCompareHunk[];
   addedCount: number;
   removedCount: number;
   modifiedCount: number;

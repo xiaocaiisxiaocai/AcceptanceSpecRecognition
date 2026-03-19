@@ -31,6 +31,14 @@ public class Repository<TEntity> : IRepository<TEntity> where TEntity : class
     }
 
     /// <summary>
+    /// 获取可组合查询（默认不跟踪，适用于筛选/分页场景）
+    /// </summary>
+    public virtual IQueryable<TEntity> Query(bool asNoTracking = true)
+    {
+        return asNoTracking ? _dbSet.AsNoTracking() : _dbSet;
+    }
+
+    /// <summary>
     /// 根据主键ID获取实体。
     /// </summary>
     /// <param name="id">实体主键ID</param>
@@ -46,7 +54,7 @@ public class Repository<TEntity> : IRepository<TEntity> where TEntity : class
     /// <returns>实体列表</returns>
     public virtual async Task<IReadOnlyList<TEntity>> GetAllAsync()
     {
-        return await _dbSet.ToListAsync();
+        return await Query().ToListAsync();
     }
 
     /// <summary>
@@ -56,7 +64,7 @@ public class Repository<TEntity> : IRepository<TEntity> where TEntity : class
     /// <returns>实体列表</returns>
     public virtual async Task<IReadOnlyList<TEntity>> FindAsync(Expression<Func<TEntity, bool>> predicate)
     {
-        return await _dbSet.Where(predicate).ToListAsync();
+        return await Query().Where(predicate).ToListAsync();
     }
 
     /// <summary>

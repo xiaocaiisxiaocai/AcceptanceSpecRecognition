@@ -57,26 +57,24 @@ function buildNormalizedMapping(source?: Partial<ExcelSheetMapping>): ExcelSheet
   };
 }
 
-function isSameMapping(
+function isSameMappingValue(
   a?: Partial<ExcelSheetMapping> | null,
   b?: Partial<ExcelSheetMapping> | null
 ) {
-  const aa = buildNormalizedMapping(a || {});
-  const bb = buildNormalizedMapping(b || {});
   return (
-    aa.projectColumn === bb.projectColumn &&
-    aa.specificationColumn === bb.specificationColumn &&
-    aa.acceptanceColumn === bb.acceptanceColumn &&
-    aa.remarkColumn === bb.remarkColumn &&
-    aa.headerRowStart === bb.headerRowStart &&
-    aa.headerRowCount === bb.headerRowCount &&
-    aa.dataStartRow === bb.dataStartRow
+    a?.projectColumn === b?.projectColumn &&
+    a?.specificationColumn === b?.specificationColumn &&
+    a?.acceptanceColumn === b?.acceptanceColumn &&
+    a?.remarkColumn === b?.remarkColumn &&
+    a?.headerRowStart === b?.headerRowStart &&
+    a?.headerRowCount === b?.headerRowCount &&
+    a?.dataStartRow === b?.dataStartRow
   );
 }
 
 function normalize() {
   const normalized = buildNormalizedMapping(mapping.value);
-  if (!isSameMapping(mapping.value, normalized)) {
+  if (!isSameMappingValue(mapping.value, normalized)) {
     mapping.value = normalized;
   }
 }
@@ -85,7 +83,7 @@ watch(
   () => props.modelValue,
   (val) => {
     const normalized = buildNormalizedMapping(val || {});
-    if (!isSameMapping(mapping.value, normalized)) {
+    if (!isSameMappingValue(mapping.value, normalized)) {
       mapping.value = normalized;
     }
   },
@@ -96,12 +94,12 @@ watch(
   () => mapping.value,
   (val) => {
     const normalized = buildNormalizedMapping(val || {});
-    if (!isSameMapping(val, normalized)) {
+    if (!isSameMappingValue(val, normalized)) {
       mapping.value = normalized;
       return;
     }
 
-    if (!isSameMapping(normalized, props.modelValue || {})) {
+    if (!isSameMappingValue(normalized, props.modelValue || {})) {
       emit("update:modelValue", { ...normalized });
     }
   },

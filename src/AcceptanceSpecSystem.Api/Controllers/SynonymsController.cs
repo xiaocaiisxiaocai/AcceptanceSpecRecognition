@@ -1,6 +1,7 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -9,6 +10,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 /// 同义词CRUD API控制器（按同义词组管理）
 /// </summary>
 [Route("api/synonyms")]
+[Authorize]
 public class SynonymsController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -73,6 +75,7 @@ public class SynonymsController : BaseApiController
     /// 新增同义词组（第一个词为标准词）
     /// </summary>
     [HttpPost]
+    [AuditOperation("create", "synonym-group")]
     [ProducesResponseType(typeof(ApiResponse<SynonymGroupDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<SynonymGroupDto>>> Create([FromBody] UpsertSynonymGroupRequest request)
     {
@@ -89,6 +92,7 @@ public class SynonymsController : BaseApiController
     /// 更新同义词组（第一个词为标准词）
     /// </summary>
     [HttpPut("{id}")]
+    [AuditOperation("update", "synonym-group")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> Update(int id, [FromBody] UpsertSynonymGroupRequest request)
     {
@@ -109,6 +113,7 @@ public class SynonymsController : BaseApiController
     /// 删除同义词组
     /// </summary>
     [HttpDelete("{id}")]
+    [AuditOperation("delete", "synonym-group")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {

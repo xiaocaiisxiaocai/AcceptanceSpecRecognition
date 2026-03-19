@@ -31,11 +31,6 @@ public interface IUnitOfWork : IDisposable
     IEmbeddingCacheRepository EmbeddingCaches { get; }
 
     /// <summary>
-    /// 操作历史Repository
-    /// </summary>
-    IOperationHistoryRepository OperationHistories { get; }
-
-    /// <summary>
     /// Word文件Repository
     /// </summary>
     IWordFileRepository WordFiles { get; }
@@ -69,6 +64,21 @@ public interface IUnitOfWork : IDisposable
     /// 导入列映射规则Repository（全局）
     /// </summary>
     IColumnMappingRuleRepository ColumnMappingRules { get; }
+
+    /// <summary>
+    /// 系统用户Repository
+    /// </summary>
+    ISystemUserRepository SystemUsers { get; }
+
+    /// <summary>
+    /// 审计日志Repository
+    /// </summary>
+    IAuditLogRepository AuditLogs { get; }
+
+    /// <summary>
+    /// 智能填充任务Repository
+    /// </summary>
+    IMatchingFillTaskRepository MatchingFillTasks { get; }
 
     /// <summary>
     /// 保存所有更改

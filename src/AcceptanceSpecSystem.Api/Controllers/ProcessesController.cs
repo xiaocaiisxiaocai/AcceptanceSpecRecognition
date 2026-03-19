@@ -2,13 +2,16 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
 /// <summary>
 /// 制程管理API控制器
 /// </summary>
+[Authorize]
 public class ProcessesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -33,27 +36,40 @@ public class ProcessesController : BaseApiController
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null)
     {
-        var allProcesses = await _unitOfWork.Processes.GetAllAsync();
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
 
-        // 按关键字筛选
+        var query = _unitOfWork.Processes.Query();
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            allProcesses = allProcesses.Where(p => p.Name.Contains(keyword)).ToList();
+            var key = keyword.Trim();
+            query = query.Where(p => p.Name.Contains(key));
         }
 
-        var total = allProcesses.Count;
-        var items = allProcesses
+        var total = await query.CountAsync();
+        var rows = await query
             .OrderByDescending(p => p.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(p => new ProcessDto
-            {
-                Id = p.Id,
-                Name = p.Name,
-                CreatedAt = p.CreatedAt,
-                SpecCount = p.AcceptanceSpecs?.Count ?? 0
-            })
-            .ToList();
+            .Select(p => new { p.Id, p.Name, p.CreatedAt })
+            .ToListAsync();
+
+        var processIds = rows.Select(x => x.Id).ToList();
+        var specCountByProcess = processIds.Count == 0
+            ? new Dictionary<int, int>()
+            : await _unitOfWork.AcceptanceSpecs.Query()
+                .Where(s => s.ProcessId.HasValue && processIds.Contains(s.ProcessId.Value))
+                .GroupBy(s => s.ProcessId!.Value)
+                .Select(g => new { ProcessId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.ProcessId, x => x.Count);
+
+        var items = rows.Select(p => new ProcessDto
+        {
+            Id = p.Id,
+            Name = p.Name,
+            CreatedAt = p.CreatedAt,
+            SpecCount = specCountByProcess.TryGetValue(p.Id, out var count) ? count : 0
+        }).ToList();
 
         var pagedData = new PagedData<ProcessDto>
         {
@@ -96,6 +112,7 @@ public class ProcessesController : BaseApiController
     /// 创建制程
     /// </summary>
     [HttpPost]
+    [AuditOperation("create", "process")]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ProcessDto>>> CreateProcess([FromBody] CreateProcessRequest request)
@@ -126,6 +143,7 @@ public class ProcessesController : BaseApiController
     /// 更新制程
     /// </summary>
     [HttpPut("{id}")]
+    [AuditOperation("update", "process")]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status400BadRequest)]
@@ -160,6 +178,7 @@ public class ProcessesController : BaseApiController
     /// 删除制程
     /// </summary>
     [HttpDelete("{id}")]
+    [AuditOperation("delete", "process")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse>> DeleteProcess(int id)

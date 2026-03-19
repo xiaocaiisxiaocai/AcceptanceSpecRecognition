@@ -66,6 +66,16 @@ public class AcceptanceSpecDto
     /// 导入时间
     /// </summary>
     public DateTime ImportedAt { get; set; }
+
+    /// <summary>
+    /// 数据归属组织节点ID
+    /// </summary>
+    public int? OwnerOrgUnitId { get; set; }
+
+    /// <summary>
+    /// 创建人用户ID
+    /// </summary>
+    public int? CreatedByUserId { get; set; }
 }
 
 /// <summary>
