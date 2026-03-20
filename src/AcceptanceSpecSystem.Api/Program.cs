@@ -111,6 +111,7 @@ builder.Services.AddSingleton<IAuthPasswordService, AuthPasswordService>();
 builder.Services.AddScoped<IAuthAccessService, AuthAccessService>();
 builder.Services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
 builder.Services.AddScoped<IAuthSessionValidationService, AuthSessionValidationService>();
+builder.Services.AddScoped<SpecSemanticSearchService>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 
 // 注册文档服务

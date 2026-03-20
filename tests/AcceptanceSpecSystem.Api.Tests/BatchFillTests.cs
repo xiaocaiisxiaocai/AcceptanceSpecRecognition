@@ -123,6 +123,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
             ApiClientJson.ToJsonContent(new
             {
                 fileId,
+                highConfidenceThreshold = 0.95,
                 tables = new[]
                 {
                     new
@@ -130,14 +131,14 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
                         tableIndex = 0,
                         acceptanceColumnIndex = 2,
                         remarkColumnIndex = 3,
-                        mappings = new[] { new { rowIndex = 1, specId = specIdA } }
+                        mappings = new[] { new { rowIndex = 1, specId = specIdA, matchScore = 1.0 } }
                     },
                     new
                     {
                         tableIndex = 1,
                         acceptanceColumnIndex = 2,
                         remarkColumnIndex = 3,
-                        mappings = new[] { new { rowIndex = 1, specId = specIdB } }
+                        mappings = new[] { new { rowIndex = 1, specId = specIdB, matchScore = 1.0 } }
                     }
                 }
             }));

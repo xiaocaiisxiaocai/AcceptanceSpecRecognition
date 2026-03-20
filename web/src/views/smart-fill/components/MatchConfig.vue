@@ -376,6 +376,25 @@ defineExpose({
                 show-input
                 :show-input-controls="false"
               />
+              <div class="form-inline-tip">
+                该阈值用于保留候选，自动勾选仍以高置信阈值为准
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="高置信阈值">
+              <el-slider
+                v-model="config.highConfidenceThreshold"
+                :min="0.5"
+                :max="1"
+                :step="0.01"
+                :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
+                show-input
+                :show-input-controls="false"
+              />
+              <div class="form-inline-tip">
+                达到该阈值的匹配会默认选中；默认值为 95%
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -425,13 +444,19 @@ defineExpose({
             </el-form-item>
           </el-col>
         </el-row>
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          :title="`系统仅自动填充匹配得分大于等于 ${((config.highConfidenceThreshold ?? 0.95) * 100).toFixed(0)}% 的结果；其余命中只做 LLM 复核，不会生成新验收标准写回。`"
+        />
       </el-form>
     </div>
 
     <!-- 高级选项 -->
     <div class="config-section">
       <div class="section-header" @click="showAdvanced = !showAdvanced">
-        <span class="section-title">LLM 复核与生成</span>
+        <span class="section-title">LLM 复核</span>
         <el-icon :class="{ rotated: showAdvanced }">
           <ArrowRight />
         </el-icon>
@@ -445,7 +470,7 @@ defineExpose({
               type="warning"
               :closable="false"
               show-icon
-              title="当前账号没有 LLM 流式复核/生成权限，本页仅保留基础匹配能力。"
+              title="当前账号没有 LLM 复核权限，本页仅保留基础匹配能力。"
               class="mb-4"
             />
             <!-- LLM复核 -->
@@ -455,41 +480,9 @@ defineExpose({
                   <el-switch v-model="config.useLlmReview" :disabled="!allowLlm" />
                 </el-form-item>
               </el-col>
-            </el-row>
-
-            <!-- LLM生成建议 -->
-            <el-row :gutter="20" align="middle">
-              <el-col :span="8">
-                <el-form-item label="LLM生成建议">
-                  <el-switch v-model="config.useLlmSuggestion" :disabled="!allowLlm" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="16">
-                <el-form-item label="触发阈值">
-                  <el-slider
-                    v-model="config.llmSuggestionScoreThreshold"
-                    :min="0"
-                    :max="1"
-                    :step="0.05"
-                    :disabled="!allowLlm || !config.useLlmSuggestion"
-                    :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
-                  />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row :gutter="20" align="middle">
-              <el-col :span="8">
-                <el-form-item label="无匹配也建议">
-                  <el-switch
-                    v-model="config.suggestNoMatchRows"
-                    :disabled="!allowLlm || !config.useLlmSuggestion"
-                  />
-                </el-form-item>
-              </el-col>
               <el-col :span="16">
                 <span class="parallelism-hint">
-                  默认关闭。开启后会对完全无匹配的行也调用 LLM，耗时会明显增加
+                  仅对未达到当前高置信阈值的匹配结果进行语义复核，通过后才允许采用已有规格
                 </span>
               </el-col>
             </el-row>
@@ -503,9 +496,7 @@ defineExpose({
                     :min="1"
                     :max="10"
                     :step="1"
-                    :disabled="
-                      !allowLlm || (!config.useLlmReview && !config.useLlmSuggestion)
-                    "
+                    :disabled="!allowLlm || !config.useLlmReview"
                     size="default"
                     controls-position="right"
                   />
@@ -517,7 +508,9 @@ defineExpose({
                 </span>
               </el-col>
             </el-row>
-            <div class="llm-hint">LLM 需要配置可用服务与模型，失败将返回明确原因。</div>
+            <div class="llm-hint">
+              LLM 仅负责复核“是否可直接采用现有规格”，不会生成新验收标准参与落库。
+            </div>
 
             <div class="reset-btn">
               <el-button size="small" @click="resetConfig">重置为默认值</el-button>

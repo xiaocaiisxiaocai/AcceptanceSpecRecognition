@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
@@ -100,6 +101,120 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
     private readonly AiServiceSelector _selector;
     private readonly ISemanticKernelServiceFactory _factory;
     private readonly ILogger<LlmMatchingAssistService> _logger;
+
+    private sealed class ThinkContentFilter
+    {
+        private const string ThinkOpen = "<think>";
+        private const string ThinkClose = "</think>";
+        private readonly StringBuilder _buffer = new();
+        private bool _insideThinkBlock;
+
+        public string Push(string? chunk)
+        {
+            if (string.IsNullOrEmpty(chunk))
+            {
+                return string.Empty;
+            }
+
+            _buffer.Append(chunk);
+            return DrainBuffer(finalize: false);
+        }
+
+        public string Flush()
+        {
+            return DrainBuffer(finalize: true);
+        }
+
+        private string DrainBuffer(bool finalize)
+        {
+            if (_buffer.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            var output = new StringBuilder();
+            var text = _buffer.ToString();
+            var index = 0;
+
+            while (index < text.Length)
+            {
+                if (_insideThinkBlock)
+                {
+                    var closeIndex = text.IndexOf(ThinkClose, index, StringComparison.OrdinalIgnoreCase);
+                    if (closeIndex < 0)
+                    {
+                        if (finalize)
+                        {
+                            index = text.Length;
+                        }
+                        else
+                        {
+                            KeepTail(text, index);
+                            return output.ToString();
+                        }
+                    }
+                    else
+                    {
+                        index = closeIndex + ThinkClose.Length;
+                        _insideThinkBlock = false;
+                    }
+
+                    continue;
+                }
+
+                var openIndex = text.IndexOf(ThinkOpen, index, StringComparison.OrdinalIgnoreCase);
+                if (openIndex < 0)
+                {
+                    if (finalize)
+                    {
+                        output.Append(text.AsSpan(index));
+                        index = text.Length;
+                    }
+                    else
+                    {
+                        var safeLength = GetSafeOutputLength(text, index, ThinkOpen.Length);
+                        if (safeLength > 0)
+                        {
+                            output.Append(text.AsSpan(index, safeLength));
+                            index += safeLength;
+                        }
+
+                        KeepTail(text, index);
+                        return output.ToString();
+                    }
+                }
+                else
+                {
+                    output.Append(text.AsSpan(index, openIndex - index));
+                    index = openIndex + ThinkOpen.Length;
+                    _insideThinkBlock = true;
+                }
+            }
+
+            _buffer.Clear();
+            return output.ToString();
+        }
+
+        private void KeepTail(string text, int index)
+        {
+            _buffer.Clear();
+            if (index < text.Length)
+            {
+                _buffer.Append(text.AsSpan(index));
+            }
+        }
+
+        private static int GetSafeOutputLength(string text, int startIndex, int markerLength)
+        {
+            var remaining = text.Length - startIndex;
+            if (remaining <= markerLength - 1)
+            {
+                return 0;
+            }
+
+            return remaining - (markerLength - 1);
+        }
+    }
 
     public LlmMatchingAssistService(
         IUnitOfWork unitOfWork,
@@ -324,13 +439,10 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
                 var chat = _factory.CreateChatCompletionService(cfg);
                 var history = new ChatHistory();
                 history.AddUserMessage(prompt);
-                var settings = new OpenAIPromptExecutionSettings
-                {
-                    Temperature = 0.2
-                };
+                var settings = CreatePromptExecutionSettings(cfg);
 
                 var message = await chat.GetChatMessageContentAsync(history, settings, cancellationToken: cancellationToken);
-                return message.Content ?? string.Empty;
+                return SanitizeLlmOutput(message.Content);
             }
             catch (Exception ex)
             {
@@ -366,17 +478,25 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
                     var chat = _factory.CreateChatCompletionService(cfg);
                     var history = new ChatHistory();
                     history.AddUserMessage(prompt);
-                    var settings = new OpenAIPromptExecutionSettings
-                    {
-                        Temperature = 0.2
-                    };
+                    var settings = CreatePromptExecutionSettings(cfg);
+                    var thinkFilter = new ThinkContentFilter();
 
                     await foreach (var chunk in chat.GetStreamingChatMessageContentsAsync(history, settings, cancellationToken: cancellationToken))
                     {
                         if (!string.IsNullOrWhiteSpace(chunk.Content))
                         {
-                            await channel.Writer.WriteAsync(chunk.Content!, cancellationToken);
+                            var sanitized = thinkFilter.Push(chunk.Content);
+                            if (!string.IsNullOrWhiteSpace(sanitized))
+                            {
+                                await channel.Writer.WriteAsync(sanitized, cancellationToken);
+                            }
                         }
+                    }
+
+                    var tail = thinkFilter.Flush();
+                    if (!string.IsNullOrWhiteSpace(tail))
+                    {
+                        await channel.Writer.WriteAsync(tail, cancellationToken);
                     }
 
                     channel.Writer.TryComplete();
@@ -411,6 +531,14 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         }
 
         throw new AiServiceUnavailableException(errorMessage, errors);
+    }
+
+    private static OpenAIPromptExecutionSettings CreatePromptExecutionSettings(AiServiceConfig config)
+    {
+        return new OpenAIPromptExecutionSettings
+        {
+            Temperature = 0.2
+        };
     }
 
     // ── 模板管理 ──
@@ -466,7 +594,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         if (string.IsNullOrWhiteSpace(raw))
             return false;
 
-        var text = ExtractJson(raw);
+        var text = ExtractJson(SanitizeLlmOutput(raw));
         if (string.IsNullOrWhiteSpace(text))
             return false;
 
@@ -501,6 +629,18 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
             return text.Substring(start, end - start + 1).Trim();
 
         return text.Trim();
+    }
+
+    private static string SanitizeLlmOutput(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var filter = new ThinkContentFilter();
+        var sanitized = filter.Push(raw) + filter.Flush();
+        return sanitized.Trim();
     }
 
     private static bool TryGetDouble(JsonElement element, string name, out double value)

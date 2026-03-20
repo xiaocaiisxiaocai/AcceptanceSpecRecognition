@@ -24,6 +24,7 @@ export interface AiServiceConfig {
   endpoint?: string | null;
   embeddingModel?: string | null;
   llmModel?: string | null;
+  disableThinking: boolean;
   hasApiKey: boolean;
   createdAt: string;
   updatedAt?: string | null;
@@ -42,6 +43,7 @@ export interface CreateAiServiceRequest {
   endpoint?: string | null;
   embeddingModel?: string | null;
   llmModel?: string | null;
+  disableThinking?: boolean;
 }
 
 export interface UpdateAiServiceRequest extends CreateAiServiceRequest {}
@@ -95,7 +97,9 @@ export const deleteAiService = (id: number) => {
 export const testAiServiceConnection = (id: number) => {
   return http.request<ApiResponse<AiServiceTestResult>>(
     "post",
-    `${baseUrl}/${id}/test`
+    `${baseUrl}/${id}/test`,
+    undefined,
+    { timeout: 300000 }
   );
 };
 

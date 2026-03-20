@@ -30,12 +30,15 @@ pnpm dev
 
 - `GET /swagger`：Swagger UI
 - `GET /api/customers` / `GET /api/processes` / `GET /api/specs`：基础数据
-- `POST /api/documents/upload`：上传 docx
-- `POST /api/documents/import`：导入表格到验规（需要同时传 `customerId` + `processId`）
-- `POST /api/matching/preview`：匹配预览（支持 fileId/tableIndex + 手动列索引）
-- `POST /api/matching/execute` / `GET /api/matching/download/{taskId}`：填充与下载
+- `POST /api/documents/upload`：上传 `docx/xlsx`
+- `POST /api/documents/import` / `POST /api/documents/excel/import`：导入 Word/Excel 表格到验规
+- `POST /api/matching/batch-preview`：批量匹配预览
+- `POST /api/matching/llm-stream`：对低置信结果执行流式 LLM 复核
+- `POST /api/matching/batch-execute` / `GET /api/matching/download/{taskId}`：批量填充与下载
+- `POST /api/specs/semantic-search`：验收规格 AI 语义搜索
+- `GET /api/auth-roles` / `GET /api/system-users` / `GET /api/org-units`：RBAC 与组织管理
 
-> 领域模型说明：**Customer 与 Process 是两份独立基础数据**；系统用 **(customerId + processId)** 的组合来表示“一整份验规”的范围，因此创建/导入/匹配时通常需要同时指定这两个值。
+> 领域模型说明：业务筛选维度以 **customerId + processId + machineModelId** 为主，其中 `machineModelId` 可选；验收规格数据范围另外受 RBAC 组织授权控制。
 
 ## 4. 运行测试
 

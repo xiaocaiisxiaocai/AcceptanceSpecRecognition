@@ -12,6 +12,7 @@ public class AiServiceConfigDto
     public string? Endpoint { get; set; }
     public string? EmbeddingModel { get; set; }
     public string? LlmModel { get; set; }
+    public bool DisableThinking { get; set; }
     public bool HasApiKey { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -32,6 +33,7 @@ public class CreateAiServiceRequest
     public string? Endpoint { get; set; }
     public string? EmbeddingModel { get; set; }
     public string? LlmModel { get; set; }
+    public bool DisableThinking { get; set; }
 }
 
 public class UpdateAiServiceRequest
@@ -44,6 +46,7 @@ public class UpdateAiServiceRequest
     public string? Endpoint { get; set; }
     public string? EmbeddingModel { get; set; }
     public string? LlmModel { get; set; }
+    public bool DisableThinking { get; set; }
 }
 
 public class AiServiceTestResultDto

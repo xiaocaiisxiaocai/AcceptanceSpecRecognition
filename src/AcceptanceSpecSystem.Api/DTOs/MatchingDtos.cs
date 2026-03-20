@@ -131,6 +131,11 @@ public class MatchConfigDto
     public double AmbiguityMargin { get; set; } = 0.03;
 
     /// <summary>
+    /// 高置信自动采用阈值
+    /// </summary>
+    public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
+
+    /// <summary>
     /// 是否启用LLM复核
     /// </summary>
     public bool UseLlmReview { get; set; } = false;
@@ -255,13 +260,7 @@ public class MatchPreviewItem
     /// <summary>
     /// 置信度级别
     /// </summary>
-    public string ConfidenceLevel => BestMatch?.Score switch
-    {
-        >= 0.8 => "high",
-        >= 0.6 => "medium",
-        > 0 => "low",
-        _ => "none"
-    };
+    public string ConfidenceLevel { get; set; } = "none";
 }
 
 /// <summary>
@@ -456,6 +455,11 @@ public class ExecuteFillRequest
     /// 备注填充目标列索引
     /// </summary>
     public int? RemarkColumnIndex { get; set; }
+
+    /// <summary>
+    /// 高置信自动采用阈值
+    /// </summary>
+    public double? HighConfidenceThreshold { get; set; }
 }
 
 /// <summary>
@@ -482,6 +486,16 @@ public class FillMapping
     /// 是否使用LLM生成建议
     /// </summary>
     public bool UseLlmSuggestion { get; set; }
+
+    /// <summary>
+    /// 匹配得分（0-1）
+    /// </summary>
+    public double? MatchScore { get; set; }
+
+    /// <summary>
+    /// LLM 复核得分（0-100）
+    /// </summary>
+    public double? LlmReviewScore { get; set; }
 
     /// <summary>
     /// LLM生成的验收标准（可选）
@@ -843,4 +857,9 @@ public class BatchExecuteFillRequest
     /// 各表格的填充映射
     /// </summary>
     public List<BatchTableFillMapping> Tables { get; set; } = [];
+
+    /// <summary>
+    /// 高置信自动采用阈值
+    /// </summary>
+    public double? HighConfidenceThreshold { get; set; }
 }

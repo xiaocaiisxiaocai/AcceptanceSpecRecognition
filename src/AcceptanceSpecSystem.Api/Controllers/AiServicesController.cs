@@ -135,6 +135,7 @@ public class AiServicesController : BaseApiController
             Endpoint = NormalizeOptional(request.Endpoint),
             EmbeddingModel = embeddingModel,
             LlmModel = llmModel,
+            DisableThinking = request.DisableThinking,
             CreatedAt = DateTime.Now
         };
 
@@ -180,6 +181,7 @@ public class AiServicesController : BaseApiController
         entity.Purpose = request.Purpose;
         entity.Priority = request.Priority;
         entity.Endpoint = NormalizeOptional(request.Endpoint);
+        entity.DisableThinking = request.DisableThinking;
 
         var embeddingModel = NormalizeOptional(request.EmbeddingModel);
         var llmModel = NormalizeOptional(request.LlmModel);
@@ -322,6 +324,7 @@ public class AiServicesController : BaseApiController
         Endpoint = c.Endpoint,
         EmbeddingModel = c.EmbeddingModel,
         LlmModel = c.LlmModel,
+        DisableThinking = c.DisableThinking,
         HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
         CreatedAt = c.CreatedAt,
         UpdatedAt = c.UpdatedAt
@@ -337,6 +340,7 @@ public class AiServicesController : BaseApiController
         Endpoint = c.Endpoint,
         EmbeddingModel = c.EmbeddingModel,
         LlmModel = c.LlmModel,
+        DisableThinking = c.DisableThinking,
         HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
         ApiKey = c.ApiKey,
         CreatedAt = c.CreatedAt,
@@ -432,7 +436,7 @@ public class AiServicesController : BaseApiController
         AiServiceConfig config,
         CancellationToken cancellationToken)
     {
-        var endpoint = config.Endpoint!.Trim().TrimEnd('/');
+        var endpoint = NormalizeOllamaBaseUrl(config.Endpoint!);
         var url = $"{endpoint}/api/tags";
         using var client = CreateHttpClient();
         var response = await client.GetAsync(url, cancellationToken);
@@ -459,6 +463,16 @@ public class AiServicesController : BaseApiController
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
             return baseUrl;
         return $"{baseUrl}/v1";
+    }
+
+    private static string NormalizeOllamaBaseUrl(string endpoint)
+    {
+        var baseUrl = endpoint.Trim().TrimEnd('/');
+        if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
+            baseUrl = baseUrl[..^4];
+        if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
+            baseUrl = baseUrl[..^3];
+        return baseUrl.TrimEnd('/');
     }
 
     private static IReadOnlyList<string> ParseModelsFromOpenAiResponse(string json)

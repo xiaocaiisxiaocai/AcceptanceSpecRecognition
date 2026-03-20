@@ -3,9 +3,7 @@ import { ref, computed, onBeforeUnmount, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Loading } from "@element-plus/icons-vue";
 import FileUpload from "@/views/data-import/components/FileUpload.vue";
-import TableSelector from "@/views/data-import/components/TableSelector.vue";
 import MatchConfig from "./components/MatchConfig.vue";
-import MatchPreviewTable from "./components/MatchPreviewTable.vue";
 import BatchTableConfig from "./components/BatchTableConfig.vue";
 import BatchPreviewTabs from "./components/BatchPreviewTabs.vue";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
@@ -357,6 +355,9 @@ const stopLlmStream = () => {
   llmStreaming.value = false;
 };
 
+const getHighConfidenceThreshold = () =>
+  Math.min(Math.max(matchConfig.value.highConfidenceThreshold ?? 0.95, 0.5), 1);
+
 const startLlmStream = async () => {
   if (!canLlmStream.value) {
     return;
@@ -364,12 +365,11 @@ const startLlmStream = async () => {
   stopLlmStream();
 
   if (!allPreviewItems.value.length) return;
-  if (!matchConfig.value.useLlmReview && !matchConfig.value.useLlmSuggestion)
-    return;
+  if (!matchConfig.value.useLlmReview) return;
 
   const llmItems = batchPreviewResults.value.flatMap((tableResult) =>
     tableResult.items
-      .filter((item) => shouldStreamReview(item) || shouldStreamSuggestion(item))
+      .filter(item => shouldStreamReview(item))
       .map((item) => ({
         tableIndex: tableResult.tableIndex,
         rowIndex: item.rowIndex,
@@ -519,46 +519,19 @@ const applySseUpdate = (event: string, data: any) => {
       row.llmReviewError = data.message || "LLM复核失败";
       row.llmReviewDraft = "";
       break;
-    case "suggestion.start":
-      row.llmSuggestionDraft = "";
-      row.llmSuggestionError = undefined;
-      break;
-    case "suggestion.delta":
-      row.llmSuggestionDraft =
-        (row.llmSuggestionDraft || "") + (data.chunk || "");
-      break;
-    case "suggestion.done":
-      row.llmSuggestion = {
-        acceptance: data.acceptance,
-        remark: data.remark,
-        reason: data.reason
-      };
-      row.llmSuggestionDraft = "";
-      break;
-    case "suggestion.error":
-      row.llmSuggestionError = data.message;
-      row.llmSuggestionDraft = "";
-      break;
     default:
       break;
   }
 };
 
 const shouldStreamReview = (item: MatchPreviewItem) => {
-  return !!matchConfig.value.useLlmReview && !!item.bestMatch?.specId;
-};
-
-const shouldStreamSuggestion = (item: MatchPreviewItem) => {
-  if (!matchConfig.value.useLlmSuggestion) return false;
-
-  if (item.bestMatch?.specId) {
-    return (
-      (item.bestMatch.score ?? 0) <
-      (matchConfig.value.llmSuggestionScoreThreshold ?? 0.6)
-    );
-  }
-
-  return !!matchConfig.value.suggestNoMatchRows;
+  const score = item.bestMatch?.score ?? 0;
+  return (
+    !!matchConfig.value.useLlmReview &&
+    !!item.bestMatch?.specId &&
+    score > 0 &&
+    score < getHighConfidenceThreshold()
+  );
 };
 
 // 显示详情
@@ -614,9 +587,8 @@ const handleExecute = async () => {
         mappings: selections.map((s) => ({
           rowIndex: s.rowIndex,
           specId: s.specId,
-          useLlmSuggestion: s.useLlmSuggestion,
-          acceptance: s.acceptance,
-          remark: s.remark
+          matchScore: s.matchScore,
+          llmReviewScore: s.llmReviewScore
         }))
       };
     })
@@ -627,9 +599,8 @@ const handleExecute = async () => {
     mappings: Array<{
       rowIndex: number;
       specId?: number;
-      useLlmSuggestion?: boolean;
-      acceptance?: string;
-      remark?: string;
+      matchScore?: number;
+      llmReviewScore?: number;
     }>;
   }>;
 
@@ -642,6 +613,7 @@ const handleExecute = async () => {
   try {
     const res = await batchExecuteFill({
       fileId: uploadedFile.value.fileId,
+      highConfidenceThreshold: getHighConfidenceThreshold(),
       tables
     });
 
@@ -801,7 +773,7 @@ const handleRestart = () => {
         <el-alert
           v-if="llmStreaming"
           title="AI 正在处理中..."
-          description="LLM 正在逐行复核/生成建议，请等待完成后再执行填充"
+          description="LLM 正在逐行复核中，请等待完成后再执行填充"
           type="info"
           show-icon
           :closable="false"
@@ -822,6 +794,7 @@ const handleRestart = () => {
           ref="batchPreviewTabsRef"
           :results="batchPreviewResults"
           :loading="loading"
+          :high-confidence-threshold="getHighConfidenceThreshold()"
           :llm-streaming="llmStreaming"
           @select="handleSelect"
           @show-detail="handleShowDetail"

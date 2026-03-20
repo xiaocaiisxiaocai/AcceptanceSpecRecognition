@@ -9,7 +9,7 @@ using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 namespace AcceptanceSpecSystem.Api.Tests;
 
 /// <summary>
-/// LLM 建议辅助填充路径集成测试（任务 5.3）
+/// LLM 复核辅助填充集成测试
 /// </summary>
 public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory>
 {
@@ -21,19 +21,17 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
     }
 
     /// <summary>
-    /// 使用 LLM 建议填充路径：useLlmSuggestion=true 时，自定义 acceptance/remark 应被写入文档
+    /// 已停用 LLM 建议直接写回
     /// </summary>
     [Fact]
-    public async Task ExecuteFill_WithLlmSuggestion_ShouldFillCustomAcceptance()
+    public async Task ExecuteFill_WithLlmSuggestion_ShouldReturnBadRequest()
     {
-        // 1) 构造 docx
         var docxBytes = CreateDocxBytes(new[]
         {
             new[] { "项目", "规格", "验收", "备注" },
             new[] { "P1", "S1", "", "" }
         });
 
-        // 2) 上传
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(docxBytes), "file", "llm-fill.docx");
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
@@ -41,15 +39,6 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
 
-        // 3) 创建基础数据（需要至少存在有效的验收规格环境）
-        var customerId = (await (await _client.PostAsync("/api/customers",
-            ApiClientJson.ToJsonContent(new { name = "LlmFill-C" })))
-            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
-        var processId = (await (await _client.PostAsync("/api/processes",
-            ApiClientJson.ToJsonContent(new { name = "LlmFill-P" })))
-            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
-
-        // 4) 执行填充（LLM 建议路径，不需要 specId）
         var execResp = await _client.PostAsync("/api/matching/execute",
             ApiClientJson.ToJsonContent(new
             {
@@ -69,48 +58,135 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
                 }
             }));
 
+        execResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        execJson.Code.Should().Be(400);
+        execJson.Message.Should().Contain("已停用 LLM 生成建议写回");
+    }
+
+    [Fact]
+    public async Task ExecuteFill_WithMediumScoreWithoutReview_ShouldSkip()
+    {
+        var (fileId, specId) = await PrepareSingleSpecFillAsync("SkipMedium");
+
+        var execResp = await _client.PostAsync("/api/matching/execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                tableIndex = 0,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = 3,
+                highConfidenceThreshold = 0.95,
+                mappings = new[]
+                {
+                    new
+                    {
+                        rowIndex = 1,
+                        specId,
+                        matchScore = 0.88
+                    }
+                }
+            }));
+
+        execResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        execJson.Code.Should().Be(0);
+        execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(0);
+        execJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteFill_WithReviewedMediumScore_ShouldFillMatchedSpec()
+    {
+        var (fileId, specId) = await PrepareSingleSpecFillAsync("FillReviewed");
+
+        var execResp = await _client.PostAsync("/api/matching/execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                tableIndex = 0,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = 3,
+                highConfidenceThreshold = 0.95,
+                mappings = new[]
+                {
+                    new
+                    {
+                        rowIndex = 1,
+                        specId,
+                        matchScore = 0.88,
+                        llmReviewScore = 95
+                    }
+                }
+            }));
+
         execResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
         execJson.Code.Should().Be(0);
         execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(1);
         var taskId = execJson.Data.GetProperty("taskId").GetString();
 
-        // 5) 下载验证
         var dlResp = await _client.GetAsync($"/api/matching/download/{taskId}");
         dlResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var filledBytes = await dlResp.Content.ReadAsByteArrayAsync();
 
-        GetCellText(filledBytes, 0, 1, 2).Should().Be("LLM-AC");
-        GetCellText(filledBytes, 0, 1, 3).Should().Be("LLM-REM");
+        GetCellText(filledBytes, 0, 1, 2).Should().Be("DB-AC-1");
+        GetCellText(filledBytes, 0, 1, 3).Should().Be("DB-REM-1");
     }
 
-    /// <summary>
-    /// 混合映射路径：一行使用 specId，一行使用 LLM 建议
-    /// </summary>
     [Fact]
-    public async Task ExecuteFill_WithMixedMappings_ShouldHandleBothPaths()
+    public async Task ExecuteFill_WithCustomHighConfidenceThreshold_ShouldFillWithoutReview()
     {
-        // 1) 构造双行 docx
+        var (fileId, specId) = await PrepareSingleSpecFillAsync("CustomThreshold");
+
+        var execResp = await _client.PostAsync("/api/matching/execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                tableIndex = 0,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = 3,
+                highConfidenceThreshold = 0.85,
+                mappings = new[]
+                {
+                    new
+                    {
+                        rowIndex = 1,
+                        specId,
+                        matchScore = 0.9
+                    }
+                }
+            }));
+
+        execResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        execJson.Code.Should().Be(0);
+        execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(1);
+        execJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(0);
+    }
+
+    #region Helpers
+
+    private async Task<(int FileId, int SpecId)> PrepareSingleSpecFillAsync(string prefix)
+    {
         var docxBytes = CreateDocxBytes(new[]
         {
             new[] { "项目", "规格", "验收", "备注" },
-            new[] { "P1", "S1", "", "" },
-            new[] { "P2", "S2", "", "" }
+            new[] { "P1", "S1", "", "" }
         });
 
-        // 2) 上传
         var multipart = new MultipartFormDataContent();
-        multipart.Add(new ByteArrayContent(docxBytes), "file", "mixed-fill.docx");
+        multipart.Add(new ByteArrayContent(docxBytes), "file", $"{prefix}.docx");
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
 
-        // 3) 创建规格数据（仅为第一行匹配用）
         var customerId = (await (await _client.PostAsync("/api/customers",
-            ApiClientJson.ToJsonContent(new { name = "MixFill-C" })))
+            ApiClientJson.ToJsonContent(new { name = $"{prefix}-C" })))
             .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
         var processId = (await (await _client.PostAsync("/api/processes",
-            ApiClientJson.ToJsonContent(new { name = "MixFill-P" })))
+            ApiClientJson.ToJsonContent(new { name = $"{prefix}-P" })))
             .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
@@ -124,42 +200,8 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
         }));
         var specId = (await specResp.ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
 
-        // 4) 执行混合填充
-        var execResp = await _client.PostAsync("/api/matching/execute",
-            ApiClientJson.ToJsonContent(new
-            {
-                fileId,
-                tableIndex = 0,
-                acceptanceColumnIndex = 2,
-                remarkColumnIndex = 3,
-                mappings = new object[]
-                {
-                    new { rowIndex = 1, specId, useLlmSuggestion = false },
-                    new { rowIndex = 2, useLlmSuggestion = true, acceptance = "LLM-AC-2", remark = "LLM-REM-2" }
-                }
-            }));
-
-        execResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        execJson.Code.Should().Be(0);
-        execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(2);
-        var taskId = execJson.Data.GetProperty("taskId").GetString();
-
-        // 5) 下载并验证两行各自填充正确
-        var dlResp = await _client.GetAsync($"/api/matching/download/{taskId}");
-        dlResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var filledBytes = await dlResp.Content.ReadAsByteArrayAsync();
-
-        // 行1：来自数据库规格
-        GetCellText(filledBytes, 0, 1, 2).Should().Be("DB-AC-1");
-        GetCellText(filledBytes, 0, 1, 3).Should().Be("DB-REM-1");
-
-        // 行2：来自 LLM 建议
-        GetCellText(filledBytes, 0, 2, 2).Should().Be("LLM-AC-2");
-        GetCellText(filledBytes, 0, 2, 3).Should().Be("LLM-REM-2");
+        return (fileId, specId);
     }
-
-    #region Helpers
 
     private static byte[] CreateDocxBytes(string[][] rows)
     {

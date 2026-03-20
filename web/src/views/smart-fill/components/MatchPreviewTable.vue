@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { computed, ref, watch } from "vue";
 import {
+  DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
+  LLM_REVIEW_PASS_THRESHOLD,
   type MatchPreviewItem,
   MatchingStrategy
 } from "@/api/matching";
@@ -8,6 +10,7 @@ import {
 const props = defineProps<{
   items: MatchPreviewItem[];
   loading?: boolean;
+  highConfidenceThreshold?: number;
   /** LLM 流式处理是否进行中 */
   llmStreaming?: boolean;
 }>();
@@ -17,14 +20,19 @@ const emit = defineEmits<{
   (e: "showDetail", item: MatchPreviewItem): void;
 }>();
 
-type Selection =
-  | { type: "best" }
-  | { type: "llm"; acceptance?: string; remark?: string };
+type Selection = { type: "best" };
+type ReviewStatus =
+  | "none"
+  | "direct"
+  | "pending"
+  | "waiting"
+  | "streaming"
+  | "passed"
+  | "rejected"
+  | "error";
 
-// 选中的匹配（rowIndex -> Selection）
 const selectedSpecs = ref<Map<number, Selection | null>>(new Map());
 
-// 无明确答案的占位行：默认不自动选中匹配，保持填充为空
 const isNoAnswerPlaceholderRow = (item: MatchPreviewItem) => {
   const project = (item.sourceProject || "").trim();
   const specification = (item.sourceSpecification || "").trim();
@@ -34,11 +42,39 @@ const isNoAnswerPlaceholderRow = (item: MatchPreviewItem) => {
   return placeholderProjects.has(project.toLowerCase());
 };
 
-// 初始化选中项（默认选择最佳匹配）
+const normalizeReviewScore = (score?: number) => {
+  if (score === undefined || score === null) return 0;
+  if (score > 0 && score <= 1) {
+    return Math.min(score * 100, 100);
+  }
+  return Math.min(score, 100);
+};
+
+const effectiveHighConfidenceThreshold = computed(
+  () => props.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD
+);
+
+const isHighConfidence = (item: MatchPreviewItem) =>
+  (item.bestMatch?.score ?? 0) >= effectiveHighConfidenceThreshold.value;
+
+const requiresReview = (item: MatchPreviewItem) =>
+  !!item.bestMatch && !isHighConfidence(item);
+
+const isReviewPassed = (item: MatchPreviewItem) =>
+  normalizeReviewScore(item.bestMatch?.llmScore) >= LLM_REVIEW_PASS_THRESHOLD;
+
+const canUseBestMatch = (item: MatchPreviewItem) => {
+  if (!item.bestMatch || isNoAnswerPlaceholderRow(item)) {
+    return false;
+  }
+
+  return isHighConfidence(item) || isReviewPassed(item);
+};
+
 const initSelections = () => {
   selectedSpecs.value.clear();
-  props.items.forEach((item) => {
-    if (item.bestMatch && !isNoAnswerPlaceholderRow(item)) {
+  props.items.forEach(item => {
+    if (item.bestMatch && isHighConfidence(item) && !isNoAnswerPlaceholderRow(item)) {
       selectedSpecs.value.set(item.rowIndex, { type: "best" });
     } else {
       selectedSpecs.value.set(item.rowIndex, null);
@@ -46,38 +82,21 @@ const initSelections = () => {
   });
 };
 
-// 监听items变化
-import { watch } from "vue";
-watch(() => props.items, initSelections, { immediate: true });
+watch(
+  () => [props.items, props.highConfidenceThreshold],
+  () => initSelections(),
+  { immediate: true }
+);
 
-// 获取选中的specId
 const getSelection = (rowIndex: number) => selectedSpecs.value.get(rowIndex);
 
-const isLlmSelected = (rowIndex: number) => {
-  return selectedSpecs.value.get(rowIndex)?.type === "llm";
-};
-
-const hasSuggestionContent = (item: MatchPreviewItem) => {
-  return Boolean(item.llmSuggestion?.acceptance || item.llmSuggestion?.remark);
-};
-
-// 选择匹配
 const handleSelectBest = (item: MatchPreviewItem) => {
-  if (item.bestMatch) {
-    selectedSpecs.value.set(item.rowIndex, { type: "best" });
-  } else {
-    selectedSpecs.value.set(item.rowIndex, null);
+  if (!canUseBestMatch(item)) {
+    return;
   }
-  emit("select", item.rowIndex, item.bestMatch ?? null);
-};
 
-const handleSelectSuggestion = (item: MatchPreviewItem) => {
-  selectedSpecs.value.set(item.rowIndex, {
-    type: "llm",
-    acceptance: item.llmSuggestion?.acceptance,
-    remark: item.llmSuggestion?.remark
-  });
-  emit("select", item.rowIndex, null);
+  selectedSpecs.value.set(item.rowIndex, { type: "best" });
+  emit("select", item.rowIndex, item.bestMatch ?? null);
 };
 
 const handleClearSelection = (item: MatchPreviewItem) => {
@@ -89,7 +108,6 @@ const clearSelectionByRow = (rowIndex: number) => {
   selectedSpecs.value.set(rowIndex, null);
 };
 
-// 获取置信度样式
 const getConfidenceClass = (level: string) => {
   switch (level) {
     case "high":
@@ -103,7 +121,6 @@ const getConfidenceClass = (level: string) => {
   }
 };
 
-// 获取置信度文本
 const getConfidenceText = (level: string) => {
   switch (level) {
     case "high":
@@ -117,55 +134,84 @@ const getConfidenceText = (level: string) => {
   }
 };
 
-// 格式化得分
-const formatScore = (score: number) => {
-  return (score * 100).toFixed(1) + "%";
-};
+const formatScore = (score: number) => `${(score * 100).toFixed(1)}%`;
 
 const getStrategyText = (strategy?: MatchingStrategy) => {
   return strategy === MatchingStrategy.MultiStage ? "多阶段" : "基础";
 };
 
-// LLM 复核状态
-type LlmStatus = "none" | "waiting" | "streaming" | "done" | "error";
-
-const getReviewStatus = (item: MatchPreviewItem): LlmStatus => {
+const getReviewStatus = (item: MatchPreviewItem): ReviewStatus => {
+  if (!item.bestMatch) return "none";
+  if (isHighConfidence(item)) return "direct";
   if (item.llmReviewError) return "error";
-  if (item.bestMatch?.isLlmReviewed) return "done";
+  if (item.bestMatch.isLlmReviewed) {
+    return isReviewPassed(item) ? "passed" : "rejected";
+  }
   if (item.llmReviewDraft !== undefined) return "streaming";
-  if (props.llmStreaming && item.hasMatch) return "waiting";
-  return "none";
-};
-
-const getSuggestionStatus = (item: MatchPreviewItem): LlmStatus => {
-  if (item.llmSuggestionError) return "error";
-  if (item.llmSuggestion) return "done";
-  if (item.llmSuggestionDraft !== undefined) return "streaming";
   if (props.llmStreaming) return "waiting";
+  if (requiresReview(item)) return "pending";
   return "none";
 };
 
 const formatLlmScore = (score?: number) => {
-  if (score === undefined || score === null) return "-";
-  return `${score.toFixed(0)}`;
+  const normalized = normalizeReviewScore(score);
+  if (normalized <= 0) return "-";
+  return `${normalized.toFixed(0)}`;
 };
 
-// 统计信息
+const getReviewStatusText = (item: MatchPreviewItem) => {
+  const status = getReviewStatus(item);
+  switch (status) {
+    case "direct":
+      return "直接采用";
+    case "waiting":
+      return "等待复核";
+    case "pending":
+      return "待复核";
+    case "streaming":
+      return "复核中...";
+    case "passed":
+      return `${formatLlmScore(item.bestMatch?.llmScore)}分通过`;
+    case "rejected":
+      return `${formatLlmScore(item.bestMatch?.llmScore)}分未通过`;
+    case "error":
+      return "复核失败";
+    default:
+      return "-";
+  }
+};
+
+const getReviewTagType = (item: MatchPreviewItem) => {
+  switch (getReviewStatus(item)) {
+    case "direct":
+    case "passed":
+      return "success";
+    case "pending":
+    case "streaming":
+      return "warning";
+    case "waiting":
+      return "info";
+    case "rejected":
+    case "error":
+      return "danger";
+    default:
+      return "info";
+  }
+};
+
 const stats = computed(() => {
   const total = props.items.length;
-  const matched = props.items.filter((i) => i.hasMatch).length;
+  const matched = props.items.filter(i => i.hasMatch).length;
   const perfect = props.items.filter(
-    (i) => i.hasMatch && i.bestMatch && i.bestMatch.score >= 0.9995
+    i => i.hasMatch && i.bestMatch && i.bestMatch.score >= 0.9995
   ).length;
   const imperfect = total - perfect;
-  const selected = Array.from(selectedSpecs.value.values()).filter(
-    (v) => v !== null
-  ).length;
-  const ambiguous = props.items.filter((i) => i.bestMatch?.isAmbiguous).length;
+  const selected = Array.from(selectedSpecs.value.values()).filter(v => v !== null)
+    .length;
+  const ambiguous = props.items.filter(i => i.bestMatch?.isAmbiguous).length;
   return { total, matched, perfect, imperfect, selected, ambiguous };
 });
 
-// 筛选
 type ScoreFilter = "all" | "perfect" | "imperfect";
 const scoreFilter = ref<ScoreFilter>("all");
 
@@ -173,44 +219,47 @@ const filteredItems = computed(() => {
   if (scoreFilter.value === "all") return props.items;
   if (scoreFilter.value === "perfect") {
     return props.items.filter(
-      (i) => i.hasMatch && i.bestMatch && i.bestMatch.score >= 0.9995
+      i => i.hasMatch && i.bestMatch && i.bestMatch.score >= 0.9995
     );
   }
-  // imperfect: 低于100% 或无匹配
   return props.items.filter(
-    (i) => !i.hasMatch || !i.bestMatch || i.bestMatch.score < 0.9995
+    i => !i.hasMatch || !i.bestMatch || i.bestMatch.score < 0.9995
   );
 });
 
-// 是否存在未匹配行（控制"不匹配原因"列显隐）
-const hasUnmatched = computed(() => props.items.some((i) => !i.hasMatch));
+const hasReasonColumn = computed(() =>
+  props.items.some(
+    item =>
+      !item.hasMatch ||
+      !!item.noMatchReason ||
+      !!item.bestMatch?.llmReason ||
+      !!item.llmReviewError
+  )
+);
 
-// 暴露方法
 defineExpose({
   getSelections: () => {
     const selections: Array<{
       rowIndex: number;
       specId?: number;
-      useLlmSuggestion?: boolean;
-      acceptance?: string;
-      remark?: string;
+      matchScore?: number;
+      llmReviewScore?: number;
     }> = [];
+
     selectedSpecs.value.forEach((selection, rowIndex) => {
       if (!selection) return;
-      if (selection.type === "best") {
-        const item = props.items.find((i) => i.rowIndex === rowIndex);
-        if (item?.bestMatch) {
-          selections.push({ rowIndex, specId: item.bestMatch.specId });
-        }
-      } else {
-        selections.push({
-          rowIndex,
-          useLlmSuggestion: true,
-          acceptance: selection.acceptance,
-          remark: selection.remark
-        });
-      }
+
+      const item = props.items.find(i => i.rowIndex === rowIndex);
+      if (!item?.bestMatch) return;
+
+      selections.push({
+        rowIndex,
+        specId: item.bestMatch.specId,
+        matchScore: item.bestMatch.score,
+        llmReviewScore: normalizeReviewScore(item.bestMatch.llmScore)
+      });
     });
+
     return selections;
   },
   initSelections,
@@ -325,81 +374,19 @@ defineExpose({
         </template>
       </el-table-column>
 
-      <!-- AI状态 -->
-      <el-table-column label="AI状态" width="130" align="center">
+      <!-- 复核状态 -->
+      <el-table-column label="复核状态" width="130" align="center">
         <template #default="{ row }">
           <div class="ai-status-cell">
-            <!-- LLM 复核状态 -->
-            <template v-if="getReviewStatus(row) !== 'none'">
-              <div class="ai-status-row">
-                <span class="ai-label">复核</span>
-                <el-tag
-                  v-if="getReviewStatus(row) === 'waiting'"
-                  size="small"
-                  type="info"
-                >
-                  等待中
-                </el-tag>
-                <el-tag
-                  v-else-if="getReviewStatus(row) === 'streaming'"
-                  size="small"
-                  type="warning"
-                  class="ai-streaming"
-                >
-                  复核中...
-                </el-tag>
-                <el-tag
-                  v-else-if="getReviewStatus(row) === 'done'"
-                  size="small"
-                  type="success"
-                >
-                  {{ formatLlmScore(row.bestMatch?.llmScore) }}分
-                </el-tag>
-                <el-tag
-                  v-else-if="getReviewStatus(row) === 'error'"
-                  size="small"
-                  type="danger"
-                >
-                  失败
-                </el-tag>
-              </div>
-            </template>
-
-            <!-- LLM 建议状态 -->
-            <template v-if="getSuggestionStatus(row) !== 'none'">
-              <div class="ai-status-row">
-                <span class="ai-label">建议</span>
-                <el-tag
-                  v-if="getSuggestionStatus(row) === 'waiting'"
-                  size="small"
-                  type="info"
-                >
-                  等待中
-                </el-tag>
-                <el-tag
-                  v-else-if="getSuggestionStatus(row) === 'streaming'"
-                  size="small"
-                  type="warning"
-                  class="ai-streaming"
-                >
-                  生成中...
-                </el-tag>
-                <el-tag
-                  v-else-if="getSuggestionStatus(row) === 'done'"
-                  size="small"
-                  type="success"
-                >
-                  已生成
-                </el-tag>
-                <el-tag
-                  v-else-if="getSuggestionStatus(row) === 'error'"
-                  size="small"
-                  type="danger"
-                >
-                  失败
-                </el-tag>
-              </div>
-            </template>
+            <el-tag
+              v-if="getReviewStatus(row) !== 'none'"
+              size="small"
+              :type="getReviewTagType(row)"
+              :class="{ 'ai-streaming': getReviewStatus(row) === 'streaming' }"
+            >
+              {{ getReviewStatusText(row) }}
+            </el-tag>
+            <span v-else class="reason-none">-</span>
           </div>
         </template>
       </el-table-column>
@@ -407,63 +394,36 @@ defineExpose({
       <!-- 验收标准预览 -->
       <el-table-column label="验收标准" min-width="180">
         <template #default="{ row }">
-          <!-- 已选择最佳匹配 -->
-          <template v-if="getSelection(row.rowIndex)?.type === 'best'">
-            <span class="acceptance-text">
-              {{ row.bestMatch?.acceptance || "-" }}
-            </span>
-          </template>
-          <!-- 已选择LLM建议 -->
-          <template v-else-if="isLlmSelected(row.rowIndex)">
-            <span class="acceptance-text suggestion-selected">
-              {{ row.llmSuggestion?.acceptance || "-" }}
-            </span>
-          </template>
-          <!-- 未选择但有LLM建议内容：预览 -->
-          <template v-else-if="row.llmSuggestion?.acceptance">
-            <span class="suggestion-preview">
-              {{ row.llmSuggestion.acceptance }}
-            </span>
-          </template>
-          <span v-else class="acceptance-none">-</span>
+          <span class="acceptance-text">
+            {{ row.bestMatch?.acceptance || "-" }}
+          </span>
         </template>
       </el-table-column>
 
       <!-- 备注预览 -->
       <el-table-column label="备注" min-width="150">
         <template #default="{ row }">
-          <template v-if="getSelection(row.rowIndex)?.type === 'best'">
-            <span class="acceptance-text">
-              {{ row.bestMatch?.remark || "-" }}
-            </span>
-          </template>
-          <template v-else-if="isLlmSelected(row.rowIndex)">
-            <span class="acceptance-text suggestion-selected">
-              {{ row.llmSuggestion?.remark || "-" }}
-            </span>
-          </template>
-          <!-- 未选择但有LLM建议备注：预览 -->
-          <template v-else-if="row.llmSuggestion?.remark">
-            <span class="suggestion-preview">
-              {{ row.llmSuggestion.remark }}
-            </span>
-          </template>
-          <span v-else class="acceptance-none">-</span>
+          <span class="acceptance-text">
+            {{ row.bestMatch?.remark || "-" }}
+          </span>
         </template>
       </el-table-column>
 
-      <!-- 不匹配原因 / AI说明 -->
-      <el-table-column v-if="hasUnmatched" label="不匹配原因" min-width="200">
+      <!-- 不匹配原因 / 复核说明 -->
+      <el-table-column v-if="hasReasonColumn" label="说明" min-width="220">
         <template #default="{ row }">
-          <div v-if="!row.hasMatch || row.llmSuggestion?.reason" class="reason-cell">
+          <div
+            v-if="!row.hasMatch || row.noMatchReason || row.bestMatch?.llmReason || row.llmReviewError"
+            class="reason-cell"
+          >
             <div v-if="!row.hasMatch && row.noMatchReason" class="reason-text">
               {{ row.noMatchReason }}
             </div>
-            <div
-              v-if="row.llmSuggestion?.reason"
-              class="suggestion-reason"
-            >
-              AI: {{ row.llmSuggestion.reason }}
+            <div v-if="row.bestMatch?.llmReason" class="suggestion-reason">
+              复核结论：{{ row.bestMatch.llmReason }}
+            </div>
+            <div v-if="row.llmReviewError" class="suggestion-reason">
+              复核异常：{{ row.llmReviewError }}
             </div>
           </div>
           <span v-else class="reason-none">-</span>
@@ -484,19 +444,11 @@ defineExpose({
               详情
             </el-button>
             <el-button
-              v-if="row.bestMatch && getSelection(row.rowIndex)?.type !== 'best'"
+              v-if="row.bestMatch && canUseBestMatch(row) && getSelection(row.rowIndex)?.type !== 'best'"
               size="small"
               @click="handleSelectBest(row)"
             >
-              使用匹配
-            </el-button>
-            <el-button
-              v-if="hasSuggestionContent(row)"
-              size="small"
-              type="success"
-              @click="handleSelectSuggestion(row)"
-            >
-              {{ isLlmSelected(row.rowIndex) ? "已选建议" : "采用建议" }}
+              {{ isHighConfidence(row) ? "使用匹配" : "采用复核结果" }}
             </el-button>
             <el-button
               v-if="getSelection(row.rowIndex)"
@@ -656,16 +608,6 @@ defineExpose({
 .acceptance-text {
   font-size: 13px;
   color: #4b5563;
-}
-
-.suggestion-selected {
-  color: #67c23a;
-}
-
-.suggestion-preview {
-  font-size: 13px;
-  color: #a78bfa;
-  font-style: italic;
 }
 
 .suggestion-reason {

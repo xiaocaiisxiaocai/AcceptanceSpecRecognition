@@ -2,6 +2,7 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -18,6 +19,7 @@ public class SpecsController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuthDataScopeService _authDataScopeService;
+    private readonly SpecSemanticSearchService _specSemanticSearchService;
     private readonly ILogger<SpecsController> _logger;
 
     /// <summary>
@@ -26,10 +28,12 @@ public class SpecsController : BaseApiController
     public SpecsController(
         IUnitOfWork unitOfWork,
         IAuthDataScopeService authDataScopeService,
+        SpecSemanticSearchService specSemanticSearchService,
         ILogger<SpecsController> logger)
     {
         _unitOfWork = unitOfWork;
         _authDataScopeService = authDataScopeService;
+        _specSemanticSearchService = specSemanticSearchService;
         _logger = logger;
     }
 
@@ -213,6 +217,38 @@ public class SpecsController : BaseApiController
         };
 
         return Success(dto);
+    }
+
+    /// <summary>
+    /// 验收规格语义搜索
+    /// </summary>
+    [HttpPost("semantic-search")]
+    [AuditOperation("semantic-search", "spec")]
+    [ProducesResponseType(typeof(ApiResponse<SpecSemanticSearchResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SpecSemanticSearchResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<SpecSemanticSearchResponse>>> SemanticSearch(
+        [FromBody] SpecSemanticSearchRequest request)
+    {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+            return Error<SpecSemanticSearchResponse>(401, "会话缺少用户上下文");
+
+        try
+        {
+            var result = await _specSemanticSearchService.SearchAsync(
+                request,
+                scope,
+                HttpContext.RequestAborted);
+            return Success(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return Error<SpecSemanticSearchResponse>(400, ex.Message);
+        }
+        catch (AiServiceUnavailableException ex)
+        {
+            return Error<SpecSemanticSearchResponse>(400, $"Embedding 服务不可用: {ex.Reason}");
+        }
     }
 
     /// <summary>

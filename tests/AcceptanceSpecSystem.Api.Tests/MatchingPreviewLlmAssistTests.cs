@@ -204,7 +204,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
         events.Select(e => e.Event).Should().Contain("suggestion.done");
 
         var review = events.First(e => e.Event == "review.done").Data;
-        review.GetProperty("score").GetDouble().Should().Be(0.4);
+        review.GetProperty("score").GetDouble().Should().Be(40);
         review.GetProperty("reason").GetString().Should().Be("低分原因");
 
         var suggest = events.First(e => e.Event == "suggestion.done").Data;

@@ -1,6 +1,27 @@
 namespace AcceptanceSpecSystem.Core.Matching.Models;
 
 /// <summary>
+/// 匹配阈值约定
+/// </summary>
+public static class MatchingThresholds
+{
+    /// <summary>
+    /// 默认高置信自动采用阈值
+    /// </summary>
+    public const double DefaultHighConfidenceScore = 0.95;
+
+    /// <summary>
+    /// 中置信度下限
+    /// </summary>
+    public const double MediumConfidenceScore = 0.6;
+
+    /// <summary>
+    /// LLM 复核通过阈值（0~100）
+    /// </summary>
+    public const double LlmReviewPassScore = 90;
+}
+
+/// <summary>
 /// 源匹配项
 /// </summary>
 public class MatchSource
@@ -145,17 +166,19 @@ public class MatchResult
     /// <summary>
     /// 是否为高置信度匹配
     /// </summary>
-    public bool IsHighConfidence => Score >= 0.8;
+    public bool IsHighConfidence => Score >= MatchingThresholds.DefaultHighConfidenceScore;
 
     /// <summary>
     /// 是否为中置信度匹配
     /// </summary>
-    public bool IsMediumConfidence => Score >= 0.6 && Score < 0.8;
+    public bool IsMediumConfidence =>
+        Score >= MatchingThresholds.MediumConfidenceScore &&
+        Score < MatchingThresholds.DefaultHighConfidenceScore;
 
     /// <summary>
     /// 是否为低置信度匹配
     /// </summary>
-    public bool IsLowConfidence => Score < 0.6;
+    public bool IsLowConfidence => Score < MatchingThresholds.MediumConfidenceScore;
 
     /// <summary>
     /// 是否为降级结果（Embedding 不可用时回退到文本相似度）
@@ -299,6 +322,11 @@ public class MatchingConfig
     /// 多阶段模式下的歧义分差阈值
     /// </summary>
     public double AmbiguityMargin { get; set; } = 0.03;
+
+    /// <summary>
+    /// 高置信自动采用阈值
+    /// </summary>
+    public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
 
     /// <summary>
     /// 是否启用 LLM 复核

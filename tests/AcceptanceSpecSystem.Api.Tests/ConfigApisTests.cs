@@ -53,5 +53,36 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         tpl.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
         tpl.Data.GetProperty("id").GetInt32().Should().BeGreaterThan(0);
     }
+
+    [Fact]
+    public async Task AiServiceConfig_DisableThinking_ShouldPersist()
+    {
+        var createResp = await _client.PostAsync(
+            "/api/ai-services",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = "ollama-test",
+                serviceType = 2,
+                purpose = 1,
+                priority = 0,
+                endpoint = "http://127.0.0.1:11434/api",
+                apiKey = "",
+                llmModel = "qwen3.5:35b",
+                disableThinking = true
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        created.Code.Should().Be(0);
+        created.Data.GetProperty("disableThinking").GetBoolean().Should().BeTrue();
+
+        var id = created.Data.GetProperty("id").GetInt32();
+        var getResp = await _client.GetAsync($"/api/ai-services/{id}");
+        getResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var detail = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        detail.Code.Should().Be(0);
+        detail.Data.GetProperty("disableThinking").GetBoolean().Should().BeTrue();
+    }
 }
 

@@ -118,6 +118,36 @@ export interface SpecDuplicateDetectionRequest {
   maxGroups?: number;
 }
 
+export interface SpecSemanticSearchRequest {
+  queries: string[];
+  customerId?: number;
+  processId?: number;
+  machineModelId?: number;
+  processIdIsNull?: boolean;
+  machineModelIdIsNull?: boolean;
+  topK?: number;
+  minScore?: number;
+  embeddingServiceId?: number;
+}
+
+export interface SpecSemanticSearchItem extends AcceptanceSpec {
+  score: number;
+}
+
+export interface SpecSemanticSearchGroup {
+  queryIndex: number;
+  queryText: string;
+  totalHits: number;
+  items: SpecSemanticSearchItem[];
+}
+
+export interface SpecSemanticSearchResponse {
+  queryCount: number;
+  candidateCount: number;
+  embeddingModel?: string;
+  groups: SpecSemanticSearchGroup[];
+}
+
 const baseUrl = "/api/specs";
 
 /** 获取验收规格分组汇总 */
@@ -178,5 +208,14 @@ export const detectSpecDuplicateGroups = (
     "get",
     `${baseUrl}/duplicate-groups`,
     { params }
+  );
+};
+
+/** 规格语义搜索 */
+export const semanticSearchSpecs = (data: SpecSemanticSearchRequest) => {
+  return http.request<ApiResponse<SpecSemanticSearchResponse>>(
+    "post",
+    `${baseUrl}/semantic-search`,
+    { data }
   );
 };

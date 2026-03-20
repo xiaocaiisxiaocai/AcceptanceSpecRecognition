@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, reactive, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   getSpecList,
@@ -9,11 +9,13 @@ import {
   deleteSpec,
   batchDeleteSpecs,
   type AcceptanceSpec,
+  type SpecSemanticSearchItem,
   type SpecListRequest,
   type SpecDuplicateDetectionResult
 } from "@/api/spec";
 import { hasPerms } from "@/utils/auth";
 import SpecDuplicateDialog from "./SpecDuplicateDialog.vue";
+import SpecSemanticSearchDialog from "./SpecSemanticSearchDialog.vue";
 
 const props = defineProps<{
   customerId: number;
@@ -28,20 +30,17 @@ const emit = defineEmits<{
   "data-change": [];
 }>();
 
-// 数据列表
 const tableData = ref<AcceptanceSpec[]>([]);
 const loading = ref(false);
 const total = ref(0);
 const selectedRows = ref<AcceptanceSpec[]>([]);
 
-// 查询参数
 const queryParams = reactive({
   page: 1,
   pageSize: 500,
   keyword: ""
 });
 
-// 对话框
 const dialogVisible = ref(false);
 const dialogTitle = ref("");
 const isEdit = ref(false);
@@ -53,23 +52,30 @@ const formData = reactive({
   remark: ""
 });
 
-// 详情对话框
 const detailDialogVisible = ref(false);
 const detailData = ref<AcceptanceSpec | null>(null);
 const duplicateDialogVisible = ref(false);
 const duplicateLoading = ref(false);
 const duplicateResult = ref<SpecDuplicateDetectionResult | null>(null);
+const semanticSearchDialogVisible = ref(false);
+const semanticSearchDialogRef =
+  ref<InstanceType<typeof SpecSemanticSearchDialog> | null>(null);
 
 const canCreate = computed(() => hasPerms("btn:spec:create"));
 const canUpdate = computed(() => hasPerms("btn:spec:update"));
 const canDelete = computed(() => hasPerms("btn:spec:delete"));
 const canBatchDelete = computed(() => hasPerms("btn:spec:delete-batch"));
+const canSemanticSearch = computed(() => hasPerms("btn:spec:semantic-search"));
 const canInspectDuplicates = computed(() => hasPerms("api:spec:read"));
 const canSubmit = computed(() =>
   isEdit.value ? canUpdate.value : canCreate.value
 );
 const showToolbarRight = computed(
-  () => canCreate.value || canBatchDelete.value || canInspectDuplicates.value
+  () =>
+    canCreate.value ||
+    canBatchDelete.value ||
+    canInspectDuplicates.value ||
+    canSemanticSearch.value
 );
 const actionColumnWidth = computed(() => {
   const visibleActionCount =
@@ -79,31 +85,32 @@ const actionColumnWidth = computed(() => {
   return 170;
 });
 
-/** 构建请求参数，包含 IsNull 标志 */
 const buildRequestParams = (): SpecListRequest => {
   const params: SpecListRequest = {
     page: queryParams.page,
     pageSize: queryParams.pageSize,
     customerId: props.customerId
   };
+
   if (queryParams.keyword) {
     params.keyword = queryParams.keyword;
   }
-  // 区分"有值"和"值为 null"
+
   if (props.machineModelId != null) {
     params.machineModelId = props.machineModelId;
   } else {
     params.machineModelIdIsNull = true;
   }
+
   if (props.processId != null) {
     params.processId = props.processId;
   } else {
     params.processIdIsNull = true;
   }
+
   return params;
 };
 
-/** 加载数据 */
 const loadData = async () => {
   loading.value = true;
   try {
@@ -121,7 +128,11 @@ const loadData = async () => {
   }
 };
 
-/** 监听 props 变化时重新加载 */
+const reloadSemanticSearchIfNeeded = async () => {
+  if (!semanticSearchDialogVisible.value) return;
+  await semanticSearchDialogRef.value?.reloadLastSearch();
+};
+
 watch(
   () => [props.customerId, props.machineModelId, props.processId],
   () => {
@@ -130,30 +141,24 @@ watch(
     selectedRows.value = [];
     duplicateDialogVisible.value = false;
     duplicateResult.value = null;
+    semanticSearchDialogVisible.value = false;
     loadData();
   },
   { immediate: true }
 );
 
-// 搜索
 const handleSearch = () => {
   queryParams.page = 1;
   loadData();
 };
 
-// 重置
 const handleReset = () => {
   queryParams.keyword = "";
   queryParams.page = 1;
   loadData();
 };
 
-// 新增（自动填充当前分组的客户/机型/制程）
-const handleAdd = () => {
-  if (!canCreate.value) {
-    ElMessage.error("权限不足，无法新增规格");
-    return;
-  }
+const openCreateDialog = () => {
   dialogTitle.value = "新增验收规格";
   isEdit.value = false;
   formData.id = 0;
@@ -164,12 +169,15 @@ const handleAdd = () => {
   dialogVisible.value = true;
 };
 
-// 编辑
-const handleEdit = (row: AcceptanceSpec) => {
-  if (!canUpdate.value) {
-    ElMessage.error("权限不足，无法编辑规格");
+const handleAdd = () => {
+  if (!canCreate.value) {
+    ElMessage.error("权限不足，无法新增规格");
     return;
   }
+  openCreateDialog();
+};
+
+const openEditDialog = (row: AcceptanceSpec) => {
   dialogTitle.value = "编辑验收规格";
   isEdit.value = true;
   formData.id = row.id;
@@ -180,28 +188,41 @@ const handleEdit = (row: AcceptanceSpec) => {
   dialogVisible.value = true;
 };
 
-// 查看详情
-const handleView = (row: AcceptanceSpec) => {
+const handleEdit = (row: AcceptanceSpec) => {
+  if (!canUpdate.value) {
+    ElMessage.error("权限不足，无法编辑规格");
+    return;
+  }
+  openEditDialog(row);
+};
+
+const openDetailDialog = (row: AcceptanceSpec) => {
   detailData.value = row;
   detailDialogVisible.value = true;
 };
 
-// 删除
+const handleView = (row: AcceptanceSpec) => {
+  openDetailDialog(row);
+};
+
 const handleDelete = async (row: AcceptanceSpec) => {
   if (!canDelete.value) {
     ElMessage.error("权限不足，无法删除规格");
     return;
   }
+
   try {
     await ElMessageBox.confirm(
       `确定要删除项目"${row.project}"的验收规格吗？`,
       "提示",
       { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" }
     );
+
     const res = await deleteSpec(row.id);
     if (res.code === 0) {
       ElMessage.success("删除成功");
-      loadData();
+      await loadData();
+      await reloadSemanticSearchIfNeeded();
       emit("data-change");
     } else {
       ElMessage.error(res.message);
@@ -211,7 +232,6 @@ const handleDelete = async (row: AcceptanceSpec) => {
   }
 };
 
-// 批量删除
 const handleBatchDelete = async () => {
   if (!canBatchDelete.value) {
     ElMessage.error("权限不足，无法批量删除规格");
@@ -221,18 +241,21 @@ const handleBatchDelete = async () => {
     ElMessage.warning("请先选择要删除的规格");
     return;
   }
+
   try {
     await ElMessageBox.confirm(
       `确定要删除选中的 ${selectedRows.value.length} 条规格吗？`,
       "提示",
       { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" }
     );
-    const ids = selectedRows.value.map(r => r.id);
+
+    const ids = selectedRows.value.map(row => row.id);
     const res = await batchDeleteSpecs(ids);
     if (res.code === 0) {
       ElMessage.success("删除成功");
       selectedRows.value = [];
-      loadData();
+      await loadData();
+      await reloadSemanticSearchIfNeeded();
       emit("data-change");
     } else {
       ElMessage.error(res.message);
@@ -271,12 +294,30 @@ const handleInspectDuplicates = async () => {
   }
 };
 
-// 选择变化
+const handleOpenSemanticSearch = () => {
+  if (!canSemanticSearch.value) {
+    ElMessage.error("权限不足，无法执行AI搜索");
+    return;
+  }
+  semanticSearchDialogVisible.value = true;
+};
+
+const handleSemanticSearchView = (row: SpecSemanticSearchItem) => {
+  openDetailDialog(row);
+};
+
+const handleSemanticSearchEdit = (row: SpecSemanticSearchItem) => {
+  if (!canUpdate.value) {
+    ElMessage.error("权限不足，无法编辑规格");
+    return;
+  }
+  openEditDialog(row);
+};
+
 const handleSelectionChange = (rows: AcceptanceSpec[]) => {
   selectedRows.value = rows;
 };
 
-// 提交表单
 const handleSubmit = async () => {
   if (!canSubmit.value) {
     ElMessage.error("权限不足，无法提交当前操作");
@@ -290,6 +331,7 @@ const handleSubmit = async () => {
     ElMessage.warning("请输入规格内容");
     return;
   }
+
   try {
     const res = isEdit.value
       ? await updateSpec(formData.id, {
@@ -307,10 +349,12 @@ const handleSubmit = async () => {
           acceptance: formData.acceptance || undefined,
           remark: formData.remark || undefined
         });
+
     if (res.code === 0) {
       ElMessage.success(isEdit.value ? "更新成功" : "创建成功");
       dialogVisible.value = false;
-      loadData();
+      await loadData();
+      await reloadSemanticSearchIfNeeded();
       emit("data-change");
     } else {
       ElMessage.error(res.message);
@@ -320,7 +364,6 @@ const handleSubmit = async () => {
   }
 };
 
-// 分页
 const handlePageChange = (page: number) => {
   queryParams.page = page;
   loadData();
@@ -332,7 +375,6 @@ const handleSizeChange = (size: number) => {
   loadData();
 };
 
-/** 当前分组描述文字 */
 const groupLabel = () => {
   const parts = [props.customerName];
   parts.push(props.machineModelName || "未指定机型");
@@ -343,14 +385,12 @@ const groupLabel = () => {
 
 <template>
   <div class="spec-table">
-    <!-- 当前分组标签 -->
     <div class="group-label">
       <el-tag type="info" size="large" effect="plain">
         {{ groupLabel() }}
       </el-tag>
     </div>
 
-    <!-- 操作栏 -->
     <div class="toolbar">
       <div class="toolbar-left">
         <el-input
@@ -367,6 +407,9 @@ const groupLabel = () => {
         <el-button v-if="canInspectDuplicates" @click="handleInspectDuplicates">
           重复排查
         </el-button>
+        <el-button v-if="canSemanticSearch" @click="handleOpenSemanticSearch">
+          AI搜索
+        </el-button>
         <el-button v-if="canCreate" type="primary" @click="handleAdd">
           新增规格
         </el-button>
@@ -381,7 +424,6 @@ const groupLabel = () => {
       </div>
     </div>
 
-    <!-- 数据表格（去掉客户/制程/机型列） -->
     <div class="table-main">
       <el-table
         v-loading="loading"
@@ -430,11 +472,7 @@ const groupLabel = () => {
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
-        <el-table-column
-          label="操作"
-          :width="actionColumnWidth"
-          fixed="right"
-        >
+        <el-table-column label="操作" :width="actionColumnWidth" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleView(row)">
               查看
@@ -450,7 +488,6 @@ const groupLabel = () => {
       </el-table>
     </div>
 
-    <!-- 分页 -->
     <div class="pagination">
       <el-pagination
         v-model:current-page="queryParams.page"
@@ -463,7 +500,6 @@ const groupLabel = () => {
       />
     </div>
 
-    <!-- 新增/编辑对话框 -->
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="600">
       <el-form label-width="100px">
         <el-form-item label="项目名称" required>
@@ -506,7 +542,6 @@ const groupLabel = () => {
       </template>
     </el-dialog>
 
-    <!-- 详情对话框 -->
     <el-dialog v-model="detailDialogVisible" title="规格详情" width="600">
       <el-descriptions v-if="detailData" :column="1" border>
         <el-descriptions-item label="ID">{{
@@ -551,6 +586,18 @@ const groupLabel = () => {
       :loading="duplicateLoading"
       :result="duplicateResult"
       :group-label="groupLabel()"
+    />
+
+    <SpecSemanticSearchDialog
+      ref="semanticSearchDialogRef"
+      v-model="semanticSearchDialogVisible"
+      :group-label="groupLabel()"
+      :customer-id="customerId"
+      :machine-model-id="machineModelId"
+      :process-id="processId"
+      :allow-edit="canUpdate"
+      @view="handleSemanticSearchView"
+      @edit="handleSemanticSearchEdit"
     />
   </div>
 </template>

@@ -74,9 +74,11 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
                 new
                 {
                     rowIndex = 1,
-                    specId = outOfScopeSpecId
+                    specId = outOfScopeSpecId,
+                    matchScore = 1.0
                 }
-            }
+            },
+            highConfidenceThreshold = 0.95
         });
 
         using var response = await _client.SendAsync(request);

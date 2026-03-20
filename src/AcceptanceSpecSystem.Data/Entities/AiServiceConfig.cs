@@ -51,6 +51,11 @@ public class AiServiceConfig
     public string? LlmModel { get; set; }
 
     /// <summary>
+    /// 是否关闭思考模式（当前主要用于 Ollama LLM）
+    /// </summary>
+    public bool DisableThinking { get; set; }
+
+    /// <summary>
     /// 创建时间
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.Now;

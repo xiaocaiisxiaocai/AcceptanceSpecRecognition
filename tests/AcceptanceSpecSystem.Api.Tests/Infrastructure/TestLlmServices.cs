@@ -7,13 +7,13 @@ namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
 public class TestLlmReviewService : ILlmReviewService
 {
-    private const string ReviewJson = "{\"score\":0.4,\"reason\":\"低分原因\",\"commentary\":\"对比关键字段\"}";
+    private const string ReviewJson = "{\"score\":40,\"reason\":\"低分原因\",\"commentary\":\"对比关键字段\"}";
 
     public Task<LlmReviewResult?> ReviewAsync(LlmReviewRequest request, CancellationToken cancellationToken = default)
     {
         return Task.FromResult<LlmReviewResult?>(new LlmReviewResult
         {
-            Score = 0.4,
+            Score = 40,
             Reason = "低分原因",
             Commentary = "对比关键字段"
         });

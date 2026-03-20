@@ -12,6 +12,7 @@ using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -41,6 +42,21 @@ public class MatchingController : BaseApiController
     };
     private static readonly JsonSerializerOptions FillTaskJsonOptions = new(JsonSerializerDefaults.Web);
     private const int FillTaskRetentionHours = 24;
+
+    private sealed class CandidateSpecRow
+    {
+        public int Id { get; init; }
+
+        public string Project { get; init; } = string.Empty;
+
+        public string Specification { get; init; } = string.Empty;
+
+        public string? Acceptance { get; init; }
+
+        public string? Remark { get; init; }
+
+        public DateTime ImportedAt { get; init; }
+    }
 
     /// <summary>
     /// 创建匹配控制器实例
@@ -82,6 +98,7 @@ public class MatchingController : BaseApiController
     {
         var sw = Stopwatch.StartNew();
         var config = ConvertToMatchingConfig(request.Config);
+        var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
 
         // 兼容前端：如果未传Items，则尝试从文件表格提取项目/规格作为待匹配项
         if (request.Items == null || request.Items.Count == 0)
@@ -207,7 +224,8 @@ public class MatchingController : BaseApiController
                 SourceSpecification = item.Specification,
                 BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
                 LlmSuggestion = null,
-                NoMatchReason = noMatchReason
+                NoMatchReason = noMatchReason,
+                ConfidenceLevel = GetConfidenceLevel(bestMatch?.Score, highConfidenceThreshold)
             };
 
             previewItems.Add(previewItem);
@@ -215,8 +233,8 @@ public class MatchingController : BaseApiController
             if (previewItem.BestMatch != null)
             {
                 var score = previewItem.BestMatch.Score;
-                if (score >= 0.8) highCount++;
-                else if (score >= 0.6) mediumCount++;
+                if (score >= highConfidenceThreshold) highCount++;
+                else if (score >= MatchingThresholds.MediumConfidenceScore) mediumCount++;
                 else lowCount++;
             }
         }
@@ -469,9 +487,15 @@ public class MatchingController : BaseApiController
         {
             return Error<ExecuteFillResponse>(401, "会话缺少用户上下文");
         }
+        var highConfidenceThreshold = NormalizeHighConfidenceThreshold(request.HighConfidenceThreshold);
 
         // 获取所有相关的验收规格
         var hasLlmSuggestions = request.Mappings.Any(m => m.UseLlmSuggestion);
+        if (hasLlmSuggestions)
+        {
+            return Error<ExecuteFillResponse>(400, "已停用 LLM 生成建议写回，请仅使用匹配结果");
+        }
+
         var specIds = request.Mappings
             .Where(m => !m.UseLlmSuggestion)
             .Select(m => m.SpecId ?? m.SelectedSpecId)
@@ -480,7 +504,7 @@ public class MatchingController : BaseApiController
             .Distinct()
             .ToList();
 
-        if (specIds.Count == 0 && !hasLlmSuggestions)
+        if (specIds.Count == 0)
         {
             return Error<ExecuteFillResponse>(400, "未提供有效的验收规格ID");
         }
@@ -528,29 +552,14 @@ public class MatchingController : BaseApiController
 
         foreach (var fillMapping in request.Mappings)
         {
-            if (fillMapping.UseLlmSuggestion)
+            var selectedSpecId = (fillMapping.SpecId ?? fillMapping.SelectedSpecId) ?? 0;
+            if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
             {
-                var acceptance = fillMapping.Acceptance?.Trim();
-                var remark = fillMapping.Remark?.Trim();
-                if (string.IsNullOrWhiteSpace(acceptance) && string.IsNullOrWhiteSpace(remark))
-                {
-                    skippedCount++;
-                    continue;
-                }
-
-                fillResults.Add(new FillResult
-                {
-                    RowIndex = fillMapping.RowIndex,
-                    SpecId = 0,
-                    Acceptance = acceptance ?? "",
-                    Remark = remark
-                });
-                filledCount++;
+                skippedCount++;
                 continue;
             }
 
-            var selectedSpecId = (fillMapping.SpecId ?? fillMapping.SelectedSpecId) ?? 0;
-            if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
+            if (!CanApplyMatchedSpec(fillMapping, highConfidenceThreshold))
             {
                 skippedCount++;
                 continue;
@@ -801,6 +810,7 @@ public class MatchingController : BaseApiController
         // 一次获取候选集
         var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId, scope);
         var config = ConvertToMatchingConfig(request.Config);
+        var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
 
         // 创建文本处理会话
         var tpSession = await _textPipeline.CreateSessionAsync();
@@ -895,7 +905,8 @@ public class MatchingController : BaseApiController
                     SourceSpecification = item.Specification,
                     BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
                     LlmSuggestion = null,
-                    NoMatchReason = noMatchReason
+                    NoMatchReason = noMatchReason,
+                    ConfidenceLevel = GetConfidenceLevel(bestMatch?.Score, highConfidenceThreshold)
                 };
 
                 tableResult.Items.Add(previewItem);
@@ -903,8 +914,8 @@ public class MatchingController : BaseApiController
                 if (previewItem.BestMatch != null)
                 {
                     var score = previewItem.BestMatch.Score;
-                    if (score >= 0.8) highCount++;
-                    else if (score >= 0.6) mediumCount++;
+                    if (score >= highConfidenceThreshold) highCount++;
+                    else if (score >= MatchingThresholds.MediumConfidenceScore) mediumCount++;
                     else lowCount++;
                 }
             }
@@ -961,6 +972,12 @@ public class MatchingController : BaseApiController
         {
             return Error<ExecuteFillResponse>(401, "会话缺少用户上下文");
         }
+        var highConfidenceThreshold = NormalizeHighConfidenceThreshold(request.HighConfidenceThreshold);
+
+        if (request.Tables.SelectMany(t => t.Mappings).Any(m => m.UseLlmSuggestion))
+        {
+            return Error<ExecuteFillResponse>(400, "已停用 LLM 生成建议写回，请仅使用匹配结果");
+        }
 
         // 收集所有 specId 一次查 DB
         var allSpecIds = request.Tables
@@ -989,29 +1006,14 @@ public class MatchingController : BaseApiController
 
             foreach (var mapping in tableFill.Mappings)
             {
-                if (mapping.UseLlmSuggestion)
+                var selectedSpecId = (mapping.SpecId ?? mapping.SelectedSpecId) ?? 0;
+                if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
                 {
-                    var acceptance = mapping.Acceptance?.Trim();
-                    var remark = mapping.Remark?.Trim();
-                    if (string.IsNullOrWhiteSpace(acceptance) && string.IsNullOrWhiteSpace(remark))
-                    {
-                        totalSkipped++;
-                        continue;
-                    }
-
-                    entry.FillResults.Add(new FillResult
-                    {
-                        RowIndex = mapping.RowIndex,
-                        SpecId = 0,
-                        Acceptance = acceptance ?? "",
-                        Remark = remark
-                    });
-                    totalFilled++;
+                    totalSkipped++;
                 }
                 else
                 {
-                    var selectedSpecId = (mapping.SpecId ?? mapping.SelectedSpecId) ?? 0;
-                    if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
+                    if (!CanApplyMatchedSpec(mapping, highConfidenceThreshold))
                     {
                         totalSkipped++;
                         continue;
@@ -1139,49 +1141,19 @@ public class MatchingController : BaseApiController
         int? machineModelId,
         DataScopeResult scope)
     {
-        IEnumerable<Data.Entities.AcceptanceSpec> specs;
-
-        // 优先按“客户 + 制程”组合筛选（即“一整份验规”的范围）
-        if (customerId.HasValue && processId.HasValue && machineModelId.HasValue)
-        {
-            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
-                s.CustomerId == customerId.Value &&
-                s.ProcessId == processId.Value &&
-                s.MachineModelId == machineModelId.Value);
-        }
-        else if (customerId.HasValue && processId.HasValue)
-        {
-            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
-                s.CustomerId == customerId.Value && s.ProcessId == processId.Value);
-        }
-        else if (customerId.HasValue && machineModelId.HasValue)
-        {
-            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
-                s.CustomerId == customerId.Value && s.MachineModelId == machineModelId.Value);
-        }
-        else if (processId.HasValue && machineModelId.HasValue)
-        {
-            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
-                s.ProcessId == processId.Value && s.MachineModelId == machineModelId.Value);
-        }
-        else if (customerId.HasValue)
-        {
-            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.CustomerId == customerId.Value);
-        }
-        else if (processId.HasValue)
-        {
-            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.ProcessId == processId.Value);
-        }
-        else if (machineModelId.HasValue)
-        {
-            specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => s.MachineModelId == machineModelId.Value);
-        }
-        else
-        {
-            specs = await _unitOfWork.AcceptanceSpecs.GetAllAsync();
-        }
-
-        var scopedSpecs = SpecDataScopeHelper.ApplyScope(specs, scope);
+        var baseQuery = BuildCandidateSpecQuery(customerId, processId, machineModelId);
+        var rawCount = await baseQuery.CountAsync();
+        var scopedSpecs = await ApplySpecScopeToQuery(baseQuery, scope)
+            .Select(s => new CandidateSpecRow
+            {
+                Id = s.Id,
+                Project = s.Project,
+                Specification = s.Specification,
+                Acceptance = s.Acceptance,
+                Remark = s.Remark,
+                ImportedAt = s.ImportedAt
+            })
+            .ToListAsync();
 
         // 同一范围内可能存在重复导入（项目+规格相同，但验收/备注完整度不同）。
         // 这里先做候选去重，优先保留“验收标准非空 > 备注非空 > 导入时间新 > ID大”的记录，
@@ -1198,7 +1170,7 @@ public class MatchingController : BaseApiController
 
         _logger.LogInformation(
             "匹配候选去重: 原始{RawCount}条, 范围内{ScopedCount}条 -> 去重后{DedupedCount}条 (customerId={CustomerId}, processId={ProcessId}, machineModelId={MachineModelId})",
-            specs.Count(), scopedSpecs.Count, dedupedSpecs.Count, customerId, processId, machineModelId);
+            rawCount, scopedSpecs.Count, dedupedSpecs.Count, customerId, processId, machineModelId);
 
         return dedupedSpecs.Select(s => new MatchCandidate
         {
@@ -1208,6 +1180,66 @@ public class MatchingController : BaseApiController
             Acceptance = s.Acceptance,
             Remark = s.Remark
         }).ToList();
+    }
+
+    private IQueryable<AcceptanceSpec> BuildCandidateSpecQuery(
+        int? customerId,
+        int? processId,
+        int? machineModelId)
+    {
+        var query = _unitOfWork.AcceptanceSpecs.Query();
+
+        if (customerId.HasValue)
+        {
+            query = query.Where(s => s.CustomerId == customerId.Value);
+        }
+
+        if (processId.HasValue)
+        {
+            query = query.Where(s => s.ProcessId == processId.Value);
+        }
+
+        if (machineModelId.HasValue)
+        {
+            query = query.Where(s => s.MachineModelId == machineModelId.Value);
+        }
+
+        return query;
+    }
+
+    private static IQueryable<AcceptanceSpec> ApplySpecScopeToQuery(
+        IQueryable<AcceptanceSpec> query,
+        DataScopeResult scope)
+    {
+        if (scope.IsAll)
+        {
+            return query;
+        }
+
+        var scopedOrgUnitIds = scope.OrgUnitIds
+            .Distinct()
+            .ToArray();
+
+        if (scope.IncludeSelf && scopedOrgUnitIds.Length > 0)
+        {
+            return query.Where(s =>
+                (s.CreatedByUserId.HasValue && s.CreatedByUserId.Value == scope.UserId) ||
+                (s.OwnerOrgUnitId.HasValue && scopedOrgUnitIds.Contains(s.OwnerOrgUnitId.Value)));
+        }
+
+        if (scope.IncludeSelf)
+        {
+            return query.Where(s =>
+                s.CreatedByUserId.HasValue && s.CreatedByUserId.Value == scope.UserId);
+        }
+
+        if (scopedOrgUnitIds.Length > 0)
+        {
+            return query.Where(s =>
+                s.OwnerOrgUnitId.HasValue && scopedOrgUnitIds.Contains(s.OwnerOrgUnitId.Value));
+        }
+
+        return query.Where(_ => false);
     }
 
     private static string BuildCandidateDedupKey(string? project, string? specification)
@@ -1248,6 +1280,7 @@ public class MatchingController : BaseApiController
             EmbeddingServiceId = dto.EmbeddingServiceId,
             LlmServiceId = dto.LlmServiceId,
             MinScoreThreshold = dto.MinScoreThreshold,
+            HighConfidenceThreshold = NormalizeHighConfidenceThreshold(dto.HighConfidenceThreshold),
             RecallTopK = Math.Clamp(dto.RecallTopK, 1, 20),
             AmbiguityMargin = Math.Clamp(dto.AmbiguityMargin, 0, 1),
             UseLlmReview = dto.UseLlmReview,
@@ -1260,6 +1293,71 @@ public class MatchingController : BaseApiController
             LlmCircuitBreakFailures = Math.Clamp(dto.LlmCircuitBreakFailures, 3, 200),
             FilterEmptySourceRows = dto.FilterEmptySourceRows
         };
+    }
+
+    private static bool CanApplyMatchedSpec(FillMapping mapping, double highConfidenceThreshold)
+    {
+        if (!mapping.MatchScore.HasValue)
+        {
+            return false;
+        }
+
+        var matchScore = mapping.MatchScore.Value;
+        if (matchScore >= highConfidenceThreshold)
+        {
+            return true;
+        }
+
+        if (matchScore < MatchingThresholds.MediumConfidenceScore)
+        {
+            return false;
+        }
+
+        return NormalizeLlmReviewScore(mapping.LlmReviewScore) >= MatchingThresholds.LlmReviewPassScore;
+    }
+
+    private static double NormalizeHighConfidenceThreshold(double? highConfidenceThreshold)
+    {
+        return Math.Clamp(
+            highConfidenceThreshold ?? MatchingThresholds.DefaultHighConfidenceScore,
+            0.5,
+            1);
+    }
+
+    private static string GetConfidenceLevel(double? score, double highConfidenceThreshold)
+    {
+        if (!score.HasValue || score.Value <= 0)
+        {
+            return "none";
+        }
+
+        if (score.Value >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
+        {
+            return "high";
+        }
+
+        if (score.Value >= MatchingThresholds.MediumConfidenceScore)
+        {
+            return "medium";
+        }
+
+        return "low";
+    }
+
+    private static double NormalizeLlmReviewScore(double? reviewScore)
+    {
+        if (!reviewScore.HasValue)
+        {
+            return 0;
+        }
+
+        var normalized = reviewScore.Value;
+        if (normalized > 0 && normalized <= 1)
+        {
+            normalized *= 100;
+        }
+
+        return Math.Clamp(normalized, 0, 100);
     }
 
     /// <summary>
@@ -1370,13 +1468,14 @@ public class MatchingController : BaseApiController
 
             if (reviewService.TryParseReviewResult(buffer.ToString(), out var result))
             {
+                var normalizedScore = NormalizeLlmReviewScore(result.Score);
                 _logger.LogDebug("[LLM复核] {Location}: 完成, score={Score}, reason={Reason}",
-                    location, result.Score, result.Reason);
+                    location, normalizedScore, result.Reason);
                 await WriteSseEventLockedAsync(sseWriteLock, "review.done", new
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
-                    score = result.Score,
+                    score = normalizedScore,
                     reason = result.Reason,
                     commentary = result.Commentary
                 }, cancellationToken);

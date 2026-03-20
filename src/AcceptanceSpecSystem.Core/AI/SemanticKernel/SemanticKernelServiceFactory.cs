@@ -2,6 +2,7 @@ using System.ClientModel;
 using System.Collections.Concurrent;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using OpenAI;
@@ -32,12 +33,19 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
     private static readonly ConcurrentDictionary<string, IEmbeddingGenerator<string, Embedding<float>>> _embeddingCache = new();
     private static readonly ConcurrentDictionary<string, IChatCompletionService> _chatCache = new();
 
+    private readonly ILoggerFactory _loggerFactory;
+
+    public SemanticKernelServiceFactory(ILoggerFactory loggerFactory)
+    {
+        _loggerFactory = loggerFactory;
+    }
+
     public IChatCompletionService CreateChatCompletionService(AiServiceConfig config)
     {
         if (string.IsNullOrWhiteSpace(config.LlmModel))
             throw new InvalidOperationException("LLM 模型未配置");
 
-        var key = BuildCacheKey("chat", config.Id, config.Endpoint, config.LlmModel, config.ApiKey);
+        var key = BuildCacheKey("chat", config.Id, config.ServiceType, config.Endpoint, config.LlmModel, config.ApiKey, config.DisableThinking);
         return _chatCache.GetOrAdd(key, _ => CreateChatCompletionServiceInternal(config));
     }
 
@@ -46,12 +54,19 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
         if (string.IsNullOrWhiteSpace(config.EmbeddingModel))
             throw new InvalidOperationException("Embedding 模型未配置");
 
-        var key = BuildCacheKey("emb", config.Id, config.Endpoint, config.EmbeddingModel, config.ApiKey);
+        var key = BuildCacheKey("emb", config.Id, config.ServiceType, config.Endpoint, config.EmbeddingModel, config.ApiKey, config.DisableThinking);
         return _embeddingCache.GetOrAdd(key, _ => CreateEmbeddingGeneratorInternal(config));
     }
 
-    private static IChatCompletionService CreateChatCompletionServiceInternal(AiServiceConfig config)
+    private IChatCompletionService CreateChatCompletionServiceInternal(AiServiceConfig config)
     {
+        if (config.ServiceType == AiServiceType.Ollama)
+        {
+            var client = CreateOllamaHttpClient();
+            var logger = _loggerFactory.CreateLogger<OllamaNativeChatCompletionService>();
+            return new OllamaNativeChatCompletionService(config, client, logger);
+        }
+
         var builder = Kernel.CreateBuilder();
 
         if (config.ServiceType == AiServiceType.AzureOpenAI)
@@ -107,9 +122,16 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
     /// <summary>
     /// 构建缓存 Key：配置变更（Endpoint/Model/ApiKey）自动创建新实例
     /// </summary>
-    private static string BuildCacheKey(string prefix, int configId, string? endpoint, string? model, string? apiKey)
+    private static string BuildCacheKey(
+        string prefix,
+        int configId,
+        AiServiceType serviceType,
+        string? endpoint,
+        string? model,
+        string? apiKey,
+        bool disableThinking)
     {
-        return $"{prefix}_{configId}_{endpoint ?? ""}_{model ?? ""}_{apiKey?.GetHashCode() ?? 0}";
+        return $"{prefix}_{configId}_{(int)serviceType}_{endpoint ?? ""}_{model ?? ""}_{apiKey?.GetHashCode() ?? 0}_{disableThinking}";
     }
 
     private static string RequireEndpoint(AiServiceConfig config)
@@ -125,7 +147,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
     /// </summary>
     private static OpenAIClient BuildOpenAIClient(AiServiceConfig config)
     {
-        var endpoint = BuildOpenAiEndpoint(config.Endpoint);
+        var endpoint = BuildOpenAiEndpoint(config);
         var options = new OpenAIClientOptions
         {
             Endpoint = new Uri(endpoint),
@@ -135,16 +157,46 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
         return new OpenAIClient(credential, options);
     }
 
-    private static string BuildOpenAiEndpoint(string? endpoint)
+    private static HttpClient CreateOllamaHttpClient()
     {
-        if (string.IsNullOrWhiteSpace(endpoint))
+        return new HttpClient
+        {
+            Timeout = Timeout.InfiniteTimeSpan
+        };
+    }
+
+    private static string BuildOpenAiEndpoint(AiServiceConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(config.Endpoint))
             return "https://api.openai.com/v1";
 
-        var value = endpoint.Trim().TrimEnd('/');
+        var value = config.Endpoint.Trim().TrimEnd('/');
+        if (config.ServiceType == AiServiceType.Ollama)
+        {
+            value = NormalizeOllamaBaseUrl(value);
+        }
+
         if (value.EndsWith("/v1/v1", StringComparison.OrdinalIgnoreCase))
             value = value[..^3];
         if (!value.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
             value += "/v1";
         return value;
+    }
+
+    private static string NormalizeOllamaBaseUrl(string endpoint)
+    {
+        var value = endpoint.Trim().TrimEnd('/');
+
+        if (value.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
+        {
+            value = value[..^4];
+        }
+
+        if (value.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            value = value[..^3];
+        }
+
+        return value.TrimEnd('/');
     }
 }

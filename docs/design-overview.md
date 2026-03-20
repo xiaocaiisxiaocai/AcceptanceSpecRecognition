@@ -256,7 +256,7 @@ classDiagram
 
 ### 4.2 匹配引擎模块 (Core/Matching)
 
-**Embedding 匹配 + LLM 辅助策略**：
+**Embedding 匹配 + LLM 复核策略**：
 
 ```mermaid
 flowchart TD
@@ -267,31 +267,32 @@ flowchart TD
 
     VEC --> SCORE[计算综合得分]
 
-    SCORE --> THR{得分 ≥ 阈值?}
-    THR -- 否 --> FILTER[过滤掉]
+    SCORE --> LOW{得分 ≥ 0.6?}
+    LOW -- 否 --> FILTER[低置信过滤]
 
-    THR -- 是 --> LLM_EN{启用 LLM<br/>辅助?}
-    LLM_EN -- 否 --> RESULT[返回匹配结果]
+    LOW -- 是 --> HIGH{得分 ≥ 高置信阈值?<br/>默认 0.95}
+    HIGH -- 是 --> RESULT[高置信结果<br/>允许直接采用]
 
-    LLM_EN -- 是 --> LLM_R[3a. LLM 复核<br/>验证匹配正确性<br/>返回 0-100 分]
-    LLM_EN -- 是 --> LLM_S[3b. LLM 建议<br/>低分时生成填充建议<br/>返回验收+备注+理由]
-
-    LLM_R --> RESULT
-    LLM_S --> RESULT
+    HIGH -- 否 --> LLM_EN{启用 LLM<br/>复核?}
+    LLM_EN -- 否 --> PENDING[中置信结果<br/>等待人工确认]
+    LLM_EN -- 是 --> LLM_R[LLM 复核<br/>验证是否可直接采用既有规格<br/>返回 0-100 分]
+    LLM_R --> REVIEW{复核分 ≥ 90?}
+    REVIEW -- 是 --> RESULT
+    REVIEW -- 否 --> PENDING
 
     style VEC fill:#4CAF50,color:#fff
     style FAIL fill:#F44336,color:#fff
     style LLM_R fill:#9C27B0,color:#fff
-    style LLM_S fill:#9C27B0,color:#fff
+    style PENDING fill:#FFC107,color:#000
 ```
 
 **置信度分级**：
 
 | 等级 | 分数范围 | 颜色 | 处理策略 |
 |------|---------|------|---------|
-| 高置信 | ≥ 0.8 | 🟢 | 推荐自动填充 |
-| 中置信 | 0.6 ~ 0.8 | 🟡 | 建议填充，用户确认 |
-| 低置信 | < 0.6 | 🔴 | 触发 LLM 建议（可选） |
+| 高置信 | ≥ 0.95（默认） | 🟢 | 可直接自动采用 |
+| 中置信 | 0.6 ~ 0.95 | 🟡 | 进入 LLM 复核或人工确认 |
+| 低置信 | < 0.6 | 🔴 | 不自动采用 |
 
 **匹配结果模型**：
 
@@ -514,6 +515,8 @@ erDiagram
         string Acceptance "验收标准(填充目标)"
         string Remark "备注(填充目标)"
         int WordFileId FK "来源文件"
+        int OwnerOrgUnitId FK "数据归属组织(可选)"
+        int CreatedByUserId FK "创建人(可选)"
         datetime ImportedAt
     }
 
@@ -540,6 +543,19 @@ erDiagram
 
 ```mermaid
 erDiagram
+    OrgCompany ||--o{ OrgUnit : "包含"
+    OrgCompany ||--o{ SystemUser : "归属"
+    OrgCompany ||--o{ AuthRole : "定义"
+    AuthRole ||--o{ AuthRolePermission : "授权"
+    AuthPermission ||--o{ AuthRolePermission : "被引用"
+    SystemUser ||--o{ AuthUserRole : "拥有"
+    AuthRole ||--o{ AuthUserRole : "分配"
+    SystemUser ||--o{ AuthUserOrgUnit : "挂接"
+    OrgUnit ||--o{ AuthUserOrgUnit : "归属"
+    AuthRole ||--o{ AuthRoleDataScope : "配置数据范围"
+    AuthRoleDataScope ||--o{ AuthRoleDataScopeNode : "包含节点"
+    OrgUnit ||--o{ AuthRoleDataScopeNode : "作用于"
+
     AiServiceConfig {
         int Id PK
         string Name UK "服务名称"
@@ -590,14 +606,92 @@ erDiagram
         bool IsEnabled
     }
 
-    SystemUser {
+    OrgCompany {
         int Id PK
-        string Username UK
-        string PasswordHash "PBKDF2"
-        string RolesJson
-        string PermissionsJson
+        string Code UK
+        string Name
         bool IsActive
         datetime CreatedAt
+    }
+
+    OrgUnit {
+        int Id PK
+        int CompanyId FK
+        int ParentId FK "可空"
+        int UnitType "Company/Division/Department/Section"
+        string Code
+        string Name
+        string Path
+        int Depth
+        bool IsActive
+    }
+
+    SystemUser {
+        int Id PK
+        int CompanyId FK
+        string Username UK
+        string PasswordHash "PBKDF2"
+        string Nickname
+        bool IsActive
+        int PermissionVersion
+        datetime CreatedAt
+    }
+
+    AuthRole {
+        int Id PK
+        int CompanyId FK
+        string Code
+        string Name
+        bool IsBuiltIn
+        bool IsActive
+    }
+
+    AuthPermission {
+        int Id PK
+        string Code UK
+        string Name
+        int PermissionType "Page/Button/Api"
+        string Resource
+        string Action
+        string RoutePath "可空"
+        string HttpMethod "可空"
+        string ApiPath "可空"
+        bool IsBuiltIn
+    }
+
+    AuthRolePermission {
+        int RoleId PK FK
+        int PermissionId PK FK
+    }
+
+    AuthUserRole {
+        int Id PK
+        int UserId FK
+        int RoleId FK
+        datetime StartAt "可空"
+        datetime EndAt "可空"
+    }
+
+    AuthUserOrgUnit {
+        int Id PK
+        int UserId FK
+        int OrgUnitId FK
+        bool IsPrimary
+        datetime StartAt "可空"
+        datetime EndAt "可空"
+    }
+
+    AuthRoleDataScope {
+        int Id PK
+        int RoleId FK
+        string Resource
+        int ScopeType "All/Self/OrgUnit/OrgUnitAndChildren/Custom"
+    }
+
+    AuthRoleDataScopeNode {
+        int Id PK
+        int RoleDataScopeId FK
+        int OrgUnitId FK
     }
 
     AuditLog {
@@ -619,6 +713,8 @@ erDiagram
 | 实体 | 索引 | 类型 |
 |------|------|------|
 | `AcceptanceSpec` | `(CustomerId, ProcessId, MachineModelId)` | 复合索引 |
+| `AcceptanceSpec` | `OwnerOrgUnitId` | 普通索引 |
+| `AcceptanceSpec` | `CreatedByUserId` | 普通索引 |
 | `EmbeddingCache` | `(SpecId, ModelName)` | 复合唯一索引 |
 | `WordFile` | `FileHash` | 唯一索引 |
 | `AiServiceConfig` | `Name` | 唯一索引 |
@@ -661,15 +757,16 @@ mindmap
       GET /api/documents/:id/tables/:idx/preview
       DELETE /api/documents/:id
     智能匹配
-      POST /api/matching/preview
-      POST /api/matching/execute
       POST /api/matching/batch-preview
       POST /api/matching/batch-execute
       POST /api/matching/llm-stream
       GET /api/matching/download/:taskId
+      POST /api/matching/preview（兼容单表）
+      POST /api/matching/execute（兼容单表）
     验收规格
       GET /api/specs/summary
       GET /api/specs（分页与筛选）
+      POST /api/specs/semantic-search
       GET /api/specs/:id
       PUT /api/specs/:id
       DELETE /api/specs/:id
@@ -684,7 +781,11 @@ mindmap
       CRUD /api/column-mapping-rules
       CRUD /api/synonyms
       CRUD /api/keywords
+    权限与组织
+      CRUD /api/auth-roles
+      GET /api/auth-permissions
       CRUD /api/system-users
+      CRUD /api/org-units
     辅助
       GET /api/audit-logs
       POST /api/file-compare
@@ -706,9 +807,13 @@ sequenceDiagram
     participant DB as Database
 
     U->>FE: 选择文件
-    FE->>DC: POST /upload (multipart)
-    DC->>FS: SaveUploadedWordAsync()
-    DC->>DB: 创建 WordFile 记录
+    FE->>DC: POST /upload (multipart, docx/xlsx)
+    alt Word 文件
+        DC->>FS: SaveUploadedWordAsync()
+    else Excel 文件
+        DC->>FS: SaveUploadedExcelAsync()
+    end
+    DC->>DB: 创建 WordFile 记录（含 FileType）
     DC-->>FE: { fileId, tableCount }
 
     FE->>DC: GET /{fileId}/tables
@@ -719,9 +824,14 @@ sequenceDiagram
     DC->>DP: ExtractTableDataAsync(stream, 0)
     DC-->>FE: { headers, rows }
 
-    U->>FE: 确认列映射 + 选客户/制程
-    FE->>DC: POST /import { fileId, customerId, mapping }
-    DC->>DP: ExtractTableDataAsync(stream, mapping)
+    U->>FE: 确认列映射 + 选客户/制程/机型
+    alt Word 导入
+        FE->>DC: POST /import { fileId, customerId, mapping }
+        DC->>DP: ExtractTableDataAsync(stream, mapping)
+    else Excel 导入
+        FE->>DC: POST /excel/import { fileId, customerId, mappings }
+        DC->>DP: ExtractWorksheetDataAsync(stream, mapping)
+    end
     loop 每一行
         DC->>DB: 创建 AcceptanceSpec
     end
@@ -741,8 +851,9 @@ sequenceDiagram
     participant LLM as LlmAssistService
     participant DW as DocumentWriter
 
-    U->>FE: 上传待填充文档 + 配置
-    FE->>MC: POST /preview { fileId, tableIndex, config }
+    U->>FE: 上传待填充 Word/Excel + 配置
+    FE->>MC: POST /batch-preview { fileId, tables, config }
+    MC->>MC: 从数据库筛选候选规格\n(客户/制程/机型 + 数据范围)
     MC->>MS: FindMatchesAsync(sourceTexts, candidates, config)
 
     MS->>ES: GenerateEmbeddingsAsync(texts)
@@ -752,24 +863,25 @@ sequenceDiagram
 
     opt LLM 复核启用
         MS->>LLM: ReviewMatchAsync(result)
-        LLM-->>MS: { score: 85, reason: "..." }
+        LLM-->>MS: { score: 92, reason: "..." }
     end
 
-    opt LLM 建议启用
-        MS->>LLM: GenerateSuggestionAsync(source, candidates)
-        LLM-->>MS: { acceptance: "...", remark: "..." }
-    end
+    MC-->>FE: { tables: [{ items, statistics }] }
 
-    MC-->>FE: [{ sourceRow, bestMatch, score, llmSuggestion }]
+    opt 需要逐行流式复核
+        FE->>MC: POST /llm-stream { items, config }
+        MC->>LLM: 并行复核低置信结果
+        MC-->>FE: SSE 逐行推送复核结果
+    end
 
     U->>FE: 确认填充内容
-    FE->>MC: POST /execute { fileId, mappings }
+    FE->>MC: POST /batch-execute { fileId, tables }
     MC->>DW: FillAndGetBytesAsync(template, mapping, fillOps)
-    DW-->>MC: byte[] 填充后文档
-    MC-->>FE: { taskId }
+    DW-->>MC: byte[] 填充后文件
+    MC-->>FE: { taskId, filledCount, skippedCount }
 
     FE->>MC: GET /download/{taskId}
-    MC-->>FE: 二进制文件流 (.docx)
+    MC-->>FE: 二进制文件流 (.docx/.xlsx)
 ```
 
 ---
@@ -796,7 +908,7 @@ sequenceDiagram
 web/src/
 ├── main.ts                         应用入口
 ├── App.vue                         根组件 (ElConfigProvider 中文化)
-├── api/                            API 封装层 (16 个模块)
+├── api/                            API 封装层 (20 个模块)
 │   ├── customer.ts                 客户 API
 │   ├── process.ts                  制程 API
 │   ├── machine-model.ts            机型 API
@@ -811,6 +923,11 @@ web/src/
 │   ├── keyword.ts                  关键词 API
 │   ├── audit-log.ts                审计日志 API
 │   ├── file-compare.ts             文件对比 API
+│   ├── auth-role.ts                角色 API
+│   ├── auth-permission.ts          权限字典 API
+│   ├── system-user.ts              用户 API
+│   ├── org-unit.ts                 组织 API
+│   ├── routes.ts                   动态路由 API
 │   └── user.ts                     用户认证 API
 ├── router/modules/                 路由模块
 ├── store/modules/                  Pinia 状态 (app/user/permission/...)
@@ -842,7 +959,7 @@ graph TB
   end
 
   subgraph SMART_FILL["智能填充 /smart-fill"]
-    FILL["4 步向导<br/>上传 → 选表格 → 配置匹配<br/>→ 预览确认<br/>支持: 单表/批量/SSE 流式"]
+    FILL["4 步向导<br/>上传 → 选表格 → 配置匹配<br/>→ 预览确认<br/>支持: Word/Excel、批量预览、SSE 复核"]
   end
 
   subgraph CONFIG["配置管理 /config"]
@@ -850,6 +967,13 @@ graph TB
     TXT_CFG[文本处理配置]
     PMT_CFG["Prompt 模板"]
     COL_CFG[列映射规则]
+  end
+
+  subgraph RBAC["权限管理 /rbac"]
+    ROLE[角色管理]
+    USER[用户管理]
+    ORG[组织管理]
+    PERM[权限字典]
   end
 
   subgraph AUX["辅助功能"]
@@ -863,6 +987,10 @@ graph TB
   CUST --- IMP
   IMP --- FILL
   FILL --- AI_CFG
+  AI_CFG --- ROLE
+  ROLE --- USER
+  USER --- ORG
+  ORG --- PERM
   AI_CFG --- FC
 ```
 
@@ -881,16 +1009,16 @@ stateDiagram-v2
         选择AI --> 设置并行度: LLM 并发数
     }
 
-    配置匹配 --> 预览结果: POST /matching/preview
+    配置匹配 --> 预览结果: POST /matching/batch-preview
 
     state 预览结果 {
         [*] --> 查看匹配: 源数据 vs 最佳匹配
         查看匹配 --> 查看得分: 综合分 + Embedding 得分明细
-        查看得分 --> 查看LLM: LLM 复核 + 建议
-        查看LLM --> 确认修改: 手动调整填充内容
+        查看得分 --> 流式复核: POST /matching/llm-stream
+        流式复核 --> 确认修改: 手动调整采用结果
     }
 
-    预览结果 --> 执行填充: POST /matching/execute
+    预览结果 --> 执行填充: POST /matching/batch-execute
     执行填充 --> 下载结果: GET /matching/download
     下载结果 --> [*]
 ```
@@ -900,7 +1028,7 @@ stateDiagram-v2
 | 特性 | 实现方式 | 说明 |
 |------|---------|------|
 | **多步向导** | `currentStep` ref + `canGoNext` computed | 降低用户认知负担 |
-| **列映射自动识别** | `ColumnMappingRule` 优先级匹配 | Contains / Equals / Regex 三种模式 |
+| **列映射处理** | Word 自动识别 + Excel 手工配置 | Word 仍按 `ColumnMappingRule` 规则匹配，Excel 改为人工确认行列 |
 | **SSE 流式** | `fetch + ReadableStream` + `AbortController` | LLM 实时进度推送 |
 | **长超时** | Axios 300s + Vite proxy timeout=0 | 适配 AI 长耗时请求 |
 | **Token 刷新** | PureHttp 拦截器队列 | 无感刷新，请求不丢失 |
@@ -1185,14 +1313,14 @@ graph TB
 
     subgraph 匹配阶段
         U2[用户上传待填充文档] --> EXTRACT[提取源文本<br/>项目 + 规格]
-        EXTRACT --> CAND[加载候选规格<br/>按客户/制程/机型筛选]
+        EXTRACT --> CAND[加载候选规格<br/>按客户/制程/机型 + 数据范围筛选]
         CAND --> PREPROC[文本预处理管道<br/>简繁·同义词·OK/NG]
         PREPROC --> EMBCHK{Embedding 服务可用?}
         EMBCHK -- 是 --> VEC[向量匹配<br/>余弦相似度]
         VEC --> SCORE[综合得分排序]
-        SCORE --> LLM_OPT{LLM 启用?}
+        SCORE --> LLM_OPT{LLM 复核启用?}
         EMBCHK -- 否 --> ERR[返回错误]
-        LLM_OPT -- 是 --> LLM_PROC[LLM 复核 + 建议]
+        LLM_OPT -- 是 --> LLM_PROC[LLM 复核]
         LLM_OPT -- 否 --> PREVIEW
         LLM_PROC --> PREVIEW[返回预览结果]
     end
@@ -1200,8 +1328,8 @@ graph TB
     subgraph 填充阶段
         PREVIEW --> CONFIRM[用户确认/修改]
         CONFIRM --> FILL_OPS[构建 FillOperations<br/>CellWriteOperation 列表]
-        FILL_OPS --> WRITER[WordDocumentWriter<br/>写入目标文档]
-        WRITER --> SAVE[保存填充结果<br/>filled-files/]
+        FILL_OPS --> WRITER[DocumentWriter<br/>按文件类型写回]
+        WRITER --> SAVE[保存填充结果<br/>Word 结果文件 / Excel 回写源文件]
         SAVE --> DL[用户下载]
         SAVE --> LOG2[记录审计日志]
     end
@@ -1209,4 +1337,4 @@ graph TB
 
 ---
 
-> 文档生成时间: 2026-03-02
+> 文档生成时间: 2026-03-20

@@ -9,6 +9,8 @@ const props = defineProps<{
   results: BatchTablePreviewResult[];
   /** 加载状态 */
   loading?: boolean;
+  /** 高置信自动采用阈值 */
+  highConfidenceThreshold?: number;
   /** LLM 流式处理是否进行中 */
   llmStreaming?: boolean;
 }>();
@@ -44,9 +46,8 @@ const getAllSelections = () => {
     Array<{
       rowIndex: number;
       specId?: number;
-      useLlmSuggestion?: boolean;
-      acceptance?: string;
-      remark?: string;
+      matchScore?: number;
+      llmReviewScore?: number;
     }>
   > = new Map();
 
@@ -96,6 +97,7 @@ defineExpose({ getAllSelections });
           :ref="(el: any) => setTableRef(tableResult.tableIndex, el)"
           :items="tableResult.items"
           :loading="loading"
+          :high-confidence-threshold="highConfidenceThreshold"
           :llm-streaming="llmStreaming"
           @select="
             (rowIndex, spec) => emit('select', tableResult.tableIndex, rowIndex, spec)

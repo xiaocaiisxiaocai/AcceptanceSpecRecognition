@@ -76,7 +76,8 @@ public class E2EFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         var mappings = items.EnumerateArray().Select(i => new
         {
             rowIndex = i.GetProperty("rowIndex").GetInt32(),
-            specId = i.GetProperty("bestMatch").GetProperty("specId").GetInt32()
+            specId = i.GetProperty("bestMatch").GetProperty("specId").GetInt32(),
+            matchScore = i.GetProperty("bestMatch").GetProperty("score").GetDouble()
         }).ToArray();
 
         // 5) Execute fill (manual acceptance/remark columns)
@@ -88,6 +89,7 @@ public class E2EFillFlowTests : IClassFixture<ApiWebApplicationFactory>
                 tableIndex = 0,
                 acceptanceColumnIndex = 2,
                 remarkColumnIndex = 3,
+                highConfidenceThreshold = 0.95,
                 mappings
             }));
         execResp.StatusCode.Should().Be(HttpStatusCode.OK);

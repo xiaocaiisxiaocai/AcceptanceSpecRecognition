@@ -96,7 +96,8 @@ const formData = reactive({
   endpoint: "",
   apiKey: "",
   embeddingModel: "",
-  llmModel: ""
+  llmModel: "",
+  disableThinking: false
 });
 
 const hasPurpose = (value: number, flag: AiServicePurpose) => (value & flag) === flag;
@@ -156,17 +157,18 @@ const handleAdd = (purpose: AiServicePurpose) => {
   dialogTitle.value = "新增AI服务配置";
   isEdit.value = false;
   originalApiKey.value = "";
-  Object.assign(formData, {
-    id: 0,
-    name: "",
-    serviceType: AiServiceType.Ollama,
-    purpose,
-    priority: getDefaultPriority(purpose),
-    endpoint: "http://localhost:11434",
-    apiKey: "",
-    embeddingModel: purpose === AiServicePurpose.Embedding ? "nomic-embed-text" : "",
-    llmModel: ""
-  });
+      Object.assign(formData, {
+        id: 0,
+        name: "",
+        serviceType: AiServiceType.Ollama,
+        purpose,
+        priority: getDefaultPriority(purpose),
+        endpoint: "http://localhost:11434",
+        apiKey: "",
+        embeddingModel: purpose === AiServicePurpose.Embedding ? "nomic-embed-text" : "",
+        llmModel: "",
+        disableThinking: false
+      });
   dialogVisible.value = true;
 };
 
@@ -197,7 +199,8 @@ const handleEdit = async (row: AiServiceConfig) => {
         endpoint: detail.endpoint ?? "",
         apiKey: detail.apiKey ?? "",
         embeddingModel: detail.embeddingModel ?? "",
-        llmModel: detail.llmModel ?? ""
+        llmModel: detail.llmModel ?? "",
+        disableThinking: !!detail.disableThinking
       });
     } else {
       ElMessage.error(res.message || "加载配置失败");
@@ -369,7 +372,8 @@ const handleSubmit = async () => {
     priority: formData.priority,
     endpoint: formData.endpoint?.trim() || null,
     embeddingModel,
-    llmModel
+    llmModel,
+    disableThinking: !!formData.disableThinking
   };
   if (formData.purpose === AiServicePurpose.Llm) {
     basePayload.embeddingModel = null;
@@ -483,6 +487,10 @@ onMounted(loadData);
             <div class="config-label">LLM 模型</div>
             <div class="config-value">{{ formatValue(llmConfig.llmModel) }}</div>
           </div>
+          <div class="config-row">
+            <div class="config-label">关闭思考模式</div>
+            <div class="config-value">{{ llmConfig.disableThinking ? "已开启" : "未开启" }}</div>
+          </div>
         </div>
       </el-card>
 
@@ -584,6 +592,11 @@ onMounted(loadData);
         <el-table-column prop="endpoint" label="Endpoint" min-width="240" />
         <el-table-column prop="embeddingModel" label="EmbeddingModel" min-width="160" />
         <el-table-column prop="llmModel" label="LLMModel" min-width="160" />
+        <el-table-column label="关闭思考模式" width="140">
+          <template #default="{ row }">
+            {{ row.disableThinking ? "是" : "否" }}
+          </template>
+        </el-table-column>
         <el-table-column
           v-if="hasActionButtons"
           label="操作"
@@ -673,6 +686,17 @@ onMounted(loadData);
           required
         >
           <el-input v-model="formData.llmModel" />
+        </el-form-item>
+        <el-form-item
+          v-if="hasPurpose(formData.purpose, AiServicePurpose.Llm)"
+          label="关闭思考模式"
+        >
+          <div class="thinking-config">
+            <el-switch v-model="formData.disableThinking" />
+            <div class="thinking-tip">
+              当前主要对 Ollama 生效，系统会优先请求关闭思考输出，并对 `&lt;think&gt;` 内容做兜底清理
+            </div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -792,6 +816,19 @@ onMounted(loadData);
   font-size: 13px;
   color: var(--color-text);
   word-break: break-all;
+}
+
+.thinking-config {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.thinking-tip {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.5;
 }
 
 .service-table {

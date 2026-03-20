@@ -1,6 +1,9 @@
 import { http } from "@/utils/http";
 import type { ApiResponse } from "./customer";
 
+export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.95;
+export const LLM_REVIEW_PASS_THRESHOLD = 90;
+
 /** 匹配策略 */
 export enum MatchingStrategy {
   /** 单阶段匹配（原有基础方式） */
@@ -19,6 +22,8 @@ export interface MatchConfig {
   llmServiceId?: number;
   /** 最小匹配阈值 */
   minScoreThreshold?: number;
+  /** 高置信自动采用阈值 */
+  highConfidenceThreshold?: number;
   /** 多阶段模式下第一阶段召回数量 */
   recallTopK?: number;
   /** 多阶段模式下的歧义分差阈值 */
@@ -205,6 +210,10 @@ export interface FillMapping {
   rowIndex: number;
   /** 选择的验收规格ID */
   specId?: number;
+  /** 匹配得分（0-1） */
+  matchScore?: number;
+  /** LLM 复核得分（0-100） */
+  llmReviewScore?: number;
   /** 是否使用LLM生成建议 */
   useLlmSuggestion?: boolean;
   /** LLM生成的验收标准 */
@@ -223,6 +232,8 @@ export interface ExecuteFillRequest {
   acceptanceColumnIndex: number;
   /** 备注列索引（可选，0-based） */
   remarkColumnIndex?: number;
+  /** 高置信自动采用阈值 */
+  highConfidenceThreshold?: number;
   /** 填充映射列表 */
   mappings: FillMapping[];
 }
@@ -304,10 +315,11 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 export const defaultMatchConfig: MatchConfig = {
   matchingStrategy: MatchingStrategy.MultiStage,
   minScoreThreshold: 0.65,
+  highConfidenceThreshold: DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   recallTopK: 8,
   ambiguityMargin: 0.03,
-  useLlmReview: false,
-  useLlmSuggestion: true,
+  useLlmReview: true,
+  useLlmSuggestion: false,
   suggestNoMatchRows: false,
   llmSuggestionScoreThreshold: 0.75,
   llmParallelism: 3,
@@ -407,6 +419,8 @@ export interface BatchTableFillMapping {
 export interface BatchExecuteFillRequest {
   /** 文件ID */
   fileId: number;
+  /** 高置信自动采用阈值 */
+  highConfidenceThreshold?: number;
   /** 各表格的填充映射 */
   tables: BatchTableFillMapping[];
 }

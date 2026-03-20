@@ -417,3 +417,120 @@ public class SpecDuplicateItemDto
     /// </summary>
     public DateTime ImportedAt { get; set; }
 }
+
+/// <summary>
+/// 验收规格语义搜索请求
+/// </summary>
+public class SpecSemanticSearchRequest
+{
+    /// <summary>
+    /// 查询文本列表，多行输入时每行对应一条查询
+    /// </summary>
+    [Required(ErrorMessage = "搜索内容不能为空")]
+    public List<string> Queries { get; set; } = [];
+
+    /// <summary>
+    /// 客户ID（可选）
+    /// </summary>
+    public int? CustomerId { get; set; }
+
+    /// <summary>
+    /// 制程ID（可选）
+    /// </summary>
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 机型ID（可选）
+    /// </summary>
+    public int? MachineModelId { get; set; }
+
+    /// <summary>
+    /// 是否筛选制程为空
+    /// </summary>
+    public bool? ProcessIdIsNull { get; set; }
+
+    /// <summary>
+    /// 是否筛选机型为空
+    /// </summary>
+    public bool? MachineModelIdIsNull { get; set; }
+
+    /// <summary>
+    /// 返回的结果条数
+    /// </summary>
+    [Range(1, 20, ErrorMessage = "TopK 必须在 1 到 20 之间")]
+    public int TopK { get; set; } = 5;
+
+    /// <summary>
+    /// 最小相似度阈值
+    /// </summary>
+    [Range(0, 1, ErrorMessage = "最小分数必须在 0 到 1 之间")]
+    public double MinScore { get; set; } = 0.5;
+
+    /// <summary>
+    /// 指定 Embedding 服务ID（可选）
+    /// </summary>
+    public int? EmbeddingServiceId { get; set; }
+}
+
+/// <summary>
+/// 验收规格语义搜索响应
+/// </summary>
+public class SpecSemanticSearchResponse
+{
+    /// <summary>
+    /// 查询条数
+    /// </summary>
+    public int QueryCount { get; set; }
+
+    /// <summary>
+    /// 参与检索的候选规格数
+    /// </summary>
+    public int CandidateCount { get; set; }
+
+    /// <summary>
+    /// 实际使用的 Embedding 模型名称
+    /// </summary>
+    public string? EmbeddingModel { get; set; }
+
+    /// <summary>
+    /// 查询结果分组
+    /// </summary>
+    public List<SpecSemanticSearchGroupDto> Groups { get; set; } = [];
+}
+
+/// <summary>
+/// 单条查询的语义搜索结果分组
+/// </summary>
+public class SpecSemanticSearchGroupDto
+{
+    /// <summary>
+    /// 查询序号（从0开始）
+    /// </summary>
+    public int QueryIndex { get; set; }
+
+    /// <summary>
+    /// 查询文本
+    /// </summary>
+    public string QueryText { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 命中总数（未截断前）
+    /// </summary>
+    public int TotalHits { get; set; }
+
+    /// <summary>
+    /// 当前返回的结果项
+    /// </summary>
+    public List<SpecSemanticSearchItemDto> Items { get; set; } = [];
+}
+
+/// <summary>
+/// 语义搜索命中的规格项
+/// </summary>
+public class SpecSemanticSearchItemDto : AcceptanceSpecDto
+{
+    /// <summary>
+    /// 语义相似度分数（0-1）
+    /// </summary>
+    public double Score { get; set; }
+}
