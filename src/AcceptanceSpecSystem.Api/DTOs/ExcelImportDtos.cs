@@ -92,4 +92,9 @@ public class ExcelImportDataRequest
     /// 差异行中“确认跳过”的键集合（用于二次确认提交）
     /// </summary>
     public List<string> SkippedDifferenceKeys { get; set; } = [];
+
+    /// <summary>
+    /// 本次导入前由用户手动剔除的数据行索引（基于解析后的数据区，0-based）
+    /// </summary>
+    public List<int> ExcludedRowIndexes { get; set; } = [];
 }

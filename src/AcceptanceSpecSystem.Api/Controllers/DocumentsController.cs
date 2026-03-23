@@ -86,11 +86,7 @@ public class DocumentsController : BaseApiController
         var fileIds = rows.Select(f => f.Id).ToList();
         var specCountByFile = fileIds.Count == 0
             ? new Dictionary<int, int>()
-            : SpecDataScopeHelper.ApplyScope(
-                await _unitOfWork.AcceptanceSpecs.FindAsync(s => fileIds.Contains(s.WordFileId)),
-                scope)
-                .GroupBy(s => s.WordFileId)
-                .ToDictionary(g => g.Key, g => g.Count());
+            : await BuildSpecCountByFileAsync(fileIds, scope);
 
         var items = rows.Select(f => new WordFileDto
         {
@@ -501,6 +497,13 @@ public class DocumentsController : BaseApiController
         {
             TotalCount = tableData.Rows.Count
         };
+        var excludedRowIndexes = (request.ExcludedRowIndexes ?? [])
+            .Where(index => index >= 0)
+            .ToHashSet();
+        if (excludedRowIndexes.Count > 0)
+        {
+            result.TotalCount = Math.Max(0, tableData.Rows.Count - tableData.Rows.Count(row => excludedRowIndexes.Contains(row.Index)));
+        }
 
         // 比较范围（严格同范围）：客户 + 制程 + 机型 完全一致（含空值一致）才参与重复/差异判断
         var existingSpecsInScope = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
@@ -519,6 +522,11 @@ public class DocumentsController : BaseApiController
 
         foreach (var row in tableData.Rows)
         {
+            if (excludedRowIndexes.Contains(row.Index))
+            {
+                continue;
+            }
+
             try
             {
                 var project = GetCellValue(row, request.Mapping.ProjectColumn!.Value);
@@ -675,9 +683,19 @@ public class DocumentsController : BaseApiController
 
         if (specsToInsert.Count > 0)
         {
-            await _unitOfWork.AcceptanceSpecs.AddRangeAsync(specsToInsert);
-            await _unitOfWork.SaveChangesAsync();
-            result.SuccessCount = specsToInsert.Count;
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await _unitOfWork.AcceptanceSpecs.AddRangeAsync(specsToInsert);
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
+                result.SuccessCount = specsToInsert.Count;
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
         }
 
         // 导入完成后按需清理源文件（多表格分批导入时仅最后一次清理）
@@ -834,6 +852,13 @@ public class DocumentsController : BaseApiController
         {
             TotalCount = tableData.Rows.Count
         };
+        var excludedRowIndexes = (request.ExcludedRowIndexes ?? [])
+            .Where(index => index >= 0)
+            .ToHashSet();
+        if (excludedRowIndexes.Count > 0)
+        {
+            result.TotalCount = Math.Max(0, tableData.Rows.Count - tableData.Rows.Count(row => excludedRowIndexes.Contains(row.Index)));
+        }
 
         // 比较范围（严格同范围）：客户 + 制程 + 机型 完全一致（含空值一致）才参与重复/差异判断
         var existingSpecsInScope = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
@@ -852,6 +877,11 @@ public class DocumentsController : BaseApiController
 
         foreach (var row in tableData.Rows)
         {
+            if (excludedRowIndexes.Contains(row.Index))
+            {
+                continue;
+            }
+
             var excelRowNumber = request.DataStartRow + row.Index;
 
             try
@@ -1009,9 +1039,19 @@ public class DocumentsController : BaseApiController
 
         if (specsToInsert.Count > 0)
         {
-            await _unitOfWork.AcceptanceSpecs.AddRangeAsync(specsToInsert);
-            await _unitOfWork.SaveChangesAsync();
-            result.SuccessCount = specsToInsert.Count;
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await _unitOfWork.AcceptanceSpecs.AddRangeAsync(specsToInsert);
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
+                result.SuccessCount = specsToInsert.Count;
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
         }
 
         // 导入完成后按需清理源文件（多工作表分批导入时仅最后一次清理）
@@ -1060,6 +1100,42 @@ public class DocumentsController : BaseApiController
         _logger.LogInformation("删除文件成功: {FileId} - {FileName}", wordFile.Id, wordFile.FileName);
 
         return Success("删除成功");
+    }
+
+    private async Task<Dictionary<int, int>> BuildSpecCountByFileAsync(List<int> fileIds, DataScopeResult scope)
+    {
+        var specsQuery = _unitOfWork.AcceptanceSpecs.Query()
+            .Where(s => fileIds.Contains(s.WordFileId));
+
+        if (!scope.IsAll)
+        {
+            var scopedOrgUnitIds = scope.OrgUnitIds.Distinct().ToArray();
+            if (scope.IncludeSelf && scopedOrgUnitIds.Length > 0)
+            {
+                specsQuery = specsQuery.Where(s =>
+                    (s.CreatedByUserId.HasValue && s.CreatedByUserId.Value == scope.UserId) ||
+                    (s.OwnerOrgUnitId.HasValue && scopedOrgUnitIds.Contains(s.OwnerOrgUnitId.Value)));
+            }
+            else if (scope.IncludeSelf)
+            {
+                specsQuery = specsQuery.Where(s =>
+                    s.CreatedByUserId.HasValue && s.CreatedByUserId.Value == scope.UserId);
+            }
+            else if (scopedOrgUnitIds.Length > 0)
+            {
+                specsQuery = specsQuery.Where(s =>
+                    s.OwnerOrgUnitId.HasValue && scopedOrgUnitIds.Contains(s.OwnerOrgUnitId.Value));
+            }
+            else
+            {
+                return [];
+            }
+        }
+
+        return await specsQuery
+            .GroupBy(s => s.WordFileId)
+            .Select(g => new { FileId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.FileId, x => x.Count);
     }
 
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()

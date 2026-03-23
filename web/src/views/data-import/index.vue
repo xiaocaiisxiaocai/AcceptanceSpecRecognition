@@ -146,6 +146,33 @@ const getExcelPreviewOptions = (cfg: TableImportConfig) => {
   };
 };
 
+const getExcludedRowIndexes = (tableIndex: number) =>
+  excludedRowIndexMap.value[tableIndex] || [];
+
+const getExcludedRowIndexSet = (tableIndex: number) =>
+  new Set(getExcludedRowIndexes(tableIndex));
+
+const setExcludedRowIndexes = (tableIndex: number, rowIndexes: number[]) => {
+  const deduped = Array.from(
+    new Set(
+      rowIndexes
+        .filter(index => Number.isInteger(index) && index >= 0)
+        .sort((a, b) => a - b)
+    )
+  );
+
+  if (deduped.length === 0) {
+    const { [tableIndex]: _, ...rest } = excludedRowIndexMap.value;
+    excludedRowIndexMap.value = rest;
+    return;
+  }
+
+  excludedRowIndexMap.value = {
+    ...excludedRowIndexMap.value,
+    [tableIndex]: deduped
+  };
+};
+
 const tableConfigs = ref<TableImportConfig[]>([]);
 type MappingClipboard =
   | { kind: "excel"; value: ExcelSheetMapping }
@@ -181,11 +208,41 @@ type CombinedImportResult = Omit<ImportResult, "errors" | "skippedRows" | "pendi
   skippedRows: ImportSkippedRowWithTable[];
   pendingDifferences: ImportPendingDifferenceWithTable[];
 };
+type ImportPreviewRow = {
+  key: string;
+  tableIndex: number;
+  rowIndex: number;
+  displayRowNumber: number;
+  project: string;
+  specification: string;
+  acceptance: string;
+  remark: string;
+};
+type ImportPreviewGroup = {
+  tableIndex: number;
+  label: string;
+  rows: ImportPreviewRow[];
+};
+type ImportBatchExecutionResult = {
+  aggregate: CombinedImportResult;
+  tableAggregates: CombinedImportResult[];
+};
+type DifferenceColumnDef = {
+  key: "project" | "specification" | "acceptance" | "remark";
+  label: string;
+  getExisting: (item: ImportPendingDifferenceWithTable) => string | null | undefined;
+  getIncoming: (item: ImportPendingDifferenceWithTable) => string | null | undefined;
+};
 const importResult = ref<CombinedImportResult | null>(null);
+const pendingImportAggregate = ref<CombinedImportResult | null>(null);
+const committedImportAggregate = ref<CombinedImportResult | null>(null);
 const previewSkippedRows = ref(false);
 const differenceDecisionMap = ref<Record<string, DifferenceDecision | undefined>>(
   {}
 );
+const differenceConfirmDialogVisible = ref(false);
+const excludedRowIndexMap = ref<Record<number, number[]>>({});
+const importPreviewSelectionKeys = ref<string[]>([]);
 
 // 让步骤条吸顶到实际滚动容器（pure-admin 使用 el-scrollbar）
 const affixTarget = ref<string>("");
@@ -278,6 +335,36 @@ const getMissingExcelMappingFields = (m?: ExcelSheetMapping) => {
   return missing;
 };
 
+const getWordPreviewColumnIndexes = (cfg: TableImportConfig) => {
+  const mapping = cfg.wordMapping;
+  return {
+    projectColumn: mapping?.projectColumn,
+    specificationColumn: mapping?.specificationColumn,
+    acceptanceColumn: mapping?.acceptanceColumn,
+    remarkColumn: mapping?.remarkColumn
+  };
+};
+
+const getExcelPreviewColumnIndexes = (cfg: TableImportConfig) => {
+  const mapping = normalizeExcelMappingByTable(cfg.tableInfo, cfg.excelMapping);
+  const usedStartColumn = cfg.tableInfo?.usedRangeStartColumn ?? 1;
+  const toLocalColumn = (column?: number) =>
+    column && column >= usedStartColumn ? column - usedStartColumn : undefined;
+
+  return {
+    projectColumn: toLocalColumn(mapping.projectColumn),
+    specificationColumn: toLocalColumn(mapping.specificationColumn),
+    acceptanceColumn: toLocalColumn(mapping.acceptanceColumn),
+    remarkColumn: toLocalColumn(mapping.remarkColumn)
+  };
+};
+
+const getPreviewCellValue = (row: string[], columnIndex?: number) => {
+  if (columnIndex === undefined || columnIndex < 0) return "";
+  const value = row?.[columnIndex];
+  return typeof value === "string" ? value.trim() : "";
+};
+
 const validateAllTableMappings = () => {
   const missingByTable = tableConfigs.value
     .map(cfg => ({
@@ -312,6 +399,11 @@ const handleFileUploaded = (file: FileUploadResponse) => {
   tableConfigs.value = [];
   mappingClipboard.value = null;
   mappingClipboardSourceIndex.value = null;
+  excludedRowIndexMap.value = {};
+  importPreviewSelectionKeys.value = [];
+  importResult.value = null;
+  previewSkippedRows.value = false;
+  resetPendingDifferenceState();
 };
 
 // 表格选择（多选）
@@ -346,16 +438,35 @@ const handleTablesSelected = (tables: TableInfo[]) => {
     );
   }
   tableConfigs.value = next.sort((a, b) => a.tableIndex - b.tableIndex);
+  const activeIndexes = new Set(next.map(item => item.tableIndex));
+  excludedRowIndexMap.value = Object.fromEntries(
+    Object.entries(excludedRowIndexMap.value).filter(([key]) =>
+      activeIndexes.has(Number(key))
+    )
+  );
+  importPreviewSelectionKeys.value = importPreviewSelectionKeys.value.filter(key => {
+    const [tableIndex] = key.split(":");
+    return activeIndexes.has(Number(tableIndex));
+  });
 
   // 若已加载规则，自动预填一次（不覆盖用户已有选择）
   applyRulesToAll(false);
 };
 
 const removeSelectedTable = (tableIndex: number) => {
+  if (tableConfigs.value.length <= 1) {
+    ElMessage.warning(`请至少保留一个${isExcelFile.value ? "工作表" : "表格"}`);
+    return;
+  }
+
   // 从选择中移除
   selectedTableIndexes.value = selectedTableIndexes.value.filter(i => i !== tableIndex);
   selectedTables.value = selectedTables.value.filter(t => t.index !== tableIndex);
   tableConfigs.value = tableConfigs.value.filter(c => c.tableIndex !== tableIndex);
+  setExcludedRowIndexes(tableIndex, []);
+  importPreviewSelectionKeys.value = importPreviewSelectionKeys.value.filter(
+    key => !key.startsWith(`${tableIndex}:`)
+  );
 
   // 调整当前激活 tab
   if (activeTableIndex.value === tableIndex) {
@@ -368,6 +479,17 @@ const handleTabRemove = (name: string | number) => {
   const idx = typeof name === "number" ? name : Number(name);
   if (!Number.isFinite(idx)) return;
   removeSelectedTable(idx);
+};
+
+const restoreSelectedTablesForMapping = async () => {
+  const ok = await ensureStepTwoSelection();
+  if (!ok || tableConfigs.value.length === 0) {
+    ElMessage.warning(`请至少选择一个${isExcelFile.value ? "工作表" : "表格"}`);
+    return;
+  }
+
+  activeTableIndex.value = tableConfigs.value[0]?.tableIndex ?? null;
+  ElMessage.success(`已恢复${tableConfigs.value.length}个${isExcelFile.value ? "工作表" : "表格"}`);
 };
 
 const handlePreviewLoaded = (tableIndex: number, data: TableData) => {
@@ -775,6 +897,173 @@ const goPrev = () => {
   }
 };
 
+const importPreviewGroups = computed<ImportPreviewGroup[]>(() => {
+  return tableConfigs.value.map(cfg => {
+    const previewData = cfg.previewData;
+    const labelPrefix = isExcelFile.value ? "工作表" : "表格";
+    const displayName = cfg.tableInfo?.name?.trim();
+    const label = displayName
+      ? `${labelPrefix} ${cfg.tableIndex + 1}（${displayName}）`
+      : `${labelPrefix} ${cfg.tableIndex + 1}`;
+
+    if (!previewData) {
+      return {
+        tableIndex: cfg.tableIndex,
+        label,
+        rows: []
+      };
+    }
+
+    const excludedRowIndexes = getExcludedRowIndexSet(cfg.tableIndex);
+    const columnIndexes = isExcelFile.value
+      ? getExcelPreviewColumnIndexes(cfg)
+      : getWordPreviewColumnIndexes(cfg);
+    const excelMapping = isExcelFile.value
+      ? normalizeExcelMappingByTable(cfg.tableInfo, cfg.excelMapping)
+      : null;
+
+    const rows = previewData.rows
+      .map((rowValues, rowIndex) => ({
+        key: `${cfg.tableIndex}:${rowIndex}`,
+        tableIndex: cfg.tableIndex,
+        rowIndex,
+        displayRowNumber: isExcelFile.value
+          ? (excelMapping?.dataStartRow ?? 1) + rowIndex
+          : rowIndex + 1,
+        project: getPreviewCellValue(rowValues, columnIndexes.projectColumn),
+        specification: getPreviewCellValue(rowValues, columnIndexes.specificationColumn),
+        acceptance: getPreviewCellValue(rowValues, columnIndexes.acceptanceColumn),
+        remark: getPreviewCellValue(rowValues, columnIndexes.remarkColumn)
+      }))
+      .filter(row => !excludedRowIndexes.has(row.rowIndex));
+
+    return {
+      tableIndex: cfg.tableIndex,
+      label,
+      rows
+    };
+  });
+});
+
+const importPreviewRowMap = computed(() => {
+  const rowMap = new Map<string, ImportPreviewRow>();
+  for (const group of importPreviewGroups.value) {
+    for (const row of group.rows) {
+      rowMap.set(row.key, row);
+    }
+  }
+  return rowMap;
+});
+
+const removedPreviewRowCount = computed(() => {
+  return tableConfigs.value.reduce(
+    (sum, cfg) => sum + getExcludedRowIndexes(cfg.tableIndex).length,
+    0
+  );
+});
+
+const selectedImportPreviewRowsCount = computed(
+  () => importPreviewSelectionKeys.value.length
+);
+
+const handleImportPreviewSelectionChange = (
+  tableIndex: number,
+  rows: ImportPreviewRow[]
+) => {
+  const remainingKeys = importPreviewSelectionKeys.value.filter(
+    key => !key.startsWith(`${tableIndex}:`)
+  );
+  importPreviewSelectionKeys.value = [
+    ...remainingKeys,
+    ...rows.map(row => row.key)
+  ];
+};
+
+const excludeImportPreviewRows = (rows: Pick<ImportPreviewRow, "tableIndex" | "rowIndex" | "key">[]) => {
+  if (rows.length === 0) return 0;
+
+  const rowsByTable = new Map<number, number[]>();
+  const removedKeys = new Set<string>();
+  for (const row of rows) {
+    const list = rowsByTable.get(row.tableIndex) || [];
+    list.push(row.rowIndex);
+    rowsByTable.set(row.tableIndex, list);
+    removedKeys.add(row.key);
+  }
+
+  for (const [tableIndex, rowIndexes] of rowsByTable.entries()) {
+    setExcludedRowIndexes(tableIndex, [
+      ...getExcludedRowIndexes(tableIndex),
+      ...rowIndexes
+    ]);
+  }
+
+  importPreviewSelectionKeys.value = importPreviewSelectionKeys.value.filter(
+    key => !removedKeys.has(key)
+  );
+
+  return rows.length;
+};
+
+const handleRemoveSinglePreviewRow = async (row: ImportPreviewRow) => {
+  try {
+    await ElMessageBox.confirm(
+      `确认从本次待导入清单中移除第 ${row.displayRowNumber} 行吗？该操作不会修改原文件。`,
+      "移除待导入数据",
+      {
+        confirmButtonText: "移除",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+
+    excludeImportPreviewRows([row]);
+    ElMessage.success("已移除 1 条待导入数据");
+  } catch {
+    // 用户取消
+  }
+};
+
+const handleRemoveSelectedPreviewRows = async () => {
+  if (importPreviewSelectionKeys.value.length === 0) {
+    ElMessage.warning("请先勾选要移除的待导入数据");
+    return;
+  }
+
+  const selectedRows = importPreviewSelectionKeys.value
+    .map(key => importPreviewRowMap.value.get(key))
+    .filter((row): row is ImportPreviewRow => !!row);
+
+  if (selectedRows.length === 0) {
+    ElMessage.warning("当前选中的待导入数据已失效，请重新选择");
+    importPreviewSelectionKeys.value = [];
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确认从本次待导入清单中批量移除 ${selectedRows.length} 条数据吗？该操作不会修改原文件。`,
+      "批量移除待导入数据",
+      {
+        confirmButtonText: "移除",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+
+    const removedCount = excludeImportPreviewRows(selectedRows);
+    ElMessage.success(`已移除 ${removedCount} 条待导入数据`);
+  } catch {
+    // 用户取消
+  }
+};
+
+const handleRestoreRemovedPreviewRows = () => {
+  excludedRowIndexMap.value = {};
+  importPreviewSelectionKeys.value = [];
+  ElMessage.success("已恢复全部待导入数据");
+};
+
 const buildEmptyImportAggregate = (): CombinedImportResult => ({
   successCount: 0,
   failedCount: 0,
@@ -786,6 +1075,153 @@ const buildEmptyImportAggregate = (): CombinedImportResult => ({
   pendingCount: 0,
   pendingDifferences: []
 });
+
+const mergeImportAggregates = (
+  ...aggregates: Array<CombinedImportResult | null | undefined>
+): CombinedImportResult => {
+  const merged = buildEmptyImportAggregate();
+
+  for (const aggregate of aggregates) {
+    if (!aggregate) continue;
+
+    merged.successCount += aggregate.successCount;
+    merged.failedCount += aggregate.failedCount;
+    merged.skippedCount += aggregate.skippedCount;
+    merged.totalCount += aggregate.totalCount;
+    merged.requiresConfirmation =
+      merged.requiresConfirmation || !!aggregate.requiresConfirmation;
+    merged.pendingCount += aggregate.pendingCount || 0;
+    merged.errors.push(...(aggregate.errors || []));
+    merged.skippedRows.push(...(aggregate.skippedRows || []));
+    merged.pendingDifferences.push(...(aggregate.pendingDifferences || []));
+  }
+
+  return merged;
+};
+
+const createSingleTableAggregate = (
+  tableIndex: number,
+  result: ImportResult
+): CombinedImportResult => ({
+  successCount: result.successCount,
+  failedCount: result.failedCount,
+  skippedCount: result.skippedCount,
+  totalCount: result.totalCount,
+  errors: (result.errors || []).map(error => ({
+    tableIndex,
+    ...error
+  })),
+  skippedRows: (result.skippedRows || []).map(row => ({
+    tableIndex,
+    ...row
+  })),
+  requiresConfirmation: !!result.requiresConfirmation,
+  pendingCount: result.pendingCount || 0,
+  pendingDifferences: (result.pendingDifferences || []).map(item => ({
+    tableIndex,
+    ...item
+  }))
+});
+
+const splitBatchAggregates = (tableAggregates: CombinedImportResult[]) => {
+  const pending: CombinedImportResult[] = [];
+  const completed: CombinedImportResult[] = [];
+
+  for (const aggregate of tableAggregates) {
+    if ((aggregate.pendingCount || 0) > 0 || aggregate.pendingDifferences.length > 0) {
+      pending.push(aggregate);
+      continue;
+    }
+
+    completed.push(aggregate);
+  }
+
+  return {
+    pending: mergeImportAggregates(...pending),
+    completed: mergeImportAggregates(...completed)
+  };
+};
+
+const syncDifferenceDecisionMap = (items: ImportPendingDifferenceWithTable[]) => {
+  const nextMap: Record<string, DifferenceDecision | undefined> = {};
+
+  for (const item of items) {
+    nextMap[item.key] = differenceDecisionMap.value[item.key];
+  }
+
+  differenceDecisionMap.value = nextMap;
+};
+
+const resetPendingDifferenceState = () => {
+  pendingImportAggregate.value = null;
+  committedImportAggregate.value = null;
+  differenceConfirmDialogVisible.value = false;
+  differenceDecisionMap.value = {};
+};
+
+const formatDifferenceValue = (value?: string | null) => {
+  const normalized = value?.trim();
+  return normalized ? normalized : "-";
+};
+
+const isDifferenceFieldChanged = (
+  existing?: string | null,
+  incoming?: string | null
+) => {
+  return (existing?.trim() || "") !== (incoming?.trim() || "");
+};
+
+const openDifferenceConfirmDialog = () => {
+  if (!pendingImportAggregate.value?.pendingDifferences.length) return;
+  differenceConfirmDialogVisible.value = true;
+};
+
+const applyDifferenceDecisionToAll = (decision: DifferenceDecision) => {
+  const nextMap = { ...differenceDecisionMap.value };
+
+  for (const item of pendingImportAggregate.value?.pendingDifferences || []) {
+    nextMap[item.key] = decision;
+  }
+
+  differenceDecisionMap.value = nextMap;
+};
+
+const differenceColumnDefs: DifferenceColumnDef[] = [
+  {
+    key: "project",
+    label: "项目",
+    getExisting: item => item.existingProject,
+    getIncoming: item => item.incomingProject
+  },
+  {
+    key: "specification",
+    label: "规格",
+    getExisting: item => item.existingSpecification,
+    getIncoming: item => item.incomingSpecification
+  },
+  {
+    key: "acceptance",
+    label: "验收",
+    getExisting: item => item.existingAcceptance,
+    getIncoming: item => item.incomingAcceptance
+  },
+  {
+    key: "remark",
+    label: "备注",
+    getExisting: item => item.existingRemark,
+    getIncoming: item => item.incomingRemark
+  }
+];
+
+const isDifferenceColumnChanged = (
+  item: ImportPendingDifferenceWithTable,
+  column: DifferenceColumnDef
+) => {
+  return isDifferenceFieldChanged(
+    column.getExisting(item),
+    column.getIncoming(item)
+  );
+};
 
 const buildDifferenceKeysByTable = (tableIndex: number) => {
   const confirmed: string[] = [];
@@ -802,8 +1238,8 @@ const buildDifferenceKeysByTable = (tableIndex: number) => {
 const executeImportBatch = async (
   configs: TableImportConfig[],
   includeDifferenceDecisions: boolean
-) => {
-  const aggregate = buildEmptyImportAggregate();
+): Promise<ImportBatchExecutionResult> => {
+  const tableAggregates: CombinedImportResult[] = [];
   let hasPendingEncountered = false;
 
   for (const [idx, cfg] of configs.entries()) {
@@ -811,6 +1247,7 @@ const executeImportBatch = async (
     const { confirmed, skipped } = includeDifferenceDecisions
       ? buildDifferenceKeysByTable(cfg.tableIndex)
       : { confirmed: [] as string[], skipped: [] as string[] };
+    const excludedRowIndexes = getExcludedRowIndexes(cfg.tableIndex);
 
     const res = isExcelFile.value
       ? await importExcelData({
@@ -823,6 +1260,7 @@ const executeImportBatch = async (
           previewSkippedRows: previewSkippedRows.value,
           confirmedDifferenceKeys: confirmed,
           skippedDifferenceKeys: skipped,
+          excludedRowIndexes,
           ...(normalizeExcelMappingByTable(
             cfg.tableInfo,
             cfg.excelMapping ?? defaultExcelMapping()
@@ -838,15 +1276,19 @@ const executeImportBatch = async (
           previewSkippedRows: previewSkippedRows.value,
           confirmedDifferenceKeys: confirmed,
           skippedDifferenceKeys: skipped,
+          excludedRowIndexes,
           mapping: cfg.wordMapping!
         });
 
     if (res.code !== 0) {
-      aggregate.failedCount += 1;
-      aggregate.errors.push({
-        tableIndex: cfg.tableIndex,
-        rowIndex: 0,
-        message: res.message || "导入失败"
+      tableAggregates.push({
+        ...buildEmptyImportAggregate(),
+        failedCount: 1,
+        errors: [{
+          tableIndex: cfg.tableIndex,
+          rowIndex: 0,
+          message: res.message || "导入失败"
+        }]
       });
       continue;
     }
@@ -855,78 +1297,82 @@ const executeImportBatch = async (
       hasPendingEncountered = true;
     }
 
-    aggregate.successCount += res.data.successCount;
-    aggregate.failedCount += res.data.failedCount;
-    aggregate.skippedCount += res.data.skippedCount;
-    aggregate.totalCount += res.data.totalCount;
-    aggregate.requiresConfirmation =
-      aggregate.requiresConfirmation || !!res.data.requiresConfirmation;
-    aggregate.pendingCount += res.data.pendingCount || 0;
-    aggregate.errors.push(
-      ...(res.data.errors || []).map(e => ({
-        tableIndex: cfg.tableIndex,
-        ...e
-      }))
-    );
-    aggregate.skippedRows.push(
-      ...((res.data.skippedRows || []).map(s => ({
-        tableIndex: cfg.tableIndex,
-        ...s
-      })))
-    );
-    aggregate.pendingDifferences.push(
-      ...((res.data.pendingDifferences || []).map(d => ({
-        tableIndex: cfg.tableIndex,
-        ...d
-      })))
-    );
+    tableAggregates.push(createSingleTableAggregate(cfg.tableIndex, res.data));
   }
 
-  return aggregate;
+  return {
+    aggregate: mergeImportAggregates(...tableAggregates),
+    tableAggregates
+  };
+};
+
+const handleConfirmPendingDifferences = async () => {
+  if (!pendingImportAggregate.value || pendingDifferences.value.length === 0) {
+    return;
+  }
+
+  if (pendingUndecidedCount.value > 0) {
+    ElMessage.warning(`请先逐条确认差异（仍有 ${pendingUndecidedCount.value} 条未选择）`);
+    return;
+  }
+
+  importing.value = true;
+  try {
+    const previousCommittedAggregate = committedImportAggregate.value;
+    const pendingSet = new Set(pendingTableIndexes.value);
+    const pendingConfigs = tableConfigs.value.filter(cfg => pendingSet.has(cfg.tableIndex));
+
+    const batch = await executeImportBatch(pendingConfigs, true);
+    const splitResult = splitBatchAggregates(batch.tableAggregates);
+
+    if (splitResult.pending.pendingDifferences.length > 0) {
+      committedImportAggregate.value = mergeImportAggregates(
+        previousCommittedAggregate,
+        splitResult.completed
+      );
+      pendingImportAggregate.value = splitResult.pending;
+      syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
+      differenceConfirmDialogVisible.value = true;
+      ElMessage.warning(`仍有 ${splitResult.pending.pendingCount || 0} 条差异未确认`);
+      return;
+    }
+
+    const finalAggregate = mergeImportAggregates(
+      previousCommittedAggregate,
+      batch.aggregate
+    );
+
+    importResult.value = finalAggregate;
+    resetPendingDifferenceState();
+    ElMessage.success(
+      `导入完成：成功${finalAggregate.successCount}条，失败${finalAggregate.failedCount}条`
+    );
+  } finally {
+    importing.value = false;
+  }
 };
 
 const handleImport = async () => {
   if (!uploadedFile.value || tableConfigs.value.length === 0 || !selectedCustomerId.value) {
     return;
   }
+
+  if (pendingImportAggregate.value && pendingDifferences.value.length > 0) {
+    openDifferenceConfirmDialog();
+    return;
+  }
+
+  if (previewDataCount.value <= 0) {
+    ElMessage.warning("当前没有可导入的数据，请先恢复或重新选择待导入行");
+    return;
+  }
+
   if (
     !ensurePermission(
       currentImportPermissionCode.value,
       currentImportPermissionMessage.value
     )
   ) {
-    return;
-  }
-
-  const isConfirmingDifferences =
-    importResult.value?.requiresConfirmation && pendingDifferences.value.length > 0;
-
-  if (isConfirmingDifferences) {
-    if (pendingUndecidedCount.value > 0) {
-      ElMessage.warning(`请先逐条确认差异（仍有 ${pendingUndecidedCount.value} 条未选择）`);
-      return;
-    }
-
-    importing.value = true;
-    try {
-      const pendingSet = new Set(pendingTableIndexes.value);
-      const pendingConfigs = tableConfigs.value.filter(cfg => pendingSet.has(cfg.tableIndex));
-      const aggregate = await executeImportBatch(pendingConfigs, true);
-      importResult.value = aggregate;
-
-      if (aggregate.requiresConfirmation && aggregate.pendingDifferences.length > 0) {
-        for (const d of aggregate.pendingDifferences) {
-          differenceDecisionMap.value[d.key] = differenceDecisionMap.value[d.key];
-        }
-        ElMessage.warning(`仍有 ${aggregate.pendingCount || 0} 条差异未确认`);
-        return;
-      }
-
-      differenceDecisionMap.value = {};
-      ElMessage.success(`导入完成：成功${aggregate.successCount}条，失败${aggregate.failedCount}条`);
-    } finally {
-      importing.value = false;
-    }
     return;
   }
 
@@ -942,21 +1388,24 @@ const handleImport = async () => {
     );
 
     importing.value = true;
-    const aggregate = await executeImportBatch(tableConfigs.value, false);
-    importResult.value = aggregate;
+    const batch = await executeImportBatch(tableConfigs.value, false);
+    const splitResult = splitBatchAggregates(batch.tableAggregates);
 
-    if (aggregate.requiresConfirmation && aggregate.pendingDifferences.length > 0) {
-      const nextDecisionMap: Record<string, DifferenceDecision | undefined> = {};
-      for (const item of aggregate.pendingDifferences) {
-        nextDecisionMap[item.key] = undefined;
-      }
-      differenceDecisionMap.value = nextDecisionMap;
-      ElMessage.warning(`检测到 ${aggregate.pendingCount || 0} 条差异，请逐条确认后导入`);
+    if (splitResult.pending.pendingDifferences.length > 0) {
+      importResult.value = null;
+      committedImportAggregate.value = splitResult.completed;
+      pendingImportAggregate.value = splitResult.pending;
+      syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
+      differenceConfirmDialogVisible.value = true;
+      ElMessage.warning(
+        `检测到 ${splitResult.pending.pendingCount || 0} 条差异，请在弹窗中逐条确认是否覆盖导入`
+      );
       return;
     }
 
-    differenceDecisionMap.value = {};
-    ElMessage.success(`导入完成：成功${aggregate.successCount}条，失败${aggregate.failedCount}条`);
+    importResult.value = batch.aggregate;
+    resetPendingDifferenceState();
+    ElMessage.success(`导入完成：成功${batch.aggregate.successCount}条，失败${batch.aggregate.failedCount}条`);
   } catch {
     // 用户取消
   } finally {
@@ -977,28 +1426,52 @@ const handleRestart = () => {
   selectedMachineModelId.value = undefined;
   importResult.value = null;
   previewSkippedRows.value = false;
-  differenceDecisionMap.value = {};
+  excludedRowIndexMap.value = {};
+  importPreviewSelectionKeys.value = [];
   mappingClipboard.value = null;
   mappingClipboardSourceIndex.value = null;
+  resetPendingDifferenceState();
 };
 
 // 预览数据条数（totalRows 已是纯数据行数，无需再减表头）
 const previewDataCount = computed(() => {
-  if (tableConfigs.value.length === 0) return 0;
-  return tableConfigs.value.reduce((sum, cfg) => {
-    if (!cfg.previewData) return sum;
-    return sum + cfg.previewData.totalRows;
-  }, 0);
+  return importPreviewGroups.value.reduce((sum, group) => sum + group.rows.length, 0);
 });
 
 const pendingDifferences = computed<ImportPendingDifferenceWithTable[]>(() => {
-  return importResult.value?.pendingDifferences || [];
+  return pendingImportAggregate.value?.pendingDifferences || [];
 });
 
 const pendingUndecidedCount = computed(() => {
   return pendingDifferences.value.filter(
     item => !differenceDecisionMap.value[item.key]
   ).length;
+});
+
+const pendingImportDecisionCount = computed(() => {
+  return pendingDifferences.value.filter(
+    item => differenceDecisionMap.value[item.key] === "import"
+  ).length;
+});
+
+const pendingSkipDecisionCount = computed(() => {
+  return pendingDifferences.value.filter(
+    item => differenceDecisionMap.value[item.key] === "skip"
+  ).length;
+});
+
+const hasPendingDifferenceConfirmation = computed(() => {
+  return pendingDifferences.value.length > 0;
+});
+
+const hasCommittedImportProgress = computed(() => {
+  const aggregate = committedImportAggregate.value;
+  if (!aggregate) return false;
+  return (
+    aggregate.successCount > 0 ||
+    aggregate.failedCount > 0 ||
+    aggregate.skippedCount > 0
+  );
 });
 
 const pendingTableIndexes = computed<number[]>(() => {
@@ -1175,7 +1648,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
           v-if="uploadedFile && tableConfigs.length > 0"
           v-model="activeTableIndex"
           type="border-card"
-          closable
+          :closable="tableConfigs.length > 1"
           @tab-remove="handleTabRemove"
         >
           <el-tab-pane
@@ -1225,6 +1698,14 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
             </div>
           </el-tab-pane>
         </el-tabs>
+        <div v-else-if="uploadedFile" class="mapping-empty-state">
+          <el-empty :description="`至少需要保留一个${isExcelFile ? '工作表' : '表格'}才能继续配置映射`">
+            <el-button type="primary" @click="restoreSelectedTablesForMapping">
+              重新载入{{ isExcelFile ? "工作表" : "表格" }}
+            </el-button>
+            <el-button @click="goPrev">返回上一步</el-button>
+          </el-empty>
+        </div>
       </div>
 
       <!-- 步骤4: 选择目标 -->
@@ -1296,8 +1777,8 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
         <!-- 导入结果 -->
         <div v-if="importResult" class="import-result">
           <el-result
-            :icon="importResult.requiresConfirmation ? 'warning' : (importResult.failedCount === 0 ? 'success' : 'warning')"
-            :title="importResult.requiresConfirmation ? '发现差异，待确认' : (importResult.failedCount === 0 ? '导入成功' : '导入完成')"
+            :icon="importResult.failedCount === 0 ? 'success' : 'warning'"
+            :title="importResult.failedCount === 0 ? '导入成功' : '导入完成'"
           >
             <template #sub-title>
               <div class="result-stats">
@@ -1313,22 +1794,9 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
                   <span class="stat-value">{{ importResult.failedCount }}</span>
                   <span class="stat-label">失败</span>
                 </div>
-                <div v-if="importResult.requiresConfirmation" class="stat-item warning">
-                  <span class="stat-value">{{ importResult.pendingCount || 0 }}</span>
-                  <span class="stat-label">待确认</span>
-                </div>
               </div>
             </template>
             <template #extra>
-              <el-button
-                v-if="importResult.requiresConfirmation && canImportCurrentFile"
-                type="primary"
-                :loading="importing"
-                :disabled="pendingUndecidedCount > 0"
-                @click="handleImport"
-              >
-                {{ importing ? "处理中..." : "确认差异并导入" }}
-              </el-button>
               <el-button
                 v-if="canUploadSourceFile && canImportAny"
                 type="primary"
@@ -1338,55 +1806,6 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               </el-button>
             </template>
           </el-result>
-
-          <div
-            v-if="importResult.requiresConfirmation && importResult.pendingDifferences.length > 0"
-            class="error-list"
-          >
-            <h4>差异确认</h4>
-            <el-alert
-              type="warning"
-              :closable="false"
-              show-icon
-              :title="`检测到 ${importResult.pendingCount || 0} 条与数据库已有数据不一致，请逐条选择“导入”或“跳过”。`"
-            />
-            <el-table
-              :data="importResult.pendingDifferences"
-              max-height="320"
-              size="small"
-              style="margin-top: 12px"
-            >
-              <el-table-column prop="tableIndex" label="表格" width="70">
-                <template #default="{ row }">
-                  {{ row.tableIndex + 1 }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="rowIndex" label="行号" width="80" />
-              <el-table-column prop="incomingProject" label="导入-项目" min-width="140" />
-              <el-table-column prop="incomingSpecification" label="导入-规格" min-width="180" />
-              <el-table-column prop="incomingAcceptance" label="导入-验收" min-width="130">
-                <template #default="{ row }">
-                  {{ row.incomingAcceptance || "-" }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="existingProject" label="库中-项目" min-width="140" />
-              <el-table-column prop="existingSpecification" label="库中-规格" min-width="180" />
-              <el-table-column prop="existingAcceptance" label="库中-验收" min-width="130">
-                <template #default="{ row }">
-                  {{ row.existingAcceptance || "-" }}
-                </template>
-              </el-table-column>
-              <el-table-column label="处理" width="180" fixed="right">
-                <template #default="{ row }">
-                  <el-radio-group v-model="differenceDecisionMap[row.key]" size="small">
-                    <el-radio-button label="import">导入</el-radio-button>
-                    <el-radio-button label="skip">跳过</el-radio-button>
-                  </el-radio-group>
-                </template>
-              </el-table-column>
-            </el-table>
-            <div class="pending-tip">未选择条数：{{ pendingUndecidedCount }}</div>
-          </div>
 
           <!-- 错误详情 -->
           <div v-if="importResult.errors.length > 0" class="error-list">
@@ -1456,6 +1875,26 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
 
         <!-- 导入确认 -->
         <div v-else class="import-confirm">
+          <div v-if="hasPendingDifferenceConfirmation" class="difference-entry">
+            <el-alert
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="`检测到 ${pendingDifferences.length} 条与数据库已有数据不一致，请在弹窗中逐条确认是否覆盖导入。`"
+              description="左侧为数据库已有数据，右侧为本次待导入数据。未命中的数据已经按当前流程处理。"
+            />
+            <div class="difference-entry__actions">
+              <span v-if="hasCommittedImportProgress" class="difference-entry__summary">
+                已完成无冲突数据导入：成功 {{ committedImportAggregate?.successCount || 0 }} 条，跳过
+                {{ committedImportAggregate?.skippedCount || 0 }} 条，失败
+                {{ committedImportAggregate?.failedCount || 0 }} 条
+              </span>
+              <el-button type="warning" @click="openDifferenceConfirmDialog">
+                打开冲突确认弹窗
+              </el-button>
+            </div>
+          </div>
+
           <el-alert
             v-if="!canImportCurrentFile"
             type="warning"
@@ -1483,16 +1922,124 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               {{ machineModels.find((m) => m.id === selectedMachineModelId)?.name || "-" }}
             </el-descriptions-item>
             <el-descriptions-item label="预计导入">
-              约 {{ previewDataCount }} 条数据
+              {{ previewDataCount }} 条数据
             </el-descriptions-item>
           </el-descriptions>
+
+          <div class="import-preview-panel">
+            <div class="import-preview-toolbar">
+              <div class="import-preview-summary">
+                <span class="summary-title">待导入数据清单</span>
+                <span class="summary-meta">当前保留 {{ previewDataCount }} 条</span>
+                <span v-if="removedPreviewRowCount > 0" class="summary-meta warning">
+                  已剔除 {{ removedPreviewRowCount }} 条
+                </span>
+              </div>
+              <div class="import-preview-actions">
+                <el-button
+                  size="small"
+                  type="danger"
+                  plain
+                  :disabled="hasPendingDifferenceConfirmation || selectedImportPreviewRowsCount === 0"
+                  @click="handleRemoveSelectedPreviewRows"
+                >
+                  批量删除（{{ selectedImportPreviewRowsCount }}）
+                </el-button>
+                <el-button
+                  size="small"
+                  :disabled="hasPendingDifferenceConfirmation || removedPreviewRowCount === 0"
+                  @click="handleRestoreRemovedPreviewRows"
+                >
+                  恢复已删除
+                </el-button>
+              </div>
+            </div>
+
+            <el-alert
+              type="info"
+              :closable="false"
+              show-icon
+              title="这里删除的是本次待导入清单，删除后只是不参与本次导入，不会修改原文件。"
+            />
+
+            <div v-if="previewDataCount > 0" class="import-preview-groups">
+              <div
+                v-for="group in importPreviewGroups"
+                :key="`import-preview-${group.tableIndex}`"
+                class="import-preview-group"
+              >
+                <div class="import-preview-group__header">
+                  <span>{{ group.label }}</span>
+                  <span class="group-count">保留 {{ group.rows.length }} 条</span>
+                </div>
+                <el-table
+                  :data="group.rows"
+                  border
+                  size="small"
+                  max-height="280"
+                  row-key="key"
+                  reserve-selection
+                  @selection-change="rows => handleImportPreviewSelectionChange(group.tableIndex, rows)"
+                >
+                  <el-table-column type="selection" width="48" />
+                  <el-table-column prop="displayRowNumber" label="行号" width="80" />
+                  <el-table-column prop="project" label="项目" min-width="140" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      {{ row.project || "-" }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    prop="specification"
+                    label="规格"
+                    min-width="260"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      {{ row.specification || "-" }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    prop="acceptance"
+                    label="验收"
+                    min-width="160"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      {{ row.acceptance || "-" }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      {{ row.remark || "-" }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="100" fixed="right">
+                    <template #default="{ row }">
+                      <el-button
+                        type="danger"
+                        link
+                        :disabled="hasPendingDifferenceConfirmation"
+                        @click="handleRemoveSinglePreviewRow(row)"
+                      >
+                        删除
+                      </el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+            </div>
+            <el-empty
+              v-else
+              description="当前没有待导入数据，可恢复已删除数据或返回上一步调整配置。"
+            />
+          </div>
 
           <div class="import-actions">
             <div class="skip-preview-switch">
               <span class="label">预览未导入明细</span>
               <el-switch
                 v-model="previewSkippedRows"
-                :disabled="importing"
+                :disabled="importing || hasPendingDifferenceConfirmation"
                 active-text="开启"
                 inactive-text="关闭"
               />
@@ -1502,9 +2049,14 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               type="primary"
               size="large"
               :loading="importing"
+              :disabled="!hasPendingDifferenceConfirmation && previewDataCount === 0"
               @click="handleImport"
             >
-              {{ importing ? "导入中..." : "开始导入" }}
+              {{
+                importing
+                  ? "处理中..."
+                  : (hasPendingDifferenceConfirmation ? "继续处理冲突" : "开始导入")
+              }}
             </el-button>
           </div>
         </div>
@@ -1512,7 +2064,10 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
 
       <!-- 步骤按钮 -->
       <div class="step-actions">
-        <el-button v-if="currentStep > 0 && !importResult" @click="goPrev">
+        <el-button
+          v-if="currentStep > 0 && !importResult && !hasPendingDifferenceConfirmation"
+          @click="goPrev"
+        >
           上一步
         </el-button>
         <el-button
@@ -1524,6 +2079,147 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
           下一步
         </el-button>
       </div>
+
+      <el-dialog
+        v-model="differenceConfirmDialogVisible"
+        title="确认是否覆盖导入"
+        width="min(1100px, calc(100vw - 32px))"
+        top="6vh"
+        class="difference-dialog"
+        :close-on-click-modal="false"
+        :close-on-press-escape="false"
+      >
+        <div class="difference-dialog__summary">
+          <el-alert
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="`检测到 ${pendingDifferences.length} 条与数据库已有数据不一致，请逐条确认是否覆盖导入。`"
+            description="左侧为数据库已有数据，右侧为本次待导入数据。"
+          />
+          <div class="difference-dialog__toolbar">
+            <div class="difference-dialog__stats">
+              <span>覆盖 {{ pendingImportDecisionCount }} 条</span>
+              <span>跳过 {{ pendingSkipDecisionCount }} 条</span>
+              <span>未选择 {{ pendingUndecidedCount }} 条</span>
+            </div>
+            <div class="difference-dialog__batch-actions">
+              <el-button size="small" @click="applyDifferenceDecisionToAll('skip')">
+                全部跳过
+              </el-button>
+              <el-button size="small" type="warning" plain @click="applyDifferenceDecisionToAll('import')">
+                全部覆盖
+              </el-button>
+            </div>
+          </div>
+        </div>
+
+        <div class="difference-dialog__list">
+          <div
+            v-for="item in pendingDifferences"
+            :key="item.key"
+            class="difference-card"
+          >
+            <div class="difference-card__header">
+              <div class="difference-card__meta">
+                <span>表格 {{ item.tableIndex + 1 }}</span>
+                <span>行号 {{ item.rowIndex }}</span>
+              </div>
+              <el-tag
+                v-if="differenceDecisionMap[item.key] === 'import'"
+                type="warning"
+                size="small"
+              >
+                已选择覆盖
+              </el-tag>
+              <el-tag
+                v-else-if="differenceDecisionMap[item.key] === 'skip'"
+                type="info"
+                size="small"
+              >
+                已选择跳过
+              </el-tag>
+              <el-tag v-else type="danger" size="small">
+                待选择
+              </el-tag>
+            </div>
+
+            <div class="difference-card__content">
+              <div class="difference-sheet">
+                <div class="difference-sheet__panel">
+                  <div class="difference-sheet__panel-title">数据库已有</div>
+                  <div class="difference-sheet__table">
+                    <div
+                      v-for="column in differenceColumnDefs"
+                      :key="`existing-head-${item.key}-${column.key}`"
+                      class="difference-sheet__head"
+                    >
+                      {{ column.label }}
+                    </div>
+                    <div
+                      v-for="column in differenceColumnDefs"
+                      :key="`existing-cell-${item.key}-${column.key}`"
+                      class="difference-sheet__cell"
+                      :class="{ 'is-changed': isDifferenceColumnChanged(item, column) }"
+                    >
+                      {{ formatDifferenceValue(column.getExisting(item)) }}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="difference-sheet__panel difference-sheet__panel--incoming">
+                  <div class="difference-sheet__panel-title">本次导入</div>
+                  <div class="difference-sheet__table">
+                    <div
+                      v-for="column in differenceColumnDefs"
+                      :key="`incoming-head-${item.key}-${column.key}`"
+                      class="difference-sheet__head"
+                    >
+                      {{ column.label }}
+                    </div>
+                    <div
+                      v-for="column in differenceColumnDefs"
+                      :key="`incoming-cell-${item.key}-${column.key}`"
+                      class="difference-sheet__cell"
+                      :class="{ 'is-changed': isDifferenceColumnChanged(item, column) }"
+                    >
+                      {{ formatDifferenceValue(column.getIncoming(item)) }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="difference-card__footer">
+              <el-radio-group v-model="differenceDecisionMap[item.key]" size="small">
+                <el-radio-button label="import">覆盖导入</el-radio-button>
+                <el-radio-button label="skip">跳过</el-radio-button>
+              </el-radio-group>
+            </div>
+          </div>
+        </div>
+
+        <template #footer>
+          <div class="difference-dialog__footer">
+            <span class="difference-dialog__footer-tip">
+              未选择 {{ pendingUndecidedCount }} 条
+            </span>
+            <div class="difference-dialog__footer-actions">
+              <el-button @click="differenceConfirmDialogVisible = false">
+                稍后处理
+              </el-button>
+              <el-button
+                type="primary"
+                :loading="importing"
+                :disabled="pendingUndecidedCount > 0"
+                @click="handleConfirmPendingDifferences"
+              >
+                确认并继续导入
+              </el-button>
+            </div>
+          </div>
+        </template>
+      </el-dialog>
       </el-card>
     </div>
   </div>
@@ -1604,6 +2300,10 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
   margin-bottom: 12px;
 }
 
+.mapping-empty-state {
+  padding: 32px 0;
+}
+
 .mapping-clipboard-tip {
   font-size: 12px;
   color: #6b7280;
@@ -1623,6 +2323,26 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
   margin: 0 auto;
 }
 
+.difference-entry {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.difference-entry__actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.difference-entry__summary {
+  font-size: 13px;
+  color: #8a5a00;
+}
+
 .import-confirm-desc {
   width: 100%;
 }
@@ -1634,6 +2354,77 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
 .import-confirm-desc :deep(.el-descriptions__label) {
   width: 80px;
   color: #6b7280;
+}
+
+.import-preview-panel {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.import-preview-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.import-preview-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.summary-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.summary-meta {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.summary-meta.warning {
+  color: #e67e22;
+}
+
+.import-preview-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.import-preview-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.import-preview-group {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+
+.import-preview-group__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.group-count {
+  color: #6b7280;
+  font-weight: 500;
 }
 
 .import-actions {
@@ -1702,12 +2493,6 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
   margin-top: 24px;
 }
 
-.pending-tip {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #6b7280;
-}
-
 .skipped-group + .skipped-group {
   margin-top: 12px;
 }
@@ -1724,6 +2509,193 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
   color: #4b5563;
   line-height: 1.5;
   font-size: 12px;
+}
+
+.difference-dialog__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.difference-dialog__toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.difference-dialog__stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.difference-dialog__batch-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.difference-dialog__list {
+  max-height: calc(100vh - 320px);
+  margin-top: 16px;
+  overflow: auto;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.difference-card {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: #fff;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.difference-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.difference-card__meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.difference-card__content {
+  display: flex;
+  flex-direction: column;
+}
+
+.difference-sheet {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.difference-sheet__panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.difference-sheet__panel--incoming {
+  border-color: #f3d19e;
+}
+
+.difference-sheet__panel-title {
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  background: #f8fafc;
+}
+
+.difference-sheet__panel--incoming .difference-sheet__panel-title {
+  background: #fff8eb;
+}
+
+.difference-sheet__table {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid #e5e7eb;
+}
+
+.difference-sheet__head {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  background: #f9fafb;
+  border-right: 1px solid #e5e7eb;
+}
+
+.difference-sheet__head:nth-child(4n) {
+  border-right: none;
+}
+
+.difference-sheet__cell {
+  min-height: 88px;
+  padding: 12px;
+  font-size: 13px;
+  color: #1f2937;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fff;
+  border-top: 1px solid #e5e7eb;
+  border-right: 1px solid #e5e7eb;
+}
+
+.difference-sheet__cell:nth-child(8n) {
+  border-right: none;
+}
+
+.difference-sheet__cell.is-changed {
+  background: #fff4db;
+  color: #8a5a00;
+}
+
+.difference-sheet__panel--incoming .difference-sheet__cell.is-changed {
+  background: #ffe9bf;
+}
+
+.difference-card__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.difference-dialog__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.difference-dialog__footer-tip {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.difference-dialog__footer-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (width <= 900px) {
+  .difference-sheet {
+    grid-template-columns: 1fr;
+  }
+
+  .difference-sheet__table {
+    grid-template-columns: 1fr;
+  }
+
+  .difference-sheet__head {
+    border-right: none;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .difference-sheet__cell {
+    min-height: auto;
+    border-right: none;
+  }
 }
 
 .step-actions {

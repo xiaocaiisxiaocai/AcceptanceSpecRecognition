@@ -14,6 +14,17 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
+# Temporary build artifacts / run logs
+.tmp-build-api/
+.tmp-api-run.log
+.tmp-api-run.err.log
+.tmp-web-run.log
+.tmp-web-run.err.log
+.tmp-vite.log
+.tmp-req*-response.json
+.tmp*.log
+.tmp*.json
+
 # Visual Studio files
 .vs/
 *.suo
@@ -62,6 +73,9 @@ Desktop.ini
 .LSOverride
 
 # Application specific
+# Production config (secrets — never commit)
+appsettings.Production.json
+appsettings.*.local.json
 appsettings.Development.json
 appsettings.Local.json
 *.local.json

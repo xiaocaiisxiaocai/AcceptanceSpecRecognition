@@ -169,18 +169,33 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
                 }
                 case DataScopeType.OrgSubtree:
                 {
+                    // 预处理：将 allOrgUnits 转换为 id→祖先集合的映射，避免 O(N×M) Path.Contains 字符串搜索
+                    var idToAncestors = new Dictionary<int, HashSet<int>>(allOrgUnits.Count);
+                    foreach (var org in allOrgUnits)
+                    {
+                        var ancestors = new HashSet<int>();
+                        if (!string.IsNullOrWhiteSpace(org.Path))
+                        {
+                            foreach (var seg in org.Path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                if (int.TryParse(seg, out var ancestorId))
+                                {
+                                    ancestors.Add(ancestorId);
+                                }
+                            }
+                        }
+                        idToAncestors[org.Id] = ancestors;
+                    }
+
                     var rootNodeIds = scope.Nodes.Count == 0
                         ? userOrgUnitIds
                         : scope.Nodes.Select(n => n.OrgUnitId).Distinct().ToHashSet();
-                    foreach (var rootNodeId in rootNodeIds)
+                    foreach (var org in allOrgUnits)
                     {
-                        var marker = $"/{rootNodeId}/";
-                        foreach (var orgUnit in allOrgUnits)
+                        if (idToAncestors.TryGetValue(org.Id, out var ancestors) &&
+                            rootNodeIds.Overlaps(ancestors))
                         {
-                            if (orgUnit.Path.Contains(marker, StringComparison.Ordinal))
-                            {
-                                collectedOrgUnitIds.Add(orgUnit.Id);
-                            }
+                            collectedOrgUnitIds.Add(org.Id);
                         }
                     }
 

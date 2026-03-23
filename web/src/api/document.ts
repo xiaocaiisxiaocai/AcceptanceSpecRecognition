@@ -84,6 +84,7 @@ export interface ImportDataRequest {
   previewSkippedRows?: boolean;
   confirmedDifferenceKeys?: string[];
   skippedDifferenceKeys?: string[];
+  excludedRowIndexes?: number[];
 }
 
 /** 导入结果 */
@@ -206,6 +207,7 @@ export interface ExcelImportDataRequest {
   previewSkippedRows?: boolean;
   confirmedDifferenceKeys?: string[];
   skippedDifferenceKeys?: string[];
+  excludedRowIndexes?: number[];
 }
 
 /** Excel 导入（按列序号） */

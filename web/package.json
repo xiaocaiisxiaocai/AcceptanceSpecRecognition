@@ -22,7 +22,7 @@
     "preinstall": "npx only-allow pnpm"
   },
   "keywords": [
-    "pure-admin-thin",
+    "acceptance-spec",
     "vue-pure-admin",
     "element-plus",
     "tailwindcss",
@@ -33,19 +33,18 @@
     "vite",
     "esm"
   ],
-  "homepage": "https://github.com/pure-admin/pure-admin-thin",
+  "homepage": "https://github.com/YourOrg/AcceptanceSpecificationSystem",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pure-admin/pure-admin-thin.git"
+    "url": "git+https://github.com/YourOrg/AcceptanceSpecificationSystem.git"
   },
   "bugs": {
-    "url": "https://github.com/pure-admin/vue-pure-admin/issues"
+    "url": "https://github.com/YourOrg/AcceptanceSpecificationSystem/issues"
   },
   "license": "MIT",
   "author": {
-    "name": "xiaoxian521",
-    "email": "pureadmin@163.com",
-    "url": "https://github.com/xiaoxian521"
+    "name": "Abner",
+    "email": "abc1186757116@gmail.com"
   },
   "dependencies": {
     "@pureadmin/descriptions": "^1.2.1",

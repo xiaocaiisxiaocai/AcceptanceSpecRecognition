@@ -33,6 +33,8 @@ public class MatchingController : BaseApiController
     private readonly ILlmReviewService _llmReviewService;
     private readonly ILlmSuggestionService _llmSuggestionService;
     private readonly IAuthDataScopeService _authDataScopeService;
+    private readonly IEmbeddingService _embeddingService;
+    private readonly AiServiceSelector _aiServiceSelector;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<MatchingController> _logger;
 
@@ -70,6 +72,8 @@ public class MatchingController : BaseApiController
         ILlmReviewService llmReviewService,
         ILlmSuggestionService llmSuggestionService,
         IAuthDataScopeService authDataScopeService,
+        IEmbeddingService embeddingService,
+        AiServiceSelector aiServiceSelector,
         IServiceScopeFactory scopeFactory,
         ILogger<MatchingController> logger)
     {
@@ -81,6 +85,8 @@ public class MatchingController : BaseApiController
         _llmReviewService = llmReviewService;
         _llmSuggestionService = llmSuggestionService;
         _authDataScopeService = authDataScopeService;
+        _embeddingService = embeddingService;
+        _aiServiceSelector = aiServiceSelector;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
@@ -139,8 +145,13 @@ public class MatchingController : BaseApiController
             return Error<MatchPreviewResponse>(401, "会话缺少用户上下文");
         }
 
-        // 获取候选验收规格
-        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId, scope);
+        // 获取候选验收规格（含 EmbeddingCache 复用）
+        var candidates = await GetCandidatesAsync(
+            request.CustomerId,
+            request.ProcessId,
+            request.MachineModelId,
+            scope,
+            config.EmbeddingServiceId);
         if (candidates.Count == 0)
         {
             var emptyItems = new List<MatchPreviewItem>();
@@ -796,6 +807,12 @@ public class MatchingController : BaseApiController
             return Error<BatchPreviewResponse>(400, "请至少选择一个表格");
         }
 
+        const int MaxBatchTableCount = 500;
+        if (request.Tables.Count > MaxBatchTableCount)
+        {
+            return Error<BatchPreviewResponse>(400, $"批量操作不能超过 {MaxBatchTableCount} 个表格");
+        }
+
         if (request.FileId <= 0)
         {
             return Error<BatchPreviewResponse>(400, "文件ID不能为空");
@@ -807,9 +824,10 @@ public class MatchingController : BaseApiController
             return Error<BatchPreviewResponse>(401, "会话缺少用户上下文");
         }
 
-        // 一次获取候选集
-        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId, scope);
         var config = ConvertToMatchingConfig(request.Config);
+
+        // 一次获取候选集（含 EmbeddingCache 复用）
+        var candidates = await GetCandidatesAsync(request.CustomerId, request.ProcessId, request.MachineModelId, scope, config.EmbeddingServiceId);
         var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
 
         // 创建文本处理会话
@@ -953,6 +971,12 @@ public class MatchingController : BaseApiController
         if (request.Tables == null || request.Tables.Count == 0)
         {
             return Error<ExecuteFillResponse>(400, "请至少提供一个表格的填充映射");
+        }
+
+        const int MaxBatchTableCount = 500;
+        if (request.Tables.Count > MaxBatchTableCount)
+        {
+            return Error<ExecuteFillResponse>(400, $"批量操作不能超过 {MaxBatchTableCount} 个表格");
         }
 
         if (request.FileId <= 0)
@@ -1133,13 +1157,14 @@ public class MatchingController : BaseApiController
     }
 
     /// <summary>
-    /// 获取候选验收规格列表
+    /// 获取候选验收规格列表（含 EmbeddingCache 复用）
     /// </summary>
     private async Task<List<MatchCandidate>> GetCandidatesAsync(
         int? customerId,
         int? processId,
         int? machineModelId,
-        DataScopeResult scope)
+        DataScopeResult scope,
+        int? embeddingServiceId)
     {
         var baseQuery = BuildCandidateSpecQuery(customerId, processId, machineModelId);
         var rawCount = await baseQuery.CountAsync();
@@ -1172,7 +1197,7 @@ public class MatchingController : BaseApiController
             "匹配候选去重: 原始{RawCount}条, 范围内{ScopedCount}条 -> 去重后{DedupedCount}条 (customerId={CustomerId}, processId={ProcessId}, machineModelId={MachineModelId})",
             rawCount, scopedSpecs.Count, dedupedSpecs.Count, customerId, processId, machineModelId);
 
-        return dedupedSpecs.Select(s => new MatchCandidate
+        var candidates = dedupedSpecs.Select(s => new MatchCandidate
         {
             SpecId = s.Id,
             Project = s.Project,
@@ -1180,6 +1205,135 @@ public class MatchingController : BaseApiController
             Acceptance = s.Acceptance,
             Remark = s.Remark
         }).ToList();
+
+        // 复用 EmbeddingCache（避免每次都重新调用 Embedding API）
+        await HydrateCandidateEmbeddingsAsync(candidates, embeddingServiceId);
+
+        return candidates;
+    }
+
+    /// <summary>
+    /// 从缓存读取候选项的 Embedding，生成缺失的向量并写入缓存
+    /// </summary>
+    private async Task HydrateCandidateEmbeddingsAsync(List<MatchCandidate> candidates, int? embeddingServiceId)
+    {
+        string? embeddingModel = null;
+        IReadOnlyList<EmbeddingCache> caches = [];
+
+        if (embeddingServiceId.HasValue)
+        {
+            var configs = await _aiServiceSelector.GetCandidatesAsync(AiServicePurpose.Embedding, embeddingServiceId);
+            var config = configs.FirstOrDefault();
+            embeddingModel = config?.EmbeddingModel?.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(embeddingModel))
+        {
+            caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdsAndModelAsync(
+                candidates.Select(c => c.SpecId),
+                embeddingModel);
+
+            var cacheLookup = caches.ToDictionary(c => c.SpecId);
+            foreach (var candidate in candidates)
+            {
+                if (cacheLookup.TryGetValue(candidate.SpecId, out var cache))
+                {
+                    candidate.Embedding = DeserializeVector(cache.Vector);
+                }
+            }
+        }
+
+        var missingCandidates = candidates.Where(c => c.Embedding == null || c.Embedding.Length == 0).ToList();
+        if (missingCandidates.Count == 0)
+        {
+            _logger.LogDebug("匹配候选 Embedding 全部命中缓存，跳过远程调用");
+            return;
+        }
+
+        var missingTexts = missingCandidates
+            .Select(c => c.CombinedText)
+            .ToList();
+
+        List<float[]> newEmbeddings;
+        try
+        {
+            newEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(missingTexts, embeddingServiceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "匹配候选生成 Embedding 失败，将使用空向量继续匹配");
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(embeddingModel))
+        {
+            var existingCacheLookup = caches.ToDictionary(c => c.SpecId);
+            var hasMutation = false;
+
+            for (var i = 0; i < missingCandidates.Count; i++)
+            {
+                if (i < newEmbeddings.Count && newEmbeddings[i].Length > 0)
+                {
+                    missingCandidates[i].Embedding = newEmbeddings[i];
+
+                    var specId = missingCandidates[i].SpecId;
+                    if (existingCacheLookup.TryGetValue(specId, out var existingCache))
+                    {
+                        existingCache.Vector = SerializeVector(newEmbeddings[i]);
+                        existingCache.CreatedAt = DateTime.Now;
+                        _unitOfWork.EmbeddingCaches.Update(existingCache);
+                    }
+                    else
+                    {
+                        await _unitOfWork.EmbeddingCaches.AddAsync(new EmbeddingCache
+                        {
+                            SpecId = specId,
+                            ModelName = embeddingModel,
+                            Vector = SerializeVector(newEmbeddings[i]),
+                            CreatedAt = DateTime.Now
+                        });
+                    }
+
+                    hasMutation = true;
+                }
+            }
+
+            if (hasMutation)
+            {
+                await _unitOfWork.SaveChangesAsync();
+            }
+        }
+        else
+        {
+            for (var i = 0; i < missingCandidates.Count && i < newEmbeddings.Count; i++)
+            {
+                missingCandidates[i].Embedding = newEmbeddings[i];
+            }
+        }
+
+        _logger.LogInformation(
+            "匹配候选 Embedding: 命中缓存{Cached}个, 新生成{Generated}个",
+            candidates.Count - missingCandidates.Count, missingCandidates.Count);
+    }
+
+    private static byte[] SerializeVector(float[] vector)
+    {
+        if (vector.Length == 0)
+            return Array.Empty<byte>();
+
+        var bytes = new byte[vector.Length * sizeof(float)];
+        Buffer.BlockCopy(vector, 0, bytes, 0, bytes.Length);
+        return bytes;
+    }
+
+    private static float[] DeserializeVector(byte[]? bytes)
+    {
+        if (bytes == null || bytes.Length == 0 || bytes.Length % sizeof(float) != 0)
+            return Array.Empty<float>();
+
+        var vector = new float[bytes.Length / sizeof(float)];
+        Buffer.BlockCopy(bytes, 0, vector, 0, bytes.Length);
+        return vector;
     }
 
     private IQueryable<AcceptanceSpec> BuildCandidateSpecQuery(

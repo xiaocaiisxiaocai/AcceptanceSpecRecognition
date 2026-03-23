@@ -4,6 +4,7 @@ using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -51,15 +52,30 @@ public sealed class SpecSemanticSearchService
         var topK = request.TopK <= 0 ? DefaultTopK : Math.Min(request.TopK, MaxTopK);
         var minScore = Math.Clamp(request.MinScore, 0, 1);
 
-        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
-        var scopedSpecs = SpecDataScopeHelper.ApplyScope(allSpecs, scope);
-        var filteredSpecs = ApplyFilters(
-            scopedSpecs,
-            request.CustomerId,
-            request.ProcessId,
-            request.MachineModelId,
-            request.ProcessIdIsNull,
-            request.MachineModelIdIsNull);
+        // 在数据库层面应用数据范围 + 过滤条件，避免全量加载后在内存中过滤
+        // 注意：先在裸 Query 上过滤，再 Attach Include，避免 IIncludableQueryable 类型退化
+        var baseQuery = SpecDataScopeHelper.ApplyScopeToQuery(
+            _unitOfWork.AcceptanceSpecs.Query(),
+            scope);
+
+        if (request.CustomerId.HasValue)
+            baseQuery = baseQuery.Where(s => s.CustomerId == request.CustomerId.Value);
+
+        if (request.ProcessId.HasValue)
+            baseQuery = baseQuery.Where(s => s.ProcessId == request.ProcessId.Value);
+        else if (request.ProcessIdIsNull == true)
+            baseQuery = baseQuery.Where(s => s.ProcessId == null);
+
+        if (request.MachineModelId.HasValue)
+            baseQuery = baseQuery.Where(s => s.MachineModelId == request.MachineModelId.Value);
+        else if (request.MachineModelIdIsNull == true)
+            baseQuery = baseQuery.Where(s => s.MachineModelId == null);
+
+        var filteredSpecs = await baseQuery
+            .Include(s => s.Customer)
+            .Include(s => s.Process)
+            .Include(s => s.MachineModel)
+            .ToListAsync();
 
         var response = new SpecSemanticSearchResponse
         {
