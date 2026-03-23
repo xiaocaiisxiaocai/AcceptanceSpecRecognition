@@ -67,4 +67,35 @@ public class EmbeddingCacheRepository : Repository<EmbeddingCache>, IEmbeddingCa
             .Where(e => idList.Contains(e.SpecId) && e.ModelName == modelName)
             .ToListAsync();
     }
+
+    /// <summary>
+    /// 删除指定时间之前过期的缓存。
+    /// </summary>
+    /// <param name="beforeTime">过期时间阈值</param>
+    /// <returns>删除的记录数</returns>
+    public async Task<int> DeleteExpiredAsync(DateTime beforeTime)
+    {
+        var expiredCaches = await _dbSet
+            .Where(e => e.ExpiresAt != null && e.ExpiresAt < beforeTime)
+            .ToListAsync();
+
+        _dbSet.RemoveRange(expiredCaches);
+        return expiredCaches.Count;
+    }
+
+    /// <summary>
+    /// 删除指定模型版本的缓存（用于模型升级时批量失效）。
+    /// </summary>
+    /// <param name="modelName">模型名称</param>
+    /// <param name="modelVersion">模型版本</param>
+    /// <returns>删除的记录数</returns>
+    public async Task<int> DeleteByModelVersionAsync(string modelName, string modelVersion)
+    {
+        var oldVersionCaches = await _dbSet
+            .Where(e => e.ModelName == modelName && e.ModelVersion != modelVersion)
+            .ToListAsync();
+
+        _dbSet.RemoveRange(oldVersionCaches);
+        return oldVersionCaches.Count;
+    }
 }

@@ -539,10 +539,17 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("ModelName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
+
+                    b.Property<string>("ModelVersion")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<int>("SpecId")
                         .HasColumnType("int");
@@ -552,6 +559,8 @@ namespace AcceptanceSpecSystem.Data.Migrations
                         .HasColumnType("longblob");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
 
                     b.HasIndex("SpecId", "ModelName")
                         .IsUnique();

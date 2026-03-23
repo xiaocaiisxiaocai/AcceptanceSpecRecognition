@@ -94,12 +94,31 @@ builder.Services.Configure<JwtAuthOptions>(
     builder.Configuration.GetSection(JwtAuthOptions.SectionName));
 builder.Services.Configure<AuditLogOptions>(
     builder.Configuration.GetSection(AuditLogOptions.SectionName));
+builder.Services.Configure<EmbeddingCacheCleanupOptions>(
+    builder.Configuration.GetSection(EmbeddingCacheCleanupOptions.SectionName));
 
 // 配置MySQL数据库连接
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? AppDbContext.DefaultConnectionString;
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+
+// 注册所有 Repository（供 UnitOfWork 通过 IServiceProvider 解析）
+builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
+builder.Services.AddScoped<IProcessRepository, ProcessRepository>();
+builder.Services.AddScoped<IMachineModelRepository, MachineModelRepository>();
+builder.Services.AddScoped<IAcceptanceSpecRepository, AcceptanceSpecRepository>();
+builder.Services.AddScoped<IEmbeddingCacheRepository, EmbeddingCacheRepository>();
+builder.Services.AddScoped<IWordFileRepository, WordFileRepository>();
+builder.Services.AddScoped<IAiServiceConfigRepository, AiServiceConfigRepository>();
+builder.Services.AddScoped<ISynonymRepository, SynonymRepository>();
+builder.Services.AddScoped<IKeywordRepository, KeywordRepository>();
+builder.Services.AddScoped<ITextProcessingConfigRepository, TextProcessingConfigRepository>();
+builder.Services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
+builder.Services.AddScoped<IColumnMappingRuleRepository, ColumnMappingRuleRepository>();
+builder.Services.AddScoped<ISystemUserRepository, SystemUserRepository>();
+builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+builder.Services.AddScoped<IMatchingFillTaskRepository, MatchingFillTaskRepository>();
 
 // 注册UnitOfWork
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -113,6 +132,7 @@ builder.Services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
 builder.Services.AddScoped<IAuthSessionValidationService, AuthSessionValidationService>();
 builder.Services.AddScoped<SpecSemanticSearchService>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
+builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
 
 // 注册文档服务
 builder.Services.AddSingleton<DocumentServiceFactory>();
@@ -145,7 +165,7 @@ var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Sign
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.RequireHttpsMetadata = false;
+        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
         options.SaveToken = true;
         options.TokenValidationParameters = new TokenValidationParameters
         {

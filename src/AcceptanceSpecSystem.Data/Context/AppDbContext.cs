@@ -260,7 +260,9 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.ModelName).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ModelVersion).HasMaxLength(50);
             entity.HasIndex(e => new { e.SpecId, e.ModelName }).IsUnique();
+            entity.HasIndex(e => e.ExpiresAt);
             entity.HasOne(e => e.Spec)
                   .WithMany(s => s.EmbeddingCaches)
                   .HasForeignKey(e => e.SpecId)

@@ -1,14 +1,17 @@
 using AcceptanceSpecSystem.Data.Context;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Data.Repositories;
 
 /// <summary>
-/// 工作单元实现，管理所有Repository和事务
+/// 工作单元实现，管理所有Repository和事务。
+/// 所有 Repository 实例通过 IServiceProvider 解析，确保生命周期与容器一致。
 /// </summary>
 public class UnitOfWork : IUnitOfWork
 {
     private readonly AppDbContext _context;
+    private readonly IServiceProvider _serviceProvider;
     private IDbContextTransaction? _transaction;
 
     private ICustomerRepository? _customers;
@@ -33,100 +36,92 @@ public class UnitOfWork : IUnitOfWork
     /// 创建UnitOfWork实例
     /// </summary>
     /// <param name="context">数据库上下文</param>
-    public UnitOfWork(AppDbContext context)
+    /// <param name="serviceProvider">服务提供器，用于解析带 DI 生命周期的 Repository</param>
+    public UnitOfWork(AppDbContext context, IServiceProvider serviceProvider)
     {
         _context = context;
+        _serviceProvider = serviceProvider;
+    }
+
+    private TRepo GetOrCreate<TRepo>(ref TRepo? field) where TRepo : class
+    {
+        return field ??= _serviceProvider.GetRequiredService<TRepo>();
     }
 
     /// <summary>
     /// 客户数据仓储。
     /// </summary>
-    public ICustomerRepository Customers =>
-        _customers ??= new CustomerRepository(_context);
+    public ICustomerRepository Customers => GetOrCreate(ref _customers);
 
     /// <summary>
     /// 制程数据仓储。
     /// </summary>
-    public IProcessRepository Processes =>
-        _processes ??= new ProcessRepository(_context);
+    public IProcessRepository Processes => GetOrCreate(ref _processes);
 
     /// <summary>
     /// 机型数据仓储。
     /// </summary>
-    public IMachineModelRepository MachineModels =>
-        _machineModels ??= new MachineModelRepository(_context);
+    public IMachineModelRepository MachineModels => GetOrCreate(ref _machineModels);
 
     /// <summary>
     /// 验收规格数据仓储。
     /// </summary>
-    public IAcceptanceSpecRepository AcceptanceSpecs =>
-        _acceptanceSpecs ??= new AcceptanceSpecRepository(_context);
+    public IAcceptanceSpecRepository AcceptanceSpecs => GetOrCreate(ref _acceptanceSpecs);
 
     /// <summary>
     /// 向量缓存数据仓储。
     /// </summary>
-    public IEmbeddingCacheRepository EmbeddingCaches =>
-        _embeddingCaches ??= new EmbeddingCacheRepository(_context);
+    public IEmbeddingCacheRepository EmbeddingCaches => GetOrCreate(ref _embeddingCaches);
 
     /// <summary>
     /// Word 文件数据仓储。
     /// </summary>
-    public IWordFileRepository WordFiles =>
-        _wordFiles ??= new WordFileRepository(_context);
+    public IWordFileRepository WordFiles => GetOrCreate(ref _wordFiles);
 
     /// <summary>
     /// AI 服务配置数据仓储。
     /// </summary>
-    public IAiServiceConfigRepository AiServiceConfigs =>
-        _aiServiceConfigs ??= new AiServiceConfigRepository(_context);
+    public IAiServiceConfigRepository AiServiceConfigs => GetOrCreate(ref _aiServiceConfigs);
 
     /// <summary>
     /// 同义词数据仓储。
     /// </summary>
-    public ISynonymRepository Synonyms =>
-        _synonyms ??= new SynonymRepository(_context);
+    public ISynonymRepository Synonyms => GetOrCreate(ref _synonyms);
 
     /// <summary>
     /// 关键字数据仓储。
     /// </summary>
-    public IKeywordRepository Keywords =>
-        _keywords ??= new KeywordRepository(_context);
+    public IKeywordRepository Keywords => GetOrCreate(ref _keywords);
 
     /// <summary>
     /// 文本处理配置数据仓储。
     /// </summary>
-    public ITextProcessingConfigRepository TextProcessingConfigs =>
-        _textProcessingConfigs ??= new TextProcessingConfigRepository(_context);
+    public ITextProcessingConfigRepository TextProcessingConfigs => GetOrCreate(ref _textProcessingConfigs);
 
     /// <summary>
     /// Prompt 模板数据仓储。
     /// </summary>
-    public IPromptTemplateRepository PromptTemplates =>
-        _promptTemplates ??= new PromptTemplateRepository(_context);
+    public IPromptTemplateRepository PromptTemplates => GetOrCreate(ref _promptTemplates);
 
     /// <summary>
     /// 导入列映射规则数据仓储（全局）。
     /// </summary>
-    public IColumnMappingRuleRepository ColumnMappingRules =>
-        _columnMappingRules ??= new ColumnMappingRuleRepository(_context);
+    public IColumnMappingRuleRepository ColumnMappingRules => GetOrCreate(ref _columnMappingRules);
 
     /// <summary>
     /// 系统用户仓储。
     /// </summary>
-    public ISystemUserRepository SystemUsers =>
-        _systemUsers ??= new SystemUserRepository(_context);
+    public ISystemUserRepository SystemUsers => GetOrCreate(ref _systemUsers);
 
     /// <summary>
     /// 审计日志仓储。
     /// </summary>
-    public IAuditLogRepository AuditLogs =>
-        _auditLogs ??= new AuditLogRepository(_context);
+    public IAuditLogRepository AuditLogs => GetOrCreate(ref _auditLogs);
 
     /// <summary>
     /// 智能填充任务仓储。
     /// </summary>
-    public IMatchingFillTaskRepository MatchingFillTasks =>
-        _matchingFillTasks ??= new MatchingFillTaskRepository(_context);
+    public IMatchingFillTaskRepository MatchingFillTasks => GetOrCreate(ref _matchingFillTasks);
 
     /// <summary>
     /// 保存所有更改（异步）。

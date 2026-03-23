@@ -35,4 +35,19 @@ public interface IEmbeddingCacheRepository : IRepository<EmbeddingCache>
     /// <param name="modelName">模型名称</param>
     /// <returns>向量缓存列表</returns>
     Task<IReadOnlyList<EmbeddingCache>> GetBySpecIdsAndModelAsync(IEnumerable<int> specIds, string modelName);
+
+    /// <summary>
+    /// 删除指定时间之前过期的缓存
+    /// </summary>
+    /// <param name="beforeTime">过期时间阈值</param>
+    /// <returns>删除的记录数</returns>
+    Task<int> DeleteExpiredAsync(DateTime beforeTime);
+
+    /// <summary>
+    /// 删除指定模型版本的缓存（用于模型升级时批量失效）
+    /// </summary>
+    /// <param name="modelName">模型名称</param>
+    /// <param name="modelVersion">模型版本</param>
+    /// <returns>删除的记录数</returns>
+    Task<int> DeleteByModelVersionAsync(string modelName, string modelVersion);
 }

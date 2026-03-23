@@ -31,6 +31,16 @@ public class EmbeddingCache
     public DateTime CreatedAt { get; set; } = DateTime.Now;
 
     /// <summary>
+    /// 过期时间（可选，用于缓存失效策略）
+    /// </summary>
+    public DateTime? ExpiresAt { get; set; }
+
+    /// <summary>
+    /// 模型版本（用于模型升级时批量失效旧缓存）
+    /// </summary>
+    public string? ModelVersion { get; set; }
+
+    /// <summary>
     /// 导航属性：关联的验收规格
     /// </summary>
     public AcceptanceSpec Spec { get; set; } = null!;
