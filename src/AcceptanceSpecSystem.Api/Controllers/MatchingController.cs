@@ -14,6 +14,7 @@ using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 
@@ -600,6 +601,25 @@ public class MatchingController : BaseApiController
             CreatedAt = DateTime.Now
         };
 
+        taskResult.StrictReuseSession = await TryBuildStrictReuseSessionAsync(
+            wordFile,
+            [
+                new StrictReuseSourceTableDefinition
+                {
+                    TableIndex = tableIndex.Value,
+                    ProjectColumnIndex = request.ProjectColumnIndex,
+                    SpecificationColumnIndex = request.SpecificationColumnIndex,
+                    AcceptanceColumnIndex = acceptanceColumnIndex,
+                    RemarkColumnIndex = remarkColumnIndex,
+                    HeaderRowStart = request.HeaderRowStart,
+                    HeaderRowCount = request.HeaderRowCount,
+                    DataStartRow = request.DataStartRow,
+                    FilterEmptySourceRows = request.FilterEmptySourceRows,
+                    FillResults = fillResults
+                }
+            ],
+            taskResult.CreatedAt);
+
         var isExcelSource = wordFile.FileType == UploadedFileType.ExcelXlsx;
         if (isExcelSource)
         {
@@ -663,6 +683,34 @@ public class MatchingController : BaseApiController
         if (taskResult == null)
         {
             return NotFound(ApiResponse.Error(404, "任务不存在或已过期"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(taskResult.DownloadArtifactRelativePath))
+        {
+            try
+            {
+                var fullPath = _fileStorage.GetAbsolutePath(taskResult.DownloadArtifactRelativePath);
+                if (!System.IO.File.Exists(fullPath))
+                {
+                    return NotFound(ApiResponse.Error(404, "下载文件不存在或已被清理"));
+                }
+
+                var content = await System.IO.File.ReadAllBytesAsync(fullPath);
+                var artifactContentType = string.IsNullOrWhiteSpace(taskResult.DownloadArtifactContentType)
+                    ? "application/octet-stream"
+                    : taskResult.DownloadArtifactContentType;
+                var artifactDownloadFileName = string.IsNullOrWhiteSpace(taskResult.DownloadArtifactFileName)
+                    ? Path.GetFileName(fullPath)
+                    : taskResult.DownloadArtifactFileName;
+
+                _logger.LogInformation("下载填充结果产物: 任务{TaskId}, 文件{FileName}", taskId, artifactDownloadFileName);
+                return File(content, artifactContentType, artifactDownloadFileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "下载填充结果产物失败: {TaskId}", taskId);
+                return BadRequest(ApiResponse.Error(500, $"下载结果失败: {ex.Message}"));
+            }
         }
 
         // 获取源文件
@@ -781,11 +829,13 @@ public class MatchingController : BaseApiController
             _logger.LogWarning(ex, "填充下载后清理源文件失败: {TaskId}", taskId);
         }
 
-        // 生成下载文件名
-        var originalFileName = Path.GetFileNameWithoutExtension(wordFile.FileName);
         var fileExtension = GetDownloadFileExtension(wordFile.FileType);
         var contentType = GetDownloadContentType(wordFile.FileType);
-        var downloadFileName = $"{originalFileName}_filled_{DateTime.Now:yyyyMMddHHmmss}{fileExtension}";
+        var downloadFileName = Path.GetFileName(wordFile.FileName);
+        if (string.IsNullOrWhiteSpace(downloadFileName))
+        {
+            downloadFileName = $"filled{fileExtension}";
+        }
 
         _logger.LogInformation("下载填充结果: 任务{TaskId}, 文件{FileName}", taskId, downloadFileName);
 
@@ -1068,6 +1118,24 @@ public class MatchingController : BaseApiController
             CreatedAt = DateTime.Now
         };
 
+        taskResult.StrictReuseSession = await TryBuildStrictReuseSessionAsync(
+            wordFile,
+            request.Tables.Select(table => new StrictReuseSourceTableDefinition
+            {
+                TableIndex = table.TableIndex,
+                ProjectColumnIndex = table.ProjectColumnIndex,
+                SpecificationColumnIndex = table.SpecificationColumnIndex,
+                AcceptanceColumnIndex = table.AcceptanceColumnIndex,
+                RemarkColumnIndex = table.RemarkColumnIndex,
+                HeaderRowStart = table.HeaderRowStart,
+                HeaderRowCount = table.HeaderRowCount,
+                DataStartRow = table.DataStartRow,
+                FilterEmptySourceRows = table.FilterEmptySourceRows,
+                FillResults = tableEntries
+                    .FirstOrDefault(entry => entry.TableIndex == table.TableIndex)?.FillResults ?? []
+            }),
+            taskResult.CreatedAt);
+
         var isExcelSource = wordFile.FileType == UploadedFileType.ExcelXlsx;
         if (isExcelSource)
         {
@@ -1117,6 +1185,478 @@ public class MatchingController : BaseApiController
         return Success(response, isExcelSource
             ? $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行，已写回并可下载 Excel"
             : $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行");
+    }
+
+    /// <summary>
+    /// 严格模式复用预检
+    /// </summary>
+    [HttpPost("reuse/strict/preview")]
+    [ProducesResponseType(typeof(ApiResponse<StrictReusePreviewResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<StrictReusePreviewResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<StrictReusePreviewResponse>>> PreviewStrictReuse([FromBody] StrictReusePreviewRequest request)
+    {
+        if (request.TargetFileIds == null || request.TargetFileIds.Count == 0)
+        {
+            return Error<StrictReusePreviewResponse>(400, "请至少提供一个目标文件");
+        }
+
+        var sourceTask = await LoadFillTaskSnapshotAsync(request.SourceTaskId);
+        if (sourceTask?.StrictReuseSession == null || sourceTask.StrictReuseSession.Tables.Count == 0)
+        {
+            return Error<StrictReusePreviewResponse>(400, "当前填充任务不支持严格复用，请重新执行一次填充后再试");
+        }
+
+        var results = new List<StrictReusePreviewFileResult>();
+        foreach (var fileId in request.TargetFileIds.Distinct())
+        {
+            var targetFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId);
+            if (targetFile == null)
+            {
+                results.Add(new StrictReusePreviewFileResult
+                {
+                    FileId = fileId,
+                    FileName = $"文件{fileId}",
+                    CanApply = false,
+                    Errors = ["目标文件不存在"]
+                });
+                continue;
+            }
+
+            var errors = await ValidateStrictReuseTargetFileAsync(targetFile, sourceTask.StrictReuseSession);
+            results.Add(new StrictReusePreviewFileResult
+            {
+                FileId = targetFile.Id,
+                FileName = targetFile.FileName,
+                CanApply = errors.Count == 0,
+                Errors = errors
+            });
+        }
+
+        return Success(new StrictReusePreviewResponse
+        {
+            SourceTaskId = sourceTask.TaskId,
+            SourceFileName = sourceTask.StrictReuseSession.SourceFileName,
+            SourceFileType = sourceTask.StrictReuseSession.SourceFileType,
+            Files = results
+        });
+    }
+
+    /// <summary>
+    /// 严格模式复用执行
+    /// </summary>
+    [HttpPost("reuse/strict/execute")]
+    [AuditOperation("execute", "matching-fill")]
+    [ProducesResponseType(typeof(ApiResponse<StrictReuseExecuteResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<StrictReuseExecuteResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<StrictReuseExecuteResponse>>> ExecuteStrictReuse([FromBody] StrictReuseExecuteRequest request)
+    {
+        if (request.TargetFileIds == null || request.TargetFileIds.Count == 0)
+        {
+            return Error<StrictReuseExecuteResponse>(400, "请至少提供一个目标文件");
+        }
+
+        var sourceTask = await LoadFillTaskSnapshotAsync(request.SourceTaskId);
+        if (sourceTask?.StrictReuseSession == null || sourceTask.StrictReuseSession.Tables.Count == 0)
+        {
+            return Error<StrictReuseExecuteResponse>(400, "当前填充任务不支持严格复用，请重新执行一次填充后再试");
+        }
+
+        var executableTargets = new List<StrictReuseGeneratedFile>();
+        var fileResults = new List<StrictReuseExecuteFileResult>();
+
+        foreach (var fileId in request.TargetFileIds.Distinct())
+        {
+            var targetFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId);
+            if (targetFile == null)
+            {
+                fileResults.Add(new StrictReuseExecuteFileResult
+                {
+                    FileId = fileId,
+                    FileName = $"文件{fileId}",
+                    Success = false,
+                    Message = "目标文件不存在"
+                });
+                continue;
+            }
+
+            var errors = await ValidateStrictReuseTargetFileAsync(targetFile, sourceTask.StrictReuseSession);
+            if (errors.Count > 0)
+            {
+                fileResults.Add(new StrictReuseExecuteFileResult
+                {
+                    FileId = targetFile.Id,
+                    FileName = targetFile.FileName,
+                    Success = false,
+                    Message = string.Join("；", errors)
+                });
+                continue;
+            }
+
+            try
+            {
+                var generated = await GenerateStrictReuseTargetFileAsync(targetFile, sourceTask.StrictReuseSession);
+                executableTargets.Add(generated);
+                fileResults.Add(new StrictReuseExecuteFileResult
+                {
+                    FileId = targetFile.Id,
+                    FileName = targetFile.FileName,
+                    Success = true,
+                    Message = "复用成功"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "严格复用执行失败: sourceTask={SourceTaskId}, targetFile={FileId}", request.SourceTaskId, targetFile.Id);
+                fileResults.Add(new StrictReuseExecuteFileResult
+                {
+                    FileId = targetFile.Id,
+                    FileName = targetFile.FileName,
+                    Success = false,
+                    Message = $"复用失败: {ex.Message}"
+                });
+            }
+        }
+
+        if (executableTargets.Count == 0)
+        {
+            return Error<StrictReuseExecuteResponse>(400, "没有可执行严格复用的目标文件");
+        }
+
+        var artifact = await SaveStrictReuseArtifactAsync(sourceTask.StrictReuseSession, executableTargets);
+        var taskId = Guid.NewGuid().ToString("N");
+        var taskResult = new FillTaskResult
+        {
+            TaskId = taskId,
+            SourceFileId = sourceTask.SourceFileId,
+            CreatedAt = DateTime.Now,
+            DownloadArtifactRelativePath = artifact.RelativePath,
+            DownloadArtifactFileName = artifact.FileName,
+            DownloadArtifactContentType = artifact.ContentType
+        };
+
+        await SaveFillTaskSnapshotAsync(taskResult);
+
+        var response = new StrictReuseExecuteResponse
+        {
+            TaskId = taskId,
+            SuccessCount = fileResults.Count(item => item.Success),
+            FailedCount = fileResults.Count(item => !item.Success),
+            DownloadUrl = $"/api/matching/download/{taskId}",
+            DownloadFileName = artifact.FileName,
+            Files = fileResults
+        };
+
+        return Success(response, response.FailedCount > 0
+            ? $"严格复用完成：成功{response.SuccessCount}份，失败{response.FailedCount}份"
+            : $"严格复用完成：成功{response.SuccessCount}份");
+    }
+
+    private async Task<StrictReuseSession?> TryBuildStrictReuseSessionAsync(
+        WordFile sourceFile,
+        IEnumerable<StrictReuseSourceTableDefinition> sourceTables,
+        DateTime createdAt)
+    {
+        var normalizedTables = sourceTables?
+            .Where(table =>
+                table.FillResults.Count > 0 &&
+                table.ProjectColumnIndex.HasValue &&
+                table.SpecificationColumnIndex.HasValue)
+            .GroupBy(table => table.TableIndex)
+            .Select(group => group.First())
+            .OrderBy(table => table.TableIndex)
+            .ToList() ?? [];
+
+        if (normalizedTables.Count == 0)
+        {
+            return null;
+        }
+
+        var snapshots = new List<StrictReuseTableSnapshot>();
+        foreach (var table in normalizedTables)
+        {
+            var sourceRows = await ExtractMatchSourceItemsFromFileAsync(
+                sourceFile.Id,
+                table.TableIndex,
+                table.ProjectColumnIndex!.Value,
+                table.SpecificationColumnIndex!.Value,
+                table.HeaderRowStart,
+                table.HeaderRowCount,
+                table.DataStartRow,
+                table.FilterEmptySourceRows ?? true);
+
+            if (sourceRows.Count == 0)
+            {
+                continue;
+            }
+
+            snapshots.Add(new StrictReuseTableSnapshot
+            {
+                TableIndex = table.TableIndex,
+                ProjectColumnIndex = table.ProjectColumnIndex.Value,
+                SpecificationColumnIndex = table.SpecificationColumnIndex.Value,
+                AcceptanceColumnIndex = table.AcceptanceColumnIndex,
+                RemarkColumnIndex = table.RemarkColumnIndex,
+                HeaderRowStart = table.HeaderRowStart,
+                HeaderRowCount = table.HeaderRowCount,
+                DataStartRow = table.DataStartRow,
+                FilterEmptySourceRows = table.FilterEmptySourceRows ?? true,
+                RowSignatures = sourceRows
+                    .Select(row => new StrictReuseRowSignature
+                    {
+                        RowIndex = row.RowIndex,
+                        Project = row.Project,
+                        Specification = row.Specification
+                    })
+                    .ToList(),
+                FillResults = CloneFillResults(table.FillResults)
+            });
+        }
+
+        if (snapshots.Count == 0)
+        {
+            return null;
+        }
+
+        return new StrictReuseSession
+        {
+            SourceFileId = sourceFile.Id,
+            SourceFileName = sourceFile.FileName,
+            SourceFileType = sourceFile.FileType,
+            CreatedAt = createdAt,
+            Tables = snapshots
+        };
+    }
+
+    private async Task<List<string>> ValidateStrictReuseTargetFileAsync(WordFile targetFile, StrictReuseSession session)
+    {
+        var errors = new List<string>();
+        if (targetFile.FileType != session.SourceFileType)
+        {
+            errors.Add("文件类型不一致");
+            return errors;
+        }
+
+        var parser = _documentServiceFactory.GetParser(GetDocumentType(targetFile.FileType));
+        if (parser == null)
+        {
+            errors.Add("目标文件解析器不可用");
+            return errors;
+        }
+
+        IReadOnlyList<TableInfo> targetTables;
+        try
+        {
+            using var metaStream = OpenWordFileReadStream(targetFile);
+            targetTables = await parser.GetTablesAsync(metaStream);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "严格复用预检读取目标文件失败: fileId={FileId}", targetFile.Id);
+            errors.Add($"读取目标文件失败: {ex.Message}");
+            return errors;
+        }
+
+        foreach (var sourceTable in session.Tables.OrderBy(table => table.TableIndex))
+        {
+            if (sourceTable.TableIndex < 0 || sourceTable.TableIndex >= targetTables.Count)
+            {
+                errors.Add($"表格{sourceTable.TableIndex + 1}不存在");
+                continue;
+            }
+
+            var targetTable = targetTables[sourceTable.TableIndex];
+            var requiredMaxColumnIndex = new[]
+            {
+                sourceTable.ProjectColumnIndex,
+                sourceTable.SpecificationColumnIndex,
+                sourceTable.AcceptanceColumnIndex,
+                sourceTable.RemarkColumnIndex ?? -1
+            }.Max();
+
+            if (requiredMaxColumnIndex >= targetTable.ColumnCount)
+            {
+                errors.Add($"表格{sourceTable.TableIndex + 1}列配置超出目标文件范围");
+                continue;
+            }
+
+            var targetRows = await ExtractMatchSourceItemsFromFileAsync(
+                targetFile.Id,
+                sourceTable.TableIndex,
+                sourceTable.ProjectColumnIndex,
+                sourceTable.SpecificationColumnIndex,
+                sourceTable.HeaderRowStart,
+                sourceTable.HeaderRowCount,
+                sourceTable.DataStartRow,
+                sourceTable.FilterEmptySourceRows);
+
+            if (targetRows.Count != sourceTable.RowSignatures.Count)
+            {
+                errors.Add($"表格{sourceTable.TableIndex + 1}的数据区行数不一致");
+                continue;
+            }
+
+            for (var index = 0; index < sourceTable.RowSignatures.Count; index++)
+            {
+                var expected = sourceTable.RowSignatures[index];
+                var actual = targetRows[index];
+                if (actual.RowIndex != expected.RowIndex ||
+                    !StrictReuseTextEquals(actual.Project, expected.Project) ||
+                    !StrictReuseTextEquals(actual.Specification, expected.Specification))
+                {
+                    errors.Add($"表格{sourceTable.TableIndex + 1}第{index + 1}行的项目/规格顺序不一致");
+                    break;
+                }
+            }
+        }
+
+        return errors;
+    }
+
+    private async Task<StrictReuseGeneratedFile> GenerateStrictReuseTargetFileAsync(WordFile targetFile, StrictReuseSession session)
+    {
+        var writer = _documentServiceFactory.GetWriter(GetDocumentType(targetFile.FileType));
+        if (writer == null)
+        {
+            throw new InvalidOperationException("文档写入器不可用");
+        }
+
+        using var resultStream = new MemoryStream();
+        await using (var sourceStream = OpenWordFileReadStream(targetFile))
+        {
+            await sourceStream.CopyToAsync(resultStream);
+        }
+        resultStream.Position = 0;
+
+        var tableOperations = session.Tables
+            .Select(table => new
+            {
+                table.TableIndex,
+                Operations = BuildCellWriteOperations(
+                    table.FillResults,
+                    table.AcceptanceColumnIndex,
+                    table.RemarkColumnIndex)
+            })
+            .Where(item => item.Operations.Count > 0)
+            .ToDictionary(item => item.TableIndex, item => item.Operations);
+
+        if (tableOperations.Count == 0)
+        {
+            throw new InvalidOperationException("来源填充结果为空，无法执行严格复用");
+        }
+
+        var requestedCells = tableOperations.Sum(item => item.Value.Count);
+        var writtenCells = await writer.WriteMultipleTablesAsync(resultStream, tableOperations);
+        if (writtenCells != requestedCells)
+        {
+            throw new InvalidOperationException($"目标文件写回不完整，期望写入{requestedCells}个单元格，实际写入{writtenCells}个");
+        }
+
+        return new StrictReuseGeneratedFile
+        {
+            FileId = targetFile.Id,
+            FileName = targetFile.FileName,
+            ContentType = GetDownloadContentType(targetFile.FileType),
+            Content = resultStream.ToArray()
+        };
+    }
+
+    private async Task<SavedDownloadArtifact> SaveStrictReuseArtifactAsync(
+        StrictReuseSession session,
+        List<StrictReuseGeneratedFile> generatedFiles)
+    {
+        if (generatedFiles.Count == 0)
+        {
+            throw new InvalidOperationException("没有可保存的严格复用结果");
+        }
+
+        if (generatedFiles.Count == 1)
+        {
+            var file = generatedFiles[0];
+            var relativePath = await _fileStorage.SaveFilledWordAsync(file.FileName, file.Content);
+            return new SavedDownloadArtifact
+            {
+                RelativePath = relativePath,
+                FileName = file.FileName,
+                ContentType = file.ContentType
+            };
+        }
+
+        using var zipStream = new MemoryStream();
+        using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var usedEntryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var file in generatedFiles.OrderBy(file => file.FileName, StringComparer.OrdinalIgnoreCase))
+            {
+                var entryName = BuildUniqueArchiveEntryName(file.FileName, usedEntryNames);
+                var entry = archive.CreateEntry(entryName, CompressionLevel.Fastest);
+                await using var entryStream = entry.Open();
+                await entryStream.WriteAsync(file.Content);
+            }
+        }
+
+        var baseName = Path.GetFileNameWithoutExtension(session.SourceFileName);
+        if (string.IsNullOrWhiteSpace(baseName))
+        {
+            baseName = "严格复用结果";
+        }
+
+        var downloadFileName = $"{baseName}_严格复用结果.zip";
+        var relativePathForZip = await _fileStorage.SaveFilledWordAsync(downloadFileName, zipStream.ToArray());
+        return new SavedDownloadArtifact
+        {
+            RelativePath = relativePathForZip,
+            FileName = downloadFileName,
+            ContentType = "application/zip"
+        };
+    }
+
+    private static string BuildUniqueArchiveEntryName(string fileName, HashSet<string> usedEntryNames)
+    {
+        var normalizedFileName = Path.GetFileName(string.IsNullOrWhiteSpace(fileName) ? "filled.docx" : fileName.Trim());
+        if (string.IsNullOrWhiteSpace(normalizedFileName))
+        {
+            normalizedFileName = "filled.docx";
+        }
+
+        if (usedEntryNames.Add(normalizedFileName))
+        {
+            return normalizedFileName;
+        }
+
+        var baseName = Path.GetFileNameWithoutExtension(normalizedFileName);
+        var extension = Path.GetExtension(normalizedFileName);
+        var counter = 2;
+        while (true)
+        {
+            var candidate = $"{baseName} ({counter}){extension}";
+            if (usedEntryNames.Add(candidate))
+            {
+                return candidate;
+            }
+
+            counter++;
+        }
+    }
+
+    private static bool StrictReuseTextEquals(string? left, string? right)
+    {
+        return string.Equals(
+            NormalizeForDedup(left),
+            NormalizeForDedup(right),
+            StringComparison.Ordinal);
+    }
+
+    private static List<FillResult> CloneFillResults(IEnumerable<FillResult> fillResults)
+    {
+        return fillResults
+            .Select(fill => new FillResult
+            {
+                RowIndex = fill.RowIndex,
+                SpecId = fill.SpecId,
+                Acceptance = fill.Acceptance,
+                Remark = fill.Remark
+            })
+            .ToList();
     }
 
     /// <summary>
@@ -1597,7 +2137,8 @@ public class MatchingController : BaseApiController
             BestMatchRemark = spec.Remark,
             BaseScore = (item.BestMatchScore ?? 0) * 100,
             ScoreDetails = item.ScoreDetails ?? new Dictionary<string, double>(),
-            LlmServiceId = config.LlmServiceId
+            LlmServiceId = config.LlmServiceId,
+            ReviewScene = LlmReviewScene.MatchingReview
         };
 
         await WriteSseEventLockedAsync(sseWriteLock, "review.start", new
@@ -2324,10 +2865,45 @@ public class MatchingController : BaseApiController
             _unitOfWork.MatchingFillTasks.Update(existed);
         }
 
-        // 轻量清理历史快照，避免任务表无限增长
         var expireTime = DateTime.Now.AddHours(-FillTaskRetentionHours);
-        await _unitOfWork.MatchingFillTasks.DeleteBeforeAsync(expireTime);
+        await CleanupExpiredFillTaskArtifactsAsync(expireTime);
         await _unitOfWork.SaveChangesAsync();
+    }
+
+    private async Task CleanupExpiredFillTaskArtifactsAsync(DateTime expireTime)
+    {
+        var expiredTasks = await _unitOfWork.MatchingFillTasks
+            .Query(asNoTracking: false)
+            .Where(task => task.CreatedAt < expireTime)
+            .ToListAsync();
+
+        if (expiredTasks.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var expiredTask in expiredTasks)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(expiredTask.PayloadJson))
+                {
+                    continue;
+                }
+
+                var snapshot = JsonSerializer.Deserialize<FillTaskResult>(expiredTask.PayloadJson, FillTaskJsonOptions);
+                if (!string.IsNullOrWhiteSpace(snapshot?.DownloadArtifactRelativePath))
+                {
+                    await _fileStorage.DeleteIfExistsAsync(snapshot.DownloadArtifactRelativePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "清理过期填充任务产物失败: {TaskId}", expiredTask.TaskId);
+            }
+        }
+
+        _unitOfWork.MatchingFillTasks.RemoveRange(expiredTasks);
     }
 
     /// <summary>
@@ -2374,6 +2950,26 @@ internal class FillTaskResult
     /// 批量模式下各表格的填充条目
     /// </summary>
     public List<TableFillEntry> TableEntries { get; set; } = [];
+
+    /// <summary>
+    /// 当前填充任务的严格复用会话
+    /// </summary>
+    public StrictReuseSession? StrictReuseSession { get; set; }
+
+    /// <summary>
+    /// 批量严格复用产物相对路径
+    /// </summary>
+    public string? DownloadArtifactRelativePath { get; set; }
+
+    /// <summary>
+    /// 批量严格复用下载文件名
+    /// </summary>
+    public string? DownloadArtifactFileName { get; set; }
+
+    /// <summary>
+    /// 批量严格复用下载内容类型
+    /// </summary>
+    public string? DownloadArtifactContentType { get; set; }
 }
 
 /// <summary>
@@ -2396,6 +2992,66 @@ internal class FillResult
     public int SpecId { get; set; }
     public string Acceptance { get; set; } = string.Empty;
     public string? Remark { get; set; }
+}
+
+internal class StrictReuseSession
+{
+    public int SourceFileId { get; set; }
+    public string SourceFileName { get; set; } = string.Empty;
+    public UploadedFileType SourceFileType { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public List<StrictReuseTableSnapshot> Tables { get; set; } = [];
+}
+
+internal class StrictReuseTableSnapshot
+{
+    public int TableIndex { get; set; }
+    public int ProjectColumnIndex { get; set; }
+    public int SpecificationColumnIndex { get; set; }
+    public int AcceptanceColumnIndex { get; set; }
+    public int? RemarkColumnIndex { get; set; }
+    public int? HeaderRowStart { get; set; }
+    public int? HeaderRowCount { get; set; }
+    public int? DataStartRow { get; set; }
+    public bool FilterEmptySourceRows { get; set; } = true;
+    public List<StrictReuseRowSignature> RowSignatures { get; set; } = [];
+    public List<FillResult> FillResults { get; set; } = [];
+}
+
+internal class StrictReuseRowSignature
+{
+    public int RowIndex { get; set; }
+    public string Project { get; set; } = string.Empty;
+    public string Specification { get; set; } = string.Empty;
+}
+
+internal class StrictReuseSourceTableDefinition
+{
+    public int TableIndex { get; set; }
+    public int? ProjectColumnIndex { get; set; }
+    public int? SpecificationColumnIndex { get; set; }
+    public int AcceptanceColumnIndex { get; set; }
+    public int? RemarkColumnIndex { get; set; }
+    public int? HeaderRowStart { get; set; }
+    public int? HeaderRowCount { get; set; }
+    public int? DataStartRow { get; set; }
+    public bool? FilterEmptySourceRows { get; set; }
+    public List<FillResult> FillResults { get; set; } = [];
+}
+
+internal class StrictReuseGeneratedFile
+{
+    public int FileId { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = "application/octet-stream";
+    public byte[] Content { get; set; } = [];
+}
+
+internal class SavedDownloadArtifact
+{
+    public string RelativePath { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = "application/octet-stream";
 }
 
 internal readonly record struct WriteBackSummary(int RequestedCells, int WrittenCells);

@@ -47,7 +47,7 @@ const strategyOptions = [
   {
     value: MatchingStrategy.MultiStage,
     label: "多阶段重排",
-    description: "先召回 TopK，再按项目/规格规则重排，适合作为默认推荐。"
+    description: "先召回 TopK，再按项目/规格规则重排，适合复杂模板场景。"
   }
 ] as const;
 

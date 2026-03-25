@@ -20,6 +20,7 @@
   "ShowModel": "smart",
   "MenuArrowIconNoTransition": false,
   "CachingAsyncRoutes": false,
+  "EnableBackendAsyncRoutes": false,
   "TooltipEffect": "light",
   "ResponsiveStorageNameSpace": "responsive-",
   "MenuSearchHistory": 6

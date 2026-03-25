@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using AcceptanceSpecSystem.Core.Matching.Models;
+using AcceptanceSpecSystem.Data.Entities;
 
 namespace AcceptanceSpecSystem.Api.DTOs;
 
@@ -457,6 +458,36 @@ public class ExecuteFillRequest
     public int? RemarkColumnIndex { get; set; }
 
     /// <summary>
+    /// 项目列索引（用于严格复用快照）
+    /// </summary>
+    public int? ProjectColumnIndex { get; set; }
+
+    /// <summary>
+    /// 规格列索引（用于严格复用快照）
+    /// </summary>
+    public int? SpecificationColumnIndex { get; set; }
+
+    /// <summary>
+    /// Excel 表头起始行（1-based，可选）
+    /// </summary>
+    public int? HeaderRowStart { get; set; }
+
+    /// <summary>
+    /// Excel 表头行数（可选）
+    /// </summary>
+    public int? HeaderRowCount { get; set; }
+
+    /// <summary>
+    /// Excel 数据起始行（1-based，可选）
+    /// </summary>
+    public int? DataStartRow { get; set; }
+
+    /// <summary>
+    /// 是否过滤项目列与规格列都为空的行
+    /// </summary>
+    public bool? FilterEmptySourceRows { get; set; }
+
+    /// <summary>
     /// 高置信自动采用阈值
     /// </summary>
     public double? HighConfidenceThreshold { get; set; }
@@ -838,6 +869,36 @@ public class BatchTableFillMapping
     public int? RemarkColumnIndex { get; set; }
 
     /// <summary>
+    /// 项目列索引
+    /// </summary>
+    public int? ProjectColumnIndex { get; set; }
+
+    /// <summary>
+    /// 规格列索引
+    /// </summary>
+    public int? SpecificationColumnIndex { get; set; }
+
+    /// <summary>
+    /// Excel 表头起始行（1-based，可选）
+    /// </summary>
+    public int? HeaderRowStart { get; set; }
+
+    /// <summary>
+    /// Excel 表头行数（可选）
+    /// </summary>
+    public int? HeaderRowCount { get; set; }
+
+    /// <summary>
+    /// Excel 数据起始行（1-based，可选）
+    /// </summary>
+    public int? DataStartRow { get; set; }
+
+    /// <summary>
+    /// 是否过滤项目列与规格列都为空的行
+    /// </summary>
+    public bool? FilterEmptySourceRows { get; set; }
+
+    /// <summary>
     /// 该表格的填充映射列表
     /// </summary>
     public List<FillMapping> Mappings { get; set; } = [];
@@ -862,4 +923,172 @@ public class BatchExecuteFillRequest
     /// 高置信自动采用阈值
     /// </summary>
     public double? HighConfidenceThreshold { get; set; }
+}
+
+/// <summary>
+/// 严格复用预检请求
+/// </summary>
+public class StrictReusePreviewRequest
+{
+    /// <summary>
+    /// 来源填充任务ID
+    /// </summary>
+    [Required(ErrorMessage = "来源填充任务ID不能为空")]
+    public string SourceTaskId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 目标文件ID列表
+    /// </summary>
+    public List<int> TargetFileIds { get; set; } = [];
+}
+
+/// <summary>
+/// 严格复用预检响应
+/// </summary>
+public class StrictReusePreviewResponse
+{
+    /// <summary>
+    /// 来源填充任务ID
+    /// </summary>
+    public string SourceTaskId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件名
+    /// </summary>
+    public string SourceFileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件类型
+    /// </summary>
+    public UploadedFileType SourceFileType { get; set; }
+
+    /// <summary>
+    /// 是否严格模式
+    /// </summary>
+    public bool IsStrictMode { get; set; } = true;
+
+    /// <summary>
+    /// 是否使用 AI
+    /// </summary>
+    public bool UsesAi { get; set; } = false;
+
+    /// <summary>
+    /// 可直接应用数量
+    /// </summary>
+    public int ReadyCount => Files.Count(file => file.CanApply);
+
+    /// <summary>
+    /// 总文件数
+    /// </summary>
+    public int TotalCount => Files.Count;
+
+    /// <summary>
+    /// 逐文件预检结果
+    /// </summary>
+    public List<StrictReusePreviewFileResult> Files { get; set; } = [];
+}
+
+/// <summary>
+/// 严格复用逐文件预检结果
+/// </summary>
+public class StrictReusePreviewFileResult
+{
+    /// <summary>
+    /// 文件ID
+    /// </summary>
+    public int FileId { get; set; }
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否可应用
+    /// </summary>
+    public bool CanApply { get; set; }
+
+    /// <summary>
+    /// 失败原因列表
+    /// </summary>
+    public List<string> Errors { get; set; } = [];
+}
+
+/// <summary>
+/// 严格复用执行请求
+/// </summary>
+public class StrictReuseExecuteRequest
+{
+    /// <summary>
+    /// 来源填充任务ID
+    /// </summary>
+    [Required(ErrorMessage = "来源填充任务ID不能为空")]
+    public string SourceTaskId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 目标文件ID列表
+    /// </summary>
+    public List<int> TargetFileIds { get; set; } = [];
+}
+
+/// <summary>
+/// 严格复用执行响应
+/// </summary>
+public class StrictReuseExecuteResponse
+{
+    /// <summary>
+    /// 执行任务ID
+    /// </summary>
+    public string TaskId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 成功数量
+    /// </summary>
+    public int SuccessCount { get; set; }
+
+    /// <summary>
+    /// 失败数量
+    /// </summary>
+    public int FailedCount { get; set; }
+
+    /// <summary>
+    /// 下载地址
+    /// </summary>
+    public string DownloadUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 下载文件名
+    /// </summary>
+    public string DownloadFileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 逐文件执行结果
+    /// </summary>
+    public List<StrictReuseExecuteFileResult> Files { get; set; } = [];
+}
+
+/// <summary>
+/// 严格复用逐文件执行结果
+/// </summary>
+public class StrictReuseExecuteFileResult
+{
+    /// <summary>
+    /// 文件ID
+    /// </summary>
+    public int FileId { get; set; }
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否成功
+    /// </summary>
+    public bool Success { get; set; }
+
+    /// <summary>
+    /// 结果说明
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
 }

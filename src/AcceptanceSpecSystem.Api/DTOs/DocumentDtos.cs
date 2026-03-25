@@ -328,6 +328,11 @@ public class ImportDataRequest
     public List<string> ConfirmedDifferenceKeys { get; set; } = [];
 
     /// <summary>
+    /// 差异行中“部分覆盖”的键集合（仅覆盖验收标准与备注）
+    /// </summary>
+    public List<string> PartiallyConfirmedDifferenceKeys { get; set; } = [];
+
+    /// <summary>
     /// 差异行中“确认跳过”的键集合（用于二次确认提交）
     /// </summary>
     public List<string> SkippedDifferenceKeys { get; set; } = [];
@@ -336,6 +341,57 @@ public class ImportDataRequest
     /// 本次导入前由用户手动剔除的数据行索引（基于解析后的数据区，0-based）
     /// </summary>
     public List<int> ExcludedRowIndexes { get; set; } = [];
+
+    /// <summary>
+    /// AI 疑似重复识别配置
+    /// </summary>
+    public ImportDuplicateCheckOptions DuplicateCheckOptions { get; set; } = new();
+}
+
+/// <summary>
+/// 导入阶段 AI 疑似重复识别配置
+/// </summary>
+public class ImportDuplicateCheckOptions
+{
+    /// <summary>
+    /// 是否启用 AI 疑似重复识别
+    /// </summary>
+    public bool EnableSemanticDuplicateCheck { get; set; } = false;
+
+    /// <summary>
+    /// Embedding 服务 ID（可选）
+    /// </summary>
+    public int? EmbeddingServiceId { get; set; }
+
+    /// <summary>
+    /// 语义召回候选数
+    /// </summary>
+    public int SemanticTopK { get; set; } = 3;
+
+    /// <summary>
+    /// Embedding 最小候选阈值
+    /// </summary>
+    public double SemanticMinScore { get; set; } = 0.75;
+
+    /// <summary>
+    /// 是否启用 LLM 复核
+    /// </summary>
+    public bool EnableLlmDuplicateReview { get; set; } = false;
+
+    /// <summary>
+    /// LLM 服务 ID（可选）
+    /// </summary>
+    public int? LlmServiceId { get; set; }
+
+    /// <summary>
+    /// LLM 通过阈值（0-1）
+    /// </summary>
+    public double LlmPassScore { get; set; } = 0.9;
+
+    /// <summary>
+    /// 高置信展示阈值（0-1）
+    /// </summary>
+    public double HighConfidenceThreshold { get; set; } = 0.95;
 }
 
 /// <summary>
@@ -437,6 +493,11 @@ public class ImportPendingDifference
     public string Key { get; set; } = string.Empty;
 
     /// <summary>
+    /// 命中类型：exact / conflict / semantic
+    /// </summary>
+    public string MatchType { get; set; } = "conflict";
+
+    /// <summary>
     /// 行号
     /// </summary>
     public int RowIndex { get; set; }
@@ -490,4 +551,34 @@ public class ImportPendingDifference
     /// 库中已有：备注
     /// </summary>
     public string? ExistingRemark { get; set; }
+
+    /// <summary>
+    /// Embedding 相似度（0-1）
+    /// </summary>
+    public double? EmbeddingScore { get; set; }
+
+    /// <summary>
+    /// LLM 复核得分（0-1）
+    /// </summary>
+    public double? LlmScore { get; set; }
+
+    /// <summary>
+    /// 最终判定得分（0-1）
+    /// </summary>
+    public double? FinalScore { get; set; }
+
+    /// <summary>
+    /// 是否达到高置信阈值
+    /// </summary>
+    public bool IsHighConfidence { get; set; }
+
+    /// <summary>
+    /// 复核理由
+    /// </summary>
+    public string? ReviewReason { get; set; }
+
+    /// <summary>
+    /// 复核说明
+    /// </summary>
+    public string? ReviewCommentary { get; set; }
 }

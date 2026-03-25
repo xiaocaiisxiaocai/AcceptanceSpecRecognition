@@ -131,6 +131,7 @@ builder.Services.AddScoped<IAuthAccessService, AuthAccessService>();
 builder.Services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
 builder.Services.AddScoped<IAuthSessionValidationService, AuthSessionValidationService>();
 builder.Services.AddScoped<SpecSemanticSearchService>();
+builder.Services.AddScoped<ImportDuplicateDetectionService>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
 
@@ -144,6 +145,7 @@ builder.Services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServi
 builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
 builder.Services.AddSingleton<ITextSimilarityService, TextSimilarityService>();
 builder.Services.AddScoped<IMatchingService, SemanticKernelMatchingService>();
+builder.Services.AddScoped<PromptTemplateValidationService>();
 builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();
 

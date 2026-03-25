@@ -91,11 +91,13 @@ secrets.json
 
 # Local scratch / generated artifacts
 .claude/plan.md
+.superpowers/
 .tmpbuild/
 artifacts/
 docs/design-overview.pdf
 .cursor/
 .deploy/
+tmp/
 提供测试的文档/
 
 # DataProtection key ring (runtime generated)

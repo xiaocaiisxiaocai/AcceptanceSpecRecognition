@@ -17,86 +17,6 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 /// </summary>
 public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
 {
-    private const string ReviewTemplateName = "matching-review";
-    private const string SuggestTemplateName = "matching-generate";
-
-    // ── V1 旧版模板内容（用于自动升级检测） ──
-    private const string OldReviewTemplateV1 =
-        "你是验收规格匹配评审助手。给定源项目/规格与系统最佳匹配结果，请复核评分并说明原因。\n" +
-        "仅返回严格 JSON：\n" +
-        "{\"score\":0,\"reason\":\"...\",\"commentary\":\"...\"}\n" +
-        "要求：\n" +
-        "- score 取值 0~100\n" +
-        "- reason 解释为什么评分高/低（重点说明低分原因）\n" +
-        "- commentary 简短描述评论过程（对比了哪些关键信息）\n" +
-        "源项目：{{sourceProject}}\n" +
-        "源规格：{{sourceSpecification}}\n" +
-        "最佳匹配项目：{{bestMatchProject}}\n" +
-        "最佳匹配规格：{{bestMatchSpecification}}\n" +
-        "验收标准：{{bestMatchAcceptance}}\n" +
-        "基础得分：{{baseScore}}\n" +
-        "得分明细(JSON)：{{scoreDetailsJson}}";
-
-    private const string OldSuggestTemplateV1 =
-        "你是验收规格助手。请根据\u201c源项目/规格\u201d生成验收标准与备注建议。\n" +
-        "仅返回严格 JSON：\n" +
-        "{\"acceptance\":\"...\",\"remark\":\"...\",\"reason\":\"...\"}\n" +
-        "要求：\n" +
-        "- 用中文\n" +
-        "- 内容简洁、可执行\n" +
-        "- 不确定时可返回空字符串\n" +
-        "源项目：{{sourceProject}}\n" +
-        "源规格：{{sourceSpecification}}";
-
-    // ── V2 新版默认模板 ──
-    private const string DefaultReviewTemplate =
-        "你是验收规格匹配复核助手。系统通过 Embedding 向量相似度为源文档找到了最佳匹配的验收规格，请复核此匹配是否正确。\n\n" +
-        "【任务】对比\"源文档\"与\"系统匹配结果\"的项目名称和规格描述，判断两者是否指向同一个验收项。\n\n" +
-        "【核心约束】\n" +
-        "- 仅基于下方提供的数据进行评判，严禁引入外部知识或自行推测\n" +
-        "- 只对比项目名称和规格描述的语义相似性，不要评价验收标准的合理性\n\n" +
-        "【评分标准】\n" +
-        "- 90~100：项目和规格语义完全一致（允许星号、空格、繁简体等格式差异）\n" +
-        "- 70~89：语义高度相关但有细微差异（如单位不同、数值范围略有不同）\n" +
-        "- 40~69：有一定关联但不能确认为同一规格\n" +
-        "- 0~39：明显不匹配\n\n" +
-        "【源文档】\n" +
-        "项目：{{sourceProject}}\n" +
-        "规格：{{sourceSpecification}}\n\n" +
-        "【系统匹配结果】\n" +
-        "项目：{{bestMatchProject}}\n" +
-        "规格：{{bestMatchSpecification}}\n" +
-        "验收标准：{{bestMatchAcceptance}}\n" +
-        "备注：{{bestMatchRemark}}\n\n" +
-        "【Embedding 基础得分】{{baseScore}}（满分100，越高越相似）\n" +
-        "【得分明细】{{scoreDetailsJson}}\n\n" +
-        "仅返回严格 JSON：\n" +
-        "{\"score\":0,\"reason\":\"...\",\"commentary\":\"...\"}\n" +
-        "要求：\n" +
-        "- score 取值 0~100\n" +
-        "- reason 解释评分理由（重点说明项目/规格的语义对比结论）\n" +
-        "- commentary 简述对比了哪些关键信息";
-
-    private const string DefaultSuggestTemplate =
-        "你是验收规格助手。请根据源文档信息整理验收标准与备注。\n\n" +
-        "【源文档】\n" +
-        "项目：{{sourceProject}}\n" +
-        "规格：{{sourceSpecification}}\n\n" +
-        "【参考数据】\n" +
-        "{{referenceInfo}}\n\n" +
-        "【核心约束 - 必须严格遵守】\n" +
-        "1. 严禁编造、虚构、猜测任何数值、标准、检验方法或技术参数\n" +
-        "2. 只能从源文档的\"项目\"和\"规格\"字段中提取已明确写出的信息进行整理\n" +
-        "3. 如有参考数据，仅可参考其格式和措辞风格，数值必须来自源文档\n" +
-        "4. 如果源文档中没有明确的具体数值或可执行的验收要求，acceptance 和 remark 必须返回空字符串\n" +
-        "5. 宁可返回空字符串，也绝不编造内容\n\n" +
-        "【输出格式】\n" +
-        "仅返回严格 JSON：\n" +
-        "{\"acceptance\":\"...\",\"remark\":\"...\",\"reason\":\"...\"}\n" +
-        "- acceptance：从源文档提取整理的验收标准，信息不足时返回空字符串\n" +
-        "- remark：从源文档提取整理的备注，信息不足时返回空字符串\n" +
-        "- reason：说明生成依据，或说明为何返回空字符串";
-
     private readonly IUnitOfWork _unitOfWork;
     private readonly AiServiceSelector _selector;
     private readonly ISemanticKernelServiceFactory _factory;
@@ -234,7 +154,10 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
             string.IsNullOrWhiteSpace(request.BestMatchSpecification))
             return null;
 
-        var template = await GetOrCreateTemplateAsync(ReviewTemplateName, DefaultReviewTemplate, OldReviewTemplateV1);
+        var scene = request.ReviewScene == LlmReviewScene.ImportDuplicateReview
+            ? PromptTemplateScene.ImportDuplicateReview
+            : PromptTemplateScene.MatchingReview;
+        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(scene));
         var prompt = BuildReviewPrompt(template.Content, request);
 
         _logger.LogInformation("[LLM复核] 源: {Src} | 匹配: {Match} | 基础得分: {Score}",
@@ -265,7 +188,10 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
             string.IsNullOrWhiteSpace(request.BestMatchSpecification))
             yield break;
 
-        var template = await GetOrCreateTemplateAsync(ReviewTemplateName, DefaultReviewTemplate, OldReviewTemplateV1);
+        var scene = request.ReviewScene == LlmReviewScene.ImportDuplicateReview
+            ? PromptTemplateScene.ImportDuplicateReview
+            : PromptTemplateScene.MatchingReview;
+        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(scene));
         var prompt = BuildReviewPrompt(template.Content, request);
 
         _logger.LogInformation("[LLM复核-Stream] 源: {Src} | 匹配: {Match} | 基础得分: {Score}",
@@ -306,7 +232,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         LlmSuggestionRequest request,
         CancellationToken cancellationToken = default)
     {
-        var template = await GetOrCreateTemplateAsync(SuggestTemplateName, DefaultSuggestTemplate, OldSuggestTemplateV1);
+        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(PromptTemplateScene.MatchingGenerate));
         var prompt = BuildSuggestionPrompt(template.Content, request);
 
         _logger.LogInformation("[LLM建议] 源: {Src} | 参考: {Ref}",
@@ -333,7 +259,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         LlmSuggestionRequest request,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var template = await GetOrCreateTemplateAsync(SuggestTemplateName, DefaultSuggestTemplate, OldSuggestTemplateV1);
+        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(PromptTemplateScene.MatchingGenerate));
         var prompt = BuildSuggestionPrompt(template.Content, request);
 
         _logger.LogInformation("[LLM建议-Stream] 源: {Src} | 参考: {Ref}",
@@ -546,33 +472,30 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
     /// <summary>
     /// 获取或创建 Prompt 模板；如果 DB 中存储的是旧版默认模板则自动升级
     /// </summary>
-    private async Task<PromptTemplate> GetOrCreateTemplateAsync(string name, string defaultContent, string? oldContent = null)
+    private async Task<PromptTemplate> GetOrCreateTemplateAsync(SystemPromptTemplateDefinition definition)
     {
-        var template = await _unitOfWork.PromptTemplates.GetByNameAsync(name);
-        if (template != null)
+        var template = await _unitOfWork.PromptTemplates.GetOrCreateSystemAsync(
+            definition.Scene,
+            definition.Name,
+            definition.DisplayName,
+            definition.DefaultContent);
+
+        if (definition.LegacyDefaultContent != null &&
+            string.Equals(template.Content.Trim(), definition.LegacyDefaultContent.Trim(), StringComparison.Ordinal))
         {
-            // 自动升级：DB 模板内容与旧版默认一致时，更新为新版
-            if (oldContent != null && template.Content.Trim() == oldContent.Trim())
-            {
-                _logger.LogInformation("自动升级 LLM Prompt 模板 [{Name}]：检测到旧版默认内容，更新为新版", name);
-                template.Content = defaultContent;
-                await _unitOfWork.SaveChangesAsync();
-            }
-            return template;
+            _logger.LogInformation("自动升级 LLM Prompt 模板 [{Name}]：检测到旧版默认内容，更新为新版", definition.Name);
+            template.Content = definition.DefaultContent;
+            template.UpdatedAt = DateTime.Now;
         }
 
-        template = new PromptTemplate
+        if (string.IsNullOrWhiteSpace(template.Content))
         {
-            Name = name,
-            Content = defaultContent,
-            IsDefault = false,
-            CreatedAt = DateTime.Now
-        };
+            template.Content = definition.DefaultContent;
+            template.UpdatedAt = DateTime.Now;
+        }
 
-        await _unitOfWork.PromptTemplates.AddAsync(template);
         await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("创建默认 LLM Prompt 模板: {Name}", name);
+        _logger.LogInformation("确保系统 LLM Prompt 模板可用: {Name}", definition.Name);
         return template;
     }
 

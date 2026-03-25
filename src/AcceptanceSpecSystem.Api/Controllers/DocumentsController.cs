@@ -3,6 +3,7 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Data.Entities;
@@ -18,10 +19,15 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Route("api/documents")]
 public class DocumentsController : BaseApiController
 {
+    private const string MatchTypeExact = "exact";
+    private const string MatchTypeConflict = "conflict";
+    private const string MatchTypeSemantic = "semantic";
+
     private readonly IUnitOfWork _unitOfWork;
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IFileStorageService _fileStorage;
     private readonly IAuthDataScopeService _authDataScopeService;
+    private readonly ImportDuplicateDetectionService _importDuplicateDetectionService;
     private readonly ILogger<DocumentsController> _logger;
 
     /// <summary>
@@ -32,12 +38,14 @@ public class DocumentsController : BaseApiController
         DocumentServiceFactory documentServiceFactory,
         IFileStorageService fileStorage,
         IAuthDataScopeService authDataScopeService,
+        ImportDuplicateDetectionService importDuplicateDetectionService,
         ILogger<DocumentsController> logger)
     {
         _unitOfWork = unitOfWork;
         _documentServiceFactory = documentServiceFactory;
         _fileStorage = fileStorage;
         _authDataScopeService = authDataScopeService;
+        _importDuplicateDetectionService = importDuplicateDetectionService;
         _logger = logger;
     }
 
@@ -414,6 +422,8 @@ public class DocumentsController : BaseApiController
         if (scope == null)
             return Error<ImportResult>(401, "会话缺少用户上下文");
 
+        var cancellationToken = HttpContext.RequestAborted;
+
         // 验证文件
         var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
         if (wordFile == null)
@@ -492,7 +502,6 @@ public class DocumentsController : BaseApiController
             }
         }
 
-        // 导入数据
         var result = new ImportResult
         {
             TotalCount = tableData.Rows.Count
@@ -505,219 +514,123 @@ public class DocumentsController : BaseApiController
             result.TotalCount = Math.Max(0, tableData.Rows.Count - tableData.Rows.Count(row => excludedRowIndexes.Contains(row.Index)));
         }
 
-        // 比较范围（严格同范围）：客户 + 制程 + 机型 完全一致（含空值一致）才参与重复/差异判断
-        var existingSpecsInScope = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
-            s.CustomerId == request.CustomerId &&
-            s.ProcessId == request.ProcessId &&
-            s.MachineModelId == request.MachineModelId);
-
-        var compareBuffer = existingSpecsInScope.ToList();
-        var specsToInsert = new List<AcceptanceSpec>();
-        var confirmedDifferenceKeys = (request.ConfirmedDifferenceKeys ?? [])
-            .Where(k => !string.IsNullOrWhiteSpace(k))
-            .ToHashSet(StringComparer.Ordinal);
-        var skippedDifferenceKeys = (request.SkippedDifferenceKeys ?? [])
-            .Where(k => !string.IsNullOrWhiteSpace(k))
-            .ToHashSet(StringComparer.Ordinal);
-
-        foreach (var row in tableData.Rows)
+        try
         {
-            if (excludedRowIndexes.Contains(row.Index))
-            {
-                continue;
-            }
+            var existingSpecsInScope = await LoadExistingSpecsForImportAsync(
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                scope,
+                cancellationToken);
+            var duplicateSession = await CreateDuplicateDetectionSessionAsync(
+                existingSpecsInScope,
+                request.ConfirmedDifferenceKeys,
+                request.PartiallyConfirmedDifferenceKeys,
+                request.SkippedDifferenceKeys,
+                request.DuplicateCheckOptions,
+                cancellationToken);
+            var executionContext = CreateImportExecutionContext(
+                result,
+                existingSpecsInScope,
+                request.ConfirmedDifferenceKeys,
+                request.PartiallyConfirmedDifferenceKeys,
+                request.SkippedDifferenceKeys,
+                duplicateSession,
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                request.FileId,
+                scope.UserId,
+                scope.PrimaryOrgUnitId,
+                request.PreviewSkippedRows);
 
-            try
+            foreach (var row in tableData.Rows)
             {
-                var project = GetCellValue(row, request.Mapping.ProjectColumn!.Value);
-                var specification = GetCellValue(row, request.Mapping.SpecificationColumn!.Value);
-
-                // 项目列与规格列必须同时有值，任一为空则跳过
-                if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(specification))
+                if (excludedRowIndexes.Contains(row.Index))
                 {
-                    result.SkippedCount++;
-
-                    if (request.PreviewSkippedRows)
-                    {
-                        var skipReason = string.IsNullOrWhiteSpace(project) && string.IsNullOrWhiteSpace(specification)
-                            ? "项目列与规格列均为空"
-                            : string.IsNullOrWhiteSpace(project)
-                                ? "项目列为空"
-                                : "规格列为空";
-                        result.SkippedRows.Add(new ImportSkippedRow
-                        {
-                            RowIndex = row.Index,
-                            Message = skipReason,
-                            RowValues = GetRowValues(row)
-                        });
-                    }
                     continue;
                 }
 
-                // 列映射已校验必填，这里直接读取（单元格内容仍允许为空）
-                var acceptance = GetCellValue(row, request.Mapping.AcceptanceColumn!.Value);
-                var remark = GetCellValue(row, request.Mapping.RemarkColumn!.Value);
-                var normalizedProject = NormalizeText(project);
-                var normalizedSpecification = NormalizeText(specification);
-                var normalizedAcceptance = NormalizeText(acceptance);
-                var normalizedRemark = NormalizeText(remark);
-
-                var exactExisting = compareBuffer.FirstOrDefault(s =>
-                    IsSameContent(s, normalizedProject, normalizedSpecification, normalizedAcceptance, normalizedRemark));
-
-                if (exactExisting != null)
+                try
                 {
-                    result.SkippedCount++;
-                    if (request.PreviewSkippedRows)
-                    {
-                        result.SkippedRows.Add(new ImportSkippedRow
-                        {
-                            RowIndex = row.Index,
-                            Message = "数据库已存在完全相同数据",
-                            RowValues = GetRowValues(row)
-                        });
-                    }
-                    continue;
-                }
-
-                // 差异定义：项目 + 规格 相同，但验收/备注不一致（完全一致已在上方 exactExisting 处理）
-                var projectConflict = compareBuffer
-                    .Where(s =>
-                        NormalizeText(s.Project) == normalizedProject &&
-                        NormalizeText(s.Specification) == normalizedSpecification)
-                    .OrderBy(s => s.Id)
-                    .FirstOrDefault();
-
-                if (projectConflict != null)
-                {
-                    var diffKey = BuildDifferenceKey(
+                    await ProcessImportRowAsync(
+                        executionContext,
                         request.TableIndex,
-                        row.Index,
-                        normalizedProject,
-                        normalizedSpecification,
-                        normalizedAcceptance,
-                        normalizedRemark);
-
-                    if (confirmedDifferenceKeys.Contains(diffKey))
-                    {
-                        var confirmedSpec = CreateAcceptanceSpec(
-                            request.CustomerId,
-                            request.ProcessId,
-                            request.MachineModelId,
-                            request.FileId,
-                            project,
-                            specification,
-                            acceptance,
-                            remark,
-                            scope.UserId,
-                            scope.PrimaryOrgUnitId);
-                        specsToInsert.Add(confirmedSpec);
-                        compareBuffer.Add(confirmedSpec);
-                        continue;
-                    }
-
-                    if (skippedDifferenceKeys.Contains(diffKey))
-                    {
-                        result.SkippedCount++;
-                        if (request.PreviewSkippedRows)
-                        {
-                            result.SkippedRows.Add(new ImportSkippedRow
-                            {
-                                RowIndex = row.Index,
-                                Message = "差异行已确认跳过",
-                                RowValues = GetRowValues(row)
-                            });
-                        }
-                        continue;
-                    }
-
-                    result.RequiresConfirmation = true;
-                    result.PendingCount++;
-                    result.PendingDifferences.Add(new ImportPendingDifference
-                    {
-                        Key = diffKey,
-                        RowIndex = row.Index,
-                        RowValues = GetRowValues(row),
-                        IncomingProject = project?.Trim() ?? string.Empty,
-                        IncomingSpecification = specification?.Trim() ?? string.Empty,
-                        IncomingAcceptance = NormalizeNullable(acceptance),
-                        IncomingRemark = NormalizeNullable(remark),
-                        ExistingSpecId = projectConflict.Id,
-                        ExistingProject = projectConflict.Project,
-                        ExistingSpecification = projectConflict.Specification,
-                        ExistingAcceptance = projectConflict.Acceptance,
-                        ExistingRemark = projectConflict.Remark
-                    });
-                    continue;
+                        new ImportRowPayload(
+                            row.Index,
+                            GetRowValues(row),
+                            GetCellValue(row, request.Mapping.ProjectColumn!.Value),
+                            GetCellValue(row, request.Mapping.SpecificationColumn!.Value),
+                            request.Mapping.AcceptanceColumn.HasValue ? GetCellValue(row, request.Mapping.AcceptanceColumn.Value) : null,
+                            request.Mapping.RemarkColumn.HasValue ? GetCellValue(row, request.Mapping.RemarkColumn.Value) : null),
+                        cancellationToken);
                 }
-
-                var spec = CreateAcceptanceSpec(
-                    request.CustomerId,
-                    request.ProcessId,
-                    request.MachineModelId,
-                    request.FileId,
-                    project,
-                    specification,
-                    acceptance,
-                    remark,
-                    scope.UserId,
-                    scope.PrimaryOrgUnitId);
-                specsToInsert.Add(spec);
-                compareBuffer.Add(spec);
-            }
-            catch (Exception ex)
-            {
-                result.FailedCount++;
-                result.Errors.Add(new ImportError
+                catch (AiServiceUnavailableException)
                 {
-                    RowIndex = row.Index,
-                    Message = ex.Message
-                });
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    result.FailedCount++;
+                    result.Errors.Add(new ImportError
+                    {
+                        RowIndex = row.Index,
+                        Message = ex.Message
+                    });
+                }
             }
-        }
 
-        if (result.PendingCount > 0)
+            if (result.PendingCount > 0)
+            {
+                return Success(result, $"检测到{result.PendingCount}条重复或疑似重复数据，请逐条确认后再导入");
+            }
+
+            if (executionContext.SpecsToInsert.Count > 0 || executionContext.OverwriteCount > 0)
+            {
+                await _unitOfWork.BeginTransactionAsync();
+                try
+                {
+                    if (executionContext.SpecsToInsert.Count > 0)
+                    {
+                        await _unitOfWork.AcceptanceSpecs.AddRangeAsync(executionContext.SpecsToInsert);
+                    }
+
+                    await _unitOfWork.SaveChangesAsync();
+                    await _unitOfWork.CommitTransactionAsync();
+                    result.SuccessCount = executionContext.SpecsToInsert.Count + executionContext.OverwriteCount;
+                }
+                catch
+                {
+                    await _unitOfWork.RollbackTransactionAsync();
+                    throw;
+                }
+            }
+
+            // 导入完成后按需清理源文件（多表格分批导入时仅最后一次清理）
+            if (request.CleanupSourceFile)
+            {
+                try
+                {
+                    await _fileStorage.DeleteIfExistsAsync(wordFile.FilePath);
+                    wordFile.FilePath = null;
+                    await _unitOfWork.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "导入后清理源文件失败: fileId={FileId}", request.FileId);
+                }
+            }
+
+            _logger.LogInformation(
+                "导入完成: 文件{FileId}, 表格{TableIndex}, 客户{CustomerId}, 制程{ProcessId}, 机型{MachineModelId}, 成功{Success}, 失败{Failed}, 跳过{Skipped}",
+                request.FileId, request.TableIndex, request.CustomerId, request.ProcessId, request.MachineModelId, result.SuccessCount, result.FailedCount, result.SkippedCount);
+
+            return Success(result, $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条");
+        }
+        catch (AiServiceUnavailableException ex)
         {
-            return Success(result, $"检测到{result.PendingCount}条差异，请逐条确认后再导入");
+            return Error<ImportResult>(400, BuildAiImportUnavailableMessage(request.DuplicateCheckOptions, ex));
         }
-
-        if (specsToInsert.Count > 0)
-        {
-            await _unitOfWork.BeginTransactionAsync();
-            try
-            {
-                await _unitOfWork.AcceptanceSpecs.AddRangeAsync(specsToInsert);
-                await _unitOfWork.SaveChangesAsync();
-                await _unitOfWork.CommitTransactionAsync();
-                result.SuccessCount = specsToInsert.Count;
-            }
-            catch
-            {
-                await _unitOfWork.RollbackTransactionAsync();
-                throw;
-            }
-        }
-
-        // 导入完成后按需清理源文件（多表格分批导入时仅最后一次清理）
-        if (request.CleanupSourceFile)
-        {
-            try
-            {
-                await _fileStorage.DeleteIfExistsAsync(wordFile.FilePath);
-                wordFile.FilePath = null;
-                await _unitOfWork.SaveChangesAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "导入后清理源文件失败: fileId={FileId}", request.FileId);
-            }
-        }
-
-        _logger.LogInformation(
-            "导入完成: 文件{FileId}, 表格{TableIndex}, 客户{CustomerId}, 制程{ProcessId}, 机型{MachineModelId}, 成功{Success}, 失败{Failed}, 跳过{Skipped}",
-            request.FileId, request.TableIndex, request.CustomerId, request.ProcessId, request.MachineModelId, result.SuccessCount, result.FailedCount, result.SkippedCount);
-
-        return Success(result, $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条");
     }
 
     /// <summary>
@@ -735,6 +648,8 @@ public class DocumentsController : BaseApiController
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<ImportResult>(401, "会话缺少用户上下文");
+
+        var cancellationToken = HttpContext.RequestAborted;
 
         var file = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
         if (file == null)
@@ -860,216 +775,121 @@ public class DocumentsController : BaseApiController
             result.TotalCount = Math.Max(0, tableData.Rows.Count - tableData.Rows.Count(row => excludedRowIndexes.Contains(row.Index)));
         }
 
-        // 比较范围（严格同范围）：客户 + 制程 + 机型 完全一致（含空值一致）才参与重复/差异判断
-        var existingSpecsInScope = await _unitOfWork.AcceptanceSpecs.FindAsync(s =>
-            s.CustomerId == request.CustomerId &&
-            s.ProcessId == request.ProcessId &&
-            s.MachineModelId == request.MachineModelId);
-
-        var compareBuffer = existingSpecsInScope.ToList();
-        var specsToInsert = new List<AcceptanceSpec>();
-        var confirmedDifferenceKeys = (request.ConfirmedDifferenceKeys ?? [])
-            .Where(k => !string.IsNullOrWhiteSpace(k))
-            .ToHashSet(StringComparer.Ordinal);
-        var skippedDifferenceKeys = (request.SkippedDifferenceKeys ?? [])
-            .Where(k => !string.IsNullOrWhiteSpace(k))
-            .ToHashSet(StringComparer.Ordinal);
-
-        foreach (var row in tableData.Rows)
+        try
         {
-            if (excludedRowIndexes.Contains(row.Index))
+            var existingSpecsInScope = await LoadExistingSpecsForImportAsync(
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                scope,
+                cancellationToken);
+            var duplicateSession = await CreateDuplicateDetectionSessionAsync(
+                existingSpecsInScope,
+                request.ConfirmedDifferenceKeys,
+                request.PartiallyConfirmedDifferenceKeys,
+                request.SkippedDifferenceKeys,
+                request.DuplicateCheckOptions,
+                cancellationToken);
+            var executionContext = CreateImportExecutionContext(
+                result,
+                existingSpecsInScope,
+                request.ConfirmedDifferenceKeys,
+                request.PartiallyConfirmedDifferenceKeys,
+                request.SkippedDifferenceKeys,
+                duplicateSession,
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                request.FileId,
+                scope.UserId,
+                scope.PrimaryOrgUnitId,
+                request.PreviewSkippedRows);
+
+            foreach (var row in tableData.Rows)
             {
-                continue;
-            }
-
-            var excelRowNumber = request.DataStartRow + row.Index;
-
-            try
-            {
-                var project = GetCellValue(row, projectCol);
-                var specification = GetCellValue(row, specCol);
-
-                // 项目列与规格列必须同时有值，任一为空则跳过
-                if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(specification))
+                if (excludedRowIndexes.Contains(row.Index))
                 {
-                    result.SkippedCount++;
-
-                    if (request.PreviewSkippedRows)
-                    {
-                        var skipReason = string.IsNullOrWhiteSpace(project) && string.IsNullOrWhiteSpace(specification)
-                            ? "项目列与规格列均为空"
-                            : string.IsNullOrWhiteSpace(project)
-                                ? "项目列为空"
-                                : "规格列为空";
-                        result.SkippedRows.Add(new ImportSkippedRow
-                        {
-                            RowIndex = excelRowNumber,
-                            Message = skipReason,
-                            RowValues = GetRowValues(row)
-                        });
-                    }
                     continue;
                 }
 
-                var acceptance = acceptanceCol.HasValue ? GetCellValue(row, acceptanceCol.Value) : null;
-                var remark = remarkCol.HasValue ? GetCellValue(row, remarkCol.Value) : null;
-                var normalizedProject = NormalizeText(project);
-                var normalizedSpecification = NormalizeText(specification);
-                var normalizedAcceptance = NormalizeText(acceptance);
-                var normalizedRemark = NormalizeText(remark);
+                var excelRowNumber = request.DataStartRow + row.Index;
 
-                var exactExisting = compareBuffer.FirstOrDefault(s =>
-                    IsSameContent(s, normalizedProject, normalizedSpecification, normalizedAcceptance, normalizedRemark));
-
-                if (exactExisting != null)
+                try
                 {
-                    result.SkippedCount++;
-                    if (request.PreviewSkippedRows)
-                    {
-                        result.SkippedRows.Add(new ImportSkippedRow
-                        {
-                            RowIndex = excelRowNumber,
-                            Message = "数据库已存在完全相同数据",
-                            RowValues = GetRowValues(row)
-                        });
-                    }
-                    continue;
-                }
-
-                // 差异定义：项目 + 规格 相同，但验收/备注不一致（完全一致已在上方 exactExisting 处理）
-                var projectConflict = compareBuffer
-                    .Where(s =>
-                        NormalizeText(s.Project) == normalizedProject &&
-                        NormalizeText(s.Specification) == normalizedSpecification)
-                    .OrderBy(s => s.Id)
-                    .FirstOrDefault();
-
-                if (projectConflict != null)
-                {
-                    var diffKey = BuildDifferenceKey(
+                    await ProcessImportRowAsync(
+                        executionContext,
                         request.SheetIndex,
-                        excelRowNumber,
-                        normalizedProject,
-                        normalizedSpecification,
-                        normalizedAcceptance,
-                        normalizedRemark);
-
-                    if (confirmedDifferenceKeys.Contains(diffKey))
-                    {
-                        var confirmedSpec = CreateAcceptanceSpec(
-                            request.CustomerId,
-                            request.ProcessId,
-                            request.MachineModelId,
-                            request.FileId,
-                            project,
-                            specification,
-                            acceptance,
-                            remark,
-                            scope.UserId,
-                            scope.PrimaryOrgUnitId);
-                        specsToInsert.Add(confirmedSpec);
-                        compareBuffer.Add(confirmedSpec);
-                        continue;
-                    }
-
-                    if (skippedDifferenceKeys.Contains(diffKey))
-                    {
-                        result.SkippedCount++;
-                        if (request.PreviewSkippedRows)
-                        {
-                            result.SkippedRows.Add(new ImportSkippedRow
-                            {
-                                RowIndex = excelRowNumber,
-                                Message = "差异行已确认跳过",
-                                RowValues = GetRowValues(row)
-                            });
-                        }
-                        continue;
-                    }
-
-                    result.RequiresConfirmation = true;
-                    result.PendingCount++;
-                    result.PendingDifferences.Add(new ImportPendingDifference
-                    {
-                        Key = diffKey,
-                        RowIndex = excelRowNumber,
-                        RowValues = GetRowValues(row),
-                        IncomingProject = project?.Trim() ?? string.Empty,
-                        IncomingSpecification = specification?.Trim() ?? string.Empty,
-                        IncomingAcceptance = NormalizeNullable(acceptance),
-                        IncomingRemark = NormalizeNullable(remark),
-                        ExistingSpecId = projectConflict.Id,
-                        ExistingProject = projectConflict.Project,
-                        ExistingSpecification = projectConflict.Specification,
-                        ExistingAcceptance = projectConflict.Acceptance,
-                        ExistingRemark = projectConflict.Remark
-                    });
-                    continue;
+                        new ImportRowPayload(
+                            excelRowNumber,
+                            GetRowValues(row),
+                            GetCellValue(row, projectCol),
+                            GetCellValue(row, specCol),
+                            acceptanceCol.HasValue ? GetCellValue(row, acceptanceCol.Value) : null,
+                            remarkCol.HasValue ? GetCellValue(row, remarkCol.Value) : null),
+                        cancellationToken);
                 }
-
-                var spec = CreateAcceptanceSpec(
-                    request.CustomerId,
-                    request.ProcessId,
-                    request.MachineModelId,
-                    request.FileId,
-                    project,
-                    specification,
-                    acceptance,
-                    remark,
-                    scope.UserId,
-                    scope.PrimaryOrgUnitId);
-                specsToInsert.Add(spec);
-                compareBuffer.Add(spec);
-            }
-            catch (Exception ex)
-            {
-                result.FailedCount++;
-                result.Errors.Add(new ImportError
+                catch (AiServiceUnavailableException)
                 {
-                    RowIndex = excelRowNumber,
-                    Message = ex.Message
-                });
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    result.FailedCount++;
+                    result.Errors.Add(new ImportError
+                    {
+                        RowIndex = excelRowNumber,
+                        Message = ex.Message
+                    });
+                }
             }
-        }
 
-        if (result.PendingCount > 0)
+            if (result.PendingCount > 0)
+            {
+                return Success(result, $"检测到{result.PendingCount}条重复或疑似重复数据，请逐条确认后再导入");
+            }
+
+            if (executionContext.SpecsToInsert.Count > 0 || executionContext.OverwriteCount > 0)
+            {
+                await _unitOfWork.BeginTransactionAsync();
+                try
+                {
+                    if (executionContext.SpecsToInsert.Count > 0)
+                    {
+                        await _unitOfWork.AcceptanceSpecs.AddRangeAsync(executionContext.SpecsToInsert);
+                    }
+
+                    await _unitOfWork.SaveChangesAsync();
+                    await _unitOfWork.CommitTransactionAsync();
+                    result.SuccessCount = executionContext.SpecsToInsert.Count + executionContext.OverwriteCount;
+                }
+                catch
+                {
+                    await _unitOfWork.RollbackTransactionAsync();
+                    throw;
+                }
+            }
+
+            // 导入完成后按需清理源文件（多工作表分批导入时仅最后一次清理）
+            if (request.CleanupSourceFile)
+            {
+                try
+                {
+                    await _fileStorage.DeleteIfExistsAsync(file.FilePath);
+                    file.FilePath = null;
+                    await _unitOfWork.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Excel导入后清理源文件失败: fileId={FileId}", request.FileId);
+                }
+            }
+
+            return Success(result, $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条");
+        }
+        catch (AiServiceUnavailableException ex)
         {
-            return Success(result, $"检测到{result.PendingCount}条差异，请逐条确认后再导入");
+            return Error<ImportResult>(400, BuildAiImportUnavailableMessage(request.DuplicateCheckOptions, ex));
         }
-
-        if (specsToInsert.Count > 0)
-        {
-            await _unitOfWork.BeginTransactionAsync();
-            try
-            {
-                await _unitOfWork.AcceptanceSpecs.AddRangeAsync(specsToInsert);
-                await _unitOfWork.SaveChangesAsync();
-                await _unitOfWork.CommitTransactionAsync();
-                result.SuccessCount = specsToInsert.Count;
-            }
-            catch
-            {
-                await _unitOfWork.RollbackTransactionAsync();
-                throw;
-            }
-        }
-
-        // 导入完成后按需清理源文件（多工作表分批导入时仅最后一次清理）
-        if (request.CleanupSourceFile)
-        {
-            try
-            {
-                await _fileStorage.DeleteIfExistsAsync(file.FilePath);
-                file.FilePath = null;
-                await _unitOfWork.SaveChangesAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Excel导入后清理源文件失败: fileId={FileId}", request.FileId);
-            }
-        }
-
-        return Success(result, $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条");
     }
 
     [HttpDelete("{id}")]
@@ -1136,6 +956,661 @@ public class DocumentsController : BaseApiController
             .GroupBy(s => s.WordFileId)
             .Select(g => new { FileId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.FileId, x => x.Count);
+    }
+
+    private async Task<List<AcceptanceSpec>> LoadExistingSpecsForImportAsync(
+        int customerId,
+        int? processId,
+        int? machineModelId,
+        DataScopeResult scope,
+        CancellationToken cancellationToken)
+    {
+        return await SpecDataScopeHelper.ApplyScopeToQuery(
+                _unitOfWork.AcceptanceSpecs.Query(asNoTracking: false),
+                scope)
+            .Where(s =>
+                s.CustomerId == customerId &&
+                s.ProcessId == processId &&
+                s.MachineModelId == machineModelId)
+            .OrderBy(s => s.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    private async Task<ImportDuplicateDetectionSession> CreateDuplicateDetectionSessionAsync(
+        IReadOnlyCollection<AcceptanceSpec> existingSpecs,
+        IEnumerable<string>? confirmedDifferenceKeys,
+        IEnumerable<string>? partiallyConfirmedDifferenceKeys,
+        IEnumerable<string>? skippedDifferenceKeys,
+        ImportDuplicateCheckOptions? options,
+        CancellationToken cancellationToken)
+    {
+        if (HasReplayDifferenceDecisions(
+                confirmedDifferenceKeys,
+                partiallyConfirmedDifferenceKeys,
+                skippedDifferenceKeys))
+        {
+            _logger.LogInformation("检测到已确认的导入差异决策，本次确认提交跳过 AI/Embedding 重复检测");
+            return ImportDuplicateDetectionSession.Disabled(new ImportDuplicateCheckOptions());
+        }
+
+        return await _importDuplicateDetectionService.CreateSessionAsync(
+            existingSpecs,
+            options,
+            cancellationToken);
+    }
+
+    private static bool HasReplayDifferenceDecisions(
+        IEnumerable<string>? confirmedDifferenceKeys,
+        IEnumerable<string>? partiallyConfirmedDifferenceKeys,
+        IEnumerable<string>? skippedDifferenceKeys)
+    {
+        return HasAnyDifferenceDecision(confirmedDifferenceKeys) ||
+               HasAnyDifferenceDecision(partiallyConfirmedDifferenceKeys) ||
+               HasAnyDifferenceDecision(skippedDifferenceKeys);
+    }
+
+    private static bool HasAnyDifferenceDecision(IEnumerable<string>? keys)
+    {
+        return keys?.Any(key => !string.IsNullOrWhiteSpace(key)) == true;
+    }
+
+    private static ImportExecutionContext CreateImportExecutionContext(
+        ImportResult result,
+        List<AcceptanceSpec> existingSpecs,
+        IEnumerable<string>? confirmedDifferenceKeys,
+        IEnumerable<string>? partiallyConfirmedDifferenceKeys,
+        IEnumerable<string>? skippedDifferenceKeys,
+        ImportDuplicateDetectionSession duplicateSession,
+        int customerId,
+        int? processId,
+        int? machineModelId,
+        int fileId,
+        int userId,
+        int? ownerOrgUnitId,
+        bool previewSkippedRows)
+    {
+        return new ImportExecutionContext
+        {
+            PendingDecisionMap = BuildPendingDecisionMap(
+                confirmedDifferenceKeys,
+                partiallyConfirmedDifferenceKeys,
+                skippedDifferenceKeys),
+            Result = result,
+            ExistingSpecs = existingSpecs,
+            PendingInsertedSpecs = [],
+            SpecsToInsert = [],
+            ConfirmedDifferenceKeys = (confirmedDifferenceKeys ?? [])
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .ToHashSet(StringComparer.Ordinal),
+            PartiallyConfirmedDifferenceKeys = (partiallyConfirmedDifferenceKeys ?? [])
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .ToHashSet(StringComparer.Ordinal),
+            SkippedDifferenceKeys = (skippedDifferenceKeys ?? [])
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .ToHashSet(StringComparer.Ordinal),
+            DuplicateSession = duplicateSession,
+            CustomerId = customerId,
+            ProcessId = processId,
+            MachineModelId = machineModelId,
+            FileId = fileId,
+            UserId = userId,
+            OwnerOrgUnitId = ownerOrgUnitId,
+            PreviewSkippedRows = previewSkippedRows
+        };
+    }
+
+    private async Task ProcessImportRowAsync(
+        ImportExecutionContext context,
+        int tableIndex,
+        ImportRowPayload row,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(row.Project) || string.IsNullOrWhiteSpace(row.Specification))
+        {
+            AddSkippedRow(
+                context,
+                row.RowIndex,
+                string.IsNullOrWhiteSpace(row.Project) && string.IsNullOrWhiteSpace(row.Specification)
+                    ? "项目列与规格列均为空"
+                    : string.IsNullOrWhiteSpace(row.Project)
+                        ? "项目列为空"
+                        : "规格列为空",
+                row.RowValues);
+            return;
+        }
+
+        var normalizedProject = NormalizeText(row.Project);
+        var normalizedSpecification = NormalizeText(row.Specification);
+        var normalizedAcceptance = NormalizeText(row.Acceptance);
+        var normalizedRemark = NormalizeText(row.Remark);
+
+        if (TryApplyExplicitPendingDecision(
+                context,
+                tableIndex,
+                row,
+                normalizedProject,
+                normalizedSpecification,
+                normalizedAcceptance,
+                normalizedRemark))
+        {
+            return;
+        }
+
+        var exactExisting = context.ExistingSpecs.FirstOrDefault(spec =>
+            IsSameContent(spec, normalizedProject, normalizedSpecification, normalizedAcceptance, normalizedRemark));
+        if (exactExisting != null)
+        {
+            var diffKey = BuildDifferenceKey(
+                tableIndex,
+                row.RowIndex,
+                MatchTypeExact,
+                exactExisting.Id,
+                normalizedProject,
+                normalizedSpecification,
+                normalizedAcceptance,
+                normalizedRemark);
+            if (await TryApplyPendingDecisionAsync(
+                    context,
+                    row,
+                    diffKey,
+                    MatchTypeExact,
+                    exactExisting,
+                    null,
+                    cancellationToken))
+            {
+                return;
+            }
+
+            AddPendingDifference(
+                context,
+                row,
+                diffKey,
+                MatchTypeExact,
+                exactExisting,
+                null);
+            return;
+        }
+
+        var inBatchExact = context.PendingInsertedSpecs.FirstOrDefault(spec =>
+            IsSameContent(spec, normalizedProject, normalizedSpecification, normalizedAcceptance, normalizedRemark));
+        if (inBatchExact != null)
+        {
+            AddSkippedRow(context, row.RowIndex, "本次待导入数据中已存在完全相同内容，已自动保留首条", row.RowValues);
+            return;
+        }
+
+        var projectConflict = context.ExistingSpecs.FirstOrDefault(spec =>
+            HasSameProjectAndSpecification(spec, normalizedProject, normalizedSpecification));
+        if (projectConflict != null)
+        {
+            var diffKey = BuildDifferenceKey(
+                tableIndex,
+                row.RowIndex,
+                MatchTypeConflict,
+                projectConflict.Id,
+                normalizedProject,
+                normalizedSpecification,
+                normalizedAcceptance,
+                normalizedRemark);
+            if (await TryApplyPendingDecisionAsync(
+                    context,
+                    row,
+                    diffKey,
+                    MatchTypeConflict,
+                    projectConflict,
+                    null,
+                    cancellationToken))
+            {
+                return;
+            }
+
+            AddPendingDifference(
+                context,
+                row,
+                diffKey,
+                MatchTypeConflict,
+                projectConflict,
+                null);
+            return;
+        }
+
+        var inBatchConflict = context.PendingInsertedSpecs.FirstOrDefault(spec =>
+            HasSameProjectAndSpecification(spec, normalizedProject, normalizedSpecification));
+        if (inBatchConflict != null)
+        {
+            AddSkippedRow(context, row.RowIndex, "本次待导入数据中已存在相同项目与规格，已自动保留首条", row.RowValues);
+            return;
+        }
+
+        if (context.DuplicateSession.IsEnabled && !context.SkipSemanticDetection)
+        {
+            var semanticMatch = await context.DuplicateSession.DetectAsync(
+                normalizedProject,
+                normalizedSpecification,
+                cancellationToken);
+            if (semanticMatch != null)
+            {
+                var diffKey = BuildDifferenceKey(
+                    tableIndex,
+                    row.RowIndex,
+                    MatchTypeSemantic,
+                    semanticMatch.ExistingSpec.Id,
+                    normalizedProject,
+                    normalizedSpecification,
+                    normalizedAcceptance,
+                    normalizedRemark);
+                if (await TryApplyPendingDecisionAsync(
+                        context,
+                        row,
+                        diffKey,
+                        MatchTypeSemantic,
+                        semanticMatch.ExistingSpec,
+                        semanticMatch,
+                        cancellationToken))
+                {
+                    return;
+                }
+
+                AddPendingDifference(
+                    context,
+                    row,
+                    diffKey,
+                    MatchTypeSemantic,
+                    semanticMatch.ExistingSpec,
+                    semanticMatch);
+                return;
+            }
+        }
+
+        var spec = CreateAcceptanceSpec(
+            context.CustomerId,
+            context.ProcessId,
+            context.MachineModelId,
+            context.FileId,
+            row.Project,
+            row.Specification,
+            row.Acceptance,
+            row.Remark,
+            context.UserId,
+            context.OwnerOrgUnitId);
+        context.SpecsToInsert.Add(spec);
+        context.PendingInsertedSpecs.Add(spec);
+    }
+
+    private static bool TryApplyExplicitPendingDecision(
+        ImportExecutionContext context,
+        int tableIndex,
+        ImportRowPayload row,
+        string normalizedProject,
+        string normalizedSpecification,
+        string normalizedAcceptance,
+        string normalizedRemark)
+    {
+        if (context.PendingDecisionMap.Count == 0)
+        {
+            return false;
+        }
+
+        var decisionKey = BuildPendingDecisionLookupKey(
+            tableIndex,
+            row.RowIndex,
+            normalizedProject,
+            normalizedSpecification,
+            normalizedAcceptance,
+            normalizedRemark);
+
+        if (!context.PendingDecisionMap.TryGetValue(decisionKey, out var decision))
+        {
+            return false;
+        }
+
+        var existingSpec = context.ExistingSpecs.FirstOrDefault(spec => spec.Id == decision.ExistingSpecId);
+        if (existingSpec == null)
+        {
+            throw new InvalidOperationException("已确认的重复项对应记录不存在，请重新发起导入");
+        }
+
+        if (decision.Decision == DifferenceDecision.Import)
+        {
+            OverwriteAcceptanceSpec(
+                existingSpec,
+                context.CustomerId,
+                context.ProcessId,
+                context.MachineModelId,
+                context.FileId,
+                row.Project,
+                row.Specification,
+                row.Acceptance,
+                row.Remark);
+            context.OverwriteCount++;
+            return true;
+        }
+
+        if (decision.Decision == DifferenceDecision.PartialImport)
+        {
+            OverwriteAcceptanceAndRemark(
+                existingSpec,
+                context.CustomerId,
+                context.ProcessId,
+                context.MachineModelId,
+                context.FileId,
+                row.Acceptance,
+                row.Remark);
+            context.OverwriteCount++;
+            return true;
+        }
+
+        AddSkippedRow(context, row.RowIndex, GetSkippedMessage(decision.MatchType), row.RowValues);
+        return true;
+    }
+
+    private async Task<bool> TryApplyPendingDecisionAsync(
+        ImportExecutionContext context,
+        ImportRowPayload row,
+        string diffKey,
+        string matchType,
+        AcceptanceSpec existingSpec,
+        ImportSemanticDuplicateMatch? semanticMatch,
+        CancellationToken cancellationToken)
+    {
+        if (context.ConfirmedDifferenceKeys.Contains(diffKey))
+        {
+            var searchTextChanged =
+                NormalizeText(existingSpec.Project) != NormalizeText(row.Project) ||
+                NormalizeText(existingSpec.Specification) != NormalizeText(row.Specification);
+
+            OverwriteAcceptanceSpec(
+                existingSpec,
+                context.CustomerId,
+                context.ProcessId,
+                context.MachineModelId,
+                context.FileId,
+                row.Project,
+                row.Specification,
+                row.Acceptance,
+                row.Remark);
+
+            if (searchTextChanged && !context.SkipSemanticDetection)
+            {
+                await context.DuplicateSession.RefreshCandidateAsync(existingSpec, cancellationToken);
+            }
+
+            context.OverwriteCount++;
+            return true;
+        }
+
+        if (context.PartiallyConfirmedDifferenceKeys.Contains(diffKey))
+        {
+            OverwriteAcceptanceAndRemark(
+                existingSpec,
+                context.CustomerId,
+                context.ProcessId,
+                context.MachineModelId,
+                context.FileId,
+                row.Acceptance,
+                row.Remark);
+            context.OverwriteCount++;
+            return true;
+        }
+
+        if (context.SkippedDifferenceKeys.Contains(diffKey))
+        {
+            AddSkippedRow(context, row.RowIndex, GetSkippedMessage(matchType), row.RowValues);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void AddPendingDifference(
+        ImportExecutionContext context,
+        ImportRowPayload row,
+        string diffKey,
+        string matchType,
+        AcceptanceSpec existingSpec,
+        ImportSemanticDuplicateMatch? semanticMatch)
+    {
+        context.Result.RequiresConfirmation = true;
+        context.Result.PendingCount++;
+        context.Result.PendingDifferences.Add(new ImportPendingDifference
+        {
+            Key = diffKey,
+            MatchType = matchType,
+            RowIndex = row.RowIndex,
+            RowValues = row.RowValues,
+            IncomingProject = NormalizeText(row.Project),
+            IncomingSpecification = NormalizeText(row.Specification),
+            IncomingAcceptance = NormalizeNullable(row.Acceptance),
+            IncomingRemark = NormalizeNullable(row.Remark),
+            ExistingSpecId = existingSpec.Id,
+            ExistingProject = existingSpec.Project,
+            ExistingSpecification = existingSpec.Specification,
+            ExistingAcceptance = existingSpec.Acceptance,
+            ExistingRemark = existingSpec.Remark,
+            EmbeddingScore = semanticMatch?.EmbeddingScore,
+            LlmScore = semanticMatch?.LlmScore,
+            FinalScore = semanticMatch?.FinalScore,
+            IsHighConfidence = semanticMatch?.IsHighConfidence ?? false,
+            ReviewReason = semanticMatch?.ReviewReason,
+            ReviewCommentary = semanticMatch?.ReviewCommentary
+        });
+    }
+
+    private static void AddSkippedRow(
+        ImportExecutionContext context,
+        int rowIndex,
+        string message,
+        List<string> rowValues)
+    {
+        context.Result.SkippedCount++;
+        if (!context.PreviewSkippedRows)
+        {
+            return;
+        }
+
+        context.Result.SkippedRows.Add(new ImportSkippedRow
+        {
+            RowIndex = rowIndex,
+            Message = message,
+            RowValues = rowValues
+        });
+    }
+
+    private static string BuildAiImportUnavailableMessage(
+        ImportDuplicateCheckOptions? options,
+        AiServiceUnavailableException ex)
+    {
+        var details = ex.Details.Count > 0
+            ? $" 详细信息：{string.Join("；", ex.Details)}"
+            : string.Empty;
+
+        if (options?.EnableSemanticDuplicateCheck != true)
+        {
+            return $"AI 服务不可用：{ex.Reason}{details}";
+        }
+
+        if (options.EnableLlmDuplicateReview && ex.Reason.Contains("LLM", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"AI 重复复核不可用，请关闭 LLM 复核或检查 AI 服务配置后重试：{ex.Reason}{details}";
+        }
+
+        return $"AI 疑似重复识别不可用，请关闭 AI 模式后重试或检查 Embedding 服务配置：{ex.Reason}{details}";
+    }
+
+    private static string GetSkippedMessage(string matchType)
+    {
+        return matchType switch
+        {
+            MatchTypeExact => "完全重复数据已确认跳过",
+            MatchTypeSemantic => "AI 疑似重复数据已确认跳过",
+            _ => "差异数据已确认跳过"
+        };
+    }
+
+    private static bool HasSameProjectAndSpecification(
+        AcceptanceSpec spec,
+        string normalizedProject,
+        string normalizedSpecification)
+    {
+        return NormalizeText(spec.Project) == normalizedProject &&
+               NormalizeText(spec.Specification) == normalizedSpecification;
+    }
+
+    private static Dictionary<string, PendingDecisionEntry> BuildPendingDecisionMap(
+        IEnumerable<string>? confirmedDifferenceKeys,
+        IEnumerable<string>? partiallyConfirmedDifferenceKeys,
+        IEnumerable<string>? skippedDifferenceKeys)
+    {
+        var result = new Dictionary<string, PendingDecisionEntry>(StringComparer.Ordinal);
+
+        foreach (var key in confirmedDifferenceKeys ?? [])
+        {
+            if (TryParsePendingDecisionEntry(key, DifferenceDecision.Import, out var entry))
+            {
+                result[entry.LookupKey] = entry;
+            }
+        }
+
+        foreach (var key in partiallyConfirmedDifferenceKeys ?? [])
+        {
+            if (TryParsePendingDecisionEntry(key, DifferenceDecision.PartialImport, out var entry))
+            {
+                result[entry.LookupKey] = entry;
+            }
+        }
+
+        foreach (var key in skippedDifferenceKeys ?? [])
+        {
+            if (TryParsePendingDecisionEntry(key, DifferenceDecision.Skip, out var entry))
+            {
+                result[entry.LookupKey] = entry;
+            }
+        }
+
+        return result;
+    }
+
+    private static bool TryParsePendingDecisionEntry(
+        string encodedKey,
+        DifferenceDecision decision,
+        out PendingDecisionEntry entry)
+    {
+        entry = null!;
+        if (string.IsNullOrWhiteSpace(encodedKey))
+        {
+            return false;
+        }
+
+        string raw;
+        try
+        {
+            raw = Encoding.UTF8.GetString(Convert.FromBase64String(encodedKey));
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (!TryReadNextSegment(raw, 0, out var tableIndexText, out var cursor) ||
+            !int.TryParse(tableIndexText, out var tableIndex) ||
+            !TryReadNextSegment(raw, cursor, out var rowIndexText, out cursor) ||
+            !int.TryParse(rowIndexText, out var rowIndex) ||
+            !TryReadNextSegment(raw, cursor, out var matchType, out cursor) ||
+            !TryReadNextSegment(raw, cursor, out var specIdText, out cursor) ||
+            !int.TryParse(specIdText, out var existingSpecId))
+        {
+            return false;
+        }
+
+        var contentPayload = cursor <= raw.Length ? raw[cursor..] : string.Empty;
+        entry = new PendingDecisionEntry
+        {
+            LookupKey = BuildPendingDecisionLookupKey(tableIndex, rowIndex, contentPayload),
+            MatchType = matchType,
+            ExistingSpecId = existingSpecId,
+            Decision = decision
+        };
+        return true;
+    }
+
+    private static bool TryReadNextSegment(
+        string value,
+        int startIndex,
+        out string segment,
+        out int nextIndex)
+    {
+        segment = string.Empty;
+        nextIndex = startIndex;
+        if (startIndex > value.Length)
+        {
+            return false;
+        }
+
+        var separatorIndex = value.IndexOf('|', startIndex);
+        if (separatorIndex < 0)
+        {
+            return false;
+        }
+
+        segment = value[startIndex..separatorIndex];
+        nextIndex = separatorIndex + 1;
+        return true;
+    }
+
+    private static string BuildPendingDecisionLookupKey(
+        int tableIndex,
+        int rowIndex,
+        string normalizedProject,
+        string normalizedSpecification,
+        string normalizedAcceptance,
+        string normalizedRemark)
+    {
+        return $"{tableIndex}|{rowIndex}|{normalizedProject}|{normalizedSpecification}|{normalizedAcceptance}|{normalizedRemark}";
+    }
+
+    private static string BuildPendingDecisionLookupKey(int tableIndex, int rowIndex, string contentPayload)
+    {
+        return $"{tableIndex}|{rowIndex}|{contentPayload}";
+    }
+
+    private static void OverwriteAcceptanceSpec(
+        AcceptanceSpec existingSpec,
+        int customerId,
+        int? processId,
+        int? machineModelId,
+        int wordFileId,
+        string? project,
+        string? specification,
+        string? acceptance,
+        string? remark)
+    {
+        existingSpec.CustomerId = customerId;
+        existingSpec.ProcessId = processId;
+        existingSpec.MachineModelId = machineModelId;
+        existingSpec.Project = project?.Trim() ?? string.Empty;
+        existingSpec.Specification = specification?.Trim() ?? string.Empty;
+        existingSpec.Acceptance = NormalizeNullable(acceptance);
+        existingSpec.Remark = NormalizeNullable(remark);
+        existingSpec.WordFileId = wordFileId;
+        existingSpec.ImportedAt = DateTime.Now;
+    }
+
+    private static void OverwriteAcceptanceAndRemark(
+        AcceptanceSpec existingSpec,
+        int customerId,
+        int? processId,
+        int? machineModelId,
+        int wordFileId,
+        string? acceptance,
+        string? remark)
+    {
+        existingSpec.CustomerId = customerId;
+        existingSpec.ProcessId = processId;
+        existingSpec.MachineModelId = machineModelId;
+        existingSpec.Acceptance = NormalizeNullable(acceptance);
+        existingSpec.Remark = NormalizeNullable(remark);
+        existingSpec.WordFileId = wordFileId;
+        existingSpec.ImportedAt = DateTime.Now;
     }
 
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()
@@ -1212,12 +1687,14 @@ public class DocumentsController : BaseApiController
     private static string BuildDifferenceKey(
         int tableIndex,
         int rowIndex,
+        string matchType,
+        int existingSpecId,
         string project,
         string specification,
         string acceptance,
         string remark)
     {
-        var raw = $"{tableIndex}|{rowIndex}|{project}|{specification}|{acceptance}|{remark}";
+        var raw = $"{tableIndex}|{rowIndex}|{matchType}|{existingSpecId}|{project}|{specification}|{acceptance}|{remark}";
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(raw));
     }
 
@@ -1274,4 +1751,73 @@ public class DocumentsController : BaseApiController
 
         throw new InvalidOperationException("文件内容不可用（未找到物理文件且数据库内容为空）");
     }
+
+    private sealed class ImportExecutionContext
+    {
+        public required ImportResult Result { get; init; }
+
+        public required List<AcceptanceSpec> ExistingSpecs { get; init; }
+
+        public required List<AcceptanceSpec> PendingInsertedSpecs { get; init; }
+
+        public required List<AcceptanceSpec> SpecsToInsert { get; init; }
+
+        public required HashSet<string> ConfirmedDifferenceKeys { get; init; }
+
+        public required HashSet<string> PartiallyConfirmedDifferenceKeys { get; init; }
+
+        public required HashSet<string> SkippedDifferenceKeys { get; init; }
+
+        public required Dictionary<string, PendingDecisionEntry> PendingDecisionMap { get; init; }
+
+        public required ImportDuplicateDetectionSession DuplicateSession { get; init; }
+
+        public required int CustomerId { get; init; }
+
+        public required int? ProcessId { get; init; }
+
+        public required int? MachineModelId { get; init; }
+
+        public required int FileId { get; init; }
+
+        public required int UserId { get; init; }
+
+        public required int? OwnerOrgUnitId { get; init; }
+
+        public required bool PreviewSkippedRows { get; init; }
+
+        public int OverwriteCount { get; set; }
+
+        public bool SkipSemanticDetection =>
+            PendingDecisionMap.Count > 0 ||
+            ConfirmedDifferenceKeys.Count > 0 ||
+            PartiallyConfirmedDifferenceKeys.Count > 0 ||
+            SkippedDifferenceKeys.Count > 0;
+    }
+
+    private sealed class PendingDecisionEntry
+    {
+        public required string LookupKey { get; init; }
+
+        public required string MatchType { get; init; }
+
+        public required int ExistingSpecId { get; init; }
+
+        public required DifferenceDecision Decision { get; init; }
+    }
+
+    private enum DifferenceDecision
+    {
+        Import,
+        PartialImport,
+        Skip
+    }
+
+    private sealed record ImportRowPayload(
+        int RowIndex,
+        List<string> RowValues,
+        string? Project,
+        string? Specification,
+        string? Acceptance,
+        string? Remark);
 }

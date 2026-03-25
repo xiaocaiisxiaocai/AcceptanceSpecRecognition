@@ -89,6 +89,11 @@ public class ExcelImportDataRequest
     public List<string> ConfirmedDifferenceKeys { get; set; } = [];
 
     /// <summary>
+    /// 差异行中“部分覆盖”的键集合（仅覆盖验收标准与备注）
+    /// </summary>
+    public List<string> PartiallyConfirmedDifferenceKeys { get; set; } = [];
+
+    /// <summary>
     /// 差异行中“确认跳过”的键集合（用于二次确认提交）
     /// </summary>
     public List<string> SkippedDifferenceKeys { get; set; } = [];
@@ -97,4 +102,9 @@ public class ExcelImportDataRequest
     /// 本次导入前由用户手动剔除的数据行索引（基于解析后的数据区，0-based）
     /// </summary>
     public List<int> ExcludedRowIndexes { get; set; } = [];
+
+    /// <summary>
+    /// AI 疑似重复识别配置
+    /// </summary>
+    public ImportDuplicateCheckOptions DuplicateCheckOptions { get; set; } = new();
 }

@@ -14,10 +14,13 @@ import { vitePluginFakeServer } from "vite-plugin-fake-server";
 
 export async function getPluginsList(
   VITE_CDN: boolean,
-  VITE_COMPRESSION: ViteCompression
+  VITE_COMPRESSION: ViteCompression,
+  VITE_ENABLE_CODE_INSPECTOR: boolean
 ): Promise<PluginOption[]> {
   const lifecycle = process.env.npm_lifecycle_event;
   const cdn = VITE_CDN ? (await import("./cdn")).cdn : null;
+  const enableCodeInspector =
+    lifecycle === "dev" && VITE_ENABLE_CODE_INSPECTOR;
   return [
     tailwindcss(),
     vue(),
@@ -29,10 +32,12 @@ export async function getPluginsList(
      * Windows 默认组合键 Alt + Shift
      * 更多用法看 https://inspector.fe-dev.cn/guide/start.html
      */
-    codeInspectorPlugin({
-      bundler: "vite",
-      hideConsole: true
-    }),
+    enableCodeInspector
+      ? codeInspectorPlugin({
+          bundler: "vite",
+          hideConsole: true
+        })
+      : null,
     viteBuildInfo(),
     /**
      * 开发环境下移除非必要的vue-router动态路由警告No match found for location with path

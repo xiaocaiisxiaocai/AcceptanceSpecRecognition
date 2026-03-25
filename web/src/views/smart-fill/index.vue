@@ -7,6 +7,7 @@ import MatchConfig from "./components/MatchConfig.vue";
 import BatchTableConfig from "./components/BatchTableConfig.vue";
 import BatchPreviewTabs from "./components/BatchPreviewTabs.vue";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
+import StrictReuseDialog from "./components/StrictReuseDialog.vue";
 import type { BatchTableConfigItem } from "./components/BatchTableConfig.vue";
 import {
   batchPreviewMatch,
@@ -48,8 +49,16 @@ const canPreviewMatching = computed(() => hasPerms("btn:matching:preview-batch")
 const canLlmStream = computed(() => hasPerms("btn:matching:llm-stream"));
 const canExecuteFill = computed(() => hasPerms("btn:matching-fill:execute-batch"));
 const canDownloadFillResult = computed(() => hasPerms("btn:matching:download"));
+const canStrictReusePreview = computed(() => hasPerms("btn:matching:preview"));
+const canStrictReuseExecute = computed(() => hasPerms("btn:matching-fill:execute"));
 const canExecuteAction = computed(
   () => canExecuteFill.value && canDownloadFillResult.value
+);
+const canUseStrictReuse = computed(
+  () =>
+    canStrictReusePreview.value &&
+    canStrictReuseExecute.value &&
+    canDownloadFillResult.value
 );
 
 // 所有表格信息
@@ -95,6 +104,7 @@ const detailItem = ref<MatchPreviewItem | null>(null);
 // 执行状态
 const executing = ref(false);
 const taskId = ref<string | null>(null);
+const strictReuseVisible = ref(false);
 
 // 选中的表格数量
 const selectedTableCount = computed(
@@ -154,6 +164,7 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
   taskId.value = null;
+  strictReuseVisible.value = false;
 
   // Excel 改为手工配置，不再做自动识别；Word 仍按列映射规则自动匹配
   let tables: TableInfo[] = [];
@@ -584,6 +595,12 @@ const handleExecute = async () => {
         tableIndex: config.tableIndex,
         acceptanceColumnIndex: config.acceptanceColumnIndex,
         remarkColumnIndex: config.remarkColumnIndex,
+        projectColumnIndex: config.projectColumnIndex,
+        specificationColumnIndex: config.specificationColumnIndex,
+        headerRowStart: config.headerRowStart,
+        headerRowCount: config.headerRowCount,
+        dataStartRow: config.dataStartRow,
+        filterEmptySourceRows: config.filterEmptySourceRows,
         mappings: selections.map((s) => ({
           rowIndex: s.rowIndex,
           specId: s.specId,
@@ -625,11 +642,7 @@ const handleExecute = async () => {
         const a = document.createElement("a");
         a.href = url;
         const originalName = uploadedFile.value.fileName || "filled.docx";
-        const dotIndex = originalName.lastIndexOf(".");
-        const baseName =
-          dotIndex > 0 ? originalName.slice(0, dotIndex) : originalName;
-        const ext = dotIndex > 0 ? originalName.slice(dotIndex) : ".docx";
-        a.download = `${baseName}_filled_${Date.now()}${ext}`;
+        a.download = originalName;
         a.click();
         window.URL.revokeObjectURL(url);
 
@@ -687,6 +700,7 @@ const handleRestart = () => {
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
   taskId.value = null;
+  strictReuseVisible.value = false;
   matchConfig.value = { ...defaultMatchConfig };
 };
 </script>
@@ -813,6 +827,18 @@ const handleRestart = () => {
           closable
           class="fill-done-alert"
         />
+        <el-alert
+          v-if="taskId"
+          title="可将当前已确认结果应用到相同模板文件"
+          type="info"
+          :closable="false"
+          show-icon
+          class="strict-reuse-alert"
+        >
+          <template #default>
+            严格模式，不重新匹配，不调用 AI，不保存长期模板。
+          </template>
+        </el-alert>
 
         <!-- 操作按钮 -->
         <div v-if="allPreviewItems.length > 0" class="action-bar">
@@ -827,6 +853,14 @@ const handleRestart = () => {
             @click="handleExecute"
           >
             执行填充
+          </el-button>
+          <el-button
+            v-if="taskId && canUseStrictReuse"
+            type="primary"
+            plain
+            @click="strictReuseVisible = true"
+          >
+            应用到相同验规
           </el-button>
           <el-button v-if="taskId && canUploadSourceFile" @click="handleRestart">
             继续填充其他文档
@@ -852,6 +886,16 @@ const handleRestart = () => {
 
     <!-- 详情弹窗 -->
     <ScoreDetailDialog v-model:visible="detailVisible" :item="detailItem" />
+    <StrictReuseDialog
+      v-if="taskId && uploadedFile"
+      v-model:visible="strictReuseVisible"
+      :source-task-id="taskId"
+      :source-file-name="uploadedFile.fileName"
+      :is-excel="isExcelFile"
+      :can-preview="canStrictReusePreview"
+      :can-execute="canStrictReuseExecute"
+      :can-download="canDownloadFillResult"
+    />
   </div>
 </template>
 
@@ -896,6 +940,10 @@ const handleRestart = () => {
 
 .fill-done-alert {
   margin-top: 16px;
+}
+
+.strict-reuse-alert {
+  margin-top: 12px;
 }
 
 .llm-streaming-alert {

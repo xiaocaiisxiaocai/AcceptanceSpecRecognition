@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { getCustomerList } from "@/api/customer";
 import { getProcessList } from "@/api/process";
@@ -14,6 +14,15 @@ const loading = ref(false);
 const customerTotal = ref(0);
 const processTotal = ref(0);
 const specTotal = ref(0);
+const idleScheduler = globalThis as typeof globalThis & {
+  requestIdleCallback?: (
+    callback: IdleRequestCallback,
+    options?: IdleRequestOptions
+  ) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+let idleCallbackId: number | undefined;
+let loadTimerId: ReturnType<typeof setTimeout> | undefined;
 
 const load = async () => {
   loading.value = true;
@@ -34,7 +43,33 @@ const load = async () => {
   }
 };
 
-onMounted(load);
+const scheduleLoad = () => {
+  if (typeof idleScheduler.requestIdleCallback === "function") {
+    idleCallbackId = idleScheduler.requestIdleCallback(() => {
+      void load();
+    }, { timeout: 800 });
+    return;
+  }
+
+  loadTimerId = globalThis.setTimeout(() => {
+    void load();
+  }, 120);
+};
+
+onMounted(scheduleLoad);
+
+onBeforeUnmount(() => {
+  if (
+    idleCallbackId !== undefined &&
+    typeof idleScheduler.cancelIdleCallback === "function"
+  ) {
+    idleScheduler.cancelIdleCallback(idleCallbackId);
+  }
+
+  if (loadTimerId !== undefined) {
+    globalThis.clearTimeout(loadTimerId);
+  }
+});
 </script>
 
 <template>

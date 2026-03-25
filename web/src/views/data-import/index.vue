@@ -29,8 +29,14 @@ import {
   type TableData,
   type ColumnMapping as ColumnMappingType,
   type ExcelImportDataRequest,
+  type ImportDuplicateCheckOptions,
   type ImportResult
 } from "@/api/document";
+import {
+  getAiServiceList,
+  AiServicePurpose,
+  type AiServiceConfig
+} from "@/api/ai-service";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
@@ -91,6 +97,21 @@ type TableImportConfig = {
   wordMapping?: ColumnMappingType;
   excelMapping?: ExcelSheetMapping;
   previewData: TableData | null;
+};
+
+type ImportDuplicateAiConfig = Required<
+  Pick<
+    ImportDuplicateCheckOptions,
+    | "enableSemanticDuplicateCheck"
+    | "semanticTopK"
+    | "semanticMinScore"
+    | "enableLlmDuplicateReview"
+    | "llmPassScore"
+    | "highConfidenceThreshold"
+  >
+> & {
+  embeddingServiceId?: number;
+  llmServiceId?: number;
 };
 
 const defaultWordMapping = (): ColumnMappingType => ({
@@ -194,6 +215,19 @@ const selectedMachineModelId = ref<number | undefined>(undefined);
 const loadingCustomers = ref(false);
 const loadingProcesses = ref(false);
 const loadingMachineModels = ref(false);
+const loadingAiServices = ref(false);
+const embeddingServices = ref<AiServiceConfig[]>([]);
+const llmServices = ref<AiServiceConfig[]>([]);
+const importDuplicateAiConfig = ref<ImportDuplicateAiConfig>({
+  enableSemanticDuplicateCheck: false,
+  embeddingServiceId: undefined,
+  semanticTopK: 3,
+  semanticMinScore: 0.75,
+  enableLlmDuplicateReview: false,
+  llmServiceId: undefined,
+  llmPassScore: 0.9,
+  highConfidenceThreshold: 0.95
+});
 
 // 导入结果
 const importing = ref(false);
@@ -202,7 +236,7 @@ type ImportSkippedRowWithTable = { tableIndex: number } & NonNullable<ImportResu
 type ImportPendingDifferenceWithTable = { tableIndex: number } & NonNullable<
   ImportResult["pendingDifferences"]
 >[number];
-type DifferenceDecision = "import" | "skip";
+type DifferenceDecision = "import" | "partial" | "skip";
 type CombinedImportResult = Omit<ImportResult, "errors" | "skippedRows" | "pendingDifferences"> & {
   errors: ImportErrorWithTable[];
   skippedRows: ImportSkippedRowWithTable[];
@@ -282,6 +316,7 @@ onMounted(() => {
   // 某些情况下 layout/scroll 容器渲染更晚，做一次轻量重试
   setTimeout(refreshAffix, 50);
   setTimeout(refreshAffix, 200);
+  loadAiServices();
 });
 
 onActivated(() => {
@@ -792,6 +827,61 @@ const loadMachineModels = async () => {
   }
 };
 
+const loadAiServices = async () => {
+  loadingAiServices.value = true;
+  try {
+    const res = await getAiServiceList({ page: 1, pageSize: 200 });
+    if (res.code === 0) {
+      const items = res.data.items || [];
+      embeddingServices.value = items.filter(
+        item =>
+          (item.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
+          !!item.embeddingModel
+      );
+      llmServices.value = items.filter(
+        item =>
+          (item.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
+          !!item.llmModel
+      );
+
+      if (!importDuplicateAiConfig.value.embeddingServiceId && embeddingServices.value.length > 0) {
+        importDuplicateAiConfig.value.embeddingServiceId = embeddingServices.value[0].id;
+      }
+
+      if (!importDuplicateAiConfig.value.llmServiceId && llmServices.value.length > 0) {
+        importDuplicateAiConfig.value.llmServiceId = llmServices.value[0].id;
+      }
+      return;
+    }
+
+    ElMessage.error(res.message || "加载 AI 服务失败");
+  } catch {
+    ElMessage.error("加载 AI 服务失败");
+  } finally {
+    loadingAiServices.value = false;
+  }
+};
+
+const buildDuplicateCheckOptions = (): ImportDuplicateCheckOptions => {
+  const config = importDuplicateAiConfig.value;
+  return {
+    enableSemanticDuplicateCheck: config.enableSemanticDuplicateCheck,
+    embeddingServiceId: config.enableSemanticDuplicateCheck
+      ? config.embeddingServiceId
+      : undefined,
+    semanticTopK: config.semanticTopK,
+    semanticMinScore: config.semanticMinScore,
+    enableLlmDuplicateReview:
+      config.enableSemanticDuplicateCheck && config.enableLlmDuplicateReview,
+    llmServiceId:
+      config.enableSemanticDuplicateCheck && config.enableLlmDuplicateReview
+        ? config.llmServiceId
+        : undefined,
+    llmPassScore: config.llmPassScore,
+    highConfidenceThreshold: config.highConfidenceThreshold
+  };
+};
+
 // 监听步骤变化
 watch(currentStep, (step) => {
   if (
@@ -1159,9 +1249,69 @@ const resetPendingDifferenceState = () => {
   differenceDecisionMap.value = {};
 };
 
+const validateDuplicateAiConfig = () => {
+  if (!importDuplicateAiConfig.value.enableSemanticDuplicateCheck) {
+    return true;
+  }
+
+  if (!importDuplicateAiConfig.value.embeddingServiceId) {
+    ElMessage.warning("已启用 AI 疑似重复识别，请先选择 Embedding 服务");
+    return false;
+  }
+
+  if (
+    importDuplicateAiConfig.value.enableLlmDuplicateReview &&
+    !importDuplicateAiConfig.value.llmServiceId
+  ) {
+    ElMessage.warning("已启用 LLM 复核，请先选择 LLM 服务");
+    return false;
+  }
+
+  return true;
+};
+
 const formatDifferenceValue = (value?: string | null) => {
   const normalized = value?.trim();
   return normalized ? normalized : "-";
+};
+
+const formatScorePercent = (value?: number | null) => {
+  if (value === undefined || value === null || Number.isNaN(value)) return "-";
+  return `${(value * 100).toFixed(1)}%`;
+};
+
+const getDifferenceMatchTypeLabel = (matchType?: string) => {
+  switch (matchType) {
+    case "exact":
+      return "完全重复";
+    case "semantic":
+      return "AI 疑似重复";
+    case "conflict":
+    default:
+      return "同项目同规格";
+  }
+};
+
+const getDifferenceMatchTypeTagType = (matchType?: string) => {
+  switch (matchType) {
+    case "exact":
+      return "danger";
+    case "semantic":
+      return "success";
+    case "conflict":
+    default:
+      return "warning";
+  }
+};
+
+const hasAiDifferenceMeta = (item: ImportPendingDifferenceWithTable) => {
+  return (
+    item.matchType === "semantic" &&
+    (item.embeddingScore !== undefined ||
+      item.llmScore !== undefined ||
+      item.finalScore !== undefined ||
+      !!item.reviewReason)
+  );
 };
 
 const isDifferenceFieldChanged = (
@@ -1225,14 +1375,16 @@ const isDifferenceColumnChanged = (
 
 const buildDifferenceKeysByTable = (tableIndex: number) => {
   const confirmed: string[] = [];
+  const partial: string[] = [];
   const skipped: string[] = [];
   for (const item of pendingDifferences.value) {
     if (item.tableIndex !== tableIndex) continue;
     const decision = differenceDecisionMap.value[item.key];
     if (decision === "import") confirmed.push(item.key);
+    if (decision === "partial") partial.push(item.key);
     if (decision === "skip") skipped.push(item.key);
   }
-  return { confirmed, skipped };
+  return { confirmed, partial, skipped };
 };
 
 const executeImportBatch = async (
@@ -1241,12 +1393,13 @@ const executeImportBatch = async (
 ): Promise<ImportBatchExecutionResult> => {
   const tableAggregates: CombinedImportResult[] = [];
   let hasPendingEncountered = false;
+  const duplicateCheckOptions = buildDuplicateCheckOptions();
 
   for (const [idx, cfg] of configs.entries()) {
     const cleanupSourceFile = !hasPendingEncountered && idx === configs.length - 1;
-    const { confirmed, skipped } = includeDifferenceDecisions
+    const { confirmed, partial, skipped } = includeDifferenceDecisions
       ? buildDifferenceKeysByTable(cfg.tableIndex)
-      : { confirmed: [] as string[], skipped: [] as string[] };
+      : { confirmed: [] as string[], partial: [] as string[], skipped: [] as string[] };
     const excludedRowIndexes = getExcludedRowIndexes(cfg.tableIndex);
 
     const res = isExcelFile.value
@@ -1259,8 +1412,10 @@ const executeImportBatch = async (
           cleanupSourceFile,
           previewSkippedRows: previewSkippedRows.value,
           confirmedDifferenceKeys: confirmed,
+          partiallyConfirmedDifferenceKeys: partial,
           skippedDifferenceKeys: skipped,
           excludedRowIndexes,
+          duplicateCheckOptions,
           ...(normalizeExcelMappingByTable(
             cfg.tableInfo,
             cfg.excelMapping ?? defaultExcelMapping()
@@ -1275,8 +1430,10 @@ const executeImportBatch = async (
           cleanupSourceFile,
           previewSkippedRows: previewSkippedRows.value,
           confirmedDifferenceKeys: confirmed,
+          partiallyConfirmedDifferenceKeys: partial,
           skippedDifferenceKeys: skipped,
           excludedRowIndexes,
+          duplicateCheckOptions,
           mapping: cfg.wordMapping!
         });
 
@@ -1312,7 +1469,7 @@ const handleConfirmPendingDifferences = async () => {
   }
 
   if (pendingUndecidedCount.value > 0) {
-    ElMessage.warning(`请先逐条确认差异（仍有 ${pendingUndecidedCount.value} 条未选择）`);
+    ElMessage.warning(`请先逐条确认重复项（仍有 ${pendingUndecidedCount.value} 条未选择）`);
     return;
   }
 
@@ -1333,7 +1490,7 @@ const handleConfirmPendingDifferences = async () => {
       pendingImportAggregate.value = splitResult.pending;
       syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
       differenceConfirmDialogVisible.value = true;
-      ElMessage.warning(`仍有 ${splitResult.pending.pendingCount || 0} 条差异未确认`);
+      ElMessage.warning(`仍有 ${splitResult.pending.pendingCount || 0} 条重复项未确认`);
       return;
     }
 
@@ -1364,6 +1521,10 @@ const handleImport = async () => {
 
   if (previewDataCount.value <= 0) {
     ElMessage.warning("当前没有可导入的数据，请先恢复或重新选择待导入行");
+    return;
+  }
+
+  if (!validateDuplicateAiConfig()) {
     return;
   }
 
@@ -1398,7 +1559,7 @@ const handleImport = async () => {
       syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
       differenceConfirmDialogVisible.value = true;
       ElMessage.warning(
-        `检测到 ${splitResult.pending.pendingCount || 0} 条差异，请在弹窗中逐条确认是否覆盖导入`
+        `检测到 ${splitResult.pending.pendingCount || 0} 条重复、差异或 AI 疑似重复数据，请在弹窗中逐条确认是否覆盖已有记录`
       );
       return;
     }
@@ -1426,6 +1587,16 @@ const handleRestart = () => {
   selectedMachineModelId.value = undefined;
   importResult.value = null;
   previewSkippedRows.value = false;
+  importDuplicateAiConfig.value = {
+    enableSemanticDuplicateCheck: false,
+    embeddingServiceId: embeddingServices.value[0]?.id,
+    semanticTopK: 3,
+    semanticMinScore: 0.75,
+    enableLlmDuplicateReview: false,
+    llmServiceId: llmServices.value[0]?.id,
+    llmPassScore: 0.9,
+    highConfidenceThreshold: 0.95
+  };
   excludedRowIndexMap.value = {};
   importPreviewSelectionKeys.value = [];
   mappingClipboard.value = null;
@@ -1451,6 +1622,12 @@ const pendingUndecidedCount = computed(() => {
 const pendingImportDecisionCount = computed(() => {
   return pendingDifferences.value.filter(
     item => differenceDecisionMap.value[item.key] === "import"
+  ).length;
+});
+
+const pendingPartialDecisionCount = computed(() => {
+  return pendingDifferences.value.filter(
+    item => differenceDecisionMap.value[item.key] === "partial"
   ).length;
 });
 
@@ -1880,17 +2057,17 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               type="warning"
               :closable="false"
               show-icon
-              :title="`检测到 ${pendingDifferences.length} 条与数据库已有数据不一致，请在弹窗中逐条确认是否覆盖导入。`"
-              description="左侧为数据库已有数据，右侧为本次待导入数据。未命中的数据已经按当前流程处理。"
+              :title="`检测到 ${pendingDifferences.length} 条重复、差异或 AI 疑似重复数据，请在弹窗中逐条确认是否覆盖已有记录。`"
+              description="左侧为数据库已有数据，右侧为本次待导入数据。未命中的数据已按当前流程处理。"
             />
             <div class="difference-entry__actions">
               <span v-if="hasCommittedImportProgress" class="difference-entry__summary">
-                已完成无冲突数据导入：成功 {{ committedImportAggregate?.successCount || 0 }} 条，跳过
+                已完成无重复数据处理：成功 {{ committedImportAggregate?.successCount || 0 }} 条，跳过
                 {{ committedImportAggregate?.skippedCount || 0 }} 条，失败
                 {{ committedImportAggregate?.failedCount || 0 }} 条
               </span>
               <el-button type="warning" @click="openDifferenceConfirmDialog">
-                打开冲突确认弹窗
+                打开重复确认弹窗
               </el-button>
             </div>
           </div>
@@ -1925,6 +2102,139 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               {{ previewDataCount }} 条数据
             </el-descriptions-item>
           </el-descriptions>
+
+          <div class="duplicate-ai-panel">
+            <div class="duplicate-ai-panel__header">
+              <div>
+                <div class="duplicate-ai-panel__title">AI 疑似重复识别</div>
+                <div class="duplicate-ai-panel__desc">
+                  规则命中优先；未命中时再用 Embedding 召回候选，并可选用 LLM 复核。
+                </div>
+              </div>
+              <el-switch
+                v-model="importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                active-text="开启"
+                inactive-text="关闭"
+              />
+            </div>
+            <el-form label-width="132px" class="duplicate-ai-form">
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="Embedding 服务">
+                    <el-select
+                      v-model="importDuplicateAiConfig.embeddingServiceId"
+                      placeholder="请选择 Embedding 服务"
+                      :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                      :loading="loadingAiServices"
+                      style="width: 100%"
+                      filterable
+                      clearable
+                      :teleported="true"
+                      popper-class="app-select-popper"
+                    >
+                      <el-option
+                        v-for="service in embeddingServices"
+                        :key="service.id"
+                        :label="`${service.name}（${service.embeddingModel || '-'}）`"
+                        :value="service.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="候选数量 TopK">
+                    <el-input-number
+                      v-model="importDuplicateAiConfig.semanticTopK"
+                      :min="1"
+                      :max="10"
+                      :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="召回阈值">
+                    <el-slider
+                      v-model="importDuplicateAiConfig.semanticMinScore"
+                      :min="0"
+                      :max="1"
+                      :step="0.01"
+                      :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                      :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
+                      show-input
+                      :show-input-controls="false"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="高置信阈值">
+                    <el-slider
+                      v-model="importDuplicateAiConfig.highConfidenceThreshold"
+                      :min="0.5"
+                      :max="1"
+                      :step="0.01"
+                      :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                      :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
+                      show-input
+                      :show-input-controls="false"
+                    />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <div class="duplicate-ai-panel__llm">
+                <div class="llm-toggle">
+                  <span>启用 LLM 复核</span>
+                  <el-switch
+                    v-model="importDuplicateAiConfig.enableLlmDuplicateReview"
+                    :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                  />
+                </div>
+                <el-row :gutter="16">
+                  <el-col :span="12">
+                    <el-form-item label="LLM 服务">
+                      <el-select
+                        v-model="importDuplicateAiConfig.llmServiceId"
+                        placeholder="请选择 LLM 服务"
+                        :disabled="
+                          !importDuplicateAiConfig.enableSemanticDuplicateCheck ||
+                          !importDuplicateAiConfig.enableLlmDuplicateReview
+                        "
+                        :loading="loadingAiServices"
+                        style="width: 100%"
+                        filterable
+                        clearable
+                        :teleported="true"
+                        popper-class="app-select-popper"
+                      >
+                        <el-option
+                          v-for="service in llmServices"
+                          :key="service.id"
+                          :label="`${service.name}（${service.llmModel || '-'}）`"
+                          :value="service.id"
+                        />
+                      </el-select>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="LLM 通过阈值">
+                      <el-slider
+                        v-model="importDuplicateAiConfig.llmPassScore"
+                        :min="0"
+                        :max="1"
+                        :step="0.01"
+                        :disabled="
+                          !importDuplicateAiConfig.enableSemanticDuplicateCheck ||
+                          !importDuplicateAiConfig.enableLlmDuplicateReview
+                        "
+                        :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
+                        show-input
+                        :show-input-controls="false"
+                      />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+              </div>
+            </el-form>
+          </div>
 
           <div class="import-preview-panel">
             <div class="import-preview-toolbar">
@@ -2055,7 +2365,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               {{
                 importing
                   ? "处理中..."
-                  : (hasPendingDifferenceConfirmation ? "继续处理冲突" : "开始导入")
+                  : (hasPendingDifferenceConfirmation ? "继续处理重复项" : "开始导入")
               }}
             </el-button>
           </div>
@@ -2082,7 +2392,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
 
       <el-dialog
         v-model="differenceConfirmDialogVisible"
-        title="确认是否覆盖导入"
+        title="确认是否覆盖已有记录"
         width="min(1100px, calc(100vw - 32px))"
         top="6vh"
         class="difference-dialog"
@@ -2094,18 +2404,22 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
             type="warning"
             :closable="false"
             show-icon
-            :title="`检测到 ${pendingDifferences.length} 条与数据库已有数据不一致，请逐条确认是否覆盖导入。`"
-            description="左侧为数据库已有数据，右侧为本次待导入数据。"
+            :title="`检测到 ${pendingDifferences.length} 条重复、差异或 AI 疑似重复数据，请逐条确认是否覆盖已有记录。`"
+            description="左侧为数据库已有数据，右侧为本次待导入数据。选择“部分覆盖”时，仅更新验收和备注，不改项目和规格。"
           />
           <div class="difference-dialog__toolbar">
             <div class="difference-dialog__stats">
               <span>覆盖 {{ pendingImportDecisionCount }} 条</span>
+              <span>部分覆盖 {{ pendingPartialDecisionCount }} 条</span>
               <span>跳过 {{ pendingSkipDecisionCount }} 条</span>
               <span>未选择 {{ pendingUndecidedCount }} 条</span>
             </div>
             <div class="difference-dialog__batch-actions">
               <el-button size="small" @click="applyDifferenceDecisionToAll('skip')">
                 全部跳过
+              </el-button>
+              <el-button size="small" type="primary" plain @click="applyDifferenceDecisionToAll('partial')">
+                全部部分覆盖
               </el-button>
               <el-button size="small" type="warning" plain @click="applyDifferenceDecisionToAll('import')">
                 全部覆盖
@@ -2124,6 +2438,21 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               <div class="difference-card__meta">
                 <span>表格 {{ item.tableIndex + 1 }}</span>
                 <span>行号 {{ item.rowIndex }}</span>
+                <el-tag
+                  :type="getDifferenceMatchTypeTagType(item.matchType)"
+                  effect="light"
+                  size="small"
+                >
+                  {{ getDifferenceMatchTypeLabel(item.matchType) }}
+                </el-tag>
+                <el-tag
+                  v-if="item.isHighConfidence"
+                  type="success"
+                  effect="plain"
+                  size="small"
+                >
+                  高置信
+                </el-tag>
               </div>
               <el-tag
                 v-if="differenceDecisionMap[item.key] === 'import'"
@@ -2131,6 +2460,13 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
                 size="small"
               >
                 已选择覆盖
+              </el-tag>
+              <el-tag
+                v-else-if="differenceDecisionMap[item.key] === 'partial'"
+                type="primary"
+                size="small"
+              >
+                已选择部分覆盖
               </el-tag>
               <el-tag
                 v-else-if="differenceDecisionMap[item.key] === 'skip'"
@@ -2145,6 +2481,20 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
             </div>
 
             <div class="difference-card__content">
+              <div v-if="hasAiDifferenceMeta(item)" class="difference-card__ai-meta">
+                <span v-if="item.embeddingScore !== undefined">
+                  Embedding：{{ formatScorePercent(item.embeddingScore) }}
+                </span>
+                <span v-if="item.llmScore !== undefined">
+                  LLM：{{ formatScorePercent(item.llmScore) }}
+                </span>
+                <span v-if="item.finalScore !== undefined">
+                  最终：{{ formatScorePercent(item.finalScore) }}
+                </span>
+              </div>
+              <div v-if="item.reviewReason" class="difference-card__reason">
+                {{ item.reviewReason }}
+              </div>
               <div class="difference-sheet">
                 <div class="difference-sheet__panel">
                   <div class="difference-sheet__panel-title">数据库已有</div>
@@ -2192,7 +2542,8 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
 
             <div class="difference-card__footer">
               <el-radio-group v-model="differenceDecisionMap[item.key]" size="small">
-                <el-radio-button label="import">覆盖导入</el-radio-button>
+                <el-radio-button label="import">覆盖已有</el-radio-button>
+                <el-radio-button label="partial">部分覆盖</el-radio-button>
                 <el-radio-button label="skip">跳过</el-radio-button>
               </el-radio-group>
             </div>
@@ -2354,6 +2705,56 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
 .import-confirm-desc :deep(.el-descriptions__label) {
   width: 80px;
   color: #6b7280;
+}
+
+.duplicate-ai-panel {
+  margin-top: 16px;
+  border: 1px solid #dbe7f8;
+  border-radius: 12px;
+  padding: 16px;
+  background: linear-gradient(180deg, #f7fbff 0%, #fff 100%);
+}
+
+.duplicate-ai-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.duplicate-ai-panel__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.duplicate-ai-panel__desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.6;
+}
+
+.duplicate-ai-form :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.duplicate-ai-panel__llm {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed #dbe7f8;
+}
+
+.llm-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #4b5563;
 }
 
 .import-preview-panel {
@@ -2578,6 +2979,24 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
 .difference-card__content {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.difference-card__ai-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #2563eb;
+}
+
+.difference-card__reason {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #475569;
 }
 
 .difference-sheet {

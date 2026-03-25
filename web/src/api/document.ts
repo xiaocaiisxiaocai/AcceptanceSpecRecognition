@@ -73,6 +73,17 @@ export interface ColumnMapping {
 }
 
 /** 导入数据请求 */
+export interface ImportDuplicateCheckOptions {
+  enableSemanticDuplicateCheck?: boolean;
+  embeddingServiceId?: number;
+  semanticTopK?: number;
+  semanticMinScore?: number;
+  enableLlmDuplicateReview?: boolean;
+  llmServiceId?: number;
+  llmPassScore?: number;
+  highConfidenceThreshold?: number;
+}
+
 export interface ImportDataRequest {
   fileId: number;
   tableIndex: number;
@@ -83,8 +94,10 @@ export interface ImportDataRequest {
   cleanupSourceFile?: boolean;
   previewSkippedRows?: boolean;
   confirmedDifferenceKeys?: string[];
+  partiallyConfirmedDifferenceKeys?: string[];
   skippedDifferenceKeys?: string[];
   excludedRowIndexes?: number[];
+  duplicateCheckOptions?: ImportDuplicateCheckOptions;
 }
 
 /** 导入结果 */
@@ -116,6 +129,7 @@ export interface ImportSkippedRow {
 /** 待确认差异详情 */
 export interface ImportPendingDifference {
   key: string;
+  matchType: "exact" | "conflict" | "semantic" | string;
   rowIndex: number;
   rowValues?: string[];
   incomingProject: string;
@@ -127,6 +141,12 @@ export interface ImportPendingDifference {
   existingSpecification: string;
   existingAcceptance?: string;
   existingRemark?: string;
+  embeddingScore?: number;
+  llmScore?: number;
+  finalScore?: number;
+  isHighConfidence?: boolean;
+  reviewReason?: string;
+  reviewCommentary?: string;
 }
 
 const baseUrl = "/api/documents";
@@ -206,8 +226,10 @@ export interface ExcelImportDataRequest {
   cleanupSourceFile?: boolean;
   previewSkippedRows?: boolean;
   confirmedDifferenceKeys?: string[];
+  partiallyConfirmedDifferenceKeys?: string[];
   skippedDifferenceKeys?: string[];
   excludedRowIndexes?: number[];
+  duplicateCheckOptions?: ImportDuplicateCheckOptions;
 }
 
 /** Excel 导入（按列序号） */

@@ -232,6 +232,18 @@ export interface ExecuteFillRequest {
   acceptanceColumnIndex: number;
   /** 备注列索引（可选，0-based） */
   remarkColumnIndex?: number;
+  /** 项目列索引（用于严格复用快照） */
+  projectColumnIndex?: number;
+  /** 规格列索引（用于严格复用快照） */
+  specificationColumnIndex?: number;
+  /** Excel 表头起始行（1-based，可选） */
+  headerRowStart?: number;
+  /** Excel 表头行数（可选） */
+  headerRowCount?: number;
+  /** Excel 数据起始行（1-based，可选） */
+  dataStartRow?: number;
+  /** 是否过滤项目/规格均为空的行 */
+  filterEmptySourceRows?: boolean;
   /** 高置信自动采用阈值 */
   highConfidenceThreshold?: number;
   /** 填充映射列表 */
@@ -313,8 +325,8 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
-  matchingStrategy: MatchingStrategy.MultiStage,
-  minScoreThreshold: 0.65,
+  matchingStrategy: MatchingStrategy.SingleStage,
+  minScoreThreshold: 0.8,
   highConfidenceThreshold: DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   recallTopK: 8,
   ambiguityMargin: 0.03,
@@ -411,6 +423,18 @@ export interface BatchTableFillMapping {
   acceptanceColumnIndex: number;
   /** 备注列索引 */
   remarkColumnIndex?: number;
+  /** 项目列索引 */
+  projectColumnIndex?: number;
+  /** 规格列索引 */
+  specificationColumnIndex?: number;
+  /** Excel 表头起始行（1-based，可选） */
+  headerRowStart?: number;
+  /** Excel 表头行数（可选） */
+  headerRowCount?: number;
+  /** Excel 数据起始行（1-based，可选） */
+  dataStartRow?: number;
+  /** 是否过滤项目/规格均为空的行 */
+  filterEmptySourceRows?: boolean;
   /** 填充映射列表 */
   mappings: FillMapping[];
 }
@@ -439,6 +463,92 @@ export const batchExecuteFill = (data: BatchExecuteFillRequest) => {
   return http.request<ApiResponse<ExecuteFillResponse>>(
     "post",
     `${baseUrl}/batch-execute`,
+    { data, timeout: 300000 }
+  );
+};
+
+export interface StrictReusePreviewRequest {
+  /** 来源填充任务ID */
+  sourceTaskId: string;
+  /** 目标文件ID列表 */
+  targetFileIds: number[];
+}
+
+export interface StrictReusePreviewFileResult {
+  /** 文件ID */
+  fileId: number;
+  /** 文件名 */
+  fileName: string;
+  /** 是否可应用 */
+  canApply: boolean;
+  /** 失败原因 */
+  errors: string[];
+}
+
+export interface StrictReusePreviewResponse {
+  /** 来源填充任务ID */
+  sourceTaskId: string;
+  /** 来源文件名 */
+  sourceFileName: string;
+  /** 来源文件类型 */
+  sourceFileType: number;
+  /** 是否严格模式 */
+  isStrictMode: boolean;
+  /** 是否使用 AI */
+  usesAi: boolean;
+  /** 可直接应用数量 */
+  readyCount: number;
+  /** 总文件数 */
+  totalCount: number;
+  /** 逐文件预检结果 */
+  files: StrictReusePreviewFileResult[];
+}
+
+export interface StrictReuseExecuteRequest {
+  /** 来源填充任务ID */
+  sourceTaskId: string;
+  /** 目标文件ID列表 */
+  targetFileIds: number[];
+}
+
+export interface StrictReuseExecuteFileResult {
+  /** 文件ID */
+  fileId: number;
+  /** 文件名 */
+  fileName: string;
+  /** 是否成功 */
+  success: boolean;
+  /** 结果说明 */
+  message: string;
+}
+
+export interface StrictReuseExecuteResponse {
+  /** 执行任务ID */
+  taskId: string;
+  /** 成功数量 */
+  successCount: number;
+  /** 失败数量 */
+  failedCount: number;
+  /** 下载地址 */
+  downloadUrl: string;
+  /** 下载文件名 */
+  downloadFileName: string;
+  /** 逐文件执行结果 */
+  files: StrictReuseExecuteFileResult[];
+}
+
+export const strictReusePreview = (data: StrictReusePreviewRequest) => {
+  return http.request<ApiResponse<StrictReusePreviewResponse>>(
+    "post",
+    `${baseUrl}/reuse/strict/preview`,
+    { data, timeout: 300000 }
+  );
+};
+
+export const strictReuseExecute = (data: StrictReuseExecuteRequest) => {
+  return http.request<ApiResponse<StrictReuseExecuteResponse>>(
+    "post",
+    `${baseUrl}/reuse/strict/execute`,
     { data, timeout: 300000 }
   );
 };

@@ -26,6 +26,8 @@ defineOptions({
 const loading = ref(false);
 const tableData = ref<AiServiceConfig[]>([]);
 const showAllConfigs = ref(false);
+const testingState = reactive<Record<number, boolean>>({});
+const probingState = reactive<Record<number, boolean>>({});
 
 const serviceTypeOptions = [
   { label: "OpenAI", value: AiServiceType.OpenAI },
@@ -101,6 +103,30 @@ const formData = reactive({
 });
 
 const hasPurpose = (value: number, flag: AiServicePurpose) => (value & flag) === flag;
+
+const setRowLoading = (state: Record<number, boolean>, id: number, value: boolean) => {
+  if (!id) return;
+  state[id] = value;
+};
+
+const isRowLoading = (state: Record<number, boolean>, id?: number | null) => {
+  if (!id) return false;
+  return !!state[id];
+};
+
+const extractErrorMessage = (error: unknown, fallback: string) => {
+  const responseMessage = (error as any)?.response?.data?.message;
+  if (typeof responseMessage === "string" && responseMessage.trim()) {
+    return responseMessage.trim();
+  }
+
+  const errorMessage = (error as any)?.message;
+  if (typeof errorMessage === "string" && errorMessage.trim()) {
+    return errorMessage.trim();
+  }
+
+  return fallback;
+};
 
 const getServiceTypeLabel = (value: AiServiceType) =>
   serviceTypeOptions.find((x) => x.value === value)?.label || "-";
@@ -239,6 +265,11 @@ const handleTest = async (row: AiServiceConfig) => {
   if (!ensurePermission("btn:ai-service:test", "权限不足，无法测试AI服务配置")) {
     return;
   }
+  if (isRowLoading(testingState, row.id)) {
+    return;
+  }
+
+  setRowLoading(testingState, row.id, true);
   try {
     const res = await testAiServiceConnection(row.id);
     if (res.code === 0) {
@@ -256,8 +287,10 @@ const handleTest = async (row: AiServiceConfig) => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    ElMessage.error("连接测试失败");
+  } catch (error) {
+    ElMessage.error(extractErrorMessage(error, "连接测试失败"));
+  } finally {
+    setRowLoading(testingState, row.id, false);
   }
 };
 
@@ -265,12 +298,16 @@ const handleProbeModels = async (row: AiServiceConfig) => {
   if (!ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")) {
     return;
   }
+  if (isRowLoading(probingState, row.id)) {
+    return;
+  }
+
   modelsInfo.id = row.id;
   modelsInfo.name = row.name;
   modelsInfo.purpose = row.purpose;
   modelsInfo.llmModels = [];
   modelsInfo.embeddingModels = [];
-  modelsInfo.message = "";
+  modelsInfo.message = "正在探测远端模型，请稍候...";
   modelsDialogVisible.value = true;
   await loadModels();
 };
@@ -280,6 +317,8 @@ const loadModels = async () => {
     return;
   }
   if (!modelsInfo.id) return;
+
+  setRowLoading(probingState, modelsInfo.id, true);
   modelsLoading.value = true;
   try {
     const res = await getAiServiceModels(modelsInfo.id);
@@ -291,10 +330,11 @@ const loadModels = async () => {
     } else {
       modelsInfo.message = res.message || "模型探测失败";
     }
-  } catch {
-    modelsInfo.message = "模型探测失败";
+  } catch (error) {
+    modelsInfo.message = extractErrorMessage(error, "模型探测失败");
   } finally {
     modelsLoading.value = false;
+    setRowLoading(probingState, modelsInfo.id, false);
   }
 };
 
@@ -450,13 +490,22 @@ onMounted(loadData);
                 <el-button v-if="canDelete" type="danger" link @click="handleDelete(llmConfig)">
                   删除
                 </el-button>
-                <el-button v-if="canTest" type="warning" link @click="handleTest(llmConfig)">
+                <el-button
+                  v-if="canTest"
+                  type="warning"
+                  link
+                  :loading="isRowLoading(testingState, llmConfig.id)"
+                  :disabled="isRowLoading(testingState, llmConfig.id)"
+                  @click="handleTest(llmConfig)"
+                >
                   测试
                 </el-button>
                 <el-button
                   v-if="canProbeModels"
                   type="success"
                   link
+                  :loading="isRowLoading(probingState, llmConfig.id)"
+                  :disabled="isRowLoading(probingState, llmConfig.id)"
                   @click="handleProbeModels(llmConfig)"
                 >
                   模型
@@ -527,6 +576,8 @@ onMounted(loadData);
                   v-if="canTest"
                   type="warning"
                   link
+                  :loading="isRowLoading(testingState, embeddingConfig.id)"
+                  :disabled="isRowLoading(testingState, embeddingConfig.id)"
                   @click="handleTest(embeddingConfig)"
                 >
                   测试
@@ -535,6 +586,8 @@ onMounted(loadData);
                   v-if="canProbeModels"
                   type="success"
                   link
+                  :loading="isRowLoading(probingState, embeddingConfig.id)"
+                  :disabled="isRowLoading(probingState, embeddingConfig.id)"
                   @click="handleProbeModels(embeddingConfig)"
                 >
                   模型
@@ -610,10 +663,24 @@ onMounted(loadData);
             <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">
               删除
             </el-button>
-            <el-button v-if="canTest" type="warning" link @click="handleTest(row)">
+            <el-button
+              v-if="canTest"
+              type="warning"
+              link
+              :loading="isRowLoading(testingState, row.id)"
+              :disabled="isRowLoading(testingState, row.id)"
+              @click="handleTest(row)"
+            >
               测试
             </el-button>
-            <el-button v-if="canProbeModels" type="success" link @click="handleProbeModels(row)">
+            <el-button
+              v-if="canProbeModels"
+              type="success"
+              link
+              :loading="isRowLoading(probingState, row.id)"
+              :disabled="isRowLoading(probingState, row.id)"
+              @click="handleProbeModels(row)"
+            >
               模型
             </el-button>
           </template>
@@ -715,7 +782,10 @@ onMounted(loadData);
         <div v-if="modelsInfo.message" class="model-message">
           {{ modelsInfo.message }}
         </div>
-        <div v-if="hasPurpose(modelsInfo.purpose, AiServicePurpose.Llm)" class="model-section">
+        <div
+          v-if="!modelsLoading && hasPurpose(modelsInfo.purpose, AiServicePurpose.Llm)"
+          class="model-section"
+        >
           <div class="model-label">LLM 模型</div>
           <div class="model-tags" v-if="modelsInfo.llmModels.length">
             <el-tag
@@ -731,7 +801,10 @@ onMounted(loadData);
           </div>
           <div v-else class="model-empty">未返回 LLM 模型</div>
         </div>
-        <div v-if="hasPurpose(modelsInfo.purpose, AiServicePurpose.Embedding)" class="model-section">
+        <div
+          v-if="!modelsLoading && hasPurpose(modelsInfo.purpose, AiServicePurpose.Embedding)"
+          class="model-section"
+        >
           <div class="model-label">Embedding 模型</div>
           <div class="model-tags" v-if="modelsInfo.embeddingModels.length">
             <el-tag
@@ -751,7 +824,7 @@ onMounted(loadData);
       </div>
       <template #footer>
         <el-button @click="modelsDialogVisible = false">关闭</el-button>
-        <el-button v-if="canProbeModels" type="primary" @click="loadModels">
+        <el-button v-if="canProbeModels" type="primary" :loading="modelsLoading" @click="loadModels">
           重新探测
         </el-button>
       </template>

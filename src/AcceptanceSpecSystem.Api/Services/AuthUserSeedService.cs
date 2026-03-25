@@ -77,7 +77,7 @@ public static class AuthUserSeedService
         var rootOrgUnit = await EnsureRootOrgUnitAsync(dbContext, company.Id, now);
 
         var permissionMap = await EnsurePermissionsAsync(dbContext, now);
-        var roleMap = await EnsureRolesAsync(dbContext, company.Id, permissionMap, rootOrgUnit.Id, now);
+        var roleMap = await EnsureRolesAsync(dbContext, company.Id, permissionMap, now);
 
         await EnsureSeedAccountsAsync(dbContext, passwordService, company.Id, roleMap, rootOrgUnit.Id, now);
         await EnsureExistingUserRelationsAsync(dbContext, company.Id, roleMap["common"], rootOrgUnit.Id, now);
@@ -408,7 +408,6 @@ public static class AuthUserSeedService
         AppDbContext dbContext,
         int companyId,
         Dictionary<string, AuthPermission> permissionMap,
-        int rootOrgUnitId,
         DateTime now)
     {
         var roleMap = await dbContext.AuthRoles
@@ -438,7 +437,7 @@ public static class AuthUserSeedService
                 CompanyId = companyId,
                 Code = "common",
                 Name = "普通用户",
-                Description = "内置普通角色，默认用于跨部门协作基础账号",
+                Description = "内置普通角色，默认按主组织及其子树控制验收规格范围",
                 IsBuiltIn = true,
                 IsActive = true,
                 CreatedAt = now
@@ -485,7 +484,9 @@ public static class AuthUserSeedService
         var commonPermissionsChanged = await SyncRolePermissionsAsync(dbContext, commonRole.Id, commonPermissionIds);
 
         await EnsureRoleDataScopesAsync(dbContext, adminRole.Id, DataScopeType.All, [], now);
-        await EnsureRoleDataScopesAsync(dbContext, commonRole.Id, DataScopeType.OrgSubtree, [rootOrgUnitId], now);
+        // 普通角色默认按“主组织及其子树”取范围：
+        // OrgSubtree + 空节点 表示运行时回退到用户当前有效组织，而不是绑定公司根节点。
+        await EnsureRoleDataScopesAsync(dbContext, commonRole.Id, DataScopeType.OrgSubtree, [], now);
 
         if (adminPermissionsChanged)
         {

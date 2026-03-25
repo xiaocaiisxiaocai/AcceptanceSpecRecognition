@@ -1,5 +1,11 @@
 namespace AcceptanceSpecSystem.Core.Matching.Models;
 
+public enum LlmReviewScene
+{
+    MatchingReview = 1,
+    ImportDuplicateReview = 2
+}
+
 /// <summary>
 /// LLM 复核请求
 /// </summary>
@@ -14,6 +20,7 @@ public class LlmReviewRequest
     public double? BaseScore { get; set; }
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
     public int? LlmServiceId { get; set; }
+    public LlmReviewScene ReviewScene { get; set; } = LlmReviewScene.MatchingReview;
 }
 
 /// <summary>

@@ -1,5 +1,13 @@
 namespace AcceptanceSpecSystem.Data.Entities;
 
+public enum PromptTemplateScene
+{
+    Unknown = 0,
+    MatchingReview = 1,
+    ImportDuplicateReview = 2,
+    MatchingGenerate = 3
+}
+
 /// <summary>
 /// Prompt模板实体
 /// </summary>
@@ -19,6 +27,21 @@ public class PromptTemplate
     /// Prompt模板内容
     /// </summary>
     public string Content { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 模板场景
+    /// </summary>
+    public PromptTemplateScene Scene { get; set; }
+
+    /// <summary>
+    /// 展示名称
+    /// </summary>
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否为系统模板
+    /// </summary>
+    public bool IsSystem { get; set; }
 
     /// <summary>
     /// 是否为默认模板

@@ -4,19 +4,35 @@ import type { ApiResponse, PagedData, PagedRequest } from "./customer";
 export interface PromptTemplate {
   id: number;
   name: string;
+  scene: string;
+  displayName: string;
   content: string;
+  isSystem: boolean;
   isDefault: boolean;
+  usageDescription: string;
+  availableVariables: string[];
   createdAt: string;
   updatedAt?: string | null;
 }
 
-export interface CreatePromptTemplateRequest {
-  name: string;
+export interface UpdatePromptTemplateRequest {
+  displayName: string;
   content: string;
-  isDefault: boolean;
 }
 
-export interface UpdatePromptTemplateRequest extends CreatePromptTemplateRequest {}
+export interface PromptTemplatePreviewRequest {
+  scene: string;
+  content: string;
+}
+
+export interface PromptTemplatePreviewResponse {
+  isValid: boolean;
+  errors: string[];
+  renderedPrompt: string;
+  exampleJson?: string | null;
+  structuredOutputIsValid: boolean;
+  structuredOutputError?: string | null;
+}
 
 export interface PromptTemplateListRequest extends PagedRequest {}
 
@@ -28,18 +44,6 @@ export const getPromptTemplateList = (params?: PromptTemplateListRequest) => {
   });
 };
 
-export const getPromptTemplate = (id: number) => {
-  return http.request<ApiResponse<PromptTemplate>>("get", `${baseUrl}/${id}`);
-};
-
-export const getDefaultPromptTemplate = () => {
-  return http.request<ApiResponse<PromptTemplate>>("get", `${baseUrl}/default`);
-};
-
-export const createPromptTemplate = (data: CreatePromptTemplateRequest) => {
-  return http.request<ApiResponse<PromptTemplate>>("post", baseUrl, { data });
-};
-
 export const updatePromptTemplate = (
   id: number,
   data: UpdatePromptTemplateRequest
@@ -49,14 +53,19 @@ export const updatePromptTemplate = (
   });
 };
 
-export const deletePromptTemplate = (id: number) => {
-  return http.request<ApiResponse<void>>("delete", `${baseUrl}/${id}`);
-};
-
-export const setDefaultPromptTemplate = (id: number) => {
-  return http.request<ApiResponse<void>>(
+export const previewPromptTemplate = (
+  data: PromptTemplatePreviewRequest
+) => {
+  return http.request<ApiResponse<PromptTemplatePreviewResponse>>(
     "post",
-    `${baseUrl}/${id}/set-default`
+    `${baseUrl}/preview`,
+    { data }
   );
 };
 
+export const resetSystemPromptTemplate = (scene: string) => {
+  return http.request<ApiResponse<PromptTemplate>>(
+    "post",
+    `${baseUrl}/reset-system/${scene}`
+  );
+};

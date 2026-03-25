@@ -2,13 +2,12 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
-  createPromptTemplate,
-  deletePromptTemplate,
-  getDefaultPromptTemplate,
   getPromptTemplateList,
-  setDefaultPromptTemplate,
+  previewPromptTemplate,
+  resetSystemPromptTemplate,
   updatePromptTemplate,
-  type PromptTemplate
+  type PromptTemplate,
+  type PromptTemplatePreviewResponse
 } from "@/api/prompt-template";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
@@ -18,8 +17,10 @@ defineOptions({
 });
 
 const loading = ref(false);
+const previewLoading = ref(false);
 const tableData = ref<PromptTemplate[]>([]);
 const total = ref(0);
+const previewResult = ref<PromptTemplatePreviewResponse | null>(null);
 
 const queryParams = reactive({
   page: 1,
@@ -27,17 +28,20 @@ const queryParams = reactive({
   keyword: ""
 });
 
-const canLoadDefault = computed(() => hasPerms("btn:prompt-template:default"));
-const canCreate = computed(() => hasPerms("btn:prompt-template:create"));
 const canUpdate = computed(() => hasPerms("btn:prompt-template:update"));
-const canDelete = computed(() => hasPerms("btn:prompt-template:delete"));
-const canSetDefault = computed(() => hasPerms("btn:prompt-template:set-default"));
-const canSubmit = computed(() =>
-  isEdit.value ? canUpdate.value : canCreate.value
-);
-const hasOperationActions = computed(
-  () => canUpdate.value || canDelete.value || canSetDefault.value
-);
+const hasOperationActions = computed(() => canUpdate.value);
+
+const dialogVisible = ref(false);
+const dialogTitle = ref("");
+const formData = reactive({
+  id: 0,
+  name: "",
+  scene: "",
+  displayName: "",
+  content: "",
+  usageDescription: "",
+  availableVariables: [] as string[]
+});
 
 const loadData = async () => {
   loading.value = true;
@@ -67,112 +71,35 @@ const handleReset = () => {
   loadData();
 };
 
-const handleLoadDefault = async () => {
-  if (
-    !ensurePermission("btn:prompt-template:default", "权限不足，无法加载默认模板")
-  ) {
-    return;
-  }
-  try {
-    const res = await getDefaultPromptTemplate();
-    if (res.code === 0) {
-      ElMessage.success("默认模板已就绪");
-      loadData();
-    } else {
-      ElMessage.error(res.message);
-    }
-  } catch {
-    ElMessage.error("加载默认模板失败");
-  }
-};
-
-const dialogVisible = ref(false);
-const dialogTitle = ref("");
-const isEdit = ref(false);
-const formData = reactive({
-  id: 0,
-  name: "",
-  content: "",
-  isDefault: false
-});
-
-const handleAdd = () => {
-  if (!ensurePermission("btn:prompt-template:create", "权限不足，无法新增Prompt模板")) {
-    return;
-  }
-  dialogTitle.value = "新增Prompt模板";
-  isEdit.value = false;
-  Object.assign(formData, { id: 0, name: "", content: "", isDefault: false });
-  dialogVisible.value = true;
-};
-
-const handleEdit = (row: PromptTemplate) => {
-  if (!ensurePermission("btn:prompt-template:update", "权限不足，无法编辑Prompt模板")) {
-    return;
-  }
-  dialogTitle.value = "编辑Prompt模板";
-  isEdit.value = true;
+const openEditDialog = (row: PromptTemplate) => {
+  dialogTitle.value = `编辑模板 - ${row.displayName}`;
+  previewResult.value = null;
   Object.assign(formData, {
     id: row.id,
     name: row.name,
+    scene: row.scene,
+    displayName: row.displayName,
     content: row.content,
-    isDefault: row.isDefault
+    usageDescription: row.usageDescription,
+    availableVariables: [...row.availableVariables]
   });
   dialogVisible.value = true;
 };
 
-const handleDelete = async (row: PromptTemplate) => {
-  if (!ensurePermission("btn:prompt-template:delete", "权限不足，无法删除Prompt模板")) {
-    return;
-  }
-  try {
-    await ElMessageBox.confirm(`确定删除模板“${row.name}”吗？`, "提示", {
-      confirmButtonText: "确定",
-      cancelButtonText: "取消",
-      type: "warning"
-    });
-    const res = await deletePromptTemplate(row.id);
-    if (res.code === 0) {
-      ElMessage.success("删除成功");
-      loadData();
-    } else {
-      ElMessage.error(res.message);
-    }
-  } catch {
-    // cancelled
-  }
-};
-
-const handleSetDefault = async (row: PromptTemplate) => {
+const handleEdit = (row: PromptTemplate) => {
   if (
-    !ensurePermission("btn:prompt-template:set-default", "权限不足，无法设置默认模板")
+    !ensurePermission("btn:prompt-template:update", "权限不足，无法编辑Prompt模板")
   ) {
     return;
   }
-  try {
-    const res = await setDefaultPromptTemplate(row.id);
-    if (res.code === 0) {
-      ElMessage.success("设置默认成功");
-      loadData();
-    } else {
-      ElMessage.error(res.message);
-    }
-  } catch {
-    ElMessage.error("设置默认失败");
-  }
+
+  openEditDialog(row);
 };
 
-const handleSubmit = async () => {
+const handlePreview = async () => {
   if (
-    !ensurePermission(
-      isEdit.value ? "btn:prompt-template:update" : "btn:prompt-template:create",
-      isEdit.value ? "权限不足，无法保存Prompt模板" : "权限不足，无法新增Prompt模板"
-    )
+    !ensurePermission("btn:prompt-template:update", "权限不足，无法预览Prompt模板")
   ) {
-    return;
-  }
-  if (!formData.name.trim()) {
-    ElMessage.warning("请输入名称");
     return;
   }
   if (!formData.content.trim()) {
@@ -180,26 +107,93 @@ const handleSubmit = async () => {
     return;
   }
 
-  const payload = {
-    name: formData.name.trim(),
-    content: formData.content,
-    isDefault: formData.isDefault
-  };
+  previewLoading.value = true;
+  try {
+    const res = await previewPromptTemplate({
+      scene: formData.scene,
+      content: formData.content
+    });
+    if (res.code === 0) {
+      previewResult.value = res.data;
+      ElMessage.success(res.data.isValid ? "预览通过" : "预览存在校验问题");
+    } else {
+      ElMessage.error(res.message);
+    }
+  } catch {
+    ElMessage.error("预览失败");
+  } finally {
+    previewLoading.value = false;
+  }
+};
+
+const handleSubmit = async () => {
+  if (
+    !ensurePermission("btn:prompt-template:update", "权限不足，无法保存Prompt模板")
+  ) {
+    return;
+  }
+  if (!formData.displayName.trim()) {
+    ElMessage.warning("请输入显示名称");
+    return;
+  }
+  if (!formData.content.trim()) {
+    ElMessage.warning("请输入内容");
+    return;
+  }
 
   try {
-    const res = isEdit.value
-      ? await updatePromptTemplate(formData.id, payload)
-      : await createPromptTemplate(payload);
+    const res = await updatePromptTemplate(formData.id, {
+      displayName: formData.displayName.trim(),
+      content: formData.content
+    });
 
     if (res.code === 0) {
-      ElMessage.success(isEdit.value ? "更新成功" : "创建成功");
+      ElMessage.success("更新成功");
       dialogVisible.value = false;
+      previewResult.value = null;
       loadData();
     } else {
       ElMessage.error(res.message);
     }
   } catch {
-    ElMessage.error("操作失败");
+    ElMessage.error("保存失败");
+  }
+};
+
+const handleResetSystem = async (row: PromptTemplate) => {
+  if (
+    !ensurePermission(
+      "btn:prompt-template:update",
+      "权限不足，无法恢复系统默认模板"
+    )
+  ) {
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定将“${row.displayName}”恢复为系统默认内容吗？`,
+      "提示",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+
+    const res = await resetSystemPromptTemplate(row.scene);
+    if (res.code === 0) {
+      ElMessage.success("已恢复系统默认内容");
+      loadData();
+
+      if (dialogVisible.value && formData.id === row.id) {
+        openEditDialog(res.data);
+      }
+    } else {
+      ElMessage.error(res.message);
+    }
+  } catch {
+    // cancelled
   }
 };
 
@@ -222,15 +216,16 @@ onMounted(loadData);
     <div class="page-header">
       <div>
         <div class="page-title">Prompt 模板</div>
-        <div class="page-subtitle">维护 LLM 提示词模板与版本</div>
+        <div class="page-subtitle">按系统场景维护 LLM 提示词模板</div>
       </div>
     </div>
+
     <el-card class="mb-4">
       <el-form :inline="true">
         <el-form-item label="关键词">
           <el-input
             v-model="queryParams.keyword"
-            placeholder="名称/内容"
+            placeholder="系统键 / 显示名称 / 内容"
             clearable
             @keyup.enter="handleSearch"
           />
@@ -245,25 +240,35 @@ onMounted(loadData);
     <el-card>
       <template #header>
         <div class="flex justify-between items-center">
-          <span>Prompt模板</span>
-          <div class="flex gap-2">
-            <el-button v-if="canLoadDefault" @click="handleLoadDefault">
-              加载默认模板
-            </el-button>
-            <el-button v-if="canCreate" type="primary" @click="handleAdd">
-              新增
-            </el-button>
-          </div>
+          <span>系统模板</span>
+          <span class="text-sm text-gray-500">
+            页面只维护运行时实际使用的系统模板，不再提供设默认和任意新增。
+          </span>
         </div>
       </template>
 
       <el-table v-loading="loading" :data="tableData" stripe>
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="名称" min-width="200" />
-        <el-table-column label="默认" width="90">
+        <el-table-column prop="name" label="系统键" min-width="180" />
+        <el-table-column prop="displayName" label="显示名称" min-width="160" />
+        <el-table-column label="系统模板" width="100">
           <template #default="{ row }">
-            <el-tag v-if="row.isDefault" type="success">默认</el-tag>
+            <el-tag v-if="row.isSystem" type="success">系统</el-tag>
             <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="usageDescription" label="用途" min-width="220" />
+        <el-table-column label="占位符" min-width="280">
+          <template #default="{ row }">
+            <div class="tag-list">
+              <el-tag
+                v-for="variable in row.availableVariables"
+                :key="variable"
+                size="small"
+                type="info"
+              >
+                {{ variable }}
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" width="180">
@@ -276,24 +281,20 @@ onMounted(loadData);
         <el-table-column
           v-if="hasOperationActions"
           label="操作"
-          width="220"
+          width="180"
           fixed="right"
         >
           <template #default="{ row }">
             <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">
               编辑
             </el-button>
-            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">
-              删除
-            </el-button>
             <el-button
-              v-if="canSetDefault"
-              type="success"
+              v-if="canUpdate"
+              type="warning"
               link
-              :disabled="row.isDefault"
-              @click="handleSetDefault(row)"
+              @click="handleResetSystem(row)"
             >
-              设为默认
+              恢复默认
             </el-button>
           </template>
         </el-table-column>
@@ -312,27 +313,95 @@ onMounted(loadData);
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="860">
-      <el-form label-width="80px">
-        <el-form-item label="名称" required>
-          <el-input v-model="formData.name" maxlength="100" />
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="980">
+      <el-form label-width="100px">
+        <el-form-item label="系统键">
+          <el-input :model-value="formData.name" readonly />
+        </el-form-item>
+        <el-form-item label="用途说明">
+          <el-input :model-value="formData.usageDescription" readonly />
+        </el-form-item>
+        <el-form-item label="显示名称" required>
+          <el-input v-model="formData.displayName" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="占位符">
+          <div class="tag-list">
+            <el-tag
+              v-for="variable in formData.availableVariables"
+              :key="variable"
+              size="small"
+              type="info"
+            >
+              {{ variable }}
+            </el-tag>
+          </div>
         </el-form-item>
         <el-form-item label="内容" required>
           <el-input
             v-model="formData.content"
             type="textarea"
-            :rows="14"
+            :rows="16"
             placeholder="输入 Prompt 模板内容"
           />
         </el-form-item>
-        <el-form-item label="设默认">
-          <el-switch v-model="formData.isDefault" />
-        </el-form-item>
       </el-form>
+
+      <el-divider content-position="left">预览测试</el-divider>
+      <div class="mb-4">
+        <el-button :loading="previewLoading" @click="handlePreview">
+          执行预览
+        </el-button>
+      </div>
+
+      <el-card v-if="previewResult" shadow="never" class="preview-card">
+        <el-alert
+          :title="previewResult.isValid ? '预览校验通过' : '预览存在问题'"
+          :type="previewResult.isValid ? 'success' : 'warning'"
+          :closable="false"
+          class="mb-4"
+        />
+
+        <div v-if="previewResult.errors.length" class="mb-4">
+          <div class="preview-title">校验问题</div>
+          <ul class="preview-errors">
+            <li v-for="error in previewResult.errors" :key="error">{{ error }}</li>
+          </ul>
+        </div>
+
+        <div class="mb-4">
+          <div class="preview-title">渲染结果</div>
+          <pre class="preview-block">{{ previewResult.renderedPrompt }}</pre>
+        </div>
+
+        <div class="mb-4">
+          <div class="preview-title">JSON 示例</div>
+          <pre class="preview-block">{{
+            previewResult.exampleJson || "未提取到 JSON 示例"
+          }}</pre>
+        </div>
+
+        <div>
+          <div class="preview-title">结构化校验</div>
+          <el-tag
+            :type="previewResult.structuredOutputIsValid ? 'success' : 'danger'"
+          >
+            {{
+              previewResult.structuredOutputIsValid ? "通过" : "失败"
+            }}
+          </el-tag>
+          <div
+            v-if="previewResult.structuredOutputError"
+            class="mt-2 text-sm text-red-500"
+          >
+            {{ previewResult.structuredOutputError }}
+          </div>
+        </div>
+      </el-card>
+
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
-          确定
+        <el-button v-if="canUpdate" type="primary" @click="handleSubmit">
+          保存
         </el-button>
       </template>
     </el-dialog>
@@ -346,5 +415,39 @@ onMounted(loadData);
   flex-direction: column;
   gap: 16px;
 }
-</style>
 
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preview-card {
+  background: #fafafa;
+}
+
+.preview-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+}
+
+.preview-block {
+  margin: 0;
+  padding: 12px;
+  background: #111827;
+  color: #f9fafb;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.preview-errors {
+  margin: 0;
+  padding-left: 18px;
+  color: #dc2626;
+}
+</style>

@@ -15,6 +15,33 @@ public interface IPromptTemplateRepository : IRepository<PromptTemplate>
     Task<PromptTemplate?> GetByNameAsync(string name);
 
     /// <summary>
+    /// 根据场景获取模板
+    /// </summary>
+    /// <param name="scene">模板场景</param>
+    /// <returns>模板或null</returns>
+    Task<PromptTemplate?> GetBySceneAsync(PromptTemplateScene scene);
+
+    /// <summary>
+    /// 获取系统模板列表
+    /// </summary>
+    /// <returns>系统模板</returns>
+    Task<List<PromptTemplate>> GetSystemTemplatesAsync();
+
+    /// <summary>
+    /// 获取或创建系统模板
+    /// </summary>
+    /// <param name="scene">场景</param>
+    /// <param name="name">系统键</param>
+    /// <param name="displayName">展示名称</param>
+    /// <param name="defaultContent">默认内容</param>
+    /// <returns>模板</returns>
+    Task<PromptTemplate> GetOrCreateSystemAsync(
+        PromptTemplateScene scene,
+        string name,
+        string displayName,
+        string defaultContent);
+
+    /// <summary>
     /// 获取默认模板
     /// </summary>
     /// <returns>默认模板或null</returns>

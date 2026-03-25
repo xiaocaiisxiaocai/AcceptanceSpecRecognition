@@ -1,4 +1,5 @@
 using System.Net;
+using System.IO.Compression;
 using System.Text.Json;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Documents.Writers;
@@ -206,6 +207,154 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         GetCellText(resultBytes, 1, 1, 1).Should().Be("T2-R1C1");
     }
 
+    /// <summary>
+    /// 严格复用预检：项目/规格顺序变化时必须拒绝应用
+    /// </summary>
+    [Fact]
+    public async Task StrictReusePreview_WhenProjectSpecificationOrderChanged_ShouldFail()
+    {
+        var sourceDocxBytes = CreateMultiTableDocxBytes(
+            new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "", "" },
+                new[] { "P2", "S2", "", "" }
+            });
+        var sourceFileId = await UploadDocxAsync(sourceDocxBytes, "strict-source.docx");
+
+        var customerId = await CreateCustomerAsync("StrictReusePreview-C");
+        var processId = await CreateProcessAsync("StrictReusePreview-P");
+        var specId1 = await CreateSpecAsync(customerId, processId, "P1", "S1", "AC-1", "RM-1");
+        var specId2 = await CreateSpecAsync(customerId, processId, "P2", "S2", "AC-2", "RM-2");
+
+        var sourceTaskId = await ExecuteBatchFillAsync(sourceFileId, new[]
+        {
+            new
+            {
+                tableIndex = 0,
+                projectColumnIndex = 0,
+                specificationColumnIndex = 1,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = 3,
+                mappings = new[]
+                {
+                    new { rowIndex = 1, specId = specId1, matchScore = 1.0 },
+                    new { rowIndex = 2, specId = specId2, matchScore = 1.0 }
+                }
+            }
+        });
+
+        var reorderedDocxBytes = CreateMultiTableDocxBytes(
+            new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P2", "S2", "", "" },
+                new[] { "P1", "S1", "", "" }
+            });
+        var targetFileId = await UploadDocxAsync(reorderedDocxBytes, "strict-target-reordered.docx");
+
+        var previewResp = await _client.PostAsync(
+            "/api/matching/reuse/strict/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                sourceTaskId,
+                targetFileIds = new[] { targetFileId }
+            }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+        previewJson.Data.GetProperty("readyCount").GetInt32().Should().Be(0);
+
+        var fileResult = previewJson.Data.GetProperty("files")[0];
+        fileResult.GetProperty("canApply").GetBoolean().Should().BeFalse();
+        fileResult.GetProperty("errors").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().Contain(message => !string.IsNullOrWhiteSpace(message));
+    }
+
+    /// <summary>
+    /// 严格复用执行：两个相同模板目标文件应统一打包并写入来源填充结果
+    /// </summary>
+    [Fact]
+    public async Task StrictReuseExecute_WithTwoSameDocx_ShouldReturnZipAndFilledFiles()
+    {
+        var sourceDocxBytes = CreateMultiTableDocxBytes(
+            new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "PA", "SA", "", "" },
+                new[] { "PB", "SB", "", "" }
+            });
+        var sourceFileId = await UploadDocxAsync(sourceDocxBytes, "strict-source-success.docx");
+
+        var customerId = await CreateCustomerAsync("StrictReuseExec-C");
+        var processId = await CreateProcessAsync("StrictReuseExec-P");
+        var specIdA = await CreateSpecAsync(customerId, processId, "PA", "SA", "FILL-A", "REM-A");
+        var specIdB = await CreateSpecAsync(customerId, processId, "PB", "SB", "FILL-B", "REM-B");
+
+        var sourceTaskId = await ExecuteBatchFillAsync(sourceFileId, new[]
+        {
+            new
+            {
+                tableIndex = 0,
+                projectColumnIndex = 0,
+                specificationColumnIndex = 1,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = 3,
+                mappings = new[]
+                {
+                    new { rowIndex = 1, specId = specIdA, matchScore = 1.0 },
+                    new { rowIndex = 2, specId = specIdB, matchScore = 1.0 }
+                }
+            }
+        });
+
+        var targetFileId1 = await UploadDocxAsync(sourceDocxBytes, "strict-target-a.docx");
+        var targetFileId2 = await UploadDocxAsync(sourceDocxBytes, "strict-target-b.docx");
+
+        var executeResp = await _client.PostAsync(
+            "/api/matching/reuse/strict/execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                sourceTaskId,
+                targetFileIds = new[] { targetFileId1, targetFileId2 }
+            }));
+
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeJson.Code.Should().Be(0);
+        executeJson.Data.GetProperty("successCount").GetInt32().Should().Be(2);
+        executeJson.Data.GetProperty("failedCount").GetInt32().Should().Be(0);
+        executeJson.Data.GetProperty("downloadFileName").GetString().Should().EndWith(".zip");
+
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+        taskId.Should().NotBeNullOrWhiteSpace();
+
+        var downloadResp = await _client.GetAsync($"/api/matching/download/{taskId}");
+        downloadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        downloadResp.Content.Headers.ContentType?.MediaType.Should().Be("application/zip");
+
+        var zipBytes = await downloadResp.Content.ReadAsByteArrayAsync();
+        using var zipStream = new MemoryStream(zipBytes);
+        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+        archive.Entries.Should().HaveCount(2);
+
+        foreach (var entry in archive.Entries)
+        {
+            entry.FullName.Should().EndWith(".docx");
+            using var entryStream = entry.Open();
+            using var docxStream = new MemoryStream();
+            await entryStream.CopyToAsync(docxStream);
+            var docxBytes = docxStream.ToArray();
+
+            GetCellText(docxBytes, 0, 1, 2).Should().Be("FILL-A");
+            GetCellText(docxBytes, 0, 1, 3).Should().Be("REM-A");
+            GetCellText(docxBytes, 0, 2, 2).Should().Be("FILL-B");
+            GetCellText(docxBytes, 0, 2, 3).Should().Be("REM-B");
+        }
+    }
+
     #region Helpers
 
     /// <summary>
@@ -266,6 +415,74 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         var row = table.Elements<TableRow>().ToList()[rowIndex];
         var cell = row.Elements<TableCell>().ToList()[colIndex];
         return cell.InnerText ?? string.Empty;
+    }
+
+    private async Task<int> UploadDocxAsync(byte[] docxBytes, string fileName)
+    {
+        var multipart = new MultipartFormDataContent();
+        multipart.Add(new ByteArrayContent(docxBytes), "file", fileName);
+        var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        uploadJson.Code.Should().Be(0);
+        return uploadJson.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private async Task<int> CreateCustomerAsync(string name)
+    {
+        var response = await _client.PostAsync("/api/customers", ApiClientJson.ToJsonContent(new { name }));
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Code.Should().Be(0);
+        return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private async Task<int> CreateProcessAsync(string name)
+    {
+        var response = await _client.PostAsync("/api/processes", ApiClientJson.ToJsonContent(new { name }));
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Code.Should().Be(0);
+        return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private async Task<int> CreateSpecAsync(
+        int customerId,
+        int processId,
+        string project,
+        string specification,
+        string acceptance,
+        string remark)
+    {
+        var response = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            processId,
+            project,
+            specification,
+            acceptance,
+            remark
+        }));
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Code.Should().Be(0);
+        return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private async Task<string> ExecuteBatchFillAsync<TTable>(int fileId, TTable[] tables)
+    {
+        var response = await _client.PostAsync("/api/matching/batch-execute", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            highConfidenceThreshold = 0.95,
+            tables
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Code.Should().Be(0);
+        return json.Data.GetProperty("taskId").GetString()!;
     }
 
     #endregion

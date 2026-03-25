@@ -106,7 +106,9 @@ export const testAiServiceConnection = (id: number) => {
 export const getAiServiceModels = (id: number) => {
   return http.request<ApiResponse<AiServiceModelsResult>>(
     "get",
-    `${baseUrl}/${id}/models`
+    `${baseUrl}/${id}/models`,
+    undefined,
+    { timeout: 30000 }
   );
 };
 

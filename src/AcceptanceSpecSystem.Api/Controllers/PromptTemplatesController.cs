@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Core.Matching.Services;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -16,14 +17,19 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 public class PromptTemplatesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly PromptTemplateValidationService _validationService;
     private readonly ILogger<PromptTemplatesController> _logger;
 
     private const string DefaultPromptContent =
         "你是验收规格助手。给定项目与规格内容，请生成验收方法与备注。";
 
-    public PromptTemplatesController(IUnitOfWork unitOfWork, ILogger<PromptTemplatesController> logger)
+    public PromptTemplatesController(
+        IUnitOfWork unitOfWork,
+        PromptTemplateValidationService validationService,
+        ILogger<PromptTemplatesController> logger)
     {
         _unitOfWork = unitOfWork;
+        _validationService = validationService;
         _logger = logger;
     }
 
@@ -40,18 +46,22 @@ public class PromptTemplatesController : BaseApiController
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
-        var query = _unitOfWork.PromptTemplates.Query();
+        await EnsureSystemTemplatesAsync();
+
+        var query = _unitOfWork.PromptTemplates.Query()
+            .Where(t => t.IsSystem);
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var key = keyword.Trim();
             query = query.Where(t =>
                 t.Name.Contains(key) ||
+                t.DisplayName.Contains(key) ||
                 t.Content.Contains(key));
         }
 
         var total = await query.CountAsync();
         var rows = await query
-            .OrderByDescending(t => t.IsDefault)
+            .OrderBy(t => t.Scene)
             .ThenByDescending(t => t.UpdatedAt ?? t.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -87,6 +97,8 @@ public class PromptTemplatesController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> GetById(int id)
     {
+        await EnsureSystemTemplatesAsync();
+
         var entity = await _unitOfWork.PromptTemplates.GetByIdAsync(id);
         if (entity == null)
             return NotFoundResult<PromptTemplateDto>("模板不存在");
@@ -115,7 +127,10 @@ public class PromptTemplatesController : BaseApiController
         var entity = new PromptTemplate
         {
             Name = name,
+            DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? name : request.DisplayName.Trim(),
             Content = request.Content,
+            Scene = PromptTemplateScene.Unknown,
+            IsSystem = false,
             IsDefault = false,
             CreatedAt = DateTime.Now
         };
@@ -146,34 +161,56 @@ public class PromptTemplatesController : BaseApiController
         if (entity == null)
             return Error<PromptTemplateDto>(400, "模板不存在");
 
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return Error<PromptTemplateDto>(400, "名称不能为空");
         if (string.IsNullOrWhiteSpace(request.Content))
             return Error<PromptTemplateDto>(400, "内容不能为空");
 
-        var newName = request.Name.Trim();
-        if (!string.Equals(entity.Name, newName, StringComparison.OrdinalIgnoreCase))
+        if (entity.IsSystem)
         {
-            var exists = await _unitOfWork.PromptTemplates.GetByNameAsync(newName);
-            if (exists != null && exists.Id != id)
-                return Error<PromptTemplateDto>(400, "名称已存在");
+            var validation = _validationService.Validate(entity.Scene, request.Content);
+            if (!validation.IsValid)
+            {
+                return Error<PromptTemplateDto>(400, string.Join("；", validation.Errors));
+            }
         }
 
-        entity.Name = newName;
+        if (!string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            entity.DisplayName = request.DisplayName.Trim();
+        }
+
         entity.Content = request.Content;
         entity.UpdatedAt = DateTime.Now;
         _unitOfWork.PromptTemplates.Update(entity);
 
         await _unitOfWork.SaveChangesAsync();
-
-        if (request.IsDefault)
-        {
-            await _unitOfWork.PromptTemplates.SetDefaultAsync(entity.Id);
-            await _unitOfWork.SaveChangesAsync();
-            entity.IsDefault = true;
-        }
-
         return Success(ToDto(entity), "更新成功");
+    }
+
+    /// <summary>
+    /// 预览Prompt模板
+    /// </summary>
+    [HttpPost("preview")]
+    [ProducesResponseType(typeof(ApiResponse<PreviewPromptTemplateResponse>), StatusCodes.Status200OK)]
+    public ActionResult<ApiResponse<PreviewPromptTemplateResponse>> Preview([FromBody] PreviewPromptTemplateRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Scene))
+            return Error<PreviewPromptTemplateResponse>(400, "场景不能为空");
+        if (string.IsNullOrWhiteSpace(request.Content))
+            return Error<PreviewPromptTemplateResponse>(400, "内容不能为空");
+
+        if (!PromptTemplateCatalog.TryGetByName(request.Scene, out var definition))
+            return Error<PreviewPromptTemplateResponse>(400, "模板场景不存在");
+
+        var validation = _validationService.Validate(definition.Scene, request.Content);
+        return Success(new PreviewPromptTemplateResponse
+        {
+            IsValid = validation.IsValid,
+            Errors = validation.Errors,
+            RenderedPrompt = validation.RenderedPrompt,
+            ExampleJson = validation.ExampleJson,
+            StructuredOutputIsValid = validation.StructuredOutputIsValid,
+            StructuredOutputError = validation.StructuredOutputError
+        });
     }
 
     /// <summary>
@@ -210,14 +247,62 @@ public class PromptTemplatesController : BaseApiController
         return Success("设置默认成功");
     }
 
-    private static PromptTemplateDto ToDto(PromptTemplate t) => new()
+    /// <summary>
+    /// 恢复系统模板默认内容
+    /// </summary>
+    [HttpPost("reset-system/{scene}")]
+    [AuditOperation("reset-system", "prompt-template")]
+    [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> ResetSystem(string scene)
     {
-        Id = t.Id,
-        Name = t.Name,
-        Content = t.Content,
-        IsDefault = t.IsDefault,
-        CreatedAt = t.CreatedAt,
-        UpdatedAt = t.UpdatedAt
-    };
-}
+        if (!PromptTemplateCatalog.TryGetByName(scene, out var definition))
+            return Error<PromptTemplateDto>(400, "模板场景不存在");
 
+        var entity = await _unitOfWork.PromptTemplates.GetOrCreateSystemAsync(
+            definition.Scene,
+            definition.Name,
+            definition.DisplayName,
+            definition.DefaultContent);
+        entity.Content = definition.DefaultContent;
+        entity.DisplayName = definition.DisplayName;
+        entity.IsSystem = true;
+        entity.Scene = definition.Scene;
+        entity.UpdatedAt = DateTime.Now;
+        await _unitOfWork.SaveChangesAsync();
+
+        return Success(ToDto(entity), "恢复默认成功");
+    }
+
+    private async Task EnsureSystemTemplatesAsync()
+    {
+        foreach (var definition in PromptTemplateCatalog.GetSystemTemplates())
+        {
+            await _unitOfWork.PromptTemplates.GetOrCreateSystemAsync(
+                definition.Scene,
+                definition.Name,
+                definition.DisplayName,
+                definition.DefaultContent);
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+    }
+
+    private static PromptTemplateDto ToDto(PromptTemplate template)
+    {
+        PromptTemplateCatalog.TryGetByName(template.Name, out var definition);
+        return new PromptTemplateDto
+        {
+            Id = template.Id,
+            Name = template.Name,
+            Scene = template.Name,
+            DisplayName = string.IsNullOrWhiteSpace(template.DisplayName) ? template.Name : template.DisplayName,
+            Content = template.Content,
+            IsSystem = template.IsSystem,
+            IsDefault = template.IsDefault,
+            UsageDescription = definition?.UsageDescription ?? string.Empty,
+            AvailableVariables = definition?.AvailableVariables.ToList() ?? [],
+            CreatedAt = template.CreatedAt,
+            UpdatedAt = template.UpdatedAt
+        };
+    }
+}

@@ -70,6 +70,8 @@ declare global {
     VITE_CDN: boolean;
     VITE_HIDE_HOME: string;
     VITE_COMPRESSION: ViteCompression;
+    VITE_ENABLE_CODE_INSPECTOR: boolean;
+    VITE_DEV_WARMUP: boolean;
   }
 
   /**
@@ -105,6 +107,7 @@ declare global {
     ShowModel?: string;
     MenuArrowIconNoTransition?: boolean;
     CachingAsyncRoutes?: boolean;
+    EnableBackendAsyncRoutes?: boolean;
     TooltipEffect?: Effect;
     ResponsiveStorageNameSpace?: string;
     MenuSearchHistory?: number;
