@@ -154,9 +154,6 @@ public class AuthRolesController : BaseApiController
         if (role == null)
             return Error<AuthRoleDto>(404, "角色不存在");
 
-        if (role.IsBuiltIn)
-            return Error<AuthRoleDto>(400, "内置角色不允许编辑");
-
         await using var transaction = await _dbContext.Database.BeginTransactionAsync();
         role.Name = request.Name.Trim();
         role.Description = NormalizeOptional(request.Description);

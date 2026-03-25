@@ -54,8 +54,10 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Update_WhenRoleBuiltIn_ShouldReturnBadRequest()
+    public async Task Update_WhenRoleBuiltIn_ShouldSucceed()
     {
+        var updatedName = $"管理员-{Guid.NewGuid():N}"[..12];
+
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var adminRoleId = await dbContext.AuthRoles
@@ -67,9 +69,9 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
             $"/api/auth-roles/{adminRoleId}",
             ApiClientJson.ToJsonContent(new
             {
-                name = "管理员-修改",
-                description = "不允许修改",
-                isActive = true,
+                name = updatedName,
+                description = "允许修改内置角色",
+                isActive = false,
                 permissionCodes = Array.Empty<string>(),
                 dataScopes = new[]
                 {
@@ -82,9 +84,31 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
                 }
             }));
 
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(0);
+
+        var updatedRole = await dbContext.AuthRoles.FirstAsync(role => role.Id == adminRoleId);
+        updatedRole.Name.Should().Be(updatedName);
+        updatedRole.Description.Should().Be("允许修改内置角色");
+        updatedRole.IsActive.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Delete_WhenRoleBuiltIn_ShouldReturnBadRequest()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var adminRoleId = await dbContext.AuthRoles
+            .Where(role => role.Code == "admin")
+            .Select(role => role.Id)
+            .FirstAsync();
+
+        var response = await _client.DeleteAsync($"/api/auth-roles/{adminRoleId}");
+
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Message.Should().Contain("内置角色不允许编辑");
+        body.Message.Should().Contain("内置角色不允许删除");
     }
 
     [Fact]

@@ -305,10 +305,6 @@ const openCreateDialog = () => {
 };
 
 const openEditDialog = (role: AuthRole) => {
-  if (role.isBuiltIn) {
-    ElMessage.warning("内置角色不允许编辑");
-    return;
-  }
   applyRoleToEditForm(role);
   editDialogVisible.value = true;
 };
@@ -534,7 +530,6 @@ onMounted(initPage);
               type="primary"
               link
               v-perms="'btn:auth-role:update'"
-              :disabled="row.isBuiltIn"
               @click="openEditDialog(row)"
             >
               编辑
@@ -685,7 +680,7 @@ onMounted(initPage);
           />
         </el-form-item>
         <el-form-item label="状态">
-          <el-switch v-model="editForm.isActive" :disabled="editForm.isBuiltIn" />
+          <el-switch v-model="editForm.isActive" />
         </el-form-item>
         <el-form-item>
           <template #label>
