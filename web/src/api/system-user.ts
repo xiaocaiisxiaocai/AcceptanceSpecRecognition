@@ -12,18 +12,10 @@ export interface SystemUser {
   permissions: string[];
   isActive: boolean;
   permissionVersion: number;
-  orgUnits: SystemUserOrgUnit[];
+  orgUnitId?: number | null;
+  orgUnitName?: string | null;
   createdAt: string;
   updatedAt?: string | null;
-}
-
-export interface SystemUserOrgUnit {
-  orgUnitId: number;
-  orgUnitName: string;
-  orgUnitType: number;
-  isPrimary: boolean;
-  startAt?: string | null;
-  endAt?: string | null;
 }
 
 export interface SystemUserListRequest extends PagedRequest {
@@ -36,8 +28,7 @@ export interface CreateSystemUserRequest {
   nickname: string;
   avatar?: string | null;
   roleCode: string;
-  primaryOrgUnitId?: number | null;
-  orgUnitIds?: number[];
+  orgUnitId?: number | null;
   roleStartAt?: string | null;
   roleEndAt?: string | null;
   orgStartAt?: string | null;
@@ -49,8 +40,7 @@ export interface UpdateSystemUserRequest {
   nickname: string;
   avatar?: string | null;
   roleCode: string;
-  primaryOrgUnitId?: number | null;
-  orgUnitIds?: number[];
+  orgUnitId?: number | null;
   roleStartAt?: string | null;
   roleEndAt?: string | null;
   orgStartAt?: string | null;

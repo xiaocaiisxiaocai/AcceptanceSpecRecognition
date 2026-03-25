@@ -28,9 +28,7 @@ public sealed class AuthAccessContext
 
     public IReadOnlyList<string> Permissions { get; init; } = [];
 
-    public IReadOnlyList<int> OrgUnitIds { get; init; } = [];
-
-    public int? PrimaryOrgUnitId { get; init; }
+    public int? OrgUnitId { get; init; }
 }
 
 /// <summary>
@@ -145,11 +143,7 @@ public sealed class AuthAccessService : IAuthAccessService
             .Where(uo => IsActive(now, uo.StartAt, uo.EndAt) && uo.OrgUnit.IsActive)
             .ToList();
 
-        var primaryOrgUnitId = orgLinks
-            .Where(x => x.IsPrimary)
-            .Select(x => (int?)x.OrgUnitId)
-            .FirstOrDefault()
-            ?? orgLinks.Select(x => (int?)x.OrgUnitId).FirstOrDefault();
+        var activeOrgLink = AuthUserOrgUnitSingleOrgPolicy.SelectOrgUnitToKeep(orgLinks);
 
         return new AuthAccessContext
         {
@@ -162,12 +156,7 @@ public sealed class AuthAccessService : IAuthAccessService
             PermissionVersion = user.PermissionVersion,
             RoleCode = activeRole?.Code ?? string.Empty,
             Permissions = permissions,
-            OrgUnitIds = orgLinks
-                .Select(x => x.OrgUnitId)
-                .Distinct()
-                .OrderBy(x => x)
-                .ToList(),
-            PrimaryOrgUnitId = primaryOrgUnitId
+            OrgUnitId = activeOrgLink?.OrgUnitId
         };
     }
 

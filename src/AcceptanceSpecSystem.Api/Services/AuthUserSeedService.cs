@@ -65,6 +65,18 @@ public static class AuthUserSeedService
         new("page:other:audit-logs", "页面-审计日志", PermissionType.Page, "other", "audit-logs", "/other/audit-logs")
     ];
 
+    private static readonly PermissionSeedItem[] MenuPermissions =
+    [
+        new("menu:home", "菜单-首页", PermissionType.Menu, "home", "menu", "/"),
+        new("menu:base-data", "菜单-基础数据", PermissionType.Menu, "base-data", "menu", "/base-data"),
+        new("menu:data-import", "菜单-数据导入", PermissionType.Menu, "data-import", "menu", "/data-import"),
+        new("menu:smart-fill", "菜单-智能填充", PermissionType.Menu, "smart-fill", "menu", "/smart-fill"),
+        new("menu:file-compare", "菜单-文件对比", PermissionType.Menu, "file-compare", "menu", "/file-compare"),
+        new("menu:config", "菜单-配置管理", PermissionType.Menu, "config", "menu", "/config"),
+        new("menu:rbac", "菜单-权限中心", PermissionType.Menu, "rbac", "menu", "/rbac"),
+        new("menu:other", "菜单-其他", PermissionType.Menu, "other", "menu", "/other")
+    ];
+
     public static async Task EnsureSeedUsersAsync(IServiceProvider services, ILogger logger)
     {
         using var scope = services.CreateScope();
@@ -114,14 +126,19 @@ public static class AuthUserSeedService
             .Where(x => x.PermissionType == PermissionType.Api)
             .Select(x => x.Count)
             .FirstOrDefault();
+        var adminMenuPermissionCount = adminPermissionStats
+            .Where(x => x.PermissionType == PermissionType.Menu)
+            .Select(x => x.Count)
+            .FirstOrDefault();
 
         logger.LogInformation("鉴权基础数据初始化完成：CompanyId={CompanyId}, RootOrgUnitId={RootOrgUnitId}", company.Id, rootOrgUnit.Id);
         logger.LogInformation(
-            "RBAC权限自检：admin权限总数={Total}, 页面={Page}, 按钮={Button}, API={Api}",
+            "RBAC权限自检：admin权限总数={Total}, 页面={Page}, 按钮={Button}, API={Api}, 菜单={Menu}",
             adminTotalPermissionCount,
             adminPagePermissionCount,
             adminButtonPermissionCount,
-            adminApiPermissionCount);
+            adminApiPermissionCount,
+            adminMenuPermissionCount);
     }
 
     private static async Task<OrgCompany> EnsureCompanyAsync(AppDbContext dbContext, DateTime now)
@@ -182,6 +199,11 @@ public static class AuthUserSeedService
         foreach (var pagePermission in PagePermissions)
         {
             permissionSeeds[pagePermission.Code] = pagePermission;
+        }
+
+        foreach (var menuPermission in MenuPermissions)
+        {
+            permissionSeeds[menuPermission.Code] = menuPermission;
         }
 
         var apiActionSeeds = BuildApiActionSeeds();
@@ -451,6 +473,10 @@ public static class AuthUserSeedService
         var allPermissionIds = permissionMap.Values.Select(p => p.Id).Distinct().ToHashSet();
         var commonPermissionCodes = new[]
         {
+            "menu:home",
+            "menu:data-import",
+            "menu:smart-fill",
+            "menu:file-compare",
             "api:auth:routes",
             "page:home:dashboard",
             "page:data-import:index",
@@ -677,6 +703,24 @@ public static class AuthUserSeedService
                 });
                 changed = true;
             }
+            else
+            {
+                var orgToKeep = AuthUserOrgUnitSingleOrgPolicy.SelectOrgUnitToKeep(user.UserOrgUnits);
+                var extraOrgLinks = user.UserOrgUnits
+                    .Where(link => orgToKeep == null || link.Id != orgToKeep.Id)
+                    .ToList();
+                if (extraOrgLinks.Count > 0)
+                {
+                    dbContext.AuthUserOrgUnits.RemoveRange(extraOrgLinks);
+                    changed = true;
+                }
+
+                if (orgToKeep != null && !orgToKeep.IsPrimary)
+                {
+                    orgToKeep.IsPrimary = true;
+                    changed = true;
+                }
+            }
 
             if (changed)
             {
@@ -707,10 +751,14 @@ public static class AuthUserSeedService
 
     private static async Task EnsureUserOrgAsync(AppDbContext dbContext, int userId, int orgUnitId, bool isPrimary, DateTime now)
     {
-        var exists = await dbContext.AuthUserOrgUnits.AnyAsync(x => x.UserId == userId && x.OrgUnitId == orgUnitId);
-        if (!exists)
+        var orgLinks = await dbContext.AuthUserOrgUnits
+            .Where(x => x.UserId == userId)
+            .ToListAsync();
+
+        var current = orgLinks.FirstOrDefault(x => x.OrgUnitId == orgUnitId);
+        if (current == null)
         {
-            await dbContext.AuthUserOrgUnits.AddAsync(new AuthUserOrgUnit
+            current = new AuthUserOrgUnit
             {
                 UserId = userId,
                 OrgUnitId = orgUnitId,
@@ -718,20 +766,21 @@ public static class AuthUserSeedService
                 StartAt = null,
                 EndAt = null,
                 CreatedAt = now
-            });
-            await dbContext.SaveChangesAsync();
+            };
+            await dbContext.AuthUserOrgUnits.AddAsync(current);
+            orgLinks.Add(current);
         }
 
-        if (isPrimary)
+        var extraOrgLinks = orgLinks
+            .Where(x => x.OrgUnitId != orgUnitId)
+            .ToList();
+        if (extraOrgLinks.Count > 0)
         {
-            var all = await dbContext.AuthUserOrgUnits.Where(x => x.UserId == userId).ToListAsync();
-            foreach (var item in all)
-            {
-                item.IsPrimary = item.OrgUnitId == orgUnitId;
-            }
-
-            await dbContext.SaveChangesAsync();
+            dbContext.AuthUserOrgUnits.RemoveRange(extraOrgLinks);
         }
+
+        current.IsPrimary = true;
+        await dbContext.SaveChangesAsync();
     }
 
     private static async Task TouchUsersByRoleAsync(AppDbContext dbContext, int roleId, DateTime now)

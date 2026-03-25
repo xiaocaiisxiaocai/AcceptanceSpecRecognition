@@ -9,7 +9,8 @@ export default {
   meta: {
     icon: "ri:home-4-line",
     title: "首页",
-    rank: 0
+    rank: 0,
+    permissions: ["menu:home"]
   },
   children: [
     {

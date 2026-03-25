@@ -465,6 +465,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AuthUserOrgUnit>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.UserId).IsUnique();
             entity.HasIndex(e => new { e.UserId, e.OrgUnitId, e.StartAt, e.EndAt });
             entity.HasOne(e => e.User)
                 .WithMany(u => u.UserOrgUnits)

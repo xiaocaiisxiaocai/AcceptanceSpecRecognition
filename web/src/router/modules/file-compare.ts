@@ -8,7 +8,8 @@ export default {
   meta: {
     icon: "ri:compare-line",
     title: "文件对比",
-    rank: 5
+    rank: 5,
+    permissions: ["menu:file-compare"]
   },
   children: [
     {

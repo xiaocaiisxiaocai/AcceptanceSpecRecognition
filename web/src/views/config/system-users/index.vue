@@ -46,8 +46,7 @@ const createForm = reactive({
   nickname: "",
   avatar: "",
   roleCode: "",
-  primaryOrgUnitId: null as number | null,
-  orgUnitIds: [] as number[],
+  orgUnitId: null as number | null,
   isActive: true
 });
 
@@ -57,8 +56,7 @@ const editForm = reactive({
   nickname: "",
   avatar: "",
   roleCode: "",
-  primaryOrgUnitId: null as number | null,
-  orgUnitIds: [] as number[],
+  orgUnitId: null as number | null,
   isActive: true
 });
 
@@ -105,22 +103,6 @@ const orgUnitMap = computed(() => {
   return new Map(orgUnitOptions.value.map(item => [item.id, item]));
 });
 
-const createPrimaryOrgOptions = computed(() => {
-  return createForm.orgUnitIds
-    .map(id => orgUnitMap.value.get(id))
-    .filter(item => !!item) as OrgUnit[];
-});
-
-const editPrimaryOrgOptions = computed(() => {
-  return editForm.orgUnitIds
-    .map(id => orgUnitMap.value.get(id))
-    .filter(item => !!item) as OrgUnit[];
-});
-
-const normalizeNumberList = (values: number[]) => {
-  return [...new Set(values.filter(item => Number.isInteger(item) && item > 0))];
-};
-
 const isValidUsername = (username: string) => /^[A-Za-z0-9._-]{3,64}$/.test(username);
 
 const getDefaultRoleCode = () => {
@@ -130,7 +112,7 @@ const getDefaultRoleCode = () => {
   return first?.code ?? "";
 };
 
-const getDefaultPrimaryOrgId = () => {
+const getDefaultOrgId = () => {
   const root = activeOrgUnitOptions.value.find(
     item => item.unitType === 0 && item.parentId == null
   );
@@ -138,19 +120,6 @@ const getDefaultPrimaryOrgId = () => {
 
   const first = activeOrgUnitOptions.value[0];
   return first?.id;
-};
-
-const syncOrgSelection = (form: {
-  orgUnitIds: number[];
-  primaryOrgUnitId: number | null;
-}) => {
-  form.orgUnitIds = normalizeNumberList(form.orgUnitIds);
-  if (form.primaryOrgUnitId && !form.orgUnitIds.includes(form.primaryOrgUnitId)) {
-    form.primaryOrgUnitId = form.orgUnitIds[0] ?? null;
-  }
-  if (!form.primaryOrgUnitId && form.orgUnitIds.length > 0) {
-    form.primaryOrgUnitId = form.orgUnitIds[0];
-  }
 };
 
 const loadRoleOptions = async () => {
@@ -226,30 +195,25 @@ const handleSizeChange = (size: number) => {
 };
 
 const openCreateDialog = () => {
-  const defaultOrgId = getDefaultPrimaryOrgId();
+  const defaultOrgId = getDefaultOrgId();
   createForm.username = "";
   createForm.password = "";
   createForm.nickname = "";
   createForm.avatar = "";
   createForm.roleCode = getDefaultRoleCode();
-  createForm.primaryOrgUnitId = defaultOrgId ?? null;
-  createForm.orgUnitIds = defaultOrgId ? [defaultOrgId] : [];
+  createForm.orgUnitId = defaultOrgId ?? null;
   createForm.isActive = true;
   createDialogVisible.value = true;
 };
 
 const openEditDialog = (row: SystemUser) => {
-  const orgIds = row.orgUnits.map(item => item.orgUnitId);
-  const primaryOrg = row.orgUnits.find(item => item.isPrimary);
   editForm.id = row.id;
   editForm.username = row.username;
   editForm.nickname = row.nickname;
   editForm.avatar = row.avatar ?? "";
   editForm.roleCode = row.roleCode ?? "";
-  editForm.orgUnitIds = normalizeNumberList(orgIds);
-  editForm.primaryOrgUnitId = primaryOrg?.orgUnitId ?? editForm.orgUnitIds[0] ?? null;
+  editForm.orgUnitId = row.orgUnitId ?? null;
   editForm.isActive = row.isActive;
-  syncOrgSelection(editForm);
   editDialogVisible.value = true;
 };
 
@@ -276,9 +240,8 @@ const handleCreate = async () => {
     return;
   }
 
-  syncOrgSelection(createForm);
-  if (!createForm.orgUnitIds.length || !createForm.primaryOrgUnitId) {
-    ElMessage.warning("至少选择一个组织，并指定主组织");
+  if (!createForm.orgUnitId) {
+    ElMessage.warning("请选择一个组织");
     return;
   }
 
@@ -288,8 +251,7 @@ const handleCreate = async () => {
     nickname,
     avatar: createForm.avatar.trim() || "",
     roleCode,
-    primaryOrgUnitId: createForm.primaryOrgUnitId,
-    orgUnitIds: createForm.orgUnitIds,
+    orgUnitId: createForm.orgUnitId,
     isActive: createForm.isActive
   };
 
@@ -319,9 +281,8 @@ const handleUpdate = async () => {
     return;
   }
 
-  syncOrgSelection(editForm);
-  if (!editForm.orgUnitIds.length || !editForm.primaryOrgUnitId) {
-    ElMessage.warning("至少选择一个组织，并指定主组织");
+  if (!editForm.orgUnitId) {
+    ElMessage.warning("请选择一个组织");
     return;
   }
 
@@ -329,8 +290,7 @@ const handleUpdate = async () => {
     nickname,
     avatar: editForm.avatar.trim() || "",
     roleCode,
-    primaryOrgUnitId: editForm.primaryOrgUnitId,
-    orgUnitIds: editForm.orgUnitIds,
+    orgUnitId: editForm.orgUnitId,
     isActive: editForm.isActive
   };
 
@@ -453,16 +413,6 @@ const formatOrgLabel = (orgUnitId: number) => {
   return `${org.name} (${org.code})`;
 };
 
-const handleCreateOrgChange = (values: number[]) => {
-  createForm.orgUnitIds = normalizeNumberList(values);
-  syncOrgSelection(createForm);
-};
-
-const handleEditOrgChange = (values: number[]) => {
-  editForm.orgUnitIds = normalizeNumberList(values);
-  syncOrgSelection(editForm);
-};
-
 onMounted(initPage);
 </script>
 
@@ -471,7 +421,7 @@ onMounted(initPage);
     <div class="page-header">
       <div>
         <div class="page-title">系统用户管理</div>
-        <div class="page-subtitle">管理登录账号、角色、组织分配与启用状态</div>
+        <div class="page-subtitle">管理登录账号、角色、所属组织与启用状态</div>
       </div>
     </div>
 
@@ -527,16 +477,10 @@ onMounted(initPage);
         </el-table-column>
         <el-table-column label="组织" min-width="240">
           <template #default="{ row }">
-            <el-tag
-              v-for="org in row.orgUnits"
-              :key="`${row.id}-${org.orgUnitId}`"
-              :type="org.isPrimary ? 'warning' : 'info'"
-              class="mr-1 mb-1"
-              size="small"
-            >
-              {{ formatOrgLabel(org.orgUnitId) }}{{ org.isPrimary ? "（主）" : "" }}
+            <el-tag v-if="row.orgUnitId" type="warning" class="mr-1 mb-1" size="small">
+              {{ formatOrgLabel(row.orgUnitId) }}
             </el-tag>
-            <span v-if="!row.orgUnits?.length">-</span>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="120">
@@ -626,34 +570,16 @@ onMounted(initPage);
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="关联组织" required>
+        <el-form-item label="所属组织" required>
           <el-select
-            v-model="createForm.orgUnitIds"
-            multiple
+            v-model="createForm.orgUnitId"
             filterable
             class="w-full"
             popper-class="config-select-popper"
-            @change="handleCreateOrgChange"
           >
             <el-option
               v-for="org in activeOrgUnitOptions"
               :key="`create-org-${org.id}`"
-              :label="`${'　'.repeat(org.depth)}${org.name} (${org.code})`"
-              :value="org.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="主组织" required>
-          <el-select
-            v-model="createForm.primaryOrgUnitId"
-            clearable
-            filterable
-            class="w-full"
-            popper-class="config-select-popper"
-          >
-            <el-option
-              v-for="org in createPrimaryOrgOptions"
-              :key="`create-primary-org-${org.id}`"
               :label="`${'　'.repeat(org.depth)}${org.name} (${org.code})`"
               :value="org.id"
             />
@@ -695,34 +621,16 @@ onMounted(initPage);
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="关联组织" required>
+        <el-form-item label="所属组织" required>
           <el-select
-            v-model="editForm.orgUnitIds"
-            multiple
+            v-model="editForm.orgUnitId"
             filterable
             class="w-full"
             popper-class="config-select-popper"
-            @change="handleEditOrgChange"
           >
             <el-option
               v-for="org in activeOrgUnitOptions"
               :key="`edit-org-${org.id}`"
-              :label="`${'　'.repeat(org.depth)}${org.name} (${org.code})`"
-              :value="org.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="主组织" required>
-          <el-select
-            v-model="editForm.primaryOrgUnitId"
-            clearable
-            filterable
-            class="w-full"
-            popper-class="config-select-popper"
-          >
-            <el-option
-              v-for="org in editPrimaryOrgOptions"
-              :key="`edit-primary-org-${org.id}`"
               :label="`${'　'.repeat(org.depth)}${org.name} (${org.code})`"
               :value="org.id"
             />

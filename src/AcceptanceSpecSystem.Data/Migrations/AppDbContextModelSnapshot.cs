@@ -427,6 +427,9 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("OrgUnitId");
 
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
                     b.HasIndex("UserId", "OrgUnitId", "StartAt", "EndAt");
 
                     b.ToTable("AuthUserOrgUnits");

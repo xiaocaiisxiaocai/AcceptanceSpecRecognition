@@ -8,7 +8,8 @@ export default {
   meta: {
     icon: "ri:upload-cloud-2-line",
     title: "数据导入",
-    rank: 2
+    rank: 2,
+    permissions: ["menu:data-import"]
   },
   children: [
     {

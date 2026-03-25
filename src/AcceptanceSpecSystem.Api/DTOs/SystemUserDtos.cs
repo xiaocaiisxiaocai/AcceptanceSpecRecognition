@@ -28,29 +28,13 @@ public class SystemUserDto
 
     public int PermissionVersion { get; set; }
 
-    public List<SystemUserOrgUnitDto> OrgUnits { get; set; } = [];
+    public int? OrgUnitId { get; set; }
+
+    public string OrgUnitName { get; set; } = string.Empty;
 
     public DateTime CreatedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
-}
-
-/// <summary>
-/// 用户组织关联DTO
-/// </summary>
-public class SystemUserOrgUnitDto
-{
-    public int OrgUnitId { get; set; }
-
-    public string OrgUnitName { get; set; } = string.Empty;
-
-    public OrgUnitType OrgUnitType { get; set; }
-
-    public bool IsPrimary { get; set; }
-
-    public DateTime? StartAt { get; set; }
-
-    public DateTime? EndAt { get; set; }
 }
 
 /// <summary>
@@ -77,9 +61,8 @@ public class CreateSystemUserRequest
     [StringLength(64, ErrorMessage = "角色编码长度不能超过64个字符")]
     public string RoleCode { get; set; } = string.Empty;
 
-    public int? PrimaryOrgUnitId { get; set; }
-
-    public List<int> OrgUnitIds { get; set; } = [];
+    [Required(ErrorMessage = "组织不能为空")]
+    public int? OrgUnitId { get; set; }
 
     public DateTime? RoleStartAt { get; set; }
 
@@ -108,9 +91,8 @@ public class UpdateSystemUserRequest
     [StringLength(64, ErrorMessage = "角色编码长度不能超过64个字符")]
     public string RoleCode { get; set; } = string.Empty;
 
-    public int? PrimaryOrgUnitId { get; set; }
-
-    public List<int> OrgUnitIds { get; set; } = [];
+    [Required(ErrorMessage = "组织不能为空")]
+    public int? OrgUnitId { get; set; }
 
     public DateTime? RoleStartAt { get; set; }
 

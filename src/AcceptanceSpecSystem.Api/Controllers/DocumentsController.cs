@@ -541,7 +541,7 @@ public class DocumentsController : BaseApiController
                 request.MachineModelId,
                 request.FileId,
                 scope.UserId,
-                scope.PrimaryOrgUnitId,
+                scope.OrgUnitId,
                 request.PreviewSkippedRows);
 
             foreach (var row in tableData.Rows)
@@ -802,7 +802,7 @@ public class DocumentsController : BaseApiController
                 request.MachineModelId,
                 request.FileId,
                 scope.UserId,
-                scope.PrimaryOrgUnitId,
+                scope.OrgUnitId,
                 request.PreviewSkippedRows);
 
             foreach (var row in tableData.Rows)

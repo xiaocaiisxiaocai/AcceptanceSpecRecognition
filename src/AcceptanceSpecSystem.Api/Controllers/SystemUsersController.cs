@@ -124,8 +124,8 @@ public class SystemUsersController : BaseApiController
         if (role == null)
             return Error<SystemUserDto>(400, "存在无效角色编码");
 
-        var assignedOrgUnits = await ResolveOrgAssignmentsAsync(companyId.Value, request.PrimaryOrgUnitId, request.OrgUnitIds);
-        if (assignedOrgUnits == null)
+        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId.Value, request.OrgUnitId);
+        if (!assignedOrgUnitId.HasValue)
             return Error<SystemUserDto>(400, "组织节点无效或不属于当前公司");
 
         var now = DateTime.Now;
@@ -149,17 +149,14 @@ public class SystemUsersController : BaseApiController
             CreatedAt = now
         });
 
-        foreach (var org in assignedOrgUnits)
+        user.UserOrgUnits.Add(new AuthUserOrgUnit
         {
-            user.UserOrgUnits.Add(new AuthUserOrgUnit
-            {
-                OrgUnitId = org.OrgUnitId,
-                IsPrimary = org.IsPrimary,
-                StartAt = request.OrgStartAt,
-                EndAt = request.OrgEndAt,
-                CreatedAt = now
-            });
-        }
+            OrgUnitId = assignedOrgUnitId.Value,
+            IsPrimary = true,
+            StartAt = request.OrgStartAt,
+            EndAt = request.OrgEndAt,
+            CreatedAt = now
+        });
 
         await _unitOfWork.SystemUsers.AddAsync(user);
         await _unitOfWork.SaveChangesAsync();
@@ -212,8 +209,8 @@ public class SystemUsersController : BaseApiController
             return Error<SystemUserDto>(400, "不能停用当前登录账号");
         }
 
-        var assignedOrgUnits = await ResolveOrgAssignmentsAsync(companyId.Value, request.PrimaryOrgUnitId, request.OrgUnitIds);
-        if (assignedOrgUnits == null)
+        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId.Value, request.OrgUnitId);
+        if (!assignedOrgUnitId.HasValue)
             return Error<SystemUserDto>(400, "组织节点无效或不属于当前公司");
 
         user.Nickname = NormalizeNickname(request.Nickname, user.Username);
@@ -234,18 +231,15 @@ public class SystemUsersController : BaseApiController
             CreatedAt = DateTime.Now
         });
 
-        foreach (var org in assignedOrgUnits)
+        await _dbContext.AuthUserOrgUnits.AddAsync(new AuthUserOrgUnit
         {
-            await _dbContext.AuthUserOrgUnits.AddAsync(new AuthUserOrgUnit
-            {
-                UserId = user.Id,
-                OrgUnitId = org.OrgUnitId,
-                IsPrimary = org.IsPrimary,
-                StartAt = request.OrgStartAt,
-                EndAt = request.OrgEndAt,
-                CreatedAt = DateTime.Now
-            });
-        }
+            UserId = user.Id,
+            OrgUnitId = assignedOrgUnitId.Value,
+            IsPrimary = true,
+            StartAt = request.OrgStartAt,
+            EndAt = request.OrgEndAt,
+            CreatedAt = DateTime.Now
+        });
 
         _unitOfWork.SystemUsers.Update(user);
         await _unitOfWork.SaveChangesAsync();
@@ -395,48 +389,16 @@ public class SystemUsersController : BaseApiController
             .FirstOrDefaultAsync();
     }
 
-    private async Task<List<(int OrgUnitId, bool IsPrimary)>?> ResolveOrgAssignmentsAsync(
-        int companyId,
-        int? primaryOrgUnitId,
-        IEnumerable<int>? orgUnitIds)
+    private async Task<int?> ResolveOrgUnitIdAsync(int companyId, int? orgUnitId)
     {
-        var normalizedOrgUnitIds = orgUnitIds?.Distinct().ToList() ?? [];
-        if (primaryOrgUnitId.HasValue && !normalizedOrgUnitIds.Contains(primaryOrgUnitId.Value))
-        {
-            normalizedOrgUnitIds.Insert(0, primaryOrgUnitId.Value);
-        }
+        if (!orgUnitId.HasValue)
+            return null;
 
-        if (normalizedOrgUnitIds.Count == 0)
-        {
-            var fallbackRootOrgUnitId = await _dbContext.OrgUnits
-                .AsNoTracking()
-                .Where(o => o.CompanyId == companyId && o.UnitType == OrgUnitType.Company && o.ParentId == null)
-                .OrderBy(o => o.Id)
-                .Select(o => (int?)o.Id)
-                .FirstOrDefaultAsync();
-            if (!fallbackRootOrgUnitId.HasValue)
-                return null;
-
-            normalizedOrgUnitIds.Add(fallbackRootOrgUnitId.Value);
-            primaryOrgUnitId = fallbackRootOrgUnitId.Value;
-        }
-
-        var orgs = await _dbContext.OrgUnits
+        var exists = await _dbContext.OrgUnits
             .AsNoTracking()
-            .Where(o => o.CompanyId == companyId && normalizedOrgUnitIds.Contains(o.Id))
-            .Select(o => o.Id)
-            .ToListAsync();
-        if (orgs.Count != normalizedOrgUnitIds.Count)
-            return null;
+            .AnyAsync(o => o.CompanyId == companyId && o.Id == orgUnitId.Value);
 
-        var primary = primaryOrgUnitId ?? normalizedOrgUnitIds[0];
-        if (!orgs.Contains(primary))
-            return null;
-
-        return normalizedOrgUnitIds
-            .Distinct()
-            .Select(orgUnitId => (OrgUnitId: orgUnitId, IsPrimary: orgUnitId == primary))
-            .ToList();
+        return exists ? orgUnitId.Value : null;
     }
 
     private async Task<bool> ValidateAdminBoundaryAsync(
@@ -543,23 +505,13 @@ public class SystemUsersController : BaseApiController
             .ToList()
             ?? [];
 
-        var orgUnits = user.UserOrgUnits
+        var activeOrgLinks = user.UserOrgUnits
             .Where(uo =>
                 uo.OrgUnit.IsActive &&
                 (!uo.StartAt.HasValue || uo.StartAt <= now) &&
                 (!uo.EndAt.HasValue || uo.EndAt >= now))
-            .Select(uo => new SystemUserOrgUnitDto
-            {
-                OrgUnitId = uo.OrgUnitId,
-                OrgUnitName = uo.OrgUnit.Name,
-                OrgUnitType = uo.OrgUnit.UnitType,
-                IsPrimary = uo.IsPrimary,
-                StartAt = uo.StartAt,
-                EndAt = uo.EndAt
-            })
-            .OrderByDescending(x => x.IsPrimary)
-            .ThenBy(x => x.OrgUnitId)
             .ToList();
+        var activeOrgLink = AuthUserOrgUnitSingleOrgPolicy.SelectOrgUnitToKeep(activeOrgLinks);
 
         return new SystemUserDto
         {
@@ -573,7 +525,8 @@ public class SystemUsersController : BaseApiController
             Permissions = permissions,
             IsActive = user.IsActive,
             PermissionVersion = user.PermissionVersion,
-            OrgUnits = orgUnits,
+            OrgUnitId = activeOrgLink?.OrgUnitId,
+            OrgUnitName = activeOrgLink?.OrgUnit?.Name ?? string.Empty,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt
         };

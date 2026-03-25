@@ -13,7 +13,7 @@ public sealed class DataScopeResult
 
     public int CompanyId { get; init; }
 
-    public int? PrimaryOrgUnitId { get; init; }
+    public int? OrgUnitId { get; init; }
 
     public bool IsAll { get; init; }
 
@@ -72,16 +72,11 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
                 (!x.EndAt.HasValue || x.EndAt >= now))
             .ToListAsync();
 
-        var primaryOrgUnitId = activeOrgLinks
-            .Where(x => x.IsPrimary)
-            .Select(x => (int?)x.OrgUnitId)
-            .FirstOrDefault()
-            ?? activeOrgLinks.Select(x => (int?)x.OrgUnitId).FirstOrDefault();
-
-        var userOrgUnitIds = activeOrgLinks
-            .Select(x => x.OrgUnitId)
-            .Distinct()
-            .ToHashSet();
+        var activeOrgLink = AuthUserOrgUnitSingleOrgPolicy.SelectOrgUnitToKeep(activeOrgLinks);
+        var orgUnitId = activeOrgLink?.OrgUnitId;
+        var userOrgUnitIds = orgUnitId.HasValue
+            ? new HashSet<int> { orgUnitId.Value }
+            : [];
 
         var activeRoleIds = await _dbContext.AuthUserRoles
             .AsNoTracking()
@@ -101,7 +96,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
             {
                 UserId = user.Id,
                 CompanyId = user.CompanyId,
-                PrimaryOrgUnitId = primaryOrgUnitId,
+                OrgUnitId = orgUnitId,
                 IsAll = false,
                 IncludeSelf = false,
                 OrgUnitIds = []
@@ -122,7 +117,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
             {
                 UserId = user.Id,
                 CompanyId = user.CompanyId,
-                PrimaryOrgUnitId = primaryOrgUnitId,
+                OrgUnitId = orgUnitId,
                 IsAll = false,
                 IncludeSelf = false,
                 OrgUnitIds = []
@@ -135,7 +130,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
             {
                 UserId = user.Id,
                 CompanyId = user.CompanyId,
-                PrimaryOrgUnitId = primaryOrgUnitId,
+                OrgUnitId = orgUnitId,
                 IsAll = true,
                 IncludeSelf = true,
                 OrgUnitIds = []
@@ -217,7 +212,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
         {
             UserId = user.Id,
             CompanyId = user.CompanyId,
-            PrimaryOrgUnitId = primaryOrgUnitId,
+            OrgUnitId = orgUnitId,
             IsAll = false,
             IncludeSelf = includeSelf,
             OrgUnitIds = collectedOrgUnitIds.ToArray()

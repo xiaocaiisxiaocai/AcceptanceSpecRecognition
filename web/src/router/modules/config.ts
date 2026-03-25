@@ -8,7 +8,8 @@ export default {
   meta: {
     icon: "ri:settings-3-line",
     title: "配置管理",
-    rank: 4
+    rank: 4,
+    permissions: ["menu:config"]
   },
   children: [
     {

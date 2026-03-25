@@ -8,7 +8,8 @@ export default {
   meta: {
     icon: "ri:shield-keyhole-line",
     title: "权限中心",
-    rank: 4.5
+    rank: 4.5,
+    permissions: ["menu:rbac"]
   },
   children: [
     {

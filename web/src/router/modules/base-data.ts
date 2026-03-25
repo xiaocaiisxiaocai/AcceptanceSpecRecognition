@@ -8,7 +8,8 @@ export default {
   meta: {
     icon: "ri:database-2-line",
     title: "基础数据",
-    rank: 1
+    rank: 1,
+    permissions: ["menu:base-data"]
   },
   children: [
     {

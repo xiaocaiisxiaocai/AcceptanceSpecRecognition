@@ -8,7 +8,8 @@ export default {
   meta: {
     icon: "ri:apps-line",
     title: "其他",
-    rank: 5
+    rank: 5,
+    permissions: ["menu:other"]
   },
   children: [
     {

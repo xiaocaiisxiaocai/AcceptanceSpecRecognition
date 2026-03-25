@@ -52,7 +52,8 @@ const scopeTypeOptions = [
 const permissionTypeLabels: Record<number, string> = {
   0: "页面权限",
   1: "按钮权限",
-  2: "接口权限"
+  2: "接口权限",
+  3: "菜单权限"
 };
 
 const createForm = reactive<RoleFormModel>({
@@ -95,7 +96,8 @@ const permissionGroups = computed(() => {
   const grouped: Record<number, AuthPermission[]> = {
     0: [],
     1: [],
-    2: []
+    2: [],
+    3: []
   };
 
   permissions.value.forEach(item => {
@@ -204,7 +206,8 @@ const editSelectedPermissionItems = computed(() => getSelectedPermissionItems(ed
 const permissionTagType = (permissionType: number) => {
   if (permissionType === 0) return "success";
   if (permissionType === 1) return "warning";
-  return "info";
+  if (permissionType === 2) return "info";
+  return "danger";
 };
 
 const getDefaultScopeOrgId = () => {
@@ -577,9 +580,11 @@ onMounted(initPage);
           </template>
           <div class="permission-panel w-full">
             <div class="permission-actions">
+              <el-button text type="primary" @click="selectPermissionType(createForm, 3)">全选菜单</el-button>
               <el-button text type="primary" @click="selectPermissionType(createForm, 0)">全选页面</el-button>
               <el-button text type="primary" @click="selectPermissionType(createForm, 1)">全选按钮</el-button>
               <el-button text type="primary" @click="selectPermissionType(createForm, 2)">全选接口</el-button>
+              <el-button text type="warning" @click="clearPermissionType(createForm, 3)">清空菜单</el-button>
               <el-button text type="warning" @click="clearPermissionType(createForm, 0)">清空页面</el-button>
               <el-button text type="warning" @click="clearPermissionType(createForm, 1)">清空按钮</el-button>
               <el-button text type="warning" @click="clearPermissionType(createForm, 2)">清空接口</el-button>
@@ -689,9 +694,11 @@ onMounted(initPage);
           </template>
           <div class="permission-panel w-full">
             <div class="permission-actions">
+              <el-button text type="primary" @click="selectPermissionType(editForm, 3)">全选菜单</el-button>
               <el-button text type="primary" @click="selectPermissionType(editForm, 0)">全选页面</el-button>
               <el-button text type="primary" @click="selectPermissionType(editForm, 1)">全选按钮</el-button>
               <el-button text type="primary" @click="selectPermissionType(editForm, 2)">全选接口</el-button>
+              <el-button text type="warning" @click="clearPermissionType(editForm, 3)">清空菜单</el-button>
               <el-button text type="warning" @click="clearPermissionType(editForm, 0)">清空页面</el-button>
               <el-button text type="warning" @click="clearPermissionType(editForm, 1)">清空按钮</el-button>
               <el-button text type="warning" @click="clearPermissionType(editForm, 2)">清空接口</el-button>

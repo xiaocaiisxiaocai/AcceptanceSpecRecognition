@@ -8,7 +8,8 @@ export default {
   meta: {
     icon: "ri:magic-line",
     title: "智能填充",
-    rank: 3
+    rank: 3,
+    permissions: ["menu:smart-fill"]
   },
   children: [
     {

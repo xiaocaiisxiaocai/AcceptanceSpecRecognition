@@ -157,7 +157,12 @@ public enum PermissionType
     /// <summary>
     /// API 权限
     /// </summary>
-    Api = 2
+    Api = 2,
+
+    /// <summary>
+    /// 菜单权限
+    /// </summary>
+    Menu = 3
 }
 
 /// <summary>

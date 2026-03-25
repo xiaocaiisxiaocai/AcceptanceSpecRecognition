@@ -7,7 +7,7 @@ defineOptions({
   name: "AuthPermissionsView"
 });
 
-type PermissionTypeFilter = "" | "0" | "1" | "2";
+type PermissionTypeFilter = "" | "0" | "1" | "2" | "3";
 
 const loading = ref(false);
 const permissions = ref<AuthPermission[]>([]);
@@ -20,13 +20,15 @@ const permissionTypeOptions = [
   { label: "全部", value: "" },
   { label: "页面权限", value: "0" },
   { label: "按钮权限", value: "1" },
-  { label: "接口权限", value: "2" }
+  { label: "接口权限", value: "2" },
+  { label: "菜单权限", value: "3" }
 ];
 
 const permissionTypeLabel = (permissionType: number) => {
   if (permissionType === 0) return "页面权限";
   if (permissionType === 1) return "按钮权限";
   if (permissionType === 2) return "接口权限";
+  if (permissionType === 3) return "菜单权限";
   return "未知";
 };
 
@@ -116,7 +118,9 @@ onMounted(loadData);
                   ? 'success'
                   : row.permissionType === 1
                     ? 'warning'
-                    : 'info'
+                    : row.permissionType === 2
+                      ? 'info'
+                      : 'danger'
               "
               size="small"
             >

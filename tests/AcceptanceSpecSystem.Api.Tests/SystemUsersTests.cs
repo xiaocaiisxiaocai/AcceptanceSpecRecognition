@@ -1,16 +1,22 @@
 using System.Net;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
 public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly ApiWebApplicationFactory _factory;
 
     public SystemUsersTests(ApiWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -35,6 +41,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     [Fact]
     public async Task Create_And_ResetPassword_ShouldLoginWithNewPassword()
     {
+        var rootOrgUnitId = await GetRootOrgUnitIdAsync();
         var createResp = await _client.PostAsync(
             "/api/system-users",
             ApiClientJson.ToJsonContent(new
@@ -44,6 +51,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
                 nickname = "测试用户",
                 avatar = "",
                 roleCode = "common",
+                orgUnitId = rootOrgUnitId,
                 isActive = true
             }));
         createResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -72,6 +80,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     [Fact]
     public async Task Create_WithLegacyRolesArray_ShouldReturnBadRequest()
     {
+        var rootOrgUnitId = await GetRootOrgUnitIdAsync();
         var createResp = await _client.PostAsync(
             "/api/system-users",
             ApiClientJson.ToJsonContent(new
@@ -81,10 +90,100 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
                 nickname = "旧格式用户",
                 avatar = "",
                 roles = new[] { "common" },
+                orgUnitId = rootOrgUnitId,
                 isActive = true
             }));
 
         createResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Create_WithSingleOrgField_ShouldReturnSingleOrgFields()
+    {
+        var rootOrgUnitId = await GetRootOrgUnitIdAsync();
+        var username = $"single_org_{Guid.NewGuid():N}"[..18];
+
+        var createResp = await _client.PostAsync(
+            "/api/system-users",
+            ApiClientJson.ToJsonContent(new
+            {
+                username,
+                password = "User@123456",
+                nickname = "单组织用户",
+                avatar = "",
+                roleCode = "common",
+                orgUnitId = rootOrgUnitId,
+                isActive = true
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(0);
+        body.Data!.GetProperty("orgUnitId").GetInt32().Should().Be(rootOrgUnitId);
+        body.Data!.GetProperty("orgUnitName").GetString().Should().NotBeNullOrWhiteSpace();
+        body.Data!.TryGetProperty("orgUnits", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Create_WithLegacyOrgFields_ShouldReturnBadRequest()
+    {
+        var rootOrgUnitId = await GetRootOrgUnitIdAsync();
+        var username = $"legacy_org_{Guid.NewGuid():N}"[..18];
+
+        var createResp = await _client.PostAsync(
+            "/api/system-users",
+            ApiClientJson.ToJsonContent(new
+            {
+                username,
+                password = "User@123456",
+                nickname = "旧组织口径用户",
+                avatar = "",
+                roleCode = "common",
+                primaryOrgUnitId = rootOrgUnitId,
+                orgUnitIds = new[] { rootOrgUnitId },
+                isActive = true
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Update_WithLegacyOrgFields_ShouldReturnBadRequest()
+    {
+        var rootOrgUnitId = await GetRootOrgUnitIdAsync();
+        var username = $"legacy_upd_{Guid.NewGuid():N}"[..18];
+
+        var createResp = await _client.PostAsync(
+            "/api/system-users",
+            ApiClientJson.ToJsonContent(new
+            {
+                username,
+                password = "User@123456",
+                nickname = "待更新用户",
+                avatar = "",
+                roleCode = "common",
+                orgUnitId = rootOrgUnitId,
+                isActive = true
+            }));
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var userId = created.Data!.GetProperty("id").GetInt32();
+
+        var updateResp = await _client.PutAsync(
+            $"/api/system-users/{userId}",
+            ApiClientJson.ToJsonContent(new
+            {
+                nickname = "更新后用户",
+                avatar = "",
+                roleCode = "common",
+                primaryOrgUnitId = rootOrgUnitId,
+                orgUnitIds = new[] { rootOrgUnitId },
+                isActive = true
+            }));
+
+        updateResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -123,5 +222,17 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
 
         using var resp = await _client.SendAsync(req);
         resp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    private async Task<int> GetRootOrgUnitIdAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await dbContext.OrgUnits
+            .AsNoTracking()
+            .Where(org => org.UnitType == OrgUnitType.Company && org.ParentId == null)
+            .OrderBy(org => org.Id)
+            .Select(org => org.Id)
+            .FirstAsync();
     }
 }

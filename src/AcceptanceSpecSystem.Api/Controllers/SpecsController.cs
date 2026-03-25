@@ -305,7 +305,7 @@ public class SpecsController : BaseApiController
             Specification = request.Specification,
             Acceptance = request.Acceptance,
             Remark = request.Remark,
-            OwnerOrgUnitId = scope.PrimaryOrgUnitId,
+            OwnerOrgUnitId = scope.OrgUnitId,
             CreatedByUserId = scope.UserId,
             WordFileId = wordFile.Id,
             ImportedAt = DateTime.Now
@@ -490,7 +490,7 @@ public class SpecsController : BaseApiController
                     Specification = item.Specification.Trim(),
                     Acceptance = item.Acceptance?.Trim(),
                     Remark = item.Remark?.Trim(),
-                    OwnerOrgUnitId = scope.PrimaryOrgUnitId,
+                    OwnerOrgUnitId = scope.OrgUnitId,
                     CreatedByUserId = scope.UserId,
                     WordFileId = request.WordFileId,
                     ImportedAt = DateTime.Now
