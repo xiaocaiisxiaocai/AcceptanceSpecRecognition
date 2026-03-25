@@ -113,6 +113,9 @@ public class AiServicesController : BaseApiController
         var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
         if (modelError != null)
             return Error<AiServiceConfigDto>(400, modelError);
+        var endpointError = TryNormalizeEndpoint(request.Endpoint, out var normalizedEndpoint);
+        if (endpointError != null)
+            return Error<AiServiceConfigDto>(400, endpointError);
 
         var exists = await _unitOfWork.AiServiceConfigs.GetByNameAsync(request.Name.Trim());
         if (exists != null)
@@ -132,7 +135,7 @@ public class AiServicesController : BaseApiController
             Purpose = request.Purpose,
             Priority = request.Priority,
             ApiKey = NormalizeOptional(request.ApiKey),
-            Endpoint = NormalizeOptional(request.Endpoint),
+            Endpoint = normalizedEndpoint,
             EmbeddingModel = embeddingModel,
             LlmModel = llmModel,
             DisableThinking = request.DisableThinking,
@@ -167,6 +170,9 @@ public class AiServicesController : BaseApiController
         var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
         if (modelError != null)
             return Error<AiServiceConfigDto>(400, modelError);
+        var endpointError = TryNormalizeEndpoint(request.Endpoint, out var normalizedEndpoint);
+        if (endpointError != null)
+            return Error<AiServiceConfigDto>(400, endpointError);
 
         var newName = request.Name.Trim();
         if (!string.Equals(entity.Name, newName, StringComparison.OrdinalIgnoreCase))
@@ -180,7 +186,7 @@ public class AiServicesController : BaseApiController
         entity.ServiceType = request.ServiceType;
         entity.Purpose = request.Purpose;
         entity.Priority = request.Priority;
-        entity.Endpoint = NormalizeOptional(request.Endpoint);
+        entity.Endpoint = normalizedEndpoint;
         entity.DisableThinking = request.DisableThinking;
 
         var embeddingModel = NormalizeOptional(request.EmbeddingModel);
@@ -457,7 +463,7 @@ public class AiServicesController : BaseApiController
 
     private static string NormalizeOpenAiBaseUrl(string endpoint)
     {
-        var baseUrl = endpoint.Trim().TrimEnd('/');
+        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
         if (baseUrl.EndsWith("/v1/v1", StringComparison.OrdinalIgnoreCase))
             baseUrl = baseUrl[..^3];
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
@@ -467,7 +473,7 @@ public class AiServicesController : BaseApiController
 
     private static string NormalizeOllamaBaseUrl(string endpoint)
     {
-        var baseUrl = endpoint.Trim().TrimEnd('/');
+        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
         if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
             baseUrl = baseUrl[..^4];
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
@@ -571,6 +577,20 @@ public class AiServicesController : BaseApiController
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string? TryNormalizeEndpoint(string? value, out string? normalizedEndpoint)
+    {
+        try
+        {
+            normalizedEndpoint = AiEndpointNormalizer.NormalizeOptionalEndpoint(value);
+            return null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            normalizedEndpoint = null;
+            return ex.Message;
+        }
     }
 
     private static string? ValidatePurpose(AiServicePurpose purpose)

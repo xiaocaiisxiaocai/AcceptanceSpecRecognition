@@ -229,10 +229,7 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
 
     private static string NormalizeOllamaBaseUrl(string? endpoint)
     {
-        if (string.IsNullOrWhiteSpace(endpoint))
-            throw new InvalidOperationException("Ollama Endpoint 未配置");
-
-        var value = endpoint.Trim().TrimEnd('/');
+        var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint, "Ollama Endpoint").TrimEnd('/');
         if (value.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
             value = value[..^4];
         if (value.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
