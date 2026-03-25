@@ -459,6 +459,9 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("RoleId");
 
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
                     b.HasIndex("UserId", "RoleId", "StartAt", "EndAt");
 
                     b.ToTable("AuthUserRoles");

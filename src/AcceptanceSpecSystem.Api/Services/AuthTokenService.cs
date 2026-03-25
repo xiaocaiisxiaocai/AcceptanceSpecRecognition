@@ -47,9 +47,9 @@ public class AuthTokenService : IAuthTokenService
             new(ClaimTypes.Name, user.Username)
         };
 
-        foreach (var role in user.Roles.Where(r => !string.IsNullOrWhiteSpace(r)))
+        if (!string.IsNullOrWhiteSpace(user.RoleCode))
         {
-            commonClaims.Add(new Claim(ClaimTypes.Role, role));
+            commonClaims.Add(new Claim(ClaimTypes.Role, user.RoleCode));
         }
 
         foreach (var permission in user.Permissions.Where(p => !string.IsNullOrWhiteSpace(p)))

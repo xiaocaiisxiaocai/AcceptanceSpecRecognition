@@ -16,8 +16,8 @@ export interface DataInfo<T> {
   username?: string;
   /** 昵称 */
   nickname?: string;
-  /** 当前登录用户的角色 */
-  roles?: Array<string>;
+  /** 当前登录用户的角色编码 */
+  roleCode?: string;
   /** 当前登录用户的 permission code 集合 */
   permissions?: Array<string>;
 }
@@ -49,6 +49,10 @@ function isSameStringArray(left?: Array<string>, right?: Array<string>) {
   return normalizedLeft.every((value, index) => value === normalizedRight[index]);
 }
 
+function normalizeStringValue(value?: string) {
+  return (value ?? "").trim();
+}
+
 /** 获取`token` */
 export function getToken(): DataInfo<number> {
   const localToken = storageLocal().getItem<DataInfo<number>>(userKey);
@@ -75,14 +79,14 @@ export function getToken(): DataInfo<number> {
  * @description 设置`token`以及一些必要信息并采用无感刷新`token`方案
  * 无感刷新：后端返回`accessToken`（访问接口使用的`token`）、`refreshToken`（用于调用刷新`accessToken`的接口时所需的`token`，`refreshToken`的过期时间（比如30天）应大于`accessToken`的过期时间（比如2小时））、`expires`（`accessToken`的过期时间）
  * 将`accessToken`、`expires`、`refreshToken`这三条信息放在key值为authorized-token的cookie里（过期自动销毁）
- * 将`avatar`、`username`、`nickname`、`roles`、`permissions`、`refreshToken`、`expires`这七条信息放在key值为`user-info`的localStorage里（利用`multipleTabsKey`当浏览器完全关闭后自动销毁）
+ * 将`avatar`、`username`、`nickname`、`roleCode`、`permissions`、`refreshToken`、`expires`这七条信息放在key值为`user-info`的localStorage里（利用`multipleTabsKey`当浏览器完全关闭后自动销毁）
  */
 export function setToken(data: DataInfo<Date>) {
   let expires = 0;
   const { accessToken, refreshToken } = data;
   const { isRemembered, loginDay } = useUserStoreHook();
   const previousUserInfo = storageLocal().getItem<DataInfo<number>>(userKey);
-  expires = new Date(data.expires).getTime(); // 如果后端直接设置时间戳，将此处代码改为expires = data.expires，然后把上面的DataInfo<Date>改成DataInfo<number>即可
+  expires = new Date(data.expires).getTime();
   const cookieString = JSON.stringify({ accessToken, expires, refreshToken });
 
   expires > 0
@@ -101,11 +105,11 @@ export function setToken(data: DataInfo<Date>) {
       : {}
   );
 
-  function setUserKey({ avatar, username, nickname, roles, permissions }) {
+  function setUserKey({ avatar, username, nickname, roleCode, permissions }) {
     useUserStoreHook().SET_AVATAR(avatar);
     useUserStoreHook().SET_USERNAME(username);
     useUserStoreHook().SET_NICKNAME(nickname);
-    useUserStoreHook().SET_ROLES(roles);
+    useUserStoreHook().SET_ROLE_CODE(roleCode);
     useUserStoreHook().SET_PERMS(permissions);
     storageLocal().setItem(userKey, {
       accessToken,
@@ -114,12 +118,12 @@ export function setToken(data: DataInfo<Date>) {
       avatar,
       username,
       nickname,
-      roles,
+      roleCode,
       permissions
     });
   }
 
-  const roles = data.roles ?? previousUserInfo?.roles ?? [];
+  const roleCode = data.roleCode ?? previousUserInfo?.roleCode ?? "";
   const permissions = data.permissions ?? previousUserInfo?.permissions ?? [];
   const username = data.username ?? previousUserInfo?.username ?? "";
   const nickname = data.nickname ?? previousUserInfo?.nickname ?? "";
@@ -129,13 +133,13 @@ export function setToken(data: DataInfo<Date>) {
     avatar,
     username,
     nickname,
-    roles,
+    roleCode,
     permissions
   });
 
   return {
     authorizationChanged:
-      !isSameStringArray(previousUserInfo?.roles, roles) ||
+      normalizeStringValue(previousUserInfo?.roleCode) !== normalizeStringValue(roleCode) ||
       !isSameStringArray(previousUserInfo?.permissions, permissions)
   };
 }

@@ -75,7 +75,6 @@ public class AuthController : ControllerBase
             });
         }
 
-        var roles = access.Roles.ToList();
         var permissions = access.Permissions.ToList();
         var tokenUser = new AuthTokenUser
         {
@@ -83,7 +82,7 @@ public class AuthController : ControllerBase
             CompanyId = access.CompanyId,
             Username = user.Username,
             PermissionVersion = access.PermissionVersion,
-            Roles = roles,
+            RoleCode = access.RoleCode,
             Permissions = permissions
         };
         var pair = _authTokenService.CreateTokenPair(tokenUser);
@@ -95,7 +94,7 @@ public class AuthController : ControllerBase
                 Avatar = user.Avatar,
                 Username = user.Username,
                 Nickname = string.IsNullOrWhiteSpace(user.Nickname) ? user.Username : user.Nickname,
-                Roles = roles,
+                RoleCode = access.RoleCode,
                 Permissions = permissions,
                 AccessToken = pair.AccessToken,
                 RefreshToken = pair.RefreshToken,
@@ -157,7 +156,7 @@ public class AuthController : ControllerBase
             CompanyId = access.CompanyId,
             Username = access.Username,
             PermissionVersion = access.PermissionVersion,
-            Roles = access.Roles.ToList(),
+            RoleCode = access.RoleCode,
             Permissions = access.Permissions.ToList()
         });
         return Ok(new FrontendAuthResponse<RefreshTokenSuccessData>
@@ -168,7 +167,7 @@ public class AuthController : ControllerBase
                 Avatar = access.Avatar,
                 Username = access.Username,
                 Nickname = string.IsNullOrWhiteSpace(access.Nickname) ? access.Username : access.Nickname,
-                Roles = access.Roles.ToList(),
+                RoleCode = access.RoleCode,
                 Permissions = access.Permissions.ToList(),
                 AccessToken = pair.AccessToken,
                 RefreshToken = pair.RefreshToken,

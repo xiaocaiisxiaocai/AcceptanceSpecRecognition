@@ -7,7 +7,8 @@ export interface SystemUser {
   username: string;
   nickname: string;
   avatar: string;
-  roles: string[];
+  roleCode: string;
+  roleName: string;
   permissions: string[];
   isActive: boolean;
   permissionVersion: number;
@@ -34,7 +35,7 @@ export interface CreateSystemUserRequest {
   password: string;
   nickname: string;
   avatar?: string | null;
-  roles: string[];
+  roleCode: string;
   primaryOrgUnitId?: number | null;
   orgUnitIds?: number[];
   roleStartAt?: string | null;
@@ -47,7 +48,7 @@ export interface CreateSystemUserRequest {
 export interface UpdateSystemUserRequest {
   nickname: string;
   avatar?: string | null;
-  roles: string[];
+  roleCode: string;
   primaryOrgUnitId?: number | null;
   orgUnitIds?: number[];
   roleStartAt?: string | null;

@@ -25,7 +25,7 @@ public class AuthTokenUser
 
     public int PermissionVersion { get; set; }
 
-    public List<string> Roles { get; set; } = [];
+    public string RoleCode { get; set; } = string.Empty;
 
     public List<string> Permissions { get; set; } = [];
 }

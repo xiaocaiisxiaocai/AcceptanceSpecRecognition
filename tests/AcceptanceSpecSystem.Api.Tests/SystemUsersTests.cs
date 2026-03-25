@@ -43,14 +43,14 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
                 password = "User@123456",
                 nickname = "测试用户",
                 avatar = "",
-                roles = new[] { "common" },
-                permissions = Array.Empty<string>(),
+                roleCode = "common",
                 isActive = true
             }));
         createResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
         created.Code.Should().Be(0);
+        created.Data!.GetProperty("roleCode").GetString().Should().Be("common");
         var userId = created.Data!.GetProperty("id").GetInt32();
 
         var resetResp = await _client.PutAsync(
@@ -67,6 +67,24 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
             "/login",
             ApiClientJson.ToJsonContent(new { username = "test_user_01", password = "User@654321" }));
         newLoginResp.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Create_WithLegacyRolesArray_ShouldReturnBadRequest()
+    {
+        var createResp = await _client.PostAsync(
+            "/api/system-users",
+            ApiClientJson.ToJsonContent(new
+            {
+                username = "test_user_legacy",
+                password = "User@123456",
+                nickname = "旧格式用户",
+                avatar = "",
+                roles = new[] { "common" },
+                isActive = true
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]

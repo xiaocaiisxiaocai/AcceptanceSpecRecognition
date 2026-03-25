@@ -13,7 +13,7 @@ import { subBefore, getQueryMap } from "@pureadmin/utils";
 (function () {
   // 获取 url 中的参数
   const params = getQueryMap(location.href) as DataInfo<Date>;
-  const must = ["username", "roles", "accessToken"];
+  const must = ["username", "roleCode", "accessToken"];
   const mustLength = must.length;
   if (Object.keys(params).length !== mustLength) return;
 
@@ -40,7 +40,7 @@ import { subBefore, getQueryMap } from "@pureadmin/utils";
     setToken(params);
 
     // 删除不需要显示在 url 的参数
-    delete params.roles;
+    delete params.roleCode;
     delete params.accessToken;
 
     const newUrl = `${location.origin}${location.pathname}${subBefore(

@@ -24,7 +24,7 @@ public sealed class AuthAccessContext
 
     public int PermissionVersion { get; init; }
 
-    public IReadOnlyList<string> Roles { get; init; } = [];
+    public string RoleCode { get; init; } = string.Empty;
 
     public IReadOnlyList<string> Permissions { get; init; } = [];
 
@@ -126,20 +126,20 @@ public sealed class AuthAccessService : IAuthAccessService
     private static AuthAccessContext BuildContext(SystemUser user)
     {
         var now = DateTime.Now;
-        var activeRoles = user.UserRoles
+        var activeRoleLinks = user.UserRoles
             .Where(ur => IsActive(now, ur.StartAt, ur.EndAt) && ur.Role.IsActive)
-            .Select(ur => ur.Role)
-            .DistinctBy(r => r.Id)
             .ToList();
+        var activeRoleLink = AuthUserRoleSingleRolePolicy.SelectRoleToKeep(activeRoleLinks);
+        var activeRole = activeRoleLink?.Role;
 
-        var permissions = activeRoles
-            .SelectMany(r => r.RolePermissions)
+        var permissions = activeRole?.RolePermissions
             .Where(rp => rp.Permission.IsActive)
             .Select(rp => rp.Permission.Code)
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .ToList()
+            ?? [];
 
         var orgLinks = user.UserOrgUnits
             .Where(uo => IsActive(now, uo.StartAt, uo.EndAt) && uo.OrgUnit.IsActive)
@@ -160,11 +160,7 @@ public sealed class AuthAccessService : IAuthAccessService
             Avatar = user.Avatar,
             IsActive = user.IsActive,
             PermissionVersion = user.PermissionVersion,
-            Roles = activeRoles
-                .Select(r => r.Code)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                .ToList(),
+            RoleCode = activeRole?.Code ?? string.Empty,
             Permissions = permissions,
             OrgUnitIds = orgLinks
                 .Select(x => x.OrgUnitId)

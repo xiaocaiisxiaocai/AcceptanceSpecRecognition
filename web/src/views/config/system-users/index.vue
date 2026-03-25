@@ -45,7 +45,7 @@ const createForm = reactive({
   password: "",
   nickname: "",
   avatar: "",
-  roles: [] as string[],
+  roleCode: "",
   primaryOrgUnitId: null as number | null,
   orgUnitIds: [] as number[],
   isActive: true
@@ -56,7 +56,7 @@ const editForm = reactive({
   username: "",
   nickname: "",
   avatar: "",
-  roles: [] as string[],
+  roleCode: "",
   primaryOrgUnitId: null as number | null,
   orgUnitIds: [] as number[],
   isActive: true
@@ -117,21 +117,17 @@ const editPrimaryOrgOptions = computed(() => {
     .filter(item => !!item) as OrgUnit[];
 });
 
-const normalizeStringList = (values: string[]) => {
-  return [...new Set(values.map(item => item.trim()).filter(item => !!item))];
-};
-
 const normalizeNumberList = (values: number[]) => {
   return [...new Set(values.filter(item => Number.isInteger(item) && item > 0))];
 };
 
 const isValidUsername = (username: string) => /^[A-Za-z0-9._-]{3,64}$/.test(username);
 
-const getDefaultRoleCodes = () => {
+const getDefaultRoleCode = () => {
   const preferred = activeRoleOptions.value.find(item => item.code === "common");
-  if (preferred) return [preferred.code];
+  if (preferred) return preferred.code;
   const first = activeRoleOptions.value[0];
-  return first ? [first.code] : [];
+  return first?.code ?? "";
 };
 
 const getDefaultPrimaryOrgId = () => {
@@ -235,7 +231,7 @@ const openCreateDialog = () => {
   createForm.password = "";
   createForm.nickname = "";
   createForm.avatar = "";
-  createForm.roles = getDefaultRoleCodes();
+  createForm.roleCode = getDefaultRoleCode();
   createForm.primaryOrgUnitId = defaultOrgId ?? null;
   createForm.orgUnitIds = defaultOrgId ? [defaultOrgId] : [];
   createForm.isActive = true;
@@ -249,7 +245,7 @@ const openEditDialog = (row: SystemUser) => {
   editForm.username = row.username;
   editForm.nickname = row.nickname;
   editForm.avatar = row.avatar ?? "";
-  editForm.roles = [...(row.roles || [])];
+  editForm.roleCode = row.roleCode ?? "";
   editForm.orgUnitIds = normalizeNumberList(orgIds);
   editForm.primaryOrgUnitId = primaryOrg?.orgUnitId ?? editForm.orgUnitIds[0] ?? null;
   editForm.isActive = row.isActive;
@@ -261,7 +257,7 @@ const handleCreate = async () => {
   const username = createForm.username.trim();
   const password = createForm.password;
   const nickname = createForm.nickname.trim();
-  const roles = normalizeStringList(createForm.roles);
+  const roleCode = createForm.roleCode.trim();
 
   if (!isValidUsername(username)) {
     ElMessage.warning("用户名仅支持字母、数字、点、下划线、中划线，长度3-64");
@@ -275,8 +271,8 @@ const handleCreate = async () => {
     ElMessage.warning("请输入昵称");
     return;
   }
-  if (roles.length === 0) {
-    ElMessage.warning("至少配置一个角色");
+  if (!roleCode) {
+    ElMessage.warning("请选择一个角色");
     return;
   }
 
@@ -291,7 +287,7 @@ const handleCreate = async () => {
     password,
     nickname,
     avatar: createForm.avatar.trim() || "",
-    roles,
+    roleCode,
     primaryOrgUnitId: createForm.primaryOrgUnitId,
     orgUnitIds: createForm.orgUnitIds,
     isActive: createForm.isActive
@@ -313,13 +309,13 @@ const handleCreate = async () => {
 
 const handleUpdate = async () => {
   const nickname = editForm.nickname.trim();
-  const roles = normalizeStringList(editForm.roles);
+  const roleCode = editForm.roleCode.trim();
   if (!nickname) {
     ElMessage.warning("请输入昵称");
     return;
   }
-  if (roles.length === 0) {
-    ElMessage.warning("至少配置一个角色");
+  if (!roleCode) {
+    ElMessage.warning("请选择一个角色");
     return;
   }
 
@@ -332,7 +328,7 @@ const handleUpdate = async () => {
   const payload: UpdateSystemUserRequest = {
     nickname,
     avatar: editForm.avatar.trim() || "",
-    roles,
+    roleCode,
     primaryOrgUnitId: editForm.primaryOrgUnitId,
     orgUnitIds: editForm.orgUnitIds,
     isActive: editForm.isActive
@@ -445,7 +441,8 @@ const formatDateTime = (value?: string | null) => {
   return date.toLocaleString();
 };
 
-const formatRoleLabel = (roleCode: string) => {
+const formatRoleLabel = (roleCode?: string) => {
+  if (!roleCode) return "-";
   const roleName = roleNameMap.value.get(roleCode);
   return roleName ? `${roleName} (${roleCode})` : roleCode;
 };
@@ -522,16 +519,10 @@ onMounted(initPage);
         <el-table-column prop="nickname" label="昵称" min-width="120" />
         <el-table-column label="角色" min-width="220">
           <template #default="{ row }">
-            <el-tag
-              v-for="role in row.roles"
-              :key="`${row.id}-${role}`"
-              type="success"
-              class="mr-1 mb-1"
-              size="small"
-            >
-              {{ formatRoleLabel(role) }}
+            <el-tag v-if="row.roleCode" type="success" class="mr-1 mb-1" size="small">
+              {{ formatRoleLabel(row.roleCode) }}
             </el-tag>
-            <span v-if="!row.roles?.length">-</span>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column label="组织" min-width="240">
@@ -622,8 +613,7 @@ onMounted(initPage);
         </el-form-item>
         <el-form-item label="角色" required>
           <el-select
-            v-model="createForm.roles"
-            multiple
+            v-model="createForm.roleCode"
             filterable
             class="w-full"
             popper-class="config-select-popper"
@@ -692,8 +682,7 @@ onMounted(initPage);
         </el-form-item>
         <el-form-item label="角色" required>
           <el-select
-            v-model="editForm.roles"
-            multiple
+            v-model="editForm.roleCode"
             filterable
             class="w-full"
             popper-class="config-select-popper"

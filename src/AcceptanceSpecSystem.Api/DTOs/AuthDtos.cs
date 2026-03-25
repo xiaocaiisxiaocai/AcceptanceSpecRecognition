@@ -41,7 +41,7 @@ public class LoginSuccessData
 
     public string Nickname { get; set; } = string.Empty;
 
-    public List<string> Roles { get; set; } = [];
+    public string RoleCode { get; set; } = string.Empty;
 
     public List<string> Permissions { get; set; } = [];
 
@@ -63,7 +63,7 @@ public class RefreshTokenSuccessData
 
     public string Nickname { get; set; } = string.Empty;
 
-    public List<string> Roles { get; set; } = [];
+    public string RoleCode { get; set; } = string.Empty;
 
     public List<string> Permissions { get; set; } = [];
 

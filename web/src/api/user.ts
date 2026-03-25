@@ -9,8 +9,8 @@ export type UserResult = {
     username: string;
     /** 昵称 */
     nickname: string;
-    /** 当前登录用户的角色 */
-    roles: Array<string>;
+    /** 当前登录用户的角色编码 */
+    roleCode: string;
     /** 按钮级别权限 */
     permissions: Array<string>;
     /** `token` */
@@ -31,8 +31,8 @@ export type RefreshTokenResult = {
     username: string;
     /** 昵称 */
     nickname: string;
-    /** 当前登录用户的角色 */
-    roles: Array<string>;
+    /** 当前登录用户的角色编码 */
+    roleCode: string;
     /** 当前登录用户的 permission code 集合 */
     permissions: Array<string>;
     /** `token` */

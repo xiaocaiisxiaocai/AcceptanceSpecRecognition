@@ -91,13 +91,13 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
     public async Task Update_WhenCustomRoleChanged_ShouldBumpAssignedUserPermissionVersion()
     {
         int roleId;
+        int testUserId;
         int originalPermissionVersion;
 
         using (var scope = _factory.Services.CreateScope())
         {
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var commonUser = await dbContext.SystemUsers.FirstAsync(user => user.Username == "common");
-            originalPermissionVersion = commonUser.PermissionVersion;
 
             var role = new AuthRole
             {
@@ -112,14 +112,30 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
             await dbContext.AuthRoles.AddAsync(role);
             await dbContext.SaveChangesAsync();
 
+            var assignedUser = new SystemUser
+            {
+                CompanyId = commonUser.CompanyId,
+                Username = $"role_user_{Guid.NewGuid():N}"[..18],
+                PasswordHash = "test-hash",
+                Nickname = "角色测试用户",
+                Avatar = string.Empty,
+                IsActive = true,
+                PermissionVersion = 1,
+                CreatedAt = DateTime.Now
+            };
+            await dbContext.SystemUsers.AddAsync(assignedUser);
+            await dbContext.SaveChangesAsync();
+
             await dbContext.AuthUserRoles.AddAsync(new AuthUserRole
             {
-                UserId = commonUser.Id,
+                UserId = assignedUser.Id,
                 RoleId = role.Id,
                 CreatedAt = DateTime.Now
             });
             await dbContext.SaveChangesAsync();
             roleId = role.Id;
+            testUserId = assignedUser.Id;
+            originalPermissionVersion = assignedUser.PermissionVersion;
         }
 
         var response = await _client.PutAsync(
@@ -145,7 +161,7 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
 
         using var verifyScope = _factory.Services.CreateScope();
         var verifyDbContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var commonUserAfterUpdate = await verifyDbContext.SystemUsers.FirstAsync(user => user.Username == "common");
-        commonUserAfterUpdate.PermissionVersion.Should().Be(originalPermissionVersion + 1);
+        var testUserAfterUpdate = await verifyDbContext.SystemUsers.FirstAsync(user => user.Id == testUserId);
+        testUserAfterUpdate.PermissionVersion.Should().Be(originalPermissionVersion + 1);
     }
 }

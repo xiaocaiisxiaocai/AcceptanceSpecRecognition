@@ -29,8 +29,8 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
         var data = json.GetProperty("data");
         data.GetProperty("accessToken").GetString().Should().NotBeNullOrWhiteSpace();
         data.GetProperty("refreshToken").GetString().Should().NotBeNullOrWhiteSpace();
-        data.GetProperty("roles").EnumerateArray().Select(x => x.GetString())
-            .Should().Contain("admin");
+        data.GetProperty("roleCode").GetString().Should().Be("admin");
+        data.TryGetProperty("roles", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -85,8 +85,8 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
         var refreshJson = await refreshResp.ReadAsAsync<JsonElement>();
         var refreshData = refreshJson.GetProperty("data");
         refreshData.GetProperty("username").GetString().Should().Be("admin");
-        refreshData.GetProperty("roles").EnumerateArray().Select(x => x.GetString())
-            .Should().Contain("admin");
+        refreshData.GetProperty("roleCode").GetString().Should().Be("admin");
+        refreshData.TryGetProperty("roles", out _).Should().BeFalse();
         refreshData.GetProperty("permissions").EnumerateArray()
             .Select(x => x.GetString())
             .Should().Contain(permission => !string.IsNullOrWhiteSpace(permission));

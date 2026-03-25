@@ -114,15 +114,14 @@ public class SystemUsersController : BaseApiController
         if (await _unitOfWork.SystemUsers.AnyAsync(u => u.Username == normalizedUsername))
             return Error<SystemUserDto>(400, "用户名已存在");
 
-        var roleCodes = NormalizeStringList(request.Roles);
-        if (roleCodes.Count == 0)
-            return Error<SystemUserDto>(400, "至少需要一个角色");
+        var roleCode = NormalizeCode(request.RoleCode);
+        if (string.IsNullOrWhiteSpace(roleCode))
+            return Error<SystemUserDto>(400, "角色不能为空");
 
-        var roles = await _dbContext.AuthRoles
-            .Where(r => r.CompanyId == companyId.Value && r.IsActive && roleCodes.Contains(r.Code))
-            .ToListAsync();
+        var role = await _dbContext.AuthRoles
+            .FirstOrDefaultAsync(r => r.CompanyId == companyId.Value && r.IsActive && r.Code == roleCode);
 
-        if (roles.Count != roleCodes.Count)
+        if (role == null)
             return Error<SystemUserDto>(400, "存在无效角色编码");
 
         var assignedOrgUnits = await ResolveOrgAssignmentsAsync(companyId.Value, request.PrimaryOrgUnitId, request.OrgUnitIds);
@@ -142,16 +141,13 @@ public class SystemUsersController : BaseApiController
             CreatedAt = now
         };
 
-        foreach (var role in roles)
+        user.UserRoles.Add(new AuthUserRole
         {
-            user.UserRoles.Add(new AuthUserRole
-            {
-                RoleId = role.Id,
-                StartAt = request.RoleStartAt,
-                EndAt = request.RoleEndAt,
-                CreatedAt = now
-            });
-        }
+            RoleId = role.Id,
+            StartAt = request.RoleStartAt,
+            EndAt = request.RoleEndAt,
+            CreatedAt = now
+        });
 
         foreach (var org in assignedOrgUnits)
         {
@@ -190,21 +186,20 @@ public class SystemUsersController : BaseApiController
         if (user == null || user.CompanyId != companyId.Value)
             return Error<SystemUserDto>(400, "用户不存在");
 
-        var roleCodes = NormalizeStringList(request.Roles);
-        if (roleCodes.Count == 0)
-            return Error<SystemUserDto>(400, "至少需要一个角色");
+        var roleCode = NormalizeCode(request.RoleCode);
+        if (string.IsNullOrWhiteSpace(roleCode))
+            return Error<SystemUserDto>(400, "角色不能为空");
 
-        var roles = await _dbContext.AuthRoles
-            .Where(r => r.CompanyId == companyId.Value && r.IsActive && roleCodes.Contains(r.Code))
-            .ToListAsync();
-        if (roles.Count != roleCodes.Count)
+        var role = await _dbContext.AuthRoles
+            .FirstOrDefaultAsync(r => r.CompanyId == companyId.Value && r.IsActive && r.Code == roleCode);
+        if (role == null)
             return Error<SystemUserDto>(400, "存在无效角色编码");
 
         if (!await ValidateAdminBoundaryAsync(
                 companyId: companyId.Value,
                 targetUser: user,
                 nextIsActive: request.IsActive,
-                nextRoleCodes: roleCodes,
+                nextRoleCode: roleCode,
                 operationName: "更新用户"))
         {
             return Error<SystemUserDto>(400, "系统至少需要保留一个启用状态的 admin 用户");
@@ -230,17 +225,14 @@ public class SystemUsersController : BaseApiController
         _dbContext.AuthUserRoles.RemoveRange(user.UserRoles);
         _dbContext.AuthUserOrgUnits.RemoveRange(user.UserOrgUnits);
 
-        foreach (var role in roles)
+        await _dbContext.AuthUserRoles.AddAsync(new AuthUserRole
         {
-            await _dbContext.AuthUserRoles.AddAsync(new AuthUserRole
-            {
-                UserId = user.Id,
-                RoleId = role.Id,
-                StartAt = request.RoleStartAt,
-                EndAt = request.RoleEndAt,
-                CreatedAt = DateTime.Now
-            });
-        }
+            UserId = user.Id,
+            RoleId = role.Id,
+            StartAt = request.RoleStartAt,
+            EndAt = request.RoleEndAt,
+            CreatedAt = DateTime.Now
+        });
 
         foreach (var org in assignedOrgUnits)
         {
@@ -283,7 +275,7 @@ public class SystemUsersController : BaseApiController
                 companyId: companyId.Value,
                 targetUser: user,
                 nextIsActive: request.IsActive,
-                nextRoleCodes: GetEffectiveRoleCodes(user),
+                nextRoleCode: GetEffectiveRoleCode(user),
                 operationName: "更新状态"))
         {
             return Error<SystemUserDto>(400, "系统至少需要保留一个启用状态的 admin 用户");
@@ -359,7 +351,7 @@ public class SystemUsersController : BaseApiController
                 companyId: companyId.Value,
                 targetUser: user,
                 nextIsActive: false,
-                nextRoleCodes: [],
+                nextRoleCode: null,
                 operationName: "删除用户"))
         {
             return Error(400, "系统至少需要保留一个启用状态的 admin 用户");
@@ -451,11 +443,11 @@ public class SystemUsersController : BaseApiController
         int companyId,
         SystemUser targetUser,
         bool nextIsActive,
-        List<string> nextRoleCodes,
+        string? nextRoleCode,
         string operationName)
     {
-        var currentIsActiveAdmin = targetUser.IsActive && HasAdminRole(GetEffectiveRoleCodes(targetUser));
-        var nextIsActiveAdmin = nextIsActive && HasAdminRole(nextRoleCodes);
+        var currentIsActiveAdmin = targetUser.IsActive && HasAdminRole(GetEffectiveRoleCode(targetUser));
+        var nextIsActiveAdmin = nextIsActive && HasAdminRole(nextRoleCode);
 
         if (!currentIsActiveAdmin || nextIsActiveAdmin)
             return true;
@@ -470,23 +462,22 @@ public class SystemUsersController : BaseApiController
         return true;
     }
 
-    private static List<string> GetEffectiveRoleCodes(SystemUser user)
+    private static string? GetEffectiveRoleCode(SystemUser user)
     {
         var now = DateTime.Now;
-        return user.UserRoles
+        var activeRoleLinks = user.UserRoles
             .Where(ur =>
                 ur.Role.IsActive &&
                 (!ur.StartAt.HasValue || ur.StartAt <= now) &&
                 (!ur.EndAt.HasValue || ur.EndAt >= now))
-            .Select(ur => ur.Role.Code)
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        return AuthUserRoleSingleRolePolicy.SelectRoleToKeep(activeRoleLinks)?.Role?.Code;
     }
 
-    private static bool HasAdminRole(IEnumerable<string> roles)
+    private static bool HasAdminRole(string? roleCode)
     {
-        return roles.Any(r => string.Equals(r, "admin", StringComparison.OrdinalIgnoreCase));
+        return string.Equals(roleCode, "admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeUsername(string? value)
@@ -519,16 +510,9 @@ public class SystemUsersController : BaseApiController
         return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     }
 
-    private static List<string> NormalizeStringList(IEnumerable<string>? values)
+    private static string NormalizeCode(string? value)
     {
-        if (values == null)
-            return [];
-
-        return values
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Select(v => v.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     }
 
     private string GetCurrentUsername()
@@ -547,22 +531,17 @@ public class SystemUsersController : BaseApiController
                 (!ur.StartAt.HasValue || ur.StartAt <= now) &&
                 (!ur.EndAt.HasValue || ur.EndAt >= now))
             .ToList();
+        var activeRoleLink = AuthUserRoleSingleRolePolicy.SelectRoleToKeep(activeRoleLinks);
+        var activeRole = activeRoleLink?.Role;
 
-        var roles = activeRoleLinks
-            .Select(ur => ur.Role.Code)
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var permissions = activeRoleLinks
-            .SelectMany(ur => ur.Role.RolePermissions)
+        var permissions = activeRole?.RolePermissions
             .Where(rp => rp.Permission.IsActive)
             .Select(rp => rp.Permission.Code)
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .ToList()
+            ?? [];
 
         var orgUnits = user.UserOrgUnits
             .Where(uo =>
@@ -589,7 +568,8 @@ public class SystemUsersController : BaseApiController
             Username = user.Username,
             Nickname = user.Nickname,
             Avatar = user.Avatar,
-            Roles = roles,
+            RoleCode = activeRole?.Code ?? string.Empty,
+            RoleName = activeRole?.Name ?? string.Empty,
             Permissions = permissions,
             IsActive = user.IsActive,
             PermissionVersion = user.PermissionVersion,

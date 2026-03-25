@@ -18,7 +18,9 @@ public class SystemUserDto
 
     public string Avatar { get; set; } = string.Empty;
 
-    public List<string> Roles { get; set; } = [];
+    public string RoleCode { get; set; } = string.Empty;
+
+    public string RoleName { get; set; } = string.Empty;
 
     public List<string> Permissions { get; set; } = [];
 
@@ -72,7 +74,8 @@ public class CreateSystemUserRequest
     public string? Avatar { get; set; }
 
     [Required(ErrorMessage = "角色不能为空")]
-    public List<string> Roles { get; set; } = [];
+    [StringLength(64, ErrorMessage = "角色编码长度不能超过64个字符")]
+    public string RoleCode { get; set; } = string.Empty;
 
     public int? PrimaryOrgUnitId { get; set; }
 
@@ -102,7 +105,8 @@ public class UpdateSystemUserRequest
     public string? Avatar { get; set; }
 
     [Required(ErrorMessage = "角色不能为空")]
-    public List<string> Roles { get; set; } = [];
+    [StringLength(64, ErrorMessage = "角色编码长度不能超过64个字符")]
+    public string RoleCode { get; set; } = string.Empty;
 
     public int? PrimaryOrgUnitId { get; set; }
 
