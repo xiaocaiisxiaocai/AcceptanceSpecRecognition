@@ -1,6 +1,7 @@
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -251,18 +252,21 @@ public class AuthRolesController : BaseApiController
             })
             .ToList();
 
+        if (normalizedScopes.Any(scope => scope.ScopeType == DataScopeType.CustomNodes))
+            return "单组织模式不支持自定义多组织范围";
+
+        var rootOrgUnitId = await SingleOrgUnitService.GetRootOrgUnitIdAsync(_dbContext, companyId);
+        if (!rootOrgUnitId.HasValue)
+            return "根组织不存在";
+
         var allNodeIds = normalizedScopes
             .SelectMany(x => x.OrgUnitIds)
             .Distinct()
             .ToList();
         if (allNodeIds.Count > 0)
         {
-            var validNodeIds = await _dbContext.OrgUnits
-                .Where(o => o.CompanyId == companyId && allNodeIds.Contains(o.Id))
-                .Select(o => o.Id)
-                .ToListAsync();
-            if (validNodeIds.Count != allNodeIds.Count)
-                return "数据范围中存在无效组织节点";
+            if (allNodeIds.Any(nodeId => nodeId != rootOrgUnitId.Value))
+                return "单组织模式下数据范围只允许选择根组织节点";
         }
 
         var existingScopes = await _dbContext.AuthRoleDataScopes

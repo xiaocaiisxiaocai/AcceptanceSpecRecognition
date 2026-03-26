@@ -197,7 +197,7 @@ const copyTableConfig = (index: number) => {
     }
   };
 
-  ElMessage.success(`已复制表格 ${item.tableIndex + 1} 的配置`);
+  ElMessage.success(`已复制表格 ${item.tableIndex + 1} 的字段配置`);
 };
 
 /** 粘贴配置到其他表格 */
@@ -258,7 +258,7 @@ const selectedCount = computed(() => items.value.filter((i) => i.selected).lengt
 const hasClipboard = computed(() => configClipboard.value !== null);
 const clipboardSourceText = computed(() => {
   if (!configClipboard.value) return "";
-  return `已复制表格 ${configClipboard.value.sourceTableIndex + 1} 配置`;
+  return `已复制表格 ${configClipboard.value.sourceTableIndex + 1} 的字段配置`;
 });
 
 /** 是否全选 */
@@ -294,7 +294,7 @@ const toggleSelectAll = (val: boolean) => {
           :disabled="!hasClipboard || items.length < 2"
           @click="pasteConfigToOthers"
         >
-          粘贴到其他表格
+          应用到其他表格
         </el-button>
         <span v-if="hasClipboard" class="clipboard-tip">
           {{ clipboardSourceText }}
@@ -326,7 +326,7 @@ const toggleSelectAll = (val: boolean) => {
                 type="primary"
                 @click.stop="copyTableConfig(idx)"
               >
-                复制此表配置
+                复制此表字段配置
               </el-button>
               <el-tag size="small" type="info">
                 {{ item.tableInfo.rowCount }} 行 x {{ item.tableInfo.columnCount }} 列

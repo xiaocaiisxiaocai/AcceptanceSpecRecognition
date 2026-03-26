@@ -187,6 +187,30 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Create_WithNonRootOrgUnit_ShouldReturnBadRequest()
+    {
+        var childOrgUnitId = await SeedChildOrgUnitAsync();
+        var username = $"child_org_{Guid.NewGuid():N}"[..18];
+
+        var createResp = await _client.PostAsync(
+            "/api/system-users",
+            ApiClientJson.ToJsonContent(new
+            {
+                username,
+                password = "User@123456",
+                nickname = "非法组织用户",
+                avatar = "",
+                roleCode = "common",
+                orgUnitId = childOrgUnitId,
+                isActive = true
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain("根组织");
+    }
+
+    [Fact]
     public async Task Delete_LastActiveAdmin_ShouldFail()
     {
         var listResp = await _client.GetAsync("/api/system-users?page=1&pageSize=20");
@@ -234,5 +258,37 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
             .OrderBy(org => org.Id)
             .Select(org => org.Id)
             .FirstAsync();
+    }
+
+    private async Task<int> SeedChildOrgUnitAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var rootOrgUnitId = await dbContext.OrgUnits
+            .AsNoTracking()
+            .Where(org => org.UnitType == OrgUnitType.Company && org.ParentId == null)
+            .OrderBy(org => org.Id)
+            .Select(org => org.Id)
+            .FirstAsync();
+
+        var child = new OrgUnit
+        {
+            CompanyId = 1,
+            ParentId = rootOrgUnitId,
+            UnitType = OrgUnitType.Division,
+            Code = $"DIV-{Guid.NewGuid():N}"[..18],
+            Name = "用户测试事业部",
+            Path = $"/{rootOrgUnitId}/",
+            Depth = 1,
+            Sort = 0,
+            IsActive = true,
+            CreatedAt = DateTime.Now
+        };
+
+        dbContext.OrgUnits.Add(child);
+        await dbContext.SaveChangesAsync();
+        child.Path = $"/{rootOrgUnitId}/{child.Id}/";
+        await dbContext.SaveChangesAsync();
+        return child.Id;
     }
 }

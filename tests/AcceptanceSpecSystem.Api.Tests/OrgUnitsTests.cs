@@ -37,45 +37,27 @@ public class OrgUnitsTests : IClassFixture<ApiWebApplicationFactory>
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Message.Should().Contain("公司根节点已存在");
+        body.Message.Should().Contain("单组织");
     }
 
     [Fact]
     public async Task Create_WhenParentIsSection_ShouldReject()
     {
-        var rootOrgUnitId = await GetRootOrgUnitIdAsync();
-
-        var createSectionResponse = await _client.PostAsync(
-            "/api/org-units",
-            ApiClientJson.ToJsonContent(new
-            {
-                parentId = rootOrgUnitId,
-                unitType = 3,
-                code = $"SEC-{Guid.NewGuid():N}"[..18],
-                name = "测试课别",
-                sort = 0,
-                isActive = true
-            }));
-        createSectionResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var section = await createSectionResponse.ReadAsAsync<ApiResponse<JsonElement>>();
-        var sectionId = section.Data!.GetProperty("id").GetInt32();
-
         var response = await _client.PostAsync(
             "/api/org-units",
             ApiClientJson.ToJsonContent(new
             {
-                parentId = sectionId,
+                parentId = await GetRootOrgUnitIdAsync(),
                 unitType = 2,
                 code = $"DEP-{Guid.NewGuid():N}"[..18],
-                name = "非法部门",
+                name = "非法新增组织",
                 sort = 0,
                 isActive = true
             }));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Message.Should().Contain("课别节点不允许新增下级组织");
+        body.Message.Should().Contain("单组织");
     }
 
     [Fact]
@@ -102,6 +84,44 @@ public class OrgUnitsTests : IClassFixture<ApiWebApplicationFactory>
         body.Message.Should().Contain("公司根节点不允许停用");
     }
 
+    [Fact]
+    public async Task GetTree_WhenDatabaseContainsChildOrgUnits_ShouldOnlyReturnRootNode()
+    {
+        await SeedChildOrgUnitAsync();
+
+        var response = await _client.GetAsync("/api/org-units/tree");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(0);
+        body.Data.ValueKind.Should().Be(JsonValueKind.Array);
+        body.Data.GetArrayLength().Should().Be(1);
+
+        var root = body.Data[0];
+        root.GetProperty("unitType").GetInt32().Should().Be((int)OrgUnitType.Company);
+        root.GetProperty("children").EnumerateArray().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Update_WhenTargetIsNotRootCompany_ShouldReject()
+    {
+        var childId = await SeedChildOrgUnitAsync();
+
+        var response = await _client.PutAsync(
+            $"/api/org-units/{childId}",
+            ApiClientJson.ToJsonContent(new
+            {
+                code = "DIV-TEST",
+                name = "非法更新节点",
+                sort = 0,
+                isActive = true
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain("根组织");
+    }
+
     private async Task<int> GetRootOrgUnitIdAsync()
     {
         using var scope = _factory.Services.CreateScope();
@@ -110,5 +130,35 @@ public class OrgUnitsTests : IClassFixture<ApiWebApplicationFactory>
             .Where(orgUnit => orgUnit.ParentId == null && orgUnit.UnitType == OrgUnitType.Company)
             .Select(orgUnit => orgUnit.Id)
             .FirstAsync();
+    }
+
+    private async Task<int> SeedChildOrgUnitAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var rootOrgUnitId = await dbContext.OrgUnits
+            .Where(orgUnit => orgUnit.ParentId == null && orgUnit.UnitType == OrgUnitType.Company)
+            .Select(orgUnit => orgUnit.Id)
+            .FirstAsync();
+
+        var child = new OrgUnit
+        {
+            CompanyId = 1,
+            ParentId = rootOrgUnitId,
+            UnitType = OrgUnitType.Division,
+            Code = $"DIV-{Guid.NewGuid():N}"[..18],
+            Name = "历史事业部",
+            Path = "/",
+            Depth = 1,
+            Sort = 0,
+            IsActive = true,
+            CreatedAt = DateTime.Now
+        };
+
+        dbContext.OrgUnits.Add(child);
+        await dbContext.SaveChangesAsync();
+        child.Path = $"/{rootOrgUnitId}/{child.Id}/";
+        await dbContext.SaveChangesAsync();
+        return child.Id;
     }
 }

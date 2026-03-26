@@ -97,7 +97,7 @@ public class PromptTemplateRepository : Repository<PromptTemplate>, IPromptTempl
             changed = true;
         }
 
-        if (!string.Equals(template.DisplayName, displayName, StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(template.DisplayName))
         {
             template.DisplayName = displayName;
             changed = true;

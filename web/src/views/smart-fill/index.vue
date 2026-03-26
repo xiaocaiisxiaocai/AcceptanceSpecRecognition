@@ -302,6 +302,11 @@ const doPreview = async () => {
     return;
   }
 
+  batchPreviewResults.value = [];
+  detailItem.value = null;
+  detailVisible.value = false;
+  taskId.value = null;
+  strictReuseVisible.value = false;
   loading.value = true;
   try {
     const scope = matchConfigRef.value?.getScope() ?? {

@@ -96,6 +96,8 @@ builder.Services.Configure<AuditLogOptions>(
     builder.Configuration.GetSection(AuditLogOptions.SectionName));
 builder.Services.Configure<EmbeddingCacheCleanupOptions>(
     builder.Configuration.GetSection(EmbeddingCacheCleanupOptions.SectionName));
+builder.Services.Configure<AiServiceTestOptions>(
+    builder.Configuration.GetSection(AiServiceTestOptions.SectionName));
 
 // 配置MySQL数据库连接
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")

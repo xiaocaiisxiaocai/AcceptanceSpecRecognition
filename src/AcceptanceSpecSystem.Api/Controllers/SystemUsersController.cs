@@ -126,7 +126,7 @@ public class SystemUsersController : BaseApiController
 
         var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId.Value, request.OrgUnitId);
         if (!assignedOrgUnitId.HasValue)
-            return Error<SystemUserDto>(400, "组织节点无效或不属于当前公司");
+            return Error<SystemUserDto>(400, "组织节点无效，单组织系统只允许根组织");
 
         var now = DateTime.Now;
         var user = new SystemUser
@@ -211,7 +211,7 @@ public class SystemUsersController : BaseApiController
 
         var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId.Value, request.OrgUnitId);
         if (!assignedOrgUnitId.HasValue)
-            return Error<SystemUserDto>(400, "组织节点无效或不属于当前公司");
+            return Error<SystemUserDto>(400, "组织节点无效，单组织系统只允许根组织");
 
         user.Nickname = NormalizeNickname(request.Nickname, user.Username);
         user.Avatar = NormalizeOptional(request.Avatar);
@@ -394,11 +394,11 @@ public class SystemUsersController : BaseApiController
         if (!orgUnitId.HasValue)
             return null;
 
-        var exists = await _dbContext.OrgUnits
-            .AsNoTracking()
-            .AnyAsync(o => o.CompanyId == companyId && o.Id == orgUnitId.Value);
+        var rootOrgUnitId = await SingleOrgUnitService.GetRootOrgUnitIdAsync(_dbContext, companyId);
+        if (!rootOrgUnitId.HasValue)
+            return null;
 
-        return exists ? orgUnitId.Value : null;
+        return rootOrgUnitId.Value == orgUnitId.Value ? rootOrgUnitId.Value : null;
     }
 
     private async Task<bool> ValidateAdminBoundaryAsync(

@@ -45,7 +45,6 @@ const scopeTypeOptions = [
   { label: "仅本人", value: 0 as ScopeType },
   { label: "单个组织", value: 1 as ScopeType },
   { label: "组织及子树", value: 2 as ScopeType },
-  { label: "自定义多组织", value: 3 as ScopeType },
   { label: "全部数据", value: 4 as ScopeType }
 ];
 
@@ -218,6 +217,32 @@ const getDefaultScopeOrgId = () => {
   return firstActive?.id;
 };
 
+const normalizeScopeOrgUnitIds = (scopeType: ScopeType, orgUnitIds?: number[]) => {
+  const normalized = normalizeNumberList(orgUnitIds ?? []);
+  if ((scopeType === 1 || scopeType === 2) && normalized.length === 0) {
+    const defaultOrgId = getDefaultScopeOrgId();
+    return defaultOrgId ? [defaultOrgId] : [];
+  }
+
+  if ((scopeType === 1 || scopeType === 2) && normalized.length > 1) {
+    return normalized.slice(0, 1);
+  }
+
+  if (scopeType === 0 || scopeType === 4) {
+    return [];
+  }
+
+  return normalized;
+};
+
+const normalizeScopeType = (scopeType?: number) => {
+  if (scopeType === 3) {
+    return 2 as ScopeType;
+  }
+
+  return (scopeType ?? 2) as ScopeType;
+};
+
 const loadRoles = async () => {
   loading.value = true;
   try {
@@ -287,6 +312,7 @@ const resetCreateForm = () => {
 
 const applyRoleToEditForm = (role: AuthRole) => {
   const specScope = role.dataScopes.find(item => item.resource === "spec");
+  const normalizedScopeType = normalizeScopeType(specScope?.scopeType);
   editForm.id = role.id;
   editForm.code = role.code;
   editForm.name = role.name;
@@ -294,8 +320,11 @@ const applyRoleToEditForm = (role: AuthRole) => {
   editForm.isBuiltIn = role.isBuiltIn;
   editForm.isActive = role.isActive;
   editForm.permissionCodes = [...(role.permissionCodes ?? [])];
-  editForm.scopeType = (specScope?.scopeType ?? 2) as ScopeType;
-  editForm.scopeOrgUnitIds = [...(specScope?.orgUnitIds ?? [])];
+  editForm.scopeType = normalizedScopeType;
+  editForm.scopeOrgUnitIds = normalizeScopeOrgUnitIds(
+    normalizedScopeType,
+    specScope?.orgUnitIds
+  );
   ensureScopeNodeSelection(editForm);
 };
 
@@ -326,9 +355,6 @@ const validateRoleForm = (form: RoleFormModel, isCreate: boolean) => {
   if ((form.scopeType === 1 || form.scopeType === 2) && nodeIds.length !== 1) {
     return "当前数据范围必须选择一个组织节点";
   }
-  if (form.scopeType === 3 && nodeIds.length === 0) {
-    return "自定义多组织至少选择一个组织节点";
-  }
 
   return null;
 };
@@ -337,9 +363,6 @@ const buildDataScopes = (form: RoleFormModel) => {
   const orgUnitIds = normalizeNumberList(form.scopeOrgUnitIds);
   if (form.scopeType === 1 || form.scopeType === 2) {
     return [{ resource: "spec", scopeType: form.scopeType, orgUnitIds: orgUnitIds.slice(0, 1) }];
-  }
-  if (form.scopeType === 3) {
-    return [{ resource: "spec", scopeType: form.scopeType, orgUnitIds }];
   }
   return [{ resource: "spec", scopeType: form.scopeType, orgUnitIds: [] }];
 };
@@ -436,23 +459,21 @@ const formatScopeSummary = (role: AuthRole) => {
   const scope = role.dataScopes.find(item => item.resource === "spec");
   if (!scope) return "未配置";
 
-  const label = scopeTypeLabel(scope.scopeType);
-  if (scope.scopeType === 1 || scope.scopeType === 2) {
-    const org = scope.orgUnitIds[0] ? orgUnitMap.value.get(scope.orgUnitIds[0]) : undefined;
+  const normalizedScopeType = normalizeScopeType(scope.scopeType);
+  const label = scopeTypeLabel(normalizedScopeType);
+  if (normalizedScopeType === 1 || normalizedScopeType === 2) {
+    const scopeOrgIds = normalizeScopeOrgUnitIds(
+      normalizedScopeType,
+      scope.orgUnitIds
+    );
+    const org = scopeOrgIds[0] ? orgUnitMap.value.get(scopeOrgIds[0]) : undefined;
     return `${label}${org ? `：${org.name}` : ""}`;
-  }
-  if (scope.scopeType === 3) {
-    const names = scope.orgUnitIds
-      .map(id => orgUnitMap.value.get(id)?.name)
-      .filter(name => !!name) as string[];
-    if (names.length === 0) return label;
-    return `${label}：${names.join("、")}`;
   }
   return label;
 };
 
 const needsSingleOrg = (scopeType: ScopeType) => scopeType === 1 || scopeType === 2;
-const needsMultiOrg = (scopeType: ScopeType) => scopeType === 3;
+const needsMultiOrg = (_scopeType: ScopeType) => false;
 
 const handleSearch = () => {
   loadRoles();

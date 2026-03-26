@@ -92,4 +92,43 @@ public class PromptTemplateApiTests : IClassFixture<ApiWebApplicationFactory>
         updateJson.Code.Should().Be(400);
         updateJson.Message.Should().Contain("unknownToken");
     }
+
+    [Fact]
+    public async Task Update_WhenCustomDisplayNameSaved_ShouldPersistAfterListReload()
+    {
+        var listResponse = await _client.GetAsync("/api/prompt-templates");
+        listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listJson = await listResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+
+        var matchingReview = listJson.Data.GetProperty("items")
+            .EnumerateArray()
+            .First(item => item.GetProperty("name").GetString() == "matching-review");
+
+        var templateId = matchingReview.GetProperty("id").GetInt32();
+        var content = matchingReview.GetProperty("content").GetString();
+        var displayName = $"自定义显示名-{Guid.NewGuid():N}"[..12];
+
+        var updateResponse = await _client.PutAsync(
+            $"/api/prompt-templates/{templateId}",
+            ApiClientJson.ToJsonContent(new
+            {
+                displayName,
+                content
+            }));
+
+        updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updateJson = await updateResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        updateJson.Code.Should().Be(0);
+        updateJson.Data.GetProperty("displayName").GetString().Should().Be(displayName);
+
+        var reloadResponse = await _client.GetAsync("/api/prompt-templates");
+        reloadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var reloadJson = await reloadResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+
+        var reloaded = reloadJson.Data.GetProperty("items")
+            .EnumerateArray()
+            .First(item => item.GetProperty("id").GetInt32() == templateId);
+
+        reloaded.GetProperty("displayName").GetString().Should().Be(displayName);
+    }
 }

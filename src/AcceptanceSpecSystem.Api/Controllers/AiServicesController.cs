@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.AI;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -24,15 +26,20 @@ public class AiServicesController : BaseApiController
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISemanticKernelServiceFactory _semanticKernelFactory;
     private readonly ILogger<AiServicesController> _logger;
+    private readonly int _testTimeoutSeconds;
+    private readonly TimeSpan _testTimeout;
 
     public AiServicesController(
         IUnitOfWork unitOfWork,
         ISemanticKernelServiceFactory semanticKernelFactory,
+        IOptions<AiServiceTestOptions> aiServiceTestOptions,
         ILogger<AiServicesController> logger)
     {
         _unitOfWork = unitOfWork;
         _semanticKernelFactory = semanticKernelFactory;
         _logger = logger;
+        _testTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.TimeoutSeconds, 1, 300);
+        _testTimeout = TimeSpan.FromSeconds(_testTimeoutSeconds);
     }
 
     /// <summary>
@@ -250,16 +257,44 @@ public class AiServicesController : BaseApiController
         {
             var messages = new List<string>();
             var success = true;
+            IReadOnlyCollection<string>? ollamaModels = null;
 
             if (entity.Purpose.HasFlag(AiServicePurpose.Llm))
             {
                 try
                 {
-                    var chat = _semanticKernelFactory.CreateChatCompletionService(entity);
-                    var history = new ChatHistory();
-                    history.AddUserMessage("ping");
-                    await chat.GetChatMessageContentAsync(history, cancellationToken: HttpContext.RequestAborted);
-                    messages.Add("LLM: OK");
+                    using var timeoutCts = CreateTestTimeoutTokenSource();
+                    if (entity.ServiceType == AiServiceType.Ollama)
+                    {
+                        ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
+                        if (ContainsConfiguredModel(ollamaModels, entity.LlmModel))
+                        {
+                            messages.Add($"LLM: OK（模型已存在: {entity.LlmModel}）");
+                        }
+                        else
+                        {
+                            success = false;
+                            messages.Add($"LLM: 未找到已配置模型（{entity.LlmModel}）");
+                        }
+                    }
+                    else
+                    {
+                        var chat = _semanticKernelFactory.CreateChatCompletionService(entity);
+                        var history = new ChatHistory();
+                        history.AddUserMessage("ping");
+                        await chat.GetChatMessageContentAsync(history, cancellationToken: timeoutCts.Token);
+                        messages.Add("LLM: OK");
+                    }
+                }
+                catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
+                {
+                    success = false;
+                    messages.Add(BuildTimeoutMessage("LLM"));
+                    _logger.LogWarning(
+                        "AI服务连接测试超时: {Id} {Name}, service=LLM, timeoutSec={TimeoutSec}",
+                        entity.Id,
+                        entity.Name,
+                        _testTimeoutSeconds);
                 }
                 catch (Exception ex)
                 {
@@ -272,9 +307,36 @@ public class AiServicesController : BaseApiController
             {
                 try
                 {
-                    var embedding = _semanticKernelFactory.CreateEmbeddingGenerator(entity);
-                    var vector = await embedding.GenerateVectorAsync("ping", cancellationToken: HttpContext.RequestAborted);
-                    messages.Add($"Embedding: OK (dim={vector.ToArray().Length})");
+                    using var timeoutCts = CreateTestTimeoutTokenSource();
+                    if (entity.ServiceType == AiServiceType.Ollama)
+                    {
+                        ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
+                        if (ContainsConfiguredModel(ollamaModels, entity.EmbeddingModel))
+                        {
+                            messages.Add($"Embedding: OK（模型已存在: {entity.EmbeddingModel}）");
+                        }
+                        else
+                        {
+                            success = false;
+                            messages.Add($"Embedding: 未找到已配置模型（{entity.EmbeddingModel}）");
+                        }
+                    }
+                    else
+                    {
+                        var embedding = _semanticKernelFactory.CreateEmbeddingGenerator(entity);
+                        var vector = await embedding.GenerateVectorAsync("ping", cancellationToken: timeoutCts.Token);
+                        messages.Add($"Embedding: OK (dim={vector.ToArray().Length})");
+                    }
+                }
+                catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
+                {
+                    success = false;
+                    messages.Add(BuildTimeoutMessage("Embedding"));
+                    _logger.LogWarning(
+                        "AI服务连接测试超时: {Id} {Name}, service=Embedding, timeoutSec={TimeoutSec}",
+                        entity.Id,
+                        entity.Name,
+                        _testTimeoutSeconds);
                 }
                 catch (Exception ex)
                 {
@@ -292,6 +354,10 @@ public class AiServicesController : BaseApiController
                 Message = messages.Count > 0 ? string.Join("; ", messages) : "未执行测试"
             });
         }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             sw.Stop();
@@ -305,6 +371,28 @@ public class AiServicesController : BaseApiController
             }, "连接测试完成");
         }
     }
+
+    private CancellationTokenSource CreateTestTimeoutTokenSource()
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
+        cts.CancelAfter(_testTimeout);
+        return cts;
+    }
+
+    private string BuildTimeoutMessage(string serviceName)
+    {
+        return $"{serviceName}: 测试超时（{_testTimeoutSeconds}秒）";
+    }
+
+    private static bool ContainsConfiguredModel(IEnumerable<string> models, string? configuredModel)
+    {
+        if (string.IsNullOrWhiteSpace(configuredModel))
+            return false;
+
+        var expected = configuredModel.Trim();
+        return models.Any(model => string.Equals(model, expected, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>
     /// 获取模型列表（远程探测）
     /// </summary>

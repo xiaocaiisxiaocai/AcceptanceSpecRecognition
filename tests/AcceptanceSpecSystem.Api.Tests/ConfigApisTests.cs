@@ -130,9 +130,10 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
 
             var responseJson = """
                 {
-                  "message": { "role": "assistant", "content": "ok" },
-                  "done": true,
-                  "done_reason": "stop"
+                  "models": [
+                    { "name": "qwen3.5:35b" },
+                    { "name": "deepseek-r1:32b" }
+                  ]
                 }
                 """;
             var responseBytes = Encoding.UTF8.GetBytes(responseJson);
@@ -152,9 +153,54 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         result.Code.Should().Be(0);
         result.Data.GetProperty("success").GetBoolean().Should().BeTrue();
         result.Data.GetProperty("message").GetString().Should().Contain("LLM: OK");
+        result.Data.GetProperty("message").GetString().Should().Contain("qwen3.5:35b");
 
         await serverTask;
-        requestLine.Should().StartWith("POST /api/chat HTTP/");
+        requestLine.Should().StartWith("GET /api/tags HTTP/");
+    }
+
+    [Fact]
+    public async Task AiServiceConfig_TestConnection_WithOllamaMissingConfiguredModel_ShouldFail()
+    {
+        var port = GetFreeTcpPort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+
+        string? requestLine = null;
+        var serverTask = Task.Run(async () =>
+        {
+            var context = await listener.GetContextAsync();
+            requestLine = $"{context.Request.HttpMethod} {context.Request.RawUrl} HTTP/{context.Request.ProtocolVersion}";
+
+            var responseJson = """
+                {
+                  "models": [
+                    { "name": "deepseek-r1:32b" }
+                  ]
+                }
+                """;
+            var responseBytes = Encoding.UTF8.GetBytes(responseJson);
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/json";
+            context.Response.ContentLength64 = responseBytes.Length;
+            await context.Response.OutputStream.WriteAsync(responseBytes);
+            context.Response.Close();
+        });
+
+        var configId = await CreateLegacyOllamaConfigAsync($"http:127.0.0.1:{port}/api", "qwen3.5:35b");
+
+        var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(0);
+        result.Data.GetProperty("success").GetBoolean().Should().BeFalse();
+        result.Data.GetProperty("message").GetString().Should().Contain("未找到已配置模型");
+        result.Data.GetProperty("message").GetString().Should().Contain("qwen3.5:35b");
+
+        await serverTask;
+        requestLine.Should().StartWith("GET /api/tags HTTP/");
     }
 
     [Fact]
@@ -201,7 +247,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         requestLine.Should().StartWith("GET /api/tags HTTP/");
     }
 
-    private async Task<int> CreateLegacyOllamaConfigAsync(string endpoint)
+    private async Task<int> CreateLegacyOllamaConfigAsync(string endpoint, string llmModel = "qwen3.5:35b")
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -212,7 +258,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             Purpose = AiServicePurpose.Llm,
             Priority = 0,
             Endpoint = endpoint,
-            LlmModel = "qwen3.5:35b",
+            LlmModel = llmModel,
             DisableThinking = false,
             CreatedAt = DateTime.Now
         };

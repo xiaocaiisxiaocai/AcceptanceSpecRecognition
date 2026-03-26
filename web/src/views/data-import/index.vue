@@ -350,6 +350,17 @@ const canGoNext = computed(() => {
   }
 });
 
+const selectedMachineModelName = computed(() => {
+  if (!selectedMachineModelId.value) {
+    return "-";
+  }
+
+  return (
+    machineModels.value.find(model => model.id === selectedMachineModelId.value)?.name ??
+    `机型#${selectedMachineModelId.value}`
+  );
+});
+
 const getMissingMappingFields = (m: ColumnMappingType) => {
   const missing: string[] = [];
   if (m.projectColumn === undefined) missing.push("项目名称列");
@@ -582,7 +593,7 @@ const copyActiveMappingConfig = () => {
 
   mappingClipboardSourceIndex.value = activeCfg.tableIndex;
   ElMessage.success(
-    `已复制${isExcelFile.value ? "工作表" : "表格"} ${activeCfg.tableIndex + 1} 的配置`
+    `已复制${isExcelFile.value ? "工作表" : "表格"} ${activeCfg.tableIndex + 1} 的字段配置`
   );
 };
 
@@ -624,7 +635,7 @@ const pasteMappingConfigToOthers = () => {
   }
 
   ElMessage.success(
-    `已粘贴到 ${pastedCount} 个其他${isExcelFile.value ? "工作表" : "表格"}`
+    `已应用到 ${pastedCount} 个其他${isExcelFile.value ? "工作表" : "表格"}`
   );
 };
 
@@ -1802,24 +1813,24 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
           </div>
         </div>
         <div v-if="uploadedFile && tableConfigs.length > 0" class="mapping-quick-actions">
-          <el-button
-            size="small"
-            @click="copyActiveMappingConfig"
-          >
-            复制当前{{ isExcelFile ? "工作表" : "表格" }}配置
-          </el-button>
-          <el-button
-            size="small"
-            type="primary"
-            :disabled="tableConfigs.length < 2 || !canPasteClipboard"
-            @click="pasteMappingConfigToOthers"
-          >
-            粘贴到其他{{ isExcelFile ? "工作表" : "表格" }}
-          </el-button>
-          <span v-if="mappingClipboardSourceIndex !== null" class="mapping-clipboard-tip">
-            已复制{{ isExcelFile ? "工作表" : "表格" }} {{ mappingClipboardSourceIndex + 1 }} 的配置
-          </span>
-        </div>
+            <el-button
+              size="small"
+              @click="copyActiveMappingConfig"
+            >
+              复制当前{{ isExcelFile ? "工作表" : "表格" }}字段配置
+            </el-button>
+            <el-button
+              size="small"
+              type="primary"
+              :disabled="tableConfigs.length < 2 || !canPasteClipboard"
+              @click="pasteMappingConfigToOthers"
+            >
+              应用到其他{{ isExcelFile ? "工作表" : "表格" }}
+            </el-button>
+            <span v-if="mappingClipboardSourceIndex !== null" class="mapping-clipboard-tip">
+              已复制{{ isExcelFile ? "工作表" : "表格" }} {{ mappingClipboardSourceIndex + 1 }} 的字段配置
+            </span>
+          </div>
 
         <el-tabs
           v-if="uploadedFile && tableConfigs.length > 0"
@@ -2095,9 +2106,9 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
             <el-descriptions-item label="目标制程">
               {{ processes.find((p) => p.id === selectedProcessId)?.name || "-" }}
             </el-descriptions-item>
-            <el-descriptions-item label="目标机型">
-              {{ machineModels.find((m) => m.id === selectedMachineModelId)?.name || "-" }}
-            </el-descriptions-item>
+              <el-descriptions-item label="目标机型">
+                {{ selectedMachineModelName }}
+              </el-descriptions-item>
             <el-descriptions-item label="预计导入">
               {{ previewDataCount }} 条数据
             </el-descriptions-item>
