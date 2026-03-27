@@ -22,8 +22,9 @@ public static class PromptTemplateCatalog
             "matching-review",
             "智能填充复核",
             "用于智能填充流程中的 LLM 复核。",
-            "你是验收规格匹配复核助手。系统通过 Embedding 向量相似度为源文档找到了最佳匹配的验收规格，请复核此匹配是否正确。\n\n" +
-            "【任务】对比\"源文档\"与\"系统匹配结果\"的项目名称和规格描述，判断两者是否指向同一个验收项。\n\n" +
+            "你是验收规格匹配复核助手。系统已经完成 Embedding 召回与证据裁决，现在只允许你基于结构化证据判断该匹配是否可通过复核。\n\n" +
+            "【任务】对比\"源文档\"与\"系统匹配结果\"的项目名称、规格描述和结构化证据，判断两者是否指向同一个验收项。\n" +
+            "若存在关键字段硬冲突或证据明显不足，必须给出低分，不得因为语义相近而放行。\n\n" +
             "【源文档】\n" +
             "项目：{{sourceProject}}\n" +
             "规格：{{sourceSpecification}}\n\n" +
@@ -32,8 +33,13 @@ public static class PromptTemplateCatalog
             "规格：{{bestMatchSpecification}}\n" +
             "验收标准：{{bestMatchAcceptance}}\n" +
             "备注：{{bestMatchRemark}}\n\n" +
+            "【当前决策】{{currentDecision}}\n" +
+            "【是否硬冲突】{{hasHardConflict}}\n" +
+            "【复核触发原因】{{reviewTrigger}}\n" +
             "【Embedding 基础得分】{{baseScore}}\n" +
-            "【得分明细】{{scoreDetailsJson}}\n\n" +
+            "【得分明细】{{scoreDetailsJson}}\n" +
+            "【证据摘要】{{evidenceSummaryJson}}\n" +
+            "【冲突摘要】{{conflictSummaryJson}}\n\n" +
             "仅返回严格 JSON：\n" +
             "{\"score\":0,\"reason\":\"...\",\"commentary\":\"...\"}",
             "你是验收规格匹配评审助手。给定源项目/规格与系统最佳匹配结果，请复核评分并说明原因。\n" +
@@ -51,7 +57,21 @@ public static class PromptTemplateCatalog
             "基础得分：{{baseScore}}\n" +
             "得分明细(JSON)：{{scoreDetailsJson}}",
             ["sourceProject", "sourceSpecification", "bestMatchProject", "bestMatchSpecification", "baseScore", "scoreDetailsJson"],
-            ["sourceProject", "sourceSpecification", "bestMatchProject", "bestMatchSpecification", "bestMatchAcceptance", "bestMatchRemark", "baseScore", "scoreDetailsJson"],
+            [
+                "sourceProject",
+                "sourceSpecification",
+                "bestMatchProject",
+                "bestMatchSpecification",
+                "bestMatchAcceptance",
+                "bestMatchRemark",
+                "baseScore",
+                "scoreDetailsJson",
+                "currentDecision",
+                "hasHardConflict",
+                "reviewTrigger",
+                "evidenceSummaryJson",
+                "conflictSummaryJson"
+            ],
             ["score", "reason", "commentary"]),
         new(
             PromptTemplateScene.ImportDuplicateReview,

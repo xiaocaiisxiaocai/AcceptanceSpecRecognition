@@ -2,8 +2,7 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import {
   type MatchCandidateOption,
-  type MatchPreviewItem,
-  MatchingStrategy
+  type MatchPreviewItem
 } from "@/api/matching";
 
 const props = defineProps<{
@@ -45,10 +44,6 @@ const formatOptionalScore = (score?: number) => {
   return formatScore(score);
 };
 
-const getStrategyText = (strategy?: MatchingStrategy) => {
-  return strategy === MatchingStrategy.MultiStage ? "多阶段重排" : "基础单阶段";
-};
-
 const getConfidenceClass = (
   level: string
 ): "success" | "warning" | "danger" | "info" => {
@@ -67,6 +62,33 @@ const getConfidenceText = (level: string) => {
     low: "低"
   };
   return map[level] || "无";
+};
+
+const getDecisionText = (decision?: string) => {
+  switch (decision) {
+    case "autoApply":
+      return "自动采用";
+    case "reject":
+      return "拒绝";
+    case "manualReview":
+    default:
+      return "人工确认";
+  }
+};
+
+const getDecisionTagType = (
+  decision?: string
+): "success" | "warning" | "danger" | "info" => {
+  switch (decision) {
+    case "autoApply":
+      return "success";
+    case "reject":
+      return "danger";
+    case "manualReview":
+      return "warning";
+    default:
+      return "info";
+  }
 };
 
 const getCandidateDelta = (candidate: MatchCandidateOption) => {
@@ -354,11 +376,27 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
                 <el-descriptions-item label="规格">
                   {{ item.bestMatch.specification }}
                 </el-descriptions-item>
-                <el-descriptions-item label="匹配策略">
-                  {{ getStrategyText(item.bestMatch.matchingStrategy) }}
+                <el-descriptions-item label="匹配引擎">
+                  统一多阶段证据驱动
                 </el-descriptions-item>
                 <el-descriptions-item label="验收标准">
                   {{ item.bestMatch.acceptance || "-" }}
+                </el-descriptions-item>
+                <el-descriptions-item label="最终决策">
+                  <el-tag
+                    :type="getDecisionTagType(item.bestMatch.decision)"
+                    size="small"
+                  >
+                    {{ getDecisionText(item.bestMatch.decision) }}
+                  </el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="硬冲突">
+                  <el-tag
+                    :type="item.bestMatch.hasHardConflict ? 'danger' : 'success'"
+                    size="small"
+                  >
+                    {{ item.bestMatch.hasHardConflict ? "存在" : "无" }}
+                  </el-tag>
                 </el-descriptions-item>
                 <el-descriptions-item label="最终得分">
                   {{ formatScore(item.bestMatch.score) }}
@@ -384,6 +422,26 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
                   {{ formatLlmScore(item.bestMatch.llmScore) }}
                 </el-descriptions-item>
               </el-descriptions>
+
+              <div
+                v-if="item.bestMatch.evidenceSummary?.length"
+                class="info-block"
+              >
+                <div class="info-label">证据摘要</div>
+                <div class="info-text">
+                  {{ item.bestMatch.evidenceSummary.join("；") }}
+                </div>
+              </div>
+
+              <div
+                v-if="item.bestMatch.conflictSummary?.length"
+                class="info-block info-block--danger"
+              >
+                <div class="info-label">冲突摘要</div>
+                <div class="info-text">
+                  {{ item.bestMatch.conflictSummary.join("；") }}
+                </div>
+              </div>
 
               <div v-if="item.bestMatch.rerankSummary" class="info-block">
                 <div class="info-label">重排摘要</div>
@@ -580,6 +638,22 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
                     <el-descriptions-item label="Embedding得分">
                       {{ formatScore(candidate.embeddingScore) }}
                     </el-descriptions-item>
+                    <el-descriptions-item label="决策">
+                      <el-tag
+                        :type="getDecisionTagType(candidate.decision)"
+                        size="small"
+                      >
+                        {{ getDecisionText(candidate.decision) }}
+                      </el-tag>
+                    </el-descriptions-item>
+                    <el-descriptions-item label="硬冲突">
+                      <el-tag
+                        :type="candidate.hasHardConflict ? 'danger' : 'success'"
+                        size="small"
+                      >
+                        {{ candidate.hasHardConflict ? "存在" : "无" }}
+                      </el-tag>
+                    </el-descriptions-item>
                     <el-descriptions-item label="验收标准">
                       {{ candidate.acceptance || "-" }}
                     </el-descriptions-item>
@@ -587,6 +661,26 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
                       {{ candidate.remark || "-" }}
                     </el-descriptions-item>
                   </el-descriptions>
+
+                  <div
+                    v-if="candidate.evidenceSummary?.length"
+                    class="info-block compact"
+                  >
+                    <div class="info-label">候选证据</div>
+                    <div class="info-text">
+                      {{ candidate.evidenceSummary.join("；") }}
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="candidate.conflictSummary?.length"
+                    class="info-block compact info-block--danger"
+                  >
+                    <div class="info-label">候选冲突</div>
+                    <div class="info-text">
+                      {{ candidate.conflictSummary.join("；") }}
+                    </div>
+                  </div>
 
                   <div v-if="candidate.rerankSummary" class="info-block compact">
                     <div class="info-label">候选摘要</div>
@@ -876,6 +970,10 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
   padding: 12px 14px;
   border-radius: 10px;
   background: #f8fafc;
+}
+
+.info-block--danger {
+  background: #fff4f4;
 }
 
 .info-block.compact {

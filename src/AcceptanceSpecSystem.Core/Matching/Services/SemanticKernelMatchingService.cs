@@ -25,25 +25,20 @@ public class SemanticKernelMatchingService : IMatchingService
         "the", "and", "for", "with", "from", "into", "onto", "shall", "must", "need",
         "项目", "规格", "要求", "技术", "参数", "内容", "方式", "备注", "进行", "支持", "具备", "根据"
     ];
-    private static readonly (string Left, string Right)[] ConflictPairs =
-    [
-        ("投板", "收板"),
-        ("放板", "收板"),
-        ("上料", "下料"),
-        ("进板", "出板"),
-        ("入口", "出口"),
-        ("loading", "unloading"),
-        ("loader", "unloader")
-    ];
-
     private readonly IEmbeddingService _embeddingService;
+    private readonly IMatchEvidenceBuilder _evidenceBuilder;
+    private readonly IMatchingKnowledgeProvider _knowledgeProvider;
     private readonly ILogger<SemanticKernelMatchingService> _logger;
 
     public SemanticKernelMatchingService(
         IEmbeddingService embeddingService,
-        ILogger<SemanticKernelMatchingService> logger)
+        ILogger<SemanticKernelMatchingService> logger,
+        IMatchEvidenceBuilder? evidenceBuilder = null,
+        IMatchingKnowledgeProvider? knowledgeProvider = null)
     {
         _embeddingService = embeddingService;
+        _evidenceBuilder = evidenceBuilder ?? new MatchEvidenceBuilder();
+        _knowledgeProvider = knowledgeProvider ?? DefaultMatchingKnowledgeProvider.Instance;
         _logger = logger;
     }
 
@@ -89,13 +84,15 @@ public class SemanticKernelMatchingService : IMatchingService
     /// 批量 Embedding 匹配：
     /// 步骤1 - 一次性批量生成所有源文本 Embedding
     /// 步骤2 - 一次性批量生成所有缺失候选 Embedding（复用已有缓存）
-    /// 步骤3 - 对每条源文本按配置选择单阶段或多阶段结果
+    /// 步骤3 - 对每条源文本执行统一多阶段证据驱动匹配
     /// </summary>
     private async Task<BatchMatchResult> BatchMatchByEmbeddingAsync(
         List<MatchSource> sourceList,
         List<MatchCandidate> candidateList,
         MatchingConfig config)
     {
+        var knowledge = await _knowledgeProvider.GetKnowledgeAsync();
+
         List<float[]> sourceEmbeddings;
         try
         {
@@ -122,12 +119,8 @@ public class SemanticKernelMatchingService : IMatchingService
             var source = sourceList[s];
             var sourceEmbedding = s < sourceEmbeddings.Count ? sourceEmbeddings[s] : Array.Empty<float>();
             var eligibleCandidates = EvaluateCandidates(source, sourceEmbedding, candidateList, config);
-
-            var match = config.MatchingStrategy == MatchingStrategy.MultiStage
-                ? SelectBestByMultiStage(source, eligibleCandidates, config)
-                : SelectBestBySingleStage(source, eligibleCandidates);
-
-            result.Results.Add(match ?? CreateEmptyResult(source, config.MatchingStrategy));
+            var match = SelectBestByMultiStage(source, eligibleCandidates, config, knowledge);
+            result.Results.Add(match ?? CreateEmptyResult(source, MatchingStrategy.MultiStage));
         }
 
         return result;
@@ -212,25 +205,11 @@ public class SemanticKernelMatchingService : IMatchingService
         return evaluations;
     }
 
-    private MatchResult? SelectBestBySingleStage(MatchSource source, List<EvaluatedCandidate> eligibleCandidates)
-    {
-        var ordered = OrderByEmbedding(eligibleCandidates).ToList();
-        var best = ordered.FirstOrDefault();
-        return best == null
-            ? null
-            : BuildMatchResult(
-                best,
-                MatchingStrategy.SingleStage,
-                eligibleCandidates.Count,
-                isAmbiguous: false,
-                scoreGap: null,
-                orderedCandidates: ordered);
-    }
-
     private MatchResult? SelectBestByMultiStage(
         MatchSource source,
         List<EvaluatedCandidate> eligibleCandidates,
-        MatchingConfig config)
+        MatchingConfig config,
+        MatchingKnowledge knowledge)
     {
         var recallTopK = Math.Clamp(config.RecallTopK, 1, 20);
         var recalled = OrderByEmbedding(eligibleCandidates)
@@ -242,9 +221,10 @@ public class SemanticKernelMatchingService : IMatchingService
 
         foreach (var candidate in recalled)
         {
-            candidate.NumericScore = ComputeNumericScore(source.Specification, candidate.Candidate.Specification);
+            candidate.Evidence = _evidenceBuilder.Build(source, candidate.Candidate, knowledge);
+            candidate.NumericScore = ComputeNumericScore(source, candidate);
             candidate.KeywordScore = ComputeKeywordScore(source.Specification, candidate.Candidate.Specification);
-            candidate.ConflictPenalty = ComputeConflictPenalty(source, candidate.Candidate);
+            candidate.ConflictPenalty = ComputeConflictPenalty(source, candidate, knowledge);
             candidate.FinalScore = ComputeFinalScore(candidate);
             candidate.RerankSummary = BuildRerankSummary(candidate);
         }
@@ -257,7 +237,6 @@ public class SemanticKernelMatchingService : IMatchingService
 
         return BuildMatchResult(
             best,
-            MatchingStrategy.MultiStage,
             recalled.Count,
             isAmbiguous,
             scoreGap,
@@ -289,13 +268,12 @@ public class SemanticKernelMatchingService : IMatchingService
 
     private static MatchResult BuildMatchResult(
         EvaluatedCandidate candidate,
-        MatchingStrategy strategy,
         int recalledCandidateCount,
         bool isAmbiguous,
         double? scoreGap,
         IReadOnlyList<EvaluatedCandidate> orderedCandidates)
     {
-        var scoreDetails = CreateScoreDetails(candidate, strategy);
+        var scoreDetails = CreateScoreDetails(candidate);
 
         return new MatchResult
         {
@@ -306,15 +284,17 @@ public class SemanticKernelMatchingService : IMatchingService
             MatchedSpecification = candidate.Candidate.Specification,
             MatchedAcceptance = candidate.Candidate.Acceptance,
             MatchedRemark = candidate.Candidate.Remark,
-            Score = strategy == MatchingStrategy.MultiStage ? candidate.FinalScore : candidate.EmbeddingScore,
+            Score = candidate.FinalScore,
             EmbeddingScore = candidate.EmbeddingScore,
             ScoreDetails = scoreDetails,
-            MatchingStrategy = strategy,
+            Evidence = candidate.Evidence ?? new MatchEvidence(),
+            MatchingStrategy = MatchingStrategy.MultiStage,
             RecalledCandidateCount = recalledCandidateCount,
             IsAmbiguous = isAmbiguous,
             ScoreGap = scoreGap,
-            RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null,
-            TopCandidates = BuildTopCandidates(orderedCandidates, strategy)
+            RerankSummary = candidate.RerankSummary,
+            Decision = DetermineDecision(candidate, isAmbiguous),
+            TopCandidates = BuildTopCandidates(orderedCandidates)
         };
     }
 
@@ -325,6 +305,8 @@ public class SemanticKernelMatchingService : IMatchingService
             SourceText = source.CombinedText,
             Score = 0,
             EmbeddingScore = 0,
+            Evidence = new MatchEvidence(),
+            Decision = MatchDecision.ManualReview,
             MatchingStrategy = strategy,
             RecalledCandidateCount = 0,
             IsAmbiguous = false
@@ -332,30 +314,24 @@ public class SemanticKernelMatchingService : IMatchingService
     }
 
     private static Dictionary<string, double> CreateScoreDetails(
-        EvaluatedCandidate candidate,
-        MatchingStrategy strategy)
+        EvaluatedCandidate candidate)
     {
         var scoreDetails = new Dictionary<string, double>
         {
-            ["Embedding"] = candidate.EmbeddingScore
+            ["Embedding"] = candidate.EmbeddingScore,
+            ["Final"] = candidate.FinalScore,
+            ["ProjectMatch"] = candidate.ProjectScore,
+            ["SpecificationText"] = candidate.SpecificationTextScore,
+            ["NumberUnit"] = candidate.NumericScore,
+            ["KeywordOverlap"] = candidate.KeywordScore,
+            ["ConflictPenalty"] = candidate.ConflictPenalty
         };
-
-        if (strategy == MatchingStrategy.MultiStage)
-        {
-            scoreDetails["Final"] = candidate.FinalScore;
-            scoreDetails["ProjectMatch"] = candidate.ProjectScore;
-            scoreDetails["SpecificationText"] = candidate.SpecificationTextScore;
-            scoreDetails["NumberUnit"] = candidate.NumericScore;
-            scoreDetails["KeywordOverlap"] = candidate.KeywordScore;
-            scoreDetails["ConflictPenalty"] = candidate.ConflictPenalty;
-        }
 
         return scoreDetails;
     }
 
     private static List<MatchCandidateSnapshot> BuildTopCandidates(
-        IReadOnlyList<EvaluatedCandidate> orderedCandidates,
-        MatchingStrategy strategy)
+        IReadOnlyList<EvaluatedCandidate> orderedCandidates)
     {
         return orderedCandidates
             .Take(TopCandidateLimit)
@@ -367,10 +343,11 @@ public class SemanticKernelMatchingService : IMatchingService
                 Specification = candidate.Candidate.Specification,
                 Acceptance = candidate.Candidate.Acceptance,
                 Remark = candidate.Candidate.Remark,
-                Score = strategy == MatchingStrategy.MultiStage ? candidate.FinalScore : candidate.EmbeddingScore,
+                Score = candidate.FinalScore,
                 EmbeddingScore = candidate.EmbeddingScore,
-                ScoreDetails = CreateScoreDetails(candidate, strategy),
-                RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null
+                ScoreDetails = CreateScoreDetails(candidate),
+                Evidence = candidate.Evidence ?? new MatchEvidence(),
+                RerankSummary = candidate.RerankSummary
             })
             .ToList();
     }
@@ -411,16 +388,29 @@ public class SemanticKernelMatchingService : IMatchingService
         return ComputeOverlapRatio(sourceTokens, candidateTokens);
     }
 
-    private static double ComputeNumericScore(string sourceSpecification, string candidateSpecification)
+    private static double ComputeNumericScore(MatchSource source, EvaluatedCandidate candidate)
     {
-        var source = NormalizeComparableText(sourceSpecification);
-        var candidate = NormalizeComparableText(candidateSpecification);
+        var evidence = candidate.Evidence;
+        if (evidence?.NumericConstraints.Count > 0)
+        {
+            return evidence.NumericConstraints[0].Relation switch
+            {
+                EvidenceRelation.Exact => 1.0,
+                EvidenceRelation.Compatible => 1.0,
+                EvidenceRelation.Overlap => 0.6,
+                EvidenceRelation.Conflict => 0.0,
+                _ => 0.0
+            };
+        }
 
-        if (!string.IsNullOrWhiteSpace(source) && source == candidate)
+        var sourceText = NormalizeComparableText(source.Specification);
+        var candidateText = NormalizeComparableText(candidate.Candidate.Specification);
+
+        if (!string.IsNullOrWhiteSpace(sourceText) && sourceText == candidateText)
             return 1.0;
 
-        var sourceTokens = ExtractNumericTokens(sourceSpecification);
-        var candidateTokens = ExtractNumericTokens(candidateSpecification);
+        var sourceTokens = ExtractNumericTokens(source.Specification);
+        var candidateTokens = ExtractNumericTokens(candidate.Candidate.Specification);
 
         if (sourceTokens.Count == 0 && candidateTokens.Count == 0)
             return 0.5;
@@ -471,12 +461,15 @@ public class SemanticKernelMatchingService : IMatchingService
         return ComputeOverlapRatio(sourceTokens, candidateTokens);
     }
 
-    private static double ComputeConflictPenalty(MatchSource source, MatchCandidate candidate)
+    private static double ComputeConflictPenalty(MatchSource source, EvaluatedCandidate candidate, MatchingKnowledge knowledge)
     {
-        var sourceText = NormalizeComparableText($"{source.Project} {source.Specification}");
-        var candidateText = NormalizeComparableText($"{candidate.Project} {candidate.Specification}");
+        if (candidate.Evidence?.HasHardConflict == true)
+            return 1.0;
 
-        foreach (var (left, right) in ConflictPairs)
+        var sourceText = NormalizeComparableText($"{source.Project} {source.Specification}");
+        var candidateText = NormalizeComparableText($"{candidate.Candidate.Project} {candidate.Candidate.Specification}");
+
+        foreach (var (left, right) in knowledge.ConflictPairs)
         {
             var sourceHasLeft = sourceText.Contains(left, StringComparison.OrdinalIgnoreCase);
             var sourceHasRight = sourceText.Contains(right, StringComparison.OrdinalIgnoreCase);
@@ -484,10 +477,20 @@ public class SemanticKernelMatchingService : IMatchingService
             var candidateHasRight = candidateText.Contains(right, StringComparison.OrdinalIgnoreCase);
 
             if (sourceHasLeft && !sourceHasRight && candidateHasRight && !candidateHasLeft)
+            {
+                candidate.Evidence ??= new MatchEvidence();
+                candidate.Evidence.HasHardConflict = true;
+                candidate.Evidence.Conflicts.Add($"冲突词对冲突：{left} vs {right}");
                 return 1.0;
+            }
 
             if (sourceHasRight && !sourceHasLeft && candidateHasLeft && !candidateHasRight)
+            {
+                candidate.Evidence ??= new MatchEvidence();
+                candidate.Evidence.HasHardConflict = true;
+                candidate.Evidence.Conflicts.Add($"冲突词对冲突：{right} vs {left}");
                 return 1.0;
+            }
         }
 
         return 0;
@@ -496,6 +499,9 @@ public class SemanticKernelMatchingService : IMatchingService
     private static string BuildRerankSummary(EvaluatedCandidate candidate)
     {
         var reasons = new List<string>();
+
+        if (candidate.Evidence?.Summary.Count > 0)
+            reasons.AddRange(candidate.Evidence.Summary);
 
         if (candidate.ProjectScore >= 0.99)
             reasons.Add("项目一致");
@@ -522,6 +528,43 @@ public class SemanticKernelMatchingService : IMatchingService
             reasons.Add("主要依据Embedding排序");
 
         return string.Join("；", reasons);
+    }
+
+    private static MatchDecision DetermineDecision(EvaluatedCandidate candidate, bool isAmbiguous)
+    {
+        if (candidate.Evidence?.HasHardConflict == true)
+            return MatchDecision.Reject;
+
+        if (RequiresManualReview(candidate.Evidence))
+            return MatchDecision.ManualReview;
+
+        if (isAmbiguous)
+            return MatchDecision.ManualReview;
+
+        return MatchDecision.AutoApply;
+    }
+
+    private static bool RequiresManualReview(MatchEvidence? evidence)
+    {
+        if (evidence == null)
+            return false;
+
+        if (evidence.Warnings.Count > 0)
+            return true;
+
+        if (evidence.NumericConstraints.Any(item =>
+                item.Relation is EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
+            return true;
+
+        if (evidence.Identifiers.Any(item =>
+                item.Relation is EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
+            return true;
+
+        if (evidence.Entities.Any(item =>
+                item.Relation is EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
+            return true;
+
+        return false;
     }
 
     private static bool ShouldKeepCandidate(
@@ -641,5 +684,16 @@ public class SemanticKernelMatchingService : IMatchingService
         public double KeywordScore { get; set; }
         public double ConflictPenalty { get; set; }
         public string? RerankSummary { get; set; }
+        public MatchEvidence? Evidence { get; set; }
+    }
+
+    private sealed class DefaultMatchingKnowledgeProvider : IMatchingKnowledgeProvider
+    {
+        public static DefaultMatchingKnowledgeProvider Instance { get; } = new();
+
+        public Task<MatchingKnowledge> GetKnowledgeAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(MatchingKnowledge.CreateDefault());
+        }
     }
 }

@@ -432,7 +432,11 @@ const startLlmStream = async () => {
         sourceSpecification: item.sourceSpecification,
         bestMatchSpecId: item.bestMatch?.specId,
         bestMatchScore: item.bestMatch?.score,
-        scoreDetails: item.bestMatch?.scoreDetails
+        scoreDetails: item.bestMatch?.scoreDetails,
+        decision: item.bestMatch?.decision,
+        hasHardConflict: item.bestMatch?.hasHardConflict ?? false,
+        evidenceSummary: item.bestMatch?.evidenceSummary ?? [],
+        conflictSummary: item.bestMatch?.conflictSummary ?? []
       }))
   );
 
@@ -567,10 +571,14 @@ const applySseUpdate = (event: string, data: any) => {
         row.bestMatch.llmReason = data.reason;
         row.bestMatch.llmCommentary = data.commentary;
         row.bestMatch.isLlmReviewed = true;
+        row.bestMatch.decision = data.decision || row.bestMatch.decision;
       }
       row.llmReviewDraft = "";
       break;
     case "review.error":
+      if (row.bestMatch) {
+        row.bestMatch.decision = data.decision || "manualReview";
+      }
       row.llmReviewError = data.message || "LLM复核失败";
       row.llmReviewDraft = "";
       break;
@@ -580,12 +588,12 @@ const applySseUpdate = (event: string, data: any) => {
 };
 
 const shouldStreamReview = (item: MatchPreviewItem) => {
-  const score = item.bestMatch?.score ?? 0;
   return (
     !!matchConfig.value.useLlmReview &&
     !!item.bestMatch?.specId &&
-    score > 0 &&
-    score < getHighConfidenceThreshold()
+    item.bestMatch.decision === "manualReview" &&
+    !item.bestMatch.hasHardConflict &&
+    !item.bestMatch.isLlmReviewed
   );
 };
 
@@ -649,7 +657,8 @@ const handleExecute = async () => {
           rowIndex: s.rowIndex,
           specId: s.specId,
           matchScore: s.matchScore,
-          llmReviewScore: s.llmReviewScore
+          llmReviewScore: s.llmReviewScore,
+          manualConfirmed: s.manualConfirmed
         }))
       };
     })
@@ -662,6 +671,7 @@ const handleExecute = async () => {
       specId?: number;
       matchScore?: number;
       llmReviewScore?: number;
+      manualConfirmed?: boolean;
     }>;
   }>;
 

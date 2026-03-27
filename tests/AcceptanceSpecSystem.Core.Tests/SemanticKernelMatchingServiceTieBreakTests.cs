@@ -129,11 +129,7 @@ public class SemanticKernelMatchingServiceTieBreakTests
                     Specification = "规格A"
                 }
             },
-            new MatchingConfig
-            {
-                MatchingStrategy = MatchingStrategy.SingleStage,
-                MinScoreThreshold = 0.0
-            });
+            new MatchingConfig { MinScoreThreshold = 0.0 });
 
         result.Results.Should().HaveCount(1);
         result.Results[0].TopCandidates.Should().HaveCount(3);
@@ -179,16 +175,7 @@ public class SemanticKernelMatchingServiceTieBreakTests
             new SourceOnlyEmbeddingService(source.CombinedText, new[] { 1f, 0f }),
             NullLogger<SemanticKernelMatchingService>.Instance);
 
-        var singleStage = await service.BatchMatchAsync(
-            [source],
-            candidates,
-            new MatchingConfig
-            {
-                MatchingStrategy = MatchingStrategy.SingleStage,
-                MinScoreThreshold = 0.0
-            });
-
-        var multiStage = await service.BatchMatchAsync(
+        var result = await service.BatchMatchAsync(
             [source],
             candidates,
             new MatchingConfig
@@ -199,15 +186,12 @@ public class SemanticKernelMatchingServiceTieBreakTests
                 AmbiguityMargin = 0.01
             });
 
-        singleStage.Results.Should().HaveCount(1);
-        singleStage.Results[0].MatchedSpecId.Should().Be(2);
-
-        multiStage.Results.Should().HaveCount(1);
-        multiStage.Results[0].MatchedSpecId.Should().Be(1);
-        multiStage.Results[0].MatchingStrategy.Should().Be(MatchingStrategy.MultiStage);
-        multiStage.Results[0].RecalledCandidateCount.Should().Be(2);
-        multiStage.Results[0].IsAmbiguous.Should().BeFalse();
-        multiStage.Results[0].RerankSummary.Should().NotBeNullOrWhiteSpace();
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(1);
+        result.Results[0].MatchingStrategy.Should().Be(MatchingStrategy.MultiStage);
+        result.Results[0].RecalledCandidateCount.Should().Be(2);
+        result.Results[0].IsAmbiguous.Should().BeFalse();
+        result.Results[0].RerankSummary.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]

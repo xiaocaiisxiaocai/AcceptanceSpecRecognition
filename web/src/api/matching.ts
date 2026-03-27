@@ -7,9 +7,7 @@ export const LLM_REVIEW_PASS_THRESHOLD = 90;
 
 /** 匹配策略 */
 export enum MatchingStrategy {
-  /** 单阶段匹配（原有基础方式） */
-  SingleStage = 1,
-  /** 多阶段匹配（TopK 召回 + 规则重排） */
+  /** 统一多阶段匹配（Embedding 召回 + 证据重排） */
   MultiStage = 2
 }
 
@@ -105,6 +103,14 @@ export interface MatchResult {
   embeddingScore: number;
   /** 各算法得分详情 */
   scoreDetails: Record<string, number>;
+  /** 最终决策 */
+  decision?: "autoApply" | "manualReview" | "reject";
+  /** 是否存在硬冲突 */
+  hasHardConflict?: boolean;
+  /** 证据摘要 */
+  evidenceSummary?: string[];
+  /** 冲突摘要 */
+  conflictSummary?: string[];
   /** Top候选列表（含Top1） */
   topCandidates: MatchCandidateOption[];
   /** 匹配策略 */
@@ -147,6 +153,14 @@ export interface MatchCandidateOption {
   embeddingScore: number;
   /** 各算法得分详情 */
   scoreDetails: Record<string, number>;
+  /** 最终决策 */
+  decision?: "autoApply" | "manualReview" | "reject";
+  /** 是否存在硬冲突 */
+  hasHardConflict?: boolean;
+  /** 证据摘要 */
+  evidenceSummary?: string[];
+  /** 冲突摘要 */
+  conflictSummary?: string[];
   /** 重排摘要 */
   rerankSummary?: string;
 }
@@ -215,6 +229,8 @@ export interface FillMapping {
   matchScore?: number;
   /** LLM 复核得分（0-100） */
   llmReviewScore?: number;
+  /** 是否已由用户人工确认 */
+  manualConfirmed?: boolean;
   /** 是否使用LLM生成建议 */
   useLlmSuggestion?: boolean;
   /** LLM生成的验收标准 */
@@ -326,7 +342,7 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
-  matchingStrategy: MatchingStrategy.SingleStage,
+  matchingStrategy: MatchingStrategy.MultiStage,
   minScoreThreshold: 0.8,
   highConfidenceThreshold: DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   recallTopK: 8,

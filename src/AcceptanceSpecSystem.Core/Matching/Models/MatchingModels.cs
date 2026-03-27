@@ -48,12 +48,7 @@ public class MatchSource
 public enum MatchingStrategy
 {
     /// <summary>
-    /// 单阶段匹配（当前默认行为）
-    /// </summary>
-    SingleStage = 1,
-
-    /// <summary>
-    /// 多阶段匹配（TopK召回 + 规则重排）
+    /// 统一多阶段匹配（Embedding 召回 + 证据重排 + 门禁决策）
     /// </summary>
     MultiStage = 2
 }
@@ -114,6 +109,11 @@ public class MatchResult
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
 
     /// <summary>
+    /// 结构化匹配证据
+    /// </summary>
+    public MatchEvidence Evidence { get; set; } = new();
+
+    /// <summary>
     /// 用于详情展示的Top候选列表（含Top1）
     /// </summary>
     public List<MatchCandidateSnapshot> TopCandidates { get; set; } = [];
@@ -121,7 +121,7 @@ public class MatchResult
     /// <summary>
     /// 匹配策略
     /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
+    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
 
     /// <summary>
     /// 第一阶段召回候选数
@@ -164,21 +164,31 @@ public class MatchResult
     public bool IsLlmReviewed => LlmScore.HasValue;
 
     /// <summary>
+    /// 最终决策
+    /// </summary>
+    public MatchDecision Decision { get; set; } = MatchDecision.AutoApply;
+
+    /// <summary>
     /// 是否为高置信度匹配
     /// </summary>
-    public bool IsHighConfidence => Score >= MatchingThresholds.DefaultHighConfidenceScore;
+    public bool IsHighConfidence =>
+        Decision == MatchDecision.AutoApply &&
+        Score >= MatchingThresholds.DefaultHighConfidenceScore;
 
     /// <summary>
     /// 是否为中置信度匹配
     /// </summary>
     public bool IsMediumConfidence =>
+        Decision == MatchDecision.AutoApply &&
         Score >= MatchingThresholds.MediumConfidenceScore &&
         Score < MatchingThresholds.DefaultHighConfidenceScore;
 
     /// <summary>
     /// 是否为低置信度匹配
     /// </summary>
-    public bool IsLowConfidence => Score < MatchingThresholds.MediumConfidenceScore;
+    public bool IsLowConfidence =>
+        Decision == MatchDecision.AutoApply &&
+        Score < MatchingThresholds.MediumConfidenceScore;
 
     /// <summary>
     /// 是否为降级结果（Embedding 不可用时回退到文本相似度）
@@ -242,6 +252,11 @@ public class MatchCandidateSnapshot
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
 
     /// <summary>
+    /// 当前候选的结构化证据
+    /// </summary>
+    public MatchEvidence Evidence { get; set; } = new();
+
+    /// <summary>
     /// 重排摘要（多阶段时可用）
     /// </summary>
     public string? RerankSummary { get; set; }
@@ -296,7 +311,7 @@ public class MatchingConfig
     /// <summary>
     /// 匹配策略
     /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
+    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
 
     /// <summary>
     /// 使用的 Embedding 服务ID（为空则自动选择）

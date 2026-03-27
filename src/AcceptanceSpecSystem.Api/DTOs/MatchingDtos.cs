@@ -102,9 +102,9 @@ public class MatchSourceItem
 public class MatchConfigDto
 {
     /// <summary>
-    /// 匹配策略
+    /// 匹配策略（兼容字段，后端统一按多阶段处理）
     /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
+    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
 
     /// <summary>
     /// 选定的 Embedding 服务ID（为空则自动选择）
@@ -310,6 +310,26 @@ public class MatchResultDto
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
 
     /// <summary>
+    /// 最终决策
+    /// </summary>
+    public string Decision { get; set; } = "autoApply";
+
+    /// <summary>
+    /// 是否存在硬冲突
+    /// </summary>
+    public bool HasHardConflict { get; set; }
+
+    /// <summary>
+    /// 证据摘要
+    /// </summary>
+    public List<string> EvidenceSummary { get; set; } = [];
+
+    /// <summary>
+    /// 冲突摘要
+    /// </summary>
+    public List<string> ConflictSummary { get; set; } = [];
+
+    /// <summary>
     /// Top候选列表（含Top1）
     /// </summary>
     public List<MatchCandidateDto> TopCandidates { get; set; } = [];
@@ -409,6 +429,26 @@ public class MatchCandidateDto
     /// 各算法得分详情
     /// </summary>
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
+
+    /// <summary>
+    /// 最终决策
+    /// </summary>
+    public string Decision { get; set; } = "manualReview";
+
+    /// <summary>
+    /// 是否存在硬冲突
+    /// </summary>
+    public bool HasHardConflict { get; set; }
+
+    /// <summary>
+    /// 证据摘要
+    /// </summary>
+    public List<string> EvidenceSummary { get; set; } = [];
+
+    /// <summary>
+    /// 冲突摘要
+    /// </summary>
+    public List<string> ConflictSummary { get; set; } = [];
 
     /// <summary>
     /// 重排摘要
@@ -527,6 +567,11 @@ public class FillMapping
     /// LLM 复核得分（0-100）
     /// </summary>
     public double? LlmReviewScore { get; set; }
+
+    /// <summary>
+    /// 是否已由用户人工确认
+    /// </summary>
+    public bool ManualConfirmed { get; set; }
 
     /// <summary>
     /// LLM生成的验收标准（可选）
@@ -659,6 +704,26 @@ public class MatchLlmStreamItem
     /// 算法得分明细
     /// </summary>
     public Dictionary<string, double>? ScoreDetails { get; set; }
+
+    /// <summary>
+    /// 当前决策（autoApply/manualReview/reject）
+    /// </summary>
+    public string? Decision { get; set; }
+
+    /// <summary>
+    /// 是否存在硬冲突
+    /// </summary>
+    public bool HasHardConflict { get; set; }
+
+    /// <summary>
+    /// 证据摘要
+    /// </summary>
+    public List<string>? EvidenceSummary { get; set; }
+
+    /// <summary>
+    /// 冲突摘要
+    /// </summary>
+    public List<string>? ConflictSummary { get; set; }
 }
 
 /// <summary>

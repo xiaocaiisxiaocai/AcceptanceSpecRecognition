@@ -38,18 +38,6 @@ const loadingAiServices = ref(false);
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
 const allowLlm = computed(() => props.allowLlm !== false);
-const strategyOptions = [
-  {
-    value: MatchingStrategy.SingleStage,
-    label: "基础方式",
-    description: "只按 Embedding Top1 返回，速度更快，但复杂模板更容易漏匹配。"
-  },
-  {
-    value: MatchingStrategy.MultiStage,
-    label: "多阶段重排",
-    description: "先召回 TopK，再按项目/规格规则重排，适合复杂模板场景。"
-  }
-] as const;
 
 // 高级选项展开
 const showAdvanced = ref(false);
@@ -69,6 +57,7 @@ watch(
         (config.value as any)[key] = (source as any)[key];
       }
     }
+    config.value.matchingStrategy = MatchingStrategy.MultiStage;
     if (!allowLlm.value) {
       config.value.useLlmReview = false;
       config.value.useLlmSuggestion = false;
@@ -101,15 +90,14 @@ watch(
 );
 
 watch(
-  () => config.value.matchingStrategy,
-  (strategy) => {
-    if (strategy === MatchingStrategy.MultiStage) {
-      if (!config.value.recallTopK || config.value.recallTopK < 1) {
-        config.value.recallTopK = defaultMatchConfig.recallTopK;
-      }
-      if (config.value.ambiguityMargin === undefined || config.value.ambiguityMargin === null) {
-        config.value.ambiguityMargin = defaultMatchConfig.ambiguityMargin;
-      }
+  () => [config.value.recallTopK, config.value.ambiguityMargin],
+  () => {
+    config.value.matchingStrategy = MatchingStrategy.MultiStage;
+    if (!config.value.recallTopK || config.value.recallTopK < 1) {
+      config.value.recallTopK = defaultMatchConfig.recallTopK;
+    }
+    if (config.value.ambiguityMargin === undefined || config.value.ambiguityMargin === null) {
+      config.value.ambiguityMargin = defaultMatchConfig.ambiguityMargin;
     }
   },
   { immediate: true }
@@ -212,6 +200,7 @@ watch(selectedMachineModelId, () => {
 // 重置配置
 const resetConfig = () => {
   config.value = { ...defaultMatchConfig };
+  config.value.matchingStrategy = MatchingStrategy.MultiStage;
   if (!allowLlm.value) {
     config.value.useLlmReview = false;
     config.value.useLlmSuggestion = false;
@@ -346,22 +335,12 @@ defineExpose({
         </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="匹配策略">
-              <el-radio-group v-model="config.matchingStrategy">
-                <el-radio-button
-                  v-for="option in strategyOptions"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </el-radio-button>
-              </el-radio-group>
-              <div class="strategy-tip">
-                {{
-                  strategyOptions.find(
-                    (option) => option.value === config.matchingStrategy
-                  )?.description
-                }}
+            <el-form-item label="匹配引擎">
+              <div class="engine-card">
+                <div class="engine-title">统一多阶段证据驱动</div>
+                <div class="engine-desc">
+                  固定执行“Embedding 召回 → 结构化证据 → 冲突门禁 → 重排 → 高歧义复核”，不再提供单阶段切换。
+                </div>
               </div>
             </el-form-item>
           </el-col>
@@ -410,10 +389,7 @@ defineExpose({
             </el-form-item>
           </el-col>
         </el-row>
-        <el-row
-          v-if="config.matchingStrategy === MatchingStrategy.MultiStage"
-          :gutter="20"
-        >
+        <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="召回候选数">
               <el-input-number
@@ -606,10 +582,25 @@ export default {
   color: #9ca3af;
 }
 
-.strategy-tip {
-  margin-top: 8px;
+.engine-card {
+  max-width: 420px;
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.engine-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.engine-desc {
+  margin-top: 6px;
   font-size: 12px;
   color: #6b7280;
+  line-height: 1.6;
 }
 
 .reset-btn {

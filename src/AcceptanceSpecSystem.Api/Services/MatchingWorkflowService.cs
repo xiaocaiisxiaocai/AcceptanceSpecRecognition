@@ -245,17 +245,25 @@ public class MatchingWorkflowService
                 BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
                 LlmSuggestion = null,
                 NoMatchReason = noMatchReason,
-                ConfidenceLevel = GetConfidenceLevel(bestMatch?.Score, highConfidenceThreshold)
+                ConfidenceLevel = GetConfidenceLevel(bestMatch, highConfidenceThreshold)
             };
 
             previewItems.Add(previewItem);
 
             if (previewItem.BestMatch != null)
             {
-                var score = previewItem.BestMatch.Score;
-                if (score >= highConfidenceThreshold) highCount++;
-                else if (score >= MatchingThresholds.MediumConfidenceScore) mediumCount++;
-                else lowCount++;
+                switch (previewItem.ConfidenceLevel)
+                {
+                    case "high":
+                        highCount++;
+                        break;
+                    case "medium":
+                        mediumCount++;
+                        break;
+                    case "low":
+                        lowCount++;
+                        break;
+                }
             }
         }
 
@@ -955,17 +963,25 @@ public class MatchingWorkflowService
                     BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
                     LlmSuggestion = null,
                     NoMatchReason = noMatchReason,
-                    ConfidenceLevel = GetConfidenceLevel(bestMatch?.Score, highConfidenceThreshold)
+                    ConfidenceLevel = GetConfidenceLevel(bestMatch, highConfidenceThreshold)
                 };
 
                 tableResult.Items.Add(previewItem);
 
                 if (previewItem.BestMatch != null)
                 {
-                    var score = previewItem.BestMatch.Score;
-                    if (score >= highConfidenceThreshold) highCount++;
-                    else if (score >= MatchingThresholds.MediumConfidenceScore) mediumCount++;
-                    else lowCount++;
+                    switch (previewItem.ConfidenceLevel)
+                    {
+                        case "high":
+                            highCount++;
+                            break;
+                        case "medium":
+                            mediumCount++;
+                            break;
+                        case "low":
+                            lowCount++;
+                            break;
+                    }
                 }
             }
 
@@ -1923,9 +1939,7 @@ public class MatchingWorkflowService
 
         return new MatchingConfig
         {
-            MatchingStrategy = Enum.IsDefined(typeof(MatchingStrategy), dto.MatchingStrategy)
-                ? dto.MatchingStrategy
-                : MatchingStrategy.SingleStage,
+            MatchingStrategy = MatchingStrategy.MultiStage,
             EmbeddingServiceId = dto.EmbeddingServiceId,
             LlmServiceId = dto.LlmServiceId,
             MinScoreThreshold = dto.MinScoreThreshold,
@@ -1946,6 +1960,11 @@ public class MatchingWorkflowService
 
     private static bool CanApplyMatchedSpec(FillMapping mapping, double highConfidenceThreshold)
     {
+        if (mapping.ManualConfirmed)
+        {
+            return true;
+        }
+
         if (!mapping.MatchScore.HasValue)
         {
             return false;
@@ -1973,19 +1992,24 @@ public class MatchingWorkflowService
             1);
     }
 
-    private static string GetConfidenceLevel(double? score, double highConfidenceThreshold)
+    private static string GetConfidenceLevel(MatchResult? result, double highConfidenceThreshold)
     {
-        if (!score.HasValue || score.Value <= 0)
+        if (result == null || !result.MatchedSpecId.HasValue || result.Score <= 0)
         {
             return "none";
         }
 
-        if (score.Value >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
+        if (result.Decision != MatchDecision.AutoApply)
+        {
+            return "low";
+        }
+
+        if (result.Score >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
         {
             return "high";
         }
 
-        if (score.Value >= MatchingThresholds.MediumConfidenceScore)
+        if (result.Score >= MatchingThresholds.MediumConfidenceScore)
         {
             return "medium";
         }
@@ -2024,6 +2048,10 @@ public class MatchingWorkflowService
             Score = result.Score,
             EmbeddingScore = result.EmbeddingScore,
             ScoreDetails = result.ScoreDetails,
+            Decision = ToDecisionKey(result.Decision),
+            HasHardConflict = result.Evidence.HasHardConflict,
+            EvidenceSummary = [.. result.Evidence.Summary],
+            ConflictSummary = [.. result.Evidence.Conflicts],
             TopCandidates = result.TopCandidates
                 .Select(candidate => new MatchCandidateDto
                 {
@@ -2036,6 +2064,14 @@ public class MatchingWorkflowService
                     Score = candidate.Score,
                     EmbeddingScore = candidate.EmbeddingScore,
                     ScoreDetails = candidate.ScoreDetails,
+                    Decision = candidate.Evidence.HasHardConflict
+                        ? "reject"
+                        : result.MatchedSpecId == candidate.SpecId
+                            ? ToDecisionKey(result.Decision)
+                            : "manualReview",
+                    HasHardConflict = candidate.Evidence.HasHardConflict,
+                    EvidenceSummary = [.. candidate.Evidence.Summary],
+                    ConflictSummary = [.. candidate.Evidence.Conflicts],
                     RerankSummary = candidate.RerankSummary
                 })
                 .ToList(),
@@ -2048,6 +2084,17 @@ public class MatchingWorkflowService
             LlmReason = result.LlmReason,
             LlmCommentary = result.LlmCommentary,
             IsLlmReviewed = result.IsLlmReviewed
+        };
+    }
+
+    private static string ToDecisionKey(MatchDecision decision)
+    {
+        return decision switch
+        {
+            MatchDecision.AutoApply => "autoApply",
+            MatchDecision.ManualReview => "manualReview",
+            MatchDecision.Reject => "reject",
+            _ => "manualReview"
         };
     }
 
@@ -2073,7 +2120,8 @@ public class MatchingWorkflowService
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
-                message = "最佳匹配规格不存在或无权限"
+                message = "最佳匹配规格不存在或无权限",
+                decision = "manualReview"
             }, cancellationToken);
             return LlmStepOutcome.Failed;
         }
@@ -2093,6 +2141,11 @@ public class MatchingWorkflowService
             BestMatchRemark = spec.Remark,
             BaseScore = (item.BestMatchScore ?? 0) * 100,
             ScoreDetails = item.ScoreDetails ?? new Dictionary<string, double>(),
+            CurrentDecision = item.Decision ?? "manualReview",
+            HasHardConflict = item.HasHardConflict,
+            EvidenceSummary = item.EvidenceSummary ?? [],
+            ConflictSummary = item.ConflictSummary ?? [],
+            ReviewTrigger = BuildReviewTrigger(item),
             LlmServiceId = config.LlmServiceId,
             ReviewScene = LlmReviewScene.MatchingReview
         };
@@ -2120,6 +2173,7 @@ public class MatchingWorkflowService
             if (reviewService.TryParseReviewResult(buffer.ToString(), out var result))
             {
                 var normalizedScore = NormalizeLlmReviewScore(result.Score);
+                var passed = normalizedScore >= MatchingThresholds.LlmReviewPassScore && !item.HasHardConflict;
                 _logger.LogDebug("[LLM复核] {Location}: 完成, score={Score}, reason={Reason}",
                     location, normalizedScore, result.Reason);
                 await WriteSseEventLockedAsync(response, sseWriteLock, "review.done", new
@@ -2128,7 +2182,8 @@ public class MatchingWorkflowService
                     rowIndex = item.RowIndex,
                     score = normalizedScore,
                     reason = result.Reason,
-                    commentary = result.Commentary
+                    commentary = result.Commentary,
+                    decision = passed ? "autoApply" : "manualReview"
                 }, cancellationToken);
                 return LlmStepOutcome.Success;
             }
@@ -2139,7 +2194,8 @@ public class MatchingWorkflowService
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
-                    message = "LLM复核输出解析失败"
+                    message = "LLM复核输出解析失败",
+                    decision = "manualReview"
                 }, cancellationToken);
                 return LlmStepOutcome.Failed;
             }
@@ -2155,7 +2211,8 @@ public class MatchingWorkflowService
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
-                message = ex.Reason
+                message = ex.Reason,
+                decision = "manualReview"
             }, cancellationToken);
             return LlmStepOutcome.Failed;
         }
@@ -2166,7 +2223,8 @@ public class MatchingWorkflowService
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
-                message = "LLM复核失败"
+                message = "LLM复核失败",
+                decision = "manualReview"
             }, cancellationToken);
             return LlmStepOutcome.Failed;
         }
@@ -2317,7 +2375,8 @@ public class MatchingWorkflowService
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
-                message
+                message,
+                decision = "manualReview"
             }, cancellationToken);
         }
 
@@ -2375,7 +2434,10 @@ public class MatchingWorkflowService
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
-                    message = $"{GetLlmStepDisplayName(stepName)}超时（>{timeoutSeconds}s）"
+                    message = $"{GetLlmStepDisplayName(stepName)}超时（>{timeoutSeconds}s）",
+                    decision = string.Equals(stepName, "review", StringComparison.OrdinalIgnoreCase)
+                        ? "manualReview"
+                        : null
                 }, requestCancellationToken);
                 return new LlmStepExecutionResult(LlmStepOutcome.Timeout, attempt);
             }
@@ -2394,7 +2456,10 @@ public class MatchingWorkflowService
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
-                    message = $"{GetLlmStepDisplayName(stepName)}失败（已达到重试上限）"
+                    message = $"{GetLlmStepDisplayName(stepName)}失败（已达到重试上限）",
+                    decision = string.Equals(stepName, "review", StringComparison.OrdinalIgnoreCase)
+                        ? "manualReview"
+                        : null
                 }, requestCancellationToken);
                 return new LlmStepExecutionResult(LlmStepOutcome.Failed, attempt);
             }
@@ -2451,8 +2516,28 @@ public class MatchingWorkflowService
             SourceSpecification = item.SourceSpecification,
             BestMatchSpecId = null,
             BestMatchScore = null,
-            ScoreDetails = null
+            ScoreDetails = null,
+            Decision = "manualReview",
+            HasHardConflict = item.HasHardConflict,
+            EvidenceSummary = item.EvidenceSummary,
+            ConflictSummary = item.ConflictSummary
         };
+    }
+
+    private static string BuildReviewTrigger(MatchLlmStreamItem item)
+    {
+        if (item.HasHardConflict)
+        {
+            return "存在硬冲突，默认不允许自动采用，仅记录复核上下文";
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.Decision) &&
+            string.Equals(item.Decision, "manualReview", StringComparison.OrdinalIgnoreCase))
+        {
+            return "证据不足或候选接近，需要人工/LLM进一步复核";
+        }
+
+        return "需要补充复核结论";
     }
 
     private static async Task WriteSseEventAsync(HttpResponse response, string eventName, object data, CancellationToken cancellationToken)

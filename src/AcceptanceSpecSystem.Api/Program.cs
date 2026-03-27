@@ -101,6 +101,8 @@ builder.Services.Configure<EmbeddingCacheCleanupOptions>(
     builder.Configuration.GetSection(EmbeddingCacheCleanupOptions.SectionName));
 builder.Services.Configure<AiServiceTestOptions>(
     builder.Configuration.GetSection(AiServiceTestOptions.SectionName));
+builder.Services.Configure<MatchingKnowledgeOptions>(
+    builder.Configuration.GetSection(MatchingKnowledgeOptions.SectionName));
 builder.Services.AddSingleton<IValidateOptions<AuthSeedOptions>, AuthSeedOptionsValidator>();
 builder.Services.AddOptions<AuthSeedOptions>()
     .Bind(builder.Configuration.GetSection(AuthSeedOptions.SectionName))
@@ -155,6 +157,7 @@ builder.Services.AddScoped<IFileCompareService, FileCompareService>();
 // 注册匹配服务（Semantic Kernel）
 builder.Services.AddScoped<IAiServiceConfigProvider, AiServiceConfigProvider>();
 builder.Services.AddScoped<IPromptTemplateProvider, PromptTemplateProvider>();
+builder.Services.AddScoped<IMatchingKnowledgeProvider, ConfigurationMatchingKnowledgeProvider>();
 builder.Services.AddScoped<IAiServiceSelector, AiServiceSelector>();
 builder.Services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
 builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();

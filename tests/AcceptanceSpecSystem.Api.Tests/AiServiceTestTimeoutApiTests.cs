@@ -26,7 +26,7 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
     {
         _factory = factory;
         _client = factory.CreateClient(new WebApplicationFactoryClientOptions());
-        _client.Timeout = TimeSpan.FromSeconds(3);
+        _client.Timeout = TimeSpan.FromSeconds(10);
     }
 
     [Fact]
@@ -44,7 +44,13 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         result.Code.Should().Be(0);
         result.Data.GetProperty("success").GetBoolean().Should().BeFalse();
         result.Data.GetProperty("message").GetString().Should().Contain("LLM: 测试超时");
-        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(3));
+
+        var elapsedMs = result.Data.GetProperty("elapsedMs").GetInt64();
+        elapsedMs.Should().BeGreaterThanOrEqualTo(900);
+        elapsedMs.Should().BeLessThan(3000);
+
+        // 端到端耗时允许存在测试宿主调度抖动，但不应接近新的客户端超时。
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(8));
     }
 
     private async Task<int> CreateOllamaConfigAsync()

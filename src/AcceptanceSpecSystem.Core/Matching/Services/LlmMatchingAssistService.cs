@@ -310,7 +310,12 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
             ["bestMatchAcceptance"] = request.BestMatchAcceptance ?? "(无)",
             ["bestMatchRemark"] = request.BestMatchRemark ?? "(无)",
             ["baseScore"] = request.BaseScore?.ToString("0.##") ?? "N/A",
-            ["scoreDetailsJson"] = JsonSerializer.Serialize(request.ScoreDetails)
+            ["scoreDetailsJson"] = JsonSerializer.Serialize(request.ScoreDetails),
+            ["currentDecision"] = request.CurrentDecision,
+            ["hasHardConflict"] = request.HasHardConflict ? "是" : "否",
+            ["reviewTrigger"] = request.ReviewTrigger ?? "证据不足，需要复核",
+            ["evidenceSummaryJson"] = JsonSerializer.Serialize(request.EvidenceSummary),
+            ["conflictSummaryJson"] = JsonSerializer.Serialize(request.ConflictSummary)
         });
     }
 
