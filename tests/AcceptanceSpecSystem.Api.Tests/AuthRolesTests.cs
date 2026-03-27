@@ -131,7 +131,7 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
                 Description = "初始角色",
                 IsBuiltIn = false,
                 IsActive = true,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             };
             await dbContext.AuthRoles.AddAsync(role);
             await dbContext.SaveChangesAsync();
@@ -145,7 +145,7 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
                 Avatar = string.Empty,
                 IsActive = true,
                 PermissionVersion = 1,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             };
             await dbContext.SystemUsers.AddAsync(assignedUser);
             await dbContext.SaveChangesAsync();
@@ -154,7 +154,7 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
             {
                 UserId = assignedUser.Id,
                 RoleId = role.Id,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             });
             await dbContext.SaveChangesAsync();
             roleId = role.Id;
@@ -278,7 +278,7 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
             Depth = 1,
             Sort = 0,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         dbContext.OrgUnits.Add(child);

@@ -12,12 +12,14 @@ using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.TextProcessing.Services;
 using AcceptanceSpecSystem.Data;
 using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Providers;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
@@ -90,6 +92,7 @@ builder.Services.AddDataProtection()
     .SetApplicationName("AcceptanceSpecSystem")
     .PersistKeysToFileSystem(new DirectoryInfo(fullDataProtectionKeysPath));
 
+builder.Services.AddMemoryCache();
 builder.Services.Configure<JwtAuthOptions>(
     builder.Configuration.GetSection(JwtAuthOptions.SectionName));
 builder.Services.Configure<AuditLogOptions>(
@@ -98,6 +101,12 @@ builder.Services.Configure<EmbeddingCacheCleanupOptions>(
     builder.Configuration.GetSection(EmbeddingCacheCleanupOptions.SectionName));
 builder.Services.Configure<AiServiceTestOptions>(
     builder.Configuration.GetSection(AiServiceTestOptions.SectionName));
+builder.Services.AddSingleton<IValidateOptions<AuthSeedOptions>, AuthSeedOptionsValidator>();
+builder.Services.AddOptions<AuthSeedOptions>()
+    .Bind(builder.Configuration.GetSection(AuthSeedOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.Configure<SemanticKernelOptions>(
+    builder.Configuration.GetSection(SemanticKernelOptions.SectionName));
 
 // 配置MySQL数据库连接
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -119,6 +128,7 @@ builder.Services.AddScoped<ITextProcessingConfigRepository, TextProcessingConfig
 builder.Services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
 builder.Services.AddScoped<IColumnMappingRuleRepository, ColumnMappingRuleRepository>();
 builder.Services.AddScoped<ISystemUserRepository, SystemUserRepository>();
+builder.Services.AddScoped<IAuthRoleLookupRepository, AuthRoleLookupRepository>();
 builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 builder.Services.AddScoped<IMatchingFillTaskRepository, MatchingFillTaskRepository>();
 
@@ -134,6 +144,7 @@ builder.Services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
 builder.Services.AddScoped<IAuthSessionValidationService, AuthSessionValidationService>();
 builder.Services.AddScoped<SpecSemanticSearchService>();
 builder.Services.AddScoped<ImportDuplicateDetectionService>();
+builder.Services.AddScoped<MatchingWorkflowService>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
 
@@ -142,7 +153,9 @@ builder.Services.AddSingleton<DocumentServiceFactory>();
 builder.Services.AddScoped<IFileCompareService, FileCompareService>();
 
 // 注册匹配服务（Semantic Kernel）
-builder.Services.AddScoped<AiServiceSelector>();
+builder.Services.AddScoped<IAiServiceConfigProvider, AiServiceConfigProvider>();
+builder.Services.AddScoped<IPromptTemplateProvider, PromptTemplateProvider>();
+builder.Services.AddScoped<IAiServiceSelector, AiServiceSelector>();
 builder.Services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
 builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
 builder.Services.AddSingleton<ITextSimilarityService, TextSimilarityService>();
@@ -152,6 +165,9 @@ builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();
 
 // 文本处理（Core 4.1）
+builder.Services.AddScoped<ISynonymDataProvider, SynonymDataProvider>();
+builder.Services.AddScoped<IKeywordDataProvider, KeywordDataProvider>();
+builder.Services.AddScoped<ITextProcessingConfigProvider, TextProcessingConfigProvider>();
 builder.Services.AddScoped<IChineseConversionService, OpenCcChineseConversionService>();
 builder.Services.AddScoped<IOkNgConversionService, OkNgConversionService>();
 builder.Services.AddScoped<ISynonymService, SynonymService>();
@@ -207,28 +223,32 @@ builder.Services.AddAuthorization(options =>
 });
 
 // 配置CORS
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()?
+string[] allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()?
     .Where(origin => !string.IsNullOrWhiteSpace(origin))
     .Select(origin => origin.Trim())
     .Distinct(StringComparer.OrdinalIgnoreCase)
     .ToArray()
     ?? [];
+
+if (allowedOrigins.Length == 0 || allowedOrigins.Contains("*", StringComparer.Ordinal))
+{
+    if (builder.Environment.IsEnvironment("Testing"))
+    {
+        allowedOrigins = ["http://localhost"];
+    }
+    else
+    {
+        throw new InvalidOperationException("Cors:AllowedOrigins 必须配置显式来源，禁止留空或使用通配符 *");
+    }
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowVueFrontend", policy =>
     {
-        if (allowedOrigins.Length == 0 || allowedOrigins.Contains("*"))
-        {
-            policy.AllowAnyOrigin()
-                  .AllowAnyHeader()
-                  .AllowAnyMethod();
-        }
-        else
-        {
-            policy.WithOrigins(allowedOrigins)
-                  .AllowAnyHeader()
-                  .AllowAnyMethod();
-        }
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod();
     });
 });
 

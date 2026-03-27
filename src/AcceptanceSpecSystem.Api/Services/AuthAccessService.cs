@@ -1,7 +1,5 @@
-using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
-using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -62,68 +60,50 @@ public interface IAuthAccessService
 /// </summary>
 public sealed class AuthAccessService : IAuthAccessService
 {
-    private readonly IUnitOfWork _unitOfWork;
-    private readonly AppDbContext _dbContext;
+    private readonly ISystemUserRepository _systemUserRepository;
+    private readonly IAuthRoleLookupRepository _authRoleLookupRepository;
 
-    public AuthAccessService(IUnitOfWork unitOfWork, AppDbContext dbContext)
+    public AuthAccessService(
+        ISystemUserRepository systemUserRepository,
+        IAuthRoleLookupRepository authRoleLookupRepository)
     {
-        _unitOfWork = unitOfWork;
-        _dbContext = dbContext;
+        _systemUserRepository = systemUserRepository;
+        _authRoleLookupRepository = authRoleLookupRepository;
     }
 
     public async Task<AuthAccessContext?> GetByUsernameAsync(string username)
     {
-        var user = await _unitOfWork.SystemUsers.GetByUsernameWithAccessAsync(username);
+        var user = await _systemUserRepository.GetByUsernameWithAccessAsync(username);
         return user == null ? null : BuildContext(user);
     }
 
     public async Task<AuthAccessContext?> GetByUserIdAsync(int userId)
     {
-        var user = await _dbContext.SystemUsers
-            .AsSplitQuery()
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                    .ThenInclude(r => r.RolePermissions)
-                        .ThenInclude(rp => rp.Permission)
-            .Include(u => u.UserOrgUnits)
-                .ThenInclude(uo => uo.OrgUnit)
-            .FirstOrDefaultAsync(u => u.Id == userId);
-
+        var user = await _systemUserRepository.GetByIdWithAccessAsync(userId);
         return user == null ? null : BuildContext(user);
     }
 
     public async Task<IReadOnlyList<AuthRoleSummary>> GetCompanyRolesAsync(int companyId)
     {
-        return await _dbContext.AuthRoles
-            .AsNoTracking()
-            .Where(r => r.CompanyId == companyId && r.IsActive)
-            .OrderBy(r => r.Code)
-            .Select(r => new AuthRoleSummary
+        var roles = await _authRoleLookupRepository.GetCompanyRolesAsync(companyId);
+        return roles
+            .Select(role => new AuthRoleSummary
             {
-                Id = r.Id,
-                Code = r.Code,
-                Name = r.Name
+                Id = role.Id,
+                Code = role.Code,
+                Name = role.Name
             })
-            .ToListAsync();
+            .ToList();
     }
 
     public async Task<IReadOnlyDictionary<int, string>> GetRoleCodeMapAsync(int companyId, IEnumerable<int> roleIds)
     {
-        var normalizedIds = roleIds
-            .Distinct()
-            .ToArray();
-        if (normalizedIds.Length == 0)
-            return new Dictionary<int, string>();
-
-        return await _dbContext.AuthRoles
-            .AsNoTracking()
-            .Where(r => r.CompanyId == companyId && normalizedIds.Contains(r.Id))
-            .ToDictionaryAsync(r => r.Id, r => r.Code);
+        return await _authRoleLookupRepository.GetRoleCodeMapAsync(companyId, roleIds);
     }
 
     private static AuthAccessContext BuildContext(SystemUser user)
     {
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         var activeRoleLinks = user.UserRoles
             .Where(ur => IsActive(now, ur.StartAt, ur.EndAt) && ur.Role.IsActive)
             .ToList();

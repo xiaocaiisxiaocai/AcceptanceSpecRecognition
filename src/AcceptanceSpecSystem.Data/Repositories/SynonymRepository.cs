@@ -70,7 +70,7 @@ public class SynonymRepository : ISynonymRepository
         var wordList = words.ToList();
         var group = new SynonymGroup
         {
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         for (var i = 0; i < wordList.Count; i++)
@@ -116,7 +116,7 @@ public class SynonymRepository : ISynonymRepository
             });
         }
 
-        group.UpdatedAt = DateTime.Now;
+        group.UpdatedAt = DateTime.UtcNow;
     }
 
     /// <summary>

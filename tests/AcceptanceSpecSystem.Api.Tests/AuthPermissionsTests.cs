@@ -41,7 +41,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
 
         var response = await _client.PostAsync(
             "/login",
-            ApiClientJson.ToJsonContent(new { username = "admin", password = "Admin@123456" }));
+            ApiClientJson.ToJsonContent(new { username = "admin", password = ApiWebApplicationFactory.TestAdminPassword }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<JsonElement>();

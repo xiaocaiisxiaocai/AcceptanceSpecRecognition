@@ -64,7 +64,7 @@ public class AuthSessionValidationTests
             ApiClientJson.ToJsonContent(new
             {
                 username = "admin",
-                password = "Admin@123456"
+                password = ApiWebApplicationFactory.TestAdminPassword
             }));
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 

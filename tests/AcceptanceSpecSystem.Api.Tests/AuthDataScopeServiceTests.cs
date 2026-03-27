@@ -62,7 +62,7 @@ public class AuthDataScopeServiceTests : IClassFixture<ApiWebApplicationFactory>
             Depth = rootOrg.Depth + 1,
             Sort = 1,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         dbContext.OrgUnits.Add(division);
         await dbContext.SaveChangesAsync();
@@ -80,7 +80,7 @@ public class AuthDataScopeServiceTests : IClassFixture<ApiWebApplicationFactory>
             Depth = division.Depth + 1,
             Sort = 1,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var siblingDivision = new OrgUnit
         {
@@ -93,7 +93,7 @@ public class AuthDataScopeServiceTests : IClassFixture<ApiWebApplicationFactory>
             Depth = rootOrg.Depth + 1,
             Sort = 2,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         dbContext.OrgUnits.AddRange(department, siblingDivision);
         await dbContext.SaveChangesAsync();
@@ -110,7 +110,7 @@ public class AuthDataScopeServiceTests : IClassFixture<ApiWebApplicationFactory>
             UserId = commonUser.Id,
             OrgUnitId = division.Id,
             IsPrimary = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         });
 
         await dbContext.SaveChangesAsync();
@@ -153,7 +153,7 @@ public class AuthDataScopeServiceTests : IClassFixture<ApiWebApplicationFactory>
             Depth = rootOrg.Depth + 1,
             Sort = 1,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var divisionB = new OrgUnit
         {
@@ -166,7 +166,7 @@ public class AuthDataScopeServiceTests : IClassFixture<ApiWebApplicationFactory>
             Depth = rootOrg.Depth + 1,
             Sort = 2,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         dbContext.OrgUnits.AddRange(divisionA, divisionB);
         await dbContext.SaveChangesAsync();
@@ -185,7 +185,7 @@ public class AuthDataScopeServiceTests : IClassFixture<ApiWebApplicationFactory>
             Depth = divisionA.Depth + 1,
             Sort = 1,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var departmentB = new OrgUnit
         {
@@ -198,7 +198,7 @@ public class AuthDataScopeServiceTests : IClassFixture<ApiWebApplicationFactory>
             Depth = divisionB.Depth + 1,
             Sort = 1,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         dbContext.OrgUnits.AddRange(departmentA, departmentB);
         await dbContext.SaveChangesAsync();

@@ -136,7 +136,7 @@ public class MachineModelsController : BaseApiController
         var model = new MachineModel
         {
             Name = request.Name,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         await _unitOfWork.MachineModels.AddAsync(model);

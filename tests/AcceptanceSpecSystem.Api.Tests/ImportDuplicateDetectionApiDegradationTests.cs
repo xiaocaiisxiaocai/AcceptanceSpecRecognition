@@ -196,12 +196,12 @@ public class ImportDuplicateDetectionApiAvailabilityTests : IClassFixture<Failin
         var customer = new Customer
         {
             Name = $"可用性客户-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var process = new Process
         {
             Name = $"可用性制程-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         dbContext.Customers.Add(customer);
@@ -220,7 +220,7 @@ public class ImportDuplicateDetectionApiAvailabilityTests : IClassFixture<Failin
             FileName = $"existing-{Guid.NewGuid():N}.xlsx",
             FileContent = Array.Empty<byte>(),
             FileHash = Guid.NewGuid().ToString("N"),
-            UploadedAt = DateTime.Now,
+            UploadedAt = DateTime.UtcNow,
             FileType = UploadedFileType.ExcelXlsx
         };
 
@@ -238,7 +238,7 @@ public class ImportDuplicateDetectionApiAvailabilityTests : IClassFixture<Failin
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = 1,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now
+            ImportedAt = DateTime.UtcNow
         });
         await dbContext.SaveChangesAsync();
     }

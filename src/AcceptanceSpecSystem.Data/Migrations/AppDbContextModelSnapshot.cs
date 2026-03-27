@@ -629,8 +629,14 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("int");
 
                     b.Property<string>("PayloadJson")
                         .IsRequired()
@@ -652,6 +658,8 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("TaskId")
                         .IsUnique();
+
+                    b.HasIndex("CompanyId", "CreatedByUserId", "CreatedAt");
 
                     b.ToTable("MatchingFillTasks");
                 });

@@ -534,6 +534,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.PayloadJson).IsRequired();
             entity.HasIndex(e => e.TaskId).IsUnique();
             entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => new { e.CompanyId, e.CreatedByUserId, e.CreatedAt });
             entity.HasOne(e => e.SourceFile)
                   .WithMany()
                   .HasForeignKey(e => e.SourceFileId)
@@ -562,6 +563,7 @@ public class AppDbContext : DbContext
         catch
         {
             // 旧明文数据兼容：解密失败时原样返回，下次保存时自动加密
+            System.Diagnostics.Trace.TraceWarning("AiServiceConfig.ApiKey 解密失败，按历史明文兼容逻辑回退。");
             return value;
         }
     }

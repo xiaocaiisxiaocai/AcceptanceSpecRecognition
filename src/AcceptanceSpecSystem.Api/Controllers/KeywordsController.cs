@@ -75,7 +75,7 @@ public class KeywordsController : BaseApiController
         if (exists != null)
             return Error<KeywordDto>(400, "关键字已存在");
 
-        var entity = new Keyword { Word = word, CreatedAt = DateTime.Now };
+        var entity = new Keyword { Word = word, CreatedAt = DateTime.UtcNow };
         await _unitOfWork.Keywords.AddAsync(entity);
         await _unitOfWork.SaveChangesAsync();
 

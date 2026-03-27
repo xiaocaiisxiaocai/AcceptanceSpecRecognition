@@ -1,8 +1,9 @@
 using System.ClientModel;
-using System.Collections.Concurrent;
-using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Core.AI.Models;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using OpenAI;
@@ -11,55 +12,95 @@ namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 
 public interface ISemanticKernelServiceFactory
 {
-    IChatCompletionService CreateChatCompletionService(AiServiceConfig config);
+    IChatCompletionService CreateChatCompletionService(AiServiceConfigModel config);
 
-    IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfig config);
+    IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfigModel config);
 }
 
 /// <summary>
 /// Semantic Kernel 服务工厂（统一构建 LLM/Embedding 连接器）
-/// 使用 OpenAIClient 管理连接，缓存实例避免重复创建 HTTP 连接
+/// 使用有界缓存复用实例，避免无限增长。
 /// </summary>
-public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
+public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisposable
 {
-    private const string DefaultAzureApiVersion = "2024-02-15-preview";
-
     /// <summary>
     /// AI 服务网络超时时间（秒）
     /// </summary>
-    private const int NetworkTimeoutSeconds = 120;
+    private const int CacheSizeLimit = 128;
+    private static readonly TimeSpan CacheSlidingExpiration = TimeSpan.FromMinutes(30);
 
-    // 缓存 Embedding/Chat 实例：key = "configId_endpoint_model_apiKey" 的哈希
-    private static readonly ConcurrentDictionary<string, IEmbeddingGenerator<string, Embedding<float>>> _embeddingCache = new();
-    private static readonly ConcurrentDictionary<string, IChatCompletionService> _chatCache = new();
-
+    private readonly MemoryCache _cache;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly string _azureOpenAiApiVersion;
+    private bool _disposed;
 
-    public SemanticKernelServiceFactory(ILoggerFactory loggerFactory)
+    public SemanticKernelServiceFactory(
+        ILoggerFactory loggerFactory,
+        IHttpClientFactory httpClientFactory,
+        IOptions<SemanticKernelOptions> options)
     {
         _loggerFactory = loggerFactory;
+        _httpClientFactory = httpClientFactory;
+        _azureOpenAiApiVersion = string.IsNullOrWhiteSpace(options.Value.AzureOpenAIApiVersion)
+            ? new SemanticKernelOptions().AzureOpenAIApiVersion
+            : options.Value.AzureOpenAIApiVersion.Trim();
+        _cache = new MemoryCache(new MemoryCacheOptions
+        {
+            SizeLimit = CacheSizeLimit
+        });
     }
 
-    public IChatCompletionService CreateChatCompletionService(AiServiceConfig config)
+    public IChatCompletionService CreateChatCompletionService(AiServiceConfigModel config)
     {
+        ThrowIfDisposed();
+
         if (string.IsNullOrWhiteSpace(config.LlmModel))
             throw new InvalidOperationException("LLM 模型未配置");
 
         var key = BuildCacheKey("chat", config.Id, config.ServiceType, config.Endpoint, config.LlmModel, config.ApiKey, config.DisableThinking);
-        return _chatCache.GetOrAdd(key, _ => CreateChatCompletionServiceInternal(config));
+        return GetOrCreateCached(key, () => CreateChatCompletionServiceInternal(config));
     }
 
-    public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfig config)
+    public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfigModel config)
     {
+        ThrowIfDisposed();
+
         if (string.IsNullOrWhiteSpace(config.EmbeddingModel))
             throw new InvalidOperationException("Embedding 模型未配置");
 
         var key = BuildCacheKey("emb", config.Id, config.ServiceType, config.Endpoint, config.EmbeddingModel, config.ApiKey, config.DisableThinking);
-        return _embeddingCache.GetOrAdd(key, _ => CreateEmbeddingGeneratorInternal(config));
+        return GetOrCreateCached(key, () => CreateEmbeddingGeneratorInternal(config));
     }
 
-    private IChatCompletionService CreateChatCompletionServiceInternal(AiServiceConfig config)
+    public void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _cache.Dispose();
+        _disposed = true;
+        GC.SuppressFinalize(this);
+    }
+
+    private T GetOrCreateCached<T>(string key, Func<T> factory) where T : class
+    {
+        if (_cache.TryGetValue(key, out T? cached) && cached != null)
+            return cached;
+
+        var created = factory();
+        using var entry = _cache.CreateEntry(key);
+        entry.SetSize(1);
+        entry.SetSlidingExpiration(CacheSlidingExpiration);
+        entry.RegisterPostEvictionCallback(static (_, value, _, _) => _ = DisposeIfNeededAsync(value));
+        entry.Value = created;
+        return created;
+    }
+
+    private IChatCompletionService CreateChatCompletionServiceInternal(AiServiceConfigModel config)
+    {
+        var llmModel = RequireLlmModel(config);
+
         if (config.ServiceType == AiServiceType.Ollama)
         {
             var client = CreateOllamaHttpClient();
@@ -73,16 +114,16 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
         {
             var endpoint = RequireEndpoint(config);
             builder.AddAzureOpenAIChatCompletion(
-                deploymentName: config.LlmModel!,
+                deploymentName: llmModel,
                 endpoint: endpoint,
                 apiKey: config.ApiKey ?? string.Empty,
-                apiVersion: DefaultAzureApiVersion);
+                apiVersion: _azureOpenAiApiVersion);
         }
         else
         {
             var client = BuildOpenAIClient(config);
             builder.AddOpenAIChatCompletion(
-                modelId: config.LlmModel!,
+                modelId: llmModel,
                 openAIClient: client);
         }
 
@@ -90,8 +131,9 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
         return kernel.GetRequiredService<IChatCompletionService>();
     }
 
-    private static IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneratorInternal(AiServiceConfig config)
+    private IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneratorInternal(AiServiceConfigModel config)
     {
+        var embeddingModel = RequireEmbeddingModel(config);
         var builder = Kernel.CreateBuilder();
 
         if (config.ServiceType == AiServiceType.AzureOpenAI)
@@ -99,10 +141,10 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
             var endpoint = RequireEndpoint(config);
 #pragma warning disable SKEXP0010
             builder.AddAzureOpenAIEmbeddingGenerator(
-                deploymentName: config.EmbeddingModel!,
+                deploymentName: embeddingModel,
                 endpoint: endpoint,
                 apiKey: config.ApiKey ?? string.Empty,
-                apiVersion: DefaultAzureApiVersion);
+                apiVersion: _azureOpenAiApiVersion);
 #pragma warning restore SKEXP0010
         }
         else
@@ -110,7 +152,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
             var client = BuildOpenAIClient(config);
 #pragma warning disable SKEXP0010
             builder.AddOpenAIEmbeddingGenerator(
-                modelId: config.EmbeddingModel!,
+                modelId: embeddingModel,
                 openAIClient: client);
 #pragma warning restore SKEXP0010
         }
@@ -134,36 +176,53 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
         return $"{prefix}_{configId}_{(int)serviceType}_{endpoint ?? ""}_{model ?? ""}_{apiKey?.GetHashCode() ?? 0}_{disableThinking}";
     }
 
-    private static string RequireEndpoint(AiServiceConfig config)
+    private static string RequireEndpoint(AiServiceConfigModel config)
     {
         return AiEndpointNormalizer.NormalizeRequiredEndpoint(config.Endpoint);
+    }
+
+    private static string RequireLlmModel(AiServiceConfigModel config)
+    {
+        if (string.IsNullOrWhiteSpace(config.LlmModel))
+        {
+            throw new InvalidOperationException("LLM 模型未配置");
+        }
+
+        return config.LlmModel.Trim();
+    }
+
+    private static string RequireEmbeddingModel(AiServiceConfigModel config)
+    {
+        if (string.IsNullOrWhiteSpace(config.EmbeddingModel))
+        {
+            throw new InvalidOperationException("Embedding 模型未配置");
+        }
+
+        return config.EmbeddingModel.Trim();
     }
 
     /// <summary>
     /// 构建 OpenAIClient（用于 OpenAI 兼容服务：硅基流动、Ollama、LM Studio 等）
     /// 通过 OpenAIClientOptions 统一管理 Endpoint 和超时，无需手动创建 HttpClient
     /// </summary>
-    private static OpenAIClient BuildOpenAIClient(AiServiceConfig config)
+    private static OpenAIClient BuildOpenAIClient(AiServiceConfigModel config)
     {
         var endpoint = BuildOpenAiEndpoint(config);
         var options = new OpenAIClientOptions
         {
             Endpoint = new Uri(endpoint),
-            NetworkTimeout = TimeSpan.FromSeconds(NetworkTimeoutSeconds)
+            NetworkTimeout = TimeSpan.FromSeconds(OllamaNativeChatCompletionService.DefaultRequestTimeoutSeconds)
         };
         var credential = new ApiKeyCredential(config.ApiKey ?? "sk-placeholder");
         return new OpenAIClient(credential, options);
     }
 
-    private static HttpClient CreateOllamaHttpClient()
+    private HttpClient CreateOllamaHttpClient()
     {
-        return new HttpClient
-        {
-            Timeout = Timeout.InfiniteTimeSpan
-        };
+        return _httpClientFactory.CreateClient(nameof(OllamaNativeChatCompletionService));
     }
 
-    private static string BuildOpenAiEndpoint(AiServiceConfig config)
+    private static string BuildOpenAiEndpoint(AiServiceConfigModel config)
     {
         if (string.IsNullOrWhiteSpace(config.Endpoint))
             return "https://api.openai.com/v1";
@@ -196,5 +255,22 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory
         }
 
         return value.TrimEnd('/');
+    }
+
+    private static async Task DisposeIfNeededAsync(object? value)
+    {
+        if (value is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
+        else if (value is IAsyncDisposable asyncDisposable)
+        {
+            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
     }
 }

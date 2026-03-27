@@ -86,7 +86,7 @@ public class FileStorageService : IFileStorageService
         if (string.IsNullOrWhiteSpace(ext))
             ext = ".docx";
 
-        var dateDir = DateTime.Now.ToString("yyyy-MM-dd");
+        var dateDir = DateTime.UtcNow.ToString("yyyy-MM-dd");
         var fileName = $"{Guid.NewGuid():N}{ext}";
 
         var relativePath = $"{baseRelativeDir}/{dateDir}/{fileName}";

@@ -1,7 +1,7 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
+using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
-using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -12,12 +12,12 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 /// </summary>
 public class SemanticKernelEmbeddingService : IEmbeddingService
 {
-    private readonly AiServiceSelector _selector;
+    private readonly IAiServiceSelector _selector;
     private readonly ISemanticKernelServiceFactory _factory;
     private readonly ILogger<SemanticKernelEmbeddingService> _logger;
 
     public SemanticKernelEmbeddingService(
-        AiServiceSelector selector,
+        IAiServiceSelector selector,
         ISemanticKernelServiceFactory factory,
         ILogger<SemanticKernelEmbeddingService> logger)
     {
@@ -40,7 +40,7 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
         if (textList.Count == 0)
             return [];
 
-        var candidates = await _selector.GetCandidatesAsync(AiServicePurpose.Embedding, serviceId);
+        var candidates = await _selector.GetCandidatesAsync(AiServicePurpose.Embedding, serviceId, cancellationToken);
         if (candidates.Count == 0)
             throw new AiServiceUnavailableException("Embedding 服务不可用");
 
@@ -134,7 +134,7 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
 
     private async Task<float[]> GenerateEmbeddingInternalAsync(string text, int? serviceId, CancellationToken cancellationToken)
     {
-        var candidates = await _selector.GetCandidatesAsync(AiServicePurpose.Embedding, serviceId);
+        var candidates = await _selector.GetCandidatesAsync(AiServicePurpose.Embedding, serviceId, cancellationToken);
         if (candidates.Count == 0)
             throw new AiServiceUnavailableException("Embedding 服务不可用");
 

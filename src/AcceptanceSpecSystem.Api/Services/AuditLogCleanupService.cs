@@ -52,7 +52,7 @@ public sealed class AuditLogCleanupService : BackgroundService
             return;
 
         var retentionDays = Math.Max(1, options.RetentionDays);
-        var beforeTime = DateTime.Now.AddDays(-retentionDays);
+        var beforeTime = DateTime.UtcNow.AddDays(-retentionDays);
 
         try
         {

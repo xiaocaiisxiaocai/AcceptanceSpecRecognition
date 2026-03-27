@@ -63,7 +63,7 @@ public class AcceptanceSpec
     /// <summary>
     /// 导入时间
     /// </summary>
-    public DateTime ImportedAt { get; set; } = DateTime.Now;
+    public DateTime ImportedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// 导航属性：所属客户

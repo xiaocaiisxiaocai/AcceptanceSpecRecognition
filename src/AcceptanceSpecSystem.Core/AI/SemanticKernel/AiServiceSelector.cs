@@ -1,25 +1,25 @@
-﻿using AcceptanceSpecSystem.Data.Entities;
-using AcceptanceSpecSystem.Data.Repositories;
+using AcceptanceSpecSystem.Core.AI.Models;
 
 namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 
 /// <summary>
 /// AI 服务选择器（按用途 + 离线优先 + 优先级排序）
 /// </summary>
-public class AiServiceSelector
+public class AiServiceSelector : IAiServiceSelector
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly IAiServiceConfigProvider _configProvider;
 
-    public AiServiceSelector(IUnitOfWork unitOfWork)
+    public AiServiceSelector(IAiServiceConfigProvider configProvider)
     {
-        _unitOfWork = unitOfWork;
+        _configProvider = configProvider;
     }
 
-    public async Task<IReadOnlyList<AiServiceConfig>> GetCandidatesAsync(
+    public async Task<IReadOnlyList<AiServiceConfigModel>> GetCandidatesAsync(
         AiServicePurpose purpose,
-        int? preferredId = null)
+        int? preferredId = null,
+        CancellationToken cancellationToken = default)
     {
-        var all = await _unitOfWork.AiServiceConfigs.GetByPurposeAsync(purpose);
+        var all = await _configProvider.GetByPurposeAsync(purpose, cancellationToken);
         var list = all
             .Where(c => IsConfigUsable(c, purpose))
             .OrderBy(c => IsLocal(c.ServiceType) ? 0 : 1)
@@ -45,7 +45,7 @@ public class AiServiceSelector
         return type is AiServiceType.Ollama or AiServiceType.LMStudio;
     }
 
-    private static bool IsConfigUsable(AiServiceConfig config, AiServicePurpose purpose)
+    private static bool IsConfigUsable(AiServiceConfigModel config, AiServicePurpose purpose)
     {
         if (purpose.HasFlag(AiServicePurpose.Llm) && string.IsNullOrWhiteSpace(config.LlmModel))
             return false;

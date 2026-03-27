@@ -7,6 +7,7 @@ using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -15,6 +16,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 /// 文件对比API控制器
 /// </summary>
 [Route("api/file-compare")]
+[Authorize]
 public class FileCompareController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
@@ -67,9 +69,10 @@ public class FileCompareController : BaseApiController
         var fileType = extA == ".docx"
             ? UploadedFileType.WordDocx
             : UploadedFileType.ExcelXlsx;
+        var cancellationToken = HttpContext.RequestAborted;
 
-        var respA = await SaveUploadedFileAsync(fileA, fileType);
-        var respB = await SaveUploadedFileAsync(fileB, fileType);
+        var respA = await SaveUploadedFileAsync(fileA, fileType, cancellationToken);
+        var respB = await SaveUploadedFileAsync(fileB, fileType, cancellationToken);
 
         return Success(new FileCompareUploadResponse
         {
@@ -129,16 +132,19 @@ public class FileCompareController : BaseApiController
             WriteIndented = true
         });
 
-        var filename = $"compare_{DateTime.Now:yyyyMMddHHmmss}.json";
+        var filename = $"compare_{DateTime.UtcNow:yyyyMMddHHmmss}.json";
         return File(System.Text.Encoding.UTF8.GetBytes(json), "application/json", filename);
     }
 
-    private async Task<FileUploadResponse> SaveUploadedFileAsync(IFormFile file, UploadedFileType fileType)
+    private async Task<FileUploadResponse> SaveUploadedFileAsync(
+        IFormFile file,
+        UploadedFileType fileType,
+        CancellationToken cancellationToken)
     {
         byte[] fileContent;
         using (var memoryStream = new MemoryStream())
         {
-            await file.CopyToAsync(memoryStream);
+            await file.CopyToAsync(memoryStream, cancellationToken);
             fileContent = memoryStream.ToArray();
         }
 
@@ -155,8 +161,8 @@ public class FileCompareController : BaseApiController
                 if (needsWrite)
                 {
                     var newPath = existingFile.FileType == UploadedFileType.ExcelXlsx
-                        ? await _fileStorage.SaveUploadedExcelAsync(existingFile.FileName, fileContent)
-                        : await _fileStorage.SaveUploadedWordAsync(existingFile.FileName, fileContent);
+                        ? await _fileStorage.SaveUploadedExcelAsync(existingFile.FileName, fileContent, cancellationToken)
+                        : await _fileStorage.SaveUploadedWordAsync(existingFile.FileName, fileContent, cancellationToken);
                     existingFile.FilePath = newPath;
                     await _unitOfWork.SaveChangesAsync();
                 }
@@ -179,8 +185,8 @@ public class FileCompareController : BaseApiController
         }
 
         var filePath = fileType == UploadedFileType.ExcelXlsx
-            ? await _fileStorage.SaveUploadedExcelAsync(file.FileName, fileContent)
-            : await _fileStorage.SaveUploadedWordAsync(file.FileName, fileContent);
+            ? await _fileStorage.SaveUploadedExcelAsync(file.FileName, fileContent, cancellationToken)
+            : await _fileStorage.SaveUploadedWordAsync(file.FileName, fileContent, cancellationToken);
 
         var wordFile = new WordFile
         {
@@ -188,7 +194,7 @@ public class FileCompareController : BaseApiController
             FileContent = Array.Empty<byte>(),
             FilePath = filePath,
             FileHash = fileHash,
-            UploadedAt = DateTime.Now,
+            UploadedAt = DateTime.UtcNow,
             FileType = fileType
         };
 

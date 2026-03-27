@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import Motion from "./utils/motion";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { message } from "@/utils/message";
 import { loginRules } from "./utils/rule";
 import { ref, reactive } from "vue";
@@ -23,6 +23,7 @@ defineOptions({
 });
 
 const router = useRouter();
+const route = useRoute();
 const loading = ref(false);
 const disabled = ref(false);
 const ruleFormRef = ref<FormInstance>();
@@ -32,42 +33,69 @@ dataThemeChange(overallStyle.value);
 const { title } = useNav();
 
 const ruleForm = reactive({
-  username: "admin",
-  password: "Admin@123456"
+  username: "",
+  password: ""
 });
+
+const getRedirectPath = () => {
+  const rawRedirect = route.query.redirect;
+  if (
+    typeof rawRedirect === "string" &&
+    rawRedirect.startsWith("/") &&
+    rawRedirect !== "/login"
+  ) {
+    return rawRedirect;
+  }
+
+  return null;
+};
 
 const onLogin = async (formEl: FormInstance | undefined) => {
   if (!formEl) return;
   await formEl.validate(valid => {
     if (valid) {
       loading.value = true;
+      disabled.value = true;
       useUserStoreHook()
         .loginByUsername({
           username: ruleForm.username,
           password: ruleForm.password
         })
-        .then(res => {
-          if (res.success) {
-            // 获取后端路由
-            return initRouter().then(() => {
-              disabled.value = true;
-              router
-                .push(getTopMenu(true).path)
-                .then(() => {
-                  message("登录成功", { type: "success" });
-                })
-                .finally(() => (disabled.value = false));
-            });
-          } else {
+        .then(async res => {
+          if (!res.success) {
             message("登录失败", { type: "error" });
+            return;
           }
+
+          await initRouter();
+          const redirectPath = getRedirectPath();
+          if (redirectPath) {
+            await router.push(redirectPath);
+            message("登录成功", { type: "success" });
+            return;
+          }
+
+          const topMenu = getTopMenu(true);
+          if (!topMenu?.path) {
+            message("登录成功，但当前账号无可访问菜单，请联系管理员", {
+              type: "warning"
+            });
+            return;
+          }
+
+          await router.push(topMenu.path);
+          message("登录成功", { type: "success" });
         })
         .catch(error => {
-          const errorMessage =
-            error?.response?.data?.message || "用户名或密码错误";
-          message(errorMessage, { type: "error" });
+          const errorMessage = error?.response?.data?.message;
+          message(errorMessage || "登录成功后跳转失败，请稍后重试", {
+            type: "error"
+          });
         })
-        .finally(() => (loading.value = false));
+        .finally(() => {
+          loading.value = false;
+          disabled.value = false;
+        });
     }
   });
 };

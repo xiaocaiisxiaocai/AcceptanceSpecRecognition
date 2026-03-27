@@ -4,6 +4,7 @@ using System.Text.Json;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Options;
+using CoreAiServiceConfigModel = AcceptanceSpecSystem.Core.AI.Models.AiServiceConfigModel;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -25,6 +26,7 @@ public class AiServicesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISemanticKernelServiceFactory _semanticKernelFactory;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AiServicesController> _logger;
     private readonly int _testTimeoutSeconds;
     private readonly TimeSpan _testTimeout;
@@ -32,11 +34,13 @@ public class AiServicesController : BaseApiController
     public AiServicesController(
         IUnitOfWork unitOfWork,
         ISemanticKernelServiceFactory semanticKernelFactory,
+        IHttpClientFactory httpClientFactory,
         IOptions<AiServiceTestOptions> aiServiceTestOptions,
         ILogger<AiServicesController> logger)
     {
         _unitOfWork = unitOfWork;
         _semanticKernelFactory = semanticKernelFactory;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
         _testTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.TimeoutSeconds, 1, 300);
         _testTimeout = TimeSpan.FromSeconds(_testTimeoutSeconds);
@@ -146,7 +150,7 @@ public class AiServicesController : BaseApiController
             EmbeddingModel = embeddingModel,
             LlmModel = llmModel,
             DisableThinking = request.DisableThinking,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         await _unitOfWork.AiServiceConfigs.AddAsync(entity);
@@ -210,7 +214,7 @@ public class AiServicesController : BaseApiController
             entity.ApiKey = NormalizeOptional(request.ApiKey);
         }
 
-        entity.UpdatedAt = DateTime.Now;
+        entity.UpdatedAt = DateTime.UtcNow;
         _unitOfWork.AiServiceConfigs.Update(entity);
 
         await _unitOfWork.SaveChangesAsync();
@@ -279,7 +283,7 @@ public class AiServicesController : BaseApiController
                     }
                     else
                     {
-                        var chat = _semanticKernelFactory.CreateChatCompletionService(entity);
+                        var chat = _semanticKernelFactory.CreateChatCompletionService(ToCoreModel(entity));
                         var history = new ChatHistory();
                         history.AddUserMessage("ping");
                         await chat.GetChatMessageContentAsync(history, cancellationToken: timeoutCts.Token);
@@ -323,7 +327,7 @@ public class AiServicesController : BaseApiController
                     }
                     else
                     {
-                        var embedding = _semanticKernelFactory.CreateEmbeddingGenerator(entity);
+                        var embedding = _semanticKernelFactory.CreateEmbeddingGenerator(ToCoreModel(entity));
                         var vector = await embedding.GenerateVectorAsync("ping", cancellationToken: timeoutCts.Token);
                         messages.Add($"Embedding: OK (dim={vector.ToArray().Length})");
                     }
@@ -436,10 +440,24 @@ public class AiServicesController : BaseApiController
         LlmModel = c.LlmModel,
         DisableThinking = c.DisableThinking,
         HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
-        ApiKey = c.ApiKey,
+        ApiKey = MaskApiKey(c.ApiKey),
         CreatedAt = c.CreatedAt,
         UpdatedAt = c.UpdatedAt
     };
+
+    private static string? MaskApiKey(string? apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+            return apiKey;
+
+        var value = apiKey.Trim();
+        if (value.Length <= 4)
+            return new string('*', value.Length);
+        if (value.Length <= 8)
+            return $"{value[..2]}***{value[^2..]}";
+
+        return $"{value[..4]}***{value[^4..]}";
+    }
 
     private async Task<AiServiceModelsResultDto> ProbeModelsAsync(AiServiceConfig config, CancellationToken cancellationToken)
     {
@@ -541,12 +559,11 @@ public class AiServicesController : BaseApiController
         return ParseModelsFromOllamaResponse(body);
     }
 
-    private static HttpClient CreateHttpClient()
+    private HttpClient CreateHttpClient()
     {
-        return new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(15)
-        };
+        var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(15);
+        return client;
     }
 
     private static string NormalizeOpenAiBaseUrl(string endpoint)
@@ -702,6 +719,39 @@ public class AiServicesController : BaseApiController
         if (purpose == AiServicePurpose.Embedding && string.IsNullOrWhiteSpace(embeddingModel))
             return "Embedding 模型不能为空";
         return null;
+    }
+
+    private static CoreAiServiceConfigModel ToCoreModel(AiServiceConfig entity)
+    {
+        return new CoreAiServiceConfigModel
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            ServiceType = entity.ServiceType switch
+            {
+                AcceptanceSpecSystem.Data.Entities.AiServiceType.OpenAI => AcceptanceSpecSystem.Core.AI.Models.AiServiceType.OpenAI,
+                AcceptanceSpecSystem.Data.Entities.AiServiceType.AzureOpenAI => AcceptanceSpecSystem.Core.AI.Models.AiServiceType.AzureOpenAI,
+                AcceptanceSpecSystem.Data.Entities.AiServiceType.Ollama => AcceptanceSpecSystem.Core.AI.Models.AiServiceType.Ollama,
+                AcceptanceSpecSystem.Data.Entities.AiServiceType.LMStudio => AcceptanceSpecSystem.Core.AI.Models.AiServiceType.LMStudio,
+                _ => AcceptanceSpecSystem.Core.AI.Models.AiServiceType.CustomOpenAICompatible
+            },
+            Purpose = entity.Purpose switch
+            {
+                AcceptanceSpecSystem.Data.Entities.AiServicePurpose.Llm => AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose.Llm,
+                AcceptanceSpecSystem.Data.Entities.AiServicePurpose.Embedding => AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose.Embedding,
+                AcceptanceSpecSystem.Data.Entities.AiServicePurpose.Llm | AcceptanceSpecSystem.Data.Entities.AiServicePurpose.Embedding
+                    => AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose.Llm | AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose.Embedding,
+                _ => AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose.None
+            },
+            Priority = entity.Priority,
+            ApiKey = entity.ApiKey,
+            Endpoint = entity.Endpoint,
+            EmbeddingModel = entity.EmbeddingModel,
+            LlmModel = entity.LlmModel,
+            DisableThinking = entity.DisableThinking,
+            CreatedAt = entity.CreatedAt,
+            UpdatedAt = entity.UpdatedAt
+        };
     }
 
 }

@@ -128,7 +128,7 @@ public class SystemUsersController : BaseApiController
         if (!assignedOrgUnitId.HasValue)
             return Error<SystemUserDto>(400, "组织节点无效，单组织系统只允许根组织");
 
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         var user = new SystemUser
         {
             CompanyId = companyId.Value,
@@ -217,7 +217,7 @@ public class SystemUsersController : BaseApiController
         user.Avatar = NormalizeOptional(request.Avatar);
         user.IsActive = request.IsActive;
         user.PermissionVersion += 1;
-        user.UpdatedAt = DateTime.Now;
+        user.UpdatedAt = DateTime.UtcNow;
 
         _dbContext.AuthUserRoles.RemoveRange(user.UserRoles);
         _dbContext.AuthUserOrgUnits.RemoveRange(user.UserOrgUnits);
@@ -228,7 +228,7 @@ public class SystemUsersController : BaseApiController
             RoleId = role.Id,
             StartAt = request.RoleStartAt,
             EndAt = request.RoleEndAt,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         });
 
         await _dbContext.AuthUserOrgUnits.AddAsync(new AuthUserOrgUnit
@@ -238,7 +238,7 @@ public class SystemUsersController : BaseApiController
             IsPrimary = true,
             StartAt = request.OrgStartAt,
             EndAt = request.OrgEndAt,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         });
 
         _unitOfWork.SystemUsers.Update(user);
@@ -284,7 +284,7 @@ public class SystemUsersController : BaseApiController
 
         user.IsActive = request.IsActive;
         user.PermissionVersion += 1;
-        user.UpdatedAt = DateTime.Now;
+        user.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.SystemUsers.Update(user);
         await _unitOfWork.SaveChangesAsync();
@@ -315,7 +315,7 @@ public class SystemUsersController : BaseApiController
 
         user.PasswordHash = _authPasswordService.HashPassword(request.NewPassword);
         user.PermissionVersion += 1;
-        user.UpdatedAt = DateTime.Now;
+        user.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.SystemUsers.Update(user);
         await _unitOfWork.SaveChangesAsync();
@@ -426,7 +426,7 @@ public class SystemUsersController : BaseApiController
 
     private static string? GetEffectiveRoleCode(SystemUser user)
     {
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         var activeRoleLinks = user.UserRoles
             .Where(ur =>
                 ur.Role.IsActive &&
@@ -486,7 +486,7 @@ public class SystemUsersController : BaseApiController
 
     private static SystemUserDto ToDto(SystemUser user)
     {
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         var activeRoleLinks = user.UserRoles
             .Where(ur =>
                 ur.Role.IsActive &&

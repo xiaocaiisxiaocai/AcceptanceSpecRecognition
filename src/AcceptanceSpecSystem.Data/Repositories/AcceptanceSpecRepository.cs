@@ -118,34 +118,138 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
             .ToListAsync();
     }
 
-    /// <summary>
-    /// 获取按（客户、机型、制程）分组的汇总信息。
-    /// 利用已有的 eager load 方法加载后在内存中 GroupBy（数据量可控）。
-    /// </summary>
-    public async Task<IReadOnlyList<(int CustomerId, string CustomerName, int? MachineModelId, string? MachineModelName, int? ProcessId, string? ProcessName, int SpecCount)>> GetGroupSummaryAsync()
+    public async Task<(IReadOnlyList<AcceptanceSpec> Items, int Total)> GetPagedWithFilterAsync(AcceptanceSpecQueryOptions options)
     {
-        var allSpecs = await GetAllWithCustomerAndProcessAsync();
+        var page = options.Page;
+        var pageSize = options.PageSize;
 
-        var groups = allSpecs
-            .GroupBy(s => new { s.CustomerId, s.MachineModelId, s.ProcessId })
-            .Select(g =>
+        var query = CreateFilteredQuery(options, includeNavigation: true);
+
+        var total = await query.CountAsync();
+        var items = await query
+            .OrderByDescending(s => s.ImportedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, total);
+    }
+
+    public async Task<IReadOnlyList<AcceptanceSpec>> GetFilteredWithIncludesAsync(AcceptanceSpecQueryOptions options)
+    {
+        return await CreateFilteredQuery(options, includeNavigation: true)
+            .OrderByDescending(s => s.ImportedAt)
+            .ToListAsync();
+    }
+
+    public async Task<IReadOnlyList<AcceptanceSpecGroupSummaryItem>> GetGroupSummaryWithFilterAsync(AcceptanceSpecQueryOptions options)
+    {
+        var query = CreateFilteredQuery(options, includeNavigation: false);
+
+        return await query
+            .GroupBy(s => new
             {
-                var first = g.First();
-                return (
-                    CustomerId: g.Key.CustomerId,
-                    CustomerName: first.Customer?.Name ?? "",
-                    MachineModelId: g.Key.MachineModelId,
-                    MachineModelName: first.MachineModel?.Name,
-                    ProcessId: g.Key.ProcessId,
-                    ProcessName: first.Process?.Name,
-                    SpecCount: g.Count()
-                );
+                s.CustomerId,
+                CustomerName = s.Customer.Name,
+                s.MachineModelId,
+                MachineModelName = s.MachineModel != null ? s.MachineModel.Name : null,
+                s.ProcessId,
+                ProcessName = s.Process != null ? s.Process.Name : null
+            })
+            .Select(g => new AcceptanceSpecGroupSummaryItem
+            {
+                CustomerId = g.Key.CustomerId,
+                CustomerName = g.Key.CustomerName,
+                MachineModelId = g.Key.MachineModelId,
+                MachineModelName = g.Key.MachineModelName,
+                ProcessId = g.Key.ProcessId,
+                ProcessName = g.Key.ProcessName,
+                SpecCount = g.Count()
             })
             .OrderBy(g => g.CustomerName)
             .ThenBy(g => g.MachineModelName)
             .ThenBy(g => g.ProcessName)
-            .ToList();
+            .ToListAsync();
+    }
 
-        return groups;
+    private IQueryable<AcceptanceSpec> CreateFilteredQuery(AcceptanceSpecQueryOptions options, bool includeNavigation)
+    {
+        var query = Query();
+        if (includeNavigation)
+        {
+            query = query
+                .Include(s => s.Customer)
+                .Include(s => s.Process)
+                .Include(s => s.MachineModel);
+        }
+
+        return ApplyFilters(ApplyScope(query, options), options);
+    }
+
+    private static IQueryable<AcceptanceSpec> ApplyScope(IQueryable<AcceptanceSpec> query, AcceptanceSpecQueryOptions options)
+    {
+        if (options.IsAll)
+            return query;
+
+        var scopedOrgUnitIds = options.OrgUnitIds.Distinct().ToArray();
+
+        if (options.IncludeSelf && scopedOrgUnitIds.Length > 0)
+        {
+            return query.Where(s =>
+                (s.CreatedByUserId.HasValue && s.CreatedByUserId.Value == options.UserId) ||
+                (s.OwnerOrgUnitId.HasValue && scopedOrgUnitIds.Contains(s.OwnerOrgUnitId.Value)));
+        }
+
+        if (options.IncludeSelf)
+        {
+            return query.Where(s =>
+                s.CreatedByUserId.HasValue && s.CreatedByUserId.Value == options.UserId);
+        }
+
+        if (scopedOrgUnitIds.Length > 0)
+        {
+            return query.Where(s =>
+                s.OwnerOrgUnitId.HasValue && scopedOrgUnitIds.Contains(s.OwnerOrgUnitId.Value));
+        }
+
+        return query.Where(_ => false);
+    }
+
+    private static IQueryable<AcceptanceSpec> ApplyFilters(IQueryable<AcceptanceSpec> query, AcceptanceSpecQueryOptions options)
+    {
+        if (options.ProcessId.HasValue)
+        {
+            query = query.Where(spec => spec.ProcessId == options.ProcessId.Value);
+        }
+        else if (options.ProcessIdIsNull == true)
+        {
+            query = query.Where(spec => spec.ProcessId == null);
+        }
+
+        if (options.MachineModelId.HasValue)
+        {
+            query = query.Where(spec => spec.MachineModelId == options.MachineModelId.Value);
+        }
+        else if (options.MachineModelIdIsNull == true)
+        {
+            query = query.Where(spec => spec.MachineModelId == null);
+        }
+
+        if (options.CustomerId.HasValue)
+        {
+            query = query.Where(spec => spec.CustomerId == options.CustomerId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Keyword))
+        {
+            var keyword = options.Keyword.Trim();
+            query = query.Where(spec =>
+                spec.Project.Contains(keyword) ||
+                spec.Specification.Contains(keyword) ||
+                (spec.Acceptance != null && spec.Acceptance.Contains(keyword)) ||
+                (spec.Remark != null && spec.Remark.Contains(keyword)));
+        }
+
+        return query;
     }
 }

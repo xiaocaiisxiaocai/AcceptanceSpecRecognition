@@ -18,7 +18,7 @@ public class Customer
     /// <summary>
     /// 创建时间
     /// </summary>
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// 导航属性：该客户下的所有验收规格（按 CustomerId 归属）

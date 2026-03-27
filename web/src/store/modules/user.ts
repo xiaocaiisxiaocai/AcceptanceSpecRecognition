@@ -99,14 +99,24 @@ export const useUserStore = defineStore("pure-user", {
       });
     },
     /** 前端登出（不调用接口） */
-    logOut() {
+    logOut(redirectPath?: string) {
+      this.avatar = "";
       this.username = "";
+      this.nickname = "";
       this.roleCode = "";
       this.permissions = [];
       removeToken();
+      storageLocal().removeItem("async-routes");
+      usePermissionStoreHook().clearAllCachePage();
       useMultiTagsStoreHook().handleTags("equal", [...routerArrays]);
       resetRouter();
-      router.push("/login");
+      const loginTarget =
+        typeof redirectPath === "string" &&
+        redirectPath.startsWith("/") &&
+        redirectPath !== "/login"
+          ? { path: "/login", query: { redirect: redirectPath } }
+          : { path: "/login" };
+      router.push(loginTarget);
     },
     /** 刷新`token` */
     async handRefreshToken(data) {

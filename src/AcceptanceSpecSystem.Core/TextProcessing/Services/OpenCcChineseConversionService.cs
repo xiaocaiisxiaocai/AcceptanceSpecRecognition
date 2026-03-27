@@ -1,6 +1,6 @@
 using System.Reflection;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
-using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Core.TextProcessing.Models;
 using OpenCCNET;
 
 namespace AcceptanceSpecSystem.Core.TextProcessing.Services;

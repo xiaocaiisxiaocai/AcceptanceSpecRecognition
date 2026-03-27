@@ -77,7 +77,7 @@ public class PromptTemplateRepository : Repository<PromptTemplate>, IPromptTempl
                 Content = defaultContent,
                 Scene = scene,
                 IsSystem = true,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             };
 
             await _dbSet.AddAsync(template);
@@ -117,7 +117,7 @@ public class PromptTemplateRepository : Repository<PromptTemplate>, IPromptTempl
 
         if (changed)
         {
-            template.UpdatedAt = DateTime.Now;
+            template.UpdatedAt = DateTime.UtcNow;
         }
 
         return template;
@@ -139,20 +139,27 @@ public class PromptTemplateRepository : Repository<PromptTemplate>, IPromptTempl
     /// <param name="id">模板ID</param>
     public async Task SetDefaultAsync(int id)
     {
-        // 先取消当前默认
-        var currentDefault = await _dbSet.FirstOrDefaultAsync(p => p.IsDefault);
-        if (currentDefault != null)
+        if (!await _dbSet.AnyAsync(p => p.Id == id))
         {
-            currentDefault.IsDefault = false;
+            return;
         }
 
-        // 设置新默认
-        var newDefault = await _dbSet.FindAsync(id);
-        if (newDefault != null)
-        {
-            newDefault.IsDefault = true;
-            newDefault.UpdatedAt = DateTime.Now;
-        }
+        var now = DateTime.UtcNow;
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        await _dbSet.ExecuteUpdateAsync(setters => setters
+            .SetProperty(template => template.IsDefault, _ => false)
+            .SetProperty(
+                template => template.UpdatedAt,
+                template => template.IsDefault ? now : template.UpdatedAt));
+
+        await _dbSet
+            .Where(template => template.Id == id)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(template => template.IsDefault, _ => true)
+                .SetProperty(template => template.UpdatedAt, _ => now));
+
+        await transaction.CommitAsync();
     }
 
     /// <summary>
@@ -171,7 +178,7 @@ public class PromptTemplateRepository : Repository<PromptTemplate>, IPromptTempl
                 Name = "default",
                 Content = defaultContent,
                 IsDefault = true,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             };
 
             await _dbSet.AddAsync(template);

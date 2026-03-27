@@ -282,7 +282,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
             Depth = 1,
             Sort = 0,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         dbContext.OrgUnits.Add(child);

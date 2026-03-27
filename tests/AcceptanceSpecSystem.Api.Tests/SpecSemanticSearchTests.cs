@@ -140,19 +140,19 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
         var customer = new Customer
         {
             Name = $"语义客户-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var process = new Process
         {
             Name = $"语义制程-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var wordFile = new WordFile
         {
             FileName = $"semantic-{suffix}.docx",
             FileContent = Array.Empty<byte>(),
             FileHash = Guid.NewGuid().ToString("N"),
-            UploadedAt = DateTime.Now
+            UploadedAt = DateTime.UtcNow
         };
 
         dbContext.Customers.Add(customer);
@@ -171,7 +171,7 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = 1,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now
+            ImportedAt = DateTime.UtcNow
         };
         var spec2 = new AcceptanceSpec
         {
@@ -184,7 +184,7 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = 1,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now.AddMinutes(1)
+            ImportedAt = DateTime.UtcNow.AddMinutes(1)
         };
         var spec3 = new AcceptanceSpec
         {
@@ -197,7 +197,7 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = 1,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now.AddMinutes(2)
+            ImportedAt = DateTime.UtcNow.AddMinutes(2)
         };
 
         dbContext.AcceptanceSpecs.AddRange(spec1, spec2, spec3);
@@ -221,19 +221,19 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
         var customer = new Customer
         {
             Name = $"语义范围客户-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var process = new Process
         {
             Name = $"语义范围制程-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var wordFile = new WordFile
         {
             FileName = $"semantic-scope-{suffix}.docx",
             FileContent = Array.Empty<byte>(),
             FileHash = Guid.NewGuid().ToString("N"),
-            UploadedAt = DateTime.Now
+            UploadedAt = DateTime.UtcNow
         };
         var inScopeOrg = new OrgUnit
         {
@@ -246,7 +246,7 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
             Depth = 1,
             Sort = 1,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var outOfScopeOrg = new OrgUnit
         {
@@ -259,7 +259,7 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
             Depth = 1,
             Sort = 2,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         dbContext.Customers.Add(customer);
@@ -284,7 +284,7 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = inScopeOrg.Id,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now
+            ImportedAt = DateTime.UtcNow
         };
         var outOfScopeSpec = new AcceptanceSpec
         {
@@ -297,7 +297,7 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = outOfScopeOrg.Id,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now.AddMinutes(1)
+            ImportedAt = DateTime.UtcNow.AddMinutes(1)
         };
 
         dbContext.AcceptanceSpecs.AddRange(inScopeSpec, outOfScopeSpec);
@@ -326,7 +326,7 @@ public class SpecSemanticSearchTests : IClassFixture<ApiWebApplicationFactory>
                 RoleId = commonRoleId,
                 Resource = "spec",
                 ScopeType = DataScopeType.CustomNodes,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             };
             dbContext.AuthRoleDataScopes.Add(roleScope);
         }

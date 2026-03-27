@@ -56,8 +56,17 @@ public interface IAcceptanceSpecRepository : IRepository<AcceptanceSpec>
     Task<IReadOnlyList<AcceptanceSpec>> SearchAsync(int processId, string searchTerm);
 
     /// <summary>
-    /// 获取按（客户、机型、制程）分组的汇总信息，返回每组的名称和规格数量。
-    /// 用途：左侧分组树构建。
+    /// 按筛选条件分页获取验收规格，并在数据库侧完成范围过滤、查询和分页。
     /// </summary>
-    Task<IReadOnlyList<(int CustomerId, string CustomerName, int? MachineModelId, string? MachineModelName, int? ProcessId, string? ProcessName, int SpecCount)>> GetGroupSummaryAsync();
+    Task<(IReadOnlyList<AcceptanceSpec> Items, int Total)> GetPagedWithFilterAsync(AcceptanceSpecQueryOptions options);
+
+    /// <summary>
+    /// 按筛选条件获取验收规格，并在数据库侧完成范围过滤和查询。
+    /// </summary>
+    Task<IReadOnlyList<AcceptanceSpec>> GetFilteredWithIncludesAsync(AcceptanceSpecQueryOptions options);
+
+    /// <summary>
+    /// 按筛选条件获取分组汇总，并在数据库侧完成范围过滤和分组。
+    /// </summary>
+    Task<IReadOnlyList<AcceptanceSpecGroupSummaryItem>> GetGroupSummaryWithFilterAsync(AcceptanceSpecQueryOptions options);
 }

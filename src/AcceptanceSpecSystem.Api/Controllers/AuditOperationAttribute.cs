@@ -120,7 +120,7 @@ public sealed class AuditOperationFilter : IAsyncActionFilter
                 ClientId = TrimToLength(httpContext.Request.Headers["X-Client-Id"].FirstOrDefault(), 64),
                 FrontendRoute = TrimToLength(httpContext.Request.Headers["X-Frontend-Route"].FirstOrDefault(), 512),
                 Details = TrimToLength(JsonSerializer.Serialize(detailsPayload, JsonOptions), 4000),
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             };
 
             await _unitOfWork.AuditLogs.AddAsync(entity);

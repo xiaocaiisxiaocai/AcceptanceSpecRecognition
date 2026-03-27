@@ -78,15 +78,37 @@ const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
 const loading = ref(false);
 const llmStreaming = ref(false);
 const llmStreamController = ref<AbortController | null>(null);
+const previewAbortController = ref<AbortController | null>(null);
 let previewRequestVersion = 0;
 
+const stopPreviewRequest = () => {
+  const controller = previewAbortController.value;
+  controller?.abort();
+  if (previewAbortController.value === controller) {
+    previewAbortController.value = null;
+  }
+};
+
 const invalidatePendingPreview = () => {
+  stopPreviewRequest();
   previewRequestVersion++;
   loading.value = false;
 };
 
-// 页面卸载时清理 SSE 连接，防止连接泄漏
+const triggerBrowserDownload = (blob: Blob, fileName: string) => {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
+
+// 页面卸载时清理进行中的预览/流式请求，防止离页后继续占用资源
 onBeforeUnmount(() => {
+  invalidatePendingPreview();
   stopLlmStream();
 });
 
@@ -308,6 +330,9 @@ const doPreview = async () => {
   taskId.value = null;
   strictReuseVisible.value = false;
   loading.value = true;
+  stopPreviewRequest();
+  const controller = new AbortController();
+  previewAbortController.value = controller;
   try {
     const scope = matchConfigRef.value?.getScope() ?? {
       customerId: undefined,
@@ -332,13 +357,16 @@ const doPreview = async () => {
       processId: scope.processId,
       machineModelId: scope.machineModelId,
       config: matchConfig.value
+    }, {
+      signal: controller.signal
     });
 
     if (res.code === 0) {
       if (
         requestVersion !== previewRequestVersion ||
         currentStep.value !== 3 ||
-        uploadedFile.value?.fileId !== fileId
+        uploadedFile.value?.fileId !== fileId ||
+        previewAbortController.value !== controller
       ) {
         return;
       }
@@ -352,10 +380,21 @@ const doPreview = async () => {
       if (requestVersion !== previewRequestVersion) return;
       ElMessage.error(res.message || "匹配预览失败");
     }
-  } catch {
-    if (requestVersion !== previewRequestVersion) return;
+  } catch (error: any) {
+    if (
+      requestVersion !== previewRequestVersion ||
+      controller.signal.aborted ||
+      error?.code === "ERR_CANCELED" ||
+      error?.name === "CanceledError" ||
+      error?.isCancelRequest
+    ) {
+      return;
+    }
     ElMessage.error("匹配预览失败");
   } finally {
+    if (previewAbortController.value === controller) {
+      previewAbortController.value = null;
+    }
     if (requestVersion === previewRequestVersion) {
       loading.value = false;
     }
@@ -643,13 +682,8 @@ const handleExecute = async () => {
       taskId.value = res.data.taskId;
       try {
         const blob = await downloadFillResult(res.data.taskId);
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
         const originalName = uploadedFile.value.fileName || "filled.docx";
-        a.download = originalName;
-        a.click();
-        window.URL.revokeObjectURL(url);
+        triggerBrowserDownload(blob, originalName);
 
         if (isExcelFile.value) {
           ElMessage.success(

@@ -140,18 +140,19 @@ public class DocumentsController : BaseApiController
         }
 
         var fileType = extension == ".xlsx" ? UploadedFileType.ExcelXlsx : UploadedFileType.WordDocx;
+        var cancellationToken = HttpContext.RequestAborted;
 
         byte[] fileContent;
         using (var memoryStream = new MemoryStream())
         {
-            await file.CopyToAsync(memoryStream);
+            await file.CopyToAsync(memoryStream, cancellationToken);
             fileContent = memoryStream.ToArray();
         }
 
         // 保存为临时文件（不做哈希去重）
         var filePath = fileType == UploadedFileType.ExcelXlsx
-            ? await _fileStorage.SaveUploadedExcelAsync(file.FileName, fileContent)
-            : await _fileStorage.SaveUploadedWordAsync(file.FileName, fileContent);
+            ? await _fileStorage.SaveUploadedExcelAsync(file.FileName, fileContent, cancellationToken)
+            : await _fileStorage.SaveUploadedWordAsync(file.FileName, fileContent, cancellationToken);
 
         var wordFile = new WordFile
         {
@@ -159,7 +160,7 @@ public class DocumentsController : BaseApiController
             FileContent = Array.Empty<byte>(),
             FilePath = filePath,
             FileHash = Guid.NewGuid().ToString("N"),
-            UploadedAt = DateTime.Now,
+            UploadedAt = DateTime.UtcNow,
             FileType = fileType
         };
 
@@ -1592,7 +1593,7 @@ public class DocumentsController : BaseApiController
         existingSpec.Acceptance = NormalizeNullable(acceptance);
         existingSpec.Remark = NormalizeNullable(remark);
         existingSpec.WordFileId = wordFileId;
-        existingSpec.ImportedAt = DateTime.Now;
+        existingSpec.ImportedAt = DateTime.UtcNow;
     }
 
     private static void OverwriteAcceptanceAndRemark(
@@ -1610,7 +1611,7 @@ public class DocumentsController : BaseApiController
         existingSpec.Acceptance = NormalizeNullable(acceptance);
         existingSpec.Remark = NormalizeNullable(remark);
         existingSpec.WordFileId = wordFileId;
-        existingSpec.ImportedAt = DateTime.Now;
+        existingSpec.ImportedAt = DateTime.UtcNow;
     }
 
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()
@@ -1645,7 +1646,7 @@ public class DocumentsController : BaseApiController
             CreatedByUserId = createdByUserId,
             OwnerOrgUnitId = ownerOrgUnitId,
             WordFileId = wordFileId,
-            ImportedAt = DateTime.Now
+            ImportedAt = DateTime.UtcNow
         };
     }
 

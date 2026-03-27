@@ -1,9 +1,11 @@
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
-using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Core.AI.Models;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel.ChatCompletion;
 using System.Net;
+using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -15,8 +17,11 @@ public class OllamaNativeChatCompletionServiceTests
     [Fact]
     public void CreateChatCompletionService_OllamaDisableThinkingChanged_ShouldUseDifferentCachedInstances()
     {
-        var factory = new SemanticKernelServiceFactory(NullLoggerFactory.Instance);
-        var config = new AiServiceConfig
+        var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            new FakeHttpClientFactory(new HttpClient()),
+            Options.Create(new SemanticKernelOptions()));
+        var config = new AiServiceConfigModel
         {
             Id = 7,
             ServiceType = AiServiceType.Ollama,
@@ -33,6 +38,31 @@ public class OllamaNativeChatCompletionServiceTests
         first.Should().NotBeSameAs(second);
         first.GetType().Name.Should().Be("OllamaNativeChatCompletionService");
         second.GetType().Name.Should().Be("OllamaNativeChatCompletionService");
+    }
+
+    [Fact]
+    public void SemanticKernelServiceFactory_ShouldUseHttpClientFactory_ForOllama()
+    {
+        var expectedClient = new HttpClient();
+        var httpClientFactory = new FakeHttpClientFactory(expectedClient);
+        using var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            httpClientFactory,
+            Options.Create(new SemanticKernelOptions()));
+        var config = new AiServiceConfigModel
+        {
+            Id = 15,
+            ServiceType = AiServiceType.Ollama,
+            Endpoint = "http://127.0.0.1:11434/api",
+            LlmModel = "qwen3.5:35b"
+        };
+
+        var chatService = factory.CreateChatCompletionService(config);
+
+        httpClientFactory.CreateClientCallCount.Should().Be(1);
+        var httpClientField = chatService.GetType().GetField("_httpClient", BindingFlags.Instance | BindingFlags.NonPublic);
+        httpClientField.Should().NotBeNull();
+        httpClientField!.GetValue(chatService).Should().BeSameAs(expectedClient);
     }
 
     [Fact]
@@ -75,7 +105,7 @@ public class OllamaNativeChatCompletionServiceTests
         });
 
         var service = CreateOllamaNativeService(
-            new AiServiceConfig
+            new AiServiceConfigModel
             {
                 Id = 11,
                 ServiceType = AiServiceType.Ollama,
@@ -104,7 +134,7 @@ public class OllamaNativeChatCompletionServiceTests
         json.RootElement.GetProperty("messages")[0].GetProperty("content").GetString().Should().Be("你好");
     }
 
-    private static IChatCompletionService CreateOllamaNativeService(AiServiceConfig config)
+    private static IChatCompletionService CreateOllamaNativeService(AiServiceConfigModel config)
     {
         var assembly = typeof(SemanticKernelServiceFactory).Assembly;
         var serviceType = assembly.GetType("AcceptanceSpecSystem.Core.AI.SemanticKernel.OllamaNativeChatCompletionService", throwOnError: true)!;
@@ -122,5 +152,23 @@ public class OllamaNativeChatCompletionServiceTests
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    private sealed class FakeHttpClientFactory : IHttpClientFactory
+    {
+        private readonly HttpClient _httpClient;
+
+        public FakeHttpClientFactory(HttpClient httpClient)
+        {
+            _httpClient = httpClient;
+        }
+
+        public int CreateClientCallCount { get; private set; }
+
+        public HttpClient CreateClient(string name)
+        {
+            CreateClientCallCount++;
+            return _httpClient;
+        }
     }
 }

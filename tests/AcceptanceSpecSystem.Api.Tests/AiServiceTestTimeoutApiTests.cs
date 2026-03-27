@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using CoreAiServiceConfigModel = AcceptanceSpecSystem.Core.AI.Models.AiServiceConfigModel;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
@@ -59,7 +60,7 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
             Endpoint = "http://127.0.0.1:11434/api",
             LlmModel = "qwen3.5:35b",
             DisableThinking = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         dbContext.AiServiceConfigs.Add(entity);
@@ -91,10 +92,10 @@ public sealed class AiServiceTimeoutApiWebApplicationFactory : ApiWebApplication
 
     private sealed class HangingSemanticKernelServiceFactory : ISemanticKernelServiceFactory
     {
-        public IChatCompletionService CreateChatCompletionService(AiServiceConfig config)
+        public IChatCompletionService CreateChatCompletionService(CoreAiServiceConfigModel config)
             => new HangingChatCompletionService();
 
-        public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfig config)
+        public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(CoreAiServiceConfigModel config)
             => throw new NotSupportedException("该测试未使用 Embedding。");
     }
 

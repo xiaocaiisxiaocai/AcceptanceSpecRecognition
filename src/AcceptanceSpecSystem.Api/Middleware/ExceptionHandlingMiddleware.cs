@@ -9,6 +9,11 @@ namespace AcceptanceSpecSystem.Api.Middleware;
 /// </summary>
 public class ExceptionHandlingMiddleware
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     private readonly RequestDelegate _next;
     private readonly ILogger<ExceptionHandlingMiddleware> _logger;
 
@@ -30,15 +35,38 @@ public class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
-        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            // 客户端主动断开连接（SSE / 长轮询等场景），不需要处理
-            _logger.LogDebug("客户端断开连接: {Path}", context.Request.Path);
+            await HandleOperationCanceledAsync(context);
         }
         catch (Exception ex)
         {
             await HandleExceptionAsync(context, ex);
         }
+    }
+
+    private async Task HandleOperationCanceledAsync(HttpContext context)
+    {
+        if (context.RequestAborted.IsCancellationRequested)
+        {
+            // 客户端主动断开连接（SSE / 长轮询等场景），不需要再尝试写回响应
+            _logger.LogDebug("客户端断开连接: {Path}", context.Request.Path);
+            return;
+        }
+
+        _logger.LogDebug("请求在服务端被取消: {Path}", context.Request.Path);
+
+        if (context.Response.HasStarted)
+        {
+            _logger.LogWarning("响应已开始，无法写入取消响应");
+            return;
+        }
+
+        context.Response.ContentType = "application/json; charset=utf-8";
+        context.Response.StatusCode = StatusCodes.Status408RequestTimeout;
+
+        var apiResponse = ApiResponse.Error(StatusCodes.Status408RequestTimeout, "请求已取消");
+        await context.Response.WriteAsync(JsonSerializer.Serialize(apiResponse, JsonOptions));
     }
 
     private async Task HandleExceptionAsync(HttpContext context, Exception exception)
@@ -67,12 +95,7 @@ public class ExceptionHandlingMiddleware
         response.StatusCode = (int)statusCode;
 
         var apiResponse = ApiResponse.Error(code, message);
-        var options = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
-
-        await response.WriteAsync(JsonSerializer.Serialize(apiResponse, options));
+        await response.WriteAsync(JsonSerializer.Serialize(apiResponse, JsonOptions));
     }
 }
 

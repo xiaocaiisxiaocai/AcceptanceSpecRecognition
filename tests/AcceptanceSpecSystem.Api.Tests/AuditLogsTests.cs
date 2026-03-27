@@ -60,8 +60,8 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
     [Fact]
     public async Task DeleteByRange_ShouldReturnSuccess()
     {
-        var from = DateTime.Now.AddMinutes(-5).ToString("yyyy-MM-ddTHH:mm:ss");
-        var to = DateTime.Now.AddMinutes(5).ToString("yyyy-MM-ddTHH:mm:ss");
+        var from = DateTime.UtcNow.AddMinutes(-5).ToString("yyyy-MM-ddTHH:mm:ss");
+        var to = DateTime.UtcNow.AddMinutes(5).ToString("yyyy-MM-ddTHH:mm:ss");
 
         var resp = await _client.DeleteAsync($"/api/audit-logs/range?from={Uri.EscapeDataString(from)}&to={Uri.EscapeDataString(to)}");
         resp.StatusCode.Should().Be(HttpStatusCode.OK);

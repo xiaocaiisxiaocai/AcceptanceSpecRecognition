@@ -47,11 +47,9 @@ public class EmbeddingCacheRepository : Repository<EmbeddingCache>, IEmbeddingCa
     /// <param name="modelName">模型名称</param>
     public async Task DeleteByModelNameAsync(string modelName)
     {
-        var caches = await _dbSet
+        await _dbSet
             .Where(e => e.ModelName == modelName)
-            .ToListAsync();
-
-        _dbSet.RemoveRange(caches);
+            .ExecuteDeleteAsync();
     }
 
     /// <summary>
@@ -75,12 +73,9 @@ public class EmbeddingCacheRepository : Repository<EmbeddingCache>, IEmbeddingCa
     /// <returns>删除的记录数</returns>
     public async Task<int> DeleteExpiredAsync(DateTime beforeTime)
     {
-        var expiredCaches = await _dbSet
+        return await _dbSet
             .Where(e => e.ExpiresAt != null && e.ExpiresAt < beforeTime)
-            .ToListAsync();
-
-        _dbSet.RemoveRange(expiredCaches);
-        return expiredCaches.Count;
+            .ExecuteDeleteAsync();
     }
 
     /// <summary>
@@ -91,11 +86,8 @@ public class EmbeddingCacheRepository : Repository<EmbeddingCache>, IEmbeddingCa
     /// <returns>删除的记录数</returns>
     public async Task<int> DeleteByModelVersionAsync(string modelName, string modelVersion)
     {
-        var oldVersionCaches = await _dbSet
+        return await _dbSet
             .Where(e => e.ModelName == modelName && e.ModelVersion != modelVersion)
-            .ToListAsync();
-
-        _dbSet.RemoveRange(oldVersionCaches);
-        return oldVersionCaches.Count;
+            .ExecuteDeleteAsync();
     }
 }

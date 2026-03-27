@@ -82,7 +82,7 @@ public class ColumnMappingRulesController : BaseApiController
             Pattern = pattern,
             Priority = request.Priority,
             Enabled = request.Enabled,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         await _unitOfWork.ColumnMappingRules.AddAsync(entity);
@@ -118,7 +118,7 @@ public class ColumnMappingRulesController : BaseApiController
         entity.Pattern = pattern;
         entity.Priority = request.Priority;
         entity.Enabled = request.Enabled;
-        entity.UpdatedAt = DateTime.Now;
+        entity.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.ColumnMappingRules.Update(entity);
         await _unitOfWork.SaveChangesAsync();

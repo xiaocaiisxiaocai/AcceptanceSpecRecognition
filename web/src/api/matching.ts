@@ -1,4 +1,5 @@
 import { http } from "@/utils/http";
+import type { PureHttpRequestConfig } from "@/utils/http/types.d";
 import type { ApiResponse } from "./customer";
 
 export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.95;
@@ -450,11 +451,15 @@ export interface BatchExecuteFillRequest {
 }
 
 /** 批量匹配预览（长超时：5分钟） */
-export const batchPreviewMatch = (data: BatchPreviewRequest) => {
+export const batchPreviewMatch = (
+  data: BatchPreviewRequest,
+  config?: PureHttpRequestConfig
+) => {
   return http.request<ApiResponse<BatchPreviewResponse>>(
     "post",
     `${baseUrl}/batch-preview`,
-    { data, timeout: 300000 }
+    { data, timeout: 300000 },
+    config
   );
 };
 

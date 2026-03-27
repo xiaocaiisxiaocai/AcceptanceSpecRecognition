@@ -18,6 +18,11 @@ public interface ISystemUserRepository : IRepository<SystemUser>
     Task<SystemUser?> GetByUsernameWithAccessAsync(string username);
 
     /// <summary>
+    /// 根据用户ID查询用户并加载鉴权所需关系（角色、权限、组织）
+    /// </summary>
+    Task<SystemUser?> GetByIdWithAccessAsync(int userId);
+
+    /// <summary>
     /// 分页查询系统用户
     /// </summary>
     Task<(IReadOnlyList<SystemUser> Items, int Total)> GetPagedAsync(

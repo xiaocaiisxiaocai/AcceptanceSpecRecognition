@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import {
   type MatchCandidateOption,
   type MatchPreviewItem,
@@ -28,6 +28,10 @@ const inlineDiffCache = new Map<
   string,
   { leftHtml: string; rightHtml: string; isSame: boolean }
 >();
+
+const clearInlineDiffCache = () => {
+  inlineDiffCache.clear();
+};
 
 const formatScore = (score: number) => `${(score * 100).toFixed(1)}%`;
 
@@ -225,6 +229,26 @@ watch(
   },
   { immediate: true }
 );
+
+watch(
+  () => props.visible,
+  visible => {
+    if (!visible) {
+      clearInlineDiffCache();
+    }
+  }
+);
+
+watch(
+  () => props.item,
+  () => {
+    clearInlineDiffCache();
+  }
+);
+
+onUnmounted(() => {
+  clearInlineDiffCache();
+});
 
 const comparisonBaseRows = computed(() => {
   const first = topCandidates.value[0];

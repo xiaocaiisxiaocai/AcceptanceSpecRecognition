@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using CorePromptTemplateScene = AcceptanceSpecSystem.Core.Matching.Models.PromptTemplateScene;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -132,7 +133,7 @@ public class PromptTemplatesController : BaseApiController
             Scene = PromptTemplateScene.Unknown,
             IsSystem = false,
             IsDefault = false,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         await _unitOfWork.PromptTemplates.AddAsync(entity);
@@ -166,7 +167,7 @@ public class PromptTemplatesController : BaseApiController
 
         if (entity.IsSystem)
         {
-            var validation = _validationService.Validate(entity.Scene, request.Content);
+            var validation = _validationService.Validate(ToCorePromptTemplateScene(entity.Scene), request.Content);
             if (!validation.IsValid)
             {
                 return Error<PromptTemplateDto>(400, string.Join("；", validation.Errors));
@@ -179,7 +180,7 @@ public class PromptTemplatesController : BaseApiController
         }
 
         entity.Content = request.Content;
-        entity.UpdatedAt = DateTime.Now;
+        entity.UpdatedAt = DateTime.UtcNow;
         _unitOfWork.PromptTemplates.Update(entity);
 
         await _unitOfWork.SaveChangesAsync();
@@ -259,15 +260,15 @@ public class PromptTemplatesController : BaseApiController
             return Error<PromptTemplateDto>(400, "模板场景不存在");
 
         var entity = await _unitOfWork.PromptTemplates.GetOrCreateSystemAsync(
-            definition.Scene,
+            ToDataPromptTemplateScene(definition.Scene),
             definition.Name,
             definition.DisplayName,
             definition.DefaultContent);
         entity.Content = definition.DefaultContent;
         entity.DisplayName = definition.DisplayName;
         entity.IsSystem = true;
-        entity.Scene = definition.Scene;
-        entity.UpdatedAt = DateTime.Now;
+        entity.Scene = ToDataPromptTemplateScene(definition.Scene);
+        entity.UpdatedAt = DateTime.UtcNow;
         await _unitOfWork.SaveChangesAsync();
 
         return Success(ToDto(entity), "恢复默认成功");
@@ -278,7 +279,7 @@ public class PromptTemplatesController : BaseApiController
         foreach (var definition in PromptTemplateCatalog.GetSystemTemplates())
         {
             await _unitOfWork.PromptTemplates.GetOrCreateSystemAsync(
-                definition.Scene,
+                ToDataPromptTemplateScene(definition.Scene),
                 definition.Name,
                 definition.DisplayName,
                 definition.DefaultContent);
@@ -303,6 +304,28 @@ public class PromptTemplatesController : BaseApiController
             AvailableVariables = definition?.AvailableVariables.ToList() ?? [],
             CreatedAt = template.CreatedAt,
             UpdatedAt = template.UpdatedAt
+        };
+    }
+
+    private static CorePromptTemplateScene ToCorePromptTemplateScene(PromptTemplateScene scene)
+    {
+        return scene switch
+        {
+            PromptTemplateScene.MatchingReview => CorePromptTemplateScene.MatchingReview,
+            PromptTemplateScene.ImportDuplicateReview => CorePromptTemplateScene.ImportDuplicateReview,
+            PromptTemplateScene.MatchingGenerate => CorePromptTemplateScene.MatchingGenerate,
+            _ => CorePromptTemplateScene.Unknown
+        };
+    }
+
+    private static PromptTemplateScene ToDataPromptTemplateScene(CorePromptTemplateScene scene)
+    {
+        return scene switch
+        {
+            CorePromptTemplateScene.MatchingReview => PromptTemplateScene.MatchingReview,
+            CorePromptTemplateScene.ImportDuplicateReview => PromptTemplateScene.ImportDuplicateReview,
+            CorePromptTemplateScene.MatchingGenerate => PromptTemplateScene.MatchingGenerate,
+            _ => PromptTemplateScene.Unknown
         };
     }
 }

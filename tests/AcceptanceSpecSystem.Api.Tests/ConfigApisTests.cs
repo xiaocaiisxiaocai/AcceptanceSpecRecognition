@@ -92,6 +92,39 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task AiServiceConfig_GetById_ShouldMaskStoredApiKey()
+    {
+        const string rawApiKey = "sk-secret-key-1234567890";
+
+        var createResp = await _client.PostAsync(
+            "/api/ai-services",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = $"masked-{Guid.NewGuid():N}",
+                serviceType = 0,
+                purpose = 1,
+                priority = 0,
+                endpoint = "https://api.openai.com/v1",
+                apiKey = rawApiKey,
+                llmModel = "gpt-4o-mini",
+                disableThinking = false
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var id = created.Data.GetProperty("id").GetInt32();
+
+        var getResp = await _client.GetAsync($"/api/ai-services/{id}");
+        getResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var detail = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        detail.Code.Should().Be(0);
+        detail.Data.GetProperty("hasApiKey").GetBoolean().Should().BeTrue();
+        detail.Data.GetProperty("apiKey").GetString().Should().NotBe(rawApiKey);
+        detail.Data.GetProperty("apiKey").GetString().Should().Contain("***");
+    }
+
+    [Fact]
     public async Task AiServiceConfig_Create_WithEndpointMissingDoubleSlash_ShouldNormalizeEndpoint()
     {
         var createResp = await _client.PostAsync(
@@ -260,7 +293,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             Endpoint = endpoint,
             LlmModel = llmModel,
             DisableThinking = false,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         dbContext.AiServiceConfigs.Add(entity);

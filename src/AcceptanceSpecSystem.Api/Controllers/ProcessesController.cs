@@ -133,7 +133,7 @@ public class ProcessesController : BaseApiController
         var process = new Process
         {
             Name = request.Name,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         await _unitOfWork.Processes.AddAsync(process);
@@ -240,31 +240,17 @@ public class ProcessesController : BaseApiController
             return NotFoundResult<PagedData<AcceptanceSpecDto>>("制程不存在");
         }
 
-        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
-        allSpecs = SpecDataScopeHelper
-            .ApplyScope(allSpecs.Where(s => s.ProcessId == id), scope)
-            .ToList();
+        var queryOptions = BuildSpecQueryOptions(scope, id, keyword, page, pageSize);
+        var (specs, total) = await _unitOfWork.AcceptanceSpecs.GetPagedWithFilterAsync(queryOptions);
 
-        // 按关键字筛选
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            allSpecs = allSpecs.Where(s =>
-                s.Project.Contains(keyword) ||
-                s.Specification.Contains(keyword)).ToList();
-        }
-
-        var total = allSpecs.Count;
-        var items = allSpecs
-            .OrderByDescending(s => s.ImportedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+        var items = specs
             .Select(s => new AcceptanceSpecDto
             {
                 Id = s.Id,
                 CustomerId = s.CustomerId,
                 ProcessId = s.ProcessId,
                 MachineModelId = s.MachineModelId,
-                ProcessName = process.Name,
+                ProcessName = s.Process?.Name ?? process.Name,
                 MachineModelName = s.MachineModel?.Name ?? "",
                 CustomerName = s.Customer?.Name ?? "",
                 Project = s.Project,
@@ -289,6 +275,26 @@ public class ProcessesController : BaseApiController
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()
     {
         return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
+    }
+
+    private static AcceptanceSpecQueryOptions BuildSpecQueryOptions(
+        DataScopeResult scope,
+        int processId,
+        string? keyword,
+        int page,
+        int pageSize)
+    {
+        return new AcceptanceSpecQueryOptions
+        {
+            UserId = scope.UserId,
+            IsAll = scope.IsAll,
+            IncludeSelf = scope.IncludeSelf,
+            OrgUnitIds = scope.OrgUnitIds.ToArray(),
+            ProcessId = processId,
+            Keyword = keyword,
+            Page = page,
+            PageSize = pageSize
+        };
     }
 
     private async Task<Dictionary<int, int>> BuildProcessSpecCountAsync(

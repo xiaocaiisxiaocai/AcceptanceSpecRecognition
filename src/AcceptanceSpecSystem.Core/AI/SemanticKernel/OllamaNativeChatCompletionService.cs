@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Core.AI.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
@@ -15,8 +15,9 @@ namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 /// <summary>
 /// Ollama LLM 原生 Chat 服务，直接调用 /api/chat，确保 think=false 等原生参数生效。
 /// </summary>
-internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
+internal sealed class OllamaNativeChatCompletionService : IChatCompletionService, IDisposable
 {
+    internal const int DefaultRequestTimeoutSeconds = 120;
     private const string KeepAlive = "30m";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -31,7 +32,7 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
     private readonly bool _disableThinking;
 
     public OllamaNativeChatCompletionService(
-        AiServiceConfig config,
+        AiServiceConfigModel config,
         HttpClient httpClient,
         ILogger<OllamaNativeChatCompletionService> logger)
     {
@@ -42,7 +43,6 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
         _baseUrl = NormalizeOllamaBaseUrl(config.Endpoint);
         _disableThinking = config.DisableThinking;
         _httpClient = httpClient;
-        _httpClient.Timeout = Timeout.InfiniteTimeSpan;
         _logger = logger;
 
         Attributes = new Dictionary<string, object?>
@@ -64,10 +64,11 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
     {
         var request = BuildRequest(chatHistory, stream: false);
         using var httpRequest = CreateHttpRequestMessage(request);
+        using var requestCts = CreateRequestCancellationTokenSource(cancellationToken);
         var stopwatch = Stopwatch.StartNew();
 
-        using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, requestCts.Token);
+        var body = await response.Content.ReadAsStringAsync(requestCts.Token);
         EnsureSuccess(response, body);
 
         var payload = JsonSerializer.Deserialize<OllamaChatResponse>(body, JsonOptions)
@@ -95,21 +96,22 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
     {
         var request = BuildRequest(chatHistory, stream: true);
         using var httpRequest = CreateHttpRequestMessage(request);
+        using var requestCts = CreateRequestCancellationTokenSource(cancellationToken);
         var stopwatch = Stopwatch.StartNew();
 
-        using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, requestCts.Token);
         if (!response.IsSuccessStatusCode)
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(requestCts.Token);
             EnsureSuccess(response, body);
         }
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(requestCts.Token);
         using var reader = new StreamReader(stream, Encoding.UTF8);
 
         while (true)
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
+            var line = await reader.ReadLineAsync(requestCts.Token);
             if (line == null)
                 yield break;
 
@@ -227,6 +229,13 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
         throw new InvalidOperationException($"Ollama 返回 {((int)response.StatusCode)}: {TrimMessage(body)}");
     }
 
+    private static CancellationTokenSource CreateRequestCancellationTokenSource(CancellationToken cancellationToken)
+    {
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        linkedCts.CancelAfter(TimeSpan.FromSeconds(DefaultRequestTimeoutSeconds));
+        return linkedCts;
+    }
+
     private static string NormalizeOllamaBaseUrl(string? endpoint)
     {
         var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint, "Ollama Endpoint").TrimEnd('/');
@@ -245,6 +254,11 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
 
         message = message.Trim();
         return message.Length <= maxLength ? message : $"{message[..maxLength]}...";
+    }
+
+    public void Dispose()
+    {
+        _httpClient.Dispose();
     }
 
     private sealed class OllamaChatRequest

@@ -2,6 +2,7 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
+using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Interfaces;
 using AcceptanceSpecSystem.Core.Documents.Models;
@@ -11,20 +12,20 @@ using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 
-namespace AcceptanceSpecSystem.Api.Controllers;
+namespace AcceptanceSpecSystem.Api.Services;
 
 /// <summary>
-/// 智能匹配API控制器
+/// 智能匹配共享工作流服务
 /// </summary>
-[Route("api/matching")]
-public class MatchingController : BaseApiController
+public class MatchingWorkflowService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMatchingService _matchingService;
@@ -35,9 +36,9 @@ public class MatchingController : BaseApiController
     private readonly ILlmSuggestionService _llmSuggestionService;
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IEmbeddingService _embeddingService;
-    private readonly AiServiceSelector _aiServiceSelector;
+    private readonly IAiServiceSelector _aiServiceSelector;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<MatchingController> _logger;
+    private readonly ILogger<MatchingWorkflowService> _logger;
 
     private static readonly JsonSerializerOptions SseJsonOptions = new()
     {
@@ -45,6 +46,7 @@ public class MatchingController : BaseApiController
     };
     private static readonly JsonSerializerOptions FillTaskJsonOptions = new(JsonSerializerDefaults.Web);
     private const int FillTaskRetentionHours = 24;
+    private const int CurrentFillTaskPayloadVersion = 2;
 
     private sealed class CandidateSpecRow
     {
@@ -62,9 +64,9 @@ public class MatchingController : BaseApiController
     }
 
     /// <summary>
-    /// 创建匹配控制器实例
+    /// 创建匹配工作流服务实例
     /// </summary>
-    public MatchingController(
+    public MatchingWorkflowService(
         IUnitOfWork unitOfWork,
         IMatchingService matchingService,
         DocumentServiceFactory documentServiceFactory,
@@ -74,9 +76,9 @@ public class MatchingController : BaseApiController
         ILlmSuggestionService llmSuggestionService,
         IAuthDataScopeService authDataScopeService,
         IEmbeddingService embeddingService,
-        AiServiceSelector aiServiceSelector,
+        IAiServiceSelector aiServiceSelector,
         IServiceScopeFactory scopeFactory,
-        ILogger<MatchingController> logger)
+        ILogger<MatchingWorkflowService> logger)
     {
         _unitOfWork = unitOfWork;
         _matchingService = matchingService;
@@ -92,16 +94,22 @@ public class MatchingController : BaseApiController
         _logger = logger;
     }
 
-    /// <summary>
-    /// 匹配预览
-    /// </summary>
-    /// <remarks>
-    /// 对输入的文本列表进行匹配预览，仅返回每个项的最佳匹配结果
-    /// </remarks>
-    [HttpPost("preview")]
-    [ProducesResponseType(typeof(ApiResponse<MatchPreviewResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<MatchPreviewResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<MatchPreviewResponse>>> Preview([FromBody] MatchPreviewRequest request)
+    private static MatchingOperationResult<T> Result<T>(T data, string message = "操作成功")
+    {
+        return new MatchingOperationResult<T>(data, message);
+    }
+
+    private static MatchingApiException Failure(int code, string message)
+    {
+        return new MatchingApiException(code, message);
+    }
+
+    private static MatchingApiException NotFoundFailure(string message)
+    {
+        return new MatchingApiException(404, message, isNotFound: true);
+    }
+
+    public async Task<MatchingOperationResult<MatchPreviewResponse>> PreviewAsync(ClaimsPrincipal user, MatchPreviewRequest request)
     {
         var sw = Stopwatch.StartNew();
         var config = ConvertToMatchingConfig(request.Config);
@@ -114,7 +122,7 @@ public class MatchingController : BaseApiController
             {
                 if (!request.ProjectColumnIndex.HasValue || !request.SpecificationColumnIndex.HasValue)
                 {
-                    return Error<MatchPreviewResponse>(400, "请手动指定项目列与规格列索引");
+                    throw Failure(400, "请手动指定项目列与规格列索引");
                 }
 
                 var extracted = await ExtractMatchSourceItemsFromFileAsync(
@@ -129,21 +137,21 @@ public class MatchingController : BaseApiController
 
                 if (extracted.Count == 0)
                 {
-                    return Error<MatchPreviewResponse>(400, "未从表格中提取到可匹配的项目/规格数据");
+                    throw Failure(400, "未从表格中提取到可匹配的项目/规格数据");
                 }
 
                 request.Items = extracted;
             }
             else
             {
-                return Error<MatchPreviewResponse>(400, "待匹配文本列表不能为空");
+                throw Failure(400, "待匹配文本列表不能为空");
             }
         }
 
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(user);
         if (scope == null)
         {
-            return Error<MatchPreviewResponse>(401, "会话缺少用户上下文");
+            throw Failure(401, "会话缺少用户上下文");
         }
 
         // 获取候选验收规格（含 EmbeddingCache 复用）
@@ -169,7 +177,7 @@ public class MatchingController : BaseApiController
                 });
             }
 
-            return Success(new MatchPreviewResponse
+            return Result(new MatchPreviewResponse
             {
                 Items = emptyItems,
                 TotalMatched = 0,
@@ -211,7 +219,7 @@ public class MatchingController : BaseApiController
         }
         catch (AiServiceUnavailableException ex)
         {
-            return Error<MatchPreviewResponse>(400, $"Embedding 服务不可用: {ex.Reason}");
+            throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
         }
 
         for (var idx = 0; idx < request.Items.Count; idx++)
@@ -266,40 +274,33 @@ public class MatchingController : BaseApiController
             "匹配预览完成: 共{Total}项, 匹配{Matched}项, 高{High}/中{Medium}/低{Low}, 歧义{Ambiguous}, 耗时{Elapsed}ms",
             request.Items.Count, response.TotalMatched, highCount, mediumCount, lowCount, response.AmbiguousCount, sw.ElapsedMilliseconds);
 
-        return Success(response);
+        return Result(response);
     }
 
-    /// <summary>
-    /// LLM 复核/生成流式输出（SSE）
-    /// </summary>
-    [HttpPost("llm-stream")]
-    public async Task LlmStream([FromBody] MatchLlmStreamRequest request)
+    public async Task LlmStreamAsync(ClaimsPrincipal user, HttpResponse response, MatchLlmStreamRequest request, CancellationToken cancellationToken)
     {
-        Response.Headers.CacheControl = "no-cache";
-        Response.Headers.TryAdd("X-Accel-Buffering", "no");
-        Response.ContentType = "text/event-stream";
-
         if (request.Items == null || request.Items.Count == 0)
         {
-            await WriteSseEventAsync("error", new { message = "Items不能为空" }, CancellationToken.None);
-            return;
+            throw Failure(400, "Items不能为空");
         }
 
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(user);
         if (scope == null)
         {
-            await WriteSseEventAsync("error", new { message = "会话缺少用户上下文" }, CancellationToken.None);
-            return;
+            throw Failure(401, "会话缺少用户上下文");
         }
 
         var config = ConvertToMatchingConfig(request.Config);
-        var cancellationToken = HttpContext.RequestAborted;
         var accessibleSpecLookup = await GetScopedSpecDictionaryAsync(
             request.Items.Select(item => item.BestMatchSpecId ?? 0),
             scope);
         var normalizedItems = request.Items
             .Select(item => NormalizeLlmStreamItem(item, accessibleSpecLookup.ContainsKey(item.BestMatchSpecId ?? 0)))
             .ToList();
+
+        response.Headers.CacheControl = "no-cache";
+        response.Headers.TryAdd("X-Accel-Buffering", "no");
+        response.ContentType = "text/event-stream";
 
         // 并行处理：每行独立创建 DI 作用域（DbContext 非线程安全），SSE 写入用信号量串行化
         var sseWriteLock = new SemaphoreSlim(1, 1);
@@ -346,7 +347,7 @@ public class MatchingController : BaseApiController
 
                     if (Volatile.Read(ref circuitOpened) == 1)
                     {
-                        await WriteCircuitOpenEventsAsync(item, config, sseWriteLock, ct);
+                        await WriteCircuitOpenEventsAsync(response, item, config, sseWriteLock, ct);
                         return;
                     }
 
@@ -357,11 +358,12 @@ public class MatchingController : BaseApiController
                             location, item.BestMatchSpecId, item.BestMatchScore ?? 0);
 
                         var reviewResult = await ExecuteLlmStepWithPolicyAsync(
+                            response,
                             "review",
                             item,
                             rowTimeoutSeconds,
                             retryCount,
-                            token => StreamLlmReviewAsync(item, config, token, accessibleSpecLookup, reviewService, sseWriteLock),
+                            token => StreamLlmReviewAsync(response, item, config, token, accessibleSpecLookup, reviewService, sseWriteLock),
                             sseWriteLock,
                             ct);
 
@@ -391,7 +393,7 @@ public class MatchingController : BaseApiController
                     if (ct.IsCancellationRequested) return;
                     if (Volatile.Read(ref circuitOpened) == 1)
                     {
-                        await WriteCircuitOpenEventsAsync(item, config, sseWriteLock, ct);
+                        await WriteCircuitOpenEventsAsync(response, item, config, sseWriteLock, ct);
                         return;
                     }
 
@@ -402,11 +404,12 @@ public class MatchingController : BaseApiController
                             config.LlmSuggestionScoreThreshold, config.SuggestNoMatchRows);
 
                         var suggestionResult = await ExecuteLlmStepWithPolicyAsync(
+                            response,
                             "suggestion",
                             item,
                             rowTimeoutSeconds,
                             retryCount,
-                            token => StreamLlmSuggestionAsync(item, config, token, accessibleSpecLookup, suggestionService, sseWriteLock),
+                            token => StreamLlmSuggestionAsync(response, item, config, token, accessibleSpecLookup, suggestionService, sseWriteLock),
                             sseWriteLock,
                             ct);
 
@@ -457,21 +460,11 @@ public class MatchingController : BaseApiController
             totalFailures, circuitOpened == 1);
     }
 
-    /// <summary>
-    /// 执行填充
-    /// </summary>
-    /// <remarks>
-    /// 根据匹配结果，将验收标准填充到源文件中，返回填充后的文件下载链接
-    /// </remarks>
-    [HttpPost("execute")]
-    [AuditOperation("execute", "matching-fill")]
-    [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<ExecuteFillResponse>>> ExecuteFill([FromBody] ExecuteFillRequest request)
+    public async Task<MatchingOperationResult<ExecuteFillResponse>> ExecuteFillAsync(ClaimsPrincipal user, ExecuteFillRequest request)
     {
         if (request.Mappings == null || request.Mappings.Count == 0)
         {
-            return Error<ExecuteFillResponse>(400, "填充映射不能为空");
+            throw Failure(400, "填充映射不能为空");
         }
 
         var fileId = request.FileId ?? request.SourceFileId;
@@ -479,25 +472,25 @@ public class MatchingController : BaseApiController
 
         if (!fileId.HasValue)
         {
-            return Error<ExecuteFillResponse>(400, "源文件ID不能为空");
+            throw Failure(400, "源文件ID不能为空");
         }
 
         if (!tableIndex.HasValue)
         {
-            return Error<ExecuteFillResponse>(400, "源表格索引不能为空");
+            throw Failure(400, "源表格索引不能为空");
         }
 
         // 获取源文件
         var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId.Value);
         if (wordFile == null)
         {
-            return Error<ExecuteFillResponse>(400, "源文件不存在");
+            throw Failure(400, "源文件不存在");
         }
 
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(user);
         if (scope == null)
         {
-            return Error<ExecuteFillResponse>(401, "会话缺少用户上下文");
+            throw Failure(401, "会话缺少用户上下文");
         }
         var highConfidenceThreshold = NormalizeHighConfidenceThreshold(request.HighConfidenceThreshold);
 
@@ -505,7 +498,7 @@ public class MatchingController : BaseApiController
         var hasLlmSuggestions = request.Mappings.Any(m => m.UseLlmSuggestion);
         if (hasLlmSuggestions)
         {
-            return Error<ExecuteFillResponse>(400, "已停用 LLM 生成建议写回，请仅使用匹配结果");
+            throw Failure(400, "已停用 LLM 生成建议写回，请仅使用匹配结果");
         }
 
         var specIds = request.Mappings
@@ -518,7 +511,7 @@ public class MatchingController : BaseApiController
 
         if (specIds.Count == 0)
         {
-            return Error<ExecuteFillResponse>(400, "未提供有效的验收规格ID");
+            throw Failure(400, "未提供有效的验收规格ID");
         }
 
         var specDict = await GetScopedSpecDictionaryAsync(specIds, scope);
@@ -527,7 +520,7 @@ public class MatchingController : BaseApiController
         var parser = _documentServiceFactory.GetParser(GetDocumentType(wordFile.FileType));
         if (parser == null)
         {
-            return Error<ExecuteFillResponse>(500, "文档解析器不可用");
+            throw Failure(500, "文档解析器不可用");
         }
 
         // 提取表格数据
@@ -545,14 +538,14 @@ public class MatchingController : BaseApiController
             }
             catch (ArgumentOutOfRangeException)
             {
-                return Error<ExecuteFillResponse>(400, "表格索引超出范围");
+                throw Failure(400, "表格索引超出范围");
             }
         }
 
         // 列索引必须由用户手动指定（不做关键字推断）
         if (!request.AcceptanceColumnIndex.HasValue)
         {
-            return Error<ExecuteFillResponse>(400, "请手动指定验收列索引");
+            throw Failure(400, "请手动指定验收列索引");
         }
         var acceptanceColumnIndex = request.AcceptanceColumnIndex.Value;
         var remarkColumnIndex = request.RemarkColumnIndex;
@@ -598,7 +591,7 @@ public class MatchingController : BaseApiController
             AcceptanceColumnIndex = acceptanceColumnIndex,
             RemarkColumnIndex = remarkColumnIndex,
             FillResults = fillResults,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         taskResult.StrictReuseSession = await TryBuildStrictReuseSessionAsync(
@@ -626,7 +619,7 @@ public class MatchingController : BaseApiController
             var writer = _documentServiceFactory.GetWriter(DocumentType.Excel);
             if (writer == null)
             {
-                return Error<ExecuteFillResponse>(500, "Excel 文档写入器不可用");
+                throw Failure(500, "Excel 文档写入器不可用");
             }
 
             try
@@ -634,7 +627,7 @@ public class MatchingController : BaseApiController
                 var writeBackSummary = await ApplyFillResultToSourceFileAsync(wordFile, taskResult, writer);
                 if (writeBackSummary.RequestedCells > 0 && writeBackSummary.WrittenCells == 0)
                 {
-                    return Error<ExecuteFillResponse>(400, "未写入任何单元格，请检查列索引和行配置是否正确");
+                    throw Failure(400, "未写入任何单元格，请检查列索引和行配置是否正确");
                 }
 
                 if (writeBackSummary.WrittenCells < writeBackSummary.RequestedCells)
@@ -648,11 +641,11 @@ public class MatchingController : BaseApiController
             catch (Exception ex)
             {
                 _logger.LogError(ex, "执行填充后写回 Excel 失败: 文件{FileId}", wordFile.Id);
-                return Error<ExecuteFillResponse>(500, $"写回 Excel 失败: {ex.Message}");
+                throw Failure(500, $"写回 Excel 失败: {ex.Message}");
             }
         }
 
-        await SaveFillTaskSnapshotAsync(taskResult);
+        await SaveFillTaskSnapshotAsync(user, taskResult);
 
         var response = new ExecuteFillResponse
         {
@@ -666,23 +659,17 @@ public class MatchingController : BaseApiController
             "执行填充完成: 任务{TaskId}, 文件类型{FileType}, 填充{Filled}行, 跳过{Skipped}行",
             taskId, wordFile.FileType, filledCount, skippedCount);
 
-        return Success(response, isExcelSource
+        return Result(response, isExcelSource
             ? $"填充完成：已填充{filledCount}行，跳过{skippedCount}行，已写回并可下载 Excel"
             : $"填充完成：已填充{filledCount}行，跳过{skippedCount}行");
     }
 
-    /// <summary>
-    /// 下载填充结果
-    /// </summary>
-    [HttpGet("download/{taskId}")]
-    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Download(string taskId)
+    public async Task<MatchingDownloadResult> DownloadAsync(ClaimsPrincipal user, string taskId)
     {
-        var taskResult = await LoadFillTaskSnapshotAsync(taskId);
+        var taskResult = await LoadFillTaskSnapshotAsync(user, taskId);
         if (taskResult == null)
         {
-            return NotFound(ApiResponse.Error(404, "任务不存在或已过期"));
+            throw NotFoundFailure("任务不存在或已过期");
         }
 
         if (!string.IsNullOrWhiteSpace(taskResult.DownloadArtifactRelativePath))
@@ -692,7 +679,7 @@ public class MatchingController : BaseApiController
                 var fullPath = _fileStorage.GetAbsolutePath(taskResult.DownloadArtifactRelativePath);
                 if (!System.IO.File.Exists(fullPath))
                 {
-                    return NotFound(ApiResponse.Error(404, "下载文件不存在或已被清理"));
+                    throw NotFoundFailure("下载文件不存在或已被清理");
                 }
 
                 var content = await System.IO.File.ReadAllBytesAsync(fullPath);
@@ -704,12 +691,12 @@ public class MatchingController : BaseApiController
                     : taskResult.DownloadArtifactFileName;
 
                 _logger.LogInformation("下载填充结果产物: 任务{TaskId}, 文件{FileName}", taskId, artifactDownloadFileName);
-                return File(content, artifactContentType, artifactDownloadFileName);
+                return new MatchingDownloadResult(content, artifactContentType, artifactDownloadFileName);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "下载填充结果产物失败: {TaskId}", taskId);
-                return BadRequest(ApiResponse.Error(500, $"下载结果失败: {ex.Message}"));
+                throw Failure(500, $"下载结果失败: {ex.Message}");
             }
         }
 
@@ -717,14 +704,14 @@ public class MatchingController : BaseApiController
         var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(taskResult.SourceFileId);
         if (wordFile == null)
         {
-            return NotFound(ApiResponse.Error(404, "源文件不存在"));
+            throw NotFoundFailure("源文件不存在");
         }
 
         // 获取文档写入器
         var writer = _documentServiceFactory.GetWriter(GetDocumentType(wordFile.FileType));
         if (writer == null)
         {
-            return BadRequest(ApiResponse.Error(500, "文档写入器不可用"));
+            throw Failure(500, "文档写入器不可用");
         }
 
         // 构建写入操作列表
@@ -813,7 +800,7 @@ public class MatchingController : BaseApiController
             catch (Exception ex)
             {
                 _logger.LogError(ex, "填充文档失败: {TaskId}", taskId);
-                return BadRequest(ApiResponse.Error(500, $"填充文档失败: {ex.Message}"));
+                throw Failure(500, $"填充文档失败: {ex.Message}");
             }
         }
 
@@ -839,39 +826,33 @@ public class MatchingController : BaseApiController
 
         _logger.LogInformation("下载填充结果: 任务{TaskId}, 文件{FileName}", taskId, downloadFileName);
 
-        return File(resultContent, contentType, downloadFileName);
+        return new MatchingDownloadResult(resultContent, contentType, downloadFileName);
     }
 
-    /// <summary>
-    /// 批量匹配预览（多表格一次性预览）
-    /// </summary>
-    [HttpPost("batch-preview")]
-    [ProducesResponseType(typeof(ApiResponse<BatchPreviewResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<BatchPreviewResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<BatchPreviewResponse>>> BatchPreview([FromBody] BatchPreviewRequest request)
+    public async Task<MatchingOperationResult<BatchPreviewResponse>> BatchPreviewAsync(ClaimsPrincipal user, BatchPreviewRequest request)
     {
         var sw = Stopwatch.StartNew();
 
         if (request.Tables == null || request.Tables.Count == 0)
         {
-            return Error<BatchPreviewResponse>(400, "请至少选择一个表格");
+            throw Failure(400, "请至少选择一个表格");
         }
 
         const int MaxBatchTableCount = 500;
         if (request.Tables.Count > MaxBatchTableCount)
         {
-            return Error<BatchPreviewResponse>(400, $"批量操作不能超过 {MaxBatchTableCount} 个表格");
+            throw Failure(400, $"批量操作不能超过 {MaxBatchTableCount} 个表格");
         }
 
         if (request.FileId <= 0)
         {
-            return Error<BatchPreviewResponse>(400, "文件ID不能为空");
+            throw Failure(400, "文件ID不能为空");
         }
 
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(user);
         if (scope == null)
         {
-            return Error<BatchPreviewResponse>(401, "会话缺少用户上下文");
+            throw Failure(401, "会话缺少用户上下文");
         }
 
         var config = ConvertToMatchingConfig(request.Config);
@@ -924,7 +905,7 @@ public class MatchingController : BaseApiController
 
         if (processedCandidates.Count == 0)
         {
-            return Error<BatchPreviewResponse>(400, "范围内无候选数据");
+            throw Failure(400, "范围内无候选数据");
         }
 
         BatchMatchResult batchResult;
@@ -936,7 +917,7 @@ public class MatchingController : BaseApiController
             }
             catch (AiServiceUnavailableException ex)
             {
-                return Error<BatchPreviewResponse>(400, $"Embedding 服务不可用: {ex.Reason}");
+                throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
             }
         }
         else
@@ -1006,51 +987,44 @@ public class MatchingController : BaseApiController
             response.HighConfidenceCount, response.MediumConfidenceCount, response.LowConfidenceCount, response.AmbiguousCount,
             sw.ElapsedMilliseconds);
 
-        return Success(response);
+        return Result(response);
     }
 
-    /// <summary>
-    /// 批量执行填充（多表格一次性填充）
-    /// </summary>
-    [HttpPost("batch-execute")]
-    [AuditOperation("execute-batch", "matching-fill")]
-    [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<ExecuteFillResponse>>> BatchExecuteFill([FromBody] BatchExecuteFillRequest request)
+    public async Task<MatchingOperationResult<ExecuteFillResponse>> BatchExecuteFillAsync(ClaimsPrincipal user, BatchExecuteFillRequest request)
     {
         if (request.Tables == null || request.Tables.Count == 0)
         {
-            return Error<ExecuteFillResponse>(400, "请至少提供一个表格的填充映射");
+            throw Failure(400, "请至少提供一个表格的填充映射");
         }
 
         const int MaxBatchTableCount = 500;
         if (request.Tables.Count > MaxBatchTableCount)
         {
-            return Error<ExecuteFillResponse>(400, $"批量操作不能超过 {MaxBatchTableCount} 个表格");
+            throw Failure(400, $"批量操作不能超过 {MaxBatchTableCount} 个表格");
         }
 
         if (request.FileId <= 0)
         {
-            return Error<ExecuteFillResponse>(400, "文件ID不能为空");
+            throw Failure(400, "文件ID不能为空");
         }
 
         // 获取源文件
         var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
         if (wordFile == null)
         {
-            return Error<ExecuteFillResponse>(400, "源文件不存在");
+            throw Failure(400, "源文件不存在");
         }
 
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(user);
         if (scope == null)
         {
-            return Error<ExecuteFillResponse>(401, "会话缺少用户上下文");
+            throw Failure(401, "会话缺少用户上下文");
         }
         var highConfidenceThreshold = NormalizeHighConfidenceThreshold(request.HighConfidenceThreshold);
 
         if (request.Tables.SelectMany(t => t.Mappings).Any(m => m.UseLlmSuggestion))
         {
-            return Error<ExecuteFillResponse>(400, "已停用 LLM 生成建议写回，请仅使用匹配结果");
+            throw Failure(400, "已停用 LLM 生成建议写回，请仅使用匹配结果");
         }
 
         // 收集所有 specId 一次查 DB
@@ -1115,7 +1089,7 @@ public class MatchingController : BaseApiController
             SourceFileId = request.FileId,
             IsBatchMode = true,
             TableEntries = tableEntries,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         taskResult.StrictReuseSession = await TryBuildStrictReuseSessionAsync(
@@ -1142,7 +1116,7 @@ public class MatchingController : BaseApiController
             var writer = _documentServiceFactory.GetWriter(DocumentType.Excel);
             if (writer == null)
             {
-                return Error<ExecuteFillResponse>(500, "Excel 文档写入器不可用");
+                throw Failure(500, "Excel 文档写入器不可用");
             }
 
             try
@@ -1150,7 +1124,7 @@ public class MatchingController : BaseApiController
                 var writeBackSummary = await ApplyFillResultToSourceFileAsync(wordFile, taskResult, writer);
                 if (writeBackSummary.RequestedCells > 0 && writeBackSummary.WrittenCells == 0)
                 {
-                    return Error<ExecuteFillResponse>(400, "未写入任何单元格，请检查列索引和行配置是否正确");
+                    throw Failure(400, "未写入任何单元格，请检查列索引和行配置是否正确");
                 }
 
                 if (writeBackSummary.WrittenCells < writeBackSummary.RequestedCells)
@@ -1164,11 +1138,11 @@ public class MatchingController : BaseApiController
             catch (Exception ex)
             {
                 _logger.LogError(ex, "批量填充后写回 Excel 失败: 文件{FileId}", wordFile.Id);
-                return Error<ExecuteFillResponse>(500, $"写回 Excel 失败: {ex.Message}");
+                throw Failure(500, $"写回 Excel 失败: {ex.Message}");
             }
         }
 
-        await SaveFillTaskSnapshotAsync(taskResult);
+        await SaveFillTaskSnapshotAsync(user, taskResult);
 
         var response = new ExecuteFillResponse
         {
@@ -1182,28 +1156,22 @@ public class MatchingController : BaseApiController
             "批量填充完成: 任务{TaskId}, 文件类型{FileType}, {TableCount}个表格, 填充{Filled}行, 跳过{Skipped}行",
             taskId, wordFile.FileType, request.Tables.Count, totalFilled, totalSkipped);
 
-        return Success(response, isExcelSource
+        return Result(response, isExcelSource
             ? $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行，已写回并可下载 Excel"
             : $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行");
     }
 
-    /// <summary>
-    /// 严格模式复用预检
-    /// </summary>
-    [HttpPost("reuse/strict/preview")]
-    [ProducesResponseType(typeof(ApiResponse<StrictReusePreviewResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<StrictReusePreviewResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<StrictReusePreviewResponse>>> PreviewStrictReuse([FromBody] StrictReusePreviewRequest request)
+    public async Task<MatchingOperationResult<StrictReusePreviewResponse>> PreviewStrictReuseAsync(ClaimsPrincipal user, StrictReusePreviewRequest request)
     {
         if (request.TargetFileIds == null || request.TargetFileIds.Count == 0)
         {
-            return Error<StrictReusePreviewResponse>(400, "请至少提供一个目标文件");
+            throw Failure(400, "请至少提供一个目标文件");
         }
 
-        var sourceTask = await LoadFillTaskSnapshotAsync(request.SourceTaskId);
+        var sourceTask = await LoadFillTaskSnapshotAsync(user, request.SourceTaskId);
         if (sourceTask?.StrictReuseSession == null || sourceTask.StrictReuseSession.Tables.Count == 0)
         {
-            return Error<StrictReusePreviewResponse>(400, "当前填充任务不支持严格复用，请重新执行一次填充后再试");
+            throw Failure(400, "当前填充任务不支持严格复用，请重新执行一次填充后再试");
         }
 
         var results = new List<StrictReusePreviewFileResult>();
@@ -1232,7 +1200,7 @@ public class MatchingController : BaseApiController
             });
         }
 
-        return Success(new StrictReusePreviewResponse
+        return Result(new StrictReusePreviewResponse
         {
             SourceTaskId = sourceTask.TaskId,
             SourceFileName = sourceTask.StrictReuseSession.SourceFileName,
@@ -1241,24 +1209,17 @@ public class MatchingController : BaseApiController
         });
     }
 
-    /// <summary>
-    /// 严格模式复用执行
-    /// </summary>
-    [HttpPost("reuse/strict/execute")]
-    [AuditOperation("execute", "matching-fill")]
-    [ProducesResponseType(typeof(ApiResponse<StrictReuseExecuteResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<StrictReuseExecuteResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<StrictReuseExecuteResponse>>> ExecuteStrictReuse([FromBody] StrictReuseExecuteRequest request)
+    public async Task<MatchingOperationResult<StrictReuseExecuteResponse>> ExecuteStrictReuseAsync(ClaimsPrincipal user, StrictReuseExecuteRequest request)
     {
         if (request.TargetFileIds == null || request.TargetFileIds.Count == 0)
         {
-            return Error<StrictReuseExecuteResponse>(400, "请至少提供一个目标文件");
+            throw Failure(400, "请至少提供一个目标文件");
         }
 
-        var sourceTask = await LoadFillTaskSnapshotAsync(request.SourceTaskId);
+        var sourceTask = await LoadFillTaskSnapshotAsync(user, request.SourceTaskId);
         if (sourceTask?.StrictReuseSession == null || sourceTask.StrictReuseSession.Tables.Count == 0)
         {
-            return Error<StrictReuseExecuteResponse>(400, "当前填充任务不支持严格复用，请重新执行一次填充后再试");
+            throw Failure(400, "当前填充任务不支持严格复用，请重新执行一次填充后再试");
         }
 
         var executableTargets = new List<StrictReuseGeneratedFile>();
@@ -1319,7 +1280,7 @@ public class MatchingController : BaseApiController
 
         if (executableTargets.Count == 0)
         {
-            return Error<StrictReuseExecuteResponse>(400, "没有可执行严格复用的目标文件");
+            throw Failure(400, "没有可执行严格复用的目标文件");
         }
 
         var artifact = await SaveStrictReuseArtifactAsync(sourceTask.StrictReuseSession, executableTargets);
@@ -1328,13 +1289,13 @@ public class MatchingController : BaseApiController
         {
             TaskId = taskId,
             SourceFileId = sourceTask.SourceFileId,
-            CreatedAt = DateTime.Now,
+            CreatedAt = DateTime.UtcNow,
             DownloadArtifactRelativePath = artifact.RelativePath,
             DownloadArtifactFileName = artifact.FileName,
             DownloadArtifactContentType = artifact.ContentType
         };
 
-        await SaveFillTaskSnapshotAsync(taskResult);
+        await SaveFillTaskSnapshotAsync(user, taskResult);
 
         var response = new StrictReuseExecuteResponse
         {
@@ -1346,7 +1307,7 @@ public class MatchingController : BaseApiController
             Files = fileResults
         };
 
-        return Success(response, response.FailedCount > 0
+        return Result(response, response.FailedCount > 0
             ? $"严格复用完成：成功{response.SuccessCount}份，失败{response.FailedCount}份"
             : $"严格复用完成：成功{response.SuccessCount}份");
     }
@@ -1659,17 +1620,11 @@ public class MatchingController : BaseApiController
             .ToList();
     }
 
-    /// <summary>
-    /// 计算两个文本的相似度
-    /// </summary>
-    [HttpPost("similarity")]
-    [ProducesResponseType(typeof(ApiResponse<SimilarityResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<SimilarityResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<SimilarityResponse>>> ComputeSimilarity([FromBody] SimilarityRequest request)
+    public async Task<MatchingOperationResult<SimilarityResponse>> ComputeSimilarityAsync(SimilarityRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Text1) || string.IsNullOrWhiteSpace(request.Text2))
         {
-            return Error<SimilarityResponse>(400, "文本不能为空");
+            throw Failure(400, "文本不能为空");
         }
 
         var tpSession = await _textPipeline.CreateSessionAsync();
@@ -1684,7 +1639,7 @@ public class MatchingController : BaseApiController
         }
         catch (AiServiceUnavailableException ex)
         {
-            return Error<SimilarityResponse>(400, ex.Reason);
+            throw Failure(400, ex.Reason);
         }
 
         var response = new SimilarityResponse
@@ -1693,7 +1648,7 @@ public class MatchingController : BaseApiController
             Scores = scores
         };
 
-        return Success(response);
+        return Result(response);
     }
 
     /// <summary>
@@ -1762,7 +1717,7 @@ public class MatchingController : BaseApiController
 
         if (embeddingServiceId.HasValue)
         {
-            var configs = await _aiServiceSelector.GetCandidatesAsync(AiServicePurpose.Embedding, embeddingServiceId);
+            var configs = await _aiServiceSelector.GetCandidatesAsync(CoreAiServicePurpose.Embedding, embeddingServiceId);
             var config = configs.FirstOrDefault();
             embeddingModel = config?.EmbeddingModel?.Trim();
         }
@@ -1820,7 +1775,7 @@ public class MatchingController : BaseApiController
                     if (existingCacheLookup.TryGetValue(specId, out var existingCache))
                     {
                         existingCache.Vector = SerializeVector(newEmbeddings[i]);
-                        existingCache.CreatedAt = DateTime.Now;
+                        existingCache.CreatedAt = DateTime.UtcNow;
                         _unitOfWork.EmbeddingCaches.Update(existingCache);
                     }
                     else
@@ -1830,7 +1785,7 @@ public class MatchingController : BaseApiController
                             SpecId = specId,
                             ModelName = embeddingModel,
                             Vector = SerializeVector(newEmbeddings[i]),
-                            CreatedAt = DateTime.Now
+                            CreatedAt = DateTime.UtcNow
                         });
                     }
 
@@ -2097,6 +2052,7 @@ public class MatchingController : BaseApiController
     }
 
     private async Task<LlmStepOutcome> StreamLlmReviewAsync(
+        HttpResponse response,
         MatchLlmStreamItem item,
         MatchingConfig config,
         CancellationToken cancellationToken,
@@ -2113,7 +2069,7 @@ public class MatchingController : BaseApiController
         if (!accessibleSpecLookup.TryGetValue(specId, out var spec))
         {
             _logger.LogWarning("[LLM复核] {Location}: 最佳匹配规格ID={SpecId}不存在或无权限", location, specId);
-            await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
+            await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
@@ -2141,7 +2097,7 @@ public class MatchingController : BaseApiController
             ReviewScene = LlmReviewScene.MatchingReview
         };
 
-        await WriteSseEventLockedAsync(sseWriteLock, "review.start", new
+        await WriteSseEventLockedAsync(response, sseWriteLock, "review.start", new
         {
             tableIndex = item.TableIndex,
             rowIndex = item.RowIndex
@@ -2153,7 +2109,7 @@ public class MatchingController : BaseApiController
             await foreach (var chunk in reviewService.ReviewStreamAsync(reviewRequest, cancellationToken))
             {
                 buffer.Append(chunk);
-                await WriteSseEventLockedAsync(sseWriteLock, "review.delta", new
+                await WriteSseEventLockedAsync(response, sseWriteLock, "review.delta", new
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
@@ -2166,7 +2122,7 @@ public class MatchingController : BaseApiController
                 var normalizedScore = NormalizeLlmReviewScore(result.Score);
                 _logger.LogDebug("[LLM复核] {Location}: 完成, score={Score}, reason={Reason}",
                     location, normalizedScore, result.Reason);
-                await WriteSseEventLockedAsync(sseWriteLock, "review.done", new
+                await WriteSseEventLockedAsync(response, sseWriteLock, "review.done", new
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
@@ -2179,7 +2135,7 @@ public class MatchingController : BaseApiController
             else
             {
                 _logger.LogWarning("[LLM复核] {Location}: JSON解析失败, 原始输出: {Raw}", location, buffer.ToString());
-                await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
+                await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
@@ -2195,7 +2151,7 @@ public class MatchingController : BaseApiController
         catch (AiServiceUnavailableException ex)
         {
             _logger.LogWarning(ex, "LLM复核失败");
-            await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
+            await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
@@ -2206,7 +2162,7 @@ public class MatchingController : BaseApiController
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "LLM复核失败");
-            await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
+            await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
@@ -2217,6 +2173,7 @@ public class MatchingController : BaseApiController
     }
 
     private async Task<LlmStepOutcome> StreamLlmSuggestionAsync(
+        HttpResponse response,
         MatchLlmStreamItem item,
         MatchingConfig config,
         CancellationToken cancellationToken,
@@ -2250,7 +2207,7 @@ public class MatchingController : BaseApiController
             location, item.SourceProject, item.SourceSpecification,
             request.BestMatchProject ?? "(无)", item.BestMatchScore?.ToString("P1") ?? "N/A");
 
-        await WriteSseEventLockedAsync(sseWriteLock, "suggestion.start", new
+        await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.start", new
         {
             tableIndex = item.TableIndex,
             rowIndex = item.RowIndex
@@ -2262,7 +2219,7 @@ public class MatchingController : BaseApiController
             await foreach (var chunk in suggestionService.GenerateSuggestionStreamAsync(request, cancellationToken))
             {
                 buffer.Append(chunk);
-                await WriteSseEventLockedAsync(sseWriteLock, "suggestion.delta", new
+                await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.delta", new
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
@@ -2274,7 +2231,7 @@ public class MatchingController : BaseApiController
             {
                 _logger.LogDebug("[LLM建议] {Location}: 完成, acceptance={Acceptance}, remark={Remark}",
                     location, result.Acceptance ?? "(空)", result.Remark ?? "(空)");
-                await WriteSseEventLockedAsync(sseWriteLock, "suggestion.done", new
+                await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.done", new
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
@@ -2287,7 +2244,7 @@ public class MatchingController : BaseApiController
             else
             {
                 _logger.LogWarning("[LLM建议] {Location}: JSON解析失败, 原始输出: {Raw}", location, buffer.ToString());
-                await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
+                await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.error", new
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
@@ -2303,7 +2260,7 @@ public class MatchingController : BaseApiController
         catch (AiServiceUnavailableException ex)
         {
             _logger.LogWarning(ex, "LLM生成建议失败");
-            await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
+            await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.error", new
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
@@ -2314,7 +2271,7 @@ public class MatchingController : BaseApiController
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "LLM生成建议失败");
-            await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
+            await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.error", new
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
@@ -2347,6 +2304,7 @@ public class MatchingController : BaseApiController
     }
 
     private async Task WriteCircuitOpenEventsAsync(
+        HttpResponse response,
         MatchLlmStreamItem item,
         MatchingConfig config,
         SemaphoreSlim sseWriteLock,
@@ -2355,7 +2313,7 @@ public class MatchingController : BaseApiController
         const string message = "LLM 失败率过高，已触发熔断，请稍后重试";
         if (config.UseLlmReview && item.BestMatchSpecId.HasValue)
         {
-            await WriteSseEventLockedAsync(sseWriteLock, "review.error", new
+            await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
@@ -2365,7 +2323,7 @@ public class MatchingController : BaseApiController
 
         if (ShouldGenerateSuggestion(config, item))
         {
-            await WriteSseEventLockedAsync(sseWriteLock, "suggestion.error", new
+            await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.error", new
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
@@ -2375,6 +2333,7 @@ public class MatchingController : BaseApiController
     }
 
     private async Task<LlmStepExecutionResult> ExecuteLlmStepWithPolicyAsync(
+        HttpResponse response,
         string stepName,
         MatchLlmStreamItem item,
         int timeoutSeconds,
@@ -2412,7 +2371,7 @@ public class MatchingController : BaseApiController
                     continue;
                 }
 
-                await WriteSseEventLockedAsync(sseWriteLock, $"{stepName}.error", new
+                await WriteSseEventLockedAsync(response, sseWriteLock, $"{stepName}.error", new
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
@@ -2431,7 +2390,7 @@ public class MatchingController : BaseApiController
 
                 _logger.LogWarning(ex, "[LLM-Stream] {Location}: {Step} 重试后仍失败",
                     FormatStreamItemLocation(item), stepName);
-                await WriteSseEventLockedAsync(sseWriteLock, $"{stepName}.error", new
+                await WriteSseEventLockedAsync(response, sseWriteLock, $"{stepName}.error", new
                 {
                     tableIndex = item.TableIndex,
                     rowIndex = item.RowIndex,
@@ -2451,9 +2410,9 @@ public class MatchingController : BaseApiController
             : "LLM建议";
     }
 
-    private async Task<DataScopeResult?> ResolveSpecScopeAsync()
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync(ClaimsPrincipal user)
     {
-        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
+        return await SpecDataScopeHelper.ResolveScopeAsync(user, _authDataScopeService);
     }
 
     private async Task<Dictionary<int, AcceptanceSpec>> GetScopedSpecDictionaryAsync(
@@ -2496,23 +2455,23 @@ public class MatchingController : BaseApiController
         };
     }
 
-    private async Task WriteSseEventAsync(string eventName, object data, CancellationToken cancellationToken)
+    private static async Task WriteSseEventAsync(HttpResponse response, string eventName, object data, CancellationToken cancellationToken)
     {
         var json = JsonSerializer.Serialize(data, SseJsonOptions);
-        await Response.WriteAsync($"event: {eventName}\n", cancellationToken);
-        await Response.WriteAsync($"data: {json}\n\n", cancellationToken);
-        await Response.Body.FlushAsync(cancellationToken);
+        await response.WriteAsync($"event: {eventName}\n", cancellationToken);
+        await response.WriteAsync($"data: {json}\n\n", cancellationToken);
+        await response.Body.FlushAsync(cancellationToken);
     }
 
     /// <summary>
     /// 安全写入 SSE 事件：连接已断开时静默忽略，不抛异常
     /// </summary>
-    private async Task WriteSseEventSafeAsync(string eventName, object data, CancellationToken cancellationToken)
+    private static async Task WriteSseEventSafeAsync(HttpResponse response, string eventName, object data, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested) return;
         try
         {
-            await WriteSseEventAsync(eventName, data, cancellationToken);
+            await WriteSseEventAsync(response, eventName, data, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -2527,7 +2486,8 @@ public class MatchingController : BaseApiController
     /// <summary>
     /// 线程安全的 SSE 写入：用信号量串行化并发写入（Parallel.ForEachAsync 场景）
     /// </summary>
-    private async Task WriteSseEventLockedAsync(
+    private static async Task WriteSseEventLockedAsync(
+        HttpResponse response,
         SemaphoreSlim sseWriteLock,
         string eventName,
         object data,
@@ -2537,7 +2497,7 @@ public class MatchingController : BaseApiController
         await sseWriteLock.WaitAsync(cancellationToken);
         try
         {
-            await WriteSseEventAsync(eventName, data, cancellationToken);
+            await WriteSseEventAsync(response, eventName, data, cancellationToken);
         }
         catch (OperationCanceledException) { throw; }
         catch (ObjectDisposedException) { /* Response 已释放 */ }
@@ -2843,8 +2803,10 @@ public class MatchingController : BaseApiController
     /// <summary>
     /// 保存填充任务快照（MySQL 持久化，避免 IIS 回收丢失）
     /// </summary>
-    private async Task SaveFillTaskSnapshotAsync(FillTaskResult taskResult)
+    private async Task SaveFillTaskSnapshotAsync(ClaimsPrincipal user, FillTaskResult taskResult)
     {
+        var owner = ResolveTaskOwner(user);
+        taskResult.PayloadVersion = CurrentFillTaskPayloadVersion;
         var payload = JsonSerializer.Serialize(taskResult, FillTaskJsonOptions);
         var existed = await _unitOfWork.MatchingFillTasks.GetByTaskIdAsync(taskResult.TaskId);
         if (existed == null)
@@ -2853,6 +2815,8 @@ public class MatchingController : BaseApiController
             {
                 TaskId = taskResult.TaskId,
                 SourceFileId = taskResult.SourceFileId,
+                CreatedByUserId = owner.UserId,
+                CompanyId = owner.CompanyId,
                 PayloadJson = payload,
                 CreatedAt = taskResult.CreatedAt
             });
@@ -2860,12 +2824,14 @@ public class MatchingController : BaseApiController
         else
         {
             existed.SourceFileId = taskResult.SourceFileId;
+            existed.CreatedByUserId = owner.UserId;
+            existed.CompanyId = owner.CompanyId;
             existed.PayloadJson = payload;
             existed.CreatedAt = taskResult.CreatedAt;
             _unitOfWork.MatchingFillTasks.Update(existed);
         }
 
-        var expireTime = DateTime.Now.AddHours(-FillTaskRetentionHours);
+        var expireTime = DateTime.UtcNow.AddHours(-FillTaskRetentionHours);
         await CleanupExpiredFillTaskArtifactsAsync(expireTime);
         await _unitOfWork.SaveChangesAsync();
     }
@@ -2891,7 +2857,7 @@ public class MatchingController : BaseApiController
                     continue;
                 }
 
-                var snapshot = JsonSerializer.Deserialize<FillTaskResult>(expiredTask.PayloadJson, FillTaskJsonOptions);
+                var snapshot = DeserializeFillTaskResult(expiredTask.PayloadJson);
                 if (!string.IsNullOrWhiteSpace(snapshot?.DownloadArtifactRelativePath))
                 {
                     await _fileStorage.DeleteIfExistsAsync(snapshot.DownloadArtifactRelativePath);
@@ -2909,15 +2875,17 @@ public class MatchingController : BaseApiController
     /// <summary>
     /// 读取填充任务快照
     /// </summary>
-    private async Task<FillTaskResult?> LoadFillTaskSnapshotAsync(string taskId)
+    private async Task<FillTaskResult?> LoadFillTaskSnapshotAsync(ClaimsPrincipal user, string taskId)
     {
         var entity = await _unitOfWork.MatchingFillTasks.GetByTaskIdAsync(taskId);
         if (entity == null || string.IsNullOrWhiteSpace(entity.PayloadJson))
             return null;
 
+        EnsureTaskOwnership(user, entity);
+
         try
         {
-            return JsonSerializer.Deserialize<FillTaskResult>(entity.PayloadJson, FillTaskJsonOptions);
+            return DeserializeFillTaskResult(entity.PayloadJson);
         }
         catch (Exception ex)
         {
@@ -2925,6 +2893,64 @@ public class MatchingController : BaseApiController
             return null;
         }
     }
+
+    private static FillTaskResult? DeserializeFillTaskResult(string payload)
+    {
+        var result = JsonSerializer.Deserialize<FillTaskResult>(payload, FillTaskJsonOptions);
+        if (result == null)
+            return null;
+
+        if (result.PayloadVersion <= 0)
+        {
+            result.PayloadVersion = 1;
+        }
+
+        return result;
+    }
+
+    private static (int UserId, int CompanyId) ResolveTaskOwner(ClaimsPrincipal user)
+    {
+        var userId = AuthClaimHelper.GetUserId(user);
+        var companyId = AuthClaimHelper.GetCompanyId(user);
+        if (!userId.HasValue || !companyId.HasValue)
+        {
+            throw Failure(401, "会话缺少用户上下文");
+        }
+
+        return (userId.Value, companyId.Value);
+    }
+
+    private static void EnsureTaskOwnership(ClaimsPrincipal user, MatchingFillTask entity)
+    {
+        if (!entity.CreatedByUserId.HasValue || !entity.CompanyId.HasValue)
+        {
+            throw NotFoundFailure("任务不存在或已过期");
+        }
+
+        var owner = ResolveTaskOwner(user);
+        if (entity.CreatedByUserId != owner.UserId || entity.CompanyId != owner.CompanyId)
+        {
+            throw NotFoundFailure("任务不存在或已过期");
+        }
+    }
+}
+
+public readonly record struct MatchingOperationResult<T>(T Data, string Message);
+
+public readonly record struct MatchingDownloadResult(byte[] Content, string ContentType, string FileName);
+
+internal sealed class MatchingApiException : Exception
+{
+    public MatchingApiException(int code, string message, bool isNotFound = false)
+        : base(message)
+    {
+        Code = code;
+        IsNotFound = isNotFound;
+    }
+
+    public int Code { get; }
+
+    public bool IsNotFound { get; }
 }
 
 /// <summary>
@@ -2932,6 +2958,7 @@ public class MatchingController : BaseApiController
 /// </summary>
 internal class FillTaskResult
 {
+    public int PayloadVersion { get; set; } = 2;
     public string TaskId { get; set; } = string.Empty;
     public int SourceFileId { get; set; }
     public int SourceTableIndex { get; set; }

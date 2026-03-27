@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Core.TextProcessing.Models;
 
 namespace AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 
@@ -9,13 +9,13 @@ public interface ITextPreprocessingPipeline
 
 public sealed class TextProcessingSession
 {
-    private readonly TextProcessingConfig _config;
+    private readonly TextProcessingConfigModel _config;
     private readonly IChineseConversionService _chinese;
     private readonly IOkNgConversionService _okNg;
     private readonly IReadOnlyDictionary<string, string> _synonymMap;
 
     internal TextProcessingSession(
-        TextProcessingConfig config,
+        TextProcessingConfigModel config,
         IChineseConversionService chinese,
         IOkNgConversionService okNg,
         IReadOnlyDictionary<string, string> synonymMap)
@@ -26,7 +26,7 @@ public sealed class TextProcessingSession
         _synonymMap = synonymMap;
     }
 
-    public TextProcessingConfig Config => _config;
+    public TextProcessingConfigModel Config => _config;
 
     public string Process(string? text)
     {

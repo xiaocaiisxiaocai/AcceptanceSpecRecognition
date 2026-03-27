@@ -1,11 +1,10 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
-using AcceptanceSpecSystem.Data.Entities;
-using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
@@ -17,8 +16,8 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 /// </summary>
 public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
 {
-    private readonly IUnitOfWork _unitOfWork;
-    private readonly AiServiceSelector _selector;
+    private readonly IPromptTemplateProvider _promptTemplateProvider;
+    private readonly IAiServiceSelector _selector;
     private readonly ISemanticKernelServiceFactory _factory;
     private readonly ILogger<LlmMatchingAssistService> _logger;
 
@@ -137,12 +136,12 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
     }
 
     public LlmMatchingAssistService(
-        IUnitOfWork unitOfWork,
-        AiServiceSelector selector,
+        IPromptTemplateProvider promptTemplateProvider,
+        IAiServiceSelector selector,
         ISemanticKernelServiceFactory factory,
         ILogger<LlmMatchingAssistService> logger)
     {
-        _unitOfWork = unitOfWork;
+        _promptTemplateProvider = promptTemplateProvider;
         _selector = selector;
         _factory = factory;
         _logger = logger;
@@ -157,7 +156,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         var scene = request.ReviewScene == LlmReviewScene.ImportDuplicateReview
             ? PromptTemplateScene.ImportDuplicateReview
             : PromptTemplateScene.MatchingReview;
-        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(scene));
+        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(scene), cancellationToken);
         var prompt = BuildReviewPrompt(template.Content, request);
 
         _logger.LogInformation("[LLM复核] 源: {Src} | 匹配: {Match} | 基础得分: {Score}",
@@ -191,7 +190,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         var scene = request.ReviewScene == LlmReviewScene.ImportDuplicateReview
             ? PromptTemplateScene.ImportDuplicateReview
             : PromptTemplateScene.MatchingReview;
-        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(scene));
+        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(scene), cancellationToken);
         var prompt = BuildReviewPrompt(template.Content, request);
 
         _logger.LogInformation("[LLM复核-Stream] 源: {Src} | 匹配: {Match} | 基础得分: {Score}",
@@ -232,7 +231,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         LlmSuggestionRequest request,
         CancellationToken cancellationToken = default)
     {
-        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(PromptTemplateScene.MatchingGenerate));
+        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(PromptTemplateScene.MatchingGenerate), cancellationToken);
         var prompt = BuildSuggestionPrompt(template.Content, request);
 
         _logger.LogInformation("[LLM建议] 源: {Src} | 参考: {Ref}",
@@ -259,7 +258,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         LlmSuggestionRequest request,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(PromptTemplateScene.MatchingGenerate));
+        var template = await GetOrCreateTemplateAsync(PromptTemplateCatalog.GetByScene(PromptTemplateScene.MatchingGenerate), cancellationToken);
         var prompt = BuildSuggestionPrompt(template.Content, request);
 
         _logger.LogInformation("[LLM建议-Stream] 源: {Src} | 参考: {Ref}",
@@ -459,7 +458,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         throw new AiServiceUnavailableException(errorMessage, errors);
     }
 
-    private static OpenAIPromptExecutionSettings CreatePromptExecutionSettings(AiServiceConfig config)
+    private static OpenAIPromptExecutionSettings CreatePromptExecutionSettings(AiServiceConfigModel config)
     {
         return new OpenAIPromptExecutionSettings
         {
@@ -472,29 +471,40 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
     /// <summary>
     /// 获取或创建 Prompt 模板；如果 DB 中存储的是旧版默认模板则自动升级
     /// </summary>
-    private async Task<PromptTemplate> GetOrCreateTemplateAsync(SystemPromptTemplateDefinition definition)
+    private async Task<PromptTemplateModel> GetOrCreateTemplateAsync(
+        SystemPromptTemplateDefinition definition,
+        CancellationToken cancellationToken)
     {
-        var template = await _unitOfWork.PromptTemplates.GetOrCreateSystemAsync(
+        var template = await _promptTemplateProvider.GetOrCreateSystemAsync(
             definition.Scene,
             definition.Name,
             definition.DisplayName,
-            definition.DefaultContent);
+            definition.DefaultContent,
+            cancellationToken);
+
+        var content = template.Content;
+        var changed = false;
 
         if (definition.LegacyDefaultContent != null &&
-            string.Equals(template.Content.Trim(), definition.LegacyDefaultContent.Trim(), StringComparison.Ordinal))
+            string.Equals(content.Trim(), definition.LegacyDefaultContent.Trim(), StringComparison.Ordinal))
         {
             _logger.LogInformation("自动升级 LLM Prompt 模板 [{Name}]：检测到旧版默认内容，更新为新版", definition.Name);
-            template.Content = definition.DefaultContent;
-            template.UpdatedAt = DateTime.Now;
+            content = definition.DefaultContent;
+            changed = true;
         }
 
-        if (string.IsNullOrWhiteSpace(template.Content))
+        if (string.IsNullOrWhiteSpace(content))
         {
-            template.Content = definition.DefaultContent;
-            template.UpdatedAt = DateTime.Now;
+            content = definition.DefaultContent;
+            changed = true;
         }
 
-        await _unitOfWork.SaveChangesAsync();
+        if (changed)
+        {
+            await _promptTemplateProvider.SaveContentAsync(template.Id, content, cancellationToken);
+            template.Content = content;
+        }
+
         _logger.LogInformation("确保系统 LLM Prompt 模板可用: {Name}", definition.Name);
         return template;
     }

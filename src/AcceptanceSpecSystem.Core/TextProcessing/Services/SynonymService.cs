@@ -1,58 +1,98 @@
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
-using AcceptanceSpecSystem.Data.Repositories;
+using AcceptanceSpecSystem.Core.TextProcessing.Models;
 
 namespace AcceptanceSpecSystem.Core.TextProcessing.Services;
 
 public class SynonymService : ISynonymService
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
 
-    // 简单内存缓存，避免每次匹配都全表读取
-    private static IReadOnlyDictionary<string, string>? _cached;
-    private static DateTime _cachedAt;
-    private static readonly object CacheLock = new();
+    private readonly ISynonymDataProvider _synonymDataProvider;
+    private readonly SemaphoreSlim _cacheRefreshLock = new(1, 1);
 
-    public SynonymService(IUnitOfWork unitOfWork)
+    // 实例级缓存，避免跨测试/跨作用域污染
+    private IReadOnlyDictionary<string, string>? _cached;
+    private DateTime _cachedAt;
+
+    public SynonymService(ISynonymDataProvider synonymDataProvider)
     {
-        _unitOfWork = unitOfWork;
+        _synonymDataProvider = synonymDataProvider;
     }
 
     public async Task<IReadOnlyDictionary<string, string>> GetWordToStandardMapAsync(CancellationToken cancellationToken = default)
     {
-        lock (CacheLock)
+        if (TryGetCachedMap(out var cached))
         {
-            if (_cached != null && (DateTime.Now - _cachedAt).TotalSeconds < 30)
-                return _cached;
+            return cached;
         }
 
-        var groups = await _unitOfWork.Synonyms.GetAllGroupsAsync();
-        var map = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        foreach (var g in groups)
+        await _cacheRefreshLock.WaitAsync(cancellationToken);
+        try
         {
-            var standard = g.Words.FirstOrDefault(w => w.IsStandard)?.Word
-                           ?? g.Words.FirstOrDefault()?.Word;
-
-            if (string.IsNullOrWhiteSpace(standard))
-                continue;
-
-            foreach (var w in g.Words)
+            if (TryGetCachedMap(out cached))
             {
-                if (string.IsNullOrWhiteSpace(w.Word))
-                    continue;
-                map[w.Word] = standard;
+                return cached;
             }
 
-            // 标准词映射到自身
+            var groups = await _synonymDataProvider.GetAllGroupsAsync(cancellationToken);
+            var map = BuildWordToStandardMap(groups);
+            _cached = map;
+            _cachedAt = DateTime.UtcNow;
+            return map;
+        }
+        finally
+        {
+            _cacheRefreshLock.Release();
+        }
+    }
+
+    private bool TryGetCachedMap(out IReadOnlyDictionary<string, string> cached)
+    {
+        cached = EmptyCache;
+        if (_cached == null)
+        {
+            return false;
+        }
+
+        if (DateTime.UtcNow - _cachedAt >= CacheDuration)
+        {
+            return false;
+        }
+
+        cached = _cached;
+        return true;
+    }
+
+    private static readonly IReadOnlyDictionary<string, string> EmptyCache =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
+    private static IReadOnlyDictionary<string, string> BuildWordToStandardMap(IReadOnlyList<SynonymGroupModel> groups)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var group in groups)
+        {
+            var standard = group.Words.FirstOrDefault(word => word.IsStandard)?.Word
+                           ?? group.Words.FirstOrDefault()?.Word;
+
+            if (string.IsNullOrWhiteSpace(standard))
+            {
+                continue;
+            }
+
+            foreach (var word in group.Words)
+            {
+                if (string.IsNullOrWhiteSpace(word.Word))
+                {
+                    continue;
+                }
+
+                map[word.Word] = standard;
+            }
+
             map[standard] = standard;
         }
 
-        lock (CacheLock)
-        {
-            _cached = map;
-            _cachedAt = DateTime.Now;
-            return _cached;
-        }
+        return map;
     }
 }
-

@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
+using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Data.Entities;
@@ -19,13 +20,13 @@ public sealed class SpecSemanticSearchService
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IEmbeddingService _embeddingService;
-    private readonly AiServiceSelector _aiServiceSelector;
+    private readonly IAiServiceSelector _aiServiceSelector;
     private readonly ILogger<SpecSemanticSearchService> _logger;
 
     public SpecSemanticSearchService(
         IUnitOfWork unitOfWork,
         IEmbeddingService embeddingService,
-        AiServiceSelector aiServiceSelector,
+        IAiServiceSelector aiServiceSelector,
         ILogger<SpecSemanticSearchService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -171,7 +172,7 @@ public sealed class SpecSemanticSearchService
 
     private async Task<string?> ResolveEmbeddingModelNameAsync(int? embeddingServiceId)
     {
-        var configs = await _aiServiceSelector.GetCandidatesAsync(AiServicePurpose.Embedding, embeddingServiceId);
+        var configs = await _aiServiceSelector.GetCandidatesAsync(CoreAiServicePurpose.Embedding, embeddingServiceId);
         return configs.FirstOrDefault()?.EmbeddingModel?.Trim();
     }
 
@@ -223,7 +224,7 @@ public sealed class SpecSemanticSearchService
                 if (missingCandidates[index].Cache != null)
                 {
                     missingCandidates[index].Cache!.Vector = SerializeVector(embedding);
-                    missingCandidates[index].Cache!.CreatedAt = DateTime.Now;
+                    missingCandidates[index].Cache!.CreatedAt = DateTime.UtcNow;
                     _unitOfWork.EmbeddingCaches.Update(missingCandidates[index].Cache!);
                 }
                 else
@@ -233,7 +234,7 @@ public sealed class SpecSemanticSearchService
                         SpecId = missingCandidates[index].Spec.Id,
                         ModelName = embeddingModel,
                         Vector = SerializeVector(embedding),
-                        CreatedAt = DateTime.Now
+                        CreatedAt = DateTime.UtcNow
                     });
                 }
 

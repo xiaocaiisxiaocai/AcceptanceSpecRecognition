@@ -220,7 +220,9 @@ const downloadResult = async () => {
     const a = document.createElement("a");
     a.href = url;
     a.download = `compare_${Date.now()}.json`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
   } catch {
     ElMessage.error("下载失败");

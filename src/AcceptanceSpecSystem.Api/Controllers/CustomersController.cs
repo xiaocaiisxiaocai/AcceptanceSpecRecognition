@@ -142,7 +142,7 @@ public class CustomersController : BaseApiController
         var customer = new Customer
         {
             Name = request.Name,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         await _unitOfWork.Customers.AddAsync(customer);

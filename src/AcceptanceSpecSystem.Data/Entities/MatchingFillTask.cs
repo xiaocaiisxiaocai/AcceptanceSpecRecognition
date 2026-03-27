@@ -21,6 +21,16 @@ public class MatchingFillTask
     public int SourceFileId { get; set; }
 
     /// <summary>
+    /// 创建任务的用户ID
+    /// </summary>
+    public int? CreatedByUserId { get; set; }
+
+    /// <summary>
+    /// 创建任务时的公司ID
+    /// </summary>
+    public int? CompanyId { get; set; }
+
+    /// <summary>
     /// 任务快照 JSON（序列化 FillTaskResult）
     /// </summary>
     public string PayloadJson { get; set; } = string.Empty;
@@ -28,7 +38,7 @@ public class MatchingFillTask
     /// <summary>
     /// 创建时间
     /// </summary>
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// 导航属性：源文件

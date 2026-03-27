@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Core.Matching.Models;
 
 namespace AcceptanceSpecSystem.Core.Matching.Services;
 

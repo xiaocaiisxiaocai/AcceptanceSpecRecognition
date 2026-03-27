@@ -146,7 +146,7 @@ public class ImportDuplicateDetectionServiceAvailabilityTests
             WordFileId = 1,
             OwnerOrgUnitId = 1,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now
+            ImportedAt = DateTime.UtcNow
         };
     }
 

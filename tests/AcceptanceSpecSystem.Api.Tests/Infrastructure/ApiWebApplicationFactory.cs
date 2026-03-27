@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -17,6 +18,9 @@ namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
 public class ApiWebApplicationFactory : WebApplicationFactory<Program>
 {
+    public const string TestAdminPassword = "TestAdmin!20260326";
+    public const string TestCommonPassword = "TestCommon!20260326";
+
     private DbConnection? _connection;
     private string? _tempRoot;
 
@@ -25,6 +29,14 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AuthSeed:AdminPassword"] = TestAdminPassword,
+                ["AuthSeed:CommonPassword"] = TestCommonPassword
+            });
+        });
 
         builder.ConfigureServices(services =>
         {
@@ -103,7 +115,7 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             Code = AuthUserSeedService.DefaultCompanyCode,
             Name = AuthUserSeedService.DefaultCompanyName,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         db.OrgCompanies.Add(company);
         db.SaveChanges();
@@ -119,7 +131,7 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             Depth = 0,
             Sort = 0,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         db.OrgUnits.Add(rootOrgUnit);
         db.SaveChanges();
@@ -133,7 +145,7 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             Description = "测试管理员",
             IsBuiltIn = true,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var roleCommon = new AuthRole
         {
@@ -143,7 +155,7 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             Description = "测试普通用户",
             IsBuiltIn = true,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         db.AuthRoles.AddRange(roleAdmin, roleCommon);
         db.SaveChanges();
@@ -157,7 +169,7 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             Action = "read",
             IsBuiltIn = true,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         db.AuthPermissions.Add(permissionReadSystemUser);
         db.SaveChanges();
@@ -174,23 +186,23 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
         {
             CompanyId = company.Id,
             Username = AuthUserSeedService.DefaultAdminUsername,
-            PasswordHash = passwordService.HashPassword(AuthUserSeedService.DefaultAdminPassword),
+            PasswordHash = passwordService.HashPassword(TestAdminPassword),
             Nickname = "管理员",
             Avatar = "https://avatars.githubusercontent.com/u/44761321",
             IsActive = true,
             PermissionVersion = 1,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var common = new SystemUser
         {
             CompanyId = company.Id,
             Username = AuthUserSeedService.DefaultCommonUsername,
-            PasswordHash = passwordService.HashPassword(AuthUserSeedService.DefaultCommonPassword),
+            PasswordHash = passwordService.HashPassword(TestCommonPassword),
             Nickname = "普通用户",
             Avatar = "https://avatars.githubusercontent.com/u/52823142",
             IsActive = true,
             PermissionVersion = 1,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         db.SystemUsers.AddRange(admin, common);
         db.SaveChanges();
@@ -200,13 +212,13 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             {
                 UserId = admin.Id,
                 RoleId = roleAdmin.Id,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             },
             new AuthUserRole
             {
                 UserId = common.Id,
                 RoleId = roleCommon.Id,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             });
 
         db.AuthUserOrgUnits.AddRange(
@@ -215,14 +227,14 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
                 UserId = admin.Id,
                 OrgUnitId = rootOrgUnit.Id,
                 IsPrimary = true,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             },
             new AuthUserOrgUnit
             {
                 UserId = common.Id,
                 OrgUnitId = rootOrgUnit.Id,
                 IsPrimary = true,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             });
 
         db.SaveChanges();

@@ -28,7 +28,7 @@ public class EmbeddingCache
     /// <summary>
     /// 创建时间
     /// </summary>
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// 过期时间（可选，用于缓存失效策略）

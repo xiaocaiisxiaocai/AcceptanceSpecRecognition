@@ -38,7 +38,7 @@ public class WordFile
     /// <summary>
     /// 上传时间
     /// </summary>
-    public DateTime UploadedAt { get; set; } = DateTime.Now;
+    public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// 导航属性：从该文件导入的所有验收规格

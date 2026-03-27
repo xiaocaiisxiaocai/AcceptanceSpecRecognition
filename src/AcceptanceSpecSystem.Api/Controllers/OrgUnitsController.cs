@@ -116,7 +116,7 @@ public class OrgUnitsController : BaseApiController
         entity.Name = request.Name.Trim();
         entity.Sort = request.Sort;
         entity.IsActive = request.IsActive;
-        entity.UpdatedAt = DateTime.Now;
+        entity.UpdatedAt = DateTime.UtcNow;
 
         await _dbContext.SaveChangesAsync();
         return Success(ToDto(entity), "更新组织节点成功");

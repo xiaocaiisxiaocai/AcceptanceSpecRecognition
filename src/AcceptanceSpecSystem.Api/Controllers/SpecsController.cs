@@ -48,28 +48,19 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error<List<SpecGroupDto>>(401, "会话缺少用户上下文");
 
-        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
-        allSpecs = ApplySpecScope(allSpecs, scope);
-
-        var dtos = allSpecs
-            .GroupBy(s => new { s.CustomerId, s.MachineModelId, s.ProcessId })
-            .Select(g =>
+        var groups = await _unitOfWork.AcceptanceSpecs.GetGroupSummaryWithFilterAsync(
+            BuildSpecQueryOptions(scope));
+        var dtos = groups
+            .Select(group => new SpecGroupDto
             {
-                var first = g.First();
-                return new SpecGroupDto
-                {
-                    CustomerId = g.Key.CustomerId,
-                    CustomerName = first.Customer?.Name ?? string.Empty,
-                    MachineModelId = g.Key.MachineModelId,
-                    MachineModelName = first.MachineModel?.Name,
-                    ProcessId = g.Key.ProcessId,
-                    ProcessName = first.Process?.Name,
-                    SpecCount = g.Count()
-                };
+                CustomerId = group.CustomerId,
+                CustomerName = group.CustomerName,
+                MachineModelId = group.MachineModelId,
+                MachineModelName = group.MachineModelName,
+                ProcessId = group.ProcessId,
+                ProcessName = group.ProcessName,
+                SpecCount = group.SpecCount
             })
-            .OrderBy(x => x.CustomerName)
-            .ThenBy(x => x.MachineModelName)
-            .ThenBy(x => x.ProcessName)
             .ToList();
 
         return Success(dtos);
@@ -94,23 +85,19 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
 
-        // 需要在列表中展示客户/制程名称，因此必须 eager load 导航属性
-        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
-        allSpecs = ApplySpecScope(allSpecs, scope);
-        allSpecs = ApplySpecFilters(
-            allSpecs,
+        var queryOptions = BuildSpecQueryOptions(
+            scope,
             keyword,
             customerId,
             processId,
             machineModelId,
             processIdIsNull,
-            machineModelIdIsNull);
+            machineModelIdIsNull,
+            page,
+            pageSize);
 
-        var total = allSpecs.Count;
-        var items = allSpecs
-            .OrderByDescending(s => s.ImportedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+        var (specs, total) = await _unitOfWork.AcceptanceSpecs.GetPagedWithFilterAsync(queryOptions);
+        var items = specs
             .Select(s => new AcceptanceSpecDto
             {
                 Id = s.Id,
@@ -160,16 +147,15 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error<SpecDuplicateDetectionResultDto>(401, "会话缺少用户上下文");
 
-        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetAllWithCustomerAndProcessAsync();
-        allSpecs = ApplySpecScope(allSpecs, scope);
-        allSpecs = ApplySpecFilters(
-            allSpecs,
-            keyword,
-            customerId,
-            processId,
-            machineModelId,
-            processIdIsNull,
-            machineModelIdIsNull);
+        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetFilteredWithIncludesAsync(
+            BuildSpecQueryOptions(
+                scope,
+                keyword,
+                customerId,
+                processId,
+                machineModelId,
+                processIdIsNull,
+                machineModelIdIsNull));
 
         var result = SpecDuplicateDetectionService.Detect(allSpecs, minSimilarity, maxGroups);
         return Success(result);
@@ -308,7 +294,7 @@ public class SpecsController : BaseApiController
             OwnerOrgUnitId = scope.OrgUnitId,
             CreatedByUserId = scope.UserId,
             WordFileId = wordFile.Id,
-            ImportedAt = DateTime.Now
+            ImportedAt = DateTime.UtcNow
         };
 
         await _unitOfWork.AcceptanceSpecs.AddAsync(spec);
@@ -493,7 +479,7 @@ public class SpecsController : BaseApiController
                     OwnerOrgUnitId = scope.OrgUnitId,
                     CreatedByUserId = scope.UserId,
                     WordFileId = request.WordFileId,
-                    ImportedAt = DateTime.Now
+                    ImportedAt = DateTime.UtcNow
                 };
 
                 await _unitOfWork.AcceptanceSpecs.AddAsync(spec);
@@ -569,6 +555,34 @@ public class SpecsController : BaseApiController
         return SpecDataScopeHelper.CanAccess(spec, scope);
     }
 
+    private static AcceptanceSpecQueryOptions BuildSpecQueryOptions(
+        DataScopeResult scope,
+        string? keyword = null,
+        int? customerId = null,
+        int? processId = null,
+        int? machineModelId = null,
+        bool? processIdIsNull = null,
+        bool? machineModelIdIsNull = null,
+        int page = 1,
+        int pageSize = 20)
+    {
+        return new AcceptanceSpecQueryOptions
+        {
+            UserId = scope.UserId,
+            IsAll = scope.IsAll,
+            IncludeSelf = scope.IncludeSelf,
+            OrgUnitIds = scope.OrgUnitIds.ToArray(),
+            Keyword = keyword,
+            CustomerId = customerId,
+            ProcessId = processId,
+            MachineModelId = machineModelId,
+            ProcessIdIsNull = processIdIsNull,
+            MachineModelIdIsNull = machineModelIdIsNull,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
     private static IReadOnlyList<AcceptanceSpec> ApplySpecFilters(
         IEnumerable<AcceptanceSpec> specs,
         string? keyword,
@@ -636,7 +650,7 @@ public class SpecsController : BaseApiController
             FileName = manualFileName,
             FileContent = Array.Empty<byte>(),
             FileHash = manualFileHash,
-            UploadedAt = DateTime.Now
+            UploadedAt = DateTime.UtcNow
         };
 
         await _unitOfWork.WordFiles.AddAsync(wordFile);

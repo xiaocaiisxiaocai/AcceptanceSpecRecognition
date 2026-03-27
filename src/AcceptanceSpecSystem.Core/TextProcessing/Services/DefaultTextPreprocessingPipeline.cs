@@ -1,22 +1,21 @@
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
-using AcceptanceSpecSystem.Data.Repositories;
 
 namespace AcceptanceSpecSystem.Core.TextProcessing.Services;
 
 public class DefaultTextPreprocessingPipeline : ITextPreprocessingPipeline
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly ITextProcessingConfigProvider _configProvider;
     private readonly IChineseConversionService _chinese;
     private readonly IOkNgConversionService _okNg;
     private readonly ISynonymService _synonyms;
 
     public DefaultTextPreprocessingPipeline(
-        IUnitOfWork unitOfWork,
+        ITextProcessingConfigProvider configProvider,
         IChineseConversionService chinese,
         IOkNgConversionService okNg,
         ISynonymService synonyms)
     {
-        _unitOfWork = unitOfWork;
+        _configProvider = configProvider;
         _chinese = chinese;
         _okNg = okNg;
         _synonyms = synonyms;
@@ -24,7 +23,7 @@ public class DefaultTextPreprocessingPipeline : ITextPreprocessingPipeline
 
     public async Task<TextProcessingSession> CreateSessionAsync(CancellationToken cancellationToken = default)
     {
-        var cfg = await _unitOfWork.TextProcessingConfigs.GetConfigAsync();
+        var cfg = await _configProvider.GetConfigAsync(cancellationToken);
         var map = cfg.EnableSynonym
             ? await _synonyms.GetWordToStandardMapAsync(cancellationToken)
             : new Dictionary<string, string>();

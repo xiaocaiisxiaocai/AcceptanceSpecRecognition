@@ -201,19 +201,19 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
         var customer = new Customer
         {
             Name = "范围客户",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var process = new Process
         {
             Name = "范围制程",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var wordFile = new WordFile
         {
             FileName = "scope-source.docx",
             FileContent = Array.Empty<byte>(),
             FileHash = Guid.NewGuid().ToString("N"),
-            UploadedAt = DateTime.Now
+            UploadedAt = DateTime.UtcNow
         };
         var inScopeOrg = new OrgUnit
         {
@@ -226,7 +226,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             Depth = 1,
             Sort = 1,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var outOfScopeOrg = new OrgUnit
         {
@@ -239,7 +239,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             Depth = 1,
             Sort = 2,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         dbContext.Customers.Add(customer);
@@ -264,7 +264,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = inScopeOrg.Id,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now
+            ImportedAt = DateTime.UtcNow
         };
         var outOfScopeSpec = new AcceptanceSpec
         {
@@ -277,7 +277,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = outOfScopeOrg.Id,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now.AddMinutes(1)
+            ImportedAt = DateTime.UtcNow.AddMinutes(1)
         };
 
         dbContext.AcceptanceSpecs.AddRange(inScopeSpecEntity, outOfScopeSpec);
@@ -295,19 +295,19 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
         var customer = new Customer
         {
             Name = $"排查客户-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var process = new Process
         {
             Name = $"排查制程-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var wordFile = new WordFile
         {
             FileName = $"duplicate-{suffix}.docx",
             FileContent = Array.Empty<byte>(),
             FileHash = Guid.NewGuid().ToString("N"),
-            UploadedAt = DateTime.Now
+            UploadedAt = DateTime.UtcNow
         };
         var inScopeOrg = new OrgUnit
         {
@@ -320,7 +320,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             Depth = 1,
             Sort = 1,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var outOfScopeOrg = new OrgUnit
         {
@@ -333,7 +333,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             Depth = 1,
             Sort = 2,
             IsActive = true,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         dbContext.Customers.Add(customer);
@@ -357,7 +357,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = inScopeOrg.Id,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now
+            ImportedAt = DateTime.UtcNow
         };
         var exactB = new AcceptanceSpec
         {
@@ -369,7 +369,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = inScopeOrg.Id,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now.AddMinutes(1)
+            ImportedAt = DateTime.UtcNow.AddMinutes(1)
         };
         var similarA = new AcceptanceSpec
         {
@@ -381,7 +381,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = inScopeOrg.Id,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now.AddMinutes(2)
+            ImportedAt = DateTime.UtcNow.AddMinutes(2)
         };
         var similarB = new AcceptanceSpec
         {
@@ -393,7 +393,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = inScopeOrg.Id,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now.AddMinutes(3)
+            ImportedAt = DateTime.UtcNow.AddMinutes(3)
         };
         var outOfScope = new AcceptanceSpec
         {
@@ -405,7 +405,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = outOfScopeOrg.Id,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now.AddMinutes(4)
+            ImportedAt = DateTime.UtcNow.AddMinutes(4)
         };
 
         dbContext.AcceptanceSpecs.AddRange(exactA, exactB, similarA, similarB, outOfScope);
@@ -434,7 +434,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
                 RoleId = commonRoleId,
                 Resource = "spec",
                 ScopeType = DataScopeType.CustomNodes,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             };
             dbContext.AuthRoleDataScopes.Add(roleScope);
         }

@@ -101,7 +101,7 @@ public class AuthRolesController : BaseApiController
         if (await _dbContext.AuthRoles.AnyAsync(r => r.CompanyId == companyId.Value && r.Code == code))
             return Error<AuthRoleDto>(400, "角色编码已存在");
 
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         var role = new AuthRole
         {
             CompanyId = companyId.Value,
@@ -159,7 +159,7 @@ public class AuthRolesController : BaseApiController
         role.Name = request.Name.Trim();
         role.Description = NormalizeOptional(request.Description);
         role.IsActive = request.IsActive;
-        role.UpdatedAt = DateTime.Now;
+        role.UpdatedAt = DateTime.UtcNow;
 
         var syncError = await SyncRoleRelationsAsync(role, request.PermissionCodes, request.DataScopes, companyId.Value);
         if (!string.IsNullOrWhiteSpace(syncError))
@@ -284,7 +284,7 @@ public class AuthRolesController : BaseApiController
                 RoleId = role.Id,
                 Resource = scope.Resource,
                 ScopeType = scope.ScopeType,
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             };
             await _dbContext.AuthRoleDataScopes.AddAsync(scopeEntity);
             await _dbContext.SaveChangesAsync();
@@ -318,18 +318,12 @@ public class AuthRolesController : BaseApiController
 
     private async Task TouchUsersByRoleAsync(int roleId)
     {
-        var users = await _dbContext.SystemUsers
+        var now = DateTime.UtcNow;
+        await _dbContext.SystemUsers
             .Where(user => user.UserRoles.Any(userRole => userRole.RoleId == roleId))
-            .ToListAsync();
-        if (users.Count == 0)
-            return;
-
-        var now = DateTime.Now;
-        foreach (var user in users)
-        {
-            user.PermissionVersion += 1;
-            user.UpdatedAt = now;
-        }
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(user => user.PermissionVersion, user => user.PermissionVersion + 1)
+                .SetProperty(user => user.UpdatedAt, _ => now));
     }
 
     private static AuthRoleDto ToDto(AuthRole role)

@@ -19,7 +19,7 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     {
         var resp = await _client.PostAsync(
             "/login",
-            ApiClientJson.ToJsonContent(new { username = "admin", password = "Admin@123456" }));
+            ApiClientJson.ToJsonContent(new { username = "admin", password = ApiWebApplicationFactory.TestAdminPassword }));
 
         var raw = await resp.Content.ReadAsStringAsync();
         resp.StatusCode.Should().Be(HttpStatusCode.OK, $"返回内容: {raw}");
@@ -70,7 +70,7 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     {
         var loginResp = await _client.PostAsync(
             "/login",
-            ApiClientJson.ToJsonContent(new { username = "admin", password = "Admin@123456" }));
+            ApiClientJson.ToJsonContent(new { username = "admin", password = ApiWebApplicationFactory.TestAdminPassword }));
         loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var loginJson = await loginResp.ReadAsAsync<JsonElement>();
@@ -97,7 +97,7 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     {
         var loginResp = await _client.PostAsync(
             "/login",
-            ApiClientJson.ToJsonContent(new { username = "common", password = "Common@123456" }));
+            ApiClientJson.ToJsonContent(new { username = "common", password = ApiWebApplicationFactory.TestCommonPassword }));
         loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var loginJson = await loginResp.ReadAsAsync<JsonElement>();

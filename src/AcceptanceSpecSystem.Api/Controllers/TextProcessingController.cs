@@ -60,7 +60,7 @@ public class TextProcessingController : BaseApiController
             NgStandardFormat = ngStandard,
             EnableKeywordHighlight = request.EnableKeywordHighlight,
             HighlightColorHex = string.IsNullOrWhiteSpace(request.HighlightColorHex) ? "#FFFF00" : request.HighlightColorHex.Trim(),
-            UpdatedAt = DateTime.Now
+            UpdatedAt = DateTime.UtcNow
         };
 
         await _unitOfWork.TextProcessingConfigs.SaveConfigAsync(cfg);

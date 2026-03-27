@@ -9,6 +9,8 @@ namespace AcceptanceSpecSystem.Data.Repositories;
 /// </summary>
 public class TextProcessingConfigRepository : ITextProcessingConfigRepository
 {
+    private static readonly SemaphoreSlim CreateConfigLock = new(1, 1);
+
     private readonly AppDbContext _context;
 
     /// <summary>
@@ -28,14 +30,29 @@ public class TextProcessingConfigRepository : ITextProcessingConfigRepository
     {
         var config = await _context.TextProcessingConfigs.FirstOrDefaultAsync();
 
-        if (config == null)
+        if (config != null)
         {
+            return config;
+        }
+
+        await CreateConfigLock.WaitAsync();
+        try
+        {
+            config = await _context.TextProcessingConfigs.FirstOrDefaultAsync();
+            if (config != null)
+            {
+                return config;
+            }
+
             config = CreateDefaultConfig();
             await _context.TextProcessingConfigs.AddAsync(config);
             await _context.SaveChangesAsync();
+            return config;
         }
-
-        return config;
+        finally
+        {
+            CreateConfigLock.Release();
+        }
     }
 
     /// <summary>
@@ -61,7 +78,7 @@ public class TextProcessingConfigRepository : ITextProcessingConfigRepository
             existing.NgStandardFormat = config.NgStandardFormat;
             existing.EnableKeywordHighlight = config.EnableKeywordHighlight;
             existing.HighlightColorHex = config.HighlightColorHex;
-            existing.UpdatedAt = DateTime.Now;
+            existing.UpdatedAt = DateTime.UtcNow;
         }
     }
 
@@ -100,7 +117,7 @@ public class TextProcessingConfigRepository : ITextProcessingConfigRepository
             NgStandardFormat = "NG",
             EnableKeywordHighlight = false,
             HighlightColorHex = "#FFFF00",
-            UpdatedAt = DateTime.Now
+            UpdatedAt = DateTime.UtcNow
         };
     }
 }

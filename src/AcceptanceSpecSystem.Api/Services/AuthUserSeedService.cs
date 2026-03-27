@@ -1,12 +1,16 @@
 using System.Reflection;
+using System.Security.Cryptography;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Controllers;
+using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -20,9 +24,7 @@ public static class AuthUserSeedService
     public const string DefaultRootOrgCode = "ROOT";
     public const string DefaultRootOrgName = "公司";
     public const string DefaultAdminUsername = "admin";
-    public const string DefaultAdminPassword = "Admin@123456";
     public const string DefaultCommonUsername = "common";
-    public const string DefaultCommonPassword = "Common@123456";
 
     private sealed record PermissionSeedItem(
         string Code,
@@ -82,8 +84,10 @@ public static class AuthUserSeedService
         using var scope = services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var passwordService = scope.ServiceProvider.GetRequiredService<IAuthPasswordService>();
+        var hostEnvironment = scope.ServiceProvider.GetRequiredService<IHostEnvironment>();
+        var seedOptions = scope.ServiceProvider.GetRequiredService<IOptions<AuthSeedOptions>>().Value;
 
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
 
         var company = await EnsureCompanyAsync(dbContext, now);
         var rootOrgUnit = await EnsureRootOrgUnitAsync(dbContext, company.Id, now);
@@ -91,7 +95,16 @@ public static class AuthUserSeedService
         var permissionMap = await EnsurePermissionsAsync(dbContext, now);
         var roleMap = await EnsureRolesAsync(dbContext, company.Id, permissionMap, now);
 
-        await EnsureSeedAccountsAsync(dbContext, passwordService, company.Id, roleMap, rootOrgUnit.Id, now);
+        await EnsureSeedAccountsAsync(
+            dbContext,
+            passwordService,
+            company.Id,
+            roleMap,
+            rootOrgUnit.Id,
+            now,
+            seedOptions,
+            hostEnvironment,
+            logger);
         await EnsureExistingUserRelationsAsync(dbContext, company.Id, roleMap["common"], rootOrgUnit.Id, now);
 
         await dbContext.SaveChangesAsync();
@@ -180,12 +193,14 @@ public static class AuthUserSeedService
             CreatedAt = now
         };
 
+        await using var transaction = await dbContext.Database.BeginTransactionAsync();
         await dbContext.OrgUnits.AddAsync(rootOrgUnit);
         await dbContext.SaveChangesAsync();
 
         rootOrgUnit.Path = $"/{rootOrgUnit.Id}/";
         rootOrgUnit.UpdatedAt = now;
         await dbContext.SaveChangesAsync();
+        await transaction.CommitAsync();
 
         return rootOrgUnit;
     }
@@ -612,16 +627,23 @@ public static class AuthUserSeedService
         int companyId,
         Dictionary<string, AuthRole> roleMap,
         int rootOrgUnitId,
-        DateTime now)
+        DateTime now,
+        AuthSeedOptions seedOptions,
+        IHostEnvironment hostEnvironment,
+        ILogger logger)
     {
         var admin = await dbContext.SystemUsers.FirstOrDefaultAsync(u => u.Username == DefaultAdminUsername);
+        var common = await dbContext.SystemUsers.FirstOrDefaultAsync(u => u.Username == DefaultCommonUsername);
+        SeedPasswords? seedPasswords = null;
+
         if (admin == null)
         {
+            seedPasswords ??= ResolveSeedPasswords(seedOptions, hostEnvironment, logger);
             admin = new SystemUser
             {
                 CompanyId = companyId,
                 Username = DefaultAdminUsername,
-                PasswordHash = passwordService.HashPassword(DefaultAdminPassword),
+                PasswordHash = passwordService.HashPassword(seedPasswords.AdminPassword),
                 Nickname = "管理员",
                 Avatar = "https://avatars.githubusercontent.com/u/44761321",
                 IsActive = true,
@@ -632,14 +654,14 @@ public static class AuthUserSeedService
             await dbContext.SaveChangesAsync();
         }
 
-        var common = await dbContext.SystemUsers.FirstOrDefaultAsync(u => u.Username == DefaultCommonUsername);
         if (common == null)
         {
+            seedPasswords ??= ResolveSeedPasswords(seedOptions, hostEnvironment, logger);
             common = new SystemUser
             {
                 CompanyId = companyId,
                 Username = DefaultCommonUsername,
-                PasswordHash = passwordService.HashPassword(DefaultCommonPassword),
+                PasswordHash = passwordService.HashPassword(seedPasswords.CommonPassword),
                 Nickname = "普通用户",
                 Avatar = "https://avatars.githubusercontent.com/u/52823142",
                 IsActive = true,
@@ -656,6 +678,43 @@ public static class AuthUserSeedService
         await EnsureUserRoleAsync(dbContext, common.Id, roleMap["common"].Id, now);
         await EnsureUserOrgAsync(dbContext, common.Id, rootOrgUnitId, true, now);
     }
+
+    private static SeedPasswords ResolveSeedPasswords(
+        AuthSeedOptions options,
+        IHostEnvironment hostEnvironment,
+        ILogger logger)
+    {
+        var adminPassword = options.AdminPassword?.Trim();
+        var commonPassword = options.CommonPassword?.Trim();
+
+        if (!string.IsNullOrWhiteSpace(adminPassword) && !string.IsNullOrWhiteSpace(commonPassword))
+        {
+            return new SeedPasswords(adminPassword, commonPassword);
+        }
+
+        if (hostEnvironment.IsDevelopment() || hostEnvironment.IsEnvironment("Testing"))
+        {
+            adminPassword ??= BuildDevelopmentPassword("Admin");
+            commonPassword ??= BuildDevelopmentPassword("Common");
+
+            logger.LogWarning(
+                "AuthSeed 未配置完整默认密码，当前环境使用临时开发口令。admin={AdminPassword}; common={CommonPassword}",
+                adminPassword,
+                commonPassword);
+
+            return new SeedPasswords(adminPassword, commonPassword);
+        }
+
+        throw new InvalidOperationException(
+            $"缺少 {AuthSeedOptions.SectionName}:AdminPassword 或 {AuthSeedOptions.SectionName}:CommonPassword 配置，生产环境禁止使用源码默认口令。");
+    }
+
+    private static string BuildDevelopmentPassword(string prefix)
+    {
+        return $"{prefix}!{Convert.ToHexString(RandomNumberGenerator.GetBytes(8))}";
+    }
+
+    private sealed record SeedPasswords(string AdminPassword, string CommonPassword);
 
     private static async Task EnsureExistingUserRelationsAsync(
         AppDbContext dbContext,
@@ -785,18 +844,10 @@ public static class AuthUserSeedService
 
     private static async Task TouchUsersByRoleAsync(AppDbContext dbContext, int roleId, DateTime now)
     {
-        var users = await dbContext.SystemUsers
+        await dbContext.SystemUsers
             .Where(user => user.UserRoles.Any(userRole => userRole.RoleId == roleId))
-            .ToListAsync();
-        if (users.Count == 0)
-            return;
-
-        foreach (var user in users)
-        {
-            user.PermissionVersion += 1;
-            user.UpdatedAt = now;
-        }
-
-        await dbContext.SaveChangesAsync();
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(user => user.PermissionVersion, user => user.PermissionVersion + 1)
+                .SetProperty(user => user.UpdatedAt, _ => now));
     }
 }

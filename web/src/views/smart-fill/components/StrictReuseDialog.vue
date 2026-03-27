@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, getCurrentInstance, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { UploadFilled } from "@element-plus/icons-vue";
 import type { UploadRequestOptions } from "element-plus";
@@ -73,6 +73,22 @@ const canRunExecute = computed(
     !previewing.value &&
     !executing.value
 );
+
+onMounted(() => {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  const rawProps = getCurrentInstance()?.vnode.props ?? {};
+  const missingPermissionProps = ["canPreview", "canExecute", "canDownload"].filter(
+    propName => !(propName in rawProps)
+  );
+  if (missingPermissionProps.length > 0) {
+    console.warn(
+      `[StrictReuseDialog] 缺少权限 props: ${missingPermissionProps.join(", ")}，组件将按 false 处理。`
+    );
+  }
+});
 
 watch(
   () => dialogVisible.value,
@@ -184,7 +200,9 @@ const downloadResult = async (taskId: string, fileName: string) => {
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
+  document.body.appendChild(link);
   link.click();
+  document.body.removeChild(link);
   window.URL.revokeObjectURL(url);
 };
 

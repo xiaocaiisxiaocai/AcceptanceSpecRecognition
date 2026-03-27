@@ -1,5 +1,5 @@
 using AcceptanceSpecSystem.Core.Matching.Services;
-using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Core.Matching.Models;
 using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Core.Tests;

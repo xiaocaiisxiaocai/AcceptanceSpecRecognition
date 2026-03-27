@@ -36,14 +36,27 @@ public class KeywordRepository : Repository<Keyword>, IKeywordRepository
     /// <returns>新增数量</returns>
     public async Task<int> AddRangeUniqueAsync(IEnumerable<string> words)
     {
-        var existingWords = await _dbSet
-            .Select(k => k.Word)
-            .ToListAsync();
+        var distinctWords = words
+            .Where(word => !string.IsNullOrWhiteSpace(word))
+            .Select(word => word.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 
-        var newWords = words
-            .Distinct()
-            .Where(w => !existingWords.Contains(w))
-            .Select(w => new Keyword { Word = w, CreatedAt = DateTime.Now })
+        if (distinctWords.Count == 0)
+        {
+            return 0;
+        }
+
+        var existingWords = new HashSet<string>(
+            await _dbSet
+                .Where(keyword => distinctWords.Contains(keyword.Word))
+                .Select(keyword => keyword.Word)
+                .ToListAsync(),
+            StringComparer.Ordinal);
+
+        var newWords = distinctWords
+            .Where(word => !existingWords.Contains(word))
+            .Select(w => new Keyword { Word = w, CreatedAt = DateTime.UtcNow })
             .ToList();
 
         if (newWords.Count > 0)

@@ -26,8 +26,21 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
         if (string.IsNullOrWhiteSpace(username))
             return null;
 
-        var now = DateTime.Now;
-        return await _dbSet
+        var now = DateTime.UtcNow;
+        return await BuildAccessQuery(now)
+            .FirstOrDefaultAsync(u => u.Username == username);
+    }
+
+    public async Task<SystemUser?> GetByIdWithAccessAsync(int userId)
+    {
+        var now = DateTime.UtcNow;
+        return await BuildAccessQuery(now)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+    }
+
+    private IQueryable<SystemUser> BuildAccessQuery(DateTime now)
+    {
+        return _dbSet
             .AsSplitQuery()
             .Include(u => u.UserRoles.Where(r =>
                 (!r.StartAt.HasValue || r.StartAt <= now) &&
@@ -45,8 +58,7 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
             .Include(u => u.UserOrgUnits.Where(o =>
                 (!o.StartAt.HasValue || o.StartAt <= now) &&
                 (!o.EndAt.HasValue || o.EndAt >= now)))
-                .ThenInclude(o => o.OrgUnit)
-            .FirstOrDefaultAsync(u => u.Username == username);
+                .ThenInclude(o => o.OrgUnit);
     }
 
     public async Task<(IReadOnlyList<SystemUser> Items, int Total)> GetPagedAsync(
@@ -100,7 +112,7 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
 
     public async Task<int> CountActiveAdminUsersAsync(int companyId)
     {
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         return await _dbSet
             .AsNoTracking()
             .CountAsync(u =>

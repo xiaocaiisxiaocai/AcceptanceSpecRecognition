@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Core.Matching.Models;
 
 namespace AcceptanceSpecSystem.Core.Matching.Services;
 

@@ -1,6 +1,7 @@
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -35,19 +36,28 @@ public interface IAuthDataScopeService
 /// </summary>
 public sealed class AuthDataScopeService : IAuthDataScopeService
 {
-    private readonly AppDbContext _dbContext;
+    private static readonly TimeSpan OrgTreeCacheDuration = TimeSpan.FromMinutes(5);
 
-    public AuthDataScopeService(AppDbContext dbContext)
+    private readonly AppDbContext _dbContext;
+    private readonly IMemoryCache _memoryCache;
+
+    public AuthDataScopeService(AppDbContext dbContext, IMemoryCache memoryCache)
     {
         _dbContext = dbContext;
+        _memoryCache = memoryCache;
     }
 
     public async Task<DataScopeResult?> GetScopeAsync(int userId, int companyId, string resource)
     {
-        var now = DateTime.Now;
         var normalizedResource = string.IsNullOrWhiteSpace(resource)
             ? "spec"
             : resource.Trim().ToLowerInvariant();
+        return await ResolveScopeCoreAsync(userId, companyId, normalizedResource);
+    }
+
+    private async Task<DataScopeResult?> ResolveScopeCoreAsync(int userId, int companyId, string normalizedResource)
+    {
+        var now = DateTime.UtcNow;
 
         var user = await _dbContext.SystemUsers
             .AsNoTracking()
@@ -140,11 +150,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
         var includeSelf = scopes.Any(s => s.ScopeType == DataScopeType.Self);
         var collectedOrgUnitIds = new HashSet<int>();
 
-        var allOrgUnits = await _dbContext.OrgUnits
-            .AsNoTracking()
-            .Where(o => o.CompanyId == companyId)
-            .Select(o => new { o.Id, o.Path })
-            .ToListAsync();
+        var allOrgUnits = await GetCompanyOrgUnitsAsync(companyId);
 
         foreach (var scope in scopes)
         {
@@ -179,6 +185,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
                                 }
                             }
                         }
+
                         idToAncestors[org.Id] = ancestors;
                     }
 
@@ -218,4 +225,37 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
             OrgUnitIds = collectedOrgUnitIds.ToArray()
         };
     }
+
+    private async Task<IReadOnlyList<CachedOrgUnitNode>> GetCompanyOrgUnitsAsync(int companyId)
+    {
+        var stamp = await _dbContext.OrgUnits
+            .AsNoTracking()
+            .Where(org => org.CompanyId == companyId)
+            .GroupBy(_ => 1)
+            .Select(group => new OrgUnitTreeCacheStamp(
+                group.Count(),
+                group.Max(org => org.UpdatedAt ?? org.CreatedAt)))
+            .FirstOrDefaultAsync()
+            ?? new OrgUnitTreeCacheStamp(0, DateTime.MinValue);
+
+        var cacheKey = $"auth-org-tree:{companyId}:{stamp.Count}:{stamp.LastChangedAtUtc.Ticks}";
+        if (_memoryCache.TryGetValue<IReadOnlyList<CachedOrgUnitNode>>(cacheKey, out var cached) &&
+            cached != null)
+        {
+            return cached;
+        }
+
+        var orgUnits = await _dbContext.OrgUnits
+            .AsNoTracking()
+            .Where(org => org.CompanyId == companyId)
+            .Select(org => new CachedOrgUnitNode(org.Id, org.Path))
+            .ToListAsync();
+
+        _memoryCache.Set(cacheKey, orgUnits, OrgTreeCacheDuration);
+        return orgUnits;
+    }
+
+    private sealed record CachedOrgUnitNode(int Id, string Path);
+
+    private sealed record OrgUnitTreeCacheStamp(int Count, DateTime LastChangedAtUtc);
 }

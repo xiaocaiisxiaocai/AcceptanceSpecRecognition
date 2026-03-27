@@ -256,12 +256,12 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
         var customer = new Customer
         {
             Name = $"导入客户-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         var process = new Process
         {
             Name = $"导入制程-{suffix}",
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
 
         dbContext.Customers.Add(customer);
@@ -287,7 +287,7 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
             FileName = $"existing-{suffix}.xlsx",
             FileContent = Array.Empty<byte>(),
             FileHash = Guid.NewGuid().ToString("N"),
-            UploadedAt = DateTime.Now,
+            UploadedAt = DateTime.UtcNow,
             FileType = UploadedFileType.ExcelXlsx
         };
 
@@ -305,7 +305,7 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = 1,
             CreatedByUserId = 1,
-            ImportedAt = DateTime.Now
+            ImportedAt = DateTime.UtcNow
         });
         await dbContext.SaveChangesAsync();
     }

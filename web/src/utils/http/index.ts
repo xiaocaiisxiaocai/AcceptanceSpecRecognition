@@ -12,12 +12,13 @@ import type {
 import { stringify } from "qs";
 import { getToken, formatToken } from "@/utils/auth";
 import { useUserStoreHook } from "@/store/modules/user";
+import { router } from "@/router";
 import {
   createAuditTraceId,
   getAuditClientId,
   getCurrentFrontendRoute
 } from "@/utils/audit-context";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 
 // 相关配置请参考：www.axios-js.com/zh-cn/docs/#axios-request-config-1
 const defaultConfig: AxiosRequestConfig = {
@@ -32,6 +33,13 @@ const defaultConfig: AxiosRequestConfig = {
   paramsSerializer: {
     serialize: stringify as unknown as CustomParamsSerializer
   }
+};
+
+const ensureAuditHeaders = (config: PureHttpRequestConfig) => {
+  config.headers = config.headers ?? {};
+  config.headers["X-Client-Trace-Id"] ??= createAuditTraceId();
+  config.headers["X-Client-Id"] ??= getAuditClientId();
+  config.headers["X-Frontend-Route"] ??= getCurrentFrontendRoute();
 };
 
 class PureHttp {
@@ -91,19 +99,18 @@ class PureHttp {
   private httpInterceptorsRequest(): void {
     PureHttp.axiosInstance.interceptors.request.use(
       async (config: PureHttpRequestConfig): Promise<any> => {
+        ensureAuditHeaders(config);
         // 优先判断post/get等方法是否传入回调，否则执行初始化设置等回调
         if (typeof config.beforeRequestCallback === "function") {
           config.beforeRequestCallback(config);
+          ensureAuditHeaders(config);
           return config;
         }
         if (PureHttp.initConfig.beforeRequestCallback) {
           PureHttp.initConfig.beforeRequestCallback(config);
+          ensureAuditHeaders(config);
           return config;
         }
-        config.headers = config.headers ?? {};
-        config.headers["X-Client-Trace-Id"] = createAuditTraceId();
-        config.headers["X-Client-Id"] = getAuditClientId();
-        config.headers["X-Frontend-Route"] = getCurrentFrontendRoute();
         /** 请求白名单，放置一些不需要`token`的接口（通过设置请求白名单，防止`token`过期后再请求造成的死循环问题） */
         const whiteList = ["/refresh-token", "/login"];
         return whiteList.some(url => config.url.endsWith(url))
@@ -180,11 +187,20 @@ class PureHttp {
             const backendMessage =
               ($error?.response?.data as any)?.message ??
               "登录状态已失效，请重新登录";
-            ElMessage.error(backendMessage);
-            useUserStoreHook().logOut();
-            setTimeout(() => {
-              PureHttp.isAuthRedirecting = false;
-            }, 1500);
+            const currentPath = router.currentRoute.value.fullPath || "/";
+
+            void ElMessageBox.alert(backendMessage, "登录状态已失效", {
+              confirmButtonText: "重新登录",
+              type: "warning",
+              closeOnClickModal: false,
+              closeOnPressEscape: false,
+              showClose: false
+            }).finally(() => {
+              useUserStoreHook().logOut(currentPath);
+              setTimeout(() => {
+                PureHttp.isAuthRedirecting = false;
+              }, 300);
+            });
           }
         } else if (!skipAuthHandler && status === 403) {
           const backendMessage =
