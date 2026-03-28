@@ -23,13 +23,13 @@ export default {
       }
     },
     {
-      path: "/config/text-processing",
-      name: "TextProcessingConfig",
-      component: () => import("@/views/config/text-processing/index.vue"),
+      path: "/config/matching-knowledge",
+      name: "MatchingKnowledgeConfig",
+      component: () => import("@/views/config/matching-knowledge/index.vue"),
       meta: {
-        icon: "ri:text",
-        title: "文本处理配置",
-        permissions: ["page:config:text-processing"]
+        icon: "ri:book-open-line",
+        title: "匹配知识配置",
+        permissions: ["page:config:matching-knowledge"]
       }
     },
     {
@@ -84,4 +84,3 @@ export default {
     }
   ]
 } satisfies RouteConfigsTable;
-

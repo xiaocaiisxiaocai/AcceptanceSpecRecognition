@@ -574,30 +574,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("EmbeddingCaches");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.Keyword", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Word")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Word")
-                        .IsUnique();
-
-                    b.ToTable("Keywords");
-                });
-
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MachineModel", b =>
                 {
                     b.Property<int>("Id")
@@ -662,6 +638,42 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("CompanyId", "CreatedByUserId", "CreatedAt");
 
                     b.ToTable("MatchingFillTasks");
+                });
+
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MatchingKnowledgeConfig", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ConflictPairsJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("EntityAliasesJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("FieldAliasesJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("UnitAliasesJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("UnitFactorsJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MatchingKnowledgeConfigs");
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.OrgCompany", b =>
@@ -832,53 +844,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("PromptTemplates");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SynonymGroup", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("SynonymGroups");
-                });
-
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SynonymWord", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("GroupId")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("IsStandard")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("Word")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GroupId");
-
-                    b.HasIndex("Word");
-
-                    b.ToTable("SynonymWords");
-                });
-
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SystemUser", b =>
                 {
                     b.Property<int>("Id")
@@ -934,52 +899,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("CompanyId", "IsActive");
 
                     b.ToTable("SystemUsers");
-                });
-
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.TextProcessingConfig", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ConversionMode")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("EnableChineseConversion")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("EnableKeywordHighlight")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("EnableOkNgConversion")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("EnableSynonym")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("HighlightColorHex")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("varchar(10)");
-
-                    b.Property<string>("NgStandardFormat")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<string>("OkStandardFormat")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("TextProcessingConfigs");
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.WordFile", b =>
@@ -1203,17 +1122,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Navigation("Parent");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SynonymWord", b =>
-                {
-                    b.HasOne("AcceptanceSpecSystem.Data.Entities.SynonymGroup", "Group")
-                        .WithMany("Words")
-                        .HasForeignKey("GroupId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Group");
-                });
-
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SystemUser", b =>
                 {
                     b.HasOne("AcceptanceSpecSystem.Data.Entities.OrgCompany", "Company")
@@ -1280,11 +1188,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.Process", b =>
                 {
                     b.Navigation("AcceptanceSpecs");
-                });
-
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SynonymGroup", b =>
-                {
-                    b.Navigation("Words");
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SystemUser", b =>

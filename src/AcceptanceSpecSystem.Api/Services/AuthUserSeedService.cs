@@ -25,6 +25,7 @@ public static class AuthUserSeedService
     public const string DefaultRootOrgName = "公司";
     public const string DefaultAdminUsername = "admin";
     public const string DefaultCommonUsername = "common";
+    public const string DevelopmentDefaultAdminPassword = "admin";
 
     private sealed record PermissionSeedItem(
         string Code,
@@ -55,15 +56,13 @@ public static class AuthUserSeedService
         new("page:smart-fill:index", "页面-智能填充", PermissionType.Page, "smart-fill", "index", "/smart-fill/fill"),
         new("page:file-compare:index", "页面-文件对比", PermissionType.Page, "file-compare", "index", "/file-compare/compare"),
         new("page:config:ai-services", "页面-AI服务配置", PermissionType.Page, "config", "ai-services", "/config/ai-services"),
-        new("page:config:text-processing", "页面-文本处理配置", PermissionType.Page, "config", "text-processing", "/config/text-processing"),
+        new("page:config:matching-knowledge", "页面-匹配知识配置", PermissionType.Page, "config", "matching-knowledge", "/config/matching-knowledge"),
         new("page:config:prompt-templates", "页面-Prompt模板", PermissionType.Page, "config", "prompt-templates", "/config/prompt-templates"),
         new("page:config:column-mapping-rules", "页面-列映射规则", PermissionType.Page, "config", "column-mapping-rules", "/config/column-mapping-rules"),
         new("page:config:system-users", "页面-系统用户", PermissionType.Page, "config", "system-users", "/config/system-users"),
         new("page:config:org-units", "页面-组织管理", PermissionType.Page, "config", "org-units", "/config/org-units"),
         new("page:config:auth-roles", "页面-角色管理", PermissionType.Page, "config", "auth-roles", "/config/auth-roles"),
         new("page:rbac:permissions", "页面-权限字典", PermissionType.Page, "rbac", "permissions", "/rbac/permissions"),
-        new("page:other:synonyms", "页面-同义词管理", PermissionType.Page, "other", "synonyms", "/other/synonyms"),
-        new("page:other:keywords", "页面-关键字管理", PermissionType.Page, "other", "keywords", "/other/keywords"),
         new("page:other:audit-logs", "页面-审计日志", PermissionType.Page, "other", "audit-logs", "/other/audit-logs")
     ];
 
@@ -210,6 +209,7 @@ public static class AuthUserSeedService
         DateTime now)
     {
         var permissionSeeds = new Dictionary<string, PermissionSeedItem>(StringComparer.OrdinalIgnoreCase);
+        var seededPermissions = new Dictionary<string, AuthPermission>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var pagePermission in PagePermissions)
         {
@@ -297,10 +297,20 @@ public static class AuthUserSeedService
                 await dbContext.AuthPermissions.AddAsync(entity);
                 existing[seed.Code] = entity;
             }
+
+            seededPermissions[seed.Code] = entity;
+        }
+
+        foreach (var entity in existing.Values.Where(permission =>
+                     permission.IsBuiltIn &&
+                     !permissionSeeds.ContainsKey(permission.Code)))
+        {
+            entity.IsActive = false;
+            entity.UpdatedAt = now;
         }
 
         await dbContext.SaveChangesAsync();
-        return existing;
+        return seededPermissions;
     }
 
     private static List<ApiActionSeedItem> BuildApiActionSeeds()
@@ -694,7 +704,7 @@ public static class AuthUserSeedService
 
         if (hostEnvironment.IsDevelopment() || hostEnvironment.IsEnvironment("Testing"))
         {
-            adminPassword ??= BuildDevelopmentPassword("Admin");
+            adminPassword ??= DevelopmentDefaultAdminPassword;
             commonPassword ??= BuildDevelopmentPassword("Common");
 
             logger.LogWarning(

@@ -40,6 +40,22 @@ public class AuthSeedOptionsValidationTests
     }
 
     [Fact]
+    public void Validate_WhenDevelopmentAdminPasswordIsShort_ShouldSucceed()
+    {
+        var validator = new AuthSeedOptionsValidator(new FakeHostEnvironment
+        {
+            EnvironmentName = Environments.Development
+        });
+
+        var result = validator.Validate(AuthSeedOptions.SectionName, new AuthSeedOptions
+        {
+            AdminPassword = "admin"
+        });
+
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
     public void Validate_WhenConfiguredPasswordsMeetLengthRequirement_ShouldSucceed()
     {
         var validator = new AuthSeedOptionsValidator(new FakeHostEnvironment

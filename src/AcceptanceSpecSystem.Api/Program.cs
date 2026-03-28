@@ -124,9 +124,7 @@ builder.Services.AddScoped<IAcceptanceSpecRepository, AcceptanceSpecRepository>(
 builder.Services.AddScoped<IEmbeddingCacheRepository, EmbeddingCacheRepository>();
 builder.Services.AddScoped<IWordFileRepository, WordFileRepository>();
 builder.Services.AddScoped<IAiServiceConfigRepository, AiServiceConfigRepository>();
-builder.Services.AddScoped<ISynonymRepository, SynonymRepository>();
-builder.Services.AddScoped<IKeywordRepository, KeywordRepository>();
-builder.Services.AddScoped<ITextProcessingConfigRepository, TextProcessingConfigRepository>();
+builder.Services.AddScoped<IMatchingKnowledgeConfigRepository, MatchingKnowledgeConfigRepository>();
 builder.Services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
 builder.Services.AddScoped<IColumnMappingRuleRepository, ColumnMappingRuleRepository>();
 builder.Services.AddScoped<ISystemUserRepository, SystemUserRepository>();
@@ -147,6 +145,7 @@ builder.Services.AddScoped<IAuthSessionValidationService, AuthSessionValidationS
 builder.Services.AddScoped<SpecSemanticSearchService>();
 builder.Services.AddScoped<ImportDuplicateDetectionService>();
 builder.Services.AddScoped<MatchingWorkflowService>();
+builder.Services.AddScoped<MatchingKnowledgeBootstrapper>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
 
@@ -167,15 +166,8 @@ builder.Services.AddScoped<PromptTemplateValidationService>();
 builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();
 
-// 文本处理（Core 4.1）
-builder.Services.AddScoped<ISynonymDataProvider, SynonymDataProvider>();
-builder.Services.AddScoped<IKeywordDataProvider, KeywordDataProvider>();
-builder.Services.AddScoped<ITextProcessingConfigProvider, TextProcessingConfigProvider>();
-builder.Services.AddScoped<IChineseConversionService, OpenCcChineseConversionService>();
-builder.Services.AddScoped<IOkNgConversionService, OkNgConversionService>();
-builder.Services.AddScoped<ISynonymService, SynonymService>();
-builder.Services.AddScoped<IKeywordService, KeywordService>();
-builder.Services.AddScoped<ITextPreprocessingPipeline, DefaultTextPreprocessingPipeline>();
+// 文本处理：仅保留最小安全归一化
+builder.Services.AddScoped<ITextPreprocessingPipeline, MinimalTextPreprocessingPipeline>();
 
 var jwtOptions = builder.Configuration.GetSection(JwtAuthOptions.SectionName).Get<JwtAuthOptions>()
     ?? new JwtAuthOptions();
@@ -290,6 +282,12 @@ app.UseAuthorization();
 app.MapControllers();
 
 // 系统鉴权基础数据初始化（公司、组织、角色、权限、默认账号）
+using (var scope = app.Services.CreateScope())
+{
+    var bootstrapper = scope.ServiceProvider.GetRequiredService<MatchingKnowledgeBootstrapper>();
+    await bootstrapper.EnsureInitializedAsync();
+}
+
 await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
 
 // 健康检查端点

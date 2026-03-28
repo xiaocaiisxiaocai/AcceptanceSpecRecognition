@@ -206,16 +206,6 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void KeywordRepository_ShouldNotLoadAllWordsIntoMemoryBeforeDedup()
-    {
-        var content = File.ReadAllText(Path.Combine(
-            GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Data/Repositories/KeywordRepository.cs".Replace('/', Path.DirectorySeparatorChar)));
-
-        content.Should().NotContain("Select(k => k.Word)\r\n            .ToListAsync()", "关键字批量新增不应全表拉词到内存去重");
-    }
-
-    [Fact]
     public void AiServiceSelection_ShouldDependOnInterface()
     {
         var files = new[]
@@ -383,14 +373,24 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void TextProcessingConfigRepository_ShouldSerializeSingletonCreation()
+    public void LegacyTextProcessingRepositories_ShouldBeRemoved()
     {
-        var content = File.ReadAllText(Path.Combine(
-            GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Data/Repositories/TextProcessingConfigRepository.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var repositoryRoot = GetRepositoryRoot();
+        var legacyFiles = new[]
+        {
+            "src/AcceptanceSpecSystem.Data/Repositories/KeywordRepository.cs",
+            "src/AcceptanceSpecSystem.Data/Repositories/IKeywordRepository.cs",
+            "src/AcceptanceSpecSystem.Data/Repositories/TextProcessingConfigRepository.cs",
+            "src/AcceptanceSpecSystem.Data/Repositories/ITextProcessingConfigRepository.cs",
+            "src/AcceptanceSpecSystem.Data/Repositories/SynonymRepository.cs",
+            "src/AcceptanceSpecSystem.Data/Repositories/ISynonymRepository.cs"
+        };
 
-        content.Should().Contain("SemaphoreSlim", "单例配置创建过程应串行化，避免并发重复插入");
-        content.Should().Contain("WaitAsync()", "创建默认配置前应进入并发保护区");
+        foreach (var relativePath in legacyFiles)
+        {
+            File.Exists(Path.Combine(repositoryRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)))
+                .Should().BeFalse($"{relativePath} 应随旧文本预处理体系一起移除");
+        }
     }
 
     [Fact]

@@ -2,8 +2,6 @@ using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
-using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
-using AcceptanceSpecSystem.Core.TextProcessing.Models;
 using AcceptanceSpecSystem.Data.Repositories;
 using Entities = AcceptanceSpecSystem.Data.Entities;
 
@@ -74,63 +72,6 @@ public sealed class PromptTemplateProvider : IPromptTemplateProvider
     }
 }
 
-public sealed class TextProcessingConfigProvider : ITextProcessingConfigProvider
-{
-    private readonly ITextProcessingConfigRepository _repository;
-
-    public TextProcessingConfigProvider(ITextProcessingConfigRepository repository)
-    {
-        _repository = repository;
-    }
-
-    public async Task<TextProcessingConfigModel> GetConfigAsync(CancellationToken cancellationToken = default)
-    {
-        var entity = await _repository.GetConfigAsync();
-        return TextProcessingConfigMapper.ToCoreModel(entity);
-    }
-}
-
-public sealed class SynonymDataProvider : ISynonymDataProvider
-{
-    private readonly ISynonymRepository _repository;
-
-    public SynonymDataProvider(ISynonymRepository repository)
-    {
-        _repository = repository;
-    }
-
-    public async Task<IReadOnlyList<SynonymGroupModel>> GetAllGroupsAsync(CancellationToken cancellationToken = default)
-    {
-        var entities = await _repository.GetAllGroupsAsync();
-        return entities
-            .Select(group => new SynonymGroupModel(
-                group.Words
-                    .Select(word => new SynonymWordModel(word.Word, word.IsStandard))
-                    .ToList()))
-            .ToList();
-    }
-}
-
-public sealed class KeywordDataProvider : IKeywordDataProvider
-{
-    private readonly IKeywordRepository _repository;
-
-    public KeywordDataProvider(IKeywordRepository repository)
-    {
-        _repository = repository;
-    }
-
-    public async Task<IReadOnlyList<string>> GetAllAsync(CancellationToken cancellationToken = default)
-    {
-        return await _repository.GetAllWordsAsync();
-    }
-
-    public async Task<bool> IsKeywordAsync(string word, CancellationToken cancellationToken = default)
-    {
-        return await _repository.IsKeywordAsync(word);
-    }
-}
-
 internal static class AiServiceConfigMapper
 {
     public static AiServiceConfigModel ToCoreModel(Entities.AiServiceConfig entity)
@@ -190,30 +131,6 @@ internal static class PromptTemplateMapper
             PromptTemplateScene.ImportDuplicateReview => Entities.PromptTemplateScene.ImportDuplicateReview,
             PromptTemplateScene.MatchingGenerate => Entities.PromptTemplateScene.MatchingGenerate,
             _ => Entities.PromptTemplateScene.Unknown
-        };
-    }
-}
-
-internal static class TextProcessingConfigMapper
-{
-    public static TextProcessingConfigModel ToCoreModel(Entities.TextProcessingConfig entity)
-    {
-        return new TextProcessingConfigModel
-        {
-            EnableChineseConversion = entity.EnableChineseConversion,
-            ConversionMode = entity.ConversionMode switch
-            {
-                Entities.ChineseConversionMode.HansToTW => ChineseConversionMode.HansToTW,
-                Entities.ChineseConversionMode.TWToHans => ChineseConversionMode.TWToHans,
-                _ => ChineseConversionMode.None
-            },
-            EnableSynonym = entity.EnableSynonym,
-            EnableOkNgConversion = entity.EnableOkNgConversion,
-            OkStandardFormat = entity.OkStandardFormat,
-            NgStandardFormat = entity.NgStandardFormat,
-            EnableKeywordHighlight = entity.EnableKeywordHighlight,
-            HighlightColorHex = entity.HighlightColorHex,
-            UpdatedAt = entity.UpdatedAt
         };
     }
 }

@@ -188,7 +188,7 @@ public class MatchingWorkflowService
             }, "没有找到可匹配的验收规格");
         }
 
-        // 创建文本处理会话（按 TextProcessingConfig 开关做预处理）
+        // 创建文本处理会话，仅执行最小安全归一化。
         var tpSession = await _textPipeline.CreateSessionAsync();
 
         // 预处理候选项（项目/规格），确保 CombinedText 使用处理后的内容

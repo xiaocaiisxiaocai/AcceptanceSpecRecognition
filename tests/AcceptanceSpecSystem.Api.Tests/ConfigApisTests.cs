@@ -21,32 +21,64 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task TextProcessingConfig_GetAndSave_ShouldWork()
+    public async Task MatchingKnowledge_GetSaveAndReset_ShouldWork()
     {
-        var getResp = await _client.GetAsync("/api/text-processing/config");
+        var getResp = await _client.GetAsync("/api/matching-knowledge");
         getResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var cfg = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
         cfg.Code.Should().Be(0);
         cfg.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
+        cfg.Data.GetProperty("entityAliases").ValueKind.Should().Be(JsonValueKind.Object);
 
         var putResp = await _client.PutAsync(
-            "/api/text-processing/config",
+            "/api/matching-knowledge",
             ApiClientJson.ToJsonContent(new
             {
-                enableChineseConversion = false,
-                conversionMode = 0,
-                enableSynonym = true,
-                enableOkNgConversion = true,
-                okStandardFormat = "OK",
-                ngStandardFormat = "NG",
-                enableKeywordHighlight = false,
-                highlightColorHex = "#FFFF00"
+                entityAliases = new Dictionary<string, string>
+                {
+                    ["Panasonic品牌"] = "松下"
+                },
+                unitAliases = new Dictionary<string, string>
+                {
+                    ["公分"] = "cm"
+                },
+                unitFactors = new Dictionary<string, decimal>
+                {
+                    ["cm"] = 10m
+                },
+                fieldAliases = new Dictionary<string, string>
+                {
+                    ["宽尺寸"] = "宽度"
+                },
+                conflictPairs = new[]
+                {
+                    new
+                    {
+                        left = "正转",
+                        right = "反转"
+                    }
+                }
             }));
         putResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var saved = await putResp.ReadAsAsync<ApiResponse<JsonElement>>();
         saved.Code.Should().Be(0);
         saved.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        saved.Data.GetProperty("enableSynonym").GetBoolean().Should().BeTrue();
+        saved.Data.GetProperty("entityAliases").GetProperty("Panasonic品牌").GetString().Should().Be("松下");
+
+        var resetResp = await _client.PostAsync("/api/matching-knowledge/reset", null);
+        resetResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var reset = await resetResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        reset.Code.Should().Be(0);
+        reset.Data.GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
+        reset.Data.GetProperty("entityAliases").GetProperty("panasonic").GetString().Should().Be("松下");
+    }
+
+    [Fact]
+    public async Task LegacyTextProcessingApis_ShouldReturnNotFound()
+    {
+        var response = await _client.GetAsync("/api/text-processing/config");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

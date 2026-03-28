@@ -51,24 +51,9 @@ public class AppDbContext : DbContext
     public DbSet<AiServiceConfig> AiServiceConfigs => Set<AiServiceConfig>();
 
     /// <summary>
-    /// 同义词组表
+    /// 匹配知识配置表。
     /// </summary>
-    public DbSet<SynonymGroup> SynonymGroups => Set<SynonymGroup>();
-
-    /// <summary>
-    /// 同义词表
-    /// </summary>
-    public DbSet<SynonymWord> SynonymWords => Set<SynonymWord>();
-
-    /// <summary>
-    /// 关键字表
-    /// </summary>
-    public DbSet<Keyword> Keywords => Set<Keyword>();
-
-    /// <summary>
-    /// 文本处理配置表
-    /// </summary>
-    public DbSet<TextProcessingConfig> TextProcessingConfigs => Set<TextProcessingConfig>();
+    public DbSet<MatchingKnowledgeConfig> MatchingKnowledgeConfigs => Set<MatchingKnowledgeConfig>();
 
     /// <summary>
     /// Prompt模板表
@@ -298,39 +283,15 @@ public class AppDbContext : DbContext
             }
         });
 
-        // SynonymGroup配置
-        modelBuilder.Entity<SynonymGroup>(entity =>
+        // MatchingKnowledgeConfig 配置
+        modelBuilder.Entity<MatchingKnowledgeConfig>(entity =>
         {
             entity.HasKey(e => e.Id);
-        });
-
-        // SynonymWord配置
-        modelBuilder.Entity<SynonymWord>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Word).IsRequired().HasMaxLength(100);
-            entity.HasIndex(e => e.Word);
-            entity.HasOne(e => e.Group)
-                  .WithMany(g => g.Words)
-                  .HasForeignKey(e => e.GroupId)
-                  .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        // Keyword配置
-        modelBuilder.Entity<Keyword>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Word).IsRequired().HasMaxLength(100);
-            entity.HasIndex(e => e.Word).IsUnique();
-        });
-
-        // TextProcessingConfig配置
-        modelBuilder.Entity<TextProcessingConfig>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.OkStandardFormat).HasMaxLength(50);
-            entity.Property(e => e.NgStandardFormat).HasMaxLength(50);
-            entity.Property(e => e.HighlightColorHex).HasMaxLength(10);
+            entity.Property(e => e.EntityAliasesJson).HasColumnType("longtext");
+            entity.Property(e => e.UnitAliasesJson).HasColumnType("longtext");
+            entity.Property(e => e.UnitFactorsJson).HasColumnType("longtext");
+            entity.Property(e => e.FieldAliasesJson).HasColumnType("longtext");
+            entity.Property(e => e.ConflictPairsJson).HasColumnType("longtext");
         });
 
         // PromptTemplate配置

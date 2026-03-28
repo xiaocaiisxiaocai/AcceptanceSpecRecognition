@@ -41,19 +41,9 @@ public interface IUnitOfWork : IDisposable
     IAiServiceConfigRepository AiServiceConfigs { get; }
 
     /// <summary>
-    /// 同义词Repository
+    /// 匹配知识配置Repository。
     /// </summary>
-    ISynonymRepository Synonyms { get; }
-
-    /// <summary>
-    /// 关键字Repository
-    /// </summary>
-    IKeywordRepository Keywords { get; }
-
-    /// <summary>
-    /// 文本处理配置Repository
-    /// </summary>
-    ITextProcessingConfigRepository TextProcessingConfigs { get; }
+    IMatchingKnowledgeConfigRepository MatchingKnowledgeConfigs { get; }
 
     /// <summary>
     /// Prompt模板Repository

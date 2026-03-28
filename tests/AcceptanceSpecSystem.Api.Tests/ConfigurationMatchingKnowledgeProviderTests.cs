@@ -1,54 +1,134 @@
+using System.Text.Json;
 using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Data.Repositories;
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
-public class ConfigurationMatchingKnowledgeProviderTests
+public class ConfigurationMatchingKnowledgeProviderTests : IDisposable
 {
-    [Fact]
-    public async Task GetKnowledgeAsync_ShouldMapConfiguredAliasesFactorsAndConflictPairs()
+    private readonly SqliteConnection _connection;
+    private readonly AppDbContext _context;
+    private readonly MatchingKnowledgeConfigRepository _repository;
+
+    public ConfigurationMatchingKnowledgeProviderTests()
     {
-        var provider = new ConfigurationMatchingKnowledgeProvider(
-            Microsoft.Extensions.Options.Options.Create(new MatchingKnowledgeOptions
+        _connection = new SqliteConnection("Data Source=:memory:");
+        _connection.Open();
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(_connection)
+            .Options;
+
+        _context = new AppDbContext(options);
+        _context.Database.EnsureCreated();
+        _repository = new MatchingKnowledgeConfigRepository(_context);
+    }
+
+    [Fact]
+    public async Task GetKnowledgeAsync_WhenDatabaseConfigExists_ShouldPreferDatabaseConfig()
+    {
+        await _repository.SaveConfigAsync(new MatchingKnowledgeConfig
+        {
+            EntityAliasesJson = JsonSerializer.Serialize(new Dictionary<string, string>
             {
-                EntityAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                ["Panasonic品牌"] = "松下"
+            }),
+            UnitAliasesJson = JsonSerializer.Serialize(new Dictionary<string, string>
+            {
+                ["公分"] = "cm"
+            }),
+            UnitFactorsJson = JsonSerializer.Serialize(new Dictionary<string, decimal>
+            {
+                ["cm"] = 10m
+            }),
+            FieldAliasesJson = JsonSerializer.Serialize(new Dictionary<string, string>
+            {
+                ["宽尺寸"] = "宽度"
+            }),
+            ConflictPairsJson = JsonSerializer.Serialize(new[]
+            {
+                new ConflictPairOption
                 {
-                    ["panasonic"] = "松下",
-                    ["松下"] = "松下"
-                },
-                UnitAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["厘米"] = "cm",
-                    ["mm"] = "mm"
-                },
-                UnitFactors = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["cm"] = 10m,
-                    ["mm"] = 1m
-                },
-                FieldAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["width"] = "宽度",
-                    ["宽度"] = "宽度"
-                },
-                ConflictPairs =
-                [
-                    new ConflictPairOption
-                    {
-                        Left = "正转",
-                        Right = "反转"
-                    }
-                ]
-            }));
+                    Left = "正转",
+                    Right = "反转"
+                }
+            })
+        });
+        await _context.SaveChangesAsync();
+
+        var provider = new ConfigurationMatchingKnowledgeProvider(
+            _repository,
+            Microsoft.Extensions.Options.Options.Create(CreateDefaultOptions()));
 
         var knowledge = await provider.GetKnowledgeAsync();
 
-        knowledge.EntityAliases["panasonic"].Should().Be("松下");
-        knowledge.UnitAliases["厘米"].Should().Be("cm");
+        knowledge.EntityAliases["Panasonic品牌"].Should().Be("松下");
+        knowledge.UnitAliases["公分"].Should().Be("cm");
         knowledge.UnitFactors["cm"].Should().Be(10m);
-        knowledge.FieldAliases["width"].Should().Be("宽度");
+        knowledge.FieldAliases["宽尺寸"].Should().Be("宽度");
         knowledge.ConflictPairs.Should().Contain(pair => pair.Left == "正转" && pair.Right == "反转");
+        knowledge.EntityAliases.ContainsKey("默认品牌").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetKnowledgeAsync_WhenDatabaseConfigMissing_ShouldFallbackToDefaultOptions()
+    {
+        var provider = new ConfigurationMatchingKnowledgeProvider(
+            _repository,
+            Microsoft.Extensions.Options.Options.Create(CreateDefaultOptions()));
+
+        var knowledge = await provider.GetKnowledgeAsync();
+
+        knowledge.EntityAliases["默认品牌"].Should().Be("默认标准品牌");
+        knowledge.UnitAliases["默认单位别名"].Should().Be("mm");
+        knowledge.UnitFactors["mm"].Should().Be(1m);
+        knowledge.FieldAliases["默认字段别名"].Should().Be("宽度");
+        knowledge.ConflictPairs.Should().Contain(pair => pair.Left == "输入" && pair.Right == "输出");
+    }
+
+    public void Dispose()
+    {
+        _context.Database.EnsureDeleted();
+        _context.Dispose();
+        _connection.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    private static MatchingKnowledgeOptions CreateDefaultOptions()
+    {
+        return new MatchingKnowledgeOptions
+        {
+            EntityAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["默认品牌"] = "默认标准品牌"
+            },
+            UnitAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["默认单位别名"] = "mm"
+            },
+            UnitFactors = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["mm"] = 1m
+            },
+            FieldAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["默认字段别名"] = "宽度"
+            },
+            ConflictPairs =
+            [
+                new ConflictPairOption
+                {
+                    Left = "输入",
+                    Right = "输出"
+                }
+            ]
+        };
     }
 }
