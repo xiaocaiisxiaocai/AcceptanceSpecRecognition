@@ -51,36 +51,6 @@ export default {
         title: "列映射规则",
         permissions: ["page:config:column-mapping-rules"]
       }
-    },
-    {
-      path: "/config/auth-roles",
-      name: "AuthRolesConfigLegacy",
-      redirect: "/rbac/auth-roles",
-      meta: {
-        title: "角色管理",
-        showLink: false,
-        permissions: ["page:config:auth-roles"]
-      }
-    },
-    {
-      path: "/config/system-users",
-      name: "SystemUsersConfigLegacy",
-      redirect: "/rbac/system-users",
-      meta: {
-        title: "系统用户",
-        showLink: false,
-        permissions: ["page:config:system-users"]
-      }
-    },
-    {
-      path: "/config/org-units",
-      name: "OrgUnitsConfigLegacy",
-      redirect: "/rbac/org-units",
-      meta: {
-        title: "组织管理",
-        showLink: false,
-        permissions: ["page:config:org-units"]
-      }
     }
   ]
 } satisfies RouteConfigsTable;

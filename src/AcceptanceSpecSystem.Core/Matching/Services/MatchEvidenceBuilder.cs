@@ -28,36 +28,53 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
 
     private void BuildNumericEvidence(MatchEvidence evidence, MatchSource source, MatchCandidate candidate, MatchingKnowledge knowledge)
     {
-        var sourceConstraint = _numericParser.Parse($"{source.Project} {source.Specification}", knowledge);
-        var candidateConstraint = _numericParser.Parse($"{candidate.Project} {candidate.Specification}", knowledge);
-        if (sourceConstraint == null || candidateConstraint == null)
+        var sourceConstraints = _numericParser.ParseAll($"{source.Project} {source.Specification}", knowledge);
+        var candidateConstraints = _numericParser.ParseAll($"{candidate.Project} {candidate.Specification}", knowledge);
+        if (sourceConstraints.Count == 0 || candidateConstraints.Count == 0)
             return;
 
-        if (!string.Equals(sourceConstraint.FieldName, candidateConstraint.FieldName, StringComparison.OrdinalIgnoreCase))
-            return;
+        var candidateLookup = candidateConstraints
+            .GroupBy(item => item.FieldName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToList(),
+                StringComparer.OrdinalIgnoreCase);
 
-        var relation = CompareConstraints(sourceConstraint, candidateConstraint);
-        evidence.NumericConstraints.Add(new NumericConstraintEvidence
+        foreach (var sourceGroup in sourceConstraints.GroupBy(item => item.FieldName, StringComparer.OrdinalIgnoreCase))
         {
-            FieldName = sourceConstraint.FieldName,
-            SourceExpression = sourceConstraint.Expression,
-            CandidateExpression = candidateConstraint.Expression,
-            Relation = relation
-        });
+            if (!candidateLookup.TryGetValue(sourceGroup.Key, out var candidatesByField) ||
+                candidatesByField.Count == 0)
+            {
+                continue;
+            }
 
-        if (relation == EvidenceRelation.Conflict)
-        {
-            evidence.HasHardConflict = true;
-            evidence.Conflicts.Add($"数值约束冲突：{sourceConstraint.Expression} vs {candidateConstraint.Expression}");
-        }
-        else if (relation == EvidenceRelation.Overlap)
-        {
-            evidence.Warnings.Add($"数值约束存在重叠但不够精确：{sourceConstraint.FieldName}");
-            evidence.Summary.Add($"数值约束存在重叠：{sourceConstraint.FieldName}");
-        }
-        else
-        {
-            evidence.Summary.Add($"数值约束{(relation == EvidenceRelation.Compatible ? "相容" : "一致")}：{sourceConstraint.FieldName}");
+            var sourceItems = sourceGroup.ToList();
+            var relation = AggregateConstraintRelation(sourceItems, candidatesByField);
+            var sourceExpression = string.Join("；", sourceItems.Select(item => item.Expression).Distinct(StringComparer.OrdinalIgnoreCase));
+            var candidateExpression = string.Join("；", candidatesByField.Select(item => item.Expression).Distinct(StringComparer.OrdinalIgnoreCase));
+
+            evidence.NumericConstraints.Add(new NumericConstraintEvidence
+            {
+                FieldName = sourceGroup.Key,
+                SourceExpression = sourceExpression,
+                CandidateExpression = candidateExpression,
+                Relation = relation
+            });
+
+            if (relation == EvidenceRelation.Conflict)
+            {
+                evidence.HasHardConflict = true;
+                evidence.Conflicts.Add($"数值约束冲突：{sourceExpression} vs {candidateExpression}");
+            }
+            else if (relation == EvidenceRelation.Overlap)
+            {
+                evidence.Warnings.Add($"数值约束存在重叠但不够精确：{sourceGroup.Key}");
+                evidence.Summary.Add($"数值约束存在重叠：{sourceGroup.Key}");
+            }
+            else
+            {
+                evidence.Summary.Add($"数值约束{(relation == EvidenceRelation.Compatible ? "相容" : "一致")}：{sourceGroup.Key}");
+            }
         }
     }
 
@@ -95,30 +112,59 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
 
     private void BuildIdentifierEvidence(MatchEvidence evidence, MatchSource source, MatchCandidate candidate)
     {
-        var sourceIdentifier = IdentifierRegex.Match($"{source.Project} {source.Specification}");
-        var candidateIdentifier = IdentifierRegex.Match($"{candidate.Project} {candidate.Specification}");
-        if (!sourceIdentifier.Success || !candidateIdentifier.Success)
+        var sourceIdentifiers = ExtractIdentifiers($"{source.Project} {source.Specification}");
+        var candidateIdentifiers = ExtractIdentifiers($"{candidate.Project} {candidate.Specification}");
+        if (sourceIdentifiers.Count == 0 || candidateIdentifiers.Count == 0)
             return;
 
-        var relation = sourceIdentifier.Value.Equals(candidateIdentifier.Value, StringComparison.OrdinalIgnoreCase)
-            ? EvidenceRelation.Exact
-            : EvidenceRelation.Conflict;
-
-        evidence.Identifiers.Add(new IdentifierEvidence
+        var remainingCandidates = new List<string>(candidateIdentifiers);
+        foreach (var sourceIdentifier in sourceIdentifiers)
         {
-            SourceValue = sourceIdentifier.Value,
-            CandidateValue = candidateIdentifier.Value,
-            Relation = relation
-        });
+            var exactIndex = remainingCandidates.FindIndex(candidateIdentifier =>
+                candidateIdentifier.Equals(sourceIdentifier, StringComparison.OrdinalIgnoreCase));
+            if (exactIndex >= 0)
+            {
+                var candidateIdentifier = remainingCandidates[exactIndex];
+                remainingCandidates.RemoveAt(exactIndex);
+                evidence.Identifiers.Add(new IdentifierEvidence
+                {
+                    SourceValue = sourceIdentifier,
+                    CandidateValue = candidateIdentifier,
+                    Relation = EvidenceRelation.Exact
+                });
+                evidence.Summary.Add($"型号一致：{sourceIdentifier}");
+                continue;
+            }
 
-        if (relation == EvidenceRelation.Conflict)
-        {
+            var familyIndex = remainingCandidates.FindIndex(candidateIdentifier =>
+                BelongsToSameIdentifierFamily(sourceIdentifier, candidateIdentifier));
+            if (familyIndex < 0)
+                continue;
+
+            var conflictingCandidate = remainingCandidates[familyIndex];
+            remainingCandidates.RemoveAt(familyIndex);
+
+            evidence.Identifiers.Add(new IdentifierEvidence
+            {
+                SourceValue = sourceIdentifier,
+                CandidateValue = conflictingCandidate,
+                Relation = EvidenceRelation.Conflict
+            });
             evidence.HasHardConflict = true;
-            evidence.Conflicts.Add($"型号冲突：{sourceIdentifier.Value} vs {candidateIdentifier.Value}");
-            return;
+            evidence.Conflicts.Add($"型号冲突：{sourceIdentifier} vs {conflictingCandidate}");
         }
 
-        evidence.Summary.Add($"型号一致：{sourceIdentifier.Value}");
+        if (evidence.Identifiers.Count == 0 && sourceIdentifiers.Count == 1 && candidateIdentifiers.Count == 1)
+        {
+            evidence.Identifiers.Add(new IdentifierEvidence
+            {
+                SourceValue = sourceIdentifiers[0],
+                CandidateValue = candidateIdentifiers[0],
+                Relation = EvidenceRelation.Conflict
+            });
+            evidence.HasHardConflict = true;
+            evidence.Conflicts.Add($"型号冲突：{sourceIdentifiers[0]} vs {candidateIdentifiers[0]}");
+        }
     }
 
     private static EvidenceRelation CompareConstraints(ParsedConstraint source, ParsedConstraint candidate)
@@ -139,5 +185,54 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
             return candidate.NormalizedValue >= source.NormalizedValue ? EvidenceRelation.Compatible : EvidenceRelation.Conflict;
 
         return source.NormalizedValue == candidate.NormalizedValue ? EvidenceRelation.Exact : EvidenceRelation.Overlap;
+    }
+
+    private static EvidenceRelation AggregateConstraintRelation(
+        IReadOnlyCollection<ParsedConstraint> sourceConstraints,
+        IReadOnlyCollection<ParsedConstraint> candidateConstraints)
+    {
+        var relations = sourceConstraints
+            .SelectMany(sourceConstraint => candidateConstraints.Select(candidateConstraint =>
+                CompareConstraints(sourceConstraint, candidateConstraint)))
+            .ToList();
+
+        if (relations.Contains(EvidenceRelation.Conflict))
+            return EvidenceRelation.Conflict;
+
+        if (relations.Contains(EvidenceRelation.Overlap))
+            return EvidenceRelation.Overlap;
+
+        if (relations.Contains(EvidenceRelation.Compatible))
+            return EvidenceRelation.Compatible;
+
+        return EvidenceRelation.Exact;
+    }
+
+    private static List<string> ExtractIdentifiers(string text)
+    {
+        return IdentifierRegex.Matches(text ?? string.Empty)
+            .Select(match => match.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool BelongsToSameIdentifierFamily(string sourceIdentifier, string candidateIdentifier)
+    {
+        var sourceFamily = GetIdentifierFamily(sourceIdentifier);
+        var candidateFamily = GetIdentifierFamily(candidateIdentifier);
+        return !string.IsNullOrWhiteSpace(sourceFamily) &&
+               sourceFamily.Equals(candidateFamily, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetIdentifierFamily(string identifier)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+            return string.Empty;
+
+        var segments = identifier.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length <= 1)
+            return segments.Length == 1 ? segments[0] : string.Empty;
+
+        return string.Join('-', segments[..^1]);
     }
 }

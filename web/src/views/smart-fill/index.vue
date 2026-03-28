@@ -46,7 +46,7 @@ const uploadedFile = ref<FileUploadResponse | null>(null);
 const isExcelFile = computed(() => uploadedFile.value?.fileType === 1);
 const canUploadSourceFile = computed(() => hasPerms("btn:document:upload"));
 const canPreviewMatching = computed(() => hasPerms("btn:matching:preview-batch"));
-const canLlmStream = computed(() => hasPerms("btn:matching:llm-stream"));
+const canLlmStream = computed(() => hasPerms("btn:matching-fill:llm-stream"));
 const canExecuteFill = computed(() => hasPerms("btn:matching-fill:execute-batch"));
 const canDownloadFillResult = computed(() => hasPerms("btn:matching:download"));
 const canStrictReusePreview = computed(() => hasPerms("btn:matching:preview"));

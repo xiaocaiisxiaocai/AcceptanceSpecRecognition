@@ -19,6 +19,17 @@ public static class MatchingThresholds
     /// LLM 复核通过阈值（0~100）
     /// </summary>
     public const double LlmReviewPassScore = 90;
+
+    /// <summary>
+    /// 归一化高置信阈值配置。
+    /// </summary>
+    public static double NormalizeHighConfidenceThreshold(double? threshold)
+    {
+        return Math.Clamp(
+            threshold ?? DefaultHighConfidenceScore,
+            0.5,
+            1);
+    }
 }
 
 /// <summary>
@@ -169,11 +180,16 @@ public class MatchResult
     public MatchDecision Decision { get; set; } = MatchDecision.AutoApply;
 
     /// <summary>
+    /// 本次匹配使用的高置信阈值
+    /// </summary>
+    public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
+
+    /// <summary>
     /// 是否为高置信度匹配
     /// </summary>
     public bool IsHighConfidence =>
         Decision == MatchDecision.AutoApply &&
-        Score >= MatchingThresholds.DefaultHighConfidenceScore;
+        Score >= HighConfidenceThreshold;
 
     /// <summary>
     /// 是否为中置信度匹配
@@ -181,7 +197,7 @@ public class MatchResult
     public bool IsMediumConfidence =>
         Decision == MatchDecision.AutoApply &&
         Score >= MatchingThresholds.MediumConfidenceScore &&
-        Score < MatchingThresholds.DefaultHighConfidenceScore;
+        Score < HighConfidenceThreshold;
 
     /// <summary>
     /// 是否为低置信度匹配

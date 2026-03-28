@@ -137,9 +137,8 @@ public class WordDocumentWriter : IDocumentWriter
             return 0;
 
         using var doc = WordprocessingDocument.Open(stream, true);
-        var body = doc.MainDocumentPart?.Document.Body;
-        if (body == null)
-            throw new InvalidOperationException("文档为空或格式无效");
+        var mainDocument = GetRequiredMainDocument(doc);
+        var body = mainDocument.Body ?? throw new InvalidOperationException("文档为空或格式无效");
 
         var tables = GetTopLevelTables(body);
         int totalSuccess = 0;
@@ -166,7 +165,7 @@ public class WordDocumentWriter : IDocumentWriter
             }
         }
 
-        doc.MainDocumentPart?.Document.Save();
+        mainDocument.Save();
         return totalSuccess;
     }
 
@@ -180,9 +179,8 @@ public class WordDocumentWriter : IDocumentWriter
             return 0;
 
         using var doc = WordprocessingDocument.Open(stream, true);
-        var body = doc.MainDocumentPart?.Document.Body;
-        if (body == null)
-            throw new InvalidOperationException("文档为空或格式无效");
+        var mainDocument = GetRequiredMainDocument(doc);
+        var body = mainDocument.Body ?? throw new InvalidOperationException("文档为空或格式无效");
 
         var tables = GetTopLevelTables(body);
         if (tableIndex < 0 || tableIndex >= tables.Count)
@@ -205,7 +203,7 @@ public class WordDocumentWriter : IDocumentWriter
         }
 
         // 保存更改
-        doc.MainDocumentPart?.Document.Save();
+        mainDocument.Save();
 
         return successCount;
     }
@@ -391,5 +389,11 @@ public class WordDocumentWriter : IDocumentWriter
             );
             cell.AppendChild(paragraph);
         }
+    }
+
+    private static Document GetRequiredMainDocument(WordprocessingDocument document)
+    {
+        return document.MainDocumentPart?.Document
+            ?? throw new InvalidOperationException("文档为空或格式无效");
     }
 }

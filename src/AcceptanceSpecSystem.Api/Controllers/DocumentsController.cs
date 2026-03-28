@@ -76,6 +76,8 @@ public class DocumentsController : BaseApiController
             query = query.Where(f => f.FileName.Contains(key));
         }
 
+        query = ApplyWordFileScopeToQuery(query, scope);
+
         var total = await query.CountAsync();
         var rows = await query
             .OrderByDescending(f => f.UploadedAt)
@@ -127,6 +129,12 @@ public class DocumentsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<FileUploadResponse>>> UploadFile(IFormFile file)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<FileUploadResponse>(401, "会话缺少用户上下文");
+        }
+
         if (file == null || file.Length == 0)
         {
             return Error<FileUploadResponse>(400, "请选择要上传的文件");
@@ -149,6 +157,8 @@ public class DocumentsController : BaseApiController
             fileContent = memoryStream.ToArray();
         }
 
+        var fileHash = FileStorageService.ComputeSha256(fileContent);
+
         // 保存为临时文件（不做哈希去重）
         var filePath = fileType == UploadedFileType.ExcelXlsx
             ? await _fileStorage.SaveUploadedExcelAsync(file.FileName, fileContent, cancellationToken)
@@ -156,10 +166,13 @@ public class DocumentsController : BaseApiController
 
         var wordFile = new WordFile
         {
+            CompanyId = scope.CompanyId,
+            CreatedByUserId = scope.UserId,
+            OwnerOrgUnitId = scope.OrgUnitId,
             FileName = file.FileName,
             FileContent = Array.Empty<byte>(),
             FilePath = filePath,
-            FileHash = Guid.NewGuid().ToString("N"),
+            FileHash = fileHash,
             UploadedAt = DateTime.UtcNow,
             FileType = fileType
         };
@@ -187,7 +200,7 @@ public class DocumentsController : BaseApiController
         {
             FileId = wordFile.Id,
             FileName = wordFile.FileName,
-            FileHash = Guid.NewGuid().ToString("N"),
+            FileHash = wordFile.FileHash,
             IsDuplicate = false,
             TableCount = tableCount,
             FileType = wordFile.FileType
@@ -202,7 +215,13 @@ public class DocumentsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<List<TableInfoDto>>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<List<TableInfoDto>>>> GetTables(int id)
     {
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(id);
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<List<TableInfoDto>>(401, "会话缺少用户上下文");
+        }
+
+        var wordFile = await GetAccessibleWordFileAsync(id, scope);
         if (wordFile == null)
         {
             return NotFoundResult<List<TableInfoDto>>("文件不存在");
@@ -250,7 +269,13 @@ public class DocumentsController : BaseApiController
         [FromQuery] int headerRowCount = 1,
         [FromQuery] int dataStartRowIndex = 1)
     {
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(id);
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<TableDataDto>(401, "会话缺少用户上下文");
+        }
+
+        var wordFile = await GetAccessibleWordFileAsync(id, scope);
         if (wordFile == null)
         {
             return NotFoundResult<TableDataDto>("文件不存在");
@@ -426,7 +451,7 @@ public class DocumentsController : BaseApiController
         var cancellationToken = HttpContext.RequestAborted;
 
         // 验证文件
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
+        var wordFile = await GetAccessibleWordFileAsync(request.FileId, scope);
         if (wordFile == null)
         {
             return Error<ImportResult>(400, "文件不存在");
@@ -652,7 +677,7 @@ public class DocumentsController : BaseApiController
 
         var cancellationToken = HttpContext.RequestAborted;
 
-        var file = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
+        var file = await GetAccessibleWordFileAsync(request.FileId, scope);
         if (file == null)
         {
             return Error<ImportResult>(400, "文件不存在");
@@ -899,7 +924,13 @@ public class DocumentsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse>> DeleteFile(int id)
     {
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(id);
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error(401, "会话缺少用户上下文");
+        }
+
+        var wordFile = await GetAccessibleWordFileAsync(id, scope);
         if (wordFile == null)
         {
             return NotFound(ApiResponse.Error(404, "文件不存在"));
@@ -957,6 +988,44 @@ public class DocumentsController : BaseApiController
             .GroupBy(s => s.WordFileId)
             .Select(g => new { FileId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.FileId, x => x.Count);
+    }
+
+    private IQueryable<WordFile> ApplyWordFileScopeToQuery(IQueryable<WordFile> query, DataScopeResult scope)
+    {
+        var ownershipQuery = WordFileDataScopeHelper.ApplyOwnershipScopeToQuery(query, scope);
+        if (scope.IsAll)
+        {
+            return ownershipQuery;
+        }
+
+        var scopedSpecFileIds = SpecDataScopeHelper.ApplyScopeToQuery(
+                _unitOfWork.AcceptanceSpecs.Query(),
+                scope)
+            .Select(spec => spec.WordFileId)
+            .Distinct();
+
+        return ownershipQuery.Union(query.Where(file => scopedSpecFileIds.Contains(file.Id)));
+    }
+
+    private async Task<WordFile?> GetAccessibleWordFileAsync(int id, DataScopeResult scope)
+    {
+        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(id);
+        if (wordFile == null)
+        {
+            return null;
+        }
+
+        if (WordFileDataScopeHelper.CanAccess(wordFile, scope))
+        {
+            return wordFile;
+        }
+
+        var hasScopedSpec = await SpecDataScopeHelper.ApplyScopeToQuery(
+                _unitOfWork.AcceptanceSpecs.Query(),
+                scope)
+            .AnyAsync(spec => spec.WordFileId == id);
+
+        return hasScopedSpec ? wordFile : null;
     }
 
     private async Task<List<AcceptanceSpec>> LoadExistingSpecsForImportAsync(

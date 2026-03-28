@@ -48,6 +48,7 @@ const getAllSelections = () => {
       specId?: number;
       matchScore?: number;
       llmReviewScore?: number;
+      manualConfirmed?: boolean;
     }>
   > = new Map();
 

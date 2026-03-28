@@ -29,7 +29,13 @@ const queryParams = reactive({
 });
 
 const canUpdate = computed(() => hasPerms("btn:prompt-template:update"));
-const hasOperationActions = computed(() => canUpdate.value);
+const canPreview = computed(() => hasPerms("btn:prompt-template:preview"));
+const canResetSystem = computed(() =>
+  hasPerms("btn:prompt-template:reset-system")
+);
+const hasOperationActions = computed(
+  () => canUpdate.value || canResetSystem.value
+);
 
 const dialogVisible = ref(false);
 const dialogTitle = ref("");
@@ -98,7 +104,7 @@ const handleEdit = (row: PromptTemplate) => {
 
 const handlePreview = async () => {
   if (
-    !ensurePermission("btn:prompt-template:update", "权限不足，无法预览Prompt模板")
+    !ensurePermission("btn:prompt-template:preview", "权限不足，无法预览Prompt模板")
   ) {
     return;
   }
@@ -163,7 +169,7 @@ const handleSubmit = async () => {
 const handleResetSystem = async (row: PromptTemplate) => {
   if (
     !ensurePermission(
-      "btn:prompt-template:update",
+      "btn:prompt-template:reset-system",
       "权限不足，无法恢复系统默认模板"
     )
   ) {
@@ -289,7 +295,7 @@ onMounted(loadData);
               编辑
             </el-button>
             <el-button
-              v-if="canUpdate"
+              v-if="canResetSystem"
               type="warning"
               link
               @click="handleResetSystem(row)"
@@ -347,7 +353,7 @@ onMounted(loadData);
       </el-form>
 
       <el-divider content-position="left">预览测试</el-divider>
-      <div class="mb-4">
+      <div v-if="canPreview" class="mb-4">
         <el-button :loading="previewLoading" @click="handlePreview">
           执行预览
         </el-button>

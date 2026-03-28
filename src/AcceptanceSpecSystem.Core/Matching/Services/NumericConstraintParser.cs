@@ -12,22 +12,33 @@ internal sealed class NumericConstraintParser
 
     public ParsedConstraint? Parse(string? text, MatchingKnowledge knowledge)
     {
+        return ParseAll(text, knowledge).FirstOrDefault();
+    }
+
+    public IReadOnlyList<ParsedConstraint> ParseAll(string? text, MatchingKnowledge knowledge)
+    {
         if (string.IsNullOrWhiteSpace(text))
-            return null;
+            return [];
 
-        var match = ConstraintRegex.Match(text);
-        if (!match.Success)
-            return null;
+        var matches = ConstraintRegex.Matches(text);
+        if (matches.Count == 0)
+            return [];
 
-        var field = NormalizeFieldName(match.Groups["field"].Value.Trim(), knowledge);
-        var op = NormalizeOperator(match.Groups["operator"].Value);
-        var unit = NormalizeUnit(match.Groups["unit"].Value.Trim(), knowledge);
-        if (string.IsNullOrWhiteSpace(unit))
-            return null;
-        var value = decimal.Parse(match.Groups["value"].Value, CultureInfo.InvariantCulture);
-        var normalizedValue = NormalizeValue(value, unit, knowledge);
+        var constraints = new List<ParsedConstraint>(matches.Count);
+        foreach (Match match in matches)
+        {
+            var field = NormalizeFieldName(match.Groups["field"].Value.Trim(), knowledge);
+            var op = NormalizeOperator(match.Groups["operator"].Value);
+            var unit = NormalizeUnit(match.Groups["unit"].Value.Trim(), knowledge);
+            if (string.IsNullOrWhiteSpace(unit))
+                continue;
 
-        return new ParsedConstraint(field, op, value, unit, normalizedValue, match.Value);
+            var value = decimal.Parse(match.Groups["value"].Value, CultureInfo.InvariantCulture);
+            var normalizedValue = NormalizeValue(value, unit, knowledge);
+            constraints.Add(new ParsedConstraint(field, op, value, unit, normalizedValue, match.Value));
+        }
+
+        return constraints;
     }
 
     private static string NormalizeOperator(string value)

@@ -105,4 +105,59 @@ public class MatchEvidenceBuilderTests
         evidence.Entities[0].Relation.Should().Be(EvidenceRelation.AliasSame);
         evidence.HasHardConflict.Should().BeFalse();
     }
+
+    [Fact]
+    public void Build_WhenMultipleNumericConstraintsExist_ShouldEvaluateEachSharedField()
+    {
+        var evidence = _builder.Build(
+            new MatchSource
+            {
+                Project = "尺寸要求",
+                Specification = "宽度小于0.5cm，高度等于1cm"
+            },
+            new MatchCandidate
+            {
+                SpecId = 5,
+                Project = "尺寸要求",
+                Specification = "宽度等于0.2cm，高度等于2cm"
+            },
+            MatchingKnowledge.CreateDefault());
+
+        evidence.NumericConstraints.Should().HaveCount(2);
+        evidence.NumericConstraints.Should().Contain(item =>
+            item.FieldName == "宽度" && item.Relation == EvidenceRelation.Compatible);
+        evidence.NumericConstraints.Should().Contain(item =>
+            item.FieldName == "高度" && item.Relation == EvidenceRelation.Conflict);
+        evidence.HasHardConflict.Should().BeTrue();
+        evidence.Conflicts.Should().Contain(item => item.Contains("高度", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Build_WhenMultipleIdentifiersExist_ShouldCaptureRemainingIdentifierConflicts()
+    {
+        var evidence = _builder.Build(
+            new MatchSource
+            {
+                Project = "设备 ABC-100 和 XYZ-200",
+                Specification = "请使用 ABC-100 与 XYZ-200"
+            },
+            new MatchCandidate
+            {
+                SpecId = 6,
+                Project = "设备 ABC-100 和 XYZ-201",
+                Specification = "请使用 ABC-100 与 XYZ-201"
+            },
+            MatchingKnowledge.CreateDefault());
+
+        evidence.Identifiers.Should().HaveCount(2);
+        evidence.Identifiers.Should().Contain(item =>
+            item.SourceValue == "ABC-100" &&
+            item.CandidateValue == "ABC-100" &&
+            item.Relation == EvidenceRelation.Exact);
+        evidence.Identifiers.Should().Contain(item =>
+            item.SourceValue == "XYZ-200" &&
+            item.CandidateValue == "XYZ-201" &&
+            item.Relation == EvidenceRelation.Conflict);
+        evidence.HasHardConflict.Should().BeTrue();
+    }
 }

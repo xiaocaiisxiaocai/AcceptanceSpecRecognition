@@ -262,7 +262,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.FileType).IsRequired();
             entity.Property(e => e.FileHash).IsRequired().HasMaxLength(64);
             entity.Property(e => e.FilePath).HasMaxLength(500);
-            entity.HasIndex(e => e.FileHash).IsUnique();
+            entity.HasIndex(e => e.FileHash);
+            entity.HasIndex(e => e.CompanyId);
+            entity.HasIndex(e => e.CreatedByUserId);
+            entity.HasIndex(e => e.OwnerOrgUnitId);
         });
 
         // AiServiceConfig配置

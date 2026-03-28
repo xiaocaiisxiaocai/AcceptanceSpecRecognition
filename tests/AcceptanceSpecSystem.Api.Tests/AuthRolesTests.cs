@@ -54,7 +54,7 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Update_WhenRoleBuiltIn_ShouldSucceed()
+    public async Task Update_WhenRoleBuiltIn_ShouldReturnBadRequest()
     {
         var updatedName = $"管理员-{Guid.NewGuid():N}"[..12];
 
@@ -84,14 +84,15 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
                 }
             }));
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Code.Should().Be(0);
+        body.Code.Should().Be(400);
+        body.Message.Should().Contain("内置角色不允许修改");
 
         var updatedRole = await dbContext.AuthRoles.FirstAsync(role => role.Id == adminRoleId);
-        updatedRole.Name.Should().Be(updatedName);
-        updatedRole.Description.Should().Be("允许修改内置角色");
-        updatedRole.IsActive.Should().BeFalse();
+        updatedRole.Name.Should().NotBe(updatedName);
+        updatedRole.Description.Should().NotBe("允许修改内置角色");
+        updatedRole.IsActive.Should().BeTrue();
     }
 
     [Fact]

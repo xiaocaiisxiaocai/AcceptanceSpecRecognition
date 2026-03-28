@@ -909,6 +909,12 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("int");
+
                     b.Property<byte[]>("FileContent")
                         .IsRequired()
                         .HasColumnType("longblob");
@@ -930,13 +936,21 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<int>("FileType")
                         .HasColumnType("int");
 
+                    b.Property<int?>("OwnerOrgUnitId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("UploadedAt")
                         .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FileHash")
-                        .IsUnique();
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("FileHash");
+
+                    b.HasIndex("OwnerOrgUnitId");
 
                     b.ToTable("WordFiles");
                 });

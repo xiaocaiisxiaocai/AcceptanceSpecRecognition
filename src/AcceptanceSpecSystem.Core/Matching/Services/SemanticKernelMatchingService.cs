@@ -99,6 +99,7 @@ public class SemanticKernelMatchingService : IMatchingService
             sourceEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(
                 sourceList.Select(s => s.CombinedText),
                 config.EmbeddingServiceId);
+            EnsureEmbeddingBatchPayload(sourceEmbeddings, sourceList.Count, "源文本");
             _logger.LogInformation("批量生成 {Count} 个源文本 Embedding 完成", sourceList.Count);
         }
         catch (AiServiceUnavailableException)
@@ -156,6 +157,8 @@ public class SemanticKernelMatchingService : IMatchingService
             _logger.LogWarning(ex, "批量生成候选 Embedding 失败");
             throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
         }
+
+        EnsureEmbeddingBatchPayload(newEmbeddings, missingIndices.Count, "候选项");
 
         for (var j = 0; j < missingIndices.Count && j < newEmbeddings.Count; j++)
         {
@@ -240,6 +243,7 @@ public class SemanticKernelMatchingService : IMatchingService
             recalled.Count,
             isAmbiguous,
             scoreGap,
+            config.HighConfidenceThreshold,
             orderedCandidates: ordered);
     }
 
@@ -271,6 +275,7 @@ public class SemanticKernelMatchingService : IMatchingService
         int recalledCandidateCount,
         bool isAmbiguous,
         double? scoreGap,
+        double highConfidenceThreshold,
         IReadOnlyList<EvaluatedCandidate> orderedCandidates)
     {
         var scoreDetails = CreateScoreDetails(candidate);
@@ -293,7 +298,8 @@ public class SemanticKernelMatchingService : IMatchingService
             IsAmbiguous = isAmbiguous,
             ScoreGap = scoreGap,
             RerankSummary = candidate.RerankSummary,
-            Decision = DetermineDecision(candidate, isAmbiguous),
+            Decision = DetermineDecision(candidate, isAmbiguous, highConfidenceThreshold),
+            HighConfidenceThreshold = MatchingThresholds.NormalizeHighConfidenceThreshold(highConfidenceThreshold),
             TopCandidates = BuildTopCandidates(orderedCandidates)
         };
     }
@@ -393,14 +399,14 @@ public class SemanticKernelMatchingService : IMatchingService
         var evidence = candidate.Evidence;
         if (evidence?.NumericConstraints.Count > 0)
         {
-            return evidence.NumericConstraints[0].Relation switch
-            {
-                EvidenceRelation.Exact => 1.0,
-                EvidenceRelation.Compatible => 1.0,
-                EvidenceRelation.Overlap => 0.6,
-                EvidenceRelation.Conflict => 0.0,
-                _ => 0.0
-            };
+            if (evidence.NumericConstraints.Any(item => item.Relation == EvidenceRelation.Conflict))
+                return 0.0;
+
+            if (evidence.NumericConstraints.Any(item =>
+                    item.Relation is EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
+                return 0.6;
+
+            return 1.0;
         }
 
         var sourceText = NormalizeComparableText(source.Specification);
@@ -530,7 +536,7 @@ public class SemanticKernelMatchingService : IMatchingService
         return string.Join("；", reasons);
     }
 
-    private static MatchDecision DetermineDecision(EvaluatedCandidate candidate, bool isAmbiguous)
+    private static MatchDecision DetermineDecision(EvaluatedCandidate candidate, bool isAmbiguous, double highConfidenceThreshold)
     {
         if (candidate.Evidence?.HasHardConflict == true)
             return MatchDecision.Reject;
@@ -541,7 +547,30 @@ public class SemanticKernelMatchingService : IMatchingService
         if (isAmbiguous)
             return MatchDecision.ManualReview;
 
+        if (HasDecisiveEvidence(candidate.Evidence))
+            return MatchDecision.AutoApply;
+
+        if (candidate.FinalScore < MatchingThresholds.NormalizeHighConfidenceThreshold(highConfidenceThreshold))
+            return MatchDecision.ManualReview;
+
         return MatchDecision.AutoApply;
+    }
+
+    private static bool HasDecisiveEvidence(MatchEvidence? evidence)
+    {
+        if (evidence == null)
+            return false;
+
+        if (evidence.NumericConstraints.Any(item => item.Relation is EvidenceRelation.Exact or EvidenceRelation.Compatible))
+            return true;
+
+        if (evidence.Identifiers.Any(item => item.Relation == EvidenceRelation.Exact))
+            return true;
+
+        if (evidence.Entities.Any(item => item.Relation is EvidenceRelation.Exact or EvidenceRelation.AliasSame))
+            return true;
+
+        return false;
     }
 
     private static bool RequiresManualReview(MatchEvidence? evidence)
@@ -648,6 +677,20 @@ public class SemanticKernelMatchingService : IMatchingService
 
         var overlap = sourceTokens.Intersect(candidateTokens, StringComparer.OrdinalIgnoreCase).Count();
         return overlap / (double)sourceTokens.Count;
+    }
+
+    private static void EnsureEmbeddingBatchPayload(IReadOnlyList<float[]> embeddings, int expectedCount, string targetName)
+    {
+        if (embeddings.Count != expectedCount)
+        {
+            throw new AiServiceUnavailableException(
+                $"Embedding 服务返回数量与请求不一致：{targetName}请求 {expectedCount} 个，实际返回 {embeddings.Count} 个");
+        }
+
+        if (embeddings.Any(embedding => embedding == null || embedding.Length == 0))
+        {
+            throw new AiServiceUnavailableException($"{targetName} Embedding 结果为空");
+        }
     }
 
     private static bool HasText(string? value)

@@ -114,6 +114,11 @@ public class MatchingWorkflowService
         var sw = Stopwatch.StartNew();
         var config = ConvertToMatchingConfig(request.Config);
         var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
+        var scope = await ResolveSpecScopeAsync(user);
+        if (scope == null)
+        {
+            throw Failure(401, "会话缺少用户上下文");
+        }
 
         // 兼容前端：如果未传Items，则尝试从文件表格提取项目/规格作为待匹配项
         if (request.Items == null || request.Items.Count == 0)
@@ -130,6 +135,7 @@ public class MatchingWorkflowService
                     request.TableIndex.Value,
                     request.ProjectColumnIndex.Value,
                     request.SpecificationColumnIndex.Value,
+                    scope,
                     request.HeaderRowStart,
                     request.HeaderRowCount,
                     request.DataStartRow,
@@ -146,12 +152,6 @@ public class MatchingWorkflowService
             {
                 throw Failure(400, "待匹配文本列表不能为空");
             }
-        }
-
-        var scope = await ResolveSpecScopeAsync(user);
-        if (scope == null)
-        {
-            throw Failure(401, "会话缺少用户上下文");
         }
 
         // 获取候选验收规格（含 EmbeddingCache 复用）
@@ -489,16 +489,16 @@ public class MatchingWorkflowService
         }
 
         // 获取源文件
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId.Value);
-        if (wordFile == null)
-        {
-            throw Failure(400, "源文件不存在");
-        }
-
         var scope = await ResolveSpecScopeAsync(user);
         if (scope == null)
         {
             throw Failure(401, "会话缺少用户上下文");
+        }
+
+        var wordFile = await GetAccessibleWordFileAsync(fileId.Value, scope);
+        if (wordFile == null)
+        {
+            throw Failure(400, "源文件不存在");
         }
         var highConfidenceThreshold = NormalizeHighConfidenceThreshold(request.HighConfidenceThreshold);
 
@@ -894,6 +894,7 @@ public class MatchingWorkflowService
                 tableConfig.TableIndex,
                 tableConfig.ProjectColumnIndex,
                 tableConfig.SpecificationColumnIndex,
+                scope,
                 tableConfig.HeaderRowStart,
                 tableConfig.HeaderRowCount,
                 tableConfig.DataStartRow,
@@ -1025,16 +1026,16 @@ public class MatchingWorkflowService
         }
 
         // 获取源文件
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(request.FileId);
-        if (wordFile == null)
-        {
-            throw Failure(400, "源文件不存在");
-        }
-
         var scope = await ResolveSpecScopeAsync(user);
         if (scope == null)
         {
             throw Failure(401, "会话缺少用户上下文");
+        }
+
+        var wordFile = await GetAccessibleWordFileAsync(request.FileId, scope);
+        if (wordFile == null)
+        {
+            throw Failure(400, "源文件不存在");
         }
         var highConfidenceThreshold = NormalizeHighConfidenceThreshold(request.HighConfidenceThreshold);
 
@@ -1190,10 +1191,16 @@ public class MatchingWorkflowService
             throw Failure(400, "当前填充任务不支持严格复用，请重新执行一次填充后再试");
         }
 
+        var scope = await ResolveSpecScopeAsync(user);
+        if (scope == null)
+        {
+            throw Failure(401, "会话缺少用户上下文");
+        }
+
         var results = new List<StrictReusePreviewFileResult>();
         foreach (var fileId in request.TargetFileIds.Distinct())
         {
-            var targetFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId);
+            var targetFile = await GetAccessibleWordFileAsync(fileId, scope);
             if (targetFile == null)
             {
                 results.Add(new StrictReusePreviewFileResult
@@ -1206,7 +1213,7 @@ public class MatchingWorkflowService
                 continue;
             }
 
-            var errors = await ValidateStrictReuseTargetFileAsync(targetFile, sourceTask.StrictReuseSession);
+            var errors = await ValidateStrictReuseTargetFileAsync(targetFile, sourceTask.StrictReuseSession, scope);
             results.Add(new StrictReusePreviewFileResult
             {
                 FileId = targetFile.Id,
@@ -1238,12 +1245,18 @@ public class MatchingWorkflowService
             throw Failure(400, "当前填充任务不支持严格复用，请重新执行一次填充后再试");
         }
 
+        var scope = await ResolveSpecScopeAsync(user);
+        if (scope == null)
+        {
+            throw Failure(401, "会话缺少用户上下文");
+        }
+
         var executableTargets = new List<StrictReuseGeneratedFile>();
         var fileResults = new List<StrictReuseExecuteFileResult>();
 
         foreach (var fileId in request.TargetFileIds.Distinct())
         {
-            var targetFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId);
+            var targetFile = await GetAccessibleWordFileAsync(fileId, scope);
             if (targetFile == null)
             {
                 fileResults.Add(new StrictReuseExecuteFileResult
@@ -1256,7 +1269,7 @@ public class MatchingWorkflowService
                 continue;
             }
 
-            var errors = await ValidateStrictReuseTargetFileAsync(targetFile, sourceTask.StrictReuseSession);
+            var errors = await ValidateStrictReuseTargetFileAsync(targetFile, sourceTask.StrictReuseSession, scope);
             if (errors.Count > 0)
             {
                 fileResults.Add(new StrictReuseExecuteFileResult
@@ -1356,6 +1369,7 @@ public class MatchingWorkflowService
                 table.TableIndex,
                 table.ProjectColumnIndex!.Value,
                 table.SpecificationColumnIndex!.Value,
+                null,
                 table.HeaderRowStart,
                 table.HeaderRowCount,
                 table.DataStartRow,
@@ -1404,7 +1418,7 @@ public class MatchingWorkflowService
         };
     }
 
-    private async Task<List<string>> ValidateStrictReuseTargetFileAsync(WordFile targetFile, StrictReuseSession session)
+    private async Task<List<string>> ValidateStrictReuseTargetFileAsync(WordFile targetFile, StrictReuseSession session, DataScopeResult scope)
     {
         var errors = new List<string>();
         if (targetFile.FileType != session.SourceFileType)
@@ -1461,6 +1475,7 @@ public class MatchingWorkflowService
                 sourceTable.TableIndex,
                 sourceTable.ProjectColumnIndex,
                 sourceTable.SpecificationColumnIndex,
+                scope,
                 sourceTable.HeaderRowStart,
                 sourceTable.HeaderRowCount,
                 sourceTable.DataStartRow,
@@ -1986,10 +2001,7 @@ public class MatchingWorkflowService
 
     private static double NormalizeHighConfidenceThreshold(double? highConfidenceThreshold)
     {
-        return Math.Clamp(
-            highConfidenceThreshold ?? MatchingThresholds.DefaultHighConfidenceScore,
-            0.5,
-            1);
+        return MatchingThresholds.NormalizeHighConfidenceThreshold(highConfidenceThreshold);
     }
 
     private static string GetConfidenceLevel(MatchResult? result, double highConfidenceThreshold)
@@ -1999,7 +2011,7 @@ public class MatchingWorkflowService
             return "none";
         }
 
-        if (result.Decision != MatchDecision.AutoApply)
+        if (result.Decision == MatchDecision.Reject)
         {
             return "low";
         }
@@ -2480,6 +2492,17 @@ public class MatchingWorkflowService
         return await SpecDataScopeHelper.ResolveScopeAsync(user, _authDataScopeService);
     }
 
+    private async Task<WordFile?> GetAccessibleWordFileAsync(int fileId, DataScopeResult scope)
+    {
+        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId);
+        if (wordFile == null)
+        {
+            return null;
+        }
+
+        return WordFileDataScopeHelper.CanAccess(wordFile, scope) ? wordFile : null;
+    }
+
     private async Task<Dictionary<int, AcceptanceSpec>> GetScopedSpecDictionaryAsync(
         IEnumerable<int> specIds,
         DataScopeResult scope)
@@ -2597,12 +2620,15 @@ public class MatchingWorkflowService
         int tableIndex,
         int projectColumnIndex,
         int specificationColumnIndex,
+        DataScopeResult? scope = null,
         int? headerRowStart = null,
         int? headerRowCount = null,
         int? dataStartRow = null,
         bool filterEmptySourceRows = true)
     {
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId);
+        var wordFile = scope == null
+            ? await _unitOfWork.WordFiles.GetByIdAsync(fileId)
+            : await GetAccessibleWordFileAsync(fileId, scope);
         if (wordFile == null)
         {
             return [];

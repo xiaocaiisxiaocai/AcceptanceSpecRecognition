@@ -312,6 +312,95 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void ProductionConfig_ShouldUseExplicitCorsOrigins()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/appsettings.Production.json".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().NotContain("\"AllowedOrigins\": [ \"*\" ]",
+            "Production 配置必须给出显式 CORS 白名单，不能与启动期校验相冲突");
+    }
+
+    [Fact]
+    public void WebBuildScript_ShouldRunTypecheckBeforeBundling()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/package.json".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("\"build\": \"pnpm typecheck &&",
+            "前端 build 应先执行 typecheck，避免类型错误被 vite 构建掩盖");
+    }
+
+    [Fact]
+    public void WordFile_ShouldContainOwnershipMetadata_AndDocumentsController_ShouldApplyWordFileScope()
+    {
+        var propertyNames = typeof(AcceptanceSpecSystem.Data.Entities.WordFile)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToList();
+
+        propertyNames.Should().Contain("CompanyId");
+        propertyNames.Should().Contain("CreatedByUserId");
+        propertyNames.Should().Contain("OwnerOrgUnitId");
+
+        var documentsContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs".Replace('/', Path.DirectorySeparatorChar)));
+        documentsContent.Should().Contain("WordFileDataScopeHelper",
+            "文档控制器应对文件列表与单文件访问执行文件级范围校验");
+        documentsContent.Should().Contain("GetAccessibleWordFileAsync",
+            "文档控制器应统一通过归属校验读取文件，避免各接口漏校验");
+    }
+
+    [Fact]
+    public void SmartFillViews_ShouldUseMatchingFillPermissionNames_AndPreserveManualConfirmation()
+    {
+        var smartFillContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        smartFillContent.Should().Contain("btn:matching-fill:llm-stream",
+            "LLM 流式复核按钮权限应与后端 matching-fill 资源保持一致");
+        smartFillContent.Should().NotContain("btn:matching:llm-stream",
+            "旧的 matching:llm-stream 权限命名应被移除");
+
+        var tabsContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/BatchPreviewTabs.vue".Replace('/', Path.DirectorySeparatorChar)));
+        tabsContent.Should().Contain("manualConfirmed",
+            "批量预览页应把人工确认标记透传到执行请求，避免类型漂移和行为回退");
+    }
+
+    [Fact]
+    public void PromptTemplateView_ShouldUseGranularPreviewAndResetPermissions()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/prompt-templates/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("btn:prompt-template:preview",
+            "模板预览应使用独立的 preview 权限");
+        content.Should().Contain("btn:prompt-template:reset-system",
+            "恢复默认应使用独立的 reset-system 权限");
+    }
+
+    [Fact]
+    public void LegacyConfigRedirects_ShouldNotHangUnderConfigMenuRoute()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/router/modules/config.ts".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().NotContain("AuthRolesConfigLegacy",
+            "旧 /config/* 兼容跳转不应继续挂在 Config 父路由下，否则会先被 menu:config 拦住");
+        content.Should().NotContain("SystemUsersConfigLegacy",
+            "旧 /config/* 兼容跳转不应继续挂在 Config 父路由下，否则会先被 menu:config 拦住");
+        content.Should().NotContain("OrgUnitsConfigLegacy",
+            "旧 /config/* 兼容跳转不应继续挂在 Config 父路由下，否则会先被 menu:config 拦住");
+    }
+
+    [Fact]
     public void HttpRequestInterceptor_ShouldPreserveAuditHeaders_WhenBeforeRequestCallbackExists()
     {
         var content = File.ReadAllText(Path.Combine(
