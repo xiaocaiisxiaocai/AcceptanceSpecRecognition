@@ -77,8 +77,14 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     public async Task LegacyTextProcessingApis_ShouldReturnNotFound()
     {
         var response = await _client.GetAsync("/api/text-processing/config");
-
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        (await _client.GetAsync("/api/synonyms")).StatusCode
+            .Should().Be(HttpStatusCode.NotFound);
+        (await _client.DeleteAsync("/api/synonyms/1")).StatusCode
+            .Should().Be(HttpStatusCode.NotFound);
+        (await _client.GetAsync("/api/keywords")).StatusCode
+            .Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
