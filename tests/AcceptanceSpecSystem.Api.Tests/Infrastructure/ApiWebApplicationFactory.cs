@@ -61,10 +61,12 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             // Replace LLM services with test doubles to avoid external calls
             services.RemoveAll(typeof(ILlmReviewService));
             services.RemoveAll(typeof(ILlmSuggestionService));
+            services.RemoveAll(typeof(IMatchingKnowledgeDraftAiService));
             services.RemoveAll(typeof(IEmbeddingService));
             services.RemoveAll(typeof(ITextSimilarityService));
             services.AddScoped<ILlmReviewService, TestLlmReviewService>();
             services.AddScoped<ILlmSuggestionService, TestLlmSuggestionService>();
+            services.AddScoped<IMatchingKnowledgeDraftAiService, TestMatchingKnowledgeDraftAiService>();
             services.AddScoped<IEmbeddingService, TestEmbeddingService>();
             services.AddSingleton<ITextSimilarityService, TestTextSimilarityService>();
 

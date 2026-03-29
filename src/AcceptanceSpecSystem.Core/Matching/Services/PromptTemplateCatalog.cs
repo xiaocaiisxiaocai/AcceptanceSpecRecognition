@@ -123,7 +123,27 @@ public static class PromptTemplateCatalog
             "源规格：{{sourceSpecification}}",
             ["sourceProject", "sourceSpecification", "referenceInfo"],
             ["sourceProject", "sourceSpecification", "referenceInfo"],
-            ["acceptance", "remark", "reason"])
+            ["acceptance", "remark", "reason"]),
+        new(
+            PromptTemplateScene.MatchingKnowledgeGenerate,
+            "matching-knowledge-generate",
+            "匹配知识草稿生成",
+            "用于从文本或文档样本中生成匹配知识草稿候选。",
+            "你是匹配知识整理助手。请从输入内容中提取当前分类的候选项。\n\n" +
+            "【当前分类】{{category}}\n" +
+            "【分类说明】{{categoryDescription}}\n\n" +
+            "【输入内容】\n{{sourceText}}\n\n" +
+            "【约束】\n" +
+            "1. 只输出当前分类需要的候选项\n" +
+            "2. 不要编造输入中不存在的专业名词\n" +
+            "3. 单位规则只输出单位别名，不允许输出倍率或换算系数\n" +
+            "4. 冲突词对只输出明确互斥的词，不要输出语义模糊的关系\n\n" +
+            "仅返回严格 JSON：\n" +
+            "{\"items\":[{\"key\":\"...\",\"value\":\"...\",\"evidenceSnippet\":\"...\",\"reason\":\"...\"}]}",
+            null,
+            ["category", "categoryDescription", "sourceText"],
+            ["category", "categoryDescription", "sourceText"],
+            ["items"])
     ];
 
     public static IReadOnlyList<SystemPromptTemplateDefinition> GetSystemTemplates() => Definitions;

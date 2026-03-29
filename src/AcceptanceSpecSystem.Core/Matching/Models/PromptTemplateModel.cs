@@ -5,7 +5,8 @@ public enum PromptTemplateScene
     Unknown = 0,
     MatchingReview = 1,
     ImportDuplicateReview = 2,
-    MatchingGenerate = 3
+    MatchingGenerate = 3,
+    MatchingKnowledgeGenerate = 4
 }
 
 public class PromptTemplateModel

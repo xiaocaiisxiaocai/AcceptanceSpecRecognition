@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import MatchingKnowledgeDraftDialog from "./components/MatchingKnowledgeDraftDialog.vue";
 import {
   getMatchingKnowledge,
+  type MatchingKnowledgeDraftCategory,
+  type MatchingKnowledgeDraftItem,
   resetMatchingKnowledge,
   updateMatchingKnowledge,
   type ConflictPair,
@@ -43,6 +46,11 @@ const customConflictPairRows = ref<EditableConflictRow[]>([]);
 
 const canUpdate = computed(() => hasPerms("btn:matching-knowledge:update"));
 const canReset = computed(() => hasPerms("btn:matching-knowledge:reset"));
+const canGenerateDraft = computed(() =>
+  hasPerms("btn:matching-knowledge:generate-draft")
+);
+const draftDialogVisible = ref(false);
+const draftDialogCategory = ref<MatchingKnowledgeDraftCategory>("entityAliases");
 
 let nextRowId = 1;
 
@@ -157,6 +165,21 @@ const addConflictRow = () => {
   customConflictPairRows.value.push(createConflictRow());
 };
 
+const normalizeValue = (value: string) => value.trim();
+const normalizeKey = (value: string) => normalizeValue(value).toLowerCase();
+const buildConflictPairKey = (left: string, right: string) => {
+  const normalizedLeft = normalizeValue(left);
+  const normalizedRight = normalizeValue(right);
+  if (!normalizedLeft || !normalizedRight) {
+    return "";
+  }
+
+  return [normalizedLeft, normalizedRight]
+    .sort((a, b) => a.localeCompare(b, "zh-CN", { sensitivity: "accent" }))
+    .map(item => item.toLowerCase())
+    .join("__");
+};
+
 const removeStringRow = (
   target: typeof customEntityAliasRows.value,
   id: number
@@ -172,6 +195,144 @@ const removeConflictRow = (id: number) => {
   if (index >= 0) {
     customConflictPairRows.value.splice(index, 1);
   }
+};
+
+const openDraftDialog = (category: MatchingKnowledgeDraftCategory) => {
+  if (
+    !ensurePermission(
+      "btn:matching-knowledge:generate-draft",
+      "权限不足，无法生成匹配知识候选"
+    )
+  ) {
+    return;
+  }
+
+  draftDialogCategory.value = category;
+  draftDialogVisible.value = true;
+};
+
+const mergeMappingDraftItems = (
+  targetRows: EditableStringRow[],
+  items: MatchingKnowledgeDraftItem[]
+) => {
+  const existingValues = new Map<string, string>();
+  targetRows.forEach(row => {
+    const key = normalizeKey(row.key);
+    const value = normalizeValue(row.value);
+    if (!key || !value || existingValues.has(key)) {
+      return;
+    }
+
+    existingValues.set(key, value);
+  });
+
+  let imported = 0;
+  let duplicate = 0;
+  let conflict = 0;
+  let invalid = 0;
+
+  items.forEach(item => {
+    const key = normalizeValue(item.key);
+    const value = normalizeValue(item.value);
+    if (!key || !value) {
+      invalid += 1;
+      return;
+    }
+
+    const normalizedKey = key.toLowerCase();
+    const currentValue = existingValues.get(normalizedKey);
+    if (currentValue) {
+      if (normalizeKey(currentValue) === normalizeKey(value)) {
+        duplicate += 1;
+      } else {
+        conflict += 1;
+      }
+
+      return;
+    }
+
+    targetRows.push(createStringRow(key, value));
+    existingValues.set(normalizedKey, value);
+    imported += 1;
+  });
+
+  return { imported, duplicate, conflict, invalid };
+};
+
+const mergeConflictDraftItems = (items: MatchingKnowledgeDraftItem[]) => {
+  const existingPairs = new Set<string>();
+  customConflictPairRows.value.forEach(row => {
+    const pairKey = buildConflictPairKey(row.left, row.right);
+    if (pairKey) {
+      existingPairs.add(pairKey);
+    }
+  });
+
+  let imported = 0;
+  let duplicate = 0;
+  let invalid = 0;
+
+  items.forEach(item => {
+    const left = normalizeValue(item.key);
+    const right = normalizeValue(item.value);
+    const pairKey = buildConflictPairKey(left, right);
+    if (!pairKey) {
+      invalid += 1;
+      return;
+    }
+
+    if (existingPairs.has(pairKey)) {
+      duplicate += 1;
+      return;
+    }
+
+    customConflictPairRows.value.push(createConflictRow(left, right));
+    existingPairs.add(pairKey);
+    imported += 1;
+  });
+
+  return { imported, duplicate, conflict: 0, invalid };
+};
+
+const handleDraftImport = (payload: {
+  category: MatchingKnowledgeDraftCategory;
+  items: MatchingKnowledgeDraftItem[];
+}) => {
+  if (
+    !ensurePermission(
+      "btn:matching-knowledge:update",
+      "权限不足，无法导入到自定义扩展"
+    )
+  ) {
+    return;
+  }
+
+  const result =
+    payload.category === "entityAliases"
+      ? mergeMappingDraftItems(customEntityAliasRows.value, payload.items)
+      : payload.category === "unitAliases"
+        ? mergeMappingDraftItems(customUnitAliasRows.value, payload.items)
+        : payload.category === "fieldAliases"
+          ? mergeMappingDraftItems(customFieldAliasRows.value, payload.items)
+          : mergeConflictDraftItems(payload.items);
+
+  const messages: string[] = [];
+  if (result.imported > 0) {
+    messages.push(`已导入 ${result.imported} 条`);
+  }
+  if (result.duplicate > 0) {
+    messages.push(`${result.duplicate} 条重复已忽略`);
+  }
+  if (result.conflict > 0) {
+    messages.push(`${result.conflict} 条冲突未导入`);
+  }
+  if (result.invalid > 0) {
+    messages.push(`${result.invalid} 条空值未导入`);
+  }
+
+  ElMessage[result.imported > 0 ? "success" : "warning"](
+    messages.join("，") || "没有可导入的候选"
+  );
 };
 
 const save = async () => {
@@ -318,14 +479,24 @@ onMounted(load);
                     仅在系统内置未覆盖客户自定义写法时补充
                   </div>
                 </div>
-                <el-button
-                  v-if="canUpdate"
-                  type="primary"
-                  link
-                  @click="addStringRow(customEntityAliasRows)"
-                >
-                  新增
-                </el-button>
+                <div class="card-toolbar">
+                  <el-button
+                    v-if="canGenerateDraft"
+                    type="primary"
+                    link
+                    @click="openDraftDialog('entityAliases')"
+                  >
+                    AI 生成候选
+                  </el-button>
+                  <el-button
+                    v-if="canUpdate"
+                    type="primary"
+                    link
+                    @click="addStringRow(customEntityAliasRows)"
+                  >
+                    新增
+                  </el-button>
+                </div>
               </div>
             </template>
             <el-table
@@ -406,14 +577,24 @@ onMounted(load);
                     仅在客户使用系统未内置的行业缩写时补充
                   </div>
                 </div>
-                <el-button
-                  v-if="canUpdate"
-                  type="primary"
-                  link
-                  @click="addStringRow(customUnitAliasRows)"
-                >
-                  新增
-                </el-button>
+                <div class="card-toolbar">
+                  <el-button
+                    v-if="canGenerateDraft"
+                    type="primary"
+                    link
+                    @click="openDraftDialog('unitAliases')"
+                  >
+                    AI 生成候选
+                  </el-button>
+                  <el-button
+                    v-if="canUpdate"
+                    type="primary"
+                    link
+                    @click="addStringRow(customUnitAliasRows)"
+                  >
+                    新增
+                  </el-button>
+                </div>
               </div>
             </template>
             <el-table
@@ -494,14 +675,24 @@ onMounted(load);
                     客户内部术语、缩写或特定列名在这里补充
                   </div>
                 </div>
-                <el-button
-                  v-if="canUpdate"
-                  type="primary"
-                  link
-                  @click="addStringRow(customFieldAliasRows)"
-                >
-                  新增
-                </el-button>
+                <div class="card-toolbar">
+                  <el-button
+                    v-if="canGenerateDraft"
+                    type="primary"
+                    link
+                    @click="openDraftDialog('fieldAliases')"
+                  >
+                    AI 生成候选
+                  </el-button>
+                  <el-button
+                    v-if="canUpdate"
+                    type="primary"
+                    link
+                    @click="addStringRow(customFieldAliasRows)"
+                  >
+                    新增
+                  </el-button>
+                </div>
               </div>
             </template>
             <el-table
@@ -582,14 +773,24 @@ onMounted(load);
                     仅补充客户业务里明确互斥的对立语义
                   </div>
                 </div>
-                <el-button
-                  v-if="canUpdate"
-                  type="primary"
-                  link
-                  @click="addConflictRow"
-                >
-                  新增
-                </el-button>
+                <div class="card-toolbar">
+                  <el-button
+                    v-if="canGenerateDraft"
+                    type="primary"
+                    link
+                    @click="openDraftDialog('conflictPairs')"
+                  >
+                    AI 生成候选
+                  </el-button>
+                  <el-button
+                    v-if="canUpdate"
+                    type="primary"
+                    link
+                    @click="addConflictRow"
+                  >
+                    新增
+                  </el-button>
+                </div>
               </div>
             </template>
             <el-table
@@ -628,6 +829,12 @@ onMounted(load);
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <MatchingKnowledgeDraftDialog
+      v-model:visible="draftDialogVisible"
+      :category="draftDialogCategory"
+      @import="handleDraftImport"
+    />
   </div>
 </template>
 
@@ -672,6 +879,12 @@ onMounted(load);
   gap: 16px;
 }
 
+.card-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .card-title {
   font-size: 15px;
   font-weight: 600;
@@ -704,6 +917,12 @@ onMounted(load);
   .card-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .card-toolbar {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
 </style>

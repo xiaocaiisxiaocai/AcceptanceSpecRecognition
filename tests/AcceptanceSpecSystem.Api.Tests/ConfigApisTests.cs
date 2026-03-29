@@ -91,6 +91,43 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task MatchingKnowledgeDraftGenerate_TextSource_ShouldReturnSingleCategoryDraft_AndNotModifyConfig()
+    {
+        var beforeGet = await _client.GetAsync("/api/matching-knowledge");
+        beforeGet.StatusCode.Should().Be(HttpStatusCode.OK);
+        var beforeJson = await beforeGet.ReadAsAsync<ApiResponse<JsonElement>>();
+        beforeJson.Code.Should().Be(0);
+
+        var response = await _client.PostAsync(
+            "/api/matching-knowledge/drafts/generate",
+            ApiClientJson.ToJsonContent(new
+            {
+                category = "entityAliases",
+                sourceType = "text",
+                inputText = "Panasonic 品牌，ABB 控制柜"
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(0);
+        body.Data.GetProperty("category").GetString().Should().Be("entityAliases");
+        body.Data.GetProperty("items").ValueKind.Should().Be(JsonValueKind.Array);
+        body.Data.GetProperty("items").GetArrayLength().Should().BeGreaterThan(0);
+
+        var first = body.Data.GetProperty("items").EnumerateArray().First();
+        first.GetProperty("key").GetString().Should().NotBeNullOrWhiteSpace();
+        first.GetProperty("value").GetString().Should().NotBeNullOrWhiteSpace();
+        first.GetProperty("reason").GetString().Should().NotBeNullOrWhiteSpace();
+        first.GetProperty("status").GetString().Should().BeOneOf("ready", "duplicate", "conflict");
+
+        var afterGet = await _client.GetAsync("/api/matching-knowledge");
+        afterGet.StatusCode.Should().Be(HttpStatusCode.OK);
+        var afterJson = await afterGet.ReadAsAsync<ApiResponse<JsonElement>>();
+        afterJson.Code.Should().Be(0);
+        afterJson.Data.GetProperty("custom").ToString().Should().Be(beforeJson.Data.GetProperty("custom").ToString());
+    }
+
+    [Fact]
     public async Task LegacyTextProcessingApis_ShouldReturnNotFound()
     {
         var response = await _client.GetAsync("/api/text-processing/config");

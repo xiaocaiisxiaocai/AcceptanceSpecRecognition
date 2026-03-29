@@ -130,6 +130,7 @@ internal static class PromptTemplateMapper
             PromptTemplateScene.MatchingReview => Entities.PromptTemplateScene.MatchingReview,
             PromptTemplateScene.ImportDuplicateReview => Entities.PromptTemplateScene.ImportDuplicateReview,
             PromptTemplateScene.MatchingGenerate => Entities.PromptTemplateScene.MatchingGenerate,
+            PromptTemplateScene.MatchingKnowledgeGenerate => Entities.PromptTemplateScene.MatchingKnowledgeGenerate,
             _ => Entities.PromptTemplateScene.Unknown
         };
     }

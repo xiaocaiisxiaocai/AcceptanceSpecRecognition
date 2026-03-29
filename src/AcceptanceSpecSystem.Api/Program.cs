@@ -146,6 +146,7 @@ builder.Services.AddScoped<SpecSemanticSearchService>();
 builder.Services.AddScoped<ImportDuplicateDetectionService>();
 builder.Services.AddScoped<MatchingWorkflowService>();
 builder.Services.AddScoped<MatchingKnowledgeBootstrapper>();
+builder.Services.AddScoped<MatchingKnowledgeDraftGenerationService>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
 
@@ -165,6 +166,7 @@ builder.Services.AddScoped<IMatchingService, SemanticKernelMatchingService>();
 builder.Services.AddScoped<PromptTemplateValidationService>();
 builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();
+builder.Services.AddScoped<IMatchingKnowledgeDraftAiService, MatchingKnowledgeDraftAiService>();
 
 // 文本处理：仅保留最小安全归一化
 builder.Services.AddScoped<ITextPreprocessingPipeline, MinimalTextPreprocessingPipeline>();

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
@@ -79,6 +80,68 @@ public class TestLlmSuggestionService : ILlmSuggestionService
             Reason = doc.RootElement.GetProperty("reason").GetString()
         };
         return true;
+    }
+}
+
+public class TestMatchingKnowledgeDraftAiService : IMatchingKnowledgeDraftAiService
+{
+    public Task<IReadOnlyList<MatchingKnowledgeDraftCandidate>> GenerateAsync(
+        MatchingKnowledgeDraftAiRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<MatchingKnowledgeDraftCandidate> result = request.Category switch
+        {
+            MatchingKnowledgeDraftGenerationService.CategoryEntityAliases =>
+            [
+                new MatchingKnowledgeDraftCandidate
+                {
+                    Key = "Panasonic品牌",
+                    Value = "松下",
+                    EvidenceSnippet = "Panasonic 品牌",
+                    Reason = "命中品牌中英文对应关系"
+                },
+                new MatchingKnowledgeDraftCandidate
+                {
+                    Key = "ABB",
+                    Value = "ABB",
+                    EvidenceSnippet = "ABB 控制柜",
+                    Reason = "命中品牌原文"
+                }
+            ],
+            MatchingKnowledgeDraftGenerationService.CategoryUnitAliases =>
+            [
+                new MatchingKnowledgeDraftCandidate
+                {
+                    Key = "公分",
+                    Value = "cm",
+                    EvidenceSnippet = "尺寸 10 公分",
+                    Reason = "命中常见长度单位别名"
+                }
+            ],
+            MatchingKnowledgeDraftGenerationService.CategoryFieldAliases =>
+            [
+                new MatchingKnowledgeDraftCandidate
+                {
+                    Key = "宽尺寸",
+                    Value = "宽度",
+                    EvidenceSnippet = "宽尺寸 200mm",
+                    Reason = "命中字段别名"
+                }
+            ],
+            MatchingKnowledgeDraftGenerationService.CategoryConflictPairs =>
+            [
+                new MatchingKnowledgeDraftCandidate
+                {
+                    Key = "正转",
+                    Value = "反转",
+                    EvidenceSnippet = "支持正转/反转",
+                    Reason = "命中明确互斥的方向词"
+                }
+            ],
+            _ => []
+        };
+
+        return Task.FromResult(result);
     }
 }
 

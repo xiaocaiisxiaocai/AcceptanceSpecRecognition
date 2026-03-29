@@ -22,6 +22,7 @@ public class MatchingKnowledgeFrontendRegressionTests
 
         content.Should().Contain("btn:matching-knowledge:update");
         content.Should().Contain("btn:matching-knowledge:reset");
+        content.Should().Contain("btn:matching-knowledge:generate-draft");
         content.Should().Contain("getMatchingKnowledge");
         content.Should().Contain("updateMatchingKnowledge");
         content.Should().Contain("resetMatchingKnowledge");
@@ -49,6 +50,20 @@ public class MatchingKnowledgeFrontendRegressionTests
         content.Should().Contain("常见电气、机械、芯片半导体术语由系统内置");
         content.Should().Contain("常见单位换算由系统内部自动处理，不在页面展示");
         content.Should().NotContain("归一系数");
+    }
+
+    [Fact]
+    public void MatchingKnowledgePage_ShouldExposeAiDraftGenerationFlow()
+    {
+        var pageContent = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
+        var dialogContent = ReadRepositoryFile("web/src/views/config/matching-knowledge/components/MatchingKnowledgeDraftDialog.vue");
+
+        pageContent.Should().Contain("AI 生成候选");
+        pageContent.Should().Contain("MatchingKnowledgeDraftDialog");
+        dialogContent.Should().Contain("粘贴文本");
+        dialogContent.Should().Contain("已上传文档");
+        dialogContent.Should().Contain("临时上传文档");
+        dialogContent.Should().Contain("导入到自定义扩展");
     }
 
     [Fact]

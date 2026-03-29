@@ -31,6 +31,34 @@ export interface MatchingKnowledgeView {
 }
 
 export type UpdateMatchingKnowledgeRequest = MatchingKnowledgeLayer;
+export type MatchingKnowledgeDraftCategory =
+  | "entityAliases"
+  | "unitAliases"
+  | "fieldAliases"
+  | "conflictPairs";
+export type MatchingKnowledgeDraftSourceType = "text" | "documents";
+
+export interface GenerateMatchingKnowledgeDraftRequest {
+  category: MatchingKnowledgeDraftCategory;
+  sourceType: MatchingKnowledgeDraftSourceType;
+  inputText?: string;
+  fileIds?: number[];
+  llmServiceId?: number;
+}
+
+export interface MatchingKnowledgeDraftItem {
+  key: string;
+  value: string;
+  evidenceSnippet: string;
+  reason: string;
+  status: "ready" | "duplicate" | "conflict" | string;
+  statusMessage?: string;
+}
+
+export interface MatchingKnowledgeDraftResponse {
+  category: MatchingKnowledgeDraftCategory;
+  items: MatchingKnowledgeDraftItem[];
+}
 
 const baseUrl = "/api/matching-knowledge";
 
@@ -50,5 +78,17 @@ export const resetMatchingKnowledge = () => {
   return http.request<ApiResponse<MatchingKnowledgeView>>(
     "post",
     `${baseUrl}/reset`
+  );
+};
+
+export const generateMatchingKnowledgeDraft = (
+  data: GenerateMatchingKnowledgeDraftRequest
+) => {
+  return http.request<ApiResponse<MatchingKnowledgeDraftResponse>>(
+    "post",
+    `${baseUrl}/drafts/generate`,
+    {
+      data
+    }
   );
 };

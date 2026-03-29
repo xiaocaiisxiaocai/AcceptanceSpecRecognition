@@ -115,3 +115,88 @@ public sealed class ConflictPairDto
         };
     }
 }
+
+/// <summary>
+/// 匹配知识草稿生成请求。
+/// </summary>
+public sealed class GenerateMatchingKnowledgeDraftRequest
+{
+    /// <summary>
+    /// 当前生成分类：entityAliases / unitAliases / fieldAliases / conflictPairs
+    /// </summary>
+    [Required]
+    public string Category { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 输入来源：text / documents
+    /// </summary>
+    [Required]
+    public string SourceType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 粘贴文本输入。
+    /// </summary>
+    public string? InputText { get; set; }
+
+    /// <summary>
+    /// 已上传文档 ID 列表。
+    /// </summary>
+    public List<int> FileIds { get; set; } = [];
+
+    /// <summary>
+    /// 指定使用的 LLM 服务 ID；为空时按现有优先级选择。
+    /// </summary>
+    public int? LlmServiceId { get; set; }
+}
+
+/// <summary>
+/// 匹配知识草稿响应。
+/// </summary>
+public sealed class MatchingKnowledgeDraftResponseDto
+{
+    /// <summary>
+    /// 当前分类。
+    /// </summary>
+    public string Category { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 候选草稿列表。
+    /// </summary>
+    public List<MatchingKnowledgeDraftItemDto> Items { get; set; } = [];
+}
+
+/// <summary>
+/// 匹配知识草稿候选项。
+/// </summary>
+public sealed class MatchingKnowledgeDraftItemDto
+{
+    /// <summary>
+    /// 候选键。映射类表示别名/左侧词。
+    /// </summary>
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 候选值。映射类表示标准值；冲突词对表示右侧词。
+    /// </summary>
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 证据片段。
+    /// </summary>
+    public string EvidenceSnippet { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 生成理由。
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 状态：ready / duplicate / conflict
+    /// </summary>
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 状态说明。
+    /// </summary>
+    public string? StatusMessage { get; set; }
+}

@@ -56,6 +56,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissionCodes.Should().Contain("page:config:matching-knowledge");
         permissionCodes.Should().Contain("btn:matching-knowledge:update");
         permissionCodes.Should().Contain("btn:matching-knowledge:reset");
+        permissionCodes.Should().Contain("btn:matching-knowledge:generate-draft");
         permissionCodes.Should().NotContain("page:config:text-processing");
         permissionCodes.Should().NotContain("page:other:synonyms");
         permissionCodes.Should().NotContain("page:other:keywords");
@@ -113,6 +114,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("page:config:matching-knowledge");
         permissions.Should().Contain("btn:matching-knowledge:update");
         permissions.Should().Contain("btn:matching-knowledge:reset");
+        permissions.Should().Contain("btn:matching-knowledge:generate-draft");
         permissions.Should().NotContain("page:config:text-processing");
         permissions.Should().NotContain("page:other:synonyms");
         permissions.Should().NotContain("page:other:keywords");
