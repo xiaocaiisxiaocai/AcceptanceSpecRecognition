@@ -60,9 +60,19 @@ public class MatchingKnowledgeFrontendRegressionTests
 
         pageContent.Should().Contain("AI 生成候选");
         pageContent.Should().Contain("MatchingKnowledgeDraftDialog");
-        dialogContent.Should().Contain("粘贴文本");
-        dialogContent.Should().Contain("已上传文档");
-        dialogContent.Should().Contain("临时上传文档");
+        dialogContent.Should().Contain("历史验规");
+        dialogContent.Should().Contain("getAiServiceList");
+        dialogContent.Should().Contain("llmServiceId");
+        dialogContent.Should().Contain("automatic-dropdown=\"false\"");
+        dialogContent.Should().Contain("客户");
+        dialogContent.Should().Contain("制程");
+        dialogContent.Should().Contain("机型");
+        dialogContent.Should().Contain("导入时间");
+        dialogContent.Should().Contain("全选");
+        dialogContent.Should().Contain("取消全选");
+        dialogContent.Should().NotContain("粘贴文本");
+        dialogContent.Should().NotContain("已上传文档");
+        dialogContent.Should().NotContain("临时上传文档");
         dialogContent.Should().Contain("导入到自定义扩展");
     }
 

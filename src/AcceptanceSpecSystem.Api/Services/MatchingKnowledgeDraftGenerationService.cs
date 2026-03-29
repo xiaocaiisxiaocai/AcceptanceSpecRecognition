@@ -3,11 +3,8 @@ using System.Security.Claims;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Options;
-using AcceptanceSpecSystem.Core.Documents;
-using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Services;
@@ -19,15 +16,13 @@ public sealed class MatchingKnowledgeDraftGenerationService
     public const string CategoryFieldAliases = "fieldAliases";
     public const string CategoryConflictPairs = "conflictPairs";
 
-    public const string SourceTypeText = "text";
-    public const string SourceTypeDocuments = "documents";
+    private const int MaxSpecCount = 200;
+    private const int MaxSourceTextLength = 40000;
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly MatchingKnowledgeBootstrapper _bootstrapper;
     private readonly MatchingKnowledgeOptions _defaultOptions;
     private readonly IMatchingKnowledgeDraftAiService _draftAiService;
-    private readonly DocumentServiceFactory _documentServiceFactory;
-    private readonly IFileStorageService _fileStorage;
     private readonly IAuthDataScopeService _authDataScopeService;
 
     public MatchingKnowledgeDraftGenerationService(
@@ -35,16 +30,12 @@ public sealed class MatchingKnowledgeDraftGenerationService
         MatchingKnowledgeBootstrapper bootstrapper,
         IOptions<MatchingKnowledgeOptions> defaultOptions,
         IMatchingKnowledgeDraftAiService draftAiService,
-        DocumentServiceFactory documentServiceFactory,
-        IFileStorageService fileStorage,
         IAuthDataScopeService authDataScopeService)
     {
         _unitOfWork = unitOfWork;
         _bootstrapper = bootstrapper;
         _defaultOptions = defaultOptions.Value ?? new MatchingKnowledgeOptions();
         _draftAiService = draftAiService;
-        _documentServiceFactory = documentServiceFactory;
-        _fileStorage = fileStorage;
         _authDataScopeService = authDataScopeService;
     }
 
@@ -92,146 +83,84 @@ public sealed class MatchingKnowledgeDraftGenerationService
         DataScopeResult scope,
         CancellationToken cancellationToken)
     {
-        var sourceType = request.SourceType?.Trim();
-        if (string.Equals(sourceType, SourceTypeText, StringComparison.OrdinalIgnoreCase))
+        var filter = request.SpecFilter;
+        if (filter?.ImportedFrom.HasValue == true &&
+            filter.ImportedTo.HasValue &&
+            filter.ImportedFrom.Value > filter.ImportedTo.Value)
         {
-            var text = request.InputText?.Trim();
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                throw new ArgumentException("请输入用于生成草稿的文本");
-            }
-
-            return text;
+            throw new ArgumentException("导入开始时间不能晚于结束时间");
         }
 
-        if (!string.Equals(sourceType, SourceTypeDocuments, StringComparison.OrdinalIgnoreCase))
+        var specs = await _unitOfWork.AcceptanceSpecs.GetFilteredWithIncludesAsync(new AcceptanceSpecQueryOptions
         {
-            throw new ArgumentException("不支持的输入来源");
+            UserId = scope.UserId,
+            IsAll = scope.IsAll,
+            IncludeSelf = scope.IncludeSelf,
+            OrgUnitIds = scope.OrgUnitIds.ToArray(),
+            CustomerId = filter?.CustomerId,
+            ProcessId = filter?.ProcessId,
+            MachineModelId = filter?.MachineModelId,
+            Keyword = filter?.Keyword?.Trim(),
+            ImportedFrom = filter?.ImportedFrom,
+            ImportedTo = filter?.ImportedTo,
+            Page = 1,
+            PageSize = MaxSpecCount
+        });
+
+        if (specs.Count == 0)
+        {
+            throw new ArgumentException("当前筛选条件下没有可用于生成的历史验规");
         }
 
-        var fileIds = (request.FileIds ?? [])
-            .Where(id => id > 0)
-            .Distinct()
-            .ToList();
-        if (fileIds.Count == 0)
+        if (specs.Count > MaxSpecCount)
         {
-            throw new ArgumentException("请选择至少一个已上传文档");
+            throw new ArgumentException("命中的历史验规过多，请收窄筛选条件后重试");
         }
-
         var builder = new StringBuilder();
-        foreach (var fileId in fileIds)
+        foreach (var spec in specs)
         {
-            var file = await GetAccessibleWordFileAsync(fileId, scope, cancellationToken);
-            if (file == null)
-            {
-                continue;
-            }
-
-            var extracted = await ExtractDocumentTextAsync(file, cancellationToken);
-            if (string.IsNullOrWhiteSpace(extracted))
-            {
-                continue;
-            }
-
-            if (builder.Length > 0)
-            {
-                builder.AppendLine();
-                builder.AppendLine("---");
-            }
-
-            builder.AppendLine($"文件：{file.FileName}");
-            builder.AppendLine(extracted.Trim());
+            AppendSpecSource(builder, spec);
         }
 
-        if (builder.Length == 0)
+        var sourceText = builder.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(sourceText))
         {
-            throw new ArgumentException("未能从所选文档中提取可用文本");
+            throw new ArgumentException("当前筛选条件下没有可用于生成的历史验规");
         }
 
-        return builder.ToString();
+        if (sourceText.Length > MaxSourceTextLength)
+        {
+            throw new ArgumentException("筛选结果文本过长，请收窄筛选条件后重试");
+        }
+
+        return sourceText;
     }
 
-    private async Task<WordFile?> GetAccessibleWordFileAsync(
-        int id,
-        DataScopeResult scope,
-        CancellationToken cancellationToken)
+    private static void AppendSpecSource(StringBuilder builder, AcceptanceSpec spec)
     {
-        var wordFile = await _unitOfWork.WordFiles.Query()
-            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
-        if (wordFile == null)
+        if (builder.Length > 0)
         {
-            return null;
+            builder.AppendLine();
+            builder.AppendLine("---");
         }
 
-        if (WordFileDataScopeHelper.CanAccess(wordFile, scope))
+        builder.AppendLine($"客户：{spec.Customer?.Name ?? "-"}");
+        builder.AppendLine($"制程：{spec.Process?.Name ?? "-"}");
+        builder.AppendLine($"机型：{spec.MachineModel?.Name ?? "-"}");
+        builder.AppendLine($"项目：{spec.Project}");
+        builder.AppendLine($"规格内容：{spec.Specification}");
+
+        if (!string.IsNullOrWhiteSpace(spec.Acceptance))
         {
-            return wordFile;
+            builder.AppendLine($"验收标准：{spec.Acceptance.Trim()}");
         }
 
-        var hasScopedSpec = await SpecDataScopeHelper.ApplyScopeToQuery(
-                _unitOfWork.AcceptanceSpecs.Query(),
-                scope)
-            .AnyAsync(spec => spec.WordFileId == id, cancellationToken);
-
-        return hasScopedSpec ? wordFile : null;
-    }
-
-    private async Task<string> ExtractDocumentTextAsync(WordFile wordFile, CancellationToken cancellationToken)
-    {
-        var parser = wordFile.FileType == UploadedFileType.ExcelXlsx
-            ? _documentServiceFactory.GetParser(DocumentType.Excel)
-            : _documentServiceFactory.GetParser(DocumentType.Word);
-        if (parser == null)
+        if (!string.IsNullOrWhiteSpace(spec.Remark))
         {
-            return string.Empty;
+            builder.AppendLine($"备注：{spec.Remark.Trim()}");
         }
 
-        using var stream = OpenWordFileReadStream(wordFile);
-        var tables = await parser.GetTablesAsync(stream);
-        if (tables.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var builder = new StringBuilder();
-        foreach (var table in tables.Take(10))
-        {
-            if (!string.IsNullOrWhiteSpace(table.Name))
-            {
-                builder.AppendLine($"表名：{table.Name}");
-            }
-
-            if (table.Headers is { Count: > 0 })
-            {
-                builder.AppendLine($"表头：{string.Join(" | ", table.Headers.Where(header => !string.IsNullOrWhiteSpace(header)))}");
-            }
-
-            if (!string.IsNullOrWhiteSpace(table.PreviewText))
-            {
-                builder.AppendLine(table.PreviewText.Trim());
-            }
-        }
-
-        return builder.ToString().Trim();
-    }
-
-    private Stream OpenWordFileReadStream(WordFile wordFile)
-    {
-        if (!string.IsNullOrWhiteSpace(wordFile.FilePath))
-        {
-            var fullPath = _fileStorage.GetAbsolutePath(wordFile.FilePath);
-            if (File.Exists(fullPath))
-            {
-                return File.OpenRead(fullPath);
-            }
-        }
-
-        if (wordFile.FileContent is { Length: > 0 })
-        {
-            return new MemoryStream(wordFile.FileContent);
-        }
-
-        throw new InvalidOperationException("文件内容不可用（未找到物理文件且数据库内容为空）");
+        builder.AppendLine($"导入时间：{spec.ImportedAt:O}");
     }
 
     private static string? NormalizeCategory(string? category)

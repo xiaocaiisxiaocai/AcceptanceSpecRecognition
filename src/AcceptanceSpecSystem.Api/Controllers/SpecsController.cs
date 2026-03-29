@@ -79,7 +79,9 @@ public class SpecsController : BaseApiController
         [FromQuery] int? processId = null,
         [FromQuery] int? machineModelId = null,
         [FromQuery] bool? processIdIsNull = null,
-        [FromQuery] bool? machineModelIdIsNull = null)
+        [FromQuery] bool? machineModelIdIsNull = null,
+        [FromQuery] DateTime? importedFrom = null,
+        [FromQuery] DateTime? importedTo = null)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -93,6 +95,8 @@ public class SpecsController : BaseApiController
             machineModelId,
             processIdIsNull,
             machineModelIdIsNull,
+            importedFrom,
+            importedTo,
             page,
             pageSize);
 
@@ -563,6 +567,8 @@ public class SpecsController : BaseApiController
         int? machineModelId = null,
         bool? processIdIsNull = null,
         bool? machineModelIdIsNull = null,
+        DateTime? importedFrom = null,
+        DateTime? importedTo = null,
         int page = 1,
         int pageSize = 20)
     {
@@ -579,7 +585,9 @@ public class SpecsController : BaseApiController
             ProcessIdIsNull = processIdIsNull,
             MachineModelIdIsNull = machineModelIdIsNull,
             Page = page,
-            PageSize = pageSize
+            PageSize = pageSize,
+            ImportedFrom = importedFrom,
+            ImportedTo = importedTo
         };
     }
 

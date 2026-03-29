@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import FileUpload from "@/views/data-import/components/FileUpload.vue";
-import { deleteFile, getFileList, type FileUploadResponse, type WordFile } from "@/api/document";
+import {
+  AiServicePurpose,
+  getAiServiceList,
+  type AiServiceConfig
+} from "@/api/ai-service";
+import { getCustomerList, type Customer } from "@/api/customer";
 import {
   generateMatchingKnowledgeDraft,
   type MatchingKnowledgeDraftCategory,
-  type MatchingKnowledgeDraftItem
+  type MatchingKnowledgeDraftItem,
+  type MatchingKnowledgeDraftSpecFilter
 } from "@/api/matching-knowledge";
-
-type DraftInputMode = "text" | "documents" | "temporaryUpload";
-type TemporaryUploadMode = "temporary" | "keep";
+import { getMachineModelList, type MachineModel } from "@/api/machine-model";
+import { getProcessList, type Process } from "@/api/process";
+import { getSpecList, type AcceptanceSpec } from "@/api/spec";
 
 interface EditableDraftRow {
   id: number;
@@ -42,15 +47,32 @@ const dialogVisible = computed({
   set: value => emit("update:visible", value)
 });
 
-const inputMode = ref<DraftInputMode>("text");
-const inputText = ref("");
-const existingFilesLoading = ref(false);
-const existingFiles = ref<WordFile[]>([]);
-const selectedExistingFileIds = ref<number[]>([]);
-const temporaryUploadedFile = ref<FileUploadResponse | null>(null);
-const temporaryUploadMode = ref<TemporaryUploadMode>("temporary");
+const customers = ref<Customer[]>([]);
+const processes = ref<Process[]>([]);
+const machineModels = ref<MachineModel[]>([]);
+const llmService = ref<AiServiceConfig | null>(null);
+const filtersLoading = ref(false);
+const previewLoading = ref(false);
 const generating = ref(false);
+const includeAllFilteredSpecs = ref(true);
+const specPreviewRows = ref<AcceptanceSpec[]>([]);
+const specPreviewTotal = ref(0);
 const draftRows = ref<EditableDraftRow[]>([]);
+const importedRange = ref<string[]>([]);
+
+const previewQuery = reactive({
+  page: 1,
+  pageSize: 10
+});
+
+const filters = reactive<MatchingKnowledgeDraftSpecFilter>({
+  customerId: undefined,
+  processId: undefined,
+  machineModelId: undefined,
+  keyword: undefined,
+  importedFrom: undefined,
+  importedTo: undefined
+});
 
 let nextRowId = 1;
 
@@ -65,35 +87,35 @@ const categoryMeta = computed(() => {
     case "entityAliases":
       return {
         title: "实体别名",
-        description: "抽取品牌、组织、厂商等实体别名映射",
+        description: "从历史验规中抽取品牌、组织、厂商等实体别名映射",
         keyLabel: "别名",
         valueLabel: "标准实体"
       };
     case "unitAliases":
       return {
         title: "单位规则",
-        description: "抽取单位别名映射，不生成倍率或换算系数",
+        description: "从历史验规中抽取单位别名映射，不生成倍率或换算系数",
         keyLabel: "单位别名",
         valueLabel: "标准单位"
       };
     case "fieldAliases":
       return {
         title: "字段别名",
-        description: "抽取业务字段、列名、缩写到标准字段的映射",
+        description: "从历史验规中抽取业务字段、列名、缩写到标准字段的映射",
         keyLabel: "字段别名",
         valueLabel: "标准字段"
       };
     case "conflictPairs":
       return {
         title: "冲突词对",
-        description: "抽取明确互斥、不能同时成立的对立语义",
+        description: "从历史验规中抽取明确互斥、不能同时成立的对立语义",
         keyLabel: "左侧词",
         valueLabel: "右侧词"
       };
     default:
       return {
         title: "匹配知识",
-        description: "生成匹配知识草稿候选",
+        description: "从历史验规中生成匹配知识草稿候选",
         keyLabel: "键",
         valueLabel: "值"
       };
@@ -103,8 +125,21 @@ const categoryMeta = computed(() => {
 const dialogTitle = computed(
   () => `AI 生成候选 - ${categoryMeta.value.title}`
 );
+const llmServiceLabel = computed(() => {
+  if (!llmService.value) {
+    return "未指定";
+  }
+
+  const model = llmService.value.llmModel?.trim();
+  return model
+    ? `${llmService.value.name}（${model}）`
+    : llmService.value.name;
+});
 const selectedDraftCount = computed(
   () => draftRows.value.filter(row => row.selected).length
+);
+const selectedSourceCount = computed(() =>
+  includeAllFilteredSpecs.value ? specPreviewTotal.value : 0
 );
 const draftStatusSummary = computed(() => {
   const ready = draftRows.value.filter(row => row.status === "ready").length;
@@ -118,46 +153,23 @@ const draftStatusSummary = computed(() => {
   return { ready, duplicate, conflict };
 });
 
-const temporaryUploadedFileModel = computed<FileUploadResponse | null>({
-  get: () => temporaryUploadedFile.value,
-  set: value => {
-    const previous = temporaryUploadedFile.value;
-    temporaryUploadedFile.value = value;
-
-    if (
-      previous &&
-      previous.fileId !== value?.fileId &&
-      temporaryUploadMode.value === "temporary"
-    ) {
-      void deleteTemporaryFile(previous.fileId);
-    }
-  }
-});
-
 watch(
   () => dialogVisible.value,
   visible => {
     if (visible) {
-      void loadExistingFiles();
+      void initializeDialog();
       return;
     }
 
-    void resetDialogState();
+    resetDialogState();
   }
 );
 
-watch(inputMode, (next, previous) => {
-  if (previous === "temporaryUpload" && next !== "temporaryUpload") {
-    void cleanupTemporaryUpload();
-  }
-
-  if (next === "documents") {
-    void loadExistingFiles();
-  }
-});
-
 const createDraftRow = (
-  item?: Partial<MatchingKnowledgeDraftItem> & { selected?: boolean; isManual?: boolean }
+  item?: Partial<MatchingKnowledgeDraftItem> & {
+    selected?: boolean;
+    isManual?: boolean;
+  }
 ): EditableDraftRow => ({
   id: allocateRowId(),
   selected: item?.selected ?? item?.status === "ready",
@@ -170,56 +182,168 @@ const createDraftRow = (
   isManual: item?.isManual ?? false
 });
 
-const loadExistingFiles = async () => {
-  if (existingFilesLoading.value) {
-    return;
-  }
+const normalizeFilterPayload = (): MatchingKnowledgeDraftSpecFilter => {
+  const [importedFrom, importedTo] = importedRange.value ?? [];
+  return {
+    customerId: filters.customerId,
+    processId: filters.processId,
+    machineModelId: filters.machineModelId,
+    keyword: filters.keyword?.trim() || undefined,
+    importedFrom: importedFrom || undefined,
+    importedTo: importedTo || undefined
+  };
+};
 
-  existingFilesLoading.value = true;
+const sortLlmServices = (items: AiServiceConfig[]) => {
+  return [...items].sort((left, right) => {
+    if (left.priority !== right.priority) {
+      return left.priority - right.priority;
+    }
+
+    const leftTime = new Date(left.updatedAt || left.createdAt).getTime();
+    const rightTime = new Date(right.updatedAt || right.createdAt).getTime();
+    return rightTime - leftTime;
+  });
+};
+
+const isMoonshotService = (item: AiServiceConfig) => {
+  const name = item.name?.trim().toLowerCase() || "";
+  const endpoint = item.endpoint?.trim().toLowerCase() || "";
+  const model = item.llmModel?.trim().toLowerCase() || "";
+
+  return (
+    name.includes("月之暗面") ||
+    name.includes("moonshot") ||
+    name.includes("kimi") ||
+    endpoint.includes("moonshot.cn") ||
+    model.includes("kimi")
+  );
+};
+
+const loadLlmService = async () => {
   try {
-    const res = await getFileList({ page: 1, pageSize: 100 });
-    if (res.code === 0) {
-      existingFiles.value = res.data.items;
-    } else {
-      ElMessage.error(res.message || "加载已上传文档失败");
+    const res = await getAiServiceList({ page: 1, pageSize: 100 });
+    if (res.code !== 0) {
+      ElMessage.warning(res.message || "加载 LLM 服务失败，生成时将按后端默认策略处理");
+      llmService.value = null;
+      return;
+    }
+
+    const llmCandidates = sortLlmServices(
+      res.data.items.filter(
+        item =>
+          (item.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
+          !!item.llmModel?.trim()
+      )
+    );
+
+    llmService.value =
+      llmCandidates.find(item => isMoonshotService(item)) ??
+      llmCandidates[0] ??
+      null;
+  } catch {
+    llmService.value = null;
+    ElMessage.warning("加载 LLM 服务失败，生成时将按后端默认策略处理");
+  }
+};
+
+const loadFilterOptions = async () => {
+  filtersLoading.value = true;
+  try {
+    const [customerRes, processRes, machineRes] = await Promise.all([
+      getCustomerList({ page: 1, pageSize: 200 }),
+      getProcessList({ page: 1, pageSize: 200 }),
+      getMachineModelList({ page: 1, pageSize: 200 })
+    ]);
+
+    if (customerRes.code === 0) {
+      customers.value = customerRes.data.items;
+    }
+    if (processRes.code === 0) {
+      processes.value = processRes.data.items;
+    }
+    if (machineRes.code === 0) {
+      machineModels.value = machineRes.data.items;
     }
   } catch {
-    ElMessage.error("加载已上传文档失败");
+    ElMessage.error("加载历史验规筛选项失败");
   } finally {
-    existingFilesLoading.value = false;
+    filtersLoading.value = false;
   }
 };
 
-const deleteTemporaryFile = async (fileId: number) => {
+const loadSpecPreview = async (resetPage = false) => {
+  if (resetPage) {
+    previewQuery.page = 1;
+  }
+
+  previewLoading.value = true;
   try {
-    await deleteFile(fileId);
+    const res = await getSpecList({
+      ...normalizeFilterPayload(),
+      page: previewQuery.page,
+      pageSize: previewQuery.pageSize
+    });
+
+    if (res.code === 0) {
+      specPreviewRows.value = res.data.items;
+      specPreviewTotal.value = res.data.total;
+      return;
+    }
+
+    ElMessage.error(res.message || "加载历史验规预览失败");
   } catch {
-    ElMessage.warning("临时上传文档清理失败，请稍后手动删除");
+    ElMessage.error("加载历史验规预览失败");
+  } finally {
+    previewLoading.value = false;
   }
 };
 
-const cleanupTemporaryUpload = async () => {
-  const file = temporaryUploadedFile.value;
-  const shouldDelete = temporaryUploadMode.value === "temporary";
-  temporaryUploadedFile.value = null;
-
-  if (file && shouldDelete) {
-    await deleteTemporaryFile(file.fileId);
-  }
+const initializeDialog = async () => {
+  includeAllFilteredSpecs.value = true;
+  await Promise.all([loadFilterOptions(), loadLlmService()]);
+  await loadSpecPreview(true);
 };
 
-const resetDialogState = async () => {
-  await cleanupTemporaryUpload();
-  inputMode.value = "text";
-  inputText.value = "";
-  selectedExistingFileIds.value = [];
-  temporaryUploadMode.value = "temporary";
+const resetDialogState = () => {
+  filters.customerId = undefined;
+  filters.processId = undefined;
+  filters.machineModelId = undefined;
+  filters.keyword = undefined;
+  importedRange.value = [];
+  previewQuery.page = 1;
+  previewQuery.pageSize = 10;
+  includeAllFilteredSpecs.value = true;
+  llmService.value = null;
+  specPreviewRows.value = [];
+  specPreviewTotal.value = 0;
   draftRows.value = [];
   generating.value = false;
 };
 
-const handleExistingFileSelectionChange = (rows: WordFile[]) => {
-  selectedExistingFileIds.value = rows.map(row => row.id);
+const handleSearch = async () => {
+  await loadSpecPreview(true);
+};
+
+const handleReset = async () => {
+  filters.customerId = undefined;
+  filters.processId = undefined;
+  filters.machineModelId = undefined;
+  filters.keyword = undefined;
+  importedRange.value = [];
+  includeAllFilteredSpecs.value = true;
+  await loadSpecPreview(true);
+};
+
+const handlePreviewPageChange = async (page: number) => {
+  previewQuery.page = page;
+  await loadSpecPreview();
+};
+
+const handlePreviewSizeChange = async (pageSize: number) => {
+  previewQuery.pageSize = pageSize;
+  previewQuery.page = 1;
+  await loadSpecPreview();
 };
 
 const getStatusTagType = (status: string) => {
@@ -239,26 +363,13 @@ const getStatusTagType = (status: string) => {
 };
 
 const validateSource = () => {
-  if (inputMode.value === "text") {
-    if (!inputText.value.trim()) {
-      ElMessage.warning("请先输入用于生成候选的文本");
-      return false;
-    }
-
-    return true;
+  if (!includeAllFilteredSpecs.value) {
+    ElMessage.warning("当前已取消全选，请先恢复全选后再生成");
+    return false;
   }
 
-  if (inputMode.value === "documents") {
-    if (selectedExistingFileIds.value.length === 0) {
-      ElMessage.warning("请至少选择一份已上传文档");
-      return false;
-    }
-
-    return true;
-  }
-
-  if (!temporaryUploadedFile.value?.fileId) {
-    ElMessage.warning("请先上传临时文档");
+  if (specPreviewTotal.value === 0) {
+    ElMessage.warning("当前筛选条件下没有可用的历史验规");
     return false;
   }
 
@@ -290,14 +401,8 @@ const handleGenerate = async () => {
   try {
     const res = await generateMatchingKnowledgeDraft({
       category: props.category,
-      sourceType: inputMode.value === "text" ? "text" : "documents",
-      inputText: inputMode.value === "text" ? inputText.value.trim() : undefined,
-      fileIds:
-        inputMode.value === "documents"
-          ? selectedExistingFileIds.value
-          : inputMode.value === "temporaryUpload" && temporaryUploadedFile.value
-            ? [temporaryUploadedFile.value.fileId]
-            : undefined
+      specFilter: normalizeFilterPayload(),
+      llmServiceId: llmService.value?.id
     });
 
     if (res.code !== 0) {
@@ -307,7 +412,7 @@ const handleGenerate = async () => {
 
     draftRows.value = res.data.items.map(item => createDraftRow(item));
     ElMessage.success(
-      `已生成 ${draftRows.value.length} 条候选，待确认 ${draftStatusSummary.value.ready} 条`
+      `已按当前筛选结果生成 ${draftRows.value.length} 条候选，待确认 ${draftStatusSummary.value.ready} 条`
     );
   } catch {
     ElMessage.error("生成候选失败");
@@ -365,13 +470,22 @@ const handleImport = () => {
   });
   dialogVisible.value = false;
 };
+
+const formatImportedAt = (value?: string) => {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+};
 </script>
 
 <template>
   <el-dialog
     v-model="dialogVisible"
     :title="dialogTitle"
-    width="1100px"
+    width="1200px"
     destroy-on-close
   >
     <div class="draft-dialog">
@@ -379,77 +493,168 @@ const handleImport = () => {
         type="info"
         show-icon
         :closable="false"
-        :title="`${categoryMeta.description}。生成结果只会导入到“自定义扩展”，不会改动系统内置规则。`"
+        :title="`${categoryMeta.description}。系统会从当前筛选命中的历史验规中生成候选，并且只导入到“自定义扩展”。`"
       />
 
       <el-card class="source-card" shadow="never">
         <template #header>
           <div class="card-header">
             <div>
-              <div class="card-title">输入来源</div>
+              <div class="card-title">历史验规</div>
               <div class="card-subtitle">
-                每次只生成当前分类候选，可从粘贴文本、已上传文档或临时上传文档中抽取
+                按客户、制程、机型、关键词、导入时间筛选；预览可分页，但生成时始终处理当前筛选命中的全部历史验规
               </div>
+              <div class="card-subtitle">当前 LLM：{{ llmServiceLabel }}</div>
             </div>
-            <el-button type="primary" :loading="generating" @click="handleGenerate">
+            <el-button
+              type="primary"
+              :loading="generating"
+              @click="handleGenerate"
+            >
               生成当前分类候选
             </el-button>
           </div>
         </template>
 
-        <el-radio-group v-model="inputMode" class="source-mode-group">
-          <el-radio-button label="粘贴文本" value="text" />
-          <el-radio-button label="已上传文档" value="documents" />
-          <el-radio-button label="临时上传文档" value="temporaryUpload" />
-        </el-radio-group>
+        <el-form inline class="filter-form" :disabled="filtersLoading">
+          <el-form-item label="客户">
+            <el-select
+              v-model="filters.customerId"
+              clearable
+              filterable
+              placeholder="全部客户"
+              class="filter-select"
+            >
+              <el-option
+                v-for="item in customers"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              />
+            </el-select>
+          </el-form-item>
 
-        <div v-if="inputMode === 'text'" class="source-panel">
-          <el-input
-            v-model="inputText"
-            type="textarea"
-            :rows="8"
-            resize="vertical"
-            placeholder="粘贴术语、规格、项目说明或客户文档片段，AI 将只为当前分类生成候选。"
-          />
-        </div>
+          <el-form-item label="制程">
+            <el-select
+              v-model="filters.processId"
+              clearable
+              filterable
+              placeholder="全部制程"
+              class="filter-select"
+            >
+              <el-option
+                v-for="item in processes"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              />
+            </el-select>
+          </el-form-item>
 
-        <div v-else-if="inputMode === 'documents'" class="source-panel">
-          <div class="existing-files-toolbar">
-            <div class="helper-text">
-              可多选已上传文档，系统会抽取表头与预览文本用于生成当前分类候选
-            </div>
-            <el-button link type="primary" :loading="existingFilesLoading" @click="loadExistingFiles">
-              刷新列表
+          <el-form-item label="机型">
+            <el-select
+              v-model="filters.machineModelId"
+              clearable
+              filterable
+              placeholder="全部机型"
+              class="filter-select"
+            >
+              <el-option
+                v-for="item in machineModels"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="导入时间">
+            <el-date-picker
+              v-model="importedRange"
+              type="datetimerange"
+              :automatic-dropdown="false"
+              unlink-panels
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              start-placeholder="开始时间"
+              end-placeholder="结束时间"
+            />
+          </el-form-item>
+
+          <el-form-item label="关键词">
+            <el-input
+              v-model="filters.keyword"
+              clearable
+              placeholder="项目 / 规格 / 验收 / 备注"
+              @keyup.enter="handleSearch"
+            />
+          </el-form-item>
+
+          <el-form-item>
+            <el-button type="primary" @click="handleSearch">搜索</el-button>
+            <el-button @click="handleReset">重置</el-button>
+          </el-form-item>
+        </el-form>
+
+        <div class="selection-bar">
+          <div class="helper-text">
+            当前筛选结果默认全部参与生成。命中 {{ specPreviewTotal }} 条，当前选择
+            {{ selectedSourceCount }} 条。
+          </div>
+          <div class="selection-actions">
+            <el-tag :type="includeAllFilteredSpecs ? 'success' : 'info'" effect="plain">
+              {{ includeAllFilteredSpecs ? "已全选" : "已取消" }}
+            </el-tag>
+            <el-button
+              link
+              type="primary"
+              @click="includeAllFilteredSpecs = true"
+            >
+              全选
+            </el-button>
+            <el-button
+              link
+              type="primary"
+              @click="includeAllFilteredSpecs = false"
+            >
+              取消全选
             </el-button>
           </div>
-          <el-table
-            :data="existingFiles"
-            row-key="id"
-            max-height="280"
-            border
-            @selection-change="handleExistingFileSelectionChange"
-          >
-            <el-table-column type="selection" width="52" />
-            <el-table-column prop="fileName" label="文件名" min-width="260" />
-            <el-table-column label="类型" width="110">
-              <template #default="{ row }">
-                {{ row.fileType === 1 ? "Excel" : "Word" }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="specCount" label="已导入验规数" width="120" />
-            <el-table-column prop="uploadedAt" label="上传时间" min-width="180" />
-          </el-table>
         </div>
 
-        <div v-else class="source-panel">
-          <div class="upload-mode-row">
-            <span class="helper-text">临时文档用完可自动删除，也可以保留到系统文档列表</span>
-            <el-radio-group v-model="temporaryUploadMode">
-              <el-radio label="仅本次使用" value="temporary" />
-              <el-radio label="保存到已上传文档" value="keep" />
-            </el-radio-group>
-          </div>
-          <FileUpload v-model="temporaryUploadedFileModel" />
+        <el-table
+          v-loading="previewLoading"
+          :data="specPreviewRows"
+          row-key="id"
+          border
+          max-height="280"
+        >
+          <el-table-column prop="customerName" label="客户" min-width="120" />
+          <el-table-column prop="processName" label="制程" min-width="120" />
+          <el-table-column prop="machineModelName" label="机型" min-width="120" />
+          <el-table-column prop="project" label="项目" min-width="180" show-overflow-tooltip />
+          <el-table-column
+            prop="specification"
+            label="规格内容"
+            min-width="220"
+            show-overflow-tooltip
+          />
+          <el-table-column label="导入时间" min-width="180">
+            <template #default="{ row }">
+              {{ formatImportedAt(row.importedAt) }}
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="pager-wrap">
+          <el-pagination
+            v-model:current-page="previewQuery.page"
+            v-model:page-size="previewQuery.pageSize"
+            :page-sizes="[10, 20, 50]"
+            :total="specPreviewTotal"
+            layout="total, sizes, prev, pager, next"
+            @size-change="handlePreviewSizeChange"
+            @current-change="handlePreviewPageChange"
+          />
         </div>
       </el-card>
 
@@ -464,17 +669,21 @@ const handleImport = () => {
             </div>
             <div class="draft-actions">
               <span class="helper-text">
-                已选 {{ selectedDraftCount }} 条，待确认 {{ draftStatusSummary.ready }} 条，重复
-                {{ draftStatusSummary.duplicate }} 条，冲突 {{ draftStatusSummary.conflict }} 条
+                已选 {{ selectedDraftCount }} 条，待确认
+                {{ draftStatusSummary.ready }} 条，重复
+                {{ draftStatusSummary.duplicate }} 条，冲突
+                {{ draftStatusSummary.conflict }} 条
               </span>
-              <el-button link type="primary" @click="addManualRow">新增一条</el-button>
+              <el-button link type="primary" @click="addManualRow">
+                新增一条
+              </el-button>
             </div>
           </div>
         </template>
 
         <el-empty
           v-if="draftRows.length === 0"
-          description="选择输入来源后点击“生成当前分类候选”，或手动新增草稿条目。"
+          description="先筛选历史验规，再点击“生成当前分类候选”，或手动新增草稿条目。"
         />
 
         <el-table
@@ -491,12 +700,18 @@ const handleImport = () => {
           </el-table-column>
           <el-table-column :label="categoryMeta.keyLabel" min-width="180">
             <template #default="{ row }">
-              <el-input v-model="row.key" :placeholder="`输入${categoryMeta.keyLabel}`" />
+              <el-input
+                v-model="row.key"
+                :placeholder="`输入${categoryMeta.keyLabel}`"
+              />
             </template>
           </el-table-column>
           <el-table-column :label="categoryMeta.valueLabel" min-width="180">
             <template #default="{ row }">
-              <el-input v-model="row.value" :placeholder="`输入${categoryMeta.valueLabel}`" />
+              <el-input
+                v-model="row.value"
+                :placeholder="`输入${categoryMeta.valueLabel}`"
+              />
             </template>
           </el-table-column>
           <el-table-column label="状态" width="120">
@@ -506,17 +721,29 @@ const handleImport = () => {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="状态说明" min-width="220" show-overflow-tooltip>
+          <el-table-column
+            label="状态说明"
+            min-width="220"
+            show-overflow-tooltip
+          >
             <template #default="{ row }">
               {{ row.statusMessage || (row.isManual ? "手动新增候选" : "可直接导入") }}
             </template>
           </el-table-column>
-          <el-table-column label="证据片段" min-width="220" show-overflow-tooltip>
+          <el-table-column
+            label="证据片段"
+            min-width="220"
+            show-overflow-tooltip
+          >
             <template #default="{ row }">
               {{ row.evidenceSnippet || "-" }}
             </template>
           </el-table-column>
-          <el-table-column label="生成理由" min-width="220" show-overflow-tooltip>
+          <el-table-column
+            label="生成理由"
+            min-width="220"
+            show-overflow-tooltip
+          >
             <template #default="{ row }">
               {{ row.reason || "-" }}
             </template>
@@ -575,24 +802,32 @@ const handleImport = () => {
   border-radius: 16px;
 }
 
-.source-mode-group {
-  margin-bottom: 16px;
+.filter-form {
+  margin-bottom: 12px;
 }
 
-.source-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.filter-select {
+  width: 180px;
 }
 
-.existing-files-toolbar,
-.upload-mode-row,
+.selection-bar,
+.selection-actions,
 .draft-actions,
-.footer-actions {
+.footer-actions,
+.pager-wrap {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.selection-bar {
+  margin-bottom: 12px;
+}
+
+.pager-wrap {
+  margin-top: 12px;
+  justify-content: flex-end;
 }
 
 .helper-text {
@@ -602,12 +837,17 @@ const handleImport = () => {
 
 @media (max-width: 960px) {
   .card-header,
-  .existing-files-toolbar,
-  .upload-mode-row,
+  .selection-bar,
+  .selection-actions,
   .draft-actions,
-  .footer-actions {
+  .footer-actions,
+  .pager-wrap {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .filter-select {
+    width: 100%;
   }
 }
 </style>

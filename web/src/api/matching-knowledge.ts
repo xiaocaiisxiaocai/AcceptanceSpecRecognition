@@ -1,5 +1,6 @@
 import { http } from "@/utils/http";
 import type { ApiResponse } from "./customer";
+import type { SpecListRequest } from "./spec";
 
 export interface DictionaryEntry {
   key: string;
@@ -36,13 +37,13 @@ export type MatchingKnowledgeDraftCategory =
   | "unitAliases"
   | "fieldAliases"
   | "conflictPairs";
-export type MatchingKnowledgeDraftSourceType = "text" | "documents";
+
+export interface MatchingKnowledgeDraftSpecFilter
+  extends Omit<SpecListRequest, "page" | "pageSize"> {}
 
 export interface GenerateMatchingKnowledgeDraftRequest {
   category: MatchingKnowledgeDraftCategory;
-  sourceType: MatchingKnowledgeDraftSourceType;
-  inputText?: string;
-  fileIds?: number[];
+  specFilter?: MatchingKnowledgeDraftSpecFilter;
   llmServiceId?: number;
 }
 
@@ -89,6 +90,9 @@ export const generateMatchingKnowledgeDraft = (
     `${baseUrl}/drafts/generate`,
     {
       data
+    },
+    {
+      timeout: 120000
     }
   );
 };

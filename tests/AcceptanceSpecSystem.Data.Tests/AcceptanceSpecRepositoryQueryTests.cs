@@ -110,6 +110,99 @@ public class AcceptanceSpecRepositoryQueryTests : TestBase
     }
 
     [Fact]
+    public async Task GetPagedWithFilterAsync_ShouldApplyImportedRange()
+    {
+        var repo = new AcceptanceSpecRepository(Context);
+        var scopedOrg = new OrgUnit
+        {
+            CompanyId = 1,
+            ParentId = null,
+            UnitType = OrgUnitType.Company,
+            Code = "DATE-IN",
+            Name = "时间范围组织",
+            Path = "/5/",
+            Depth = 0,
+            Sort = 1,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        var customer = new Customer { Name = "时间范围客户", CreatedAt = DateTime.UtcNow };
+        var process = new Process { Name = "时间范围制程", CreatedAt = DateTime.UtcNow };
+        var machine = new MachineModel { Name = "时间范围机型", CreatedAt = DateTime.UtcNow };
+        var wordFile = new WordFile
+        {
+            FileName = "date-range.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileContent = Array.Empty<byte>(),
+            UploadedAt = DateTime.UtcNow
+        };
+
+        Context.OrgUnits.Add(scopedOrg);
+        Context.Customers.Add(customer);
+        Context.Processes.Add(process);
+        Context.MachineModels.Add(machine);
+        Context.WordFiles.Add(wordFile);
+        await Context.SaveChangesAsync();
+
+        var from = new DateTime(2026, 3, 10, 0, 0, 0, DateTimeKind.Utc);
+        var to = new DateTime(2026, 3, 20, 23, 59, 59, DateTimeKind.Utc);
+
+        Context.AcceptanceSpecs.AddRange(
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                ProcessId = process.Id,
+                MachineModelId = machine.Id,
+                Project = "范围内-1",
+                Specification = "尺寸 A",
+                WordFileId = wordFile.Id,
+                OwnerOrgUnitId = scopedOrg.Id,
+                CreatedByUserId = 7,
+                ImportedAt = new DateTime(2026, 3, 12, 8, 0, 0, DateTimeKind.Utc)
+            },
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                ProcessId = process.Id,
+                MachineModelId = machine.Id,
+                Project = "范围内-2",
+                Specification = "尺寸 B",
+                WordFileId = wordFile.Id,
+                OwnerOrgUnitId = scopedOrg.Id,
+                CreatedByUserId = 7,
+                ImportedAt = new DateTime(2026, 3, 19, 18, 0, 0, DateTimeKind.Utc)
+            },
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                ProcessId = process.Id,
+                MachineModelId = machine.Id,
+                Project = "范围外",
+                Specification = "尺寸 C",
+                WordFileId = wordFile.Id,
+                OwnerOrgUnitId = scopedOrg.Id,
+                CreatedByUserId = 7,
+                ImportedAt = new DateTime(2026, 3, 25, 8, 0, 0, DateTimeKind.Utc)
+            });
+        await Context.SaveChangesAsync();
+
+        var result = await repo.GetPagedWithFilterAsync(new AcceptanceSpecQueryOptions
+        {
+            CustomerId = customer.Id,
+            ProcessId = process.Id,
+            MachineModelId = machine.Id,
+            OrgUnitIds = [scopedOrg.Id],
+            ImportedFrom = from,
+            ImportedTo = to,
+            Page = 1,
+            PageSize = 20
+        });
+
+        result.Total.Should().Be(2);
+        result.Items.Select(item => item.Project).Should().BeEquivalentTo(["范围内-2", "范围内-1"]);
+    }
+
+    [Fact]
     public async Task GetGroupSummaryWithFilterAsync_ShouldIncludeSelfOwnedSpecs_WhenIncludeSelfEnabled()
     {
         var repo = new AcceptanceSpecRepository(Context);

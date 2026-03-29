@@ -91,8 +91,10 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task MatchingKnowledgeDraftGenerate_TextSource_ShouldReturnSingleCategoryDraft_AndNotModifyConfig()
+    public async Task MatchingKnowledgeDraftGenerate_SpecFilterSource_ShouldReturnSingleCategoryDraft_AndNotModifyConfig()
     {
+        var fixture = await SeedHistoricalSpecsAsync();
+
         var beforeGet = await _client.GetAsync("/api/matching-knowledge");
         beforeGet.StatusCode.Should().Be(HttpStatusCode.OK);
         var beforeJson = await beforeGet.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -103,8 +105,15 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             ApiClientJson.ToJsonContent(new
             {
                 category = "entityAliases",
-                sourceType = "text",
-                inputText = "Panasonic 品牌，ABB 控制柜"
+                specFilter = new
+                {
+                    customerId = fixture.CustomerId,
+                    processId = fixture.ProcessId,
+                    machineModelId = fixture.MachineModelId,
+                    keyword = "Panasonic",
+                    importedFrom = fixture.ImportedFrom,
+                    importedTo = fixture.ImportedTo
+                }
             }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -125,6 +134,112 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         var afterJson = await afterGet.ReadAsAsync<ApiResponse<JsonElement>>();
         afterJson.Code.Should().Be(0);
         afterJson.Data.GetProperty("custom").ToString().Should().Be(beforeJson.Data.GetProperty("custom").ToString());
+    }
+
+    [Fact]
+    public async Task MatchingKnowledgeDraftGenerate_SpecFilterSource_ShouldReturnBadRequest_WhenNoSpecsMatched()
+    {
+        var response = await _client.PostAsync(
+            "/api/matching-knowledge/drafts/generate",
+            ApiClientJson.ToJsonContent(new
+            {
+                category = "entityAliases",
+                specFilter = new
+                {
+                    keyword = "这是一条不会命中的关键词"
+                }
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(400);
+        body.Message.Should().Contain("没有可用于生成的历史验规");
+    }
+
+    [Fact]
+    public async Task MatchingKnowledgeDraftGenerate_SpecFilterSource_ShouldReturnBadRequest_WhenMatchedSpecsExceedLimit()
+    {
+        var fixture = await SeedHistoricalSpecsAsync(specCount: 201, projectPrefix: "超上限");
+
+        var response = await _client.PostAsync(
+            "/api/matching-knowledge/drafts/generate",
+            ApiClientJson.ToJsonContent(new
+            {
+                category = "entityAliases",
+                specFilter = new
+                {
+                    customerId = fixture.CustomerId,
+                    processId = fixture.ProcessId,
+                    machineModelId = fixture.MachineModelId,
+                    keyword = fixture.ProjectPrefix
+                }
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(400);
+        body.Message.Should().Contain("命中的历史验规过多");
+    }
+
+    private async Task<(int CustomerId, int ProcessId, int MachineModelId, DateTime ImportedFrom, DateTime ImportedTo, string ProjectPrefix)> SeedHistoricalSpecsAsync(
+        int specCount = 1,
+        string projectPrefix = "Panasonic")
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var customer = new Customer
+        {
+            Name = $"草稿客户-{Guid.NewGuid():N}",
+            CreatedAt = DateTime.UtcNow
+        };
+        var process = new Process
+        {
+            Name = $"草稿制程-{Guid.NewGuid():N}",
+            CreatedAt = DateTime.UtcNow
+        };
+        var machineModel = new MachineModel
+        {
+            Name = $"草稿机型-{Guid.NewGuid():N}",
+            CreatedAt = DateTime.UtcNow
+        };
+        var wordFile = new WordFile
+        {
+            FileName = $"draft-{Guid.NewGuid():N}.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileContent = Array.Empty<byte>(),
+            UploadedAt = DateTime.UtcNow
+        };
+
+        dbContext.Customers.Add(customer);
+        dbContext.Processes.Add(process);
+        dbContext.MachineModels.Add(machineModel);
+        dbContext.WordFiles.Add(wordFile);
+        await dbContext.SaveChangesAsync();
+
+        var importedFrom = DateTime.UtcNow.AddDays(-2);
+        var importedTo = DateTime.UtcNow.AddDays(-1);
+
+        for (var index = 0; index < specCount; index++)
+        {
+            dbContext.AcceptanceSpecs.Add(new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                ProcessId = process.Id,
+                MachineModelId = machineModel.Id,
+                Project = $"{projectPrefix} 控制柜 {index + 1}",
+                Specification = $"{projectPrefix} 品牌控制柜尺寸检测 {index + 1}",
+                Acceptance = "ABB 组件可共存",
+                Remark = "匹配知识草稿测试",
+                WordFileId = wordFile.Id,
+                OwnerOrgUnitId = 1,
+                CreatedByUserId = 1,
+                ImportedAt = importedFrom.AddHours(12).AddMinutes(index)
+            });
+        }
+        await dbContext.SaveChangesAsync();
+
+        return (customer.Id, process.Id, machineModel.Id, importedFrom, importedTo, projectPrefix);
     }
 
     [Fact]

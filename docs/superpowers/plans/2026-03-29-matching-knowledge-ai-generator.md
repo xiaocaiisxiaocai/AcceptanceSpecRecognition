@@ -2,59 +2,74 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在匹配知识配置页为单个分类增加 AI 草稿生成功能，并支持审核后导入自定义扩展。
+**Goal:** 在匹配知识配置页为单个分类增加基于历史验规筛选的 AI 草稿生成功能，并支持审核后导入自定义扩展。
 
-**Architecture:** 后端在 `MatchingKnowledgeController` 下增加草稿生成接口，复用现有文档读取、AI 服务和 Prompt 模板体系，返回结构化候选草稿。前端在匹配知识页新增“AI 生成候选”入口和审核弹窗，用户审核后才把数据并入自定义扩展。
+**Architecture:** 后端保留现有草稿生成入口，但把输入来源从文本/文档改为历史验规筛选条件，直接查询 `AcceptanceSpec` 并拼接结构化文本给 AI。前端保留“AI 生成候选”入口，但弹窗只提供历史验规筛选、分页预览和“全选/取消全选”开关；生成时始终按当前筛选命中的全部历史验规处理。
 
 **Tech Stack:** ASP.NET Core 8、EF Core 8、Vue 3、TypeScript、Element Plus、Semantic Kernel、xUnit
 
 ---
 
-### Task 1: 定义草稿请求/响应模型
+### Task 1: 重写后端筛选与草稿请求模型
 
 **Files:**
 - Modify: `src/AcceptanceSpecSystem.Api/DTOs/MatchingKnowledgeDtos.cs`
+- Modify: `src/AcceptanceSpecSystem.Data/Repositories/AcceptanceSpecQueryOptions.cs`
 - Test: `tests/AcceptanceSpecSystem.Api.Tests/ConfigApisTests.cs`
+- Test: `tests/AcceptanceSpecSystem.Data.Tests/AcceptanceSpecQueryOptionsTests.cs`
 
-- [ ] **Step 1: 写失败测试，定义单分类草稿生成接口的请求与响应结构**
-- [ ] **Step 2: 运行目标测试并确认失败**
-- [ ] **Step 3: 实现 DTO，覆盖分类、来源、候选项、状态和导入模型**
-- [ ] **Step 4: 运行目标测试确认通过**
-- [ ] **Step 5: 提交一次小步提交**
+- [ ] **Step 1: 写失败测试，定义草稿生成接口只接受历史验规筛选条件，并支持导入时间范围**
+- [ ] **Step 2: 运行 `dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.csproj --filter "FullyQualifiedName~ConfigApisTests" -c Debug` 确认失败**
+- [ ] **Step 3: 实现 `GenerateMatchingKnowledgeDraftRequest` 的 `specFilter` 模型，删除 `sourceType`、`inputText`、`fileIds`**
+- [ ] **Step 4: 为 `AcceptanceSpecQueryOptions` 增加 `ImportedFrom` / `ImportedTo` 并补齐约束测试**
+- [ ] **Step 5: 运行目标测试确认通过**
 
-### Task 2: 实现后端草稿生成服务
+### Task 2: 扩展历史验规筛选查询
 
 **Files:**
-- Create: `src/AcceptanceSpecSystem.Api/Services/MatchingKnowledgeDraftGenerationService.cs`
-- Modify: `src/AcceptanceSpecSystem.Api/Program.cs`
-- Modify: `src/AcceptanceSpecSystem.Api/Controllers/MatchingKnowledgeController.cs`
-- Modify: `src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs`
-- Test: `tests/AcceptanceSpecSystem.Api.Tests/MatchingKnowledgeDraftGenerationTests.cs`
+- Modify: `src/AcceptanceSpecSystem.Api/Controllers/SpecsController.cs`
+- Modify: `src/AcceptanceSpecSystem.Data/Repositories/AcceptanceSpecRepository.cs`
+- Test: `tests/AcceptanceSpecSystem.Data.Tests/AcceptanceSpecRepositoryQueryTests.cs`
 
-- [ ] **Step 1: 写失败测试，定义文本输入、已上传文档输入和临时上传输入行为**
-- [ ] **Step 2: 运行目标测试并确认失败**
-- [ ] **Step 3: 实现最小后端服务与接口，仅支持单分类返回结构化草稿**
-- [ ] **Step 4: 加入重复/冲突标记逻辑**
+- [ ] **Step 1: 写失败测试，覆盖导入时间范围筛选与已有客户/制程/机型/关键词筛选组合**
+- [ ] **Step 2: 运行 `dotnet test tests/AcceptanceSpecSystem.Data.Tests/AcceptanceSpecSystem.Data.Tests.csproj --filter "FullyQualifiedName~AcceptanceSpecRepositoryQueryTests" -c Debug` 确认失败**
+- [ ] **Step 3: 在 `SpecsController` 的列表参数中加入 `importedFrom` / `importedTo`**
+- [ ] **Step 4: 在 `AcceptanceSpecRepository` 中实现 `ImportedAt` 范围过滤，并保持现有排序与分页行为**
 - [ ] **Step 5: 运行目标测试确认通过**
-- [ ] **Step 6: 提交一次小步提交**
 
-### Task 3: 前端弹窗与导入交互
+### Task 3: 重构匹配知识草稿生成服务
+
+**Files:**
+- Modify: `src/AcceptanceSpecSystem.Api/Services/MatchingKnowledgeDraftGenerationService.cs`
+- Modify: `src/AcceptanceSpecSystem.Api/Program.cs`
+- Modify: `src/AcceptanceSpecSystem.Api/Controllers/MatchingKnowledgeDraftsController.cs`
+- Test: `tests/AcceptanceSpecSystem.Api.Tests/ConfigApisTests.cs`
+
+- [ ] **Step 1: 写失败测试，覆盖基于历史验规生成、空结果报错、超上限报错和不落库行为**
+- [ ] **Step 2: 运行 `dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.csproj --filter "FullyQualifiedName~ConfigApisTests" -c Debug` 确认失败**
+- [ ] **Step 3: 删除文档读取与解析分支，改为查询符合筛选条件的 `AcceptanceSpec`**
+- [ ] **Step 4: 用历史验规字段拼接源文本，保留单分类生成与重复/冲突标记逻辑**
+- [ ] **Step 5: 移除不再使用的文档解析依赖注册和构造参数**
+- [ ] **Step 6: 运行目标测试确认通过**
+
+### Task 4: 更新前端弹窗与筛选生成交互
 
 **Files:**
 - Modify: `web/src/views/config/matching-knowledge/index.vue`
 - Modify: `web/src/api/matching-knowledge.ts`
-- Create: `web/src/views/config/matching-knowledge/components/MatchingKnowledgeDraftDialog.vue`
-- Reuse: `web/src/views/data-import/components/FileUpload.vue`
+- Modify: `web/src/api/spec.ts`
+- Modify: `web/src/views/config/matching-knowledge/components/MatchingKnowledgeDraftDialog.vue`
 - Test: `tests/AcceptanceSpecSystem.Api.Tests/MatchingKnowledgeFrontendRegressionTests.cs`
 
-- [ ] **Step 1: 写失败测试，定义各分类 `AI 生成候选` 入口与弹窗关键文案**
-- [ ] **Step 2: 运行目标测试并确认失败**
-- [ ] **Step 3: 实现弹窗组件和来源切换**
-- [ ] **Step 4: 实现候选编辑、删除、勾选与导入回填**
-- [ ] **Step 5: 运行目标测试确认通过**
-- [ ] **Step 6: 提交一次小步提交**
+- [ ] **Step 1: 写失败测试，确认旧来源文案被移除，并新增历史验规筛选、导入时间范围与全选语义文案**
+- [ ] **Step 2: 运行 `dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.csproj --filter "FullyQualifiedName~MatchingKnowledgeFrontendRegressionTests" -c Debug` 确认失败**
+- [ ] **Step 3: 重写前端请求模型，只传 `category`、`specFilter`、`llmServiceId`**
+- [ ] **Step 4: 在弹窗中实现客户、制程、机型、关键词、导入时间范围筛选与预览分页**
+- [ ] **Step 5: 实现“当前筛选结果默认全选，只支持全选/取消全选”的生成交互**
+- [ ] **Step 6: 保持现有草稿编辑、删除、导入到自定义扩展流程**
+- [ ] **Step 7: 运行目标测试确认通过**
 
-### Task 4: 回归验证
+### Task 5: 整体验证与规范收口
 
 **Files:**
 - Modify: `openspec/changes/add-ai-matching-knowledge-draft-generation/tasks.md`
@@ -62,4 +77,4 @@
 - [ ] **Step 1: 运行 `dotnet test .\\AcceptanceSpecSystem.sln -c Debug`**
 - [ ] **Step 2: 运行 `pnpm build`**
 - [ ] **Step 3: 根据实际完成情况勾选 OpenSpec tasks**
-- [ ] **Step 4: 提交最终收口提交**
+- [ ] **Step 4: 记录无法完成的验证或残留风险**

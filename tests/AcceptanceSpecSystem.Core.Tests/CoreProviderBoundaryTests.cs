@@ -7,7 +7,7 @@ namespace AcceptanceSpecSystem.Core.Tests;
 public class CoreProviderBoundaryTests
 {
     [Fact]
-    public async Task AiServiceSelector_ShouldPrioritizeLocalCandidates_FromProvider()
+    public async Task AiServiceSelector_ShouldSortCandidatesByPriorityThenUpdatedTime()
     {
         var now = DateTime.UtcNow;
         var selector = new AiServiceSelector(new StubAiServiceConfigProvider(
@@ -46,7 +46,40 @@ public class CoreProviderBoundaryTests
 
         var candidates = await selector.GetCandidatesAsync(AiServicePurpose.Llm);
 
-        candidates.Select(item => item.Id).Should().Equal(2, 3, 1);
+        candidates.Select(item => item.Id).Should().Equal(1, 2, 3);
+    }
+
+    [Fact]
+    public async Task AiServiceSelector_ShouldMovePreferredCandidateToFront()
+    {
+        var now = DateTime.UtcNow;
+        var selector = new AiServiceSelector(new StubAiServiceConfigProvider(
+        [
+            new AiServiceConfigModel
+            {
+                Id = 1,
+                Name = "OpenAI-Cloud",
+                ServiceType = AiServiceType.OpenAI,
+                Purpose = AiServicePurpose.Llm,
+                Priority = 0,
+                LlmModel = "gpt-4.1",
+                CreatedAt = now.AddMinutes(-3)
+            },
+            new AiServiceConfigModel
+            {
+                Id = 2,
+                Name = "Moonshot",
+                ServiceType = AiServiceType.CustomOpenAICompatible,
+                Purpose = AiServicePurpose.Llm,
+                Priority = 1,
+                LlmModel = "kimi-k2-turbo-preview",
+                CreatedAt = now.AddMinutes(-2)
+            }
+        ]));
+
+        var candidates = await selector.GetCandidatesAsync(AiServicePurpose.Llm, preferredId: 2);
+
+        candidates.Select(item => item.Id).Should().Equal(2, 1);
     }
 
     private sealed class StubAiServiceConfigProvider : IAiServiceConfigProvider

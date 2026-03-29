@@ -128,25 +128,50 @@ public sealed class GenerateMatchingKnowledgeDraftRequest
     public string Category { get; set; } = string.Empty;
 
     /// <summary>
-    /// 输入来源：text / documents
+    /// 历史验规筛选条件。
     /// </summary>
-    [Required]
-    public string SourceType { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 粘贴文本输入。
-    /// </summary>
-    public string? InputText { get; set; }
-
-    /// <summary>
-    /// 已上传文档 ID 列表。
-    /// </summary>
-    public List<int> FileIds { get; set; } = [];
+    public MatchingKnowledgeDraftSpecFilterDto? SpecFilter { get; set; }
 
     /// <summary>
     /// 指定使用的 LLM 服务 ID；为空时按现有优先级选择。
     /// </summary>
     public int? LlmServiceId { get; set; }
+}
+
+/// <summary>
+/// 匹配知识草稿生成时使用的历史验规筛选条件。
+/// </summary>
+public sealed class MatchingKnowledgeDraftSpecFilterDto
+{
+    /// <summary>
+    /// 客户 ID。
+    /// </summary>
+    public int? CustomerId { get; set; }
+
+    /// <summary>
+    /// 制程 ID。
+    /// </summary>
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 机型 ID。
+    /// </summary>
+    public int? MachineModelId { get; set; }
+
+    /// <summary>
+    /// 关键词。
+    /// </summary>
+    public string? Keyword { get; set; }
+
+    /// <summary>
+    /// 导入开始时间（含）。
+    /// </summary>
+    public DateTime? ImportedFrom { get; set; }
+
+    /// <summary>
+    /// 导入结束时间（含）。
+    /// </summary>
+    public DateTime? ImportedTo { get; set; }
 }
 
 /// <summary>
