@@ -7,8 +7,11 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 internal sealed class NumericConstraintParser
 {
     private static readonly Regex ConstraintRegex = new(
-        @"(?<field>[\u4e00-\u9fffA-Za-z]{1,20})(?<operator>小于等于|不大于|<=|≤|小于|<|等于|=|大于等于|不小于|>=|≥|大于|>)(?<value>\d+(?:\.\d+)?)(?<unit>[\u4e00-\u9fffA-Za-zµμ]+)",
-        RegexOptions.Compiled);
+        @"(?<field>[\u4e00-\u9fffA-Za-z]{1,20})(?<operator>小于等于|不大于|<=|≤|小于|<|等于|=|大于等于|不小于|>=|≥|大于|>)(?<value>\d+(?:\.\d+)?)(?:\s*)(?<unit>kg\/cm[23]|kgf\/cm2|℃|°c|°C|度|[A-Za-zµμ]+(?:\/[A-Za-z]+\d?)?)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex GenericMeasurementRegex = new(
+        @"(?<value>\d+(?:\.\d+)?)(?:\s*)(?<unit>kg\/cm[23]|kgf\/cm2|℃|°c|°C|度|[A-Za-zµμ]+(?:\/[A-Za-z]+\d?)?)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Dictionary<string, decimal> InternalUnitFactors = new(StringComparer.OrdinalIgnoreCase)
     {
         ["m"] = 1000m,
@@ -16,6 +19,7 @@ internal sealed class NumericConstraintParser
         ["cm"] = 10m,
         ["um"] = 0.001m,
         ["nm"] = 0.000001m,
+        ["degc"] = 1m,
         ["v"] = 1m,
         ["mv"] = 0.001m,
         ["kv"] = 1000m,
@@ -44,7 +48,49 @@ internal sealed class NumericConstraintParser
         ["hr"] = 3600m,
         ["ohm"] = 1m,
         ["kohm"] = 1000m,
-        ["mohm"] = 1000000m
+        ["mohm"] = 1000000m,
+        ["kg/cm2"] = 1m,
+        ["kg/cm3"] = 1m
+    };
+    private static readonly Dictionary<string, string> DefaultFieldByUnit = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["m"] = "长度",
+        ["mm"] = "长度",
+        ["cm"] = "长度",
+        ["um"] = "长度",
+        ["nm"] = "长度",
+        ["degc"] = "温度",
+        ["v"] = "电压",
+        ["mv"] = "电压",
+        ["kv"] = "电压",
+        ["a"] = "电流",
+        ["ma"] = "电流",
+        ["ua"] = "电流",
+        ["w"] = "功率",
+        ["kw"] = "功率",
+        ["mw"] = "功率",
+        ["hz"] = "频率",
+        ["khz"] = "频率",
+        ["mhz"] = "频率",
+        ["ghz"] = "频率",
+        ["kpa"] = "压力",
+        ["mpa"] = "压力",
+        ["kg/cm2"] = "压力",
+        ["kg/cm3"] = "压力",
+        ["n"] = "压力",
+        ["kn"] = "压力",
+        ["g"] = "重量",
+        ["kg"] = "重量",
+        ["mg"] = "重量",
+        ["s"] = "时间",
+        ["ms"] = "时间",
+        ["us"] = "时间",
+        ["ns"] = "时间",
+        ["min"] = "时间",
+        ["hr"] = "时间",
+        ["ohm"] = "阻值",
+        ["kohm"] = "阻值",
+        ["mohm"] = "阻值"
     };
 
     public ParsedConstraint? Parse(string? text, MatchingKnowledge knowledge)
@@ -57,12 +103,11 @@ internal sealed class NumericConstraintParser
         if (string.IsNullOrWhiteSpace(text))
             return [];
 
-        var matches = ConstraintRegex.Matches(text);
-        if (matches.Count == 0)
-            return [];
+        var explicitMatches = ConstraintRegex.Matches(text);
+        var constraints = new List<ParsedConstraint>(explicitMatches.Count);
+        var occupiedRanges = new List<(int Start, int End)>(explicitMatches.Count);
 
-        var constraints = new List<ParsedConstraint>(matches.Count);
-        foreach (Match match in matches)
+        foreach (Match match in explicitMatches)
         {
             var field = NormalizeFieldName(match.Groups["field"].Value.Trim(), knowledge);
             var op = NormalizeOperator(match.Groups["operator"].Value);
@@ -73,6 +118,25 @@ internal sealed class NumericConstraintParser
             var value = decimal.Parse(match.Groups["value"].Value, CultureInfo.InvariantCulture);
             var normalizedValue = NormalizeValue(value, unit);
             constraints.Add(new ParsedConstraint(field, op, value, unit, normalizedValue, match.Value));
+            occupiedRanges.Add((match.Index, match.Index + match.Length));
+        }
+
+        foreach (Match match in GenericMeasurementRegex.Matches(text))
+        {
+            var start = match.Index;
+            var end = match.Index + match.Length;
+            if (occupiedRanges.Any(range => start < range.End && end > range.Start))
+                continue;
+
+            var unit = NormalizeUnit(match.Groups["unit"].Value.Trim(), knowledge);
+            if (string.IsNullOrWhiteSpace(unit))
+                continue;
+
+            var value = decimal.Parse(match.Groups["value"].Value, CultureInfo.InvariantCulture);
+            var normalizedValue = NormalizeValue(value, unit);
+            var field = InferFieldName(text, match.Index, unit, knowledge);
+
+            constraints.Add(new ParsedConstraint(field, "=", value, unit, normalizedValue, match.Value));
         }
 
         return constraints;
@@ -114,9 +178,27 @@ internal sealed class NumericConstraintParser
         if (string.IsNullOrWhiteSpace(rawUnit))
             return string.Empty;
 
-        return knowledge.UnitAliases.TryGetValue(rawUnit, out var canonicalUnit)
+        var normalized = rawUnit.Trim();
+        return knowledge.UnitAliases.TryGetValue(normalized, out var canonicalUnit)
             ? canonicalUnit
             : string.Empty;
+    }
+
+    private static string InferFieldName(string text, int matchIndex, string normalizedUnit, MatchingKnowledge knowledge)
+    {
+        var prefixStart = Math.Max(0, matchIndex - 16);
+        var prefix = text[prefixStart..matchIndex];
+        var matchedAlias = knowledge.FieldAliases.Keys
+            .Where(alias => prefix.Contains(alias, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(alias => alias.Length)
+            .FirstOrDefault();
+
+        if (matchedAlias != null && knowledge.FieldAliases.TryGetValue(matchedAlias, out var fieldName))
+            return fieldName;
+
+        return DefaultFieldByUnit.TryGetValue(normalizedUnit, out fieldName)
+            ? fieldName
+            : normalizedUnit;
     }
 
     private static decimal NormalizeValue(decimal value, string unit)

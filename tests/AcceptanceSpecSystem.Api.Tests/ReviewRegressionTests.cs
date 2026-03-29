@@ -86,6 +86,19 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void ScoreDetailDialog_ShouldHighlightSourceVsBestMatchDifference()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("sourceBestRows", "匹配详情应直接标出源项与最佳匹配的差异位置");
+        content.Should().Contain("源项与最佳匹配差异", "应提供专门的差异高亮区块，避免用户自行肉眼比对");
+        content.Should().Contain("v-html=\"row.leftHtml\"", "差异区块应复用现有 inline diff 高亮渲染");
+        content.Should().Contain("v-html=\"row.rightHtml\"", "差异区块应同时渲染源项与最佳匹配的高亮结果");
+    }
+
+    [Fact]
     public void UploadControllers_ShouldPropagateRequestAbortedToFileOperations()
     {
         var documentsContent = File.ReadAllText(Path.Combine(

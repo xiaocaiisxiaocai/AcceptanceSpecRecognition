@@ -185,6 +185,83 @@ public class MatchEvidenceBuilderTests
     }
 
     [Fact]
+    public void Build_WhenTemperatureLimitDiffersByDegree_ShouldMarkOverlapWarning()
+    {
+        var evidence = _builder.Build(
+            new MatchSource
+            {
+                Project = "安全要求",
+                Specification = "温度不大于60度"
+            },
+            new MatchCandidate
+            {
+                SpecId = 71,
+                Project = "安全要求",
+                Specification = "温度不大于50度"
+            },
+            MatchingKnowledge.CreateDefault());
+
+        evidence.NumericConstraints.Should().Contain(item =>
+            item.FieldName == "温度" &&
+            item.Relation == EvidenceRelation.Overlap &&
+            item.SourceExpression.Contains("60度", StringComparison.Ordinal) &&
+            item.CandidateExpression.Contains("50度", StringComparison.Ordinal));
+        evidence.HasHardConflict.Should().BeFalse();
+        evidence.Warnings.Should().Contain(item => item.Contains("温度", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Build_WhenVoltageFrequencyAlternativesContainTypo_ShouldMarkVoltageConflict()
+    {
+        var evidence = _builder.Build(
+            new MatchSource
+            {
+                Project = "水/电/气",
+                Specification = "电力规格要求: 380V三相/50HZ或22V/50HZ；气压需求≤6kg/cm3"
+            },
+            new MatchCandidate
+            {
+                SpecId = 72,
+                Project = "水/电/气",
+                Specification = "电力规格要求: 380V三相/50HZ或220V/50HZ；气压需求≤6kg/cm3"
+            },
+            MatchingKnowledge.CreateDefault());
+
+        evidence.NumericConstraints.Should().Contain(item =>
+            item.FieldName == "电压" &&
+            item.Relation == EvidenceRelation.Conflict &&
+            item.SourceExpression.Contains("22V", StringComparison.OrdinalIgnoreCase) &&
+            item.CandidateExpression.Contains("220V", StringComparison.OrdinalIgnoreCase));
+        evidence.HasHardConflict.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Build_WhenVoltageFrequencyAlternativesAreEquivalent_ShouldNotCrossCompareIntoConflict()
+    {
+        var evidence = _builder.Build(
+            new MatchSource
+            {
+                Project = "水/电/气",
+                Specification = "电力规格要求: 380V三相/50HZ或220V/50HZ"
+            },
+            new MatchCandidate
+            {
+                SpecId = 73,
+                Project = "水/电/气",
+                Specification = "电力规格要求: 380V三相/50HZ或220V/50HZ"
+            },
+            MatchingKnowledge.CreateDefault());
+
+        evidence.NumericConstraints.Should().Contain(item =>
+            item.FieldName == "电压" &&
+            item.Relation == EvidenceRelation.Exact);
+        evidence.NumericConstraints.Should().Contain(item =>
+            item.FieldName == "频率" &&
+            item.Relation == EvidenceRelation.Exact);
+        evidence.HasHardConflict.Should().BeFalse();
+    }
+
+    [Fact]
     public void Build_WhenBrandConfiguredOnceInLowercase_ShouldStillMatchUppercaseText()
     {
         var knowledge = new MatchingKnowledge

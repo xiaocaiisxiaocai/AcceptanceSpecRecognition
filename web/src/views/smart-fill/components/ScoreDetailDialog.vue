@@ -323,6 +323,37 @@ const rawComparisonRows = computed(() => {
   return comparisonBaseRows.value.filter(row => !row.isSame);
 });
 
+const sourceBestRows = computed(() => {
+  const bestMatch = props.item?.bestMatch;
+  if (!props.item || !bestMatch) return [];
+
+  return [
+    {
+      key: "project",
+      label: "项目",
+      left: props.item.sourceProject,
+      right: bestMatch.project
+    },
+    {
+      key: "specification",
+      label: "规格",
+      left: props.item.sourceSpecification,
+      right: bestMatch.specification
+    }
+  ]
+    .map(row => {
+      const diff = buildInlineDiffHtml(row.left, row.right);
+      return {
+        key: row.key,
+        label: row.label,
+        leftHtml: diff.leftHtml,
+        rightHtml: diff.rightHtml,
+        isSame: diff.isSame
+      };
+    })
+    .filter(row => !row.isSame);
+});
+
 const isComparedCandidate = (candidate: MatchCandidateOption) =>
   candidate.rank > 1 && candidate.rank === comparisonCandidate.value?.rank;
 
@@ -463,6 +494,44 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
               </div>
             </template>
             <el-empty v-else description="无匹配结果" :image-size="60" />
+          </div>
+
+          <div
+            v-if="item.bestMatch && sourceBestRows.length > 0"
+            class="best-section"
+          >
+            <h4>源项与最佳匹配差异</h4>
+            <div class="diff-section">
+              <div class="diff-columns">
+                <div class="diff-column">
+                  <div class="diff-column-title">差异字段</div>
+                </div>
+                <div class="diff-column">
+                  <div class="diff-column-title">源项</div>
+                </div>
+                <div class="diff-column">
+                  <div class="diff-column-title">
+                    最佳匹配 · 规格 {{ item.bestMatch.specId }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="diff-rows">
+                <div
+                  v-for="row in sourceBestRows"
+                  :key="`source-best-${row.key}`"
+                  class="diff-row"
+                >
+                  <div class="diff-label">{{ row.label }}</div>
+                  <div class="diff-cell">
+                    <div class="diff-content" v-html="row.leftHtml" />
+                  </div>
+                  <div class="diff-cell">
+                    <div class="diff-content" v-html="row.rightHtml" />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div v-if="topCandidates.length > 0" class="candidate-section">

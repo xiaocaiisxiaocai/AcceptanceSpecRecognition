@@ -228,6 +228,7 @@ public class SemanticKernelMatchingService : IMatchingService
             candidate.NumericScore = ComputeNumericScore(source, candidate);
             candidate.KeywordScore = ComputeKeywordScore(source.Specification, candidate.Candidate.Specification);
             candidate.ConflictPenalty = ComputeConflictPenalty(source, candidate, knowledge);
+            candidate.HasLooseNumericMismatch = HasLooseNumericMismatch(source, candidate);
             candidate.FinalScore = ComputeFinalScore(candidate);
             candidate.RerankSummary = BuildRerankSummary(candidate);
         }
@@ -524,6 +525,9 @@ public class SemanticKernelMatchingService : IMatchingService
         else if (candidate.NumericScore >= 0.60)
             reasons.Add("数值单位部分匹配");
 
+        if (candidate.HasLooseNumericMismatch)
+            reasons.Add("数值片段存在差异");
+
         if (candidate.KeywordScore >= 0.60)
             reasons.Add("关键词重合高");
 
@@ -542,6 +546,9 @@ public class SemanticKernelMatchingService : IMatchingService
             return MatchDecision.Reject;
 
         if (RequiresManualReview(candidate.Evidence))
+            return MatchDecision.ManualReview;
+
+        if (candidate.HasLooseNumericMismatch)
             return MatchDecision.ManualReview;
 
         if (isAmbiguous)
@@ -642,6 +649,23 @@ public class SemanticKernelMatchingService : IMatchingService
         return true;
     }
 
+    private static bool HasLooseNumericMismatch(MatchSource source, EvaluatedCandidate candidate)
+    {
+        if (candidate.Evidence?.NumericConstraints.Count > 0)
+            return false;
+
+        var sourceTokens = ExtractNumericTokens(source.Specification);
+        var candidateTokens = ExtractNumericTokens(candidate.Candidate.Specification);
+
+        if (sourceTokens.Count == 0 && candidateTokens.Count == 0)
+            return false;
+
+        if (sourceTokens.Count == 0 || candidateTokens.Count == 0)
+            return true;
+
+        return !sourceTokens.SetEquals(candidateTokens);
+    }
+
     private static HashSet<string> ExtractNumericTokens(string value)
     {
         var matches = NumericTokenRegex.Matches(value ?? string.Empty);
@@ -726,6 +750,7 @@ public class SemanticKernelMatchingService : IMatchingService
         public double NumericScore { get; set; }
         public double KeywordScore { get; set; }
         public double ConflictPenalty { get; set; }
+        public bool HasLooseNumericMismatch { get; set; }
         public string? RerankSummary { get; set; }
         public MatchEvidence? Evidence { get; set; }
     }

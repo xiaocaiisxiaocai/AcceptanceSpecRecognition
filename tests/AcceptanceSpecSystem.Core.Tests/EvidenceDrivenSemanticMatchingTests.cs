@@ -434,6 +434,50 @@ public class EvidenceDrivenSemanticMatchingTests
     }
 
     [Fact]
+    public async Task BatchMatch_WhenVoltageAlternativeContainsDigitLoss_ShouldRejectCandidate()
+    {
+        var source = new MatchSource
+        {
+            Project = "水/电/气",
+            Specification = "电力规格要求: 380V三相/50HZ或22V/50HZ；气压需求≤6kg/cm3"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 602,
+                Project = "水/电/气",
+                Specification = "电力规格要求: 380V三相/50HZ或220V/50HZ；气压需求≤6kg/cm3",
+                Embedding = [0.999f]
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Decision.Should().Be(MatchDecision.Reject);
+        result.Results[0].Evidence.NumericConstraints.Should().Contain(item =>
+            item.FieldName == "电压" &&
+            item.Relation == EvidenceRelation.Conflict);
+        result.Results[0].Evidence.Conflicts.Should().Contain(item =>
+            item.Contains("22V", StringComparison.OrdinalIgnoreCase) &&
+            item.Contains("220V", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task BatchMatch_WhenLaterIdentifierConflicts_ShouldRejectCandidate()
     {
         var source = new MatchSource

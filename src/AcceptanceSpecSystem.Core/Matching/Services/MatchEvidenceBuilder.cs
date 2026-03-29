@@ -192,8 +192,11 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
         IReadOnlyCollection<ParsedConstraint> candidateConstraints)
     {
         var relations = sourceConstraints
-            .SelectMany(sourceConstraint => candidateConstraints.Select(candidateConstraint =>
-                CompareConstraints(sourceConstraint, candidateConstraint)))
+            .Select(sourceConstraint =>
+                candidateConstraints
+                    .Select(candidateConstraint => CompareConstraints(sourceConstraint, candidateConstraint))
+                    .OrderBy(GetRelationPriority)
+                    .FirstOrDefault(EvidenceRelation.Conflict))
             .ToList();
 
         if (relations.Contains(EvidenceRelation.Conflict))
@@ -206,6 +209,20 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
             return EvidenceRelation.Compatible;
 
         return EvidenceRelation.Exact;
+    }
+
+    private static int GetRelationPriority(EvidenceRelation relation)
+    {
+        return relation switch
+        {
+            EvidenceRelation.Exact => 0,
+            EvidenceRelation.Compatible => 1,
+            EvidenceRelation.Overlap => 2,
+            EvidenceRelation.ParentChild => 3,
+            EvidenceRelation.PossiblyRelated => 4,
+            EvidenceRelation.AliasSame => 5,
+            _ => 6
+        };
     }
 
     private static List<string> ExtractIdentifiers(string text)
