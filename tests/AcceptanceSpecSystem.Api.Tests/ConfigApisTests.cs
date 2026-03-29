@@ -6,6 +6,7 @@ using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -28,7 +29,10 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         var cfg = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
         cfg.Code.Should().Be(0);
         cfg.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        cfg.Data.GetProperty("entityAliases").ValueKind.Should().Be(JsonValueKind.Object);
+        cfg.Data.GetProperty("builtIn").ValueKind.Should().Be(JsonValueKind.Object);
+        cfg.Data.GetProperty("custom").ValueKind.Should().Be(JsonValueKind.Object);
+        cfg.Data.GetProperty("effective").ValueKind.Should().Be(JsonValueKind.Object);
+        cfg.Data.GetProperty("builtIn").GetProperty("entityAliases").ValueKind.Should().Be(JsonValueKind.Object);
 
         var putResp = await _client.PutAsync(
             "/api/matching-knowledge",
@@ -63,14 +67,27 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         var saved = await putResp.ReadAsAsync<ApiResponse<JsonElement>>();
         saved.Code.Should().Be(0);
         saved.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        saved.Data.GetProperty("entityAliases").GetProperty("Panasonic品牌").GetString().Should().Be("松下");
+        saved.Data.GetProperty("custom").GetProperty("entityAliases").GetProperty("Panasonic品牌").GetString().Should().Be("松下");
+        saved.Data.GetProperty("effective").GetProperty("entityAliases").GetProperty("Panasonic品牌").GetString().Should().Be("松下");
+        saved.Data.GetProperty("effective").GetProperty("entityAliases").GetProperty("panasonic").GetString().Should().Be("松下");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var entity = await dbContext.Set<MatchingKnowledgeConfig>().SingleAsync();
+            var savedEntityAliases = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.EntityAliasesJson);
+            savedEntityAliases.Should().NotBeNull();
+            savedEntityAliases!.Should().ContainKey("Panasonic品牌");
+            savedEntityAliases.Should().NotContainKey("panasonic");
+        }
 
         var resetResp = await _client.PostAsync("/api/matching-knowledge/reset", null);
         resetResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var reset = await resetResp.ReadAsAsync<ApiResponse<JsonElement>>();
         reset.Code.Should().Be(0);
-        reset.Data.GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
-        reset.Data.GetProperty("entityAliases").GetProperty("panasonic").GetString().Should().Be("松下");
+        reset.Data.GetProperty("custom").GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
+        reset.Data.GetProperty("effective").GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
+        reset.Data.GetProperty("effective").GetProperty("entityAliases").GetProperty("panasonic").GetString().Should().Be("松下");
     }
 
     [Fact]
@@ -348,4 +365,3 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         return port;
     }
 }
-

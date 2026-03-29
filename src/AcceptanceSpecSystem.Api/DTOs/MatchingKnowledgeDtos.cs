@@ -4,9 +4,9 @@ using AcceptanceSpecSystem.Api.Options;
 namespace AcceptanceSpecSystem.Api.DTOs;
 
 /// <summary>
-/// 匹配知识配置响应 DTO。
+/// 匹配知识分层数据。
 /// </summary>
-public sealed class MatchingKnowledgeDto
+public sealed class MatchingKnowledgeLayerDto
 {
     /// <summary>
     /// 实体别名映射。
@@ -35,7 +35,28 @@ public sealed class MatchingKnowledgeDto
 }
 
 /// <summary>
-/// 匹配知识保存请求。
+/// 匹配知识配置响应 DTO。
+/// </summary>
+public sealed class MatchingKnowledgeViewDto
+{
+    /// <summary>
+    /// 系统内置规则。
+    /// </summary>
+    public MatchingKnowledgeLayerDto BuiltIn { get; set; } = new();
+
+    /// <summary>
+    /// 自定义扩展规则。
+    /// </summary>
+    public MatchingKnowledgeLayerDto Custom { get; set; } = new();
+
+    /// <summary>
+    /// 最终生效规则。
+    /// </summary>
+    public MatchingKnowledgeLayerDto Effective { get; set; } = new();
+}
+
+/// <summary>
+/// 匹配知识保存请求，仅保存自定义扩展。
 /// </summary>
 public sealed class UpdateMatchingKnowledgeRequest
 {

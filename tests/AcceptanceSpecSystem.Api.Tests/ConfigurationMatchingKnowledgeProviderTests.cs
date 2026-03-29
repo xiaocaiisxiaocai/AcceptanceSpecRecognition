@@ -32,28 +32,37 @@ public class ConfigurationMatchingKnowledgeProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task GetKnowledgeAsync_WhenDatabaseConfigExists_ShouldPreferDatabaseConfig()
+    public async Task GetKnowledgeAsync_WhenDatabaseConfigExists_ShouldMergeBuiltInAndCustomRules()
     {
         await _repository.SaveConfigAsync(new MatchingKnowledgeConfig
         {
             EntityAliasesJson = JsonSerializer.Serialize(new Dictionary<string, string>
             {
-                ["Panasonic品牌"] = "松下"
+                ["Panasonic品牌"] = "松下",
+                ["默认品牌"] = "默认标准品牌"
             }),
             UnitAliasesJson = JsonSerializer.Serialize(new Dictionary<string, string>
             {
-                ["公分"] = "cm"
+                ["公分"] = "cm",
+                ["默认单位别名"] = "mm"
             }),
             UnitFactorsJson = JsonSerializer.Serialize(new Dictionary<string, decimal>
             {
-                ["cm"] = 10m
+                ["cm"] = 10m,
+                ["mm"] = 1m
             }),
             FieldAliasesJson = JsonSerializer.Serialize(new Dictionary<string, string>
             {
-                ["宽尺寸"] = "宽度"
+                ["宽尺寸"] = "宽度",
+                ["默认字段别名"] = "宽度"
             }),
             ConflictPairsJson = JsonSerializer.Serialize(new[]
             {
+                new ConflictPairOption
+                {
+                    Left = "输入",
+                    Right = "输出"
+                },
                 new ConflictPairOption
                 {
                     Left = "正转",
@@ -70,11 +79,15 @@ public class ConfigurationMatchingKnowledgeProviderTests : IDisposable
         var knowledge = await provider.GetKnowledgeAsync();
 
         knowledge.EntityAliases["Panasonic品牌"].Should().Be("松下");
+        knowledge.EntityAliases["默认品牌"].Should().Be("默认标准品牌");
         knowledge.UnitAliases["公分"].Should().Be("cm");
+        knowledge.UnitAliases["默认单位别名"].Should().Be("mm");
         knowledge.UnitFactors["cm"].Should().Be(10m);
+        knowledge.UnitFactors["mm"].Should().Be(1m);
         knowledge.FieldAliases["宽尺寸"].Should().Be("宽度");
+        knowledge.FieldAliases["默认字段别名"].Should().Be("宽度");
+        knowledge.ConflictPairs.Should().Contain(pair => pair.Left == "输入" && pair.Right == "输出");
         knowledge.ConflictPairs.Should().Contain(pair => pair.Left == "正转" && pair.Right == "反转");
-        knowledge.EntityAliases.ContainsKey("默认品牌").Should().BeFalse();
     }
 
     [Fact]

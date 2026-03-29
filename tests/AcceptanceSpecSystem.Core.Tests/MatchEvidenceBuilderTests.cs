@@ -160,4 +160,27 @@ public class MatchEvidenceBuilderTests
             item.Relation == EvidenceRelation.Conflict);
         evidence.HasHardConflict.Should().BeTrue();
     }
+
+    [Fact]
+    public void Build_WhenSemiconductorUnitsUseMicrometerSymbol_ShouldNormalizeAgainstNanometer()
+    {
+        var evidence = _builder.Build(
+            new MatchSource
+            {
+                Project = "芯片工艺",
+                Specification = "线宽等于0.13μm"
+            },
+            new MatchCandidate
+            {
+                SpecId = 7,
+                Project = "芯片工艺",
+                Specification = "线宽等于130nm"
+            },
+            MatchingKnowledge.CreateDefault());
+
+        evidence.NumericConstraints.Should().ContainSingle();
+        evidence.NumericConstraints[0].FieldName.Should().Be("线宽");
+        evidence.NumericConstraints[0].Relation.Should().Be(EvidenceRelation.Exact);
+        evidence.HasHardConflict.Should().BeFalse();
+    }
 }

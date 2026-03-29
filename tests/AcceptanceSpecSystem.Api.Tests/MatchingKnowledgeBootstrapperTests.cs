@@ -1,5 +1,5 @@
 using System.Text.Json;
-using AcceptanceSpecSystem.Api.Options;
+using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
@@ -8,7 +8,6 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -27,7 +26,6 @@ public class MatchingKnowledgeBootstrapperTests : IDisposable
             options.UseSqlite(_connection));
         services.AddScoped<IMatchingKnowledgeConfigRepository, MatchingKnowledgeConfigRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
-        services.AddSingleton<IOptions<MatchingKnowledgeOptions>>(Microsoft.Extensions.Options.Options.Create(CreateDefaultOptions()));
 
         _serviceProvider = services.BuildServiceProvider();
         _context = _serviceProvider.GetRequiredService<AppDbContext>();
@@ -35,7 +33,7 @@ public class MatchingKnowledgeBootstrapperTests : IDisposable
     }
 
     [Fact]
-    public async Task EnsureInitializedAsync_WhenConfigMissing_ShouldSeedDefaultKnowledge()
+    public async Task EnsureInitializedAsync_WhenConfigMissing_ShouldSeedEmptyCustomKnowledge()
     {
         using var scope = _serviceProvider.CreateScope();
         var bootstrapper = CreateBootstrapper(scope.ServiceProvider);
@@ -43,11 +41,11 @@ public class MatchingKnowledgeBootstrapperTests : IDisposable
         await bootstrapper.EnsureInitializedAsync();
 
         var entity = await _context.Set<MatchingKnowledgeConfig>().SingleAsync();
-        DeserializeDictionary(entity.EntityAliasesJson)["panasonic"].Should().Be("松下");
-        DeserializeDictionary(entity.UnitAliasesJson)["厘米"].Should().Be("cm");
-        DeserializeDecimalDictionary(entity.UnitFactorsJson)["cm"].Should().Be(10m);
-        DeserializeDictionary(entity.FieldAliasesJson)["width"].Should().Be("宽度");
-        DeserializeConflictPairs(entity.ConflictPairsJson).Should().Contain(pair => pair.Left == "输入" && pair.Right == "输出");
+        DeserializeDictionary(entity.EntityAliasesJson).Should().BeEmpty();
+        DeserializeDictionary(entity.UnitAliasesJson).Should().BeEmpty();
+        DeserializeDecimalDictionary(entity.UnitFactorsJson).Should().BeEmpty();
+        DeserializeDictionary(entity.FieldAliasesJson).Should().BeEmpty();
+        DeserializeConflictPairs(entity.ConflictPairsJson).Should().BeEmpty();
     }
 
     public void Dispose()
@@ -62,44 +60,8 @@ public class MatchingKnowledgeBootstrapperTests : IDisposable
     private MatchingKnowledgeBootstrapper CreateBootstrapper(IServiceProvider serviceProvider)
     {
         return new MatchingKnowledgeBootstrapper(
-            serviceProvider.GetRequiredService<IUnitOfWork>(),
-            serviceProvider.GetRequiredService<IOptions<MatchingKnowledgeOptions>>());
+            serviceProvider.GetRequiredService<IUnitOfWork>());
     }
-
-    private static MatchingKnowledgeOptions CreateDefaultOptions()
-    {
-        return new MatchingKnowledgeOptions
-        {
-            EntityAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["panasonic"] = "松下",
-                ["松下"] = "松下"
-            },
-            UnitAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["cm"] = "cm",
-                ["厘米"] = "cm"
-            },
-            UnitFactors = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["cm"] = 10m
-            },
-            FieldAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["width"] = "宽度",
-                ["宽度"] = "宽度"
-            },
-            ConflictPairs =
-            [
-                new ConflictPairOption
-                {
-                    Left = "输入",
-                    Right = "输出"
-                }
-            ]
-        };
-    }
-
     private static Dictionary<string, string> DeserializeDictionary(string json)
     {
         return JsonSerializer.Deserialize<Dictionary<string, string>>(json)
@@ -112,9 +74,9 @@ public class MatchingKnowledgeBootstrapperTests : IDisposable
             ?? [];
     }
 
-    private static List<ConflictPairOption> DeserializeConflictPairs(string json)
+    private static List<ConflictPairDto> DeserializeConflictPairs(string json)
     {
-        return JsonSerializer.Deserialize<List<ConflictPairOption>>(json)
+        return JsonSerializer.Deserialize<List<ConflictPairDto>>(json)
             ?? [];
     }
 }

@@ -7,7 +7,7 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 internal sealed class NumericConstraintParser
 {
     private static readonly Regex ConstraintRegex = new(
-        @"(?<field>[\u4e00-\u9fffA-Za-z]{1,20})(?<operator>小于等于|不大于|<=|≤|小于|<|等于|=|大于等于|不小于|>=|≥|大于|>)(?<value>\d+(?:\.\d+)?)(?<unit>[\u4e00-\u9fffA-Za-z]+)",
+        @"(?<field>[\u4e00-\u9fffA-Za-z]{1,20})(?<operator>小于等于|不大于|<=|≤|小于|<|等于|=|大于等于|不小于|>=|≥|大于|>)(?<value>\d+(?:\.\d+)?)(?<unit>[\u4e00-\u9fffA-Za-zµμ]+)",
         RegexOptions.Compiled);
 
     public ParsedConstraint? Parse(string? text, MatchingKnowledge knowledge)

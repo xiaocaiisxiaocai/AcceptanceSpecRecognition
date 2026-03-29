@@ -15,7 +15,7 @@ public class SemanticKernelMatchingService : IMatchingService
     private const double ScoreTieEpsilon = 1e-9;
     private const int TopCandidateLimit = 3;
     private static readonly Regex NumericTokenRegex = new(
-        @"[<>≤≥]?\s*\d+(?:\.\d+)?(?:\s*[x×~～\-]\s*\d+(?:\.\d+)?)*(?:\s*(?:mm|cm|m|kg|g|inch|in|pcs|台|%|℃|°|kpa|mpa|nm|w|kw|v|a|hz|s|min|hr|hrs|小时|秒|ms))?",
+        @"[<>≤≥]?\s*\d+(?:\.\d+)?(?:\s*[x×~～\-]\s*\d+(?:\.\d+)?)*(?:\s*(?:nm|um|μm|µm|mm|cm|m|mg|g|kg|nm|n|kn|mv|v|kv|ua|μa|µa|ma|a|mw|w|kw|hz|khz|mhz|ghz|ohm|kohm|mohm|kpa|mpa|ns|us|μs|µs|ms|s|min|hr|hrs|小时|秒|台|pcs|inch|in|%|℃|°))?",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex KeywordTokenRegex = new(
         @"[A-Za-z]{2,}[A-Za-z0-9\-]*|[\u4e00-\u9fff]{2,}",

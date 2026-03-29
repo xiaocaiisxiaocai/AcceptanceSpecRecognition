@@ -28,6 +28,29 @@ public class MatchingKnowledgeFrontendRegressionTests
     }
 
     [Fact]
+    public void MatchingKnowledgePage_ShouldGroupSectionsIntoFourTabs()
+    {
+        var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
+
+        content.Should().Contain("<el-tabs", "匹配知识配置页应按分组切换，避免单页纵向过长");
+        content.Should().Contain("label=\"实体别名\"");
+        content.Should().Contain("label=\"单位规则\"");
+        content.Should().Contain("label=\"字段别名\"");
+        content.Should().Contain("label=\"冲突词对\"");
+    }
+
+    [Fact]
+    public void MatchingKnowledgePage_ShouldSeparateBuiltInAndCustomSections()
+    {
+        var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
+
+        content.Should().Contain("系统内置（只读）");
+        content.Should().Contain("自定义扩展");
+        content.Should().Contain("常见电气、机械、芯片半导体术语由系统内置");
+        content.Should().Contain("归一系数");
+    }
+
+    [Fact]
     public void LegacyTextProcessingPages_ShouldBeRemoved()
     {
         var repositoryRoot = GetRepositoryRoot();

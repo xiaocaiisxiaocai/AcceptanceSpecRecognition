@@ -16,7 +16,7 @@ export interface ConflictPair {
   right: string;
 }
 
-export interface MatchingKnowledgeConfig {
+export interface MatchingKnowledgeLayer {
   entityAliases: Record<string, string>;
   unitAliases: Record<string, string>;
   unitFactors: Record<string, number>;
@@ -24,30 +24,30 @@ export interface MatchingKnowledgeConfig {
   conflictPairs: ConflictPair[];
 }
 
-export interface UpdateMatchingKnowledgeRequest {
-  entityAliases: Record<string, string>;
-  unitAliases: Record<string, string>;
-  unitFactors: Record<string, number>;
-  fieldAliases: Record<string, string>;
-  conflictPairs: ConflictPair[];
+export interface MatchingKnowledgeView {
+  builtIn: MatchingKnowledgeLayer;
+  custom: MatchingKnowledgeLayer;
+  effective: MatchingKnowledgeLayer;
 }
+
+export type UpdateMatchingKnowledgeRequest = MatchingKnowledgeLayer;
 
 const baseUrl = "/api/matching-knowledge";
 
 export const getMatchingKnowledge = () => {
-  return http.request<ApiResponse<MatchingKnowledgeConfig>>("get", baseUrl);
+  return http.request<ApiResponse<MatchingKnowledgeView>>("get", baseUrl);
 };
 
 export const updateMatchingKnowledge = (
   data: UpdateMatchingKnowledgeRequest
 ) => {
-  return http.request<ApiResponse<MatchingKnowledgeConfig>>("put", baseUrl, {
+  return http.request<ApiResponse<MatchingKnowledgeView>>("put", baseUrl, {
     data
   });
 };
 
 export const resetMatchingKnowledge = () => {
-  return http.request<ApiResponse<MatchingKnowledgeConfig>>(
+  return http.request<ApiResponse<MatchingKnowledgeView>>(
     "post",
     `${baseUrl}/reset`
   );
