@@ -275,16 +275,9 @@ public sealed class MatchingKnowledge
             ConflictPairs =
             [
                 ("输入", "输出"),
-                ("交流", "直流"),
-                ("ac", "dc"),
-                ("常开", "常闭"),
-                ("单相", "三相"),
                 ("投板", "收板"),
-                ("放板", "收板"),
                 ("上料", "下料"),
                 ("正转", "反转"),
-                ("p沟道", "n沟道"),
-                ("pmos", "nmos"),
                 ("loading", "unloading"),
                 ("loader", "unloader")
             ]

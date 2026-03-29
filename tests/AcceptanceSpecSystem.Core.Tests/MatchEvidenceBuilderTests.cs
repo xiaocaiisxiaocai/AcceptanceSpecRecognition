@@ -183,4 +183,51 @@ public class MatchEvidenceBuilderTests
         evidence.NumericConstraints[0].Relation.Should().Be(EvidenceRelation.Exact);
         evidence.HasHardConflict.Should().BeFalse();
     }
+
+    [Fact]
+    public void Build_WhenBrandConfiguredOnceInLowercase_ShouldStillMatchUppercaseText()
+    {
+        var knowledge = new MatchingKnowledge
+        {
+            EntityAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["abb"] = "ABB"
+            }
+        };
+
+        var evidence = _builder.Build(
+            new MatchSource
+            {
+                Project = "ABB 控制柜",
+                Specification = "品牌要求 ABB"
+            },
+            new MatchCandidate
+            {
+                SpecId = 8,
+                Project = "abb 控制柜",
+                Specification = "品牌要求 abb"
+            },
+            knowledge);
+
+        evidence.Entities.Should().ContainSingle();
+        evidence.Entities[0].NormalizedSourceValue.Should().Be("ABB");
+        evidence.Entities[0].NormalizedCandidateValue.Should().Be("ABB");
+        evidence.HasHardConflict.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CreateDefault_ShouldKeepOnlyMinimalStableConflictPairs()
+    {
+        var knowledge = MatchingKnowledge.CreateDefault();
+
+        knowledge.ConflictPairs.Should().BeEquivalentTo(
+        [
+            ("输入", "输出"),
+            ("投板", "收板"),
+            ("上料", "下料"),
+            ("正转", "反转"),
+            ("loading", "unloading"),
+            ("loader", "unloader")
+        ]);
+    }
 }
