@@ -9,6 +9,43 @@ internal sealed class NumericConstraintParser
     private static readonly Regex ConstraintRegex = new(
         @"(?<field>[\u4e00-\u9fffA-Za-z]{1,20})(?<operator>小于等于|不大于|<=|≤|小于|<|等于|=|大于等于|不小于|>=|≥|大于|>)(?<value>\d+(?:\.\d+)?)(?<unit>[\u4e00-\u9fffA-Za-zµμ]+)",
         RegexOptions.Compiled);
+    private static readonly Dictionary<string, decimal> InternalUnitFactors = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["m"] = 1000m,
+        ["mm"] = 1m,
+        ["cm"] = 10m,
+        ["um"] = 0.001m,
+        ["nm"] = 0.000001m,
+        ["v"] = 1m,
+        ["mv"] = 0.001m,
+        ["kv"] = 1000m,
+        ["a"] = 1m,
+        ["ma"] = 0.001m,
+        ["ua"] = 0.000001m,
+        ["w"] = 1m,
+        ["kw"] = 1000m,
+        ["mw"] = 0.001m,
+        ["hz"] = 1m,
+        ["khz"] = 1000m,
+        ["mhz"] = 1000000m,
+        ["ghz"] = 1000000000m,
+        ["kpa"] = 1m,
+        ["mpa"] = 1000m,
+        ["n"] = 1m,
+        ["kn"] = 1000m,
+        ["g"] = 1m,
+        ["kg"] = 1000m,
+        ["mg"] = 0.001m,
+        ["s"] = 1m,
+        ["ms"] = 0.001m,
+        ["us"] = 0.000001m,
+        ["ns"] = 0.000000001m,
+        ["min"] = 60m,
+        ["hr"] = 3600m,
+        ["ohm"] = 1m,
+        ["kohm"] = 1000m,
+        ["mohm"] = 1000000m
+    };
 
     public ParsedConstraint? Parse(string? text, MatchingKnowledge knowledge)
     {
@@ -34,7 +71,7 @@ internal sealed class NumericConstraintParser
                 continue;
 
             var value = decimal.Parse(match.Groups["value"].Value, CultureInfo.InvariantCulture);
-            var normalizedValue = NormalizeValue(value, unit, knowledge);
+            var normalizedValue = NormalizeValue(value, unit);
             constraints.Add(new ParsedConstraint(field, op, value, unit, normalizedValue, match.Value));
         }
 
@@ -82,9 +119,9 @@ internal sealed class NumericConstraintParser
             : string.Empty;
     }
 
-    private static decimal NormalizeValue(decimal value, string unit, MatchingKnowledge knowledge)
+    private static decimal NormalizeValue(decimal value, string unit)
     {
-        return knowledge.UnitFactors.TryGetValue(unit, out var factor)
+        return InternalUnitFactors.TryGetValue(unit, out var factor)
             ? value * factor
             : value;
     }

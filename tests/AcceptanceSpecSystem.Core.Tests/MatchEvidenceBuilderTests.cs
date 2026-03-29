@@ -230,4 +230,12 @@ public class MatchEvidenceBuilderTests
             ("loader", "unloader")
         ]);
     }
+
+    [Fact]
+    public void CreateDefault_ShouldNotExposeConfigurableUnitFactors()
+    {
+        var knowledge = MatchingKnowledge.CreateDefault();
+
+        knowledge.UnitFactors.Should().BeEmpty();
+    }
 }

@@ -16,7 +16,7 @@ public sealed class MatchingKnowledge
     public Dictionary<string, string> UnitAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// 基准单位换算系数（归一到统一基准）
+    /// 单位换算系数（兼容保留，不在页面展示）
     /// </summary>
     public Dictionary<string, decimal> UnitFactors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -180,43 +180,7 @@ public sealed class MatchingKnowledge
                 ["mohm"] = "mohm",
                 ["兆欧"] = "mohm"
             },
-            UnitFactors = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["m"] = 1000m,
-                ["mm"] = 1m,
-                ["cm"] = 10m,
-                ["um"] = 0.001m,
-                ["nm"] = 0.000001m,
-                ["v"] = 1m,
-                ["mv"] = 0.001m,
-                ["kv"] = 1000m,
-                ["a"] = 1m,
-                ["ma"] = 0.001m,
-                ["ua"] = 0.000001m,
-                ["w"] = 1m,
-                ["kw"] = 1000m,
-                ["mw"] = 0.001m,
-                ["hz"] = 1m,
-                ["khz"] = 1000m,
-                ["mhz"] = 1000000m,
-                ["ghz"] = 1000000000m,
-                ["kpa"] = 1m,
-                ["mpa"] = 1000m,
-                ["n"] = 1m,
-                ["kn"] = 1000m,
-                ["g"] = 1m,
-                ["kg"] = 1000m,
-                ["mg"] = 0.001m,
-                ["s"] = 1m,
-                ["ms"] = 0.001m,
-                ["us"] = 0.000001m,
-                ["ns"] = 0.000000001m,
-                ["min"] = 60m,
-                ["hr"] = 3600m,
-                ["ohm"] = 1m,
-                ["kohm"] = 1000m,
-                ["mohm"] = 1000000m
-            },
+            UnitFactors = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase),
             FieldAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["宽"] = "宽度",

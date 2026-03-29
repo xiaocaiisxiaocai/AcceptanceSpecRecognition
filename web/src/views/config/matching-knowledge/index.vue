@@ -22,12 +22,6 @@ interface EditableStringRow {
   value: string;
 }
 
-interface EditableFactorRow {
-  id: number;
-  key: string;
-  value: number | null;
-}
-
 interface EditableConflictRow {
   id: number;
   left: string;
@@ -39,13 +33,11 @@ const activeTab = ref("entityAliases");
 
 const builtInEntityAliasRows = ref<EditableStringRow[]>([]);
 const builtInUnitAliasRows = ref<EditableStringRow[]>([]);
-const builtInUnitFactorRows = ref<EditableFactorRow[]>([]);
 const builtInFieldAliasRows = ref<EditableStringRow[]>([]);
 const builtInConflictPairRows = ref<EditableConflictRow[]>([]);
 
 const customEntityAliasRows = ref<EditableStringRow[]>([]);
 const customUnitAliasRows = ref<EditableStringRow[]>([]);
-const customUnitFactorRows = ref<EditableFactorRow[]>([]);
 const customFieldAliasRows = ref<EditableStringRow[]>([]);
 const customConflictPairRows = ref<EditableConflictRow[]>([]);
 
@@ -66,15 +58,6 @@ const createStringRow = (key = "", value = ""): EditableStringRow => ({
   value
 });
 
-const createFactorRow = (
-  key = "",
-  value: number | null = null
-): EditableFactorRow => ({
-  id: allocateRowId(),
-  key,
-  value
-});
-
 const createConflictRow = (left = "", right = ""): EditableConflictRow => ({
   id: allocateRowId(),
   left,
@@ -84,11 +67,6 @@ const createConflictRow = (left = "", right = ""): EditableConflictRow => ({
 const buildStringRows = (source?: Record<string, string>) =>
   Object.entries(source ?? {}).map(([key, value]) =>
     createStringRow(key, value)
-  );
-
-const buildFactorRows = (source?: Record<string, number>) =>
-  Object.entries(source ?? {}).map(([key, value]) =>
-    createFactorRow(key, value)
   );
 
 const buildConflictRows = (source?: ConflictPair[]) =>
@@ -108,19 +86,6 @@ const toStringDictionary = (rows: EditableStringRow[]) => {
   return result;
 };
 
-const toFactorDictionary = (rows: EditableFactorRow[]) => {
-  const result: Record<string, number> = {};
-  rows.forEach(row => {
-    const key = row.key.trim();
-    if (!key || row.value === null || Number.isNaN(row.value)) {
-      return;
-    }
-
-    result[key] = row.value;
-  });
-  return result;
-};
-
 const toConflictPairs = (rows: EditableConflictRow[]) =>
   rows
     .map(row => ({
@@ -134,14 +99,12 @@ const applyLayer = (
   targets: {
     entityAliases: typeof builtInEntityAliasRows;
     unitAliases: typeof builtInUnitAliasRows;
-    unitFactors: typeof builtInUnitFactorRows;
     fieldAliases: typeof builtInFieldAliasRows;
     conflictPairs: typeof builtInConflictPairRows;
   }
 ) => {
   targets.entityAliases.value = buildStringRows(layer.entityAliases);
   targets.unitAliases.value = buildStringRows(layer.unitAliases);
-  targets.unitFactors.value = buildFactorRows(layer.unitFactors);
   targets.fieldAliases.value = buildStringRows(layer.fieldAliases);
   targets.conflictPairs.value = buildConflictRows(layer.conflictPairs);
 };
@@ -150,7 +113,6 @@ const applyConfig = (view: MatchingKnowledgeView) => {
   applyLayer(view.builtIn, {
     entityAliases: builtInEntityAliasRows,
     unitAliases: builtInUnitAliasRows,
-    unitFactors: builtInUnitFactorRows,
     fieldAliases: builtInFieldAliasRows,
     conflictPairs: builtInConflictPairRows
   });
@@ -158,7 +120,6 @@ const applyConfig = (view: MatchingKnowledgeView) => {
   applyLayer(view.custom, {
     entityAliases: customEntityAliasRows,
     unitAliases: customUnitAliasRows,
-    unitFactors: customUnitFactorRows,
     fieldAliases: customFieldAliasRows,
     conflictPairs: customConflictPairRows
   });
@@ -167,7 +128,7 @@ const applyConfig = (view: MatchingKnowledgeView) => {
 const buildCustomPayload = (): MatchingKnowledgeLayer => ({
   entityAliases: toStringDictionary(customEntityAliasRows.value),
   unitAliases: toStringDictionary(customUnitAliasRows.value),
-  unitFactors: toFactorDictionary(customUnitFactorRows.value),
+  unitFactors: {},
   fieldAliases: toStringDictionary(customFieldAliasRows.value),
   conflictPairs: toConflictPairs(customConflictPairRows.value)
 });
@@ -192,10 +153,6 @@ const addStringRow = (target: typeof customEntityAliasRows.value) => {
   target.push(createStringRow());
 };
 
-const addFactorRow = () => {
-  customUnitFactorRows.value.push(createFactorRow());
-};
-
 const addConflictRow = () => {
   customConflictPairRows.value.push(createConflictRow());
 };
@@ -207,13 +164,6 @@ const removeStringRow = (
   const index = target.findIndex(row => row.id === id);
   if (index >= 0) {
     target.splice(index, 1);
-  }
-};
-
-const removeFactorRow = (id: number) => {
-  const index = customUnitFactorRows.value.findIndex(row => row.id === id);
-  if (index >= 0) {
-    customUnitFactorRows.value.splice(index, 1);
   }
 };
 
@@ -322,7 +272,7 @@ onMounted(load);
       type="info"
       show-icon
       :closable="false"
-      title="常见电气、机械、芯片半导体术语由系统内置；此页面只维护增量扩展，空行会在保存时自动忽略。"
+      title="常见电气、机械、芯片半导体术语由系统内置；常见单位换算由系统内部自动处理，不在页面展示；此页面只维护增量扩展，空行会在保存时自动忽略。"
     />
 
     <el-tabs v-model="activeTab" v-loading="loading" class="knowledge-tabs">
@@ -446,35 +396,6 @@ onMounted(load);
             </el-table>
           </el-card>
 
-          <el-card class="knowledge-card">
-            <template #header>
-              <div class="card-header">
-                <div>
-                  <div class="card-title">归一系数</div>
-                  <div class="card-subtitle">
-                    相对系统基准单位的归一系数，例如长度按 mm 归一时：mm=1，cm=10
-                  </div>
-                </div>
-              </div>
-            </template>
-            <el-table
-              :data="builtInUnitFactorRows"
-              row-key="id"
-              empty-text="暂无系统内置归一系数"
-            >
-              <el-table-column label="单位" min-width="220">
-                <template #default="{ row }">
-                  <span class="readonly-cell">{{ row.key }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="归一系数" min-width="220">
-                <template #default="{ row }">
-                  <span class="readonly-cell">{{ row.value }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-
           <div class="section-label">自定义扩展</div>
           <el-card class="knowledge-card">
             <template #header>
@@ -522,61 +443,6 @@ onMounted(load);
                     link
                     @click="removeStringRow(customUnitAliasRows, row.id)"
                   >
-                    删除
-                  </el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-
-          <el-card class="knowledge-card">
-            <template #header>
-              <div class="card-header">
-                <div>
-                  <div class="card-title">归一系数</div>
-                  <div class="card-subtitle">
-                    仅在客户有特殊单位体系时补充，常见单位建议直接复用系统内置规则
-                  </div>
-                </div>
-                <el-button
-                  v-if="canUpdate"
-                  type="primary"
-                  link
-                  @click="addFactorRow"
-                >
-                  新增
-                </el-button>
-              </div>
-            </template>
-            <el-table
-              :data="customUnitFactorRows"
-              row-key="id"
-              empty-text="暂无自定义归一系数"
-            >
-              <el-table-column label="单位" min-width="220">
-                <template #default="{ row }">
-                  <el-input v-model="row.key" placeholder="输入单位" />
-                </template>
-              </el-table-column>
-              <el-table-column label="归一系数" min-width="220">
-                <template #default="{ row }">
-                  <el-input-number
-                    v-model="row.value"
-                    class="factor-input"
-                    :controls="false"
-                    :precision="6"
-                    placeholder="输入归一系数"
-                  />
-                </template>
-              </el-table-column>
-              <el-table-column
-                v-if="canUpdate"
-                label="操作"
-                width="100"
-                fixed="right"
-              >
-                <template #default="{ row }">
-                  <el-button type="danger" link @click="removeFactorRow(row.id)">
                     删除
                   </el-button>
                 </template>
@@ -822,10 +688,6 @@ onMounted(load);
 .readonly-cell {
   color: var(--el-text-color-regular);
   word-break: break-word;
-}
-
-.factor-input {
-  width: 100%;
 }
 
 @media (max-width: 768px) {

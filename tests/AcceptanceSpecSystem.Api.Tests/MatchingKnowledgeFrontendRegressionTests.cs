@@ -47,7 +47,8 @@ public class MatchingKnowledgeFrontendRegressionTests
         content.Should().Contain("系统内置（只读）");
         content.Should().Contain("自定义扩展");
         content.Should().Contain("常见电气、机械、芯片半导体术语由系统内置");
-        content.Should().Contain("归一系数");
+        content.Should().Contain("常见单位换算由系统内部自动处理，不在页面展示");
+        content.Should().NotContain("归一系数");
     }
 
     [Fact]
