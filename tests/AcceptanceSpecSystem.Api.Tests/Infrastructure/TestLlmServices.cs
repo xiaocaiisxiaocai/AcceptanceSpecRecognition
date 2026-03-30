@@ -83,6 +83,93 @@ public class TestLlmSuggestionService : ILlmSuggestionService
     }
 }
 
+public class TestLlmEntityResolutionService : ILlmEntityResolutionService
+{
+    public Task<LlmEntityResolutionResult?> ResolveAsync(
+        LlmEntityResolutionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var source = request.SourceEntity.Trim();
+        var candidate = request.CandidateEntity.Trim();
+        var sourceKey = source.ToLowerInvariant();
+        var candidateKey = candidate.ToLowerInvariant();
+
+        LlmEntityResolutionResult result = (sourceKey, candidateKey) switch
+        {
+            ("panasonic", "松下") or ("松下", "panasonic") => new LlmEntityResolutionResult
+            {
+                Relation = LlmEntityRelation.AliasSame,
+                Confidence = 0.95,
+                NormalizedEntity = "松下",
+                Reason = "Panasonic 与 松下是同一品牌的中英文名称"
+            },
+            ("alphatech", "阿尔法科技") or ("阿尔法科技", "alphatech") => new LlmEntityResolutionResult
+            {
+                Relation = LlmEntityRelation.AliasSame,
+                Confidence = 0.93,
+                NormalizedEntity = "阿尔法科技",
+                Reason = "AlphaTech 与 阿尔法科技可视为同一品牌的英文名与中文名"
+            },
+            ("alphatech", "betamotion") or ("betamotion", "alphatech") => new LlmEntityResolutionResult
+            {
+                Relation = LlmEntityRelation.Conflict,
+                Confidence = 0.95,
+                Reason = "AlphaTech 与 BetaMotion 为不同品牌"
+            },
+            ("xjtech", "新境科技") or ("新境科技", "xjtech") => new LlmEntityResolutionResult
+            {
+                Relation = LlmEntityRelation.Unknown,
+                Confidence = 0.55,
+                Reason = "缺少足够证据确认两者是否为同一品牌"
+            },
+            _ when string.Equals(source, candidate, StringComparison.OrdinalIgnoreCase) => new LlmEntityResolutionResult
+            {
+                Relation = LlmEntityRelation.Same,
+                Confidence = 0.99,
+                NormalizedEntity = source,
+                Reason = "实体名称一致"
+            },
+            _ => new LlmEntityResolutionResult
+            {
+                Relation = LlmEntityRelation.Unknown,
+                Confidence = 0.5,
+                Reason = "测试环境中未配置该实体关系"
+            }
+        };
+
+        return Task.FromResult<LlmEntityResolutionResult?>(result);
+    }
+
+    public bool TryParseEntityResolutionResult(string raw, out LlmEntityResolutionResult result)
+    {
+        result = null!;
+        using var doc = JsonDocument.Parse(raw);
+        var relationText = doc.RootElement.GetProperty("relation").GetString();
+        var confidence = doc.RootElement.GetProperty("confidence").GetDouble();
+        var normalizedEntity = doc.RootElement.TryGetProperty("normalizedEntity", out var normalized)
+            ? normalized.GetString()
+            : null;
+        var reason = doc.RootElement.TryGetProperty("reason", out var reasonElement)
+            ? reasonElement.GetString()
+            : null;
+
+        result = new LlmEntityResolutionResult
+        {
+            Relation = relationText?.ToLowerInvariant() switch
+            {
+                "same" => LlmEntityRelation.Same,
+                "alias_same" => LlmEntityRelation.AliasSame,
+                "conflict" => LlmEntityRelation.Conflict,
+                _ => LlmEntityRelation.Unknown
+            },
+            Confidence = confidence,
+            NormalizedEntity = normalizedEntity,
+            Reason = reason
+        };
+        return true;
+    }
+}
+
 public class TestMatchingKnowledgeDraftAiService : IMatchingKnowledgeDraftAiService
 {
     public Task<IReadOnlyList<MatchingKnowledgeDraftCandidate>> GenerateAsync(

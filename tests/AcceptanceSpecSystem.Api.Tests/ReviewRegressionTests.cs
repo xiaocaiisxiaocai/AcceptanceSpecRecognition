@@ -314,6 +314,79 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void SmartFillMatchConfig_ShouldExposeLlmEntityResolutionOptions()
+    {
+        var apiContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/api/matching.ts".Replace('/', Path.DirectorySeparatorChar)));
+        apiContent.Should().Contain("useLlmEntityResolution");
+        apiContent.Should().Contain("llmEntityResolutionTopCandidates");
+        apiContent.Should().Contain("llmEntityPositiveConfidenceThreshold");
+        apiContent.Should().Contain("llmEntityConflictReviewConfidenceThreshold");
+        apiContent.Should().Contain("llmEntityConflictRejectConfidenceThreshold");
+
+        var matchConfigContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/MatchConfig.vue".Replace('/', Path.DirectorySeparatorChar)));
+        matchConfigContent.Should().Contain("config.useLlmEntityResolution");
+        matchConfigContent.Should().Contain("config.llmEntityResolutionTopCandidates");
+        matchConfigContent.Should().Contain("config.llmEntityPositiveConfidenceThreshold");
+        matchConfigContent.Should().Contain("config.llmEntityConflictReviewConfidenceThreshold");
+        matchConfigContent.Should().Contain("config.llmEntityConflictRejectConfidenceThreshold");
+        matchConfigContent.Should().Contain("LLM 实体判别");
+    }
+
+    [Fact]
+    public void SmartFillMatchConfig_ShouldExposeSingleStageAndMultiStageSwitch()
+    {
+        var apiContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/api/matching.ts".Replace('/', Path.DirectorySeparatorChar)));
+        apiContent.Should().Contain("SingleStage = 1");
+        apiContent.Should().Contain("matchingStrategy: MatchingStrategy.SingleStage");
+
+        var matchConfigContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/MatchConfig.vue".Replace('/', Path.DirectorySeparatorChar)));
+        matchConfigContent.Should().Contain("config.matchingStrategy");
+        matchConfigContent.Should().Contain("单阶段");
+        matchConfigContent.Should().Contain("多阶段");
+    }
+
+    [Fact]
+    public void PromptTemplateSceneMappings_ShouldIncludeMatchingEntityResolution()
+    {
+        var dataEntityContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Data/Entities/PromptTemplate.cs".Replace('/', Path.DirectorySeparatorChar)));
+        dataEntityContent.Should().Contain("MatchingEntityResolution");
+
+        var providerContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Data/Providers/CoreProviderAdapters.cs".Replace('/', Path.DirectorySeparatorChar)));
+        providerContent.Should().Contain("PromptTemplateScene.MatchingEntityResolution");
+        providerContent.Should().Contain("Entities.PromptTemplateScene.MatchingEntityResolution");
+
+        var controllerContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Controllers/PromptTemplatesController.cs".Replace('/', Path.DirectorySeparatorChar)));
+        controllerContent.Should().Contain("CorePromptTemplateScene.MatchingEntityResolution");
+        controllerContent.Should().Contain("PromptTemplateScene.MatchingEntityResolution");
+    }
+
+    [Fact]
+    public void ScoreDetailDialog_ShouldExposeEntityEvidenceSection()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("实体证据");
+        content.Should().Contain("bestMatchEntities");
+        content.Should().Contain("candidate.entities?.length");
+    }
+
+    [Fact]
     public void Program_ShouldNotFallbackCorsToAllowAnyOrigin()
     {
         var content = File.ReadAllText(Path.Combine(
@@ -344,6 +417,45 @@ public class ReviewRegressionTests
 
         content.Should().Contain("\"build\": \"pnpm typecheck &&",
             "前端 build 应先执行 typecheck，避免类型错误被 vite 构建掩盖");
+    }
+
+    [Fact]
+    public void WebPackage_ShouldPinBaselineBrowserMappingToAvoidOutdatedBuildWarning()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/package.json".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("\"baseline-browser-mapping\"",
+            "前端依赖应显式提升 baseline-browser-mapping，避免构建时反复提示数据过旧");
+    }
+
+    [Fact]
+    public void UseNav_ShouldUsePublicPathForLogoSvg()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/layout/hooks/useNav.ts".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().NotContain("new URL(\"/SAA.svg\", import.meta.url).href",
+            "public 目录资源应直接走公开路径，避免触发 vite-svg-loader 的模块加载分支");
+        content.Should().Contain("return \"/SAA.svg\";",
+            "导航 Logo 应直接返回 public 目录下的静态路径");
+    }
+
+    [Fact]
+    public void LoginView_ShouldBindPublicPathForLogoSvg()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/login/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().NotContain("src=\"/SAA.svg\"",
+            "登录页 Logo 不应使用静态模板资源路径，避免触发 Vite 资源转换和 svg loader");
+        content.Should().Contain("const loginLogoUrl = \"/SAA.svg\";",
+            "登录页应通过脚本常量显式使用 public 目录路径");
+        content.Should().Contain(":src=\"loginLogoUrl\"",
+            "登录页 Logo 应通过绑定形式输出 public 资源路径");
     }
 
     [Fact]

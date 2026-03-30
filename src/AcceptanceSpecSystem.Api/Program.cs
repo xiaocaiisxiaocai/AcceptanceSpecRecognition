@@ -162,10 +162,15 @@ builder.Services.AddScoped<IAiServiceSelector, AiServiceSelector>();
 builder.Services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
 builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
 builder.Services.AddSingleton<ITextSimilarityService, TextSimilarityService>();
-builder.Services.AddScoped<IMatchingService, SemanticKernelMatchingService>();
 builder.Services.AddScoped<PromptTemplateValidationService>();
 builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();
+builder.Services.AddScoped<ILlmEntityResolutionService, LlmMatchingAssistService>();
+builder.Services.AddScoped<IMatchingService>(serviceProvider => new SemanticKernelMatchingService(
+    serviceProvider.GetRequiredService<IEmbeddingService>(),
+    serviceProvider.GetRequiredService<ILogger<SemanticKernelMatchingService>>(),
+    knowledgeProvider: serviceProvider.GetRequiredService<IMatchingKnowledgeProvider>(),
+    llmEntityResolutionService: serviceProvider.GetRequiredService<ILlmEntityResolutionService>()));
 builder.Services.AddScoped<IMatchingKnowledgeDraftAiService, MatchingKnowledgeDraftAiService>();
 
 // 文本处理：仅保留最小安全归一化

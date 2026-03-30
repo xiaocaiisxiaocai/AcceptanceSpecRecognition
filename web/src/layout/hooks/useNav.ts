@@ -123,7 +123,7 @@ export function useNav() {
 
   /** 获取`logo` */
   function getLogo() {
-    return new URL("/SAA.svg", import.meta.url).href;
+    return "/SAA.svg";
   }
 
   return {

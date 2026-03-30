@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
@@ -65,11 +66,27 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
             {
                 evidence.HasHardConflict = true;
                 evidence.Conflicts.Add($"数值约束冲突：{sourceExpression} vs {candidateExpression}");
+                evidence.Issues.Add(CreateNumericIssue(
+                    sourceGroup.Key,
+                    sourceItems,
+                    candidatesByField,
+                    severity: "high",
+                    code: "numeric_value_conflict",
+                    message: BuildNumericConflictMessage(sourceGroup.Key, sourceItems, candidatesByField),
+                    suggestedAction: $"请人工确认{sourceGroup.Key}参数"));
             }
             else if (relation == EvidenceRelation.Overlap)
             {
                 evidence.Warnings.Add($"数值约束存在重叠但不够精确：{sourceGroup.Key}");
                 evidence.Summary.Add($"数值约束存在重叠：{sourceGroup.Key}");
+                evidence.Issues.Add(CreateNumericIssue(
+                    sourceGroup.Key,
+                    sourceItems,
+                    candidatesByField,
+                    severity: "warning",
+                    code: "evidence_insufficient",
+                    message: BuildNumericOverlapMessage(sourceGroup.Key, sourceItems, candidatesByField),
+                    suggestedAction: $"请人工确认{sourceGroup.Key}参数，避免错误自动带入"));
             }
             else
             {
@@ -104,6 +121,16 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
         {
             evidence.HasHardConflict = true;
             evidence.Conflicts.Add($"实体冲突：{sourceEntity.Value.Raw} vs {candidateEntity.Value.Raw}");
+            evidence.Issues.Add(new MatchIssue
+            {
+                Code = "entity_conflict",
+                Severity = "high",
+                FieldName = "实体",
+                SourceValue = sourceEntity.Value.Raw,
+                CandidateValue = candidateEntity.Value.Raw,
+                Message = BuildEntityConflictMessage(sourceEntity.Value.Raw, candidateEntity.Value.Raw),
+                SuggestedAction = "请人工确认品牌或组织实体，避免带入错误对象"
+            });
             return;
         }
 
@@ -152,6 +179,16 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
             });
             evidence.HasHardConflict = true;
             evidence.Conflicts.Add($"型号冲突：{sourceIdentifier} vs {conflictingCandidate}");
+            evidence.Issues.Add(new MatchIssue
+            {
+                Code = "identifier_conflict",
+                Severity = "high",
+                FieldName = "型号",
+                SourceValue = sourceIdentifier,
+                CandidateValue = conflictingCandidate,
+                Message = BuildIdentifierConflictMessage(sourceIdentifier, conflictingCandidate),
+                SuggestedAction = "请人工确认型号/料号，避免使用错误物料"
+            });
         }
 
         if (evidence.Identifiers.Count == 0 && sourceIdentifiers.Count == 1 && candidateIdentifiers.Count == 1)
@@ -164,7 +201,112 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
             });
             evidence.HasHardConflict = true;
             evidence.Conflicts.Add($"型号冲突：{sourceIdentifiers[0]} vs {candidateIdentifiers[0]}");
+            evidence.Issues.Add(new MatchIssue
+            {
+                Code = "identifier_conflict",
+                Severity = "high",
+                FieldName = "型号",
+                SourceValue = sourceIdentifiers[0],
+                CandidateValue = candidateIdentifiers[0],
+                Message = BuildIdentifierConflictMessage(sourceIdentifiers[0], candidateIdentifiers[0]),
+                SuggestedAction = "请人工确认型号/料号，避免使用错误物料"
+            });
         }
+    }
+
+    private static MatchIssue CreateNumericIssue(
+        string fieldName,
+        IReadOnlyList<ParsedConstraint> sourceItems,
+        IReadOnlyList<ParsedConstraint> candidateItems,
+        string severity,
+        string code,
+        string message,
+        string suggestedAction)
+    {
+        var sourceItem = sourceItems.FirstOrDefault();
+        var candidateItem = candidateItems.FirstOrDefault();
+
+        return new MatchIssue
+        {
+            Code = code,
+            Severity = severity,
+            FieldName = fieldName,
+            SourceValue = sourceItem?.DisplayValue,
+            CandidateValue = candidateItem?.DisplayValue,
+            Message = message,
+            SuggestedAction = suggestedAction
+        };
+    }
+
+    private static string BuildNumericConflictMessage(
+        string fieldName,
+        IReadOnlyList<ParsedConstraint> sourceItems,
+        IReadOnlyList<ParsedConstraint> candidateItems)
+    {
+        var sourceItem = sourceItems.FirstOrDefault();
+        var candidateItem = candidateItems.FirstOrDefault();
+        if (sourceItem == null || candidateItem == null)
+        {
+            return $"{fieldName}数值不一致，无法自动采用";
+        }
+
+        if (TryGetDecimalMagnitudeRatio(sourceItem, candidateItem, out var ratio))
+        {
+            return $"{fieldName}值不一致：源项为 {sourceItem.DisplayValue}，候选为 {candidateItem.DisplayValue}，疑似小数点错位或数量级错误（相差{ratio.ToString("0.###", CultureInfo.InvariantCulture)}倍）";
+        }
+
+        return $"{fieldName}值不一致：源项为 {sourceItem.DisplayValue}，候选为 {candidateItem.DisplayValue}，无法自动采用";
+    }
+
+    private static string BuildNumericOverlapMessage(
+        string fieldName,
+        IReadOnlyList<ParsedConstraint> sourceItems,
+        IReadOnlyList<ParsedConstraint> candidateItems)
+    {
+        var sourceItem = sourceItems.FirstOrDefault();
+        var candidateItem = candidateItems.FirstOrDefault();
+        if (sourceItem == null || candidateItem == null)
+        {
+            return $"{fieldName}约束仅部分重叠，证据不足，需要人工确认";
+        }
+
+        return $"{fieldName}约束仅部分重叠：源项为 {sourceItem.Expression}，候选为 {candidateItem.Expression}，需要人工确认";
+    }
+
+    private static string BuildEntityConflictMessage(string sourceValue, string candidateValue)
+    {
+        return $"品牌/实体不一致：源项为 {sourceValue}，候选为 {candidateValue}，无法自动采用";
+    }
+
+    private static string BuildIdentifierConflictMessage(string sourceValue, string candidateValue)
+    {
+        return $"型号/料号不一致：源项为 {sourceValue}，候选为 {candidateValue}，无法自动采用";
+    }
+
+    private static bool TryGetDecimalMagnitudeRatio(ParsedConstraint source, ParsedConstraint candidate, out decimal ratio)
+    {
+        ratio = 0;
+        if (!string.Equals(source.Operator, "=", StringComparison.Ordinal) ||
+            !string.Equals(candidate.Operator, "=", StringComparison.Ordinal) ||
+            !string.Equals(source.Unit, candidate.Unit, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (source.NormalizedValue == 0 || candidate.NormalizedValue == 0)
+        {
+            return false;
+        }
+
+        var larger = Math.Max(Math.Abs(source.NormalizedValue), Math.Abs(candidate.NormalizedValue));
+        var smaller = Math.Min(Math.Abs(source.NormalizedValue), Math.Abs(candidate.NormalizedValue));
+        if (smaller == 0)
+        {
+            return false;
+        }
+
+        ratio = larger / smaller;
+        return ratio is 10m or 100m or 1000m;
     }
 
     private static EvidenceRelation CompareConstraints(ParsedConstraint source, ParsedConstraint candidate)

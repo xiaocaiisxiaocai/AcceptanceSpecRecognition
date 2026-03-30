@@ -14,7 +14,7 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 /// <summary>
 /// LLM 匹配辅助服务（复核 + 生成建议）
 /// </summary>
-public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
+public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService, ILlmEntityResolutionService
 {
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IAiServiceSelector _selector;
@@ -297,6 +297,65 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         return true;
     }
 
+    public async Task<LlmEntityResolutionResult?> ResolveAsync(
+        LlmEntityResolutionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.SourceEntity) ||
+            string.IsNullOrWhiteSpace(request.CandidateEntity))
+        {
+            return null;
+        }
+
+        var template = await GetOrCreateTemplateAsync(
+            PromptTemplateCatalog.GetByScene(PromptTemplateScene.MatchingEntityResolution),
+            cancellationToken);
+        var prompt = BuildEntityResolutionPrompt(template.Content, request);
+
+        _logger.LogInformation("[LLM实体判别] 源实体: {SourceEntity} | 候选实体: {CandidateEntity}",
+            request.SourceEntity,
+            request.CandidateEntity);
+        _logger.LogDebug("[LLM实体判别] 完整Prompt:\n{Prompt}", prompt);
+
+        var sw = Stopwatch.StartNew();
+        var raw = await GenerateWithFallbackAsync(prompt, request.LlmServiceId, "LLM 实体判别失败", cancellationToken);
+        _logger.LogInformation("[LLM实体判别] LLM原始输出 ({Elapsed}ms): {Raw}", sw.ElapsedMilliseconds, raw);
+
+        if (TryParseEntityResolutionResult(raw, out var result))
+        {
+            _logger.LogInformation("[LLM实体判别] 解析结果: relation={Relation}, confidence={Confidence}",
+                result.Relation,
+                result.Confidence);
+            return result;
+        }
+
+        _logger.LogWarning("[LLM实体判别] JSON解析失败, 原始输出: {Raw}", raw);
+        return null;
+    }
+
+    public bool TryParseEntityResolutionResult(string raw, out LlmEntityResolutionResult result)
+    {
+        result = null!;
+        if (!TryParseJson(raw, out var doc))
+            return false;
+
+        var relationText = TryGetString(doc.RootElement, "relation");
+        if (!TryParseEntityRelation(relationText, out var relation))
+            return false;
+
+        if (!TryGetDouble(doc.RootElement, "confidence", out var confidence))
+            return false;
+
+        result = new LlmEntityResolutionResult
+        {
+            Relation = relation,
+            Confidence = Math.Clamp(confidence, 0, 1),
+            NormalizedEntity = TryGetString(doc.RootElement, "normalizedEntity"),
+            Reason = TryGetString(doc.RootElement, "reason")
+        };
+        return true;
+    }
+
     // ── Prompt 构建 ──
 
     private static string BuildReviewPrompt(string template, LlmReviewRequest request)
@@ -345,6 +404,17 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
             ["sourceProject"] = request.SourceProject,
             ["sourceSpecification"] = request.SourceSpecification,
             ["referenceInfo"] = referenceInfo
+        });
+    }
+
+    private static string BuildEntityResolutionPrompt(string template, LlmEntityResolutionRequest request)
+    {
+        return ApplyTemplate(template, new Dictionary<string, string>
+        {
+            ["sourceEntity"] = request.SourceEntity,
+            ["candidateEntity"] = request.CandidateEntity,
+            ["sourceText"] = request.SourceText,
+            ["candidateText"] = request.CandidateText
         });
     }
 
@@ -602,5 +672,24 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
             return null;
 
         return prop.ValueKind == JsonValueKind.String ? prop.GetString() : prop.ToString();
+    }
+
+    private static bool TryParseEntityRelation(string? value, out LlmEntityRelation relation)
+    {
+        relation = LlmEntityRelation.Unknown;
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "same" => SetRelation(LlmEntityRelation.Same, out relation),
+            "alias_same" => SetRelation(LlmEntityRelation.AliasSame, out relation),
+            "conflict" => SetRelation(LlmEntityRelation.Conflict, out relation),
+            "unknown" => SetRelation(LlmEntityRelation.Unknown, out relation),
+            _ => false
+        };
+    }
+
+    private static bool SetRelation(LlmEntityRelation value, out LlmEntityRelation relation)
+    {
+        relation = value;
+        return true;
     }
 }

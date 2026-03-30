@@ -34,6 +34,7 @@ public class EvidenceDrivenMatchingBaselineTests
             }),
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = Math.Max(1, baselineCase.Candidates.Count),
                 AmbiguityMargin = 0.01
@@ -50,6 +51,17 @@ public class EvidenceDrivenMatchingBaselineTests
 
         if (!string.IsNullOrWhiteSpace(baselineCase.ExpectedConflictContains))
             match.Evidence.Conflicts.Should().Contain(item => item.Contains(baselineCase.ExpectedConflictContains, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(baselineCase.ExpectedIssueCode))
+            match.Issues.Should().Contain(issue => issue.Code.Equals(baselineCase.ExpectedIssueCode, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(baselineCase.ExpectedIssueMessageContains))
+            match.Issues.Should().Contain(issue => issue.Message.Contains(baselineCase.ExpectedIssueMessageContains, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(baselineCase.ExpectedSuggestedActionContains))
+            match.Issues.Should().Contain(issue =>
+                !string.IsNullOrWhiteSpace(issue.SuggestedAction) &&
+                issue.SuggestedAction.Contains(baselineCase.ExpectedSuggestedActionContains, StringComparison.OrdinalIgnoreCase));
     }
 
     private static TheoryData<BaselineCase> LoadCases()
@@ -85,6 +97,12 @@ public class EvidenceDrivenMatchingBaselineTests
         public string? ExpectedEvidenceContains { get; set; }
 
         public string? ExpectedConflictContains { get; set; }
+
+        public string? ExpectedIssueCode { get; set; }
+
+        public string? ExpectedIssueMessageContains { get; set; }
+
+        public string? ExpectedSuggestedActionContains { get; set; }
 
         public override string ToString() => Name;
     }

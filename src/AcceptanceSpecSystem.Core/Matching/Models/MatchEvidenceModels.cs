@@ -74,6 +74,11 @@ public sealed class MatchEvidence
     /// 需要关注的不确定项
     /// </summary>
     public List<string> Warnings { get; set; } = [];
+
+    /// <summary>
+    /// 结构化问题列表
+    /// </summary>
+    public List<MatchIssue> Issues { get; set; } = [];
 }
 
 /// <summary>

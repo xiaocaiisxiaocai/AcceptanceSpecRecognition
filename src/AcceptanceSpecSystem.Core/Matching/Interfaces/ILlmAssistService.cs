@@ -23,3 +23,12 @@ public interface ILlmSuggestionService
 
     bool TryParseSuggestionResult(string raw, out LlmSuggestionResult result);
 }
+
+public interface ILlmEntityResolutionService
+{
+    Task<LlmEntityResolutionResult?> ResolveAsync(
+        LlmEntityResolutionRequest request,
+        CancellationToken cancellationToken = default);
+
+    bool TryParseEntityResolutionResult(string raw, out LlmEntityResolutionResult result);
+}

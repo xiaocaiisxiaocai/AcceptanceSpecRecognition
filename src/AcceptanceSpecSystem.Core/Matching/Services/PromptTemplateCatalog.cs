@@ -125,6 +125,27 @@ public static class PromptTemplateCatalog
             ["sourceProject", "sourceSpecification", "referenceInfo"],
             ["acceptance", "remark", "reason"]),
         new(
+            PromptTemplateScene.MatchingEntityResolution,
+            "matching-entity-resolution",
+            "智能填充实体判别",
+            "用于智能填充流程中的品牌/实体关系判别。",
+            "你是品牌/实体判别助手。系统已经提取出两个实体候选，你只能判断它们是否为同一实体、别名同一、明确冲突，或无法判断。\n\n" +
+            "【源项实体】{{sourceEntity}}\n" +
+            "【候选实体】{{candidateEntity}}\n\n" +
+            "【源项上下文】{{sourceText}}\n" +
+            "【候选上下文】{{candidateText}}\n\n" +
+            "【约束】\n" +
+            "1. 只判断实体关系，不要根据数值或型号是否一致来推断品牌关系\n" +
+            "2. 证据不足时必须返回 unknown，禁止猜测\n" +
+            "3. relation 只允许 same、alias_same、conflict、unknown 四个值\n" +
+            "4. confidence 取值 0~1\n\n" +
+            "仅返回严格 JSON：\n" +
+            "{\"relation\":\"unknown\",\"confidence\":0.0,\"normalizedEntity\":\"\",\"reason\":\"...\"}",
+            null,
+            ["sourceEntity", "candidateEntity", "sourceText", "candidateText"],
+            ["sourceEntity", "candidateEntity", "sourceText", "candidateText"],
+            ["relation", "confidence", "normalizedEntity", "reason"]),
+        new(
             PromptTemplateScene.MatchingKnowledgeGenerate,
             "matching-knowledge-generate",
             "匹配知识草稿生成",

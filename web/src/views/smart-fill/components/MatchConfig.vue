@@ -38,6 +38,9 @@ const loadingAiServices = ref(false);
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
 const allowLlm = computed(() => props.allowLlm !== false);
+const isMultiStage = computed(
+  () => config.value.matchingStrategy === MatchingStrategy.MultiStage
+);
 
 // 高级选项展开
 const showAdvanced = ref(false);
@@ -57,10 +60,10 @@ watch(
         (config.value as any)[key] = (source as any)[key];
       }
     }
-    config.value.matchingStrategy = MatchingStrategy.MultiStage;
     if (!allowLlm.value) {
       config.value.useLlmReview = false;
       config.value.useLlmSuggestion = false;
+      config.value.useLlmEntityResolution = false;
     }
   },
   { immediate: true }
@@ -84,20 +87,23 @@ watch(
     if (!enabled) {
       config.value.useLlmReview = false;
       config.value.useLlmSuggestion = false;
+      config.value.useLlmEntityResolution = false;
     }
   },
   { immediate: true }
 );
 
 watch(
-  () => [config.value.recallTopK, config.value.ambiguityMargin],
+  () => [config.value.matchingStrategy, config.value.recallTopK, config.value.ambiguityMargin],
   () => {
-    config.value.matchingStrategy = MatchingStrategy.MultiStage;
     if (!config.value.recallTopK || config.value.recallTopK < 1) {
       config.value.recallTopK = defaultMatchConfig.recallTopK;
     }
     if (config.value.ambiguityMargin === undefined || config.value.ambiguityMargin === null) {
       config.value.ambiguityMargin = defaultMatchConfig.ambiguityMargin;
+    }
+    if (!isMultiStage.value) {
+      config.value.useLlmEntityResolution = false;
     }
   },
   { immediate: true }
@@ -200,10 +206,10 @@ watch(selectedMachineModelId, () => {
 // 重置配置
 const resetConfig = () => {
   config.value = { ...defaultMatchConfig };
-  config.value.matchingStrategy = MatchingStrategy.MultiStage;
   if (!allowLlm.value) {
     config.value.useLlmReview = false;
     config.value.useLlmSuggestion = false;
+    config.value.useLlmEntityResolution = false;
   }
 };
 
@@ -335,12 +341,17 @@ defineExpose({
         </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="匹配引擎">
-              <div class="engine-card">
-                <div class="engine-title">统一多阶段证据驱动</div>
-                <div class="engine-desc">
-                  固定执行“Embedding 召回 → 结构化证据 → 冲突门禁 → 重排 → 高歧义复核”，不再提供单阶段切换。
-                </div>
+            <el-form-item label="匹配策略">
+              <el-radio-group v-model="config.matchingStrategy">
+                <el-radio-button :label="MatchingStrategy.SingleStage">
+                  单阶段 Embedding
+                </el-radio-button>
+                <el-radio-button :label="MatchingStrategy.MultiStage">
+                  多阶段证据重排
+                </el-radio-button>
+              </el-radio-group>
+              <div class="form-inline-tip">
+                单阶段按 Embedding 直接排序；多阶段会追加证据重排、冲突门禁和高歧义判定。
               </div>
             </el-form-item>
           </el-col>
@@ -389,7 +400,7 @@ defineExpose({
             </el-form-item>
           </el-col>
         </el-row>
-        <el-row :gutter="20">
+        <el-row v-if="isMultiStage" :gutter="20">
           <el-col :span="12">
             <el-form-item label="召回候选数">
               <el-input-number
@@ -424,7 +435,9 @@ defineExpose({
           type="info"
           :closable="false"
           show-icon
-          :title="`系统仅自动填充匹配得分大于等于 ${((config.highConfidenceThreshold ?? 0.95) * 100).toFixed(0)}% 的结果；其余命中只做 LLM 复核，不会生成新验收标准写回。`"
+          :title="isMultiStage
+            ? `系统仅自动填充匹配得分大于等于 ${((config.highConfidenceThreshold ?? 0.95) * 100).toFixed(0)}% 的结果；其余命中只做 LLM 复核，不会生成新验收标准写回。`
+            : `单阶段模式按 Embedding 直接排序，达到 ${((config.highConfidenceThreshold ?? 0.95) * 100).toFixed(0)}% 才会自动采用；其余命中需要人工确认或 LLM 复核。`"
         />
       </el-form>
     </div>
@@ -459,6 +472,106 @@ defineExpose({
               <el-col :span="16">
                 <span class="parallelism-hint">
                   仅对未达到当前高置信阈值的匹配结果进行语义复核，通过后才允许采用已有规格
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle" class="llm-row">
+              <el-col :span="8">
+                <el-form-item label="LLM 实体判别">
+                  <el-switch v-model="config.useLlmEntityResolution" :disabled="!allowLlm" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  仅在品牌/实体无配置时辅助判断 same、alias_same、conflict、unknown；数值和型号硬冲突仍优先。
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="实体复判候选数">
+                  <el-input-number
+                    v-model="config.llmEntityResolutionTopCandidates"
+                    :min="1"
+                    :max="10"
+                    :step="1"
+                    :disabled="!allowLlm || !config.useLlmEntityResolution"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  仅对前 TopM 个候选补做实体关系判别，默认 3 个，避免增加过多延迟。
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="同一实体阈值">
+                  <el-input-number
+                    v-model="config.llmEntityPositiveConfidenceThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    :disabled="!allowLlm || !config.useLlmEntityResolution"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  关系为 same 或 alias_same 且达到该阈值时，才记为正向实体证据。
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="冲突复核阈值">
+                  <el-input-number
+                    v-model="config.llmEntityConflictReviewConfidenceThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    :disabled="!allowLlm || !config.useLlmEntityResolution"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  关系为 conflict 且达到该阈值时，结果至少降级为人工确认。
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="冲突拒绝阈值">
+                  <el-input-number
+                    v-model="config.llmEntityConflictRejectConfidenceThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    :disabled="!allowLlm || !config.useLlmEntityResolution"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  高于该阈值的实体冲突会直接拒绝；低于该值则只提示问题并等待人工确认。
                 </span>
               </el-col>
             </el-row>
@@ -580,27 +693,6 @@ export default {
   margin-left: 8px;
   font-size: 12px;
   color: #9ca3af;
-}
-
-.engine-card {
-  max-width: 420px;
-  padding: 12px 14px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 10px;
-  background: #f8fafc;
-}
-
-.engine-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.engine-desc {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.6;
 }
 
 .reset-btn {

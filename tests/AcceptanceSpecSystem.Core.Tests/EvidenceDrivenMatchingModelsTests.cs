@@ -31,4 +31,26 @@ public class EvidenceDrivenMatchingModelsTests
         evidence.HasHardConflict.Should().BeTrue();
         evidence.Summary.Should().ContainSingle().Which.Should().Be("命中型号硬冲突");
     }
+
+    [Fact]
+    public void MatchResult_ShouldExposeStructuredIssues()
+    {
+        var result = new MatchResult();
+
+        result.Issues.Should().NotBeNull();
+        result.Issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void MatchingConfig_ShouldExposeLlmEntityResolutionSettings()
+    {
+        var config = new MatchingConfig();
+
+        config.MatchingStrategy.Should().Be(MatchingStrategy.SingleStage);
+        config.UseLlmEntityResolution.Should().BeFalse();
+        config.LlmEntityResolutionTopCandidates.Should().Be(3);
+        config.LlmEntityPositiveConfidenceThreshold.Should().Be(0.85);
+        config.LlmEntityConflictReviewConfidenceThreshold.Should().Be(0.7);
+        config.LlmEntityConflictRejectConfidenceThreshold.Should().Be(0.9);
+    }
 }

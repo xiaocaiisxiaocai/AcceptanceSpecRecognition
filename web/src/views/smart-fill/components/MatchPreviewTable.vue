@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import {
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   LLM_REVIEW_PASS_THRESHOLD,
+  type MatchIssue,
   type MatchPreviewItem
 } from "@/api/matching";
 
@@ -168,6 +169,25 @@ const getConfidenceText = (level: string) => {
 
 const formatScore = (score: number) => `${(score * 100).toFixed(1)}%`;
 
+const getPrimaryIssue = (item: MatchPreviewItem): MatchIssue | undefined =>
+  item.bestMatch?.issues?.[0];
+
+const formatIssueComparison = (issue?: MatchIssue) => {
+  if (!issue?.sourceValue && !issue?.candidateValue) {
+    return "";
+  }
+
+  if (issue.sourceValue && issue.candidateValue) {
+    return `源值 ${issue.sourceValue}，候选 ${issue.candidateValue}`;
+  }
+
+  if (issue.sourceValue) {
+    return `源值 ${issue.sourceValue}`;
+  }
+
+  return `候选 ${issue?.candidateValue}`;
+};
+
 const getDecisionText = (decision?: string) => {
   switch (decision) {
     case "autoApply":
@@ -295,6 +315,7 @@ const hasReasonColumn = computed(() =>
     item =>
       !item.hasMatch ||
       !!item.noMatchReason ||
+      !!item.bestMatch?.issues?.length ||
       !!item.bestMatch?.conflictSummary?.length ||
       !!item.bestMatch?.evidenceSummary?.length ||
       !!item.bestMatch?.llmReason ||
@@ -453,6 +474,19 @@ defineExpose({
             </div>
             <div class="match-score">{{ formatScore(row.bestMatch.score) }}</div>
             <div
+              v-if="getPrimaryIssue(row)"
+              class="issue-summary"
+            >
+              <span class="issue-summary__title">问题：</span>
+              <span>{{ getPrimaryIssue(row)?.message }}</span>
+              <div
+                v-if="formatIssueComparison(getPrimaryIssue(row))"
+                class="issue-summary__meta"
+              >
+                {{ formatIssueComparison(getPrimaryIssue(row)) }}
+              </div>
+            </div>
+            <div
               v-if="row.bestMatch.evidenceSummary?.length"
               class="evidence-summary"
             >
@@ -510,11 +544,29 @@ defineExpose({
       <el-table-column v-if="hasReasonColumn" label="说明" min-width="220">
         <template #default="{ row }">
           <div
-            v-if="!row.hasMatch || row.noMatchReason || row.bestMatch?.conflictSummary?.length || row.bestMatch?.evidenceSummary?.length || row.bestMatch?.llmReason || row.llmReviewError"
+            v-if="!row.hasMatch || row.noMatchReason || row.bestMatch?.issues?.length || row.bestMatch?.conflictSummary?.length || row.bestMatch?.evidenceSummary?.length || row.bestMatch?.llmReason || row.llmReviewError"
             class="reason-cell"
           >
             <div v-if="!row.hasMatch && row.noMatchReason" class="reason-text">
               {{ row.noMatchReason }}
+            </div>
+            <div
+              v-if="getPrimaryIssue(row)"
+              class="reason-issue"
+            >
+              问题：{{ getPrimaryIssue(row)?.message }}
+            </div>
+            <div
+              v-if="formatIssueComparison(getPrimaryIssue(row))"
+              class="reason-issue-detail"
+            >
+              {{ formatIssueComparison(getPrimaryIssue(row)) }}
+            </div>
+            <div
+              v-if="getPrimaryIssue(row)?.suggestedAction"
+              class="reason-issue-detail"
+            >
+              建议：{{ getPrimaryIssue(row)?.suggestedAction }}
             </div>
             <div
               v-if="row.bestMatch?.conflictSummary?.length"
@@ -706,6 +758,17 @@ defineExpose({
   font-size: 12px;
 }
 
+.reason-issue {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.reason-issue-detail {
+  color: #6b7280;
+  font-size: 12px;
+}
+
 .reason-cell {
   display: flex;
   flex-direction: column;
@@ -746,6 +809,24 @@ defineExpose({
   font-size: 12px;
   color: #b42318;
   line-height: 1.5;
+}
+
+.issue-summary {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.issue-summary__title {
+  font-weight: 600;
+}
+
+.issue-summary__meta {
+  margin-top: 4px;
+  color: #7c2d12;
 }
 
 .ai-status-cell {

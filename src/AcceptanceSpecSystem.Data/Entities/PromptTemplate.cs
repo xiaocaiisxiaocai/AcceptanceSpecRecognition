@@ -6,7 +6,8 @@ public enum PromptTemplateScene
     MatchingReview = 1,
     ImportDuplicateReview = 2,
     MatchingGenerate = 3,
-    MatchingKnowledgeGenerate = 4
+    MatchingKnowledgeGenerate = 4,
+    MatchingEntityResolution = 5
 }
 
 /// <summary>

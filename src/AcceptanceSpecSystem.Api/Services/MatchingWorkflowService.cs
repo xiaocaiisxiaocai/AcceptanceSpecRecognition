@@ -1952,15 +1952,29 @@ public class MatchingWorkflowService
             return new MatchingConfig();
         }
 
+        var strategy = Enum.IsDefined(dto.MatchingStrategy)
+            ? dto.MatchingStrategy
+            : MatchingStrategy.SingleStage;
+
+        if (dto.UseLlmEntityResolution && strategy != MatchingStrategy.MultiStage)
+        {
+            throw Failure(400, "LLM 实体判别仅支持多阶段匹配策略，请切换为多阶段后再启用");
+        }
+
         return new MatchingConfig
         {
-            MatchingStrategy = MatchingStrategy.MultiStage,
+            MatchingStrategy = strategy,
             EmbeddingServiceId = dto.EmbeddingServiceId,
             LlmServiceId = dto.LlmServiceId,
             MinScoreThreshold = dto.MinScoreThreshold,
             HighConfidenceThreshold = NormalizeHighConfidenceThreshold(dto.HighConfidenceThreshold),
             RecallTopK = Math.Clamp(dto.RecallTopK, 1, 20),
             AmbiguityMargin = Math.Clamp(dto.AmbiguityMargin, 0, 1),
+            UseLlmEntityResolution = dto.UseLlmEntityResolution,
+            LlmEntityResolutionTopCandidates = Math.Clamp(dto.LlmEntityResolutionTopCandidates, 1, 10),
+            LlmEntityPositiveConfidenceThreshold = Math.Clamp(dto.LlmEntityPositiveConfidenceThreshold, 0, 1),
+            LlmEntityConflictReviewConfidenceThreshold = Math.Clamp(dto.LlmEntityConflictReviewConfidenceThreshold, 0, 1),
+            LlmEntityConflictRejectConfidenceThreshold = Math.Clamp(dto.LlmEntityConflictRejectConfidenceThreshold, 0, 1),
             UseLlmReview = dto.UseLlmReview,
             UseLlmSuggestion = dto.UseLlmSuggestion,
             SuggestNoMatchRows = dto.SuggestNoMatchRows,
@@ -2064,6 +2078,8 @@ public class MatchingWorkflowService
             HasHardConflict = result.Evidence.HasHardConflict,
             EvidenceSummary = [.. result.Evidence.Summary],
             ConflictSummary = [.. result.Evidence.Conflicts],
+            Issues = result.Issues.Select(ConvertToIssueDto).ToList(),
+            Entities = result.Evidence.Entities.Select(ConvertToEntityDto).ToList(),
             TopCandidates = result.TopCandidates
                 .Select(candidate => new MatchCandidateDto
                 {
@@ -2084,6 +2100,8 @@ public class MatchingWorkflowService
                     HasHardConflict = candidate.Evidence.HasHardConflict,
                     EvidenceSummary = [.. candidate.Evidence.Summary],
                     ConflictSummary = [.. candidate.Evidence.Conflicts],
+                    Issues = candidate.Issues.Select(ConvertToIssueDto).ToList(),
+                    Entities = candidate.Evidence.Entities.Select(ConvertToEntityDto).ToList(),
                     RerankSummary = candidate.RerankSummary
                 })
                 .ToList(),
@@ -2099,6 +2117,33 @@ public class MatchingWorkflowService
         };
     }
 
+    private static MatchEntityEvidenceDto ConvertToEntityDto(EntityEvidence entity)
+    {
+        return new MatchEntityEvidenceDto
+        {
+            EntityType = entity.EntityType,
+            SourceValue = entity.SourceValue,
+            CandidateValue = entity.CandidateValue,
+            NormalizedSourceValue = entity.NormalizedSourceValue,
+            NormalizedCandidateValue = entity.NormalizedCandidateValue,
+            Relation = ToEvidenceRelationKey(entity.Relation)
+        };
+    }
+
+    private static MatchIssueDto ConvertToIssueDto(MatchIssue issue)
+    {
+        return new MatchIssueDto
+        {
+            Code = issue.Code,
+            Severity = issue.Severity,
+            FieldName = issue.FieldName,
+            SourceValue = issue.SourceValue,
+            CandidateValue = issue.CandidateValue,
+            Message = issue.Message,
+            SuggestedAction = issue.SuggestedAction
+        };
+    }
+
     private static string ToDecisionKey(MatchDecision decision)
     {
         return decision switch
@@ -2107,6 +2152,21 @@ public class MatchingWorkflowService
             MatchDecision.ManualReview => "manualReview",
             MatchDecision.Reject => "reject",
             _ => "manualReview"
+        };
+    }
+
+    private static string ToEvidenceRelationKey(EvidenceRelation relation)
+    {
+        return relation switch
+        {
+            EvidenceRelation.Exact => "exact",
+            EvidenceRelation.Compatible => "compatible",
+            EvidenceRelation.Overlap => "overlap",
+            EvidenceRelation.Conflict => "conflict",
+            EvidenceRelation.AliasSame => "aliasSame",
+            EvidenceRelation.ParentChild => "parentChild",
+            EvidenceRelation.PossiblyRelated => "possiblyRelated",
+            _ => "unknown"
         };
     }
 

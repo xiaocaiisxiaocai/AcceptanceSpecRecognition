@@ -37,6 +37,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
                 HighConfidenceThreshold = 0.95
@@ -76,6 +77,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
                 HighConfidenceThreshold = 0.65
@@ -109,6 +111,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1
             });
@@ -139,6 +142,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 2
             });
@@ -276,6 +280,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
                 AmbiguityMargin = 0.01
@@ -284,6 +289,225 @@ public class EvidenceDrivenSemanticMatchingTests
         result.Results.Should().HaveCount(1);
         result.Results[0].MatchedSpecId.Should().Be(88);
         result.Results[0].Decision.Should().Be(MatchDecision.Reject);
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenLlmEntityResolutionMatchesAliasWithoutKnowledge_ShouldAddEntityEvidence()
+    {
+        var source = new MatchSource
+        {
+            Project = "设备要求",
+            Specification = "Panasonic 设备需安装防护罩"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 188,
+                Project = "设备要求",
+                Specification = "松下设备需安装防护罩",
+                Acceptance = "OK",
+                Embedding = [0.98f]
+            }
+        };
+
+        var entityResolutionService = new FixedLlmEntityResolutionService(new LlmEntityResolutionResult
+        {
+            Relation = LlmEntityRelation.AliasSame,
+            Confidence = 0.95,
+            NormalizedEntity = "松下",
+            Reason = "Panasonic 与 松下是同一品牌的中英文名称"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            knowledgeProvider: new FixedMatchingKnowledgeProvider(CreateKnowledgeWithoutEntityAliases()),
+            llmEntityResolutionService: entityResolutionService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                UseLlmEntityResolution = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(188);
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
+        result.Results[0].Evidence.Entities.Should().ContainSingle(entity =>
+            entity.Relation == EvidenceRelation.AliasSame &&
+            entity.SourceValue == "Panasonic" &&
+            entity.CandidateValue == "松下");
+        entityResolutionService.Requests.Should().ContainSingle();
+        entityResolutionService.Requests[0].SourceEntity.Should().Be("Panasonic");
+        entityResolutionService.Requests[0].CandidateEntity.Should().Be("松下");
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenLlmEntityResolutionFindsHighConfidenceConflict_ShouldRejectCandidate()
+    {
+        var source = new MatchSource
+        {
+            Project = "设备要求",
+            Specification = "Panasonic 设备需安装防护罩"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 189,
+                Project = "设备要求",
+                Specification = "Mitsubishi 设备需安装防护罩",
+                Acceptance = "NG",
+                Embedding = [0.98f]
+            }
+        };
+
+        var entityResolutionService = new FixedLlmEntityResolutionService(new LlmEntityResolutionResult
+        {
+            Relation = LlmEntityRelation.Conflict,
+            Confidence = 0.95,
+            Reason = "Panasonic 与 Mitsubishi 是不同品牌"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            knowledgeProvider: new FixedMatchingKnowledgeProvider(CreateKnowledgeWithoutEntityAliases()),
+            llmEntityResolutionService: entityResolutionService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                UseLlmEntityResolution = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(189);
+        result.Results[0].Decision.Should().Be(MatchDecision.Reject);
+        result.Results[0].Issues.Should().Contain(issue =>
+            issue.Code == "entity_conflict" &&
+            issue.SourceValue == "Panasonic" &&
+            issue.CandidateValue == "Mitsubishi");
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenLlmEntityResolutionReturnsUnknown_ShouldRequireManualReview()
+    {
+        var source = new MatchSource
+        {
+            Project = "设备要求",
+            Specification = "XJTech 设备需安装防护罩"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 190,
+                Project = "设备要求",
+                Specification = "新境科技设备需安装防护罩",
+                Acceptance = "CHECK",
+                Embedding = [0.98f]
+            }
+        };
+
+        var entityResolutionService = new FixedLlmEntityResolutionService(new LlmEntityResolutionResult
+        {
+            Relation = LlmEntityRelation.Unknown,
+            Confidence = 0.55,
+            Reason = "缺少足够证据确认两者是否同一品牌"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            knowledgeProvider: new FixedMatchingKnowledgeProvider(CreateKnowledgeWithoutEntityAliases()),
+            llmEntityResolutionService: entityResolutionService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                UseLlmEntityResolution = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(190);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].Evidence.HasHardConflict.Should().BeFalse();
+        result.Results[0].Issues.Should().Contain(issue =>
+            issue.Code == "entity_unknown" &&
+            issue.SourceValue == "XJTech" &&
+            issue.CandidateValue == "新境科技");
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenNumericConflictExists_ShouldNotBeOverriddenByEntityAlias()
+    {
+        var source = new MatchSource
+        {
+            Project = "电压要求",
+            Specification = "Panasonic 设备电压等于24V"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 191,
+                Project = "电压要求",
+                Specification = "松下设备电压等于2.4V",
+                Embedding = [0.99f]
+            }
+        };
+
+        var entityResolutionService = new FixedLlmEntityResolutionService(new LlmEntityResolutionResult
+        {
+            Relation = LlmEntityRelation.AliasSame,
+            Confidence = 0.95,
+            NormalizedEntity = "松下",
+            Reason = "Panasonic 与 松下是同一品牌"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            knowledgeProvider: new FixedMatchingKnowledgeProvider(CreateKnowledgeWithoutEntityAliases()),
+            llmEntityResolutionService: entityResolutionService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                UseLlmEntityResolution = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Decision.Should().Be(MatchDecision.Reject);
+        result.Results[0].Issues.Should().Contain(issue =>
+            issue.Code == "numeric_value_conflict" &&
+            issue.FieldName == "电压");
     }
 
     [Fact]
@@ -316,6 +540,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
                 AmbiguityMargin = 0.01,
@@ -347,7 +572,11 @@ public class EvidenceDrivenSemanticMatchingTests
             [
                 new MatchCandidate { SpecId = 1, Project = "项目A", Specification = "规格A" }
             ],
-            new MatchingConfig { MinScoreThreshold = 0.0 });
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0
+            });
 
         await act.Should()
             .ThrowAsync<AiServiceUnavailableException>()
@@ -384,6 +613,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
                 AmbiguityMargin = 0.01
@@ -423,6 +653,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1
             });
@@ -462,6 +693,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
                 HighConfidenceThreshold = 0.95
@@ -475,6 +707,94 @@ public class EvidenceDrivenSemanticMatchingTests
         result.Results[0].Evidence.Conflicts.Should().Contain(item =>
             item.Contains("22V", StringComparison.OrdinalIgnoreCase) &&
             item.Contains("220V", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenVoltageDecimalPointMismatch_ShouldExposeStructuredIssue()
+    {
+        var source = new MatchSource
+        {
+            Project = "电压要求",
+            Specification = "电压等于24V"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 603,
+                Project = "电压要求",
+                Specification = "电压等于2.4V",
+                Embedding = [0.999f]
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Decision.Should().Be(MatchDecision.Reject);
+        result.Results[0].Issues.Should().Contain(issue =>
+            issue.Code == "numeric_value_conflict" &&
+            issue.FieldName == "电压" &&
+            issue.SourceValue == "24V" &&
+            issue.CandidateValue == "2.4V" &&
+            issue.Message.Contains("小数点", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenCurrentDecimalPointMismatch_ShouldExposeStructuredIssue()
+    {
+        var source = new MatchSource
+        {
+            Project = "电流要求",
+            Specification = "电流等于2A"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 604,
+                Project = "电流要求",
+                Specification = "电流等于0.2A",
+                Embedding = [0.999f]
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Decision.Should().Be(MatchDecision.Reject);
+        result.Results[0].Issues.Should().Contain(issue =>
+            issue.Code == "numeric_value_conflict" &&
+            issue.FieldName == "电流" &&
+            issue.SourceValue == "2A" &&
+            issue.CandidateValue == "0.2A" &&
+            issue.Message.Contains("数量级", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -506,6 +826,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1
             });
@@ -545,6 +866,7 @@ public class EvidenceDrivenSemanticMatchingTests
             candidates,
             new MatchingConfig
             {
+                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
                 HighConfidenceThreshold = 0.95
@@ -645,6 +967,38 @@ public class EvidenceDrivenSemanticMatchingTests
         public Task<MatchingKnowledge> GetKnowledgeAsync(CancellationToken cancellationToken = default)
         {
             return Task.FromResult(_knowledge);
+        }
+    }
+
+    private static MatchingKnowledge CreateKnowledgeWithoutEntityAliases()
+    {
+        var knowledge = MatchingKnowledge.CreateDefault();
+        knowledge.EntityAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        return knowledge;
+    }
+
+    private sealed class FixedLlmEntityResolutionService : ILlmEntityResolutionService
+    {
+        private readonly LlmEntityResolutionResult? _result;
+
+        public FixedLlmEntityResolutionService(LlmEntityResolutionResult? result)
+        {
+            _result = result;
+        }
+
+        public List<LlmEntityResolutionRequest> Requests { get; } = [];
+
+        public Task<LlmEntityResolutionResult?> ResolveAsync(
+            LlmEntityResolutionRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return Task.FromResult(_result);
+        }
+
+        public bool TryParseEntityResolutionResult(string raw, out LlmEntityResolutionResult result)
+        {
+            throw new NotSupportedException();
         }
     }
 

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import {
+  type MatchEntityEvidence,
+  type MatchIssue,
   type MatchCandidateOption,
   type MatchPreviewItem
 } from "@/api/matching";
@@ -20,6 +22,8 @@ const dialogVisible = computed({
 });
 
 const topCandidates = computed(() => props.item?.bestMatch?.topCandidates ?? []);
+const bestMatchIssues = computed(() => props.item?.bestMatch?.issues ?? []);
+const bestMatchEntities = computed(() => props.item?.bestMatch?.entities ?? []);
 const comparisonRank = ref<number | null>(null);
 const diffViewMode = ref<"field" | "raw">("raw");
 const rawOnlyDiff = ref(true);
@@ -85,6 +89,81 @@ const getDecisionTagType = (
     case "reject":
       return "danger";
     case "manualReview":
+      return "warning";
+    default:
+      return "info";
+  }
+};
+
+const getIssueTagType = (
+  severity?: string
+): "danger" | "warning" | "info" | "success" => {
+  switch (severity) {
+    case "high":
+      return "danger";
+    case "medium":
+    case "warning":
+      return "warning";
+    case "low":
+    case "info":
+      return "info";
+    default:
+      return "info";
+  }
+};
+
+const getIssueSeverityText = (severity?: string) => {
+  switch (severity) {
+    case "high":
+      return "高风险";
+    case "medium":
+    case "warning":
+      return "需确认";
+    case "low":
+      return "低风险";
+    case "info":
+      return "提示";
+    default:
+      return "问题";
+  }
+};
+
+const getIssueFieldText = (issue: MatchIssue) => issue.fieldName || "未指定字段";
+
+const getEntityRelationText = (relation?: MatchEntityEvidence["relation"]) => {
+  switch (relation) {
+    case "exact":
+      return "同一实体";
+    case "aliasSame":
+      return "别名同一";
+    case "conflict":
+      return "实体冲突";
+    case "possiblyRelated":
+      return "关系待确认";
+    case "parentChild":
+      return "上下级关系";
+    case "overlap":
+      return "部分重叠";
+    case "compatible":
+      return "相容";
+    default:
+      return "未知";
+  }
+};
+
+const getEntityRelationTagType = (
+  relation?: MatchEntityEvidence["relation"]
+): "success" | "warning" | "danger" | "info" => {
+  switch (relation) {
+    case "exact":
+    case "aliasSame":
+    case "compatible":
+      return "success";
+    case "conflict":
+      return "danger";
+    case "possiblyRelated":
+    case "parentChild":
+    case "overlap":
       return "warning";
     default:
       return "info";
@@ -455,6 +534,78 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
               </el-descriptions>
 
               <div
+                v-if="bestMatchIssues.length > 0"
+                class="info-block info-block--issue"
+              >
+                <div class="info-label">结构化问题</div>
+                <div class="issue-list">
+                  <div
+                    v-for="(issue, index) in bestMatchIssues"
+                    :key="`best-issue-${index}-${issue.code}`"
+                    class="issue-card"
+                  >
+                    <div class="issue-card__header">
+                      <div class="issue-card__title">
+                        {{ issue.message }}
+                      </div>
+                      <el-tag
+                        size="small"
+                        effect="plain"
+                        :type="getIssueTagType(issue.severity)"
+                      >
+                        {{ getIssueSeverityText(issue.severity) }}
+                      </el-tag>
+                    </div>
+                    <div class="issue-card__meta">
+                      字段：{{ getIssueFieldText(issue) }}
+                    </div>
+                    <div
+                      v-if="issue.sourceValue || issue.candidateValue"
+                      class="issue-card__meta"
+                    >
+                      源值：{{ issue.sourceValue || "-" }}；候选值：{{ issue.candidateValue || "-" }}
+                    </div>
+                    <div
+                      v-if="issue.suggestedAction"
+                      class="issue-card__action"
+                    >
+                      建议：{{ issue.suggestedAction }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                v-if="bestMatchEntities.length > 0"
+                class="info-block"
+              >
+                <div class="info-label">实体证据</div>
+                <div class="entity-list">
+                  <div
+                    v-for="(entity, index) in bestMatchEntities"
+                    :key="`best-entity-${index}-${entity.sourceValue}-${entity.candidateValue}`"
+                    class="entity-card"
+                  >
+                    <div class="entity-card__header">
+                      <div class="entity-card__title">
+                        {{ entity.entityType || "实体" }}：{{ entity.sourceValue }} -> {{ entity.candidateValue }}
+                      </div>
+                      <el-tag
+                        size="small"
+                        effect="plain"
+                        :type="getEntityRelationTagType(entity.relation)"
+                      >
+                        {{ getEntityRelationText(entity.relation) }}
+                      </el-tag>
+                    </div>
+                    <div class="entity-card__meta">
+                      归一化：{{ entity.normalizedSourceValue || "-" }} / {{ entity.normalizedCandidateValue || "-" }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div
                 v-if="item.bestMatch.evidenceSummary?.length"
                 class="info-block"
               >
@@ -730,6 +881,78 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
                       {{ candidate.remark || "-" }}
                     </el-descriptions-item>
                   </el-descriptions>
+
+                  <div
+                    v-if="candidate.issues?.length"
+                    class="info-block compact info-block--issue"
+                  >
+                    <div class="info-label">候选问题</div>
+                    <div class="issue-list">
+                      <div
+                        v-for="(issue, index) in candidate.issues"
+                        :key="`candidate-${candidate.rank}-issue-${index}-${issue.code}`"
+                        class="issue-card"
+                      >
+                        <div class="issue-card__header">
+                          <div class="issue-card__title">
+                            {{ issue.message }}
+                          </div>
+                          <el-tag
+                            size="small"
+                            effect="plain"
+                            :type="getIssueTagType(issue.severity)"
+                          >
+                            {{ getIssueSeverityText(issue.severity) }}
+                          </el-tag>
+                        </div>
+                        <div class="issue-card__meta">
+                          字段：{{ getIssueFieldText(issue) }}
+                        </div>
+                        <div
+                          v-if="issue.sourceValue || issue.candidateValue"
+                          class="issue-card__meta"
+                        >
+                          源值：{{ issue.sourceValue || "-" }}；候选值：{{ issue.candidateValue || "-" }}
+                        </div>
+                        <div
+                          v-if="issue.suggestedAction"
+                          class="issue-card__action"
+                        >
+                          建议：{{ issue.suggestedAction }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="candidate.entities?.length"
+                    class="info-block compact"
+                  >
+                    <div class="info-label">实体证据</div>
+                    <div class="entity-list">
+                      <div
+                        v-for="(entity, index) in candidate.entities"
+                        :key="`candidate-${candidate.rank}-entity-${index}-${entity.sourceValue}-${entity.candidateValue}`"
+                        class="entity-card"
+                      >
+                        <div class="entity-card__header">
+                          <div class="entity-card__title">
+                            {{ entity.entityType || "实体" }}：{{ entity.sourceValue }} -> {{ entity.candidateValue }}
+                          </div>
+                          <el-tag
+                            size="small"
+                            effect="plain"
+                            :type="getEntityRelationTagType(entity.relation)"
+                          >
+                            {{ getEntityRelationText(entity.relation) }}
+                          </el-tag>
+                        </div>
+                        <div class="entity-card__meta">
+                          归一化：{{ entity.normalizedSourceValue || "-" }} / {{ entity.normalizedCandidateValue || "-" }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
                   <div
                     v-if="candidate.evidenceSummary?.length"
@@ -1045,6 +1268,10 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
   background: #fff4f4;
 }
 
+.info-block--issue {
+  background: #fff9f5;
+}
+
 .info-block.compact {
   margin-top: 10px;
 }
@@ -1066,6 +1293,83 @@ const isCandidateExpanded = (candidate: MatchCandidateOption) =>
   margin-top: 8px;
   font-size: 12px;
   color: #f56c6c;
+}
+
+.issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.entity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.entity-card {
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.entity-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.entity-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d4ed8;
+  line-height: 1.6;
+}
+
+.entity-card__meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #1e3a8a;
+  line-height: 1.6;
+}
+
+.issue-card {
+  padding: 12px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.issue-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.issue-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #9a3412;
+  line-height: 1.6;
+}
+
+.issue-card__meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #7c2d12;
+  line-height: 1.6;
+}
+
+.issue-card__action {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b45309;
+  line-height: 1.6;
 }
 
 .candidate-list {

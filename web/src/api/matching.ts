@@ -7,7 +7,9 @@ export const LLM_REVIEW_PASS_THRESHOLD = 90;
 
 /** 匹配策略 */
 export enum MatchingStrategy {
-  /** 统一多阶段匹配（Embedding 召回 + 证据重排） */
+  /** 单阶段匹配（仅按 Embedding 排序） */
+  SingleStage = 1,
+  /** 多阶段匹配（Embedding 召回 + 证据重排） */
   MultiStage = 2
 }
 
@@ -27,6 +29,16 @@ export interface MatchConfig {
   recallTopK?: number;
   /** 多阶段模式下的歧义分差阈值 */
   ambiguityMargin?: number;
+  /** 是否启用 LLM 实体判别 */
+  useLlmEntityResolution?: boolean;
+  /** 启用实体判别时参与复判的候选数量 */
+  llmEntityResolutionTopCandidates?: number;
+  /** 判定为同一实体的最低置信度 */
+  llmEntityPositiveConfidenceThreshold?: number;
+  /** 判定为实体冲突并降级人工复核的最低置信度 */
+  llmEntityConflictReviewConfidenceThreshold?: number;
+  /** 判定为实体冲突并直接拒绝的最低置信度 */
+  llmEntityConflictRejectConfidenceThreshold?: number;
   /** 是否启用LLM复核 */
   useLlmReview?: boolean;
   /** 是否启用LLM生成建议 */
@@ -86,6 +98,48 @@ export interface MatchPreviewRequest {
 }
 
 /** 匹配结果 */
+export interface MatchIssue {
+  /** 问题编码 */
+  code: string;
+  /** 严重级别 */
+  severity: string;
+  /** 问题所属字段 */
+  fieldName?: string;
+  /** 源值 */
+  sourceValue?: string;
+  /** 候选值 */
+  candidateValue?: string;
+  /** 用户说明 */
+  message: string;
+  /** 建议动作 */
+  suggestedAction?: string;
+}
+
+/** 实体证据 */
+export interface MatchEntityEvidence {
+  /** 实体类型 */
+  entityType: string;
+  /** 源值 */
+  sourceValue: string;
+  /** 候选值 */
+  candidateValue: string;
+  /** 源归一化值 */
+  normalizedSourceValue: string;
+  /** 候选归一化值 */
+  normalizedCandidateValue: string;
+  /** 证据关系 */
+  relation:
+    | "exact"
+    | "compatible"
+    | "overlap"
+    | "conflict"
+    | "aliasSame"
+    | "parentChild"
+    | "possiblyRelated"
+    | "unknown";
+}
+
+/** 匹配结果 */
 export interface MatchResult {
   /** 匹配的验收规格ID */
   specId: number;
@@ -111,6 +165,10 @@ export interface MatchResult {
   evidenceSummary?: string[];
   /** 冲突摘要 */
   conflictSummary?: string[];
+  /** 结构化问题列表 */
+  issues?: MatchIssue[];
+  /** 实体证据 */
+  entities?: MatchEntityEvidence[];
   /** Top候选列表（含Top1） */
   topCandidates: MatchCandidateOption[];
   /** 匹配策略 */
@@ -161,6 +219,10 @@ export interface MatchCandidateOption {
   evidenceSummary?: string[];
   /** 冲突摘要 */
   conflictSummary?: string[];
+  /** 结构化问题列表 */
+  issues?: MatchIssue[];
+  /** 实体证据 */
+  entities?: MatchEntityEvidence[];
   /** 重排摘要 */
   rerankSummary?: string;
 }
@@ -342,11 +404,16 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
-  matchingStrategy: MatchingStrategy.MultiStage,
+  matchingStrategy: MatchingStrategy.SingleStage,
   minScoreThreshold: 0.8,
   highConfidenceThreshold: DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   recallTopK: 8,
   ambiguityMargin: 0.03,
+  useLlmEntityResolution: false,
+  llmEntityResolutionTopCandidates: 3,
+  llmEntityPositiveConfidenceThreshold: 0.85,
+  llmEntityConflictReviewConfidenceThreshold: 0.7,
+  llmEntityConflictRejectConfidenceThreshold: 0.9,
   useLlmReview: true,
   useLlmSuggestion: false,
   suggestNoMatchRows: false,

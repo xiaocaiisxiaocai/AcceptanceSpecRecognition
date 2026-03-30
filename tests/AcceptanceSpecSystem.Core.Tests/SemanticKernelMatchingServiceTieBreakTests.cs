@@ -143,6 +143,55 @@ public class SemanticKernelMatchingServiceTieBreakTests
     }
 
     [Fact]
+    public async Task BatchMatch_DefaultStrategy_ShouldUseSingleStageEmbeddingSelection()
+    {
+        var source = new MatchSource
+        {
+            Project = "收板模式",
+            Specification = "速度 100 mm/s"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 1,
+                Project = "收板模式",
+                Specification = "速度 100 mm/s",
+                Acceptance = "SAFE",
+                Embedding = new[] { 0.90f, 0.10f }
+            },
+            new()
+            {
+                SpecId = 2,
+                Project = "投板模式",
+                Specification = "速度 100 mm/s",
+                Acceptance = "RISKY",
+                Embedding = new[] { 0.95f, 0.05f }
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new SourceOnlyEmbeddingService(source.CombinedText, new[] { 1f, 0f }),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.0
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(2);
+        result.Results[0].MatchingStrategy.Should().Be(MatchingStrategy.SingleStage);
+        result.Results[0].RecalledCandidateCount.Should().Be(1);
+        result.Results[0].IsAmbiguous.Should().BeFalse();
+        result.Results[0].RerankSummary.Should().BeNull();
+    }
+
+    [Fact]
     public async Task BatchMatch_MultiStage_ShouldRerankToBusinessSaferCandidate()
     {
         var source = new MatchSource

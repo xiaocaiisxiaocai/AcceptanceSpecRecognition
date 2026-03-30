@@ -59,7 +59,12 @@ public class MatchSource
 public enum MatchingStrategy
 {
     /// <summary>
-    /// 统一多阶段匹配（Embedding 召回 + 证据重排 + 门禁决策）
+    /// 单阶段匹配（仅按 Embedding 排序）
+    /// </summary>
+    SingleStage = 1,
+
+    /// <summary>
+    /// 多阶段匹配（Embedding 召回 + 证据重排 + 门禁决策）
     /// </summary>
     MultiStage = 2
 }
@@ -125,6 +130,11 @@ public class MatchResult
     public MatchEvidence Evidence { get; set; } = new();
 
     /// <summary>
+    /// 结构化问题列表
+    /// </summary>
+    public List<MatchIssue> Issues { get; set; } = [];
+
+    /// <summary>
     /// 用于详情展示的Top候选列表（含Top1）
     /// </summary>
     public List<MatchCandidateSnapshot> TopCandidates { get; set; } = [];
@@ -132,7 +142,7 @@ public class MatchResult
     /// <summary>
     /// 匹配策略
     /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
+    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
 
     /// <summary>
     /// 第一阶段召回候选数
@@ -273,6 +283,11 @@ public class MatchCandidateSnapshot
     public MatchEvidence Evidence { get; set; } = new();
 
     /// <summary>
+    /// 当前候选的结构化问题列表
+    /// </summary>
+    public List<MatchIssue> Issues { get; set; } = [];
+
+    /// <summary>
     /// 重排摘要（多阶段时可用）
     /// </summary>
     public string? RerankSummary { get; set; }
@@ -327,7 +342,7 @@ public class MatchingConfig
     /// <summary>
     /// 匹配策略
     /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
+    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
 
     /// <summary>
     /// 使用的 Embedding 服务ID（为空则自动选择）
@@ -358,6 +373,31 @@ public class MatchingConfig
     /// 高置信自动采用阈值
     /// </summary>
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
+
+    /// <summary>
+    /// 是否启用 LLM 实体判别
+    /// </summary>
+    public bool UseLlmEntityResolution { get; set; } = false;
+
+    /// <summary>
+    /// 启用实体判别时参与复判的候选数量
+    /// </summary>
+    public int LlmEntityResolutionTopCandidates { get; set; } = 3;
+
+    /// <summary>
+    /// 判定为同一实体所需的最低置信度
+    /// </summary>
+    public double LlmEntityPositiveConfidenceThreshold { get; set; } = 0.85;
+
+    /// <summary>
+    /// 判定为实体冲突并降级人工复核的最低置信度
+    /// </summary>
+    public double LlmEntityConflictReviewConfidenceThreshold { get; set; } = 0.7;
+
+    /// <summary>
+    /// 判定为实体冲突并直接拒绝的最低置信度
+    /// </summary>
+    public double LlmEntityConflictRejectConfidenceThreshold { get; set; } = 0.9;
 
     /// <summary>
     /// 是否启用 LLM 复核

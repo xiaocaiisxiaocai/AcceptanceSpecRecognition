@@ -117,7 +117,14 @@ internal sealed class NumericConstraintParser
 
             var value = decimal.Parse(match.Groups["value"].Value, CultureInfo.InvariantCulture);
             var normalizedValue = NormalizeValue(value, unit);
-            constraints.Add(new ParsedConstraint(field, op, value, unit, normalizedValue, match.Value));
+            constraints.Add(new ParsedConstraint(
+                field,
+                op,
+                value,
+                unit,
+                normalizedValue,
+                match.Value,
+                $"{match.Groups["value"].Value}{match.Groups["unit"].Value.Trim()}"));
             occupiedRanges.Add((match.Index, match.Index + match.Length));
         }
 
@@ -136,7 +143,14 @@ internal sealed class NumericConstraintParser
             var normalizedValue = NormalizeValue(value, unit);
             var field = InferFieldName(text, match.Index, unit, knowledge);
 
-            constraints.Add(new ParsedConstraint(field, "=", value, unit, normalizedValue, match.Value));
+            constraints.Add(new ParsedConstraint(
+                field,
+                "=",
+                value,
+                unit,
+                normalizedValue,
+                match.Value,
+                $"{match.Groups["value"].Value}{match.Groups["unit"].Value.Trim()}"));
         }
 
         return constraints;
@@ -215,4 +229,5 @@ internal sealed record ParsedConstraint(
     decimal RawValue,
     string Unit,
     decimal NormalizedValue,
-    string Expression);
+    string Expression,
+    string DisplayValue);

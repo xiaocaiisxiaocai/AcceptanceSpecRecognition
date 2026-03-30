@@ -102,9 +102,9 @@ public class MatchSourceItem
 public class MatchConfigDto
 {
     /// <summary>
-    /// 匹配策略（兼容字段，后端统一按多阶段处理）
+    /// 匹配策略
     /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
+    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
 
     /// <summary>
     /// 选定的 Embedding 服务ID（为空则自动选择）
@@ -135,6 +135,31 @@ public class MatchConfigDto
     /// 高置信自动采用阈值
     /// </summary>
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
+
+    /// <summary>
+    /// 是否启用 LLM 实体判别
+    /// </summary>
+    public bool UseLlmEntityResolution { get; set; } = false;
+
+    /// <summary>
+    /// 启用实体判别时参与复判的候选数量
+    /// </summary>
+    public int LlmEntityResolutionTopCandidates { get; set; } = 3;
+
+    /// <summary>
+    /// 判定为同一实体所需的最低置信度
+    /// </summary>
+    public double LlmEntityPositiveConfidenceThreshold { get; set; } = 0.85;
+
+    /// <summary>
+    /// 判定为实体冲突并降级人工复核的最低置信度
+    /// </summary>
+    public double LlmEntityConflictReviewConfidenceThreshold { get; set; } = 0.7;
+
+    /// <summary>
+    /// 判定为实体冲突并直接拒绝的最低置信度
+    /// </summary>
+    public double LlmEntityConflictRejectConfidenceThreshold { get; set; } = 0.9;
 
     /// <summary>
     /// 是否启用LLM复核
@@ -330,6 +355,16 @@ public class MatchResultDto
     public List<string> ConflictSummary { get; set; } = [];
 
     /// <summary>
+    /// 结构化问题列表
+    /// </summary>
+    public List<MatchIssueDto> Issues { get; set; } = [];
+
+    /// <summary>
+    /// 实体证据列表
+    /// </summary>
+    public List<MatchEntityEvidenceDto> Entities { get; set; } = [];
+
+    /// <summary>
     /// Top候选列表（含Top1）
     /// </summary>
     public List<MatchCandidateDto> TopCandidates { get; set; } = [];
@@ -451,9 +486,96 @@ public class MatchCandidateDto
     public List<string> ConflictSummary { get; set; } = [];
 
     /// <summary>
+    /// 结构化问题列表
+    /// </summary>
+    public List<MatchIssueDto> Issues { get; set; } = [];
+
+    /// <summary>
+    /// 实体证据列表
+    /// </summary>
+    public List<MatchEntityEvidenceDto> Entities { get; set; } = [];
+
+    /// <summary>
     /// 重排摘要
     /// </summary>
     public string? RerankSummary { get; set; }
+}
+
+/// <summary>
+/// 实体证据
+/// </summary>
+public class MatchEntityEvidenceDto
+{
+    /// <summary>
+    /// 实体类型
+    /// </summary>
+    public string EntityType { get; set; } = "品牌";
+
+    /// <summary>
+    /// 源值
+    /// </summary>
+    public string SourceValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 候选值
+    /// </summary>
+    public string CandidateValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 源归一化值
+    /// </summary>
+    public string NormalizedSourceValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 候选归一化值
+    /// </summary>
+    public string NormalizedCandidateValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 证据关系
+    /// </summary>
+    public string Relation { get; set; } = "unknown";
+}
+
+/// <summary>
+/// 匹配问题说明
+/// </summary>
+public class MatchIssueDto
+{
+    /// <summary>
+    /// 问题编码
+    /// </summary>
+    public string Code { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 严重级别
+    /// </summary>
+    public string Severity { get; set; } = "warning";
+
+    /// <summary>
+    /// 问题所属字段
+    /// </summary>
+    public string? FieldName { get; set; }
+
+    /// <summary>
+    /// 源值
+    /// </summary>
+    public string? SourceValue { get; set; }
+
+    /// <summary>
+    /// 候选值
+    /// </summary>
+    public string? CandidateValue { get; set; }
+
+    /// <summary>
+    /// 用户说明
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 建议动作
+    /// </summary>
+    public string? SuggestedAction { get; set; }
 }
 
 /// <summary>

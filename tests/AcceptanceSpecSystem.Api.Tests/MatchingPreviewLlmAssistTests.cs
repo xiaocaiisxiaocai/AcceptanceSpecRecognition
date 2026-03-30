@@ -127,6 +127,54 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
+    public async Task Preview_WithoutMatchingStrategy_ShouldUseSingleStage()
+    {
+        var customerId = (await (await _client.PostAsync(
+                "/api/customers",
+                ApiClientJson.ToJsonContent(new { name = "SingleStage-C" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var processId = (await (await _client.PostAsync(
+                "/api/processes",
+                ApiClientJson.ToJsonContent(new { name = "SingleStage-P" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        await _client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                project = "项目A",
+                specification = "规格A",
+                acceptance = "OK-1",
+                remark = "R1"
+            }));
+
+        var previewResp = await _client.PostAsync(
+            "/api/matching/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                items = new[] { new { rowIndex = 0, project = "项目A", specification = "规格A" } },
+                customerId,
+                processId,
+                config = new
+                {
+                    minScoreThreshold = 0.0
+                }
+            }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+
+        var bestMatch = previewJson.Data.GetProperty("items")[0].GetProperty("bestMatch");
+        bestMatch.GetProperty("matchingStrategy").GetInt32().Should().Be(1);
+        bestMatch.GetProperty("recalledCandidateCount").GetInt32().Should().Be(1);
+        bestMatch.GetProperty("rerankSummary").ValueKind.Should().BeOneOf(JsonValueKind.Null, JsonValueKind.Undefined);
+    }
+
+    [Fact]
     public async Task LlmStream_ShouldEmitReviewAndSuggestion()
     {
         var customerId = (await (await _client.PostAsync(
