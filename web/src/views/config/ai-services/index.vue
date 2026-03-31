@@ -287,9 +287,20 @@ const handleTest = async (row: AiServiceConfig) => {
     const res = await testAiServiceConnection(row.id);
     if (res.code === 0) {
       const r = res.data;
-      const message = `${r.success ? "成功" : "失败"}：${r.message}（${r.elapsedMs}ms${
-        r.httpStatusCode ? `, HTTP ${r.httpStatusCode}` : ""
-      }）`;
+      const details: string[] = [`总耗时 ${r.elapsedMs}ms`];
+      if (typeof r.serviceElapsedMs === "number") {
+        details.push(`接口 ${r.serviceElapsedMs}ms`);
+      }
+      if (r.targetModel) {
+        details.push(`模型 ${r.targetModel}`);
+      }
+      if (r.hostPort) {
+        details.push(`宿主 ${r.hostPort}`);
+      }
+      if (r.httpStatusCode) {
+        details.push(`HTTP ${r.httpStatusCode}`);
+      }
+      const message = `${r.success ? "成功" : "失败"}：${r.message}（${details.join("；")}）`;
       if (r.success && r.httpStatusCode && r.httpStatusCode >= 200 && r.httpStatusCode < 400) {
         ElMessage.success(message);
       } else if (r.success) {

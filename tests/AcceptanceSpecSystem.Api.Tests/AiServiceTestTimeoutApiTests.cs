@@ -44,10 +44,15 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         result.Code.Should().Be(0);
         result.Data.GetProperty("success").GetBoolean().Should().BeFalse();
         result.Data.GetProperty("message").GetString().Should().Contain("LLM: 测试超时（2秒）");
+        result.Data.GetProperty("targetModel").GetString().Should().Be("gpt-test");
+        result.Data.GetProperty("hostPort").GetString().Should().NotBeNullOrWhiteSpace();
 
         var elapsedMs = result.Data.GetProperty("elapsedMs").GetInt64();
         elapsedMs.Should().BeGreaterThanOrEqualTo(1800);
         elapsedMs.Should().BeLessThan(4000);
+        var serviceElapsedMs = result.Data.GetProperty("serviceElapsedMs").GetInt64();
+        serviceElapsedMs.Should().BeGreaterThanOrEqualTo(1800);
+        serviceElapsedMs.Should().BeLessThan(4000);
 
         // 端到端耗时允许存在测试宿主调度抖动，但不应接近新的客户端超时。
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(8));
@@ -68,10 +73,15 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         result.Code.Should().Be(0);
         result.Data.GetProperty("success").GetBoolean().Should().BeFalse();
         result.Data.GetProperty("message").GetString().Should().Contain("Embedding: 测试超时（1秒）");
+        result.Data.GetProperty("targetModel").GetString().Should().Be("text-embedding-test");
+        result.Data.GetProperty("hostPort").GetString().Should().NotBeNullOrWhiteSpace();
 
         var elapsedMs = result.Data.GetProperty("elapsedMs").GetInt64();
         elapsedMs.Should().BeGreaterThanOrEqualTo(900);
         elapsedMs.Should().BeLessThan(3000);
+        var serviceElapsedMs = result.Data.GetProperty("serviceElapsedMs").GetInt64();
+        serviceElapsedMs.Should().BeGreaterThanOrEqualTo(900);
+        serviceElapsedMs.Should().BeLessThan(3000);
 
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(8));
     }

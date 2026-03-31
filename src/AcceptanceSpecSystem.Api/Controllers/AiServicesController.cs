@@ -276,9 +276,16 @@ public class AiServicesController : BaseApiController
             var messages = new List<string>();
             var success = true;
             IReadOnlyCollection<string>? ollamaModels = null;
+            long? serviceElapsedMs = null;
+            var targetModel = entity.Purpose == AiServicePurpose.Llm
+                ? NormalizeOptional(entity.LlmModel)
+                : NormalizeOptional(entity.EmbeddingModel);
+            var targetEndpoint = NormalizeOptional(entity.Endpoint);
+            var hostPort = ResolveHostPort();
 
             if (entity.Purpose.HasFlag(AiServicePurpose.Llm))
             {
+                var serviceSw = Stopwatch.StartNew();
                 try
                 {
                     using var timeoutCts = CreateTestTimeoutTokenSource(_llmTestTimeout);
@@ -320,10 +327,16 @@ public class AiServicesController : BaseApiController
                     _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=LLM", entity.Id, entity.Name);
                     messages.Add(BuildTestFailureMessage("LLM", ex));
                 }
+                finally
+                {
+                    serviceSw.Stop();
+                    serviceElapsedMs = serviceSw.ElapsedMilliseconds;
+                }
             }
 
             if (entity.Purpose.HasFlag(AiServicePurpose.Embedding))
             {
+                var serviceSw = Stopwatch.StartNew();
                 try
                 {
                     using var timeoutCts = CreateTestTimeoutTokenSource(_embeddingTestTimeout);
@@ -363,6 +376,11 @@ public class AiServicesController : BaseApiController
                     _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=Embedding", entity.Id, entity.Name);
                     messages.Add(BuildTestFailureMessage("Embedding", ex));
                 }
+                finally
+                {
+                    serviceSw.Stop();
+                    serviceElapsedMs = serviceSw.ElapsedMilliseconds;
+                }
             }
 
             sw.Stop();
@@ -371,6 +389,10 @@ public class AiServicesController : BaseApiController
                 Success = success,
                 HttpStatusCode = null,
                 ElapsedMs = sw.ElapsedMilliseconds,
+                ServiceElapsedMs = serviceElapsedMs,
+                TargetModel = targetModel,
+                TargetEndpoint = targetEndpoint,
+                HostPort = hostPort,
                 Message = messages.Count > 0 ? string.Join("; ", messages) : "未执行测试"
             });
         }
@@ -387,6 +409,12 @@ public class AiServicesController : BaseApiController
                 Success = false,
                 HttpStatusCode = null,
                 ElapsedMs = sw.ElapsedMilliseconds,
+                ServiceElapsedMs = null,
+                TargetModel = entity.Purpose == AiServicePurpose.Llm
+                    ? NormalizeOptional(entity.LlmModel)
+                    : NormalizeOptional(entity.EmbeddingModel),
+                TargetEndpoint = NormalizeOptional(entity.Endpoint),
+                HostPort = ResolveHostPort(),
                 Message = "AI服务连接测试失败，请稍后重试或查看后台日志"
             }, "连接测试完成");
         }
@@ -430,6 +458,28 @@ public class AiServicesController : BaseApiController
 
         var expected = configuredModel.Trim();
         return models.Any(model => string.Equals(model, expected, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string ResolveHostPort()
+    {
+        var hostValue = HttpContext.Request.Host.Value?.Trim();
+        if (!string.IsNullOrWhiteSpace(hostValue))
+        {
+            return hostValue;
+        }
+
+        if (HttpContext.Connection.LocalPort > 0)
+        {
+            var host = HttpContext.Connection.LocalIpAddress?.ToString();
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                host = "localhost";
+            }
+
+            return $"{host}:{HttpContext.Connection.LocalPort}";
+        }
+
+        return "unknown";
     }
 
     /// <summary>

@@ -62,6 +62,10 @@ public class AiServiceTestResultDto
     public string Message { get; set; } = string.Empty;
     public int? HttpStatusCode { get; set; }
     public long ElapsedMs { get; set; }
+    public long? ServiceElapsedMs { get; set; }
+    public string? TargetModel { get; set; }
+    public string? TargetEndpoint { get; set; }
+    public string? HostPort { get; set; }
 }
 
 public class AiServiceModelsResultDto

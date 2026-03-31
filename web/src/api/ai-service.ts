@@ -58,6 +58,10 @@ export interface AiServiceTestResult {
   message: string;
   httpStatusCode?: number | null;
   elapsedMs: number;
+  serviceElapsedMs?: number | null;
+  targetModel?: string | null;
+  targetEndpoint?: string | null;
+  hostPort?: string | null;
 }
 
 export interface AiServiceModelsResult {
