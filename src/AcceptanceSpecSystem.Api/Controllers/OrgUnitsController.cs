@@ -2,11 +2,8 @@ using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
-using AcceptanceSpecSystem.Data.Context;
-using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -17,11 +14,11 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class OrgUnitsController : BaseApiController
 {
-    private readonly AppDbContext _dbContext;
+    private readonly OrgUnitAppService _orgUnitAppService;
 
-    public OrgUnitsController(AppDbContext dbContext)
+    public OrgUnitsController(OrgUnitAppService orgUnitAppService)
     {
-        _dbContext = dbContext;
+        _orgUnitAppService = orgUnitAppService;
     }
 
     /// <summary>
@@ -35,11 +32,8 @@ public class OrgUnitsController : BaseApiController
         if (!companyId.HasValue)
             return Error<List<OrgUnitDto>>(401, "会话缺少公司上下文");
 
-        var rootOrgUnit = await SingleOrgUnitService.GetRootOrgUnitAsync(_dbContext, companyId.Value);
-        if (rootOrgUnit == null)
-            return Success(new List<OrgUnitDto>());
-
-        return Success(new List<OrgUnitDto> { ToDto(rootOrgUnit) });
+        var items = await _orgUnitAppService.GetTreeAsync(companyId.Value);
+        return Success(items);
     }
 
     /// <summary>
@@ -53,11 +47,8 @@ public class OrgUnitsController : BaseApiController
         if (!companyId.HasValue)
             return Error<List<OrgUnitDto>>(401, "会话缺少公司上下文");
 
-        var rootOrgUnit = await SingleOrgUnitService.GetRootOrgUnitAsync(_dbContext, companyId.Value);
-        if (rootOrgUnit == null)
-            return Success(new List<OrgUnitDto>());
-
-        return Success(new List<OrgUnitDto> { ToDto(rootOrgUnit) });
+        var items = await _orgUnitAppService.GetFlatAsync(companyId.Value);
+        return Success(items);
     }
 
     /// <summary>
@@ -72,7 +63,15 @@ public class OrgUnitsController : BaseApiController
         if (!companyId.HasValue)
             return Error<OrgUnitDto>(401, "会话缺少公司上下文");
 
-        return Error<OrgUnitDto>(400, "系统为单组织模式，不允许新增组织节点");
+        try
+        {
+            var item = await _orgUnitAppService.CreateAsync(companyId.Value, request);
+            return Success(item, "创建组织节点成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<OrgUnitDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -87,39 +86,15 @@ public class OrgUnitsController : BaseApiController
         if (!companyId.HasValue)
             return Error<OrgUnitDto>(401, "会话缺少公司上下文");
 
-        var entity = await _dbContext.OrgUnits.FirstOrDefaultAsync(o => o.Id == id && o.CompanyId == companyId.Value);
-        if (entity == null)
-            return Error<OrgUnitDto>(404, "组织节点不存在");
-
-        if (entity.ParentId.HasValue || entity.UnitType != OrgUnitType.Company)
-            return Error<OrgUnitDto>(400, "单组织模式下只允许编辑根组织节点");
-
-        var code = NormalizeCode(request.Code);
-        if (string.IsNullOrWhiteSpace(code))
-            return Error<OrgUnitDto>(400, "组织编码不能为空");
-
-        var duplicated = await _dbContext.OrgUnits.AnyAsync(o =>
-            o.CompanyId == companyId.Value &&
-            o.Id != id &&
-            o.Code == code);
-        if (duplicated)
-            return Error<OrgUnitDto>(400, "组织编码已存在");
-
-        if (entity.ParentId == null &&
-            entity.UnitType == OrgUnitType.Company &&
-            !request.IsActive)
+        try
         {
-            return Error<OrgUnitDto>(400, "公司根节点不允许停用");
+            var item = await _orgUnitAppService.UpdateAsync(companyId.Value, id, request);
+            return Success(item, "更新组织节点成功");
         }
-
-        entity.Code = code;
-        entity.Name = request.Name.Trim();
-        entity.Sort = request.Sort;
-        entity.IsActive = request.IsActive;
-        entity.UpdatedAt = DateTime.UtcNow;
-
-        await _dbContext.SaveChangesAsync();
-        return Success(ToDto(entity), "更新组织节点成功");
+        catch (ApplicationServiceException ex)
+        {
+            return Error<OrgUnitDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -134,29 +109,14 @@ public class OrgUnitsController : BaseApiController
         if (!companyId.HasValue)
             return Error(401, "会话缺少公司上下文");
 
-        return Error(400, "系统为单组织模式，不允许删除组织节点");
-    }
-
-    private static string NormalizeCode(string code)
-    {
-        return string.IsNullOrWhiteSpace(code)
-            ? string.Empty
-            : code.Trim().ToUpperInvariant();
-    }
-
-    private static OrgUnitDto ToDto(OrgUnit entity)
-    {
-        return new OrgUnitDto
+        try
         {
-            Id = entity.Id,
-            ParentId = entity.ParentId,
-            UnitType = entity.UnitType,
-            Code = entity.Code,
-            Name = entity.Name,
-            Path = entity.Path,
-            Depth = entity.Depth,
-            Sort = entity.Sort,
-            IsActive = entity.IsActive
-        };
+            await _orgUnitAppService.DeleteAsync(companyId.Value, id);
+            return Success("删除组织节点成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error(ex.Code, ex.Message);
+        }
     }
 }

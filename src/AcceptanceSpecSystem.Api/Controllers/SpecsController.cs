@@ -1,10 +1,10 @@
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
-using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
-using AcceptanceSpecSystem.Data.Entities;
-using AcceptanceSpecSystem.Data.Repositories;
+using ApplicationServiceException = AcceptanceSpecSystem.Application.ApplicationServiceException;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,24 +17,21 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class SpecsController : BaseApiController
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly AcceptanceSpecAppService _acceptanceSpecAppService;
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly SpecSemanticSearchService _specSemanticSearchService;
-    private readonly ILogger<SpecsController> _logger;
 
     /// <summary>
     /// 创建验收规格控制器实例
     /// </summary>
     public SpecsController(
-        IUnitOfWork unitOfWork,
+        AcceptanceSpecAppService acceptanceSpecAppService,
         IAuthDataScopeService authDataScopeService,
-        SpecSemanticSearchService specSemanticSearchService,
-        ILogger<SpecsController> logger)
+        SpecSemanticSearchService specSemanticSearchService)
     {
-        _unitOfWork = unitOfWork;
+        _acceptanceSpecAppService = acceptanceSpecAppService;
         _authDataScopeService = authDataScopeService;
         _specSemanticSearchService = specSemanticSearchService;
-        _logger = logger;
     }
 
     /// <summary>
@@ -48,22 +45,8 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error<List<SpecGroupDto>>(401, "会话缺少用户上下文");
 
-        var groups = await _unitOfWork.AcceptanceSpecs.GetGroupSummaryWithFilterAsync(
-            BuildSpecQueryOptions(scope));
-        var dtos = groups
-            .Select(group => new SpecGroupDto
-            {
-                CustomerId = group.CustomerId,
-                CustomerName = group.CustomerName,
-                MachineModelId = group.MachineModelId,
-                MachineModelName = group.MachineModelName,
-                ProcessId = group.ProcessId,
-                ProcessName = group.ProcessName,
-                SpecCount = group.SpecCount
-            })
-            .ToList();
-
-        return Success(dtos);
+        var items = await _acceptanceSpecAppService.GetGroupsAsync(scope.ToAccessContext());
+        return Success(items.Select(item => item.ToDto()).ToList());
     }
 
     /// <summary>
@@ -87,8 +70,10 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
 
-        var queryOptions = BuildSpecQueryOptions(
-            scope,
+        var data = await _acceptanceSpecAppService.GetPagedAsync(
+            scope.ToAccessContext(),
+            page,
+            pageSize,
             keyword,
             customerId,
             processId,
@@ -96,40 +81,9 @@ public class SpecsController : BaseApiController
             processIdIsNull,
             machineModelIdIsNull,
             importedFrom,
-            importedTo,
-            page,
-            pageSize);
+            importedTo);
 
-        var (specs, total) = await _unitOfWork.AcceptanceSpecs.GetPagedWithFilterAsync(queryOptions);
-        var items = specs
-            .Select(s => new AcceptanceSpecDto
-            {
-                Id = s.Id,
-                CustomerId = s.CustomerId,
-                ProcessId = s.ProcessId,
-                MachineModelId = s.MachineModelId,
-                ProcessName = s.Process?.Name ?? "",
-                MachineModelName = s.MachineModel?.Name ?? "",
-                CustomerName = s.Customer?.Name ?? "",
-                Project = s.Project,
-                Specification = s.Specification,
-                Acceptance = s.Acceptance,
-                Remark = s.Remark,
-                ImportedAt = s.ImportedAt,
-                OwnerOrgUnitId = s.OwnerOrgUnitId,
-                CreatedByUserId = s.CreatedByUserId
-            })
-            .ToList();
-
-        var pagedData = new PagedData<AcceptanceSpecDto>
-        {
-            Items = items,
-            Total = total,
-            Page = page,
-            PageSize = pageSize
-        };
-
-        return Success(pagedData);
+        return Success(data.ToDto());
     }
 
     /// <summary>
@@ -151,18 +105,18 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error<SpecDuplicateDetectionResultDto>(401, "会话缺少用户上下文");
 
-        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetFilteredWithIncludesAsync(
-            BuildSpecQueryOptions(
-                scope,
-                keyword,
-                customerId,
-                processId,
-                machineModelId,
-                processIdIsNull,
-                machineModelIdIsNull));
+        var result = await _acceptanceSpecAppService.GetDuplicateGroupsAsync(
+            scope.ToAccessContext(),
+            keyword,
+            customerId,
+            processId,
+            machineModelId,
+            processIdIsNull,
+            machineModelIdIsNull,
+            minSimilarity,
+            maxGroups);
 
-        var result = SpecDuplicateDetectionService.Detect(allSpecs, minSimilarity, maxGroups);
-        return Success(result);
+        return Success(result.ToDto());
     }
 
     /// <summary>
@@ -177,36 +131,18 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error<AcceptanceSpecDto>(401, "会话缺少用户上下文");
 
-        // 详情页需要展示客户/制程名称
-        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdWithCustomerAndProcessAsync(id);
-
-        if (spec == null)
+        try
         {
-            return NotFoundResult<AcceptanceSpecDto>("验收规格不存在");
+            var spec = await _acceptanceSpecAppService.GetByIdAsync(scope.ToAccessContext(), id);
+            if (spec == null)
+                return NotFoundResult<AcceptanceSpecDto>("验收规格不存在");
+
+            return Success(spec.ToDto());
         }
-
-        if (!CanAccessSpec(spec, scope))
-            return Error<AcceptanceSpecDto>(403, "无权访问该规格");
-
-        var dto = new AcceptanceSpecDto
+        catch (ApplicationServiceException ex)
         {
-            Id = spec.Id,
-            CustomerId = spec.CustomerId,
-            ProcessId = spec.ProcessId,
-            MachineModelId = spec.MachineModelId,
-            ProcessName = spec.Process?.Name ?? "",
-            MachineModelName = spec.MachineModel?.Name ?? "",
-            CustomerName = spec.Customer?.Name ?? "",
-            Project = spec.Project,
-            Specification = spec.Specification,
-            Acceptance = spec.Acceptance,
-            Remark = spec.Remark,
-            ImportedAt = spec.ImportedAt,
-            OwnerOrgUnitId = spec.OwnerOrgUnitId,
-            CreatedByUserId = spec.CreatedByUserId
-        };
-
-        return Success(dto);
+            return Error<AcceptanceSpecDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -254,77 +190,23 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error<AcceptanceSpecDto>(401, "会话缺少用户上下文");
 
-        // 检查客户是否存在
-        var customer = await _unitOfWork.Customers.GetByIdAsync(request.CustomerId);
-        if (customer == null)
+        try
         {
-            return Error<AcceptanceSpecDto>(400, "所选客户不存在");
+            var spec = await _acceptanceSpecAppService.CreateAsync(
+                scope.ToAccessContext(),
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                request.Project,
+                request.Specification,
+                request.Acceptance,
+                request.Remark);
+            return Success(spec.ToDto(), "创建验收规格成功");
         }
-
-        // 检查制程是否存在
-        Process? process = null;
-        if (request.ProcessId.HasValue)
+        catch (ApplicationServiceException ex)
         {
-            process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId.Value);
-            if (process == null)
-            {
-                return Error<AcceptanceSpecDto>(400, "所选制程不存在");
-            }
+            return Error<AcceptanceSpecDto>(ex.Code, ex.Message);
         }
-
-        // 检查机型是否存在
-        MachineModel? machineModel = null;
-        if (request.MachineModelId.HasValue)
-        {
-            machineModel = await _unitOfWork.MachineModels.GetByIdAsync(request.MachineModelId.Value);
-            if (machineModel == null)
-            {
-                return Error<AcceptanceSpecDto>(400, "所选机型不存在");
-            }
-        }
-
-        // 获取或创建一个默认的WordFile记录（手动创建的规格）
-        var wordFile = await GetOrCreateManualWordFile();
-
-        var spec = new AcceptanceSpec
-        {
-            CustomerId = request.CustomerId,
-            ProcessId = request.ProcessId,
-            MachineModelId = request.MachineModelId,
-            Project = request.Project,
-            Specification = request.Specification,
-            Acceptance = request.Acceptance,
-            Remark = request.Remark,
-            OwnerOrgUnitId = scope.OrgUnitId,
-            CreatedByUserId = scope.UserId,
-            WordFileId = wordFile.Id,
-            ImportedAt = DateTime.UtcNow
-        };
-
-        await _unitOfWork.AcceptanceSpecs.AddAsync(spec);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("创建验收规格成功: {SpecId} - {Project}", spec.Id, spec.Project);
-
-        var dto = new AcceptanceSpecDto
-        {
-            Id = spec.Id,
-            CustomerId = spec.CustomerId,
-            ProcessId = spec.ProcessId,
-            MachineModelId = spec.MachineModelId,
-            ProcessName = process?.Name ?? "",
-            MachineModelName = machineModel?.Name ?? "",
-            CustomerName = customer.Name,
-            Project = spec.Project,
-            Specification = spec.Specification,
-            Acceptance = spec.Acceptance,
-            Remark = spec.Remark,
-            ImportedAt = spec.ImportedAt,
-            OwnerOrgUnitId = spec.OwnerOrgUnitId,
-            CreatedByUserId = spec.CreatedByUserId
-        };
-
-        return Success(dto, "创建验收规格成功");
     }
 
     /// <summary>
@@ -334,50 +216,31 @@ public class SpecsController : BaseApiController
     [AuditOperation("update", "spec")]
     [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<AcceptanceSpecDto>>> UpdateSpec(int id, [FromBody] UpdateSpecRequest request)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<AcceptanceSpecDto>(401, "会话缺少用户上下文");
 
-        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(id);
-        if (spec == null)
+        try
         {
-            return NotFoundResult<AcceptanceSpecDto>("验收规格不存在");
+            var spec = await _acceptanceSpecAppService.UpdateAsync(
+                scope.ToAccessContext(),
+                id,
+                request.Project,
+                request.Specification,
+                request.Acceptance,
+                request.Remark);
+            if (spec == null)
+                return NotFoundResult<AcceptanceSpecDto>("验收规格不存在");
+
+            return Success(spec.ToDto(), "更新验收规格成功");
         }
-
-        if (!CanAccessSpec(spec, scope))
-            return Error<AcceptanceSpecDto>(403, "无权操作该规格");
-
-        spec.Project = request.Project;
-        spec.Specification = request.Specification;
-        spec.Acceptance = request.Acceptance;
-        spec.Remark = request.Remark;
-
-        _unitOfWork.AcceptanceSpecs.Update(spec);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("更新验收规格成功: {SpecId} - {Project}", spec.Id, spec.Project);
-
-        var dto = new AcceptanceSpecDto
+        catch (ApplicationServiceException ex)
         {
-            Id = spec.Id,
-            CustomerId = spec.CustomerId,
-            ProcessId = spec.ProcessId,
-            MachineModelId = spec.MachineModelId,
-            ProcessName = spec.Process?.Name ?? "",
-            MachineModelName = spec.MachineModel?.Name ?? "",
-            CustomerName = spec.Customer?.Name ?? "",
-            Project = spec.Project,
-            Specification = spec.Specification,
-            Acceptance = spec.Acceptance,
-            Remark = spec.Remark,
-            ImportedAt = spec.ImportedAt,
-            OwnerOrgUnitId = spec.OwnerOrgUnitId,
-            CreatedByUserId = spec.CreatedByUserId
-        };
-
-        return Success(dto, "更新验收规格成功");
+            return Error<AcceptanceSpecDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -393,21 +256,18 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error(401, "会话缺少用户上下文");
 
-        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(id);
-        if (spec == null)
+        try
         {
-            return NotFound(ApiResponse.Error(404, "验收规格不存在"));
+            var deleted = await _acceptanceSpecAppService.DeleteAsync(scope.ToAccessContext(), id);
+            if (!deleted)
+                return NotFound(ApiResponse.Error(404, "验收规格不存在"));
+
+            return Success("删除验收规格成功");
         }
-
-        if (!CanAccessSpec(spec, scope))
-            return Error(403, "无权操作该规格");
-
-        _unitOfWork.AcceptanceSpecs.Remove(spec);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("删除验收规格成功: {SpecId} - {Project}", spec.Id, spec.Project);
-
-        return Success("删除验收规格成功");
+        catch (ApplicationServiceException ex)
+        {
+            return Error(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -423,90 +283,21 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error<BatchImportResult>(401, "会话缺少用户上下文");
 
-        // 检查客户是否存在
-        var customer = await _unitOfWork.Customers.GetByIdAsync(request.CustomerId);
-        if (customer == null)
+        try
         {
-            return Error<BatchImportResult>(400, "所选客户不存在");
+            var result = await _acceptanceSpecAppService.BatchImportAsync(
+                scope.ToAccessContext(),
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                request.WordFileId,
+                request.Items.Select(item => item.ToInput()).ToList());
+            return Success(result.ToDto(), $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条");
         }
-
-        // 检查制程是否存在
-        Process? process = null;
-        if (request.ProcessId.HasValue)
+        catch (ApplicationServiceException ex)
         {
-            process = await _unitOfWork.Processes.GetByIdAsync(request.ProcessId.Value);
-            if (process == null)
-            {
-                return Error<BatchImportResult>(400, "所选制程不存在");
-            }
+            return Error<BatchImportResult>(ex.Code, ex.Message);
         }
-
-        // 检查机型是否存在
-        if (request.MachineModelId.HasValue)
-        {
-            var machineModel = await _unitOfWork.MachineModels.GetByIdAsync(request.MachineModelId.Value);
-            if (machineModel == null)
-            {
-                return Error<BatchImportResult>(400, "所选机型不存在");
-            }
-        }
-
-        // 检查WordFile是否存在
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(request.WordFileId);
-        if (wordFile == null)
-        {
-            return Error<BatchImportResult>(400, "Word文件不存在");
-        }
-
-        var successCount = 0;
-        var failedCount = 0;
-
-        foreach (var item in request.Items)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(item.Project) || string.IsNullOrWhiteSpace(item.Specification))
-                {
-                    failedCount++;
-                    continue;
-                }
-
-                var spec = new AcceptanceSpec
-                {
-                    CustomerId = request.CustomerId,
-                    ProcessId = request.ProcessId,
-                    MachineModelId = request.MachineModelId,
-                    Project = item.Project.Trim(),
-                    Specification = item.Specification.Trim(),
-                    Acceptance = item.Acceptance?.Trim(),
-                    Remark = item.Remark?.Trim(),
-                    OwnerOrgUnitId = scope.OrgUnitId,
-                    CreatedByUserId = scope.UserId,
-                    WordFileId = request.WordFileId,
-                    ImportedAt = DateTime.UtcNow
-                };
-
-                await _unitOfWork.AcceptanceSpecs.AddAsync(spec);
-                successCount++;
-            }
-            catch
-            {
-                failedCount++;
-            }
-        }
-
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("批量导入验收规格完成: 成功{Success}, 失败{Failed}", successCount, failedCount);
-
-        var result = new BatchImportResult
-        {
-            SuccessCount = successCount,
-            FailedCount = failedCount,
-            TotalCount = request.Items.Count
-        };
-
-        return Success(result, $"导入完成：成功{successCount}条，失败{failedCount}条");
     }
 
     /// <summary>
@@ -521,149 +312,19 @@ public class SpecsController : BaseApiController
         if (scope == null)
             return Error(401, "会话缺少用户上下文");
 
-        if (ids == null || ids.Count == 0)
+        try
         {
-            return Error(400, "请选择要删除的规格");
+            var deletedCount = await _acceptanceSpecAppService.BatchDeleteAsync(scope.ToAccessContext(), ids ?? []);
+            return Success($"成功删除{deletedCount}条规格");
         }
-
-        var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(s => ids.Contains(s.Id));
-        var allowedSpecs = specs.Where(s => CanAccessSpec(s, scope)).ToList();
-
-        if (allowedSpecs.Count == 0)
+        catch (ApplicationServiceException ex)
         {
-            return Error(403, "未找到可删除的规格或无权限");
+            return Error(ex.Code, ex.Message);
         }
-
-        _unitOfWork.AcceptanceSpecs.RemoveRange(allowedSpecs);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("批量删除验收规格成功: {Count}条", allowedSpecs.Count);
-
-        return Success($"成功删除{allowedSpecs.Count}条规格");
     }
 
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()
     {
         return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
-    }
-
-    private static IReadOnlyList<AcceptanceSpec> ApplySpecScope(
-        IEnumerable<AcceptanceSpec> specs,
-        DataScopeResult scope)
-    {
-        return SpecDataScopeHelper.ApplyScope(specs, scope);
-    }
-
-    private static bool CanAccessSpec(AcceptanceSpec spec, DataScopeResult scope)
-    {
-        return SpecDataScopeHelper.CanAccess(spec, scope);
-    }
-
-    private static AcceptanceSpecQueryOptions BuildSpecQueryOptions(
-        DataScopeResult scope,
-        string? keyword = null,
-        int? customerId = null,
-        int? processId = null,
-        int? machineModelId = null,
-        bool? processIdIsNull = null,
-        bool? machineModelIdIsNull = null,
-        DateTime? importedFrom = null,
-        DateTime? importedTo = null,
-        int page = 1,
-        int pageSize = 20)
-    {
-        return new AcceptanceSpecQueryOptions
-        {
-            UserId = scope.UserId,
-            IsAll = scope.IsAll,
-            IncludeSelf = scope.IncludeSelf,
-            OrgUnitIds = scope.OrgUnitIds.ToArray(),
-            Keyword = keyword,
-            CustomerId = customerId,
-            ProcessId = processId,
-            MachineModelId = machineModelId,
-            ProcessIdIsNull = processIdIsNull,
-            MachineModelIdIsNull = machineModelIdIsNull,
-            Page = page,
-            PageSize = pageSize,
-            ImportedFrom = importedFrom,
-            ImportedTo = importedTo
-        };
-    }
-
-    private static IReadOnlyList<AcceptanceSpec> ApplySpecFilters(
-        IEnumerable<AcceptanceSpec> specs,
-        string? keyword,
-        int? customerId,
-        int? processId,
-        int? machineModelId,
-        bool? processIdIsNull,
-        bool? machineModelIdIsNull)
-    {
-        var query = specs;
-
-        if (processId.HasValue)
-        {
-            query = query.Where(spec => spec.ProcessId == processId.Value);
-        }
-        else if (processIdIsNull == true)
-        {
-            query = query.Where(spec => spec.ProcessId == null);
-        }
-
-        if (machineModelId.HasValue)
-        {
-            query = query.Where(spec => spec.MachineModelId == machineModelId.Value);
-        }
-        else if (machineModelIdIsNull == true)
-        {
-            query = query.Where(spec => spec.MachineModelId == null);
-        }
-
-        if (customerId.HasValue)
-        {
-            query = query.Where(spec => spec.CustomerId == customerId.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            query = query.Where(spec =>
-                spec.Project.Contains(keyword) ||
-                spec.Specification.Contains(keyword) ||
-                (spec.Acceptance != null && spec.Acceptance.Contains(keyword)) ||
-                (spec.Remark != null && spec.Remark.Contains(keyword)));
-        }
-
-        return query.ToList();
-    }
-
-    /// <summary>
-    /// 获取或创建手动录入的WordFile记录
-    /// </summary>
-    private async Task<WordFile> GetOrCreateManualWordFile()
-    {
-        const string manualFileName = "__MANUAL_ENTRY__";
-        const string manualFileHash = "manual_entry_placeholder";
-
-        var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(
-            w => w.FileName == manualFileName);
-
-        if (existingFile != null)
-        {
-            return existingFile;
-        }
-
-        var wordFile = new WordFile
-        {
-            FileName = manualFileName,
-            FileContent = Array.Empty<byte>(),
-            FileHash = manualFileHash,
-            UploadedAt = DateTime.UtcNow
-        };
-
-        await _unitOfWork.WordFiles.AddAsync(wordFile);
-        await _unitOfWork.SaveChangesAsync();
-
-        return wordFile;
     }
 }

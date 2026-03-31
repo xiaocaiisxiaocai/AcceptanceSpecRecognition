@@ -106,7 +106,6 @@ export const useUserStore = defineStore("pure-user", {
       this.roleCode = "";
       this.permissions = [];
       removeToken();
-      storageLocal().removeItem("async-routes");
       usePermissionStoreHook().clearAllCachePage();
       useMultiTagsStoreHook().handleTags("equal", [...routerArrays]);
       resetRouter();
@@ -126,10 +125,7 @@ export const useUserStore = defineStore("pure-user", {
             if (data) {
               const { authorizationChanged } = setToken(data.data);
               if (authorizationChanged) {
-                const asyncRoutes = storageLocal().getItem<Array<any>>("async-routes") ?? [];
-                usePermissionStoreHook().handleWholeMenus(
-                  Array.isArray(asyncRoutes) ? asyncRoutes : []
-                );
+                usePermissionStoreHook().handleWholeMenus([]);
 
                 const requiredPermissions =
                   (router.currentRoute.value.meta?.permissions as

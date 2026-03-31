@@ -233,6 +233,13 @@ public class MatchEvidenceBuilderTests
             item.SourceExpression.Contains("22V", StringComparison.OrdinalIgnoreCase) &&
             item.CandidateExpression.Contains("220V", StringComparison.OrdinalIgnoreCase));
         evidence.HasHardConflict.Should().BeTrue();
+        evidence.Issues.Should().Contain(issue =>
+            issue.Code == "numeric_value_conflict" &&
+            issue.FieldName == "电压" &&
+            issue.SourceValue == "22V" &&
+            issue.CandidateValue == "220V" &&
+            issue.Message.Contains("22V", StringComparison.OrdinalIgnoreCase) &&
+            issue.Message.Contains("220V", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

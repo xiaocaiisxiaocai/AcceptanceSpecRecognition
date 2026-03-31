@@ -2,11 +2,8 @@ using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
-using AcceptanceSpecSystem.Data.Context;
-using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -17,11 +14,11 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class AuthRolesController : BaseApiController
 {
-    private readonly AppDbContext _dbContext;
+    private readonly AuthRoleAppService _authRoleAppService;
 
-    public AuthRolesController(AppDbContext dbContext)
+    public AuthRolesController(AuthRoleAppService authRoleAppService)
     {
-        _dbContext = dbContext;
+        _authRoleAppService = authRoleAppService;
     }
 
     /// <summary>
@@ -35,27 +32,8 @@ public class AuthRolesController : BaseApiController
         if (!companyId.HasValue)
             return Error<List<AuthRoleDto>>(401, "会话缺少公司上下文");
 
-        var query = _dbContext.AuthRoles
-            .AsNoTracking()
-            .AsSplitQuery()
-            .Include(r => r.RolePermissions)
-                .ThenInclude(rp => rp.Permission)
-            .Include(r => r.DataScopes)
-                .ThenInclude(s => s.Nodes)
-            .Where(r => r.CompanyId == companyId.Value);
-
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            var key = keyword.Trim();
-            query = query.Where(r => r.Code.Contains(key) || r.Name.Contains(key));
-        }
-
-        var roles = await query
-            .OrderByDescending(r => r.IsBuiltIn)
-            .ThenBy(r => r.Code)
-            .ToListAsync();
-
-        return Success(roles.Select(ToDto).ToList());
+        var roles = await _authRoleAppService.GetListAsync(companyId.Value, keyword);
+        return Success(roles);
     }
 
     /// <summary>
@@ -69,17 +47,11 @@ public class AuthRolesController : BaseApiController
         if (!companyId.HasValue)
             return Error<AuthRoleDto>(401, "会话缺少公司上下文");
 
-        var role = await _dbContext.AuthRoles
-            .AsSplitQuery()
-            .Include(r => r.RolePermissions)
-                .ThenInclude(rp => rp.Permission)
-            .Include(r => r.DataScopes)
-                .ThenInclude(s => s.Nodes)
-            .FirstOrDefaultAsync(r => r.CompanyId == companyId.Value && r.Id == id);
+        var role = await _authRoleAppService.GetByIdAsync(companyId.Value, id);
         if (role == null)
             return Error<AuthRoleDto>(404, "角色不存在");
 
-        return Success(ToDto(role));
+        return Success(role);
     }
 
     /// <summary>
@@ -94,44 +66,15 @@ public class AuthRolesController : BaseApiController
         if (!companyId.HasValue)
             return Error<AuthRoleDto>(401, "会话缺少公司上下文");
 
-        var code = NormalizeCode(request.Code);
-        if (string.IsNullOrWhiteSpace(code))
-            return Error<AuthRoleDto>(400, "角色编码不能为空");
-
-        if (await _dbContext.AuthRoles.AnyAsync(r => r.CompanyId == companyId.Value && r.Code == code))
-            return Error<AuthRoleDto>(400, "角色编码已存在");
-
-        var now = DateTime.UtcNow;
-        var role = new AuthRole
+        try
         {
-            CompanyId = companyId.Value,
-            Code = code,
-            Name = request.Name.Trim(),
-            Description = NormalizeOptional(request.Description),
-            IsBuiltIn = false,
-            IsActive = request.IsActive,
-            CreatedAt = now
-        };
-
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
-
-        await _dbContext.AuthRoles.AddAsync(role);
-        await _dbContext.SaveChangesAsync();
-
-        var syncError = await SyncRoleRelationsAsync(role, request.PermissionCodes, request.DataScopes, companyId.Value);
-        if (!string.IsNullOrWhiteSpace(syncError))
-            return Error<AuthRoleDto>(400, syncError);
-
-        await _dbContext.SaveChangesAsync();
-        await transaction.CommitAsync();
-
-        var saved = await _dbContext.AuthRoles
-            .AsSplitQuery()
-            .Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
-            .Include(r => r.DataScopes).ThenInclude(s => s.Nodes)
-            .FirstAsync(r => r.Id == role.Id);
-
-        return Success(ToDto(saved), "创建角色成功");
+            var role = await _authRoleAppService.CreateAsync(companyId.Value, request);
+            return Success(role, "创建角色成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AuthRoleDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -146,39 +89,15 @@ public class AuthRolesController : BaseApiController
         if (!companyId.HasValue)
             return Error<AuthRoleDto>(401, "会话缺少公司上下文");
 
-        var role = await _dbContext.AuthRoles
-            .AsSplitQuery()
-            .Include(r => r.RolePermissions)
-            .Include(r => r.DataScopes)
-                .ThenInclude(s => s.Nodes)
-            .FirstOrDefaultAsync(r => r.CompanyId == companyId.Value && r.Id == id);
-        if (role == null)
-            return Error<AuthRoleDto>(404, "角色不存在");
-
-        if (role.IsBuiltIn)
-            return Error<AuthRoleDto>(400, "内置角色不允许修改");
-
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
-        role.Name = request.Name.Trim();
-        role.Description = NormalizeOptional(request.Description);
-        role.IsActive = request.IsActive;
-        role.UpdatedAt = DateTime.UtcNow;
-
-        var syncError = await SyncRoleRelationsAsync(role, request.PermissionCodes, request.DataScopes, companyId.Value);
-        if (!string.IsNullOrWhiteSpace(syncError))
-            return Error<AuthRoleDto>(400, syncError);
-
-        await TouchUsersByRoleAsync(role.Id);
-        await _dbContext.SaveChangesAsync();
-        await transaction.CommitAsync();
-
-        var saved = await _dbContext.AuthRoles
-            .AsSplitQuery()
-            .Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
-            .Include(r => r.DataScopes).ThenInclude(s => s.Nodes)
-            .FirstAsync(r => r.Id == role.Id);
-
-        return Success(ToDto(saved), "更新角色成功");
+        try
+        {
+            var role = await _authRoleAppService.UpdateAsync(companyId.Value, id, request);
+            return Success(role, "更新角色成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AuthRoleDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -193,167 +112,14 @@ public class AuthRolesController : BaseApiController
         if (!companyId.HasValue)
             return Error(401, "会话缺少公司上下文");
 
-        var role = await _dbContext.AuthRoles.FirstOrDefaultAsync(r => r.CompanyId == companyId.Value && r.Id == id);
-        if (role == null)
-            return Error(404, "角色不存在");
-
-        if (role.IsBuiltIn)
-            return Error(400, "内置角色不允许删除");
-
-        var referenced = await _dbContext.AuthUserRoles.AnyAsync(r => r.RoleId == id);
-        if (referenced)
-            return Error(400, "角色已被用户使用，无法删除");
-
-        _dbContext.AuthRoles.Remove(role);
-        await _dbContext.SaveChangesAsync();
-
-        return Success("删除角色成功");
-    }
-
-    private async Task<string?> SyncRoleRelationsAsync(
-        AuthRole role,
-        IEnumerable<string> permissionCodes,
-        IEnumerable<AuthRoleDataScopeDto> dataScopes,
-        int companyId)
-    {
-        var normalizedPermissionCodes = permissionCodes
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Select(v => v.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var permissions = normalizedPermissionCodes.Count == 0
-            ? []
-            : await _dbContext.AuthPermissions
-                .Where(p => normalizedPermissionCodes.Contains(p.Code))
-                .ToListAsync();
-        if (permissions.Count != normalizedPermissionCodes.Count)
-            return "存在无效权限编码";
-
-        var currentPermissionIds = role.RolePermissions.Select(x => x.PermissionId).ToHashSet();
-        var targetPermissionIds = permissions.Select(x => x.Id).ToHashSet();
-        var removeRolePermissions = role.RolePermissions.Where(x => !targetPermissionIds.Contains(x.PermissionId)).ToList();
-        if (removeRolePermissions.Count > 0)
-            _dbContext.AuthRolePermissions.RemoveRange(removeRolePermissions);
-
-        foreach (var permissionId in targetPermissionIds.Where(id => !currentPermissionIds.Contains(id)))
+        try
         {
-            await _dbContext.AuthRolePermissions.AddAsync(new AuthRolePermission
-            {
-                RoleId = role.Id,
-                PermissionId = permissionId
-            });
+            await _authRoleAppService.DeleteAsync(companyId.Value, id);
+            return Success("删除角色成功");
         }
-
-        var normalizedScopes = dataScopes
-            .Where(x => !string.IsNullOrWhiteSpace(x.Resource))
-            .Select(x => new AuthRoleDataScopeDto
-            {
-                Resource = x.Resource.Trim().ToLowerInvariant(),
-                ScopeType = x.ScopeType,
-                OrgUnitIds = x.OrgUnitIds?.Distinct().ToList() ?? []
-            })
-            .ToList();
-
-        if (normalizedScopes.Any(scope => scope.ScopeType == DataScopeType.CustomNodes))
-            return "单组织模式不支持自定义多组织范围";
-
-        var rootOrgUnitId = await SingleOrgUnitService.GetRootOrgUnitIdAsync(_dbContext, companyId);
-        if (!rootOrgUnitId.HasValue)
-            return "根组织不存在";
-
-        var allNodeIds = normalizedScopes
-            .SelectMany(x => x.OrgUnitIds)
-            .Distinct()
-            .ToList();
-        if (allNodeIds.Count > 0)
+        catch (ApplicationServiceException ex)
         {
-            if (allNodeIds.Any(nodeId => nodeId != rootOrgUnitId.Value))
-                return "单组织模式下数据范围只允许选择根组织节点";
+            return Error(ex.Code, ex.Message);
         }
-
-        var existingScopes = await _dbContext.AuthRoleDataScopes
-            .Include(s => s.Nodes)
-            .Where(s => s.RoleId == role.Id)
-            .ToListAsync();
-
-        _dbContext.AuthRoleDataScopes.RemoveRange(existingScopes);
-        await _dbContext.SaveChangesAsync();
-
-        foreach (var scope in normalizedScopes)
-        {
-            var scopeEntity = new AuthRoleDataScope
-            {
-                RoleId = role.Id,
-                Resource = scope.Resource,
-                ScopeType = scope.ScopeType,
-                CreatedAt = DateTime.UtcNow
-            };
-            await _dbContext.AuthRoleDataScopes.AddAsync(scopeEntity);
-            await _dbContext.SaveChangesAsync();
-
-            foreach (var nodeId in scope.OrgUnitIds)
-            {
-                await _dbContext.AuthRoleDataScopeNodes.AddAsync(new AuthRoleDataScopeNode
-                {
-                    RoleDataScopeId = scopeEntity.Id,
-                    OrgUnitId = nodeId
-                });
-            }
-
-            await _dbContext.SaveChangesAsync();
-        }
-
-        return null;
-    }
-
-    private static string NormalizeCode(string value)
-    {
-        return string.IsNullOrWhiteSpace(value)
-            ? string.Empty
-            : value.Trim().ToLowerInvariant();
-    }
-
-    private static string NormalizeOptional(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
-    }
-
-    private async Task TouchUsersByRoleAsync(int roleId)
-    {
-        var now = DateTime.UtcNow;
-        await _dbContext.SystemUsers
-            .Where(user => user.UserRoles.Any(userRole => userRole.RoleId == roleId))
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(user => user.PermissionVersion, user => user.PermissionVersion + 1)
-                .SetProperty(user => user.UpdatedAt, _ => now));
-    }
-
-    private static AuthRoleDto ToDto(AuthRole role)
-    {
-        return new AuthRoleDto
-        {
-            Id = role.Id,
-            Code = role.Code,
-            Name = role.Name,
-            Description = role.Description,
-            IsBuiltIn = role.IsBuiltIn,
-            IsActive = role.IsActive,
-            PermissionCodes = role.RolePermissions
-                .Select(p => p.Permission.Code)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                .ToList(),
-            DataScopes = role.DataScopes
-                .Select(s => new AuthRoleDataScopeDto
-                {
-                    Resource = s.Resource,
-                    ScopeType = s.ScopeType,
-                    OrgUnitIds = s.Nodes.Select(n => n.OrgUnitId).Distinct().OrderBy(x => x).ToList()
-                })
-                .OrderBy(s => s.Resource)
-                .ThenBy(s => s.ScopeType)
-                .ToList()
-        };
     }
 }

@@ -1,12 +1,11 @@
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
-using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
-using AcceptanceSpecSystem.Data.Entities;
-using AcceptanceSpecSystem.Data.Repositories;
+using AcceptanceSpecSystem.Application.Services;
+using ApplicationServiceException = AcceptanceSpecSystem.Application.ApplicationServiceException;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -17,21 +16,18 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class MachineModelsController : BaseApiController
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly MachineModelAppService _machineModelAppService;
     private readonly IAuthDataScopeService _authDataScopeService;
-    private readonly ILogger<MachineModelsController> _logger;
 
     /// <summary>
     /// 创建机型控制器实例
     /// </summary>
     public MachineModelsController(
-        IUnitOfWork unitOfWork,
-        IAuthDataScopeService authDataScopeService,
-        ILogger<MachineModelsController> logger)
+        MachineModelAppService machineModelAppService,
+        IAuthDataScopeService authDataScopeService)
     {
-        _unitOfWork = unitOfWork;
+        _machineModelAppService = machineModelAppService;
         _authDataScopeService = authDataScopeService;
-        _logger = logger;
     }
 
     /// <summary>
@@ -46,48 +42,16 @@ public class MachineModelsController : BaseApiController
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
-        {
             return Error<PagedData<MachineModelDto>>(401, "会话缺少用户上下文");
-        }
 
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 200);
-
-        var query = _unitOfWork.MachineModels.Query();
-        if (!string.IsNullOrWhiteSpace(keyword))
+        var data = await _machineModelAppService.GetPagedAsync(scope.ToAccessContext(), page, pageSize, keyword);
+        return Success(new PagedData<MachineModelDto>
         {
-            var key = keyword.Trim();
-            query = query.Where(m => m.Name.Contains(key));
-        }
-
-        var total = await query.CountAsync();
-        var rows = await query
-            .OrderByDescending(m => m.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(m => new { m.Id, m.Name, m.CreatedAt })
-            .ToListAsync();
-
-        var modelIds = rows.Select(m => m.Id).ToList();
-        var specCountByModel = await BuildModelSpecCountAsync(modelIds, scope);
-
-        var items = rows.Select(m => new MachineModelDto
-        {
-            Id = m.Id,
-            Name = m.Name,
-            CreatedAt = m.CreatedAt,
-            SpecCount = specCountByModel.TryGetValue(m.Id, out var count) ? count : 0
-        }).ToList();
-
-        var pagedData = new PagedData<MachineModelDto>
-        {
-            Items = items,
-            Total = total,
-            Page = page,
-            PageSize = pageSize
-        };
-
-        return Success(pagedData);
+            Items = data.Items.Select(item => item.ToDto()).ToList(),
+            Total = data.Total,
+            Page = data.Page,
+            PageSize = data.PageSize
+        });
     }
 
     /// <summary>
@@ -100,28 +64,13 @@ public class MachineModelsController : BaseApiController
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
-        {
             return Error<MachineModelDto>(401, "会话缺少用户上下文");
-        }
 
-        var model = await _unitOfWork.MachineModels.GetByIdAsync(id);
-
+        var model = await _machineModelAppService.GetByIdAsync(scope.ToAccessContext(), id);
         if (model == null)
-        {
             return NotFoundResult<MachineModelDto>("机型不存在");
-        }
 
-        var specCount = await GetModelSpecCountAsync(id, scope);
-
-        var dto = new MachineModelDto
-        {
-            Id = model.Id,
-            Name = model.Name,
-            CreatedAt = model.CreatedAt,
-            SpecCount = specCount
-        };
-
-        return Success(dto);
+        return Success(model.ToDto());
     }
 
     /// <summary>
@@ -133,26 +82,15 @@ public class MachineModelsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<MachineModelDto>>> CreateMachineModel([FromBody] CreateMachineModelRequest request)
     {
-        var model = new MachineModel
+        try
         {
-            Name = request.Name,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        await _unitOfWork.MachineModels.AddAsync(model);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("创建机型成功: {MachineModelId} - {MachineModelName}", model.Id, model.Name);
-
-        var dto = new MachineModelDto
+            var model = await _machineModelAppService.CreateAsync(request.Name);
+            return Success(model.ToDto(), "创建机型成功");
+        }
+        catch (ApplicationServiceException ex)
         {
-            Id = model.Id,
-            Name = model.Name,
-            CreatedAt = model.CreatedAt,
-            SpecCount = 0
-        };
-
-        return Success(dto, "创建机型成功");
+            return Error<MachineModelDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -162,36 +100,25 @@ public class MachineModelsController : BaseApiController
     [AuditOperation("update", "machine-model")]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<MachineModelDto>>> UpdateMachineModel(int id, [FromBody] UpdateMachineModelRequest request)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
-        {
             return Error<MachineModelDto>(401, "会话缺少用户上下文");
-        }
 
-        var model = await _unitOfWork.MachineModels.GetByIdAsync(id);
-        if (model == null)
+        try
         {
-            return NotFoundResult<MachineModelDto>("机型不存在");
+            var model = await _machineModelAppService.UpdateAsync(scope.ToAccessContext(), id, request.Name);
+            if (model == null)
+                return NotFoundResult<MachineModelDto>("机型不存在");
+
+            return Success(model.ToDto(), "更新机型成功");
         }
-
-        model.Name = request.Name;
-
-        _unitOfWork.MachineModels.Update(model);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("更新机型成功: {MachineModelId} - {MachineModelName}", model.Id, model.Name);
-
-        var dto = new MachineModelDto
+        catch (ApplicationServiceException ex)
         {
-            Id = model.Id,
-            Name = model.Name,
-            CreatedAt = model.CreatedAt,
-            SpecCount = await GetModelSpecCountAsync(id, scope)
-        };
-
-        return Success(dto, "更新机型成功");
+            return Error<MachineModelDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -203,16 +130,9 @@ public class MachineModelsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse>> DeleteMachineModel(int id)
     {
-        var model = await _unitOfWork.MachineModels.GetByIdAsync(id);
-        if (model == null)
-        {
+        var deleted = await _machineModelAppService.DeleteAsync(id);
+        if (!deleted)
             return NotFound(ApiResponse.Error(404, "机型不存在"));
-        }
-
-        _unitOfWork.MachineModels.Remove(model);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("删除机型成功: {MachineModelId} - {MachineModelName}", model.Id, model.Name);
 
         return Success("删除机型成功");
     }
@@ -220,29 +140,5 @@ public class MachineModelsController : BaseApiController
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()
     {
         return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
-    }
-
-    private async Task<Dictionary<int, int>> BuildModelSpecCountAsync(
-        IReadOnlyCollection<int> modelIds,
-        DataScopeResult scope)
-    {
-        if (modelIds.Count == 0)
-        {
-            return new Dictionary<int, int>();
-        }
-
-        var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(
-            s => s.MachineModelId.HasValue && modelIds.Contains(s.MachineModelId.Value));
-
-        return SpecDataScopeHelper.ApplyScope(specs, scope)
-            .Where(s => s.MachineModelId.HasValue)
-            .GroupBy(s => s.MachineModelId!.Value)
-            .ToDictionary(g => g.Key, g => g.Count());
-    }
-
-    private async Task<int> GetModelSpecCountAsync(int modelId, DataScopeResult scope)
-    {
-        var counts = await BuildModelSpecCountAsync([modelId], scope);
-        return counts.TryGetValue(modelId, out var count) ? count : 0;
     }
 }

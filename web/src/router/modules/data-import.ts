@@ -1,3 +1,4 @@
+import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
 const Layout = () => import("@/layout/index.vue");
 
 export default {
@@ -7,9 +8,9 @@ export default {
   redirect: "/data-import/import",
   meta: {
     icon: "ri:upload-cloud-2-line",
-    title: "数据导入",
+    title: getMenuTitle("data-import"),
     rank: 2,
-    permissions: ["menu:data-import"]
+    permissions: getMenuPermission("data-import")
   },
   children: [
     {
@@ -18,8 +19,8 @@ export default {
       component: () => import("@/views/data-import/index.vue"),
       meta: {
         icon: "ri:file-upload-line",
-        title: "导入数据",
-        permissions: ["page:data-import:index"]
+        title: getPageTitle("data-import-index"),
+        permissions: getPagePermission("data-import-index")
       }
     }
   ]

@@ -1,3 +1,4 @@
+import { getPagePermission, getPageTitle } from "../navigation-manifest";
 const Layout = () => import("@/layout/index.vue");
 
 export default [
@@ -7,9 +8,9 @@ export default [
     component: Layout,
     redirect: "/rbac/auth-roles",
     meta: {
-      title: "角色管理",
+      title: getPageTitle("config-auth-roles"),
       showLink: false,
-      permissions: ["page:config:auth-roles"]
+      permissions: getPagePermission("config-auth-roles")
     }
   },
   {
@@ -18,9 +19,9 @@ export default [
     component: Layout,
     redirect: "/rbac/system-users",
     meta: {
-      title: "系统用户",
+      title: getPageTitle("config-system-users"),
       showLink: false,
-      permissions: ["page:config:system-users"]
+      permissions: getPagePermission("config-system-users")
     }
   },
   {
@@ -29,9 +30,9 @@ export default [
     component: Layout,
     redirect: "/rbac/org-units",
     meta: {
-      title: "组织管理",
+      title: getPageTitle("config-org-units"),
       showLink: false,
-      permissions: ["page:config:org-units"]
+      permissions: getPagePermission("config-org-units")
     }
   }
 ] satisfies RouteConfigsTable[];

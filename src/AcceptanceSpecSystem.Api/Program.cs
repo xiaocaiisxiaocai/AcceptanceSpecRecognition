@@ -1,4 +1,5 @@
 using System.Text;
+using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Middleware;
@@ -142,9 +143,25 @@ builder.Services.AddSingleton<IAuthPasswordService, AuthPasswordService>();
 builder.Services.AddScoped<IAuthAccessService, AuthAccessService>();
 builder.Services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
 builder.Services.AddScoped<IAuthSessionValidationService, AuthSessionValidationService>();
+builder.Services.AddScoped<AuthPermissionQueryService>();
+builder.Services.AddScoped<AuthRoleAppService>();
+builder.Services.AddScoped<OrgUnitAppService>();
+builder.Services.AddScoped<SystemUserAppService>();
 builder.Services.AddScoped<SpecSemanticSearchService>();
 builder.Services.AddScoped<ImportDuplicateDetectionService>();
-builder.Services.AddScoped<MatchingWorkflowService>();
+builder.Services.AddScoped<DocumentFileAccessService>();
+builder.Services.AddScoped<DocumentTableAccessService>();
+builder.Services.AddScoped<MatchingResultWriteBackService>();
+builder.Services.AddScoped<DocumentFileAppService>();
+builder.Services.AddScoped<DocumentImportAppService>();
+builder.Services.AddScoped<MatchingTaskSnapshotService>();
+builder.Services.AddScoped<MatchingWorkflowSupportService>();
+builder.Services.AddScoped<MatchingPreviewAppService>();
+builder.Services.AddScoped<MatchingLlmStreamAppService>();
+builder.Services.AddScoped<MatchingFillExecutionAppService>();
+builder.Services.AddScoped<MatchingExecutionAppService>();
+builder.Services.AddScoped<MatchingTaskAppService>();
+builder.Services.AddScoped<StrictReuseAppService>();
 builder.Services.AddScoped<MatchingKnowledgeBootstrapper>();
 builder.Services.AddScoped<MatchingKnowledgeDraftGenerationService>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
@@ -153,10 +170,9 @@ builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
 // 注册文档服务
 builder.Services.AddSingleton<DocumentServiceFactory>();
 builder.Services.AddScoped<IFileCompareService, FileCompareService>();
+builder.Services.AddAcceptanceApplicationLayer();
 
 // 注册匹配服务（Semantic Kernel）
-builder.Services.AddScoped<IAiServiceConfigProvider, AiServiceConfigProvider>();
-builder.Services.AddScoped<IPromptTemplateProvider, PromptTemplateProvider>();
 builder.Services.AddScoped<IMatchingKnowledgeProvider, ConfigurationMatchingKnowledgeProvider>();
 builder.Services.AddScoped<IAiServiceSelector, AiServiceSelector>();
 builder.Services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();

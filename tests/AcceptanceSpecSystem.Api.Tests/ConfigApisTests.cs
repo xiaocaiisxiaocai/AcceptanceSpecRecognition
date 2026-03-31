@@ -299,6 +299,40 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task AiServiceConfig_MatchingDefaults_ShouldPersist()
+    {
+        var createResp = await _client.PostAsync(
+            "/api/ai-services",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = $"embedding-defaults-{Guid.NewGuid():N}",
+                serviceType = 2,
+                purpose = 2,
+                priority = 0,
+                endpoint = "http://127.0.0.1:11434/api",
+                apiKey = "",
+                embeddingModel = "nomic-embed-text",
+                defaultMatchingStrategy = 2,
+                defaultRecallTopK = 3
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        created.Code.Should().Be(0);
+        created.Data.GetProperty("defaultMatchingStrategy").GetInt32().Should().Be(2);
+        created.Data.GetProperty("defaultRecallTopK").GetInt32().Should().Be(3);
+
+        var id = created.Data.GetProperty("id").GetInt32();
+        var getResp = await _client.GetAsync($"/api/ai-services/{id}");
+        getResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var detail = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        detail.Code.Should().Be(0);
+        detail.Data.GetProperty("defaultMatchingStrategy").GetInt32().Should().Be(2);
+        detail.Data.GetProperty("defaultRecallTopK").GetInt32().Should().Be(3);
+    }
+
+    [Fact]
     public async Task AiServiceConfig_GetById_ShouldMaskStoredApiKey()
     {
         const string rawApiKey = "sk-secret-key-1234567890";

@@ -17,7 +17,7 @@ defineOptions({
   name: "AuthRolesConfig"
 });
 
-type ScopeType = 0 | 1 | 2 | 3 | 4;
+type ScopeType = 0 | 1 | 2 | 4;
 
 interface RoleFormModel {
   id: number;
@@ -236,11 +236,10 @@ const normalizeScopeOrgUnitIds = (scopeType: ScopeType, orgUnitIds?: number[]) =
 };
 
 const normalizeScopeType = (scopeType?: number) => {
-  if (scopeType === 3) {
-    return 2 as ScopeType;
-  }
-
-  return (scopeType ?? 2) as ScopeType;
+  const normalized = scopeType ?? 2;
+  return normalized === 0 || normalized === 1 || normalized === 2 || normalized === 4
+    ? (normalized as ScopeType)
+    : (2 as ScopeType);
 };
 
 const loadRoles = async () => {
@@ -473,7 +472,6 @@ const formatScopeSummary = (role: AuthRole) => {
 };
 
 const needsSingleOrg = (scopeType: ScopeType) => scopeType === 1 || scopeType === 2;
-const needsMultiOrg = (_scopeType: ScopeType) => false;
 
 const handleSearch = () => {
   loadRoles();
@@ -663,17 +661,6 @@ onMounted(initPage);
             />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="needsMultiOrg(createForm.scopeType)" label="组织节点" required>
-          <el-select v-model="createForm.scopeOrgUnitIds" multiple filterable class="w-full">
-            <el-option
-              v-for="option in orgUnitOptions"
-              :key="`create-scope-org-${option.value}`"
-              :label="option.label"
-              :value="option.value"
-              :disabled="option.disabled"
-            />
-          </el-select>
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
@@ -768,17 +755,6 @@ onMounted(initPage);
         </el-form-item>
         <el-form-item v-if="needsSingleOrg(editForm.scopeType)" label="组织节点" required>
           <el-select v-model="editSingleScopeOrgId" clearable filterable class="w-full">
-            <el-option
-              v-for="option in orgUnitOptions"
-              :key="`edit-scope-org-${option.value}`"
-              :label="option.label"
-              :value="option.value"
-              :disabled="option.disabled"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="needsMultiOrg(editForm.scopeType)" label="组织节点" required>
-          <el-select v-model="editForm.scopeOrgUnitIds" multiple filterable class="w-full">
             <el-option
               v-for="option in orgUnitOptions"
               :key="`edit-scope-org-${option.value}`"

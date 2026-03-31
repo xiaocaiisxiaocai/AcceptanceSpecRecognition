@@ -104,9 +104,24 @@ public class ReviewRegressionTests
         var documentsContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs".Replace('/', Path.DirectorySeparatorChar)));
-        documentsContent.Should().Contain("await file.CopyToAsync(memoryStream, cancellationToken);");
-        documentsContent.Should().Contain("SaveUploadedExcelAsync(file.FileName, fileContent, cancellationToken)");
-        documentsContent.Should().Contain("SaveUploadedWordAsync(file.FileName, fileContent, cancellationToken)");
+        documentsContent.Should().Contain("HttpContext.RequestAborted",
+            "控制器仍应把请求取消令牌透传给文档资源应用服务");
+        documentsContent.Should().Contain("UploadFileAsync(",
+            "上传接口应委派给独立应用服务，而不是重新内联文件处理逻辑");
+
+        var documentFileAppServiceContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/DocumentFileAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        documentFileAppServiceContent.Should().Contain("await file.CopyToAsync(memoryStream, cancellationToken);",
+            "应用服务应继续把请求取消令牌透传到文件拷贝");
+
+        var documentFileAccessServiceContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/DocumentFileAccessService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        documentFileAccessServiceContent.Should().Contain("SaveUploadedExcelAsync(fileName, content, cancellationToken)",
+            "共享文件访问组件应继续把取消令牌透传到 Excel 文件存储");
+        documentFileAccessServiceContent.Should().Contain("SaveUploadedWordAsync(fileName, content, cancellationToken)",
+            "共享文件访问组件应继续把取消令牌透传到 Word 文件存储");
 
         var compareContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
@@ -195,16 +210,28 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void MatchingWorkflowService_ShouldCarryOwnershipAndPayloadVersion()
+    public void MatchingTaskAndReuseServices_ShouldCarryOwnershipAndPayloadVersion()
     {
-        var content = File.ReadAllText(Path.Combine(
+        var workflowContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var snapshotContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/MatchingTaskSnapshotService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var taskContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/MatchingTaskAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var strictReuseContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/StrictReuseAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("PayloadVersion", "任务快照应带版本元数据，便于未来兼容迁移");
-        content.Should().Contain("DownloadAsync(ClaimsPrincipal user, string taskId)", "下载接口应结合当前用户校验任务归属");
-        content.Should().Contain("PreviewStrictReuseAsync(ClaimsPrincipal user, StrictReusePreviewRequest request)", "严格复用预检也应校验任务归属");
-        content.Should().Contain("ExecuteStrictReuseAsync(ClaimsPrincipal user, StrictReuseExecuteRequest request)", "严格复用执行也应校验任务归属");
+        workflowContent.Should().Contain("PayloadVersion", "任务快照应带版本元数据，便于未来兼容迁移");
+        snapshotContent.Should().Contain("EnsureTaskOwnership", "任务快照服务应统一校验任务归属");
+        taskContent.Should().Contain("DownloadAsync(ClaimsPrincipal user, string taskId)", "下载接口应结合当前用户校验任务归属");
+        taskContent.Should().Contain("MatchingTaskSnapshotService", "下载应用服务应通过共享快照服务读取任务归属");
+        strictReuseContent.Should().Contain("PreviewStrictReuseAsync(", "严格复用预检也应校验任务归属");
+        strictReuseContent.Should().Contain("ExecuteStrictReuseAsync(", "严格复用执行也应校验任务归属");
+        strictReuseContent.Should().Contain("MatchingTaskSnapshotService", "严格复用应用服务应通过共享快照服务校验来源任务归属");
     }
 
     [Fact]
@@ -262,10 +289,10 @@ public class ReviewRegressionTests
     [Fact]
     public void AuthRolePermissionTouch_ShouldUseSetBasedUpdate()
     {
-        var authRolesContent = File.ReadAllText(Path.Combine(
+        var authRoleAppServiceContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Controllers/AuthRolesController.cs".Replace('/', Path.DirectorySeparatorChar)));
-        authRolesContent.Should().Contain("ExecuteUpdateAsync", "角色变更触达用户权限版本应使用集合更新，而不是先拉全量用户到内存");
+            "src/AcceptanceSpecSystem.Api/Services/AuthRoleAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        authRoleAppServiceContent.Should().Contain("ExecuteUpdateAsync", "角色变更触达用户权限版本应使用集合更新，而不是先拉全量用户到内存");
 
         var seedContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
@@ -473,10 +500,16 @@ public class ReviewRegressionTests
         var documentsContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs".Replace('/', Path.DirectorySeparatorChar)));
-        documentsContent.Should().Contain("WordFileDataScopeHelper",
-            "文档控制器应对文件列表与单文件访问执行文件级范围校验");
-        documentsContent.Should().Contain("GetAccessibleWordFileAsync",
-            "文档控制器应统一通过归属校验读取文件，避免各接口漏校验");
+        documentsContent.Should().Contain("DocumentFileAppService",
+            "文档控制器应通过独立应用服务执行文件列表与单文件访问编排");
+
+        var documentFileAccessContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/DocumentFileAccessService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        documentFileAccessContent.Should().Contain("WordFileDataScopeHelper",
+            "文件级范围校验应下沉到共享文件访问组件");
+        documentFileAccessContent.Should().Contain("GetAccessibleWordFileAsync",
+            "共享文件访问组件应统一提供归属校验后的单文件读取入口");
     }
 
     [Fact]
@@ -523,6 +556,17 @@ public class ReviewRegressionTests
             "旧 /config/* 兼容跳转不应继续挂在 Config 父路由下，否则会先被 menu:config 拦住");
         content.Should().NotContain("OrgUnitsConfigLegacy",
             "旧 /config/* 兼容跳转不应继续挂在 Config 父路由下，否则会先被 menu:config 拦住");
+    }
+
+    [Fact]
+    public void AuthRolePage_ShouldNotExposeMultiOrgScopePicker()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/auth-roles/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().NotContain("needsMultiOrg", "单组织契约下角色页不应再暴露多节点范围选择分支");
+        content.Should().NotContain("scopeType === 3", "角色页不应继续兼容自定义多节点范围类型");
     }
 
     [Fact]
@@ -608,11 +652,11 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void MatchingWorkflowService_ShouldRejectTasksWithoutOwnershipMetadata()
+    public void MatchingTaskSnapshotService_ShouldRejectTasksWithoutOwnershipMetadata()
     {
         var content = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Api/Services/MatchingTaskSnapshotService.cs".Replace('/', Path.DirectorySeparatorChar)));
 
         content.Should().Contain("!entity.CreatedByUserId.HasValue", "缺少用户归属的任务应被显式拒绝");
         content.Should().Contain("!entity.CompanyId.HasValue", "缺少公司归属的任务应被显式拒绝");
@@ -683,7 +727,8 @@ public class ReviewRegressionTests
             "web/src/store/modules/user.ts".Replace('/', Path.DirectorySeparatorChar)));
 
         content.Should().Contain("usePermissionStoreHook().clearAllCachePage()", "登出时应清掉权限菜单和 keepAlive 缓存");
-        content.Should().Contain("storageLocal().removeItem(\"async-routes\")", "登出时应清理动态路由缓存");
+        content.Should().Contain("resetRouter()", "登出时应重置静态路由与菜单状态");
+        content.Should().NotContain("\"async-routes\"", "静态路由启动后不应再维护 async-routes 缓存");
     }
 
     [Fact]

@@ -223,8 +223,10 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
         string message,
         string suggestedAction)
     {
-        var sourceItem = sourceItems.FirstOrDefault();
-        var candidateItem = candidateItems.FirstOrDefault();
+        var (sourceItem, candidateItem) = SelectRepresentativeConstraintPair(
+            sourceItems,
+            candidateItems,
+            code == "evidence_insufficient" ? EvidenceRelation.Overlap : EvidenceRelation.Conflict);
 
         return new MatchIssue
         {
@@ -243,8 +245,10 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
         IReadOnlyList<ParsedConstraint> sourceItems,
         IReadOnlyList<ParsedConstraint> candidateItems)
     {
-        var sourceItem = sourceItems.FirstOrDefault();
-        var candidateItem = candidateItems.FirstOrDefault();
+        var (sourceItem, candidateItem) = SelectRepresentativeConstraintPair(
+            sourceItems,
+            candidateItems,
+            EvidenceRelation.Conflict);
         if (sourceItem == null || candidateItem == null)
         {
             return $"{fieldName}数值不一致，无法自动采用";
@@ -263,8 +267,10 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
         IReadOnlyList<ParsedConstraint> sourceItems,
         IReadOnlyList<ParsedConstraint> candidateItems)
     {
-        var sourceItem = sourceItems.FirstOrDefault();
-        var candidateItem = candidateItems.FirstOrDefault();
+        var (sourceItem, candidateItem) = SelectRepresentativeConstraintPair(
+            sourceItems,
+            candidateItems,
+            EvidenceRelation.Overlap);
         if (sourceItem == null || candidateItem == null)
         {
             return $"{fieldName}约束仅部分重叠，证据不足，需要人工确认";
@@ -307,6 +313,84 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
 
         ratio = larger / smaller;
         return ratio is 10m or 100m or 1000m;
+    }
+
+    private static (ParsedConstraint? SourceItem, ParsedConstraint? CandidateItem) SelectRepresentativeConstraintPair(
+        IReadOnlyList<ParsedConstraint> sourceItems,
+        IReadOnlyList<ParsedConstraint> candidateItems,
+        EvidenceRelation preferredRelation)
+    {
+        var fallbackSource = sourceItems.FirstOrDefault();
+        var fallbackCandidate = candidateItems.FirstOrDefault();
+        if (fallbackSource == null || fallbackCandidate == null)
+        {
+            return (fallbackSource, fallbackCandidate);
+        }
+
+        var pairs = new List<ConstraintPair>(sourceItems.Count * candidateItems.Count);
+        for (var sourceIndex = 0; sourceIndex < sourceItems.Count; sourceIndex++)
+        {
+            for (var candidateIndex = 0; candidateIndex < candidateItems.Count; candidateIndex++)
+            {
+                var sourceItem = sourceItems[sourceIndex];
+                var candidateItem = candidateItems[candidateIndex];
+                pairs.Add(new ConstraintPair(
+                    sourceIndex,
+                    candidateIndex,
+                    sourceItem,
+                    candidateItem,
+                    CompareConstraints(sourceItem, candidateItem)));
+            }
+        }
+
+        var sourceHasNonConflict = pairs
+            .GroupBy(pair => pair.SourceIndex)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Any(pair => pair.Relation != EvidenceRelation.Conflict));
+        var candidateHasNonConflict = pairs
+            .GroupBy(pair => pair.CandidateIndex)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Any(pair => pair.Relation != EvidenceRelation.Conflict));
+
+        var preferredPairs = pairs.Where(pair => pair.Relation == preferredRelation).ToList();
+        var pool = preferredPairs.Count > 0 ? preferredPairs : pairs;
+        var selected = pool
+            .OrderBy(pair => sourceHasNonConflict[pair.SourceIndex] ? 1 : 0)
+            .ThenBy(pair => candidateHasNonConflict[pair.CandidateIndex] ? 1 : 0)
+            .ThenBy(pair => TryGetDecimalMagnitudeRatio(pair.SourceItem, pair.CandidateItem, out _) ? 0 : 1)
+            .ThenBy(pair => GetConstraintDistance(pair.SourceItem, pair.CandidateItem))
+            .ThenBy(pair => GetRelationPriority(pair.Relation))
+            .ThenBy(pair => pair.SourceIndex)
+            .ThenBy(pair => pair.CandidateIndex)
+            .First();
+
+        return (selected.SourceItem, selected.CandidateItem);
+    }
+
+    private static decimal GetConstraintDistance(ParsedConstraint source, ParsedConstraint candidate)
+    {
+        if (!string.Equals(source.Unit, candidate.Unit, StringComparison.OrdinalIgnoreCase))
+        {
+            return decimal.MaxValue;
+        }
+
+        var sourceValue = Math.Abs(source.NormalizedValue);
+        var candidateValue = Math.Abs(candidate.NormalizedValue);
+        if (sourceValue == candidateValue)
+        {
+            return 0;
+        }
+
+        if (sourceValue == 0 || candidateValue == 0)
+        {
+            return decimal.MaxValue / 2;
+        }
+
+        var larger = Math.Max(sourceValue, candidateValue);
+        var smaller = Math.Min(sourceValue, candidateValue);
+        return larger / smaller;
     }
 
     private static EvidenceRelation CompareConstraints(ParsedConstraint source, ParsedConstraint candidate)
@@ -366,6 +450,13 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
             _ => 6
         };
     }
+
+    private sealed record ConstraintPair(
+        int SourceIndex,
+        int CandidateIndex,
+        ParsedConstraint SourceItem,
+        ParsedConstraint CandidateItem,
+        EvidenceRelation Relation);
 
     private static List<string> ExtractIdentifiers(string text)
     {

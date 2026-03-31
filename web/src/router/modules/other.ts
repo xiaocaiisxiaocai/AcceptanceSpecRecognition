@@ -1,3 +1,4 @@
+import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
 const Layout = () => import("@/layout/index.vue");
 
 export default {
@@ -7,9 +8,9 @@ export default {
   redirect: "/other/audit-logs",
   meta: {
     icon: "ri:apps-line",
-    title: "其他",
+    title: getMenuTitle("other"),
     rank: 5,
-    permissions: ["menu:other"]
+    permissions: getMenuPermission("other")
   },
   children: [
     {
@@ -18,8 +19,8 @@ export default {
       component: () => import("@/views/other/audit-logs/index.vue"),
       meta: {
         icon: "ri:file-list-3-line",
-        title: "审计日志",
-        permissions: ["page:other:audit-logs"]
+        title: getPageTitle("other-audit-logs"),
+        permissions: getPagePermission("other-audit-logs")
       }
     }
   ]

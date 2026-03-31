@@ -1,12 +1,11 @@
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
-using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
-using AcceptanceSpecSystem.Data.Entities;
-using AcceptanceSpecSystem.Data.Repositories;
+using AcceptanceSpecSystem.Application.Services;
+using ApplicationServiceException = AcceptanceSpecSystem.Application.ApplicationServiceException;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -16,21 +15,18 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class ProcessesController : BaseApiController
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly ProcessAppService _processAppService;
     private readonly IAuthDataScopeService _authDataScopeService;
-    private readonly ILogger<ProcessesController> _logger;
 
     /// <summary>
     /// 创建制程控制器实例
     /// </summary>
     public ProcessesController(
-        IUnitOfWork unitOfWork,
-        IAuthDataScopeService authDataScopeService,
-        ILogger<ProcessesController> logger)
+        ProcessAppService processAppService,
+        IAuthDataScopeService authDataScopeService)
     {
-        _unitOfWork = unitOfWork;
+        _processAppService = processAppService;
         _authDataScopeService = authDataScopeService;
-        _logger = logger;
     }
 
     /// <summary>
@@ -45,48 +41,10 @@ public class ProcessesController : BaseApiController
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
-        {
             return Error<PagedData<ProcessDto>>(401, "会话缺少用户上下文");
-        }
 
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 200);
-
-        var query = _unitOfWork.Processes.Query();
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            var key = keyword.Trim();
-            query = query.Where(p => p.Name.Contains(key));
-        }
-
-        var total = await query.CountAsync();
-        var rows = await query
-            .OrderByDescending(p => p.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(p => new { p.Id, p.Name, p.CreatedAt })
-            .ToListAsync();
-
-        var processIds = rows.Select(x => x.Id).ToList();
-        var specCountByProcess = await BuildProcessSpecCountAsync(processIds, scope);
-
-        var items = rows.Select(p => new ProcessDto
-        {
-            Id = p.Id,
-            Name = p.Name,
-            CreatedAt = p.CreatedAt,
-            SpecCount = specCountByProcess.TryGetValue(p.Id, out var count) ? count : 0
-        }).ToList();
-
-        var pagedData = new PagedData<ProcessDto>
-        {
-            Items = items,
-            Total = total,
-            Page = page,
-            PageSize = pageSize
-        };
-
-        return Success(pagedData);
+        var data = await _processAppService.GetPagedAsync(scope.ToAccessContext(), page, pageSize, keyword);
+        return Success(data.ToDto());
     }
 
     /// <summary>
@@ -99,26 +57,13 @@ public class ProcessesController : BaseApiController
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
-        {
             return Error<ProcessDto>(401, "会话缺少用户上下文");
-        }
 
-        var process = await _unitOfWork.Processes.GetByIdAsync(id);
-
+        var process = await _processAppService.GetByIdAsync(scope.ToAccessContext(), id);
         if (process == null)
-        {
             return NotFoundResult<ProcessDto>("制程不存在");
-        }
 
-        var dto = new ProcessDto
-        {
-            Id = process.Id,
-            Name = process.Name,
-            CreatedAt = process.CreatedAt,
-            SpecCount = await GetProcessSpecCountAsync(id, scope)
-        };
-
-        return Success(dto);
+        return Success(process.ToDto());
     }
 
     /// <summary>
@@ -130,26 +75,15 @@ public class ProcessesController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ProcessDto>>> CreateProcess([FromBody] CreateProcessRequest request)
     {
-        var process = new Process
+        try
         {
-            Name = request.Name,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        await _unitOfWork.Processes.AddAsync(process);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("创建制程成功: {ProcessId} - {ProcessName}", process.Id, process.Name);
-
-        var dto = new ProcessDto
+            var process = await _processAppService.CreateAsync(request.Name);
+            return Success(process.ToDto(), "创建制程成功");
+        }
+        catch (ApplicationServiceException ex)
         {
-            Id = process.Id,
-            Name = process.Name,
-            CreatedAt = process.CreatedAt,
-            SpecCount = 0
-        };
-
-        return Success(dto, "创建制程成功");
+            return Error<ProcessDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -164,33 +98,20 @@ public class ProcessesController : BaseApiController
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
-        {
             return Error<ProcessDto>(401, "会话缺少用户上下文");
-        }
 
-        var process = await _unitOfWork.Processes.GetByIdAsync(id);
-        if (process == null)
+        try
         {
-            return NotFoundResult<ProcessDto>("制程不存在");
+            var process = await _processAppService.UpdateAsync(scope.ToAccessContext(), id, request.Name);
+            if (process == null)
+                return NotFoundResult<ProcessDto>("制程不存在");
+
+            return Success(process.ToDto(), "更新制程成功");
         }
-
-        // 检查同一客户下制程名称是否与其他制程重复
-        process.Name = request.Name;
-
-        _unitOfWork.Processes.Update(process);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("更新制程成功: {ProcessId} - {ProcessName}", process.Id, process.Name);
-
-        var dto = new ProcessDto
+        catch (ApplicationServiceException ex)
         {
-            Id = process.Id,
-            Name = process.Name,
-            CreatedAt = process.CreatedAt,
-            SpecCount = await GetProcessSpecCountAsync(id, scope)
-        };
-
-        return Success(dto, "更新制程成功");
+            return Error<ProcessDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -202,16 +123,9 @@ public class ProcessesController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse>> DeleteProcess(int id)
     {
-        var process = await _unitOfWork.Processes.GetByIdAsync(id);
-        if (process == null)
-        {
+        var deleted = await _processAppService.DeleteAsync(id);
+        if (!deleted)
             return NotFound(ApiResponse.Error(404, "制程不存在"));
-        }
-
-        _unitOfWork.Processes.Remove(process);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("删除制程成功: {ProcessId} - {ProcessName}", process.Id, process.Name);
 
         return Success("删除制程成功");
     }
@@ -230,94 +144,17 @@ public class ProcessesController : BaseApiController
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
-        {
             return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
-        }
 
-        var process = await _unitOfWork.Processes.GetByIdAsync(id);
-        if (process == null)
-        {
+        var data = await _processAppService.GetSpecsAsync(scope.ToAccessContext(), id, page, pageSize, keyword);
+        if (data == null)
             return NotFoundResult<PagedData<AcceptanceSpecDto>>("制程不存在");
-        }
 
-        var queryOptions = BuildSpecQueryOptions(scope, id, keyword, page, pageSize);
-        var (specs, total) = await _unitOfWork.AcceptanceSpecs.GetPagedWithFilterAsync(queryOptions);
-
-        var items = specs
-            .Select(s => new AcceptanceSpecDto
-            {
-                Id = s.Id,
-                CustomerId = s.CustomerId,
-                ProcessId = s.ProcessId,
-                MachineModelId = s.MachineModelId,
-                ProcessName = s.Process?.Name ?? process.Name,
-                MachineModelName = s.MachineModel?.Name ?? "",
-                CustomerName = s.Customer?.Name ?? "",
-                Project = s.Project,
-                Specification = s.Specification,
-                Acceptance = s.Acceptance,
-                Remark = s.Remark,
-                ImportedAt = s.ImportedAt
-            })
-            .ToList();
-
-        var pagedData = new PagedData<AcceptanceSpecDto>
-        {
-            Items = items,
-            Total = total,
-            Page = page,
-            PageSize = pageSize
-        };
-
-        return Success(pagedData);
+        return Success(data.ToDto());
     }
 
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()
     {
         return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
-    }
-
-    private static AcceptanceSpecQueryOptions BuildSpecQueryOptions(
-        DataScopeResult scope,
-        int processId,
-        string? keyword,
-        int page,
-        int pageSize)
-    {
-        return new AcceptanceSpecQueryOptions
-        {
-            UserId = scope.UserId,
-            IsAll = scope.IsAll,
-            IncludeSelf = scope.IncludeSelf,
-            OrgUnitIds = scope.OrgUnitIds.ToArray(),
-            ProcessId = processId,
-            Keyword = keyword,
-            Page = page,
-            PageSize = pageSize
-        };
-    }
-
-    private async Task<Dictionary<int, int>> BuildProcessSpecCountAsync(
-        IReadOnlyCollection<int> processIds,
-        DataScopeResult scope)
-    {
-        if (processIds.Count == 0)
-        {
-            return new Dictionary<int, int>();
-        }
-
-        var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(
-            s => s.ProcessId.HasValue && processIds.Contains(s.ProcessId.Value));
-
-        return SpecDataScopeHelper.ApplyScope(specs, scope)
-            .Where(s => s.ProcessId.HasValue)
-            .GroupBy(s => s.ProcessId!.Value)
-            .ToDictionary(g => g.Key, g => g.Count());
-    }
-
-    private async Task<int> GetProcessSpecCountAsync(int processId, DataScopeResult scope)
-    {
-        var counts = await BuildProcessSpecCountAsync([processId], scope);
-        return counts.TryGetValue(processId, out var count) ? count : 0;
     }
 }

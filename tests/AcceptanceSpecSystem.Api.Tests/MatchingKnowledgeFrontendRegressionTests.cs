@@ -12,7 +12,7 @@ public class MatchingKnowledgeFrontendRegressionTests
         content.Should().Contain("path: \"/config/matching-knowledge\"");
         content.Should().Contain("name: \"MatchingKnowledgeConfig\"");
         content.Should().Contain("component: () => import(\"@/views/config/matching-knowledge/index.vue\")");
-        content.Should().Contain("permissions: [\"page:config:matching-knowledge\"]");
+        content.Should().Contain("permissions: getPagePermission(\"config-matching-knowledge\")");
     }
 
     [Fact]

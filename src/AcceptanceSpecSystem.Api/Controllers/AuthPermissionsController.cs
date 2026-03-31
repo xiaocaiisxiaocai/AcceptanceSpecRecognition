@@ -1,10 +1,9 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
-using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -15,11 +14,11 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class AuthPermissionsController : BaseApiController
 {
-    private readonly AppDbContext _dbContext;
+    private readonly AuthPermissionQueryService _authPermissionQueryService;
 
-    public AuthPermissionsController(AppDbContext dbContext)
+    public AuthPermissionsController(AuthPermissionQueryService authPermissionQueryService)
     {
-        _dbContext = dbContext;
+        _authPermissionQueryService = authPermissionQueryService;
     }
 
     /// <summary>
@@ -31,40 +30,7 @@ public class AuthPermissionsController : BaseApiController
         [FromQuery] PermissionType? permissionType = null,
         [FromQuery] string? keyword = null)
     {
-        var query = _dbContext.AuthPermissions
-            .AsNoTracking()
-            .Where(p => p.IsActive)
-            .AsQueryable();
-
-        if (permissionType.HasValue)
-        {
-            query = query.Where(p => p.PermissionType == permissionType.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            var key = keyword.Trim();
-            query = query.Where(p =>
-                p.Code.Contains(key) ||
-                p.Name.Contains(key) ||
-                p.Resource.Contains(key) ||
-                p.Action.Contains(key));
-        }
-
-        var items = await query
-            .OrderBy(p => p.PermissionType)
-            .ThenBy(p => p.Code)
-            .Select(p => new AuthPermissionListItemDto
-            {
-                Id = p.Id,
-                Code = p.Code,
-                Name = p.Name,
-                PermissionType = p.PermissionType,
-                Resource = p.Resource,
-                Action = p.Action
-            })
-            .ToListAsync();
-
+        var items = await _authPermissionQueryService.GetListAsync(permissionType, keyword);
         return Success(items);
     }
 }

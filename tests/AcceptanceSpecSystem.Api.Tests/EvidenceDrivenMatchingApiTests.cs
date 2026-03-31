@@ -165,6 +165,55 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
+    public async Task Preview_WhenVoltageAlternativesContainTypo_ShouldExposeActualConflictingValues()
+    {
+        var (customerId, processId) = await CreateScopeAsync("VoltageAlternativeIssueApi");
+
+        await CreateSpecAsync(
+            customerId,
+            processId,
+            "水/电/气",
+            "电力规格要求: 380V三相/50HZ或220V/50HZ；气压需求≤6kg/cm3",
+            "NG");
+
+        var previewResp = await _client.PostAsync(
+            "/api/matching/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                items = new[]
+                {
+                    new
+                    {
+                        rowIndex = 0,
+                        project = "水/电/气",
+                        specification = "电力规格要求: 380V三相/50HZ或22V/50HZ；气压需求≤6kg/cm3"
+                    }
+                },
+                customerId,
+                processId,
+                config = new
+                {
+                    matchingStrategy = 2,
+                    minScoreThreshold = 0.0,
+                    recallTopK = 3
+                }
+            }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var bestMatch = previewJson.Data.GetProperty("items")[0].GetProperty("bestMatch");
+        var issues = bestMatch.GetProperty("issues");
+
+        issues.EnumerateArray().Should().Contain(issue =>
+            issue.GetProperty("code").GetString() == "numeric_value_conflict" &&
+            issue.GetProperty("fieldName").GetString() == "电压" &&
+            issue.GetProperty("sourceValue").GetString() == "22V" &&
+            issue.GetProperty("candidateValue").GetString() == "220V" &&
+            issue.GetProperty("message").GetString()!.Contains("22V", StringComparison.OrdinalIgnoreCase) &&
+            issue.GetProperty("message").GetString()!.Contains("220V", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task Preview_WhenLlmEntityResolutionFindsConflict_ShouldExposeEntityIssues()
     {
         var (customerId, processId) = await CreateScopeAsync("EntityIssueApi");

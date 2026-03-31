@@ -707,6 +707,13 @@ public class EvidenceDrivenSemanticMatchingTests
         result.Results[0].Evidence.Conflicts.Should().Contain(item =>
             item.Contains("22V", StringComparison.OrdinalIgnoreCase) &&
             item.Contains("220V", StringComparison.OrdinalIgnoreCase));
+        result.Results[0].Issues.Should().Contain(issue =>
+            issue.Code == "numeric_value_conflict" &&
+            issue.FieldName == "电压" &&
+            issue.SourceValue == "22V" &&
+            issue.CandidateValue == "220V" &&
+            issue.Message.Contains("22V", StringComparison.OrdinalIgnoreCase) &&
+            issue.Message.Contains("220V", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

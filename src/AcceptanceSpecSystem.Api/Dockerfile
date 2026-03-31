@@ -3,6 +3,7 @@ WORKDIR /src
 
 COPY AcceptanceSpecSystem.sln ./
 COPY src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj src/AcceptanceSpecSystem.Api/
+COPY src/AcceptanceSpecSystem.Application/AcceptanceSpecSystem.Application.csproj src/AcceptanceSpecSystem.Application/
 COPY src/AcceptanceSpecSystem.Core/AcceptanceSpecSystem.Core.csproj src/AcceptanceSpecSystem.Core/
 COPY src/AcceptanceSpecSystem.Data/AcceptanceSpecSystem.Data.csproj src/AcceptanceSpecSystem.Data/
 

@@ -42,6 +42,20 @@ const isMultiStage = computed(
   () => config.value.matchingStrategy === MatchingStrategy.MultiStage
 );
 
+const hasExplicitMatchingDefaults = computed(() => {
+  const incoming = props.modelValue;
+  if (!incoming) {
+    return false;
+  }
+
+  return (
+    (incoming.matchingStrategy !== undefined &&
+      incoming.matchingStrategy !== defaultMatchConfig.matchingStrategy) ||
+    (incoming.recallTopK !== undefined &&
+      incoming.recallTopK !== defaultMatchConfig.recallTopK)
+  );
+});
+
 // 高级选项展开
 const showAdvanced = ref(false);
 
@@ -178,6 +192,9 @@ const loadAiServices = async () => {
       if (!config.value.llmServiceId && llmServices.value.length > 0) {
         config.value.llmServiceId = llmServices.value[0].id;
       }
+      if (!hasExplicitMatchingDefaults.value) {
+        applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
+      }
     } else {
       ElMessage.error(res.message || "加载AI服务失败");
     }
@@ -187,6 +204,30 @@ const loadAiServices = async () => {
     loadingAiServices.value = false;
   }
 };
+
+const applyEmbeddingServiceDefaults = (serviceId?: number) => {
+  if (!serviceId) return;
+  const selectedService = embeddingServices.value.find(item => item.id === serviceId);
+  if (!selectedService) return;
+
+  config.value.matchingStrategy = selectedService.defaultMatchingStrategy;
+  config.value.recallTopK = selectedService.defaultRecallTopK;
+};
+
+watch(
+  () => config.value.embeddingServiceId,
+  (serviceId, previousServiceId) => {
+    if (!serviceId || serviceId === previousServiceId) {
+      return;
+    }
+
+    if (previousServiceId === undefined && hasExplicitMatchingDefaults.value) {
+      return;
+    }
+
+    applyEmbeddingServiceDefaults(serviceId);
+  }
+);
 
 // 监听客户变化
 watch(selectedCustomerId, () => {
@@ -205,7 +246,14 @@ watch(selectedMachineModelId, () => {
 
 // 重置配置
 const resetConfig = () => {
-  config.value = { ...defaultMatchConfig };
+  const embeddingServiceId = config.value.embeddingServiceId;
+  const llmServiceId = config.value.llmServiceId;
+  config.value = {
+    ...defaultMatchConfig,
+    embeddingServiceId,
+    llmServiceId
+  };
+  applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
   if (!allowLlm.value) {
     config.value.useLlmReview = false;
     config.value.useLlmSuggestion = false;

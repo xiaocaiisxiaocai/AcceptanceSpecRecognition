@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.Json;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Options;
@@ -26,6 +27,7 @@ public static class AuthUserSeedService
     public const string DefaultAdminUsername = "admin";
     public const string DefaultCommonUsername = "common";
     public const string DevelopmentDefaultAdminPassword = "admin";
+    private const string NavigationManifestRelativePath = "..\\..\\shared\\navigation\\navigation-manifest.json";
 
     private sealed record PermissionSeedItem(
         string Code,
@@ -45,38 +47,27 @@ public static class AuthUserSeedService
         string? ResourceOverride = null,
         string? ActionOverride = null);
 
-    private static readonly PermissionSeedItem[] PagePermissions =
-    [
-        new("page:home:dashboard", "页面-仪表盘", PermissionType.Page, "home", "dashboard", "/dashboard"),
-        new("page:base-data:customers", "页面-客户管理", PermissionType.Page, "base-data", "customers", "/base-data/customers"),
-        new("page:base-data:processes", "页面-制程管理", PermissionType.Page, "base-data", "processes", "/base-data/processes"),
-        new("page:base-data:machine-models", "页面-机型管理", PermissionType.Page, "base-data", "machine-models", "/base-data/machine-models"),
-        new("page:base-data:specs", "页面-验收规格", PermissionType.Page, "base-data", "specs", "/base-data/specs"),
-        new("page:data-import:index", "页面-导入数据", PermissionType.Page, "data-import", "index", "/data-import/import"),
-        new("page:smart-fill:index", "页面-智能填充", PermissionType.Page, "smart-fill", "index", "/smart-fill/fill"),
-        new("page:file-compare:index", "页面-文件对比", PermissionType.Page, "file-compare", "index", "/file-compare/compare"),
-        new("page:config:ai-services", "页面-AI服务配置", PermissionType.Page, "config", "ai-services", "/config/ai-services"),
-        new("page:config:matching-knowledge", "页面-匹配知识配置", PermissionType.Page, "config", "matching-knowledge", "/config/matching-knowledge"),
-        new("page:config:prompt-templates", "页面-Prompt模板", PermissionType.Page, "config", "prompt-templates", "/config/prompt-templates"),
-        new("page:config:column-mapping-rules", "页面-列映射规则", PermissionType.Page, "config", "column-mapping-rules", "/config/column-mapping-rules"),
-        new("page:config:system-users", "页面-系统用户", PermissionType.Page, "config", "system-users", "/config/system-users"),
-        new("page:config:org-units", "页面-组织管理", PermissionType.Page, "config", "org-units", "/config/org-units"),
-        new("page:config:auth-roles", "页面-角色管理", PermissionType.Page, "config", "auth-roles", "/config/auth-roles"),
-        new("page:rbac:permissions", "页面-权限字典", PermissionType.Page, "rbac", "permissions", "/rbac/permissions"),
-        new("page:other:audit-logs", "页面-审计日志", PermissionType.Page, "other", "audit-logs", "/other/audit-logs")
-    ];
+    private sealed class NavigationManifest
+    {
+        public List<NavigationPermissionItem> Menus { get; set; } = [];
 
-    private static readonly PermissionSeedItem[] MenuPermissions =
-    [
-        new("menu:home", "菜单-首页", PermissionType.Menu, "home", "menu", "/"),
-        new("menu:base-data", "菜单-基础数据", PermissionType.Menu, "base-data", "menu", "/base-data"),
-        new("menu:data-import", "菜单-数据导入", PermissionType.Menu, "data-import", "menu", "/data-import"),
-        new("menu:smart-fill", "菜单-智能填充", PermissionType.Menu, "smart-fill", "menu", "/smart-fill"),
-        new("menu:file-compare", "菜单-文件对比", PermissionType.Menu, "file-compare", "menu", "/file-compare"),
-        new("menu:config", "菜单-配置管理", PermissionType.Menu, "config", "menu", "/config"),
-        new("menu:rbac", "菜单-权限中心", PermissionType.Menu, "rbac", "menu", "/rbac"),
-        new("menu:other", "菜单-其他", PermissionType.Menu, "other", "menu", "/other")
-    ];
+        public List<NavigationPermissionItem> Pages { get; set; } = [];
+    }
+
+    private sealed class NavigationPermissionItem
+    {
+        public string Id { get; set; } = string.Empty;
+
+        public string Code { get; set; } = string.Empty;
+
+        public string Title { get; set; } = string.Empty;
+
+        public string Resource { get; set; } = string.Empty;
+
+        public string Action { get; set; } = string.Empty;
+
+        public string Path { get; set; } = string.Empty;
+    }
 
     public static async Task EnsureSeedUsersAsync(IServiceProvider services, ILogger logger)
     {
@@ -85,13 +76,14 @@ public static class AuthUserSeedService
         var passwordService = scope.ServiceProvider.GetRequiredService<IAuthPasswordService>();
         var hostEnvironment = scope.ServiceProvider.GetRequiredService<IHostEnvironment>();
         var seedOptions = scope.ServiceProvider.GetRequiredService<IOptions<AuthSeedOptions>>().Value;
+        var navigationManifest = LoadNavigationManifest(hostEnvironment);
 
         var now = DateTime.UtcNow;
 
         var company = await EnsureCompanyAsync(dbContext, now);
         var rootOrgUnit = await EnsureRootOrgUnitAsync(dbContext, company.Id, now);
 
-        var permissionMap = await EnsurePermissionsAsync(dbContext, now);
+        var permissionMap = await EnsurePermissionsAsync(dbContext, navigationManifest, now);
         var roleMap = await EnsureRolesAsync(dbContext, company.Id, permissionMap, now);
 
         await EnsureSeedAccountsAsync(
@@ -206,19 +198,32 @@ public static class AuthUserSeedService
 
     private static async Task<Dictionary<string, AuthPermission>> EnsurePermissionsAsync(
         AppDbContext dbContext,
+        NavigationManifest navigationManifest,
         DateTime now)
     {
         var permissionSeeds = new Dictionary<string, PermissionSeedItem>(StringComparer.OrdinalIgnoreCase);
         var seededPermissions = new Dictionary<string, AuthPermission>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var pagePermission in PagePermissions)
+        foreach (var pagePermission in navigationManifest.Pages)
         {
-            permissionSeeds[pagePermission.Code] = pagePermission;
+            permissionSeeds[pagePermission.Code] = new PermissionSeedItem(
+                Code: pagePermission.Code,
+                Name: $"页面-{pagePermission.Title}",
+                PermissionType: PermissionType.Page,
+                Resource: pagePermission.Resource,
+                Action: pagePermission.Action,
+                RoutePath: pagePermission.Path);
         }
 
-        foreach (var menuPermission in MenuPermissions)
+        foreach (var menuPermission in navigationManifest.Menus)
         {
-            permissionSeeds[menuPermission.Code] = menuPermission;
+            permissionSeeds[menuPermission.Code] = new PermissionSeedItem(
+                Code: menuPermission.Code,
+                Name: $"菜单-{menuPermission.Title}",
+                PermissionType: PermissionType.Menu,
+                Resource: menuPermission.Resource,
+                Action: menuPermission.Action,
+                RoutePath: menuPermission.Path);
         }
 
         var apiActionSeeds = BuildApiActionSeeds();
@@ -311,6 +316,63 @@ public static class AuthUserSeedService
 
         await dbContext.SaveChangesAsync();
         return seededPermissions;
+    }
+
+    private static NavigationManifest LoadNavigationManifest(IHostEnvironment hostEnvironment)
+    {
+        var manifestPath = ResolveNavigationManifestPath(hostEnvironment);
+
+        var json = File.ReadAllText(manifestPath);
+        var manifest = JsonSerializer.Deserialize<NavigationManifest>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        if (manifest == null)
+        {
+            throw new InvalidOperationException($"导航清单解析失败: {manifestPath}");
+        }
+
+        return manifest;
+    }
+
+    private static string ResolveNavigationManifestPath(IHostEnvironment hostEnvironment)
+    {
+        var candidateRoots = new[]
+        {
+            hostEnvironment.ContentRootPath,
+            AppContext.BaseDirectory,
+            Directory.GetCurrentDirectory()
+        }
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var root in candidateRoots)
+        {
+            var directPath = Path.GetFullPath(Path.Combine(root, NavigationManifestRelativePath));
+            if (File.Exists(directPath))
+            {
+                return directPath;
+            }
+
+            var current = new DirectoryInfo(root);
+            while (current is not null)
+            {
+                var sharedPath = Path.Combine(current.FullName, "shared", "navigation", "navigation-manifest.json");
+                if (File.Exists(sharedPath))
+                {
+                    return sharedPath;
+                }
+
+                current = current.Parent;
+            }
+        }
+
+        var expectedPath = Path.GetFullPath(Path.Combine(
+            hostEnvironment.ContentRootPath,
+            NavigationManifestRelativePath));
+        throw new InvalidOperationException($"未找到导航清单文件: {expectedPath}");
     }
 
     private static List<ApiActionSeedItem> BuildApiActionSeeds()

@@ -104,7 +104,7 @@ public class MatchConfigDto
     /// <summary>
     /// 匹配策略
     /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
+    public MatchingStrategy? MatchingStrategy { get; set; }
 
     /// <summary>
     /// 选定的 Embedding 服务ID（为空则自动选择）
@@ -124,7 +124,7 @@ public class MatchConfigDto
     /// <summary>
     /// 多阶段模式下第一阶段召回数量
     /// </summary>
-    public int RecallTopK { get; set; } = 5;
+    public int? RecallTopK { get; set; }
 
     /// <summary>
     /// 多阶段模式下的歧义分差阈值

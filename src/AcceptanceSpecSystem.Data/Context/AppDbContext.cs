@@ -274,6 +274,8 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
             entity.HasIndex(e => e.Name).IsUnique();
+            entity.Property(e => e.DefaultMatchingStrategy).HasDefaultValue(AiServiceDefaultMatchingStrategy.MultiStage);
+            entity.Property(e => e.DefaultRecallTopK).HasDefaultValue(3);
 
             // ApiKey 加密存储（DataProtection ValueConverter）
             if (_dataProtectionProvider != null)

@@ -6,6 +6,7 @@ using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Options;
 using CoreAiServiceConfigModel = AcceptanceSpecSystem.Core.AI.Models.AiServiceConfigModel;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -150,6 +151,8 @@ public class AiServicesController : BaseApiController
             EmbeddingModel = embeddingModel,
             LlmModel = llmModel,
             DisableThinking = request.DisableThinking,
+            DefaultMatchingStrategy = ToDataMatchingStrategy(request.DefaultMatchingStrategy),
+            DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, 20),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -199,6 +202,8 @@ public class AiServicesController : BaseApiController
         entity.Priority = request.Priority;
         entity.Endpoint = normalizedEndpoint;
         entity.DisableThinking = request.DisableThinking;
+        entity.DefaultMatchingStrategy = ToDataMatchingStrategy(request.DefaultMatchingStrategy);
+        entity.DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, 20);
 
         var embeddingModel = NormalizeOptional(request.EmbeddingModel);
         var llmModel = NormalizeOptional(request.LlmModel);
@@ -423,6 +428,8 @@ public class AiServicesController : BaseApiController
         EmbeddingModel = c.EmbeddingModel,
         LlmModel = c.LlmModel,
         DisableThinking = c.DisableThinking,
+        DefaultMatchingStrategy = ToCoreMatchingStrategy(c.DefaultMatchingStrategy),
+        DefaultRecallTopK = c.DefaultRecallTopK,
         HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
         CreatedAt = c.CreatedAt,
         UpdatedAt = c.UpdatedAt
@@ -439,6 +446,8 @@ public class AiServicesController : BaseApiController
         EmbeddingModel = c.EmbeddingModel,
         LlmModel = c.LlmModel,
         DisableThinking = c.DisableThinking,
+        DefaultMatchingStrategy = ToCoreMatchingStrategy(c.DefaultMatchingStrategy),
+        DefaultRecallTopK = c.DefaultRecallTopK,
         HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
         ApiKey = MaskApiKey(c.ApiKey),
         CreatedAt = c.CreatedAt,
@@ -457,6 +466,24 @@ public class AiServicesController : BaseApiController
             return $"{value[..2]}***{value[^2..]}";
 
         return $"{value[..4]}***{value[^4..]}";
+    }
+
+    private static AiServiceDefaultMatchingStrategy ToDataMatchingStrategy(MatchingStrategy strategy)
+    {
+        return strategy switch
+        {
+            MatchingStrategy.MultiStage => AiServiceDefaultMatchingStrategy.MultiStage,
+            _ => AiServiceDefaultMatchingStrategy.SingleStage
+        };
+    }
+
+    private static MatchingStrategy ToCoreMatchingStrategy(AiServiceDefaultMatchingStrategy strategy)
+    {
+        return strategy switch
+        {
+            AiServiceDefaultMatchingStrategy.MultiStage => MatchingStrategy.MultiStage,
+            _ => MatchingStrategy.SingleStage
+        };
     }
 
     private async Task<AiServiceModelsResultDto> ProbeModelsAsync(AiServiceConfig config, CancellationToken cancellationToken)

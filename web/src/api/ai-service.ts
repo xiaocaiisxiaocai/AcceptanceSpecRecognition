@@ -1,5 +1,6 @@
 import { http } from "@/utils/http";
 import type { ApiResponse, PagedData, PagedRequest } from "./customer";
+import { MatchingStrategy } from "./matching";
 
 export enum AiServiceType {
   OpenAI = 0,
@@ -25,6 +26,8 @@ export interface AiServiceConfig {
   embeddingModel?: string | null;
   llmModel?: string | null;
   disableThinking: boolean;
+  defaultMatchingStrategy: MatchingStrategy;
+  defaultRecallTopK: number;
   hasApiKey: boolean;
   createdAt: string;
   updatedAt?: string | null;
@@ -44,6 +47,8 @@ export interface CreateAiServiceRequest {
   embeddingModel?: string | null;
   llmModel?: string | null;
   disableThinking?: boolean;
+  defaultMatchingStrategy?: MatchingStrategy;
+  defaultRecallTopK?: number;
 }
 
 export interface UpdateAiServiceRequest extends CreateAiServiceRequest {}
