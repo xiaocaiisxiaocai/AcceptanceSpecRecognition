@@ -1279,3 +1279,175 @@ public class StrictReuseExecuteFileResult
     /// </summary>
     public string Message { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// 批量回复来源上传响应
+/// </summary>
+public class BatchReplySourceUploadResponse
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件名
+    /// </summary>
+    public string SourceFileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件类型
+    /// </summary>
+    public UploadedFileType SourceFileType { get; set; }
+
+    /// <summary>
+    /// 表格数量
+    /// </summary>
+    public int TableCount { get; set; }
+}
+
+/// <summary>
+/// 批量回复预检响应
+/// </summary>
+public class BatchReplyPreviewResponse
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件名
+    /// </summary>
+    public string SourceFileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件类型
+    /// </summary>
+    public UploadedFileType SourceFileType { get; set; }
+
+    /// <summary>
+    /// 是否严格模式
+    /// </summary>
+    public bool IsStrictMode { get; set; } = true;
+
+    /// <summary>
+    /// 是否使用 AI
+    /// </summary>
+    public bool UsesAi { get; set; } = false;
+
+    /// <summary>
+    /// 可直接应用数量
+    /// </summary>
+    public int ReadyCount => Files.Count(file => file.CanApply);
+
+    /// <summary>
+    /// 总文件数
+    /// </summary>
+    public int TotalCount => Files.Count;
+
+    /// <summary>
+    /// 逐文件预检结果
+    /// </summary>
+    public List<BatchReplyPreviewFileResult> Files { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复逐文件预检结果
+/// </summary>
+public class BatchReplyPreviewFileResult
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否可应用
+    /// </summary>
+    public bool CanApply { get; set; }
+
+    /// <summary>
+    /// 失败原因列表
+    /// </summary>
+    public List<string> Errors { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复执行请求
+/// </summary>
+public class BatchReplyExecuteRequest
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    [Required(ErrorMessage = "会话ID不能为空")]
+    public string SessionId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 批量回复执行响应
+/// </summary>
+public class BatchReplyExecuteResponse
+{
+    /// <summary>
+    /// 执行任务ID
+    /// </summary>
+    public string TaskId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 成功数量
+    /// </summary>
+    public int SuccessCount { get; set; }
+
+    /// <summary>
+    /// 失败数量
+    /// </summary>
+    public int FailedCount { get; set; }
+
+    /// <summary>
+    /// 下载地址
+    /// </summary>
+    public string DownloadUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 下载文件名
+    /// </summary>
+    public string DownloadFileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 逐文件执行结果
+    /// </summary>
+    public List<BatchReplyExecuteFileResult> Files { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复逐文件执行结果
+/// </summary>
+public class BatchReplyExecuteFileResult
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否成功
+    /// </summary>
+    public bool Success { get; set; }
+
+    /// <summary>
+    /// 结果说明
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
+}

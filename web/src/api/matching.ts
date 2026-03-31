@@ -1,6 +1,7 @@
 import { http } from "@/utils/http";
 import type { PureHttpRequestConfig } from "@/utils/http/types.d";
 import type { ApiResponse } from "./customer";
+import type { TableData, TableInfo } from "./document";
 
 export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.95;
 export const LLM_REVIEW_PASS_THRESHOLD = 90;
@@ -639,4 +640,134 @@ export const strictReuseExecute = (data: StrictReuseExecuteRequest) => {
     `${baseUrl}/reuse/strict/execute`,
     { data, timeout: 300000 }
   );
+};
+
+export interface BatchReplySourceUploadResponse {
+  sessionId: string;
+  sourceFileName: string;
+  sourceFileType: number;
+  tableCount: number;
+}
+
+export interface BatchReplyPreviewFileResult {
+  targetId: string;
+  fileName: string;
+  canApply: boolean;
+  errors: string[];
+}
+
+export interface BatchReplyPreviewResponse {
+  sessionId: string;
+  sourceFileName: string;
+  sourceFileType: number;
+  isStrictMode: boolean;
+  usesAi: boolean;
+  readyCount: number;
+  totalCount: number;
+  files: BatchReplyPreviewFileResult[];
+}
+
+export interface BatchReplyExecuteRequest {
+  sessionId: string;
+}
+
+export interface BatchReplyExecuteFileResult {
+  targetId: string;
+  fileName: string;
+  success: boolean;
+  message: string;
+}
+
+export interface BatchReplyExecuteResponse {
+  taskId: string;
+  successCount: number;
+  failedCount: number;
+  downloadUrl: string;
+  downloadFileName: string;
+  files: BatchReplyExecuteFileResult[];
+}
+
+const batchReplyBaseUrl = "/api/batch-reply";
+
+export const uploadBatchReplySource = (file: File) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return http.request<ApiResponse<BatchReplySourceUploadResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/source/upload`,
+    {
+      data: formData,
+      headers: {
+        "Content-Type": "multipart/form-data"
+      }
+    }
+  );
+};
+
+export const getBatchReplyTables = (sessionId: string) => {
+  return http.request<ApiResponse<TableInfo[]>>(
+    "get",
+    `${batchReplyBaseUrl}/sessions/${sessionId}/tables`
+  );
+};
+
+export const getBatchReplyTablePreview = (
+  sessionId: string,
+  tableIndex: number,
+  options?: {
+    previewRows?: number;
+    headerRowIndex?: number;
+    headerRowCount?: number;
+    dataStartRowIndex?: number;
+  }
+) => {
+  return http.request<ApiResponse<TableData>>(
+    "get",
+    `${batchReplyBaseUrl}/sessions/${sessionId}/tables/${tableIndex}/preview`,
+    {
+      params: options
+    }
+  );
+};
+
+export const previewBatchReply = (
+  sessionId: string,
+  tableConfigs: BatchTableConfig[],
+  targetFiles: File[],
+  config?: PureHttpRequestConfig
+) => {
+  const formData = new FormData();
+  formData.append("sessionId", sessionId);
+  formData.append("tableConfigsJson", JSON.stringify(tableConfigs));
+  targetFiles.forEach(file => formData.append("targetFiles", file));
+
+  return http.request<ApiResponse<BatchReplyPreviewResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/preview`,
+    {
+      data: formData,
+      timeout: 300000,
+      headers: {
+        "Content-Type": "multipart/form-data"
+      }
+    },
+    config
+  );
+};
+
+export const executeBatchReply = (data: BatchReplyExecuteRequest) => {
+  return http.request<ApiResponse<BatchReplyExecuteResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/execute`,
+    {
+      data,
+      timeout: 300000
+    }
+  );
+};
+
+export const downloadBatchReplyResult = (taskId: string) => {
+  return http.request<Blob>("get", `${batchReplyBaseUrl}/download/${taskId}`, {
+    responseType: "blob"
+  });
 };

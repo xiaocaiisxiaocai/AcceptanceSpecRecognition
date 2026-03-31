@@ -158,4 +158,35 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().NotContain("api:matching:execute-batch");
         permissions.Should().NotContain("api:matching:llm-stream");
     }
+
+    [Fact]
+    public async Task Login_CommonUserAfterSeed_ShouldIncludeBatchReplyPermissions()
+    {
+        await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
+
+        var response = await _client.PostAsync(
+            "/login",
+            ApiClientJson.ToJsonContent(new
+            {
+                username = "common",
+                password = ApiWebApplicationFactory.TestCommonPassword
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<JsonElement>();
+        var permissions = body.GetProperty("data").GetProperty("permissions")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToList();
+
+        permissions.Should().Contain("menu:batch-reply");
+        permissions.Should().Contain("page:batch-reply:index");
+        permissions.Should().Contain("api:batch-reply:upload-source");
+        permissions.Should().Contain("api:batch-reply:preview");
+        permissions.Should().Contain("api:batch-reply:execute");
+        permissions.Should().Contain("api:batch-reply:download");
+        permissions.Should().Contain("btn:batch-reply:preview");
+        permissions.Should().Contain("btn:batch-reply:execute");
+    }
 }

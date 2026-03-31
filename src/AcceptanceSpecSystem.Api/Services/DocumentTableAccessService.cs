@@ -224,6 +224,114 @@ public sealed class DocumentTableAccessService
         return items;
     }
 
+    internal async Task<List<ReplySourceItem>> ExtractReplySourceItemsAsync(
+        WordFile wordFile,
+        BatchTableConfig config)
+    {
+        var parser = _documentServiceFactory.GetParser(GetDocumentType(wordFile.FileType));
+        if (parser == null)
+        {
+            return [];
+        }
+
+        using var stream = _documentFileAccessService.OpenReadStream(wordFile);
+        TableData tableData;
+        var excelDataStartRowIndexForWriteBack = 1;
+        try
+        {
+            var mapping = new ColumnMapping
+            {
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1
+            };
+
+            if (wordFile.FileType == UploadedFileType.ExcelXlsx)
+            {
+                IReadOnlyList<TableInfo> tables;
+                using (var metaStream = _documentFileAccessService.OpenReadStream(wordFile))
+                {
+                    tables = await parser.GetTablesAsync(metaStream);
+                }
+
+                if (config.TableIndex < 0 || config.TableIndex >= tables.Count)
+                {
+                    return [];
+                }
+
+                var sheetInfo = tables[config.TableIndex];
+                var usedStartRow = Math.Max(1, sheetInfo.UsedRangeStartRow);
+                var normalizedHeaderRowStart = Math.Max(
+                    usedStartRow,
+                    config.HeaderRowStart.GetValueOrDefault(usedStartRow));
+                var normalizedHeaderRowCount = Math.Max(0, config.HeaderRowCount.GetValueOrDefault(1));
+                var minDataStartRow = normalizedHeaderRowStart + normalizedHeaderRowCount;
+                var normalizedDataStartRow = Math.Max(
+                    minDataStartRow,
+                    config.DataStartRow.GetValueOrDefault(minDataStartRow));
+
+                mapping = new ColumnMapping
+                {
+                    HeaderRowIndex = Math.Max(0, normalizedHeaderRowStart - usedStartRow),
+                    HeaderRowCount = Math.Max(1, normalizedHeaderRowCount == 0 ? 1 : normalizedHeaderRowCount),
+                    DataStartRowIndex = Math.Max(0, normalizedDataStartRow - usedStartRow)
+                };
+                excelDataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
+            }
+
+            tableData = await parser.ExtractTableDataAsync(stream, config.TableIndex, mapping);
+        }
+        catch
+        {
+            return [];
+        }
+
+        var requiredColumns = new[]
+        {
+            config.ProjectColumnIndex,
+            config.SpecificationColumnIndex,
+            config.AcceptanceColumnIndex,
+            config.RemarkColumnIndex ?? -1
+        };
+        if (requiredColumns.Any(index => index >= tableData.ColumnCount))
+        {
+            return [];
+        }
+
+        var filterEmptySourceRows = config.FilterEmptySourceRows ?? true;
+        var items = new List<ReplySourceItem>();
+        foreach (var row in tableData.Rows)
+        {
+            var project = row.GetValue(config.ProjectColumnIndex) ?? string.Empty;
+            var specification = row.GetValue(config.SpecificationColumnIndex) ?? string.Empty;
+            if (filterEmptySourceRows &&
+                string.IsNullOrWhiteSpace(project) &&
+                string.IsNullOrWhiteSpace(specification))
+            {
+                continue;
+            }
+
+            var writeBackRowIndex = row.Index;
+            if (wordFile.FileType == UploadedFileType.ExcelXlsx)
+            {
+                writeBackRowIndex += excelDataStartRowIndexForWriteBack;
+            }
+
+            items.Add(new ReplySourceItem
+            {
+                RowIndex = writeBackRowIndex,
+                Project = project.Trim(),
+                Specification = specification.Trim(),
+                Acceptance = (row.GetValue(config.AcceptanceColumnIndex) ?? string.Empty).Trim(),
+                Remark = config.RemarkColumnIndex.HasValue
+                    ? (row.GetValue(config.RemarkColumnIndex.Value) ?? string.Empty).Trim()
+                    : null
+            });
+        }
+
+        return items;
+    }
+
     private IDocumentParser GetRequiredParser(UploadedFileType fileType)
     {
         var parser = _documentServiceFactory.GetParser(GetDocumentType(fileType));
@@ -350,4 +458,17 @@ public sealed class DocumentTableAccessService
             return $"{item.Indent}{paddedNum}{item.Sep}{item.Space}{item.Tail}";
         }));
     }
+}
+
+internal sealed class ReplySourceItem
+{
+    public int RowIndex { get; set; }
+
+    public string Project { get; set; } = string.Empty;
+
+    public string Specification { get; set; } = string.Empty;
+
+    public string Acceptance { get; set; } = string.Empty;
+
+    public string? Remark { get; set; }
 }

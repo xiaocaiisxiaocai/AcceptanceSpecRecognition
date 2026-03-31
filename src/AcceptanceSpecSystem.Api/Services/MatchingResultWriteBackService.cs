@@ -111,6 +111,49 @@ public sealed class MatchingResultWriteBackService
         };
     }
 
+    internal async Task<StrictReuseGeneratedFile> GenerateBatchReplyTargetFileAsync(
+        WordFile targetFile,
+        IReadOnlyCollection<BatchReplySourceTable> sourceTables,
+        CancellationToken cancellationToken = default)
+    {
+        using var resultStream = new MemoryStream();
+        await using (var sourceStream = _documentFileAccessService.OpenReadStream(targetFile))
+        {
+            await sourceStream.CopyToAsync(resultStream, cancellationToken);
+        }
+
+        resultStream.Position = 0;
+        var tableOperations = sourceTables
+            .Select(table => new
+            {
+                table.TableIndex,
+                Operations = BuildReplyCellWriteOperations(table.Rows, table.AcceptanceColumnIndex, table.RemarkColumnIndex)
+            })
+            .Where(item => item.Operations.Count > 0)
+            .ToDictionary(item => item.TableIndex, item => item.Operations);
+
+        if (tableOperations.Count == 0)
+        {
+            throw new InvalidOperationException("来源回复结果为空，无法执行批量回复");
+        }
+
+        var requestedCells = tableOperations.Sum(item => item.Value.Count);
+        var writtenCells = await GetRequiredWriter(targetFile.FileType)
+            .WriteMultipleTablesAsync(resultStream, tableOperations);
+        if (writtenCells != requestedCells)
+        {
+            throw new InvalidOperationException($"目标文件写回不完整，期望写入{requestedCells}个单元格，实际写入{writtenCells}个");
+        }
+
+        return new StrictReuseGeneratedFile
+        {
+            FileId = targetFile.Id,
+            FileName = targetFile.FileName,
+            ContentType = GetDownloadContentType(targetFile.FileType),
+            Content = resultStream.ToArray()
+        };
+    }
+
     internal static string GetDownloadContentType(UploadedFileType fileType)
     {
         return fileType == UploadedFileType.ExcelXlsx
@@ -205,6 +248,38 @@ public sealed class MatchingResultWriteBackService
                     RowIndex = fillResult.RowIndex,
                     ColumnIndex = remarkColumnIndex.Value,
                     Value = fillResult.Remark!,
+                    PreserveFormatting = true
+                });
+            }
+        }
+
+        return operations;
+    }
+
+    private static List<CellWriteOperation> BuildReplyCellWriteOperations(
+        IReadOnlyCollection<BatchReplySourceRow> sourceRows,
+        int acceptanceColumnIndex,
+        int? remarkColumnIndex)
+    {
+        var operations = new List<CellWriteOperation>();
+        foreach (var row in sourceRows)
+        {
+            operations.Add(new CellWriteOperation
+            {
+                RowIndex = row.RowIndex,
+                ColumnIndex = acceptanceColumnIndex,
+                Value = row.Acceptance,
+                PreserveFormatting = true
+            });
+
+            if (remarkColumnIndex.HasValue &&
+                remarkColumnIndex.Value != acceptanceColumnIndex)
+            {
+                operations.Add(new CellWriteOperation
+                {
+                    RowIndex = row.RowIndex,
+                    ColumnIndex = remarkColumnIndex.Value,
+                    Value = row.Remark ?? string.Empty,
                     PreserveFormatting = true
                 });
             }

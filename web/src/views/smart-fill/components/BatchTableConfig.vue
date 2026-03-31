@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import type { TableData, TableInfo } from "@/api/document";
 import TablePreview from "@/views/data-import/components/TablePreview.vue";
+import type { TablePreviewLoader } from "@/views/data-import/components/TablePreview.vue";
 import type { BatchTableConfig } from "@/api/matching";
 
 /** 带勾选状态的表格配置项 */
@@ -18,6 +19,8 @@ const props = defineProps<{
   tables: TableInfo[];
   /** 当前文件ID（用于刷新表头预览） */
   fileId?: number;
+  /** 自定义表格预览加载器（用于非 documents 场景） */
+  previewLoader?: TablePreviewLoader;
   /** 是否为 Excel 文件 */
   isExcel?: boolean;
   /** 当前配置（v-model） */
@@ -394,12 +397,13 @@ const toggleSelectAll = (val: boolean) => {
             </el-form-item>
           </div>
 
-          <div v-if="props.fileId" class="table-preview-wrap">
+          <div v-if="props.fileId || props.previewLoader" class="table-preview-wrap">
             <div class="preview-title">数据预览</div>
             <TablePreview
               :key="getPreviewKey(item)"
               :ref="(el) => setPreviewRef(item.tableIndex, el as TablePreviewRef)"
               :file-id="props.fileId"
+              :preview-loader="props.previewLoader"
               :table-index="item.tableIndex"
               :header-row-index="props.isExcel ? getPreviewOptions(item).headerRowIndex : 0"
               :header-row-count="props.isExcel ? getPreviewOptions(item).headerRowCount : 1"

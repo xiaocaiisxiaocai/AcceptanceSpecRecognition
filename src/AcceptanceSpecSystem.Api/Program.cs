@@ -152,6 +152,8 @@ builder.Services.AddScoped<ImportDuplicateDetectionService>();
 builder.Services.AddScoped<DocumentFileAccessService>();
 builder.Services.AddScoped<DocumentTableAccessService>();
 builder.Services.AddScoped<MatchingResultWriteBackService>();
+builder.Services.AddSingleton<BatchReplySessionService>();
+builder.Services.AddScoped<BatchReplyAppService>();
 builder.Services.AddScoped<DocumentFileAppService>();
 builder.Services.AddScoped<DocumentImportAppService>();
 builder.Services.AddScoped<MatchingTaskSnapshotService>();

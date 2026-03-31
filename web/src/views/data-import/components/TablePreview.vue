@@ -3,12 +3,23 @@ import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { getTablePreview, type ColumnMapping, type TableData } from "@/api/document";
 
+export type TablePreviewLoader = (
+  tableIndex: number,
+  options: {
+    previewRows?: number;
+    headerRowIndex?: number;
+    headerRowCount?: number;
+    dataStartRowIndex?: number;
+  }
+) => Promise<TableData>;
+
 const props = defineProps<{
-  fileId: number;
+  fileId?: number;
   tableIndex: number;
   headerRowIndex?: number;
   headerRowCount?: number;
   dataStartRowIndex?: number;
+  previewLoader?: TablePreviewLoader;
   /** 当前列映射（用于“映射预览”：把原表格映射成 项目/规格/验收/备注 四列） */
   mapping?: ColumnMapping;
 }>();
@@ -64,7 +75,8 @@ const displayColumnCount = computed(() => {
 
 // 加载表格预览
 const loadPreview = async () => {
-  if (!props.fileId || props.tableIndex === undefined) return;
+  if (props.tableIndex === undefined) return;
+  if (!props.previewLoader && !props.fileId) return;
 
   const requestId = ++latestRequestId;
   const query = {
@@ -75,7 +87,16 @@ const loadPreview = async () => {
   };
   loading.value = true;
   try {
-    const res = await getTablePreview(props.fileId, props.tableIndex, query);
+    const res: {
+      code: number;
+      data: TableData;
+      message?: string;
+    } = props.previewLoader
+      ? {
+          code: 0,
+          data: await props.previewLoader(props.tableIndex, query)
+        }
+      : await getTablePreview(props.fileId!, props.tableIndex, query);
     // 只处理最新一次请求，避免旧请求回包覆盖新配置
     if (requestId !== latestRequestId) {
       return;
@@ -99,6 +120,7 @@ const loadPreview = async () => {
 // 监听参数变化
 watch(
   () => [
+    props.previewLoader,
     props.fileId,
     props.tableIndex,
     props.headerRowIndex,
