@@ -9,7 +9,7 @@ import {
   __APP_INFO__
 } from "./build/utils";
 
-export default async ({ mode }: ConfigEnv): Promise<UserConfigExport> => {
+export default async ({ mode, command }: ConfigEnv): Promise<UserConfigExport> => {
   const {
     VITE_CDN,
     VITE_PORT,
@@ -69,6 +69,7 @@ export default async ({ mode }: ConfigEnv): Promise<UserConfigExport> => {
         : {})
     },
     plugins: await getPluginsList(
+      command,
       VITE_CDN,
       VITE_COMPRESSION,
       VITE_ENABLE_CODE_INSPECTOR
