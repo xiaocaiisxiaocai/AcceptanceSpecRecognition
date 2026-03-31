@@ -8,7 +8,12 @@ public class AiServiceTestOptions
     public const string SectionName = "AiServiceTest";
 
     /// <summary>
-    /// 单项服务测试超时（秒）。
+    /// LLM 服务测试超时（秒）。
     /// </summary>
-    public int TimeoutSeconds { get; set; } = 15;
+    public int LlmTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// Embedding 服务测试超时（秒）。
+    /// </summary>
+    public int EmbeddingTimeoutSeconds { get; set; } = 15;
 }

@@ -30,9 +30,9 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
     }
 
     [Fact]
-    public async Task TestConnection_WhenLlmServiceHangs_ShouldReturnTimeoutResult()
+    public async Task TestConnection_WhenLlmServiceHangs_ShouldReturnLlmSpecificTimeoutResult()
     {
-        var configId = await CreateOllamaConfigAsync();
+        var configId = await CreateConfigAsync(AiServicePurpose.Llm);
         var stopwatch = Stopwatch.StartNew();
 
         using var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
@@ -43,28 +43,53 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         result.Code.Should().Be(0);
         result.Data.GetProperty("success").GetBoolean().Should().BeFalse();
-        result.Data.GetProperty("message").GetString().Should().Contain("LLM: 测试超时");
+        result.Data.GetProperty("message").GetString().Should().Contain("LLM: 测试超时（2秒）");
 
         var elapsedMs = result.Data.GetProperty("elapsedMs").GetInt64();
-        elapsedMs.Should().BeGreaterThanOrEqualTo(900);
-        elapsedMs.Should().BeLessThan(3000);
+        elapsedMs.Should().BeGreaterThanOrEqualTo(1800);
+        elapsedMs.Should().BeLessThan(4000);
 
         // 端到端耗时允许存在测试宿主调度抖动，但不应接近新的客户端超时。
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(8));
     }
 
-    private async Task<int> CreateOllamaConfigAsync()
+    [Fact]
+    public async Task TestConnection_WhenEmbeddingServiceHangs_ShouldReturnEmbeddingSpecificTimeoutResult()
+    {
+        var configId = await CreateConfigAsync(AiServicePurpose.Embedding);
+        var stopwatch = Stopwatch.StartNew();
+
+        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+
+        stopwatch.Stop();
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(0);
+        result.Data.GetProperty("success").GetBoolean().Should().BeFalse();
+        result.Data.GetProperty("message").GetString().Should().Contain("Embedding: 测试超时（1秒）");
+
+        var elapsedMs = result.Data.GetProperty("elapsedMs").GetInt64();
+        elapsedMs.Should().BeGreaterThanOrEqualTo(900);
+        elapsedMs.Should().BeLessThan(3000);
+
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(8));
+    }
+
+    private async Task<int> CreateConfigAsync(AiServicePurpose purpose)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var entity = new AiServiceConfig
         {
             Name = $"timeout-ollama-{Guid.NewGuid():N}",
-            ServiceType = AiServiceType.Ollama,
-            Purpose = AiServicePurpose.Llm,
+            ServiceType = AiServiceType.OpenAI,
+            Purpose = purpose,
             Priority = 0,
-            Endpoint = "http://127.0.0.1:11434/api",
-            LlmModel = "qwen3.5:35b",
+            Endpoint = "https://api.example.com",
+            ApiKey = "test-key",
+            LlmModel = purpose == AiServicePurpose.Llm ? "gpt-test" : null,
+            EmbeddingModel = purpose == AiServicePurpose.Embedding ? "text-embedding-test" : null,
             DisableThinking = true,
             CreatedAt = DateTime.UtcNow
         };
@@ -85,7 +110,9 @@ public sealed class AiServiceTimeoutApiWebApplicationFactory : ApiWebApplication
         {
             configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["AiServiceTest:TimeoutSeconds"] = "1"
+                ["AiServiceTest:TimeoutSeconds"] = "1",
+                ["AiServiceTest:LlmTimeoutSeconds"] = "2",
+                ["AiServiceTest:EmbeddingTimeoutSeconds"] = "1"
             });
         });
 
@@ -102,7 +129,7 @@ public sealed class AiServiceTimeoutApiWebApplicationFactory : ApiWebApplication
             => new HangingChatCompletionService();
 
         public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(CoreAiServiceConfigModel config)
-            => throw new NotSupportedException("该测试未使用 Embedding。");
+            => new HangingEmbeddingGenerator();
     }
 
     private sealed class HangingChatCompletionService : IChatCompletionService
@@ -127,6 +154,24 @@ public sealed class AiServiceTimeoutApiWebApplicationFactory : ApiWebApplication
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             yield break;
+        }
+    }
+
+    private sealed class HangingEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        public void Dispose()
+        {
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values,
+            EmbeddingGenerationOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new GeneratedEmbeddings<Embedding<float>>([]);
         }
     }
 }

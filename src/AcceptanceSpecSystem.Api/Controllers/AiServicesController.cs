@@ -29,8 +29,10 @@ public class AiServicesController : BaseApiController
     private readonly ISemanticKernelServiceFactory _semanticKernelFactory;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AiServicesController> _logger;
-    private readonly int _testTimeoutSeconds;
-    private readonly TimeSpan _testTimeout;
+    private readonly int _llmTestTimeoutSeconds;
+    private readonly TimeSpan _llmTestTimeout;
+    private readonly int _embeddingTestTimeoutSeconds;
+    private readonly TimeSpan _embeddingTestTimeout;
     private readonly string _azureOpenAiApiVersion;
 
     public AiServicesController(
@@ -45,8 +47,10 @@ public class AiServicesController : BaseApiController
         _semanticKernelFactory = semanticKernelFactory;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
-        _testTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.TimeoutSeconds, 1, 300);
-        _testTimeout = TimeSpan.FromSeconds(_testTimeoutSeconds);
+        _llmTestTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.LlmTimeoutSeconds, 1, 300);
+        _llmTestTimeout = TimeSpan.FromSeconds(_llmTestTimeoutSeconds);
+        _embeddingTestTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.EmbeddingTimeoutSeconds, 1, 300);
+        _embeddingTestTimeout = TimeSpan.FromSeconds(_embeddingTestTimeoutSeconds);
         _azureOpenAiApiVersion = string.IsNullOrWhiteSpace(semanticKernelOptions.Value.AzureOpenAIApiVersion)
             ? new SemanticKernelOptions().AzureOpenAIApiVersion
             : semanticKernelOptions.Value.AzureOpenAIApiVersion.Trim();
@@ -277,7 +281,7 @@ public class AiServicesController : BaseApiController
             {
                 try
                 {
-                    using var timeoutCts = CreateTestTimeoutTokenSource();
+                    using var timeoutCts = CreateTestTimeoutTokenSource(_llmTestTimeout);
                     if (entity.ServiceType == AiServiceType.Ollama)
                     {
                         ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
@@ -303,12 +307,12 @@ public class AiServicesController : BaseApiController
                 catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
                 {
                     success = false;
-                    messages.Add(BuildTimeoutMessage("LLM"));
+                    messages.Add(BuildTimeoutMessage("LLM", _llmTestTimeoutSeconds));
                     _logger.LogWarning(
                         "AI服务连接测试超时: {Id} {Name}, service=LLM, timeoutSec={TimeoutSec}",
                         entity.Id,
                         entity.Name,
-                        _testTimeoutSeconds);
+                        _llmTestTimeoutSeconds);
                 }
                 catch (Exception ex)
                 {
@@ -322,7 +326,7 @@ public class AiServicesController : BaseApiController
             {
                 try
                 {
-                    using var timeoutCts = CreateTestTimeoutTokenSource();
+                    using var timeoutCts = CreateTestTimeoutTokenSource(_embeddingTestTimeout);
                     if (entity.ServiceType == AiServiceType.Ollama)
                     {
                         ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
@@ -346,12 +350,12 @@ public class AiServicesController : BaseApiController
                 catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
                 {
                     success = false;
-                    messages.Add(BuildTimeoutMessage("Embedding"));
+                    messages.Add(BuildTimeoutMessage("Embedding", _embeddingTestTimeoutSeconds));
                     _logger.LogWarning(
                         "AI服务连接测试超时: {Id} {Name}, service=Embedding, timeoutSec={TimeoutSec}",
                         entity.Id,
                         entity.Name,
-                        _testTimeoutSeconds);
+                        _embeddingTestTimeoutSeconds);
                 }
                 catch (Exception ex)
                 {
@@ -388,16 +392,16 @@ public class AiServicesController : BaseApiController
         }
     }
 
-    private CancellationTokenSource CreateTestTimeoutTokenSource()
+    private CancellationTokenSource CreateTestTimeoutTokenSource(TimeSpan timeout)
     {
         var cts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
-        cts.CancelAfter(_testTimeout);
+        cts.CancelAfter(timeout);
         return cts;
     }
 
-    private string BuildTimeoutMessage(string serviceName)
+    private static string BuildTimeoutMessage(string serviceName, int timeoutSeconds)
     {
-        return $"{serviceName}: 测试超时（{_testTimeoutSeconds}秒）";
+        return $"{serviceName}: 测试超时（{timeoutSeconds}秒）";
     }
 
     private static string BuildTestFailureMessage(string serviceName, Exception exception)
