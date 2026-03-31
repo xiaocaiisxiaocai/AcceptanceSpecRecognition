@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using CoreAiServiceConfigModel = AcceptanceSpecSystem.Core.AI.Models.AiServiceConfigModel;
@@ -35,7 +36,7 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         var configId = await CreateConfigAsync(AiServicePurpose.Llm);
         var stopwatch = Stopwatch.StartNew();
 
-        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test?mode=full", null);
 
         stopwatch.Stop();
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
@@ -64,7 +65,7 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         var configId = await CreateConfigAsync(AiServicePurpose.Embedding);
         var stopwatch = Stopwatch.StartNew();
 
-        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test?mode=full", null);
 
         stopwatch.Stop();
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
@@ -86,17 +87,102 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(8));
     }
 
-    private async Task<int> CreateConfigAsync(AiServicePurpose purpose)
+    [Fact]
+    public async Task TestConnection_WhenQuickModeLlmUsesModelProbe_ShouldReturnQuickSuccess()
+    {
+        var port = GetFreeTcpPort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            var context = await listener.GetContextAsync();
+            var responseJson = """
+                {
+                  "data": [
+                    { "id": "gpt-test" }
+                  ]
+                }
+                """;
+            var responseBytes = System.Text.Encoding.UTF8.GetBytes(responseJson);
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/json";
+            context.Response.ContentLength64 = responseBytes.Length;
+            await context.Response.OutputStream.WriteAsync(responseBytes);
+            context.Response.Close();
+        });
+
+        var configId = await CreateConfigAsync(AiServicePurpose.Llm, $"http://127.0.0.1:{port}", AiServiceType.LMStudio);
+        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(0);
+        result.Data.GetProperty("success").GetBoolean().Should().BeTrue();
+        result.Data.GetProperty("message").GetString().Should().Contain("LLM: OK");
+        result.Data.GetProperty("message").GetString().Should().Contain("快速测试");
+        result.Data.GetProperty("targetModel").GetString().Should().Be("gpt-test");
+        result.Data.GetProperty("serviceElapsedMs").GetInt64().Should().BeLessThan(2000);
+
+        await serverTask;
+    }
+
+    [Fact]
+    public async Task TestConnection_WhenQuickModeEmbeddingUsesModelProbe_ShouldReturnQuickSuccess()
+    {
+        var port = GetFreeTcpPort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            var context = await listener.GetContextAsync();
+            var responseJson = """
+                {
+                  "data": [
+                    { "id": "text-embedding-test" }
+                  ]
+                }
+                """;
+            var responseBytes = System.Text.Encoding.UTF8.GetBytes(responseJson);
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/json";
+            context.Response.ContentLength64 = responseBytes.Length;
+            await context.Response.OutputStream.WriteAsync(responseBytes);
+            context.Response.Close();
+        });
+
+        var configId = await CreateConfigAsync(AiServicePurpose.Embedding, $"http://127.0.0.1:{port}", AiServiceType.LMStudio);
+        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(0);
+        result.Data.GetProperty("success").GetBoolean().Should().BeTrue();
+        result.Data.GetProperty("message").GetString().Should().Contain("Embedding: OK");
+        result.Data.GetProperty("message").GetString().Should().Contain("快速测试");
+        result.Data.GetProperty("targetModel").GetString().Should().Be("text-embedding-test");
+        result.Data.GetProperty("serviceElapsedMs").GetInt64().Should().BeLessThan(2000);
+
+        await serverTask;
+    }
+
+    private async Task<int> CreateConfigAsync(
+        AiServicePurpose purpose,
+        string endpoint = "https://api.example.com",
+        AiServiceType serviceType = AiServiceType.OpenAI)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var entity = new AiServiceConfig
         {
             Name = $"timeout-ollama-{Guid.NewGuid():N}",
-            ServiceType = AiServiceType.OpenAI,
+            ServiceType = serviceType,
             Purpose = purpose,
             Priority = 0,
-            Endpoint = "https://api.example.com",
+            Endpoint = endpoint,
             ApiKey = "test-key",
             LlmModel = purpose == AiServicePurpose.Llm ? "gpt-test" : null,
             EmbeddingModel = purpose == AiServicePurpose.Embedding ? "text-embedding-test" : null,
@@ -107,6 +193,15 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         dbContext.AiServiceConfigs.Add(entity);
         await dbContext.SaveChangesAsync();
         return entity.Id;
+    }
+
+    private static int GetFreeTcpPort()
+    {
+        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
     }
 }
 

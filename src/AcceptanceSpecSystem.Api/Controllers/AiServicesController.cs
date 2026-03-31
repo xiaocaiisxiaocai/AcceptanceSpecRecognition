@@ -260,7 +260,9 @@ public class AiServicesController : BaseApiController
     /// </summary>
     [HttpPost("{id}/test")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceTestResultDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<AiServiceTestResultDto>>> TestConnection(int id)
+    public async Task<ActionResult<ApiResponse<AiServiceTestResultDto>>> TestConnection(
+        int id,
+        [FromQuery] AiServiceConnectionTestMode mode = AiServiceConnectionTestMode.Quick)
     {
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
         if (entity == null)
@@ -277,6 +279,7 @@ public class AiServicesController : BaseApiController
             var success = true;
             IReadOnlyCollection<string>? ollamaModels = null;
             long? serviceElapsedMs = null;
+            var isFullMode = mode == AiServiceConnectionTestMode.Full;
             var targetModel = entity.Purpose == AiServicePurpose.Llm
                 ? NormalizeOptional(entity.LlmModel)
                 : NormalizeOptional(entity.EmbeddingModel);
@@ -289,7 +292,20 @@ public class AiServicesController : BaseApiController
                 try
                 {
                     using var timeoutCts = CreateTestTimeoutTokenSource(_llmTestTimeout);
-                    if (entity.ServiceType == AiServiceType.Ollama)
+                    if (!isFullMode)
+                    {
+                        ollamaModels ??= await FetchRemoteModelsAsync(entity, timeoutCts.Token);
+                        if (ContainsConfiguredModel(ollamaModels, entity.LlmModel))
+                        {
+                            messages.Add($"LLM: OK（快速测试，模型可见: {entity.LlmModel}）");
+                        }
+                        else
+                        {
+                            success = false;
+                            messages.Add($"LLM: 快速测试未找到已配置模型（{entity.LlmModel}）");
+                        }
+                    }
+                    else if (entity.ServiceType == AiServiceType.Ollama)
                     {
                         ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
                         if (ContainsConfiguredModel(ollamaModels, entity.LlmModel))
@@ -314,18 +330,19 @@ public class AiServicesController : BaseApiController
                 catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
                 {
                     success = false;
-                    messages.Add(BuildTimeoutMessage("LLM", _llmTestTimeoutSeconds));
+                    messages.Add(BuildTimeoutMessage("LLM", _llmTestTimeoutSeconds, isFullMode));
                     _logger.LogWarning(
-                        "AI服务连接测试超时: {Id} {Name}, service=LLM, timeoutSec={TimeoutSec}",
+                        "AI服务连接测试超时: {Id} {Name}, service=LLM, mode={Mode}, timeoutSec={TimeoutSec}",
                         entity.Id,
                         entity.Name,
+                        isFullMode ? "full" : "quick",
                         _llmTestTimeoutSeconds);
                 }
                 catch (Exception ex)
                 {
                     success = false;
-                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=LLM", entity.Id, entity.Name);
-                    messages.Add(BuildTestFailureMessage("LLM", ex));
+                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=LLM, mode={Mode}", entity.Id, entity.Name, isFullMode ? "full" : "quick");
+                    messages.Add(BuildTestFailureMessage("LLM", ex, isFullMode));
                 }
                 finally
                 {
@@ -340,7 +357,20 @@ public class AiServicesController : BaseApiController
                 try
                 {
                     using var timeoutCts = CreateTestTimeoutTokenSource(_embeddingTestTimeout);
-                    if (entity.ServiceType == AiServiceType.Ollama)
+                    if (!isFullMode)
+                    {
+                        ollamaModels ??= await FetchRemoteModelsAsync(entity, timeoutCts.Token);
+                        if (ContainsConfiguredModel(ollamaModels, entity.EmbeddingModel))
+                        {
+                            messages.Add($"Embedding: OK（快速测试，模型可见: {entity.EmbeddingModel}）");
+                        }
+                        else
+                        {
+                            success = false;
+                            messages.Add($"Embedding: 快速测试未找到已配置模型（{entity.EmbeddingModel}）");
+                        }
+                    }
+                    else if (entity.ServiceType == AiServiceType.Ollama)
                     {
                         ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
                         if (ContainsConfiguredModel(ollamaModels, entity.EmbeddingModel))
@@ -363,18 +393,19 @@ public class AiServicesController : BaseApiController
                 catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
                 {
                     success = false;
-                    messages.Add(BuildTimeoutMessage("Embedding", _embeddingTestTimeoutSeconds));
+                    messages.Add(BuildTimeoutMessage("Embedding", _embeddingTestTimeoutSeconds, isFullMode));
                     _logger.LogWarning(
-                        "AI服务连接测试超时: {Id} {Name}, service=Embedding, timeoutSec={TimeoutSec}",
+                        "AI服务连接测试超时: {Id} {Name}, service=Embedding, mode={Mode}, timeoutSec={TimeoutSec}",
                         entity.Id,
                         entity.Name,
+                        isFullMode ? "full" : "quick",
                         _embeddingTestTimeoutSeconds);
                 }
                 catch (Exception ex)
                 {
                     success = false;
-                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=Embedding", entity.Id, entity.Name);
-                    messages.Add(BuildTestFailureMessage("Embedding", ex));
+                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=Embedding, mode={Mode}", entity.Id, entity.Name, isFullMode ? "full" : "quick");
+                    messages.Add(BuildTestFailureMessage("Embedding", ex, isFullMode));
                 }
                 finally
                 {
@@ -427,16 +458,19 @@ public class AiServicesController : BaseApiController
         return cts;
     }
 
-    private static string BuildTimeoutMessage(string serviceName, int timeoutSeconds)
+    private static string BuildTimeoutMessage(string serviceName, int timeoutSeconds, bool isFullMode)
     {
-        return $"{serviceName}: 测试超时（{timeoutSeconds}秒）";
+        return isFullMode
+            ? $"{serviceName}: 测试超时（{timeoutSeconds}秒）"
+            : $"{serviceName}: 快速测试超时（{timeoutSeconds}秒）";
     }
 
-    private static string BuildTestFailureMessage(string serviceName, Exception exception)
+    private static string BuildTestFailureMessage(string serviceName, Exception exception, bool isFullMode)
     {
+        var prefix = isFullMode ? serviceName : $"{serviceName}: 快速测试";
         return IsSafeClientValidationMessage(exception.Message)
-            ? $"{serviceName}: {exception.Message}"
-            : $"{serviceName}: 远端接口异常，请稍后重试";
+            ? $"{prefix}: {exception.Message}"
+            : $"{prefix}: 远端接口异常，请稍后重试";
     }
 
     private static bool IsSafeClientValidationMessage(string? message)
@@ -458,6 +492,20 @@ public class AiServicesController : BaseApiController
 
         var expected = configuredModel.Trim();
         return models.Any(model => string.Equals(model, expected, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<IReadOnlyCollection<string>> FetchRemoteModelsAsync(
+        AiServiceConfig config,
+        CancellationToken cancellationToken)
+    {
+        return config.ServiceType switch
+        {
+            AiServiceType.OpenAI or AiServiceType.CustomOpenAICompatible or AiServiceType.LMStudio
+                => await FetchOpenAiCompatibleModelsAsync(config, cancellationToken),
+            AiServiceType.AzureOpenAI => await FetchAzureDeploymentModelsAsync(config, cancellationToken),
+            AiServiceType.Ollama => await FetchOllamaModelsAsync(config, cancellationToken),
+            _ => []
+        };
     }
 
     private string ResolveHostPort()

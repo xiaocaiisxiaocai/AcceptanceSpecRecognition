@@ -56,6 +56,12 @@ public class UpdateAiServiceRequest
     public int DefaultRecallTopK { get; set; } = 3;
 }
 
+public enum AiServiceConnectionTestMode
+{
+    Quick = 0,
+    Full = 1
+}
+
 public class AiServiceTestResultDto
 {
     public bool Success { get; set; }

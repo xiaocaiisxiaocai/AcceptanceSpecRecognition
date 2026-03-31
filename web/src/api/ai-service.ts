@@ -53,6 +53,8 @@ export interface CreateAiServiceRequest {
 
 export interface UpdateAiServiceRequest extends CreateAiServiceRequest {}
 
+export type AiServiceConnectionTestMode = "quick" | "full";
+
 export interface AiServiceTestResult {
   success: boolean;
   message: string;
@@ -103,11 +105,16 @@ export const deleteAiService = (id: number) => {
   return http.request<ApiResponse<void>>("delete", `${baseUrl}/${id}`);
 };
 
-export const testAiServiceConnection = (id: number) => {
+export const testAiServiceConnection = (
+  id: number,
+  mode: AiServiceConnectionTestMode = "quick"
+) => {
   return http.request<ApiResponse<AiServiceTestResult>>(
     "post",
     `${baseUrl}/${id}/test`,
-    undefined,
+    {
+      params: { mode }
+    },
     { timeout: 300000 }
   );
 };
