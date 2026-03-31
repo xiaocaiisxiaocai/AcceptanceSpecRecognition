@@ -35,6 +35,8 @@ public class BatchReplyFrontendRegressionTests
         pageContent.Should().Contain("previewBatchReply");
         pageContent.Should().Contain("executeBatchReply");
         pageContent.Should().Contain("downloadBatchReplyResult");
+        pageContent.Should().Contain("v-if=\"canUploadSourceFile && !sourceFile\"", "未上传来源文件时，上传区应受来源文件上传权限控制");
+        pageContent.Should().Contain("当前账号没有来源文件上传权限", "无上传权限时应给出明确提示，而不是继续展示上传入口");
     }
 
     private static string ReadRepositoryFile(string relativePath)

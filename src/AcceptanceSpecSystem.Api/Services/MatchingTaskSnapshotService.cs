@@ -30,6 +30,39 @@ public sealed class MatchingTaskSnapshotService
         _logger = logger;
     }
 
+    internal async Task PersistDownloadArtifactAsync(
+        string taskId,
+        FillTaskResult taskResult,
+        string downloadFileName,
+        string contentType,
+        byte[] content,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _unitOfWork.MatchingFillTasks.GetByTaskIdAsync(taskId);
+        if (entity == null)
+        {
+            throw new InvalidOperationException($"未找到匹配任务快照: {taskId}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(taskResult.DownloadArtifactRelativePath))
+        {
+            var existingArtifactPath = _fileStorage.GetAbsolutePath(taskResult.DownloadArtifactRelativePath);
+            if (File.Exists(existingArtifactPath))
+            {
+                return;
+            }
+        }
+
+        var relativePath = await _fileStorage.SaveFilledWordAsync(downloadFileName, content, cancellationToken);
+        taskResult.DownloadArtifactRelativePath = relativePath;
+        taskResult.DownloadArtifactFileName = downloadFileName;
+        taskResult.DownloadArtifactContentType = contentType;
+
+        entity.PayloadJson = JsonSerializer.Serialize(taskResult, FillTaskJsonOptions);
+        _unitOfWork.MatchingFillTasks.Update(entity);
+        await _unitOfWork.SaveChangesAsync();
+    }
+
     internal async Task SaveAsync(ClaimsPrincipal user, FillTaskResult taskResult)
     {
         var owner = ResolveTaskOwner(user);

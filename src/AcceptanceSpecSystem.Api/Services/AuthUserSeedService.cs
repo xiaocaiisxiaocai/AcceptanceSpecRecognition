@@ -792,9 +792,9 @@ public static class AuthUserSeedService
             commonPassword ??= BuildDevelopmentPassword("Common");
 
             logger.LogWarning(
-                "AuthSeed 未配置完整默认密码，当前环境使用临时开发口令。admin={AdminPassword}; common={CommonPassword}",
-                adminPassword,
-                commonPassword);
+                "AuthSeed 未配置完整默认密码，当前环境使用临时开发口令。请通过配置显式设置 {AdminPasswordKey} 与 {CommonPasswordKey}，日志中不输出明文口令。",
+                $"{AuthSeedOptions.SectionName}:AdminPassword",
+                $"{AuthSeedOptions.SectionName}:CommonPassword");
 
             return new SeedPasswords(adminPassword, commonPassword);
         }

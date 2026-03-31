@@ -31,12 +31,14 @@ public class AiServicesController : BaseApiController
     private readonly ILogger<AiServicesController> _logger;
     private readonly int _testTimeoutSeconds;
     private readonly TimeSpan _testTimeout;
+    private readonly string _azureOpenAiApiVersion;
 
     public AiServicesController(
         IUnitOfWork unitOfWork,
         ISemanticKernelServiceFactory semanticKernelFactory,
         IHttpClientFactory httpClientFactory,
         IOptions<AiServiceTestOptions> aiServiceTestOptions,
+        IOptions<SemanticKernelOptions> semanticKernelOptions,
         ILogger<AiServicesController> logger)
     {
         _unitOfWork = unitOfWork;
@@ -45,6 +47,9 @@ public class AiServicesController : BaseApiController
         _logger = logger;
         _testTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.TimeoutSeconds, 1, 300);
         _testTimeout = TimeSpan.FromSeconds(_testTimeoutSeconds);
+        _azureOpenAiApiVersion = string.IsNullOrWhiteSpace(semanticKernelOptions.Value.AzureOpenAIApiVersion)
+            ? new SemanticKernelOptions().AzureOpenAIApiVersion
+            : semanticKernelOptions.Value.AzureOpenAIApiVersion.Trim();
     }
 
     /// <summary>
@@ -125,7 +130,7 @@ public class AiServicesController : BaseApiController
         var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
         if (modelError != null)
             return Error<AiServiceConfigDto>(400, modelError);
-        var endpointError = TryNormalizeEndpoint(request.Endpoint, out var normalizedEndpoint);
+        var endpointError = TryNormalizeEndpoint(request.Endpoint, request.ServiceType, out var normalizedEndpoint);
         if (endpointError != null)
             return Error<AiServiceConfigDto>(400, endpointError);
 
@@ -184,7 +189,7 @@ public class AiServicesController : BaseApiController
         var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
         if (modelError != null)
             return Error<AiServiceConfigDto>(400, modelError);
-        var endpointError = TryNormalizeEndpoint(request.Endpoint, out var normalizedEndpoint);
+        var endpointError = TryNormalizeEndpoint(request.Endpoint, request.ServiceType, out var normalizedEndpoint);
         if (endpointError != null)
             return Error<AiServiceConfigDto>(400, endpointError);
 
@@ -308,7 +313,8 @@ public class AiServicesController : BaseApiController
                 catch (Exception ex)
                 {
                     success = false;
-                    messages.Add($"LLM: {ex.Message}");
+                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=LLM", entity.Id, entity.Name);
+                    messages.Add(BuildTestFailureMessage("LLM", ex));
                 }
             }
 
@@ -350,7 +356,8 @@ public class AiServicesController : BaseApiController
                 catch (Exception ex)
                 {
                     success = false;
-                    messages.Add($"Embedding: {ex.Message}");
+                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=Embedding", entity.Id, entity.Name);
+                    messages.Add(BuildTestFailureMessage("Embedding", ex));
                 }
             }
 
@@ -376,7 +383,7 @@ public class AiServicesController : BaseApiController
                 Success = false,
                 HttpStatusCode = null,
                 ElapsedMs = sw.ElapsedMilliseconds,
-                Message = ex.Message
+                Message = "AI服务连接测试失败，请稍后重试或查看后台日志"
             }, "连接测试完成");
         }
     }
@@ -391,6 +398,25 @@ public class AiServicesController : BaseApiController
     private string BuildTimeoutMessage(string serviceName)
     {
         return $"{serviceName}: 测试超时（{_testTimeoutSeconds}秒）";
+    }
+
+    private static string BuildTestFailureMessage(string serviceName, Exception exception)
+    {
+        return IsSafeClientValidationMessage(exception.Message)
+            ? $"{serviceName}: {exception.Message}"
+            : $"{serviceName}: 远端接口异常，请稍后重试";
+    }
+
+    private static bool IsSafeClientValidationMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return false;
+        }
+
+        return message.Contains("Endpoint", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("ApiKey", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("模型", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ContainsConfiguredModel(IEnumerable<string> models, string? configuredModel)
@@ -524,7 +550,7 @@ public class AiServicesController : BaseApiController
             _logger.LogWarning(ex, "远端模型探测失败: {Id} {Name}", config.Id, config.Name);
             return new AiServiceModelsResultDto
             {
-                Message = $"远端模型探测失败: {ex.Message}"
+                Message = "远端模型探测失败，请稍后重试或联系管理员"
             };
         }
     }
@@ -533,7 +559,7 @@ public class AiServicesController : BaseApiController
         AiServiceConfig config,
         CancellationToken cancellationToken)
     {
-        var endpoint = NormalizeOpenAiBaseUrl(config.Endpoint!);
+        var endpoint = NormalizeOpenAiBaseUrl(config.Endpoint!, config.ServiceType);
         var url = $"{endpoint}/models";
         using var client = CreateHttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -557,8 +583,8 @@ public class AiServicesController : BaseApiController
         if (string.IsNullOrWhiteSpace(config.ApiKey))
             throw new InvalidOperationException("Azure OpenAI 需要配置 ApiKey 才能探测模型");
 
-        var endpoint = config.Endpoint!.Trim().TrimEnd('/');
-        var url = $"{endpoint}/openai/deployments?api-version=2024-02-15-preview";
+        var endpoint = AiEndpointNormalizer.NormalizeRequiredEndpoint(config.Endpoint, "Endpoint").TrimEnd('/');
+        var url = $"{endpoint}/openai/deployments?api-version={Uri.EscapeDataString(_azureOpenAiApiVersion)}";
         using var client = CreateHttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("api-key", config.ApiKey);
@@ -593,9 +619,11 @@ public class AiServicesController : BaseApiController
         return client;
     }
 
-    private static string NormalizeOpenAiBaseUrl(string endpoint)
+    private static string NormalizeOpenAiBaseUrl(string endpoint, AiServiceType serviceType)
     {
-        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
+        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(
+            endpoint,
+            allowPrivateNetwork: serviceType == AiServiceType.LMStudio).TrimEnd('/');
         if (baseUrl.EndsWith("/v1/v1", StringComparison.OrdinalIgnoreCase))
             baseUrl = baseUrl[..^3];
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
@@ -605,7 +633,9 @@ public class AiServicesController : BaseApiController
 
     private static string NormalizeOllamaBaseUrl(string endpoint)
     {
-        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
+        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(
+            endpoint,
+            allowPrivateNetwork: true).TrimEnd('/');
         if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
             baseUrl = baseUrl[..^4];
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
@@ -711,11 +741,16 @@ public class AiServicesController : BaseApiController
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private static string? TryNormalizeEndpoint(string? value, out string? normalizedEndpoint)
+    private static string? TryNormalizeEndpoint(
+        string? value,
+        AiServiceType serviceType,
+        out string? normalizedEndpoint)
     {
         try
         {
-            normalizedEndpoint = AiEndpointNormalizer.NormalizeOptionalEndpoint(value);
+            normalizedEndpoint = AiEndpointNormalizer.NormalizeOptionalEndpoint(
+                value,
+                allowPrivateNetwork: serviceType == AiServiceType.Ollama || serviceType == AiServiceType.LMStudio);
             return null;
         }
         catch (InvalidOperationException ex)

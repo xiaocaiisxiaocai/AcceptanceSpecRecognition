@@ -68,6 +68,10 @@ public sealed class MatchingTaskAppService
                 _logger.LogInformation("下载填充结果产物: 任务{TaskId}, 文件{FileName}", taskId, artifactDownloadFileName);
                 return new MatchingDownloadResult(content, artifactContentType, artifactDownloadFileName);
             }
+            catch (MatchingApiException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "下载填充结果产物失败: {TaskId}", taskId);
@@ -92,23 +96,26 @@ public sealed class MatchingTaskAppService
             throw Failure(500, $"填充文档失败: {ex.Message}");
         }
 
-        try
-        {
-            await _fileStorage.DeleteIfExistsAsync(wordFile.FilePath);
-            wordFile.FilePath = null;
-            await _unitOfWork.SaveChangesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "填充下载后清理源文件失败: {TaskId}", taskId);
-        }
-
         var fileExtension = GetDownloadFileExtension(wordFile.FileType);
         var contentType = GetDownloadContentType(wordFile.FileType);
         var downloadFileName = Path.GetFileName(wordFile.FileName);
         if (string.IsNullOrWhiteSpace(downloadFileName))
         {
             downloadFileName = $"filled{fileExtension}";
+        }
+
+        try
+        {
+            await _matchingTaskSnapshotService.PersistDownloadArtifactAsync(
+                taskId,
+                taskResult,
+                downloadFileName,
+                contentType,
+                resultContent);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "缓存填充下载产物失败，将继续返回内存结果: {TaskId}", taskId);
         }
 
         _logger.LogInformation("下载填充结果: 任务{TaskId}, 文件{FileName}", taskId, downloadFileName);

@@ -18,6 +18,7 @@ using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -94,6 +95,10 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(fullDataProtectionKeysPath));
 
 builder.Services.AddMemoryCache();
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = UploadFileValidation.MaxAllowedFileSizeBytes * 10;
+});
 builder.Services.Configure<JwtAuthOptions>(
     builder.Configuration.GetSection(JwtAuthOptions.SectionName));
 builder.Services.Configure<AuditLogOptions>(

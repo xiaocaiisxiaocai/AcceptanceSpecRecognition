@@ -42,6 +42,28 @@ const ensureAuditHeaders = (config: PureHttpRequestConfig) => {
   config.headers["X-Frontend-Route"] ??= getCurrentFrontendRoute();
 };
 
+const normalizeFetchHeaders = (
+  headers?: HeadersInit
+): Record<string, string> => {
+  if (!headers) {
+    return {};
+  }
+
+  if (headers instanceof Headers) {
+    const normalized: Record<string, string> = {};
+    headers.forEach((value, key) => {
+      normalized[key] = value;
+    });
+    return normalized;
+  }
+
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers);
+  }
+
+  return { ...headers };
+};
+
 class PureHttp {
   constructor() {
     this.httpInterceptorsRequest();
@@ -95,60 +117,103 @@ class PureHttp {
     PureHttp.requests = [];
   }
 
+  public static async ensureAuthorization(
+    config: PureHttpRequestConfig
+  ): Promise<PureHttpRequestConfig> {
+    const requestUrl = String(config.url ?? "");
+    const whiteList = ["/refresh-token", "/login"];
+    if (whiteList.some(url => requestUrl.endsWith(url))) {
+      return config;
+    }
+
+    config.headers = config.headers ?? {};
+    const data = getToken();
+    if (!data?.accessToken || !data?.refreshToken) {
+      return config;
+    }
+
+    const now = new Date().getTime();
+    const expired = parseInt(data.expires) - now <= 0;
+    if (!expired) {
+      config.headers["Authorization"] = formatToken(data.accessToken);
+      return config;
+    }
+
+    if (!PureHttp.isRefreshing) {
+      PureHttp.isRefreshing = true;
+      useUserStoreHook()
+        .handRefreshToken({ refreshToken: data.refreshToken })
+        .then(res => {
+          PureHttp.resolvePendingRequests(res.data.accessToken);
+        })
+        .catch(error => {
+          PureHttp.rejectPendingRequests(error);
+        })
+        .finally(() => {
+          PureHttp.isRefreshing = false;
+        });
+    }
+
+    return PureHttp.retryOriginalRequest(config);
+  }
+
+  public static handleAuthFailure(
+    status?: number,
+    requestUrl = "",
+    responseData?: any
+  ) {
+    const skipAuthHandler = requestUrl.endsWith("/login");
+    if (!skipAuthHandler && status === 401) {
+      if (!PureHttp.isAuthRedirecting) {
+        PureHttp.isAuthRedirecting = true;
+        const backendMessage =
+          responseData?.message ?? "登录状态已失效，请重新登录";
+        const currentPath = router.currentRoute.value.fullPath || "/";
+
+        void ElMessageBox.alert(backendMessage, "登录状态已失效", {
+          confirmButtonText: "重新登录",
+          type: "warning",
+          closeOnClickModal: false,
+          closeOnPressEscape: false,
+          showClose: false
+        }).finally(() => {
+          useUserStoreHook().logOut(currentPath);
+          setTimeout(() => {
+            PureHttp.isAuthRedirecting = false;
+          }, 300);
+        });
+      }
+    } else if (!skipAuthHandler && status === 403) {
+      const backendMessage =
+        responseData?.message ?? "权限不足，无法执行当前操作";
+      ElMessage.error(backendMessage);
+    }
+  }
+
+  private static async applyBeforeRequestCallback(
+    config: PureHttpRequestConfig,
+    callback: (config: PureHttpRequestConfig) => void | Promise<void>
+  ): Promise<PureHttpRequestConfig> {
+    await callback(config);
+    ensureAuditHeaders(config);
+    return PureHttp.ensureAuthorization(config);
+  }
+
   /** 请求拦截 */
   private httpInterceptorsRequest(): void {
     PureHttp.axiosInstance.interceptors.request.use(
       async (config: PureHttpRequestConfig): Promise<any> => {
         ensureAuditHeaders(config);
-        // 优先判断post/get等方法是否传入回调，否则执行初始化设置等回调
-        if (typeof config.beforeRequestCallback === "function") {
-          config.beforeRequestCallback(config);
-          ensureAuditHeaders(config);
-          return config;
+        const beforeCallback =
+          typeof config.beforeRequestCallback === "function"
+            ? config.beforeRequestCallback
+            : PureHttp.initConfig.beforeRequestCallback;
+
+        if (typeof beforeCallback === "function") {
+          return PureHttp.applyBeforeRequestCallback(config, beforeCallback);
         }
-        if (PureHttp.initConfig.beforeRequestCallback) {
-          PureHttp.initConfig.beforeRequestCallback(config);
-          ensureAuditHeaders(config);
-          return config;
-        }
-        /** 请求白名单，放置一些不需要`token`的接口（通过设置请求白名单，防止`token`过期后再请求造成的死循环问题） */
-        const whiteList = ["/refresh-token", "/login"];
-        return whiteList.some(url => config.url.endsWith(url))
-          ? config
-          : new Promise(resolve => {
-              const data = getToken();
-              if (data?.accessToken && data?.refreshToken) {
-                const now = new Date().getTime();
-                const expired = parseInt(data.expires) - now <= 0;
-                if (expired) {
-                  if (!PureHttp.isRefreshing) {
-                    PureHttp.isRefreshing = true;
-                    // token过期刷新
-                    useUserStoreHook()
-                      .handRefreshToken({ refreshToken: data.refreshToken })
-                      .then(res => {
-                        const token = res.data.accessToken;
-                        config.headers["Authorization"] = formatToken(token);
-                        PureHttp.resolvePendingRequests(token);
-                      })
-                      .catch(error => {
-                        PureHttp.rejectPendingRequests(error);
-                      })
-                      .finally(() => {
-                        PureHttp.isRefreshing = false;
-                      });
-                  }
-                  resolve(PureHttp.retryOriginalRequest(config));
-                } else {
-                  config.headers["Authorization"] = formatToken(
-                    data.accessToken
-                  );
-                  resolve(config);
-                }
-              } else {
-                resolve(config);
-              }
-            });
+
+        return PureHttp.ensureAuthorization(config);
       },
       error => {
         return Promise.reject(error);
@@ -177,36 +242,11 @@ class PureHttp {
         const $error = error;
         $error.isCancelRequest = Axios.isCancel($error);
 
-        const status = $error?.response?.status;
-        const requestUrl = String($error?.config?.url ?? "");
-        const skipAuthHandler = requestUrl.endsWith("/login");
-
-        if (!skipAuthHandler && status === 401) {
-          if (!PureHttp.isAuthRedirecting) {
-            PureHttp.isAuthRedirecting = true;
-            const backendMessage =
-              ($error?.response?.data as any)?.message ??
-              "登录状态已失效，请重新登录";
-            const currentPath = router.currentRoute.value.fullPath || "/";
-
-            void ElMessageBox.alert(backendMessage, "登录状态已失效", {
-              confirmButtonText: "重新登录",
-              type: "warning",
-              closeOnClickModal: false,
-              closeOnPressEscape: false,
-              showClose: false
-            }).finally(() => {
-              useUserStoreHook().logOut(currentPath);
-              setTimeout(() => {
-                PureHttp.isAuthRedirecting = false;
-              }, 300);
-            });
-          }
-        } else if (!skipAuthHandler && status === 403) {
-          const backendMessage =
-            ($error?.response?.data as any)?.message ?? "权限不足，无法执行当前操作";
-          ElMessage.error(backendMessage);
-        }
+        PureHttp.handleAuthFailure(
+          $error?.response?.status,
+          String($error?.config?.url ?? ""),
+          $error?.response?.data as any
+        );
 
         // 所有的响应异常 区分来源为取消请求/非取消请求
         return Promise.reject($error);
@@ -261,3 +301,50 @@ class PureHttp {
 }
 
 export const http = new PureHttp();
+
+export async function createAuthorizedFetchInit(
+  url: string,
+  init: RequestInit = {}
+): Promise<RequestInit> {
+  const config = {
+    url,
+    headers: normalizeFetchHeaders(init.headers)
+  } as PureHttpRequestConfig;
+  ensureAuditHeaders(config);
+  const authorizedConfig = await PureHttp.ensureAuthorization(config);
+
+  return {
+    ...init,
+    headers: authorizedConfig.headers as HeadersInit
+  };
+}
+
+export async function ensureFetchResponseAuthHandled(
+  response: Response,
+  url: string
+): Promise<void> {
+  if (response.status !== 401 && response.status !== 403) {
+    return;
+  }
+
+  let responseData: any;
+  try {
+    responseData = await response.clone().json();
+  } catch {
+    responseData = undefined;
+  }
+
+  PureHttp.handleAuthFailure(response.status, url, responseData);
+}
+
+export async function authorizedFetch(
+  url: string,
+  init: RequestInit = {},
+  options: { handleAuthFailure?: boolean } = {}
+): Promise<Response> {
+  const response = await fetch(url, await createAuthorizedFetchInit(url, init));
+  if (options.handleAuthFailure !== false) {
+    await ensureFetchResponseAuthHandled(response, url);
+  }
+  return response;
+}

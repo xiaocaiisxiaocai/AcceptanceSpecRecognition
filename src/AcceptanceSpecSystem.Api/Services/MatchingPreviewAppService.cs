@@ -18,6 +18,9 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// </summary>
 public sealed class MatchingPreviewAppService
 {
+    private const int MaxScopedCandidateCount = 2000;
+    private const int EmbeddingGenerationBatchSize = 200;
+
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMatchingService _matchingService;
     private readonly DocumentFileAccessService _documentFileAccessService;
@@ -473,8 +476,12 @@ public sealed class MatchingPreviewAppService
         int? embeddingServiceId)
     {
         var baseQuery = BuildCandidateSpecQuery(customerId, processId, machineModelId);
+        var scopedQuery = ApplySpecScopeToQuery(baseQuery, scope);
         var rawCount = await baseQuery.CountAsync();
-        var scopedSpecs = await ApplySpecScopeToQuery(baseQuery, scope)
+        var scopedCount = await scopedQuery.CountAsync();
+        EnsureCandidateScopeWithinLimit(scopedCount, customerId, processId, machineModelId);
+
+        var scopedSpecs = await scopedQuery
             .Select(spec => new CandidateSpecRow
             {
                 Id = spec.Id,
@@ -499,7 +506,7 @@ public sealed class MatchingPreviewAppService
         _logger.LogInformation(
             "匹配候选去重: 原始{RawCount}条, 范围内{ScopedCount}条 -> 去重后{DedupedCount}条 (customerId={CustomerId}, processId={ProcessId}, machineModelId={MachineModelId})",
             rawCount,
-            scopedSpecs.Count,
+            scopedCount,
             dedupedSpecs.Count,
             customerId,
             processId,
@@ -555,7 +562,7 @@ public sealed class MatchingPreviewAppService
         List<float[]> newEmbeddings;
         try
         {
-            newEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(
+            newEmbeddings = await GenerateEmbeddingsInBatchesAsync(
                 missingCandidates.Select(candidate => candidate.CombinedText),
                 embeddingServiceId);
         }
@@ -617,6 +624,41 @@ public sealed class MatchingPreviewAppService
             "匹配候选 Embedding: 命中缓存{Cached}个, 新生成{Generated}个",
             candidates.Count - missingCandidates.Count,
             missingCandidates.Count);
+    }
+
+    private void EnsureCandidateScopeWithinLimit(
+        int scopedCount,
+        int? customerId,
+        int? processId,
+        int? machineModelId)
+    {
+        if (scopedCount <= MaxScopedCandidateCount)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "匹配范围候选过多，拒绝继续处理: scopedCount={ScopedCount}, limit={Limit}, customerId={CustomerId}, processId={ProcessId}, machineModelId={MachineModelId}",
+            scopedCount,
+            MaxScopedCandidateCount,
+            customerId,
+            processId,
+            machineModelId);
+        throw Failure(400, $"匹配范围内候选数据过多（{scopedCount}条），请按客户/制程/机型缩小范围后重试");
+    }
+
+    private async Task<List<float[]>> GenerateEmbeddingsInBatchesAsync(
+        IEnumerable<string> texts,
+        int? embeddingServiceId)
+    {
+        var vectors = new List<float[]>();
+        foreach (var batch in texts.Chunk(EmbeddingGenerationBatchSize))
+        {
+            var batchVectors = await _embeddingService.GenerateEmbeddingsAsync(batch, embeddingServiceId);
+            vectors.AddRange(batchVectors);
+        }
+
+        return vectors;
     }
 
     private static byte[] SerializeVector(float[] vector)

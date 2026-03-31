@@ -162,7 +162,27 @@ public sealed class DocumentFileAccessService
                 Directory.CreateDirectory(directory);
             }
 
-            await File.WriteAllBytesAsync(fullPath, updatedContent, cancellationToken);
+            var tempPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                await File.WriteAllBytesAsync(tempPath, updatedContent, cancellationToken);
+
+                if (File.Exists(fullPath))
+                {
+                    File.Move(tempPath, fullPath, overwrite: true);
+                }
+                else
+                {
+                    File.Move(tempPath, fullPath);
+                }
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
         }
         else
         {
@@ -173,7 +193,7 @@ public sealed class DocumentFileAccessService
                 cancellationToken);
         }
 
-        wordFile.FileContent = updatedContent;
+        wordFile.FileContent = Array.Empty<byte>();
         wordFile.FileHash = FileStorageService.ComputeSha256(updatedContent);
     }
 

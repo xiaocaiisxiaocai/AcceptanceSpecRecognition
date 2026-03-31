@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.Extensions.Caching.Memory;
+using System.Text.Json;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -10,8 +11,12 @@ public sealed class BatchReplySessionService
 {
     private const string SessionCachePrefix = "batch-reply:session:";
     private const string ArtifactCachePrefix = "batch-reply:artifact:";
+    private const string SessionManifestBaseRelativeDir = "uploads/batch-reply/sessions";
+    private const string ArtifactManifestBaseRelativeDir = "uploads/filled-files/manifests";
     private static readonly TimeSpan SessionRetention = TimeSpan.FromHours(4);
     private static readonly TimeSpan ArtifactRetention = TimeSpan.FromHours(24);
+    private static readonly JsonSerializerOptions SessionJsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions ArtifactJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly IMemoryCache _memoryCache;
     private readonly IFileStorageService _fileStorage;
@@ -48,7 +53,10 @@ public sealed class BatchReplySessionService
             UpdatedAt = DateTime.UtcNow
         };
 
-        SetSession(session);
+        session.ManifestRelativePath = BuildSessionManifestRelativePath(session.SessionId);
+        await PersistSessionManifestAsync(session, cancellationToken);
+        await CleanupExpiredSessionManifestsAsync(cancellationToken);
+        SetSession(session, SessionRetention);
         return session;
     }
 
@@ -59,8 +67,16 @@ public sealed class BatchReplySessionService
             return null;
         }
 
-        if (!_memoryCache.TryGetValue(BuildSessionCacheKey(sessionId), out BatchReplySourceSession? session) ||
-            session == null)
+        if (_memoryCache.TryGetValue(BuildSessionCacheKey(sessionId), out BatchReplySourceSession? session) &&
+            session != null)
+        {
+            return session.OwnerUserId == userId && session.OwnerCompanyId == companyId
+                ? session
+                : null;
+        }
+
+        session = LoadSessionManifest(sessionId);
+        if (session == null)
         {
             return null;
         }
@@ -70,6 +86,15 @@ public sealed class BatchReplySessionService
             return null;
         }
 
+        var age = DateTime.UtcNow - session.UpdatedAt;
+        var remainingRetention = SessionRetention - age;
+        if (remainingRetention <= TimeSpan.Zero)
+        {
+            DeleteSessionFiles(session);
+            return null;
+        }
+
+        SetSession(session, remainingRetention);
         return session;
     }
 
@@ -110,29 +135,33 @@ public sealed class BatchReplySessionService
             SourceFileName = session.SourceFileName,
             SourceFileType = session.SourceFileType,
             SourceFileRelativePath = session.SourceFileRelativePath,
+            ManifestRelativePath = session.ManifestRelativePath,
             CreatedAt = session.CreatedAt,
             UpdatedAt = DateTime.UtcNow,
             SourceTables = sourceTables.ToList(),
             TargetFiles = targetFiles.ToList()
         };
 
-        SetSession(updatedSession);
+        await PersistSessionManifestAsync(updatedSession, cancellationToken);
+        await CleanupExpiredSessionManifestsAsync(cancellationToken);
+        SetSession(updatedSession, SessionRetention);
         await DeleteRelativePathsAsync(oldTargetPaths, cancellationToken);
     }
 
-    internal void SaveDownloadArtifact(int userId, int companyId, BatchReplyDownloadArtifact artifact)
+    internal async Task SaveDownloadArtifactAsync(
+        int userId,
+        int companyId,
+        BatchReplyDownloadArtifact artifact,
+        CancellationToken cancellationToken = default)
     {
         artifact.OwnerUserId = userId;
         artifact.OwnerCompanyId = companyId;
         artifact.CreatedAt = DateTime.UtcNow;
+        artifact.ManifestRelativePath = BuildArtifactManifestRelativePath(artifact.TaskId);
 
-        var cacheKey = BuildArtifactCacheKey(artifact.TaskId);
-        var options = new MemoryCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = ArtifactRetention
-        };
-        options.RegisterPostEvictionCallback(OnArtifactEvicted);
-        _memoryCache.Set(cacheKey, artifact, options);
+        await PersistArtifactManifestAsync(artifact, cancellationToken);
+        await CleanupExpiredArtifactManifestsAsync(cancellationToken);
+        SetArtifactCache(artifact, ArtifactRetention);
     }
 
     internal BatchReplyDownloadArtifact? GetDownloadArtifact(int userId, int companyId, string taskId)
@@ -142,29 +171,65 @@ public sealed class BatchReplySessionService
             return null;
         }
 
-        if (!_memoryCache.TryGetValue(BuildArtifactCacheKey(taskId), out BatchReplyDownloadArtifact? artifact) ||
-            artifact == null)
+        if (_memoryCache.TryGetValue(BuildArtifactCacheKey(taskId), out BatchReplyDownloadArtifact? artifact) &&
+            artifact != null)
+        {
+            return ValidateArtifactOwnership(artifact, userId, companyId)
+                ? artifact
+                : null;
+        }
+
+        artifact = LoadArtifactManifest(taskId);
+        if (artifact == null)
         {
             return null;
         }
 
-        if (artifact.OwnerUserId != userId || artifact.OwnerCompanyId != companyId)
+        if (!ValidateArtifactOwnership(artifact, userId, companyId))
         {
             return null;
         }
 
+        var age = DateTime.UtcNow - artifact.CreatedAt;
+        var remainingRetention = ArtifactRetention - age;
+        if (remainingRetention <= TimeSpan.Zero)
+        {
+            DeleteArtifactFiles(artifact);
+            return null;
+        }
+
+        SetArtifactCache(artifact, remainingRetention);
         return artifact;
     }
 
-    private void SetSession(BatchReplySourceSession session)
+    private void SetSession(BatchReplySourceSession session, TimeSpan retention)
     {
+        if (retention <= TimeSpan.Zero)
+        {
+            return;
+        }
+
         var cacheKey = BuildSessionCacheKey(session.SessionId);
         var options = new MemoryCacheEntryOptions
         {
-            AbsoluteExpirationRelativeToNow = SessionRetention
+            AbsoluteExpirationRelativeToNow = retention
         };
-        options.RegisterPostEvictionCallback(OnSessionEvicted);
         _memoryCache.Set(cacheKey, session, options);
+    }
+
+    private void SetArtifactCache(BatchReplyDownloadArtifact artifact, TimeSpan retention)
+    {
+        if (retention <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var cacheKey = BuildArtifactCacheKey(artifact.TaskId);
+        var options = new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = retention
+        };
+        _memoryCache.Set(cacheKey, artifact, options);
     }
 
     private async Task<string> SaveTemporaryFileAsync(
@@ -178,56 +243,98 @@ public sealed class BatchReplySessionService
             : await _fileStorage.SaveUploadedWordAsync(fileName, content, cancellationToken);
     }
 
-    private void OnSessionEvicted(object key, object? value, EvictionReason reason, object? state)
+    private static string BuildSessionManifestRelativePath(string sessionId)
     {
-        if (value is not BatchReplySourceSession session)
-        {
-            return;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var paths = new List<string>();
-                if (!string.IsNullOrWhiteSpace(session.SourceFileRelativePath))
-                {
-                    paths.Add(session.SourceFileRelativePath);
-                }
-
-                paths.AddRange(session.TargetFiles
-                    .Select(file => file.RelativePath)
-                    .Where(path => !string.IsNullOrWhiteSpace(path))
-                    .Cast<string>());
-
-                await DeleteRelativePathsAsync(paths, CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "清理批量回复会话临时文件失败: {SessionId}", session.SessionId);
-            }
-        });
+        return $"{SessionManifestBaseRelativeDir}/{sessionId}.json";
     }
 
-    private void OnArtifactEvicted(object key, object? value, EvictionReason reason, object? state)
+    private async Task PersistSessionManifestAsync(
+        BatchReplySourceSession session,
+        CancellationToken cancellationToken)
     {
-        if (value is not BatchReplyDownloadArtifact artifact ||
-            string.IsNullOrWhiteSpace(artifact.RelativePath))
+        if (string.IsNullOrWhiteSpace(session.ManifestRelativePath))
+        {
+            throw new InvalidOperationException("会话清单路径不能为空");
+        }
+
+        var manifestPath = _fileStorage.GetAbsolutePath(session.ManifestRelativePath);
+        var directory = Path.GetDirectoryName(manifestPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var payload = JsonSerializer.Serialize(session, SessionJsonOptions);
+        await File.WriteAllTextAsync(manifestPath, payload, cancellationToken);
+    }
+
+    private BatchReplySourceSession? LoadSessionManifest(string sessionId)
+    {
+        var manifestRelativePath = BuildSessionManifestRelativePath(sessionId);
+        var manifestPath = _fileStorage.GetAbsolutePath(manifestRelativePath);
+        if (!File.Exists(manifestPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var payload = File.ReadAllText(manifestPath);
+            var session = JsonSerializer.Deserialize<BatchReplySourceSession>(payload, SessionJsonOptions);
+            if (session == null)
+            {
+                return null;
+            }
+
+            session.ManifestRelativePath = manifestRelativePath;
+            return session;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "读取批量回复会话清单失败: {SessionId}", sessionId);
+            return null;
+        }
+    }
+
+    private async Task CleanupExpiredSessionManifestsAsync(CancellationToken cancellationToken)
+    {
+        var manifestRoot = _fileStorage.GetAbsolutePath(SessionManifestBaseRelativeDir);
+        if (!Directory.Exists(manifestRoot))
         {
             return;
         }
 
-        _ = Task.Run(async () =>
+        foreach (var manifestPath in Directory.EnumerateFiles(manifestRoot, "*.json", SearchOption.TopDirectoryOnly))
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             try
             {
-                await _fileStorage.DeleteIfExistsAsync(artifact.RelativePath);
+                var payload = await File.ReadAllTextAsync(manifestPath, cancellationToken);
+                var session = JsonSerializer.Deserialize<BatchReplySourceSession>(payload, SessionJsonOptions);
+                if (session == null || DateTime.UtcNow - session.UpdatedAt > SessionRetention)
+                {
+                    if (session != null)
+                    {
+                        session.ManifestRelativePath = BuildSessionManifestRelativePath(Path.GetFileNameWithoutExtension(manifestPath));
+                        DeleteSessionFiles(session);
+                    }
+                    else
+                    {
+                        File.Delete(manifestPath);
+                    }
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "清理批量回复下载产物失败: {TaskId}", artifact.TaskId);
+                _logger.LogWarning(ex, "清理批量回复过期会话清单失败: {ManifestPath}", manifestPath);
             }
-        });
+        }
+    }
+
+    private static bool ValidateArtifactOwnership(BatchReplyDownloadArtifact artifact, int userId, int companyId)
+    {
+        return artifact.OwnerUserId == userId && artifact.OwnerCompanyId == companyId;
     }
 
     private async Task DeleteRelativePathsAsync(
@@ -251,6 +358,167 @@ public sealed class BatchReplySessionService
     {
         return $"{ArtifactCachePrefix}{taskId}";
     }
+
+    private static string BuildArtifactManifestRelativePath(string taskId)
+    {
+        return $"{ArtifactManifestBaseRelativeDir}/{taskId}.json";
+    }
+
+    private void DeleteSessionFiles(BatchReplySourceSession session)
+    {
+        try
+        {
+            var paths = new List<string>();
+            if (!string.IsNullOrWhiteSpace(session.SourceFileRelativePath))
+            {
+                paths.Add(session.SourceFileRelativePath);
+            }
+
+            paths.AddRange(session.TargetFiles
+                .Select(file => file.RelativePath)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Cast<string>());
+
+            foreach (var path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var fullPath = _fileStorage.GetAbsolutePath(path);
+                if (File.Exists(fullPath))
+                {
+                    File.Delete(fullPath);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(session.ManifestRelativePath))
+            {
+                var manifestPath = _fileStorage.GetAbsolutePath(session.ManifestRelativePath);
+                if (File.Exists(manifestPath))
+                {
+                    File.Delete(manifestPath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "清理批量回复会话临时文件失败: {SessionId}", session.SessionId);
+        }
+    }
+
+    private async Task PersistArtifactManifestAsync(
+        BatchReplyDownloadArtifact artifact,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(artifact.ManifestRelativePath))
+        {
+            throw new InvalidOperationException("下载产物清单路径不能为空");
+        }
+
+        var manifestPath = _fileStorage.GetAbsolutePath(artifact.ManifestRelativePath);
+        var directory = Path.GetDirectoryName(manifestPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var payload = JsonSerializer.Serialize(artifact, ArtifactJsonOptions);
+        await File.WriteAllTextAsync(manifestPath, payload, cancellationToken);
+    }
+
+    private BatchReplyDownloadArtifact? LoadArtifactManifest(string taskId)
+    {
+        var manifestRelativePath = BuildArtifactManifestRelativePath(taskId);
+        var manifestPath = _fileStorage.GetAbsolutePath(manifestRelativePath);
+        if (!File.Exists(manifestPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var payload = File.ReadAllText(manifestPath);
+            var artifact = JsonSerializer.Deserialize<BatchReplyDownloadArtifact>(payload, ArtifactJsonOptions);
+            if (artifact == null)
+            {
+                return null;
+            }
+
+            artifact.ManifestRelativePath = manifestRelativePath;
+            return artifact;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "读取批量回复下载清单失败: {TaskId}", taskId);
+            return null;
+        }
+    }
+
+    private async Task CleanupExpiredArtifactManifestsAsync(CancellationToken cancellationToken)
+    {
+        var manifestRoot = _fileStorage.GetAbsolutePath(ArtifactManifestBaseRelativeDir);
+        if (!Directory.Exists(manifestRoot))
+        {
+            return;
+        }
+
+        foreach (var manifestPath in Directory.EnumerateFiles(manifestRoot, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                var payload = await File.ReadAllTextAsync(manifestPath, cancellationToken);
+                var artifact = JsonSerializer.Deserialize<BatchReplyDownloadArtifact>(payload, ArtifactJsonOptions);
+                if (artifact == null || DateTime.UtcNow - artifact.CreatedAt > ArtifactRetention)
+                {
+                    if (artifact != null)
+                    {
+                        artifact.ManifestRelativePath = GetRelativePathFromAbsolute(manifestPath);
+                        DeleteArtifactFiles(artifact);
+                    }
+                    else
+                    {
+                        File.Delete(manifestPath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "清理批量回复过期下载清单失败: {ManifestPath}", manifestPath);
+            }
+        }
+    }
+
+    private void DeleteArtifactFiles(BatchReplyDownloadArtifact artifact)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(artifact.RelativePath))
+            {
+                var artifactPath = _fileStorage.GetAbsolutePath(artifact.RelativePath);
+                if (File.Exists(artifactPath))
+                {
+                    File.Delete(artifactPath);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(artifact.ManifestRelativePath))
+            {
+                var manifestPath = _fileStorage.GetAbsolutePath(artifact.ManifestRelativePath);
+                if (File.Exists(manifestPath))
+                {
+                    File.Delete(manifestPath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "清理批量回复下载产物失败: {TaskId}", artifact.TaskId);
+        }
+    }
+
+    private string GetRelativePathFromAbsolute(string fullPath)
+    {
+        return BuildArtifactManifestRelativePath(Path.GetFileNameWithoutExtension(fullPath));
+    }
 }
 
 internal sealed class BatchReplySourceSession
@@ -261,6 +529,7 @@ internal sealed class BatchReplySourceSession
     public string SourceFileName { get; set; } = string.Empty;
     public UploadedFileType SourceFileType { get; set; }
     public string SourceFileRelativePath { get; set; } = string.Empty;
+    public string? ManifestRelativePath { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public List<BatchReplySourceTable> SourceTables { get; set; } = [];
@@ -306,6 +575,7 @@ internal sealed class BatchReplyDownloadArtifact
     public int OwnerUserId { get; set; }
     public int OwnerCompanyId { get; set; }
     public string RelativePath { get; set; } = string.Empty;
+    public string? ManifestRelativePath { get; set; }
     public string FileName { get; set; } = string.Empty;
     public string ContentType { get; set; } = "application/octet-stream";
     public DateTime CreatedAt { get; set; }

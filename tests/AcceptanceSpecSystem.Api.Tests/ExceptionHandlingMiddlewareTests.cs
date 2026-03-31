@@ -61,4 +61,22 @@ public class ExceptionHandlingMiddlewareTests
         context.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
         responseBody.Length.Should().Be(0);
     }
+
+    [Fact]
+    public async Task InvokeAsync_WhenArgumentExceptionContainsSensitiveDetail_ShouldReturnSanitizedMessage()
+    {
+        var middleware = new ExceptionHandlingMiddleware(
+            _ => throw new ArgumentException("server=db;password=secret; endpoint=https://internal.example"),
+            NullLogger<ExceptionHandlingMiddleware>.Instance);
+        var context = new DefaultHttpContext();
+        await using var responseBody = new MemoryStream();
+        context.Response.Body = responseBody;
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        responseBody.Position = 0;
+        var document = await JsonDocument.ParseAsync(responseBody);
+        document.RootElement.GetProperty("message").GetString().Should().Be("请求参数错误");
+    }
 }

@@ -37,16 +37,7 @@ public sealed class BatchReplyAppService
         CancellationToken cancellationToken = default)
     {
         var owner = ResolveOwnerForApplication(user);
-        if (file == null || file.Length == 0)
-        {
-            throw new ApplicationServiceException(400, "请选择已回复的来源文件");
-        }
-
-        var fileType = ResolveUploadedFileType(file.FileName);
-        if (!fileType.HasValue)
-        {
-            throw new ApplicationServiceException(400, "仅支持 .docx / .xlsx 格式");
-        }
+        var fileType = UploadFileValidation.ValidateOfficeDocument(file, allowExcel: true, allowWord: true);
 
         byte[] content;
         using (var memoryStream = new MemoryStream())
@@ -55,12 +46,12 @@ public sealed class BatchReplyAppService
             content = memoryStream.ToArray();
         }
 
-        var tableCount = await _documentTableAccessService.CountTablesAsync(fileType.Value, content);
+        var tableCount = await _documentTableAccessService.CountTablesAsync(fileType, content);
         var session = await _batchReplySessionService.CreateSourceSessionAsync(
             owner.UserId,
             owner.CompanyId,
             file.FileName,
-            fileType.Value,
+            fileType,
             content,
             cancellationToken);
 
@@ -232,7 +223,11 @@ public sealed class BatchReplyAppService
 
         var taskId = Guid.NewGuid().ToString("N");
         var artifact = await SaveDownloadArtifactAsync(taskId, session.SourceFileName, generatedFiles, cancellationToken);
-        _batchReplySessionService.SaveDownloadArtifact(owner.UserId, owner.CompanyId, artifact);
+        await _batchReplySessionService.SaveDownloadArtifactAsync(
+            owner.UserId,
+            owner.CompanyId,
+            artifact,
+            cancellationToken);
 
         var response = new BatchReplyExecuteResponse
         {
@@ -338,14 +333,18 @@ public sealed class BatchReplyAppService
             return result;
         }
 
-        var fileType = ResolveUploadedFileType(targetFile.FileName);
-        if (!fileType.HasValue)
+        UploadedFileType fileType;
+        try
         {
-            result.Errors.Add("仅支持 .docx / .xlsx 格式");
+            fileType = UploadFileValidation.ValidateOfficeDocument(targetFile, allowExcel: true, allowWord: true);
+        }
+        catch (ApplicationServiceException ex)
+        {
+            result.Errors.Add(ex.Message);
             return result;
         }
 
-        result.FileType = fileType.Value;
+        result.FileType = fileType;
         byte[] content;
         using (var memoryStream = new MemoryStream())
         {
@@ -355,18 +354,18 @@ public sealed class BatchReplyAppService
 
         var relativePath = await _batchReplySessionService.SaveTargetFileAsync(
             targetFile.FileName,
-            fileType.Value,
+            fileType,
             content,
             cancellationToken);
         result.RelativePath = relativePath;
 
-        if (fileType.Value != expectedFileType)
+        if (fileType != expectedFileType)
         {
             result.Errors.Add("文件类型不一致");
             return result;
         }
 
-        var targetWordFile = CreateTemporaryWordFile(targetFile.FileName, fileType.Value, relativePath!);
+        var targetWordFile = CreateTemporaryWordFile(targetFile.FileName, fileType, relativePath!);
         result.Errors = await ValidateTargetFileAsync(targetWordFile, sourceTables);
         result.CanApply = result.Errors.Count == 0;
         return result;
@@ -591,17 +590,6 @@ public sealed class BatchReplyAppService
             FilePath = relativePath,
             FileContent = Array.Empty<byte>(),
             UploadedAt = DateTime.UtcNow
-        };
-    }
-
-    private static UploadedFileType? ResolveUploadedFileType(string? fileName)
-    {
-        var extension = Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant();
-        return extension switch
-        {
-            ".docx" => UploadedFileType.WordDocx,
-            ".xlsx" => UploadedFileType.ExcelXlsx,
-            _ => null
         };
     }
 

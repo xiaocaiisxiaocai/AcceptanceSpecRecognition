@@ -7,6 +7,8 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -15,10 +17,12 @@ namespace AcceptanceSpecSystem.Api.Tests;
 /// </summary>
 public class BatchReplyApiTests : IClassFixture<ApiWebApplicationFactory>
 {
+    private readonly ApiWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
     public BatchReplyApiTests(ApiWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -140,6 +144,108 @@ public class BatchReplyApiTests : IClassFixture<ApiWebApplicationFactory>
         GetDocxCellText(resultBytes, 0, 1, 3).Should().Be("RM-1");
         GetDocxCellText(resultBytes, 0, 2, 2).Should().Be("AC-2");
         GetDocxCellText(resultBytes, 0, 2, 3).Should().Be(string.Empty);
+    }
+
+    [Fact]
+    public async Task Download_WhenArtifactCacheMisses_ShouldFallbackToPersistedArtifact()
+    {
+        var sourceSessionId = await UploadSourceAsync(
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "AC-1", "RM-1" }
+            }),
+            "batch-reply-persisted-download-source.docx");
+
+        using (var previewContent = new MultipartFormDataContent
+        {
+            { new StringContent(sourceSessionId), "sessionId" },
+            { new StringContent("""[{"tableIndex":0,"projectColumnIndex":0,"specificationColumnIndex":1,"acceptanceColumnIndex":2,"remarkColumnIndex":3,"filterEmptySourceRows":true}]"""), "tableConfigsJson" }
+        })
+        {
+            var targetBytes = CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "", "旧备注" }
+            });
+            previewContent.Add(new ByteArrayContent(targetBytes), "targetFiles", "batch-reply-persisted-download-target.docx");
+
+            var previewResp = await _client.PostAsync("/api/batch-reply/preview", previewContent);
+            previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var executeResp = await _client.PostAsync(
+            "/api/batch-reply/execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                sessionId = sourceSessionId
+            }));
+
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeJson.Code.Should().Be(0);
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+        taskId.Should().NotBeNullOrWhiteSpace();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var memoryCache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
+            memoryCache.Remove($"batch-reply:artifact:{taskId}");
+        }
+
+        var downloadResp = await _client.GetAsync($"/api/batch-reply/download/{taskId}");
+        downloadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var resultBytes = await downloadResp.Content.ReadAsByteArrayAsync();
+        GetDocxCellText(resultBytes, 0, 1, 2).Should().Be("AC-1");
+        GetDocxCellText(resultBytes, 0, 1, 3).Should().Be("RM-1");
+    }
+
+    [Fact]
+    public async Task Execute_WhenSessionCacheMisses_ShouldFallbackToPersistedSessionManifest()
+    {
+        var sourceSessionId = await UploadSourceAsync(
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "AC-1", "RM-1" }
+            }),
+            "batch-reply-session-persist-source.docx");
+
+        using (var previewContent = new MultipartFormDataContent
+        {
+            { new StringContent(sourceSessionId), "sessionId" },
+            { new StringContent("""[{"tableIndex":0,"projectColumnIndex":0,"specificationColumnIndex":1,"acceptanceColumnIndex":2,"remarkColumnIndex":3,"filterEmptySourceRows":true}]"""), "tableConfigsJson" }
+        })
+        {
+            var targetBytes = CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "", "旧备注" }
+            });
+            previewContent.Add(new ByteArrayContent(targetBytes), "targetFiles", "batch-reply-session-persist-target.docx");
+
+            var previewResp = await _client.PostAsync("/api/batch-reply/preview", previewContent);
+            previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var memoryCache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
+            memoryCache.Remove($"batch-reply:session:{sourceSessionId}");
+        }
+
+        var executeResp = await _client.PostAsync(
+            "/api/batch-reply/execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                sessionId = sourceSessionId
+            }));
+
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeJson.Code.Should().Be(0);
+        executeJson.Data.GetProperty("successCount").GetInt32().Should().Be(1);
     }
 
     [Fact]

@@ -65,24 +65,27 @@ public class FileCompareController : BaseApiController
             return Error<FileCompareUploadResponse>(400, "请上传两份文件");
         }
 
-        var extA = Path.GetExtension(fileA.FileName).ToLowerInvariant();
-        var extB = Path.GetExtension(fileB.FileName).ToLowerInvariant();
-        if (extA != extB)
+        UploadedFileType fileTypeA;
+        UploadedFileType fileTypeB;
+        try
+        {
+            fileTypeA = UploadFileValidation.ValidateOfficeDocument(fileA, allowExcel: true, allowWord: true);
+            fileTypeB = UploadFileValidation.ValidateOfficeDocument(fileB, allowExcel: true, allowWord: true);
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<FileCompareUploadResponse>(400, ex.Message);
+        }
+
+        if (fileTypeA != fileTypeB)
         {
             return Error<FileCompareUploadResponse>(400, "仅支持同类型文件对比");
         }
 
-        if (extA != ".docx" && extA != ".xlsx")
-        {
-            return Error<FileCompareUploadResponse>(400, "仅支持 .docx / .xlsx 格式");
-        }
-        var fileType = extA == ".docx"
-            ? UploadedFileType.WordDocx
-            : UploadedFileType.ExcelXlsx;
         var cancellationToken = HttpContext.RequestAborted;
 
-        var respA = await SaveUploadedFileAsync(fileA, fileType, scope, cancellationToken);
-        var respB = await SaveUploadedFileAsync(fileB, fileType, scope, cancellationToken);
+        var respA = await SaveUploadedFileAsync(fileA, fileTypeA, scope, cancellationToken);
+        var respB = await SaveUploadedFileAsync(fileB, fileTypeA, scope, cancellationToken);
 
         return Success(new FileCompareUploadResponse
         {

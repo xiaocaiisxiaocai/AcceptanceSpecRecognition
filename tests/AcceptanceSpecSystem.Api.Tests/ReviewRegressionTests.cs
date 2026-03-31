@@ -88,14 +88,17 @@ public class ReviewRegressionTests
     [Fact]
     public void ScoreDetailDialog_ShouldHighlightSourceVsBestMatchDifference()
     {
-        var content = File.ReadAllText(Path.Combine(
+        var dialogContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/smart-fill/components/ScoreDetailDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var diffSectionContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDiffSection.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("sourceBestRows", "匹配详情应直接标出源项与最佳匹配的差异位置");
-        content.Should().Contain("源项与最佳匹配差异", "应提供专门的差异高亮区块，避免用户自行肉眼比对");
-        content.Should().Contain("v-html=\"row.leftHtml\"", "差异区块应复用现有 inline diff 高亮渲染");
-        content.Should().Contain("v-html=\"row.rightHtml\"", "差异区块应同时渲染源项与最佳匹配的高亮结果");
+        dialogContent.Should().Contain("sourceBestRows", "父组件应继续向差异区块透传源项与最佳匹配的 diff 数据");
+        diffSectionContent.Should().Contain("源项与最佳匹配差异", "应由差异区块组件渲染专门的高亮区域，避免用户自行肉眼比对");
+        diffSectionContent.Should().Contain("v-html=\"row.leftHtml\"", "差异区块应复用现有 inline diff 高亮渲染");
+        diffSectionContent.Should().Contain("v-html=\"row.rightHtml\"", "差异区块应同时渲染源项与最佳匹配的高亮结果");
     }
 
     [Fact]
@@ -404,13 +407,16 @@ public class ReviewRegressionTests
     [Fact]
     public void ScoreDetailDialog_ShouldExposeEntityEvidenceSection()
     {
-        var content = File.ReadAllText(Path.Combine(
+        var bestMatchSectionContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "web/src/views/smart-fill/components/ScoreDetailDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
+            "web/src/views/smart-fill/components/ScoreDetailBestMatchSection.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var candidateListContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailCandidateList.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("实体证据");
-        content.Should().Contain("bestMatchEntities");
-        content.Should().Contain("candidate.entities?.length");
+        bestMatchSectionContent.Should().Contain("实体证据");
+        bestMatchSectionContent.Should().Contain("bestMatchEntities");
+        candidateListContent.Should().Contain("candidate.entities?.length");
     }
 
     [Fact]
@@ -577,12 +583,22 @@ public class ReviewRegressionTests
             "web/src/utils/http/index.ts".Replace('/', Path.DirectorySeparatorChar)));
 
         content.Should().Contain("ensureAuditHeaders(config);", "请求进入自定义 beforeRequestCallback 分支前后都应补齐审计头");
+        content.Should().Contain("return PureHttp.ensureAuthorization(config);", "beforeRequestCallback 分支存在时也应补齐鉴权头，避免绕过 Authorization 注入");
+        content.Should().Contain("await callback(config);", "自定义回调仍应保留对请求配置的扩展能力");
+        content.Should().Contain("return PureHttp.applyBeforeRequestCallback(config, beforeCallback);", "命中 beforeRequestCallback 时不应提前返回未鉴权配置");
 
-        var callbackIndex = content.IndexOf("if (typeof config.beforeRequestCallback === \"function\")", StringComparison.Ordinal);
+        var callbackIndex = content.IndexOf("return PureHttp.applyBeforeRequestCallback(config, beforeCallback);", StringComparison.Ordinal);
         var headerIndex = content.IndexOf("ensureAuditHeaders(config);", StringComparison.Ordinal);
         headerIndex.Should().BeGreaterThanOrEqualTo(0);
         callbackIndex.Should().BeGreaterThan(0);
         headerIndex.Should().BeLessThan(callbackIndex, "应先补齐审计头，再交给 beforeRequestCallback 自定义处理");
+
+        var helperIndex = content.IndexOf("private static async applyBeforeRequestCallback", StringComparison.Ordinal);
+        helperIndex.Should().BeGreaterThan(0);
+        var helperContent = content.Substring(helperIndex, Math.Min(400, content.Length - helperIndex));
+        helperContent.Should().Contain("await callback(config);", "beforeRequestCallback 帮助方法应先执行自定义回调");
+        helperContent.Should().Contain("ensureAuditHeaders(config);", "自定义回调之后仍应重新补齐审计头");
+        helperContent.Should().Contain("return PureHttp.ensureAuthorization(config);", "自定义回调之后仍应继续执行统一的鉴权补头");
     }
 
     [Fact]
@@ -740,6 +756,61 @@ public class ReviewRegressionTests
         smartFillContent.Should().Contain(
             "onBeforeUnmount(() => {\n  invalidatePendingPreview();\n  stopLlmStream();\n});",
             "页面卸载时应同时取消未完成的批量预览请求和流式请求，避免离页后仍占用后端算力");
+    }
+
+    [Fact]
+    public void AiServicesController_ShouldReuseSemanticKernelAzureApiVersion()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Controllers/AiServicesController.cs".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("IOptions<SemanticKernelOptions>", "Azure OpenAI 探测接口应复用统一的 SemanticKernel 配置来源");
+        content.Should().Contain("_azureOpenAiApiVersion", "控制器应缓存统一的 Azure OpenAI API 版本配置");
+        content.Should().NotContain("\"2024-02-15-preview\"", "模型探测接口不应再硬编码 preview API version");
+    }
+
+    [Fact]
+    public void SmartFillLlmStream_ShouldUseSharedAuthorizedFetchHelper()
+    {
+        var httpContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/utils/http/index.ts".Replace('/', Path.DirectorySeparatorChar)));
+        httpContent.Should().Contain("export async function createAuthorizedFetchInit",
+            "HTTP 工具层应提供可复用的原生 fetch 鉴权封装，供 SSE/流式接口复用");
+        httpContent.Should().Contain("export async function authorizedFetch",
+            "HTTP 工具层应提供直接可复用的原生 fetch 帮助方法，减少页面侧重复拼装逻辑");
+        httpContent.Should().Contain("PureHttp.handleAuthFailure",
+            "原生 fetch 鉴权封装应复用统一的 401/403 处理逻辑");
+
+        var smartFillContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        smartFillContent.Should().Contain("authorizedFetch(\"/api/matching/llm-stream\"",
+            "Smart Fill 的流式请求应走共享鉴权/审计封装，而不是自行拼 Authorization 头");
+        smartFillContent.Should().NotContain("Authorization: formatToken(",
+            "Smart Fill 不应再手工拼接流式请求的 Authorization 头");
+    }
+
+    [Fact]
+    public void MatchingServices_ShouldGuardCandidateVolume_AndBatchEmbeddingHydration()
+    {
+        var previewContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var workflowContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs".Replace('/', Path.DirectorySeparatorChar)));
+
+        foreach (var content in new[] { previewContent, workflowContent })
+        {
+            content.Should().Contain("MaxScopedCandidateCount",
+                "匹配服务应在加载候选前限制候选范围大小，避免单请求全量拉入内存");
+            content.Should().Contain("EnsureCandidateScopeWithinLimit",
+                "匹配服务应对候选总量做显式保护并给出可操作的错误提示");
+            content.Should().Contain("GenerateEmbeddingsInBatchesAsync",
+                "Embedding 缺失候选应分批生成，避免单次远程调用承载全部候选");
+        }
     }
 
     private static string[] ReadFile(string relativePath)

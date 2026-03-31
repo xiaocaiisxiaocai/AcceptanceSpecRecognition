@@ -91,16 +91,7 @@ public sealed class DocumentFileAppService
         IFormFile file,
         CancellationToken cancellationToken = default)
     {
-        if (file == null || file.Length == 0)
-        {
-            throw new ApplicationServiceException(400, "请选择要上传的文件");
-        }
-
-        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (extension != ".docx" && extension != ".xlsx")
-        {
-            throw new ApplicationServiceException(400, "仅支持 .docx / .xlsx 格式");
-        }
+        var fileType = UploadFileValidation.ValidateOfficeDocument(file, allowExcel: true, allowWord: true);
 
         byte[] fileContent;
         using (var memoryStream = new MemoryStream())
@@ -109,7 +100,6 @@ public sealed class DocumentFileAppService
             fileContent = memoryStream.ToArray();
         }
 
-        var fileType = extension == ".xlsx" ? UploadedFileType.ExcelXlsx : UploadedFileType.WordDocx;
         var fileHash = FileStorageService.ComputeSha256(fileContent);
         var filePath = await _documentFileAccessService.SaveUploadedFileAsync(
             fileType,

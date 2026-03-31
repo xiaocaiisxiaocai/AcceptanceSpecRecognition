@@ -27,7 +27,8 @@ import {
   ColumnMappingMatchMode,
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
-import { getToken, formatToken, hasPerms } from "@/utils/auth";
+import { hasPerms } from "@/utils/auth";
+import { authorizedFetch } from "@/utils/http";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({ name: "SmartFill" });
@@ -453,22 +454,18 @@ const startLlmStream = async () => {
     items: llmItems,
     config: matchConfig.value
   };
-  const token = getToken();
 
-  try {
-    const response = await fetch("/api/matching/llm-stream", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token?.accessToken
-          ? { Authorization: formatToken(token.accessToken) }
-          : {})
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
+    try {
+      const response = await authorizedFetch("/api/matching/llm-stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
 
-    if (!response.ok || !response.body) {
+      if (!response.ok || !response.body) {
       ElMessage.warning("LLM流式输出不可用，已降级");
       if (llmStreamController.value === controller) {
         llmStreamController.value = null;

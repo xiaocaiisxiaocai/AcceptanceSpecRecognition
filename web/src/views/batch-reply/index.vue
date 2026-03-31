@@ -442,7 +442,7 @@ const handleExecute = async () => {
         </template>
 
         <el-upload
-          v-if="!sourceFile"
+          v-if="canUploadSourceFile && !sourceFile"
           class="upload-area"
           drag
           :show-file-list="false"
@@ -462,6 +462,14 @@ const handleExecute = async () => {
             </div>
           </template>
         </el-upload>
+
+        <el-alert
+          v-else-if="!sourceFile"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="当前账号没有来源文件上传权限"
+        />
 
         <div v-else class="source-summary">
           <div class="source-file-name">{{ sourceFile.sourceFileName }}</div>

@@ -397,8 +397,16 @@ public sealed class DocumentImportAppService
         {
             try
             {
-                await _documentFileAccessService.DeleteIfExistsAsync(wordFile.FilePath);
-                wordFile.FilePath = null;
+                if (!string.IsNullOrWhiteSpace(wordFile.FilePath))
+                {
+                    await using var stream = _documentFileAccessService.OpenReadStream(wordFile);
+                    using var memoryStream = new MemoryStream();
+                    await stream.CopyToAsync(memoryStream, cancellationToken);
+                    wordFile.FileContent = memoryStream.ToArray();
+                    await _documentFileAccessService.DeleteIfExistsAsync(wordFile.FilePath, cancellationToken);
+                    wordFile.FilePath = null;
+                }
+
                 await _unitOfWork.SaveChangesAsync();
             }
             catch (Exception ex)
