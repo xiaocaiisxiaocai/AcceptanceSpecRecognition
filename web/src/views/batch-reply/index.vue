@@ -2,9 +2,13 @@
 import { computed, onBeforeUnmount, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { UploadFilled } from "@element-plus/icons-vue";
-import type { UploadRequestOptions } from "element-plus";
+import type { UploadFile, UploadInstance, UploadRequestOptions } from "element-plus";
 import BatchTableConfig from "@/views/smart-fill/components/BatchTableConfig.vue";
 import type { BatchTableConfigItem } from "@/views/smart-fill/components/BatchTableConfig.vue";
+import {
+  decideTargetUpload,
+  type TargetUploadItem
+} from "./target-upload";
 import {
   downloadBatchReplyResult,
   executeBatchReply,
@@ -21,11 +25,6 @@ import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({ name: "BatchReplyPage" });
-
-type TargetUploadItem = {
-  id: string;
-  file: File;
-};
 
 const steps = [
   { title: "上传来源", description: "上传一份人工已回复文档" },
@@ -45,6 +44,7 @@ const previewing = ref(false);
 const executing = ref(false);
 const targetUploadKey = ref(0);
 const previewAbortController = ref<AbortController | null>(null);
+const targetUploadRef = ref<UploadInstance>();
 
 const currentStep = computed(() => {
   if (!sourceFile.value) return 0;
@@ -211,38 +211,32 @@ const handleSourceUpload = async (options: UploadRequestOptions) => {
   }
 };
 
-const handleTargetBeforeUpload = (rawFile: File) => {
-  if (!sourceFile.value) {
-    ElMessage.warning("请先上传来源文件");
-    return false;
+const handleTargetFileChange = (uploadFile: UploadFile) => {
+  const rawFile = uploadFile.raw;
+  if (!rawFile) {
+    return;
   }
 
-  const lowerName = rawFile.name.toLowerCase();
-  if (!lowerName.endsWith(targetAccept.value)) {
-    ElMessage.error(`目标文件仅支持 ${targetAccept.value} 格式`);
-    return false;
+  const result = decideTargetUpload({
+    hasSourceFile: !!sourceFile.value,
+    accept: targetAccept.value,
+    existingSignatures: targetFiles.value.map(item => item.id),
+    file: rawFile
+  });
+
+  if (result.status === "accepted") {
+    targetFiles.value = [...targetFiles.value, result.item as TargetUploadItem];
+    resetPreviewState();
+    targetUploadRef.value?.handleRemove(uploadFile);
+    return;
   }
 
-  if (rawFile.size > 50 * 1024 * 1024) {
-    ElMessage.error("文件大小不能超过50MB");
-    return false;
+  if (result.level === "warning") {
+    ElMessage.warning(result.message);
+  } else {
+    ElMessage.error(result.message);
   }
-
-  const signature = `${rawFile.name}-${rawFile.size}-${rawFile.lastModified}`;
-  if (targetFiles.value.some(item => item.id === signature)) {
-    ElMessage.warning(`${rawFile.name} 已在列表中`);
-    return false;
-  }
-
-  targetFiles.value = [
-    ...targetFiles.value,
-    {
-      id: signature,
-      file: rawFile
-    }
-  ];
-  resetPreviewState();
-  return false;
+  targetUploadRef.value?.handleRemove(uploadFile);
 };
 
 const removeTargetFile = (id: string) => {
@@ -515,13 +509,14 @@ const handleExecute = async () => {
         </template>
 
         <el-upload
+          ref="targetUploadRef"
           :key="targetUploadKey"
           class="upload-area"
           drag
           multiple
           :auto-upload="false"
           :show-file-list="false"
-          :before-upload="handleTargetBeforeUpload"
+          :on-change="handleTargetFileChange"
           :accept="sourceFile ? targetAccept : '.docx,.xlsx'"
           :disabled="!sourceFile"
         >
