@@ -3,6 +3,7 @@ using System.Security.Claims;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Options;
+using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.Extensions.Options;
@@ -57,7 +58,7 @@ public sealed class MatchingKnowledgeDraftGenerationService
 
         await _bootstrapper.EnsureInitializedAsync();
         var entity = await _unitOfWork.MatchingKnowledgeConfigs.GetConfigAsync();
-        var effective = MatchingKnowledgeComposition.ToDto(entity);
+        var effective = MatchingKnowledgeComposition.ToDomainModel(MatchingKnowledgeComposition.ToDto(entity));
 
         var aiItems = await _draftAiService.GenerateAsync(new MatchingKnowledgeDraftAiRequest
         {
@@ -175,7 +176,7 @@ public sealed class MatchingKnowledgeDraftGenerationService
     private static List<MatchingKnowledgeDraftItemDto> MarkMappingDrafts(
         string category,
         IReadOnlyList<MatchingKnowledgeDraftCandidate> aiItems,
-        MatchingKnowledgeLayerDto effective)
+        MatchingKnowledge effective)
     {
         var existing = category switch
         {
@@ -248,7 +249,7 @@ public sealed class MatchingKnowledgeDraftGenerationService
 
     private static List<MatchingKnowledgeDraftItemDto> MarkConflictPairDrafts(
         IReadOnlyList<MatchingKnowledgeDraftCandidate> aiItems,
-        MatchingKnowledgeLayerDto effective)
+        MatchingKnowledge effective)
     {
         var existingKeys = effective.ConflictPairs
             .Select(pair => BuildConflictKey(pair.Left, pair.Right))

@@ -79,31 +79,31 @@ const categoryMeta = computed(() => {
   switch (props.category) {
     case "entityAliases":
       return {
-        title: "实体别名",
-        description: "从历史验规中抽取品牌、组织、厂商等实体别名映射",
-        keyLabel: "别名",
+        title: "实体组",
+        description: "从历史验规中抽取可并入实体组的品牌、组织、厂商候选词",
+        keyLabel: "候选词",
         valueLabel: "标准实体"
       };
     case "unitAliases":
       return {
-        title: "单位规则",
-        description: "从历史验规中抽取单位别名映射，不生成倍率或换算系数",
-        keyLabel: "单位别名",
+        title: "单位组",
+        description: "从历史验规中抽取可并入单位组的候选词，不生成倍率或换算系数",
+        keyLabel: "候选词",
         valueLabel: "标准单位"
       };
     case "fieldAliases":
       return {
-        title: "字段别名",
-        description: "从历史验规中抽取业务字段、列名、缩写到标准字段的映射",
-        keyLabel: "字段别名",
+        title: "字段组",
+        description: "从历史验规中抽取可并入字段组的业务字段、列名、缩写候选词",
+        keyLabel: "候选词",
         valueLabel: "标准字段"
       };
     case "conflictPairs":
       return {
-        title: "冲突词对",
-        description: "从历史验规中抽取明确互斥、不能同时成立的对立语义",
-        keyLabel: "左侧词",
-        valueLabel: "右侧词"
+        title: "冲突组",
+        description: "从历史验规中抽取明确互斥、不能同时成立的左右对立词",
+        keyLabel: "左侧候选",
+        valueLabel: "右侧候选"
       };
     default:
       return {

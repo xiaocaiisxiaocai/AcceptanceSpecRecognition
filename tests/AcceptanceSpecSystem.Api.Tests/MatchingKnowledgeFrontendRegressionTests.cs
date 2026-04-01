@@ -35,10 +35,10 @@ public class MatchingKnowledgeFrontendRegressionTests
         var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
 
         content.Should().Contain("<el-tabs", "匹配知识配置页应按分组切换，避免单页纵向过长");
-        content.Should().Contain("label=\"实体别名\"");
+        content.Should().Contain("label=\"实体组\"");
         content.Should().Contain("label=\"单位规则\"");
-        content.Should().Contain("label=\"字段别名\"");
-        content.Should().Contain("label=\"冲突词对\"");
+        content.Should().Contain("label=\"字段组\"");
+        content.Should().Contain("label=\"冲突组\"");
     }
 
     [Fact]
@@ -51,6 +51,31 @@ public class MatchingKnowledgeFrontendRegressionTests
         content.Should().Contain("当前生效配置");
         content.Should().Contain("清空当前配置");
         content.Should().Contain("恢复默认配置");
+    }
+
+    [Fact]
+    public void MatchingKnowledgePage_ShouldUseGroupedAuthoringLabels()
+    {
+        var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
+
+        content.Should().Contain("实体组");
+        content.Should().Contain("单位组");
+        content.Should().Contain("字段组");
+        content.Should().Contain("左冲突组");
+        content.Should().Contain("右冲突组");
+        content.Should().Contain("首项作为标准值");
+        content.Should().NotContain("label=\"标准实体\"");
+        content.Should().NotContain("label=\"标准字段\"");
+    }
+
+    [Fact]
+    public void MatchingKnowledgePage_ShouldExplainDraftMergeFeedback()
+    {
+        var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
+
+        content.Should().Contain("并入已有组");
+        content.Should().Contain("新建组");
+        content.Should().Contain("候选与现有分组冲突未导入");
     }
 
     [Fact]

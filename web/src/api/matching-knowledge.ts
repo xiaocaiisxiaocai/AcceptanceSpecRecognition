@@ -2,27 +2,21 @@ import { http } from "@/utils/http";
 import type { ApiResponse } from "./customer";
 import type { SpecListRequest } from "./spec";
 
-export interface DictionaryEntry {
-  key: string;
-  value: string;
+export interface MatchingKnowledgeGroup {
+  items: string[];
 }
 
-export interface UnitFactorEntry {
-  key: string;
-  value: number;
-}
-
-export interface ConflictPair {
-  left: string;
-  right: string;
+export interface MatchingKnowledgeConflictGroup {
+  leftItems: string[];
+  rightItems: string[];
 }
 
 export interface MatchingKnowledgeLayer {
-  entityAliases: Record<string, string>;
-  unitAliases: Record<string, string>;
+  entityGroups: MatchingKnowledgeGroup[];
+  unitGroups: MatchingKnowledgeGroup[];
   unitFactors: Record<string, number>;
-  fieldAliases: Record<string, string>;
-  conflictPairs: ConflictPair[];
+  fieldGroups: MatchingKnowledgeGroup[];
+  conflictGroups: MatchingKnowledgeConflictGroup[];
 }
 
 export type UpdateMatchingKnowledgeRequest = MatchingKnowledgeLayer;

@@ -4,19 +4,46 @@ using AcceptanceSpecSystem.Api.Options;
 namespace AcceptanceSpecSystem.Api.DTOs;
 
 /// <summary>
+/// 匹配知识分组 DTO。
+/// </summary>
+public sealed class MatchingKnowledgeGroupDto
+{
+    /// <summary>
+    /// 组内词项；首项视为标准值。
+    /// </summary>
+    public List<string> Items { get; set; } = [];
+}
+
+/// <summary>
+/// 匹配知识冲突分组 DTO。
+/// </summary>
+public sealed class MatchingKnowledgeConflictGroupDto
+{
+    /// <summary>
+    /// 左冲突组词项。
+    /// </summary>
+    public List<string> LeftItems { get; set; } = [];
+
+    /// <summary>
+    /// 右冲突组词项。
+    /// </summary>
+    public List<string> RightItems { get; set; } = [];
+}
+
+/// <summary>
 /// 匹配知识配置 DTO。
 /// </summary>
 public sealed class MatchingKnowledgeLayerDto
 {
     /// <summary>
-    /// 实体别名映射。
+    /// 实体组。
     /// </summary>
-    public Dictionary<string, string> EntityAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<MatchingKnowledgeGroupDto> EntityGroups { get; set; } = [];
 
     /// <summary>
-    /// 单位别名映射。
+    /// 单位组。
     /// </summary>
-    public Dictionary<string, string> UnitAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<MatchingKnowledgeGroupDto> UnitGroups { get; set; } = [];
 
     /// <summary>
     /// 单位换算映射。
@@ -24,14 +51,14 @@ public sealed class MatchingKnowledgeLayerDto
     public Dictionary<string, decimal> UnitFactors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// 字段别名映射。
+    /// 字段组。
     /// </summary>
-    public Dictionary<string, string> FieldAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<MatchingKnowledgeGroupDto> FieldGroups { get; set; } = [];
 
     /// <summary>
-    /// 冲突词对。
+    /// 冲突组。
     /// </summary>
-    public List<ConflictPairDto> ConflictPairs { get; set; } = [];
+    public List<MatchingKnowledgeConflictGroupDto> ConflictGroups { get; set; } = [];
 }
 
 /// <summary>
@@ -40,16 +67,16 @@ public sealed class MatchingKnowledgeLayerDto
 public sealed class UpdateMatchingKnowledgeRequest
 {
     /// <summary>
-    /// 实体别名映射。
+    /// 实体组。
     /// </summary>
     [Required]
-    public Dictionary<string, string> EntityAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<MatchingKnowledgeGroupDto> EntityGroups { get; set; } = [];
 
     /// <summary>
-    /// 单位别名映射。
+    /// 单位组。
     /// </summary>
     [Required]
-    public Dictionary<string, string> UnitAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<MatchingKnowledgeGroupDto> UnitGroups { get; set; } = [];
 
     /// <summary>
     /// 单位换算映射。
@@ -58,16 +85,16 @@ public sealed class UpdateMatchingKnowledgeRequest
     public Dictionary<string, decimal> UnitFactors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// 字段别名映射。
+    /// 字段组。
     /// </summary>
     [Required]
-    public Dictionary<string, string> FieldAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<MatchingKnowledgeGroupDto> FieldGroups { get; set; } = [];
 
     /// <summary>
-    /// 冲突词对。
+    /// 冲突组。
     /// </summary>
     [Required]
-    public List<ConflictPairDto> ConflictPairs { get; set; } = [];
+    public List<MatchingKnowledgeConflictGroupDto> ConflictGroups { get; set; } = [];
 }
 
 /// <summary>

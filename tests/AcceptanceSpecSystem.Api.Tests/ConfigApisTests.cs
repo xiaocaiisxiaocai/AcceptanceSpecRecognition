@@ -29,36 +29,47 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         var cfg = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
         cfg.Code.Should().Be(0);
         cfg.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        cfg.Data.GetProperty("entityAliases").ValueKind.Should().Be(JsonValueKind.Object);
-        cfg.Data.GetProperty("unitAliases").ValueKind.Should().Be(JsonValueKind.Object);
-        cfg.Data.GetProperty("fieldAliases").ValueKind.Should().Be(JsonValueKind.Object);
+        cfg.Data.GetProperty("entityGroups").ValueKind.Should().Be(JsonValueKind.Array);
+        cfg.Data.GetProperty("unitGroups").ValueKind.Should().Be(JsonValueKind.Array);
+        cfg.Data.GetProperty("fieldGroups").ValueKind.Should().Be(JsonValueKind.Array);
+        cfg.Data.GetProperty("conflictGroups").ValueKind.Should().Be(JsonValueKind.Array);
+        cfg.Data.GetProperty("unitFactors").ValueKind.Should().Be(JsonValueKind.Object);
 
         var putResp = await _client.PutAsync(
             "/api/matching-knowledge",
             ApiClientJson.ToJsonContent(new
             {
-                entityAliases = new Dictionary<string, string>
+                entityGroups = new[]
                 {
-                    ["Panasonic品牌"] = "松下"
+                    new
+                    {
+                        items = new[] { "松下", "Panasonic品牌" }
+                    }
                 },
-                unitAliases = new Dictionary<string, string>
+                unitGroups = new[]
                 {
-                    ["公分"] = "cm"
+                    new
+                    {
+                        items = new[] { "cm", "公分" }
+                    }
                 },
                 unitFactors = new Dictionary<string, decimal>
                 {
                     ["cm"] = 10m
                 },
-                fieldAliases = new Dictionary<string, string>
-                {
-                    ["宽尺寸"] = "宽度"
-                },
-                conflictPairs = new[]
+                fieldGroups = new[]
                 {
                     new
                     {
-                        left = "正转",
-                        right = "反转"
+                        items = new[] { "宽度", "宽尺寸" }
+                    }
+                },
+                conflictGroups = new[]
+                {
+                    new
+                    {
+                        leftItems = new[] { "正转" },
+                        rightItems = new[] { "反转" }
                     }
                 }
             }));
@@ -66,8 +77,13 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         var saved = await putResp.ReadAsAsync<ApiResponse<JsonElement>>();
         saved.Code.Should().Be(0);
         saved.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        saved.Data.GetProperty("entityAliases").GetProperty("Panasonic品牌").GetString().Should().Be("松下");
-        saved.Data.GetProperty("entityAliases").TryGetProperty("panasonic", out _).Should().BeFalse();
+        saved.Data.GetProperty("entityGroups").EnumerateArray()
+            .Any(group =>
+            {
+                var items = group.GetProperty("items").EnumerateArray().Select(item => item.GetString()).ToArray();
+                return items.Contains("松下") && items.Contains("Panasonic品牌");
+            })
+            .Should().BeTrue();
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -76,23 +92,62 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             var savedEntityAliases = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.EntityAliasesJson);
             savedEntityAliases.Should().NotBeNull();
             savedEntityAliases!.Should().ContainKey("Panasonic品牌");
-            savedEntityAliases.Should().NotContainKey("panasonic");
+            savedEntityAliases["Panasonic品牌"].Should().Be("松下");
+            savedEntityAliases.Should().ContainKey("松下");
+            savedEntityAliases["松下"].Should().Be("松下");
         }
 
         var clearResp = await _client.PostAsync("/api/matching-knowledge/clear", null);
         clearResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var clear = await clearResp.ReadAsAsync<ApiResponse<JsonElement>>();
         clear.Code.Should().Be(0);
-        clear.Data.GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
-        clear.Data.GetProperty("entityAliases").TryGetProperty("panasonic", out _).Should().BeFalse();
-        clear.Data.GetProperty("unitAliases").EnumerateObject().Should().BeEmpty();
+        clear.Data.GetProperty("entityGroups").EnumerateArray().Should().BeEmpty();
+        clear.Data.GetProperty("unitGroups").EnumerateArray().Should().BeEmpty();
+        clear.Data.GetProperty("fieldGroups").EnumerateArray().Should().BeEmpty();
+        clear.Data.GetProperty("conflictGroups").EnumerateArray().Should().BeEmpty();
+        clear.Data.GetProperty("unitFactors").EnumerateObject().Should().BeEmpty();
 
         var restoreResp = await _client.PostAsync("/api/matching-knowledge/restore-defaults", null);
         restoreResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var restore = await restoreResp.ReadAsAsync<ApiResponse<JsonElement>>();
         restore.Code.Should().Be(0);
-        restore.Data.GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
-        restore.Data.GetProperty("entityAliases").GetProperty("panasonic").GetString().Should().Be("松下");
+        restore.Data.GetProperty("entityGroups").EnumerateArray()
+            .Any(group =>
+            {
+                var items = group.GetProperty("items").EnumerateArray().Select(item => item.GetString()).ToArray();
+                return items.Contains("松下") && items.Contains("panasonic");
+            })
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task MatchingKnowledge_Save_ShouldRejectDuplicateTermsAcrossDifferentGroups()
+    {
+        var response = await _client.PutAsync(
+            "/api/matching-knowledge",
+            ApiClientJson.ToJsonContent(new
+            {
+                entityGroups = new[]
+                {
+                    new
+                    {
+                        items = new[] { "ABB", "abb" }
+                    },
+                    new
+                    {
+                        items = new[] { "艾波比股份有限公司", "abb" }
+                    }
+                },
+                unitGroups = Array.Empty<object>(),
+                unitFactors = new Dictionary<string, decimal>(),
+                fieldGroups = Array.Empty<object>(),
+                conflictGroups = Array.Empty<object>()
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(400);
+        body.Message.Should().Contain("abb");
     }
 
     [Fact]

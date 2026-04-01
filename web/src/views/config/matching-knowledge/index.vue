@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import MatchingKnowledgeDraftDialog from "./components/MatchingKnowledgeDraftDialog.vue";
 import {
   clearMatchingKnowledge,
   getMatchingKnowledge,
   restoreDefaultMatchingKnowledge,
+  type MatchingKnowledgeConflictGroup,
   type MatchingKnowledgeDraftCategory,
   type MatchingKnowledgeDraftItem,
-  updateMatchingKnowledge,
-  type ConflictPair,
-  type MatchingKnowledgeLayer
+  type MatchingKnowledgeGroup,
+  type MatchingKnowledgeLayer,
+  updateMatchingKnowledge
 } from "@/api/matching-knowledge";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
@@ -19,10 +20,9 @@ defineOptions({
   name: "MatchingKnowledgeConfig"
 });
 
-interface EditableStringRow {
+interface EditableGroupRow {
   id: number;
-  key: string;
-  value: string;
+  text: string;
 }
 
 interface EditableNumberRow {
@@ -31,19 +31,21 @@ interface EditableNumberRow {
   value: number | null;
 }
 
-interface EditableConflictRow {
+interface EditableConflictGroupRow {
   id: number;
-  left: string;
-  right: string;
+  leftText: string;
+  rightText: string;
 }
+
+const GROUP_SEPARATOR_PATTERN = /[、，,]/;
 
 const loading = ref(false);
 const activeTab = ref("entityAliases");
-const entityAliasRows = ref<EditableStringRow[]>([]);
-const unitAliasRows = ref<EditableStringRow[]>([]);
+const entityGroupRows = ref<EditableGroupRow[]>([]);
+const unitGroupRows = ref<EditableGroupRow[]>([]);
 const unitFactorRows = ref<EditableNumberRow[]>([]);
-const fieldAliasRows = ref<EditableStringRow[]>([]);
-const conflictPairRows = ref<EditableConflictRow[]>([]);
+const fieldGroupRows = ref<EditableGroupRow[]>([]);
+const conflictGroupRows = ref<EditableConflictGroupRow[]>([]);
 
 const canUpdate = computed(() => hasPerms("btn:matching-knowledge:update"));
 const canReset = computed(() => hasPerms("btn:matching-knowledge:reset"));
@@ -52,6 +54,10 @@ const canGenerateDraft = computed(() =>
 );
 const draftDialogVisible = ref(false);
 const draftDialogCategory = ref<MatchingKnowledgeDraftCategory>("entityAliases");
+const pageRef = ref<HTMLElement | null>(null);
+const pageViewportHeight = ref(0);
+let appMainWrapEl: HTMLElement | null = null;
+let previousAppMainOverflowY = "";
 
 let nextRowId = 1;
 
@@ -61,10 +67,9 @@ const allocateRowId = () => {
   return id;
 };
 
-const createStringRow = (key = "", value = ""): EditableStringRow => ({
+const createGroupRow = (text = ""): EditableGroupRow => ({
   id: allocateRowId(),
-  key,
-  value
+  text
 });
 
 const createNumberRow = (
@@ -76,38 +81,62 @@ const createNumberRow = (
   value
 });
 
-const createConflictRow = (left = "", right = ""): EditableConflictRow => ({
+const createConflictGroupRow = (
+  leftText = "",
+  rightText = ""
+): EditableConflictGroupRow => ({
   id: allocateRowId(),
-  left,
-  right
+  leftText,
+  rightText
 });
 
-const buildStringRows = (source?: Record<string, string>) =>
-  Object.entries(source ?? {}).map(([key, value]) =>
-    createStringRow(key, value)
-  );
+const normalizeValue = (value: string) => value.trim();
+const normalizeKey = (value: string) => normalizeValue(value).toLowerCase();
+
+const parseGroupItems = (value: string) => {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  value
+    .split(GROUP_SEPARATOR_PATTERN)
+    .map(item => item.trim())
+    .forEach(item => {
+      const normalized = item.toLowerCase();
+      if (!item || seen.has(normalized)) {
+        return;
+      }
+
+      seen.add(normalized);
+      result.push(item);
+    });
+
+  return result;
+};
+
+const joinGroupItems = (items: string[]) => items.join("、");
+
+const buildGroupRows = (source?: MatchingKnowledgeGroup[]) =>
+  (source ?? []).map(group => createGroupRow(joinGroupItems(group.items ?? [])));
 
 const buildNumberRows = (source?: Record<string, number>) =>
   Object.entries(source ?? {}).map(([key, value]) =>
     createNumberRow(key, value)
   );
 
-const buildConflictRows = (source?: ConflictPair[]) =>
-  (source ?? []).map(item => createConflictRow(item.left, item.right));
+const buildConflictGroupRows = (source?: MatchingKnowledgeConflictGroup[]) =>
+  (source ?? []).map(group =>
+    createConflictGroupRow(
+      joinGroupItems(group.leftItems ?? []),
+      joinGroupItems(group.rightItems ?? [])
+    )
+  );
 
-const toStringDictionary = (rows: EditableStringRow[]) => {
-  const result: Record<string, string> = {};
-  rows.forEach(row => {
-    const key = row.key.trim();
-    const value = row.value.trim();
-    if (!key || !value) {
-      return;
-    }
-
-    result[key] = value;
-  });
-  return result;
-};
+const toGroups = (rows: EditableGroupRow[]): MatchingKnowledgeGroup[] =>
+  rows
+    .map(row => ({
+      items: parseGroupItems(row.text)
+    }))
+    .filter(group => group.items.length > 0);
 
 const toNumberDictionary = (rows: EditableNumberRow[]) => {
   const result: Record<string, number> = {};
@@ -122,28 +151,30 @@ const toNumberDictionary = (rows: EditableNumberRow[]) => {
   return result;
 };
 
-const toConflictPairs = (rows: EditableConflictRow[]) =>
+const toConflictGroups = (
+  rows: EditableConflictGroupRow[]
+): MatchingKnowledgeConflictGroup[] =>
   rows
     .map(row => ({
-      left: row.left.trim(),
-      right: row.right.trim()
+      leftItems: parseGroupItems(row.leftText),
+      rightItems: parseGroupItems(row.rightText)
     }))
-    .filter(row => row.left && row.right);
+    .filter(group => group.leftItems.length > 0 || group.rightItems.length > 0);
 
 const applyConfig = (config: MatchingKnowledgeLayer) => {
-  entityAliasRows.value = buildStringRows(config.entityAliases);
-  unitAliasRows.value = buildStringRows(config.unitAliases);
+  entityGroupRows.value = buildGroupRows(config.entityGroups);
+  unitGroupRows.value = buildGroupRows(config.unitGroups);
   unitFactorRows.value = buildNumberRows(config.unitFactors);
-  fieldAliasRows.value = buildStringRows(config.fieldAliases);
-  conflictPairRows.value = buildConflictRows(config.conflictPairs);
+  fieldGroupRows.value = buildGroupRows(config.fieldGroups);
+  conflictGroupRows.value = buildConflictGroupRows(config.conflictGroups);
 };
 
 const buildPayload = (): MatchingKnowledgeLayer => ({
-  entityAliases: toStringDictionary(entityAliasRows.value),
-  unitAliases: toStringDictionary(unitAliasRows.value),
+  entityGroups: toGroups(entityGroupRows.value),
+  unitGroups: toGroups(unitGroupRows.value),
   unitFactors: toNumberDictionary(unitFactorRows.value),
-  fieldAliases: toStringDictionary(fieldAliasRows.value),
-  conflictPairs: toConflictPairs(conflictPairRows.value)
+  fieldGroups: toGroups(fieldGroupRows.value),
+  conflictGroups: toConflictGroups(conflictGroupRows.value)
 });
 
 const load = async () => {
@@ -162,19 +193,19 @@ const load = async () => {
   }
 };
 
-const addStringRow = (target: EditableStringRow[]) => {
-  target.push(createStringRow());
+const addGroupRow = (target: EditableGroupRow[]) => {
+  target.push(createGroupRow());
 };
 
 const addNumberRow = () => {
   unitFactorRows.value.push(createNumberRow());
 };
 
-const addConflictRow = () => {
-  conflictPairRows.value.push(createConflictRow());
+const addConflictGroupRow = () => {
+  conflictGroupRows.value.push(createConflictGroupRow());
 };
 
-const removeStringRow = (target: EditableStringRow[], id: number) => {
+const removeGroupRow = (target: EditableGroupRow[], id: number) => {
   const index = target.findIndex(row => row.id === id);
   if (index >= 0) {
     target.splice(index, 1);
@@ -188,15 +219,13 @@ const removeNumberRow = (id: number) => {
   }
 };
 
-const removeConflictRow = (id: number) => {
-  const index = conflictPairRows.value.findIndex(row => row.id === id);
+const removeConflictGroupRow = (id: number) => {
+  const index = conflictGroupRows.value.findIndex(row => row.id === id);
   if (index >= 0) {
-    conflictPairRows.value.splice(index, 1);
+    conflictGroupRows.value.splice(index, 1);
   }
 };
 
-const normalizeValue = (value: string) => value.trim();
-const normalizeKey = (value: string) => normalizeValue(value).toLowerCase();
 const buildConflictPairKey = (left: string, right: string) => {
   const normalizedLeft = normalizeValue(left);
   const normalizedRight = normalizeValue(right);
@@ -224,63 +253,124 @@ const openDraftDialog = (category: MatchingKnowledgeDraftCategory) => {
   draftDialogVisible.value = true;
 };
 
-const mergeMappingDraftItems = (
-  targetRows: EditableStringRow[],
-  items: MatchingKnowledgeDraftItem[]
-) => {
-  const existingValues = new Map<string, string>();
-  targetRows.forEach(row => {
-    const key = normalizeKey(row.key);
-    const value = normalizeValue(row.value);
-    if (!key || !value || existingValues.has(key)) {
+const buildGroupIndex = (rows: EditableGroupRow[]) => {
+  const rowItems = new Map<number, string[]>();
+  const canonicalByTerm = new Map<string, string>();
+  const rowByCanonical = new Map<string, EditableGroupRow>();
+
+  rows.forEach(row => {
+    const items = parseGroupItems(row.text);
+    if (items.length === 0) {
       return;
     }
 
-    existingValues.set(key, value);
+    rowItems.set(row.id, items);
+    rowByCanonical.set(normalizeKey(items[0]), row);
+    items.forEach(item => {
+      canonicalByTerm.set(normalizeKey(item), items[0]);
+    });
   });
 
+  return {
+    rowItems,
+    canonicalByTerm,
+    rowByCanonical
+  };
+};
+
+const mergeMappingDraftItems = (
+  targetRows: EditableGroupRow[],
+  items: MatchingKnowledgeDraftItem[]
+) => {
+  const index = buildGroupIndex(targetRows);
   let imported = 0;
+  let mergedIntoExisting = 0;
+  let createdGroups = 0;
   let duplicate = 0;
   let conflict = 0;
   let invalid = 0;
 
   items.forEach(item => {
-    const key = normalizeValue(item.key);
-    const value = normalizeValue(item.value);
-    if (!key || !value) {
+    const alias = normalizeValue(item.key);
+    const canonical = normalizeValue(item.value);
+    if (!alias || !canonical) {
       invalid += 1;
       return;
     }
 
-    const normalizedKey = key.toLowerCase();
-    const currentValue = existingValues.get(normalizedKey);
-    if (currentValue) {
-      if (normalizeKey(currentValue) === normalizeKey(value)) {
+    const aliasKey = normalizeKey(alias);
+    const canonicalKey = normalizeKey(canonical);
+    const existingAliasCanonical = index.canonicalByTerm.get(aliasKey);
+    const existingCanonical = index.canonicalByTerm.get(canonicalKey);
+
+    if (existingAliasCanonical) {
+      if (normalizeKey(existingAliasCanonical) === canonicalKey) {
         duplicate += 1;
       } else {
         conflict += 1;
       }
-
       return;
     }
 
-    targetRows.push(createStringRow(key, value));
-    existingValues.set(normalizedKey, value);
+    if (existingCanonical && normalizeKey(existingCanonical) !== canonicalKey) {
+      conflict += 1;
+      return;
+    }
+
+    const existingRow = index.rowByCanonical.get(canonicalKey);
+    if (existingRow) {
+      const existingItems = index.rowItems.get(existingRow.id) ?? [canonical];
+      existingItems.push(alias);
+      existingRow.text = joinGroupItems(parseGroupItems(joinGroupItems(existingItems)));
+      index.rowItems.set(existingRow.id, parseGroupItems(existingRow.text));
+      index.canonicalByTerm.set(aliasKey, canonical);
+      imported += 1;
+      mergedIntoExisting += 1;
+      return;
+    }
+
+    const newItems =
+      aliasKey === canonicalKey ? [canonical] : [canonical, alias];
+    const newRow = createGroupRow(joinGroupItems(newItems));
+    targetRows.push(newRow);
+    index.rowItems.set(newRow.id, newItems);
+    index.rowByCanonical.set(canonicalKey, newRow);
+    newItems.forEach(groupItem => {
+      index.canonicalByTerm.set(normalizeKey(groupItem), canonical);
+    });
     imported += 1;
+    createdGroups += 1;
   });
 
-  return { imported, duplicate, conflict, invalid };
+  return {
+    imported,
+    mergedIntoExisting,
+    createdGroups,
+    duplicate,
+    conflict,
+    invalid
+  };
+};
+
+const expandConflictGroupRows = (rows: EditableConflictGroupRow[]) => {
+  const pairKeys = new Set<string>();
+  rows.forEach(row => {
+    const leftItems = parseGroupItems(row.leftText);
+    const rightItems = parseGroupItems(row.rightText);
+    leftItems.forEach(left => {
+      rightItems.forEach(right => {
+        const pairKey = buildConflictPairKey(left, right);
+        if (pairKey) {
+          pairKeys.add(pairKey);
+        }
+      });
+    });
+  });
+  return pairKeys;
 };
 
 const mergeConflictDraftItems = (items: MatchingKnowledgeDraftItem[]) => {
-  const existingPairs = new Set<string>();
-  conflictPairRows.value.forEach(row => {
-    const pairKey = buildConflictPairKey(row.left, row.right);
-    if (pairKey) {
-      existingPairs.add(pairKey);
-    }
-  });
-
+  const existingPairs = expandConflictGroupRows(conflictGroupRows.value);
   let imported = 0;
   let duplicate = 0;
   let invalid = 0;
@@ -299,12 +389,19 @@ const mergeConflictDraftItems = (items: MatchingKnowledgeDraftItem[]) => {
       return;
     }
 
-    conflictPairRows.value.push(createConflictRow(left, right));
+    conflictGroupRows.value.push(createConflictGroupRow(left, right));
     existingPairs.add(pairKey);
     imported += 1;
   });
 
-  return { imported, duplicate, conflict: 0, invalid };
+  return {
+    imported,
+    mergedIntoExisting: 0,
+    createdGroups: imported,
+    duplicate,
+    conflict: 0,
+    invalid
+  };
 };
 
 const handleDraftImport = (payload: {
@@ -322,22 +419,28 @@ const handleDraftImport = (payload: {
 
   const result =
     payload.category === "entityAliases"
-      ? mergeMappingDraftItems(entityAliasRows.value, payload.items)
+      ? mergeMappingDraftItems(entityGroupRows.value, payload.items)
       : payload.category === "unitAliases"
-        ? mergeMappingDraftItems(unitAliasRows.value, payload.items)
+        ? mergeMappingDraftItems(unitGroupRows.value, payload.items)
         : payload.category === "fieldAliases"
-          ? mergeMappingDraftItems(fieldAliasRows.value, payload.items)
+          ? mergeMappingDraftItems(fieldGroupRows.value, payload.items)
           : mergeConflictDraftItems(payload.items);
 
   const messages: string[] = [];
   if (result.imported > 0) {
     messages.push(`已导入 ${result.imported} 条`);
   }
+  if (result.mergedIntoExisting > 0) {
+    messages.push(`${result.mergedIntoExisting} 条并入已有组`);
+  }
+  if (result.createdGroups > 0) {
+    messages.push(`${result.createdGroups} 条新建组`);
+  }
   if (result.duplicate > 0) {
     messages.push(`${result.duplicate} 条重复已忽略`);
   }
   if (result.conflict > 0) {
-    messages.push(`${result.conflict} 条冲突未导入`);
+    messages.push(`${result.conflict} 条候选与现有分组冲突未导入`);
   }
   if (result.invalid > 0) {
     messages.push(`${result.invalid} 条空值未导入`);
@@ -446,16 +549,58 @@ const restoreDefaults = async () => {
   }
 };
 
-onMounted(load);
+const updatePageViewportHeight = () => {
+  const host = pageRef.value;
+  if (!host) return;
+  const rect = host.getBoundingClientRect();
+  pageViewportHeight.value = Math.max(
+    480,
+    Math.floor(window.innerHeight - rect.top - 12)
+  );
+};
+
+const lockOuterScroll = () => {
+  appMainWrapEl = document.querySelector(
+    ".app-main .el-scrollbar__wrap, .app-main-nofixed-header .el-scrollbar__wrap"
+  ) as HTMLElement | null;
+  if (!appMainWrapEl) return;
+  previousAppMainOverflowY = appMainWrapEl.style.overflowY;
+  appMainWrapEl.style.setProperty("overflow-y", "hidden", "important");
+};
+
+const unlockOuterScroll = () => {
+  if (!appMainWrapEl) return;
+  appMainWrapEl.style.removeProperty("overflow-y");
+  if (previousAppMainOverflowY) {
+    appMainWrapEl.style.overflowY = previousAppMainOverflowY;
+  }
+  appMainWrapEl = null;
+};
+
+onMounted(() => {
+  load();
+  nextTick(updatePageViewportHeight);
+  nextTick(lockOuterScroll);
+  window.addEventListener("resize", updatePageViewportHeight);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", updatePageViewportHeight);
+  unlockOuterScroll();
+});
 </script>
 
 <template>
-  <div class="page config-page">
+  <div
+    ref="pageRef"
+    class="page config-page"
+    :style="pageViewportHeight > 0 ? { height: `${pageViewportHeight}px` } : undefined"
+  >
     <div class="page-header">
       <div>
         <div class="page-title">匹配知识配置</div>
         <div class="page-subtitle">
-          当前生效配置即运行时配置，保存、删除、清空后会直接影响后续匹配。
+          当前生效配置。组内使用 、 、， 或 , 分隔，首项作为标准值。
         </div>
       </div>
       <div class="page-actions">
@@ -476,21 +621,14 @@ onMounted(load);
       </div>
     </div>
 
-    <el-alert
-      type="info"
-      show-icon
-      :closable="false"
-      title="页面展示并直接编辑当前生效配置；AI 候选导入会写入当前配置；清空与恢复默认都会立即影响运行时。"
-    />
-
     <el-tabs v-model="activeTab" v-loading="loading" class="knowledge-tabs">
-      <el-tab-pane label="实体别名" name="entityAliases">
+      <el-tab-pane label="实体组" name="entityAliases" class="single-card-pane">
         <el-card class="knowledge-card">
           <template #header>
             <div class="card-header">
               <div>
-                <div class="card-title">实体别名</div>
-                <div class="card-subtitle">维护品牌、组织与厂商的标准化映射。</div>
+                <div class="card-title">实体组</div>
+                <div class="card-subtitle">首项作为标准实体，其余词项自动归一到首项。</div>
               </div>
               <div class="card-toolbar">
                 <el-button
@@ -505,27 +643,25 @@ onMounted(load);
                   v-if="canUpdate"
                   type="primary"
                   link
-                  @click="addStringRow(entityAliasRows)"
+                  @click="addGroupRow(entityGroupRows)"
                 >
                   新增
                 </el-button>
               </div>
             </div>
           </template>
-          <el-table :data="entityAliasRows" row-key="id" empty-text="暂无实体别名">
-            <el-table-column label="别名" min-width="220">
+          <el-table :data="entityGroupRows" row-key="id" empty-text="暂无实体组">
+            <el-table-column label="实体组" min-width="420">
               <template #default="{ row }">
-                <el-input v-model="row.key" placeholder="输入别名" />
-              </template>
-            </el-table-column>
-            <el-table-column label="标准实体" min-width="220">
-              <template #default="{ row }">
-                <el-input v-model="row.value" placeholder="输入标准实体名称" />
+                <el-input
+                  v-model="row.text"
+                  placeholder="输入同一实体的多个叫法，首项作为标准实体"
+                />
               </template>
             </el-table-column>
             <el-table-column v-if="canUpdate" label="操作" width="100" fixed="right">
               <template #default="{ row }">
-                <el-button type="danger" link @click="removeStringRow(entityAliasRows, row.id)">
+                <el-button type="danger" link @click="removeGroupRow(entityGroupRows, row.id)">
                   删除
                 </el-button>
               </template>
@@ -534,14 +670,14 @@ onMounted(load);
         </el-card>
       </el-tab-pane>
 
-      <el-tab-pane label="单位规则" name="unitRules">
+      <el-tab-pane label="单位规则" name="unitRules" class="multi-card-pane">
         <div class="knowledge-grid">
           <el-card class="knowledge-card">
             <template #header>
               <div class="card-header">
                 <div>
-                  <div class="card-title">单位别名</div>
-                  <div class="card-subtitle">维护行业缩写、中文写法与标准单位的映射。</div>
+                  <div class="card-title">单位组</div>
+                  <div class="card-subtitle">首项作为标准单位，其余词项自动归一到首项。</div>
                 </div>
                 <div class="card-toolbar">
                   <el-button
@@ -556,27 +692,25 @@ onMounted(load);
                     v-if="canUpdate"
                     type="primary"
                     link
-                    @click="addStringRow(unitAliasRows)"
+                    @click="addGroupRow(unitGroupRows)"
                   >
                     新增
                   </el-button>
                 </div>
               </div>
             </template>
-            <el-table :data="unitAliasRows" row-key="id" empty-text="暂无单位别名">
-              <el-table-column label="别名" min-width="220">
+            <el-table :data="unitGroupRows" row-key="id" empty-text="暂无单位组">
+              <el-table-column label="单位组" min-width="420">
                 <template #default="{ row }">
-                  <el-input v-model="row.key" placeholder="输入单位别名" />
-                </template>
-              </el-table-column>
-              <el-table-column label="标准单位" min-width="220">
-                <template #default="{ row }">
-                  <el-input v-model="row.value" placeholder="输入标准单位" />
+                  <el-input
+                    v-model="row.text"
+                    placeholder="输入同一单位的多个写法，首项作为标准单位"
+                  />
                 </template>
               </el-table-column>
               <el-table-column v-if="canUpdate" label="操作" width="100" fixed="right">
                 <template #default="{ row }">
-                  <el-button type="danger" link @click="removeStringRow(unitAliasRows, row.id)">
+                  <el-button type="danger" link @click="removeGroupRow(unitGroupRows, row.id)">
                     删除
                   </el-button>
                 </template>
@@ -589,7 +723,6 @@ onMounted(load);
               <div class="card-header">
                 <div>
                   <div class="card-title">单位换算</div>
-                  <div class="card-subtitle">维护标准单位到归一倍率的映射。</div>
                 </div>
                 <div class="card-toolbar">
                   <el-button v-if="canUpdate" type="primary" link @click="addNumberRow">
@@ -621,13 +754,13 @@ onMounted(load);
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="字段别名" name="fieldAliases">
+      <el-tab-pane label="字段组" name="fieldAliases" class="single-card-pane">
         <el-card class="knowledge-card">
           <template #header>
             <div class="card-header">
               <div>
-                <div class="card-title">字段别名</div>
-                <div class="card-subtitle">维护客户内部术语、缩写与标准字段的映射。</div>
+                <div class="card-title">字段组</div>
+                <div class="card-subtitle">首项作为标准字段，其余词项自动归一到首项。</div>
               </div>
               <div class="card-toolbar">
                 <el-button
@@ -642,27 +775,25 @@ onMounted(load);
                   v-if="canUpdate"
                   type="primary"
                   link
-                  @click="addStringRow(fieldAliasRows)"
+                  @click="addGroupRow(fieldGroupRows)"
                 >
                   新增
                 </el-button>
               </div>
             </div>
           </template>
-          <el-table :data="fieldAliasRows" row-key="id" empty-text="暂无字段别名">
-            <el-table-column label="别名" min-width="220">
+          <el-table :data="fieldGroupRows" row-key="id" empty-text="暂无字段组">
+            <el-table-column label="字段组" min-width="420">
               <template #default="{ row }">
-                <el-input v-model="row.key" placeholder="输入字段别名" />
-              </template>
-            </el-table-column>
-            <el-table-column label="标准字段" min-width="220">
-              <template #default="{ row }">
-                <el-input v-model="row.value" placeholder="输入标准字段" />
+                <el-input
+                  v-model="row.text"
+                  placeholder="输入同一字段的多个叫法，首项作为标准字段"
+                />
               </template>
             </el-table-column>
             <el-table-column v-if="canUpdate" label="操作" width="100" fixed="right">
               <template #default="{ row }">
-                <el-button type="danger" link @click="removeStringRow(fieldAliasRows, row.id)">
+                <el-button type="danger" link @click="removeGroupRow(fieldGroupRows, row.id)">
                   删除
                 </el-button>
               </template>
@@ -671,13 +802,15 @@ onMounted(load);
         </el-card>
       </el-tab-pane>
 
-      <el-tab-pane label="冲突词对" name="conflictPairs">
+      <el-tab-pane label="冲突组" name="conflictPairs" class="single-card-pane">
         <el-card class="knowledge-card">
           <template #header>
             <div class="card-header">
               <div>
-                <div class="card-title">冲突词对</div>
-                <div class="card-subtitle">维护业务中明确互斥的对立语义。</div>
+                <div class="card-title">冲突组</div>
+                <div class="card-subtitle">
+                  左右两组内部表示同义词集合，左右两组之间表示冲突关系。
+                </div>
               </div>
               <div class="card-toolbar">
                 <el-button
@@ -692,27 +825,33 @@ onMounted(load);
                   v-if="canUpdate"
                   type="primary"
                   link
-                  @click="addConflictRow"
+                  @click="addConflictGroupRow"
                 >
                   新增
                 </el-button>
               </div>
             </div>
           </template>
-          <el-table :data="conflictPairRows" row-key="id" empty-text="暂无冲突词对">
-            <el-table-column label="左侧词" min-width="220">
+          <el-table :data="conflictGroupRows" row-key="id" empty-text="暂无冲突组">
+            <el-table-column label="左冲突组" min-width="260">
               <template #default="{ row }">
-                <el-input v-model="row.left" placeholder="输入左侧词" />
+                <el-input
+                  v-model="row.leftText"
+                  placeholder="输入左冲突组，组内使用分隔符"
+                />
               </template>
             </el-table-column>
-            <el-table-column label="右侧词" min-width="220">
+            <el-table-column label="右冲突组" min-width="260">
               <template #default="{ row }">
-                <el-input v-model="row.right" placeholder="输入右侧词" />
+                <el-input
+                  v-model="row.rightText"
+                  placeholder="输入右冲突组，组内使用分隔符"
+                />
               </template>
             </el-table-column>
             <el-table-column v-if="canUpdate" label="操作" width="100" fixed="right">
               <template #default="{ row }">
-                <el-button type="danger" link @click="removeConflictRow(row.id)">
+                <el-button type="danger" link @click="removeConflictGroupRow(row.id)">
                   删除
                 </el-button>
               </template>
@@ -736,6 +875,22 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   gap: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.page-header {
+  flex-shrink: 0;
+}
+
+.page-subtitle,
+.card-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
 }
 
 .page-actions {
@@ -747,6 +902,23 @@ onMounted(load);
 
 .knowledge-tabs {
   margin-top: 4px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:deep(.knowledge-tabs > .el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+:deep(.knowledge-tabs > .el-tabs__content > .el-tab-pane) {
+  height: 100%;
+  box-sizing: border-box;
+  padding-right: 4px;
 }
 
 .knowledge-grid {
@@ -757,6 +929,35 @@ onMounted(load);
 
 .knowledge-card {
   border-radius: 16px;
+}
+
+:deep(.knowledge-tabs > .el-tabs__content > .el-tab-pane.multi-card-pane) {
+  overflow: auto;
+}
+
+:deep(.knowledge-tabs > .el-tabs__content > .el-tab-pane.single-card-pane) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:deep(.knowledge-tabs > .el-tabs__content > .el-tab-pane.single-card-pane > .knowledge-card) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(
+    .knowledge-tabs
+      > .el-tabs__content
+      > .el-tab-pane.single-card-pane
+      > .knowledge-card
+      > .el-card__body
+  ) {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .card-header {
@@ -777,13 +978,6 @@ onMounted(load);
   font-size: 15px;
   font-weight: 600;
   color: var(--el-text-color-primary);
-}
-
-.card-subtitle {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--el-text-color-secondary);
 }
 
 @media (max-width: 768px) {
