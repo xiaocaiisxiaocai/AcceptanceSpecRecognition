@@ -23,18 +23,29 @@ defineOptions({
 interface EditableGroupRow {
   id: number;
   text: string;
+  editing: boolean;
+  originalText: string;
+  isNew: boolean;
 }
 
 interface EditableNumberRow {
   id: number;
   key: string;
   value: number | null;
+  editing: boolean;
+  originalKey: string;
+  originalValue: number | null;
+  isNew: boolean;
 }
 
 interface EditableConflictGroupRow {
   id: number;
   leftText: string;
   rightText: string;
+  editing: boolean;
+  originalLeftText: string;
+  originalRightText: string;
+  isNew: boolean;
 }
 
 const GROUP_SEPARATOR_PATTERN = /[、，,]/;
@@ -67,27 +78,46 @@ const allocateRowId = () => {
   return id;
 };
 
-const createGroupRow = (text = ""): EditableGroupRow => ({
+const createGroupRow = (
+  text = "",
+  editing = false,
+  isNew = false
+): EditableGroupRow => ({
   id: allocateRowId(),
-  text
+  text,
+  editing,
+  originalText: text,
+  isNew
 });
 
 const createNumberRow = (
   key = "",
-  value: number | null = null
+  value: number | null = null,
+  editing = false,
+  isNew = false
 ): EditableNumberRow => ({
   id: allocateRowId(),
   key,
-  value
+  value,
+  editing,
+  originalKey: key,
+  originalValue: value,
+  isNew
 });
 
 const createConflictGroupRow = (
   leftText = "",
-  rightText = ""
+  rightText = "",
+  editing = false,
+  isNew = false
 ): EditableConflictGroupRow => ({
   id: allocateRowId(),
   leftText,
-  rightText
+  rightText,
+  editing,
+  originalLeftText: leftText,
+  originalRightText: rightText,
+  isNew
 });
 
 const normalizeValue = (value: string) => value.trim();
@@ -194,15 +224,15 @@ const load = async () => {
 };
 
 const addGroupRow = (target: EditableGroupRow[]) => {
-  target.push(createGroupRow());
+  target.push(createGroupRow("", true, true));
 };
 
 const addNumberRow = () => {
-  unitFactorRows.value.push(createNumberRow());
+  unitFactorRows.value.push(createNumberRow("", null, true, true));
 };
 
 const addConflictGroupRow = () => {
-  conflictGroupRows.value.push(createConflictGroupRow());
+  conflictGroupRows.value.push(createConflictGroupRow("", "", true, true));
 };
 
 const removeGroupRow = (target: EditableGroupRow[], id: number) => {
@@ -224,6 +254,117 @@ const removeConflictGroupRow = (id: number) => {
   if (index >= 0) {
     conflictGroupRows.value.splice(index, 1);
   }
+};
+
+const finalizeGroupRowText = (value: string) =>
+  joinGroupItems(parseGroupItems(value));
+
+const startGroupRowEdit = (row: EditableGroupRow) => {
+  row.originalText = row.text;
+  row.editing = true;
+};
+
+const completeGroupRowEdit = (row: EditableGroupRow) => {
+  row.text = finalizeGroupRowText(row.text);
+  if (!row.text && row.isNew) {
+    row.editing = false;
+    return;
+  }
+
+  row.originalText = row.text;
+  row.editing = false;
+  row.isNew = false;
+};
+
+const cancelGroupRowEdit = (target: EditableGroupRow[], id: number) => {
+  const row = target.find(item => item.id === id);
+  if (!row) {
+    return;
+  }
+
+  if (row.isNew) {
+    removeGroupRow(target, id);
+    return;
+  }
+
+  row.text = row.originalText;
+  row.editing = false;
+};
+
+const formatGroupRowText = (value: string) => finalizeGroupRowText(value) || "未填写";
+
+const startNumberRowEdit = (row: EditableNumberRow) => {
+  row.originalKey = row.key;
+  row.originalValue = row.value;
+  row.editing = true;
+};
+
+const completeNumberRowEdit = (row: EditableNumberRow) => {
+  row.key = row.key.trim();
+  if (!row.key && row.value === null && row.isNew) {
+    row.editing = false;
+    return;
+  }
+
+  row.originalKey = row.key;
+  row.originalValue = row.value;
+  row.editing = false;
+  row.isNew = false;
+};
+
+const cancelNumberRowEdit = (id: number) => {
+  const row = unitFactorRows.value.find(item => item.id === id);
+  if (!row) {
+    return;
+  }
+
+  if (row.isNew) {
+    removeNumberRow(id);
+    return;
+  }
+
+  row.key = row.originalKey;
+  row.value = row.originalValue;
+  row.editing = false;
+};
+
+const formatNumberValue = (value: number | null) =>
+  value === null || Number.isNaN(value) ? "未填写" : `${value}`;
+
+const startConflictGroupRowEdit = (row: EditableConflictGroupRow) => {
+  row.originalLeftText = row.leftText;
+  row.originalRightText = row.rightText;
+  row.editing = true;
+};
+
+const completeConflictGroupRowEdit = (row: EditableConflictGroupRow) => {
+  row.leftText = finalizeGroupRowText(row.leftText);
+  row.rightText = finalizeGroupRowText(row.rightText);
+  if (!row.leftText && !row.rightText && row.isNew) {
+    row.editing = false;
+    return;
+  }
+
+  row.originalLeftText = row.leftText;
+  row.originalRightText = row.rightText;
+  row.editing = false;
+  row.isNew = false;
+};
+
+const cancelConflictGroupRowEdit = (id: number) => {
+  const row = conflictGroupRows.value.find(item => item.id === id);
+  if (!row) {
+    return;
+  }
+
+  if (row.isNew) {
+    removeConflictGroupRow(id);
+    return;
+  }
+
+  row.leftText = row.originalLeftText;
+  row.rightText = row.originalRightText;
+  row.editing = false;
 };
 
 const buildConflictPairKey = (left: string, right: string) => {
@@ -654,16 +795,33 @@ onBeforeUnmount(() => {
             <el-table-column label="实体组" min-width="420">
               <template #default="{ row }">
                 <el-input
+                  v-if="row.editing"
                   v-model="row.text"
                   placeholder="输入同一实体的多个叫法，首项作为标准实体"
                 />
+                <div v-else class="row-display-text">
+                  {{ formatGroupRowText(row.text) }}
+                </div>
               </template>
             </el-table-column>
-            <el-table-column v-if="canUpdate" label="操作" width="100" fixed="right">
+            <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
               <template #default="{ row }">
-                <el-button type="danger" link @click="removeGroupRow(entityGroupRows, row.id)">
-                  删除
-                </el-button>
+                <template v-if="row.editing">
+                  <el-button type="primary" link @click="completeGroupRowEdit(row)">
+                    完成
+                  </el-button>
+                  <el-button link @click="cancelGroupRowEdit(entityGroupRows, row.id)">
+                    取消
+                  </el-button>
+                </template>
+                <template v-else>
+                  <el-button type="primary" link @click="startGroupRowEdit(row)">
+                    编辑
+                  </el-button>
+                  <el-button type="danger" link @click="removeGroupRow(entityGroupRows, row.id)">
+                    删除
+                  </el-button>
+                </template>
               </template>
             </el-table-column>
           </el-table>
@@ -703,16 +861,33 @@ onBeforeUnmount(() => {
               <el-table-column label="单位组" min-width="420">
                 <template #default="{ row }">
                   <el-input
+                    v-if="row.editing"
                     v-model="row.text"
                     placeholder="输入同一单位的多个写法，首项作为标准单位"
                   />
+                  <div v-else class="row-display-text">
+                    {{ formatGroupRowText(row.text) }}
+                  </div>
                 </template>
               </el-table-column>
-              <el-table-column v-if="canUpdate" label="操作" width="100" fixed="right">
+              <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
                 <template #default="{ row }">
-                  <el-button type="danger" link @click="removeGroupRow(unitGroupRows, row.id)">
-                    删除
-                  </el-button>
+                  <template v-if="row.editing">
+                    <el-button type="primary" link @click="completeGroupRowEdit(row)">
+                      完成
+                    </el-button>
+                    <el-button link @click="cancelGroupRowEdit(unitGroupRows, row.id)">
+                      取消
+                    </el-button>
+                  </template>
+                  <template v-else>
+                    <el-button type="primary" link @click="startGroupRowEdit(row)">
+                      编辑
+                    </el-button>
+                    <el-button type="danger" link @click="removeGroupRow(unitGroupRows, row.id)">
+                      删除
+                    </el-button>
+                  </template>
                 </template>
               </el-table-column>
             </el-table>
@@ -734,19 +909,43 @@ onBeforeUnmount(() => {
             <el-table :data="unitFactorRows" row-key="id" empty-text="暂无单位换算">
               <el-table-column label="标准单位" min-width="220">
                 <template #default="{ row }">
-                  <el-input v-model="row.key" placeholder="输入标准单位" />
+                  <el-input v-if="row.editing" v-model="row.key" placeholder="输入标准单位" />
+                  <div v-else class="row-display-text">
+                    {{ row.key || "未填写" }}
+                  </div>
                 </template>
               </el-table-column>
               <el-table-column label="归一系数" min-width="220">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.value" :controls="false" style="width: 100%" />
+                  <el-input-number
+                    v-if="row.editing"
+                    v-model="row.value"
+                    :controls="false"
+                    style="width: 100%"
+                  />
+                  <div v-else class="row-display-text">
+                    {{ formatNumberValue(row.value) }}
+                  </div>
                 </template>
               </el-table-column>
-              <el-table-column v-if="canUpdate" label="操作" width="100" fixed="right">
+              <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
                 <template #default="{ row }">
-                  <el-button type="danger" link @click="removeNumberRow(row.id)">
-                    删除
-                  </el-button>
+                  <template v-if="row.editing">
+                    <el-button type="primary" link @click="completeNumberRowEdit(row)">
+                      完成
+                    </el-button>
+                    <el-button link @click="cancelNumberRowEdit(row.id)">
+                      取消
+                    </el-button>
+                  </template>
+                  <template v-else>
+                    <el-button type="primary" link @click="startNumberRowEdit(row)">
+                      编辑
+                    </el-button>
+                    <el-button type="danger" link @click="removeNumberRow(row.id)">
+                      删除
+                    </el-button>
+                  </template>
                 </template>
               </el-table-column>
             </el-table>
@@ -786,16 +985,33 @@ onBeforeUnmount(() => {
             <el-table-column label="字段组" min-width="420">
               <template #default="{ row }">
                 <el-input
+                  v-if="row.editing"
                   v-model="row.text"
                   placeholder="输入同一字段的多个叫法，首项作为标准字段"
                 />
+                <div v-else class="row-display-text">
+                  {{ formatGroupRowText(row.text) }}
+                </div>
               </template>
             </el-table-column>
-            <el-table-column v-if="canUpdate" label="操作" width="100" fixed="right">
+            <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
               <template #default="{ row }">
-                <el-button type="danger" link @click="removeGroupRow(fieldGroupRows, row.id)">
-                  删除
-                </el-button>
+                <template v-if="row.editing">
+                  <el-button type="primary" link @click="completeGroupRowEdit(row)">
+                    完成
+                  </el-button>
+                  <el-button link @click="cancelGroupRowEdit(fieldGroupRows, row.id)">
+                    取消
+                  </el-button>
+                </template>
+                <template v-else>
+                  <el-button type="primary" link @click="startGroupRowEdit(row)">
+                    编辑
+                  </el-button>
+                  <el-button type="danger" link @click="removeGroupRow(fieldGroupRows, row.id)">
+                    删除
+                  </el-button>
+                </template>
               </template>
             </el-table-column>
           </el-table>
@@ -836,24 +1052,45 @@ onBeforeUnmount(() => {
             <el-table-column label="左冲突组" min-width="260">
               <template #default="{ row }">
                 <el-input
+                  v-if="row.editing"
                   v-model="row.leftText"
                   placeholder="输入左冲突组，组内使用分隔符"
                 />
+                <div v-else class="row-display-text">
+                  {{ formatGroupRowText(row.leftText) }}
+                </div>
               </template>
             </el-table-column>
             <el-table-column label="右冲突组" min-width="260">
               <template #default="{ row }">
                 <el-input
+                  v-if="row.editing"
                   v-model="row.rightText"
                   placeholder="输入右冲突组，组内使用分隔符"
                 />
+                <div v-else class="row-display-text">
+                  {{ formatGroupRowText(row.rightText) }}
+                </div>
               </template>
             </el-table-column>
-            <el-table-column v-if="canUpdate" label="操作" width="100" fixed="right">
+            <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
               <template #default="{ row }">
-                <el-button type="danger" link @click="removeConflictGroupRow(row.id)">
-                  删除
-                </el-button>
+                <template v-if="row.editing">
+                  <el-button type="primary" link @click="completeConflictGroupRowEdit(row)">
+                    完成
+                  </el-button>
+                  <el-button link @click="cancelConflictGroupRowEdit(row.id)">
+                    取消
+                  </el-button>
+                </template>
+                <template v-else>
+                  <el-button type="primary" link @click="startConflictGroupRowEdit(row)">
+                    编辑
+                  </el-button>
+                  <el-button type="danger" link @click="removeConflictGroupRow(row.id)">
+                    删除
+                  </el-button>
+                </template>
               </template>
             </el-table-column>
           </el-table>

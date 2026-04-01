@@ -79,6 +79,23 @@ public class MatchingKnowledgeFrontendRegressionTests
     }
 
     [Fact]
+    public void MatchingKnowledgePage_ShouldUseRowLevelEditMode()
+    {
+        var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
+
+        content.Should().Contain("编辑");
+        content.Should().Contain("完成");
+        content.Should().Contain("取消");
+        content.Should().Contain("startGroupRowEdit");
+        content.Should().Contain("cancelGroupRowEdit");
+        content.Should().Contain("startConflictGroupRowEdit");
+        content.Should().Contain("cancelConflictGroupRowEdit");
+        content.Should().Contain("startNumberRowEdit");
+        content.Should().Contain("cancelNumberRowEdit");
+        content.Should().Contain("v-if=\"row.editing\"");
+    }
+
+    [Fact]
     public void MatchingKnowledgePage_ShouldExposeAiDraftGenerationFlow()
     {
         var pageContent = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
