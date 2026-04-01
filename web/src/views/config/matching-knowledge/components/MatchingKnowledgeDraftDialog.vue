@@ -6,15 +6,12 @@ import {
   getAiServiceList,
   type AiServiceConfig
 } from "@/api/ai-service";
-import { getCustomerList, type Customer } from "@/api/customer";
 import {
   generateMatchingKnowledgeDraft,
   type MatchingKnowledgeDraftCategory,
   type MatchingKnowledgeDraftItem,
   type MatchingKnowledgeDraftSpecFilter
 } from "@/api/matching-knowledge";
-import { getMachineModelList, type MachineModel } from "@/api/machine-model";
-import { getProcessList, type Process } from "@/api/process";
 import { getSpecList, type AcceptanceSpec } from "@/api/spec";
 
 interface EditableDraftRow {
@@ -47,11 +44,7 @@ const dialogVisible = computed({
   set: value => emit("update:visible", value)
 });
 
-const customers = ref<Customer[]>([]);
-const processes = ref<Process[]>([]);
-const machineModels = ref<MachineModel[]>([]);
 const llmService = ref<AiServiceConfig | null>(null);
-const filtersLoading = ref(false);
 const previewLoading = ref(false);
 const generating = ref(false);
 const includeAllFilteredSpecs = ref(true);
@@ -247,31 +240,6 @@ const loadLlmService = async () => {
   }
 };
 
-const loadFilterOptions = async () => {
-  filtersLoading.value = true;
-  try {
-    const [customerRes, processRes, machineRes] = await Promise.all([
-      getCustomerList({ page: 1, pageSize: 200 }),
-      getProcessList({ page: 1, pageSize: 200 }),
-      getMachineModelList({ page: 1, pageSize: 200 })
-    ]);
-
-    if (customerRes.code === 0) {
-      customers.value = customerRes.data.items;
-    }
-    if (processRes.code === 0) {
-      processes.value = processRes.data.items;
-    }
-    if (machineRes.code === 0) {
-      machineModels.value = machineRes.data.items;
-    }
-  } catch {
-    ElMessage.error("加载历史验规筛选项失败");
-  } finally {
-    filtersLoading.value = false;
-  }
-};
-
 const loadSpecPreview = async (resetPage = false) => {
   if (resetPage) {
     previewQuery.page = 1;
@@ -301,7 +269,7 @@ const loadSpecPreview = async (resetPage = false) => {
 
 const initializeDialog = async () => {
   includeAllFilteredSpecs.value = true;
-  await Promise.all([loadFilterOptions(), loadLlmService()]);
+  await loadLlmService();
   await loadSpecPreview(true);
 };
 
@@ -502,7 +470,7 @@ const formatImportedAt = (value?: string) => {
             <div>
               <div class="card-title">历史验规</div>
               <div class="card-subtitle">
-                按客户、制程、机型、关键词、导入时间筛选；预览可分页，但生成时始终处理当前筛选命中的全部历史验规
+                按关键词、导入时间筛选；预览可分页，但生成时始终处理当前筛选命中的全部历史验规
               </div>
               <div class="card-subtitle">当前 LLM：{{ llmServiceLabel }}</div>
             </div>
@@ -516,58 +484,7 @@ const formatImportedAt = (value?: string) => {
           </div>
         </template>
 
-        <el-form inline class="filter-form" :disabled="filtersLoading">
-          <el-form-item label="客户">
-            <el-select
-              v-model="filters.customerId"
-              clearable
-              filterable
-              placeholder="全部客户"
-              class="filter-select"
-            >
-              <el-option
-                v-for="item in customers"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="制程">
-            <el-select
-              v-model="filters.processId"
-              clearable
-              filterable
-              placeholder="全部制程"
-              class="filter-select"
-            >
-              <el-option
-                v-for="item in processes"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="机型">
-            <el-select
-              v-model="filters.machineModelId"
-              clearable
-              filterable
-              placeholder="全部机型"
-              class="filter-select"
-            >
-              <el-option
-                v-for="item in machineModels"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-              />
-            </el-select>
-          </el-form-item>
-
+        <el-form inline class="filter-form">
           <el-form-item label="导入时间">
             <el-date-picker
               v-model="importedRange"
@@ -628,9 +545,6 @@ const formatImportedAt = (value?: string) => {
           border
           max-height="280"
         >
-          <el-table-column prop="customerName" label="客户" min-width="120" />
-          <el-table-column prop="processName" label="制程" min-width="120" />
-          <el-table-column prop="machineModelName" label="机型" min-width="120" />
           <el-table-column prop="project" label="项目" min-width="180" show-overflow-tooltip />
           <el-table-column
             prop="specification"

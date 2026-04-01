@@ -65,12 +65,15 @@ public class MatchingKnowledgeFrontendRegressionTests
         dialogContent.Should().Contain("getAiServiceList");
         dialogContent.Should().Contain("llmServiceId");
         dialogContent.Should().Contain("automatic-dropdown=\"false\"");
-        dialogContent.Should().Contain("客户");
-        dialogContent.Should().Contain("制程");
-        dialogContent.Should().Contain("机型");
         dialogContent.Should().Contain("导入时间");
         dialogContent.Should().Contain("全选");
         dialogContent.Should().Contain("取消全选");
+        dialogContent.Should().NotContain("<el-form-item label=\"客户\">");
+        dialogContent.Should().NotContain("<el-form-item label=\"制程\">");
+        dialogContent.Should().NotContain("<el-form-item label=\"机型\">");
+        dialogContent.Should().NotContain("<el-table-column prop=\"customerName\"");
+        dialogContent.Should().NotContain("<el-table-column prop=\"processName\"");
+        dialogContent.Should().NotContain("<el-table-column prop=\"machineModelName\"");
         dialogContent.Should().NotContain("粘贴文本");
         dialogContent.Should().NotContain("已上传文档");
         dialogContent.Should().NotContain("临时上传文档");
