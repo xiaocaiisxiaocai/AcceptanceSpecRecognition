@@ -25,7 +25,8 @@ public class MatchingKnowledgeFrontendRegressionTests
         content.Should().Contain("btn:matching-knowledge:generate-draft");
         content.Should().Contain("getMatchingKnowledge");
         content.Should().Contain("updateMatchingKnowledge");
-        content.Should().Contain("resetMatchingKnowledge");
+        content.Should().Contain("clearMatchingKnowledge");
+        content.Should().Contain("restoreDefaultMatchingKnowledge");
     }
 
     [Fact]
@@ -41,15 +42,15 @@ public class MatchingKnowledgeFrontendRegressionTests
     }
 
     [Fact]
-    public void MatchingKnowledgePage_ShouldSeparateBuiltInAndCustomSections()
+    public void MatchingKnowledgePage_ShouldUseSingleEditableConfigView()
     {
         var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
 
-        content.Should().Contain("系统内置（只读）");
-        content.Should().Contain("自定义扩展");
-        content.Should().Contain("常见电气、机械、芯片半导体术语由系统内置");
-        content.Should().Contain("常见单位换算由系统内部自动处理，不在页面展示");
-        content.Should().NotContain("归一系数");
+        content.Should().NotContain("系统内置（只读）");
+        content.Should().NotContain("自定义扩展");
+        content.Should().Contain("当前生效配置");
+        content.Should().Contain("清空当前配置");
+        content.Should().Contain("恢复默认配置");
     }
 
     [Fact]
@@ -73,7 +74,7 @@ public class MatchingKnowledgeFrontendRegressionTests
         dialogContent.Should().NotContain("粘贴文本");
         dialogContent.Should().NotContain("已上传文档");
         dialogContent.Should().NotContain("临时上传文档");
-        dialogContent.Should().Contain("导入到自定义扩展");
+        dialogContent.Should().Contain("导入到当前配置");
     }
 
     [Fact]

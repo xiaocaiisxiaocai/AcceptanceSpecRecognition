@@ -433,9 +433,7 @@ public class ReviewRegressionTests
     [Fact]
     public void ProductionConfig_ShouldUseExplicitCorsOrigins()
     {
-        var content = File.ReadAllText(Path.Combine(
-            GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/appsettings.Production.json".Replace('/', Path.DirectorySeparatorChar)));
+        var content = ReadFileText("src/AcceptanceSpecSystem.Api/appsettings.Production.json");
 
         content.Should().NotContain("\"AllowedOrigins\": [ \"*\" ]",
             "Production 配置必须给出显式 CORS 白名单，不能与启动期校验相冲突");
@@ -604,9 +602,7 @@ public class ReviewRegressionTests
     [Fact]
     public void EmbeddingCacheRepository_DeleteMethods_ShouldUseExecuteDeleteAsync()
     {
-        var content = File.ReadAllText(Path.Combine(
-            GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Data/Repositories/EmbeddingCacheRepository.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var content = ReadFileText("src/AcceptanceSpecSystem.Data/Repositories/EmbeddingCacheRepository.cs");
 
         content.Should().Contain("Where(e => e.ModelName == modelName)\n            .ExecuteDeleteAsync()", "按模型名批量删除应直接下推到数据库");
         content.Should().Contain("Where(e => e.ExpiresAt != null && e.ExpiresAt < beforeTime)\n            .ExecuteDeleteAsync()", "过期缓存清理应直接下推到数据库");
@@ -750,9 +746,7 @@ public class ReviewRegressionTests
     [Fact]
     public void SmartFill_OnUnmount_ShouldAbortPreviewRequestsToo()
     {
-        var smartFillContent = File.ReadAllText(Path.Combine(
-            GetRepositoryRoot(),
-            "web/src/views/smart-fill/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var smartFillContent = ReadFileText("web/src/views/smart-fill/index.vue");
         smartFillContent.Should().Contain(
             "onBeforeUnmount(() => {\n  invalidatePendingPreview();\n  stopLlmStream();\n});",
             "页面卸载时应同时取消未完成的批量预览请求和流式请求，避免离页后仍占用后端算力");
@@ -817,6 +811,13 @@ public class ReviewRegressionTests
     {
         var repositoryRoot = GetRepositoryRoot();
         return File.ReadAllLines(Path.Combine(repositoryRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+    }
+
+    private static string ReadFileText(string relativePath)
+    {
+        var repositoryRoot = GetRepositoryRoot();
+        return File.ReadAllText(Path.Combine(repositoryRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)))
+            .Replace("\r\n", "\n");
     }
 
     private static string GetRepositoryRoot()

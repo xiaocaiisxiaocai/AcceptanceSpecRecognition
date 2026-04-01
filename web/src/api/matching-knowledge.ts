@@ -25,12 +25,6 @@ export interface MatchingKnowledgeLayer {
   conflictPairs: ConflictPair[];
 }
 
-export interface MatchingKnowledgeView {
-  builtIn: MatchingKnowledgeLayer;
-  custom: MatchingKnowledgeLayer;
-  effective: MatchingKnowledgeLayer;
-}
-
 export type UpdateMatchingKnowledgeRequest = MatchingKnowledgeLayer;
 export type MatchingKnowledgeDraftCategory =
   | "entityAliases"
@@ -64,21 +58,28 @@ export interface MatchingKnowledgeDraftResponse {
 const baseUrl = "/api/matching-knowledge";
 
 export const getMatchingKnowledge = () => {
-  return http.request<ApiResponse<MatchingKnowledgeView>>("get", baseUrl);
+  return http.request<ApiResponse<MatchingKnowledgeLayer>>("get", baseUrl);
 };
 
 export const updateMatchingKnowledge = (
   data: UpdateMatchingKnowledgeRequest
 ) => {
-  return http.request<ApiResponse<MatchingKnowledgeView>>("put", baseUrl, {
+  return http.request<ApiResponse<MatchingKnowledgeLayer>>("put", baseUrl, {
     data
   });
 };
 
-export const resetMatchingKnowledge = () => {
-  return http.request<ApiResponse<MatchingKnowledgeView>>(
+export const clearMatchingKnowledge = () => {
+  return http.request<ApiResponse<MatchingKnowledgeLayer>>(
     "post",
-    `${baseUrl}/reset`
+    `${baseUrl}/clear`
+  );
+};
+
+export const restoreDefaultMatchingKnowledge = () => {
+  return http.request<ApiResponse<MatchingKnowledgeLayer>>(
+    "post",
+    `${baseUrl}/restore-defaults`
   );
 };
 

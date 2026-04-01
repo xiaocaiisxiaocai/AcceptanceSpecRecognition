@@ -21,20 +21,17 @@ public sealed class MatchingKnowledgeDraftGenerationService
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly MatchingKnowledgeBootstrapper _bootstrapper;
-    private readonly MatchingKnowledgeOptions _defaultOptions;
     private readonly IMatchingKnowledgeDraftAiService _draftAiService;
     private readonly IAuthDataScopeService _authDataScopeService;
 
     public MatchingKnowledgeDraftGenerationService(
         IUnitOfWork unitOfWork,
         MatchingKnowledgeBootstrapper bootstrapper,
-        IOptions<MatchingKnowledgeOptions> defaultOptions,
         IMatchingKnowledgeDraftAiService draftAiService,
         IAuthDataScopeService authDataScopeService)
     {
         _unitOfWork = unitOfWork;
         _bootstrapper = bootstrapper;
-        _defaultOptions = defaultOptions.Value ?? new MatchingKnowledgeOptions();
         _draftAiService = draftAiService;
         _authDataScopeService = authDataScopeService;
     }
@@ -60,7 +57,7 @@ public sealed class MatchingKnowledgeDraftGenerationService
 
         await _bootstrapper.EnsureInitializedAsync();
         var entity = await _unitOfWork.MatchingKnowledgeConfigs.GetConfigAsync();
-        var effective = MatchingKnowledgeComposition.BuildView(entity, _defaultOptions).Effective;
+        var effective = MatchingKnowledgeComposition.ToDto(entity);
 
         var aiItems = await _draftAiService.GenerateAsync(new MatchingKnowledgeDraftAiRequest
         {

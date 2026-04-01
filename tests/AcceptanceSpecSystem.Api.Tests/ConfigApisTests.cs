@@ -22,17 +22,16 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task MatchingKnowledge_GetSaveAndReset_ShouldWork()
+    public async Task MatchingKnowledge_GetSaveClearAndRestoreDefaults_ShouldWork()
     {
         var getResp = await _client.GetAsync("/api/matching-knowledge");
         getResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var cfg = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
         cfg.Code.Should().Be(0);
         cfg.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        cfg.Data.GetProperty("builtIn").ValueKind.Should().Be(JsonValueKind.Object);
-        cfg.Data.GetProperty("custom").ValueKind.Should().Be(JsonValueKind.Object);
-        cfg.Data.GetProperty("effective").ValueKind.Should().Be(JsonValueKind.Object);
-        cfg.Data.GetProperty("builtIn").GetProperty("entityAliases").ValueKind.Should().Be(JsonValueKind.Object);
+        cfg.Data.GetProperty("entityAliases").ValueKind.Should().Be(JsonValueKind.Object);
+        cfg.Data.GetProperty("unitAliases").ValueKind.Should().Be(JsonValueKind.Object);
+        cfg.Data.GetProperty("fieldAliases").ValueKind.Should().Be(JsonValueKind.Object);
 
         var putResp = await _client.PutAsync(
             "/api/matching-knowledge",
@@ -67,9 +66,8 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         var saved = await putResp.ReadAsAsync<ApiResponse<JsonElement>>();
         saved.Code.Should().Be(0);
         saved.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        saved.Data.GetProperty("custom").GetProperty("entityAliases").GetProperty("Panasonic品牌").GetString().Should().Be("松下");
-        saved.Data.GetProperty("effective").GetProperty("entityAliases").GetProperty("Panasonic品牌").GetString().Should().Be("松下");
-        saved.Data.GetProperty("effective").GetProperty("entityAliases").GetProperty("panasonic").GetString().Should().Be("松下");
+        saved.Data.GetProperty("entityAliases").GetProperty("Panasonic品牌").GetString().Should().Be("松下");
+        saved.Data.GetProperty("entityAliases").TryGetProperty("panasonic", out _).Should().BeFalse();
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -81,13 +79,20 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             savedEntityAliases.Should().NotContainKey("panasonic");
         }
 
-        var resetResp = await _client.PostAsync("/api/matching-knowledge/reset", null);
-        resetResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var reset = await resetResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        reset.Code.Should().Be(0);
-        reset.Data.GetProperty("custom").GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
-        reset.Data.GetProperty("effective").GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
-        reset.Data.GetProperty("effective").GetProperty("entityAliases").GetProperty("panasonic").GetString().Should().Be("松下");
+        var clearResp = await _client.PostAsync("/api/matching-knowledge/clear", null);
+        clearResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var clear = await clearResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        clear.Code.Should().Be(0);
+        clear.Data.GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
+        clear.Data.GetProperty("entityAliases").TryGetProperty("panasonic", out _).Should().BeFalse();
+        clear.Data.GetProperty("unitAliases").EnumerateObject().Should().BeEmpty();
+
+        var restoreResp = await _client.PostAsync("/api/matching-knowledge/restore-defaults", null);
+        restoreResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var restore = await restoreResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        restore.Code.Should().Be(0);
+        restore.Data.GetProperty("entityAliases").TryGetProperty("Panasonic品牌", out _).Should().BeFalse();
+        restore.Data.GetProperty("entityAliases").GetProperty("panasonic").GetString().Should().Be("松下");
     }
 
     [Fact]
@@ -133,7 +138,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         afterGet.StatusCode.Should().Be(HttpStatusCode.OK);
         var afterJson = await afterGet.ReadAsAsync<ApiResponse<JsonElement>>();
         afterJson.Code.Should().Be(0);
-        afterJson.Data.GetProperty("custom").ToString().Should().Be(beforeJson.Data.GetProperty("custom").ToString());
+        afterJson.Data.ToString().Should().Be(beforeJson.Data.ToString());
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.DTOs;
+using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
@@ -8,6 +9,7 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -26,6 +28,19 @@ public class MatchingKnowledgeBootstrapperTests : IDisposable
             options.UseSqlite(_connection));
         services.AddScoped<IMatchingKnowledgeConfigRepository, MatchingKnowledgeConfigRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddOptions<MatchingKnowledgeOptions>()
+            .Configure(options =>
+            {
+                options.EntityAliases["默认品牌"] = "默认标准品牌";
+                options.UnitAliases["默认单位别名"] = "mm";
+                options.UnitFactors["mm"] = 1m;
+                options.FieldAliases["默认字段别名"] = "宽度";
+                options.ConflictPairs.Add(new ConflictPairOption
+                {
+                    Left = "输入",
+                    Right = "输出"
+                });
+            });
 
         _serviceProvider = services.BuildServiceProvider();
         _context = _serviceProvider.GetRequiredService<AppDbContext>();
@@ -33,7 +48,7 @@ public class MatchingKnowledgeBootstrapperTests : IDisposable
     }
 
     [Fact]
-    public async Task EnsureInitializedAsync_WhenConfigMissing_ShouldSeedEmptyCustomKnowledge()
+    public async Task EnsureInitializedAsync_WhenConfigMissing_ShouldSeedDefaultKnowledge()
     {
         using var scope = _serviceProvider.CreateScope();
         var bootstrapper = CreateBootstrapper(scope.ServiceProvider);
@@ -41,11 +56,11 @@ public class MatchingKnowledgeBootstrapperTests : IDisposable
         await bootstrapper.EnsureInitializedAsync();
 
         var entity = await _context.Set<MatchingKnowledgeConfig>().SingleAsync();
-        DeserializeDictionary(entity.EntityAliasesJson).Should().BeEmpty();
-        DeserializeDictionary(entity.UnitAliasesJson).Should().BeEmpty();
-        DeserializeDecimalDictionary(entity.UnitFactorsJson).Should().BeEmpty();
-        DeserializeDictionary(entity.FieldAliasesJson).Should().BeEmpty();
-        DeserializeConflictPairs(entity.ConflictPairsJson).Should().BeEmpty();
+        DeserializeDictionary(entity.EntityAliasesJson).Should().Contain("默认品牌", "默认标准品牌");
+        DeserializeDictionary(entity.UnitAliasesJson).Should().Contain("默认单位别名", "mm");
+        DeserializeDecimalDictionary(entity.UnitFactorsJson).Should().Contain("mm", 1m);
+        DeserializeDictionary(entity.FieldAliasesJson).Should().Contain("默认字段别名", "宽度");
+        DeserializeConflictPairs(entity.ConflictPairsJson).Should().ContainSingle(pair => pair.Left == "输入" && pair.Right == "输出");
     }
 
     public void Dispose()
@@ -60,7 +75,8 @@ public class MatchingKnowledgeBootstrapperTests : IDisposable
     private MatchingKnowledgeBootstrapper CreateBootstrapper(IServiceProvider serviceProvider)
     {
         return new MatchingKnowledgeBootstrapper(
-            serviceProvider.GetRequiredService<IUnitOfWork>());
+            serviceProvider.GetRequiredService<IUnitOfWork>(),
+            serviceProvider.GetRequiredService<IOptions<MatchingKnowledgeOptions>>());
     }
     private static Dictionary<string, string> DeserializeDictionary(string json)
     {

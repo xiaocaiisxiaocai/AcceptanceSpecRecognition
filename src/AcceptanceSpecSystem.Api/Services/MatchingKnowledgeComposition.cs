@@ -7,27 +7,28 @@ using AcceptanceSpecSystem.Data.Entities;
 namespace AcceptanceSpecSystem.Api.Services;
 
 /// <summary>
-/// 匹配知识内置规则、自定义扩展与最终生效规则的统一合成器。
+/// 匹配知识配置转换与标准化辅助。
 /// </summary>
 internal static class MatchingKnowledgeComposition
 {
-    public static MatchingKnowledgeViewDto BuildView(
-        MatchingKnowledgeConfig? entity,
-        MatchingKnowledgeOptions options)
+    public static MatchingKnowledgeLayerDto ToDto(MatchingKnowledgeConfig? entity)
     {
-        var builtIn = CreateBuiltInLayer(options);
-        var custom = CreateCustomLayer(entity, builtIn);
-        var effective = MergeLayers(builtIn, custom);
-
-        return new MatchingKnowledgeViewDto
+        if (entity == null)
         {
-            BuiltIn = builtIn,
-            Custom = custom,
-            Effective = effective
-        };
+            return new MatchingKnowledgeLayerDto();
+        }
+
+        return NormalizeLayer(new MatchingKnowledgeLayerDto
+        {
+            EntityAliases = DeserializeStringDictionary(entity.EntityAliasesJson),
+            UnitAliases = DeserializeStringDictionary(entity.UnitAliasesJson),
+            UnitFactors = DeserializeDecimalDictionary(entity.UnitFactorsJson),
+            FieldAliases = DeserializeStringDictionary(entity.FieldAliasesJson),
+            ConflictPairs = DeserializeConflictPairs(entity.ConflictPairsJson)
+        });
     }
 
-    public static MatchingKnowledgeLayerDto CreateBuiltInLayer(MatchingKnowledgeOptions options)
+    public static MatchingKnowledgeLayerDto CreateSeedLayer(MatchingKnowledgeOptions options)
     {
         var unitAliases = NormalizeStringDictionary(options.UnitAliases);
         ExpandMicroSymbolAliases(unitAliases);
@@ -46,27 +47,6 @@ internal static class MatchingKnowledgeComposition
         });
     }
 
-    public static MatchingKnowledgeLayerDto CreateCustomLayer(
-        MatchingKnowledgeConfig? entity,
-        MatchingKnowledgeLayerDto builtIn)
-    {
-        if (entity == null)
-        {
-            return new MatchingKnowledgeLayerDto();
-        }
-
-        var raw = NormalizeLayer(new MatchingKnowledgeLayerDto
-        {
-            EntityAliases = DeserializeStringDictionary(entity.EntityAliasesJson),
-            UnitAliases = DeserializeStringDictionary(entity.UnitAliasesJson),
-            UnitFactors = DeserializeDecimalDictionary(entity.UnitFactorsJson),
-            FieldAliases = DeserializeStringDictionary(entity.FieldAliasesJson),
-            ConflictPairs = DeserializeConflictPairs(entity.ConflictPairsJson)
-        });
-
-        return FilterBuiltInDuplicates(raw, builtIn);
-    }
-
     public static MatchingKnowledgeLayerDto NormalizeRequest(UpdateMatchingKnowledgeRequest request)
     {
         return NormalizeLayer(new MatchingKnowledgeLayerDto
@@ -79,37 +59,9 @@ internal static class MatchingKnowledgeComposition
         });
     }
 
-    public static MatchingKnowledgeLayerDto FilterBuiltInDuplicates(
-        MatchingKnowledgeLayerDto custom,
-        MatchingKnowledgeLayerDto builtIn)
+    public static MatchingKnowledgeConfig ToEntity(MatchingKnowledgeLayerDto layer)
     {
-        return new MatchingKnowledgeLayerDto
-        {
-            EntityAliases = FilterStringDictionary(custom.EntityAliases, builtIn.EntityAliases),
-            UnitAliases = FilterStringDictionary(custom.UnitAliases, builtIn.UnitAliases),
-            UnitFactors = FilterDecimalDictionary(custom.UnitFactors, builtIn.UnitFactors),
-            FieldAliases = FilterStringDictionary(custom.FieldAliases, builtIn.FieldAliases),
-            ConflictPairs = FilterConflictPairs(custom.ConflictPairs, builtIn.ConflictPairs)
-        };
-    }
-
-    public static MatchingKnowledgeLayerDto MergeLayers(
-        MatchingKnowledgeLayerDto builtIn,
-        MatchingKnowledgeLayerDto custom)
-    {
-        return new MatchingKnowledgeLayerDto
-        {
-            EntityAliases = MergeStringDictionary(builtIn.EntityAliases, custom.EntityAliases),
-            UnitAliases = MergeStringDictionary(builtIn.UnitAliases, custom.UnitAliases),
-            UnitFactors = MergeDecimalDictionary(builtIn.UnitFactors, custom.UnitFactors),
-            FieldAliases = MergeStringDictionary(builtIn.FieldAliases, custom.FieldAliases),
-            ConflictPairs = MergeConflictPairs(builtIn.ConflictPairs, custom.ConflictPairs)
-        };
-    }
-
-    public static MatchingKnowledgeConfig ToEntity(MatchingKnowledgeLayerDto customLayer)
-    {
-        var normalized = NormalizeLayer(customLayer);
+        var normalized = NormalizeLayer(layer);
 
         return new MatchingKnowledgeConfig
         {
@@ -122,15 +74,15 @@ internal static class MatchingKnowledgeComposition
         };
     }
 
-    public static MatchingKnowledge ToDomainModel(MatchingKnowledgeLayerDto effectiveLayer)
+    public static MatchingKnowledge ToDomainModel(MatchingKnowledgeLayerDto layer)
     {
         return new MatchingKnowledge
         {
-            EntityAliases = new Dictionary<string, string>(effectiveLayer.EntityAliases, StringComparer.OrdinalIgnoreCase),
-            UnitAliases = new Dictionary<string, string>(effectiveLayer.UnitAliases, StringComparer.OrdinalIgnoreCase),
-            UnitFactors = new Dictionary<string, decimal>(effectiveLayer.UnitFactors, StringComparer.OrdinalIgnoreCase),
-            FieldAliases = new Dictionary<string, string>(effectiveLayer.FieldAliases, StringComparer.OrdinalIgnoreCase),
-            ConflictPairs = effectiveLayer.ConflictPairs
+            EntityAliases = new Dictionary<string, string>(layer.EntityAliases, StringComparer.OrdinalIgnoreCase),
+            UnitAliases = new Dictionary<string, string>(layer.UnitAliases, StringComparer.OrdinalIgnoreCase),
+            UnitFactors = new Dictionary<string, decimal>(layer.UnitFactors, StringComparer.OrdinalIgnoreCase),
+            FieldAliases = new Dictionary<string, string>(layer.FieldAliases, StringComparer.OrdinalIgnoreCase),
+            ConflictPairs = layer.ConflictPairs
                 .Select(item => (item.Left.Trim(), item.Right.Trim()))
                 .ToList()
         };
@@ -139,6 +91,11 @@ internal static class MatchingKnowledgeComposition
     public static MatchingKnowledgeConfig CreateEmptyEntity()
     {
         return ToEntity(new MatchingKnowledgeLayerDto());
+    }
+
+    public static MatchingKnowledgeConfig CreateSeedEntity(MatchingKnowledgeOptions options)
+    {
+        return ToEntity(CreateSeedLayer(options));
     }
 
     private static MatchingKnowledgeLayerDto NormalizeLayer(MatchingKnowledgeLayerDto layer)
@@ -241,113 +198,6 @@ internal static class MatchingKnowledgeComposition
             {
                 Left = left,
                 Right = right
-            });
-        }
-
-        return result;
-    }
-
-    private static Dictionary<string, string> FilterStringDictionary(
-        Dictionary<string, string> custom,
-        Dictionary<string, string> builtIn)
-    {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var pair in custom)
-        {
-            if (builtIn.TryGetValue(pair.Key, out var builtInValue) &&
-                string.Equals(builtInValue, pair.Value, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            result[pair.Key] = pair.Value;
-        }
-
-        return result;
-    }
-
-    private static Dictionary<string, decimal> FilterDecimalDictionary(
-        Dictionary<string, decimal> custom,
-        Dictionary<string, decimal> builtIn)
-    {
-        var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        foreach (var pair in custom)
-        {
-            if (builtIn.TryGetValue(pair.Key, out var builtInValue) &&
-                builtInValue == pair.Value)
-            {
-                continue;
-            }
-
-            result[pair.Key] = pair.Value;
-        }
-
-        return result;
-    }
-
-    private static List<ConflictPairDto> FilterConflictPairs(
-        IEnumerable<ConflictPairDto> custom,
-        IEnumerable<ConflictPairDto> builtIn)
-    {
-        var builtInKeys = builtIn
-            .Select(pair => BuildConflictKey(pair.Left, pair.Right))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        return custom
-            .Where(pair => !builtInKeys.Contains(BuildConflictKey(pair.Left, pair.Right)))
-            .Select(pair => new ConflictPairDto
-            {
-                Left = pair.Left,
-                Right = pair.Right
-            })
-            .ToList();
-    }
-
-    private static Dictionary<string, string> MergeStringDictionary(
-        Dictionary<string, string> builtIn,
-        Dictionary<string, string> custom)
-    {
-        var result = new Dictionary<string, string>(builtIn, StringComparer.OrdinalIgnoreCase);
-        foreach (var pair in custom)
-        {
-            result[pair.Key] = pair.Value;
-        }
-
-        return result;
-    }
-
-    private static Dictionary<string, decimal> MergeDecimalDictionary(
-        Dictionary<string, decimal> builtIn,
-        Dictionary<string, decimal> custom)
-    {
-        var result = new Dictionary<string, decimal>(builtIn, StringComparer.OrdinalIgnoreCase);
-        foreach (var pair in custom)
-        {
-            result[pair.Key] = pair.Value;
-        }
-
-        return result;
-    }
-
-    private static List<ConflictPairDto> MergeConflictPairs(
-        IEnumerable<ConflictPairDto> builtIn,
-        IEnumerable<ConflictPairDto> custom)
-    {
-        var result = new List<ConflictPairDto>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var pair in builtIn.Concat(custom))
-        {
-            var key = BuildConflictKey(pair.Left, pair.Right);
-            if (!seen.Add(key))
-            {
-                continue;
-            }
-
-            result.Add(new ConflictPairDto
-            {
-                Left = pair.Left,
-                Right = pair.Right
             });
         }
 

@@ -1,8 +1,6 @@
-using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Repositories;
-using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -12,20 +10,15 @@ namespace AcceptanceSpecSystem.Api.Services;
 public sealed class ConfigurationMatchingKnowledgeProvider : IMatchingKnowledgeProvider
 {
     private readonly IMatchingKnowledgeConfigRepository _repository;
-    private readonly MatchingKnowledgeOptions _defaultOptions;
 
-    public ConfigurationMatchingKnowledgeProvider(
-        IMatchingKnowledgeConfigRepository repository,
-        IOptions<MatchingKnowledgeOptions> options)
+    public ConfigurationMatchingKnowledgeProvider(IMatchingKnowledgeConfigRepository repository)
     {
         _repository = repository;
-        _defaultOptions = options.Value ?? new MatchingKnowledgeOptions();
     }
 
     public async Task<MatchingKnowledge> GetKnowledgeAsync(CancellationToken cancellationToken = default)
     {
         var entity = await _repository.GetConfigAsync();
-        var view = MatchingKnowledgeComposition.BuildView(entity, _defaultOptions);
-        return MatchingKnowledgeComposition.ToDomainModel(view.Effective);
+        return MatchingKnowledgeComposition.ToDomainModel(MatchingKnowledgeComposition.ToDto(entity));
     }
 }

@@ -763,7 +763,7 @@ const formatImportedAt = (value?: string) => {
       <div class="footer-actions">
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleImport">
-          导入到自定义扩展
+          导入到当前配置
         </el-button>
       </div>
     </template>

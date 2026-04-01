@@ -1,4 +1,6 @@
+using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -8,13 +10,17 @@ namespace AcceptanceSpecSystem.Api.Services;
 public sealed class MatchingKnowledgeBootstrapper
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly MatchingKnowledgeOptions _defaultOptions;
 
     /// <summary>
     /// 初始化匹配知识初始化器。
     /// </summary>
-    public MatchingKnowledgeBootstrapper(IUnitOfWork unitOfWork)
+    public MatchingKnowledgeBootstrapper(
+        IUnitOfWork unitOfWork,
+        IOptions<MatchingKnowledgeOptions> defaultOptions)
     {
         _unitOfWork = unitOfWork;
+        _defaultOptions = defaultOptions.Value ?? new MatchingKnowledgeOptions();
     }
 
     /// <summary>
@@ -28,7 +34,7 @@ public sealed class MatchingKnowledgeBootstrapper
             return;
         }
 
-        await _unitOfWork.MatchingKnowledgeConfigs.SaveConfigAsync(MatchingKnowledgeComposition.CreateEmptyEntity());
+        await _unitOfWork.MatchingKnowledgeConfigs.SaveConfigAsync(MatchingKnowledgeComposition.CreateSeedEntity(_defaultOptions));
 
         await _unitOfWork.SaveChangesAsync();
     }

@@ -32,7 +32,7 @@ public class ConfigurationMatchingKnowledgeProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task GetKnowledgeAsync_WhenDatabaseConfigExists_ShouldMergeBuiltInAndCustomRules()
+    public async Task GetKnowledgeAsync_WhenDatabaseConfigExists_ShouldReturnDatabaseConfigOnly()
     {
         await _repository.SaveConfigAsync(new MatchingKnowledgeConfig
         {
@@ -72,9 +72,7 @@ public class ConfigurationMatchingKnowledgeProviderTests : IDisposable
         });
         await _context.SaveChangesAsync();
 
-        var provider = new ConfigurationMatchingKnowledgeProvider(
-            _repository,
-            Microsoft.Extensions.Options.Options.Create(CreateDefaultOptions()));
+        var provider = new ConfigurationMatchingKnowledgeProvider(_repository);
 
         var knowledge = await provider.GetKnowledgeAsync();
 
@@ -91,19 +89,17 @@ public class ConfigurationMatchingKnowledgeProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task GetKnowledgeAsync_WhenDatabaseConfigMissing_ShouldFallbackToDefaultOptions()
+    public async Task GetKnowledgeAsync_WhenDatabaseConfigMissing_ShouldReturnEmptyKnowledge()
     {
-        var provider = new ConfigurationMatchingKnowledgeProvider(
-            _repository,
-            Microsoft.Extensions.Options.Options.Create(CreateDefaultOptions()));
+        var provider = new ConfigurationMatchingKnowledgeProvider(_repository);
 
         var knowledge = await provider.GetKnowledgeAsync();
 
-        knowledge.EntityAliases["默认品牌"].Should().Be("默认标准品牌");
-        knowledge.UnitAliases["默认单位别名"].Should().Be("mm");
-        knowledge.UnitFactors["mm"].Should().Be(1m);
-        knowledge.FieldAliases["默认字段别名"].Should().Be("宽度");
-        knowledge.ConflictPairs.Should().Contain(pair => pair.Left == "输入" && pair.Right == "输出");
+        knowledge.EntityAliases.Should().BeEmpty();
+        knowledge.UnitAliases.Should().BeEmpty();
+        knowledge.UnitFactors.Should().BeEmpty();
+        knowledge.FieldAliases.Should().BeEmpty();
+        knowledge.ConflictPairs.Should().BeEmpty();
     }
 
     public void Dispose()
@@ -112,36 +108,5 @@ public class ConfigurationMatchingKnowledgeProviderTests : IDisposable
         _context.Dispose();
         _connection.Dispose();
         GC.SuppressFinalize(this);
-    }
-
-    private static MatchingKnowledgeOptions CreateDefaultOptions()
-    {
-        return new MatchingKnowledgeOptions
-        {
-            EntityAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["默认品牌"] = "默认标准品牌"
-            },
-            UnitAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["默认单位别名"] = "mm"
-            },
-            UnitFactors = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["mm"] = 1m
-            },
-            FieldAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["默认字段别名"] = "宽度"
-            },
-            ConflictPairs =
-            [
-                new ConflictPairOption
-                {
-                    Left = "输入",
-                    Right = "输出"
-                }
-            ]
-        };
     }
 }

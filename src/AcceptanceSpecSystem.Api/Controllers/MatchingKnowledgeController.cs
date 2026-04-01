@@ -34,17 +34,17 @@ public class MatchingKnowledgeController : BaseApiController
     /// 获取当前生效的匹配知识配置。
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<MatchingKnowledgeViewDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<MatchingKnowledgeViewDto>>> Get()
+    [ProducesResponseType(typeof(ApiResponse<MatchingKnowledgeLayerDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<MatchingKnowledgeLayerDto>>> Get()
     {
         await _bootstrapper.EnsureInitializedAsync();
         var entity = await _unitOfWork.MatchingKnowledgeConfigs.GetConfigAsync();
         if (entity == null)
         {
-            return Error<MatchingKnowledgeViewDto>(500, "匹配知识初始化失败");
+            return Error<MatchingKnowledgeLayerDto>(500, "匹配知识初始化失败");
         }
 
-        return Success(MatchingKnowledgeComposition.BuildView(entity, _defaultOptions));
+        return Success(MatchingKnowledgeComposition.ToDto(entity));
     }
 
     /// <summary>
@@ -52,35 +52,47 @@ public class MatchingKnowledgeController : BaseApiController
     /// </summary>
     [HttpPut]
     [AuditOperation("update", "matching-knowledge")]
-    [ProducesResponseType(typeof(ApiResponse<MatchingKnowledgeViewDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<MatchingKnowledgeViewDto>>> Put([FromBody] UpdateMatchingKnowledgeRequest request)
+    [ProducesResponseType(typeof(ApiResponse<MatchingKnowledgeLayerDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<MatchingKnowledgeLayerDto>>> Put([FromBody] UpdateMatchingKnowledgeRequest request)
     {
-        var builtIn = MatchingKnowledgeComposition.CreateBuiltInLayer(_defaultOptions);
-        var custom = MatchingKnowledgeComposition.FilterBuiltInDuplicates(
-            MatchingKnowledgeComposition.NormalizeRequest(request),
-            builtIn);
-        var entity = MatchingKnowledgeComposition.ToEntity(custom);
+        var entity = MatchingKnowledgeComposition.ToEntity(MatchingKnowledgeComposition.NormalizeRequest(request));
 
         await _unitOfWork.MatchingKnowledgeConfigs.SaveConfigAsync(entity);
         await _unitOfWork.SaveChangesAsync();
 
         var saved = await _unitOfWork.MatchingKnowledgeConfigs.GetConfigAsync();
-        return Success(MatchingKnowledgeComposition.BuildView(saved, _defaultOptions), "保存成功");
+        return Success(MatchingKnowledgeComposition.ToDto(saved), "保存成功");
     }
 
     /// <summary>
-    /// 重置为系统默认匹配知识配置。
+    /// 清空当前匹配知识配置。
     /// </summary>
-    [HttpPost("reset")]
-    [AuditOperation("reset", "matching-knowledge")]
-    [ProducesResponseType(typeof(ApiResponse<MatchingKnowledgeViewDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<MatchingKnowledgeViewDto>>> Reset()
+    [HttpPost("clear")]
+    [AuditOperation("clear", "matching-knowledge")]
+    [ProducesResponseType(typeof(ApiResponse<MatchingKnowledgeLayerDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<MatchingKnowledgeLayerDto>>> Clear()
     {
         var entity = MatchingKnowledgeComposition.CreateEmptyEntity();
         await _unitOfWork.MatchingKnowledgeConfigs.SaveConfigAsync(entity);
         await _unitOfWork.SaveChangesAsync();
 
         var saved = await _unitOfWork.MatchingKnowledgeConfigs.GetConfigAsync();
-        return Success(MatchingKnowledgeComposition.BuildView(saved, _defaultOptions), "已清空自定义扩展");
+        return Success(MatchingKnowledgeComposition.ToDto(saved), "已清空当前配置");
+    }
+
+    /// <summary>
+    /// 恢复默认种子匹配知识配置。
+    /// </summary>
+    [HttpPost("restore-defaults")]
+    [AuditOperation("reset", "matching-knowledge")]
+    [ProducesResponseType(typeof(ApiResponse<MatchingKnowledgeLayerDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<MatchingKnowledgeLayerDto>>> RestoreDefaults()
+    {
+        var entity = MatchingKnowledgeComposition.CreateSeedEntity(_defaultOptions);
+        await _unitOfWork.MatchingKnowledgeConfigs.SaveConfigAsync(entity);
+        await _unitOfWork.SaveChangesAsync();
+
+        var saved = await _unitOfWork.MatchingKnowledgeConfigs.GetConfigAsync();
+        return Success(MatchingKnowledgeComposition.ToDto(saved), "已恢复默认配置");
     }
 }
