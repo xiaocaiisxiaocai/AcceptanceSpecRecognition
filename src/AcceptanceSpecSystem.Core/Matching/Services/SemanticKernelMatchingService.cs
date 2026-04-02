@@ -570,6 +570,12 @@ public class SemanticKernelMatchingService : IMatchingService
 
     private static double ComputeKeywordScore(string sourceSpecification, string candidateSpecification)
     {
+        var source = NormalizeComparableText(sourceSpecification);
+        var candidate = NormalizeComparableText(candidateSpecification);
+
+        if (!string.IsNullOrWhiteSpace(source) && source == candidate)
+            return 1.0;
+
         var sourceTokens = ExtractKeywordTokens(sourceSpecification);
         var candidateTokens = ExtractKeywordTokens(candidateSpecification);
 

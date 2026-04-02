@@ -131,6 +131,48 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
+    public async Task Preview_WhenSpecificationExactlyMatchesWithoutKeywordTokens_ShouldExposeHighConfidence()
+    {
+        var (customerId, processId) = await CreateScopeAsync("ExactShortSpecApi");
+
+        await CreateSpecAsync(customerId, processId, "设备交货时间", "<80天;", "OK");
+
+        var previewResp = await _client.PostAsync(
+            "/api/matching/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                items = new[]
+                {
+                    new
+                    {
+                        rowIndex = 0,
+                        project = "设备交货时间",
+                        specification = "<80天;"
+                    }
+                },
+                customerId,
+                processId,
+                config = new
+                {
+                    matchingStrategy = 2,
+                    minScoreThreshold = 0.0,
+                    recallTopK = 3,
+                    highConfidenceThreshold = 0.98
+                }
+            }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var item = previewJson.Data.GetProperty("items")[0];
+        var bestMatch = item.GetProperty("bestMatch");
+
+        bestMatch.GetProperty("scoreDetails").GetProperty("KeywordOverlap").GetDouble().Should().Be(1.0);
+        bestMatch.GetProperty("score").GetDouble().Should().Be(1.0);
+        bestMatch.GetProperty("decision").GetString().Should().Be("autoApply");
+        item.GetProperty("confidenceLevel").GetString().Should().Be("high");
+    }
+
+    [Fact]
     public async Task Preview_ShouldExposeStructuredIssues()
     {
         var (customerId, processId) = await CreateScopeAsync("IssueApi");

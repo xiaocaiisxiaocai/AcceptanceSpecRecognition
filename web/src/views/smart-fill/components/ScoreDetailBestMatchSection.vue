@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { DEFAULT_AMBIGUITY_MARGIN, type MatchPreviewItem } from "@/api/matching";
+import {
+  DEFAULT_AMBIGUITY_MARGIN,
+  DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
+  type MatchPreviewItem
+} from "@/api/matching";
 import {
   formatLlmScore,
   formatScore,
@@ -8,6 +12,7 @@ import {
   getDecisionText,
   getEntityRelationTagType,
   getEntityRelationText,
+  getConfidenceText,
   getIssueFieldText,
   getIssueSeverityText,
   getIssueTagType
@@ -16,16 +21,27 @@ import {
 const props = defineProps<{
   item: MatchPreviewItem;
   ambiguityMargin?: number;
+  highConfidenceThreshold?: number;
 }>();
 
 const bestMatch = computed(() => props.item.bestMatch);
 const bestMatchIssues = computed(() => bestMatch.value?.issues ?? []);
 const bestMatchEntities = computed(() => bestMatch.value?.entities ?? []);
 const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN);
+const effectiveHighConfidenceThreshold = computed(
+  () => props.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD
+);
 const formatOptionalPercent = (value?: number) => {
   if (value === undefined || value === null) return "-";
   return `${(value * 100).toFixed(1)}%`;
 };
+const normalizeComparableText = (value?: string) =>
+  (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replaceAll("（", "(")
+    .replaceAll("）", ")");
 
 const metricCards = computed(() => {
   if (!bestMatch.value) return [];
@@ -56,6 +72,37 @@ const metricCards = computed(() => {
       value: bestMatch.value.recalledCandidateCount?.toString() || "-"
     }
   ];
+});
+
+const explanationRows = computed(() => {
+  if (!bestMatch.value) return [];
+
+  const rows = [];
+  const thresholdReached =
+    bestMatch.value.score >= effectiveHighConfidenceThreshold.value;
+
+  rows.push({
+    label: "置信阈值",
+    value: thresholdReached
+      ? `当前高置信阈值为 ${formatScore(effectiveHighConfidenceThreshold.value)}，当前得分 ${formatScore(bestMatch.value.score)}，已达到高置信门槛。`
+      : `当前高置信阈值为 ${formatScore(effectiveHighConfidenceThreshold.value)}，当前得分 ${formatScore(bestMatch.value.score)}，因此当前显示为${getConfidenceText(props.item.confidenceLevel)}置信度。`
+  });
+
+  const keywordScore = bestMatch.value.scoreDetails?.KeywordOverlap;
+  if (keywordScore === 0.5) {
+    const sameComparableSpecification =
+      normalizeComparableText(props.item.sourceSpecification) ===
+      normalizeComparableText(bestMatch.value.specification);
+
+    rows.push({
+      label: "关键词项",
+      value: sameComparableSpecification
+        ? "规格文本可比后是一致的，但未提取到有效关键词 token，关键词项按保守 50% 计分。"
+        : "双方都未提取到有效关键词 token，关键词项按保守 50% 计分。短文本、符号或数字占比较高时容易出现这种情况。"
+    });
+  }
+
+  return rows;
 });
 
 const metaTags = computed(() => {
@@ -171,6 +218,23 @@ const summaryRows = computed(() => {
           <div class="reference-row">
             <span>备注</span>
             <strong>{{ bestMatch.remark || "-" }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="explanationRows.length > 0"
+        class="info-block"
+      >
+        <div class="info-label">判定解释</div>
+        <div class="summary-list">
+          <div
+            v-for="row in explanationRows"
+            :key="row.label"
+            class="summary-row"
+          >
+            <div class="summary-row__label">{{ row.label }}</div>
+            <div class="summary-row__value">{{ row.value }}</div>
           </div>
         </div>
       </div>

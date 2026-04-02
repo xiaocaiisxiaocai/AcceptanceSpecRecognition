@@ -943,6 +943,7 @@ const handleRestart = () => {
       v-model:visible="detailVisible"
       :item="detailItem"
       :ambiguity-margin="getAmbiguityMargin()"
+      :high-confidence-threshold="getHighConfidenceThreshold()"
     />
     <StrictReuseDialog
       v-if="taskId && uploadedFile"

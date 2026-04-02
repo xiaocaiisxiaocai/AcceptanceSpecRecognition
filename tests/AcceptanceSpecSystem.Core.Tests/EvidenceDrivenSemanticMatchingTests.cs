@@ -931,6 +931,48 @@ public class EvidenceDrivenSemanticMatchingTests
         result.Results[0].ScoreDetails["SpecificationText"].Should().Be(1.0);
     }
 
+    [Fact]
+    public async Task BatchMatch_WhenSpecificationIsExactlySameButNoKeywordToken_ShouldTreatKeywordScoreAsExact()
+    {
+        var source = new MatchSource
+        {
+            Project = "设备交货时间",
+            Specification = "<80天;"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 802,
+                Project = "设备交货时间",
+                Specification = "<80天;",
+                Embedding = [1f]
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f], defaultCandidateEmbedding: [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(802);
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
+        result.Results[0].Score.Should().Be(1.0);
+        result.Results[0].ScoreDetails["KeywordOverlap"].Should().Be(1.0);
+    }
+
     private sealed class FixedSourceEmbeddingService : IEmbeddingService
     {
         private readonly string _sourceText;

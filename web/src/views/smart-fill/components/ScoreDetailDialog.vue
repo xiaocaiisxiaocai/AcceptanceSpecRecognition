@@ -16,6 +16,7 @@ const props = defineProps<{
   visible: boolean;
   item: MatchPreviewItem | null;
   ambiguityMargin?: number;
+  highConfidenceThreshold?: number;
 }>();
 
 const emit = defineEmits<{
@@ -143,6 +144,7 @@ const {
                 v-if="activeTechnicalTag === 'overview'"
                 :item="item"
                 :ambiguity-margin="ambiguityMargin"
+                :high-confidence-threshold="highConfidenceThreshold"
               />
 
               <ScoreDetailDiffSection
