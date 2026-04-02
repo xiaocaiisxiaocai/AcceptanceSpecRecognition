@@ -78,6 +78,7 @@ const batchPreviewResults = ref<BatchTablePreviewResult[]>([]);
 const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
   null
 );
+const loadingUploadedFileTables = ref(false);
 const loading = ref(false);
 const llmStreaming = ref(false);
 const llmStreamController = ref<AbortController | null>(null);
@@ -145,7 +146,7 @@ const allPreviewItems = computed(() =>
 const canGoNext = computed(() => {
   switch (currentStep.value) {
     case 0:
-      return uploadedFile.value !== null;
+      return uploadedFile.value !== null && !loadingUploadedFileTables.value;
     case 1:
       return selectedTableCount.value > 0;
     case 2:
@@ -190,13 +191,20 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   batchPreviewResults.value = [];
   taskId.value = null;
   strictReuseVisible.value = false;
+  loadingUploadedFileTables.value = true;
 
   // Excel 改为手工配置，不再做自动识别；Word 仍按列映射规则自动匹配
   let tables: TableInfo[] = [];
   let rules: ColumnMappingRule[] = [];
+  let tableMetaLoaded = false;
   try {
     const tablesRes = await getFileTables(file.fileId);
-    if (tablesRes.code === 0) tables = tablesRes.data;
+    if (tablesRes.code === 0) {
+      tables = tablesRes.data;
+      tableMetaLoaded = true;
+    } else {
+      throw new Error(tablesRes.message || "获取表格列表失败");
+    }
 
     if (file.fileType !== 1) {
       const rulesRes = await getEffectiveColumnMappingRules();
@@ -204,8 +212,19 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
     }
   } catch {
     ElMessage.warning("获取表格列表失败");
-    return;
+  } finally {
+    if (uploadedFile.value?.fileId === file.fileId) {
+      uploadedFile.value = {
+        ...uploadedFile.value,
+        tableCount: tables.length,
+        tableCountReady: true
+      };
+    }
+    loadingUploadedFileTables.value = false;
   }
+
+  if (uploadedFile.value?.fileId !== file.fileId) return;
+  if (!tableMetaLoaded) return;
 
   allTables.value = tables;
 
@@ -747,6 +766,7 @@ const goPrev = () => {
 const handleRestart = () => {
   invalidatePendingPreview();
   stopLlmStream();
+  loadingUploadedFileTables.value = false;
   currentStep.value = 0;
   uploadedFile.value = null;
   allTables.value = [];
@@ -790,7 +810,15 @@ const handleRestart = () => {
           @uploaded="handleFileUploaded"
         />
         <el-alert
-          v-else
+          v-if="canUploadSourceFile && uploadedFile && loadingUploadedFileTables"
+          type="info"
+          :closable="false"
+          show-icon
+          title="正在读取表格结构，请稍候"
+          class="upload-meta-alert"
+        />
+        <el-alert
+          v-if="!canUploadSourceFile"
           type="warning"
           :closable="false"
           show-icon
@@ -989,6 +1017,10 @@ const handleRestart = () => {
   font-size: 14px;
   color: #6b7280;
   margin-bottom: 24px;
+}
+
+.upload-meta-alert {
+  margin-top: 16px;
 }
 
 .action-bar {

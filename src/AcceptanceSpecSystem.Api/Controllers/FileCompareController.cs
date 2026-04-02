@@ -206,6 +206,7 @@ public class FileCompareController : BaseApiController
                 FileHash = existingFile.FileHash,
                 IsDuplicate = true,
                 TableCount = tableCount,
+                TableCountReady = true,
                 FileType = existingFile.FileType
             };
         }
@@ -239,6 +240,7 @@ public class FileCompareController : BaseApiController
             FileHash = wordFile.FileHash,
             IsDuplicate = false,
             TableCount = newTableCount,
+            TableCountReady = true,
             FileType = wordFile.FileType
         };
     }

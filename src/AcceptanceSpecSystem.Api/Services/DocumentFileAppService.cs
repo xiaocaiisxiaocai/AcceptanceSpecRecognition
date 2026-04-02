@@ -13,18 +13,15 @@ public sealed class DocumentFileAppService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly DocumentFileAccessService _documentFileAccessService;
-    private readonly DocumentTableAccessService _documentTableAccessService;
     private readonly ILogger<DocumentFileAppService> _logger;
 
     public DocumentFileAppService(
         IUnitOfWork unitOfWork,
         DocumentFileAccessService documentFileAccessService,
-        DocumentTableAccessService documentTableAccessService,
         ILogger<DocumentFileAppService> logger)
     {
         _unitOfWork = unitOfWork;
         _documentFileAccessService = documentFileAccessService;
-        _documentTableAccessService = documentTableAccessService;
         _logger = logger;
     }
 
@@ -123,7 +120,6 @@ public sealed class DocumentFileAppService
         await _unitOfWork.WordFiles.AddAsync(wordFile);
         await _unitOfWork.SaveChangesAsync();
 
-        var tableCount = await _documentTableAccessService.CountTablesAsync(fileType, fileContent);
         _logger.LogInformation("文件临时上传成功: {FileId} - {FileName}", wordFile.Id, wordFile.FileName);
 
         return new FileUploadResponse
@@ -132,7 +128,8 @@ public sealed class DocumentFileAppService
             FileName = wordFile.FileName,
             FileHash = wordFile.FileHash,
             IsDuplicate = false,
-            TableCount = tableCount,
+            TableCount = 0,
+            TableCountReady = false,
             FileType = wordFile.FileType
         };
     }

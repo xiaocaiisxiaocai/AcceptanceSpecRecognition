@@ -1112,6 +1112,24 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void SmartFillUpload_ShouldExposeDedicatedTableMetadataLoadingState()
+    {
+        var smartFillContent = ReadFileText("web/src/views/smart-fill/index.vue");
+        smartFillContent.Should().Contain("const loadingUploadedFileTables = ref(false);",
+            "智能填充上传后应单独跟踪表格结构读取状态，而不是把上传与解析混成一个阶段");
+        smartFillContent.Should().Contain("正在读取表格结构，请稍候",
+            "智能填充页应明确提示当前仍在读取表格结构，避免用户误以为页面卡住");
+        smartFillContent.Should().Contain("!loadingUploadedFileTables.value",
+            "上传后的表格结构尚未读取完成前，不应允许直接进入下一步");
+
+        var uploadContent = ReadFileText("web/src/views/data-import/components/FileUpload.vue");
+        uploadContent.Should().Contain("tableCountReady === false",
+            "共享上传组件应识别表格数量仍在后台读取的状态");
+        uploadContent.Should().Contain("正在读取",
+            "共享上传组件应在表格元信息尚未就绪时提供明确文案，而不是直接显示 0 个表格");
+    }
+
+    [Fact]
     public void MatchingServices_ShouldGuardCandidateVolume_AndBatchEmbeddingHydration()
     {
         var previewContent = File.ReadAllText(Path.Combine(
