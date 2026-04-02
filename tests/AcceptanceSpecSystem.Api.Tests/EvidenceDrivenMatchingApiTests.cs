@@ -383,8 +383,11 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
     {
         var config = new MatchConfigDto();
 
+        config.MinScoreThreshold.Should().Be(0.9);
+        config.HighConfidenceThreshold.Should().Be(0.98);
+        config.AmbiguityMargin.Should().Be(0.02);
         config.UseLlmEntityResolution.Should().BeFalse();
-        config.LlmEntityResolutionTopCandidates.Should().Be(3);
+        config.LlmEntityResolutionTopCandidates.Should().Be(2);
         config.LlmEntityPositiveConfidenceThreshold.Should().Be(0.85);
         config.LlmEntityConflictReviewConfidenceThreshold.Should().Be(0.7);
         config.LlmEntityConflictRejectConfidenceThreshold.Should().Be(0.9);

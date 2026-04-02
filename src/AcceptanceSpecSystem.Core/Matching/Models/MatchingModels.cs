@@ -6,9 +6,39 @@ namespace AcceptanceSpecSystem.Core.Matching.Models;
 public static class MatchingThresholds
 {
     /// <summary>
+    /// 默认最小匹配阈值
+    /// </summary>
+    public const double DefaultMinScoreThreshold = 0.90;
+
+    /// <summary>
     /// 默认高置信自动采用阈值
     /// </summary>
-    public const double DefaultHighConfidenceScore = 0.95;
+    public const double DefaultHighConfidenceScore = 0.98;
+
+    /// <summary>
+    /// 默认召回候选数
+    /// </summary>
+    public const int DefaultRecallTopK = 2;
+
+    /// <summary>
+    /// 召回候选数上限
+    /// </summary>
+    public const int MaxRecallTopK = 3;
+
+    /// <summary>
+    /// 默认歧义分差阈值
+    /// </summary>
+    public const double DefaultAmbiguityMargin = 0.02;
+
+    /// <summary>
+    /// 默认实体复判候选数
+    /// </summary>
+    public const int DefaultLlmEntityResolutionTopCandidates = 2;
+
+    /// <summary>
+    /// 实体复判候选数上限
+    /// </summary>
+    public const int MaxLlmEntityResolutionTopCandidates = 3;
 
     /// <summary>
     /// 中置信度下限
@@ -357,17 +387,17 @@ public class MatchingConfig
     /// <summary>
     /// 最小匹配阈值
     /// </summary>
-    public double MinScoreThreshold { get; set; } = 0.3;
+    public double MinScoreThreshold { get; set; } = MatchingThresholds.DefaultMinScoreThreshold;
 
     /// <summary>
     /// 多阶段模式下第一阶段召回数量
     /// </summary>
-    public int RecallTopK { get; set; } = 5;
+    public int RecallTopK { get; set; } = MatchingThresholds.DefaultRecallTopK;
 
     /// <summary>
     /// 多阶段模式下的歧义分差阈值
     /// </summary>
-    public double AmbiguityMargin { get; set; } = 0.03;
+    public double AmbiguityMargin { get; set; } = MatchingThresholds.DefaultAmbiguityMargin;
 
     /// <summary>
     /// 高置信自动采用阈值
@@ -382,7 +412,7 @@ public class MatchingConfig
     /// <summary>
     /// 启用实体判别时参与复判的候选数量
     /// </summary>
-    public int LlmEntityResolutionTopCandidates { get; set; } = 3;
+    public int LlmEntityResolutionTopCandidates { get; set; } = MatchingThresholds.DefaultLlmEntityResolutionTopCandidates;
 
     /// <summary>
     /// 判定为同一实体所需的最低置信度

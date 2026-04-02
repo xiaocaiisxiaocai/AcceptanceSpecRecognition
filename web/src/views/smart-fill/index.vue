@@ -17,6 +17,8 @@ import {
   type MatchConfig as MatchConfigType,
   type MatchResult,
   type BatchTablePreviewResult,
+  DEFAULT_AMBIGUITY_MARGIN,
+  DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   defaultMatchConfig
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
@@ -412,9 +414,12 @@ const stopLlmStream = () => {
 };
 
 const getHighConfidenceThreshold = () =>
-  Math.min(Math.max(matchConfig.value.highConfidenceThreshold ?? 0.95, 0.5), 1);
+  Math.min(
+    Math.max(matchConfig.value.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD, 0.5),
+    1
+  );
 const getAmbiguityMargin = () =>
-  Math.min(Math.max(matchConfig.value.ambiguityMargin ?? 0.03, 0), 1);
+  Math.min(Math.max(matchConfig.value.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN, 0), 1);
 
 const startLlmStream = async () => {
   if (!canLlmStream.value) {

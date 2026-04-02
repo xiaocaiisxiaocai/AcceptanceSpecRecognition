@@ -15,7 +15,7 @@ public class AiServiceConfigDto
     public string? LlmModel { get; set; }
     public bool DisableThinking { get; set; }
     public MatchingStrategy DefaultMatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
-    public int DefaultRecallTopK { get; set; } = 3;
+    public int DefaultRecallTopK { get; set; } = 2;
     public bool HasApiKey { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -38,7 +38,7 @@ public class CreateAiServiceRequest
     public string? LlmModel { get; set; }
     public bool DisableThinking { get; set; }
     public MatchingStrategy DefaultMatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
-    public int DefaultRecallTopK { get; set; } = 3;
+    public int DefaultRecallTopK { get; set; } = 2;
 }
 
 public class UpdateAiServiceRequest
@@ -53,7 +53,7 @@ public class UpdateAiServiceRequest
     public string? LlmModel { get; set; }
     public bool DisableThinking { get; set; }
     public MatchingStrategy DefaultMatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
-    public int DefaultRecallTopK { get; set; } = 3;
+    public int DefaultRecallTopK { get; set; } = 2;
 }
 
 public enum AiServiceConnectionTestMode

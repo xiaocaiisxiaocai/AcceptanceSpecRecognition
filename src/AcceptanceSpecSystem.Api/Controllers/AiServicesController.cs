@@ -161,7 +161,7 @@ public class AiServicesController : BaseApiController
             LlmModel = llmModel,
             DisableThinking = request.DisableThinking,
             DefaultMatchingStrategy = ToDataMatchingStrategy(request.DefaultMatchingStrategy),
-            DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, 20),
+            DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -212,7 +212,7 @@ public class AiServicesController : BaseApiController
         entity.Endpoint = normalizedEndpoint;
         entity.DisableThinking = request.DisableThinking;
         entity.DefaultMatchingStrategy = ToDataMatchingStrategy(request.DefaultMatchingStrategy);
-        entity.DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, 20);
+        entity.DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK);
 
         var embeddingModel = NormalizeOptional(request.EmbeddingModel);
         var llmModel = NormalizeOptional(request.LlmModel);

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import {
+  DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
+  DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES,
+  MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES,
+  MAX_RECALL_TOP_K,
   type MatchConfig,
   defaultMatchConfig,
   MatchingStrategy
@@ -108,13 +112,33 @@ watch(
 );
 
 watch(
-  () => [config.value.matchingStrategy, config.value.recallTopK, config.value.ambiguityMargin],
+  () => [
+    config.value.matchingStrategy,
+    config.value.recallTopK,
+    config.value.ambiguityMargin,
+    config.value.llmEntityResolutionTopCandidates
+  ],
   () => {
     if (!config.value.recallTopK || config.value.recallTopK < 1) {
       config.value.recallTopK = defaultMatchConfig.recallTopK;
+    } else if (config.value.recallTopK > MAX_RECALL_TOP_K) {
+      config.value.recallTopK = MAX_RECALL_TOP_K;
     }
     if (config.value.ambiguityMargin === undefined || config.value.ambiguityMargin === null) {
       config.value.ambiguityMargin = defaultMatchConfig.ambiguityMargin;
+    }
+    if (
+      !config.value.llmEntityResolutionTopCandidates ||
+      config.value.llmEntityResolutionTopCandidates < 1
+    ) {
+      config.value.llmEntityResolutionTopCandidates =
+        DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES;
+    } else if (
+      config.value.llmEntityResolutionTopCandidates >
+      MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES
+    ) {
+      config.value.llmEntityResolutionTopCandidates =
+        MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES;
     }
     if (!isMultiStage.value) {
       config.value.useLlmEntityResolution = false;
@@ -211,7 +235,10 @@ const applyEmbeddingServiceDefaults = (serviceId?: number) => {
   if (!selectedService) return;
 
   config.value.matchingStrategy = selectedService.defaultMatchingStrategy;
-  config.value.recallTopK = selectedService.defaultRecallTopK;
+  config.value.recallTopK = Math.min(
+    MAX_RECALL_TOP_K,
+    Math.max(1, selectedService.defaultRecallTopK)
+  );
 };
 
 watch(
@@ -431,7 +458,8 @@ defineExpose({
                 :show-input-controls="false"
               />
               <div class="form-inline-tip">
-                达到该阈值的匹配会默认选中；默认值为 95%
+                达到该阈值的匹配会默认选中；默认值为
+                {{ (DEFAULT_HIGH_CONFIDENCE_THRESHOLD * 100).toFixed(0) }}%
               </div>
             </el-form-item>
           </el-col>
@@ -454,7 +482,7 @@ defineExpose({
               <el-input-number
                 v-model="config.recallTopK"
                 :min="1"
-                :max="20"
+                :max="MAX_RECALL_TOP_K"
                 :step="1"
                 controls-position="right"
               />
@@ -484,8 +512,8 @@ defineExpose({
           :closable="false"
           show-icon
           :title="isMultiStage
-            ? `系统仅自动填充匹配得分大于等于 ${((config.highConfidenceThreshold ?? 0.95) * 100).toFixed(0)}% 的结果；其余命中只做 LLM 复核，不会生成新验收标准写回。`
-            : `单阶段模式按 Embedding 直接排序，达到 ${((config.highConfidenceThreshold ?? 0.95) * 100).toFixed(0)}% 才会自动采用；其余命中需要人工确认或 LLM 复核。`"
+            ? `系统仅自动填充匹配得分大于等于 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 的结果；其余命中只做 LLM 复核，不会生成新验收标准写回。`
+            : `单阶段模式按 Embedding 直接排序，达到 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 才会自动采用；其余命中需要人工确认或 LLM 复核。`"
         />
       </el-form>
     </div>
@@ -543,7 +571,7 @@ defineExpose({
                   <el-input-number
                     v-model="config.llmEntityResolutionTopCandidates"
                     :min="1"
-                    :max="10"
+                    :max="MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES"
                     :step="1"
                     :disabled="!allowLlm || !config.useLlmEntityResolution"
                     size="default"
@@ -553,7 +581,7 @@ defineExpose({
               </el-col>
               <el-col :span="16">
                 <span class="parallelism-hint">
-                  仅对前 TopM 个候选补做实体关系判别，默认 3 个，避免增加过多延迟。
+                  仅对前 TopM 个候选补做实体关系判别，默认 2 个，避免增加过多延迟。
                 </span>
               </el-col>
             </el-row>

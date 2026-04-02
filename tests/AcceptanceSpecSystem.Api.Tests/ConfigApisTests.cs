@@ -22,6 +22,16 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public void AiServiceRequests_ShouldDefaultRecallTopKToTwo()
+    {
+        var createRequest = new AcceptanceSpecSystem.Api.DTOs.CreateAiServiceRequest();
+        var updateRequest = new AcceptanceSpecSystem.Api.DTOs.UpdateAiServiceRequest();
+
+        createRequest.DefaultRecallTopK.Should().Be(2);
+        updateRequest.DefaultRecallTopK.Should().Be(2);
+    }
+
+    [Fact]
     public async Task MatchingKnowledge_GetSaveClearAndRestoreDefaults_ShouldWork()
     {
         var getResp = await _client.GetAsync("/api/matching-knowledge");

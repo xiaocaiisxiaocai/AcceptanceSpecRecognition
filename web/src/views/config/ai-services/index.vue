@@ -17,7 +17,7 @@ import {
   type CreateAiServiceRequest,
   type UpdateAiServiceRequest
 } from "@/api/ai-service";
-import { MatchingStrategy } from "@/api/matching";
+import { DEFAULT_RECALL_TOP_K, MAX_RECALL_TOP_K, MatchingStrategy } from "@/api/matching";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
@@ -108,7 +108,7 @@ const formData = reactive({
   llmModel: "",
   disableThinking: false,
   defaultMatchingStrategy: MatchingStrategy.MultiStage,
-  defaultRecallTopK: 3
+  defaultRecallTopK: DEFAULT_RECALL_TOP_K
 });
 
 const hasPurpose = (value: number, flag: AiServicePurpose) => (value & flag) === flag;
@@ -211,7 +211,7 @@ const handleAdd = (purpose: AiServicePurpose) => {
         llmModel: "",
         disableThinking: false,
         defaultMatchingStrategy: MatchingStrategy.MultiStage,
-        defaultRecallTopK: 3
+        defaultRecallTopK: DEFAULT_RECALL_TOP_K
       });
   dialogVisible.value = true;
 };
@@ -247,7 +247,7 @@ const handleEdit = async (row: AiServiceConfig) => {
         disableThinking: !!detail.disableThinking,
         defaultMatchingStrategy:
           detail.defaultMatchingStrategy ?? MatchingStrategy.MultiStage,
-        defaultRecallTopK: detail.defaultRecallTopK ?? 3
+        defaultRecallTopK: detail.defaultRecallTopK ?? DEFAULT_RECALL_TOP_K
       });
     } else {
       ElMessage.error(res.message || "加载配置失败");
@@ -452,7 +452,10 @@ const handleSubmit = async () => {
     llmModel,
     disableThinking: !!formData.disableThinking,
     defaultMatchingStrategy: formData.defaultMatchingStrategy,
-    defaultRecallTopK: Math.min(20, Math.max(1, formData.defaultRecallTopK || 3))
+    defaultRecallTopK: Math.min(
+      MAX_RECALL_TOP_K,
+      Math.max(1, formData.defaultRecallTopK || DEFAULT_RECALL_TOP_K)
+    )
   };
   if (formData.purpose === AiServicePurpose.Llm) {
     basePayload.embeddingModel = null;
@@ -851,7 +854,7 @@ onMounted(loadData);
           <el-input-number
             v-model="formData.defaultRecallTopK"
             :min="1"
-            :max="20"
+            :max="MAX_RECALL_TOP_K"
             controls-position="right"
           />
         </el-form-item>

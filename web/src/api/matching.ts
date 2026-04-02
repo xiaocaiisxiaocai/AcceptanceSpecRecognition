@@ -3,7 +3,13 @@ import type { PureHttpRequestConfig } from "@/utils/http/types.d";
 import type { ApiResponse } from "./customer";
 import type { TableData, TableInfo } from "./document";
 
-export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.95;
+export const DEFAULT_MIN_SCORE_THRESHOLD = 0.9;
+export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.98;
+export const DEFAULT_RECALL_TOP_K = 2;
+export const MAX_RECALL_TOP_K = 3;
+export const DEFAULT_AMBIGUITY_MARGIN = 0.02;
+export const DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES = 2;
+export const MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES = 3;
 export const LLM_REVIEW_PASS_THRESHOLD = 90;
 
 /** 匹配策略 */
@@ -406,12 +412,12 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
   matchingStrategy: MatchingStrategy.SingleStage,
-  minScoreThreshold: 0.8,
+  minScoreThreshold: DEFAULT_MIN_SCORE_THRESHOLD,
   highConfidenceThreshold: DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
-  recallTopK: 8,
-  ambiguityMargin: 0.03,
+  recallTopK: DEFAULT_RECALL_TOP_K,
+  ambiguityMargin: DEFAULT_AMBIGUITY_MARGIN,
   useLlmEntityResolution: false,
-  llmEntityResolutionTopCandidates: 3,
+  llmEntityResolutionTopCandidates: DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES,
   llmEntityPositiveConfidenceThreshold: 0.85,
   llmEntityConflictReviewConfidenceThreshold: 0.7,
   llmEntityConflictRejectConfidenceThreshold: 0.9,

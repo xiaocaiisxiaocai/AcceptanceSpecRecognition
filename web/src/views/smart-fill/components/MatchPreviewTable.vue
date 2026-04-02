@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import {
+  DEFAULT_AMBIGUITY_MARGIN,
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   LLM_REVIEW_PASS_THRESHOLD,
   type MatchIssue,
@@ -58,7 +59,7 @@ const normalizeReviewScore = (score?: number) => {
 const effectiveHighConfidenceThreshold = computed(
   () => props.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD
 );
-const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? 0.03);
+const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN);
 
 const getDecision = (item: MatchPreviewItem) =>
   item.bestMatch?.decision ?? "manualReview";

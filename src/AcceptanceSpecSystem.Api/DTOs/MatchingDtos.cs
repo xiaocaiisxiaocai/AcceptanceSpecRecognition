@@ -119,7 +119,7 @@ public class MatchConfigDto
     /// <summary>
     /// 最小匹配阈值
     /// </summary>
-    public double MinScoreThreshold { get; set; } = 0.3;
+    public double MinScoreThreshold { get; set; } = MatchingThresholds.DefaultMinScoreThreshold;
 
     /// <summary>
     /// 多阶段模式下第一阶段召回数量
@@ -129,7 +129,7 @@ public class MatchConfigDto
     /// <summary>
     /// 多阶段模式下的歧义分差阈值
     /// </summary>
-    public double AmbiguityMargin { get; set; } = 0.03;
+    public double AmbiguityMargin { get; set; } = MatchingThresholds.DefaultAmbiguityMargin;
 
     /// <summary>
     /// 高置信自动采用阈值
@@ -144,7 +144,7 @@ public class MatchConfigDto
     /// <summary>
     /// 启用实体判别时参与复判的候选数量
     /// </summary>
-    public int LlmEntityResolutionTopCandidates { get; set; } = 3;
+    public int LlmEntityResolutionTopCandidates { get; set; } = MatchingThresholds.DefaultLlmEntityResolutionTopCandidates;
 
     /// <summary>
     /// 判定为同一实体所需的最低置信度

@@ -105,7 +105,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<int>("DefaultRecallTopK")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
-                        .HasDefaultValue(3);
+                        .HasDefaultValue(2);
 
                     b.Property<bool>("DisableThinking")
                         .HasColumnType("tinyint(1)");

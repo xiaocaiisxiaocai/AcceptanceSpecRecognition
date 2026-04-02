@@ -223,7 +223,7 @@ public class SemanticKernelMatchingService : IMatchingService
         MatchingConfig config,
         MatchingKnowledge knowledge)
     {
-        var recallTopK = Math.Clamp(config.RecallTopK, 1, 20);
+        var recallTopK = Math.Clamp(config.RecallTopK, 1, MatchingThresholds.MaxRecallTopK);
         var recalled = OrderByEmbedding(eligibleCandidates)
             .Take(recallTopK)
             .ToList();
@@ -246,7 +246,7 @@ public class SemanticKernelMatchingService : IMatchingService
         if (config.UseLlmEntityResolution && _llmEntityResolutionService != null)
         {
             var entityTopCandidates = OrderByFinal(recalled)
-                .Take(Math.Clamp(config.LlmEntityResolutionTopCandidates, 1, 10))
+                .Take(Math.Clamp(config.LlmEntityResolutionTopCandidates, 1, MatchingThresholds.MaxLlmEntityResolutionTopCandidates))
                 .ToList();
 
             await ApplyLlmEntityResolutionAsync(source, entityTopCandidates, config, knowledge);

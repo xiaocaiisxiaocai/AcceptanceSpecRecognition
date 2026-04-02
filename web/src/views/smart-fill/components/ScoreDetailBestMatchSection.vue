@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { MatchPreviewItem } from "@/api/matching";
+import { DEFAULT_AMBIGUITY_MARGIN, type MatchPreviewItem } from "@/api/matching";
 import {
   formatLlmScore,
   formatScore,
@@ -21,7 +21,7 @@ const props = defineProps<{
 const bestMatch = computed(() => props.item.bestMatch);
 const bestMatchIssues = computed(() => bestMatch.value?.issues ?? []);
 const bestMatchEntities = computed(() => bestMatch.value?.entities ?? []);
-const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? 0.03);
+const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN);
 const formatOptionalPercent = (value?: number) => {
   if (value === undefined || value === null) return "-";
   return `${(value * 100).toFixed(1)}%`;

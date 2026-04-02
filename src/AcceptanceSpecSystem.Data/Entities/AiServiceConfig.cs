@@ -63,7 +63,7 @@ public class AiServiceConfig
     /// <summary>
     /// 该服务对应的默认召回候选数（主要供 Embedding 服务使用）
     /// </summary>
-    public int DefaultRecallTopK { get; set; } = 3;
+    public int DefaultRecallTopK { get; set; } = 2;
 
     /// <summary>
     /// 创建时间
