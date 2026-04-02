@@ -14,6 +14,7 @@ public sealed class BatchReplyAppService
     private readonly DocumentTableAccessService _documentTableAccessService;
     private readonly MatchingResultWriteBackService _matchingResultWriteBackService;
     private readonly BatchReplySessionService _batchReplySessionService;
+    private readonly ExecutionHistoryAppService _executionHistoryAppService;
     private readonly IFileStorageService _fileStorage;
     private readonly ILogger<BatchReplyAppService> _logger;
 
@@ -21,12 +22,14 @@ public sealed class BatchReplyAppService
         DocumentTableAccessService documentTableAccessService,
         MatchingResultWriteBackService matchingResultWriteBackService,
         BatchReplySessionService batchReplySessionService,
+        ExecutionHistoryAppService executionHistoryAppService,
         IFileStorageService fileStorage,
         ILogger<BatchReplyAppService> logger)
     {
         _documentTableAccessService = documentTableAccessService;
         _matchingResultWriteBackService = matchingResultWriteBackService;
         _batchReplySessionService = batchReplySessionService;
+        _executionHistoryAppService = executionHistoryAppService;
         _fileStorage = fileStorage;
         _logger = logger;
     }
@@ -228,6 +231,7 @@ public sealed class BatchReplyAppService
             owner.CompanyId,
             artifact,
             cancellationToken);
+        await SaveExecutionHistoryAsync(user, taskId, session, executeResults, cancellationToken);
 
         var response = new BatchReplyExecuteResponse
         {
@@ -242,6 +246,65 @@ public sealed class BatchReplyAppService
         return Result(response, response.FailedCount > 0
             ? $"批量回复完成：成功{response.SuccessCount}份，失败{response.FailedCount}份"
             : $"批量回复完成：成功{response.SuccessCount}份");
+    }
+
+    private async Task SaveExecutionHistoryAsync(
+        ClaimsPrincipal user,
+        string taskId,
+        BatchReplySourceSession session,
+        IReadOnlyCollection<BatchReplyExecuteFileResult> executeResults,
+        CancellationToken cancellationToken)
+    {
+        var resultLookup = executeResults.ToDictionary(item => item.TargetId, item => item);
+        var files = session.TargetFiles
+            .OrderBy(file => file.FileName, StringComparer.OrdinalIgnoreCase)
+            .Select(file =>
+            {
+                resultLookup.TryGetValue(file.TargetId, out var result);
+                var success = result?.Success == true;
+
+                return new ExecutionHistoryFileDto
+                {
+                    FileName = file.FileName,
+                    FileType = file.FileType,
+                    Sheets = session.SourceTables
+                        .OrderBy(table => table.TableIndex)
+                        .Select(table => new ExecutionHistorySheetDto
+                        {
+                            SheetIndex = table.TableIndex,
+                            SheetName = $"表格 {table.TableIndex + 1}",
+                            Rows = table.Rows
+                                .OrderBy(row => row.RowIndex)
+                                .Select(row => new ExecutionHistoryRowDto
+                                {
+                                    RowIndex = row.RowIndex,
+                                    Project = row.Project,
+                                    Specification = row.Specification,
+                                    Acceptance = row.Acceptance,
+                                    Remark = row.Remark,
+                                    ConfidencePercent = success ? 100 : 0,
+                                    Status = success ? ExecutionHistoryStatuses.Adopted : ExecutionHistoryStatuses.Skipped,
+                                    IsManualSelected = false,
+                                    AcceptanceColumnIndex = table.AcceptanceColumnIndex,
+                                    RemarkColumnIndex = table.RemarkColumnIndex
+                                })
+                                .ToList()
+                        })
+                        .ToList()
+                };
+            })
+            .ToList();
+
+        await _executionHistoryAppService.SaveAsync(user, new ExecutionHistoryDraft
+        {
+            TaskId = taskId,
+            TaskType = ExecutionHistoryTaskTypes.BatchReply,
+            SourceFileId = null,
+            SourceFileName = session.SourceFileName,
+            SourceFileType = session.SourceFileType,
+            CreatedAt = DateTime.UtcNow,
+            Files = files
+        }, cancellationToken);
     }
 
     public async Task<MatchingDownloadResult> DownloadAsync(ClaimsPrincipal user, string taskId, CancellationToken cancellationToken = default)

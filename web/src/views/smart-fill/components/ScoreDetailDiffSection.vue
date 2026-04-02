@@ -17,6 +17,8 @@ const props = defineProps<{
   sourceBestRows: ScoreDetailDiffRow[];
   comparisonRows: ScoreDetailDiffRow[];
   rawComparisonRows: ScoreDetailDiffRow[];
+  showSourceDiff?: boolean;
+  showCandidateCompare?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -39,15 +41,20 @@ const rawOnlyDiffModel = computed({
   get: () => props.rawOnlyDiff,
   set: value => emit("update:rawOnlyDiff", value)
 });
+
+const shouldShowSourceDiff = computed(() => props.showSourceDiff !== false);
+const shouldShowCandidateCompare = computed(
+  () => props.showCandidateCompare !== false
+);
 </script>
 
 <template>
   <div
-    v-if="item.bestMatch && sourceBestRows.length > 0"
+    v-if="shouldShowSourceDiff"
     class="best-section"
   >
     <h4>源项与最佳匹配差异</h4>
-    <div class="diff-section">
+    <div v-if="item.bestMatch && sourceBestRows.length > 0" class="diff-section">
       <div class="diff-columns">
         <div class="diff-column">
           <div class="diff-column-title">差异字段</div>
@@ -78,19 +85,27 @@ const rawOnlyDiffModel = computed({
         </div>
       </div>
     </div>
+    <el-empty
+      v-else
+      description="当前源项与最佳匹配无可展示差异"
+      :image-size="60"
+    />
   </div>
 
-  <div v-if="topCandidates.length > 0" class="candidate-section">
+  <div v-if="shouldShowCandidateCompare" class="candidate-section">
     <div class="candidate-header">
       <h4>候选对比</h4>
-      <span>用于判断 Top1 与 Top2/Top3 为什么接近或拉开</span>
+      <span>Top1 对 Top2/Top3</span>
     </div>
 
-    <div v-if="comparisonCandidate" class="diff-section">
+    <div v-if="topCandidates.length === 0" class="diff-section diff-section--empty">
+      <el-empty description="当前没有候选可对比" :image-size="60" />
+    </div>
+    <div v-else-if="comparisonCandidate" class="diff-section">
       <div class="diff-header">
         <div>
           <h5>Top1 差异高亮</h5>
-          <p>左侧固定为 Top1，右侧可切换 Top2 / Top3，支持字段视图和原文对照，也可直接点击下方候选卡切换</p>
+          <p>切换右侧候选与视图</p>
         </div>
         <div class="diff-toolbar">
           <el-radio-group
@@ -122,7 +137,7 @@ const rawOnlyDiffModel = computed({
       >
         <div class="raw-diff-meta">
           <div class="raw-diff-desc">
-            采用左右并排对照，绿色表示候选新增内容，红色表示 Top1 独有内容。
+            红=Top1独有，绿=候选新增
           </div>
           <el-switch
             v-model="rawOnlyDiffModel"
@@ -207,5 +222,256 @@ const rawOnlyDiffModel = computed({
         </div>
       </div>
     </div>
+    <div v-else class="diff-section diff-section--empty">
+      <el-empty description="请选择候选后查看差异" :image-size="60" />
+    </div>
   </div>
 </template>
+
+<style scoped>
+.best-section,
+.candidate-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.best-section h4,
+.candidate-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.candidate-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.candidate-header span {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.diff-section {
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
+}
+
+.diff-section--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+}
+
+.diff-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.diff-header h5 {
+  margin: 0;
+  font-size: 14px;
+  color: #111827;
+}
+
+.diff-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.diff-toolbar,
+.raw-diff-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.diff-columns {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.diff-column:first-child {
+  visibility: hidden;
+}
+
+.diff-column-title,
+.raw-diff-header-title {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #eef4ff;
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.diff-rows,
+.raw-diff-rows,
+.raw-diff-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.diff-row-same .diff-cell {
+  background: #f9fafb;
+}
+
+.diff-label {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.diff-cell {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+.diff-content {
+  font-size: 13px;
+  color: #111827;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.raw-diff-desc {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.raw-diff-header,
+.raw-diff-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.raw-diff-header-spacer {
+  min-height: 1px;
+}
+
+.raw-line-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: #f3f4f6;
+}
+
+.raw-line-no {
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.raw-line-label,
+.raw-pane-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.raw-pane-cell {
+  min-width: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.raw-pane-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.raw-pane-label {
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef2f7;
+  background: #f8fafc;
+}
+
+.raw-pane-content {
+  padding: 12px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  color: #111827;
+  line-height: 1.75;
+  white-space: normal;
+  word-break: break-word;
+}
+
+:deep(.inline-mark) {
+  padding: 0 2px;
+  border-radius: 4px;
+}
+
+:deep(.inline-mark-old) {
+  background: rgba(245, 108, 108, 0.18);
+  color: #b42318;
+}
+
+:deep(.inline-mark-new) {
+  background: rgba(103, 194, 58, 0.18);
+  color: #166534;
+}
+
+:deep(.placeholder-text) {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+@media (max-width: 900px) {
+  .candidate-header,
+  .diff-header,
+  .raw-diff-meta {
+    flex-direction: column;
+  }
+
+  .diff-columns,
+  .diff-row,
+  .raw-diff-header,
+  .raw-diff-row {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-column:first-child,
+  .raw-diff-header-spacer {
+    display: none;
+  }
+
+  .diff-label,
+  .raw-line-cell {
+    padding-top: 0;
+    font-weight: 600;
+  }
+}
+</style>

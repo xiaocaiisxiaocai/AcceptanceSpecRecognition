@@ -71,6 +71,11 @@ public interface IUnitOfWork : IDisposable
     IMatchingFillTaskRepository MatchingFillTasks { get; }
 
     /// <summary>
+    /// 执行记录Repository
+    /// </summary>
+    IExecutionHistoryRecordRepository ExecutionHistoryRecords { get; }
+
+    /// <summary>
     /// 保存所有更改
     /// </summary>
     /// <returns>受影响的行数</returns>

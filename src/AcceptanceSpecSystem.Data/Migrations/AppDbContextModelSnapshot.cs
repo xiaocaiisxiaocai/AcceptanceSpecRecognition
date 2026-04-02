@@ -584,6 +584,84 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("EmbeddingCaches");
                 });
 
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.ExecutionHistoryRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AdoptedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DetailJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("FileCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ManualSelectedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MatchedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("NotAdoptedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SkippedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SourceFileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("SourceFileType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TaskId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("TaskType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<int>("TotalRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UnmatchedRowCount")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("TaskId")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "CreatedByUserId", "CreatedAt");
+
+                    b.ToTable("ExecutionHistoryRecords");
+                });
+
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MachineModel", b =>
                 {
                     b.Property<int>("Id")

@@ -40,6 +40,7 @@ public sealed class MatchingWorkflowSupportService
     private readonly IAiServiceSelector _aiServiceSelector;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly MatchingTaskSnapshotService _matchingTaskSnapshotService;
+    private readonly ExecutionHistoryAppService _executionHistoryAppService;
     private readonly ILogger<MatchingWorkflowSupportService> _logger;
 
     private static readonly JsonSerializerOptions SseJsonOptions = new()
@@ -79,6 +80,7 @@ public sealed class MatchingWorkflowSupportService
         IAiServiceSelector aiServiceSelector,
         IServiceScopeFactory scopeFactory,
         MatchingTaskSnapshotService matchingTaskSnapshotService,
+        ExecutionHistoryAppService executionHistoryAppService,
         ILogger<MatchingWorkflowSupportService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -94,6 +96,7 @@ public sealed class MatchingWorkflowSupportService
         _aiServiceSelector = aiServiceSelector;
         _scopeFactory = scopeFactory;
         _matchingTaskSnapshotService = matchingTaskSnapshotService;
+        _executionHistoryAppService = executionHistoryAppService;
         _logger = logger;
     }
 
@@ -466,6 +469,28 @@ public sealed class MatchingWorkflowSupportService
         }
 
         await _matchingTaskSnapshotService.SaveAsync(user, taskResult);
+        await SaveExecutionHistoryAsync(
+            user,
+            wordFile,
+            taskId,
+            taskResult.CreatedAt,
+            [
+                new BatchTableFillMapping
+                {
+                    TableIndex = tableIndex.Value,
+                    AcceptanceColumnIndex = acceptanceColumnIndex,
+                    RemarkColumnIndex = remarkColumnIndex,
+                    ProjectColumnIndex = request.ProjectColumnIndex,
+                    SpecificationColumnIndex = request.SpecificationColumnIndex,
+                    HeaderRowStart = request.HeaderRowStart,
+                    HeaderRowCount = request.HeaderRowCount,
+                    DataStartRow = request.DataStartRow,
+                    FilterEmptySourceRows = request.FilterEmptySourceRows,
+                    Mappings = request.Mappings
+                }
+            ],
+            specDict,
+            highConfidenceThreshold);
 
         var response = new ExecuteFillResponse
         {
@@ -631,6 +656,14 @@ public sealed class MatchingWorkflowSupportService
         }
 
         await _matchingTaskSnapshotService.SaveAsync(user, taskResult);
+        await SaveExecutionHistoryAsync(
+            user,
+            wordFile,
+            taskId,
+            taskResult.CreatedAt,
+            request.Tables,
+            specDict,
+            highConfidenceThreshold);
 
         var response = new ExecuteFillResponse
         {
@@ -736,6 +769,154 @@ public sealed class MatchingWorkflowSupportService
                 Remark = fill.Remark
             })
             .ToList();
+    }
+
+    private async Task SaveExecutionHistoryAsync(
+        ClaimsPrincipal user,
+        WordFile wordFile,
+        string taskId,
+        DateTime createdAt,
+        IReadOnlyCollection<BatchTableFillMapping> tables,
+        IReadOnlyDictionary<int, AcceptanceSpec> specDict,
+        double highConfidenceThreshold)
+    {
+        var tableMetas = await _documentTableAccessService.GetTablesAsync(wordFile);
+        var tableMetaLookup = tableMetas.ToDictionary(table => table.Index);
+        var fileDetail = new ExecutionHistoryFileDto
+        {
+            FileName = wordFile.FileName,
+            FileType = wordFile.FileType
+        };
+
+        foreach (var table in tables.OrderBy(item => item.TableIndex))
+        {
+            var rows = await BuildExecutionHistoryRowsAsync(wordFile, table, specDict, highConfidenceThreshold);
+            var sheetName = tableMetaLookup.TryGetValue(table.TableIndex, out var meta) && !string.IsNullOrWhiteSpace(meta.Name)
+                ? meta.Name!
+                : $"表格 {table.TableIndex + 1}";
+
+            fileDetail.Sheets.Add(new ExecutionHistorySheetDto
+            {
+                SheetIndex = table.TableIndex,
+                SheetName = sheetName,
+                Rows = rows
+            });
+        }
+
+        await _executionHistoryAppService.SaveAsync(user, new ExecutionHistoryDraft
+        {
+            TaskId = taskId,
+            TaskType = ExecutionHistoryTaskTypes.SmartFill,
+            SourceFileId = wordFile.Id,
+            SourceFileName = wordFile.FileName,
+            SourceFileType = wordFile.FileType,
+            CreatedAt = createdAt,
+            Files = [fileDetail]
+        });
+    }
+
+    private async Task<List<ExecutionHistoryRowDto>> BuildExecutionHistoryRowsAsync(
+        WordFile wordFile,
+        BatchTableFillMapping table,
+        IReadOnlyDictionary<int, AcceptanceSpec> specDict,
+        double highConfidenceThreshold)
+    {
+        var mappingLookup = table.Mappings.ToDictionary(item => item.RowIndex);
+        var sourceRows = new List<MatchSourceItem>();
+
+        if (table.ProjectColumnIndex.HasValue && table.SpecificationColumnIndex.HasValue)
+        {
+            sourceRows = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
+                wordFile,
+                table.TableIndex,
+                table.ProjectColumnIndex.Value,
+                table.SpecificationColumnIndex.Value,
+                table.HeaderRowStart,
+                table.HeaderRowCount,
+                table.DataStartRow,
+                table.FilterEmptySourceRows ?? true);
+        }
+
+        if (sourceRows.Count == 0)
+        {
+            return table.Mappings
+                .OrderBy(item => item.RowIndex)
+                .Select(item => BuildExecutionHistoryRow(
+                    item.RowIndex,
+                    string.Empty,
+                    string.Empty,
+                    mappingLookup.GetValueOrDefault(item.RowIndex),
+                    specDict,
+                    highConfidenceThreshold,
+                    table.AcceptanceColumnIndex,
+                    table.RemarkColumnIndex))
+                .ToList();
+        }
+
+        return sourceRows
+            .OrderBy(item => item.RowIndex)
+            .Select(item => BuildExecutionHistoryRow(
+                item.RowIndex,
+                item.Project,
+                item.Specification,
+                mappingLookup.GetValueOrDefault(item.RowIndex),
+                specDict,
+                highConfidenceThreshold,
+                table.AcceptanceColumnIndex,
+                table.RemarkColumnIndex))
+            .ToList();
+    }
+
+    private ExecutionHistoryRowDto BuildExecutionHistoryRow(
+        int rowIndex,
+        string project,
+        string specification,
+        FillMapping? mapping,
+        IReadOnlyDictionary<int, AcceptanceSpec> specDict,
+        double highConfidenceThreshold,
+        int acceptanceColumnIndex,
+        int? remarkColumnIndex)
+    {
+        var selectedSpecId = (mapping?.SpecId ?? mapping?.SelectedSpecId) ?? 0;
+        AcceptanceSpec? matchedSpec = null;
+        var hasSpec = selectedSpecId > 0 && specDict.TryGetValue(selectedSpecId, out matchedSpec);
+        var confidencePercent = Math.Round(Math.Max(mapping?.MatchScore ?? 0, 0) * 100, 1);
+
+        if (mapping == null || !hasSpec)
+        {
+            return new ExecutionHistoryRowDto
+            {
+                RowIndex = rowIndex,
+                Project = project,
+                Specification = specification,
+                ConfidencePercent = 0,
+                Status = ExecutionHistoryStatuses.Unmatched,
+                IsManualSelected = false,
+                AcceptanceColumnIndex = acceptanceColumnIndex,
+                RemarkColumnIndex = remarkColumnIndex
+            };
+        }
+
+        var status = CanApplyMatchedSpec(mapping, highConfidenceThreshold)
+            ? ExecutionHistoryStatuses.Adopted
+            : ExecutionHistoryStatuses.NotAdopted;
+
+        return new ExecutionHistoryRowDto
+        {
+            RowIndex = rowIndex,
+            Project = project,
+            Specification = specification,
+            MatchedSpecId = matchedSpec!.Id,
+            MatchedProject = matchedSpec.Project,
+            MatchedSpecification = matchedSpec.Specification,
+            Acceptance = matchedSpec.Acceptance,
+            Remark = matchedSpec.Remark,
+            ConfidencePercent = confidencePercent,
+            Status = status,
+            IsManualSelected = mapping.ManualConfirmed,
+            AcceptanceColumnIndex = acceptanceColumnIndex,
+            RemarkColumnIndex = remarkColumnIndex
+        };
     }
 
     /// <summary>

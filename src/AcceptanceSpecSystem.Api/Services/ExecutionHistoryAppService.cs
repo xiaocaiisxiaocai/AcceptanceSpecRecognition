@@ -1,0 +1,186 @@
+using System.Security.Claims;
+using System.Text.Json;
+using AcceptanceSpecSystem.Api.Authorization;
+using AcceptanceSpecSystem.Api.DTOs;
+using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Data.Repositories;
+
+namespace AcceptanceSpecSystem.Api.Services;
+
+/// <summary>
+/// 执行记录应用服务。
+/// </summary>
+public sealed class ExecutionHistoryAppService
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<ExecutionHistoryAppService> _logger;
+
+    public ExecutionHistoryAppService(IUnitOfWork unitOfWork, ILogger<ExecutionHistoryAppService> logger)
+    {
+        _unitOfWork = unitOfWork;
+        _logger = logger;
+    }
+
+    internal async Task SaveAsync(ClaimsPrincipal user, ExecutionHistoryDraft draft, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+
+        var owner = ResolveOwner(user);
+        var detail = BuildDetailDto(draft);
+        var entity = await _unitOfWork.ExecutionHistoryRecords.GetOwnedByTaskIdAsync(
+            draft.TaskId,
+            owner.CompanyId,
+            owner.UserId);
+
+        if (entity == null)
+        {
+            entity = new ExecutionHistoryRecord
+            {
+                TaskId = draft.TaskId,
+                CreatedByUserId = owner.UserId,
+                CompanyId = owner.CompanyId
+            };
+            await _unitOfWork.ExecutionHistoryRecords.AddAsync(entity);
+        }
+
+        entity.TaskType = draft.TaskType;
+        entity.SourceFileId = draft.SourceFileId;
+        entity.SourceFileName = draft.SourceFileName;
+        entity.SourceFileType = draft.SourceFileType;
+        entity.FileCount = detail.FileCount;
+        entity.TotalRowCount = detail.TotalRowCount;
+        entity.MatchedRowCount = detail.MatchedRowCount;
+        entity.AdoptedRowCount = detail.AdoptedRowCount;
+        entity.UnmatchedRowCount = detail.UnmatchedRowCount;
+        entity.SkippedRowCount = detail.SkippedRowCount;
+        entity.NotAdoptedRowCount = detail.NotAdoptedRowCount;
+        entity.ManualSelectedRowCount = detail.ManualSelectedRowCount;
+        entity.DetailJson = JsonSerializer.Serialize(detail, JsonOptions);
+        entity.CreatedAt = draft.CreatedAt;
+
+        await _unitOfWork.SaveChangesAsync();
+    }
+
+    public async Task<PagedData<ExecutionHistoryListItemDto>> GetListAsync(
+        ClaimsPrincipal user,
+        int page,
+        int pageSize,
+        string? keyword,
+        string? taskType)
+    {
+        var owner = ResolveOwner(user);
+        var (items, total) = await _unitOfWork.ExecutionHistoryRecords.GetPagedOwnedAsync(
+            owner.CompanyId,
+            owner.UserId,
+            page,
+            pageSize,
+            keyword,
+            taskType);
+
+        return new PagedData<ExecutionHistoryListItemDto>
+        {
+            Items = items.Select(ToListDto).ToList(),
+            Total = total,
+            Page = page <= 0 ? 1 : page,
+            PageSize = pageSize <= 0 ? 20 : pageSize
+        };
+    }
+
+    public async Task<ExecutionHistoryDetailDto?> GetDetailAsync(ClaimsPrincipal user, int id)
+    {
+        var owner = ResolveOwner(user);
+        var entity = await _unitOfWork.ExecutionHistoryRecords.GetOwnedByIdAsync(id, owner.CompanyId, owner.UserId);
+        if (entity == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var detail = JsonSerializer.Deserialize<ExecutionHistoryDetailDto>(entity.DetailJson, JsonOptions)
+                ?? new ExecutionHistoryDetailDto();
+            detail.Id = entity.Id;
+            detail.TaskId = entity.TaskId;
+            detail.TaskType = entity.TaskType;
+            detail.SourceFileId = entity.SourceFileId;
+            detail.SourceFileName = entity.SourceFileName;
+            detail.SourceFileType = entity.SourceFileType;
+            detail.FileCount = entity.FileCount;
+            detail.TotalRowCount = entity.TotalRowCount;
+            detail.MatchedRowCount = entity.MatchedRowCount;
+            detail.AdoptedRowCount = entity.AdoptedRowCount;
+            detail.UnmatchedRowCount = entity.UnmatchedRowCount;
+            detail.SkippedRowCount = entity.SkippedRowCount;
+            detail.NotAdoptedRowCount = entity.NotAdoptedRowCount;
+            detail.ManualSelectedRowCount = entity.ManualSelectedRowCount;
+            detail.CreatedAt = entity.CreatedAt;
+            return detail;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "执行记录详情反序列化失败: {Id}", id);
+            throw;
+        }
+    }
+
+    private static ExecutionHistoryDetailDto BuildDetailDto(ExecutionHistoryDraft draft)
+    {
+        var rows = draft.Files.SelectMany(file => file.Sheets).SelectMany(sheet => sheet.Rows).ToList();
+
+        return new ExecutionHistoryDetailDto
+        {
+            TaskId = draft.TaskId,
+            TaskType = draft.TaskType,
+            SourceFileId = draft.SourceFileId,
+            SourceFileName = draft.SourceFileName,
+            SourceFileType = draft.SourceFileType,
+            FileCount = draft.Files.Count,
+            TotalRowCount = rows.Count,
+            MatchedRowCount = rows.Count(row => row.Status != ExecutionHistoryStatuses.Unmatched),
+            AdoptedRowCount = rows.Count(row => row.Status == ExecutionHistoryStatuses.Adopted),
+            UnmatchedRowCount = rows.Count(row => row.Status == ExecutionHistoryStatuses.Unmatched),
+            SkippedRowCount = rows.Count(row => row.Status == ExecutionHistoryStatuses.Skipped),
+            NotAdoptedRowCount = rows.Count(row => row.Status == ExecutionHistoryStatuses.NotAdopted),
+            ManualSelectedRowCount = rows.Count(row => row.IsManualSelected),
+            CreatedAt = draft.CreatedAt,
+            Files = draft.Files
+        };
+    }
+
+    private static ExecutionHistoryListItemDto ToListDto(ExecutionHistoryRecord entity)
+    {
+        return new ExecutionHistoryListItemDto
+        {
+            Id = entity.Id,
+            TaskId = entity.TaskId,
+            TaskType = entity.TaskType,
+            SourceFileId = entity.SourceFileId,
+            SourceFileName = entity.SourceFileName,
+            SourceFileType = entity.SourceFileType,
+            FileCount = entity.FileCount,
+            TotalRowCount = entity.TotalRowCount,
+            MatchedRowCount = entity.MatchedRowCount,
+            AdoptedRowCount = entity.AdoptedRowCount,
+            UnmatchedRowCount = entity.UnmatchedRowCount,
+            SkippedRowCount = entity.SkippedRowCount,
+            NotAdoptedRowCount = entity.NotAdoptedRowCount,
+            ManualSelectedRowCount = entity.ManualSelectedRowCount,
+            CreatedAt = entity.CreatedAt
+        };
+    }
+
+    private static (int UserId, int CompanyId) ResolveOwner(ClaimsPrincipal user)
+    {
+        var userId = AuthClaimHelper.GetUserId(user);
+        var companyId = AuthClaimHelper.GetCompanyId(user);
+        if (!userId.HasValue || !companyId.HasValue)
+        {
+            throw new InvalidOperationException("会话缺少用户上下文");
+        }
+
+        return (userId.Value, companyId.Value);
+    }
+}

@@ -102,6 +102,331 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void ScoreDetailDialog_ShouldKeepScrollableContentWithinViewport()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("width=\"1200px\"",
+            "匹配详情弹窗应提供更宽的默认宽度，减少长规格文本过早换行");
+        content.Should().Contain("class=\"score-detail-dialog\"",
+            "匹配详情弹窗应为根容器声明独立样式类，避免内容过长时超出视口");
+        content.Should().Contain(":deep(.score-detail-dialog)",
+            "匹配详情弹窗应通过根类约束整体高度，而不是只让内部内容自然撑开");
+        content.Should().Contain("max-height: 90vh",
+            "匹配详情弹窗应限制在视口高度内，避免底部按钮和长文本被裁掉");
+        content.Should().Contain("el-dialog__body",
+            "匹配详情弹窗应显式控制 body 区域布局，确保滚动区接管长内容");
+        content.Should().Contain("min-height: 0",
+            "弹性布局中的滚动容器需要显式最小高度，才能正常向下滚动");
+    }
+
+    [Fact]
+    public void ScoreDetailDialog_ShouldSeparateDecisionViewAndTechnicalView()
+    {
+        var dialogContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var decisionSectionPath = Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDecisionSummarySection.vue".Replace('/', Path.DirectorySeparatorChar));
+
+        File.Exists(decisionSectionPath).Should().BeTrue("匹配详情弹窗应拆出面向客户的结论区块，避免继续把业务判断和技术细节混在一起");
+        dialogContent.Should().Contain("ScoreDetailDecisionSummarySection",
+            "弹窗壳应显式组合面向客户的结论区块组件");
+        dialogContent.Should().Contain("<el-tabs",
+            "匹配详情弹窗应通过 Tab 分离客户视图和开发视图");
+        dialogContent.Should().Contain("label=\"匹配结论\"",
+            "第一个 Tab 应聚焦业务用户的一眼判断");
+        dialogContent.Should().Contain("label=\"技术详情\"",
+            "第二个 Tab 应保留开发和实施需要的技术证据");
+    }
+
+    [Fact]
+    public void ScoreDetailDialog_ShouldGroupTechnicalDetailsIntoTagViews()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("const activeTechnicalTag = ref(\"overview\")",
+            "技术详情应默认落在概览视图，而不是一次摊开所有技术块");
+        content.Should().Contain("<el-check-tag",
+            "技术详情应通过标签切换不同信息块，减少整屏堆叠");
+        content.Should().Contain("技术概览",
+            "技术详情应先给出一个最小必要的概览入口");
+        content.Should().Contain("源项差异",
+            "源项与最佳匹配差异应独立成一个标签视图");
+        content.Should().Contain("候选对比",
+            "候选对比应独立成一个标签视图");
+        content.Should().Contain("候选列表",
+            "候选列表不应再默认和其他内容同时铺开");
+    }
+
+    [Fact]
+    public void ScoreDetailDecisionSummarySection_ShouldExposeCustomerFriendlyDecisionCues()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDecisionSummarySection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("一句话结论",
+            "客户视角应先给出一句话结论，而不是要求用户自己读完整页再推断");
+        content.Should().Contain("建议动作",
+            "客户视角应明确给出下一步建议，而不是只展示技术标签");
+        content.Should().Contain("风险级别",
+            "客户视角应把风险压缩成易读等级，方便客户快速判断");
+        content.Should().Contain("请重点确认",
+            "客户视角应明确指出需要客户重点确认的内容");
+    }
+
+    [Fact]
+    public void ScoreDetailDecisionSummarySection_ShouldAvoidRepeatingTechnicalOrDuplicateBlocks()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDecisionSummarySection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().NotContain("系统判断",
+            "客户视角不应重复展示和一句话结论含义重叠的卡片");
+        content.Should().NotContain("最终决策",
+            "客户视角不应直接暴露开发术语");
+        content.Should().NotContain("最佳得分",
+            "客户视角不应把评分指标放在主决策区");
+        content.Should().NotContain("关键依据",
+            "客户视角应进一步收敛内容，避免形成第二层说明书");
+        content.Should().NotContain("风险提醒",
+            "风险应合并进更短的判断区，而不是再拆出独立大面板");
+    }
+
+    [Fact]
+    public void ScoreDetailDecisionSummarySection_ShouldHighlightSourceAndRecommendedDifferences()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDecisionSummarySection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("v-html=\"getComparisonHtml(",
+            "客户视角中的源项与推荐项应直接展示差异高亮，而不是只显示纯文本");
+        content.Should().Contain("inline-mark-old",
+            "差异高亮应继续标记源项独有内容");
+        content.Should().Contain("inline-mark-new",
+            "差异高亮应继续标记推荐项新增内容");
+    }
+
+    [Fact]
+    public void MatchPreviewTable_ShouldUseUnifiedCustomerFacingDecisionBuckets()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/MatchPreviewTable.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("可直接填充 (",
+            "主表筛选应改成客户能直接理解的业务分组，而不是继续暴露算法术语");
+        content.Should().Contain("需要确认 (",
+            "主表应单独统计需要客户确认的行，避免把不同状态混成一类");
+        content.Should().Contain("不建议填充 (",
+            "主表应把拒绝或冲突项单独归类，方便客户快速避开风险行");
+        content.Should().Contain("无匹配 (",
+            "主表应把无匹配单独列出，而不是并入需关注造成口径混乱");
+        content.Should().NotContain("自动采用 (",
+            "客户主表不应继续使用自动采用这类技术性决策文案");
+        content.Should().NotContain("需关注 (",
+            "原有需关注统计口径过粗，不能再作为主筛选文案");
+        content.Should().NotContain("const imperfect = total - perfect;",
+            "需要确认不应再通过总数减高置信数来倒推，否则会把无匹配和拒绝项混进来");
+    }
+
+    [Fact]
+    public void MatchPreviewTable_ShouldNotMarkRiskyReviewedRowsAsDirectFill()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/MatchPreviewTable.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("const hasCustomerVisibleRisk = (item: MatchPreviewItem) =>",
+            "主表应抽出客户可见风险判断，避免仅凭复核通过就标记为可直接填充");
+        content.Should().Contain("item.confidenceLevel !== \"high\"",
+            "中低置信度匹配即使复核通过，也应继续归入需要确认");
+        content.Should().Contain("item.bestMatch?.isAmbiguous",
+            "高歧义候选不应直接标记为可直接填充");
+        content.Should().Contain("item.bestMatch?.issues",
+            "存在结构化问题时不应直接标记为可直接填充");
+        content.Should().Contain("if (hasCustomerVisibleRisk(item)) return \"review\";",
+            "客户可见风险应优先把结果降级为需要确认");
+    }
+
+    [Fact]
+    public void MatchPreviewTable_ShouldShowWhyAmbiguousRowsAreMarked()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/MatchPreviewTable.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("Top1/Top2分差",
+            "主表应直接展示高歧义依据，避免用户只看到标签却不知道为什么");
+        content.Should().Contain("歧义阈值",
+            "主表应把当前阈值一并展示，方便判断是否只是分差过小");
+        content.Should().Contain("formatOptionalPercent",
+            "主表应复用格式化函数展示分差和阈值，而不是只显示布尔状态");
+    }
+
+    [Fact]
+    public void MatchPreviewTable_ShouldUseNeutralReviewedStatusCopy()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/MatchPreviewTable.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("复核分",
+            "复核状态应只展示模型分数，不应把高分直接表述成通过结论");
+        content.Should().NotContain("分通过",
+            "主表不应继续显示“100分通过”这类强结论文案");
+        content.Should().NotContain("分未通过",
+            "主表不应继续显示“xx分未通过”这类容易与最终填充建议混淆的文案");
+    }
+
+    [Fact]
+    public void ScoreDetailBestMatchSection_ShouldLabelLlmMetricAsNeutralReviewScore()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailBestMatchSection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("label: \"模型复核分\"",
+            "技术概览中的 LLM 分数应以中性指标呈现，避免被理解成最终通过结论");
+        content.Should().NotContain("label: \"LLM复核\"",
+            "技术概览不应继续使用带结论感的旧指标标题");
+    }
+
+    [Fact]
+    public void ScoreDetailDecisionSummarySection_ShouldDowngradeAutoApplyWhenDifferencesExist()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDecisionSummarySection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("const hasCustomerVisibleDifference = computed(() =>",
+            "详情页应统一计算客户能看懂的差异风险，而不是只看最终决策字段");
+        content.Should().Contain("props.sourceBestRows.length > 0",
+            "源项与推荐项存在差异时，应降级为需要确认");
+        content.Should().Contain("bestMatch.value.issues",
+            "存在结构化问题时，应降级为需要确认");
+        content.Should().Contain("bestMatch.value?.isAmbiguous",
+            "高歧义候选不应在详情页宣称可以直接采用");
+        content.Should().Contain("props.item.confidenceLevel !== \"high\"",
+            "中低置信度匹配不应在详情页直接显示建议填充");
+    }
+
+    [Fact]
+    public void ScoreDetailDecisionSummarySection_ShouldReduceRepeatedCustomerCopy()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDecisionSummarySection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().NotContain("<el-alert",
+            "客户视角不应再叠加顶部提示条，否则会和结论卡重复表达同一件事");
+        content.Should().NotContain("补充说明",
+            "客户视角应把重复说明压缩进重点确认区，不应再单独保留补充说明面板");
+        content.Should().Contain("核对差异后再填充",
+            "建议动作应压缩成一句可执行短句");
+        content.Should().Contain("存在差异，请先确认",
+            "结论说明应收敛成短句，而不是继续输出整段解释");
+    }
+
+    [Fact]
+    public void ScoreDetailDecisionSummarySection_ShouldPlaceAcceptanceAndRemarkOnRecommendedSide()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDecisionSummarySection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("label=\"推荐验收标准\"",
+            "验收标准属于推荐规格内容，应明确标注在推荐侧");
+        content.Should().Contain("label=\"推荐备注\"",
+            "备注属于推荐规格内容，应明确标注在推荐侧");
+        content.Should().NotContain("label=\"验收标准\"",
+            "客户视角不应再把推荐字段显示成未归属的通用字段");
+        content.Should().NotContain("label=\"备注\"",
+            "客户视角不应再把推荐字段显示成未归属的通用字段");
+    }
+
+    [Fact]
+    public void ScoreDetailBestMatchSection_ShouldGroupNarrativeTextIntoStructuredSummary()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailBestMatchSection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("分析摘要",
+            "技术详情中的长文本应汇总到统一摘要区，而不是散落成多个自然段");
+        content.Should().Contain("meta-tag-list",
+            "最佳匹配区应把核心状态压缩成标签行，方便快速扫读");
+        content.Should().Contain("metric-grid",
+            "最佳匹配区应把分数和关键指标压缩成紧凑指标块");
+        content.Should().Contain("summary-list",
+            "技术摘要应改成可扫读的结构化列表");
+        content.Should().Contain("歧义阈值",
+            "技术概览应直接展示高歧义判定阈值，便于开发核对原因");
+        content.Should().Contain("Top1/Top2分差",
+            "技术概览应直接展示当前分差，避免只给高歧义标签");
+        content.Should().NotContain("证据摘要",
+            "最佳匹配区不应再单独堆一个证据摘要文本块");
+        content.Should().NotContain("重排摘要",
+            "最佳匹配区不应再单独堆一个重排摘要文本块");
+        content.Should().NotContain("LLM复核过程",
+            "最佳匹配区不应默认直接摊开整段复核过程");
+    }
+
+    [Fact]
+    public void ScoreDetailDiffSection_ShouldUseConciseTechnicalHints()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailDiffSection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("Top1 对 Top2/Top3",
+            "候选对比区应把用途压缩成短标题，方便开发快速扫读");
+        content.Should().Contain("红=Top1独有",
+            "原文对照区应把说明压缩成极短图例");
+        content.Should().NotContain("用于判断 Top1 与 Top2/Top3 为什么接近或拉开",
+            "候选对比区不应继续保留成句说明");
+        content.Should().NotContain("左侧固定为 Top1，右侧可切换 Top2 / Top3",
+            "差异区不应继续保留长段操作说明");
+        content.Should().NotContain("采用左右并排对照，绿色表示候选新增内容",
+            "原文对照区不应继续保留整句解释");
+    }
+
+    [Fact]
+    public void BatchTableConfig_ShouldUseFirstExcelTableAsInitialTemplateOnly()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/BatchTableConfig.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("const applyPrimaryExcelConfigToOthers = (",
+            "Excel 多表配置应抽出首表自动同步逻辑");
+        content.Should().Contain("if (props.isExcel && index === 0)",
+            "修改首表配置时应自动同步其他表格");
+        content.Should().Contain("首表配置会作为默认值带出其他表",
+            "页面应明确说明首表只负责带出默认配置");
+        content.Should().Contain("可单独调整",
+            "页面应明确提示其他表仍可按各自结构单独调整");
+        content.Should().Contain("默认参考首表",
+            "其他表格应展示自己默认继承首表配置，而不是永久锁定跟随");
+        content.Should().NotContain(":disabled=\"isSyncedExcelTable(idx)\"",
+            "其他表格不应继续被禁用，否则用户无法按各 Sheet 实际结构修正");
+        content.Should().NotContain("当前表格字段与行配置跟随首表同步。",
+            "其他表格提示文案不应再表达为强制同步关系");
+        content.Should().NotContain("应用到其他表格",
+            "Excel 智能填充不应再保留手动应用到其他表格的入口");
+        content.Should().NotContain("复制此表字段配置",
+            "Excel 智能填充不应再保留逐表复制字段配置的入口");
+    }
+
+    [Fact]
     public void UploadControllers_ShouldPropagateRequestAbortedToFileOperations()
     {
         var documentsContent = File.ReadAllText(Path.Combine(

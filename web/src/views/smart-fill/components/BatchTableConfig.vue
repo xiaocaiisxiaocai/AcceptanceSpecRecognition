@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ElMessage } from "element-plus";
 import type { TableData, TableInfo } from "@/api/document";
 import TablePreview from "@/views/data-import/components/TablePreview.vue";
 import type { TablePreviewLoader } from "@/views/data-import/components/TablePreview.vue";
@@ -35,25 +34,76 @@ type TablePreviewRef = {
   refresh?: () => Promise<void> | void;
 } | null;
 
-type ConfigClipboard = {
-  sourceTableIndex: number;
-  payload: Pick<
-    BatchTableConfig,
-    | "projectColumnIndex"
-    | "specificationColumnIndex"
-    | "acceptanceColumnIndex"
-    | "remarkColumnIndex"
-    | "headerRowStart"
-    | "headerRowCount"
-    | "dataStartRow"
-    | "filterEmptySourceRows"
-  >;
-};
-
 const items = computed({
   get: () => props.modelValue,
   set: (val) => emit("update:modelValue", val)
 });
+
+const isPrimaryExcelTable = (index: number) => !!props.isExcel && index === 0;
+const isSecondaryExcelTable = (index: number) => !!props.isExcel && index > 0;
+const customizedExcelTableMap = ref<Record<number, boolean>>({});
+
+const applyPrimaryExcelConfigToOthers = (
+  sourceItems: BatchTableConfigItem[]
+) => {
+  if (!props.isExcel || sourceItems.length < 2) {
+    return sourceItems;
+  }
+
+  const primary = sourceItems[0];
+  if (!primary) {
+    return sourceItems;
+  }
+
+  return sourceItems.map((item, index) => {
+    if (index === 0) {
+      return item;
+    }
+
+    if (customizedExcelTableMap.value[item.tableIndex]) {
+      return item;
+    }
+
+    const next: BatchTableConfigItem = {
+      ...item,
+      projectColumnIndex: primary.projectColumnIndex,
+      specificationColumnIndex: primary.specificationColumnIndex,
+      acceptanceColumnIndex: primary.acceptanceColumnIndex,
+      remarkColumnIndex: primary.remarkColumnIndex,
+      filterEmptySourceRows: primary.filterEmptySourceRows
+    };
+
+    const normalized = normalizeExcelRows({
+      ...next,
+      headerRowStart: primary.headerRowStart,
+      headerRowCount: primary.headerRowCount,
+      dataStartRow: primary.dataStartRow
+    });
+
+    return {
+      ...next,
+      headerRowStart: normalized.headerRowStart,
+      headerRowCount: normalized.headerRowCount,
+      dataStartRow: normalized.dataStartRow
+    };
+  });
+};
+
+const markExcelTableAsCustomized = (index: number) => {
+  if (!props.isExcel || index <= 0) {
+    return;
+  }
+
+  const item = items.value[index];
+  if (!item || customizedExcelTableMap.value[item.tableIndex]) {
+    return;
+  }
+
+  customizedExcelTableMap.value = {
+    ...customizedExcelTableMap.value,
+    [item.tableIndex]: true
+  };
+};
 
 /** 切换表格选中状态 */
 const toggleSelect = (index: number) => {
@@ -68,8 +118,16 @@ const updateField = (
   field: keyof BatchTableConfig,
   value: BatchTableConfig[keyof BatchTableConfig]
 ) => {
+  markExcelTableAsCustomized(index);
+
   const updated = [...items.value];
   updated[index] = { ...updated[index], [field]: value };
+
+  if (props.isExcel && index === 0) {
+    items.value = applyPrimaryExcelConfigToOthers(updated);
+    return;
+  }
+
   items.value = updated;
 };
 
@@ -99,6 +157,8 @@ const updateExcelRowField = (
   if (!old) return;
   if (value === undefined || value === null || Number.isNaN(Number(value))) return;
 
+  markExcelTableAsCustomized(index);
+
   const oldNormalized = normalizeExcelRows(old);
   const draft: BatchTableConfigItem = { ...old, [field]: value };
   const normalized = normalizeExcelRows(draft);
@@ -117,16 +177,26 @@ const updateExcelRowField = (
     headerRowCount: normalized.headerRowCount,
     dataStartRow: normalized.dataStartRow
   };
-  items.value = updated;
+
+  const nextItems =
+    props.isExcel && index === 0
+      ? applyPrimaryExcelConfigToOthers(updated)
+      : updated;
+
+  items.value = nextItems;
+
+  const clearedHeaders: Record<number, string[]> = {};
+  nextItems.forEach((config) => {
+    clearedHeaders[config.tableIndex] = [];
+  });
   previewHeadersMap.value = {
     ...previewHeadersMap.value,
-    [draft.tableIndex]: []
+    ...clearedHeaders
   };
 };
 
 const previewRefs = ref<Record<number, TablePreviewRef>>({});
 const previewHeadersMap = ref<Record<number, string[]>>({});
-const configClipboard = ref<ConfigClipboard | null>(null);
 
 const setPreviewRef = (tableIndex: number, el: TablePreviewRef) => {
   previewRefs.value[tableIndex] = el;
@@ -181,88 +251,8 @@ const getHeaderOptions = (headers: string[]) => {
   }));
 };
 
-/** 复制某个表格配置 */
-const copyTableConfig = (index: number) => {
-  const item = items.value[index];
-  if (!item) return;
-
-  configClipboard.value = {
-    sourceTableIndex: item.tableIndex,
-    payload: {
-      projectColumnIndex: item.projectColumnIndex,
-      specificationColumnIndex: item.specificationColumnIndex,
-      acceptanceColumnIndex: item.acceptanceColumnIndex,
-      remarkColumnIndex: item.remarkColumnIndex,
-      headerRowStart: item.headerRowStart,
-      headerRowCount: item.headerRowCount,
-      dataStartRow: item.dataStartRow,
-      filterEmptySourceRows: item.filterEmptySourceRows
-    }
-  };
-
-  ElMessage.success(`已复制表格 ${item.tableIndex + 1} 的字段配置`);
-};
-
-/** 粘贴配置到其他表格 */
-const pasteConfigToOthers = () => {
-  if (!configClipboard.value) {
-    ElMessage.warning("请先复制一个表格配置");
-    return;
-  }
-
-  const { sourceTableIndex, payload } = configClipboard.value;
-  const updated = [...items.value];
-  let pastedCount = 0;
-
-  for (let i = 0; i < updated.length; i++) {
-    const item = updated[i];
-    if (!item || item.tableIndex === sourceTableIndex) continue;
-
-    const next: BatchTableConfigItem = {
-      ...item,
-      projectColumnIndex: payload.projectColumnIndex,
-      specificationColumnIndex: payload.specificationColumnIndex,
-      acceptanceColumnIndex: payload.acceptanceColumnIndex,
-      remarkColumnIndex: payload.remarkColumnIndex,
-      filterEmptySourceRows: payload.filterEmptySourceRows
-    };
-
-    if (props.isExcel) {
-      const normalized = normalizeExcelRows({
-        ...next,
-        headerRowStart: payload.headerRowStart,
-        headerRowCount: payload.headerRowCount,
-        dataStartRow: payload.dataStartRow
-      });
-      next.headerRowStart = normalized.headerRowStart;
-      next.headerRowCount = normalized.headerRowCount;
-      next.dataStartRow = normalized.dataStartRow;
-    }
-
-    updated[i] = next;
-    previewHeadersMap.value = {
-      ...previewHeadersMap.value,
-      [item.tableIndex]: []
-    };
-    pastedCount++;
-  }
-
-  if (pastedCount === 0) {
-    ElMessage.warning("没有可粘贴的其他表格");
-    return;
-  }
-
-  items.value = updated;
-  ElMessage.success(`已粘贴到 ${pastedCount} 个其他表格`);
-};
-
 /** 已选中的表格数量 */
 const selectedCount = computed(() => items.value.filter((i) => i.selected).length);
-const hasClipboard = computed(() => configClipboard.value !== null);
-const clipboardSourceText = computed(() => {
-  if (!configClipboard.value) return "";
-  return `已复制表格 ${configClipboard.value.sourceTableIndex + 1} 的字段配置`;
-});
 
 /** 是否全选 */
 const allSelected = computed(() => {
@@ -289,20 +279,9 @@ const toggleSelectAll = (val: boolean) => {
       <span class="summary-text">
         已选择 <strong>{{ selectedCount }}</strong> / {{ tables.length }} 个表格
       </span>
-      <div class="summary-actions">
-        <el-button
-          size="small"
-          type="primary"
-          plain
-          :disabled="!hasClipboard || items.length < 2"
-          @click="pasteConfigToOthers"
-        >
-          应用到其他表格
-        </el-button>
-        <span v-if="hasClipboard" class="clipboard-tip">
-          {{ clipboardSourceText }}
-        </span>
-      </div>
+      <span v-if="props.isExcel && items.length > 1" class="sync-tip">
+        首表配置会作为默认值带出其他表，其他表仍可单独调整
+      </span>
     </div>
 
     <div class="table-cards">
@@ -323,14 +302,17 @@ const toggleSelectAll = (val: boolean) => {
               </span>
             </el-checkbox>
             <div class="card-actions">
-              <el-button
+              <el-tag v-if="isPrimaryExcelTable(idx)" size="small" type="primary">
+                主配置表
+              </el-tag>
+              <el-tag
+                v-else-if="isSecondaryExcelTable(idx)"
                 size="small"
-                text
-                type="primary"
-                @click.stop="copyTableConfig(idx)"
+                type="warning"
+                effect="plain"
               >
-                复制此表字段配置
-              </el-button>
+                默认参考首表
+              </el-tag>
               <el-tag size="small" type="info">
                 {{ item.tableInfo.rowCount }} 行 x {{ item.tableInfo.columnCount }} 列
               </el-tag>
@@ -353,11 +335,14 @@ const toggleSelectAll = (val: boolean) => {
         </div>
 
         <el-form
-          v-if="item.selected"
+          v-if="item.selected || isPrimaryExcelTable(idx)"
           label-width="90px"
           class="column-config"
           size="small"
         >
+          <div v-if="isSecondaryExcelTable(idx)" class="row-config-hint row-config-hint--sync">
+            当前表格已按首表带出默认配置，可单独调整且不会影响首表。
+          </div>
           <div v-if="props.isExcel" class="config-narrow">
             <div class="row-config-title">行配置（1-based）</div>
             <div class="row-config-hint">
@@ -500,15 +485,9 @@ const toggleSelectAll = (val: boolean) => {
   flex-wrap: wrap;
 }
 
-.summary-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.clipboard-tip {
+.sync-tip {
   font-size: 12px;
-  color: #6b7280;
+  color: #7c3aed;
 }
 
 .table-cards {
@@ -580,6 +559,11 @@ const toggleSelectAll = (val: boolean) => {
   margin-bottom: 10px;
   font-size: 12px;
   color: #909399;
+}
+
+.row-config-hint--sync {
+  margin-bottom: 12px;
+  color: #b45309;
 }
 
 .table-preview-wrap {

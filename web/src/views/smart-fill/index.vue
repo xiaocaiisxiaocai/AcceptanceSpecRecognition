@@ -413,6 +413,8 @@ const stopLlmStream = () => {
 
 const getHighConfidenceThreshold = () =>
   Math.min(Math.max(matchConfig.value.highConfidenceThreshold ?? 0.95, 0.5), 1);
+const getAmbiguityMargin = () =>
+  Math.min(Math.max(matchConfig.value.ambiguityMargin ?? 0.03, 0), 1);
 
 const startLlmStream = async () => {
   if (!canLlmStream.value) {
@@ -855,6 +857,7 @@ const handleRestart = () => {
           :results="batchPreviewResults"
           :loading="loading"
           :high-confidence-threshold="getHighConfidenceThreshold()"
+          :ambiguity-margin="getAmbiguityMargin()"
           :llm-streaming="llmStreaming"
           @select="handleSelect"
           @show-detail="handleShowDetail"
@@ -931,7 +934,11 @@ const handleRestart = () => {
     </el-card>
 
     <!-- 详情弹窗 -->
-    <ScoreDetailDialog v-model:visible="detailVisible" :item="detailItem" />
+    <ScoreDetailDialog
+      v-model:visible="detailVisible"
+      :item="detailItem"
+      :ambiguity-margin="getAmbiguityMargin()"
+    />
     <StrictReuseDialog
       v-if="taskId && uploadedFile"
       v-model:visible="strictReuseVisible"

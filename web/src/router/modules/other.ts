@@ -22,6 +22,16 @@ export default {
         title: getPageTitle("other-audit-logs"),
         permissions: getPagePermission("other-audit-logs")
       }
+    },
+    {
+      path: "/other/execution-history",
+      name: "ExecutionHistory",
+      component: () => import("@/views/other/execution-history/index.vue"),
+      meta: {
+        icon: "ri:history-line",
+        title: getPageTitle("other-execution-history"),
+        permissions: getPagePermission("other-execution-history")
+      }
     }
   ]
 } satisfies RouteConfigsTable;

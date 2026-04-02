@@ -126,6 +126,11 @@ public class AppDbContext : DbContext
     public DbSet<MatchingFillTask> MatchingFillTasks => Set<MatchingFillTask>();
 
     /// <summary>
+    /// 执行记录表
+    /// </summary>
+    public DbSet<ExecutionHistoryRecord> ExecutionHistoryRecords => Set<ExecutionHistoryRecord>();
+
+    /// <summary>
     /// 默认MySQL连接字符串
     /// </summary>
     public const string DefaultConnectionString = "Server=localhost;Database=acceptance_spec_db;User=root;Password=abc+123;CharSet=utf8mb4;";
@@ -505,6 +510,19 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.SourceFileId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ExecutionHistoryRecord 配置
+        modelBuilder.Entity<ExecutionHistoryRecord>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TaskId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.TaskType).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.SourceFileName).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.DetailJson).IsRequired();
+            entity.HasIndex(e => e.TaskId).IsUnique();
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => new { e.CompanyId, e.CreatedByUserId, e.CreatedAt });
         });
     }
 

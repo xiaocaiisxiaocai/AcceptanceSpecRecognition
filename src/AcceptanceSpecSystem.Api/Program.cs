@@ -137,6 +137,7 @@ builder.Services.AddScoped<ISystemUserRepository, SystemUserRepository>();
 builder.Services.AddScoped<IAuthRoleLookupRepository, AuthRoleLookupRepository>();
 builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 builder.Services.AddScoped<IMatchingFillTaskRepository, MatchingFillTaskRepository>();
+builder.Services.AddScoped<IExecutionHistoryRecordRepository, ExecutionHistoryRecordRepository>();
 
 // 注册UnitOfWork
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -168,6 +169,7 @@ builder.Services.AddScoped<MatchingLlmStreamAppService>();
 builder.Services.AddScoped<MatchingFillExecutionAppService>();
 builder.Services.AddScoped<MatchingExecutionAppService>();
 builder.Services.AddScoped<MatchingTaskAppService>();
+builder.Services.AddScoped<ExecutionHistoryAppService>();
 builder.Services.AddScoped<StrictReuseAppService>();
 builder.Services.AddScoped<MatchingKnowledgeBootstrapper>();
 builder.Services.AddScoped<MatchingKnowledgeDraftGenerationService>();

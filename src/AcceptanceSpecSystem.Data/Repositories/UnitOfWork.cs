@@ -27,6 +27,7 @@ public class UnitOfWork : IUnitOfWork
     private ISystemUserRepository? _systemUsers;
     private IAuditLogRepository? _auditLogs;
     private IMatchingFillTaskRepository? _matchingFillTasks;
+    private IExecutionHistoryRecordRepository? _executionHistoryRecords;
 
     private bool _disposed;
 
@@ -110,6 +111,11 @@ public class UnitOfWork : IUnitOfWork
     /// 智能填充任务仓储。
     /// </summary>
     public IMatchingFillTaskRepository MatchingFillTasks => GetOrCreate(ref _matchingFillTasks);
+
+    /// <summary>
+    /// 执行记录仓储。
+    /// </summary>
+    public IExecutionHistoryRecordRepository ExecutionHistoryRecords => GetOrCreate(ref _executionHistoryRecords);
 
     /// <summary>
     /// 保存所有更改（异步）。

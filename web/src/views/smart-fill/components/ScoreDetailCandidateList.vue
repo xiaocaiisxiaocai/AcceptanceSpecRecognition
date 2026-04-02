@@ -218,3 +218,265 @@ defineProps<{
     </el-card>
   </div>
 </template>
+
+<style scoped>
+.candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.candidate-card {
+  border-radius: 14px;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.candidate-card.is-top1 {
+  border-color: #409eff;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.candidate-card.is-compared {
+  border-color: #e6a23c;
+  background: linear-gradient(180deg, #fffaf2 0%, #ffffff 100%);
+}
+
+.candidate-card.is-clickable {
+  cursor: pointer;
+}
+
+.candidate-card.is-clickable:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+
+.candidate-card.is-compared.is-clickable:hover {
+  border-color: #e6a23c;
+}
+
+.candidate-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.candidate-collapsed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.candidate-collapsed-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: #4b5563;
+}
+
+.candidate-collapsed-summary {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.candidate-collapsed-tip {
+  font-size: 12px;
+  color: #b45309;
+}
+
+.candidate-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.candidate-rank {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.candidate-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.candidate-status-top1 {
+  background: rgba(64, 158, 255, 0.12);
+  color: #1d4ed8;
+}
+
+.candidate-status-compare {
+  background: rgba(230, 162, 60, 0.14);
+  color: #b45309;
+}
+
+.candidate-title {
+  line-height: 1.6;
+  color: #111827;
+}
+
+.candidate-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 110px;
+}
+
+.candidate-score strong {
+  font-size: 18px;
+  color: #111827;
+}
+
+.candidate-score span {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.info-block {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.info-block--danger {
+  background: #fff4f4;
+}
+
+.info-block--issue {
+  background: #fff9f5;
+}
+
+.info-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.info-text {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #374151;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.issue-list,
+.entity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.entity-card {
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.entity-card__header,
+.issue-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.entity-card__title,
+.issue-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.entity-card__title {
+  color: #1d4ed8;
+}
+
+.issue-card__title {
+  color: #9a3412;
+}
+
+.entity-card__meta,
+.issue-card__meta,
+.issue-card__action {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.entity-card__meta {
+  color: #1e3a8a;
+}
+
+.issue-card__meta {
+  color: #7c2d12;
+}
+
+.issue-card__action {
+  color: #b45309;
+}
+
+.issue-card {
+  padding: 12px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.score-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.score-chip strong {
+  color: #111827;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .candidate-top,
+  .entity-card__header,
+  .issue-card__header {
+    flex-direction: column;
+  }
+
+  .candidate-score {
+    align-items: flex-start;
+  }
+}
+</style>

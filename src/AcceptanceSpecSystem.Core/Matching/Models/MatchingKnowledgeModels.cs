@@ -251,6 +251,7 @@ public sealed class MatchingKnowledge
             [
                 ("输入", "输出"),
                 ("投板", "收板"),
+                ("放板", "收板"),
                 ("上料", "下料"),
                 ("正转", "反转"),
                 ("loading", "unloading"),

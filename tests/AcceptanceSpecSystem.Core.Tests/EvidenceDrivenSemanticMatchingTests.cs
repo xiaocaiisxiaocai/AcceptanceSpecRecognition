@@ -292,6 +292,51 @@ public class EvidenceDrivenSemanticMatchingTests
     }
 
     [Fact]
+    public async Task BatchMatch_WhenDefaultKnowledgeDetectsShoubanjiVsFangbanji_ShouldRejectCandidate()
+    {
+        var source = new MatchSource
+        {
+            Project = "设备设计要求",
+            Specification = "收板机生产载位对接AGV,安全光栅有效范围离地最低处为360mm"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 889,
+                Project = "设备设计要求",
+                Specification = "放板机生产载位对接AGV,安全光栅有效范围离地最低处为360mm",
+                Acceptance = "RISKY",
+                Embedding = [0.99f]
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                AmbiguityMargin = 0.01
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(889);
+        result.Results[0].Decision.Should().Be(MatchDecision.Reject);
+        result.Results[0].Evidence.HasHardConflict.Should().BeTrue();
+        result.Results[0].Evidence.Conflicts.Should().Contain(item =>
+            item.Contains("收板", StringComparison.Ordinal) &&
+            item.Contains("放板", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task BatchMatch_WhenLlmEntityResolutionMatchesAliasWithoutKnowledge_ShouldAddEntityEvidence()
     {
         var source = new MatchSource

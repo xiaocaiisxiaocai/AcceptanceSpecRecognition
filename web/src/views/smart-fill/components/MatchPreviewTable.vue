@@ -11,6 +11,7 @@ const props = defineProps<{
   items: MatchPreviewItem[];
   loading?: boolean;
   highConfidenceThreshold?: number;
+  ambiguityMargin?: number;
   /** LLM 流式处理是否进行中 */
   llmStreaming?: boolean;
 }>();
@@ -33,6 +34,7 @@ type ReviewStatus =
   | "error";
 
 type Selection = { type: "best"; manualConfirmed: boolean };
+type FillRecommendation = "fillable" | "review" | "blocked" | "unmatched";
 
 const selectedSpecs = ref<Map<number, Selection | null>>(new Map());
 
@@ -56,6 +58,7 @@ const normalizeReviewScore = (score?: number) => {
 const effectiveHighConfidenceThreshold = computed(
   () => props.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD
 );
+const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? 0.03);
 
 const getDecision = (item: MatchPreviewItem) =>
   item.bestMatch?.decision ?? "manualReview";
@@ -168,6 +171,14 @@ const getConfidenceText = (level: string) => {
 };
 
 const formatScore = (score: number) => `${(score * 100).toFixed(1)}%`;
+const formatOptionalPercent = (value?: number) =>
+  value === undefined || value === null ? "-" : `${(value * 100).toFixed(1)}%`;
+
+const getAmbiguityHint = (item: MatchPreviewItem) => {
+  if (!item.bestMatch?.isAmbiguous) return "";
+
+  return `Top1/Top2分差 ${formatOptionalPercent(item.bestMatch.scoreGap)}，歧义阈值 ${formatOptionalPercent(effectiveAmbiguityMargin.value)}`;
+};
 
 const getPrimaryIssue = (item: MatchPreviewItem): MatchIssue | undefined =>
   item.bestMatch?.issues?.[0];
@@ -186,33 +197,6 @@ const formatIssueComparison = (issue?: MatchIssue) => {
   }
 
   return `候选 ${issue?.candidateValue}`;
-};
-
-const getDecisionText = (decision?: string) => {
-  switch (decision) {
-    case "autoApply":
-      return "自动采用";
-    case "reject":
-      return "拒绝";
-    case "manualReview":
-    default:
-      return "人工确认";
-  }
-};
-
-const getDecisionTagType = (
-  decision?: string
-): "success" | "warning" | "danger" | "info" => {
-  switch (decision) {
-    case "autoApply":
-      return "success";
-    case "reject":
-      return "danger";
-    case "manualReview":
-      return "warning";
-    default:
-      return "info";
-  }
 };
 
 const getReviewStatus = (item: MatchPreviewItem): ReviewStatus => {
@@ -240,9 +224,9 @@ const getReviewStatusText = (item: MatchPreviewItem) => {
   const status = getReviewStatus(item);
   switch (status) {
     case "direct":
-      return "直接采用";
+      return "无需复核";
     case "manual":
-      return "待人工确认";
+      return "待确认";
     case "waiting":
       return "等待复核";
     case "pending":
@@ -250,9 +234,9 @@ const getReviewStatusText = (item: MatchPreviewItem) => {
     case "streaming":
       return "复核中...";
     case "passed":
-      return `${formatLlmScore(item.bestMatch?.llmScore)}分通过`;
+      return `复核分 ${formatLlmScore(item.bestMatch?.llmScore)}`;
     case "rejected":
-      return `${formatLlmScore(item.bestMatch?.llmScore)}分未通过`;
+      return `复核分 ${formatLlmScore(item.bestMatch?.llmScore)}`;
     case "blocked":
       return "硬冲突拦截";
     case "error":
@@ -265,8 +249,9 @@ const getReviewStatusText = (item: MatchPreviewItem) => {
 const getReviewTagType = (item: MatchPreviewItem) => {
   switch (getReviewStatus(item)) {
     case "direct":
-    case "passed":
       return "success";
+    case "passed":
+      return hasCustomerVisibleRisk(item) ? "warning" : "success";
     case "manual":
     case "pending":
     case "streaming":
@@ -282,31 +267,112 @@ const getReviewTagType = (item: MatchPreviewItem) => {
   }
 };
 
+const hasCustomerVisibleRisk = (item: MatchPreviewItem) => {
+  if (!item.bestMatch) return false;
+
+  const hasMediumOrHighIssues = (item.bestMatch?.issues ?? []).some(issue =>
+    ["high", "medium", "warning"].includes(issue.severity || "")
+  );
+
+  return (
+    item.confidenceLevel !== "high" ||
+    !!item.bestMatch?.isAmbiguous ||
+    !!item.bestMatch?.conflictSummary?.length ||
+    !!item.llmReviewError ||
+    hasMediumOrHighIssues
+  );
+};
+
+const getFillRecommendation = (item: MatchPreviewItem): FillRecommendation => {
+  if (!item.hasMatch || !item.bestMatch) return "unmatched";
+  if (isRejectDecision(item) || item.bestMatch.hasHardConflict) return "blocked";
+  if (hasCustomerVisibleRisk(item)) return "review";
+
+  switch (getReviewStatus(item)) {
+    case "direct":
+    case "passed":
+      return "fillable";
+    case "blocked":
+    case "rejected":
+      return "blocked";
+    case "manual":
+    case "pending":
+    case "waiting":
+    case "streaming":
+    case "error":
+    case "none":
+    default:
+      return "review";
+  }
+};
+
+const getFillRecommendationText = (item: MatchPreviewItem) => {
+  switch (getFillRecommendation(item)) {
+    case "fillable":
+      return "可直接填充";
+    case "blocked":
+      return "不建议填充";
+    case "unmatched":
+      return "无匹配";
+    case "review":
+    default:
+      return "需要确认";
+  }
+};
+
+const getFillRecommendationTagType = (
+  item: MatchPreviewItem
+): "success" | "warning" | "danger" | "info" => {
+  switch (getFillRecommendation(item)) {
+    case "fillable":
+      return "success";
+    case "blocked":
+      return "danger";
+    case "unmatched":
+      return "info";
+    case "review":
+    default:
+      return "warning";
+  }
+};
+
 const stats = computed(() => {
   const total = props.items.length;
   const matched = props.items.filter(i => i.hasMatch).length;
-  const perfect = props.items.filter(
-    i => i.hasMatch && isHighConfidence(i)
+  const fillable = props.items.filter(
+    item => getFillRecommendation(item) === "fillable"
   ).length;
-  const imperfect = total - perfect;
+  const review = props.items.filter(
+    item => getFillRecommendation(item) === "review"
+  ).length;
+  const blocked = props.items.filter(
+    item => getFillRecommendation(item) === "blocked"
+  ).length;
+  const unmatched = props.items.filter(
+    item => getFillRecommendation(item) === "unmatched"
+  ).length;
   const selected = Array.from(selectedSpecs.value.values()).filter(v => v !== null)
     .length;
   const ambiguous = props.items.filter(i => i.bestMatch?.isAmbiguous).length;
-  return { total, matched, perfect, imperfect, selected, ambiguous };
+  return {
+    total,
+    matched,
+    fillable,
+    review,
+    blocked,
+    unmatched,
+    selected,
+    ambiguous
+  };
 });
 
-type ScoreFilter = "all" | "perfect" | "imperfect";
+type ScoreFilter = "all" | "fillable" | "review" | "blocked" | "unmatched";
 const scoreFilter = ref<ScoreFilter>("all");
 
 const filteredItems = computed(() => {
   if (scoreFilter.value === "all") return props.items;
-  if (scoreFilter.value === "perfect") {
-    return props.items.filter(
-      i => i.hasMatch && i.bestMatch && i.bestMatch.score >= 0.9995
-    );
-  }
   return props.items.filter(
-    i => !i.hasMatch || !isHighConfidence(i)
+    item => getFillRecommendation(item) === scoreFilter.value
   );
 });
 
@@ -376,11 +442,17 @@ defineExpose({
         <el-radio-button value="all">
           全部 ({{ stats.total }})
         </el-radio-button>
-        <el-radio-button value="perfect">
-          自动采用 ({{ stats.perfect }})
+        <el-radio-button value="fillable">
+          可直接填充 ({{ stats.fillable }})
         </el-radio-button>
-        <el-radio-button value="imperfect">
-          需关注 ({{ stats.imperfect }})
+        <el-radio-button value="review">
+          需要确认 ({{ stats.review }})
+        </el-radio-button>
+        <el-radio-button value="blocked">
+          不建议填充 ({{ stats.blocked }})
+        </el-radio-button>
+        <el-radio-button value="unmatched">
+          无匹配 ({{ stats.unmatched }})
         </el-radio-button>
       </el-radio-group>
     </div>
@@ -424,15 +496,15 @@ defineExpose({
         </template>
       </el-table-column>
 
-      <!-- 最终决策 -->
-      <el-table-column label="决策" width="110" align="center">
+      <!-- 填充建议 -->
+      <el-table-column label="填充建议" width="120" align="center">
         <template #default="{ row }">
           <el-tag
-            v-if="row.bestMatch"
+            v-if="row.bestMatch || !row.hasMatch"
             size="small"
-            :type="getDecisionTagType(row.bestMatch.decision)"
+            :type="getFillRecommendationTagType(row)"
           >
-            {{ getDecisionText(row.bestMatch.decision) }}
+            {{ getFillRecommendationText(row) }}
           </el-tag>
           <span v-else class="reason-none">-</span>
         </template>
@@ -473,6 +545,12 @@ defineExpose({
               </div>
             </div>
             <div class="match-score">{{ formatScore(row.bestMatch.score) }}</div>
+            <div
+              v-if="row.bestMatch.isAmbiguous"
+              class="ambiguity-reason"
+            >
+              {{ getAmbiguityHint(row) }}
+            </div>
             <div
               v-if="getPrimaryIssue(row)"
               class="issue-summary"
@@ -612,9 +690,7 @@ defineExpose({
               {{
                 isHighConfidence(row)
                   ? "使用匹配"
-                  : row.bestMatch?.decision === "manualReview"
-                    ? "人工确认"
-                    : "手动采用"
+                  : "确认采用"
               }}
             </el-button>
             <el-button
@@ -817,6 +893,12 @@ defineExpose({
   background: #fff7ed;
   color: #9a3412;
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.ambiguity-reason {
+  font-size: 12px;
+  color: #b45309;
   line-height: 1.5;
 }
 
