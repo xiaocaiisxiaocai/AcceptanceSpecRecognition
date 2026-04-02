@@ -405,7 +405,7 @@ const handleExecute = async () => {
       >
         <template #default>
           仅支持 <strong>docx -&gt; docx</strong> 与 <strong>xlsx -&gt; xlsx</strong>；
-          只有项目、规格、顺序和表格结构都完全一致时才允许批量回复。
+          只校验项目、规格与表格结构；行顺序可以不同，但同一张表内如果出现重复项目/规格组合，则需手动处理。
         </template>
       </el-alert>
     </div>

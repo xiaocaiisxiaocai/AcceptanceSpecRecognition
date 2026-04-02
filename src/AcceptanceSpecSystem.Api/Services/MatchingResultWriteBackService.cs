@@ -113,7 +113,7 @@ public sealed class MatchingResultWriteBackService
 
     internal async Task<StrictReuseGeneratedFile> GenerateBatchReplyTargetFileAsync(
         WordFile targetFile,
-        IReadOnlyCollection<BatchReplySourceTable> sourceTables,
+        IReadOnlyCollection<BatchReplyWriteTable> writeTables,
         CancellationToken cancellationToken = default)
     {
         using var resultStream = new MemoryStream();
@@ -123,7 +123,7 @@ public sealed class MatchingResultWriteBackService
         }
 
         resultStream.Position = 0;
-        var tableOperations = sourceTables
+        var tableOperations = writeTables
             .Select(table => new
             {
                 table.TableIndex,
@@ -257,7 +257,7 @@ public sealed class MatchingResultWriteBackService
     }
 
     private static List<CellWriteOperation> BuildReplyCellWriteOperations(
-        IReadOnlyCollection<BatchReplySourceRow> sourceRows,
+        IReadOnlyCollection<BatchReplyWriteRow> sourceRows,
         int acceptanceColumnIndex,
         int? remarkColumnIndex)
     {

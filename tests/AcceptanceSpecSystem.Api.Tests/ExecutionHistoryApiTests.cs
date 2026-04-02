@@ -167,6 +167,75 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         files[0].GetProperty("sheets")[0].GetProperty("rows")[0].GetProperty("confidencePercent").GetDouble().Should().Be(100);
     }
 
+    [Fact]
+    public async Task BatchReplyExecute_WhenTargetRowsReordered_ShouldPersistExecutionHistoryInTargetRowOrder()
+    {
+        var sessionId = await UploadBatchReplySourceAsync(
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "AC-1", "RM-1" },
+                new[] { "P2", "S2", "AC-2", "RM-2" }
+            }),
+            "execution-history-batch-reply-reordered-source.docx");
+
+        using (var previewContent = new MultipartFormDataContent
+        {
+            { new StringContent(sessionId), "sessionId" },
+            { new StringContent("""[{"tableIndex":0,"projectColumnIndex":0,"specificationColumnIndex":1,"acceptanceColumnIndex":2,"remarkColumnIndex":3,"filterEmptySourceRows":true}]"""), "tableConfigsJson" }
+        })
+        {
+            previewContent.Add(CreateTargetFileContent(CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P2", "S2", "", "旧备注2" },
+                new[] { "P1", "S1", "", "旧备注1" }
+            }), "execution-history-batch-reply-reordered-target.docx"), "targetFiles", "execution-history-batch-reply-reordered-target.docx");
+
+            var previewResp = await _client.PostAsync("/api/batch-reply/preview", previewContent);
+            previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var executeResp = await _client.PostAsync(
+            "/api/batch-reply/execute",
+            ApiClientJson.ToJsonContent(new { sessionId }));
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeJson.Code.Should().Be(0);
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+        taskId.Should().NotBeNullOrWhiteSpace();
+
+        var listResp = await _client.GetAsync("/api/execution-history?page=1&pageSize=20");
+        listResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listJson = await listResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        listJson.Code.Should().Be(0);
+
+        var record = listJson.Data.GetProperty("items").EnumerateArray()
+            .FirstOrDefault(item => item.GetProperty("taskId").GetString() == taskId);
+        record.ValueKind.Should().NotBe(JsonValueKind.Undefined);
+
+        var detailResp = await _client.GetAsync($"/api/execution-history/{record.GetProperty("id").GetInt32()}");
+        detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        detailJson.Code.Should().Be(0);
+
+        var rows = detailJson.Data.GetProperty("files")[0].GetProperty("sheets")[0].GetProperty("rows");
+        rows.GetArrayLength().Should().Be(2);
+
+        rows[0].GetProperty("rowIndex").GetInt32().Should().Be(1);
+        rows[0].GetProperty("project").GetString().Should().Be("P2");
+        rows[0].GetProperty("specification").GetString().Should().Be("S2");
+        rows[0].GetProperty("acceptance").GetString().Should().Be("AC-2");
+        rows[0].GetProperty("remark").GetString().Should().Be("RM-2");
+
+        rows[1].GetProperty("rowIndex").GetInt32().Should().Be(2);
+        rows[1].GetProperty("project").GetString().Should().Be("P1");
+        rows[1].GetProperty("specification").GetString().Should().Be("S1");
+        rows[1].GetProperty("acceptance").GetString().Should().Be("AC-1");
+        rows[1].GetProperty("remark").GetString().Should().Be("RM-1");
+    }
+
     private async Task<int> UploadDocumentAsync(byte[] bytes, string fileName)
     {
         using var content = new MultipartFormDataContent();

@@ -559,6 +559,23 @@ internal sealed class BatchReplySourceRow
     public string? Remark { get; set; }
 }
 
+internal sealed class BatchReplyWriteTable
+{
+    public int TableIndex { get; set; }
+    public int AcceptanceColumnIndex { get; set; }
+    public int? RemarkColumnIndex { get; set; }
+    public List<BatchReplyWriteRow> Rows { get; set; } = [];
+}
+
+internal sealed class BatchReplyWriteRow
+{
+    public int RowIndex { get; set; }
+    public string Project { get; set; } = string.Empty;
+    public string Specification { get; set; } = string.Empty;
+    public string Acceptance { get; set; } = string.Empty;
+    public string? Remark { get; set; }
+}
+
 internal sealed class BatchReplyTargetFile
 {
     public string TargetId { get; set; } = string.Empty;

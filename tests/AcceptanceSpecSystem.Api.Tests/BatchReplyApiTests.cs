@@ -147,6 +147,144 @@ public class BatchReplyApiTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Execute_WhenTargetRowsReorderedButProjectAndSpecificationMatch_ShouldStillWriteBack()
+    {
+        var sourceSessionId = await UploadSourceAsync(
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "AC-1", "RM-1" },
+                new[] { "P2", "S2", "AC-2", "RM-2" }
+            }),
+            "batch-reply-reordered-source.docx");
+
+        using (var previewContent = new MultipartFormDataContent
+        {
+            { new StringContent(sourceSessionId), "sessionId" },
+            { new StringContent("""[{"tableIndex":0,"projectColumnIndex":0,"specificationColumnIndex":1,"acceptanceColumnIndex":2,"remarkColumnIndex":3,"filterEmptySourceRows":true}]"""), "tableConfigsJson" }
+        })
+        {
+            var targetBytes = CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P2", "S2", "", "旧备注2" },
+                new[] { "P1", "S1", "", "旧备注1" }
+            });
+            previewContent.Add(new ByteArrayContent(targetBytes), "targetFiles", "batch-reply-reordered-target.docx");
+
+            var previewResp = await _client.PostAsync("/api/batch-reply/preview", previewContent);
+            previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+            previewJson.Code.Should().Be(0);
+            previewJson.Data.GetProperty("readyCount").GetInt32().Should().Be(1);
+            previewJson.Data.GetProperty("files")[0].GetProperty("canApply").GetBoolean().Should().BeTrue();
+        }
+
+        var executeResp = await _client.PostAsync(
+            "/api/batch-reply/execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                sessionId = sourceSessionId
+            }));
+
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeJson.Code.Should().Be(0);
+        executeJson.Data.GetProperty("successCount").GetInt32().Should().Be(1);
+
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+        taskId.Should().NotBeNullOrWhiteSpace();
+
+        var downloadResp = await _client.GetAsync($"/api/batch-reply/download/{taskId}");
+        downloadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var resultBytes = await downloadResp.Content.ReadAsByteArrayAsync();
+        GetDocxCellText(resultBytes, 0, 1, 2).Should().Be("AC-2");
+        GetDocxCellText(resultBytes, 0, 1, 3).Should().Be("RM-2");
+        GetDocxCellText(resultBytes, 0, 2, 2).Should().Be("AC-1");
+        GetDocxCellText(resultBytes, 0, 2, 3).Should().Be("RM-1");
+    }
+
+    [Fact]
+    public async Task Preview_WhenSourceContainsDuplicateProjectAndSpecification_ShouldReject()
+    {
+        var sourceSessionId = await UploadSourceAsync(
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "AC-1", "RM-1" },
+                new[] { "P1", "S1", "AC-2", "RM-2" }
+            }),
+            "batch-reply-duplicate-source.docx");
+
+        using var previewContent = new MultipartFormDataContent
+        {
+            { new StringContent(sourceSessionId), "sessionId" },
+            { new StringContent("""[{"tableIndex":0,"projectColumnIndex":0,"specificationColumnIndex":1,"acceptanceColumnIndex":2,"remarkColumnIndex":3,"filterEmptySourceRows":true}]"""), "tableConfigsJson" }
+        };
+
+        var targetBytes = CreateDocxBytes(new[]
+        {
+            new[] { "项目", "规格", "验收", "备注" },
+            new[] { "P1", "S1", "", "旧备注1" },
+            new[] { "P2", "S2", "", "旧备注2" }
+        });
+        previewContent.Add(new ByteArrayContent(targetBytes), "targetFiles", "batch-reply-duplicate-target.docx");
+
+        var previewResp = await _client.PostAsync("/api/batch-reply/preview", previewContent);
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+        previewJson.Data.GetProperty("readyCount").GetInt32().Should().Be(0);
+        previewJson.Data.GetProperty("files")[0].GetProperty("canApply").GetBoolean().Should().BeFalse();
+        previewJson.Data.GetProperty("files")[0].GetProperty("errors")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().Contain("表格1存在重复的项目/规格组合，请手动处理");
+    }
+
+    [Fact]
+    public async Task Preview_WhenTargetContainsDuplicateProjectAndSpecification_ShouldReject()
+    {
+        var sourceSessionId = await UploadSourceAsync(
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "AC-1", "RM-1" },
+                new[] { "P2", "S2", "AC-2", "RM-2" }
+            }),
+            "batch-reply-duplicate-target-source.docx");
+
+        using var previewContent = new MultipartFormDataContent
+        {
+            { new StringContent(sourceSessionId), "sessionId" },
+            { new StringContent("""[{"tableIndex":0,"projectColumnIndex":0,"specificationColumnIndex":1,"acceptanceColumnIndex":2,"remarkColumnIndex":3,"filterEmptySourceRows":true}]"""), "tableConfigsJson" }
+        };
+
+        var targetBytes = CreateDocxBytes(new[]
+        {
+            new[] { "项目", "规格", "验收", "备注" },
+            new[] { "P1", "S1", "", "旧备注1" },
+            new[] { "P1", "S1", "", "旧备注2" }
+        });
+        previewContent.Add(new ByteArrayContent(targetBytes), "targetFiles", "batch-reply-duplicate-target.docx");
+
+        var previewResp = await _client.PostAsync("/api/batch-reply/preview", previewContent);
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+        previewJson.Data.GetProperty("readyCount").GetInt32().Should().Be(0);
+        previewJson.Data.GetProperty("files")[0].GetProperty("canApply").GetBoolean().Should().BeFalse();
+        previewJson.Data.GetProperty("files")[0].GetProperty("errors")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().Contain("表格1存在重复的项目/规格组合，请手动处理");
+    }
+
+    [Fact]
     public async Task Download_WhenArtifactCacheMisses_ShouldFallbackToPersistedArtifact()
     {
         var sourceSessionId = await UploadSourceAsync(
