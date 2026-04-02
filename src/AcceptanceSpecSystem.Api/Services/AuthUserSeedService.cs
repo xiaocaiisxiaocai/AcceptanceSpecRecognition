@@ -592,6 +592,7 @@ public static class AuthUserSeedService
             "btn:matching-fill:execute-batch",
             "api:matching:similarity",
             "api:batch-reply:read",
+            "api:batch-reply:upload",
             "api:batch-reply:upload-source",
             "api:batch-reply:preview",
             "btn:batch-reply:preview",

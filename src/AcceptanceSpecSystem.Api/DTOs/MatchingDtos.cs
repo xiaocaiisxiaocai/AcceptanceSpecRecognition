@@ -882,6 +882,11 @@ public class BatchTableConfig
     public int TableIndex { get; set; }
 
     /// <summary>
+    /// 批量回复目标表对应的来源表索引（可选；未传时默认与目标表索引一致）
+    /// </summary>
+    public int? SourceTableIndex { get; set; }
+
+    /// <summary>
     /// 项目列索引
     /// </summary>
     public int ProjectColumnIndex { get; set; }
@@ -1307,6 +1312,48 @@ public class BatchReplySourceUploadResponse
 }
 
 /// <summary>
+/// 批量回复目标文件上传响应
+/// </summary>
+public class BatchReplyTargetUploadResponse
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 本次上传成功的目标文件
+    /// </summary>
+    public List<BatchReplyUploadedTargetFileDto> Files { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复已上传目标文件摘要
+/// </summary>
+public class BatchReplyUploadedTargetFileDto
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件类型
+    /// </summary>
+    public UploadedFileType FileType { get; set; }
+
+    /// <summary>
+    /// 表格数量
+    /// </summary>
+    public int TableCount { get; set; }
+}
+
+/// <summary>
 /// 批量回复预检响应
 /// </summary>
 public class BatchReplyPreviewResponse
@@ -1379,6 +1426,107 @@ public class BatchReplyPreviewFileResult
 }
 
 /// <summary>
+/// 批量回复单表预览请求
+/// </summary>
+public class BatchReplyTablePreviewRequest
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    [Required(ErrorMessage = "会话ID不能为空")]
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源表配置
+    /// </summary>
+    public List<BatchTableConfig> SourceTables { get; set; } = [];
+
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    [Required(ErrorMessage = "目标文件不能为空")]
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 当前预览的目标表配置
+    /// </summary>
+    [Required(ErrorMessage = "目标表配置不能为空")]
+    public BatchTableConfig? TargetTable { get; set; }
+}
+
+/// <summary>
+/// 批量回复单表预览响应
+/// </summary>
+public class BatchReplyTablePreviewResponse
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 目标表索引
+    /// </summary>
+    public int TableIndex { get; set; }
+
+    /// <summary>
+    /// 来源表索引
+    /// </summary>
+    public int SourceTableIndex { get; set; }
+
+    /// <summary>
+    /// 是否可应用
+    /// </summary>
+    public bool CanApply { get; set; }
+
+    /// <summary>
+    /// 错误列表
+    /// </summary>
+    public List<string> Errors { get; set; } = [];
+
+    /// <summary>
+    /// 逐行预览结果
+    /// </summary>
+    public List<BatchReplyTablePreviewRowDto> Rows { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复单表逐行预览
+/// </summary>
+public class BatchReplyTablePreviewRowDto
+{
+    /// <summary>
+    /// 目标行号
+    /// </summary>
+    public int RowIndex { get; set; }
+
+    /// <summary>
+    /// 项目
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 预览写回的验收值
+    /// </summary>
+    public string Acceptance { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 预览写回的备注值
+    /// </summary>
+    public string? Remark { get; set; }
+}
+
+/// <summary>
 /// 批量回复执行请求
 /// </summary>
 public class BatchReplyExecuteRequest
@@ -1388,6 +1536,33 @@ public class BatchReplyExecuteRequest
     /// </summary>
     [Required(ErrorMessage = "会话ID不能为空")]
     public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源表配置（新流程使用）
+    /// </summary>
+    public List<BatchTableConfig> SourceTables { get; set; } = [];
+
+    /// <summary>
+    /// 目标文件执行配置（新流程使用）
+    /// </summary>
+    public List<BatchReplyExecuteTargetRequest> Targets { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复单个目标文件执行配置
+/// </summary>
+public class BatchReplyExecuteTargetRequest
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    [Required(ErrorMessage = "目标文件不能为空")]
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 当前目标文件参与执行的目标表配置
+    /// </summary>
+    public List<BatchTableConfig> Tables { get; set; } = [];
 }
 
 /// <summary>

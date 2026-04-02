@@ -387,6 +387,163 @@ public class BatchReplyApiTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task TablePreview_WhenTargetTableBindsDifferentSourceTable_ShouldUseSelectedSourceTable()
+    {
+        var sourceSessionId = await UploadSourceAsync(
+            CreateDocxBytes(
+                new[]
+                {
+                    new[] { "项目", "规格", "验收", "备注" },
+                    new[] { "A1", "AS1", "AC-A", "RM-A" }
+                },
+                new[]
+                {
+                    new[] { "项目", "规格", "验收", "备注" },
+                    new[] { "B1", "BS1", "AC-B", "RM-B" }
+                }),
+            "batch-reply-source-multi-table.docx");
+
+        var targetId = await UploadSingleTargetAsync(
+            sourceSessionId,
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "B1", "BS1", "", "" }
+            }),
+            "batch-reply-target-bind-source.docx");
+
+        var previewResp = await _client.PostAsync(
+            "/api/batch-reply/table-preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                sessionId = sourceSessionId,
+                sourceTables = new object[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        filterEmptySourceRows = true
+                    },
+                    new
+                    {
+                        tableIndex = 1,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        filterEmptySourceRows = true
+                    }
+                },
+                targetId,
+                targetTable = new
+                {
+                    tableIndex = 0,
+                    sourceTableIndex = 1,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3,
+                    filterEmptySourceRows = true
+                }
+            }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+        previewJson.Data.GetProperty("canApply").GetBoolean().Should().BeTrue();
+        previewJson.Data.GetProperty("rows")[0].GetProperty("acceptance").GetString().Should().Be("AC-B");
+        previewJson.Data.GetProperty("rows")[0].GetProperty("remark").GetString().Should().Be("RM-B");
+    }
+
+    [Fact]
+    public async Task Execute_WhenOneTargetFileCompleteAndAnotherIncomplete_ShouldExecuteOnlyCompleteFile()
+    {
+        var sourceSessionId = await UploadSourceAsync(
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "AC-1", "RM-1" }
+            }),
+            "batch-reply-execute-independent-files-source.docx");
+
+        var readyTargetId = await UploadSingleTargetAsync(
+            sourceSessionId,
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "", "" }
+            }),
+            "batch-reply-ready-target.docx");
+
+        var incompleteTargetId = await UploadSingleTargetAsync(
+            sourceSessionId,
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "", "" }
+            }),
+            "batch-reply-incomplete-target.docx");
+
+        var executeResp = await _client.PostAsync(
+            "/api/batch-reply/execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                sessionId = sourceSessionId,
+                sourceTables = new object[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        filterEmptySourceRows = true
+                    }
+                },
+                targets = new object[]
+                {
+                    new
+                    {
+                        targetId = readyTargetId,
+                        tables = new object[]
+                        {
+                            new
+                            {
+                                tableIndex = 0,
+                                sourceTableIndex = 0,
+                                projectColumnIndex = 0,
+                                specificationColumnIndex = 1,
+                                acceptanceColumnIndex = 2,
+                                remarkColumnIndex = 3,
+                                filterEmptySourceRows = true
+                            }
+                        }
+                    },
+                    new
+                    {
+                        targetId = incompleteTargetId,
+                        tables = Array.Empty<object>()
+                    }
+                }
+            }));
+
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeJson.Code.Should().Be(0);
+        executeJson.Data.GetProperty("successCount").GetInt32().Should().Be(1);
+        executeJson.Data.GetProperty("failedCount").GetInt32().Should().Be(1);
+        executeJson.Data.GetProperty("files")
+            .EnumerateArray()
+            .Count(item => item.GetProperty("success").GetBoolean())
+            .Should().Be(1);
+    }
+
+    [Fact]
     public async Task Preview_WhenSourceAndTargetFormatsDiffer_ShouldReject()
     {
         var sourceSessionId = await UploadSourceAsync(
@@ -482,6 +639,29 @@ public class BatchReplyApiTests : IClassFixture<ApiWebApplicationFactory>
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         uploadJson.Code.Should().Be(0);
         return uploadJson.Data.GetProperty("sessionId").GetString()!;
+    }
+
+    private async Task<string> UploadSingleTargetAsync(string sessionId, byte[] bytes, string fileName)
+    {
+        using var uploadContent = new MultipartFormDataContent
+        {
+            { new StringContent(sessionId), "sessionId" }
+        };
+
+        var targetContent = new ByteArrayContent(bytes);
+        targetContent.Headers.ContentType = new MediaTypeHeaderValue(
+            fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+                ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                : "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        uploadContent.Add(targetContent, "targetFiles", fileName);
+
+        var uploadResp = await _client.PostAsync("/api/batch-reply/targets/upload", uploadContent);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        uploadJson.Code.Should().Be(0);
+        uploadJson.Data.GetProperty("files").GetArrayLength().Should().Be(1);
+        return uploadJson.Data.GetProperty("files")[0].GetProperty("targetId").GetString()!;
     }
 
     private static byte[] CreateDocxBytes(params string[][][] tables)

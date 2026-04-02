@@ -438,6 +438,8 @@ export const defaultMatchConfig: MatchConfig = {
 export interface BatchTableConfig {
   /** 表格索引 */
   tableIndex: number;
+  /** 批量回复目标表对应的来源表索引（可选） */
+  sourceTableIndex?: number;
   /** 项目列索引 */
   projectColumnIndex: number;
   /** 规格列索引 */
@@ -655,6 +657,18 @@ export interface BatchReplySourceUploadResponse {
   tableCount: number;
 }
 
+export interface BatchReplyUploadedTargetFile {
+  targetId: string;
+  fileName: string;
+  fileType: number;
+  tableCount: number;
+}
+
+export interface BatchReplyTargetUploadResponse {
+  sessionId: string;
+  files: BatchReplyUploadedTargetFile[];
+}
+
 export interface BatchReplyPreviewFileResult {
   targetId: string;
   fileName: string;
@@ -675,6 +689,13 @@ export interface BatchReplyPreviewResponse {
 
 export interface BatchReplyExecuteRequest {
   sessionId: string;
+  sourceTables?: BatchTableConfig[];
+  targets?: BatchReplyExecuteTargetRequest[];
+}
+
+export interface BatchReplyExecuteTargetRequest {
+  targetId: string;
+  tables: BatchTableConfig[];
 }
 
 export interface BatchReplyExecuteFileResult {
@@ -691,6 +712,31 @@ export interface BatchReplyExecuteResponse {
   downloadUrl: string;
   downloadFileName: string;
   files: BatchReplyExecuteFileResult[];
+}
+
+export interface BatchReplyTablePreviewRow {
+  rowIndex: number;
+  project: string;
+  specification: string;
+  acceptance: string;
+  remark?: string;
+}
+
+export interface BatchReplyTablePreviewRequest {
+  sessionId: string;
+  sourceTables: BatchTableConfig[];
+  targetId: string;
+  targetTable: BatchTableConfig;
+}
+
+export interface BatchReplyTablePreviewResponse {
+  targetId: string;
+  fileName: string;
+  tableIndex: number;
+  sourceTableIndex: number;
+  canApply: boolean;
+  errors: string[];
+  rows: BatchReplyTablePreviewRow[];
 }
 
 const batchReplyBaseUrl = "/api/batch-reply";
@@ -733,6 +779,65 @@ export const getBatchReplyTablePreview = (
     {
       params: options
     }
+  );
+};
+
+export const uploadBatchReplyTargets = (sessionId: string, files: File[]) => {
+  const formData = new FormData();
+  formData.append("sessionId", sessionId);
+  files.forEach(file => formData.append("targetFiles", file));
+
+  return http.request<ApiResponse<BatchReplyTargetUploadResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/targets/upload`,
+    {
+      data: formData,
+      headers: {
+        "Content-Type": "multipart/form-data"
+      }
+    }
+  );
+};
+
+export const getBatchReplyTargetTables = (sessionId: string, targetId: string) => {
+  return http.request<ApiResponse<TableInfo[]>>(
+    "get",
+    `${batchReplyBaseUrl}/sessions/${sessionId}/targets/${targetId}/tables`
+  );
+};
+
+export const getBatchReplyTargetTablePreview = (
+  sessionId: string,
+  targetId: string,
+  tableIndex: number,
+  options?: {
+    previewRows?: number;
+    headerRowIndex?: number;
+    headerRowCount?: number;
+    dataStartRowIndex?: number;
+  }
+) => {
+  return http.request<ApiResponse<TableData>>(
+    "get",
+    `${batchReplyBaseUrl}/sessions/${sessionId}/targets/${targetId}/tables/${tableIndex}/preview`,
+    {
+      params: options
+    }
+  );
+};
+
+export const previewBatchReplyTable = (
+  data: BatchReplyTablePreviewRequest,
+  config?: PureHttpRequestConfig
+) => {
+  return http.request<ApiResponse<BatchReplyTablePreviewResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/table-preview`,
+    {
+      data,
+      timeout: 300000
+    },
+    config
   );
 };
 

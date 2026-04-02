@@ -1,97 +1,93 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { UploadFilled } from "@element-plus/icons-vue";
 import type { UploadFile, UploadInstance, UploadRequestOptions } from "element-plus";
-import BatchTableConfig from "@/views/smart-fill/components/BatchTableConfig.vue";
+import BatchTableConfigPanel from "@/views/smart-fill/components/BatchTableConfig.vue";
 import type { BatchTableConfigItem } from "@/views/smart-fill/components/BatchTableConfig.vue";
-import {
-  decideTargetUpload,
-  type TargetUploadItem
-} from "./target-upload";
 import {
   downloadBatchReplyResult,
   executeBatchReply,
   getBatchReplyTablePreview,
   getBatchReplyTables,
-  previewBatchReply,
+  getBatchReplyTargetTablePreview,
+  getBatchReplyTargetTables,
+  previewBatchReplyTable,
   uploadBatchReplySource,
+  uploadBatchReplyTargets,
   type BatchReplyExecuteResponse,
-  type BatchReplyPreviewResponse,
-  type BatchReplySourceUploadResponse
+  type BatchReplyTablePreviewResponse,
+  type BatchReplyUploadedTargetFile,
+  type BatchTableConfig as ApiBatchTableConfig
 } from "@/api/matching";
 import type { TableData, TableInfo } from "@/api/document";
+import { createTargetFileSignature, decideTargetUpload } from "./target-upload";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({ name: "BatchReplyPage" });
 
-const steps = [
-  { title: "上传来源", description: "上传一份人工已回复文档" },
-  { title: "配置表格", description: "按来源文件配置项目、规格、验收和备注列" },
-  { title: "上传目标", description: "选择待批量回复的同模板文件" },
-  { title: "预检执行", description: "先严格预检，再执行下载" }
-];
+type BatchReplySourceFile = {
+  sessionId: string;
+  sourceFileName: string;
+  sourceFileType: number;
+  tableCount: number;
+};
 
-const sourceFile = ref<BatchReplySourceUploadResponse | null>(null);
+type BatchReplyTargetState = {
+  targetId: string;
+  fileName: string;
+  fileType: number;
+  tableCount: number;
+  size: number;
+  signature: string;
+  tables: TableInfo[];
+  configs: BatchTableConfigItem[];
+  previewResults: Record<number, BatchReplyTablePreviewResponse | null>;
+  lastPreviewTableIndex?: number;
+  previewLoadingTableIndex?: number;
+};
+
+const activeRootTab = ref("source");
+const sourceFile = ref<BatchReplySourceFile | null>(null);
 const sourceTables = ref<TableInfo[]>([]);
-const batchTableConfigs = ref<BatchTableConfigItem[]>([]);
-const targetFiles = ref<TargetUploadItem[]>([]);
-const previewResult = ref<BatchReplyPreviewResponse | null>(null);
+const sourceConfigs = ref<BatchTableConfigItem[]>([]);
+const targetFiles = ref<BatchReplyTargetState[]>([]);
 const executeResult = ref<BatchReplyExecuteResponse | null>(null);
 const sourceUploading = ref(false);
-const previewing = ref(false);
+const targetUploading = ref(false);
 const executing = ref(false);
 const targetUploadKey = ref(0);
-const previewAbortController = ref<AbortController | null>(null);
 const targetUploadRef = ref<UploadInstance>();
-
-const currentStep = computed(() => {
-  if (!sourceFile.value) return 0;
-  if (selectedTableCount.value === 0) return 1;
-  if (targetFiles.value.length === 0) return 2;
-  return 3;
-});
+const activeTargetFileId = ref("");
 
 const sourceSessionId = computed(() => sourceFile.value?.sessionId ?? "");
 const sourceIsExcel = computed(() => sourceFile.value?.sourceFileType === 1);
 const targetAccept = computed(() => (sourceIsExcel.value ? ".xlsx" : ".docx"));
 const canUploadSourceFile = computed(() => hasPerms("api:batch-reply:upload-source"));
+const canUploadTargetFile = computed(() => hasPerms("api:batch-reply:upload"));
 const canPreviewBatchReply = computed(() => hasPerms("btn:batch-reply:preview"));
 const canExecuteBatchReply = computed(() => hasPerms("btn:batch-reply:execute"));
 const canDownloadBatchReply = computed(() => hasPerms("api:batch-reply:download"));
-const selectedTableCount = computed(
-  () => batchTableConfigs.value.filter(item => item.selected).length
+const selectedSourceConfigs = computed(() => sourceConfigs.value.filter(item => item.selected));
+const selectedSourceTableOptions = computed(() =>
+  selectedSourceConfigs.value.map(item => ({
+    value: item.tableIndex,
+    label: item.tableInfo.name || `来源表 ${item.tableIndex + 1}`
+  }))
 );
-const selectedTableConfigs = computed(() =>
-  batchTableConfigs.value.filter(item => item.selected)
+const currentTargetFile = computed(
+  () => targetFiles.value.find(item => item.targetId === activeTargetFileId.value) ?? targetFiles.value[0] ?? null
 );
-const readyFiles = computed(
-  () => previewResult.value?.files.filter(item => item.canApply) ?? []
-);
-
-const stopPreviewRequest = () => {
-  const controller = previewAbortController.value;
-  controller?.abort();
-  if (previewAbortController.value === controller) {
-    previewAbortController.value = null;
+const currentTargetPreview = computed(() => {
+  const file = currentTargetFile.value;
+  if (!file || file.lastPreviewTableIndex === undefined) {
+    return null;
   }
-};
 
-onBeforeUnmount(() => {
-  stopPreviewRequest();
+  return file.previewResults[file.lastPreviewTableIndex] ?? null;
 });
-
-const triggerBrowserDownload = (blob: Blob, fileName: string) => {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
-};
+const executableTargets = computed(() => targetFiles.value.filter(isTargetExecutable));
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -99,9 +95,19 @@ const formatFileSize = (size: number) => {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const resolveDefaultSourceTableIndex = (tableIndex: number) => {
+  const options = selectedSourceTableOptions.value;
+  if (options.length === 0) {
+    return undefined;
+  }
+
+  return options.some(option => option.value === tableIndex) ? tableIndex : options[0].value;
+};
+
 const buildExcelTableConfig = (
   table: TableInfo,
-  selected: boolean
+  selected: boolean,
+  sourceTableIndex?: number
 ): BatchTableConfigItem => {
   const usedStartRow = Math.max(1, table.usedRangeStartRow ?? 1);
   const totalColumns = Math.max(table.columnCount, table.headers.length, 1);
@@ -110,6 +116,7 @@ const buildExcelTableConfig = (
 
   return {
     tableIndex: table.index,
+    sourceTableIndex,
     projectColumnIndex: clampColumnIndex(0),
     specificationColumnIndex: clampColumnIndex(1),
     acceptanceColumnIndex: clampColumnIndex(2),
@@ -125,7 +132,8 @@ const buildExcelTableConfig = (
 
 const buildWordTableConfig = (
   table: TableInfo,
-  selected: boolean
+  selected: boolean,
+  sourceTableIndex?: number
 ): BatchTableConfigItem => {
   const totalColumns = Math.max(table.columnCount, table.headers.length, 1);
   const clampColumnIndex = (preferredIndex: number) =>
@@ -133,6 +141,7 @@ const buildWordTableConfig = (
 
   return {
     tableIndex: table.index,
+    sourceTableIndex,
     projectColumnIndex: clampColumnIndex(0),
     specificationColumnIndex: clampColumnIndex(1),
     acceptanceColumnIndex: clampColumnIndex(2),
@@ -146,32 +155,107 @@ const buildWordTableConfig = (
   };
 };
 
-const resetPreviewState = () => {
-  stopPreviewRequest();
-  previewResult.value = null;
-  executeResult.value = null;
+const buildTableConfig = (
+  table: TableInfo,
+  isExcel: boolean,
+  selected: boolean,
+  sourceTableIndex?: number
+) =>
+  isExcel
+    ? buildExcelTableConfig(table, selected, sourceTableIndex)
+    : buildWordTableConfig(table, selected, sourceTableIndex);
+
+const toBatchTableConfig = (item: BatchTableConfigItem): ApiBatchTableConfig => ({
+  tableIndex: item.tableIndex,
+  sourceTableIndex: item.sourceTableIndex,
+  projectColumnIndex: item.projectColumnIndex,
+  specificationColumnIndex: item.specificationColumnIndex,
+  acceptanceColumnIndex: item.acceptanceColumnIndex,
+  remarkColumnIndex: item.remarkColumnIndex,
+  headerRowStart: item.headerRowStart,
+  headerRowCount: item.headerRowCount,
+  dataStartRow: item.dataStartRow,
+  filterEmptySourceRows: item.filterEmptySourceRows
+});
+
+const clearTargetPreviews = () => {
+  targetFiles.value = targetFiles.value.map(file => ({
+    ...file,
+    previewResults: {},
+    lastPreviewTableIndex: undefined,
+    previewLoadingTableIndex: undefined
+  }));
 };
 
-const resetSourceState = () => {
+const syncTargetSourceDefaults = () => {
+  targetFiles.value = targetFiles.value.map(file => ({
+    ...file,
+    configs: file.configs.map(config => {
+      const defaultSourceTableIndex = resolveDefaultSourceTableIndex(config.tableIndex);
+      if (selectedSourceTableOptions.value.length === 0) {
+        return {
+          ...config,
+          sourceTableIndex: undefined
+        };
+      }
+
+      if (
+        config.sourceTableIndex !== undefined &&
+        selectedSourceTableOptions.value.some(option => option.value === config.sourceTableIndex)
+      ) {
+        return config;
+      }
+
+      return {
+        ...config,
+        sourceTableIndex: defaultSourceTableIndex
+      };
+    }),
+    previewResults: {},
+    lastPreviewTableIndex: undefined
+  }));
+};
+
+const resetTargetState = () => {
+  targetFiles.value = [];
+  activeTargetFileId.value = "";
+  targetUploadKey.value++;
+};
+
+const resetAllState = () => {
   sourceFile.value = null;
   sourceTables.value = [];
-  batchTableConfigs.value = [];
-  targetFiles.value = [];
-  targetUploadKey.value++;
-  resetPreviewState();
+  sourceConfigs.value = [];
+  executeResult.value = null;
+  resetTargetState();
 };
 
-const loadSourceTables = async (sessionId: string, sourceFileType: number) => {
+const loadSourceTables = async (sessionId: string, fileType: number) => {
   const res = await getBatchReplyTables(sessionId);
   if (res.code !== 0) {
     throw new Error(res.message || "加载来源表格失败");
   }
 
   sourceTables.value = res.data;
-  batchTableConfigs.value = res.data.map(table =>
-    sourceFileType === 1
-      ? buildExcelTableConfig(table, res.data.length === 1)
-      : buildWordTableConfig(table, res.data.length === 1)
+  sourceConfigs.value = res.data.map(table => buildTableConfig(table, fileType === 1, true));
+};
+
+const handleSourceConfigChange = (value: BatchTableConfigItem[]) => {
+  sourceConfigs.value = value;
+  clearTargetPreviews();
+  syncTargetSourceDefaults();
+};
+
+const handleTargetConfigChange = (targetId: string, value: BatchTableConfigItem[]) => {
+  targetFiles.value = targetFiles.value.map(file =>
+    file.targetId === targetId
+      ? {
+          ...file,
+          configs: value,
+          previewResults: {},
+          lastPreviewTableIndex: undefined
+        }
+      : file
   );
 };
 
@@ -200,9 +284,10 @@ const handleSourceUpload = async (options: UploadRequestOptions) => {
       return;
     }
 
-    resetSourceState();
+    resetAllState();
     sourceFile.value = res.data;
     await loadSourceTables(res.data.sessionId, res.data.sourceFileType);
+    activeRootTab.value = "source";
     ElMessage.success("来源文件上传成功");
   } catch {
     ElMessage.error("来源文件上传失败");
@@ -211,53 +296,90 @@ const handleSourceUpload = async (options: UploadRequestOptions) => {
   }
 };
 
-const handleTargetFileChange = (uploadFile: UploadFile) => {
+const appendUploadedTarget = async (
+  uploadedFile: BatchReplyUploadedTargetFile,
+  rawFile: File
+) => {
+  const tablesResp = await getBatchReplyTargetTables(sourceSessionId.value, uploadedFile.targetId);
+  if (tablesResp.code !== 0) {
+    throw new Error(tablesResp.message || "加载目标表格失败");
+  }
+
+  const targetState: BatchReplyTargetState = {
+    targetId: uploadedFile.targetId,
+    fileName: uploadedFile.fileName,
+    fileType: uploadedFile.fileType,
+    tableCount: uploadedFile.tableCount,
+    size: rawFile.size,
+    signature: createTargetFileSignature(rawFile),
+    tables: tablesResp.data,
+    configs: tablesResp.data.map(table =>
+      buildTableConfig(table, uploadedFile.fileType === 1, true, resolveDefaultSourceTableIndex(table.index))
+    ),
+    previewResults: {}
+  };
+
+  targetFiles.value = [...targetFiles.value, targetState];
+  if (!activeTargetFileId.value) {
+    activeTargetFileId.value = uploadedFile.targetId;
+  }
+};
+
+const handleTargetFileChange = async (uploadFile: UploadFile) => {
   const rawFile = uploadFile.raw;
   if (!rawFile) {
     return;
   }
 
-  const result = decideTargetUpload({
+  const decision = decideTargetUpload({
     hasSourceFile: !!sourceFile.value,
     accept: targetAccept.value,
-    existingSignatures: targetFiles.value.map(item => item.id),
+    existingSignatures: targetFiles.value.map(item => item.signature),
     file: rawFile
   });
 
-  if (result.status === "accepted") {
-    targetFiles.value = [...targetFiles.value, result.item as TargetUploadItem];
-    resetPreviewState();
+  if (decision.status === "rejected") {
+    if (decision.level === "warning") {
+      ElMessage.warning(decision.message);
+    } else {
+      ElMessage.error(decision.message);
+    }
     targetUploadRef.value?.handleRemove(uploadFile);
     return;
   }
 
-  if (result.level === "warning") {
-    ElMessage.warning(result.message);
-  } else {
-    ElMessage.error(result.message);
+  if (!ensurePermission("api:batch-reply:upload", "权限不足，无法上传目标文件")) {
+    targetUploadRef.value?.handleRemove(uploadFile);
+    return;
   }
-  targetUploadRef.value?.handleRemove(uploadFile);
+
+  targetUploading.value = true;
+  try {
+    const res = await uploadBatchReplyTargets(sourceSessionId.value, [rawFile]);
+    if (res.code !== 0 || res.data.files.length === 0) {
+      ElMessage.error(res.message || "目标文件上传失败");
+      return;
+    }
+
+    await appendUploadedTarget(res.data.files[0], rawFile);
+    activeRootTab.value = "target";
+    ElMessage.success(`${rawFile.name} 上传成功`);
+  } catch {
+    ElMessage.error("目标文件上传失败");
+  } finally {
+    targetUploading.value = false;
+    targetUploadRef.value?.handleRemove(uploadFile);
+  }
 };
 
-const removeTargetFile = (id: string) => {
-  targetFiles.value = targetFiles.value.filter(item => item.id !== id);
-  resetPreviewState();
+const removeTargetFile = (targetId: string) => {
+  targetFiles.value = targetFiles.value.filter(item => item.targetId !== targetId);
+  if (activeTargetFileId.value === targetId) {
+    activeTargetFileId.value = targetFiles.value[0]?.targetId ?? "";
+  }
 };
 
-const buildPreviewRequestTables = () =>
-  selectedTableConfigs.value.map(item => ({
-    tableIndex: item.tableIndex,
-    projectColumnIndex: item.projectColumnIndex,
-    specificationColumnIndex: item.specificationColumnIndex,
-    acceptanceColumnIndex: item.acceptanceColumnIndex,
-    remarkColumnIndex: item.remarkColumnIndex,
-    headerRowStart: item.headerRowStart,
-    headerRowCount: item.headerRowCount,
-    dataStartRow: item.dataStartRow,
-    filterEmptySourceRows: item.filterEmptySourceRows
-  }));
-
-const previewLoader = async (
+const createSourcePreviewLoader = async (
   tableIndex: number,
   options: {
     previewRows?: number;
@@ -278,8 +400,31 @@ const previewLoader = async (
   return res.data;
 };
 
-const handlePreview = async () => {
-  if (!ensurePermission("btn:batch-reply:preview", "权限不足，无法执行批量回复预检")) {
+const createTargetPreviewLoader = (targetId: string) => {
+  return async (
+    tableIndex: number,
+    options: {
+      previewRows?: number;
+      headerRowIndex?: number;
+      headerRowCount?: number;
+      dataStartRowIndex?: number;
+    }
+  ): Promise<TableData> => {
+    if (!sourceSessionId.value) {
+      throw new Error("来源会话不存在");
+    }
+
+    const res = await getBatchReplyTargetTablePreview(sourceSessionId.value, targetId, tableIndex, options);
+    if (res.code !== 0) {
+      throw new Error(res.message || "加载目标表格预览失败");
+    }
+
+    return res.data;
+  };
+};
+
+const handleTargetTablePreview = async (targetId: string, item: BatchTableConfigItem) => {
+  if (!ensurePermission("btn:batch-reply:preview", "权限不足，无法预览当前目标表")) {
     return;
   }
 
@@ -288,59 +433,74 @@ const handlePreview = async () => {
     return;
   }
 
-  if (selectedTableConfigs.value.length === 0) {
-    ElMessage.warning("请至少选择一个来源表格");
+  if (selectedSourceConfigs.value.length === 0) {
+    ElMessage.warning("请至少选择一个来源表");
     return;
   }
 
-  if (targetFiles.value.length === 0) {
-    ElMessage.warning("请至少添加一个目标文件");
+  if (item.sourceTableIndex === undefined) {
+    ElMessage.warning("请先为当前目标表选择来源表");
     return;
   }
 
-  stopPreviewRequest();
-  const controller = new AbortController();
-  previewAbortController.value = controller;
-  previewing.value = true;
+  targetFiles.value = targetFiles.value.map(file =>
+    file.targetId === targetId
+      ? { ...file, previewLoadingTableIndex: item.tableIndex }
+      : file
+  );
+
   try {
-    const res = await previewBatchReply(
-      sourceSessionId.value,
-      buildPreviewRequestTables(),
-      targetFiles.value.map(item => item.file),
-      { signal: controller.signal }
-    );
-
-    if (previewAbortController.value !== controller) {
-      return;
-    }
+    const res = await previewBatchReplyTable({
+      sessionId: sourceSessionId.value,
+      sourceTables: selectedSourceConfigs.value.map(toBatchTableConfig),
+      targetId,
+      targetTable: toBatchTableConfig(item)
+    });
 
     if (res.code !== 0) {
-      ElMessage.error(res.message || "批量回复预检失败");
+      ElMessage.error(res.message || "目标表预览失败");
       return;
     }
 
-    previewResult.value = res.data;
-    executeResult.value = null;
-    if (res.data.readyCount > 0) {
-      ElMessage.success(`预检完成，可直接应用 ${res.data.readyCount} 份文件`);
+    targetFiles.value = targetFiles.value.map(file =>
+      file.targetId === targetId
+        ? {
+            ...file,
+            previewLoadingTableIndex: undefined,
+            lastPreviewTableIndex: item.tableIndex,
+            previewResults: {
+              ...file.previewResults,
+              [item.tableIndex]: res.data
+            }
+          }
+        : file
+    );
+
+    if (res.data.canApply) {
+      ElMessage.success(`${currentTargetFile.value?.fileName ?? "目标文件"} 当前表预览通过`);
     } else {
-      ElMessage.warning("预检完成，但没有可直接应用的文件");
+      ElMessage.warning("当前目标表仍存在需要处理的问题");
     }
-  } catch (error: any) {
-    if (error?.name === "CanceledError" || error?.name === "AbortError") {
-      return;
-    }
-
-    ElMessage.error("批量回复预检失败");
-  } finally {
-    if (previewAbortController.value === controller) {
-      previewAbortController.value = null;
-      previewing.value = false;
-    }
+  } catch {
+    ElMessage.error("目标表预览失败");
+    targetFiles.value = targetFiles.value.map(file =>
+      file.targetId === targetId
+        ? { ...file, previewLoadingTableIndex: undefined }
+        : file
+    );
   }
 };
 
-const handleExecute = async () => {
+function isTargetExecutable(targetFile: BatchReplyTargetState) {
+  const selectedTables = targetFile.configs.filter(item => item.selected);
+  if (selectedTables.length === 0) {
+    return false;
+  }
+
+  return selectedTables.every(item => targetFile.previewResults[item.tableIndex]?.canApply === true);
+}
+
+const executeReadyTargets = async () => {
   if (
     !ensurePermission("btn:batch-reply:execute", "权限不足，无法执行批量回复") ||
     !ensurePermission("api:batch-reply:download", "权限不足，无法下载批量回复结果")
@@ -353,15 +513,25 @@ const handleExecute = async () => {
     return;
   }
 
-  if (readyFiles.value.length === 0) {
-    ElMessage.warning("请先完成预检，并确保至少有一份文件可应用");
+  if (selectedSourceConfigs.value.length === 0) {
+    ElMessage.warning("请至少选择一个来源表");
+    return;
+  }
+
+  if (executableTargets.value.length === 0) {
+    ElMessage.warning("请至少完成一个目标文件的逐表预览");
     return;
   }
 
   executing.value = true;
   try {
     const res = await executeBatchReply({
-      sessionId: sourceSessionId.value
+      sessionId: sourceSessionId.value,
+      sourceTables: selectedSourceConfigs.value.map(toBatchTableConfig),
+      targets: executableTargets.value.map(target => ({
+        targetId: target.targetId,
+        tables: target.configs.filter(item => item.selected).map(toBatchTableConfig)
+      }))
     });
 
     if (res.code !== 0) {
@@ -370,6 +540,7 @@ const handleExecute = async () => {
     }
 
     executeResult.value = res.data;
+    activeRootTab.value = "result";
     const blob = await downloadBatchReplyResult(res.data.taskId);
     triggerBrowserDownload(blob, res.data.downloadFileName);
     ElMessage.success(
@@ -383,17 +554,28 @@ const handleExecute = async () => {
     executing.value = false;
   }
 };
+
+const triggerBrowserDownload = (blob: Blob, fileName: string) => {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
 </script>
 
 <template>
   <div class="batch-reply-page">
     <div class="hero">
       <div class="hero-copy">
-        <div class="eyebrow">严格复用</div>
+        <div class="eyebrow">逐表配置</div>
         <h1>批量回复</h1>
         <p>
-          上传一份人工已回复的同模板文档，将其中的验收与备注批量应用到本地目标文件。
-          该能力不会重新匹配，不会调用 AI，只会在严格复用规则完全成立时写回结果。
+          上传一份人工已回复的同模板文档，按来源表与目标表分别配置行/列映射，
+          逐表选择来源表并预览写回结果，最后只对已完成配置的目标文件执行批量回复。
         </p>
       </div>
       <el-alert
@@ -405,227 +587,274 @@ const handleExecute = async () => {
       >
         <template #default>
           仅支持 <strong>docx -&gt; docx</strong> 与 <strong>xlsx -&gt; xlsx</strong>；
-          只校验项目、规格与表格结构；行顺序可以不同，但同一张表内如果出现重复项目/规格组合，则需手动处理。
+          匹配键仍为项目 + 规格；行顺序可以不同，但重复键需要人工处理；
+          写回只更新验收列和备注列，不删行、不删列。
         </template>
       </el-alert>
     </div>
 
-    <el-steps class="workflow-steps" :active="currentStep" finish-status="success" align-center>
-      <el-step
-        v-for="step in steps"
-        :key="step.title"
-        :title="step.title"
-        :description="step.description"
-      />
-    </el-steps>
-
-    <div class="content-grid">
-      <el-card class="section-card" shadow="hover">
-        <template #header>
-          <div class="section-header">
-            <span>1. 来源文件</span>
-            <el-button
-              v-if="sourceFile"
-              type="danger"
-              link
-              @click="resetSourceState"
-            >
-              重新选择
-            </el-button>
-          </div>
-        </template>
-
-        <el-upload
-          v-if="canUploadSourceFile && !sourceFile"
-          class="upload-area"
-          drag
-          :show-file-list="false"
-          :http-request="handleSourceUpload"
-          accept=".docx,.xlsx"
-          :disabled="sourceUploading"
-        >
-          <el-icon class="el-icon--upload" :size="56">
-            <UploadFilled />
-          </el-icon>
-          <div class="el-upload__text">
-            将已回复文档拖到此处，或 <em>点击上传</em>
-          </div>
-          <template #tip>
-            <div class="el-upload__tip">
-              仅支持 .docx / .xlsx，文件大小不超过 50MB
-            </div>
-          </template>
-        </el-upload>
-
-        <el-alert
-          v-else-if="!sourceFile"
-          type="warning"
-          :closable="false"
-          show-icon
-          title="当前账号没有来源文件上传权限"
-        />
-
-        <div v-else class="source-summary">
-          <div class="source-file-name">{{ sourceFile.sourceFileName }}</div>
-          <div class="source-meta">
-            <el-tag size="small" type="primary">
-              {{ sourceIsExcel ? "Excel" : "Word" }}
-            </el-tag>
-            <span>检测到 {{ sourceFile.tableCount }} 个{{ sourceIsExcel ? "工作表" : "表格" }}</span>
-            <span v-if="!canUploadSourceFile" class="permission-tip">
-              当前账号仅可查看，无法重新上传来源文件
-            </span>
-          </div>
-        </div>
-      </el-card>
-
-      <el-card class="section-card" shadow="hover">
-        <template #header>
-          <div class="section-header">
-            <span>2. 表格配置</span>
-            <span class="section-subtitle">参考智能填充，逐表指定项目/规格/验收/备注列</span>
-          </div>
-        </template>
-
-        <el-empty
-          v-if="!sourceFile"
-          description="请先上传来源文件"
-        />
-        <BatchTableConfig
-          v-else
-          v-model="batchTableConfigs"
-          :tables="sourceTables"
-          :is-excel="sourceIsExcel"
-          :preview-loader="previewLoader"
-        />
-      </el-card>
-
-      <el-card class="section-card" shadow="hover">
-        <template #header>
-          <div class="section-header">
-            <span>3. 目标文件</span>
-            <span class="section-subtitle">一次性添加多个同模板文件，预检时再统一上传</span>
-          </div>
-        </template>
-
-        <el-upload
-          ref="targetUploadRef"
-          :key="targetUploadKey"
-          class="upload-area"
-          drag
-          multiple
-          :auto-upload="false"
-          :show-file-list="false"
-          :on-change="handleTargetFileChange"
-          :accept="sourceFile ? targetAccept : '.docx,.xlsx'"
-          :disabled="!sourceFile"
-        >
-          <el-icon class="el-icon--upload" :size="52">
-            <UploadFilled />
-          </el-icon>
-          <div class="el-upload__text">
-            <span v-if="!sourceFile">请先上传来源文件，再添加目标文件</span>
-            <span v-else>
-              将目标文件拖到此处，或 <em>点击添加</em>
-            </span>
-          </div>
-          <template #tip>
-            <div class="el-upload__tip">
-              {{ sourceFile ? `当前仅接受 ${targetAccept} 格式` : "来源文件确认后自动限定同格式上传" }}
-            </div>
-          </template>
-        </el-upload>
-
-        <div v-if="targetFiles.length > 0" class="target-table">
-          <el-table :data="targetFiles" border>
-            <el-table-column label="文件名" min-width="320">
-              <template #default="{ row }">
-                {{ row.file.name }}
-              </template>
-            </el-table-column>
-            <el-table-column label="大小" width="120">
-              <template #default="{ row }">
-                {{ formatFileSize(row.file.size) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="100" align="center">
-              <template #default="{ row }">
-                <el-button type="danger" link @click="removeTargetFile(row.id)">
-                  移除
+    <el-tabs v-model="activeRootTab" class="root-tabs">
+      <el-tab-pane label="来源配置" name="source">
+        <div class="content-grid">
+          <el-card class="section-card" shadow="hover">
+            <template #header>
+              <div class="section-header">
+                <span>来源文件</span>
+                <el-button
+                  v-if="sourceFile"
+                  type="danger"
+                  link
+                  @click="resetAllState"
+                >
+                  重新选择
                 </el-button>
+              </div>
+            </template>
+
+            <el-upload
+              v-if="canUploadSourceFile && !sourceFile"
+              class="upload-area"
+              drag
+              :show-file-list="false"
+              :http-request="handleSourceUpload"
+              accept=".docx,.xlsx"
+              :disabled="sourceUploading"
+            >
+              <el-icon class="el-icon--upload" :size="56">
+                <UploadFilled />
+              </el-icon>
+              <div class="el-upload__text">
+                将已回复文档拖到此处，或 <em>点击上传</em>
+              </div>
+              <template #tip>
+                <div class="el-upload__tip">
+                  仅支持 .docx / .xlsx，文件大小不超过 50MB
+                </div>
               </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </el-card>
+            </el-upload>
 
-      <el-card class="section-card result-card" shadow="hover">
-        <template #header>
-          <div class="section-header">
-            <span>4. 预检与执行</span>
-            <span class="section-subtitle">先逐文件核验，再批量写回并下载</span>
-          </div>
-        </template>
+            <el-alert
+              v-else-if="!sourceFile"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="当前账号没有来源文件上传权限"
+            />
 
-        <div class="action-row">
-          <el-button
-            type="primary"
-            :loading="previewing"
-            :disabled="!sourceFile || targetFiles.length === 0 || selectedTableCount === 0"
-            @click="handlePreview"
-          >
-            预检批量回复
-          </el-button>
-          <el-button
-            type="success"
-            :loading="executing"
-            :disabled="readyFiles.length === 0 || !canExecuteBatchReply || !canDownloadBatchReply"
-            @click="handleExecute"
-          >
-            执行批量回复
-          </el-button>
-          <span class="action-tip">
-            预检通过 {{ readyFiles.length }} / {{ previewResult?.files.length ?? targetFiles.length }} 份
-          </span>
-        </div>
-
-        <el-empty
-          v-if="!previewResult"
-          description="完成来源配置并添加目标文件后，点击“预检批量回复”查看逐文件结果"
-        />
-
-        <template v-else>
-          <el-alert
-            :title="`预检完成：可应用 ${previewResult.readyCount} 份，共 ${previewResult.totalCount} 份`"
-            :type="previewResult.readyCount > 0 ? 'success' : 'warning'"
-            :closable="false"
-            show-icon
-          />
-
-          <el-table class="preview-table" :data="previewResult.files" border>
-            <el-table-column prop="fileName" label="文件名" min-width="280" />
-            <el-table-column label="状态" width="120" align="center">
-              <template #default="{ row }">
-                <el-tag :type="row.canApply ? 'success' : 'danger'">
-                  {{ row.canApply ? "可应用" : "不可应用" }}
+            <div v-else class="source-summary">
+              <div class="source-file-name">{{ sourceFile.sourceFileName }}</div>
+              <div class="source-meta">
+                <el-tag size="small" type="primary">
+                  {{ sourceIsExcel ? "Excel" : "Word" }}
                 </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="失败原因" min-width="320">
-              <template #default="{ row }">
-                <span v-if="row.errors.length === 0">严格复用通过</span>
-                <span v-else>{{ row.errors.join("；") }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
+                <span>检测到 {{ sourceFile.tableCount }} 个{{ sourceIsExcel ? "工作表" : "表格" }}</span>
+                <span>默认会把每张表都带出来，你可以逐表调整或取消参与。</span>
+              </div>
+            </div>
+          </el-card>
 
-          <div v-if="executeResult" class="execute-summary">
+          <el-card class="section-card" shadow="hover">
+            <template #header>
+              <div class="section-header">
+                <span>来源表配置</span>
+                <span class="section-subtitle">逐表指定项目列、规格列、验收列、备注列和行配置</span>
+              </div>
+            </template>
+
+            <el-empty
+              v-if="!sourceFile"
+              description="请先上传来源文件"
+            />
+            <BatchTableConfigPanel
+              v-else
+              :model-value="sourceConfigs"
+              :tables="sourceTables"
+              :is-excel="sourceIsExcel"
+              :preview-loader="createSourcePreviewLoader"
+              @update:model-value="handleSourceConfigChange"
+            />
+          </el-card>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="目标配置" name="target" :disabled="!sourceFile">
+        <div class="content-grid">
+          <el-card class="section-card" shadow="hover">
+            <template #header>
+              <div class="section-header">
+                <span>目标文件</span>
+                <span class="section-subtitle">上传后按文件逐表配置，并为每个目标表选择来源表</span>
+              </div>
+            </template>
+
+            <el-alert
+              v-if="selectedSourceTableOptions.length === 0"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="请先在“来源配置”里至少保留一个来源表"
+            />
+
+            <el-upload
+              ref="targetUploadRef"
+              :key="targetUploadKey"
+              class="upload-area"
+              drag
+              multiple
+              :auto-upload="false"
+              :show-file-list="false"
+              :on-change="handleTargetFileChange"
+              :accept="sourceFile ? targetAccept : '.docx,.xlsx'"
+              :disabled="!sourceFile || !canUploadTargetFile || targetUploading"
+            >
+              <el-icon class="el-icon--upload" :size="52">
+                <UploadFilled />
+              </el-icon>
+              <div class="el-upload__text">
+                <span v-if="!sourceFile">请先上传来源文件</span>
+                <span v-else>将目标文件拖到此处，或 <em>点击添加</em></span>
+              </div>
+              <template #tip>
+                <div class="el-upload__tip">
+                  {{ sourceFile ? `当前仅接受 ${targetAccept} 格式` : "来源文件确认后自动限定同格式上传" }}
+                </div>
+              </template>
+            </el-upload>
+
+            <el-empty
+              v-if="targetFiles.length === 0"
+              description="上传目标文件后，会在下方按文件分 Tab 展开配置"
+            />
+            <el-tabs
+              v-else
+              v-model="activeTargetFileId"
+              class="target-file-tabs"
+            >
+              <el-tab-pane
+                v-for="targetFile in targetFiles"
+                :key="targetFile.targetId"
+                :label="targetFile.fileName"
+                :name="targetFile.targetId"
+              >
+                <div class="target-file-summary">
+                  <div>
+                    <div class="target-file-name">{{ targetFile.fileName }}</div>
+                    <div class="target-file-meta">
+                      <span>{{ formatFileSize(targetFile.size) }}</span>
+                      <span>共 {{ targetFile.tableCount }} 个{{ targetFile.fileType === 1 ? "工作表" : "表格" }}</span>
+                      <el-tag
+                        size="small"
+                        :type="isTargetExecutable(targetFile) ? 'success' : 'warning'"
+                      >
+                        {{ isTargetExecutable(targetFile) ? "可执行" : "待预览" }}
+                      </el-tag>
+                    </div>
+                  </div>
+                  <el-button type="danger" link @click="removeTargetFile(targetFile.targetId)">
+                    移除
+                  </el-button>
+                </div>
+
+            <BatchTableConfigPanel
+                  :model-value="targetFile.configs"
+                  :tables="targetFile.tables"
+                  :is-excel="targetFile.fileType === 1"
+                  :preview-loader="createTargetPreviewLoader(targetFile.targetId)"
+                  :source-table-options="selectedSourceTableOptions"
+                  source-table-label="来源表"
+                  :mapping-previewable="canPreviewBatchReply"
+                  :mapping-preview-loading-table-index="targetFile.previewLoadingTableIndex"
+                  @update:model-value="(value) => handleTargetConfigChange(targetFile.targetId, value)"
+                  @mapping-preview="(item) => handleTargetTablePreview(targetFile.targetId, item)"
+                />
+              </el-tab-pane>
+            </el-tabs>
+          </el-card>
+
+          <el-card class="section-card" shadow="hover">
+            <template #header>
+              <div class="section-header">
+                <span>当前表回写预览</span>
+                <span class="section-subtitle">逐表选择来源表后点击“预览回写”查看结果</span>
+              </div>
+            </template>
+
+            <el-empty
+              v-if="!currentTargetPreview"
+              description="请在当前目标文件的表格卡片上点击“预览回写”"
+            />
+            <template v-else>
+              <el-alert
+                :title="currentTargetPreview.canApply ? '当前目标表可直接写回' : '当前目标表仍有问题待处理'"
+                :type="currentTargetPreview.canApply ? 'success' : 'warning'"
+                :closable="false"
+                show-icon
+              />
+
+              <div v-if="currentTargetPreview.errors.length > 0" class="preview-errors">
+                <el-tag
+                  v-for="error in currentTargetPreview.errors"
+                  :key="error"
+                  type="danger"
+                  effect="plain"
+                >
+                  {{ error }}
+                </el-tag>
+              </div>
+
+              <el-table
+                v-if="currentTargetPreview.rows.length > 0"
+                :data="currentTargetPreview.rows"
+                border
+                class="preview-table"
+                max-height="420"
+              >
+                <el-table-column prop="rowIndex" label="目标行号" width="100" />
+                <el-table-column prop="project" label="项目" min-width="160" />
+                <el-table-column prop="specification" label="规格" min-width="180" />
+                <el-table-column prop="acceptance" label="预览验收" min-width="180" />
+                <el-table-column prop="remark" label="预览备注" min-width="180" />
+              </el-table>
+            </template>
+
+            <div class="action-row">
+              <el-button
+                type="success"
+                :loading="executing"
+                :disabled="executableTargets.length === 0 || !canExecuteBatchReply || !canDownloadBatchReply"
+                @click="executeReadyTargets"
+              >
+                执行已完成目标文件
+              </el-button>
+              <span class="action-tip">
+                当前可执行 {{ executableTargets.length }} / {{ targetFiles.length }} 份目标文件
+              </span>
+            </div>
+          </el-card>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="执行结果" name="result">
+        <el-card class="section-card" shadow="hover">
+          <template #header>
+            <div class="section-header">
+              <span>执行结果</span>
+              <span class="section-subtitle">这里展示最近一次批量回复的逐文件结果</span>
+            </div>
+          </template>
+
+          <el-empty
+            v-if="!executeResult"
+            description="执行批量回复后，结果会展示在这里"
+          />
+          <template v-else>
             <el-alert
               :title="`执行完成：成功 ${executeResult.successCount} 份，失败 ${executeResult.failedCount} 份`"
-              type="success"
+              :type="executeResult.failedCount > 0 ? 'warning' : 'success'"
               :closable="false"
               show-icon
             />
+
             <el-table class="preview-table" :data="executeResult.files" border>
               <el-table-column prop="fileName" label="文件名" min-width="280" />
               <el-table-column label="结果" width="120" align="center">
@@ -637,10 +866,10 @@ const handleExecute = async () => {
               </el-table-column>
               <el-table-column prop="message" label="说明" min-width="320" />
             </el-table>
-          </div>
-        </template>
-      </el-card>
-    </div>
+          </template>
+        </el-card>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -673,7 +902,7 @@ const handleExecute = async () => {
 
 .hero-copy p {
   margin: 0;
-  max-width: 700px;
+  max-width: 760px;
   color: #4b5563;
   line-height: 1.75;
 }
@@ -690,8 +919,8 @@ const handleExecute = async () => {
   align-self: stretch;
 }
 
-.workflow-steps {
-  padding: 0 8px;
+.root-tabs :deep(.el-tabs__header) {
+  margin-bottom: 18px;
 }
 
 .content-grid {
@@ -726,39 +955,45 @@ const handleExecute = async () => {
   background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
 }
 
-.source-summary {
+.source-summary,
+.target-file-summary {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
 }
 
-.source-file-name {
+.source-file-name,
+.target-file-name {
   font-size: 18px;
   font-weight: 600;
   color: #10213a;
   word-break: break-word;
 }
 
-.source-meta {
+.source-meta,
+.target-file-meta {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   color: #6b7280;
   font-size: 13px;
+  margin-top: 8px;
 }
 
-.permission-tip {
-  color: #b45309;
-}
-
-.target-table,
-.preview-table,
-.execute-summary {
+.target-file-tabs {
   margin-top: 16px;
 }
 
-.result-card {
-  margin-bottom: 8px;
+.preview-errors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.preview-table {
+  margin-top: 16px;
 }
 
 .action-row {
@@ -766,7 +1001,7 @@ const handleExecute = async () => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-top: 18px;
 }
 
 .action-tip {
@@ -784,7 +1019,9 @@ const handleExecute = async () => {
     font-size: 28px;
   }
 
-  .section-header {
+  .section-header,
+  .source-summary,
+  .target-file-summary {
     align-items: flex-start;
     flex-direction: column;
   }

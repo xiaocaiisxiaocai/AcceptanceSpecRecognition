@@ -182,6 +182,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
 
         permissions.Should().Contain("menu:batch-reply");
         permissions.Should().Contain("page:batch-reply:index");
+        permissions.Should().Contain("api:batch-reply:upload");
         permissions.Should().Contain("api:batch-reply:upload-source");
         permissions.Should().Contain("api:batch-reply:preview");
         permissions.Should().Contain("api:batch-reply:execute");

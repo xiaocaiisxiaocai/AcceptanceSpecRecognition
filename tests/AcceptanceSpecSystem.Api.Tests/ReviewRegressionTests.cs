@@ -427,6 +427,27 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void BatchReplyPage_ShouldUseSourceTargetAndResultTabs_ForIndependentTableConfiguration()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/batch-reply/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("来源配置",
+            "批量回复页面应把来源配置拆成独立 Tab，避免继续和目标文件步骤串在一起");
+        content.Should().Contain("目标配置",
+            "批量回复页面应把目标文件配置拆成独立 Tab，便于逐文件逐表管理");
+        content.Should().Contain("执行结果",
+            "批量回复页面应提供单独结果 Tab，避免执行后仍挤在配置区域里");
+        content.Should().Contain("来源表",
+            "目标表配置应显式允许选择对应来源表");
+        content.Should().NotContain("预检批量回复",
+            "新流程不应继续依赖整批预检按钮作为执行前门禁");
+        content.Should().NotContain("4. 预检与执行",
+            "旧的线性四段卡片不再适合来源与目标逐表独立配置");
+    }
+
+    [Fact]
     public void UploadControllers_ShouldPropagateRequestAbortedToFileOperations()
     {
         var documentsContent = File.ReadAllText(Path.Combine(

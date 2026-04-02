@@ -107,6 +107,42 @@ public sealed class BatchReplySessionService
         return await SaveTemporaryFileAsync(fileType, fileName, content, cancellationToken);
     }
 
+    internal async Task<BatchReplySourceSession?> AddTargetFilesAsync(
+        int userId,
+        int companyId,
+        string sessionId,
+        IReadOnlyCollection<BatchReplyTargetFile> targetFiles,
+        CancellationToken cancellationToken = default)
+    {
+        var session = GetSession(userId, companyId, sessionId);
+        if (session == null)
+        {
+            return null;
+        }
+
+        var updatedSession = new BatchReplySourceSession
+        {
+            SessionId = session.SessionId,
+            OwnerUserId = session.OwnerUserId,
+            OwnerCompanyId = session.OwnerCompanyId,
+            SourceFileName = session.SourceFileName,
+            SourceFileType = session.SourceFileType,
+            SourceFileRelativePath = session.SourceFileRelativePath,
+            ManifestRelativePath = session.ManifestRelativePath,
+            CreatedAt = session.CreatedAt,
+            UpdatedAt = DateTime.UtcNow,
+            SourceTables = session.SourceTables.ToList(),
+            TargetFiles = session.TargetFiles
+                .Concat(targetFiles)
+                .ToList()
+        };
+
+        await PersistSessionManifestAsync(updatedSession, cancellationToken);
+        await CleanupExpiredSessionManifestsAsync(cancellationToken);
+        SetSession(updatedSession, SessionRetention);
+        return updatedSession;
+    }
+
     internal async Task ReplacePreviewAsync(
         int userId,
         int companyId,
@@ -582,6 +618,7 @@ internal sealed class BatchReplyTargetFile
     public string FileName { get; set; } = string.Empty;
     public UploadedFileType? FileType { get; set; }
     public string? RelativePath { get; set; }
+    public int TableCount { get; set; }
     public bool CanApply { get; set; }
     public List<string> Errors { get; set; } = [];
 }

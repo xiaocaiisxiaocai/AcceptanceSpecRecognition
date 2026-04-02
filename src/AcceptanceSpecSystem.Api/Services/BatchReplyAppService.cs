@@ -94,6 +94,178 @@ public sealed class BatchReplyAppService
             dataStartRowIndex);
     }
 
+    public async Task<BatchReplyTargetUploadResponse> UploadTargetsAsync(
+        ClaimsPrincipal user,
+        string sessionId,
+        IReadOnlyCollection<IFormFile> targetFiles,
+        CancellationToken cancellationToken = default)
+    {
+        var owner = ResolveOwnerForApplication(user);
+        if (targetFiles == null || targetFiles.Count == 0)
+        {
+            throw new ApplicationServiceException(400, "请至少上传一个目标文件");
+        }
+
+        var session = GetSourceSessionForApplication(user, sessionId);
+        var uploadedTargets = new List<BatchReplyTargetFile>();
+        foreach (var targetFile in targetFiles)
+        {
+            if (targetFile == null || targetFile.Length == 0)
+            {
+                throw new ApplicationServiceException(400, "目标文件不能为空");
+            }
+
+            var fileType = UploadFileValidation.ValidateOfficeDocument(targetFile, allowExcel: true, allowWord: true);
+            if (fileType != session.SourceFileType)
+            {
+                throw new ApplicationServiceException(400, "目标文件必须与来源文件保持同格式");
+            }
+
+            byte[] content;
+            using (var memoryStream = new MemoryStream())
+            {
+                await targetFile.CopyToAsync(memoryStream, cancellationToken);
+                content = memoryStream.ToArray();
+            }
+
+            var relativePath = await _batchReplySessionService.SaveTargetFileAsync(
+                targetFile.FileName,
+                fileType,
+                content,
+                cancellationToken);
+
+            uploadedTargets.Add(new BatchReplyTargetFile
+            {
+                TargetId = Guid.NewGuid().ToString("N"),
+                FileName = targetFile.FileName,
+                FileType = fileType,
+                RelativePath = relativePath,
+                TableCount = await _documentTableAccessService.CountTablesAsync(fileType, content)
+            });
+        }
+
+        var updatedSession = await _batchReplySessionService.AddTargetFilesAsync(
+            owner.UserId,
+            owner.CompanyId,
+            sessionId,
+            uploadedTargets,
+            cancellationToken);
+        if (updatedSession == null)
+        {
+            throw new ApplicationServiceException(404, "来源会话不存在或已过期");
+        }
+
+        return new BatchReplyTargetUploadResponse
+        {
+            SessionId = updatedSession.SessionId,
+            Files = uploadedTargets.Select(file => new BatchReplyUploadedTargetFileDto
+            {
+                TargetId = file.TargetId,
+                FileName = file.FileName,
+                FileType = file.FileType ?? session.SourceFileType,
+                TableCount = file.TableCount
+            }).ToList()
+        };
+    }
+
+    public async Task<List<TableInfoDto>> GetTargetTablesAsync(ClaimsPrincipal user, string sessionId, string targetId)
+    {
+        var targetFile = GetTargetFileForApplication(user, sessionId, targetId);
+        var targetWordFile = CreateTemporaryWordFile(targetFile.FileName, targetFile.FileType!.Value, targetFile.RelativePath!);
+        return await _documentTableAccessService.GetTableInfoDtosAsync(targetWordFile);
+    }
+
+    public async Task<TableDataDto> GetTargetTablePreviewAsync(
+        ClaimsPrincipal user,
+        string sessionId,
+        string targetId,
+        int tableIndex,
+        int previewRows,
+        int headerRowIndex,
+        int headerRowCount,
+        int dataStartRowIndex)
+    {
+        var targetFile = GetTargetFileForApplication(user, sessionId, targetId);
+        var targetWordFile = CreateTemporaryWordFile(targetFile.FileName, targetFile.FileType!.Value, targetFile.RelativePath!);
+        return await _documentTableAccessService.GetTablePreviewAsync(
+            targetWordFile,
+            tableIndex,
+            previewRows,
+            headerRowIndex,
+            headerRowCount,
+            dataStartRowIndex);
+    }
+
+    public async Task<MatchingOperationResult<BatchReplyTablePreviewResponse>> TablePreviewAsync(
+        ClaimsPrincipal user,
+        BatchReplyTablePreviewRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.TargetTable == null)
+        {
+            throw Failure(400, "目标表配置不能为空");
+        }
+
+        if (request.SourceTables == null || request.SourceTables.Count == 0)
+        {
+            throw Failure(400, "请至少配置一个来源表格");
+        }
+
+        var owner = ResolveOwnerForMatching(user);
+        var session = GetSourceSessionForMatching(owner, request.SessionId);
+        var targetFile = GetTargetFileForMatching(session, request.TargetId);
+        var sourceFile = CreateTemporaryWordFile(session.SourceFileName, session.SourceFileType, session.SourceFileRelativePath);
+        var normalizedSourceConfigs = NormalizeTableConfigs(request.SourceTables);
+        var sourceTableMetas = await _documentTableAccessService.GetTablesAsync(sourceFile);
+        var sourceTables = await BuildSourceTablesAsync(sourceFile, sourceTableMetas, normalizedSourceConfigs);
+        var sourceLookup = sourceTables.ToDictionary(table => table.TableIndex);
+
+        var sourceTableIndex = ResolveSourceTableIndex(request.TargetTable);
+        if (!sourceLookup.TryGetValue(sourceTableIndex, out var sourceTable))
+        {
+            throw Failure(400, $"来源表格{sourceTableIndex + 1}不存在或未配置");
+        }
+
+        var targetWordFile = CreateTemporaryWordFile(targetFile.FileName, targetFile.FileType!.Value, targetFile.RelativePath!);
+        IReadOnlyList<AcceptanceSpecSystem.Core.Documents.Models.TableInfo> targetTables;
+        try
+        {
+            targetTables = await _documentTableAccessService.GetTablesAsync(targetWordFile);
+        }
+        catch (ApplicationServiceException ex)
+        {
+            throw Failure(ex.Code, ex.Message);
+        }
+
+        var validation = await ValidateTargetTableAsync(
+            targetWordFile,
+            targetTables,
+            sourceTable,
+            request.TargetTable,
+            cancellationToken);
+
+        return Result(new BatchReplyTablePreviewResponse
+        {
+            TargetId = targetFile.TargetId,
+            FileName = targetFile.FileName,
+            TableIndex = request.TargetTable.TableIndex,
+            SourceTableIndex = sourceTableIndex,
+            CanApply = validation.Errors.Count == 0,
+            Errors = validation.Errors.ToList(),
+            Rows = validation.WriteTable?.Rows
+                .OrderBy(row => row.RowIndex)
+                .Select(row => new BatchReplyTablePreviewRowDto
+                {
+                    RowIndex = row.RowIndex,
+                    Project = row.Project,
+                    Specification = row.Specification,
+                    Acceptance = row.Acceptance,
+                    Remark = row.Remark
+                })
+                .ToList() ?? []
+        });
+    }
+
     public async Task<MatchingOperationResult<BatchReplyPreviewResponse>> PreviewAsync(
         ClaimsPrincipal user,
         string sessionId,
@@ -153,6 +325,19 @@ public sealed class BatchReplyAppService
         ClaimsPrincipal user,
         BatchReplyExecuteRequest request,
         CancellationToken cancellationToken = default)
+    {
+        if (request.SourceTables.Count > 0 || request.Targets.Count > 0)
+        {
+            return await ExecuteConfiguredAsync(user, request, cancellationToken);
+        }
+
+        return await ExecuteLegacyAsync(user, request, cancellationToken);
+    }
+
+    private async Task<MatchingOperationResult<BatchReplyExecuteResponse>> ExecuteLegacyAsync(
+        ClaimsPrincipal user,
+        BatchReplyExecuteRequest request,
+        CancellationToken cancellationToken)
     {
         var owner = ResolveOwnerForMatching(user);
         var session = GetSourceSessionForMatching(owner, request.SessionId);
@@ -250,33 +435,246 @@ public sealed class BatchReplyAppService
             owner.CompanyId,
             artifact,
             cancellationToken);
-        await SaveExecutionHistoryAsync(user, taskId, session, executeResults, executionHistoryRows, cancellationToken);
+        await SaveExecutionHistoryAsync(user, taskId, session, session.TargetFiles, executeResults, executionHistoryRows, cancellationToken);
 
-        var response = new BatchReplyExecuteResponse
+        var response = CreateExecuteResponse(taskId, artifact, executeResults);
+        return Result(response, BuildExecuteMessage(response));
+    }
+
+    private async Task<MatchingOperationResult<BatchReplyExecuteResponse>> ExecuteConfiguredAsync(
+        ClaimsPrincipal user,
+        BatchReplyExecuteRequest request,
+        CancellationToken cancellationToken)
+    {
+        var owner = ResolveOwnerForMatching(user);
+        if (request.SourceTables == null || request.SourceTables.Count == 0)
         {
-            TaskId = taskId,
-            SuccessCount = executeResults.Count(item => item.Success),
-            FailedCount = executeResults.Count(item => !item.Success),
-            DownloadUrl = $"/api/batch-reply/download/{taskId}",
-            DownloadFileName = artifact.FileName,
-            Files = executeResults
-        };
+            throw Failure(400, "请至少配置一个来源表格");
+        }
 
-        return Result(response, response.FailedCount > 0
-            ? $"批量回复完成：成功{response.SuccessCount}份，失败{response.FailedCount}份"
-            : $"批量回复完成：成功{response.SuccessCount}份");
+        if (request.Targets == null || request.Targets.Count == 0)
+        {
+            throw Failure(400, "请至少选择一个目标文件");
+        }
+
+        var session = GetSourceSessionForMatching(owner, request.SessionId);
+        var sourceFile = CreateTemporaryWordFile(session.SourceFileName, session.SourceFileType, session.SourceFileRelativePath);
+        var normalizedSourceConfigs = NormalizeTableConfigs(request.SourceTables);
+        var sourceTableMetas = await _documentTableAccessService.GetTablesAsync(sourceFile);
+        var sourceTables = await BuildSourceTablesAsync(sourceFile, sourceTableMetas, normalizedSourceConfigs);
+        var sourceLookup = sourceTables.ToDictionary(table => table.TableIndex);
+
+        var generatedFiles = new List<StrictReuseGeneratedFile>();
+        var executeResults = new List<BatchReplyExecuteFileResult>();
+        var executionHistoryRows = new Dictionary<string, IReadOnlyCollection<BatchReplyWriteTable>>(StringComparer.Ordinal);
+        var selectedTargetFiles = new List<BatchReplyTargetFile>();
+
+        foreach (var targetRequest in request.Targets)
+        {
+            var target = session.TargetFiles.FirstOrDefault(file => string.Equals(file.TargetId, targetRequest.TargetId, StringComparison.Ordinal));
+            if (target == null)
+            {
+                executeResults.Add(new BatchReplyExecuteFileResult
+                {
+                    TargetId = targetRequest.TargetId,
+                    FileName = "未知目标文件",
+                    Success = false,
+                    Message = "目标文件不存在或已过期"
+                });
+                continue;
+            }
+
+            selectedTargetFiles.Add(target);
+            if (string.IsNullOrWhiteSpace(target.RelativePath) || !target.FileType.HasValue)
+            {
+                executeResults.Add(new BatchReplyExecuteFileResult
+                {
+                    TargetId = target.TargetId,
+                    FileName = target.FileName,
+                    Success = false,
+                    Message = "目标文件不可用"
+                });
+                continue;
+            }
+
+            if (targetRequest.Tables == null || targetRequest.Tables.Count == 0)
+            {
+                executeResults.Add(new BatchReplyExecuteFileResult
+                {
+                    TargetId = target.TargetId,
+                    FileName = target.FileName,
+                    Success = false,
+                    Message = "该目标文件未配置任何参与表"
+                });
+                continue;
+            }
+
+            IReadOnlyCollection<BatchTableConfig> normalizedTargetConfigs;
+            try
+            {
+                normalizedTargetConfigs = NormalizeTableConfigs(targetRequest.Tables);
+            }
+            catch (MatchingApiException ex)
+            {
+                executeResults.Add(new BatchReplyExecuteFileResult
+                {
+                    TargetId = target.TargetId,
+                    FileName = target.FileName,
+                    Success = false,
+                    Message = ex.Message
+                });
+                continue;
+            }
+
+            var targetWordFile = CreateTemporaryWordFile(target.FileName, target.FileType.Value, target.RelativePath);
+            IReadOnlyList<AcceptanceSpecSystem.Core.Documents.Models.TableInfo> targetTables;
+            try
+            {
+                targetTables = await _documentTableAccessService.GetTablesAsync(targetWordFile);
+            }
+            catch (ApplicationServiceException ex)
+            {
+                executeResults.Add(new BatchReplyExecuteFileResult
+                {
+                    TargetId = target.TargetId,
+                    FileName = target.FileName,
+                    Success = false,
+                    Message = ex.Message
+                });
+                continue;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "读取批量回复目标文件失败: {FileName}", target.FileName);
+                executeResults.Add(new BatchReplyExecuteFileResult
+                {
+                    TargetId = target.TargetId,
+                    FileName = target.FileName,
+                    Success = false,
+                    Message = $"读取目标文件失败: {ex.Message}"
+                });
+                continue;
+            }
+
+            var validation = new BatchReplyTargetValidationResult();
+            foreach (var targetTableConfig in normalizedTargetConfigs.OrderBy(item => item.TableIndex))
+            {
+                var sourceTableIndex = ResolveSourceTableIndex(targetTableConfig);
+                if (!sourceLookup.TryGetValue(sourceTableIndex, out var sourceTable))
+                {
+                    validation.Errors.Add($"来源表格{sourceTableIndex + 1}不存在或未配置");
+                    continue;
+                }
+
+                try
+                {
+                    var tableValidation = await ValidateTargetTableAsync(
+                        targetWordFile,
+                        targetTables,
+                        sourceTable,
+                        targetTableConfig,
+                        cancellationToken);
+                    validation.Errors.AddRange(tableValidation.Errors);
+                    if (tableValidation.WriteTable != null)
+                    {
+                        validation.WriteTables.Add(tableValidation.WriteTable);
+                    }
+                }
+                catch (MatchingApiException ex)
+                {
+                    validation.Errors.Add(ex.Message);
+                }
+            }
+
+            if (validation.Errors.Count > 0 || validation.WriteTables.Count == 0)
+            {
+                executeResults.Add(new BatchReplyExecuteFileResult
+                {
+                    TargetId = target.TargetId,
+                    FileName = target.FileName,
+                    Success = false,
+                    Message = validation.Errors.Count > 0
+                        ? string.Join("；", validation.Errors)
+                        : "该目标文件没有可执行的表格"
+                });
+                continue;
+            }
+
+            try
+            {
+                var generated = await _matchingResultWriteBackService.GenerateBatchReplyTargetFileAsync(
+                    targetWordFile,
+                    validation.WriteTables,
+                    cancellationToken);
+                generatedFiles.Add(generated);
+                executionHistoryRows[target.TargetId] = validation.WriteTables
+                    .Select(table => new BatchReplyWriteTable
+                    {
+                        TableIndex = table.TableIndex,
+                        AcceptanceColumnIndex = table.AcceptanceColumnIndex,
+                        RemarkColumnIndex = table.RemarkColumnIndex,
+                        Rows = table.Rows
+                            .Select(row => new BatchReplyWriteRow
+                            {
+                                RowIndex = row.RowIndex,
+                                Project = row.Project,
+                                Specification = row.Specification,
+                                Acceptance = row.Acceptance,
+                                Remark = row.Remark
+                            })
+                            .ToList()
+                    })
+                    .ToList();
+                executeResults.Add(new BatchReplyExecuteFileResult
+                {
+                    TargetId = target.TargetId,
+                    FileName = target.FileName,
+                    Success = true,
+                    Message = "批量回复成功"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "批量回复执行失败: session={SessionId}, target={TargetId}", session.SessionId, target.TargetId);
+                executeResults.Add(new BatchReplyExecuteFileResult
+                {
+                    TargetId = target.TargetId,
+                    FileName = target.FileName,
+                    Success = false,
+                    Message = $"批量回复失败: {ex.Message}"
+                });
+            }
+        }
+
+        if (generatedFiles.Count == 0)
+        {
+            throw Failure(400, "没有配置完整且可执行的目标文件");
+        }
+
+        var taskId = Guid.NewGuid().ToString("N");
+        var artifact = await SaveDownloadArtifactAsync(taskId, session.SourceFileName, generatedFiles, cancellationToken);
+        await _batchReplySessionService.SaveDownloadArtifactAsync(
+            owner.UserId,
+            owner.CompanyId,
+            artifact,
+            cancellationToken);
+        await SaveExecutionHistoryAsync(user, taskId, session, selectedTargetFiles, executeResults, executionHistoryRows, cancellationToken);
+
+        var response = CreateExecuteResponse(taskId, artifact, executeResults);
+        return Result(response, BuildExecuteMessage(response));
     }
 
     private async Task SaveExecutionHistoryAsync(
         ClaimsPrincipal user,
         string taskId,
         BatchReplySourceSession session,
+        IReadOnlyCollection<BatchReplyTargetFile> targetFiles,
         IReadOnlyCollection<BatchReplyExecuteFileResult> executeResults,
         IReadOnlyDictionary<string, IReadOnlyCollection<BatchReplyWriteTable>> executionHistoryRows,
         CancellationToken cancellationToken)
     {
         var resultLookup = executeResults.ToDictionary(item => item.TargetId, item => item);
-        var files = session.TargetFiles
+        var files = targetFiles
             .OrderBy(file => file.FileName, StringComparer.OrdinalIgnoreCase)
             .Select(file =>
             {
@@ -505,80 +903,98 @@ public sealed class BatchReplyAppService
 
         foreach (var sourceTable in sourceTables.OrderBy(table => table.TableIndex))
         {
-            if (sourceTable.TableIndex < 0 || sourceTable.TableIndex >= targetTables.Count)
-            {
-                result.Errors.Add($"表格{sourceTable.TableIndex + 1}不存在");
-                continue;
-            }
-
-            var targetTable = targetTables[sourceTable.TableIndex];
-            var requiredMaxColumnIndex = new[]
-            {
-                sourceTable.ProjectColumnIndex,
-                sourceTable.SpecificationColumnIndex,
-                sourceTable.AcceptanceColumnIndex,
-                sourceTable.RemarkColumnIndex ?? -1
-            }.Max();
-            if (requiredMaxColumnIndex >= targetTable.ColumnCount)
-            {
-                result.Errors.Add($"表格{sourceTable.TableIndex + 1}列配置超出目标文件范围");
-                continue;
-            }
-
-            var targetRows = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
-                targetFile,
-                sourceTable.TableIndex,
-                sourceTable.ProjectColumnIndex,
-                sourceTable.SpecificationColumnIndex,
-                sourceTable.HeaderRowStart,
-                sourceTable.HeaderRowCount,
-                sourceTable.DataStartRow,
-                sourceTable.FilterEmptySourceRows);
-            if (targetRows.Count != sourceTable.Rows.Count)
-            {
-                result.Errors.Add($"表格{sourceTable.TableIndex + 1}的数据区行数不一致");
-                continue;
-            }
-
-            var sourceLookup = BuildSourceRowLookup(sourceTable, result.Errors);
-            if (sourceLookup == null)
-            {
-                continue;
-            }
-
-            var targetLookup = BuildTargetRowLookup(sourceTable.TableIndex, targetRows, result.Errors);
-            if (targetLookup == null)
-            {
-                continue;
-            }
-
-            if (sourceLookup.Count != targetLookup.Count ||
-                sourceLookup.Keys.Except(targetLookup.Keys).Any() ||
-                targetLookup.Keys.Except(sourceLookup.Keys).Any())
-            {
-                result.Errors.Add($"表格{sourceTable.TableIndex + 1}的项目/规格不一致");
-                continue;
-            }
-
-            result.WriteTables.Add(new BatchReplyWriteTable
+            var legacyTargetConfig = new BatchTableConfig
             {
                 TableIndex = sourceTable.TableIndex,
+                ProjectColumnIndex = sourceTable.ProjectColumnIndex,
+                SpecificationColumnIndex = sourceTable.SpecificationColumnIndex,
                 AcceptanceColumnIndex = sourceTable.AcceptanceColumnIndex,
                 RemarkColumnIndex = sourceTable.RemarkColumnIndex,
-                Rows = targetRows.Select(targetRow =>
-                {
-                    var sourceRow = sourceLookup[BuildRowKey(targetRow.Project, targetRow.Specification)];
-                    return new BatchReplyWriteRow
-                    {
-                        RowIndex = targetRow.RowIndex,
-                        Project = targetRow.Project,
-                        Specification = targetRow.Specification,
-                        Acceptance = sourceRow.Acceptance,
-                        Remark = sourceRow.Remark
-                    };
-                }).ToList()
-            });
+                HeaderRowStart = sourceTable.HeaderRowStart,
+                HeaderRowCount = sourceTable.HeaderRowCount,
+                DataStartRow = sourceTable.DataStartRow,
+                FilterEmptySourceRows = sourceTable.FilterEmptySourceRows
+            };
+
+            var tableValidation = await ValidateTargetTableAsync(
+                targetFile,
+                targetTables,
+                sourceTable,
+                legacyTargetConfig);
+            result.Errors.AddRange(tableValidation.Errors);
+            if (tableValidation.WriteTable != null)
+            {
+                result.WriteTables.Add(tableValidation.WriteTable);
+            }
         }
+
+        return result;
+    }
+
+    private async Task<BatchReplyTargetTableValidationResult> ValidateTargetTableAsync(
+        WordFile targetFile,
+        IReadOnlyList<AcceptanceSpecSystem.Core.Documents.Models.TableInfo> targetTables,
+        BatchReplySourceTable sourceTable,
+        BatchTableConfig targetConfig,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateTableConfig(targetFile.FileType, targetTables, targetConfig);
+
+        var result = new BatchReplyTargetTableValidationResult();
+        var targetRows = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
+            targetFile,
+            targetConfig.TableIndex,
+            targetConfig.ProjectColumnIndex,
+            targetConfig.SpecificationColumnIndex,
+            targetConfig.HeaderRowStart,
+            targetConfig.HeaderRowCount,
+            targetConfig.DataStartRow,
+            targetConfig.FilterEmptySourceRows ?? true);
+        if (targetRows.Count != sourceTable.Rows.Count)
+        {
+            result.Errors.Add($"表格{targetConfig.TableIndex + 1}的数据区行数不一致");
+            return result;
+        }
+
+        var sourceLookup = BuildSourceRowLookup(sourceTable, result.Errors);
+        if (sourceLookup == null)
+        {
+            return result;
+        }
+
+        var targetLookup = BuildTargetRowLookup(targetConfig.TableIndex, targetRows, result.Errors);
+        if (targetLookup == null)
+        {
+            return result;
+        }
+
+        if (sourceLookup.Count != targetLookup.Count ||
+            sourceLookup.Keys.Except(targetLookup.Keys).Any() ||
+            targetLookup.Keys.Except(sourceLookup.Keys).Any())
+        {
+            result.Errors.Add($"表格{targetConfig.TableIndex + 1}的项目/规格不一致");
+            return result;
+        }
+
+        result.WriteTable = new BatchReplyWriteTable
+        {
+            TableIndex = targetConfig.TableIndex,
+            AcceptanceColumnIndex = targetConfig.AcceptanceColumnIndex,
+            RemarkColumnIndex = targetConfig.RemarkColumnIndex,
+            Rows = targetRows.Select(targetRow =>
+            {
+                var sourceRow = sourceLookup[BuildRowKey(targetRow.Project, targetRow.Specification)];
+                return new BatchReplyWriteRow
+                {
+                    RowIndex = targetRow.RowIndex,
+                    Project = targetRow.Project,
+                    Specification = targetRow.Specification,
+                    Acceptance = sourceRow.Acceptance,
+                    Remark = sourceRow.Remark
+                };
+            }).ToList()
+        };
 
         return result;
     }
@@ -658,6 +1074,29 @@ public sealed class BatchReplyAppService
         }
 
         return session;
+    }
+
+    private BatchReplyTargetFile GetTargetFileForApplication(ClaimsPrincipal user, string sessionId, string targetId)
+    {
+        var session = GetSourceSessionForApplication(user, sessionId);
+        var targetFile = session.TargetFiles.FirstOrDefault(file => string.Equals(file.TargetId, targetId, StringComparison.Ordinal));
+        if (targetFile == null || string.IsNullOrWhiteSpace(targetFile.RelativePath) || !targetFile.FileType.HasValue)
+        {
+            throw new ApplicationServiceException(404, "目标文件不存在或已过期");
+        }
+
+        return targetFile;
+    }
+
+    private static BatchReplyTargetFile GetTargetFileForMatching(BatchReplySourceSession session, string targetId)
+    {
+        var targetFile = session.TargetFiles.FirstOrDefault(file => string.Equals(file.TargetId, targetId, StringComparison.Ordinal));
+        if (targetFile == null || string.IsNullOrWhiteSpace(targetFile.RelativePath) || !targetFile.FileType.HasValue)
+        {
+            throw NotFoundFailure("目标文件不存在或已过期");
+        }
+
+        return targetFile;
     }
 
     private static IReadOnlyCollection<BatchTableConfig> NormalizeTableConfigs(IReadOnlyCollection<BatchTableConfig> tableConfigs)
@@ -758,6 +1197,29 @@ public sealed class BatchReplyAppService
         return new MatchingOperationResult<T>(data, message);
     }
 
+    private static BatchReplyExecuteResponse CreateExecuteResponse(
+        string taskId,
+        BatchReplyDownloadArtifact artifact,
+        IReadOnlyCollection<BatchReplyExecuteFileResult> executeResults)
+    {
+        return new BatchReplyExecuteResponse
+        {
+            TaskId = taskId,
+            SuccessCount = executeResults.Count(item => item.Success),
+            FailedCount = executeResults.Count(item => !item.Success),
+            DownloadUrl = $"/api/batch-reply/download/{taskId}",
+            DownloadFileName = artifact.FileName,
+            Files = executeResults.ToList()
+        };
+    }
+
+    private static string BuildExecuteMessage(BatchReplyExecuteResponse response)
+    {
+        return response.FailedCount > 0
+            ? $"批量回复完成：成功{response.SuccessCount}份，失败{response.FailedCount}份"
+            : $"批量回复完成：成功{response.SuccessCount}份";
+    }
+
     private static MatchingApiException Failure(int code, string message)
     {
         return new MatchingApiException(code, message);
@@ -814,6 +1276,11 @@ public sealed class BatchReplyAppService
         return (NormalizeStrictText(project), NormalizeStrictText(specification));
     }
 
+    private static int ResolveSourceTableIndex(BatchTableConfig targetConfig)
+    {
+        return targetConfig.SourceTableIndex ?? targetConfig.TableIndex;
+    }
+
     private static string NormalizeStrictText(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -829,6 +1296,13 @@ public sealed class BatchReplyAppService
         public List<string> Errors { get; } = [];
 
         public List<BatchReplyWriteTable> WriteTables { get; } = [];
+    }
+
+    private sealed class BatchReplyTargetTableValidationResult
+    {
+        public List<string> Errors { get; } = [];
+
+        public BatchReplyWriteTable? WriteTable { get; set; }
     }
 
     private static string BuildUniqueArchiveEntryName(string fileName, HashSet<string> usedEntryNames)
