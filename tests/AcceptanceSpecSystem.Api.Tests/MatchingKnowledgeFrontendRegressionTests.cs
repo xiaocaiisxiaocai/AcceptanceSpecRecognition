@@ -96,6 +96,25 @@ public class MatchingKnowledgeFrontendRegressionTests
     }
 
     [Fact]
+    public void MatchingKnowledgePage_ShouldProvideTabSearchFilters()
+    {
+        var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
+
+        content.Should().Contain("entitySearchQuery");
+        content.Should().Contain("unitSearchQuery");
+        content.Should().Contain("fieldSearchQuery");
+        content.Should().Contain("conflictSearchQuery");
+        content.Should().Contain("filteredEntityGroupRows");
+        content.Should().Contain("filteredUnitGroupRows");
+        content.Should().Contain("filteredUnitFactorRows");
+        content.Should().Contain("filteredFieldGroupRows");
+        content.Should().Contain("filteredConflictGroupRows");
+        content.Should().Contain("matchesGroupSearch");
+        content.Should().Contain("matchesConflictGroupSearch");
+        content.Should().Contain("placeholder=\"搜索当前 Tab\"");
+    }
+
+    [Fact]
     public void MatchingKnowledgePage_ShouldExposeAiDraftGenerationFlow()
     {
         var pageContent = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");

@@ -57,6 +57,10 @@ const unitGroupRows = ref<EditableGroupRow[]>([]);
 const unitFactorRows = ref<EditableNumberRow[]>([]);
 const fieldGroupRows = ref<EditableGroupRow[]>([]);
 const conflictGroupRows = ref<EditableConflictGroupRow[]>([]);
+const entitySearchQuery = ref("");
+const unitSearchQuery = ref("");
+const fieldSearchQuery = ref("");
+const conflictSearchQuery = ref("");
 
 const canUpdate = computed(() => hasPerms("btn:matching-knowledge:update"));
 const canReset = computed(() => hasPerms("btn:matching-knowledge:reset"));
@@ -122,6 +126,15 @@ const createConflictGroupRow = (
 
 const normalizeValue = (value: string) => value.trim();
 const normalizeKey = (value: string) => normalizeValue(value).toLowerCase();
+const normalizeSearchQuery = (value: string) => normalizeKey(value);
+
+const matchesSearchToken = (candidate: string, searchQuery: string) => {
+  const normalizedCandidate = normalizeKey(candidate);
+  return (
+    normalizedCandidate === searchQuery ||
+    normalizedCandidate.startsWith(searchQuery)
+  );
+};
 
 const parseGroupItems = (value: string) => {
   const result: string[] = [];
@@ -144,6 +157,62 @@ const parseGroupItems = (value: string) => {
 };
 
 const joinGroupItems = (items: string[]) => items.join("、");
+
+const matchesGroupSearch = (text: string, searchQuery: string) => {
+  const normalizedQuery = normalizeSearchQuery(searchQuery);
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const items = parseGroupItems(text);
+  if (items.some(item => matchesSearchToken(item, normalizedQuery))) {
+    return true;
+  }
+
+  return normalizeKey(text).includes(normalizedQuery);
+};
+
+const matchesConflictGroupSearch = (
+  row: EditableConflictGroupRow,
+  searchQuery: string
+) => {
+  const normalizedQuery = normalizeSearchQuery(searchQuery);
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const leftItems = parseGroupItems(row.leftText);
+  const rightItems = parseGroupItems(row.rightText);
+  if (
+    [...leftItems, ...rightItems].some(item =>
+      matchesSearchToken(item, normalizedQuery)
+    )
+  ) {
+    return true;
+  }
+
+  return normalizeKey(`${row.leftText} ${row.rightText}`).includes(normalizedQuery);
+};
+
+const matchesNumberRowSearch = (row: EditableNumberRow, searchQuery: string) => {
+  const normalizedQuery = normalizeSearchQuery(searchQuery);
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const normalizedKey = normalizeKey(row.key);
+  if (
+    normalizedKey === normalizedQuery ||
+    normalizedKey.startsWith(normalizedQuery) ||
+    normalizedKey.includes(normalizedQuery)
+  ) {
+    return true;
+  }
+
+  const valueText =
+    row.value === null || Number.isNaN(row.value) ? "" : `${row.value}`.toLowerCase();
+  return valueText.includes(normalizedQuery);
+};
 
 const buildGroupRows = (source?: MatchingKnowledgeGroup[]) =>
   (source ?? []).map(group => createGroupRow(joinGroupItems(group.items ?? [])));
@@ -206,6 +275,36 @@ const buildPayload = (): MatchingKnowledgeLayer => ({
   fieldGroups: toGroups(fieldGroupRows.value),
   conflictGroups: toConflictGroups(conflictGroupRows.value)
 });
+
+const filteredEntityGroupRows = computed(() =>
+  entityGroupRows.value.filter(row =>
+    matchesGroupSearch(row.text, entitySearchQuery.value)
+  )
+);
+
+const filteredUnitGroupRows = computed(() =>
+  unitGroupRows.value.filter(row =>
+    matchesGroupSearch(row.text, unitSearchQuery.value)
+  )
+);
+
+const filteredUnitFactorRows = computed(() =>
+  unitFactorRows.value.filter(row =>
+    matchesNumberRowSearch(row, unitSearchQuery.value)
+  )
+);
+
+const filteredFieldGroupRows = computed(() =>
+  fieldGroupRows.value.filter(row =>
+    matchesGroupSearch(row.text, fieldSearchQuery.value)
+  )
+);
+
+const filteredConflictGroupRows = computed(() =>
+  conflictGroupRows.value.filter(row =>
+    matchesConflictGroupSearch(row, conflictSearchQuery.value)
+  )
+);
 
 const load = async () => {
   loading.value = true;
@@ -791,7 +890,18 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </template>
-          <el-table :data="entityGroupRows" row-key="id" empty-text="暂无实体组">
+          <div class="tab-search-row">
+            <el-input
+              v-model="entitySearchQuery"
+              clearable
+              placeholder="搜索当前 Tab"
+            />
+          </div>
+          <el-table
+            :data="filteredEntityGroupRows"
+            row-key="id"
+            :empty-text="entitySearchQuery ? '没有匹配的实体组' : '暂无实体组'"
+          >
             <el-table-column label="实体组" min-width="420">
               <template #default="{ row }">
                 <el-input
@@ -830,6 +940,13 @@ onBeforeUnmount(() => {
 
       <el-tab-pane label="单位规则" name="unitRules" class="multi-card-pane">
         <div class="knowledge-grid">
+          <div class="tab-search-row">
+            <el-input
+              v-model="unitSearchQuery"
+              clearable
+              placeholder="搜索当前 Tab"
+            />
+          </div>
           <el-card class="knowledge-card">
             <template #header>
               <div class="card-header">
@@ -857,7 +974,11 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </template>
-            <el-table :data="unitGroupRows" row-key="id" empty-text="暂无单位组">
+            <el-table
+              :data="filteredUnitGroupRows"
+              row-key="id"
+              :empty-text="unitSearchQuery ? '没有匹配的单位组' : '暂无单位组'"
+            >
               <el-table-column label="单位组" min-width="420">
                 <template #default="{ row }">
                   <el-input
@@ -906,7 +1027,11 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </template>
-            <el-table :data="unitFactorRows" row-key="id" empty-text="暂无单位换算">
+            <el-table
+              :data="filteredUnitFactorRows"
+              row-key="id"
+              :empty-text="unitSearchQuery ? '没有匹配的单位换算' : '暂无单位换算'"
+            >
               <el-table-column label="标准单位" min-width="220">
                 <template #default="{ row }">
                   <el-input v-if="row.editing" v-model="row.key" placeholder="输入标准单位" />
@@ -981,7 +1106,18 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </template>
-          <el-table :data="fieldGroupRows" row-key="id" empty-text="暂无字段组">
+          <div class="tab-search-row">
+            <el-input
+              v-model="fieldSearchQuery"
+              clearable
+              placeholder="搜索当前 Tab"
+            />
+          </div>
+          <el-table
+            :data="filteredFieldGroupRows"
+            row-key="id"
+            :empty-text="fieldSearchQuery ? '没有匹配的字段组' : '暂无字段组'"
+          >
             <el-table-column label="字段组" min-width="420">
               <template #default="{ row }">
                 <el-input
@@ -1048,7 +1184,18 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </template>
-          <el-table :data="conflictGroupRows" row-key="id" empty-text="暂无冲突组">
+          <div class="tab-search-row">
+            <el-input
+              v-model="conflictSearchQuery"
+              clearable
+              placeholder="搜索当前 Tab"
+            />
+          </div>
+          <el-table
+            :data="filteredConflictGroupRows"
+            row-key="id"
+            :empty-text="conflictSearchQuery ? '没有匹配的冲突组' : '暂无冲突组'"
+          >
             <el-table-column label="左冲突组" min-width="260">
               <template #default="{ row }">
                 <el-input
@@ -1166,6 +1313,19 @@ onBeforeUnmount(() => {
 
 .knowledge-card {
   border-radius: 16px;
+}
+
+.tab-search-row {
+  margin-bottom: 16px;
+}
+
+.row-display-text {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  line-height: 1.6;
+  color: var(--el-text-color-primary);
+  word-break: break-all;
 }
 
 :deep(.knowledge-tabs > .el-tabs__content > .el-tab-pane.multi-card-pane) {
