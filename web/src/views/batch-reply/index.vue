@@ -25,6 +25,10 @@ import {
 } from "@/api/matching";
 import type { TableData, TableInfo } from "@/api/document";
 import { createTargetFileSignature, decideTargetUpload } from "./target-upload";
+import {
+  createTargetPreviewLoaderResolver,
+  prunePreviewResultsForConfigChange
+} from "./batch-reply-preview-state";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
@@ -264,7 +268,11 @@ const handleTargetConfigChange = (targetId: string, value: BatchTableConfigItem[
         ? {
             ...file,
             configs: value,
-            previewResults: {}
+            previewResults: prunePreviewResultsForConfigChange(
+              file.previewResults,
+              file.configs,
+              value
+            )
           }
       : file
   );
@@ -623,6 +631,8 @@ const createTargetPreviewLoader = (targetId: string) => {
     return res.data;
   };
 };
+
+const getTargetPreviewLoader = createTargetPreviewLoaderResolver(createTargetPreviewLoader);
 
 const handleTargetTablePreview = async (targetId: string, item: BatchTableConfigItem) => {
   if (!ensurePermission("btn:batch-reply:preview", "权限不足，无法预览当前目标表")) {
@@ -991,7 +1001,7 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
                   :model-value="targetFile.configs"
                   :tables="targetFile.tables"
                   :is-excel="targetFile.fileType === 1"
-                  :preview-loader="createTargetPreviewLoader(targetFile.targetId)"
+                  :preview-loader="getTargetPreviewLoader(targetFile.targetId)"
                   :source-table-options="selectedSourceTableOptions"
                   source-table-label="来源表"
                   :mapping-previewable="canPreviewBatchReply"
