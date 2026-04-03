@@ -2,6 +2,10 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { getTablePreview, type ColumnMapping, type TableData } from "@/api/document";
+import {
+  normalizePreviewHeaders,
+  resolvePreviewColumnCount
+} from "./table-preview-columns";
 
 export type TablePreviewLoader = (
   tableIndex: number,
@@ -52,7 +56,13 @@ const pick = (row: string[], col?: number) => {
 
 const displayHeaders = computed(() => {
   if (!tableData.value) return [];
-  return hasAnyMapping.value ? mappedHeaders : tableData.value.headers;
+  return hasAnyMapping.value
+    ? mappedHeaders
+    : normalizePreviewHeaders({
+        headers: tableData.value.headers,
+        rows: tableData.value.rows,
+        columnCount: tableData.value.columnCount
+      });
 });
 
 const displayRows = computed(() => {
@@ -70,8 +80,17 @@ const displayRows = computed(() => {
 
 const displayColumnCount = computed(() => {
   if (!tableData.value) return 0;
-  return hasAnyMapping.value ? 4 : tableData.value.columnCount;
+  return hasAnyMapping.value
+    ? mappedHeaders.length
+    : resolvePreviewColumnCount({
+        headers: tableData.value.headers,
+        rows: tableData.value.rows,
+        columnCount: tableData.value.columnCount
+      });
 });
+
+const shouldShowHorizontalScrollHint = computed(() => displayColumnCount.value > 8);
+const previewColumnMinWidth = computed(() => (displayColumnCount.value >= 10 ? 140 : 120));
 
 // 加载表格预览
 const loadPreview = async () => {
@@ -155,16 +174,21 @@ defineExpose({
         <span v-if="tableData.rows.length < tableData.totalRows" class="preview-tip">
           (显示前 {{ tableData.rows.length }} 行)
         </span>
+        <span v-if="shouldShowHorizontalScrollHint" class="preview-tip preview-tip--scroll">
+          可左右滚动查看全部列
+        </span>
       </div>
 
       <div class="table-container">
-        <el-table :data="displayRows" border stripe max-height="400" size="small">
+        <el-table :data="displayRows" border stripe :fit="false" max-height="400" size="small">
           <el-table-column
             v-for="(header, colIndex) in displayHeaders"
             :key="colIndex"
             :label="header || `列${colIndex + 1}`"
             :prop="String(colIndex)"
-            min-width="120"
+            :min-width="previewColumnMinWidth"
+            :resizable="false"
+            show-overflow-tooltip
           >
             <template #default="{ row }">
               <span class="cell-content">{{ row[colIndex] || "-" }}</span>
@@ -179,6 +203,7 @@ defineExpose({
 <style scoped>
 .table-preview {
   width: 100%;
+  min-width: 0;
 }
 
 .loading-container,
@@ -190,6 +215,7 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 .preview-info {
@@ -202,9 +228,16 @@ defineExpose({
   margin-left: 8px;
 }
 
+.preview-tip--scroll {
+  color: #2563eb;
+}
+
 .table-container {
   width: 100%;
-  overflow: auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
 }
 
 .table-preview :deep(.el-table td) {

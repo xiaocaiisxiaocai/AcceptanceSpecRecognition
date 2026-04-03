@@ -1,0 +1,13 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const batchTableConfigSource = readFileSync(
+  resolve(process.cwd(), "web/src/views/smart-fill/components/BatchTableConfig.vue"),
+  "utf8"
+);
+
+test("数据预览外层容器应使用 border-box，避免 width:100% 加内边距后把页面撑宽", () => {
+  assert.match(batchTableConfigSource, /\.table-preview-wrap\s*\{[\s\S]*box-sizing:\s*border-box;/);
+});

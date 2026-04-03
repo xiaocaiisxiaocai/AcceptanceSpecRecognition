@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import type { TableData, TableInfo } from "@/api/document";
 import TablePreview from "@/views/data-import/components/TablePreview.vue";
 import type { TablePreviewLoader } from "@/views/data-import/components/TablePreview.vue";
+import { normalizePreviewHeaders } from "@/views/data-import/components/table-preview-columns";
 import type { BatchReplyTablePreviewResponse, BatchTableConfig } from "@/api/matching";
 
 /** 带勾选状态的表格配置项 */
@@ -249,8 +250,17 @@ const refreshHeaders = async (index: number) => {
 
 const getDisplayHeaders = (item: BatchTableConfigItem) => {
   const resolved = previewHeadersMap.value[item.tableIndex];
-  if (resolved && resolved.length > 0) return resolved;
-  return item.tableInfo.headers ?? [];
+  if (resolved && resolved.length > 0) {
+    return normalizePreviewHeaders({
+      headers: resolved,
+      columnCount: item.tableInfo.columnCount
+    });
+  }
+
+  return normalizePreviewHeaders({
+    headers: item.tableInfo.headers ?? [],
+    columnCount: item.tableInfo.columnCount
+  });
 };
 
 const getPreviewOptions = (item: BatchTableConfigItem) => {
@@ -271,7 +281,11 @@ const getPreviewKey = (item: BatchTableConfigItem) => {
 const handlePreviewLoaded = (tableIndex: number, data: TableData) => {
   previewHeadersMap.value = {
     ...previewHeadersMap.value,
-    [tableIndex]: data.headers || []
+    [tableIndex]: normalizePreviewHeaders({
+      headers: data.headers || [],
+      rows: data.rows,
+      columnCount: data.columnCount
+    })
   };
 };
 
@@ -733,6 +747,9 @@ const getPreviewResult = (tableIndex: number) => {
 .table-preview-wrap {
   margin: 0;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 14px 16px;
   border-radius: 12px;
   border: 1px solid #e0e7ef;
