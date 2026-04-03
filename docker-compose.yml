@@ -37,8 +37,11 @@ services:
       ConnectionStrings__DefaultConnection: Server=mysql;Port=3306;Database=acceptance_spec_db;User=acceptance;Password=acceptance123;CharSet=utf8mb4;
       FileStorage__BasePath: /data/files
       DataProtection__KeysPath: /data/dp-keys
-      Cors__AllowedOrigins__0: "*"
+      Cors__AllowedOrigins__0: "http://localhost"
+      Cors__AllowedOrigins__1: "http://127.0.0.1"
       JwtAuth__SigningKey: AcceptanceSpec_DockerJwtKey_2026_ReplaceWithLongRandom
+      AuthSeed__AdminPassword: Admin@20260403
+      AuthSeed__CommonPassword: Common@20260403
       TZ: Asia/Shanghai
     volumes:
       - api-files:/data/files

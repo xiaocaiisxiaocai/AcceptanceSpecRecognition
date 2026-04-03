@@ -450,8 +450,6 @@
       .search-container,
       /* 全屏 */
       .fullscreen-icon,
-      /* 消息通知 */
-      .dropdown-badge,
       /* 用户名 */
       .el-dropdown-link,
       /* 设置 */
@@ -459,11 +457,6 @@
         &:hover {
           background: var(--pure-theme-menu-hover);
         }
-      }
-
-      .dropdown-badge {
-        height: 48px;
-        color: var(--pure-theme-sub-menu-active-text);
       }
 
       .el-dropdown-link {
@@ -620,8 +613,6 @@ body[layout="vertical"] {
   .search-container,
   /* 全屏 */
   .fullscreen-icon,
-  /* 消息通知 */
-  .dropdown-badge,
   /* 用户名 */
   .el-dropdown-link,
   /* 设置 */

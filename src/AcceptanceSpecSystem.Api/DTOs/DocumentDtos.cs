@@ -73,6 +73,11 @@ public class FileUploadResponse
     /// 表格数量
     /// </summary>
     public int TableCount { get; set; }
+
+    /// <summary>
+    /// 表格数量是否已完成读取
+    /// </summary>
+    public bool TableCountReady { get; set; } = true;
 }
 
 /// <summary>

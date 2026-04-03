@@ -11,6 +11,8 @@ const props = defineProps<{
   loading?: boolean;
   /** 高置信自动采用阈值 */
   highConfidenceThreshold?: number;
+  /** 高歧义分差阈值 */
+  ambiguityMargin?: number;
   /** LLM 流式处理是否进行中 */
   llmStreaming?: boolean;
 }>();
@@ -48,6 +50,7 @@ const getAllSelections = () => {
       specId?: number;
       matchScore?: number;
       llmReviewScore?: number;
+      manualConfirmed?: boolean;
     }>
   > = new Map();
 
@@ -98,6 +101,7 @@ defineExpose({ getAllSelections });
           :items="tableResult.items"
           :loading="loading"
           :high-confidence-threshold="highConfidenceThreshold"
+          :ambiguity-margin="ambiguityMargin"
           :llm-streaming="llmStreaming"
           @select="
             (rowIndex, spec) => emit('select', tableResult.tableIndex, rowIndex, spec)

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import {
+  DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
+  DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES,
+  MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES,
+  MAX_RECALL_TOP_K,
   type MatchConfig,
   defaultMatchConfig,
   MatchingStrategy
@@ -38,18 +42,23 @@ const loadingAiServices = ref(false);
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
 const allowLlm = computed(() => props.allowLlm !== false);
-const strategyOptions = [
-  {
-    value: MatchingStrategy.SingleStage,
-    label: "基础方式",
-    description: "只按 Embedding Top1 返回，速度更快，但复杂模板更容易漏匹配。"
-  },
-  {
-    value: MatchingStrategy.MultiStage,
-    label: "多阶段重排",
-    description: "先召回 TopK，再按项目/规格规则重排，适合复杂模板场景。"
+const isMultiStage = computed(
+  () => config.value.matchingStrategy === MatchingStrategy.MultiStage
+);
+
+const hasExplicitMatchingDefaults = computed(() => {
+  const incoming = props.modelValue;
+  if (!incoming) {
+    return false;
   }
-] as const;
+
+  return (
+    (incoming.matchingStrategy !== undefined &&
+      incoming.matchingStrategy !== defaultMatchConfig.matchingStrategy) ||
+    (incoming.recallTopK !== undefined &&
+      incoming.recallTopK !== defaultMatchConfig.recallTopK)
+  );
+});
 
 // 高级选项展开
 const showAdvanced = ref(false);
@@ -72,6 +81,7 @@ watch(
     if (!allowLlm.value) {
       config.value.useLlmReview = false;
       config.value.useLlmSuggestion = false;
+      config.value.useLlmEntityResolution = false;
     }
   },
   { immediate: true }
@@ -95,21 +105,43 @@ watch(
     if (!enabled) {
       config.value.useLlmReview = false;
       config.value.useLlmSuggestion = false;
+      config.value.useLlmEntityResolution = false;
     }
   },
   { immediate: true }
 );
 
 watch(
-  () => config.value.matchingStrategy,
-  (strategy) => {
-    if (strategy === MatchingStrategy.MultiStage) {
-      if (!config.value.recallTopK || config.value.recallTopK < 1) {
-        config.value.recallTopK = defaultMatchConfig.recallTopK;
-      }
-      if (config.value.ambiguityMargin === undefined || config.value.ambiguityMargin === null) {
-        config.value.ambiguityMargin = defaultMatchConfig.ambiguityMargin;
-      }
+  () => [
+    config.value.matchingStrategy,
+    config.value.recallTopK,
+    config.value.ambiguityMargin,
+    config.value.llmEntityResolutionTopCandidates
+  ],
+  () => {
+    if (!config.value.recallTopK || config.value.recallTopK < 1) {
+      config.value.recallTopK = defaultMatchConfig.recallTopK;
+    } else if (config.value.recallTopK > MAX_RECALL_TOP_K) {
+      config.value.recallTopK = MAX_RECALL_TOP_K;
+    }
+    if (config.value.ambiguityMargin === undefined || config.value.ambiguityMargin === null) {
+      config.value.ambiguityMargin = defaultMatchConfig.ambiguityMargin;
+    }
+    if (
+      !config.value.llmEntityResolutionTopCandidates ||
+      config.value.llmEntityResolutionTopCandidates < 1
+    ) {
+      config.value.llmEntityResolutionTopCandidates =
+        DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES;
+    } else if (
+      config.value.llmEntityResolutionTopCandidates >
+      MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES
+    ) {
+      config.value.llmEntityResolutionTopCandidates =
+        MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES;
+    }
+    if (!isMultiStage.value) {
+      config.value.useLlmEntityResolution = false;
     }
   },
   { immediate: true }
@@ -184,6 +216,9 @@ const loadAiServices = async () => {
       if (!config.value.llmServiceId && llmServices.value.length > 0) {
         config.value.llmServiceId = llmServices.value[0].id;
       }
+      if (!hasExplicitMatchingDefaults.value) {
+        applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
+      }
     } else {
       ElMessage.error(res.message || "加载AI服务失败");
     }
@@ -193,6 +228,33 @@ const loadAiServices = async () => {
     loadingAiServices.value = false;
   }
 };
+
+const applyEmbeddingServiceDefaults = (serviceId?: number) => {
+  if (!serviceId) return;
+  const selectedService = embeddingServices.value.find(item => item.id === serviceId);
+  if (!selectedService) return;
+
+  config.value.matchingStrategy = selectedService.defaultMatchingStrategy;
+  config.value.recallTopK = Math.min(
+    MAX_RECALL_TOP_K,
+    Math.max(1, selectedService.defaultRecallTopK)
+  );
+};
+
+watch(
+  () => config.value.embeddingServiceId,
+  (serviceId, previousServiceId) => {
+    if (!serviceId || serviceId === previousServiceId) {
+      return;
+    }
+
+    if (previousServiceId === undefined && hasExplicitMatchingDefaults.value) {
+      return;
+    }
+
+    applyEmbeddingServiceDefaults(serviceId);
+  }
+);
 
 // 监听客户变化
 watch(selectedCustomerId, () => {
@@ -211,10 +273,18 @@ watch(selectedMachineModelId, () => {
 
 // 重置配置
 const resetConfig = () => {
-  config.value = { ...defaultMatchConfig };
+  const embeddingServiceId = config.value.embeddingServiceId;
+  const llmServiceId = config.value.llmServiceId;
+  config.value = {
+    ...defaultMatchConfig,
+    embeddingServiceId,
+    llmServiceId
+  };
+  applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
   if (!allowLlm.value) {
     config.value.useLlmReview = false;
     config.value.useLlmSuggestion = false;
+    config.value.useLlmEntityResolution = false;
   }
 };
 
@@ -348,20 +418,15 @@ defineExpose({
           <el-col :span="12">
             <el-form-item label="匹配策略">
               <el-radio-group v-model="config.matchingStrategy">
-                <el-radio-button
-                  v-for="option in strategyOptions"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
+                <el-radio-button :label="MatchingStrategy.SingleStage">
+                  单阶段 Embedding
+                </el-radio-button>
+                <el-radio-button :label="MatchingStrategy.MultiStage">
+                  多阶段证据重排
                 </el-radio-button>
               </el-radio-group>
-              <div class="strategy-tip">
-                {{
-                  strategyOptions.find(
-                    (option) => option.value === config.matchingStrategy
-                  )?.description
-                }}
+              <div class="form-inline-tip">
+                单阶段按 Embedding 直接排序；多阶段会追加证据重排、冲突门禁和高歧义判定。
               </div>
             </el-form-item>
           </el-col>
@@ -393,7 +458,8 @@ defineExpose({
                 :show-input-controls="false"
               />
               <div class="form-inline-tip">
-                达到该阈值的匹配会默认选中；默认值为 95%
+                达到该阈值的匹配会默认选中；默认值为
+                {{ (DEFAULT_HIGH_CONFIDENCE_THRESHOLD * 100).toFixed(0) }}%
               </div>
             </el-form-item>
           </el-col>
@@ -410,16 +476,13 @@ defineExpose({
             </el-form-item>
           </el-col>
         </el-row>
-        <el-row
-          v-if="config.matchingStrategy === MatchingStrategy.MultiStage"
-          :gutter="20"
-        >
+        <el-row v-if="isMultiStage" :gutter="20">
           <el-col :span="12">
             <el-form-item label="召回候选数">
               <el-input-number
                 v-model="config.recallTopK"
                 :min="1"
-                :max="20"
+                :max="MAX_RECALL_TOP_K"
                 :step="1"
                 controls-position="right"
               />
@@ -448,7 +511,9 @@ defineExpose({
           type="info"
           :closable="false"
           show-icon
-          :title="`系统仅自动填充匹配得分大于等于 ${((config.highConfidenceThreshold ?? 0.95) * 100).toFixed(0)}% 的结果；其余命中只做 LLM 复核，不会生成新验收标准写回。`"
+          :title="isMultiStage
+            ? `系统仅自动填充匹配得分大于等于 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 的结果；其余命中只做 LLM 复核，不会生成新验收标准写回。`
+            : `单阶段模式按 Embedding 直接排序，达到 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 才会自动采用；其余命中需要人工确认或 LLM 复核。`"
         />
       </el-form>
     </div>
@@ -483,6 +548,106 @@ defineExpose({
               <el-col :span="16">
                 <span class="parallelism-hint">
                   仅对未达到当前高置信阈值的匹配结果进行语义复核，通过后才允许采用已有规格
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle" class="llm-row">
+              <el-col :span="8">
+                <el-form-item label="LLM 实体判别">
+                  <el-switch v-model="config.useLlmEntityResolution" :disabled="!allowLlm" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  仅在品牌/实体无配置时辅助判断 same、alias_same、conflict、unknown；数值和型号硬冲突仍优先。
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="实体复判候选数">
+                  <el-input-number
+                    v-model="config.llmEntityResolutionTopCandidates"
+                    :min="1"
+                    :max="MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES"
+                    :step="1"
+                    :disabled="!allowLlm || !config.useLlmEntityResolution"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  仅对前 TopM 个候选补做实体关系判别，默认 2 个，避免增加过多延迟。
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="同一实体阈值">
+                  <el-input-number
+                    v-model="config.llmEntityPositiveConfidenceThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    :disabled="!allowLlm || !config.useLlmEntityResolution"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  关系为 same 或 alias_same 且达到该阈值时，才记为正向实体证据。
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="冲突复核阈值">
+                  <el-input-number
+                    v-model="config.llmEntityConflictReviewConfidenceThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    :disabled="!allowLlm || !config.useLlmEntityResolution"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  关系为 conflict 且达到该阈值时，结果至少降级为人工确认。
+                </span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="isMultiStage" :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="冲突拒绝阈值">
+                  <el-input-number
+                    v-model="config.llmEntityConflictRejectConfidenceThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    :disabled="!allowLlm || !config.useLlmEntityResolution"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  高于该阈值的实体冲突会直接拒绝；低于该值则只提示问题并等待人工确认。
                 </span>
               </el-col>
             </el-row>
@@ -604,12 +769,6 @@ export default {
   margin-left: 8px;
   font-size: 12px;
   color: #9ca3af;
-}
-
-.strategy-tip {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #6b7280;
 }
 
 .reset-btn {

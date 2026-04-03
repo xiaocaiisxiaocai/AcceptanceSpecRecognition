@@ -19,6 +19,11 @@ public class LlmReviewRequest
     public string? BestMatchRemark { get; set; }
     public double? BaseScore { get; set; }
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
+    public string CurrentDecision { get; set; } = "manualReview";
+    public bool HasHardConflict { get; set; }
+    public List<string> EvidenceSummary { get; set; } = [];
+    public List<string> ConflictSummary { get; set; } = [];
+    public string? ReviewTrigger { get; set; }
     public int? LlmServiceId { get; set; }
     public LlmReviewScene ReviewScene { get; set; } = LlmReviewScene.MatchingReview;
 }

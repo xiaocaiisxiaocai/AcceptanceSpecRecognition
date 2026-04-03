@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
@@ -23,6 +24,7 @@ public class FileCompareController : BaseApiController
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IFileStorageService _fileStorage;
     private readonly IFileCompareService _compareService;
+    private readonly IAuthDataScopeService _authDataScopeService;
     private readonly ILogger<FileCompareController> _logger;
 
     public FileCompareController(
@@ -30,12 +32,14 @@ public class FileCompareController : BaseApiController
         DocumentServiceFactory documentServiceFactory,
         IFileStorageService fileStorage,
         IFileCompareService compareService,
+        IAuthDataScopeService authDataScopeService,
         ILogger<FileCompareController> logger)
     {
         _unitOfWork = unitOfWork;
         _documentServiceFactory = documentServiceFactory;
         _fileStorage = fileStorage;
         _compareService = compareService;
+        _authDataScopeService = authDataScopeService;
         _logger = logger;
     }
 
@@ -50,29 +54,38 @@ public class FileCompareController : BaseApiController
         IFormFile fileA,
         IFormFile fileB)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+        {
+            return Error<FileCompareUploadResponse>(401, "会话缺少用户上下文");
+        }
+
         if (fileA == null || fileA.Length == 0 || fileB == null || fileB.Length == 0)
         {
             return Error<FileCompareUploadResponse>(400, "请上传两份文件");
         }
 
-        var extA = Path.GetExtension(fileA.FileName).ToLowerInvariant();
-        var extB = Path.GetExtension(fileB.FileName).ToLowerInvariant();
-        if (extA != extB)
+        UploadedFileType fileTypeA;
+        UploadedFileType fileTypeB;
+        try
+        {
+            fileTypeA = UploadFileValidation.ValidateOfficeDocument(fileA, allowExcel: true, allowWord: true);
+            fileTypeB = UploadFileValidation.ValidateOfficeDocument(fileB, allowExcel: true, allowWord: true);
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<FileCompareUploadResponse>(400, ex.Message);
+        }
+
+        if (fileTypeA != fileTypeB)
         {
             return Error<FileCompareUploadResponse>(400, "仅支持同类型文件对比");
         }
 
-        if (extA != ".docx" && extA != ".xlsx")
-        {
-            return Error<FileCompareUploadResponse>(400, "仅支持 .docx / .xlsx 格式");
-        }
-        var fileType = extA == ".docx"
-            ? UploadedFileType.WordDocx
-            : UploadedFileType.ExcelXlsx;
         var cancellationToken = HttpContext.RequestAborted;
 
-        var respA = await SaveUploadedFileAsync(fileA, fileType, cancellationToken);
-        var respB = await SaveUploadedFileAsync(fileB, fileType, cancellationToken);
+        var respA = await SaveUploadedFileAsync(fileA, fileTypeA, scope, cancellationToken);
+        var respB = await SaveUploadedFileAsync(fileB, fileTypeA, scope, cancellationToken);
 
         return Success(new FileCompareUploadResponse
         {
@@ -89,11 +102,15 @@ public class FileCompareController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<FileComparePreviewResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<FileComparePreviewResponse>>> Preview([FromBody] FileComparePreviewRequest request)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+            return Error<FileComparePreviewResponse>(401, "会话缺少用户上下文");
+
         if (request.FileIdA <= 0 || request.FileIdB <= 0)
             return Error<FileComparePreviewResponse>(400, "文件ID不能为空");
 
-        var fileA = await _unitOfWork.WordFiles.GetByIdAsync(request.FileIdA);
-        var fileB = await _unitOfWork.WordFiles.GetByIdAsync(request.FileIdB);
+        var fileA = await GetAccessibleWordFileAsync(request.FileIdA, scope);
+        var fileB = await GetAccessibleWordFileAsync(request.FileIdB, scope);
         if (fileA == null || fileB == null)
             return Error<FileComparePreviewResponse>(400, "文件不存在");
 
@@ -113,11 +130,15 @@ public class FileCompareController : BaseApiController
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
     public async Task<IActionResult> Download([FromBody] FileComparePreviewRequest request)
     {
+        var scope = await ResolveSpecScopeAsync();
+        if (scope == null)
+            return BadRequest(ApiResponse.Error(401, "会话缺少用户上下文"));
+
         if (request.FileIdA <= 0 || request.FileIdB <= 0)
             return BadRequest(ApiResponse.Error(400, "文件ID不能为空"));
 
-        var fileA = await _unitOfWork.WordFiles.GetByIdAsync(request.FileIdA);
-        var fileB = await _unitOfWork.WordFiles.GetByIdAsync(request.FileIdB);
+        var fileA = await GetAccessibleWordFileAsync(request.FileIdA, scope);
+        var fileB = await GetAccessibleWordFileAsync(request.FileIdB, scope);
         if (fileA == null || fileB == null)
             return BadRequest(ApiResponse.Error(400, "文件不存在"));
 
@@ -139,6 +160,7 @@ public class FileCompareController : BaseApiController
     private async Task<FileUploadResponse> SaveUploadedFileAsync(
         IFormFile file,
         UploadedFileType fileType,
+        DataScopeResult scope,
         CancellationToken cancellationToken)
     {
         byte[] fileContent;
@@ -149,7 +171,11 @@ public class FileCompareController : BaseApiController
         }
 
         var fileHash = ComputeFileHash(fileContent);
-        var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(f => f.FileHash == fileHash);
+        var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(f =>
+            f.FileHash == fileHash &&
+            f.CompanyId == scope.CompanyId &&
+            f.CreatedByUserId == scope.UserId &&
+            f.OwnerOrgUnitId == scope.OrgUnitId);
         if (existingFile != null)
         {
             try
@@ -180,6 +206,7 @@ public class FileCompareController : BaseApiController
                 FileHash = existingFile.FileHash,
                 IsDuplicate = true,
                 TableCount = tableCount,
+                TableCountReady = true,
                 FileType = existingFile.FileType
             };
         }
@@ -190,6 +217,9 @@ public class FileCompareController : BaseApiController
 
         var wordFile = new WordFile
         {
+            CompanyId = scope.CompanyId,
+            CreatedByUserId = scope.UserId,
+            OwnerOrgUnitId = scope.OrgUnitId,
             FileName = file.FileName,
             FileContent = Array.Empty<byte>(),
             FilePath = filePath,
@@ -210,6 +240,7 @@ public class FileCompareController : BaseApiController
             FileHash = wordFile.FileHash,
             IsDuplicate = false,
             TableCount = newTableCount,
+            TableCountReady = true,
             FileType = wordFile.FileType
         };
     }
@@ -229,9 +260,23 @@ public class FileCompareController : BaseApiController
 
     private static string ComputeFileHash(byte[] fileContent)
     {
-        using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash(fileContent);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        return FileStorageService.ComputeSha256(fileContent);
+    }
+
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync()
+    {
+        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
+    }
+
+    private async Task<WordFile?> GetAccessibleWordFileAsync(int id, DataScopeResult scope)
+    {
+        var file = await _unitOfWork.WordFiles.GetByIdAsync(id);
+        if (file == null)
+        {
+            return null;
+        }
+
+        return WordFileDataScopeHelper.CanAccess(file, scope) ? file : null;
     }
 
     private static FileComparePreviewResponse ToPreviewResponse(FileCompareResult result)

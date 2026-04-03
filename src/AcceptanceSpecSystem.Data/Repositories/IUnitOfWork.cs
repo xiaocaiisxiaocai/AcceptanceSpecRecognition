@@ -41,19 +41,9 @@ public interface IUnitOfWork : IDisposable
     IAiServiceConfigRepository AiServiceConfigs { get; }
 
     /// <summary>
-    /// 同义词Repository
+    /// 匹配知识配置Repository。
     /// </summary>
-    ISynonymRepository Synonyms { get; }
-
-    /// <summary>
-    /// 关键字Repository
-    /// </summary>
-    IKeywordRepository Keywords { get; }
-
-    /// <summary>
-    /// 文本处理配置Repository
-    /// </summary>
-    ITextProcessingConfigRepository TextProcessingConfigs { get; }
+    IMatchingKnowledgeConfigRepository MatchingKnowledgeConfigs { get; }
 
     /// <summary>
     /// Prompt模板Repository
@@ -79,6 +69,11 @@ public interface IUnitOfWork : IDisposable
     /// 智能填充任务Repository
     /// </summary>
     IMatchingFillTaskRepository MatchingFillTasks { get; }
+
+    /// <summary>
+    /// 执行记录Repository
+    /// </summary>
+    IExecutionHistoryRecordRepository ExecutionHistoryRecords { get; }
 
     /// <summary>
     /// 保存所有更改

@@ -29,6 +29,10 @@ public sealed class AcceptanceSpecQueryOptions
 
     public string? Keyword { get; init; }
 
+    public DateTime? ImportedFrom { get; init; }
+
+    public DateTime? ImportedTo { get; init; }
+
     public int Page
     {
         get => _page;

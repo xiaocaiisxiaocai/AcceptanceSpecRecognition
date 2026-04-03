@@ -1,3 +1,4 @@
+import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
 const { VITE_HIDE_HOME } = import.meta.env;
 const Layout = () => import("@/layout/index.vue");
 
@@ -8,9 +9,9 @@ export default {
   redirect: "/dashboard",
   meta: {
     icon: "ri:home-4-line",
-    title: "首页",
+    title: getMenuTitle("home"),
     rank: 0,
-    permissions: ["menu:home"]
+    permissions: getMenuPermission("home")
   },
   children: [
     {
@@ -18,9 +19,9 @@ export default {
       name: "Dashboard",
       component: () => import("@/views/dashboard/index.vue"),
       meta: {
-        title: "仪表盘",
+        title: getPageTitle("home-dashboard"),
         icon: "ri:dashboard-3-line",
-        permissions: ["page:home:dashboard"],
+        permissions: getPagePermission("home-dashboard"),
         showLink: VITE_HIDE_HOME === "true" ? false : true
       }
     },

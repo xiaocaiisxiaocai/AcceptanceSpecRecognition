@@ -19,6 +19,7 @@ export interface FileUploadResponse {
   fileHash: string;
   isDuplicate: boolean;
   tableCount: number;
+  tableCountReady: boolean;
 }
 
 /** 表格信息 */

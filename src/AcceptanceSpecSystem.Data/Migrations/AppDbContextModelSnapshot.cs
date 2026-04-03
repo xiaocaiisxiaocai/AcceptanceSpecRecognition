@@ -97,6 +97,16 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int>("DefaultMatchingStrategy")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(2);
+
+                    b.Property<int>("DefaultRecallTopK")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(2);
+
                     b.Property<bool>("DisableThinking")
                         .HasColumnType("tinyint(1)");
 
@@ -574,7 +584,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("EmbeddingCaches");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.Keyword", b =>
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.ExecutionHistoryRecord", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -582,20 +592,74 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AdoptedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<string>("Word")
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DetailJson")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("FileCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ManualSelectedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MatchedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("NotAdoptedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SkippedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SourceFileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("SourceFileType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TaskId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("TaskType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<int>("TotalRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UnmatchedRowCount")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Word")
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("TaskId")
                         .IsUnique();
 
-                    b.ToTable("Keywords");
+                    b.HasIndex("CompanyId", "CreatedByUserId", "CreatedAt");
+
+                    b.ToTable("ExecutionHistoryRecords");
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MachineModel", b =>
@@ -662,6 +726,42 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("CompanyId", "CreatedByUserId", "CreatedAt");
 
                     b.ToTable("MatchingFillTasks");
+                });
+
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MatchingKnowledgeConfig", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ConflictPairsJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("EntityAliasesJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("FieldAliasesJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("UnitAliasesJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("UnitFactorsJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MatchingKnowledgeConfigs");
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.OrgCompany", b =>
@@ -832,53 +932,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("PromptTemplates");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SynonymGroup", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("SynonymGroups");
-                });
-
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SynonymWord", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("GroupId")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("IsStandard")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("Word")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GroupId");
-
-                    b.HasIndex("Word");
-
-                    b.ToTable("SynonymWords");
-                });
-
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SystemUser", b =>
                 {
                     b.Property<int>("Id")
@@ -936,52 +989,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("SystemUsers");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.TextProcessingConfig", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ConversionMode")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("EnableChineseConversion")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("EnableKeywordHighlight")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("EnableOkNgConversion")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("EnableSynonym")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("HighlightColorHex")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("varchar(10)");
-
-                    b.Property<string>("NgStandardFormat")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<string>("OkStandardFormat")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("TextProcessingConfigs");
-                });
-
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.WordFile", b =>
                 {
                     b.Property<int>("Id")
@@ -989,6 +996,12 @@ namespace AcceptanceSpecSystem.Data.Migrations
                         .HasColumnType("int");
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("FileContent")
                         .IsRequired()
@@ -1011,13 +1024,21 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<int>("FileType")
                         .HasColumnType("int");
 
+                    b.Property<int?>("OwnerOrgUnitId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("UploadedAt")
                         .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FileHash")
-                        .IsUnique();
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("FileHash");
+
+                    b.HasIndex("OwnerOrgUnitId");
 
                     b.ToTable("WordFiles");
                 });
@@ -1203,17 +1224,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Navigation("Parent");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SynonymWord", b =>
-                {
-                    b.HasOne("AcceptanceSpecSystem.Data.Entities.SynonymGroup", "Group")
-                        .WithMany("Words")
-                        .HasForeignKey("GroupId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Group");
-                });
-
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SystemUser", b =>
                 {
                     b.HasOne("AcceptanceSpecSystem.Data.Entities.OrgCompany", "Company")
@@ -1280,11 +1290,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.Process", b =>
                 {
                     b.Navigation("AcceptanceSpecs");
-                });
-
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SynonymGroup", b =>
-                {
-                    b.Navigation("Words");
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SystemUser", b =>

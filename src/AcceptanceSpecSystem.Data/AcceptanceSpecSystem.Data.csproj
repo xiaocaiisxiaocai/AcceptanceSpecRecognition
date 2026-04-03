@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AcceptanceSpecSystem.Core\AcceptanceSpecSystem.Core.csproj" />
+    <Compile Remove="Providers\CoreProviderAdapters.cs" />
   </ItemGroup>
 
   <ItemGroup>

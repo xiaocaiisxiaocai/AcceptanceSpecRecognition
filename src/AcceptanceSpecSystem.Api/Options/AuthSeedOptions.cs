@@ -33,11 +33,14 @@ public sealed class AuthSeedOptionsValidator : IValidateOptions<AuthSeedOptions>
     {
         var failures = new List<string>();
 
-        ValidatePassword(nameof(AuthSeedOptions.AdminPassword), options.AdminPassword, failures);
-        ValidatePassword(nameof(AuthSeedOptions.CommonPassword), options.CommonPassword, failures);
+        var isNonProductionRelaxedEnvironment =
+            _hostEnvironment.IsDevelopment() || _hostEnvironment.IsEnvironment("Testing");
 
-        if (!_hostEnvironment.IsDevelopment() && !_hostEnvironment.IsEnvironment("Testing"))
+        if (!isNonProductionRelaxedEnvironment)
         {
+            ValidatePassword(nameof(AuthSeedOptions.AdminPassword), options.AdminPassword, failures);
+            ValidatePassword(nameof(AuthSeedOptions.CommonPassword), options.CommonPassword, failures);
+
             if (string.IsNullOrWhiteSpace(options.AdminPassword))
             {
                 failures.Add($"{AuthSeedOptions.SectionName}:AdminPassword 生产环境不能为空");

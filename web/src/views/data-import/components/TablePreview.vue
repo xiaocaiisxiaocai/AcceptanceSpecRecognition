@@ -2,13 +2,28 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { getTablePreview, type ColumnMapping, type TableData } from "@/api/document";
+import {
+  normalizePreviewHeaders,
+  resolvePreviewColumnCount
+} from "./table-preview-columns";
+
+export type TablePreviewLoader = (
+  tableIndex: number,
+  options: {
+    previewRows?: number;
+    headerRowIndex?: number;
+    headerRowCount?: number;
+    dataStartRowIndex?: number;
+  }
+) => Promise<TableData>;
 
 const props = defineProps<{
-  fileId: number;
+  fileId?: number;
   tableIndex: number;
   headerRowIndex?: number;
   headerRowCount?: number;
   dataStartRowIndex?: number;
+  previewLoader?: TablePreviewLoader;
   /** 当前列映射（用于“映射预览”：把原表格映射成 项目/规格/验收/备注 四列） */
   mapping?: ColumnMapping;
 }>();
@@ -41,7 +56,13 @@ const pick = (row: string[], col?: number) => {
 
 const displayHeaders = computed(() => {
   if (!tableData.value) return [];
-  return hasAnyMapping.value ? mappedHeaders : tableData.value.headers;
+  return hasAnyMapping.value
+    ? mappedHeaders
+    : normalizePreviewHeaders({
+        headers: tableData.value.headers,
+        rows: tableData.value.rows,
+        columnCount: tableData.value.columnCount
+      });
 });
 
 const displayRows = computed(() => {
@@ -59,12 +80,22 @@ const displayRows = computed(() => {
 
 const displayColumnCount = computed(() => {
   if (!tableData.value) return 0;
-  return hasAnyMapping.value ? 4 : tableData.value.columnCount;
+  return hasAnyMapping.value
+    ? mappedHeaders.length
+    : resolvePreviewColumnCount({
+        headers: tableData.value.headers,
+        rows: tableData.value.rows,
+        columnCount: tableData.value.columnCount
+      });
 });
+
+const shouldShowHorizontalScrollHint = computed(() => displayColumnCount.value > 8);
+const previewColumnMinWidth = computed(() => (displayColumnCount.value >= 10 ? 140 : 120));
 
 // 加载表格预览
 const loadPreview = async () => {
-  if (!props.fileId || props.tableIndex === undefined) return;
+  if (props.tableIndex === undefined) return;
+  if (!props.previewLoader && !props.fileId) return;
 
   const requestId = ++latestRequestId;
   const query = {
@@ -75,7 +106,16 @@ const loadPreview = async () => {
   };
   loading.value = true;
   try {
-    const res = await getTablePreview(props.fileId, props.tableIndex, query);
+    const res: {
+      code: number;
+      data: TableData;
+      message?: string;
+    } = props.previewLoader
+      ? {
+          code: 0,
+          data: await props.previewLoader(props.tableIndex, query)
+        }
+      : await getTablePreview(props.fileId!, props.tableIndex, query);
     // 只处理最新一次请求，避免旧请求回包覆盖新配置
     if (requestId !== latestRequestId) {
       return;
@@ -99,6 +139,7 @@ const loadPreview = async () => {
 // 监听参数变化
 watch(
   () => [
+    props.previewLoader,
     props.fileId,
     props.tableIndex,
     props.headerRowIndex,
@@ -133,16 +174,21 @@ defineExpose({
         <span v-if="tableData.rows.length < tableData.totalRows" class="preview-tip">
           (显示前 {{ tableData.rows.length }} 行)
         </span>
+        <span v-if="shouldShowHorizontalScrollHint" class="preview-tip preview-tip--scroll">
+          可左右滚动查看全部列
+        </span>
       </div>
 
       <div class="table-container">
-        <el-table :data="displayRows" border stripe max-height="400" size="small">
+        <el-table :data="displayRows" border stripe :fit="false" max-height="400" size="small">
           <el-table-column
             v-for="(header, colIndex) in displayHeaders"
             :key="colIndex"
             :label="header || `列${colIndex + 1}`"
             :prop="String(colIndex)"
-            min-width="120"
+            :min-width="previewColumnMinWidth"
+            :resizable="false"
+            show-overflow-tooltip
           >
             <template #default="{ row }">
               <span class="cell-content">{{ row[colIndex] || "-" }}</span>
@@ -157,6 +203,7 @@ defineExpose({
 <style scoped>
 .table-preview {
   width: 100%;
+  min-width: 0;
 }
 
 .loading-container,
@@ -168,6 +215,7 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 .preview-info {
@@ -180,9 +228,16 @@ defineExpose({
   margin-left: 8px;
 }
 
+.preview-tip--scroll {
+  color: #2563eb;
+}
+
 .table-container {
   width: 100%;
-  overflow: auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
 }
 
 .table-preview :deep(.el-table td) {

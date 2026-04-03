@@ -1,13 +1,45 @@
 <script setup lang="ts">
 import { ref, computed, watch, onActivated, onMounted, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import FileUpload from "./components/FileUpload.vue";
-import TableSelector from "./components/TableSelector.vue";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
+import DataImportDifferenceDialog from "./components/DataImportDifferenceDialog.vue";
+import DataImportStepConfirm from "./components/DataImportStepConfirm.vue";
+import DataImportStepMapping from "./components/DataImportStepMapping.vue";
+import DataImportStepTableSelect from "./components/DataImportStepTableSelect.vue";
+import DataImportStepTarget from "./components/DataImportStepTarget.vue";
+import DataImportStepUpload from "./components/DataImportStepUpload.vue";
 import ExcelColumnMapping, {
   type ExcelSheetMapping
 } from "./components/ExcelColumnMapping.vue";
+import {
+  createDefaultExcelMapping,
+  defaultExcelMapping,
+  defaultWordMapping,
+  getExcelPreviewColumnIndexes,
+  getMissingExcelMappingFields,
+  getMissingMappingFields,
+  getPreviewCellValue,
+  getWordPreviewColumnIndexes,
+  normalizeExcelMappingByTable
+} from "./dataImport.helpers";
+import type {
+  CombinedImportResult,
+  DifferenceColumnDef,
+  DifferenceDecision,
+  ImportBatchExecutionResult,
+  ImportDuplicateAiConfig,
+  ImportErrorWithTable,
+  ImportPendingDifferenceWithTable,
+  ImportPreviewGroup,
+  ImportPreviewRow,
+  ImportSkippedRowWithTable,
+  MappingClipboard,
+  TableImportConfig
+} from "./dataImport.types";
+import { useDataImportExecution } from "./composables/useDataImportExecution";
+import { useDataImportMapping } from "./composables/useDataImportMapping";
+import { useDataImportPreviewSelection } from "./composables/useDataImportPreviewSelection";
 import {
   ColumnMappingMatchMode,
   ColumnMappingTargetField,
@@ -91,113 +123,7 @@ const selectedTableIndexes = ref<number[]>([]);
 const selectedTables = ref<TableInfo[]>([]);
 const activeTableIndex = ref<number | null>(null);
 
-type TableImportConfig = {
-  tableIndex: number;
-  tableInfo?: TableInfo;
-  wordMapping?: ColumnMappingType;
-  excelMapping?: ExcelSheetMapping;
-  previewData: TableData | null;
-};
-
-type ImportDuplicateAiConfig = Required<
-  Pick<
-    ImportDuplicateCheckOptions,
-    | "enableSemanticDuplicateCheck"
-    | "semanticTopK"
-    | "semanticMinScore"
-    | "enableLlmDuplicateReview"
-    | "llmPassScore"
-    | "highConfidenceThreshold"
-  >
-> & {
-  embeddingServiceId?: number;
-  llmServiceId?: number;
-};
-
-const defaultWordMapping = (): ColumnMappingType => ({
-  projectColumn: undefined,
-  specificationColumn: undefined,
-  acceptanceColumn: undefined,
-  remarkColumn: undefined,
-  headerRowIndex: 0,
-  dataStartRowIndex: 1
-});
-
-const defaultExcelMapping = (): ExcelSheetMapping => ({
-  projectColumn: undefined,
-  specificationColumn: undefined,
-  acceptanceColumn: undefined,
-  remarkColumn: undefined,
-  headerRowStart: 1,
-  headerRowCount: 1,
-  dataStartRow: 2
-});
-
-const normalizeExcelMappingByTable = (
-  tableInfo: TableInfo | undefined,
-  mapping?: ExcelSheetMapping
-): ExcelSheetMapping => {
-  const usedStartRow = Math.max(1, tableInfo?.usedRangeStartRow ?? 1);
-  const current = mapping ?? defaultExcelMapping();
-  const headerRowCount = Math.max(0, current.headerRowCount ?? 1);
-  const headerRowStart = Math.max(usedStartRow, current.headerRowStart || usedStartRow);
-  const minDataStart = headerRowStart + headerRowCount;
-  const dataStartRow = Math.max(minDataStart, current.dataStartRow || minDataStart);
-
-  return {
-    ...current,
-    headerRowStart,
-    headerRowCount,
-    dataStartRow
-  };
-};
-
-const createDefaultExcelMapping = (tableInfo?: TableInfo): ExcelSheetMapping => {
-  return normalizeExcelMappingByTable(tableInfo, defaultExcelMapping());
-};
-
-const getExcelPreviewOptions = (cfg: TableImportConfig) => {
-  const usedStartRow = cfg.tableInfo?.usedRangeStartRow ?? 1;
-  const m = normalizeExcelMappingByTable(cfg.tableInfo, cfg.excelMapping);
-
-  return {
-    headerRowIndex: Math.max(0, (m.headerRowStart || usedStartRow) - usedStartRow),
-    headerRowCount: Math.max(1, m.headerRowCount ?? 1),
-    dataStartRowIndex: Math.max(0, (m.dataStartRow || usedStartRow) - usedStartRow)
-  };
-};
-
-const getExcludedRowIndexes = (tableIndex: number) =>
-  excludedRowIndexMap.value[tableIndex] || [];
-
-const getExcludedRowIndexSet = (tableIndex: number) =>
-  new Set(getExcludedRowIndexes(tableIndex));
-
-const setExcludedRowIndexes = (tableIndex: number, rowIndexes: number[]) => {
-  const deduped = Array.from(
-    new Set(
-      rowIndexes
-        .filter(index => Number.isInteger(index) && index >= 0)
-        .sort((a, b) => a - b)
-    )
-  );
-
-  if (deduped.length === 0) {
-    const { [tableIndex]: _, ...rest } = excludedRowIndexMap.value;
-    excludedRowIndexMap.value = rest;
-    return;
-  }
-
-  excludedRowIndexMap.value = {
-    ...excludedRowIndexMap.value,
-    [tableIndex]: deduped
-  };
-};
-
 const tableConfigs = ref<TableImportConfig[]>([]);
-type MappingClipboard =
-  | { kind: "excel"; value: ExcelSheetMapping }
-  | { kind: "word"; value: ColumnMappingType };
 const mappingClipboard = ref<MappingClipboard | null>(null);
 const mappingClipboardSourceIndex = ref<number | null>(null);
 
@@ -218,6 +144,17 @@ const loadingMachineModels = ref(false);
 const loadingAiServices = ref(false);
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
+const {
+  importing,
+  importResult,
+  pendingImportAggregate,
+  committedImportAggregate,
+  previewSkippedRows,
+  differenceDecisionMap,
+  differenceConfirmDialogVisible
+} = useDataImportExecution();
+const { excludedRowIndexMap, importPreviewSelectionKeys } =
+  useDataImportPreviewSelection();
 const importDuplicateAiConfig = ref<ImportDuplicateAiConfig>({
   enableSemanticDuplicateCheck: false,
   embeddingServiceId: undefined,
@@ -228,55 +165,6 @@ const importDuplicateAiConfig = ref<ImportDuplicateAiConfig>({
   llmPassScore: 0.9,
   highConfidenceThreshold: 0.95
 });
-
-// 导入结果
-const importing = ref(false);
-type ImportErrorWithTable = { tableIndex: number } & ImportResult["errors"][number];
-type ImportSkippedRowWithTable = { tableIndex: number } & NonNullable<ImportResult["skippedRows"]>[number];
-type ImportPendingDifferenceWithTable = { tableIndex: number } & NonNullable<
-  ImportResult["pendingDifferences"]
->[number];
-type DifferenceDecision = "import" | "partial" | "skip";
-type CombinedImportResult = Omit<ImportResult, "errors" | "skippedRows" | "pendingDifferences"> & {
-  errors: ImportErrorWithTable[];
-  skippedRows: ImportSkippedRowWithTable[];
-  pendingDifferences: ImportPendingDifferenceWithTable[];
-};
-type ImportPreviewRow = {
-  key: string;
-  tableIndex: number;
-  rowIndex: number;
-  displayRowNumber: number;
-  project: string;
-  specification: string;
-  acceptance: string;
-  remark: string;
-};
-type ImportPreviewGroup = {
-  tableIndex: number;
-  label: string;
-  rows: ImportPreviewRow[];
-};
-type ImportBatchExecutionResult = {
-  aggregate: CombinedImportResult;
-  tableAggregates: CombinedImportResult[];
-};
-type DifferenceColumnDef = {
-  key: "project" | "specification" | "acceptance" | "remark";
-  label: string;
-  getExisting: (item: ImportPendingDifferenceWithTable) => string | null | undefined;
-  getIncoming: (item: ImportPendingDifferenceWithTable) => string | null | undefined;
-};
-const importResult = ref<CombinedImportResult | null>(null);
-const pendingImportAggregate = ref<CombinedImportResult | null>(null);
-const committedImportAggregate = ref<CombinedImportResult | null>(null);
-const previewSkippedRows = ref(false);
-const differenceDecisionMap = ref<Record<string, DifferenceDecision | undefined>>(
-  {}
-);
-const differenceConfirmDialogVisible = ref(false);
-const excludedRowIndexMap = ref<Record<number, number[]>>({});
-const importPreviewSelectionKeys = ref<string[]>([]);
 
 // 让步骤条吸顶到实际滚动容器（pure-admin 使用 el-scrollbar）
 const affixTarget = ref<string>("");
@@ -361,71 +249,17 @@ const selectedMachineModelName = computed(() => {
   );
 });
 
-const getMissingMappingFields = (m: ColumnMappingType) => {
-  const missing: string[] = [];
-  if (m.projectColumn === undefined) missing.push("项目名称列");
-  if (m.specificationColumn === undefined) missing.push("规格内容列");
-  if (m.acceptanceColumn === undefined) missing.push("验收标准列");
-  if (m.remarkColumn === undefined) missing.push("备注列");
-  return missing;
-};
-
-const getMissingExcelMappingFields = (m?: ExcelSheetMapping) => {
-  const missing: string[] = [];
-  if (!m) return ["Excel 映射未配置"];
-  if (!m.projectColumn) missing.push("项目列");
-  if (!m.specificationColumn) missing.push("规格列");
-  if (m.headerRowStart < 1) missing.push("表头起始行");
-  if (m.headerRowCount < 0) missing.push("表头行数");
-  if (m.dataStartRow < 1) missing.push("数据起始行");
-  return missing;
-};
-
-const getWordPreviewColumnIndexes = (cfg: TableImportConfig) => {
-  const mapping = cfg.wordMapping;
-  return {
-    projectColumn: mapping?.projectColumn,
-    specificationColumn: mapping?.specificationColumn,
-    acceptanceColumn: mapping?.acceptanceColumn,
-    remarkColumn: mapping?.remarkColumn
-  };
-};
-
-const getExcelPreviewColumnIndexes = (cfg: TableImportConfig) => {
-  const mapping = normalizeExcelMappingByTable(cfg.tableInfo, cfg.excelMapping);
-  const usedStartColumn = cfg.tableInfo?.usedRangeStartColumn ?? 1;
-  const toLocalColumn = (column?: number) =>
-    column && column >= usedStartColumn ? column - usedStartColumn : undefined;
-
-  return {
-    projectColumn: toLocalColumn(mapping.projectColumn),
-    specificationColumn: toLocalColumn(mapping.specificationColumn),
-    acceptanceColumn: toLocalColumn(mapping.acceptanceColumn),
-    remarkColumn: toLocalColumn(mapping.remarkColumn)
-  };
-};
-
-const getPreviewCellValue = (row: string[], columnIndex?: number) => {
-  if (columnIndex === undefined || columnIndex < 0) return "";
-  const value = row?.[columnIndex];
-  return typeof value === "string" ? value.trim() : "";
-};
-
-const validateAllTableMappings = () => {
-  const missingByTable = tableConfigs.value
-    .map(cfg => ({
-      tableIndex: cfg.tableIndex,
-      missing: isExcelFile.value
-        ? getMissingExcelMappingFields(cfg.excelMapping)
-        : getMissingMappingFields(cfg.wordMapping!)
-    }))
-    .filter(x => x.missing.length > 0);
-
-  return {
-    ok: missingByTable.length === 0,
-    missingByTable
-  };
-};
+const {
+  getExcludedRowIndexes,
+  getExcludedRowIndexSet,
+  setExcludedRowIndexes,
+  getExcelPreviewOptions,
+  validateAllTableMappings
+} = useDataImportMapping({
+  isExcelFile,
+  tableConfigs,
+  excludedRowIndexMap
+});
 
 const nextDisabled = computed(() => {
   // 步骤1（选择工作表）不置灰，点击后在 goNext 内做兜底同步，避免被状态不同步卡住
@@ -1754,83 +1588,46 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
       <!-- 步骤内容 -->
       <el-card class="step-content">
       <!-- 步骤1: 上传文件 -->
-      <div v-show="currentStep === 0" class="step-panel">
-        <h3 class="step-title">上传文件</h3>
-        <p class="step-desc">请选择包含验收规格数据的 Word（.docx）或 Excel（.xlsx）文件</p>
-        <FileUpload
-          v-if="canUploadSourceFile && canImportAny"
-          v-model="uploadedFile"
-          :accept="uploadAccept"
-          @uploaded="handleFileUploaded"
-        />
-        <el-alert
-          v-else
-          type="warning"
-          :closable="false"
-          show-icon
-          :title="uploadBlockedMessage"
-        />
-      </div>
+      <DataImportStepUpload
+        v-show="currentStep === 0"
+        v-model="uploadedFile"
+        :can-upload-source-file="canUploadSourceFile"
+        :can-import-any="canImportAny"
+        :upload-accept="uploadAccept"
+        :upload-blocked-message="uploadBlockedMessage"
+        @uploaded="handleFileUploaded"
+      />
 
       <!-- 步骤2: 选择表格 -->
-      <div v-show="currentStep === 1" class="step-panel">
-        <h3 class="step-title">{{ isExcelFile ? "选择工作表" : "选择表格" }}</h3>
-        <p class="step-desc">请选择要导入数据的{{ isExcelFile ? "工作表" : "表格" }}（可多选）</p>
-        <TableSelector
-          v-if="uploadedFile"
-          :file-id="uploadedFile.fileId"
-          :item-label="isExcelFile ? '工作表' : '表格'"
-          multiple
-          v-model="selectedTableIndexes"
-          @selected-multiple="handleTablesSelected"
-        />
-      </div>
+      <DataImportStepTableSelect
+        v-show="currentStep === 1"
+        v-model="selectedTableIndexes"
+        :uploaded-file="uploadedFile"
+        :is-excel-file="isExcelFile"
+        @selected-multiple="handleTablesSelected"
+      />
 
       <!-- 步骤3: 配置映射 -->
-      <div v-show="currentStep === 2" class="step-panel">
-        <h3 class="step-title">{{ isExcelFile ? "配置列序号" : "配置列映射" }}</h3>
-        <div class="flex items-center justify-between mb-2">
-          <p class="step-desc m-0">
-            <span v-if="!isExcelFile">
-              系统会根据“列映射规则”自动预填映射；若未命中你仍可手动调整
-            </span>
-            <span v-else>按列序号指定字段（列号 1-based：第 1 列为 A）。</span>
-          </p>
-          <div v-if="!isExcelFile" class="flex gap-2">
-            <el-button
-              size="small"
-              :loading="loadingMappingRules"
-              @click="loadMappingRules"
-              >重新加载规则</el-button
-            >
-            <el-button
-              size="small"
-              type="primary"
-              :disabled="!mappingRules.length"
-              @click="applyRulesToAll(true)"
-              >重新应用规则</el-button
-            >
-          </div>
-        </div>
-        <div v-if="uploadedFile && tableConfigs.length > 0" class="mapping-quick-actions">
-            <el-button
-              size="small"
-              @click="copyActiveMappingConfig"
-            >
-              复制当前{{ isExcelFile ? "工作表" : "表格" }}字段配置
-            </el-button>
-            <el-button
-              size="small"
-              type="primary"
-              :disabled="tableConfigs.length < 2 || !canPasteClipboard"
-              @click="pasteMappingConfigToOthers"
-            >
-              应用到其他{{ isExcelFile ? "工作表" : "表格" }}
-            </el-button>
-            <span v-if="mappingClipboardSourceIndex !== null" class="mapping-clipboard-tip">
-              已复制{{ isExcelFile ? "工作表" : "表格" }} {{ mappingClipboardSourceIndex + 1 }} 的字段配置
-            </span>
-          </div>
+      <DataImportStepMapping
+        v-show="currentStep === 2"
+        :is-excel-file="isExcelFile"
+        :uploaded-file="uploadedFile"
+        :table-configs="tableConfigs"
+        :loading-mapping-rules="loadingMappingRules"
+        :mapping-rules-length="mappingRules.length"
+        :can-paste-clipboard="canPasteClipboard"
+        :mapping-clipboard-source-index="mappingClipboardSourceIndex"
+        :active-table-index="activeTableIndex"
+        :get-excel-preview-options="getExcelPreviewOptions"
+        @reload-rules="loadMappingRules"
+        @reapply-rules="applyRulesToAll(true)"
+        @copy-mapping="copyActiveMappingConfig"
+        @paste-mapping="pasteMappingConfigToOthers"
+        @update:active-table-index="value => (activeTableIndex = value)"
+        @tab-remove="handleTabRemove"
+        @restore-tables="restoreSelectedTablesForMapping"
+        @go-prev="goPrev"
+      >
 
         <el-tabs
           v-if="uploadedFile && tableConfigs.length > 0"
@@ -1886,81 +1683,27 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
             </div>
           </el-tab-pane>
         </el-tabs>
-        <div v-else-if="uploadedFile" class="mapping-empty-state">
-          <el-empty :description="`至少需要保留一个${isExcelFile ? '工作表' : '表格'}才能继续配置映射`">
-            <el-button type="primary" @click="restoreSelectedTablesForMapping">
-              重新载入{{ isExcelFile ? "工作表" : "表格" }}
-            </el-button>
-            <el-button @click="goPrev">返回上一步</el-button>
-          </el-empty>
-        </div>
-      </div>
+      </DataImportStepMapping>
 
       <!-- 步骤4: 选择目标 -->
-      <div v-show="currentStep === 3" class="step-panel">
-        <h3 class="step-title">选择导入目标</h3>
-        <p class="step-desc">请选择数据要导入的客户、制程与机型（制程/机型可选）</p>
-
-        <el-form label-width="100px" class="target-form">
-          <el-form-item label="选择客户" required>
-            <el-select
-              v-model="selectedCustomerId"
-              placeholder="请选择客户"
-              :loading="loadingCustomers"
-              filterable
-              class="dialog-select dialog-select--320"
-              popper-class="app-select-popper"
-            >
-              <el-option
-                v-for="customer in customers"
-                :key="customer.id"
-                :label="customer.name"
-                :value="customer.id"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="选择制程">
-            <el-select
-              v-model="selectedProcessId"
-              placeholder="请选择制程（可选）"
-              :loading="loadingProcesses"
-              filterable
-              class="dialog-select dialog-select--320"
-              popper-class="app-select-popper"
-            >
-              <el-option
-                v-for="process in processes"
-                :key="process.id"
-                :label="process.name"
-                :value="process.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="选择机型">
-            <el-select
-              v-model="selectedMachineModelId"
-              placeholder="请选择机型（可选）"
-              :loading="loadingMachineModels"
-              filterable
-              class="dialog-select dialog-select--320"
-              popper-class="app-select-popper"
-            >
-              <el-option
-                v-for="model in machineModels"
-                :key="model.id"
-                :label="model.name"
-                :value="model.id"
-              />
-            </el-select>
-          </el-form-item>
-        </el-form>
-      </div>
+      <DataImportStepTarget
+        v-show="currentStep === 3"
+        :customers="customers"
+        :processes="processes"
+        :machine-models="machineModels"
+        :selected-customer-id="selectedCustomerId"
+        :selected-process-id="selectedProcessId"
+        :selected-machine-model-id="selectedMachineModelId"
+        :loading-customers="loadingCustomers"
+        :loading-processes="loadingProcesses"
+        :loading-machine-models="loadingMachineModels"
+        @update:selected-customer-id="value => (selectedCustomerId = value)"
+        @update:selected-process-id="value => (selectedProcessId = value)"
+        @update:selected-machine-model-id="value => (selectedMachineModelId = value)"
+      />
 
       <!-- 步骤5: 确认导入 -->
-      <div v-show="currentStep === 4" class="step-panel">
-        <h3 class="step-title">确认导入</h3>
-        <p class="step-desc">请确认以下导入信息</p>
+      <DataImportStepConfirm v-show="currentStep === 4" :import-result="importResult">
 
         <!-- 导入结果 -->
         <div v-if="importResult" class="import-result">
@@ -2381,7 +2124,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
             </el-button>
           </div>
         </div>
-      </div>
+      </DataImportStepConfirm>
 
       <!-- 步骤按钮 -->
       <div class="step-actions">
@@ -2401,14 +2144,8 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
         </el-button>
       </div>
 
-      <el-dialog
+      <DataImportDifferenceDialog
         v-model="differenceConfirmDialogVisible"
-        title="确认是否覆盖已有记录"
-        width="min(1100px, calc(100vw - 32px))"
-        top="6vh"
-        class="difference-dialog"
-        :close-on-click-modal="false"
-        :close-on-press-escape="false"
       >
         <div class="difference-dialog__summary">
           <el-alert
@@ -2581,7 +2318,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
             </div>
           </div>
         </template>
-      </el-dialog>
+      </DataImportDifferenceDialog>
       </el-card>
     </div>
   </div>

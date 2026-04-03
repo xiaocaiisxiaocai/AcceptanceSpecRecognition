@@ -1,8 +1,5 @@
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
-using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
-using AcceptanceSpecSystem.Core.TextProcessing.Models;
-using AcceptanceSpecSystem.Core.TextProcessing.Services;
 using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Core.Tests;
@@ -10,56 +7,7 @@ namespace AcceptanceSpecSystem.Core.Tests;
 public class CoreProviderBoundaryTests
 {
     [Fact]
-    public async Task SynonymService_ShouldCacheUsingUtcTimestamp()
-    {
-        var service = new SynonymService(new StubSynonymDataProvider(
-        [
-            new SynonymGroupModel(
-            [
-                new SynonymWordModel("治具", true),
-                new SynonymWordModel("夹具", false)
-            ])
-        ]));
-
-        var map = await service.GetWordToStandardMapAsync();
-
-        map["治具"].Should().Be("治具");
-        map["夹具"].Should().Be("治具");
-
-        var cachedAtField = typeof(SynonymService)
-            .GetField("_cachedAt", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-
-        cachedAtField.Should().NotBeNull();
-        ((DateTime)cachedAtField!.GetValue(service)!).Kind.Should().Be(DateTimeKind.Utc);
-    }
-
-    [Fact]
-    public async Task DefaultTextPreprocessingPipeline_ShouldCreateSessionFromProviderConfig()
-    {
-        var pipeline = new DefaultTextPreprocessingPipeline(
-            new StubTextProcessingConfigProvider(new TextProcessingConfigModel
-            {
-                EnableChineseConversion = false,
-                ConversionMode = ChineseConversionMode.None,
-                EnableSynonym = true,
-                EnableOkNgConversion = true,
-                OkStandardFormat = "良",
-                NgStandardFormat = "不良"
-            }),
-            new PassthroughChineseConversionService(),
-            new OkNgConversionService(),
-            new StubSynonymService(new Dictionary<string, string>
-            {
-                ["PASS"] = "OK"
-            }));
-
-        var session = await pipeline.CreateSessionAsync();
-
-        session.Process("PASS NG").Should().Be("良 不良");
-    }
-
-    [Fact]
-    public async Task AiServiceSelector_ShouldPrioritizeLocalCandidates_FromProvider()
+    public async Task AiServiceSelector_ShouldSortCandidatesByPriorityThenUpdatedTime()
     {
         var now = DateTime.UtcNow;
         var selector = new AiServiceSelector(new StubAiServiceConfigProvider(
@@ -98,60 +46,40 @@ public class CoreProviderBoundaryTests
 
         var candidates = await selector.GetCandidatesAsync(AiServicePurpose.Llm);
 
-        candidates.Select(item => item.Id).Should().Equal(2, 3, 1);
+        candidates.Select(item => item.Id).Should().Equal(1, 2, 3);
     }
 
-    private sealed class StubSynonymDataProvider : ISynonymDataProvider
+    [Fact]
+    public async Task AiServiceSelector_ShouldMovePreferredCandidateToFront()
     {
-        private readonly IReadOnlyList<SynonymGroupModel> _groups;
+        var now = DateTime.UtcNow;
+        var selector = new AiServiceSelector(new StubAiServiceConfigProvider(
+        [
+            new AiServiceConfigModel
+            {
+                Id = 1,
+                Name = "OpenAI-Cloud",
+                ServiceType = AiServiceType.OpenAI,
+                Purpose = AiServicePurpose.Llm,
+                Priority = 0,
+                LlmModel = "gpt-4.1",
+                CreatedAt = now.AddMinutes(-3)
+            },
+            new AiServiceConfigModel
+            {
+                Id = 2,
+                Name = "Moonshot",
+                ServiceType = AiServiceType.CustomOpenAICompatible,
+                Purpose = AiServicePurpose.Llm,
+                Priority = 1,
+                LlmModel = "kimi-k2-turbo-preview",
+                CreatedAt = now.AddMinutes(-2)
+            }
+        ]));
 
-        public StubSynonymDataProvider(IReadOnlyList<SynonymGroupModel> groups)
-        {
-            _groups = groups;
-        }
+        var candidates = await selector.GetCandidatesAsync(AiServicePurpose.Llm, preferredId: 2);
 
-        public Task<IReadOnlyList<SynonymGroupModel>> GetAllGroupsAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(_groups);
-        }
-    }
-
-    private sealed class StubTextProcessingConfigProvider : ITextProcessingConfigProvider
-    {
-        private readonly TextProcessingConfigModel _config;
-
-        public StubTextProcessingConfigProvider(TextProcessingConfigModel config)
-        {
-            _config = config;
-        }
-
-        public Task<TextProcessingConfigModel> GetConfigAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(_config);
-        }
-    }
-
-    private sealed class StubSynonymService : ISynonymService
-    {
-        private readonly IReadOnlyDictionary<string, string> _map;
-
-        public StubSynonymService(IReadOnlyDictionary<string, string> map)
-        {
-            _map = map;
-        }
-
-        public Task<IReadOnlyDictionary<string, string>> GetWordToStandardMapAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(_map);
-        }
-    }
-
-    private sealed class PassthroughChineseConversionService : IChineseConversionService
-    {
-        public string Convert(string text, ChineseConversionMode mode)
-        {
-            return text;
-        }
+        candidates.Select(item => item.Id).Should().Equal(2, 1);
     }
 
     private sealed class StubAiServiceConfigProvider : IAiServiceConfigProvider

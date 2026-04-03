@@ -25,4 +25,11 @@
     <ProjectReference Include="..\..\src\AcceptanceSpecSystem.Core\AcceptanceSpecSystem.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\EvidenceDrivenMatchingBaseline.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>Fixtures\EvidenceDrivenMatchingBaseline.json</TargetPath>
+    </None>
+  </ItemGroup>
+
 </Project>

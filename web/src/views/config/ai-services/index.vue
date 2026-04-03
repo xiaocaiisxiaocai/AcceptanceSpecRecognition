@@ -10,12 +10,14 @@ import {
   getAiServiceList,
   getAiServiceModels,
   testAiServiceConnection,
+  type AiServiceConnectionTestMode,
   updateAiService,
   type AiServiceConfig,
   type AiServiceModelsResult,
   type CreateAiServiceRequest,
   type UpdateAiServiceRequest
 } from "@/api/ai-service";
+import { DEFAULT_RECALL_TOP_K, MAX_RECALL_TOP_K, MatchingStrategy } from "@/api/matching";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
@@ -26,8 +28,8 @@ defineOptions({
 const loading = ref(false);
 const tableData = ref<AiServiceConfig[]>([]);
 const showAllConfigs = ref(false);
-const testingState = reactive<Record<number, boolean>>({});
-const probingState = reactive<Record<number, boolean>>({});
+const testingState = reactive<Record<string, boolean>>({});
+const probingState = reactive<Record<string, boolean>>({});
 
 const serviceTypeOptions = [
   { label: "OpenAI", value: AiServiceType.OpenAI },
@@ -40,6 +42,11 @@ const serviceTypeOptions = [
 const purposeOptions = [
   { label: "LLM", value: AiServicePurpose.Llm },
   { label: "Embedding", value: AiServicePurpose.Embedding }
+];
+
+const matchingStrategyOptions = [
+  { label: "单阶段 Embedding", value: MatchingStrategy.SingleStage },
+  { label: "多阶段证据重排", value: MatchingStrategy.MultiStage }
 ];
 
 const canCreate = computed(() => hasPerms("btn:ai-service:create"));
@@ -99,19 +106,28 @@ const formData = reactive({
   apiKey: "",
   embeddingModel: "",
   llmModel: "",
-  disableThinking: false
+  disableThinking: false,
+  defaultMatchingStrategy: MatchingStrategy.MultiStage,
+  defaultRecallTopK: DEFAULT_RECALL_TOP_K
 });
 
 const hasPurpose = (value: number, flag: AiServicePurpose) => (value & flag) === flag;
 
-const setRowLoading = (state: Record<number, boolean>, id: number, value: boolean) => {
-  if (!id) return;
-  state[id] = value;
+const setRowLoading = (
+  state: Record<string, boolean>,
+  id: string | number,
+  value: boolean
+) => {
+  if (id === null || id === undefined || id === "") return;
+  state[String(id)] = value;
 };
 
-const isRowLoading = (state: Record<number, boolean>, id?: number | null) => {
-  if (!id) return false;
-  return !!state[id];
+const isRowLoading = (
+  state: Record<string, boolean>,
+  id?: string | number | null
+) => {
+  if (id === null || id === undefined || id === "") return false;
+  return !!state[String(id)];
 };
 
 const extractErrorMessage = (error: unknown, fallback: string) => {
@@ -193,7 +209,9 @@ const handleAdd = (purpose: AiServicePurpose) => {
         apiKey: "",
         embeddingModel: purpose === AiServicePurpose.Embedding ? "nomic-embed-text" : "",
         llmModel: "",
-        disableThinking: false
+        disableThinking: false,
+        defaultMatchingStrategy: MatchingStrategy.MultiStage,
+        defaultRecallTopK: DEFAULT_RECALL_TOP_K
       });
   dialogVisible.value = true;
 };
@@ -226,7 +244,10 @@ const handleEdit = async (row: AiServiceConfig) => {
         apiKey: detail.apiKey ?? "",
         embeddingModel: detail.embeddingModel ?? "",
         llmModel: detail.llmModel ?? "",
-        disableThinking: !!detail.disableThinking
+        disableThinking: !!detail.disableThinking,
+        defaultMatchingStrategy:
+          detail.defaultMatchingStrategy ?? MatchingStrategy.MultiStage,
+        defaultRecallTopK: detail.defaultRecallTopK ?? DEFAULT_RECALL_TOP_K
       });
     } else {
       ElMessage.error(res.message || "加载配置失败");
@@ -261,22 +282,38 @@ const handleDelete = async (row: AiServiceConfig) => {
   }
 };
 
-const handleTest = async (row: AiServiceConfig) => {
+const handleTest = async (
+  row: AiServiceConfig,
+  mode: AiServiceConnectionTestMode = "quick"
+) => {
   if (!ensurePermission("btn:ai-service:test", "权限不足，无法测试AI服务配置")) {
     return;
   }
-  if (isRowLoading(testingState, row.id)) {
+  const testingKey = `${mode}-${row.id}`;
+  if (isRowLoading(testingState, testingKey)) {
     return;
   }
 
-  setRowLoading(testingState, row.id, true);
+  setRowLoading(testingState, testingKey, true);
   try {
-    const res = await testAiServiceConnection(row.id);
+    const res = await testAiServiceConnection(row.id, mode);
     if (res.code === 0) {
       const r = res.data;
-      const message = `${r.success ? "成功" : "失败"}：${r.message}（${r.elapsedMs}ms${
-        r.httpStatusCode ? `, HTTP ${r.httpStatusCode}` : ""
-      }）`;
+      const modeLabel = mode === "quick" ? "快速测试" : "完整测试";
+      const details: string[] = [`总耗时 ${r.elapsedMs}ms`];
+      if (typeof r.serviceElapsedMs === "number") {
+        details.push(`接口 ${r.serviceElapsedMs}ms`);
+      }
+      if (r.targetModel) {
+        details.push(`模型 ${r.targetModel}`);
+      }
+      if (r.hostPort) {
+        details.push(`宿主 ${r.hostPort}`);
+      }
+      if (r.httpStatusCode) {
+        details.push(`HTTP ${r.httpStatusCode}`);
+      }
+      const message = `${modeLabel}${r.success ? "成功" : "失败"}：${r.message}（${details.join("；")}）`;
       if (r.success && r.httpStatusCode && r.httpStatusCode >= 200 && r.httpStatusCode < 400) {
         ElMessage.success(message);
       } else if (r.success) {
@@ -290,7 +327,7 @@ const handleTest = async (row: AiServiceConfig) => {
   } catch (error) {
     ElMessage.error(extractErrorMessage(error, "连接测试失败"));
   } finally {
-    setRowLoading(testingState, row.id, false);
+    setRowLoading(testingState, testingKey, false);
   }
 };
 
@@ -413,7 +450,12 @@ const handleSubmit = async () => {
     endpoint: formData.endpoint?.trim() || null,
     embeddingModel,
     llmModel,
-    disableThinking: !!formData.disableThinking
+    disableThinking: !!formData.disableThinking,
+    defaultMatchingStrategy: formData.defaultMatchingStrategy,
+    defaultRecallTopK: Math.min(
+      MAX_RECALL_TOP_K,
+      Math.max(1, formData.defaultRecallTopK || DEFAULT_RECALL_TOP_K)
+    )
   };
   if (formData.purpose === AiServicePurpose.Llm) {
     basePayload.embeddingModel = null;
@@ -494,11 +536,21 @@ onMounted(loadData);
                   v-if="canTest"
                   type="warning"
                   link
-                  :loading="isRowLoading(testingState, llmConfig.id)"
-                  :disabled="isRowLoading(testingState, llmConfig.id)"
-                  @click="handleTest(llmConfig)"
+                  :loading="isRowLoading(testingState, `quick-${llmConfig.id}`)"
+                  :disabled="isRowLoading(testingState, `full-${llmConfig.id}`)"
+                  @click="handleTest(llmConfig, 'quick')"
                 >
-                  测试
+                  快速测试
+                </el-button>
+                <el-button
+                  v-if="canTest"
+                  type="warning"
+                  link
+                  :loading="isRowLoading(testingState, `full-${llmConfig.id}`)"
+                  :disabled="isRowLoading(testingState, `quick-${llmConfig.id}`)"
+                  @click="handleTest(llmConfig, 'full')"
+                >
+                  完整测试
                 </el-button>
                 <el-button
                   v-if="canProbeModels"
@@ -576,11 +628,21 @@ onMounted(loadData);
                   v-if="canTest"
                   type="warning"
                   link
-                  :loading="isRowLoading(testingState, embeddingConfig.id)"
-                  :disabled="isRowLoading(testingState, embeddingConfig.id)"
-                  @click="handleTest(embeddingConfig)"
+                  :loading="isRowLoading(testingState, `quick-${embeddingConfig.id}`)"
+                  :disabled="isRowLoading(testingState, `full-${embeddingConfig.id}`)"
+                  @click="handleTest(embeddingConfig, 'quick')"
                 >
-                  测试
+                  快速测试
+                </el-button>
+                <el-button
+                  v-if="canTest"
+                  type="warning"
+                  link
+                  :loading="isRowLoading(testingState, `full-${embeddingConfig.id}`)"
+                  :disabled="isRowLoading(testingState, `quick-${embeddingConfig.id}`)"
+                  @click="handleTest(embeddingConfig, 'full')"
+                >
+                  完整测试
                 </el-button>
                 <el-button
                   v-if="canProbeModels"
@@ -618,6 +680,20 @@ onMounted(loadData);
             <div class="config-label">Embedding 模型</div>
             <div class="config-value">{{ formatValue(embeddingConfig.embeddingModel) }}</div>
           </div>
+          <div class="config-row">
+            <div class="config-label">默认匹配策略</div>
+            <div class="config-value">
+              {{
+                embeddingConfig.defaultMatchingStrategy === MatchingStrategy.MultiStage
+                  ? "多阶段证据重排"
+                  : "单阶段 Embedding"
+              }}
+            </div>
+          </div>
+          <div class="config-row">
+            <div class="config-label">默认召回候选数</div>
+            <div class="config-value">{{ embeddingConfig.defaultRecallTopK }}</div>
+          </div>
         </div>
       </el-card>
     </div>
@@ -653,7 +729,7 @@ onMounted(loadData);
         <el-table-column
           v-if="hasActionButtons"
           label="操作"
-          width="220"
+          width="300"
           fixed="right"
         >
           <template #default="{ row }">
@@ -667,11 +743,21 @@ onMounted(loadData);
               v-if="canTest"
               type="warning"
               link
-              :loading="isRowLoading(testingState, row.id)"
-              :disabled="isRowLoading(testingState, row.id)"
-              @click="handleTest(row)"
+              :loading="isRowLoading(testingState, `quick-${row.id}`)"
+              :disabled="isRowLoading(testingState, `full-${row.id}`)"
+              @click="handleTest(row, 'quick')"
             >
-              测试
+              快速测试
+            </el-button>
+            <el-button
+              v-if="canTest"
+              type="warning"
+              link
+              :loading="isRowLoading(testingState, `full-${row.id}`)"
+              :disabled="isRowLoading(testingState, `quick-${row.id}`)"
+              @click="handleTest(row, 'full')"
+            >
+              完整测试
             </el-button>
             <el-button
               v-if="canProbeModels"
@@ -746,6 +832,31 @@ onMounted(loadData);
           required
         >
           <el-input v-model="formData.embeddingModel" />
+        </el-form-item>
+        <el-form-item
+          v-if="hasPurpose(formData.purpose, AiServicePurpose.Embedding)"
+          label="默认匹配策略"
+        >
+          <el-radio-group v-model="formData.defaultMatchingStrategy">
+            <el-radio
+              v-for="opt in matchingStrategyOptions"
+              :key="opt.value"
+              :label="opt.value"
+            >
+              {{ opt.label }}
+            </el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item
+          v-if="hasPurpose(formData.purpose, AiServicePurpose.Embedding)"
+          label="默认召回数"
+        >
+          <el-input-number
+            v-model="formData.defaultRecallTopK"
+            :min="1"
+            :max="MAX_RECALL_TOP_K"
+            controls-position="right"
+          />
         </el-form-item>
         <el-form-item
           v-if="hasPurpose(formData.purpose, AiServicePurpose.Llm)"

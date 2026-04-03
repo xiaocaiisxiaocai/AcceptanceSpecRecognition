@@ -58,7 +58,8 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
         var (_, _, _, outOfScopeSpecId) = await SeedScopedSpecsAsync();
         var fileId = await UploadWordFileAsync(
             "scope-execute.docx",
-            CreateSingleTableDocxBytes("项目", "规格", "验收", "备注", "范围项目", "范围规格", "", ""));
+            CreateSingleTableDocxBytes("项目", "规格", "验收", "备注", "范围项目", "范围规格", "", ""),
+            role: "common");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/execute");
         request.Headers.Add("X-Test-Role", "common");
@@ -458,12 +459,20 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
         await dbContext.SaveChangesAsync();
     }
 
-    private async Task<int> UploadWordFileAsync(string fileName, byte[] content)
+    private async Task<int> UploadWordFileAsync(string fileName, byte[] content, string? role = null)
     {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/documents/upload");
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            request.Headers.Add("X-Test-Role", role);
+            request.Headers.Add("X-Test-Permissions", "*:*:*");
+        }
+
         using var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(content), "file", fileName);
+        request.Content = multipart;
 
-        using var response = await _client.PostAsync("/api/documents/upload", multipart);
+        using var response = await _client.SendAsync(request);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();

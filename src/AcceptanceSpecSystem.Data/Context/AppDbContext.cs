@@ -51,24 +51,9 @@ public class AppDbContext : DbContext
     public DbSet<AiServiceConfig> AiServiceConfigs => Set<AiServiceConfig>();
 
     /// <summary>
-    /// 同义词组表
+    /// 匹配知识配置表。
     /// </summary>
-    public DbSet<SynonymGroup> SynonymGroups => Set<SynonymGroup>();
-
-    /// <summary>
-    /// 同义词表
-    /// </summary>
-    public DbSet<SynonymWord> SynonymWords => Set<SynonymWord>();
-
-    /// <summary>
-    /// 关键字表
-    /// </summary>
-    public DbSet<Keyword> Keywords => Set<Keyword>();
-
-    /// <summary>
-    /// 文本处理配置表
-    /// </summary>
-    public DbSet<TextProcessingConfig> TextProcessingConfigs => Set<TextProcessingConfig>();
+    public DbSet<MatchingKnowledgeConfig> MatchingKnowledgeConfigs => Set<MatchingKnowledgeConfig>();
 
     /// <summary>
     /// Prompt模板表
@@ -139,6 +124,11 @@ public class AppDbContext : DbContext
     /// 智能填充任务表
     /// </summary>
     public DbSet<MatchingFillTask> MatchingFillTasks => Set<MatchingFillTask>();
+
+    /// <summary>
+    /// 执行记录表
+    /// </summary>
+    public DbSet<ExecutionHistoryRecord> ExecutionHistoryRecords => Set<ExecutionHistoryRecord>();
 
     /// <summary>
     /// 默认MySQL连接字符串
@@ -277,7 +267,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.FileType).IsRequired();
             entity.Property(e => e.FileHash).IsRequired().HasMaxLength(64);
             entity.Property(e => e.FilePath).HasMaxLength(500);
-            entity.HasIndex(e => e.FileHash).IsUnique();
+            entity.HasIndex(e => e.FileHash);
+            entity.HasIndex(e => e.CompanyId);
+            entity.HasIndex(e => e.CreatedByUserId);
+            entity.HasIndex(e => e.OwnerOrgUnitId);
         });
 
         // AiServiceConfig配置
@@ -286,6 +279,8 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
             entity.HasIndex(e => e.Name).IsUnique();
+            entity.Property(e => e.DefaultMatchingStrategy).HasDefaultValue(AiServiceDefaultMatchingStrategy.MultiStage);
+            entity.Property(e => e.DefaultRecallTopK).HasDefaultValue(2);
 
             // ApiKey 加密存储（DataProtection ValueConverter）
             if (_dataProtectionProvider != null)
@@ -298,39 +293,15 @@ public class AppDbContext : DbContext
             }
         });
 
-        // SynonymGroup配置
-        modelBuilder.Entity<SynonymGroup>(entity =>
+        // MatchingKnowledgeConfig 配置
+        modelBuilder.Entity<MatchingKnowledgeConfig>(entity =>
         {
             entity.HasKey(e => e.Id);
-        });
-
-        // SynonymWord配置
-        modelBuilder.Entity<SynonymWord>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Word).IsRequired().HasMaxLength(100);
-            entity.HasIndex(e => e.Word);
-            entity.HasOne(e => e.Group)
-                  .WithMany(g => g.Words)
-                  .HasForeignKey(e => e.GroupId)
-                  .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        // Keyword配置
-        modelBuilder.Entity<Keyword>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Word).IsRequired().HasMaxLength(100);
-            entity.HasIndex(e => e.Word).IsUnique();
-        });
-
-        // TextProcessingConfig配置
-        modelBuilder.Entity<TextProcessingConfig>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.OkStandardFormat).HasMaxLength(50);
-            entity.Property(e => e.NgStandardFormat).HasMaxLength(50);
-            entity.Property(e => e.HighlightColorHex).HasMaxLength(10);
+            entity.Property(e => e.EntityAliasesJson).HasColumnType("longtext");
+            entity.Property(e => e.UnitAliasesJson).HasColumnType("longtext");
+            entity.Property(e => e.UnitFactorsJson).HasColumnType("longtext");
+            entity.Property(e => e.FieldAliasesJson).HasColumnType("longtext");
+            entity.Property(e => e.ConflictPairsJson).HasColumnType("longtext");
         });
 
         // PromptTemplate配置
@@ -539,6 +510,19 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.SourceFileId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ExecutionHistoryRecord 配置
+        modelBuilder.Entity<ExecutionHistoryRecord>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TaskId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.TaskType).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.SourceFileName).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.DetailJson).IsRequired();
+            entity.HasIndex(e => e.TaskId).IsUnique();
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => new { e.CompanyId, e.CreatedByUserId, e.CreatedAt });
         });
     }
 

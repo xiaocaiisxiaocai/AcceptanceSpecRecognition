@@ -1,3 +1,4 @@
+import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
 const Layout = () => import("@/layout/index.vue");
 
 export default {
@@ -7,9 +8,9 @@ export default {
   redirect: "/base-data/customers",
   meta: {
     icon: "ri:database-2-line",
-    title: "基础数据",
+    title: getMenuTitle("base-data"),
     rank: 1,
-    permissions: ["menu:base-data"]
+    permissions: getMenuPermission("base-data")
   },
   children: [
     {
@@ -18,8 +19,8 @@ export default {
       component: () => import("@/views/base-data/customers/index.vue"),
       meta: {
         icon: "ri:user-line",
-        title: "客户管理",
-        permissions: ["page:base-data:customers"]
+        title: getPageTitle("base-data-customers"),
+        permissions: getPagePermission("base-data-customers")
       }
     },
     {
@@ -28,8 +29,8 @@ export default {
       component: () => import("@/views/base-data/processes/index.vue"),
       meta: {
         icon: "ri:git-merge-line",
-        title: "制程管理",
-        permissions: ["page:base-data:processes"]
+        title: getPageTitle("base-data-processes"),
+        permissions: getPagePermission("base-data-processes")
       }
     },
     {
@@ -38,8 +39,8 @@ export default {
       component: () => import("@/views/base-data/machine-models/index.vue"),
       meta: {
         icon: "ri:cpu-line",
-        title: "机型管理",
-        permissions: ["page:base-data:machine-models"]
+        title: getPageTitle("base-data-machine-models"),
+        permissions: getPagePermission("base-data-machine-models")
       }
     },
     {
@@ -48,8 +49,8 @@ export default {
       component: () => import("@/views/base-data/specs/index.vue"),
       meta: {
         icon: "ri:file-list-3-line",
-        title: "验收规格",
-        permissions: ["page:base-data:specs"]
+        title: getPageTitle("base-data-specs"),
+        permissions: getPagePermission("base-data-specs")
       }
     }
   ]

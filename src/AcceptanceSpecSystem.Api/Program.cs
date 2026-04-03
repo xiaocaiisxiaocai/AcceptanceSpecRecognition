@@ -1,4 +1,5 @@
 using System.Text;
+using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Middleware;
@@ -17,6 +18,7 @@ using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -93,6 +95,10 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(fullDataProtectionKeysPath));
 
 builder.Services.AddMemoryCache();
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = UploadFileValidation.MaxAllowedFileSizeBytes * 10;
+});
 builder.Services.Configure<JwtAuthOptions>(
     builder.Configuration.GetSection(JwtAuthOptions.SectionName));
 builder.Services.Configure<AuditLogOptions>(
@@ -101,6 +107,8 @@ builder.Services.Configure<EmbeddingCacheCleanupOptions>(
     builder.Configuration.GetSection(EmbeddingCacheCleanupOptions.SectionName));
 builder.Services.Configure<AiServiceTestOptions>(
     builder.Configuration.GetSection(AiServiceTestOptions.SectionName));
+builder.Services.Configure<MatchingKnowledgeOptions>(
+    builder.Configuration.GetSection(MatchingKnowledgeOptions.SectionName));
 builder.Services.AddSingleton<IValidateOptions<AuthSeedOptions>, AuthSeedOptionsValidator>();
 builder.Services.AddOptions<AuthSeedOptions>()
     .Bind(builder.Configuration.GetSection(AuthSeedOptions.SectionName))
@@ -122,15 +130,14 @@ builder.Services.AddScoped<IAcceptanceSpecRepository, AcceptanceSpecRepository>(
 builder.Services.AddScoped<IEmbeddingCacheRepository, EmbeddingCacheRepository>();
 builder.Services.AddScoped<IWordFileRepository, WordFileRepository>();
 builder.Services.AddScoped<IAiServiceConfigRepository, AiServiceConfigRepository>();
-builder.Services.AddScoped<ISynonymRepository, SynonymRepository>();
-builder.Services.AddScoped<IKeywordRepository, KeywordRepository>();
-builder.Services.AddScoped<ITextProcessingConfigRepository, TextProcessingConfigRepository>();
+builder.Services.AddScoped<IMatchingKnowledgeConfigRepository, MatchingKnowledgeConfigRepository>();
 builder.Services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
 builder.Services.AddScoped<IColumnMappingRuleRepository, ColumnMappingRuleRepository>();
 builder.Services.AddScoped<ISystemUserRepository, SystemUserRepository>();
 builder.Services.AddScoped<IAuthRoleLookupRepository, AuthRoleLookupRepository>();
 builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 builder.Services.AddScoped<IMatchingFillTaskRepository, MatchingFillTaskRepository>();
+builder.Services.AddScoped<IExecutionHistoryRecordRepository, ExecutionHistoryRecordRepository>();
 
 // 注册UnitOfWork
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -142,37 +149,57 @@ builder.Services.AddSingleton<IAuthPasswordService, AuthPasswordService>();
 builder.Services.AddScoped<IAuthAccessService, AuthAccessService>();
 builder.Services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
 builder.Services.AddScoped<IAuthSessionValidationService, AuthSessionValidationService>();
+builder.Services.AddScoped<AuthPermissionQueryService>();
+builder.Services.AddScoped<AuthRoleAppService>();
+builder.Services.AddScoped<OrgUnitAppService>();
+builder.Services.AddScoped<SystemUserAppService>();
 builder.Services.AddScoped<SpecSemanticSearchService>();
 builder.Services.AddScoped<ImportDuplicateDetectionService>();
-builder.Services.AddScoped<MatchingWorkflowService>();
+builder.Services.AddScoped<DocumentFileAccessService>();
+builder.Services.AddScoped<DocumentTableAccessService>();
+builder.Services.AddScoped<MatchingResultWriteBackService>();
+builder.Services.AddSingleton<BatchReplySessionService>();
+builder.Services.AddScoped<BatchReplyAppService>();
+builder.Services.AddScoped<DocumentFileAppService>();
+builder.Services.AddScoped<DocumentImportAppService>();
+builder.Services.AddScoped<MatchingTaskSnapshotService>();
+builder.Services.AddScoped<MatchingWorkflowSupportService>();
+builder.Services.AddScoped<MatchingPreviewAppService>();
+builder.Services.AddScoped<MatchingLlmStreamAppService>();
+builder.Services.AddScoped<MatchingFillExecutionAppService>();
+builder.Services.AddScoped<MatchingExecutionAppService>();
+builder.Services.AddScoped<MatchingTaskAppService>();
+builder.Services.AddScoped<ExecutionHistoryAppService>();
+builder.Services.AddScoped<StrictReuseAppService>();
+builder.Services.AddScoped<MatchingKnowledgeBootstrapper>();
+builder.Services.AddScoped<MatchingKnowledgeDraftGenerationService>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
 
 // 注册文档服务
 builder.Services.AddSingleton<DocumentServiceFactory>();
 builder.Services.AddScoped<IFileCompareService, FileCompareService>();
+builder.Services.AddAcceptanceApplicationLayer();
 
 // 注册匹配服务（Semantic Kernel）
-builder.Services.AddScoped<IAiServiceConfigProvider, AiServiceConfigProvider>();
-builder.Services.AddScoped<IPromptTemplateProvider, PromptTemplateProvider>();
+builder.Services.AddScoped<IMatchingKnowledgeProvider, ConfigurationMatchingKnowledgeProvider>();
 builder.Services.AddScoped<IAiServiceSelector, AiServiceSelector>();
 builder.Services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
 builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
 builder.Services.AddSingleton<ITextSimilarityService, TextSimilarityService>();
-builder.Services.AddScoped<IMatchingService, SemanticKernelMatchingService>();
 builder.Services.AddScoped<PromptTemplateValidationService>();
 builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();
+builder.Services.AddScoped<ILlmEntityResolutionService, LlmMatchingAssistService>();
+builder.Services.AddScoped<IMatchingService>(serviceProvider => new SemanticKernelMatchingService(
+    serviceProvider.GetRequiredService<IEmbeddingService>(),
+    serviceProvider.GetRequiredService<ILogger<SemanticKernelMatchingService>>(),
+    knowledgeProvider: serviceProvider.GetRequiredService<IMatchingKnowledgeProvider>(),
+    llmEntityResolutionService: serviceProvider.GetRequiredService<ILlmEntityResolutionService>()));
+builder.Services.AddScoped<IMatchingKnowledgeDraftAiService, MatchingKnowledgeDraftAiService>();
 
-// 文本处理（Core 4.1）
-builder.Services.AddScoped<ISynonymDataProvider, SynonymDataProvider>();
-builder.Services.AddScoped<IKeywordDataProvider, KeywordDataProvider>();
-builder.Services.AddScoped<ITextProcessingConfigProvider, TextProcessingConfigProvider>();
-builder.Services.AddScoped<IChineseConversionService, OpenCcChineseConversionService>();
-builder.Services.AddScoped<IOkNgConversionService, OkNgConversionService>();
-builder.Services.AddScoped<ISynonymService, SynonymService>();
-builder.Services.AddScoped<IKeywordService, KeywordService>();
-builder.Services.AddScoped<ITextPreprocessingPipeline, DefaultTextPreprocessingPipeline>();
+// 文本处理：仅保留最小安全归一化
+builder.Services.AddScoped<ITextPreprocessingPipeline, MinimalTextPreprocessingPipeline>();
 
 var jwtOptions = builder.Configuration.GetSection(JwtAuthOptions.SectionName).Get<JwtAuthOptions>()
     ?? new JwtAuthOptions();
@@ -287,6 +314,12 @@ app.UseAuthorization();
 app.MapControllers();
 
 // 系统鉴权基础数据初始化（公司、组织、角色、权限、默认账号）
+using (var scope = app.Services.CreateScope())
+{
+    var bootstrapper = scope.ServiceProvider.GetRequiredService<MatchingKnowledgeBootstrapper>();
+    await bootstrapper.EnsureInitializedAsync();
+}
+
 await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
 
 // 健康检查端点

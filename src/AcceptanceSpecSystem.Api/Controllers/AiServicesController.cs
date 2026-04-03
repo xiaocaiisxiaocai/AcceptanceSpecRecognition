@@ -6,6 +6,7 @@ using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Options;
 using CoreAiServiceConfigModel = AcceptanceSpecSystem.Core.AI.Models.AiServiceConfigModel;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -28,22 +29,31 @@ public class AiServicesController : BaseApiController
     private readonly ISemanticKernelServiceFactory _semanticKernelFactory;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AiServicesController> _logger;
-    private readonly int _testTimeoutSeconds;
-    private readonly TimeSpan _testTimeout;
+    private readonly int _llmTestTimeoutSeconds;
+    private readonly TimeSpan _llmTestTimeout;
+    private readonly int _embeddingTestTimeoutSeconds;
+    private readonly TimeSpan _embeddingTestTimeout;
+    private readonly string _azureOpenAiApiVersion;
 
     public AiServicesController(
         IUnitOfWork unitOfWork,
         ISemanticKernelServiceFactory semanticKernelFactory,
         IHttpClientFactory httpClientFactory,
         IOptions<AiServiceTestOptions> aiServiceTestOptions,
+        IOptions<SemanticKernelOptions> semanticKernelOptions,
         ILogger<AiServicesController> logger)
     {
         _unitOfWork = unitOfWork;
         _semanticKernelFactory = semanticKernelFactory;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
-        _testTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.TimeoutSeconds, 1, 300);
-        _testTimeout = TimeSpan.FromSeconds(_testTimeoutSeconds);
+        _llmTestTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.LlmTimeoutSeconds, 1, 300);
+        _llmTestTimeout = TimeSpan.FromSeconds(_llmTestTimeoutSeconds);
+        _embeddingTestTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.EmbeddingTimeoutSeconds, 1, 300);
+        _embeddingTestTimeout = TimeSpan.FromSeconds(_embeddingTestTimeoutSeconds);
+        _azureOpenAiApiVersion = string.IsNullOrWhiteSpace(semanticKernelOptions.Value.AzureOpenAIApiVersion)
+            ? new SemanticKernelOptions().AzureOpenAIApiVersion
+            : semanticKernelOptions.Value.AzureOpenAIApiVersion.Trim();
     }
 
     /// <summary>
@@ -124,7 +134,7 @@ public class AiServicesController : BaseApiController
         var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
         if (modelError != null)
             return Error<AiServiceConfigDto>(400, modelError);
-        var endpointError = TryNormalizeEndpoint(request.Endpoint, out var normalizedEndpoint);
+        var endpointError = TryNormalizeEndpoint(request.Endpoint, request.ServiceType, out var normalizedEndpoint);
         if (endpointError != null)
             return Error<AiServiceConfigDto>(400, endpointError);
 
@@ -150,6 +160,8 @@ public class AiServicesController : BaseApiController
             EmbeddingModel = embeddingModel,
             LlmModel = llmModel,
             DisableThinking = request.DisableThinking,
+            DefaultMatchingStrategy = ToDataMatchingStrategy(request.DefaultMatchingStrategy),
+            DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -181,7 +193,7 @@ public class AiServicesController : BaseApiController
         var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
         if (modelError != null)
             return Error<AiServiceConfigDto>(400, modelError);
-        var endpointError = TryNormalizeEndpoint(request.Endpoint, out var normalizedEndpoint);
+        var endpointError = TryNormalizeEndpoint(request.Endpoint, request.ServiceType, out var normalizedEndpoint);
         if (endpointError != null)
             return Error<AiServiceConfigDto>(400, endpointError);
 
@@ -199,6 +211,8 @@ public class AiServicesController : BaseApiController
         entity.Priority = request.Priority;
         entity.Endpoint = normalizedEndpoint;
         entity.DisableThinking = request.DisableThinking;
+        entity.DefaultMatchingStrategy = ToDataMatchingStrategy(request.DefaultMatchingStrategy);
+        entity.DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK);
 
         var embeddingModel = NormalizeOptional(request.EmbeddingModel);
         var llmModel = NormalizeOptional(request.LlmModel);
@@ -246,7 +260,9 @@ public class AiServicesController : BaseApiController
     /// </summary>
     [HttpPost("{id}/test")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceTestResultDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<AiServiceTestResultDto>>> TestConnection(int id)
+    public async Task<ActionResult<ApiResponse<AiServiceTestResultDto>>> TestConnection(
+        int id,
+        [FromQuery] AiServiceConnectionTestMode mode = AiServiceConnectionTestMode.Quick)
     {
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
         if (entity == null)
@@ -262,13 +278,34 @@ public class AiServicesController : BaseApiController
             var messages = new List<string>();
             var success = true;
             IReadOnlyCollection<string>? ollamaModels = null;
+            long? serviceElapsedMs = null;
+            var isFullMode = mode == AiServiceConnectionTestMode.Full;
+            var targetModel = entity.Purpose == AiServicePurpose.Llm
+                ? NormalizeOptional(entity.LlmModel)
+                : NormalizeOptional(entity.EmbeddingModel);
+            var targetEndpoint = NormalizeOptional(entity.Endpoint);
+            var hostPort = ResolveHostPort();
 
             if (entity.Purpose.HasFlag(AiServicePurpose.Llm))
             {
+                var serviceSw = Stopwatch.StartNew();
                 try
                 {
-                    using var timeoutCts = CreateTestTimeoutTokenSource();
-                    if (entity.ServiceType == AiServiceType.Ollama)
+                    using var timeoutCts = CreateTestTimeoutTokenSource(_llmTestTimeout);
+                    if (!isFullMode)
+                    {
+                        ollamaModels ??= await FetchRemoteModelsAsync(entity, timeoutCts.Token);
+                        if (ContainsConfiguredModel(ollamaModels, entity.LlmModel))
+                        {
+                            messages.Add($"LLM: OK（快速测试，模型可见: {entity.LlmModel}）");
+                        }
+                        else
+                        {
+                            success = false;
+                            messages.Add($"LLM: 快速测试未找到已配置模型（{entity.LlmModel}）");
+                        }
+                    }
+                    else if (entity.ServiceType == AiServiceType.Ollama)
                     {
                         ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
                         if (ContainsConfiguredModel(ollamaModels, entity.LlmModel))
@@ -293,26 +330,47 @@ public class AiServicesController : BaseApiController
                 catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
                 {
                     success = false;
-                    messages.Add(BuildTimeoutMessage("LLM"));
+                    messages.Add(BuildTimeoutMessage("LLM", _llmTestTimeoutSeconds, isFullMode));
                     _logger.LogWarning(
-                        "AI服务连接测试超时: {Id} {Name}, service=LLM, timeoutSec={TimeoutSec}",
+                        "AI服务连接测试超时: {Id} {Name}, service=LLM, mode={Mode}, timeoutSec={TimeoutSec}",
                         entity.Id,
                         entity.Name,
-                        _testTimeoutSeconds);
+                        isFullMode ? "full" : "quick",
+                        _llmTestTimeoutSeconds);
                 }
                 catch (Exception ex)
                 {
                     success = false;
-                    messages.Add($"LLM: {ex.Message}");
+                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=LLM, mode={Mode}", entity.Id, entity.Name, isFullMode ? "full" : "quick");
+                    messages.Add(BuildTestFailureMessage("LLM", ex, isFullMode));
+                }
+                finally
+                {
+                    serviceSw.Stop();
+                    serviceElapsedMs = serviceSw.ElapsedMilliseconds;
                 }
             }
 
             if (entity.Purpose.HasFlag(AiServicePurpose.Embedding))
             {
+                var serviceSw = Stopwatch.StartNew();
                 try
                 {
-                    using var timeoutCts = CreateTestTimeoutTokenSource();
-                    if (entity.ServiceType == AiServiceType.Ollama)
+                    using var timeoutCts = CreateTestTimeoutTokenSource(_embeddingTestTimeout);
+                    if (!isFullMode)
+                    {
+                        ollamaModels ??= await FetchRemoteModelsAsync(entity, timeoutCts.Token);
+                        if (ContainsConfiguredModel(ollamaModels, entity.EmbeddingModel))
+                        {
+                            messages.Add($"Embedding: OK（快速测试，模型可见: {entity.EmbeddingModel}）");
+                        }
+                        else
+                        {
+                            success = false;
+                            messages.Add($"Embedding: 快速测试未找到已配置模型（{entity.EmbeddingModel}）");
+                        }
+                    }
+                    else if (entity.ServiceType == AiServiceType.Ollama)
                     {
                         ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
                         if (ContainsConfiguredModel(ollamaModels, entity.EmbeddingModel))
@@ -335,17 +393,24 @@ public class AiServicesController : BaseApiController
                 catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
                 {
                     success = false;
-                    messages.Add(BuildTimeoutMessage("Embedding"));
+                    messages.Add(BuildTimeoutMessage("Embedding", _embeddingTestTimeoutSeconds, isFullMode));
                     _logger.LogWarning(
-                        "AI服务连接测试超时: {Id} {Name}, service=Embedding, timeoutSec={TimeoutSec}",
+                        "AI服务连接测试超时: {Id} {Name}, service=Embedding, mode={Mode}, timeoutSec={TimeoutSec}",
                         entity.Id,
                         entity.Name,
-                        _testTimeoutSeconds);
+                        isFullMode ? "full" : "quick",
+                        _embeddingTestTimeoutSeconds);
                 }
                 catch (Exception ex)
                 {
                     success = false;
-                    messages.Add($"Embedding: {ex.Message}");
+                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=Embedding, mode={Mode}", entity.Id, entity.Name, isFullMode ? "full" : "quick");
+                    messages.Add(BuildTestFailureMessage("Embedding", ex, isFullMode));
+                }
+                finally
+                {
+                    serviceSw.Stop();
+                    serviceElapsedMs = serviceSw.ElapsedMilliseconds;
                 }
             }
 
@@ -355,6 +420,10 @@ public class AiServicesController : BaseApiController
                 Success = success,
                 HttpStatusCode = null,
                 ElapsedMs = sw.ElapsedMilliseconds,
+                ServiceElapsedMs = serviceElapsedMs,
+                TargetModel = targetModel,
+                TargetEndpoint = targetEndpoint,
+                HostPort = hostPort,
                 Message = messages.Count > 0 ? string.Join("; ", messages) : "未执行测试"
             });
         }
@@ -371,21 +440,49 @@ public class AiServicesController : BaseApiController
                 Success = false,
                 HttpStatusCode = null,
                 ElapsedMs = sw.ElapsedMilliseconds,
-                Message = ex.Message
+                ServiceElapsedMs = null,
+                TargetModel = entity.Purpose == AiServicePurpose.Llm
+                    ? NormalizeOptional(entity.LlmModel)
+                    : NormalizeOptional(entity.EmbeddingModel),
+                TargetEndpoint = NormalizeOptional(entity.Endpoint),
+                HostPort = ResolveHostPort(),
+                Message = "AI服务连接测试失败，请稍后重试或查看后台日志"
             }, "连接测试完成");
         }
     }
 
-    private CancellationTokenSource CreateTestTimeoutTokenSource()
+    private CancellationTokenSource CreateTestTimeoutTokenSource(TimeSpan timeout)
     {
         var cts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
-        cts.CancelAfter(_testTimeout);
+        cts.CancelAfter(timeout);
         return cts;
     }
 
-    private string BuildTimeoutMessage(string serviceName)
+    private static string BuildTimeoutMessage(string serviceName, int timeoutSeconds, bool isFullMode)
     {
-        return $"{serviceName}: 测试超时（{_testTimeoutSeconds}秒）";
+        return isFullMode
+            ? $"{serviceName}: 测试超时（{timeoutSeconds}秒）"
+            : $"{serviceName}: 快速测试超时（{timeoutSeconds}秒）";
+    }
+
+    private static string BuildTestFailureMessage(string serviceName, Exception exception, bool isFullMode)
+    {
+        var prefix = isFullMode ? serviceName : $"{serviceName}: 快速测试";
+        return IsSafeClientValidationMessage(exception.Message)
+            ? $"{prefix}: {exception.Message}"
+            : $"{prefix}: 远端接口异常，请稍后重试";
+    }
+
+    private static bool IsSafeClientValidationMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return false;
+        }
+
+        return message.Contains("Endpoint", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("ApiKey", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("模型", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ContainsConfiguredModel(IEnumerable<string> models, string? configuredModel)
@@ -395,6 +492,42 @@ public class AiServicesController : BaseApiController
 
         var expected = configuredModel.Trim();
         return models.Any(model => string.Equals(model, expected, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<IReadOnlyCollection<string>> FetchRemoteModelsAsync(
+        AiServiceConfig config,
+        CancellationToken cancellationToken)
+    {
+        return config.ServiceType switch
+        {
+            AiServiceType.OpenAI or AiServiceType.CustomOpenAICompatible or AiServiceType.LMStudio
+                => await FetchOpenAiCompatibleModelsAsync(config, cancellationToken),
+            AiServiceType.AzureOpenAI => await FetchAzureDeploymentModelsAsync(config, cancellationToken),
+            AiServiceType.Ollama => await FetchOllamaModelsAsync(config, cancellationToken),
+            _ => []
+        };
+    }
+
+    private string ResolveHostPort()
+    {
+        var hostValue = HttpContext.Request.Host.Value?.Trim();
+        if (!string.IsNullOrWhiteSpace(hostValue))
+        {
+            return hostValue;
+        }
+
+        if (HttpContext.Connection.LocalPort > 0)
+        {
+            var host = HttpContext.Connection.LocalIpAddress?.ToString();
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                host = "localhost";
+            }
+
+            return $"{host}:{HttpContext.Connection.LocalPort}";
+        }
+
+        return "unknown";
     }
 
     /// <summary>
@@ -423,6 +556,8 @@ public class AiServicesController : BaseApiController
         EmbeddingModel = c.EmbeddingModel,
         LlmModel = c.LlmModel,
         DisableThinking = c.DisableThinking,
+        DefaultMatchingStrategy = ToCoreMatchingStrategy(c.DefaultMatchingStrategy),
+        DefaultRecallTopK = c.DefaultRecallTopK,
         HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
         CreatedAt = c.CreatedAt,
         UpdatedAt = c.UpdatedAt
@@ -439,6 +574,8 @@ public class AiServicesController : BaseApiController
         EmbeddingModel = c.EmbeddingModel,
         LlmModel = c.LlmModel,
         DisableThinking = c.DisableThinking,
+        DefaultMatchingStrategy = ToCoreMatchingStrategy(c.DefaultMatchingStrategy),
+        DefaultRecallTopK = c.DefaultRecallTopK,
         HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
         ApiKey = MaskApiKey(c.ApiKey),
         CreatedAt = c.CreatedAt,
@@ -457,6 +594,24 @@ public class AiServicesController : BaseApiController
             return $"{value[..2]}***{value[^2..]}";
 
         return $"{value[..4]}***{value[^4..]}";
+    }
+
+    private static AiServiceDefaultMatchingStrategy ToDataMatchingStrategy(MatchingStrategy strategy)
+    {
+        return strategy switch
+        {
+            MatchingStrategy.MultiStage => AiServiceDefaultMatchingStrategy.MultiStage,
+            _ => AiServiceDefaultMatchingStrategy.SingleStage
+        };
+    }
+
+    private static MatchingStrategy ToCoreMatchingStrategy(AiServiceDefaultMatchingStrategy strategy)
+    {
+        return strategy switch
+        {
+            AiServiceDefaultMatchingStrategy.MultiStage => MatchingStrategy.MultiStage,
+            _ => MatchingStrategy.SingleStage
+        };
     }
 
     private async Task<AiServiceModelsResultDto> ProbeModelsAsync(AiServiceConfig config, CancellationToken cancellationToken)
@@ -497,7 +652,7 @@ public class AiServicesController : BaseApiController
             _logger.LogWarning(ex, "远端模型探测失败: {Id} {Name}", config.Id, config.Name);
             return new AiServiceModelsResultDto
             {
-                Message = $"远端模型探测失败: {ex.Message}"
+                Message = "远端模型探测失败，请稍后重试或联系管理员"
             };
         }
     }
@@ -506,7 +661,7 @@ public class AiServicesController : BaseApiController
         AiServiceConfig config,
         CancellationToken cancellationToken)
     {
-        var endpoint = NormalizeOpenAiBaseUrl(config.Endpoint!);
+        var endpoint = NormalizeOpenAiBaseUrl(config.Endpoint!, config.ServiceType);
         var url = $"{endpoint}/models";
         using var client = CreateHttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -530,8 +685,8 @@ public class AiServicesController : BaseApiController
         if (string.IsNullOrWhiteSpace(config.ApiKey))
             throw new InvalidOperationException("Azure OpenAI 需要配置 ApiKey 才能探测模型");
 
-        var endpoint = config.Endpoint!.Trim().TrimEnd('/');
-        var url = $"{endpoint}/openai/deployments?api-version=2024-02-15-preview";
+        var endpoint = AiEndpointNormalizer.NormalizeRequiredEndpoint(config.Endpoint, "Endpoint").TrimEnd('/');
+        var url = $"{endpoint}/openai/deployments?api-version={Uri.EscapeDataString(_azureOpenAiApiVersion)}";
         using var client = CreateHttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("api-key", config.ApiKey);
@@ -566,9 +721,11 @@ public class AiServicesController : BaseApiController
         return client;
     }
 
-    private static string NormalizeOpenAiBaseUrl(string endpoint)
+    private static string NormalizeOpenAiBaseUrl(string endpoint, AiServiceType serviceType)
     {
-        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
+        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(
+            endpoint,
+            allowPrivateNetwork: serviceType == AiServiceType.LMStudio).TrimEnd('/');
         if (baseUrl.EndsWith("/v1/v1", StringComparison.OrdinalIgnoreCase))
             baseUrl = baseUrl[..^3];
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
@@ -578,7 +735,9 @@ public class AiServicesController : BaseApiController
 
     private static string NormalizeOllamaBaseUrl(string endpoint)
     {
-        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
+        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(
+            endpoint,
+            allowPrivateNetwork: true).TrimEnd('/');
         if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
             baseUrl = baseUrl[..^4];
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
@@ -684,11 +843,16 @@ public class AiServicesController : BaseApiController
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private static string? TryNormalizeEndpoint(string? value, out string? normalizedEndpoint)
+    private static string? TryNormalizeEndpoint(
+        string? value,
+        AiServiceType serviceType,
+        out string? normalizedEndpoint)
     {
         try
         {
-            normalizedEndpoint = AiEndpointNormalizer.NormalizeOptionalEndpoint(value);
+            normalizedEndpoint = AiEndpointNormalizer.NormalizeOptionalEndpoint(
+                value,
+                allowPrivateNetwork: serviceType == AiServiceType.Ollama || serviceType == AiServiceType.LMStudio);
             return null;
         }
         catch (InvalidOperationException ex)

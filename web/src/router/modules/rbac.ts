@@ -1,3 +1,4 @@
+import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
 const Layout = () => import("@/layout/index.vue");
 
 export default {
@@ -7,9 +8,9 @@ export default {
   redirect: "/rbac/auth-roles",
   meta: {
     icon: "ri:shield-keyhole-line",
-    title: "权限中心",
+    title: getMenuTitle("rbac"),
     rank: 4.5,
-    permissions: ["menu:rbac"]
+    permissions: getMenuPermission("rbac")
   },
   children: [
     {
@@ -18,8 +19,8 @@ export default {
       component: () => import("@/views/config/auth-roles/index.vue"),
       meta: {
         icon: "ri:shield-user-line",
-        title: "角色管理",
-        permissions: ["page:config:auth-roles"]
+        title: getPageTitle("config-auth-roles"),
+        permissions: getPagePermission("config-auth-roles")
       }
     },
     {
@@ -28,8 +29,8 @@ export default {
       component: () => import("@/views/config/system-users/index.vue"),
       meta: {
         icon: "ri:admin-line",
-        title: "系统用户",
-        permissions: ["page:config:system-users"]
+        title: getPageTitle("config-system-users"),
+        permissions: getPagePermission("config-system-users")
       }
     },
     {
@@ -38,8 +39,8 @@ export default {
       component: () => import("@/views/config/org-units/index.vue"),
       meta: {
         icon: "ri:git-merge-line",
-        title: "组织管理",
-        permissions: ["page:config:org-units"]
+        title: getPageTitle("config-org-units"),
+        permissions: getPagePermission("config-org-units")
       }
     },
     {
@@ -48,8 +49,8 @@ export default {
       component: () => import("@/views/rbac/permissions/index.vue"),
       meta: {
         icon: "ri:key-2-line",
-        title: "权限字典",
-        permissions: ["page:rbac:permissions"]
+        title: getPageTitle("rbac-permissions"),
+        permissions: getPagePermission("rbac-permissions")
       }
     }
   ]

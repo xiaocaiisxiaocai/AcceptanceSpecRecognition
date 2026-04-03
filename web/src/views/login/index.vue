@@ -31,6 +31,7 @@ const ruleFormRef = ref<FormInstance>();
 const { dataTheme, overallStyle, dataThemeChange } = useDataThemeChange();
 dataThemeChange(overallStyle.value);
 const { title } = useNav();
+const loginLogoUrl = "/SAA.svg";
 
 const ruleForm = reactive({
   username: "",
@@ -131,7 +132,7 @@ useEventListener(document, "keydown", ({ code }) => {
     <div class="login-container">
       <div class="login-box">
         <div class="login-form">
-          <img class="avatar" src="/SAA.svg" alt="SAA" />
+          <img class="avatar" :src="loginLogoUrl" alt="SAA" />
           <Motion>
             <h2 class="outline-hidden">{{ title }}</h2>
           </Motion>

@@ -11,9 +11,11 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Route("api/matching")]
 public class MatchingPreviewController : MatchingApiControllerBase
 {
-    public MatchingPreviewController(MatchingWorkflowService workflow)
-        : base(workflow)
+    private readonly MatchingPreviewAppService _matchingPreviewAppService;
+
+    public MatchingPreviewController(MatchingPreviewAppService matchingPreviewAppService)
     {
+        _matchingPreviewAppService = matchingPreviewAppService;
     }
 
     [HttpPost("preview")]
@@ -21,7 +23,7 @@ public class MatchingPreviewController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<MatchPreviewResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<MatchPreviewResponse>>> Preview([FromBody] MatchPreviewRequest request)
     {
-        return HandleAsync(() => Workflow.PreviewAsync(User, request));
+        return HandleAsync(() => _matchingPreviewAppService.PreviewAsync(User, request));
     }
 
     [HttpPost("batch-preview")]
@@ -29,7 +31,7 @@ public class MatchingPreviewController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<BatchPreviewResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<BatchPreviewResponse>>> BatchPreview([FromBody] BatchPreviewRequest request)
     {
-        return HandleAsync(() => Workflow.BatchPreviewAsync(User, request));
+        return HandleAsync(() => _matchingPreviewAppService.BatchPreviewAsync(User, request));
     }
 
     [HttpPost("similarity")]
@@ -37,6 +39,6 @@ public class MatchingPreviewController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<SimilarityResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<SimilarityResponse>>> ComputeSimilarity([FromBody] SimilarityRequest request)
     {
-        return HandleAsync(() => Workflow.ComputeSimilarityAsync(request));
+        return HandleAsync(() => _matchingPreviewAppService.ComputeSimilarityAsync(request));
     }
 }

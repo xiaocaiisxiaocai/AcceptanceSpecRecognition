@@ -227,7 +227,9 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         if (string.IsNullOrWhiteSpace(config.Endpoint))
             return "https://api.openai.com/v1";
 
-        var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(config.Endpoint).TrimEnd('/');
+        var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(
+            config.Endpoint,
+            allowPrivateNetwork: config.ServiceType == AiServiceType.Ollama || config.ServiceType == AiServiceType.LMStudio).TrimEnd('/');
         if (config.ServiceType == AiServiceType.Ollama)
         {
             value = NormalizeOllamaBaseUrl(value);
@@ -242,7 +244,9 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
 
     private static string NormalizeOllamaBaseUrl(string endpoint)
     {
-        var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
+        var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(
+            endpoint,
+            allowPrivateNetwork: true).TrimEnd('/');
 
         if (value.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
         {

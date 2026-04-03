@@ -21,14 +21,13 @@ public class UnitOfWork : IUnitOfWork
     private IEmbeddingCacheRepository? _embeddingCaches;
     private IWordFileRepository? _wordFiles;
     private IAiServiceConfigRepository? _aiServiceConfigs;
-    private ISynonymRepository? _synonyms;
-    private IKeywordRepository? _keywords;
-    private ITextProcessingConfigRepository? _textProcessingConfigs;
+    private IMatchingKnowledgeConfigRepository? _matchingKnowledgeConfigs;
     private IPromptTemplateRepository? _promptTemplates;
     private IColumnMappingRuleRepository? _columnMappingRules;
     private ISystemUserRepository? _systemUsers;
     private IAuditLogRepository? _auditLogs;
     private IMatchingFillTaskRepository? _matchingFillTasks;
+    private IExecutionHistoryRecordRepository? _executionHistoryRecords;
 
     private bool _disposed;
 
@@ -84,19 +83,9 @@ public class UnitOfWork : IUnitOfWork
     public IAiServiceConfigRepository AiServiceConfigs => GetOrCreate(ref _aiServiceConfigs);
 
     /// <summary>
-    /// 同义词数据仓储。
+    /// 匹配知识配置数据仓储。
     /// </summary>
-    public ISynonymRepository Synonyms => GetOrCreate(ref _synonyms);
-
-    /// <summary>
-    /// 关键字数据仓储。
-    /// </summary>
-    public IKeywordRepository Keywords => GetOrCreate(ref _keywords);
-
-    /// <summary>
-    /// 文本处理配置数据仓储。
-    /// </summary>
-    public ITextProcessingConfigRepository TextProcessingConfigs => GetOrCreate(ref _textProcessingConfigs);
+    public IMatchingKnowledgeConfigRepository MatchingKnowledgeConfigs => GetOrCreate(ref _matchingKnowledgeConfigs);
 
     /// <summary>
     /// Prompt 模板数据仓储。
@@ -122,6 +111,11 @@ public class UnitOfWork : IUnitOfWork
     /// 智能填充任务仓储。
     /// </summary>
     public IMatchingFillTaskRepository MatchingFillTasks => GetOrCreate(ref _matchingFillTasks);
+
+    /// <summary>
+    /// 执行记录仓储。
+    /// </summary>
+    public IExecutionHistoryRecordRepository ExecutionHistoryRecords => GetOrCreate(ref _executionHistoryRecords);
 
     /// <summary>
     /// 保存所有更改（异步）。

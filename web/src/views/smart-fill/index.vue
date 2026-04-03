@@ -17,6 +17,8 @@ import {
   type MatchConfig as MatchConfigType,
   type MatchResult,
   type BatchTablePreviewResult,
+  DEFAULT_AMBIGUITY_MARGIN,
+  DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   defaultMatchConfig
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
@@ -27,7 +29,8 @@ import {
   ColumnMappingMatchMode,
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
-import { getToken, formatToken, hasPerms } from "@/utils/auth";
+import { hasPerms } from "@/utils/auth";
+import { authorizedFetch } from "@/utils/http";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({ name: "SmartFill" });
@@ -46,7 +49,7 @@ const uploadedFile = ref<FileUploadResponse | null>(null);
 const isExcelFile = computed(() => uploadedFile.value?.fileType === 1);
 const canUploadSourceFile = computed(() => hasPerms("btn:document:upload"));
 const canPreviewMatching = computed(() => hasPerms("btn:matching:preview-batch"));
-const canLlmStream = computed(() => hasPerms("btn:matching:llm-stream"));
+const canLlmStream = computed(() => hasPerms("btn:matching-fill:llm-stream"));
 const canExecuteFill = computed(() => hasPerms("btn:matching-fill:execute-batch"));
 const canDownloadFillResult = computed(() => hasPerms("btn:matching:download"));
 const canStrictReusePreview = computed(() => hasPerms("btn:matching:preview"));
@@ -75,6 +78,7 @@ const batchPreviewResults = ref<BatchTablePreviewResult[]>([]);
 const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
   null
 );
+const loadingUploadedFileTables = ref(false);
 const loading = ref(false);
 const llmStreaming = ref(false);
 const llmStreamController = ref<AbortController | null>(null);
@@ -142,7 +146,7 @@ const allPreviewItems = computed(() =>
 const canGoNext = computed(() => {
   switch (currentStep.value) {
     case 0:
-      return uploadedFile.value !== null;
+      return uploadedFile.value !== null && !loadingUploadedFileTables.value;
     case 1:
       return selectedTableCount.value > 0;
     case 2:
@@ -187,13 +191,20 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   batchPreviewResults.value = [];
   taskId.value = null;
   strictReuseVisible.value = false;
+  loadingUploadedFileTables.value = true;
 
   // Excel 改为手工配置，不再做自动识别；Word 仍按列映射规则自动匹配
   let tables: TableInfo[] = [];
   let rules: ColumnMappingRule[] = [];
+  let tableMetaLoaded = false;
   try {
     const tablesRes = await getFileTables(file.fileId);
-    if (tablesRes.code === 0) tables = tablesRes.data;
+    if (tablesRes.code === 0) {
+      tables = tablesRes.data;
+      tableMetaLoaded = true;
+    } else {
+      throw new Error(tablesRes.message || "获取表格列表失败");
+    }
 
     if (file.fileType !== 1) {
       const rulesRes = await getEffectiveColumnMappingRules();
@@ -201,8 +212,19 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
     }
   } catch {
     ElMessage.warning("获取表格列表失败");
-    return;
+  } finally {
+    if (uploadedFile.value?.fileId === file.fileId) {
+      uploadedFile.value = {
+        ...uploadedFile.value,
+        tableCount: tables.length,
+        tableCountReady: true
+      };
+    }
+    loadingUploadedFileTables.value = false;
   }
+
+  if (uploadedFile.value?.fileId !== file.fileId) return;
+  if (!tableMetaLoaded) return;
 
   allTables.value = tables;
 
@@ -411,7 +433,12 @@ const stopLlmStream = () => {
 };
 
 const getHighConfidenceThreshold = () =>
-  Math.min(Math.max(matchConfig.value.highConfidenceThreshold ?? 0.95, 0.5), 1);
+  Math.min(
+    Math.max(matchConfig.value.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD, 0.5),
+    1
+  );
+const getAmbiguityMargin = () =>
+  Math.min(Math.max(matchConfig.value.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN, 0), 1);
 
 const startLlmStream = async () => {
   if (!canLlmStream.value) {
@@ -432,7 +459,11 @@ const startLlmStream = async () => {
         sourceSpecification: item.sourceSpecification,
         bestMatchSpecId: item.bestMatch?.specId,
         bestMatchScore: item.bestMatch?.score,
-        scoreDetails: item.bestMatch?.scoreDetails
+        scoreDetails: item.bestMatch?.scoreDetails,
+        decision: item.bestMatch?.decision,
+        hasHardConflict: item.bestMatch?.hasHardConflict ?? false,
+        evidenceSummary: item.bestMatch?.evidenceSummary ?? [],
+        conflictSummary: item.bestMatch?.conflictSummary ?? []
       }))
   );
 
@@ -449,22 +480,18 @@ const startLlmStream = async () => {
     items: llmItems,
     config: matchConfig.value
   };
-  const token = getToken();
 
-  try {
-    const response = await fetch("/api/matching/llm-stream", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token?.accessToken
-          ? { Authorization: formatToken(token.accessToken) }
-          : {})
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
+    try {
+      const response = await authorizedFetch("/api/matching/llm-stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
 
-    if (!response.ok || !response.body) {
+      if (!response.ok || !response.body) {
       ElMessage.warning("LLM流式输出不可用，已降级");
       if (llmStreamController.value === controller) {
         llmStreamController.value = null;
@@ -567,10 +594,14 @@ const applySseUpdate = (event: string, data: any) => {
         row.bestMatch.llmReason = data.reason;
         row.bestMatch.llmCommentary = data.commentary;
         row.bestMatch.isLlmReviewed = true;
+        row.bestMatch.decision = data.decision || row.bestMatch.decision;
       }
       row.llmReviewDraft = "";
       break;
     case "review.error":
+      if (row.bestMatch) {
+        row.bestMatch.decision = data.decision || "manualReview";
+      }
       row.llmReviewError = data.message || "LLM复核失败";
       row.llmReviewDraft = "";
       break;
@@ -580,12 +611,12 @@ const applySseUpdate = (event: string, data: any) => {
 };
 
 const shouldStreamReview = (item: MatchPreviewItem) => {
-  const score = item.bestMatch?.score ?? 0;
   return (
     !!matchConfig.value.useLlmReview &&
     !!item.bestMatch?.specId &&
-    score > 0 &&
-    score < getHighConfidenceThreshold()
+    item.bestMatch.decision === "manualReview" &&
+    !item.bestMatch.hasHardConflict &&
+    !item.bestMatch.isLlmReviewed
   );
 };
 
@@ -649,7 +680,8 @@ const handleExecute = async () => {
           rowIndex: s.rowIndex,
           specId: s.specId,
           matchScore: s.matchScore,
-          llmReviewScore: s.llmReviewScore
+          llmReviewScore: s.llmReviewScore,
+          manualConfirmed: s.manualConfirmed
         }))
       };
     })
@@ -662,6 +694,7 @@ const handleExecute = async () => {
       specId?: number;
       matchScore?: number;
       llmReviewScore?: number;
+      manualConfirmed?: boolean;
     }>;
   }>;
 
@@ -733,6 +766,7 @@ const goPrev = () => {
 const handleRestart = () => {
   invalidatePendingPreview();
   stopLlmStream();
+  loadingUploadedFileTables.value = false;
   currentStep.value = 0;
   uploadedFile.value = null;
   allTables.value = [];
@@ -776,7 +810,15 @@ const handleRestart = () => {
           @uploaded="handleFileUploaded"
         />
         <el-alert
-          v-else
+          v-if="canUploadSourceFile && uploadedFile && loadingUploadedFileTables"
+          type="info"
+          :closable="false"
+          show-icon
+          title="正在读取表格结构，请稍候"
+          class="upload-meta-alert"
+        />
+        <el-alert
+          v-if="!canUploadSourceFile"
           type="warning"
           :closable="false"
           show-icon
@@ -848,6 +890,7 @@ const handleRestart = () => {
           :results="batchPreviewResults"
           :loading="loading"
           :high-confidence-threshold="getHighConfidenceThreshold()"
+          :ambiguity-margin="getAmbiguityMargin()"
           :llm-streaming="llmStreaming"
           @select="handleSelect"
           @show-detail="handleShowDetail"
@@ -924,7 +967,12 @@ const handleRestart = () => {
     </el-card>
 
     <!-- 详情弹窗 -->
-    <ScoreDetailDialog v-model:visible="detailVisible" :item="detailItem" />
+    <ScoreDetailDialog
+      v-model:visible="detailVisible"
+      :item="detailItem"
+      :ambiguity-margin="getAmbiguityMargin()"
+      :high-confidence-threshold="getHighConfidenceThreshold()"
+    />
     <StrictReuseDialog
       v-if="taskId && uploadedFile"
       v-model:visible="strictReuseVisible"
@@ -969,6 +1017,10 @@ const handleRestart = () => {
   font-size: 14px;
   color: #6b7280;
   margin-bottom: 24px;
+}
+
+.upload-meta-alert {
+  margin-top: 16px;
 }
 
 .action-bar {

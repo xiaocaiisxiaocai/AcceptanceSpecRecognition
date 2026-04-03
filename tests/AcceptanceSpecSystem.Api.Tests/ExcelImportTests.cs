@@ -116,6 +116,68 @@ public class ExcelImportTests : IClassFixture<ApiWebApplicationFactory>
         importJson.Data.GetProperty("failedCount").GetInt32().Should().Be(0);
     }
 
+    [Fact]
+    public async Task Import_WithCleanupSourceFileEnabled_ShouldKeepUploadedFileReadable()
+    {
+        var customerId = await CreateCustomerAsync("测试客户-Excel-Cleanup");
+        var processId = await CreateProcessAsync("测试制程-Excel-Cleanup");
+
+        byte[] xlsxBytes;
+        using (var wb = new XLWorkbook())
+        {
+            var ws = wb.AddWorksheet("Sheet-A");
+            ws.Cell(1, 1).Value = "项目";
+            ws.Cell(1, 2).Value = "规格内容";
+            ws.Cell(1, 3).Value = "验收标准";
+            ws.Cell(1, 4).Value = "备注";
+            ws.Cell(2, 1).Value = "P1";
+            ws.Cell(2, 2).Value = "S1";
+            ws.Cell(2, 3).Value = "A1";
+            ws.Cell(2, 4).Value = "R1";
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            xlsxBytes = ms.ToArray();
+        }
+
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(xlsxBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", "cleanup-source.xlsx");
+
+        var uploadResp = await _client.PostAsync("/api/documents/upload", content);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
+
+        var importPayload = new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId,
+            processId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            cleanupSourceFile = true
+        };
+
+        var importResp = await _client.PostAsync(
+            "/api/documents/excel/import",
+            new StringContent(JsonSerializer.Serialize(importPayload), Encoding.UTF8, "application/json"));
+        importResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var tablesResp = await _client.GetAsync($"/api/documents/{fileId}/tables");
+        tablesResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var tablesJson = await tablesResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        tablesJson.Code.Should().Be(0);
+        tablesJson.Data.EnumerateArray().Should().NotBeEmpty();
+    }
+
     private async Task<int> CreateCustomerAsync(string name)
     {
         var payload = new { name };
@@ -140,4 +202,3 @@ public class ExcelImportTests : IClassFixture<ApiWebApplicationFactory>
         return json.Data.GetProperty("id").GetInt32();
     }
 }
-

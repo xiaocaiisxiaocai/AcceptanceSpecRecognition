@@ -227,8 +227,8 @@ const handleCreate = async () => {
     ElMessage.warning("用户名仅支持字母、数字、点、下划线、中划线，长度3-64");
     return;
   }
-  if (!password || password.length < 8) {
-    ElMessage.warning("密码长度至少8位");
+  if (!password || password.length < 4) {
+    ElMessage.warning("密码长度至少4位");
     return;
   }
   if (!nickname) {
@@ -319,8 +319,8 @@ const openResetPasswordDialog = (row: SystemUser) => {
 const handleResetPassword = async () => {
   const newPassword = resetPasswordForm.newPassword;
   const confirmPassword = resetPasswordForm.confirmPassword;
-  if (!newPassword || newPassword.length < 8) {
-    ElMessage.warning("新密码长度至少8位");
+  if (!newPassword || newPassword.length < 4) {
+    ElMessage.warning("新密码长度至少4位");
     return;
   }
   if (newPassword !== confirmPassword) {
@@ -546,7 +546,7 @@ onMounted(initPage);
             v-model="createForm.password"
             type="password"
             show-password
-            placeholder="至少8位"
+            placeholder="至少4位"
           />
         </el-form-item>
         <el-form-item label="昵称" required>
@@ -656,7 +656,7 @@ onMounted(initPage);
             v-model="resetPasswordForm.newPassword"
             type="password"
             show-password
-            placeholder="至少8位"
+            placeholder="至少4位"
           />
         </el-form-item>
         <el-form-item label="确认密码" required>

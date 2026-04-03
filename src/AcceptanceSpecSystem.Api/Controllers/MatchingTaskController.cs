@@ -10,9 +10,11 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Route("api/matching")]
 public class MatchingTaskController : MatchingApiControllerBase
 {
-    public MatchingTaskController(MatchingWorkflowService workflow)
-        : base(workflow)
+    private readonly MatchingTaskAppService _matchingTaskAppService;
+
+    public MatchingTaskController(MatchingTaskAppService matchingTaskAppService)
     {
+        _matchingTaskAppService = matchingTaskAppService;
     }
 
     [HttpGet("download/{taskId:regex(^[[a-f0-9]]{{32}}$)}")]
@@ -20,6 +22,6 @@ public class MatchingTaskController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public Task<IActionResult> Download(string taskId)
     {
-        return HandleFileAsync(() => Workflow.DownloadAsync(User, taskId));
+        return HandleFileAsync(() => _matchingTaskAppService.DownloadAsync(User, taskId));
     }
 }

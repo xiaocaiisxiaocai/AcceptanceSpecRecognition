@@ -129,11 +129,7 @@ public class SemanticKernelMatchingServiceTieBreakTests
                     Specification = "规格A"
                 }
             },
-            new MatchingConfig
-            {
-                MatchingStrategy = MatchingStrategy.SingleStage,
-                MinScoreThreshold = 0.0
-            });
+            new MatchingConfig { MinScoreThreshold = 0.0 });
 
         result.Results.Should().HaveCount(1);
         result.Results[0].TopCandidates.Should().HaveCount(3);
@@ -144,6 +140,55 @@ public class SemanticKernelMatchingServiceTieBreakTests
             .Should()
             .ContainInOrder(1, 2, 3);
         result.Results[0].TopCandidates[0].ScoreDetails.Should().ContainKey("Embedding");
+    }
+
+    [Fact]
+    public async Task BatchMatch_DefaultStrategy_ShouldUseSingleStageEmbeddingSelection()
+    {
+        var source = new MatchSource
+        {
+            Project = "收板模式",
+            Specification = "速度 100 mm/s"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 1,
+                Project = "收板模式",
+                Specification = "速度 100 mm/s",
+                Acceptance = "SAFE",
+                Embedding = new[] { 0.90f, 0.10f }
+            },
+            new()
+            {
+                SpecId = 2,
+                Project = "投板模式",
+                Specification = "速度 100 mm/s",
+                Acceptance = "RISKY",
+                Embedding = new[] { 0.95f, 0.05f }
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new SourceOnlyEmbeddingService(source.CombinedText, new[] { 1f, 0f }),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.0
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(2);
+        result.Results[0].MatchingStrategy.Should().Be(MatchingStrategy.SingleStage);
+        result.Results[0].RecalledCandidateCount.Should().Be(1);
+        result.Results[0].IsAmbiguous.Should().BeFalse();
+        result.Results[0].RerankSummary.Should().BeNull();
     }
 
     [Fact]
@@ -179,16 +224,7 @@ public class SemanticKernelMatchingServiceTieBreakTests
             new SourceOnlyEmbeddingService(source.CombinedText, new[] { 1f, 0f }),
             NullLogger<SemanticKernelMatchingService>.Instance);
 
-        var singleStage = await service.BatchMatchAsync(
-            [source],
-            candidates,
-            new MatchingConfig
-            {
-                MatchingStrategy = MatchingStrategy.SingleStage,
-                MinScoreThreshold = 0.0
-            });
-
-        var multiStage = await service.BatchMatchAsync(
+        var result = await service.BatchMatchAsync(
             [source],
             candidates,
             new MatchingConfig
@@ -199,15 +235,12 @@ public class SemanticKernelMatchingServiceTieBreakTests
                 AmbiguityMargin = 0.01
             });
 
-        singleStage.Results.Should().HaveCount(1);
-        singleStage.Results[0].MatchedSpecId.Should().Be(2);
-
-        multiStage.Results.Should().HaveCount(1);
-        multiStage.Results[0].MatchedSpecId.Should().Be(1);
-        multiStage.Results[0].MatchingStrategy.Should().Be(MatchingStrategy.MultiStage);
-        multiStage.Results[0].RecalledCandidateCount.Should().Be(2);
-        multiStage.Results[0].IsAmbiguous.Should().BeFalse();
-        multiStage.Results[0].RerankSummary.Should().NotBeNullOrWhiteSpace();
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(1);
+        result.Results[0].MatchingStrategy.Should().Be(MatchingStrategy.MultiStage);
+        result.Results[0].RecalledCandidateCount.Should().Be(2);
+        result.Results[0].IsAmbiguous.Should().BeFalse();
+        result.Results[0].RerankSummary.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]

@@ -6,9 +6,39 @@ namespace AcceptanceSpecSystem.Core.Matching.Models;
 public static class MatchingThresholds
 {
     /// <summary>
+    /// 默认最小匹配阈值
+    /// </summary>
+    public const double DefaultMinScoreThreshold = 0.90;
+
+    /// <summary>
     /// 默认高置信自动采用阈值
     /// </summary>
-    public const double DefaultHighConfidenceScore = 0.95;
+    public const double DefaultHighConfidenceScore = 0.98;
+
+    /// <summary>
+    /// 默认召回候选数
+    /// </summary>
+    public const int DefaultRecallTopK = 2;
+
+    /// <summary>
+    /// 召回候选数上限
+    /// </summary>
+    public const int MaxRecallTopK = 3;
+
+    /// <summary>
+    /// 默认歧义分差阈值
+    /// </summary>
+    public const double DefaultAmbiguityMargin = 0.02;
+
+    /// <summary>
+    /// 默认实体复判候选数
+    /// </summary>
+    public const int DefaultLlmEntityResolutionTopCandidates = 2;
+
+    /// <summary>
+    /// 实体复判候选数上限
+    /// </summary>
+    public const int MaxLlmEntityResolutionTopCandidates = 3;
 
     /// <summary>
     /// 中置信度下限
@@ -19,6 +49,17 @@ public static class MatchingThresholds
     /// LLM 复核通过阈值（0~100）
     /// </summary>
     public const double LlmReviewPassScore = 90;
+
+    /// <summary>
+    /// 归一化高置信阈值配置。
+    /// </summary>
+    public static double NormalizeHighConfidenceThreshold(double? threshold)
+    {
+        return Math.Clamp(
+            threshold ?? DefaultHighConfidenceScore,
+            0.5,
+            1);
+    }
 }
 
 /// <summary>
@@ -48,12 +89,12 @@ public class MatchSource
 public enum MatchingStrategy
 {
     /// <summary>
-    /// 单阶段匹配（当前默认行为）
+    /// 单阶段匹配（仅按 Embedding 排序）
     /// </summary>
     SingleStage = 1,
 
     /// <summary>
-    /// 多阶段匹配（TopK召回 + 规则重排）
+    /// 多阶段匹配（Embedding 召回 + 证据重排 + 门禁决策）
     /// </summary>
     MultiStage = 2
 }
@@ -114,6 +155,16 @@ public class MatchResult
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
 
     /// <summary>
+    /// 结构化匹配证据
+    /// </summary>
+    public MatchEvidence Evidence { get; set; } = new();
+
+    /// <summary>
+    /// 结构化问题列表
+    /// </summary>
+    public List<MatchIssue> Issues { get; set; } = [];
+
+    /// <summary>
     /// 用于详情展示的Top候选列表（含Top1）
     /// </summary>
     public List<MatchCandidateSnapshot> TopCandidates { get; set; } = [];
@@ -164,21 +215,36 @@ public class MatchResult
     public bool IsLlmReviewed => LlmScore.HasValue;
 
     /// <summary>
+    /// 最终决策
+    /// </summary>
+    public MatchDecision Decision { get; set; } = MatchDecision.AutoApply;
+
+    /// <summary>
+    /// 本次匹配使用的高置信阈值
+    /// </summary>
+    public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
+
+    /// <summary>
     /// 是否为高置信度匹配
     /// </summary>
-    public bool IsHighConfidence => Score >= MatchingThresholds.DefaultHighConfidenceScore;
+    public bool IsHighConfidence =>
+        Decision == MatchDecision.AutoApply &&
+        Score >= HighConfidenceThreshold;
 
     /// <summary>
     /// 是否为中置信度匹配
     /// </summary>
     public bool IsMediumConfidence =>
+        Decision == MatchDecision.AutoApply &&
         Score >= MatchingThresholds.MediumConfidenceScore &&
-        Score < MatchingThresholds.DefaultHighConfidenceScore;
+        Score < HighConfidenceThreshold;
 
     /// <summary>
     /// 是否为低置信度匹配
     /// </summary>
-    public bool IsLowConfidence => Score < MatchingThresholds.MediumConfidenceScore;
+    public bool IsLowConfidence =>
+        Decision == MatchDecision.AutoApply &&
+        Score < MatchingThresholds.MediumConfidenceScore;
 
     /// <summary>
     /// 是否为降级结果（Embedding 不可用时回退到文本相似度）
@@ -240,6 +306,16 @@ public class MatchCandidateSnapshot
     /// 各算法得分详情
     /// </summary>
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
+
+    /// <summary>
+    /// 当前候选的结构化证据
+    /// </summary>
+    public MatchEvidence Evidence { get; set; } = new();
+
+    /// <summary>
+    /// 当前候选的结构化问题列表
+    /// </summary>
+    public List<MatchIssue> Issues { get; set; } = [];
 
     /// <summary>
     /// 重排摘要（多阶段时可用）
@@ -311,22 +387,47 @@ public class MatchingConfig
     /// <summary>
     /// 最小匹配阈值
     /// </summary>
-    public double MinScoreThreshold { get; set; } = 0.3;
+    public double MinScoreThreshold { get; set; } = MatchingThresholds.DefaultMinScoreThreshold;
 
     /// <summary>
     /// 多阶段模式下第一阶段召回数量
     /// </summary>
-    public int RecallTopK { get; set; } = 5;
+    public int RecallTopK { get; set; } = MatchingThresholds.DefaultRecallTopK;
 
     /// <summary>
     /// 多阶段模式下的歧义分差阈值
     /// </summary>
-    public double AmbiguityMargin { get; set; } = 0.03;
+    public double AmbiguityMargin { get; set; } = MatchingThresholds.DefaultAmbiguityMargin;
 
     /// <summary>
     /// 高置信自动采用阈值
     /// </summary>
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
+
+    /// <summary>
+    /// 是否启用 LLM 实体判别
+    /// </summary>
+    public bool UseLlmEntityResolution { get; set; } = false;
+
+    /// <summary>
+    /// 启用实体判别时参与复判的候选数量
+    /// </summary>
+    public int LlmEntityResolutionTopCandidates { get; set; } = MatchingThresholds.DefaultLlmEntityResolutionTopCandidates;
+
+    /// <summary>
+    /// 判定为同一实体所需的最低置信度
+    /// </summary>
+    public double LlmEntityPositiveConfidenceThreshold { get; set; } = 0.85;
+
+    /// <summary>
+    /// 判定为实体冲突并降级人工复核的最低置信度
+    /// </summary>
+    public double LlmEntityConflictReviewConfidenceThreshold { get; set; } = 0.7;
+
+    /// <summary>
+    /// 判定为实体冲突并直接拒绝的最低置信度
+    /// </summary>
+    public double LlmEntityConflictRejectConfidenceThreshold { get; set; } = 0.9;
 
     /// <summary>
     /// 是否启用 LLM 复核

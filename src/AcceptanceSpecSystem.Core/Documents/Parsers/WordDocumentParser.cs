@@ -74,7 +74,7 @@ public class WordDocumentParser : IDocumentParser
             var tables = new List<TableInfo>();
 
             using var doc = WordprocessingDocument.Open(stream, false);
-            var body = doc.MainDocumentPart?.Document.Body;
+            var body = GetDocumentBody(doc);
             if (body == null)
                 return (IReadOnlyList<TableInfo>)tables;
 
@@ -116,9 +116,7 @@ public class WordDocumentParser : IDocumentParser
         return Task.Run(() =>
         {
             using var doc = WordprocessingDocument.Open(stream, false);
-            var body = doc.MainDocumentPart?.Document.Body;
-            if (body == null)
-                throw new InvalidOperationException("文档为空或格式无效");
+            var body = GetRequiredDocumentBody(doc);
 
             var tables = GetTopLevelTables(body);
             if (tableIndex < 0 || tableIndex >= tables.Count)
@@ -141,7 +139,7 @@ public class WordDocumentParser : IDocumentParser
             var result = new List<TableData>();
 
             using var doc = WordprocessingDocument.Open(stream, false);
-            var body = doc.MainDocumentPart?.Document.Body;
+            var body = GetDocumentBody(doc);
             if (body == null)
                 return (IReadOnlyList<TableData>)result;
 
@@ -793,5 +791,15 @@ public class WordDocumentParser : IDocumentParser
         numId = (int)np.NumberingId.Val.Value;
         ilvl = (int)(np.NumberingLevelReference?.Val?.Value ?? 0);
         return true;
+    }
+
+    private static Body? GetDocumentBody(WordprocessingDocument document)
+    {
+        return document.MainDocumentPart?.Document?.Body;
+    }
+
+    private static Body GetRequiredDocumentBody(WordprocessingDocument document)
+    {
+        return GetDocumentBody(document) ?? throw new InvalidOperationException("文档为空或格式无效");
     }
 }

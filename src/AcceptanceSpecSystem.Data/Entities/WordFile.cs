@@ -11,6 +11,21 @@ public class WordFile
     public int Id { get; set; }
 
     /// <summary>
+    /// 所属公司ID
+    /// </summary>
+    public int? CompanyId { get; set; }
+
+    /// <summary>
+    /// 上传用户ID
+    /// </summary>
+    public int? CreatedByUserId { get; set; }
+
+    /// <summary>
+    /// 上传时所属组织ID
+    /// </summary>
+    public int? OwnerOrgUnitId { get; set; }
+
+    /// <summary>
     /// 原始文件名
     /// </summary>
     public string FileName { get; set; } = string.Empty;

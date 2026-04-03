@@ -43,6 +43,8 @@ export interface SpecListRequest extends PagedRequest {
   machineModelId?: number;
   processIdIsNull?: boolean;
   machineModelIdIsNull?: boolean;
+  importedFrom?: string;
+  importedTo?: string;
 }
 
 /** 验收规格分组汇总 */

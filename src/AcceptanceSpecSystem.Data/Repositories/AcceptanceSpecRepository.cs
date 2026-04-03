@@ -250,6 +250,16 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
                 (spec.Remark != null && spec.Remark.Contains(keyword)));
         }
 
+        if (options.ImportedFrom.HasValue)
+        {
+            query = query.Where(spec => spec.ImportedAt >= options.ImportedFrom.Value);
+        }
+
+        if (options.ImportedTo.HasValue)
+        {
+            query = query.Where(spec => spec.ImportedAt <= options.ImportedTo.Value);
+        }
+
         return query;
     }
 }

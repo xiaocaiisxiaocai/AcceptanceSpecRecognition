@@ -56,6 +56,16 @@ public class AiServiceConfig
     public bool DisableThinking { get; set; }
 
     /// <summary>
+    /// 该服务对应的默认匹配策略（主要供 Embedding 服务使用）
+    /// </summary>
+    public AiServiceDefaultMatchingStrategy DefaultMatchingStrategy { get; set; } = AiServiceDefaultMatchingStrategy.MultiStage;
+
+    /// <summary>
+    /// 该服务对应的默认召回候选数（主要供 Embedding 服务使用）
+    /// </summary>
+    public int DefaultRecallTopK { get; set; } = 2;
+
+    /// <summary>
     /// 创建时间
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

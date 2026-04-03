@@ -104,7 +104,7 @@ public class MatchConfigDto
     /// <summary>
     /// 匹配策略
     /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
+    public MatchingStrategy? MatchingStrategy { get; set; }
 
     /// <summary>
     /// 选定的 Embedding 服务ID（为空则自动选择）
@@ -119,22 +119,47 @@ public class MatchConfigDto
     /// <summary>
     /// 最小匹配阈值
     /// </summary>
-    public double MinScoreThreshold { get; set; } = 0.3;
+    public double MinScoreThreshold { get; set; } = MatchingThresholds.DefaultMinScoreThreshold;
 
     /// <summary>
     /// 多阶段模式下第一阶段召回数量
     /// </summary>
-    public int RecallTopK { get; set; } = 5;
+    public int? RecallTopK { get; set; }
 
     /// <summary>
     /// 多阶段模式下的歧义分差阈值
     /// </summary>
-    public double AmbiguityMargin { get; set; } = 0.03;
+    public double AmbiguityMargin { get; set; } = MatchingThresholds.DefaultAmbiguityMargin;
 
     /// <summary>
     /// 高置信自动采用阈值
     /// </summary>
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
+
+    /// <summary>
+    /// 是否启用 LLM 实体判别
+    /// </summary>
+    public bool UseLlmEntityResolution { get; set; } = false;
+
+    /// <summary>
+    /// 启用实体判别时参与复判的候选数量
+    /// </summary>
+    public int LlmEntityResolutionTopCandidates { get; set; } = MatchingThresholds.DefaultLlmEntityResolutionTopCandidates;
+
+    /// <summary>
+    /// 判定为同一实体所需的最低置信度
+    /// </summary>
+    public double LlmEntityPositiveConfidenceThreshold { get; set; } = 0.85;
+
+    /// <summary>
+    /// 判定为实体冲突并降级人工复核的最低置信度
+    /// </summary>
+    public double LlmEntityConflictReviewConfidenceThreshold { get; set; } = 0.7;
+
+    /// <summary>
+    /// 判定为实体冲突并直接拒绝的最低置信度
+    /// </summary>
+    public double LlmEntityConflictRejectConfidenceThreshold { get; set; } = 0.9;
 
     /// <summary>
     /// 是否启用LLM复核
@@ -310,6 +335,36 @@ public class MatchResultDto
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
 
     /// <summary>
+    /// 最终决策
+    /// </summary>
+    public string Decision { get; set; } = "autoApply";
+
+    /// <summary>
+    /// 是否存在硬冲突
+    /// </summary>
+    public bool HasHardConflict { get; set; }
+
+    /// <summary>
+    /// 证据摘要
+    /// </summary>
+    public List<string> EvidenceSummary { get; set; } = [];
+
+    /// <summary>
+    /// 冲突摘要
+    /// </summary>
+    public List<string> ConflictSummary { get; set; } = [];
+
+    /// <summary>
+    /// 结构化问题列表
+    /// </summary>
+    public List<MatchIssueDto> Issues { get; set; } = [];
+
+    /// <summary>
+    /// 实体证据列表
+    /// </summary>
+    public List<MatchEntityEvidenceDto> Entities { get; set; } = [];
+
+    /// <summary>
     /// Top候选列表（含Top1）
     /// </summary>
     public List<MatchCandidateDto> TopCandidates { get; set; } = [];
@@ -411,9 +466,116 @@ public class MatchCandidateDto
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
 
     /// <summary>
+    /// 最终决策
+    /// </summary>
+    public string Decision { get; set; } = "manualReview";
+
+    /// <summary>
+    /// 是否存在硬冲突
+    /// </summary>
+    public bool HasHardConflict { get; set; }
+
+    /// <summary>
+    /// 证据摘要
+    /// </summary>
+    public List<string> EvidenceSummary { get; set; } = [];
+
+    /// <summary>
+    /// 冲突摘要
+    /// </summary>
+    public List<string> ConflictSummary { get; set; } = [];
+
+    /// <summary>
+    /// 结构化问题列表
+    /// </summary>
+    public List<MatchIssueDto> Issues { get; set; } = [];
+
+    /// <summary>
+    /// 实体证据列表
+    /// </summary>
+    public List<MatchEntityEvidenceDto> Entities { get; set; } = [];
+
+    /// <summary>
     /// 重排摘要
     /// </summary>
     public string? RerankSummary { get; set; }
+}
+
+/// <summary>
+/// 实体证据
+/// </summary>
+public class MatchEntityEvidenceDto
+{
+    /// <summary>
+    /// 实体类型
+    /// </summary>
+    public string EntityType { get; set; } = "品牌";
+
+    /// <summary>
+    /// 源值
+    /// </summary>
+    public string SourceValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 候选值
+    /// </summary>
+    public string CandidateValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 源归一化值
+    /// </summary>
+    public string NormalizedSourceValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 候选归一化值
+    /// </summary>
+    public string NormalizedCandidateValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 证据关系
+    /// </summary>
+    public string Relation { get; set; } = "unknown";
+}
+
+/// <summary>
+/// 匹配问题说明
+/// </summary>
+public class MatchIssueDto
+{
+    /// <summary>
+    /// 问题编码
+    /// </summary>
+    public string Code { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 严重级别
+    /// </summary>
+    public string Severity { get; set; } = "warning";
+
+    /// <summary>
+    /// 问题所属字段
+    /// </summary>
+    public string? FieldName { get; set; }
+
+    /// <summary>
+    /// 源值
+    /// </summary>
+    public string? SourceValue { get; set; }
+
+    /// <summary>
+    /// 候选值
+    /// </summary>
+    public string? CandidateValue { get; set; }
+
+    /// <summary>
+    /// 用户说明
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 建议动作
+    /// </summary>
+    public string? SuggestedAction { get; set; }
 }
 
 /// <summary>
@@ -527,6 +689,11 @@ public class FillMapping
     /// LLM 复核得分（0-100）
     /// </summary>
     public double? LlmReviewScore { get; set; }
+
+    /// <summary>
+    /// 是否已由用户人工确认
+    /// </summary>
+    public bool ManualConfirmed { get; set; }
 
     /// <summary>
     /// LLM生成的验收标准（可选）
@@ -659,6 +826,26 @@ public class MatchLlmStreamItem
     /// 算法得分明细
     /// </summary>
     public Dictionary<string, double>? ScoreDetails { get; set; }
+
+    /// <summary>
+    /// 当前决策（autoApply/manualReview/reject）
+    /// </summary>
+    public string? Decision { get; set; }
+
+    /// <summary>
+    /// 是否存在硬冲突
+    /// </summary>
+    public bool HasHardConflict { get; set; }
+
+    /// <summary>
+    /// 证据摘要
+    /// </summary>
+    public List<string>? EvidenceSummary { get; set; }
+
+    /// <summary>
+    /// 冲突摘要
+    /// </summary>
+    public List<string>? ConflictSummary { get; set; }
 }
 
 /// <summary>
@@ -693,6 +880,11 @@ public class BatchTableConfig
     /// 表格索引
     /// </summary>
     public int TableIndex { get; set; }
+
+    /// <summary>
+    /// 批量回复目标表对应的来源表索引（可选；未传时默认与目标表索引一致）
+    /// </summary>
+    public int? SourceTableIndex { get; set; }
 
     /// <summary>
     /// 项目列索引
@@ -733,6 +925,11 @@ public class BatchTableConfig
     /// 是否过滤项目列与规格列都为空的源行（表格级，可选；未传时走全局配置）
     /// </summary>
     public bool? FilterEmptySourceRows { get; set; }
+
+    /// <summary>
+    /// 重复项目/规格组合处理决议
+    /// </summary>
+    public List<BatchReplyDuplicateResolutionDto> DuplicateResolutions { get; set; } = [];
 }
 
 /// <summary>
@@ -1076,6 +1273,438 @@ public class StrictReuseExecuteFileResult
     /// 文件ID
     /// </summary>
     public int FileId { get; set; }
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否成功
+    /// </summary>
+    public bool Success { get; set; }
+
+    /// <summary>
+    /// 结果说明
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 批量回复来源上传响应
+/// </summary>
+public class BatchReplySourceUploadResponse
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件名
+    /// </summary>
+    public string SourceFileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件类型
+    /// </summary>
+    public UploadedFileType SourceFileType { get; set; }
+
+    /// <summary>
+    /// 表格数量
+    /// </summary>
+    public int TableCount { get; set; }
+}
+
+/// <summary>
+/// 批量回复目标文件上传响应
+/// </summary>
+public class BatchReplyTargetUploadResponse
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 本次上传成功的目标文件
+    /// </summary>
+    public List<BatchReplyUploadedTargetFileDto> Files { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复已上传目标文件摘要
+/// </summary>
+public class BatchReplyUploadedTargetFileDto
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件类型
+    /// </summary>
+    public UploadedFileType FileType { get; set; }
+
+    /// <summary>
+    /// 表格数量
+    /// </summary>
+    public int TableCount { get; set; }
+}
+
+/// <summary>
+/// 批量回复预检响应
+/// </summary>
+public class BatchReplyPreviewResponse
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件名
+    /// </summary>
+    public string SourceFileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源文件类型
+    /// </summary>
+    public UploadedFileType SourceFileType { get; set; }
+
+    /// <summary>
+    /// 是否严格模式
+    /// </summary>
+    public bool IsStrictMode { get; set; } = true;
+
+    /// <summary>
+    /// 是否使用 AI
+    /// </summary>
+    public bool UsesAi { get; set; } = false;
+
+    /// <summary>
+    /// 可直接应用数量
+    /// </summary>
+    public int ReadyCount => Files.Count(file => file.CanApply);
+
+    /// <summary>
+    /// 总文件数
+    /// </summary>
+    public int TotalCount => Files.Count;
+
+    /// <summary>
+    /// 逐文件预检结果
+    /// </summary>
+    public List<BatchReplyPreviewFileResult> Files { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复逐文件预检结果
+/// </summary>
+public class BatchReplyPreviewFileResult
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否可应用
+    /// </summary>
+    public bool CanApply { get; set; }
+
+    /// <summary>
+    /// 失败原因列表
+    /// </summary>
+    public List<string> Errors { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复单表预览请求
+/// </summary>
+public class BatchReplyTablePreviewRequest
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    [Required(ErrorMessage = "会话ID不能为空")]
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源表配置
+    /// </summary>
+    public List<BatchTableConfig> SourceTables { get; set; } = [];
+
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    [Required(ErrorMessage = "目标文件不能为空")]
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 当前预览的目标表配置
+    /// </summary>
+    [Required(ErrorMessage = "目标表配置不能为空")]
+    public BatchTableConfig? TargetTable { get; set; }
+}
+
+/// <summary>
+/// 批量回复重复键处理决议
+/// </summary>
+public class BatchReplyDuplicateResolutionDto
+{
+    /// <summary>
+    /// 冲突组标识
+    /// </summary>
+    [Required(ErrorMessage = "冲突组标识不能为空")]
+    public string GroupId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 处理策略（keepFirst / keepLast / skip）
+    /// </summary>
+    [Required(ErrorMessage = "处理策略不能为空")]
+    public string Strategy { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 批量回复重复键冲突组
+/// </summary>
+public class BatchReplyDuplicateGroupDto
+{
+    /// <summary>
+    /// 冲突组标识
+    /// </summary>
+    public string GroupId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 冲突来源（source / target）
+    /// </summary>
+    public string DuplicateSource { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 所属表索引
+    /// </summary>
+    public int TableIndex { get; set; }
+
+    /// <summary>
+    /// 项目
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 涉及行
+    /// </summary>
+    public List<BatchReplyDuplicateRowDto> Rows { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复重复键冲突明细行
+/// </summary>
+public class BatchReplyDuplicateRowDto
+{
+    /// <summary>
+    /// 行号
+    /// </summary>
+    public int RowIndex { get; set; }
+
+    /// <summary>
+    /// 项目
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 验收值
+    /// </summary>
+    public string? Acceptance { get; set; }
+
+    /// <summary>
+    /// 备注值
+    /// </summary>
+    public string? Remark { get; set; }
+}
+
+/// <summary>
+/// 批量回复单表预览响应
+/// </summary>
+public class BatchReplyTablePreviewResponse
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文件名
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 目标表索引
+    /// </summary>
+    public int TableIndex { get; set; }
+
+    /// <summary>
+    /// 来源表索引
+    /// </summary>
+    public int SourceTableIndex { get; set; }
+
+    /// <summary>
+    /// 是否可应用
+    /// </summary>
+    public bool CanApply { get; set; }
+
+    /// <summary>
+    /// 错误列表
+    /// </summary>
+    public List<string> Errors { get; set; } = [];
+
+    /// <summary>
+    /// 重复键冲突组
+    /// </summary>
+    public List<BatchReplyDuplicateGroupDto> DuplicateGroups { get; set; } = [];
+
+    /// <summary>
+    /// 逐行预览结果
+    /// </summary>
+    public List<BatchReplyTablePreviewRowDto> Rows { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复单表逐行预览
+/// </summary>
+public class BatchReplyTablePreviewRowDto
+{
+    /// <summary>
+    /// 目标行号
+    /// </summary>
+    public int RowIndex { get; set; }
+
+    /// <summary>
+    /// 项目
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 预览写回的验收值
+    /// </summary>
+    public string Acceptance { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 预览写回的备注值
+    /// </summary>
+    public string? Remark { get; set; }
+}
+
+/// <summary>
+/// 批量回复执行请求
+/// </summary>
+public class BatchReplyExecuteRequest
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    [Required(ErrorMessage = "会话ID不能为空")]
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源表配置（新流程使用）
+    /// </summary>
+    public List<BatchTableConfig> SourceTables { get; set; } = [];
+
+    /// <summary>
+    /// 目标文件执行配置（新流程使用）
+    /// </summary>
+    public List<BatchReplyExecuteTargetRequest> Targets { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复单个目标文件执行配置
+/// </summary>
+public class BatchReplyExecuteTargetRequest
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    [Required(ErrorMessage = "目标文件不能为空")]
+    public string TargetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 当前目标文件参与执行的目标表配置
+    /// </summary>
+    public List<BatchTableConfig> Tables { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复执行响应
+/// </summary>
+public class BatchReplyExecuteResponse
+{
+    /// <summary>
+    /// 执行任务ID
+    /// </summary>
+    public string TaskId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 成功数量
+    /// </summary>
+    public int SuccessCount { get; set; }
+
+    /// <summary>
+    /// 失败数量
+    /// </summary>
+    public int FailedCount { get; set; }
+
+    /// <summary>
+    /// 下载地址
+    /// </summary>
+    public string DownloadUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 下载文件名
+    /// </summary>
+    public string DownloadFileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 逐文件执行结果
+    /// </summary>
+    public List<BatchReplyExecuteFileResult> Files { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复逐文件执行结果
+/// </summary>
+public class BatchReplyExecuteFileResult
+{
+    /// <summary>
+    /// 目标文件临时标识
+    /// </summary>
+    public string TargetId { get; set; } = string.Empty;
 
     /// <summary>
     /// 文件名

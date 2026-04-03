@@ -18,4 +18,19 @@ public class AcceptanceSpecQueryOptionsTests
 
         options.PageSize.Should().Be(expected);
     }
+
+    [Fact]
+    public void ImportedRange_ShouldPreserveProvidedValues()
+    {
+        var from = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        var to = new DateTime(2026, 3, 31, 23, 59, 59, DateTimeKind.Utc);
+        var options = new AcceptanceSpecQueryOptions
+        {
+            ImportedFrom = from,
+            ImportedTo = to
+        };
+
+        options.ImportedFrom.Should().Be(from);
+        options.ImportedTo.Should().Be(to);
+    }
 }

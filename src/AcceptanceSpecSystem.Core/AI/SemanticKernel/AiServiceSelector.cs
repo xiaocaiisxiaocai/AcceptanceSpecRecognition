@@ -3,7 +3,7 @@ using AcceptanceSpecSystem.Core.AI.Models;
 namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 
 /// <summary>
-/// AI 服务选择器（按用途 + 离线优先 + 优先级排序）
+/// AI 服务选择器（按用途 + 优先级排序）
 /// </summary>
 public class AiServiceSelector : IAiServiceSelector
 {
@@ -22,8 +22,7 @@ public class AiServiceSelector : IAiServiceSelector
         var all = await _configProvider.GetByPurposeAsync(purpose, cancellationToken);
         var list = all
             .Where(c => IsConfigUsable(c, purpose))
-            .OrderBy(c => IsLocal(c.ServiceType) ? 0 : 1)
-            .ThenBy(c => c.Priority)
+            .OrderBy(c => c.Priority)
             .ThenByDescending(c => c.UpdatedAt ?? c.CreatedAt)
             .ToList();
 
@@ -38,11 +37,6 @@ public class AiServiceSelector : IAiServiceSelector
         }
 
         return list;
-    }
-
-    private static bool IsLocal(AiServiceType type)
-    {
-        return type is AiServiceType.Ollama or AiServiceType.LMStudio;
     }
 
     private static bool IsConfigUsable(AiServiceConfigModel config, AiServicePurpose purpose)

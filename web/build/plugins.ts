@@ -5,39 +5,22 @@ import Icons from "unplugin-icons/vite";
 import type { PluginOption } from "vite";
 import vueJsx from "@vitejs/plugin-vue-jsx";
 import tailwindcss from "@tailwindcss/vite";
-import { configCompressPlugin } from "./compress";
 import removeNoMatch from "vite-plugin-router-warn";
-import { visualizer } from "rollup-plugin-visualizer";
-import removeConsole from "vite-plugin-remove-console";
-import { codeInspectorPlugin } from "code-inspector-plugin";
-import { vitePluginFakeServer } from "vite-plugin-fake-server";
 
 export async function getPluginsList(
+  command: "build" | "serve",
   VITE_CDN: boolean,
   VITE_COMPRESSION: ViteCompression,
   VITE_ENABLE_CODE_INSPECTOR: boolean
 ): Promise<PluginOption[]> {
   const lifecycle = process.env.npm_lifecycle_event;
-  const cdn = VITE_CDN ? (await import("./cdn")).cdn : null;
-  const enableCodeInspector =
-    lifecycle === "dev" && VITE_ENABLE_CODE_INSPECTOR;
-  return [
+  const isBuild = command === "build";
+  const enableCodeInspector = command === "serve" && VITE_ENABLE_CODE_INSPECTOR;
+  const plugins: PluginOption[] = [
     tailwindcss(),
     vue(),
     // jsx、tsx语法支持
     vueJsx(),
-    /**
-     * 在页面上按住组合键时，鼠标在页面移动即会在 DOM 上出现遮罩层并显示相关信息，点击一下将自动打开 IDE 并将光标定位到元素对应的代码位置
-     * Mac 默认组合键 Option + Shift
-     * Windows 默认组合键 Alt + Shift
-     * 更多用法看 https://inspector.fe-dev.cn/guide/start.html
-     */
-    enableCodeInspector
-      ? codeInspectorPlugin({
-          bundler: "vite",
-          hideConsole: true
-        })
-      : null,
     viteBuildInfo(),
     /**
      * 开发环境下移除非必要的vue-router动态路由警告No match found for location with path
@@ -45,28 +28,46 @@ export async function getPluginsList(
      * vite-plugin-router-warn只在开发环境下启用，只处理vue-router文件并且只在服务启动或重启时运行一次，性能消耗可忽略不计
      */
     removeNoMatch(),
-    // mock支持
-    vitePluginFakeServer({
-      logger: false,
-      include: "mock",
-      infixName: false,
-      enableDev: false,
-      enableProd: false
-    }),
     // svg组件化支持
     svgLoader(),
     // 自动按需加载图标
     Icons({
       compiler: "vue3",
       scale: 1
-    }),
-    cdn,
-    configCompressPlugin(VITE_COMPRESSION),
-    // 线上环境删除console
-    removeConsole({ external: ["src/assets/iconfont/iconfont.js"] }),
-    // 打包分析
-    lifecycle === "report"
-      ? visualizer({ open: true, brotliSize: true, filename: "report.html" })
-      : (null as any)
+    })
   ];
+
+  if (enableCodeInspector) {
+    const { codeInspectorPlugin } = await import("code-inspector-plugin");
+    plugins.push(
+      codeInspectorPlugin({
+        bundler: "vite",
+        hideConsole: true
+      })
+    );
+  }
+
+  if (isBuild && VITE_CDN) {
+    const { cdn } = await import("./cdn");
+    plugins.push(cdn);
+  }
+
+  if (isBuild) {
+    const { configCompressPlugin } = await import("./compress");
+    plugins.push(configCompressPlugin(VITE_COMPRESSION));
+
+    const removeConsole = (await import("vite-plugin-remove-console")).default;
+    plugins.push(
+      removeConsole({ external: ["src/assets/iconfont/iconfont.js"] })
+    );
+
+    if (lifecycle === "report") {
+      const { visualizer } = await import("rollup-plugin-visualizer");
+      plugins.push(
+        visualizer({ open: true, brotliSize: true, filename: "report.html" })
+      );
+    }
+  }
+
+  return plugins;
 }

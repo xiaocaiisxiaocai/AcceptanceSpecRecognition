@@ -14,7 +14,13 @@ public class FileStorageService : IFileStorageService
         var configuredBasePath = configuration["FileStorage:BasePath"]?.Trim();
         if (string.IsNullOrWhiteSpace(configuredBasePath))
         {
-            _basePath = env.ContentRootPath;
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData))
+            {
+                localAppData = Path.GetTempPath();
+            }
+
+            _basePath = Path.Combine(localAppData, "AcceptanceSpecSystem", "files");
         }
         else
         {
@@ -95,13 +101,17 @@ public class FileStorageService : IFileStorageService
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
 
         // 写文件（原子性：先写到临时文件再替换）
-        var tempPath = fullPath + ".tmp";
+        var tempPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
         await File.WriteAllBytesAsync(tempPath, content, cancellationToken);
 
         if (File.Exists(fullPath))
-            File.Delete(fullPath);
-
-        File.Move(tempPath, fullPath);
+        {
+            File.Move(tempPath, fullPath, overwrite: true);
+        }
+        else
+        {
+            File.Move(tempPath, fullPath);
+        }
 
         return relativePath;
     }

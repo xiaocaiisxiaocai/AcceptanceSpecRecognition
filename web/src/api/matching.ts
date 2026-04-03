@@ -1,15 +1,22 @@
 import { http } from "@/utils/http";
 import type { PureHttpRequestConfig } from "@/utils/http/types.d";
 import type { ApiResponse } from "./customer";
+import type { TableData, TableInfo } from "./document";
 
-export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.95;
+export const DEFAULT_MIN_SCORE_THRESHOLD = 0.9;
+export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.98;
+export const DEFAULT_RECALL_TOP_K = 2;
+export const MAX_RECALL_TOP_K = 3;
+export const DEFAULT_AMBIGUITY_MARGIN = 0.02;
+export const DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES = 2;
+export const MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES = 3;
 export const LLM_REVIEW_PASS_THRESHOLD = 90;
 
 /** 匹配策略 */
 export enum MatchingStrategy {
-  /** 单阶段匹配（原有基础方式） */
+  /** 单阶段匹配（仅按 Embedding 排序） */
   SingleStage = 1,
-  /** 多阶段匹配（TopK 召回 + 规则重排） */
+  /** 多阶段匹配（Embedding 召回 + 证据重排） */
   MultiStage = 2
 }
 
@@ -29,6 +36,16 @@ export interface MatchConfig {
   recallTopK?: number;
   /** 多阶段模式下的歧义分差阈值 */
   ambiguityMargin?: number;
+  /** 是否启用 LLM 实体判别 */
+  useLlmEntityResolution?: boolean;
+  /** 启用实体判别时参与复判的候选数量 */
+  llmEntityResolutionTopCandidates?: number;
+  /** 判定为同一实体的最低置信度 */
+  llmEntityPositiveConfidenceThreshold?: number;
+  /** 判定为实体冲突并降级人工复核的最低置信度 */
+  llmEntityConflictReviewConfidenceThreshold?: number;
+  /** 判定为实体冲突并直接拒绝的最低置信度 */
+  llmEntityConflictRejectConfidenceThreshold?: number;
   /** 是否启用LLM复核 */
   useLlmReview?: boolean;
   /** 是否启用LLM生成建议 */
@@ -88,6 +105,48 @@ export interface MatchPreviewRequest {
 }
 
 /** 匹配结果 */
+export interface MatchIssue {
+  /** 问题编码 */
+  code: string;
+  /** 严重级别 */
+  severity: string;
+  /** 问题所属字段 */
+  fieldName?: string;
+  /** 源值 */
+  sourceValue?: string;
+  /** 候选值 */
+  candidateValue?: string;
+  /** 用户说明 */
+  message: string;
+  /** 建议动作 */
+  suggestedAction?: string;
+}
+
+/** 实体证据 */
+export interface MatchEntityEvidence {
+  /** 实体类型 */
+  entityType: string;
+  /** 源值 */
+  sourceValue: string;
+  /** 候选值 */
+  candidateValue: string;
+  /** 源归一化值 */
+  normalizedSourceValue: string;
+  /** 候选归一化值 */
+  normalizedCandidateValue: string;
+  /** 证据关系 */
+  relation:
+    | "exact"
+    | "compatible"
+    | "overlap"
+    | "conflict"
+    | "aliasSame"
+    | "parentChild"
+    | "possiblyRelated"
+    | "unknown";
+}
+
+/** 匹配结果 */
 export interface MatchResult {
   /** 匹配的验收规格ID */
   specId: number;
@@ -105,6 +164,18 @@ export interface MatchResult {
   embeddingScore: number;
   /** 各算法得分详情 */
   scoreDetails: Record<string, number>;
+  /** 最终决策 */
+  decision?: "autoApply" | "manualReview" | "reject";
+  /** 是否存在硬冲突 */
+  hasHardConflict?: boolean;
+  /** 证据摘要 */
+  evidenceSummary?: string[];
+  /** 冲突摘要 */
+  conflictSummary?: string[];
+  /** 结构化问题列表 */
+  issues?: MatchIssue[];
+  /** 实体证据 */
+  entities?: MatchEntityEvidence[];
   /** Top候选列表（含Top1） */
   topCandidates: MatchCandidateOption[];
   /** 匹配策略 */
@@ -147,6 +218,18 @@ export interface MatchCandidateOption {
   embeddingScore: number;
   /** 各算法得分详情 */
   scoreDetails: Record<string, number>;
+  /** 最终决策 */
+  decision?: "autoApply" | "manualReview" | "reject";
+  /** 是否存在硬冲突 */
+  hasHardConflict?: boolean;
+  /** 证据摘要 */
+  evidenceSummary?: string[];
+  /** 冲突摘要 */
+  conflictSummary?: string[];
+  /** 结构化问题列表 */
+  issues?: MatchIssue[];
+  /** 实体证据 */
+  entities?: MatchEntityEvidence[];
   /** 重排摘要 */
   rerankSummary?: string;
 }
@@ -215,6 +298,8 @@ export interface FillMapping {
   matchScore?: number;
   /** LLM 复核得分（0-100） */
   llmReviewScore?: number;
+  /** 是否已由用户人工确认 */
+  manualConfirmed?: boolean;
   /** 是否使用LLM生成建议 */
   useLlmSuggestion?: boolean;
   /** LLM生成的验收标准 */
@@ -327,10 +412,15 @@ export const computeSimilarity = (data: SimilarityRequest) => {
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
   matchingStrategy: MatchingStrategy.SingleStage,
-  minScoreThreshold: 0.8,
+  minScoreThreshold: DEFAULT_MIN_SCORE_THRESHOLD,
   highConfidenceThreshold: DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
-  recallTopK: 8,
-  ambiguityMargin: 0.03,
+  recallTopK: DEFAULT_RECALL_TOP_K,
+  ambiguityMargin: DEFAULT_AMBIGUITY_MARGIN,
+  useLlmEntityResolution: false,
+  llmEntityResolutionTopCandidates: DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES,
+  llmEntityPositiveConfidenceThreshold: 0.85,
+  llmEntityConflictReviewConfidenceThreshold: 0.7,
+  llmEntityConflictRejectConfidenceThreshold: 0.9,
   useLlmReview: true,
   useLlmSuggestion: false,
   suggestNoMatchRows: false,
@@ -348,6 +438,8 @@ export const defaultMatchConfig: MatchConfig = {
 export interface BatchTableConfig {
   /** 表格索引 */
   tableIndex: number;
+  /** 批量回复目标表对应的来源表索引（可选） */
+  sourceTableIndex?: number;
   /** 项目列索引 */
   projectColumnIndex: number;
   /** 规格列索引 */
@@ -364,6 +456,8 @@ export interface BatchTableConfig {
   dataStartRow?: number;
   /** 是否过滤项目/规格均为空的行（表格级，可选；未传时走全局配置） */
   filterEmptySourceRows?: boolean;
+  /** 重复项目/规格组合处理决议 */
+  duplicateResolutions?: BatchReplyDuplicateResolution[];
 }
 
 /** 批量预览请求 */
@@ -556,4 +650,262 @@ export const strictReuseExecute = (data: StrictReuseExecuteRequest) => {
     `${baseUrl}/reuse/strict/execute`,
     { data, timeout: 300000 }
   );
+};
+
+export interface BatchReplySourceUploadResponse {
+  sessionId: string;
+  sourceFileName: string;
+  sourceFileType: number;
+  tableCount: number;
+}
+
+export interface BatchReplyUploadedTargetFile {
+  targetId: string;
+  fileName: string;
+  fileType: number;
+  tableCount: number;
+}
+
+export interface BatchReplyTargetUploadResponse {
+  sessionId: string;
+  files: BatchReplyUploadedTargetFile[];
+}
+
+export interface BatchReplyPreviewFileResult {
+  targetId: string;
+  fileName: string;
+  canApply: boolean;
+  errors: string[];
+}
+
+export interface BatchReplyPreviewResponse {
+  sessionId: string;
+  sourceFileName: string;
+  sourceFileType: number;
+  isStrictMode: boolean;
+  usesAi: boolean;
+  readyCount: number;
+  totalCount: number;
+  files: BatchReplyPreviewFileResult[];
+}
+
+export interface BatchReplyExecuteRequest {
+  sessionId: string;
+  sourceTables?: BatchTableConfig[];
+  targets?: BatchReplyExecuteTargetRequest[];
+}
+
+export interface BatchReplyExecuteTargetRequest {
+  targetId: string;
+  tables: BatchTableConfig[];
+}
+
+export interface BatchReplyExecuteFileResult {
+  targetId: string;
+  fileName: string;
+  success: boolean;
+  message: string;
+}
+
+export interface BatchReplyExecuteResponse {
+  taskId: string;
+  successCount: number;
+  failedCount: number;
+  downloadUrl: string;
+  downloadFileName: string;
+  files: BatchReplyExecuteFileResult[];
+}
+
+export interface BatchReplyTablePreviewRow {
+  rowIndex: number;
+  project: string;
+  specification: string;
+  acceptance: string;
+  remark?: string;
+}
+
+export type BatchReplyDuplicateStrategy = "keepFirst" | "keepLast" | "skip";
+
+export interface BatchReplyDuplicateResolution {
+  groupId: string;
+  strategy: BatchReplyDuplicateStrategy;
+}
+
+export interface BatchReplyDuplicateRow {
+  rowIndex: number;
+  project: string;
+  specification: string;
+  acceptance?: string;
+  remark?: string;
+}
+
+export interface BatchReplyDuplicateGroup {
+  groupId: string;
+  duplicateSource: "source" | "target";
+  tableIndex: number;
+  project: string;
+  specification: string;
+  rows: BatchReplyDuplicateRow[];
+}
+
+export interface BatchReplyTablePreviewRequest {
+  sessionId: string;
+  sourceTables: BatchTableConfig[];
+  targetId: string;
+  targetTable: BatchTableConfig;
+}
+
+export interface BatchReplyTablePreviewResponse {
+  targetId: string;
+  fileName: string;
+  tableIndex: number;
+  sourceTableIndex: number;
+  canApply: boolean;
+  errors: string[];
+  duplicateGroups: BatchReplyDuplicateGroup[];
+  rows: BatchReplyTablePreviewRow[];
+}
+
+const batchReplyBaseUrl = "/api/batch-reply";
+
+export const uploadBatchReplySource = (file: File) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return http.request<ApiResponse<BatchReplySourceUploadResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/source/upload`,
+    {
+      data: formData,
+      headers: {
+        "Content-Type": "multipart/form-data"
+      }
+    }
+  );
+};
+
+export const getBatchReplyTables = (sessionId: string) => {
+  return http.request<ApiResponse<TableInfo[]>>(
+    "get",
+    `${batchReplyBaseUrl}/sessions/${sessionId}/tables`
+  );
+};
+
+export const getBatchReplyTablePreview = (
+  sessionId: string,
+  tableIndex: number,
+  options?: {
+    previewRows?: number;
+    headerRowIndex?: number;
+    headerRowCount?: number;
+    dataStartRowIndex?: number;
+  }
+) => {
+  return http.request<ApiResponse<TableData>>(
+    "get",
+    `${batchReplyBaseUrl}/sessions/${sessionId}/tables/${tableIndex}/preview`,
+    {
+      params: options
+    }
+  );
+};
+
+export const uploadBatchReplyTargets = (sessionId: string, files: File[]) => {
+  const formData = new FormData();
+  formData.append("sessionId", sessionId);
+  files.forEach(file => formData.append("targetFiles", file));
+
+  return http.request<ApiResponse<BatchReplyTargetUploadResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/targets/upload`,
+    {
+      data: formData,
+      headers: {
+        "Content-Type": "multipart/form-data"
+      }
+    }
+  );
+};
+
+export const getBatchReplyTargetTables = (sessionId: string, targetId: string) => {
+  return http.request<ApiResponse<TableInfo[]>>(
+    "get",
+    `${batchReplyBaseUrl}/sessions/${sessionId}/targets/${targetId}/tables`
+  );
+};
+
+export const getBatchReplyTargetTablePreview = (
+  sessionId: string,
+  targetId: string,
+  tableIndex: number,
+  options?: {
+    previewRows?: number;
+    headerRowIndex?: number;
+    headerRowCount?: number;
+    dataStartRowIndex?: number;
+  }
+) => {
+  return http.request<ApiResponse<TableData>>(
+    "get",
+    `${batchReplyBaseUrl}/sessions/${sessionId}/targets/${targetId}/tables/${tableIndex}/preview`,
+    {
+      params: options
+    }
+  );
+};
+
+export const previewBatchReplyTable = (
+  data: BatchReplyTablePreviewRequest,
+  config?: PureHttpRequestConfig
+) => {
+  return http.request<ApiResponse<BatchReplyTablePreviewResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/table-preview`,
+    {
+      data,
+      timeout: 300000
+    },
+    config
+  );
+};
+
+export const previewBatchReply = (
+  sessionId: string,
+  tableConfigs: BatchTableConfig[],
+  targetFiles: File[],
+  config?: PureHttpRequestConfig
+) => {
+  const formData = new FormData();
+  formData.append("sessionId", sessionId);
+  formData.append("tableConfigsJson", JSON.stringify(tableConfigs));
+  targetFiles.forEach(file => formData.append("targetFiles", file));
+
+  return http.request<ApiResponse<BatchReplyPreviewResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/preview`,
+    {
+      data: formData,
+      timeout: 300000,
+      headers: {
+        "Content-Type": "multipart/form-data"
+      }
+    },
+    config
+  );
+};
+
+export const executeBatchReply = (data: BatchReplyExecuteRequest) => {
+  return http.request<ApiResponse<BatchReplyExecuteResponse>>(
+    "post",
+    `${batchReplyBaseUrl}/execute`,
+    {
+      data,
+      timeout: 300000
+    }
+  );
+};
+
+export const downloadBatchReplyResult = (taskId: string) => {
+  return http.request<Blob>("get", `${batchReplyBaseUrl}/download/${taskId}`, {
+    responseType: "blob"
+  });
 };

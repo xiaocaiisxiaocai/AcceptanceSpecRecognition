@@ -22,6 +22,9 @@ const uploadedFile = computed({
 });
 
 const isExcel = computed(() => uploadedFile.value?.fileType === 1);
+const isTableCountPending = computed(
+  () => uploadedFile.value?.tableCountReady === false
+);
 const resolvedAccept = computed(() => (props.accept?.trim() || ".docx,.xlsx").toLowerCase());
 const allowedExtensions = computed(() =>
   resolvedAccept.value
@@ -119,8 +122,14 @@ const clearFile = () => {
         <div class="file-details">
           <div class="file-name">{{ uploadedFile.fileName }}</div>
           <div class="file-meta">
-            <span>
+            <span v-if="isTableCountPending">
+              正在读取{{ isExcel ? "工作表" : "表格" }}结构...
+            </span>
+            <span v-else-if="uploadedFile.tableCount > 0">
               包含 {{ uploadedFile.tableCount }} 个{{ isExcel ? "工作表" : "表格" }}
+            </span>
+            <span v-else>
+              未检测到{{ isExcel ? "工作表" : "表格" }}
             </span>
           </div>
         </div>

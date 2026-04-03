@@ -11,13 +11,6 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public abstract class MatchingApiControllerBase : BaseApiController
 {
-    protected MatchingApiControllerBase(MatchingWorkflowService workflow)
-    {
-        Workflow = workflow;
-    }
-
-    protected MatchingWorkflowService Workflow { get; }
-
     /// <summary>
     /// 统一处理工作流显式业务异常；其余异常继续交给全局异常中间件处理。
     /// </summary>

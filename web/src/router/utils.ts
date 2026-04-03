@@ -20,14 +20,10 @@ import { hasAnyPermission } from "@/utils/permission";
 import { type menuType, routerArrays } from "@/layout/types";
 import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
 import { usePermissionStoreHook } from "@/store/modules/permission";
+import { resolveTopMenuFromWholeMenus } from "./top-menu";
 const IFrame = () => import("@/layout/frame.vue");
 // https://cn.vitejs.dev/guide/features.html#glob-import
 const modulesRoutes = import.meta.glob("/src/views/**/*.{vue,tsx}");
-
-// 动态路由
-import { getAsyncRoutes } from "@/api/routes";
-
-const asyncRoutesStorageKey = "async-routes";
 
 function handRank(routeInfo: any) {
   const { name, path, parentId, meta } = routeInfo;
@@ -193,39 +189,10 @@ function handleAsyncRoutes(routeList) {
 
 /** 初始化路由（`new Promise` 写法防止在异步请求中造成无限循环）*/
 function initRouter() {
-  if (getConfig()?.EnableBackendAsyncRoutes !== true) {
-    storageLocal().removeItem(asyncRoutesStorageKey);
-    return new Promise(resolve => {
-      handleAsyncRoutes([]);
-      resolve(router);
-    });
-  }
-
-  if (getConfig()?.CachingAsyncRoutes) {
-    // 开启动态路由缓存本地localStorage
-    const asyncRouteList = storageLocal().getItem(asyncRoutesStorageKey) as any;
-    if (asyncRouteList && asyncRouteList?.length > 0) {
-      return new Promise(resolve => {
-        handleAsyncRoutes(asyncRouteList);
-        resolve(router);
-      });
-    } else {
-      return new Promise(resolve => {
-        getAsyncRoutes().then(({ data }) => {
-          handleAsyncRoutes(cloneDeep(data));
-          storageLocal().setItem(asyncRoutesStorageKey, data);
-          resolve(router);
-        });
-      });
-    }
-  } else {
-    return new Promise(resolve => {
-      getAsyncRoutes().then(({ data }) => {
-        handleAsyncRoutes(cloneDeep(data));
-        resolve(router);
-      });
-    });
-  }
+  return new Promise(resolve => {
+    handleAsyncRoutes([]);
+    resolve(router);
+  });
 }
 
 /**
@@ -359,24 +326,14 @@ function getHistoryMode(routerHistory): RouterHistory {
   }
 }
 
-function handleTopMenu(route) {
-  if (route?.children && route.children.length > 1) {
-    if (route.redirect) {
-      return route.children.filter(cur => cur.path === route.redirect)[0];
-    } else {
-      return route.children[0];
-    }
-  } else {
-    return route;
-  }
-}
-
 /** 获取所有菜单中的第一个菜单（顶级菜单）*/
-function getTopMenu(tag = false): menuType {
-  const topMenu = handleTopMenu(
-    usePermissionStoreHook().wholeMenus[0]?.children[0]
-  );
-  tag && useMultiTagsStoreHook().handleTags("push", topMenu);
+function getTopMenu(tag = false): menuType | undefined {
+  const topMenu = resolveTopMenuFromWholeMenus(
+    usePermissionStoreHook().wholeMenus
+  ) as menuType | undefined;
+  if (tag && topMenu?.path) {
+    useMultiTagsStoreHook().handleTags("push", topMenu);
+  }
   return topMenu;
 }
 

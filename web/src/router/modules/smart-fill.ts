@@ -1,3 +1,4 @@
+import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
 const Layout = () => import("@/layout/index.vue");
 
 export default {
@@ -7,9 +8,9 @@ export default {
   redirect: "/smart-fill/fill",
   meta: {
     icon: "ri:magic-line",
-    title: "智能填充",
+    title: getMenuTitle("smart-fill"),
     rank: 3,
-    permissions: ["menu:smart-fill"]
+    permissions: getMenuPermission("smart-fill")
   },
   children: [
     {
@@ -18,8 +19,8 @@ export default {
       component: () => import("@/views/smart-fill/index.vue"),
       meta: {
         icon: "ri:edit-2-line",
-        title: "填充数据",
-        permissions: ["page:smart-fill:index"]
+        title: getPageTitle("smart-fill-index"),
+        permissions: getPagePermission("smart-fill-index")
       }
     }
   ]

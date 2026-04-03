@@ -1,3 +1,4 @@
+import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
 const Layout = () => import("@/layout/index.vue");
 
 export default {
@@ -7,9 +8,9 @@ export default {
   redirect: "/file-compare/compare",
   meta: {
     icon: "ri:compare-line",
-    title: "文件对比",
+    title: getMenuTitle("file-compare"),
     rank: 5,
-    permissions: ["menu:file-compare"]
+    permissions: getMenuPermission("file-compare")
   },
   children: [
     {
@@ -18,8 +19,8 @@ export default {
       component: () => import("@/views/file-compare/index.vue"),
       meta: {
         icon: "ri:compare-line",
-        title: "文件对比",
-        permissions: ["page:file-compare:index"]
+        title: getPageTitle("file-compare-index"),
+        permissions: getPagePermission("file-compare-index")
       }
     }
   ]

@@ -12,9 +12,11 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Route("api/matching")]
 public class MatchingReuseController : MatchingApiControllerBase
 {
-    public MatchingReuseController(MatchingWorkflowService workflow)
-        : base(workflow)
+    private readonly StrictReuseAppService _strictReuseAppService;
+
+    public MatchingReuseController(StrictReuseAppService strictReuseAppService)
     {
+        _strictReuseAppService = strictReuseAppService;
     }
 
     [HttpPost("reuse/strict/preview")]
@@ -22,7 +24,7 @@ public class MatchingReuseController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<StrictReusePreviewResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<StrictReusePreviewResponse>>> PreviewStrictReuse([FromBody] StrictReusePreviewRequest request)
     {
-        return HandleAsync(() => Workflow.PreviewStrictReuseAsync(User, request));
+        return HandleAsync(() => _strictReuseAppService.PreviewStrictReuseAsync(User, request));
     }
 
     [HttpPost("reuse/strict/execute")]
@@ -31,6 +33,6 @@ public class MatchingReuseController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<StrictReuseExecuteResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<StrictReuseExecuteResponse>>> ExecuteStrictReuse([FromBody] StrictReuseExecuteRequest request)
     {
-        return HandleAsync(() => Workflow.ExecuteStrictReuseAsync(User, request));
+        return HandleAsync(() => _strictReuseAppService.ExecuteStrictReuseAsync(User, request));
     }
 }

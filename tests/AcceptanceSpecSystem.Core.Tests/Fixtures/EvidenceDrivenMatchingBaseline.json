@@ -1,0 +1,193 @@
+[
+  {
+    "name": "220V 不应误判为 22V",
+    "source": {
+      "project": "电压要求",
+      "specification": "电压等于220V"
+    },
+    "candidates": [
+      {
+        "specId": 101,
+        "project": "电压要求",
+        "specification": "电压等于22V",
+        "acceptance": "NG",
+        "remark": "错误电压",
+        "embeddingScore": 0.99
+      }
+    ],
+    "expectedMatchedSpecId": 101,
+    "expectedDecision": "Reject",
+    "expectedHardConflict": true,
+    "expectedConflictContains": "数值约束冲突",
+    "expectedIssueCode": "numeric_value_conflict",
+    "expectedIssueMessageContains": "相差10倍",
+    "expectedSuggestedActionContains": "人工确认电压"
+  },
+  {
+    "name": "宽度小于 0.5cm 应命中 0.2cm",
+    "source": {
+      "project": "尺寸要求",
+      "specification": "宽度小于0.5cm"
+    },
+    "candidates": [
+      {
+        "specId": 201,
+        "project": "尺寸要求",
+        "specification": "宽度等于0.7cm",
+        "acceptance": "RISKY",
+        "remark": "超范围",
+        "embeddingScore": 0.99
+      },
+      {
+        "specId": 202,
+        "project": "尺寸要求",
+        "specification": "宽度等于0.2cm",
+        "acceptance": "SAFE",
+        "remark": "符合约束",
+        "embeddingScore": 0.9
+      }
+    ],
+    "expectedMatchedSpecId": 202,
+    "expectedDecision": "AutoApply",
+    "expectedHardConflict": false,
+    "expectedEvidenceContains": "数值约束相容"
+  },
+  {
+    "name": "宽度小于 0.5cm 不应接受 0.7cm",
+    "source": {
+      "project": "尺寸要求",
+      "specification": "宽度小于0.5cm"
+    },
+    "candidates": [
+      {
+        "specId": 203,
+        "project": "尺寸要求",
+        "specification": "宽度等于0.7cm",
+        "acceptance": "NG",
+        "remark": "超范围",
+        "embeddingScore": 0.99
+      }
+    ],
+    "expectedMatchedSpecId": 203,
+    "expectedDecision": "Reject",
+    "expectedHardConflict": true,
+    "expectedConflictContains": "数值约束冲突"
+  },
+  {
+    "name": "型号 ABC-100 不应匹配 ABC-200",
+    "source": {
+      "project": "设备型号 ABC-100",
+      "specification": "请使用 ABC-100"
+    },
+    "candidates": [
+      {
+        "specId": 301,
+        "project": "设备型号 ABC-200",
+        "specification": "请使用 ABC-200",
+        "acceptance": "NG",
+        "remark": "型号错误",
+        "embeddingScore": 0.98
+      }
+    ],
+    "expectedMatchedSpecId": 301,
+    "expectedDecision": "Reject",
+    "expectedHardConflict": true,
+    "expectedConflictContains": "型号冲突",
+    "expectedIssueCode": "identifier_conflict",
+    "expectedIssueMessageContains": "ABC-100",
+    "expectedSuggestedActionContains": "人工确认型号"
+  },
+  {
+    "name": "Panasonic 应识别为 松下",
+    "source": {
+      "project": "Panasonic 设备",
+      "specification": "品牌要求 Panasonic"
+    },
+    "candidates": [
+      {
+        "specId": 401,
+        "project": "松下 设备",
+        "specification": "品牌要求 松下",
+        "acceptance": "OK",
+        "remark": "品牌一致",
+        "embeddingScore": 0.95
+      }
+    ],
+    "expectedMatchedSpecId": 401,
+    "expectedDecision": "AutoApply",
+    "expectedHardConflict": false,
+    "expectedEvidenceContains": "实体同一"
+  },
+  {
+    "name": "24V 不应误判为 2.4V",
+    "source": {
+      "project": "供电要求",
+      "specification": "电压等于24V"
+    },
+    "candidates": [
+      {
+        "specId": 402,
+        "project": "供电要求",
+        "specification": "电压等于2.4V",
+        "acceptance": "NG",
+        "remark": "小数点错误",
+        "embeddingScore": 0.99
+      }
+    ],
+    "expectedMatchedSpecId": 402,
+    "expectedDecision": "Reject",
+    "expectedHardConflict": true,
+    "expectedConflictContains": "数值约束冲突",
+    "expectedIssueCode": "numeric_value_conflict",
+    "expectedIssueMessageContains": "相差10倍",
+    "expectedSuggestedActionContains": "人工确认电压"
+  },
+  {
+    "name": "2A 不应误判为 0.2A",
+    "source": {
+      "project": "电流要求",
+      "specification": "电流等于2A"
+    },
+    "candidates": [
+      {
+        "specId": 403,
+        "project": "电流要求",
+        "specification": "电流等于0.2A",
+        "acceptance": "NG",
+        "remark": "数量级错误",
+        "embeddingScore": 0.99
+      }
+    ],
+    "expectedMatchedSpecId": 403,
+    "expectedDecision": "Reject",
+    "expectedHardConflict": true,
+    "expectedConflictContains": "数值约束冲突",
+    "expectedIssueCode": "numeric_value_conflict",
+    "expectedIssueMessageContains": "相差10倍",
+    "expectedSuggestedActionContains": "人工确认电流"
+  },
+  {
+    "name": "品牌 Panasonic 不应匹配 Mitsubishi",
+    "source": {
+      "project": "Panasonic 设备",
+      "specification": "品牌要求 Panasonic"
+    },
+    "candidates": [
+      {
+        "specId": 404,
+        "project": "Mitsubishi 设备",
+        "specification": "品牌要求 Mitsubishi",
+        "acceptance": "NG",
+        "remark": "品牌错误",
+        "embeddingScore": 0.98
+      }
+    ],
+    "expectedMatchedSpecId": 404,
+    "expectedDecision": "Reject",
+    "expectedHardConflict": true,
+    "expectedConflictContains": "实体冲突",
+    "expectedIssueCode": "entity_conflict",
+    "expectedIssueMessageContains": "Panasonic",
+    "expectedSuggestedActionContains": "人工确认品牌"
+  }
+]

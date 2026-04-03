@@ -1,5 +1,6 @@
 import { http } from "@/utils/http";
 import type { ApiResponse, PagedData, PagedRequest } from "./customer";
+import { MatchingStrategy } from "./matching";
 
 export enum AiServiceType {
   OpenAI = 0,
@@ -25,6 +26,8 @@ export interface AiServiceConfig {
   embeddingModel?: string | null;
   llmModel?: string | null;
   disableThinking: boolean;
+  defaultMatchingStrategy: MatchingStrategy;
+  defaultRecallTopK: number;
   hasApiKey: boolean;
   createdAt: string;
   updatedAt?: string | null;
@@ -44,15 +47,23 @@ export interface CreateAiServiceRequest {
   embeddingModel?: string | null;
   llmModel?: string | null;
   disableThinking?: boolean;
+  defaultMatchingStrategy?: MatchingStrategy;
+  defaultRecallTopK?: number;
 }
 
 export interface UpdateAiServiceRequest extends CreateAiServiceRequest {}
+
+export type AiServiceConnectionTestMode = "quick" | "full";
 
 export interface AiServiceTestResult {
   success: boolean;
   message: string;
   httpStatusCode?: number | null;
   elapsedMs: number;
+  serviceElapsedMs?: number | null;
+  targetModel?: string | null;
+  targetEndpoint?: string | null;
+  hostPort?: string | null;
 }
 
 export interface AiServiceModelsResult {
@@ -94,11 +105,16 @@ export const deleteAiService = (id: number) => {
   return http.request<ApiResponse<void>>("delete", `${baseUrl}/${id}`);
 };
 
-export const testAiServiceConnection = (id: number) => {
+export const testAiServiceConnection = (
+  id: number,
+  mode: AiServiceConnectionTestMode = "quick"
+) => {
   return http.request<ApiResponse<AiServiceTestResult>>(
     "post",
     `${baseUrl}/${id}/test`,
-    undefined,
+    {
+      params: { mode }
+    },
     { timeout: 300000 }
   );
 };

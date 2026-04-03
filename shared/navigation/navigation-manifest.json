@@ -1,0 +1,34 @@
+{
+  "menus": [
+    { "id": "home", "code": "menu:home", "title": "首页", "resource": "home", "action": "menu", "path": "/" },
+    { "id": "base-data", "code": "menu:base-data", "title": "基础数据", "resource": "base-data", "action": "menu", "path": "/base-data" },
+    { "id": "data-import", "code": "menu:data-import", "title": "数据导入", "resource": "data-import", "action": "menu", "path": "/data-import" },
+    { "id": "smart-fill", "code": "menu:smart-fill", "title": "智能填充", "resource": "smart-fill", "action": "menu", "path": "/smart-fill" },
+    { "id": "batch-reply", "code": "menu:batch-reply", "title": "批量回复", "resource": "batch-reply", "action": "menu", "path": "/batch-reply" },
+    { "id": "file-compare", "code": "menu:file-compare", "title": "文件对比", "resource": "file-compare", "action": "menu", "path": "/file-compare" },
+    { "id": "config", "code": "menu:config", "title": "配置管理", "resource": "config", "action": "menu", "path": "/config" },
+    { "id": "rbac", "code": "menu:rbac", "title": "权限中心", "resource": "rbac", "action": "menu", "path": "/rbac" },
+    { "id": "other", "code": "menu:other", "title": "其他", "resource": "other", "action": "menu", "path": "/other" }
+  ],
+  "pages": [
+    { "id": "home-dashboard", "code": "page:home:dashboard", "title": "仪表盘", "resource": "home", "action": "dashboard", "path": "/dashboard" },
+    { "id": "base-data-customers", "code": "page:base-data:customers", "title": "客户管理", "resource": "base-data", "action": "customers", "path": "/base-data/customers" },
+    { "id": "base-data-processes", "code": "page:base-data:processes", "title": "制程管理", "resource": "base-data", "action": "processes", "path": "/base-data/processes" },
+    { "id": "base-data-machine-models", "code": "page:base-data:machine-models", "title": "机型管理", "resource": "base-data", "action": "machine-models", "path": "/base-data/machine-models" },
+    { "id": "base-data-specs", "code": "page:base-data:specs", "title": "验收规格", "resource": "base-data", "action": "specs", "path": "/base-data/specs" },
+    { "id": "data-import-index", "code": "page:data-import:index", "title": "导入数据", "resource": "data-import", "action": "index", "path": "/data-import/import" },
+    { "id": "smart-fill-index", "code": "page:smart-fill:index", "title": "智能填充", "resource": "smart-fill", "action": "index", "path": "/smart-fill/fill" },
+    { "id": "batch-reply-index", "code": "page:batch-reply:index", "title": "批量回复", "resource": "batch-reply", "action": "index", "path": "/batch-reply/index" },
+    { "id": "file-compare-index", "code": "page:file-compare:index", "title": "文件对比", "resource": "file-compare", "action": "index", "path": "/file-compare/compare" },
+    { "id": "config-ai-services", "code": "page:config:ai-services", "title": "AI服务配置", "resource": "config", "action": "ai-services", "path": "/config/ai-services" },
+    { "id": "config-matching-knowledge", "code": "page:config:matching-knowledge", "title": "匹配知识配置", "resource": "config", "action": "matching-knowledge", "path": "/config/matching-knowledge" },
+    { "id": "config-prompt-templates", "code": "page:config:prompt-templates", "title": "Prompt模板", "resource": "config", "action": "prompt-templates", "path": "/config/prompt-templates" },
+    { "id": "config-column-mapping-rules", "code": "page:config:column-mapping-rules", "title": "列映射规则", "resource": "config", "action": "column-mapping-rules", "path": "/config/column-mapping-rules" },
+    { "id": "config-system-users", "code": "page:config:system-users", "title": "系统用户", "resource": "config", "action": "system-users", "path": "/rbac/system-users" },
+    { "id": "config-org-units", "code": "page:config:org-units", "title": "组织管理", "resource": "config", "action": "org-units", "path": "/rbac/org-units" },
+    { "id": "config-auth-roles", "code": "page:config:auth-roles", "title": "角色管理", "resource": "config", "action": "auth-roles", "path": "/rbac/auth-roles" },
+    { "id": "rbac-permissions", "code": "page:rbac:permissions", "title": "权限字典", "resource": "rbac", "action": "permissions", "path": "/rbac/permissions" },
+    { "id": "other-audit-logs", "code": "page:other:audit-logs", "title": "审计日志", "resource": "other", "action": "audit-logs", "path": "/other/audit-logs" },
+    { "id": "other-execution-history", "code": "page:other:execution-history", "title": "执行记录", "resource": "other", "action": "execution-history", "path": "/other/execution-history" }
+  ]
+}

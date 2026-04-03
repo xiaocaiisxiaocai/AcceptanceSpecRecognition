@@ -74,6 +74,11 @@ public sealed class PromptTemplateValidationService
             ["bestMatchRemark"] = "历史备注示例",
             ["baseScore"] = "95.6",
             ["scoreDetailsJson"] = "{\"Embedding\":95.6}",
+            ["currentDecision"] = "manualReview",
+            ["hasHardConflict"] = "false",
+            ["reviewTrigger"] = "Top1 与 Top2 证据接近，需要进一步复核",
+            ["evidenceSummaryJson"] = "[\"数值约束相容：平面度\",\"项目一致\"]",
+            ["conflictSummaryJson"] = "[]",
             ["referenceInfo"] = "项目：平台吸附精度\\n规格：平台平面度需控制在0.05mm以内"
         };
 
