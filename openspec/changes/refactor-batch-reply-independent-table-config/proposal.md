@@ -1,28 +1,25 @@
-# Change: 重构批量回复为来源与目标逐表独立配置
+# Change: 重构批量回复为步骤化文件工作区
 
 ## Why
-当前批量回复默认把来源文件的表格索引、行配置和列配置直接套用到所有目标文件，仍然隐含“来源表与目标表结构基本一致”的前提。实际业务中，不同 `Sheet/表格` 往往需要各自单独指定行配置、项目列、规格列、验收列和备注列，甚至同一个目标表还需要显式选择对应的来源表。
+当前批量回复虽然已经拆成“来源配置 / 目标配置 / 执行结果”三个根 Tab，但页面内部仍然主要依赖表格卡片展开配置，并额外保留了独立的“当前表回写预览”区域。这和用户确认的目标交互仍有偏差：用户要的是“每一步一个 Tab，每个 Excel/Word 一个 Tab，文件 Tab 下再分 Sheet/表格 Tab”，且不再保留单独的预检查区域。
 
-用户同时明确希望页面改成类似智能填充的配置体验：来源文件和目标文件都能逐表独立配置，页面支持预览，不再要求先做一次整批“预检查”才能进入执行。
+现有实现的问题不在于接口不可用，而在于交互层级仍然不清晰。用户在目标文件中很难一眼分辨“我现在正在配置哪一个文件的哪一张表”，同时独立预检查区也重新引入了额外的上下文切换成本。
 
 ## What Changes
-- 重构批量回复交互为多 Tab 配置流，分别管理来源配置、目标配置和执行结果。
-- 新增来源文件逐表独立配置能力，支持 Word / Excel 的行配置与列映射。
-- 新增目标文件逐文件、逐表独立配置能力，每个目标表可显式选择来源表并单独配置行/列映射。
-- 将批量回复从“整批预检门禁”改为“按表预览 + 按文件完整性执行”，执行前仅校验当前目标文件的参与表是否配置完整且可写回。
+- 将批量回复重构为真正的步骤式工作区：`来源文件 -> 目标文件 -> 执行结果`。
+- 在来源文件步骤中引入“文件 Tab -> Sheet/表格 Tab”结构，每个 Sheet/表格内直接配置行设置与列映射。
+- 在目标文件步骤中引入“目标文件 Tab -> Sheet/表格 Tab”结构，每个目标表可显式选择来源表并直接配置行设置与列映射。
+- 移除页面内独立的预检查/预览结果区域，把预览入口与反馈收拢到当前 Sheet/表格上下文内。
+- 保留现有逐表预览接口与执行契约，执行前仅按当前配置做最小必要校验，不再要求用户经过独立预检查步骤。
 - 保持写回范围仅限验收列与备注列；匹配仍以 `项目 + 规格` 为键，允许乱序，不允许重复键自动处理。
 
 ## Impact
-- Affected specs: `api`, `user-interface`
+- Affected specs: `user-interface`
 - Affected code:
-  - `src/AcceptanceSpecSystem.Api/Controllers/BatchReplyController.cs`
-  - `src/AcceptanceSpecSystem.Api/DTOs/MatchingDtos.cs`
-  - `src/AcceptanceSpecSystem.Api/Services/BatchReplyAppService.cs`
-  - `src/AcceptanceSpecSystem.Api/Services/BatchReplySessionService.cs`
-  - `src/AcceptanceSpecSystem.Api/Services/DocumentTableAccessService.cs`
-  - `src/AcceptanceSpecSystem.Api/Services/MatchingResultWriteBackService.cs`
   - `web/src/api/matching.ts`
   - `web/src/views/batch-reply/index.vue`
   - `web/src/views/smart-fill/components/BatchTableConfig.vue`
+  - `web/src/views/data-import/components/TablePreview.vue`
+  - `web/tests/batch-reply-*.test.ts`
   - `tests/AcceptanceSpecSystem.Api.Tests/*BatchReply*`
-  - `tests/AcceptanceSpecSystem.Api.Tests/ExecutionHistoryApiTests.cs`
+  - `tests/AcceptanceSpecSystem.Api.Tests/ReviewRegressionTests.cs`

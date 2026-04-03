@@ -427,24 +427,59 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void BatchReplyPage_ShouldUseSourceTargetAndResultTabs_ForIndependentTableConfiguration()
+    public void BatchReplyPage_ShouldUseStepFileAndSheetTabs_ForIndependentTableConfiguration()
     {
         var content = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/batch-reply/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var workspaceContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/BatchTableConfig.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("来源配置",
-            "批量回复页面应把来源配置拆成独立 Tab，避免继续和目标文件步骤串在一起");
-        content.Should().Contain("目标配置",
-            "批量回复页面应把目标文件配置拆成独立 Tab，便于逐文件逐表管理");
+        content.Should().Contain("来源文件",
+            "批量回复页面顶层步骤应改成来源文件，而不是继续停留在来源配置语义");
+        content.Should().Contain("目标文件",
+            "批量回复页面顶层步骤应改成目标文件，而不是继续停留在目标配置语义");
         content.Should().Contain("执行结果",
             "批量回复页面应提供单独结果 Tab，避免执行后仍挤在配置区域里");
+        content.Should().NotContain("来源配置",
+            "批量回复页面不应继续保留旧的来源配置 Tab 文案");
+        content.Should().NotContain("目标配置",
+            "批量回复页面不应继续保留旧的目标配置 Tab 文案");
         content.Should().Contain("来源表",
             "目标表配置应显式允许选择对应来源表");
-        content.Should().NotContain("预检批量回复",
-            "新流程不应继续依赖整批预检按钮作为执行前门禁");
-        content.Should().NotContain("4. 预检与执行",
-            "旧的线性四段卡片不再适合来源与目标逐表独立配置");
+        workspaceContent.Should().Contain("sheet-tabs",
+            "批量回复页面应显式使用 Sheet/表格级 Tab，而不是继续使用表格卡片堆叠");
+        content.Should().NotContain("当前表回写预览",
+            "独立预检查/预览区域应被移除，预览应回到当前 Sheet/表格上下文");
+        content.Should().NotContain("请在当前目标文件的表格卡片上点击“预览回写”",
+            "页面不应再要求用户回到表格卡片上触发独立预检查区域");
+    }
+
+    [Fact]
+    public void BatchReplyPage_ShouldUseEnterpriseWorkbenchVisualShell()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/batch-reply/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var workspaceContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/BatchTableConfig.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("page-shell",
+            "批量回复页面应显式使用工作台页壳类名，避免继续沿用宣传横幅语义");
+        content.Should().Contain("page-header",
+            "批量回复页面应使用企业工作台页头，而不是普通横幅块");
+        content.Should().Contain("rule-strip",
+            "批量回复页面应将规则说明收敛成企业提示条");
+        content.Should().Contain("workflow-panel",
+            "批量回复页面应给步骤导航提供独立的工作流容器");
+        content.Should().Contain("file-stage-panel",
+            "批量回复页面应给文件工作区提供稳定的企业面板容器");
+        workspaceContent.Should().Contain("workspace-shell",
+            "Sheet 工作区应有稳定的工作台壳层，而不是只剩默认 tabs + 卡片");
+        workspaceContent.Should().Contain("config-section",
+            "Sheet 工作区中的配置区域应按企业表单分区展示");
     }
 
     [Fact]

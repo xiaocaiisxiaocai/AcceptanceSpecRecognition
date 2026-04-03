@@ -44,11 +44,11 @@ type BatchReplyTargetState = {
   tables: TableInfo[];
   configs: BatchTableConfigItem[];
   previewResults: Record<number, BatchReplyTablePreviewResponse | null>;
-  lastPreviewTableIndex?: number;
   previewLoadingTableIndex?: number;
 };
 
 const activeRootTab = ref("source");
+const activeSourceFileTab = ref("");
 const sourceFile = ref<BatchReplySourceFile | null>(null);
 const sourceTables = ref<TableInfo[]>([]);
 const sourceConfigs = ref<BatchTableConfigItem[]>([]);
@@ -76,17 +76,6 @@ const selectedSourceTableOptions = computed(() =>
     label: item.tableInfo.name || `来源表 ${item.tableIndex + 1}`
   }))
 );
-const currentTargetFile = computed(
-  () => targetFiles.value.find(item => item.targetId === activeTargetFileId.value) ?? targetFiles.value[0] ?? null
-);
-const currentTargetPreview = computed(() => {
-  const file = currentTargetFile.value;
-  if (!file || file.lastPreviewTableIndex === undefined) {
-    return null;
-  }
-
-  return file.previewResults[file.lastPreviewTableIndex] ?? null;
-});
 const executableTargets = computed(() => targetFiles.value.filter(isTargetExecutable));
 
 const formatFileSize = (size: number) => {
@@ -182,7 +171,6 @@ const clearTargetPreviews = () => {
   targetFiles.value = targetFiles.value.map(file => ({
     ...file,
     previewResults: {},
-    lastPreviewTableIndex: undefined,
     previewLoadingTableIndex: undefined
   }));
 };
@@ -212,7 +200,6 @@ const syncTargetSourceDefaults = () => {
       };
     }),
     previewResults: {},
-    lastPreviewTableIndex: undefined
   }));
 };
 
@@ -249,12 +236,11 @@ const handleSourceConfigChange = (value: BatchTableConfigItem[]) => {
 const handleTargetConfigChange = (targetId: string, value: BatchTableConfigItem[]) => {
   targetFiles.value = targetFiles.value.map(file =>
     file.targetId === targetId
-      ? {
-          ...file,
-          configs: value,
-          previewResults: {},
-          lastPreviewTableIndex: undefined
-        }
+        ? {
+            ...file,
+            configs: value,
+            previewResults: {}
+          }
       : file
   );
 };
@@ -286,6 +272,7 @@ const handleSourceUpload = async (options: UploadRequestOptions) => {
 
     resetAllState();
     sourceFile.value = res.data;
+    activeSourceFileTab.value = res.data.sessionId;
     await loadSourceTables(res.data.sessionId, res.data.sourceFileType);
     activeRootTab.value = "source";
     ElMessage.success("来源文件上传成功");
@@ -467,7 +454,6 @@ const handleTargetTablePreview = async (targetId: string, item: BatchTableConfig
         ? {
             ...file,
             previewLoadingTableIndex: undefined,
-            lastPreviewTableIndex: item.tableIndex,
             previewResults: {
               ...file.previewResults,
               [item.tableIndex]: res.data
@@ -477,7 +463,7 @@ const handleTargetTablePreview = async (targetId: string, item: BatchTableConfig
     );
 
     if (res.data.canApply) {
-      ElMessage.success(`${currentTargetFile.value?.fileName ?? "目标文件"} 当前表预览通过`);
+      ElMessage.success("当前 Sheet/表格预览通过");
     } else {
       ElMessage.warning("当前目标表仍存在需要处理的问题");
     }
@@ -568,35 +554,44 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
 </script>
 
 <template>
-  <div class="batch-reply-page">
-    <div class="hero">
-      <div class="hero-copy">
-        <div class="eyebrow">逐表配置</div>
+  <div class="batch-reply-page page-shell">
+    <div class="page-header">
+      <div class="page-header__main">
+        <div class="page-header__eyebrow">批量工作台</div>
         <h1>批量回复</h1>
         <p>
-          上传一份人工已回复的同模板文档，按来源表与目标表分别配置行/列映射，
-          逐表选择来源表并预览写回结果，最后只对已完成配置的目标文件执行批量回复。
+          以来源文件为基准，按文件和 Sheet/表格配置映射关系，统一完成同模板文档的回复回写。
         </p>
       </div>
-      <el-alert
-        class="hero-alert"
-        title="仅支持同格式严格复用"
-        type="info"
-        :closable="false"
-        show-icon
-      >
-        <template #default>
-          仅支持 <strong>docx -&gt; docx</strong> 与 <strong>xlsx -&gt; xlsx</strong>；
-          匹配键仍为项目 + 规格；行顺序可以不同，但重复键需要人工处理；
-          写回只更新验收列和备注列，不删行、不删列。
-        </template>
-      </el-alert>
+      <div class="page-header__stats">
+        <div class="header-stat">
+          <span class="header-stat__label">来源表</span>
+          <strong>{{ sourceTables.length }}</strong>
+        </div>
+        <div class="header-stat">
+          <span class="header-stat__label">目标文件</span>
+          <strong>{{ targetFiles.length }}</strong>
+        </div>
+        <div class="header-stat">
+          <span class="header-stat__label">可执行</span>
+          <strong>{{ executableTargets.length }}</strong>
+        </div>
+      </div>
     </div>
 
-    <el-tabs v-model="activeRootTab" class="root-tabs">
-      <el-tab-pane label="来源配置" name="source">
+    <div class="rule-strip">
+      <div class="rule-strip__title">执行规则</div>
+      <div class="rule-strip__content">
+        仅支持 <strong>docx -&gt; docx</strong> 与 <strong>xlsx -&gt; xlsx</strong>；
+        匹配键为项目 + 规格；允许行顺序不同；写回仅更新验收列和备注列。
+      </div>
+    </div>
+
+    <div class="workflow-panel">
+    <el-tabs v-model="activeRootTab" class="root-tabs workstep-tabs">
+      <el-tab-pane label="来源文件" name="source">
         <div class="content-grid">
-          <el-card class="section-card" shadow="hover">
+          <el-card class="section-card file-stage-panel" shadow="never">
             <template #header>
               <div class="section-header">
                 <span>来源文件</span>
@@ -653,11 +648,11 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
             </div>
           </el-card>
 
-          <el-card class="section-card" shadow="hover">
+          <el-card class="section-card file-stage-panel" shadow="never">
             <template #header>
               <div class="section-header">
-                <span>来源表配置</span>
-                <span class="section-subtitle">逐表指定项目列、规格列、验收列、备注列和行配置</span>
+                <span>来源文件工作区</span>
+                <span class="section-subtitle">按文件和 Sheet/表格逐层配置行设置与列映射</span>
               </div>
             </template>
 
@@ -665,25 +660,45 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
               v-if="!sourceFile"
               description="请先上传来源文件"
             />
-            <BatchTableConfigPanel
+            <el-tabs
               v-else
-              :model-value="sourceConfigs"
-              :tables="sourceTables"
-              :is-excel="sourceIsExcel"
-              :preview-loader="createSourcePreviewLoader"
-              @update:model-value="handleSourceConfigChange"
-            />
+              v-model="activeSourceFileTab"
+              class="source-file-tabs"
+            >
+              <el-tab-pane
+                :label="sourceFile.sourceFileName"
+                :name="sourceFile.sessionId"
+              >
+                <div class="source-file-summary">
+                  <div class="source-file-name">{{ sourceFile.sourceFileName }}</div>
+                  <div class="source-meta">
+                    <el-tag size="small" type="primary">
+                      {{ sourceIsExcel ? "Excel" : "Word" }}
+                    </el-tag>
+                    <span>共 {{ sourceFile.tableCount }} 个{{ sourceIsExcel ? "工作表" : "表格" }}</span>
+                    <span>请在对应 Sheet/表格里直接设置行配置、项目列、规格列、验收列和备注列。</span>
+                  </div>
+                </div>
+                <BatchTableConfigPanel
+                  :model-value="sourceConfigs"
+                  :tables="sourceTables"
+                  :is-excel="sourceIsExcel"
+                  :preview-loader="createSourcePreviewLoader"
+                  @update:model-value="handleSourceConfigChange"
+                />
+              </el-tab-pane>
+            </el-tabs>
           </el-card>
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="目标配置" name="target" :disabled="!sourceFile">
+      <el-tab-pane label="目标文件" name="target" :disabled="!sourceFile">
         <div class="content-grid">
-          <el-card class="section-card" shadow="hover">
+          <el-card class="section-card file-stage-panel" shadow="never">
             <template #header>
               <div class="section-header">
                 <span>目标文件</span>
-                <span class="section-subtitle">上传后按文件逐表配置，并为每个目标表选择来源表</span>
+                <span class="section-subtitle">上传后按目标文件和 Sheet/表格逐层配置，并为每个目标表选择来源表</span>
               </div>
             </template>
 
@@ -692,7 +707,7 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
               type="warning"
               :closable="false"
               show-icon
-              title="请先在“来源配置”里至少保留一个来源表"
+              title="请先在“来源文件”步骤里至少保留一个来源表"
             />
 
             <el-upload
@@ -755,7 +770,7 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
                   </el-button>
                 </div>
 
-            <BatchTableConfigPanel
+                <BatchTableConfigPanel
                   :model-value="targetFile.configs"
                   :tables="targetFile.tables"
                   :is-excel="targetFile.fileType === 1"
@@ -764,88 +779,42 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
                   source-table-label="来源表"
                   :mapping-previewable="canPreviewBatchReply"
                   :mapping-preview-loading-table-index="targetFile.previewLoadingTableIndex"
+                  :mapping-preview-results="targetFile.previewResults"
                   @update:model-value="(value) => handleTargetConfigChange(targetFile.targetId, value)"
                   @mapping-preview="(item) => handleTargetTablePreview(targetFile.targetId, item)"
                 />
               </el-tab-pane>
             </el-tabs>
           </el-card>
-
-          <el-card class="section-card" shadow="hover">
-            <template #header>
-              <div class="section-header">
-                <span>当前表回写预览</span>
-                <span class="section-subtitle">逐表选择来源表后点击“预览回写”查看结果</span>
-              </div>
-            </template>
-
-            <el-empty
-              v-if="!currentTargetPreview"
-              description="请在当前目标文件的表格卡片上点击“预览回写”"
-            />
-            <template v-else>
-              <el-alert
-                :title="currentTargetPreview.canApply ? '当前目标表可直接写回' : '当前目标表仍有问题待处理'"
-                :type="currentTargetPreview.canApply ? 'success' : 'warning'"
-                :closable="false"
-                show-icon
-              />
-
-              <div v-if="currentTargetPreview.errors.length > 0" class="preview-errors">
-                <el-tag
-                  v-for="error in currentTargetPreview.errors"
-                  :key="error"
-                  type="danger"
-                  effect="plain"
-                >
-                  {{ error }}
-                </el-tag>
-              </div>
-
-              <el-table
-                v-if="currentTargetPreview.rows.length > 0"
-                :data="currentTargetPreview.rows"
-                border
-                class="preview-table"
-                max-height="420"
-              >
-                <el-table-column prop="rowIndex" label="目标行号" width="100" />
-                <el-table-column prop="project" label="项目" min-width="160" />
-                <el-table-column prop="specification" label="规格" min-width="180" />
-                <el-table-column prop="acceptance" label="预览验收" min-width="180" />
-                <el-table-column prop="remark" label="预览备注" min-width="180" />
-              </el-table>
-            </template>
-
-            <div class="action-row">
-              <el-button
-                type="success"
-                :loading="executing"
-                :disabled="executableTargets.length === 0 || !canExecuteBatchReply || !canDownloadBatchReply"
-                @click="executeReadyTargets"
-              >
-                执行已完成目标文件
-              </el-button>
-              <span class="action-tip">
-                当前可执行 {{ executableTargets.length }} / {{ targetFiles.length }} 份目标文件
-              </span>
-            </div>
-          </el-card>
         </div>
       </el-tab-pane>
 
       <el-tab-pane label="执行结果" name="result">
-        <el-card class="section-card" shadow="hover">
+        <el-card class="section-card file-stage-panel" shadow="never">
           <template #header>
             <div class="section-header">
               <span>执行结果</span>
-              <span class="section-subtitle">这里展示最近一次批量回复的逐文件结果</span>
+              <span class="section-subtitle">确认可执行文件后，在这里统一执行并查看结果</span>
             </div>
           </template>
 
+          <div class="action-row">
+            <el-button
+              type="success"
+              :loading="executing"
+              :disabled="executableTargets.length === 0 || !canExecuteBatchReply || !canDownloadBatchReply"
+              @click="executeReadyTargets"
+            >
+              执行已完成目标文件
+            </el-button>
+            <span class="action-tip">
+              当前可执行 {{ executableTargets.length }} / {{ targetFiles.length }} 份目标文件
+            </span>
+          </div>
+
           <el-empty
             v-if="!executeResult"
-            description="执行批量回复后，结果会展示在这里"
+            description="完成目标文件配置并执行后，结果会展示在这里"
           />
           <template v-else>
             <el-alert
@@ -870,6 +839,7 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
         </el-card>
       </el-tab-pane>
     </el-tabs>
+    </div>
   </div>
 </template>
 
@@ -877,60 +847,147 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
 .batch-reply-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 4px;
+  gap: 16px;
+  padding: 8px;
 }
 
-.hero {
+.page-shell {
+  background: #f4f6f8;
+}
+
+.page-header {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.9fr);
-  gap: 20px;
-  padding: 26px 28px;
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at top left, rgba(45, 123, 255, 0.12), transparent 42%),
-    linear-gradient(135deg, #f7fbff 0%, #f5f7fb 55%, #eef4ff 100%);
-  border: 1px solid rgba(30, 64, 175, 0.08);
+  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.9fr);
+  gap: 16px;
+  padding: 22px 24px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid #d9e1ea;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
 }
 
-.hero-copy h1 {
+.page-header h1 {
   margin: 6px 0 12px;
-  font-size: 34px;
+  font-size: 30px;
   line-height: 1.1;
-  color: #10213a;
+  color: #152334;
 }
 
-.hero-copy p {
+.page-header p {
   margin: 0;
-  max-width: 760px;
-  color: #4b5563;
-  line-height: 1.75;
+  max-width: 720px;
+  color: #526172;
+  line-height: 1.7;
 }
 
-.eyebrow {
+.page-header__eyebrow {
   font-size: 12px;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #1d4ed8;
+  color: #2158a8;
   font-weight: 700;
 }
 
-.hero-alert {
+.page-header__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   align-self: stretch;
 }
 
+.header-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 90px;
+  padding: 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f9fbfd 0%, #f1f5f9 100%);
+  border: 1px solid #d8e1eb;
+}
+
+.header-stat strong {
+  font-size: 26px;
+  color: #152334;
+}
+
+.header-stat__label {
+  font-size: 12px;
+  color: #607083;
+}
+
+.rule-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid #d7dee8;
+  background: #fff;
+}
+
+.rule-strip__title {
+  flex-shrink: 0;
+  min-width: 72px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f3d6b;
+}
+
+.rule-strip__content {
+  color: #556476;
+  line-height: 1.6;
+}
+
+.workflow-panel {
+  padding: 18px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid #d9e1ea;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.03);
+}
+
 .root-tabs :deep(.el-tabs__header) {
-  margin-bottom: 18px;
+  margin-bottom: 20px;
+}
+
+.workstep-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+  background: #d9e1ea;
+}
+
+.workstep-tabs :deep(.el-tabs__item) {
+  height: 42px;
+  padding: 0 18px;
+  color: #617284;
+  font-weight: 600;
+}
+
+.workstep-tabs :deep(.el-tabs__item.is-active) {
+  color: #173d73;
+}
+
+.workstep-tabs :deep(.el-tabs__active-bar) {
+  height: 3px;
+  border-radius: 999px;
+  background: #2f6bb2;
 }
 
 .content-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
+  gap: 16px;
 }
 
 .section-card {
-  border-radius: 20px;
+  border-radius: 16px;
+}
+
+.file-stage-panel {
+  border: 1px solid #d8e1eb;
+  box-shadow: none;
+  background: #fcfdff;
 }
 
 .section-header {
@@ -944,15 +1001,15 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
 .section-subtitle {
   font-size: 12px;
   font-weight: 400;
-  color: #6b7280;
+  color: #6d7b8a;
 }
 
 .upload-area :deep(.el-upload-dragger) {
   width: 100%;
   min-height: 180px;
-  border-radius: 18px;
-  border-color: #d8e5ff;
-  background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+  border-radius: 14px;
+  border-color: #d4dde8;
+  background: #f8fafc;
 }
 
 .source-summary,
@@ -967,7 +1024,7 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
 .target-file-name {
   font-size: 18px;
   font-weight: 600;
-  color: #10213a;
+  color: #162536;
   word-break: break-word;
 }
 
@@ -976,24 +1033,38 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  color: #6b7280;
+  color: #617284;
   font-size: 13px;
   margin-top: 8px;
 }
 
+.source-file-summary {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #f7fafc;
+  border: 1px solid #dde5ee;
+}
+
+.source-file-tabs :deep(.el-tabs__item),
 .target-file-tabs {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
-.preview-errors {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
+.source-file-tabs :deep(.el-tabs__item),
+.target-file-tabs :deep(.el-tabs__item) {
+  height: 38px;
+  color: #5f6e7c;
 }
 
-.preview-table {
-  margin-top: 16px;
+.source-file-tabs :deep(.el-tabs__item.is-active),
+.target-file-tabs :deep(.el-tabs__item.is-active) {
+  color: #153a70;
+  font-weight: 600;
+}
+
+.source-file-tabs :deep(.el-tabs__active-bar),
+.target-file-tabs :deep(.el-tabs__active-bar) {
+  background: #2f6bb2;
 }
 
 .action-row {
@@ -1005,25 +1076,34 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
 }
 
 .action-tip {
-  color: #6b7280;
+  color: #617284;
   font-size: 13px;
 }
 
+.source-file-tabs {
+  margin-top: 8px;
+}
+
 @media (max-width: 960px) {
-  .hero {
+  .page-header {
     grid-template-columns: 1fr;
-    padding: 22px 20px;
+    padding: 20px 18px;
   }
 
-  .hero-copy h1 {
+  .page-header h1 {
     font-size: 28px;
   }
 
   .section-header,
   .source-summary,
-  .target-file-summary {
+  .target-file-summary,
+  .page-header__stats {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .page-header__stats {
+    grid-template-columns: 1fr;
   }
 }
 </style>
