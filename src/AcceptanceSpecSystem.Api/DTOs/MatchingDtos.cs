@@ -925,6 +925,11 @@ public class BatchTableConfig
     /// 是否过滤项目列与规格列都为空的源行（表格级，可选；未传时走全局配置）
     /// </summary>
     public bool? FilterEmptySourceRows { get; set; }
+
+    /// <summary>
+    /// 重复项目/规格组合处理决议
+    /// </summary>
+    public List<BatchReplyDuplicateResolutionDto> DuplicateResolutions { get; set; } = [];
 }
 
 /// <summary>
@@ -1455,6 +1460,91 @@ public class BatchReplyTablePreviewRequest
 }
 
 /// <summary>
+/// 批量回复重复键处理决议
+/// </summary>
+public class BatchReplyDuplicateResolutionDto
+{
+    /// <summary>
+    /// 冲突组标识
+    /// </summary>
+    [Required(ErrorMessage = "冲突组标识不能为空")]
+    public string GroupId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 处理策略（keepFirst / keepLast / skip）
+    /// </summary>
+    [Required(ErrorMessage = "处理策略不能为空")]
+    public string Strategy { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 批量回复重复键冲突组
+/// </summary>
+public class BatchReplyDuplicateGroupDto
+{
+    /// <summary>
+    /// 冲突组标识
+    /// </summary>
+    public string GroupId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 冲突来源（source / target）
+    /// </summary>
+    public string DuplicateSource { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 所属表索引
+    /// </summary>
+    public int TableIndex { get; set; }
+
+    /// <summary>
+    /// 项目
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 涉及行
+    /// </summary>
+    public List<BatchReplyDuplicateRowDto> Rows { get; set; } = [];
+}
+
+/// <summary>
+/// 批量回复重复键冲突明细行
+/// </summary>
+public class BatchReplyDuplicateRowDto
+{
+    /// <summary>
+    /// 行号
+    /// </summary>
+    public int RowIndex { get; set; }
+
+    /// <summary>
+    /// 项目
+    /// </summary>
+    public string Project { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规格
+    /// </summary>
+    public string Specification { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 验收值
+    /// </summary>
+    public string? Acceptance { get; set; }
+
+    /// <summary>
+    /// 备注值
+    /// </summary>
+    public string? Remark { get; set; }
+}
+
+/// <summary>
 /// 批量回复单表预览响应
 /// </summary>
 public class BatchReplyTablePreviewResponse
@@ -1488,6 +1578,11 @@ public class BatchReplyTablePreviewResponse
     /// 错误列表
     /// </summary>
     public List<string> Errors { get; set; } = [];
+
+    /// <summary>
+    /// 重复键冲突组
+    /// </summary>
+    public List<BatchReplyDuplicateGroupDto> DuplicateGroups { get; set; } = [];
 
     /// <summary>
     /// 逐行预览结果

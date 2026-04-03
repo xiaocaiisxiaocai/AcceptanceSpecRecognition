@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { UploadFilled } from "@element-plus/icons-vue";
-import type { UploadFile, UploadInstance, UploadRequestOptions } from "element-plus";
+import type { UploadFile, UploadFiles, UploadInstance, UploadRequestOptions } from "element-plus";
 import BatchTableConfigPanel from "@/views/smart-fill/components/BatchTableConfig.vue";
 import type { BatchTableConfigItem } from "@/views/smart-fill/components/BatchTableConfig.vue";
 import {
@@ -15,6 +15,9 @@ import {
   previewBatchReplyTable,
   uploadBatchReplySource,
   uploadBatchReplyTargets,
+  type BatchReplyDuplicateGroup,
+  type BatchReplyDuplicateResolution,
+  type BatchReplyDuplicateStrategy,
   type BatchReplyExecuteResponse,
   type BatchReplyTablePreviewResponse,
   type BatchReplyUploadedTargetFile,
@@ -47,6 +50,14 @@ type BatchReplyTargetState = {
   previewLoadingTableIndex?: number;
 };
 
+type BatchReplyDuplicateDialogState = {
+  targetId: string;
+  tableIndex: number;
+  sourceTableIndex: number;
+  groups: BatchReplyDuplicateGroup[];
+  strategies: Record<string, BatchReplyDuplicateStrategy>;
+};
+
 const activeRootTab = ref("source");
 const activeSourceFileTab = ref("");
 const sourceFile = ref<BatchReplySourceFile | null>(null);
@@ -60,6 +71,10 @@ const executing = ref(false);
 const targetUploadKey = ref(0);
 const targetUploadRef = ref<UploadInstance>();
 const activeTargetFileId = ref("");
+const duplicateDialog = ref<BatchReplyDuplicateDialogState | null>(null);
+const pendingTargetUploadFiles = ref<File[]>([]);
+const pendingTargetUploadSignatures = ref<string[]>([]);
+let targetUploadFlushTimer: number | undefined;
 
 const sourceSessionId = computed(() => sourceFile.value?.sessionId ?? "");
 const sourceIsExcel = computed(() => sourceFile.value?.sourceFileType === 1);
@@ -77,6 +92,7 @@ const selectedSourceTableOptions = computed(() =>
   }))
 );
 const executableTargets = computed(() => targetFiles.value.filter(isTargetExecutable));
+const duplicateDialogVisible = computed(() => duplicateDialog.value !== null);
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -114,6 +130,7 @@ const buildExcelTableConfig = (
     headerRowCount: 1,
     dataStartRow: usedStartRow + 1,
     filterEmptySourceRows: true,
+    duplicateResolutions: [],
     selected,
     tableInfo: table
   };
@@ -139,6 +156,7 @@ const buildWordTableConfig = (
     headerRowCount: 1,
     dataStartRow: 2,
     filterEmptySourceRows: true,
+    duplicateResolutions: [],
     selected,
     tableInfo: table
   };
@@ -164,7 +182,8 @@ const toBatchTableConfig = (item: BatchTableConfigItem): ApiBatchTableConfig => 
   headerRowStart: item.headerRowStart,
   headerRowCount: item.headerRowCount,
   dataStartRow: item.dataStartRow,
-  filterEmptySourceRows: item.filterEmptySourceRows
+  filterEmptySourceRows: item.filterEmptySourceRows,
+  duplicateResolutions: item.duplicateResolutions
 });
 
 const clearTargetPreviews = () => {
@@ -206,6 +225,12 @@ const syncTargetSourceDefaults = () => {
 const resetTargetState = () => {
   targetFiles.value = [];
   activeTargetFileId.value = "";
+  pendingTargetUploadFiles.value = [];
+  pendingTargetUploadSignatures.value = [];
+  if (targetUploadFlushTimer !== undefined) {
+    window.clearTimeout(targetUploadFlushTimer);
+    targetUploadFlushTimer = undefined;
+  }
   targetUploadKey.value++;
 };
 
@@ -312,16 +337,74 @@ const appendUploadedTarget = async (
   }
 };
 
-const handleTargetFileChange = async (uploadFile: UploadFile) => {
+const schedulePendingTargetUploadFlush = () => {
+  if (targetUploadFlushTimer !== undefined) {
+    return;
+  }
+
+  targetUploadFlushTimer = window.setTimeout(() => {
+    targetUploadFlushTimer = undefined;
+    void flushPendingTargetUploads();
+  }, 0);
+};
+
+const flushPendingTargetUploads = async () => {
+  if (targetUploading.value || pendingTargetUploadFiles.value.length === 0) {
+    return;
+  }
+
+  const pendingFiles = [...pendingTargetUploadFiles.value];
+  pendingTargetUploadFiles.value = [];
+  pendingTargetUploadSignatures.value = [];
+
+  targetUploading.value = true;
+  try {
+    const res = await uploadBatchReplyTargets(sourceSessionId.value, pendingFiles);
+    if (res.code !== 0 || res.data.files.length === 0) {
+      ElMessage.error(res.message || "目标文件上传失败");
+      return;
+    }
+
+    for (let index = 0; index < res.data.files.length; index++) {
+      const uploadedFile = res.data.files[index];
+      const rawFile = pendingFiles[index];
+      if (!uploadedFile || !rawFile) {
+        continue;
+      }
+
+      await appendUploadedTarget(uploadedFile, rawFile);
+    }
+
+    activeRootTab.value = "target";
+    ElMessage.success(
+      pendingFiles.length === 1
+        ? `${pendingFiles[0].name} 上传成功`
+        : `已上传 ${pendingFiles.length} 个目标文件`
+    );
+  } catch {
+    ElMessage.error("目标文件上传失败");
+  } finally {
+    targetUploading.value = false;
+    if (pendingTargetUploadFiles.value.length > 0) {
+      schedulePendingTargetUploadFlush();
+    }
+  }
+};
+
+const handleTargetFileChange = (uploadFile: UploadFile, _uploadFiles: UploadFiles) => {
   const rawFile = uploadFile.raw;
   if (!rawFile) {
+    targetUploadRef.value?.handleRemove(uploadFile);
     return;
   }
 
   const decision = decideTargetUpload({
     hasSourceFile: !!sourceFile.value,
     accept: targetAccept.value,
-    existingSignatures: targetFiles.value.map(item => item.signature),
+    existingSignatures: [
+      ...targetFiles.value.map(item => item.signature),
+      ...pendingTargetUploadSignatures.value
+    ],
     file: rawFile
   });
 
@@ -340,23 +423,13 @@ const handleTargetFileChange = async (uploadFile: UploadFile) => {
     return;
   }
 
-  targetUploading.value = true;
-  try {
-    const res = await uploadBatchReplyTargets(sourceSessionId.value, [rawFile]);
-    if (res.code !== 0 || res.data.files.length === 0) {
-      ElMessage.error(res.message || "目标文件上传失败");
-      return;
-    }
-
-    await appendUploadedTarget(res.data.files[0], rawFile);
-    activeRootTab.value = "target";
-    ElMessage.success(`${rawFile.name} 上传成功`);
-  } catch {
-    ElMessage.error("目标文件上传失败");
-  } finally {
-    targetUploading.value = false;
-    targetUploadRef.value?.handleRemove(uploadFile);
-  }
+  pendingTargetUploadFiles.value = [...pendingTargetUploadFiles.value, rawFile];
+  pendingTargetUploadSignatures.value = [
+    ...pendingTargetUploadSignatures.value,
+    createTargetFileSignature(rawFile)
+  ];
+  schedulePendingTargetUploadFlush();
+  targetUploadRef.value?.handleRemove(uploadFile);
 };
 
 const removeTargetFile = (targetId: string) => {
@@ -364,6 +437,147 @@ const removeTargetFile = (targetId: string) => {
   if (activeTargetFileId.value === targetId) {
     activeTargetFileId.value = targetFiles.value[0]?.targetId ?? "";
   }
+
+  if (duplicateDialog.value?.targetId === targetId) {
+    duplicateDialog.value = null;
+  }
+};
+
+const getDuplicateResolutionFromConfig = (
+  resolutions: BatchReplyDuplicateResolution[] | undefined,
+  groupId: string
+) => resolutions?.find(item => item.groupId === groupId)?.strategy;
+
+const upsertDuplicateResolutions = (
+  resolutions: BatchReplyDuplicateResolution[] | undefined,
+  nextResolution: BatchReplyDuplicateResolution
+) => {
+  const nextList = [...(resolutions ?? [])];
+  const existingIndex = nextList.findIndex(item => item.groupId === nextResolution.groupId);
+  if (existingIndex >= 0) {
+    nextList[existingIndex] = nextResolution;
+  } else {
+    nextList.push(nextResolution);
+  }
+
+  return nextList;
+};
+
+const getDuplicateSourceLabel = (duplicateSource: BatchReplyDuplicateGroup["duplicateSource"]) =>
+  duplicateSource === "source" ? "来源表重复" : "目标表重复";
+
+const openDuplicateDialog = (
+  targetId: string,
+  item: BatchTableConfigItem,
+  groups: BatchReplyDuplicateGroup[]
+) => {
+  const targetFile = targetFiles.value.find(file => file.targetId === targetId);
+  const strategies = Object.fromEntries(
+    groups.map(group => {
+      const config =
+        group.duplicateSource === "source"
+          ? sourceConfigs.value.find(source => source.tableIndex === group.tableIndex)
+          : targetFile?.configs.find(configItem => configItem.tableIndex === group.tableIndex);
+      return [
+        group.groupId,
+        getDuplicateResolutionFromConfig(config?.duplicateResolutions, group.groupId) ?? "keepFirst"
+      ];
+    })
+  ) as Record<string, BatchReplyDuplicateStrategy>;
+
+  duplicateDialog.value = {
+    targetId,
+    tableIndex: item.tableIndex,
+    sourceTableIndex: item.sourceTableIndex ?? item.tableIndex,
+    groups,
+    strategies
+  };
+};
+
+const closeDuplicateDialog = () => {
+  duplicateDialog.value = null;
+};
+
+const updateDuplicateDialogStrategy = (
+  groupId: string,
+  strategy: BatchReplyDuplicateStrategy
+) => {
+  if (!duplicateDialog.value) {
+    return;
+  }
+
+  duplicateDialog.value = {
+    ...duplicateDialog.value,
+    strategies: {
+      ...duplicateDialog.value.strategies,
+      [groupId]: strategy
+    }
+  };
+};
+
+const applyDuplicateResolutions = (dialog: BatchReplyDuplicateDialogState) => {
+  const groupedResolutions = dialog.groups.reduce(
+    (acc, group) => {
+      const resolution: BatchReplyDuplicateResolution = {
+        groupId: group.groupId,
+        strategy: dialog.strategies[group.groupId] ?? "keepFirst"
+      };
+      if (group.duplicateSource === "source") {
+        acc.source[group.tableIndex] = upsertDuplicateResolutions(acc.source[group.tableIndex], resolution);
+      } else {
+        acc.target[group.tableIndex] = upsertDuplicateResolutions(acc.target[group.tableIndex], resolution);
+      }
+      return acc;
+    },
+    {
+      source: {} as Record<number, BatchReplyDuplicateResolution[]>,
+      target: {} as Record<number, BatchReplyDuplicateResolution[]>
+    }
+  );
+
+  sourceConfigs.value = sourceConfigs.value.map(config =>
+    groupedResolutions.source[config.tableIndex]
+      ? {
+          ...config,
+          duplicateResolutions: groupedResolutions.source[config.tableIndex]
+        }
+      : config
+  );
+
+  targetFiles.value = targetFiles.value.map(file =>
+    file.targetId !== dialog.targetId
+      ? file
+      : {
+          ...file,
+          configs: file.configs.map(config =>
+            groupedResolutions.target[config.tableIndex]
+              ? {
+                  ...config,
+                  duplicateResolutions: groupedResolutions.target[config.tableIndex]
+                }
+              : config
+          )
+        }
+  );
+};
+
+const confirmDuplicateDialog = async () => {
+  const dialog = duplicateDialog.value;
+  if (!dialog) {
+    return;
+  }
+
+  applyDuplicateResolutions(dialog);
+  closeDuplicateDialog();
+
+  const targetFile = targetFiles.value.find(file => file.targetId === dialog.targetId);
+  const targetConfig = targetFile?.configs.find(config => config.tableIndex === dialog.tableIndex);
+  if (!targetConfig) {
+    ElMessage.error("未找到当前目标表配置，无法重新预览");
+    return;
+  }
+
+  await handleTargetTablePreview(dialog.targetId, targetConfig);
 };
 
 const createSourcePreviewLoader = async (
@@ -462,7 +676,10 @@ const handleTargetTablePreview = async (targetId: string, item: BatchTableConfig
         : file
     );
 
-    if (res.data.canApply) {
+    if ((res.data.duplicateGroups?.length ?? 0) > 0) {
+      openDuplicateDialog(targetId, item, res.data.duplicateGroups);
+      ElMessage.warning("当前目标表存在重复项，请先确认处理方式");
+    } else if (res.data.canApply) {
       ElMessage.success("当前 Sheet/表格预览通过");
     } else {
       ElMessage.warning("当前目标表仍存在需要处理的问题");
@@ -840,6 +1057,69 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
       </el-tab-pane>
     </el-tabs>
     </div>
+
+    <el-dialog
+      :model-value="duplicateDialogVisible"
+      title="重复项处理"
+      width="960px"
+      destroy-on-close
+      @close="closeDuplicateDialog"
+    >
+      <template v-if="duplicateDialog">
+        <div class="duplicate-dialog__intro">
+          当前 Sheet/表格存在重复的“项目 + 规格”组合。请为每个冲突组选择处理策略，确认后系统会自动重新预览这张表。
+        </div>
+
+        <div class="duplicate-group-list">
+          <div
+            v-for="group in duplicateDialog.groups"
+            :key="group.groupId"
+            class="duplicate-group-card"
+          >
+            <div class="duplicate-group-card__header">
+              <div class="duplicate-group-card__meta">
+                <el-tag
+                  size="small"
+                  :type="group.duplicateSource === 'source' ? 'warning' : 'danger'"
+                  effect="plain"
+                >
+                  {{ getDuplicateSourceLabel(group.duplicateSource) }}
+                </el-tag>
+                <strong>{{ group.project || "空项目" }}</strong>
+                <span>/</span>
+                <span>{{ group.specification || "空规格" }}</span>
+              </div>
+              <el-select
+                :model-value="duplicateDialog.strategies[group.groupId]"
+                class="duplicate-group-card__select"
+                @update:model-value="updateDuplicateDialogStrategy(group.groupId, $event)"
+              >
+                <el-option label="保留首条" value="keepFirst" />
+                <el-option label="保留末条" value="keepLast" />
+                <el-option label="跳过该组" value="skip" />
+              </el-select>
+            </div>
+
+            <el-table :data="group.rows" border size="small" class="duplicate-group-card__table">
+              <el-table-column prop="rowIndex" label="行号" width="90" />
+              <el-table-column prop="project" label="项目" min-width="150" />
+              <el-table-column prop="specification" label="规格" min-width="180" />
+              <el-table-column prop="acceptance" label="验收" min-width="180" />
+              <el-table-column prop="remark" label="备注" min-width="180" />
+            </el-table>
+          </div>
+        </div>
+      </template>
+
+      <template #footer>
+        <div class="duplicate-dialog__footer">
+          <el-button @click="closeDuplicateDialog">取消</el-button>
+          <el-button type="primary" @click="confirmDuplicateDialog">
+            确认处理
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1080,6 +1360,55 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
   font-size: 13px;
 }
 
+.duplicate-dialog__intro {
+  margin-bottom: 16px;
+  color: #556476;
+  line-height: 1.7;
+}
+
+.duplicate-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.duplicate-group-card {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid #dde5ee;
+  background: #fbfcfd;
+}
+
+.duplicate-group-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.duplicate-group-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1f3349;
+  flex-wrap: wrap;
+}
+
+.duplicate-group-card__select {
+  width: 150px;
+}
+
+.duplicate-group-card__table {
+  width: 100%;
+}
+
+.duplicate-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .source-file-tabs {
   margin-top: 8px;
 }
@@ -1097,7 +1426,8 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
   .section-header,
   .source-summary,
   .target-file-summary,
-  .page-header__stats {
+  .page-header__stats,
+  .duplicate-group-card__header {
     align-items: flex-start;
     flex-direction: column;
   }

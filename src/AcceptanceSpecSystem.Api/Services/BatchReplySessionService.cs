@@ -1,5 +1,7 @@
+using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.Extensions.Caching.Memory;
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace AcceptanceSpecSystem.Api.Services;
@@ -21,6 +23,7 @@ public sealed class BatchReplySessionService
     private readonly IMemoryCache _memoryCache;
     private readonly IFileStorageService _fileStorage;
     private readonly ILogger<BatchReplySessionService> _logger;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new(StringComparer.Ordinal);
 
     public BatchReplySessionService(
         IMemoryCache memoryCache,
@@ -114,33 +117,34 @@ public sealed class BatchReplySessionService
         IReadOnlyCollection<BatchReplyTargetFile> targetFiles,
         CancellationToken cancellationToken = default)
     {
-        var session = GetSession(userId, companyId, sessionId);
-        if (session == null)
-        {
-            return null;
-        }
+        return await ExecuteSessionMutationAsync(
+            sessionId,
+            cancellationToken,
+            async session =>
+            {
+                var updatedSession = new BatchReplySourceSession
+                {
+                    SessionId = session.SessionId,
+                    OwnerUserId = session.OwnerUserId,
+                    OwnerCompanyId = session.OwnerCompanyId,
+                    SourceFileName = session.SourceFileName,
+                    SourceFileType = session.SourceFileType,
+                    SourceFileRelativePath = session.SourceFileRelativePath,
+                    ManifestRelativePath = session.ManifestRelativePath,
+                    CreatedAt = session.CreatedAt,
+                    UpdatedAt = DateTime.UtcNow,
+                    SourceTables = session.SourceTables.ToList(),
+                    TargetFiles = session.TargetFiles
+                        .Concat(targetFiles)
+                        .ToList()
+                };
 
-        var updatedSession = new BatchReplySourceSession
-        {
-            SessionId = session.SessionId,
-            OwnerUserId = session.OwnerUserId,
-            OwnerCompanyId = session.OwnerCompanyId,
-            SourceFileName = session.SourceFileName,
-            SourceFileType = session.SourceFileType,
-            SourceFileRelativePath = session.SourceFileRelativePath,
-            ManifestRelativePath = session.ManifestRelativePath,
-            CreatedAt = session.CreatedAt,
-            UpdatedAt = DateTime.UtcNow,
-            SourceTables = session.SourceTables.ToList(),
-            TargetFiles = session.TargetFiles
-                .Concat(targetFiles)
-                .ToList()
-        };
-
-        await PersistSessionManifestAsync(updatedSession, cancellationToken);
-        await CleanupExpiredSessionManifestsAsync(cancellationToken);
-        SetSession(updatedSession, SessionRetention);
-        return updatedSession;
+                await PersistSessionManifestAsync(updatedSession, cancellationToken);
+                SetSession(updatedSession, SessionRetention);
+                return updatedSession;
+            },
+            userId,
+            companyId);
     }
 
     internal async Task ReplacePreviewAsync(
@@ -151,36 +155,46 @@ public sealed class BatchReplySessionService
         IReadOnlyCollection<BatchReplyTargetFile> targetFiles,
         CancellationToken cancellationToken = default)
     {
-        var session = GetSession(userId, companyId, sessionId);
-        if (session == null)
+        string[] oldTargetPaths = [];
+
+        var updatedSession = await ExecuteSessionMutationAsync(
+            sessionId,
+            cancellationToken,
+            async session =>
+            {
+                oldTargetPaths = session.TargetFiles
+                    .Select(file => file.RelativePath)
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Cast<string>()
+                    .ToArray();
+
+                var nextSession = new BatchReplySourceSession
+                {
+                    SessionId = session.SessionId,
+                    OwnerUserId = session.OwnerUserId,
+                    OwnerCompanyId = session.OwnerCompanyId,
+                    SourceFileName = session.SourceFileName,
+                    SourceFileType = session.SourceFileType,
+                    SourceFileRelativePath = session.SourceFileRelativePath,
+                    ManifestRelativePath = session.ManifestRelativePath,
+                    CreatedAt = session.CreatedAt,
+                    UpdatedAt = DateTime.UtcNow,
+                    SourceTables = sourceTables.ToList(),
+                    TargetFiles = targetFiles.ToList()
+                };
+
+                await PersistSessionManifestAsync(nextSession, cancellationToken);
+                SetSession(nextSession, SessionRetention);
+                return nextSession;
+            },
+            userId,
+            companyId);
+
+        if (updatedSession == null)
         {
             return;
         }
 
-        var oldTargetPaths = session.TargetFiles
-            .Select(file => file.RelativePath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Cast<string>()
-            .ToArray();
-
-        var updatedSession = new BatchReplySourceSession
-        {
-            SessionId = session.SessionId,
-            OwnerUserId = session.OwnerUserId,
-            OwnerCompanyId = session.OwnerCompanyId,
-            SourceFileName = session.SourceFileName,
-            SourceFileType = session.SourceFileType,
-            SourceFileRelativePath = session.SourceFileRelativePath,
-            ManifestRelativePath = session.ManifestRelativePath,
-            CreatedAt = session.CreatedAt,
-            UpdatedAt = DateTime.UtcNow,
-            SourceTables = sourceTables.ToList(),
-            TargetFiles = targetFiles.ToList()
-        };
-
-        await PersistSessionManifestAsync(updatedSession, cancellationToken);
-        await CleanupExpiredSessionManifestsAsync(cancellationToken);
-        SetSession(updatedSession, SessionRetention);
         await DeleteRelativePathsAsync(oldTargetPaths, cancellationToken);
     }
 
@@ -282,6 +296,38 @@ public sealed class BatchReplySessionService
     private static string BuildSessionManifestRelativePath(string sessionId)
     {
         return $"{SessionManifestBaseRelativeDir}/{sessionId}.json";
+    }
+
+    private SemaphoreSlim GetSessionLock(string sessionId)
+    {
+        return _sessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+    }
+
+    private async Task<BatchReplySourceSession?> ExecuteSessionMutationAsync(
+        string sessionId,
+        CancellationToken cancellationToken,
+        Func<BatchReplySourceSession, Task<BatchReplySourceSession>> mutation,
+        int userId,
+        int companyId)
+    {
+        var sessionLock = GetSessionLock(sessionId);
+        await sessionLock.WaitAsync(cancellationToken);
+        try
+        {
+            var session = GetSession(userId, companyId, sessionId);
+            if (session == null)
+            {
+                return null;
+            }
+
+            var updatedSession = await mutation(session);
+            await CleanupExpiredSessionManifestsAsync(cancellationToken);
+            return updatedSession;
+        }
+        finally
+        {
+            sessionLock.Release();
+        }
     }
 
     private async Task PersistSessionManifestAsync(
@@ -583,6 +629,7 @@ internal sealed class BatchReplySourceTable
     public int? HeaderRowCount { get; set; }
     public int? DataStartRow { get; set; }
     public bool FilterEmptySourceRows { get; set; } = true;
+    public List<BatchReplyDuplicateResolutionDto> DuplicateResolutions { get; set; } = [];
     public List<BatchReplySourceRow> Rows { get; set; } = [];
 }
 

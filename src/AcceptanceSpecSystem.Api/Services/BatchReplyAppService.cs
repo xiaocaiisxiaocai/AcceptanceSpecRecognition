@@ -11,6 +11,12 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// </summary>
 public sealed class BatchReplyAppService
 {
+    private const string DuplicateSourceKindSource = "source";
+    private const string DuplicateSourceKindTarget = "target";
+    private const string DuplicateStrategyKeepFirst = "keepFirst";
+    private const string DuplicateStrategyKeepLast = "keepLast";
+    private const string DuplicateStrategySkip = "skip";
+
     private readonly DocumentTableAccessService _documentTableAccessService;
     private readonly MatchingResultWriteBackService _matchingResultWriteBackService;
     private readonly BatchReplySessionService _batchReplySessionService;
@@ -252,6 +258,7 @@ public sealed class BatchReplyAppService
             SourceTableIndex = sourceTableIndex,
             CanApply = validation.Errors.Count == 0,
             Errors = validation.Errors.ToList(),
+            DuplicateGroups = validation.DuplicateGroups.ToList(),
             Rows = validation.WriteTable?.Rows
                 .OrderBy(row => row.RowIndex)
                 .Select(row => new BatchReplyTablePreviewRowDto
@@ -809,6 +816,14 @@ public sealed class BatchReplyAppService
                 HeaderRowCount = config.HeaderRowCount,
                 DataStartRow = config.DataStartRow,
                 FilterEmptySourceRows = config.FilterEmptySourceRows ?? true,
+                DuplicateResolutions = config.DuplicateResolutions
+                    .Where(item => !string.IsNullOrWhiteSpace(item.GroupId))
+                    .Select(item => new BatchReplyDuplicateResolutionDto
+                    {
+                        GroupId = item.GroupId.Trim(),
+                        Strategy = item.Strategy?.Trim() ?? string.Empty
+                    })
+                    .ToList(),
                 Rows = rows.Select(row => new BatchReplySourceRow
                 {
                     RowIndex = row.RowIndex,
@@ -951,23 +966,35 @@ public sealed class BatchReplyAppService
             targetConfig.HeaderRowCount,
             targetConfig.DataStartRow,
             targetConfig.FilterEmptySourceRows ?? true);
-        if (targetRows.Count != sourceTable.Rows.Count)
+
+        var sourceLookupResult = BuildSourceRowLookup(sourceTable);
+        if (sourceLookupResult.DuplicateGroups.Count > 0)
         {
-            result.Errors.Add($"表格{targetConfig.TableIndex + 1}的数据区行数不一致");
+            result.Errors.Add($"表格{sourceTable.TableIndex + 1}存在重复的项目/规格组合，请手动处理");
+            result.DuplicateGroups.AddRange(sourceLookupResult.DuplicateGroups);
             return result;
         }
 
-        var sourceLookup = BuildSourceRowLookup(sourceTable, result.Errors);
-        if (sourceLookup == null)
+        var targetLookupResult = BuildTargetRowLookup(
+            targetConfig.TableIndex,
+            targetRows,
+            targetConfig.DuplicateResolutions);
+        if (targetLookupResult.DuplicateGroups.Count > 0)
         {
+            result.Errors.Add($"表格{targetConfig.TableIndex + 1}存在重复的项目/规格组合，请手动处理");
+            result.DuplicateGroups.AddRange(targetLookupResult.DuplicateGroups);
             return result;
         }
 
-        var targetLookup = BuildTargetRowLookup(targetConfig.TableIndex, targetRows, result.Errors);
-        if (targetLookup == null)
-        {
-            return result;
-        }
+        var skippedKeys = new HashSet<(string Project, string Specification)>(sourceLookupResult.SkippedKeys);
+        skippedKeys.UnionWith(targetLookupResult.SkippedKeys);
+
+        var sourceLookup = sourceLookupResult.Lookup
+            .Where(item => !skippedKeys.Contains(item.Key))
+            .ToDictionary(item => item.Key, item => item.Value);
+        var targetLookup = targetLookupResult.Lookup
+            .Where(item => !skippedKeys.Contains(item.Key))
+            .ToDictionary(item => item.Key, item => item.Value);
 
         if (sourceLookup.Count != targetLookup.Count ||
             sourceLookup.Keys.Except(targetLookup.Keys).Any() ||
@@ -982,7 +1009,9 @@ public sealed class BatchReplyAppService
             TableIndex = targetConfig.TableIndex,
             AcceptanceColumnIndex = targetConfig.AcceptanceColumnIndex,
             RemarkColumnIndex = targetConfig.RemarkColumnIndex,
-            Rows = targetRows.Select(targetRow =>
+            Rows = targetLookup.Values
+                .OrderBy(row => row.RowIndex)
+                .Select(targetRow =>
             {
                 var sourceRow = sourceLookup[BuildRowKey(targetRow.Project, targetRow.Specification)];
                 return new BatchReplyWriteRow
@@ -1230,45 +1259,185 @@ public sealed class BatchReplyAppService
         return new MatchingApiException(404, message, isNotFound: true);
     }
 
-    private static Dictionary<(string Project, string Specification), BatchReplySourceRow>? BuildSourceRowLookup(
-        BatchReplySourceTable sourceTable,
-        List<string> errors)
+    private static BatchReplyResolvedLookup<BatchReplySourceRow> BuildSourceRowLookup(BatchReplySourceTable sourceTable)
     {
-        var lookup = new Dictionary<(string Project, string Specification), BatchReplySourceRow>();
-        foreach (var row in sourceTable.Rows)
+        var result = new BatchReplyResolvedLookup<BatchReplySourceRow>();
+        var resolutionLookup = BuildDuplicateResolutionLookup(sourceTable.DuplicateResolutions);
+        foreach (var group in sourceTable.Rows
+                     .GroupBy(row => BuildRowKey(row.Project, row.Specification))
+                     .OrderBy(item => item.Min(row => row.RowIndex)))
         {
-            var key = BuildRowKey(row.Project, row.Specification);
-            if (lookup.TryAdd(key, row))
+            var rows = group.OrderBy(row => row.RowIndex).ToList();
+            if (rows.Count == 1)
+            {
+                result.Lookup[group.Key] = rows[0];
+                continue;
+            }
+
+            var groupId = BuildDuplicateGroupId(DuplicateSourceKindSource, sourceTable.TableIndex, group.Key);
+            if (!resolutionLookup.TryGetValue(groupId, out var strategy))
+            {
+                result.DuplicateGroups.Add(CreateSourceDuplicateGroup(groupId, sourceTable.TableIndex, rows));
+                continue;
+            }
+
+            switch (strategy)
+            {
+                case DuplicateStrategyKeepFirst:
+                    result.Lookup[group.Key] = rows[0];
+                    break;
+                case DuplicateStrategyKeepLast:
+                    result.Lookup[group.Key] = rows[^1];
+                    break;
+                case DuplicateStrategySkip:
+                    result.SkippedKeys.Add(group.Key);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    private static BatchReplyResolvedLookup<MatchSourceItem> BuildTargetRowLookup(
+        int tableIndex,
+        IReadOnlyCollection<MatchSourceItem> targetRows,
+        IReadOnlyCollection<BatchReplyDuplicateResolutionDto>? duplicateResolutions)
+    {
+        var result = new BatchReplyResolvedLookup<MatchSourceItem>();
+        var resolutionLookup = BuildDuplicateResolutionLookup(duplicateResolutions);
+        foreach (var group in targetRows
+                     .GroupBy(row => BuildRowKey(row.Project, row.Specification))
+                     .OrderBy(item => item.Min(row => row.RowIndex)))
+        {
+            var rows = group.OrderBy(row => row.RowIndex).ToList();
+            if (rows.Count == 1)
+            {
+                result.Lookup[group.Key] = rows[0];
+                continue;
+            }
+
+            var groupId = BuildDuplicateGroupId(DuplicateSourceKindTarget, tableIndex, group.Key);
+            if (!resolutionLookup.TryGetValue(groupId, out var strategy))
+            {
+                result.DuplicateGroups.Add(CreateTargetDuplicateGroup(groupId, tableIndex, rows));
+                continue;
+            }
+
+            switch (strategy)
+            {
+                case DuplicateStrategyKeepFirst:
+                    result.Lookup[group.Key] = rows[0];
+                    break;
+                case DuplicateStrategyKeepLast:
+                    result.Lookup[group.Key] = rows[^1];
+                    break;
+                case DuplicateStrategySkip:
+                    result.SkippedKeys.Add(group.Key);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, string> BuildDuplicateResolutionLookup(
+        IReadOnlyCollection<BatchReplyDuplicateResolutionDto>? duplicateResolutions)
+    {
+        var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (duplicateResolutions == null)
+        {
+            return lookup;
+        }
+
+        foreach (var resolution in duplicateResolutions)
+        {
+            if (string.IsNullOrWhiteSpace(resolution.GroupId))
             {
                 continue;
             }
 
-            errors.Add($"表格{sourceTable.TableIndex + 1}存在重复的项目/规格组合，请手动处理");
-            return null;
+            var normalizedStrategy = NormalizeDuplicateStrategy(resolution.Strategy);
+            if (normalizedStrategy == null)
+            {
+                continue;
+            }
+
+            lookup[resolution.GroupId.Trim()] = normalizedStrategy;
         }
 
         return lookup;
     }
 
-    private static Dictionary<(string Project, string Specification), MatchSourceItem>? BuildTargetRowLookup(
-        int tableIndex,
-        IReadOnlyCollection<MatchSourceItem> targetRows,
-        List<string> errors)
+    private static string? NormalizeDuplicateStrategy(string? strategy)
     {
-        var lookup = new Dictionary<(string Project, string Specification), MatchSourceItem>();
-        foreach (var row in targetRows)
+        if (string.IsNullOrWhiteSpace(strategy))
         {
-            var key = BuildRowKey(row.Project, row.Specification);
-            if (lookup.TryAdd(key, row))
-            {
-                continue;
-            }
-
-            errors.Add($"表格{tableIndex + 1}存在重复的项目/规格组合，请手动处理");
             return null;
         }
 
-        return lookup;
+        return strategy.Trim() switch
+        {
+            DuplicateStrategyKeepFirst => DuplicateStrategyKeepFirst,
+            DuplicateStrategyKeepLast => DuplicateStrategyKeepLast,
+            DuplicateStrategySkip => DuplicateStrategySkip,
+            _ => null
+        };
+    }
+
+    private static string BuildDuplicateGroupId(
+        string duplicateSource,
+        int tableIndex,
+        (string Project, string Specification) key)
+    {
+        return $"{duplicateSource}:{tableIndex}:{key.Project}|{key.Specification}";
+    }
+
+    private static BatchReplyDuplicateGroupDto CreateSourceDuplicateGroup(
+        string groupId,
+        int tableIndex,
+        IReadOnlyCollection<BatchReplySourceRow> rows)
+    {
+        var orderedRows = rows.OrderBy(row => row.RowIndex).ToList();
+        var firstRow = orderedRows[0];
+        return new BatchReplyDuplicateGroupDto
+        {
+            GroupId = groupId,
+            DuplicateSource = DuplicateSourceKindSource,
+            TableIndex = tableIndex,
+            Project = firstRow.Project,
+            Specification = firstRow.Specification,
+            Rows = orderedRows.Select(row => new BatchReplyDuplicateRowDto
+            {
+                RowIndex = row.RowIndex,
+                Project = row.Project,
+                Specification = row.Specification,
+                Acceptance = row.Acceptance,
+                Remark = row.Remark
+            }).ToList()
+        };
+    }
+
+    private static BatchReplyDuplicateGroupDto CreateTargetDuplicateGroup(
+        string groupId,
+        int tableIndex,
+        IReadOnlyCollection<MatchSourceItem> rows)
+    {
+        var orderedRows = rows.OrderBy(row => row.RowIndex).ToList();
+        var firstRow = orderedRows[0];
+        return new BatchReplyDuplicateGroupDto
+        {
+            GroupId = groupId,
+            DuplicateSource = DuplicateSourceKindTarget,
+            TableIndex = tableIndex,
+            Project = firstRow.Project,
+            Specification = firstRow.Specification,
+            Rows = orderedRows.Select(row => new BatchReplyDuplicateRowDto
+            {
+                RowIndex = row.RowIndex,
+                Project = row.Project,
+                Specification = row.Specification
+            }).ToList()
+        };
     }
 
     private static (string Project, string Specification) BuildRowKey(string? project, string? specification)
@@ -1302,7 +1471,18 @@ public sealed class BatchReplyAppService
     {
         public List<string> Errors { get; } = [];
 
+        public List<BatchReplyDuplicateGroupDto> DuplicateGroups { get; } = [];
+
         public BatchReplyWriteTable? WriteTable { get; set; }
+    }
+
+    private sealed class BatchReplyResolvedLookup<TRow>
+    {
+        public Dictionary<(string Project, string Specification), TRow> Lookup { get; } = [];
+
+        public List<BatchReplyDuplicateGroupDto> DuplicateGroups { get; } = [];
+
+        public HashSet<(string Project, string Specification)> SkippedKeys { get; } = [];
     }
 
     private static string BuildUniqueArchiveEntryName(string fileName, HashSet<string> usedEntryNames)

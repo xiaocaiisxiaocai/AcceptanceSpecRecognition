@@ -456,6 +456,8 @@ export interface BatchTableConfig {
   dataStartRow?: number;
   /** 是否过滤项目/规格均为空的行（表格级，可选；未传时走全局配置） */
   filterEmptySourceRows?: boolean;
+  /** 重复项目/规格组合处理决议 */
+  duplicateResolutions?: BatchReplyDuplicateResolution[];
 }
 
 /** 批量预览请求 */
@@ -722,6 +724,30 @@ export interface BatchReplyTablePreviewRow {
   remark?: string;
 }
 
+export type BatchReplyDuplicateStrategy = "keepFirst" | "keepLast" | "skip";
+
+export interface BatchReplyDuplicateResolution {
+  groupId: string;
+  strategy: BatchReplyDuplicateStrategy;
+}
+
+export interface BatchReplyDuplicateRow {
+  rowIndex: number;
+  project: string;
+  specification: string;
+  acceptance?: string;
+  remark?: string;
+}
+
+export interface BatchReplyDuplicateGroup {
+  groupId: string;
+  duplicateSource: "source" | "target";
+  tableIndex: number;
+  project: string;
+  specification: string;
+  rows: BatchReplyDuplicateRow[];
+}
+
 export interface BatchReplyTablePreviewRequest {
   sessionId: string;
   sourceTables: BatchTableConfig[];
@@ -736,6 +762,7 @@ export interface BatchReplyTablePreviewResponse {
   sourceTableIndex: number;
   canApply: boolean;
   errors: string[];
+  duplicateGroups: BatchReplyDuplicateGroup[];
   rows: BatchReplyTablePreviewRow[];
 }
 

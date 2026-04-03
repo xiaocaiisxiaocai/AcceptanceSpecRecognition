@@ -483,6 +483,19 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void BatchReplyPage_ShouldBatchTargetUploadsInsteadOfPostingEachFileSeparately()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/batch-reply/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("pendingTargetUploadFiles",
+            "目标文件上传应显式维护待上传队列，避免 on-change 命中时逐文件并发请求");
+        content.Should().Contain("uploadBatchReplyTargets(sourceSessionId.value, pendingFiles)",
+            "目标文件应合并为一次上传请求，避免同一会话清单被逐文件并发写入");
+    }
+
+    [Fact]
     public void UploadControllers_ShouldPropagateRequestAbortedToFileOperations()
     {
         var documentsContent = File.ReadAllText(Path.Combine(
@@ -952,6 +965,45 @@ public class ReviewRegressionTests
 
         content.Should().NotContain("needsMultiOrg", "单组织契约下角色页不应再暴露多节点范围选择分支");
         content.Should().NotContain("scopeType === 3", "角色页不应继续兼容自定义多节点范围类型");
+    }
+
+    [Fact]
+    public void AuthRolePage_ShouldRenderBuiltInRoleAsReadonlyInEditDialog()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/auth-roles/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("内置角色只读，不可保存",
+            "内置角色允许打开编辑弹窗时，应明确提示当前为只读模式");
+        content.Should().Contain(":disabled=\"editForm.isBuiltIn\"",
+            "编辑弹窗中的输入控件应随内置角色状态进入只读态");
+        content.Should().Contain("{{ editForm.isBuiltIn ? \"不可保存\" : \"保存\" }}",
+            "内置角色弹窗底部按钮文案应明确告知不可保存");
+    }
+
+    [Fact]
+    public void BatchReplyPage_ShouldRenderDuplicateResolutionDialog()
+    {
+        var pageContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/batch-reply/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var panelContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/BatchTableConfig.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        pageContent.Should().Contain("重复项处理",
+            "批量回复在遇到重复项目/规格时应弹出明确的处理对话框");
+        pageContent.Should().Contain("保留首条",
+            "冲突处理对话框应允许用户选择保留首条");
+        pageContent.Should().Contain("保留末条",
+            "冲突处理对话框应允许用户选择保留末条");
+        pageContent.Should().Contain("跳过该组",
+            "冲突处理对话框应允许用户选择跳过该组");
+        pageContent.Should().Contain("duplicateGroups",
+            "页面需要读取后端返回的结构化重复冲突，而不是只靠通用错误文案");
+        panelContent.Should().Contain("当前 Sheet/表格仍有问题待处理",
+            "当前表格区域仍应保留就地反馈，与弹窗处理形成闭环");
     }
 
     [Fact]

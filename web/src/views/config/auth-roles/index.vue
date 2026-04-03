@@ -400,6 +400,11 @@ const handleCreate = async () => {
 };
 
 const handleUpdate = async () => {
+  if (editForm.isBuiltIn) {
+    ElMessage.warning("内置角色只读，不可保存");
+    return;
+  }
+
   const error = validateRoleForm(editForm, false);
   if (error) {
     ElMessage.warning(error);
@@ -672,11 +677,19 @@ onMounted(initPage);
 
     <el-dialog v-model="editDialogVisible" title="编辑角色" width="760">
       <el-form label-width="110px">
+        <el-alert
+          v-if="editForm.isBuiltIn"
+          class="mb-4"
+          type="info"
+          :closable="false"
+          show-icon
+          title="内置角色只读，不可保存"
+        />
         <el-form-item label="角色编码">
           <el-input :model-value="editForm.code" disabled />
         </el-form-item>
         <el-form-item label="角色名称" required>
-          <el-input v-model="editForm.name" maxlength="100" />
+          <el-input v-model="editForm.name" maxlength="100" :disabled="editForm.isBuiltIn" />
         </el-form-item>
         <el-form-item label="角色描述">
           <el-input
@@ -685,10 +698,11 @@ onMounted(initPage);
             :rows="2"
             maxlength="500"
             show-word-limit
+            :disabled="editForm.isBuiltIn"
           />
         </el-form-item>
         <el-form-item label="状态">
-          <el-switch v-model="editForm.isActive" />
+          <el-switch v-model="editForm.isActive" :disabled="editForm.isBuiltIn" />
         </el-form-item>
         <el-form-item>
           <template #label>
@@ -697,16 +711,16 @@ onMounted(initPage);
           </template>
           <div class="permission-panel w-full">
             <div class="permission-actions">
-              <el-button text type="primary" @click="selectPermissionType(editForm, 3)">全选菜单</el-button>
-              <el-button text type="primary" @click="selectPermissionType(editForm, 0)">全选页面</el-button>
-              <el-button text type="primary" @click="selectPermissionType(editForm, 1)">全选按钮</el-button>
-              <el-button text type="primary" @click="selectPermissionType(editForm, 2)">全选接口</el-button>
-              <el-button text type="warning" @click="clearPermissionType(editForm, 3)">清空菜单</el-button>
-              <el-button text type="warning" @click="clearPermissionType(editForm, 0)">清空页面</el-button>
-              <el-button text type="warning" @click="clearPermissionType(editForm, 1)">清空按钮</el-button>
-              <el-button text type="warning" @click="clearPermissionType(editForm, 2)">清空接口</el-button>
-              <el-button text @click="selectAllPermissions(editForm)">全选全部</el-button>
-              <el-button text type="danger" @click="clearAllPermissions(editForm)">清空全部</el-button>
+              <el-button text type="primary" :disabled="editForm.isBuiltIn" @click="selectPermissionType(editForm, 3)">全选菜单</el-button>
+              <el-button text type="primary" :disabled="editForm.isBuiltIn" @click="selectPermissionType(editForm, 0)">全选页面</el-button>
+              <el-button text type="primary" :disabled="editForm.isBuiltIn" @click="selectPermissionType(editForm, 1)">全选按钮</el-button>
+              <el-button text type="primary" :disabled="editForm.isBuiltIn" @click="selectPermissionType(editForm, 2)">全选接口</el-button>
+              <el-button text type="warning" :disabled="editForm.isBuiltIn" @click="clearPermissionType(editForm, 3)">清空菜单</el-button>
+              <el-button text type="warning" :disabled="editForm.isBuiltIn" @click="clearPermissionType(editForm, 0)">清空页面</el-button>
+              <el-button text type="warning" :disabled="editForm.isBuiltIn" @click="clearPermissionType(editForm, 1)">清空按钮</el-button>
+              <el-button text type="warning" :disabled="editForm.isBuiltIn" @click="clearPermissionType(editForm, 2)">清空接口</el-button>
+              <el-button text :disabled="editForm.isBuiltIn" @click="selectAllPermissions(editForm)">全选全部</el-button>
+              <el-button text type="danger" :disabled="editForm.isBuiltIn" @click="clearAllPermissions(editForm)">清空全部</el-button>
             </div>
             <el-select
               v-model="editForm.permissionCodes"
@@ -715,6 +729,7 @@ onMounted(initPage);
               collapse-tags
               collapse-tags-tooltip
               class="w-full"
+              :disabled="editForm.isBuiltIn"
             >
               <el-option-group
                 v-for="group in permissionGroups"
@@ -744,7 +759,7 @@ onMounted(initPage);
           </div>
         </el-form-item>
         <el-form-item label="验收规格范围" required>
-          <el-select v-model="editForm.scopeType" class="w-full">
+          <el-select v-model="editForm.scopeType" class="w-full" :disabled="editForm.isBuiltIn">
             <el-option
               v-for="option in scopeTypeOptions"
               :key="`edit-scope-type-${option.value}`"
@@ -754,7 +769,7 @@ onMounted(initPage);
           </el-select>
         </el-form-item>
         <el-form-item v-if="needsSingleOrg(editForm.scopeType)" label="组织节点" required>
-          <el-select v-model="editSingleScopeOrgId" clearable filterable class="w-full">
+          <el-select v-model="editSingleScopeOrgId" clearable filterable class="w-full" :disabled="editForm.isBuiltIn">
             <el-option
               v-for="option in orgUnitOptions"
               :key="`edit-scope-org-${option.value}`"
@@ -767,8 +782,14 @@ onMounted(initPage);
       </el-form>
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" v-perms="'btn:auth-role:update'" @click="handleUpdate">
-          保存
+        <el-button
+          type="primary"
+          :loading="submitLoading"
+          :disabled="editForm.isBuiltIn"
+          v-perms="'btn:auth-role:update'"
+          @click="handleUpdate"
+        >
+          {{ editForm.isBuiltIn ? "不可保存" : "保存" }}
         </el-button>
       </template>
     </el-dialog>
