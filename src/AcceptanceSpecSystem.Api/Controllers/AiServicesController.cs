@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.DTOs;
@@ -262,7 +263,7 @@ public class AiServicesController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<AiServiceTestResultDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<AiServiceTestResultDto>>> TestConnection(
         int id,
-        [FromQuery] AiServiceConnectionTestMode mode = AiServiceConnectionTestMode.Quick)
+        [FromQuery] AiServiceConnectionTestMode mode = AiServiceConnectionTestMode.Full)
     {
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
         if (entity == null)
@@ -468,9 +469,17 @@ public class AiServicesController : BaseApiController
     private static string BuildTestFailureMessage(string serviceName, Exception exception, bool isFullMode)
     {
         var prefix = isFullMode ? serviceName : $"{serviceName}: 快速测试";
-        return IsSafeClientValidationMessage(exception.Message)
-            ? $"{prefix}: {exception.Message}"
-            : $"{prefix}: 远端接口异常，请稍后重试";
+        if (IsSafeClientValidationMessage(exception.Message))
+        {
+            return $"{prefix}: {exception.Message}";
+        }
+
+        if (TryBuildFriendlyRemoteErrorMessage(exception, out var friendlyMessage))
+        {
+            return $"{prefix}: {friendlyMessage}";
+        }
+
+        return $"{prefix}: 远端接口异常，请稍后重试";
     }
 
     private static bool IsSafeClientValidationMessage(string? message)
@@ -483,6 +492,157 @@ public class AiServicesController : BaseApiController
         return message.Contains("Endpoint", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("ApiKey", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("模型", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryBuildFriendlyRemoteErrorMessage(Exception exception, out string message)
+    {
+        var statusCode = TryGetHttpStatusCode(exception);
+        if (statusCode == HttpStatusCode.Unauthorized || statusCode == HttpStatusCode.Forbidden || ContainsAuthenticationFailureKeyword(exception))
+        {
+            message = "远端接口鉴权失败，请检查 ApiKey 是否正确";
+            return true;
+        }
+
+        if (statusCode == HttpStatusCode.NotFound)
+        {
+            message = "远端接口地址无效，请检查 Endpoint 是否正确";
+            return true;
+        }
+
+        if (statusCode == HttpStatusCode.TooManyRequests)
+        {
+            message = "远端接口限流或额度受限，请稍后重试";
+            return true;
+        }
+
+        if (statusCode.HasValue && (int)statusCode.Value >= 500)
+        {
+            message = $"远端接口服务异常（HTTP {(int)statusCode.Value}）";
+            return true;
+        }
+
+        if (statusCode.HasValue)
+        {
+            message = $"远端接口异常（HTTP {(int)statusCode.Value}）";
+            return true;
+        }
+
+        message = string.Empty;
+        return false;
+    }
+
+    private static HttpStatusCode? TryGetHttpStatusCode(Exception exception)
+    {
+        foreach (var current in EnumerateExceptionChain(exception))
+        {
+            if (current is HttpRequestException httpRequestException && httpRequestException.StatusCode.HasValue)
+            {
+                return httpRequestException.StatusCode.Value;
+            }
+
+            var reflectedStatusCode = TryReadStatusCodeFromException(current);
+            if (reflectedStatusCode.HasValue)
+            {
+                return reflectedStatusCode.Value;
+            }
+
+            var parsedStatusCode = TryParseStatusCodeFromMessage(current.Message);
+            if (parsedStatusCode.HasValue)
+            {
+                return parsedStatusCode.Value;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<Exception> EnumerateExceptionChain(Exception exception)
+    {
+        for (var current = exception; current != null; current = current.InnerException)
+        {
+            yield return current;
+        }
+    }
+
+    private static HttpStatusCode? TryReadStatusCodeFromException(Exception exception)
+    {
+        var exceptionType = exception.GetType();
+        var statusCodeProperty = exceptionType.GetProperty("StatusCode");
+        if (statusCodeProperty?.GetValue(exception) is HttpStatusCode statusCode)
+        {
+            return statusCode;
+        }
+
+        if (statusCodeProperty?.GetValue(exception) is int integerStatusCode &&
+            Enum.IsDefined(typeof(HttpStatusCode), integerStatusCode))
+        {
+            return (HttpStatusCode)integerStatusCode;
+        }
+
+        var statusProperty = exceptionType.GetProperty("Status");
+        if (statusProperty?.GetValue(exception) is int integerStatus &&
+            integerStatus >= 100 &&
+            integerStatus <= 599)
+        {
+            return (HttpStatusCode)integerStatus;
+        }
+
+        return null;
+    }
+
+    private static HttpStatusCode? TryParseStatusCodeFromMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return null;
+        }
+
+        foreach (var marker in new[] { "HTTP ", "返回 ", "Status: " })
+        {
+            var markerIndex = message.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex < 0)
+            {
+                continue;
+            }
+
+            var numberStartIndex = markerIndex + marker.Length;
+            if (numberStartIndex + 3 > message.Length)
+            {
+                continue;
+            }
+
+            var statusCodeText = message.Substring(numberStartIndex, 3);
+            if (int.TryParse(statusCodeText, out var integerStatusCode) &&
+                integerStatusCode >= 100 &&
+                integerStatusCode <= 599)
+            {
+                return (HttpStatusCode)integerStatusCode;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ContainsAuthenticationFailureKeyword(Exception exception)
+    {
+        foreach (var current in EnumerateExceptionChain(exception))
+        {
+            var message = current.Message;
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                continue;
+            }
+
+            if (message.Contains("invalid authentication", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("invalid token", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("forbidden", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool ContainsConfiguredModel(IEnumerable<string> models, string? configuredModel)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   AiServiceType,
@@ -10,14 +10,18 @@ import {
   getAiServiceList,
   getAiServiceModels,
   testAiServiceConnection,
-  type AiServiceConnectionTestMode,
+  type AiServiceTestResult,
   updateAiService,
   type AiServiceConfig,
   type AiServiceModelsResult,
   type CreateAiServiceRequest,
   type UpdateAiServiceRequest
 } from "@/api/ai-service";
-import { DEFAULT_RECALL_TOP_K, MAX_RECALL_TOP_K, MatchingStrategy } from "@/api/matching";
+import {
+  DEFAULT_RECALL_TOP_K,
+  MAX_RECALL_TOP_K,
+  MatchingStrategy
+} from "@/api/matching";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
@@ -30,6 +34,42 @@ const tableData = ref<AiServiceConfig[]>([]);
 const showAllConfigs = ref(false);
 const testingState = reactive<Record<string, boolean>>({});
 const probingState = reactive<Record<string, boolean>>({});
+const expandedTestRowKeys = ref<string[]>([]);
+const TEST_ACTION_LABEL = "完整测试";
+
+type TestResultTagType = "success" | "danger" | "warning" | "info";
+type TestResultCategory =
+  | "success"
+  | "auth"
+  | "endpoint"
+  | "rate-limit"
+  | "timeout"
+  | "remote"
+  | "general";
+
+interface TestResultTag {
+  label: string;
+  type: TestResultTagType;
+}
+
+interface TestResultDetail {
+  label: string;
+  value: string;
+}
+
+interface InlineTestResultCard {
+  rowId: number;
+  rowName: string;
+  success: boolean;
+  category: TestResultCategory;
+  statusText: string;
+  summary: string;
+  message: string;
+  tags: TestResultTag[];
+  details: TestResultDetail[];
+}
+
+const activeTestResult = ref<InlineTestResultCard | null>(null);
 
 const serviceTypeOptions = [
   { label: "OpenAI", value: AiServiceType.OpenAI },
@@ -59,10 +99,10 @@ const canSubmit = computed(() =>
 );
 const hasActionButtons = computed(
   () =>
-    canUpdate.value ||
-    canDelete.value ||
-    canTest.value ||
-    canProbeModels.value
+    canUpdate.value || canDelete.value || canTest.value || canProbeModels.value
+);
+const hasSummaryActionButtons = computed(
+  () => canUpdate.value || canDelete.value || canProbeModels.value
 );
 
 const loadData = async () => {
@@ -71,6 +111,12 @@ const loadData = async () => {
     const res = await getAiServiceList({ page: 1, pageSize: 100 });
     if (res.code === 0) {
       tableData.value = res.data.items;
+      if (
+        activeTestResult.value &&
+        !res.data.items.some(item => item.id === activeTestResult.value?.rowId)
+      ) {
+        clearInlineTestResult();
+      }
     } else {
       ElMessage.error(res.message);
     }
@@ -111,7 +157,8 @@ const formData = reactive({
   defaultRecallTopK: DEFAULT_RECALL_TOP_K
 });
 
-const hasPurpose = (value: number, flag: AiServicePurpose) => (value & flag) === flag;
+const hasPurpose = (value: number, flag: AiServicePurpose) =>
+  (value & flag) === flag;
 
 const setRowLoading = (
   state: Record<string, boolean>,
@@ -130,6 +177,178 @@ const isRowLoading = (
   return !!state[String(id)];
 };
 
+const buildTestResultTags = (
+  success: boolean,
+  category: TestResultCategory
+): TestResultTag[] => {
+  const tags: TestResultTag[] = [
+    {
+      label: TEST_ACTION_LABEL,
+      type: "info"
+    },
+    {
+      label: success ? "成功" : "失败",
+      type: success ? "success" : "danger"
+    }
+  ];
+
+  if (success) {
+    tags.push({
+      label: "连接正常",
+      type: "success"
+    });
+    return tags;
+  }
+
+  const categoryTagMap: Record<TestResultCategory, TestResultTag | null> = {
+    success: null,
+    auth: { label: "ApiKey", type: "danger" },
+    endpoint: { label: "Endpoint", type: "warning" },
+    "rate-limit": { label: "限流", type: "warning" },
+    timeout: { label: "超时", type: "warning" },
+    remote: { label: "远端服务", type: "info" },
+    general: { label: "连接异常", type: "info" }
+  };
+
+  const categoryTag = categoryTagMap[category];
+  if (categoryTag) {
+    tags.push(categoryTag);
+  }
+
+  return tags;
+};
+
+const inferTestResultCategory = (
+  success: boolean,
+  message: string
+): TestResultCategory => {
+  if (success) return "success";
+
+  if (
+    message.includes("鉴权失败") ||
+    message.includes("ApiKey") ||
+    message.toLowerCase().includes("invalid authentication") ||
+    message.toLowerCase().includes("invalid token")
+  ) {
+    return "auth";
+  }
+
+  if (message.includes("Endpoint") || message.includes("地址无效")) {
+    return "endpoint";
+  }
+
+  if (
+    message.includes("限流") ||
+    message.includes("额度受限") ||
+    message.includes("429")
+  ) {
+    return "rate-limit";
+  }
+
+  if (message.includes("超时")) {
+    return "timeout";
+  }
+
+  if (message.includes("远端接口服务异常") || message.includes("HTTP 5")) {
+    return "remote";
+  }
+
+  return "general";
+};
+
+const buildTestResultDetails = (
+  row: AiServiceConfig,
+  result: Pick<
+    AiServiceTestResult,
+    | "elapsedMs"
+    | "serviceElapsedMs"
+    | "targetModel"
+    | "targetEndpoint"
+    | "hostPort"
+    | "httpStatusCode"
+  >
+): TestResultDetail[] => {
+  const details: TestResultDetail[] = [
+    { label: "服务", value: row.name },
+    { label: "总耗时", value: `${result.elapsedMs}ms` }
+  ];
+
+  if (typeof result.serviceElapsedMs === "number") {
+    details.push({ label: "接口耗时", value: `${result.serviceElapsedMs}ms` });
+  }
+  if (result.targetModel) {
+    details.push({ label: "模型", value: result.targetModel });
+  }
+  if (result.targetEndpoint) {
+    details.push({ label: "Endpoint", value: result.targetEndpoint });
+  }
+  if (result.hostPort) {
+    details.push({ label: "宿主", value: result.hostPort });
+  }
+  if (result.httpStatusCode) {
+    details.push({ label: "HTTP", value: String(result.httpStatusCode) });
+  }
+
+  return details;
+};
+
+const buildInlineTestResultCard = (
+  row: AiServiceConfig,
+  result: AiServiceTestResult
+): InlineTestResultCard => {
+  const category = inferTestResultCategory(
+    result.success,
+    result.message || ""
+  );
+
+  return {
+    rowId: row.id,
+    rowName: row.name,
+    success: result.success,
+    category,
+    statusText: result.success ? "连接正常" : "需要处理",
+    summary: `${TEST_ACTION_LABEL}${result.success ? "成功" : "失败"}`,
+    message: result.message || (result.success ? "测试通过" : "连接测试失败"),
+    tags: buildTestResultTags(result.success, category),
+    details: buildTestResultDetails(row, result)
+  };
+};
+
+const showInlineTestResult = async (card: InlineTestResultCard) => {
+  activeTestResult.value = card;
+  showAllConfigs.value = true;
+  expandedTestRowKeys.value = [String(card.rowId)];
+
+  await nextTick();
+  document
+    .getElementById(`ai-test-result-${card.rowId}`)
+    ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+};
+
+const clearInlineTestResult = () => {
+  activeTestResult.value = null;
+  expandedTestRowKeys.value = [];
+};
+
+const getTestResultCardClass = (
+  category: TestResultCategory,
+  success: boolean
+) => {
+  if (success) return "ai-test-result-card--success";
+
+  const classMap: Record<TestResultCategory, string> = {
+    success: "ai-test-result-card--success",
+    auth: "ai-test-result-card--auth",
+    endpoint: "ai-test-result-card--endpoint",
+    "rate-limit": "ai-test-result-card--rate-limit",
+    timeout: "ai-test-result-card--timeout",
+    remote: "ai-test-result-card--remote",
+    general: "ai-test-result-card--general"
+  };
+
+  return classMap[category];
+};
+
 const extractErrorMessage = (error: unknown, fallback: string) => {
   const responseMessage = (error as any)?.response?.data?.message;
   if (typeof responseMessage === "string" && responseMessage.trim()) {
@@ -145,7 +364,7 @@ const extractErrorMessage = (error: unknown, fallback: string) => {
 };
 
 const getServiceTypeLabel = (value: AiServiceType) =>
-  serviceTypeOptions.find((x) => x.value === value)?.label || "-";
+  serviceTypeOptions.find(x => x.value === value)?.label || "-";
 
 const formatValue = (value?: string | number | null) => {
   if (value === null || value === undefined || value === "") return "-";
@@ -153,37 +372,48 @@ const formatValue = (value?: string | number | null) => {
 };
 
 const pickConfigByPurpose = (purpose: AiServicePurpose) => {
-  const exact = tableData.value.find((item) => item.purpose === purpose);
+  const exact = tableData.value.find(item => item.purpose === purpose);
   if (exact) return exact;
-  return tableData.value.find((item) => hasPurpose(item.purpose, purpose)) || null;
+  return (
+    tableData.value.find(item => hasPurpose(item.purpose, purpose)) || null
+  );
 };
 
 const llmConfig = computed(() => pickConfigByPurpose(AiServicePurpose.Llm));
-const embeddingConfig = computed(() => pickConfigByPurpose(AiServicePurpose.Embedding));
+const embeddingConfig = computed(() =>
+  pickConfigByPurpose(AiServicePurpose.Embedding)
+);
 const llmCount = computed(
-  () => tableData.value.filter((item) => hasPurpose(item.purpose, AiServicePurpose.Llm)).length
+  () =>
+    tableData.value.filter(item =>
+      hasPurpose(item.purpose, AiServicePurpose.Llm)
+    ).length
 );
 const embeddingCount = computed(
-  () => tableData.value.filter((item) => hasPurpose(item.purpose, AiServicePurpose.Embedding)).length
+  () =>
+    tableData.value.filter(item =>
+      hasPurpose(item.purpose, AiServicePurpose.Embedding)
+    ).length
 );
 
 const normalizePurpose = (value: number) => {
-  if (value === AiServicePurpose.Llm || value === AiServicePurpose.Embedding) return value;
+  if (value === AiServicePurpose.Llm || value === AiServicePurpose.Embedding)
+    return value;
   if (value === AiServicePurpose.None) return AiServicePurpose.Llm;
   return value;
 };
 
 const getDefaultPriority = (purpose: AiServicePurpose) => {
   const samePurpose = tableData.value
-    .filter((item) => item.purpose === purpose)
-    .map((item) => item.priority ?? 0);
+    .filter(item => item.purpose === purpose)
+    .map(item => item.priority ?? 0);
   if (samePurpose.length === 0) return 0;
   return Math.max(...samePurpose) + 1;
 };
 
 watch(
   () => formData.purpose,
-  (value) => {
+  value => {
     if (value === AiServicePurpose.Llm) {
       formData.embeddingModel = "";
     } else if (value === AiServicePurpose.Embedding) {
@@ -193,31 +423,36 @@ watch(
 );
 
 const handleAdd = (purpose: AiServicePurpose) => {
-  if (!ensurePermission("btn:ai-service:create", "权限不足，无法新增AI服务配置")) {
+  if (
+    !ensurePermission("btn:ai-service:create", "权限不足，无法新增AI服务配置")
+  ) {
     return;
   }
   dialogTitle.value = "新增AI服务配置";
   isEdit.value = false;
   originalApiKey.value = "";
-      Object.assign(formData, {
-        id: 0,
-        name: "",
-        serviceType: AiServiceType.Ollama,
-        purpose,
-        priority: getDefaultPriority(purpose),
-        endpoint: "http://localhost:11434",
-        apiKey: "",
-        embeddingModel: purpose === AiServicePurpose.Embedding ? "nomic-embed-text" : "",
-        llmModel: "",
-        disableThinking: false,
-        defaultMatchingStrategy: MatchingStrategy.MultiStage,
-        defaultRecallTopK: DEFAULT_RECALL_TOP_K
-      });
+  Object.assign(formData, {
+    id: 0,
+    name: "",
+    serviceType: AiServiceType.Ollama,
+    purpose,
+    priority: getDefaultPriority(purpose),
+    endpoint: "http://localhost:11434",
+    apiKey: "",
+    embeddingModel:
+      purpose === AiServicePurpose.Embedding ? "nomic-embed-text" : "",
+    llmModel: "",
+    disableThinking: false,
+    defaultMatchingStrategy: MatchingStrategy.MultiStage,
+    defaultRecallTopK: DEFAULT_RECALL_TOP_K
+  });
   dialogVisible.value = true;
 };
 
 const handleEdit = async (row: AiServiceConfig) => {
-  if (!ensurePermission("btn:ai-service:update", "权限不足，无法编辑AI服务配置")) {
+  if (
+    !ensurePermission("btn:ai-service:update", "权限不足，无法编辑AI服务配置")
+  ) {
     return;
   }
   dialogTitle.value = "编辑AI服务配置";
@@ -231,7 +466,9 @@ const handleEdit = async (row: AiServiceConfig) => {
         hasPurpose(rawPurpose, AiServicePurpose.Llm) &&
         hasPurpose(rawPurpose, AiServicePurpose.Embedding)
       ) {
-        ElMessage.warning("检测到用途同时包含 LLM 与 Embedding，请重新选择单一用途");
+        ElMessage.warning(
+          "检测到用途同时包含 LLM 与 Embedding，请重新选择单一用途"
+        );
       }
       originalApiKey.value = (detail.apiKey ?? "").trim();
       Object.assign(formData, {
@@ -261,7 +498,9 @@ const handleEdit = async (row: AiServiceConfig) => {
 };
 
 const handleDelete = async (row: AiServiceConfig) => {
-  if (!ensurePermission("btn:ai-service:delete", "权限不足，无法删除AI服务配置")) {
+  if (
+    !ensurePermission("btn:ai-service:delete", "权限不足，无法删除AI服务配置")
+  ) {
     return;
   }
   try {
@@ -272,6 +511,9 @@ const handleDelete = async (row: AiServiceConfig) => {
     });
     const res = await deleteAiService(row.id);
     if (res.code === 0) {
+      if (activeTestResult.value?.rowId === row.id) {
+        clearInlineTestResult();
+      }
       ElMessage.success("删除成功");
       loadData();
     } else {
@@ -282,57 +524,64 @@ const handleDelete = async (row: AiServiceConfig) => {
   }
 };
 
-const handleTest = async (
-  row: AiServiceConfig,
-  mode: AiServiceConnectionTestMode = "quick"
-) => {
-  if (!ensurePermission("btn:ai-service:test", "权限不足，无法测试AI服务配置")) {
+const handleTest = async (row: AiServiceConfig) => {
+  if (
+    !ensurePermission("btn:ai-service:test", "权限不足，无法测试AI服务配置")
+  ) {
     return;
   }
-  const testingKey = `${mode}-${row.id}`;
+  const testingKey = row.id;
   if (isRowLoading(testingState, testingKey)) {
     return;
   }
 
   setRowLoading(testingState, testingKey, true);
   try {
-    const res = await testAiServiceConnection(row.id, mode);
+    const res = await testAiServiceConnection(row.id);
     if (res.code === 0) {
-      const r = res.data;
-      const modeLabel = mode === "quick" ? "快速测试" : "完整测试";
-      const details: string[] = [`总耗时 ${r.elapsedMs}ms`];
-      if (typeof r.serviceElapsedMs === "number") {
-        details.push(`接口 ${r.serviceElapsedMs}ms`);
-      }
-      if (r.targetModel) {
-        details.push(`模型 ${r.targetModel}`);
-      }
-      if (r.hostPort) {
-        details.push(`宿主 ${r.hostPort}`);
-      }
-      if (r.httpStatusCode) {
-        details.push(`HTTP ${r.httpStatusCode}`);
-      }
-      const message = `${modeLabel}${r.success ? "成功" : "失败"}：${r.message}（${details.join("；")}）`;
-      if (r.success && r.httpStatusCode && r.httpStatusCode >= 200 && r.httpStatusCode < 400) {
-        ElMessage.success(message);
-      } else if (r.success) {
-        ElMessage.warning(message);
-      } else {
-        ElMessage.error(message);
-      }
+      await showInlineTestResult(buildInlineTestResultCard(row, res.data));
     } else {
-      ElMessage.error(res.message);
+      await showInlineTestResult(
+        buildInlineTestResultCard(row, {
+          success: false,
+          message: res.message || "连接测试失败",
+          elapsedMs: 0,
+          serviceElapsedMs: null,
+          httpStatusCode: null,
+          targetModel:
+            row.purpose === AiServicePurpose.Llm
+              ? row.llmModel
+              : row.embeddingModel,
+          targetEndpoint: row.endpoint,
+          hostPort: null
+        })
+      );
     }
   } catch (error) {
-    ElMessage.error(extractErrorMessage(error, "连接测试失败"));
+    await showInlineTestResult(
+      buildInlineTestResultCard(row, {
+        success: false,
+        message: extractErrorMessage(error, "连接测试失败"),
+        elapsedMs: 0,
+        serviceElapsedMs: null,
+        httpStatusCode: null,
+        targetModel:
+          row.purpose === AiServicePurpose.Llm
+            ? row.llmModel
+            : row.embeddingModel,
+        targetEndpoint: row.endpoint,
+        hostPort: null
+      })
+    );
   } finally {
     setRowLoading(testingState, testingKey, false);
   }
 };
 
 const handleProbeModels = async (row: AiServiceConfig) => {
-  if (!ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")) {
+  if (
+    !ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")
+  ) {
     return;
   }
   if (isRowLoading(probingState, row.id)) {
@@ -350,7 +599,9 @@ const handleProbeModels = async (row: AiServiceConfig) => {
 };
 
 const loadModels = async () => {
-  if (!ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")) {
+  if (
+    !ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")
+  ) {
     return;
   }
   if (!modelsInfo.id) return;
@@ -413,7 +664,9 @@ const handleSubmit = async () => {
   if (
     !ensurePermission(
       isEdit.value ? "btn:ai-service:update" : "btn:ai-service:create",
-      isEdit.value ? "权限不足，无法保存AI服务配置" : "权限不足，无法新增AI服务配置"
+      isEdit.value
+        ? "权限不足，无法保存AI服务配置"
+        : "权限不足，无法新增AI服务配置"
     )
   ) {
     return;
@@ -426,7 +679,10 @@ const handleSubmit = async () => {
     ElMessage.warning("请至少选择一个用途");
     return;
   }
-  if (formData.purpose !== AiServicePurpose.Llm && formData.purpose !== AiServicePurpose.Embedding) {
+  if (
+    formData.purpose !== AiServicePurpose.Llm &&
+    formData.purpose !== AiServicePurpose.Embedding
+  ) {
     ElMessage.warning("用途只能选择一个（LLM 或 Embedding）");
     return;
   }
@@ -434,7 +690,10 @@ const handleSubmit = async () => {
     ElMessage.warning("请输入 LLM 模型");
     return;
   }
-  if (formData.purpose === AiServicePurpose.Embedding && !formData.embeddingModel.trim()) {
+  if (
+    formData.purpose === AiServicePurpose.Embedding &&
+    !formData.embeddingModel.trim()
+  ) {
     ElMessage.warning("请输入 Embedding 模型");
     return;
   }
@@ -512,45 +771,41 @@ onMounted(loadData);
     >
       <template #default>
         检测到多个 LLM/Embedding 配置，页面默认仅展示优先级最高的一条。
-        <el-button type="primary" link @click="showAllConfigs = true">查看全部</el-button>
+        <el-button type="primary" link @click="showAllConfigs = true"
+          >查看全部</el-button
+        >
       </template>
     </el-alert>
 
     <div class="service-grid">
-      <el-card class="service-card" v-loading="loading">
+      <el-card v-loading="loading" class="service-card">
         <template #header>
           <div class="card-header">
             <span>LLM 服务</span>
             <div class="card-actions">
-              <el-button v-if="canCreate" type="primary" @click="handleAdd(AiServicePurpose.Llm)">
+              <el-button
+                v-if="canCreate"
+                type="primary"
+                @click="handleAdd(AiServicePurpose.Llm)"
+              >
                 新增
               </el-button>
-              <template v-if="llmConfig && hasActionButtons">
-                <el-button v-if="canUpdate" type="primary" link @click="handleEdit(llmConfig)">
+              <template v-if="llmConfig && hasSummaryActionButtons">
+                <el-button
+                  v-if="canUpdate"
+                  type="primary"
+                  link
+                  @click="handleEdit(llmConfig)"
+                >
                   编辑
                 </el-button>
-                <el-button v-if="canDelete" type="danger" link @click="handleDelete(llmConfig)">
+                <el-button
+                  v-if="canDelete"
+                  type="danger"
+                  link
+                  @click="handleDelete(llmConfig)"
+                >
                   删除
-                </el-button>
-                <el-button
-                  v-if="canTest"
-                  type="warning"
-                  link
-                  :loading="isRowLoading(testingState, `quick-${llmConfig.id}`)"
-                  :disabled="isRowLoading(testingState, `full-${llmConfig.id}`)"
-                  @click="handleTest(llmConfig, 'quick')"
-                >
-                  快速测试
-                </el-button>
-                <el-button
-                  v-if="canTest"
-                  type="warning"
-                  link
-                  :loading="isRowLoading(testingState, `full-${llmConfig.id}`)"
-                  :disabled="isRowLoading(testingState, `quick-${llmConfig.id}`)"
-                  @click="handleTest(llmConfig, 'full')"
-                >
-                  完整测试
                 </el-button>
                 <el-button
                   v-if="canProbeModels"
@@ -574,7 +829,9 @@ onMounted(loadData);
           </div>
           <div class="config-row">
             <div class="config-label">类型</div>
-            <div class="config-value">{{ getServiceTypeLabel(llmConfig.serviceType) }}</div>
+            <div class="config-value">
+              {{ getServiceTypeLabel(llmConfig.serviceType) }}
+            </div>
           </div>
           <div class="config-row">
             <div class="config-label">优先级</div>
@@ -582,20 +839,26 @@ onMounted(loadData);
           </div>
           <div class="config-row">
             <div class="config-label">Endpoint</div>
-            <div class="config-value">{{ formatValue(llmConfig.endpoint) }}</div>
+            <div class="config-value">
+              {{ formatValue(llmConfig.endpoint) }}
+            </div>
           </div>
           <div class="config-row">
             <div class="config-label">LLM 模型</div>
-            <div class="config-value">{{ formatValue(llmConfig.llmModel) }}</div>
+            <div class="config-value">
+              {{ formatValue(llmConfig.llmModel) }}
+            </div>
           </div>
           <div class="config-row">
             <div class="config-label">关闭思考模式</div>
-            <div class="config-value">{{ llmConfig.disableThinking ? "已开启" : "未开启" }}</div>
+            <div class="config-value">
+              {{ llmConfig.disableThinking ? "已开启" : "未开启" }}
+            </div>
           </div>
         </div>
       </el-card>
 
-      <el-card class="service-card" v-loading="loading">
+      <el-card v-loading="loading" class="service-card">
         <template #header>
           <div class="card-header">
             <span>Embedding 服务</span>
@@ -607,7 +870,7 @@ onMounted(loadData);
               >
                 新增
               </el-button>
-              <template v-if="embeddingConfig && hasActionButtons">
+              <template v-if="embeddingConfig && hasSummaryActionButtons">
                 <el-button
                   v-if="canUpdate"
                   type="primary"
@@ -623,26 +886,6 @@ onMounted(loadData);
                   @click="handleDelete(embeddingConfig)"
                 >
                   删除
-                </el-button>
-                <el-button
-                  v-if="canTest"
-                  type="warning"
-                  link
-                  :loading="isRowLoading(testingState, `quick-${embeddingConfig.id}`)"
-                  :disabled="isRowLoading(testingState, `full-${embeddingConfig.id}`)"
-                  @click="handleTest(embeddingConfig, 'quick')"
-                >
-                  快速测试
-                </el-button>
-                <el-button
-                  v-if="canTest"
-                  type="warning"
-                  link
-                  :loading="isRowLoading(testingState, `full-${embeddingConfig.id}`)"
-                  :disabled="isRowLoading(testingState, `quick-${embeddingConfig.id}`)"
-                  @click="handleTest(embeddingConfig, 'full')"
-                >
-                  完整测试
                 </el-button>
                 <el-button
                   v-if="canProbeModels"
@@ -662,11 +905,15 @@ onMounted(loadData);
         <div v-else class="config-grid">
           <div class="config-row">
             <div class="config-label">名称</div>
-            <div class="config-value">{{ formatValue(embeddingConfig.name) }}</div>
+            <div class="config-value">
+              {{ formatValue(embeddingConfig.name) }}
+            </div>
           </div>
           <div class="config-row">
             <div class="config-label">类型</div>
-            <div class="config-value">{{ getServiceTypeLabel(embeddingConfig.serviceType) }}</div>
+            <div class="config-value">
+              {{ getServiceTypeLabel(embeddingConfig.serviceType) }}
+            </div>
           </div>
           <div class="config-row">
             <div class="config-label">优先级</div>
@@ -674,17 +921,22 @@ onMounted(loadData);
           </div>
           <div class="config-row">
             <div class="config-label">Endpoint</div>
-            <div class="config-value">{{ formatValue(embeddingConfig.endpoint) }}</div>
+            <div class="config-value">
+              {{ formatValue(embeddingConfig.endpoint) }}
+            </div>
           </div>
           <div class="config-row">
             <div class="config-label">Embedding 模型</div>
-            <div class="config-value">{{ formatValue(embeddingConfig.embeddingModel) }}</div>
+            <div class="config-value">
+              {{ formatValue(embeddingConfig.embeddingModel) }}
+            </div>
           </div>
           <div class="config-row">
             <div class="config-label">默认匹配策略</div>
             <div class="config-value">
               {{
-                embeddingConfig.defaultMatchingStrategy === MatchingStrategy.MultiStage
+                embeddingConfig.defaultMatchingStrategy ===
+                MatchingStrategy.MultiStage
                   ? "多阶段证据重排"
                   : "单阶段 Embedding"
               }}
@@ -692,7 +944,9 @@ onMounted(loadData);
           </div>
           <div class="config-row">
             <div class="config-label">默认召回候选数</div>
-            <div class="config-value">{{ embeddingConfig.defaultRecallTopK }}</div>
+            <div class="config-value">
+              {{ embeddingConfig.defaultRecallTopK }}
+            </div>
           </div>
         </div>
       </el-card>
@@ -705,7 +959,81 @@ onMounted(loadData);
           <el-button @click="showAllConfigs = false">收起</el-button>
         </div>
       </template>
-      <el-table :data="tableData" stripe>
+      <el-table
+        :data="tableData"
+        stripe
+        :row-key="row => String(row.id)"
+        :expand-row-keys="expandedTestRowKeys"
+      >
+        <el-table-column
+          type="expand"
+          width="1"
+          class-name="test-result-expand-column"
+        >
+          <template #default="{ row }">
+            <div
+              v-if="activeTestResult && activeTestResult.rowId === row.id"
+              :id="`ai-test-result-${row.id}`"
+              class="ai-test-result-shell"
+            >
+              <div
+                class="ai-test-result-card"
+                :class="
+                  getTestResultCardClass(
+                    activeTestResult?.category || 'general',
+                    !!activeTestResult?.success
+                  )
+                "
+              >
+                <div class="ai-test-result-card__header">
+                  <div>
+                    <div class="ai-test-result-card__title">
+                      {{ activeTestResult?.rowName }} ·
+                      {{ activeTestResult?.summary }}
+                    </div>
+                    <div class="ai-test-result-card__subtitle">
+                      {{ activeTestResult?.statusText }}
+                    </div>
+                  </div>
+                  <el-button link type="info" @click="clearInlineTestResult">
+                    收起
+                  </el-button>
+                </div>
+
+                <div class="ai-test-result-card__tags">
+                  <el-tag
+                    v-for="tag in activeTestResult?.tags || []"
+                    :key="`${row.id}-${tag.label}`"
+                    size="small"
+                    :type="tag.type"
+                    effect="light"
+                  >
+                    {{ tag.label }}
+                  </el-tag>
+                </div>
+
+                <div class="ai-test-result-card__message">
+                  {{ activeTestResult?.message }}
+                </div>
+
+                <div class="ai-test-result-card__details">
+                  <div
+                    v-for="detail in activeTestResult?.details || []"
+                    :key="`${row.id}-${detail.label}`"
+                    class="ai-test-result-card__detail"
+                  >
+                    <span class="ai-test-result-card__detail-label">{{
+                      detail.label
+                    }}</span>
+                    <span class="ai-test-result-card__detail-value">{{
+                      detail.value
+                    }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="名称" min-width="180" />
         <el-table-column prop="serviceType" label="类型" width="160">
@@ -719,7 +1047,11 @@ onMounted(loadData);
           </template>
         </el-table-column>
         <el-table-column prop="endpoint" label="Endpoint" min-width="240" />
-        <el-table-column prop="embeddingModel" label="EmbeddingModel" min-width="160" />
+        <el-table-column
+          prop="embeddingModel"
+          label="EmbeddingModel"
+          min-width="160"
+        />
         <el-table-column prop="llmModel" label="LLMModel" min-width="160" />
         <el-table-column label="关闭思考模式" width="140">
           <template #default="{ row }">
@@ -733,29 +1065,29 @@ onMounted(loadData);
           fixed="right"
         >
           <template #default="{ row }">
-            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">
+            <el-button
+              v-if="canUpdate"
+              type="primary"
+              link
+              @click="handleEdit(row)"
+            >
               编辑
             </el-button>
-            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">
+            <el-button
+              v-if="canDelete"
+              type="danger"
+              link
+              @click="handleDelete(row)"
+            >
               删除
             </el-button>
             <el-button
               v-if="canTest"
               type="warning"
               link
-              :loading="isRowLoading(testingState, `quick-${row.id}`)"
-              :disabled="isRowLoading(testingState, `full-${row.id}`)"
-              @click="handleTest(row, 'quick')"
-            >
-              快速测试
-            </el-button>
-            <el-button
-              v-if="canTest"
-              type="warning"
-              link
-              :loading="isRowLoading(testingState, `full-${row.id}`)"
-              :disabled="isRowLoading(testingState, `quick-${row.id}`)"
-              @click="handleTest(row, 'full')"
+              :loading="isRowLoading(testingState, row.id)"
+              :disabled="isRowLoading(testingState, row.id)"
+              @click="handleTest(row)"
             >
               完整测试
             </el-button>
@@ -872,7 +1204,8 @@ onMounted(loadData);
           <div class="thinking-config">
             <el-switch v-model="formData.disableThinking" />
             <div class="thinking-tip">
-              当前主要对 Ollama 生效，系统会优先请求关闭思考输出，并对 `&lt;think&gt;` 内容做兜底清理
+              当前主要对 Ollama 生效，系统会优先请求关闭思考输出，并对
+              `&lt;think&gt;` 内容做兜底清理
             </div>
           </div>
         </el-form-item>
@@ -894,11 +1227,14 @@ onMounted(loadData);
           {{ modelsInfo.message }}
         </div>
         <div
-          v-if="!modelsLoading && hasPurpose(modelsInfo.purpose, AiServicePurpose.Llm)"
+          v-if="
+            !modelsLoading &&
+            hasPurpose(modelsInfo.purpose, AiServicePurpose.Llm)
+          "
           class="model-section"
         >
           <div class="model-label">LLM 模型</div>
-          <div class="model-tags" v-if="modelsInfo.llmModels.length">
+          <div v-if="modelsInfo.llmModels.length" class="model-tags">
             <el-tag
               v-for="m in modelsInfo.llmModels"
               :key="m"
@@ -913,11 +1249,14 @@ onMounted(loadData);
           <div v-else class="model-empty">未返回 LLM 模型</div>
         </div>
         <div
-          v-if="!modelsLoading && hasPurpose(modelsInfo.purpose, AiServicePurpose.Embedding)"
+          v-if="
+            !modelsLoading &&
+            hasPurpose(modelsInfo.purpose, AiServicePurpose.Embedding)
+          "
           class="model-section"
         >
           <div class="model-label">Embedding 模型</div>
-          <div class="model-tags" v-if="modelsInfo.embeddingModels.length">
+          <div v-if="modelsInfo.embeddingModels.length" class="model-tags">
             <el-tag
               v-for="m in modelsInfo.embeddingModels"
               :key="m"
@@ -935,7 +1274,12 @@ onMounted(loadData);
       </div>
       <template #footer>
         <el-button @click="modelsDialogVisible = false">关闭</el-button>
-        <el-button v-if="canProbeModels" type="primary" :loading="modelsLoading" @click="loadModels">
+        <el-button
+          v-if="canProbeModels"
+          type="primary"
+          :loading="modelsLoading"
+          @click="loadModels"
+        >
           重新探测
         </el-button>
       </template>
@@ -1019,6 +1363,120 @@ onMounted(loadData);
   margin-top: 8px;
 }
 
+:deep(.test-result-expand-column .cell),
+:deep(.test-result-expand-column .el-table__expand-icon) {
+  width: 0;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+:deep(.test-result-expand-column) {
+  border-right: none;
+}
+
+.ai-test-result-shell {
+  padding: 8px 0 4px;
+}
+
+.ai-test-result-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid #dbeafe;
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f8ff 100%);
+  box-shadow: 0 10px 24px rgb(15 23 42 / 6%);
+}
+
+.ai-test-result-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-test-result-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.5;
+}
+
+.ai-test-result-card__subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.ai-test-result-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-test-result-card__message {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #1e293b;
+  word-break: break-word;
+}
+
+.ai-test-result-card__details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.ai-test-result-card__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 68%);
+}
+
+.ai-test-result-card__detail-label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.ai-test-result-card__detail-value {
+  font-size: 13px;
+  color: #0f172a;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ai-test-result-card--success {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f3fff7 0%, #ecfdf3 100%);
+}
+
+.ai-test-result-card--auth {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fff7f7 0%, #fef2f2 100%);
+}
+
+.ai-test-result-card--endpoint {
+  border-color: #fed7aa;
+  background: linear-gradient(180deg, #fffaf5 0%, #fff7ed 100%);
+}
+
+.ai-test-result-card--rate-limit,
+.ai-test-result-card--timeout {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fffdf2 0%, #fefce8 100%);
+}
+
+.ai-test-result-card--remote,
+.ai-test-result-card--general {
+  border-color: #cbd5e1;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
 .model-title {
   font-size: 14px;
   font-weight: 600;
@@ -1060,6 +1518,4 @@ onMounted(loadData);
   font-size: 12px;
   color: #c0c4cc;
 }
-
 </style>
-

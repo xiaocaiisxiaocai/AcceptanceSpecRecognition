@@ -90,8 +90,6 @@ public class MatchingKnowledgeFrontendRegressionTests
         content.Should().Contain("cancelGroupRowEdit");
         content.Should().Contain("startConflictGroupRowEdit");
         content.Should().Contain("cancelConflictGroupRowEdit");
-        content.Should().Contain("startNumberRowEdit");
-        content.Should().Contain("cancelNumberRowEdit");
         content.Should().Contain("v-if=\"row.editing\"");
     }
 
@@ -106,12 +104,98 @@ public class MatchingKnowledgeFrontendRegressionTests
         content.Should().Contain("conflictSearchQuery");
         content.Should().Contain("filteredEntityGroupRows");
         content.Should().Contain("filteredUnitGroupRows");
-        content.Should().Contain("filteredUnitFactorRows");
         content.Should().Contain("filteredFieldGroupRows");
         content.Should().Contain("filteredConflictGroupRows");
         content.Should().Contain("matchesGroupSearch");
         content.Should().Contain("matchesConflictGroupSearch");
         content.Should().Contain("placeholder=\"搜索当前 Tab\"");
+    }
+
+    [Fact]
+    public void MatchingKnowledgePage_SearchBar_ShouldStickInsideScrollableCardBody()
+    {
+        var normalizedContent = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue")
+            .Replace("\r\n", "\n");
+
+        normalizedContent.Should().Contain(
+            """
+            .tab-search-row {
+              position: sticky;
+              top: 0;
+            """,
+            "搜索栏在卡片 body 内滚动时应固定在顶部");
+
+        normalizedContent.Should().Contain(
+            "z-index: 10;",
+            "吸顶搜索栏需要位于表格内容之上");
+
+        normalizedContent.Should().Contain(
+            "background: var(--el-bg-color);",
+            "吸顶搜索栏需要有背景色覆盖滚动内容");
+    }
+
+    [Fact]
+    public void MatchingKnowledgePage_ShouldNotRenderUnitFactorSection()
+    {
+        var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
+
+        content.Should().NotContain("单位换算", "单位换算仅兼容保留，不应在页面展示");
+        content.Should().NotContain("filteredUnitFactorRows", "页面不应再渲染单位换算列表");
+        content.Should().NotContain("startNumberRowEdit", "页面不应再提供单位换算编辑交互");
+        content.Should().Contain("hiddenUnitFactors", "前端保存时仍需保留后端兼容字段，避免保存后丢失历史数据");
+    }
+
+    [Fact]
+    public void MatchingKnowledgePage_UnitRulesSearch_ShouldRenderInsideFirstCard()
+    {
+        var content = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue");
+        var unitRulesStart = content.IndexOf("<el-tab-pane label=\"单位规则\"", StringComparison.Ordinal);
+        var fieldGroupStart = content.IndexOf("<el-tab-pane label=\"字段组\"", StringComparison.Ordinal);
+
+        unitRulesStart.Should().BeGreaterThanOrEqualTo(0, "应存在单位规则 Tab");
+        fieldGroupStart.Should().BeGreaterThan(unitRulesStart, "单位规则 Tab 后应存在字段组 Tab");
+
+        var unitRulesSection = content.Substring(unitRulesStart, fieldGroupStart - unitRulesStart);
+        var firstCardIndex = unitRulesSection.IndexOf("<el-card class=\"knowledge-card\">", StringComparison.Ordinal);
+        var searchRowIndex = unitRulesSection.IndexOf("<div class=\"tab-search-row\">", StringComparison.Ordinal);
+
+        firstCardIndex.Should().BeGreaterThanOrEqualTo(0, "单位规则 Tab 中应渲染知识卡片");
+        searchRowIndex.Should().BeGreaterThanOrEqualTo(0, "单位规则 Tab 中应渲染搜索栏");
+        firstCardIndex.Should().BeLessThan(searchRowIndex, "单位规则搜索栏应位于首张卡片内部，而不是卡片外层顶部");
+    }
+
+    [Fact]
+    public void MatchingKnowledgePage_UnitRulesCards_ShouldScrollInsideCardBodyLikeEntityGroups()
+    {
+        var normalizedContent = ReadRepositoryFile("web/src/views/config/matching-knowledge/index.vue")
+            .Replace("\r\n", "\n");
+
+        normalizedContent.Should().Contain(
+            """
+            :deep(.knowledge-tabs > .el-tabs__content > .el-tab-pane.multi-card-pane) {
+              display: flex;
+              flex-direction: column;
+              overflow: hidden;
+            }
+            """,
+            "单位规则页签应像实体组一样由外层弹性容器承载，而不是整页滚动");
+
+        normalizedContent.Should().Contain(
+            """
+            :deep(
+              .knowledge-tabs
+                > .el-tabs__content
+                > .el-tab-pane.multi-card-pane
+                > .knowledge-grid
+                > .knowledge-card
+                > .el-card__body
+            ) {
+              flex: 1;
+              min-height: 0;
+              overflow: auto;
+            }
+            """,
+            "单位规则卡片应像实体组一样让 body 负责内部滚动，从而保持卡片头部固定");
     }
 
     [Fact]

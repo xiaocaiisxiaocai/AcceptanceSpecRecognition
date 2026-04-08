@@ -1,6 +1,6 @@
 import { http } from "@/utils/http";
 import type { ApiResponse, PagedData, PagedRequest } from "./customer";
-import { MatchingStrategy } from "./matching";
+import type { MatchingStrategy } from "./matching";
 
 export enum AiServiceType {
   OpenAI = 0,
@@ -51,7 +51,7 @@ export interface CreateAiServiceRequest {
   defaultRecallTopK?: number;
 }
 
-export interface UpdateAiServiceRequest extends CreateAiServiceRequest {}
+export type UpdateAiServiceRequest = CreateAiServiceRequest;
 
 export type AiServiceConnectionTestMode = "quick" | "full";
 
@@ -107,7 +107,7 @@ export const deleteAiService = (id: number) => {
 
 export const testAiServiceConnection = (
   id: number,
-  mode: AiServiceConnectionTestMode = "quick"
+  mode: AiServiceConnectionTestMode = "full"
 ) => {
   return http.request<ApiResponse<AiServiceTestResult>>(
     "post",
@@ -127,4 +127,3 @@ export const getAiServiceModels = (id: number) => {
     { timeout: 30000 }
   );
 };
-

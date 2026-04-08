@@ -28,16 +28,6 @@ interface EditableGroupRow {
   isNew: boolean;
 }
 
-interface EditableNumberRow {
-  id: number;
-  key: string;
-  value: number | null;
-  editing: boolean;
-  originalKey: string;
-  originalValue: number | null;
-  isNew: boolean;
-}
-
 interface EditableConflictGroupRow {
   id: number;
   leftText: string;
@@ -54,7 +44,7 @@ const loading = ref(false);
 const activeTab = ref("entityAliases");
 const entityGroupRows = ref<EditableGroupRow[]>([]);
 const unitGroupRows = ref<EditableGroupRow[]>([]);
-const unitFactorRows = ref<EditableNumberRow[]>([]);
+const hiddenUnitFactors = ref<Record<string, number>>({});
 const fieldGroupRows = ref<EditableGroupRow[]>([]);
 const conflictGroupRows = ref<EditableConflictGroupRow[]>([]);
 const entitySearchQuery = ref("");
@@ -68,7 +58,8 @@ const canGenerateDraft = computed(() =>
   hasPerms("btn:matching-knowledge:generate-draft")
 );
 const draftDialogVisible = ref(false);
-const draftDialogCategory = ref<MatchingKnowledgeDraftCategory>("entityAliases");
+const draftDialogCategory =
+  ref<MatchingKnowledgeDraftCategory>("entityAliases");
 const pageRef = ref<HTMLElement | null>(null);
 const pageViewportHeight = ref(0);
 let appMainWrapEl: HTMLElement | null = null;
@@ -91,21 +82,6 @@ const createGroupRow = (
   text,
   editing,
   originalText: text,
-  isNew
-});
-
-const createNumberRow = (
-  key = "",
-  value: number | null = null,
-  editing = false,
-  isNew = false
-): EditableNumberRow => ({
-  id: allocateRowId(),
-  key,
-  value,
-  editing,
-  originalKey: key,
-  originalValue: value,
   isNew
 });
 
@@ -191,35 +167,14 @@ const matchesConflictGroupSearch = (
     return true;
   }
 
-  return normalizeKey(`${row.leftText} ${row.rightText}`).includes(normalizedQuery);
-};
-
-const matchesNumberRowSearch = (row: EditableNumberRow, searchQuery: string) => {
-  const normalizedQuery = normalizeSearchQuery(searchQuery);
-  if (!normalizedQuery) {
-    return true;
-  }
-
-  const normalizedKey = normalizeKey(row.key);
-  if (
-    normalizedKey === normalizedQuery ||
-    normalizedKey.startsWith(normalizedQuery) ||
-    normalizedKey.includes(normalizedQuery)
-  ) {
-    return true;
-  }
-
-  const valueText =
-    row.value === null || Number.isNaN(row.value) ? "" : `${row.value}`.toLowerCase();
-  return valueText.includes(normalizedQuery);
+  return normalizeKey(`${row.leftText} ${row.rightText}`).includes(
+    normalizedQuery
+  );
 };
 
 const buildGroupRows = (source?: MatchingKnowledgeGroup[]) =>
-  (source ?? []).map(group => createGroupRow(joinGroupItems(group.items ?? [])));
-
-const buildNumberRows = (source?: Record<string, number>) =>
-  Object.entries(source ?? {}).map(([key, value]) =>
-    createNumberRow(key, value)
+  (source ?? []).map(group =>
+    createGroupRow(joinGroupItems(group.items ?? []))
   );
 
 const buildConflictGroupRows = (source?: MatchingKnowledgeConflictGroup[]) =>
@@ -237,19 +192,6 @@ const toGroups = (rows: EditableGroupRow[]): MatchingKnowledgeGroup[] =>
     }))
     .filter(group => group.items.length > 0);
 
-const toNumberDictionary = (rows: EditableNumberRow[]) => {
-  const result: Record<string, number> = {};
-  rows.forEach(row => {
-    const key = row.key.trim();
-    if (!key || row.value === null || Number.isNaN(row.value)) {
-      return;
-    }
-
-    result[key] = Number(row.value);
-  });
-  return result;
-};
-
 const toConflictGroups = (
   rows: EditableConflictGroupRow[]
 ): MatchingKnowledgeConflictGroup[] =>
@@ -263,7 +205,7 @@ const toConflictGroups = (
 const applyConfig = (config: MatchingKnowledgeLayer) => {
   entityGroupRows.value = buildGroupRows(config.entityGroups);
   unitGroupRows.value = buildGroupRows(config.unitGroups);
-  unitFactorRows.value = buildNumberRows(config.unitFactors);
+  hiddenUnitFactors.value = { ...(config.unitFactors ?? {}) };
   fieldGroupRows.value = buildGroupRows(config.fieldGroups);
   conflictGroupRows.value = buildConflictGroupRows(config.conflictGroups);
 };
@@ -271,7 +213,7 @@ const applyConfig = (config: MatchingKnowledgeLayer) => {
 const buildPayload = (): MatchingKnowledgeLayer => ({
   entityGroups: toGroups(entityGroupRows.value),
   unitGroups: toGroups(unitGroupRows.value),
-  unitFactors: toNumberDictionary(unitFactorRows.value),
+  unitFactors: { ...hiddenUnitFactors.value },
   fieldGroups: toGroups(fieldGroupRows.value),
   conflictGroups: toConflictGroups(conflictGroupRows.value)
 });
@@ -285,12 +227,6 @@ const filteredEntityGroupRows = computed(() =>
 const filteredUnitGroupRows = computed(() =>
   unitGroupRows.value.filter(row =>
     matchesGroupSearch(row.text, unitSearchQuery.value)
-  )
-);
-
-const filteredUnitFactorRows = computed(() =>
-  unitFactorRows.value.filter(row =>
-    matchesNumberRowSearch(row, unitSearchQuery.value)
   )
 );
 
@@ -326,10 +262,6 @@ const addGroupRow = (target: EditableGroupRow[]) => {
   target.push(createGroupRow("", true, true));
 };
 
-const addNumberRow = () => {
-  unitFactorRows.value.push(createNumberRow("", null, true, true));
-};
-
 const addConflictGroupRow = () => {
   conflictGroupRows.value.push(createConflictGroupRow("", "", true, true));
 };
@@ -338,13 +270,6 @@ const removeGroupRow = (target: EditableGroupRow[], id: number) => {
   const index = target.findIndex(row => row.id === id);
   if (index >= 0) {
     target.splice(index, 1);
-  }
-};
-
-const removeNumberRow = (id: number) => {
-  const index = unitFactorRows.value.findIndex(row => row.id === id);
-  if (index >= 0) {
-    unitFactorRows.value.splice(index, 1);
   }
 };
 
@@ -390,45 +315,8 @@ const cancelGroupRowEdit = (target: EditableGroupRow[], id: number) => {
   row.editing = false;
 };
 
-const formatGroupRowText = (value: string) => finalizeGroupRowText(value) || "未填写";
-
-const startNumberRowEdit = (row: EditableNumberRow) => {
-  row.originalKey = row.key;
-  row.originalValue = row.value;
-  row.editing = true;
-};
-
-const completeNumberRowEdit = (row: EditableNumberRow) => {
-  row.key = row.key.trim();
-  if (!row.key && row.value === null && row.isNew) {
-    row.editing = false;
-    return;
-  }
-
-  row.originalKey = row.key;
-  row.originalValue = row.value;
-  row.editing = false;
-  row.isNew = false;
-};
-
-const cancelNumberRowEdit = (id: number) => {
-  const row = unitFactorRows.value.find(item => item.id === id);
-  if (!row) {
-    return;
-  }
-
-  if (row.isNew) {
-    removeNumberRow(id);
-    return;
-  }
-
-  row.key = row.originalKey;
-  row.value = row.originalValue;
-  row.editing = false;
-};
-
-const formatNumberValue = (value: number | null) =>
-  value === null || Number.isNaN(value) ? "未填写" : `${value}`;
+const formatGroupRowText = (value: string) =>
+  finalizeGroupRowText(value) || "未填写";
 
 const startConflictGroupRowEdit = (row: EditableConflictGroupRow) => {
   row.originalLeftText = row.leftText;
@@ -561,7 +449,9 @@ const mergeMappingDraftItems = (
     if (existingRow) {
       const existingItems = index.rowItems.get(existingRow.id) ?? [canonical];
       existingItems.push(alias);
-      existingRow.text = joinGroupItems(parseGroupItems(joinGroupItems(existingItems)));
+      existingRow.text = joinGroupItems(
+        parseGroupItems(joinGroupItems(existingItems))
+      );
       index.rowItems.set(existingRow.id, parseGroupItems(existingRow.text));
       index.canonicalByTerm.set(aliasKey, canonical);
       imported += 1;
@@ -728,11 +618,15 @@ const clearCurrent = async () => {
   }
 
   try {
-    await ElMessageBox.confirm("确定清空当前生效配置吗？该操作会立即影响运行时匹配。", "提示", {
-      confirmButtonText: "确定",
-      cancelButtonText: "取消",
-      type: "warning"
-    });
+    await ElMessageBox.confirm(
+      "确定清空当前生效配置吗？该操作会立即影响运行时匹配。",
+      "提示",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
   } catch {
     return;
   }
@@ -764,11 +658,15 @@ const restoreDefaults = async () => {
   }
 
   try {
-    await ElMessageBox.confirm("确定恢复默认配置吗？当前修改会被默认种子覆盖。", "提示", {
-      confirmButtonText: "确定",
-      cancelButtonText: "取消",
-      type: "warning"
-    });
+    await ElMessageBox.confirm(
+      "确定恢复默认配置吗？当前修改会被默认种子覆盖。",
+      "提示",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
   } catch {
     return;
   }
@@ -834,7 +732,9 @@ onBeforeUnmount(() => {
   <div
     ref="pageRef"
     class="page config-page"
-    :style="pageViewportHeight > 0 ? { height: `${pageViewportHeight}px` } : undefined"
+    :style="
+      pageViewportHeight > 0 ? { height: `${pageViewportHeight}px` } : undefined
+    "
   >
     <div class="page-header">
       <div>
@@ -868,7 +768,9 @@ onBeforeUnmount(() => {
             <div class="card-header">
               <div>
                 <div class="card-title">实体组</div>
-                <div class="card-subtitle">首项作为标准实体，其余词项自动归一到首项。</div>
+                <div class="card-subtitle">
+                  首项作为标准实体，其余词项自动归一到首项。
+                </div>
               </div>
               <div class="card-toolbar">
                 <el-button
@@ -914,21 +816,41 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </el-table-column>
-            <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
+            <el-table-column
+              v-if="canUpdate"
+              label="操作"
+              width="180"
+              fixed="right"
+            >
               <template #default="{ row }">
                 <template v-if="row.editing">
-                  <el-button type="primary" link @click="completeGroupRowEdit(row)">
+                  <el-button
+                    type="primary"
+                    link
+                    @click="completeGroupRowEdit(row)"
+                  >
                     完成
                   </el-button>
-                  <el-button link @click="cancelGroupRowEdit(entityGroupRows, row.id)">
+                  <el-button
+                    link
+                    @click="cancelGroupRowEdit(entityGroupRows, row.id)"
+                  >
                     取消
                   </el-button>
                 </template>
                 <template v-else>
-                  <el-button type="primary" link @click="startGroupRowEdit(row)">
+                  <el-button
+                    type="primary"
+                    link
+                    @click="startGroupRowEdit(row)"
+                  >
                     编辑
                   </el-button>
-                  <el-button type="danger" link @click="removeGroupRow(entityGroupRows, row.id)">
+                  <el-button
+                    type="danger"
+                    link
+                    @click="removeGroupRow(entityGroupRows, row.id)"
+                  >
                     删除
                   </el-button>
                 </template>
@@ -940,19 +862,14 @@ onBeforeUnmount(() => {
 
       <el-tab-pane label="单位规则" name="unitRules" class="multi-card-pane">
         <div class="knowledge-grid">
-          <div class="tab-search-row">
-            <el-input
-              v-model="unitSearchQuery"
-              clearable
-              placeholder="搜索当前 Tab"
-            />
-          </div>
           <el-card class="knowledge-card">
             <template #header>
               <div class="card-header">
                 <div>
                   <div class="card-title">单位组</div>
-                  <div class="card-subtitle">首项作为标准单位，其余词项自动归一到首项。</div>
+                  <div class="card-subtitle">
+                    首项作为标准单位，其余词项自动归一到首项。
+                  </div>
                 </div>
                 <div class="card-toolbar">
                   <el-button
@@ -974,6 +891,13 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </template>
+            <div class="tab-search-row">
+              <el-input
+                v-model="unitSearchQuery"
+                clearable
+                placeholder="搜索当前 Tab"
+              />
+            </div>
             <el-table
               :data="filteredUnitGroupRows"
               row-key="id"
@@ -991,83 +915,41 @@ onBeforeUnmount(() => {
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
+              <el-table-column
+                v-if="canUpdate"
+                label="操作"
+                width="180"
+                fixed="right"
+              >
                 <template #default="{ row }">
                   <template v-if="row.editing">
-                    <el-button type="primary" link @click="completeGroupRowEdit(row)">
+                    <el-button
+                      type="primary"
+                      link
+                      @click="completeGroupRowEdit(row)"
+                    >
                       完成
                     </el-button>
-                    <el-button link @click="cancelGroupRowEdit(unitGroupRows, row.id)">
+                    <el-button
+                      link
+                      @click="cancelGroupRowEdit(unitGroupRows, row.id)"
+                    >
                       取消
                     </el-button>
                   </template>
                   <template v-else>
-                    <el-button type="primary" link @click="startGroupRowEdit(row)">
+                    <el-button
+                      type="primary"
+                      link
+                      @click="startGroupRowEdit(row)"
+                    >
                       编辑
                     </el-button>
-                    <el-button type="danger" link @click="removeGroupRow(unitGroupRows, row.id)">
-                      删除
-                    </el-button>
-                  </template>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-
-          <el-card class="knowledge-card">
-            <template #header>
-              <div class="card-header">
-                <div>
-                  <div class="card-title">单位换算</div>
-                </div>
-                <div class="card-toolbar">
-                  <el-button v-if="canUpdate" type="primary" link @click="addNumberRow">
-                    新增
-                  </el-button>
-                </div>
-              </div>
-            </template>
-            <el-table
-              :data="filteredUnitFactorRows"
-              row-key="id"
-              :empty-text="unitSearchQuery ? '没有匹配的单位换算' : '暂无单位换算'"
-            >
-              <el-table-column label="标准单位" min-width="220">
-                <template #default="{ row }">
-                  <el-input v-if="row.editing" v-model="row.key" placeholder="输入标准单位" />
-                  <div v-else class="row-display-text">
-                    {{ row.key || "未填写" }}
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="归一系数" min-width="220">
-                <template #default="{ row }">
-                  <el-input-number
-                    v-if="row.editing"
-                    v-model="row.value"
-                    :controls="false"
-                    style="width: 100%"
-                  />
-                  <div v-else class="row-display-text">
-                    {{ formatNumberValue(row.value) }}
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
-                <template #default="{ row }">
-                  <template v-if="row.editing">
-                    <el-button type="primary" link @click="completeNumberRowEdit(row)">
-                      完成
-                    </el-button>
-                    <el-button link @click="cancelNumberRowEdit(row.id)">
-                      取消
-                    </el-button>
-                  </template>
-                  <template v-else>
-                    <el-button type="primary" link @click="startNumberRowEdit(row)">
-                      编辑
-                    </el-button>
-                    <el-button type="danger" link @click="removeNumberRow(row.id)">
+                    <el-button
+                      type="danger"
+                      link
+                      @click="removeGroupRow(unitGroupRows, row.id)"
+                    >
                       删除
                     </el-button>
                   </template>
@@ -1084,7 +966,9 @@ onBeforeUnmount(() => {
             <div class="card-header">
               <div>
                 <div class="card-title">字段组</div>
-                <div class="card-subtitle">首项作为标准字段，其余词项自动归一到首项。</div>
+                <div class="card-subtitle">
+                  首项作为标准字段，其余词项自动归一到首项。
+                </div>
               </div>
               <div class="card-toolbar">
                 <el-button
@@ -1130,21 +1014,41 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </el-table-column>
-            <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
+            <el-table-column
+              v-if="canUpdate"
+              label="操作"
+              width="180"
+              fixed="right"
+            >
               <template #default="{ row }">
                 <template v-if="row.editing">
-                  <el-button type="primary" link @click="completeGroupRowEdit(row)">
+                  <el-button
+                    type="primary"
+                    link
+                    @click="completeGroupRowEdit(row)"
+                  >
                     完成
                   </el-button>
-                  <el-button link @click="cancelGroupRowEdit(fieldGroupRows, row.id)">
+                  <el-button
+                    link
+                    @click="cancelGroupRowEdit(fieldGroupRows, row.id)"
+                  >
                     取消
                   </el-button>
                 </template>
                 <template v-else>
-                  <el-button type="primary" link @click="startGroupRowEdit(row)">
+                  <el-button
+                    type="primary"
+                    link
+                    @click="startGroupRowEdit(row)"
+                  >
                     编辑
                   </el-button>
-                  <el-button type="danger" link @click="removeGroupRow(fieldGroupRows, row.id)">
+                  <el-button
+                    type="danger"
+                    link
+                    @click="removeGroupRow(fieldGroupRows, row.id)"
+                  >
                     删除
                   </el-button>
                 </template>
@@ -1194,7 +1098,9 @@ onBeforeUnmount(() => {
           <el-table
             :data="filteredConflictGroupRows"
             row-key="id"
-            :empty-text="conflictSearchQuery ? '没有匹配的冲突组' : '暂无冲突组'"
+            :empty-text="
+              conflictSearchQuery ? '没有匹配的冲突组' : '暂无冲突组'
+            "
           >
             <el-table-column label="左冲突组" min-width="260">
               <template #default="{ row }">
@@ -1220,10 +1126,19 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </el-table-column>
-            <el-table-column v-if="canUpdate" label="操作" width="180" fixed="right">
+            <el-table-column
+              v-if="canUpdate"
+              label="操作"
+              width="180"
+              fixed="right"
+            >
               <template #default="{ row }">
                 <template v-if="row.editing">
-                  <el-button type="primary" link @click="completeConflictGroupRowEdit(row)">
+                  <el-button
+                    type="primary"
+                    link
+                    @click="completeConflictGroupRowEdit(row)"
+                  >
                     完成
                   </el-button>
                   <el-button link @click="cancelConflictGroupRowEdit(row.id)">
@@ -1231,10 +1146,18 @@ onBeforeUnmount(() => {
                   </el-button>
                 </template>
                 <template v-else>
-                  <el-button type="primary" link @click="startConflictGroupRowEdit(row)">
+                  <el-button
+                    type="primary"
+                    link
+                    @click="startConflictGroupRowEdit(row)"
+                  >
                     编辑
                   </el-button>
-                  <el-button type="danger" link @click="removeConflictGroupRow(row.id)">
+                  <el-button
+                    type="danger"
+                    link
+                    @click="removeConflictGroupRow(row.id)"
+                  >
                     删除
                   </el-button>
                 </template>
@@ -1306,6 +1229,8 @@ onBeforeUnmount(() => {
 }
 
 .knowledge-grid {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1316,6 +1241,10 @@ onBeforeUnmount(() => {
 }
 
 .tab-search-row {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--el-bg-color);
   margin-bottom: 16px;
 }
 
@@ -1329,6 +1258,34 @@ onBeforeUnmount(() => {
 }
 
 :deep(.knowledge-tabs > .el-tabs__content > .el-tab-pane.multi-card-pane) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:deep(
+  .knowledge-tabs
+    > .el-tabs__content
+    > .el-tab-pane.multi-card-pane
+    > .knowledge-grid
+    > .knowledge-card
+) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(
+  .knowledge-tabs
+    > .el-tabs__content
+    > .el-tab-pane.multi-card-pane
+    > .knowledge-grid
+    > .knowledge-card
+    > .el-card__body
+) {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -1338,7 +1295,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-:deep(.knowledge-tabs > .el-tabs__content > .el-tab-pane.single-card-pane > .knowledge-card) {
+:deep(
+  .knowledge-tabs
+    > .el-tabs__content
+    > .el-tab-pane.single-card-pane
+    > .knowledge-card
+) {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -1346,12 +1308,12 @@ onBeforeUnmount(() => {
 }
 
 :deep(
-    .knowledge-tabs
-      > .el-tabs__content
-      > .el-tab-pane.single-card-pane
-      > .knowledge-card
-      > .el-card__body
-  ) {
+  .knowledge-tabs
+    > .el-tabs__content
+    > .el-tab-pane.single-card-pane
+    > .knowledge-card
+    > .el-card__body
+) {
   flex: 1;
   min-height: 0;
   overflow: auto;

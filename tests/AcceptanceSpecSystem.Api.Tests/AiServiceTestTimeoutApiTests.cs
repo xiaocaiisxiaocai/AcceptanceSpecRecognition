@@ -114,7 +114,7 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         });
 
         var configId = await CreateConfigAsync(AiServicePurpose.Llm, $"http://127.0.0.1:{port}", AiServiceType.LMStudio);
-        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test?mode=quick", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -155,7 +155,7 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         });
 
         var configId = await CreateConfigAsync(AiServicePurpose.Embedding, $"http://127.0.0.1:{port}", AiServiceType.LMStudio);
-        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+        using var response = await _client.PostAsync($"/api/ai-services/{configId}/test?mode=quick", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
