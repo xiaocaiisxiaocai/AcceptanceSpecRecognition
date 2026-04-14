@@ -5,6 +5,17 @@ import type {
   ScoreDetailDiffRow,
   ScoreDetailDiffViewMode
 } from "../composables/useScoreDetailDiff";
+import {
+  getLlmEquivalenceDifferenceTone,
+  getLlmEquivalenceDifferenceToneDescription,
+  getLlmEquivalenceDifferenceToneTagType,
+  getLlmEquivalenceDifferenceToneText,
+  getLlmEquivalenceReasonTagType,
+  getLlmEquivalenceReasonTypeText,
+  getLlmEquivalenceSummaryText,
+  getLlmEquivalenceVerdictTagType,
+  getLlmEquivalenceVerdictText
+} from "./scoreDetail.llmEquivalence";
 
 const props = defineProps<{
   item: MatchPreviewItem;
@@ -46,6 +57,10 @@ const shouldShowSourceDiff = computed(() => props.showSourceDiff !== false);
 const shouldShowCandidateCompare = computed(
   () => props.showCandidateCompare !== false
 );
+const sourceDiffEquivalence = computed(() => props.item.bestMatch?.llmEquivalence);
+const sourceDiffTone = computed(() =>
+  getLlmEquivalenceDifferenceTone(sourceDiffEquivalence.value)
+);
 </script>
 
 <template>
@@ -54,6 +69,43 @@ const shouldShowCandidateCompare = computed(
     class="best-section"
   >
     <h4>源项与最佳匹配差异</h4>
+    <div
+      v-if="item.bestMatch?.llmEquivalence"
+      class="source-diff-callout"
+      :class="`source-diff-callout--${sourceDiffTone}`"
+    >
+      <div class="source-diff-callout__head">
+        <span>AI 等价裁决</span>
+        <div class="source-diff-callout__tags">
+          <el-tag
+            size="small"
+            :type="getLlmEquivalenceVerdictTagType(item.bestMatch.llmEquivalence.verdict)"
+          >
+            {{ getLlmEquivalenceVerdictText(item.bestMatch.llmEquivalence.verdict) }}
+          </el-tag>
+          <el-tag
+            size="small"
+            effect="plain"
+            :type="getLlmEquivalenceReasonTagType(item.bestMatch.llmEquivalence.reasonType)"
+          >
+            {{ getLlmEquivalenceReasonTypeText(item.bestMatch.llmEquivalence.reasonType) }}
+          </el-tag>
+          <el-tag
+            size="small"
+            effect="plain"
+            :type="getLlmEquivalenceDifferenceToneTagType(sourceDiffTone)"
+          >
+            {{ getLlmEquivalenceDifferenceToneText(sourceDiffTone) }}
+          </el-tag>
+        </div>
+      </div>
+      <div class="source-diff-callout__text">
+        {{ getLlmEquivalenceSummaryText(item.bestMatch.llmEquivalence) }}
+      </div>
+      <div class="source-diff-callout__hint">
+        {{ getLlmEquivalenceDifferenceToneDescription(sourceDiffTone) }}
+      </div>
+    </div>
     <div v-if="item.bestMatch && sourceBestRows.length > 0" class="diff-section">
       <div class="diff-columns">
         <div class="diff-column">
@@ -75,7 +127,19 @@ const shouldShowCandidateCompare = computed(
           :key="`source-best-${row.key}`"
           class="diff-row"
         >
-          <div class="diff-label">{{ row.label }}</div>
+          <div class="diff-label">
+            <div class="diff-label__content">
+              <span>{{ row.label }}</span>
+              <el-tag
+                v-if="item.bestMatch?.llmEquivalence"
+                size="small"
+                effect="plain"
+                :type="getLlmEquivalenceDifferenceToneTagType(sourceDiffTone)"
+              >
+                {{ getLlmEquivalenceDifferenceToneText(sourceDiffTone) }}
+              </el-tag>
+            </div>
+          </div>
           <div class="diff-cell">
             <div class="diff-content" v-html="row.leftHtml" />
           </div>
@@ -346,6 +410,12 @@ const shouldShowCandidateCompare = computed(
   color: #6b7280;
 }
 
+.diff-label__content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .diff-cell {
   min-width: 0;
   padding: 10px 12px;
@@ -427,6 +497,52 @@ const shouldShowCandidateCompare = computed(
   line-height: 1.75;
   white-space: normal;
   word-break: break-word;
+}
+
+.source-diff-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+}
+
+.source-diff-callout--decision {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.source-diff-callout__head,
+.source-diff-callout__tags {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.source-diff-callout__head {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.source-diff-callout__text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1e3a8a;
+}
+
+.source-diff-callout--decision .source-diff-callout__text {
+  color: #9a3412;
+}
+
+.source-diff-callout__hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #475569;
 }
 
 :deep(.inline-mark) {

@@ -1301,6 +1301,11 @@ public sealed class MatchingWorkflowSupportService
             return true;
         }
 
+        if (string.Equals(mapping.LlmEquivalenceVerdict, "equivalent", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         if (!mapping.MatchScore.HasValue)
         {
             return false;
@@ -1337,7 +1342,8 @@ public sealed class MatchingWorkflowSupportService
             return "low";
         }
 
-        if (result.Score >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
+        if (result.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent ||
+            result.Score >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
         {
             return "high";
         }
@@ -1387,6 +1393,7 @@ public sealed class MatchingWorkflowSupportService
             ConflictSummary = [.. result.Evidence.Conflicts],
             Issues = result.Issues.Select(ConvertToIssueDto).ToList(),
             Entities = result.Evidence.Entities.Select(ConvertToEntityDto).ToList(),
+            LlmEquivalence = ConvertToLlmEquivalenceDto(result.LlmEquivalence),
             TopCandidates = result.TopCandidates
                 .Select(candidate => new MatchCandidateDto
                 {
@@ -1409,7 +1416,8 @@ public sealed class MatchingWorkflowSupportService
                     ConflictSummary = [.. candidate.Evidence.Conflicts],
                     Issues = candidate.Issues.Select(ConvertToIssueDto).ToList(),
                     Entities = candidate.Evidence.Entities.Select(ConvertToEntityDto).ToList(),
-                    RerankSummary = candidate.RerankSummary
+                    RerankSummary = candidate.RerankSummary,
+                    LlmEquivalence = ConvertToLlmEquivalenceDto(candidate.LlmEquivalence)
                 })
                 .ToList(),
             MatchingStrategy = result.MatchingStrategy,
@@ -1421,6 +1429,46 @@ public sealed class MatchingWorkflowSupportService
             LlmReason = result.LlmReason,
             LlmCommentary = result.LlmCommentary,
             IsLlmReviewed = result.IsLlmReviewed
+        };
+    }
+
+    private static LlmEquivalenceDto? ConvertToLlmEquivalenceDto(LlmEquivalenceAdjudicationResult? result)
+    {
+        if (result == null)
+        {
+            return null;
+        }
+
+        return new LlmEquivalenceDto
+        {
+            Verdict = ToEquivalenceVerdictKey(result.Verdict),
+            ReasonType = ToEquivalenceReasonTypeKey(result.ReasonType),
+            Reason = result.Reason,
+            Confidence = result.Confidence
+        };
+    }
+
+    private static string ToEquivalenceVerdictKey(LlmEquivalenceVerdict verdict)
+    {
+        return verdict switch
+        {
+            LlmEquivalenceVerdict.Equivalent => "equivalent",
+            LlmEquivalenceVerdict.Different => "different",
+            _ => "uncertain"
+        };
+    }
+
+    private static string ToEquivalenceReasonTypeKey(LlmEquivalenceReasonType reasonType)
+    {
+        return reasonType switch
+        {
+            LlmEquivalenceReasonType.FormatOnly => "format_only",
+            LlmEquivalenceReasonType.PunctuationOnly => "punctuation_only",
+            LlmEquivalenceReasonType.EquivalentExpression => "equivalent_expression",
+            LlmEquivalenceReasonType.SymbolEquivalent => "symbol_equivalent",
+            LlmEquivalenceReasonType.SemanticDifference => "semantic_difference",
+            LlmEquivalenceReasonType.SymbolConflict => "symbol_conflict",
+            _ => "uncertain"
         };
     }
 

@@ -14,7 +14,7 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 /// <summary>
 /// LLM 匹配辅助服务（复核 + 生成建议）
 /// </summary>
-public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService, ILlmEntityResolutionService
+public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService, ILlmEntityResolutionService, ILlmEquivalenceAdjudicationService
 {
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IAiServiceSelector _selector;
@@ -356,6 +356,72 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
         return true;
     }
 
+    public async Task<LlmEquivalenceAdjudicationResult?> AdjudicateAsync(
+        LlmEquivalenceAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if ((string.IsNullOrWhiteSpace(request.SourceProject) &&
+             string.IsNullOrWhiteSpace(request.SourceSpecification)) ||
+            (string.IsNullOrWhiteSpace(request.CandidateProject) &&
+             string.IsNullOrWhiteSpace(request.CandidateSpecification)))
+        {
+            return null;
+        }
+
+        var template = await GetOrCreateTemplateAsync(
+            PromptTemplateCatalog.GetByScene(PromptTemplateScene.MatchingEquivalenceAdjudication),
+            cancellationToken);
+        var prompt = BuildEquivalenceAdjudicationPrompt(template.Content, request);
+
+        _logger.LogInformation(
+            "[LLM等价裁决] 源: {Source} | 候选: {Candidate} | 当前决策: {Decision}",
+            $"{request.SourceProject}/{request.SourceSpecification}",
+            $"{request.CandidateProject}/{request.CandidateSpecification}",
+            request.CurrentDecision);
+        _logger.LogDebug("[LLM等价裁决] 完整Prompt:\n{Prompt}", prompt);
+
+        var sw = Stopwatch.StartNew();
+        var raw = await GenerateWithFallbackAsync(prompt, request.LlmServiceId, "LLM 等价裁决失败", cancellationToken);
+        _logger.LogInformation("[LLM等价裁决] LLM原始输出 ({Elapsed}ms): {Raw}", sw.ElapsedMilliseconds, raw);
+
+        if (TryParseAdjudicationResult(raw, out var result))
+        {
+            _logger.LogInformation("[LLM等价裁决] 解析结果: verdict={Verdict}, reasonType={ReasonType}, confidence={Confidence}",
+                result.Verdict, result.ReasonType, result.Confidence);
+            return result;
+        }
+
+        _logger.LogWarning("[LLM等价裁决] JSON解析失败, 原始输出: {Raw}", raw);
+        return null;
+    }
+
+    public bool TryParseAdjudicationResult(string raw, out LlmEquivalenceAdjudicationResult result)
+    {
+        result = null!;
+        if (!TryParseJson(raw, out var doc))
+            return false;
+
+        var verdictText = TryGetString(doc.RootElement, "verdict");
+        var reasonTypeText = TryGetString(doc.RootElement, "reasonType");
+        if (!TryParseEquivalenceVerdict(verdictText, out var verdict) ||
+            !TryParseEquivalenceReasonType(reasonTypeText, out var reasonType))
+        {
+            return false;
+        }
+
+        if (!TryGetDouble(doc.RootElement, "confidence", out var confidence))
+            return false;
+
+        result = new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = verdict,
+            ReasonType = reasonType,
+            Confidence = Math.Clamp(confidence, 0, 1),
+            Reason = TryGetString(doc.RootElement, "reason")
+        };
+        return true;
+    }
+
     // ── Prompt 构建 ──
 
     private static string BuildReviewPrompt(string template, LlmReviewRequest request)
@@ -415,6 +481,23 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
             ["candidateEntity"] = request.CandidateEntity,
             ["sourceText"] = request.SourceText,
             ["candidateText"] = request.CandidateText
+        });
+    }
+
+    private static string BuildEquivalenceAdjudicationPrompt(
+        string template,
+        LlmEquivalenceAdjudicationRequest request)
+    {
+        return ApplyTemplate(template, new Dictionary<string, string>
+        {
+            ["sourceProject"] = request.SourceProject,
+            ["sourceSpecification"] = request.SourceSpecification,
+            ["candidateProject"] = request.CandidateProject,
+            ["candidateSpecification"] = request.CandidateSpecification,
+            ["currentDecision"] = request.CurrentDecision,
+            ["scoreDetailsJson"] = JsonSerializer.Serialize(request.ScoreDetails),
+            ["evidenceSummaryJson"] = JsonSerializer.Serialize(request.EvidenceSummary),
+            ["conflictSummaryJson"] = JsonSerializer.Serialize(request.ConflictSummary)
         });
     }
 
@@ -690,6 +773,46 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
     private static bool SetRelation(LlmEntityRelation value, out LlmEntityRelation relation)
     {
         relation = value;
+        return true;
+    }
+
+    private static bool TryParseEquivalenceVerdict(string? value, out LlmEquivalenceVerdict verdict)
+    {
+        verdict = LlmEquivalenceVerdict.Uncertain;
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "equivalent" => SetVerdict(LlmEquivalenceVerdict.Equivalent, out verdict),
+            "different" => SetVerdict(LlmEquivalenceVerdict.Different, out verdict),
+            "uncertain" => SetVerdict(LlmEquivalenceVerdict.Uncertain, out verdict),
+            _ => false
+        };
+    }
+
+    private static bool TryParseEquivalenceReasonType(string? value, out LlmEquivalenceReasonType reasonType)
+    {
+        reasonType = LlmEquivalenceReasonType.Uncertain;
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "format_only" => SetReasonType(LlmEquivalenceReasonType.FormatOnly, out reasonType),
+            "punctuation_only" => SetReasonType(LlmEquivalenceReasonType.PunctuationOnly, out reasonType),
+            "equivalent_expression" => SetReasonType(LlmEquivalenceReasonType.EquivalentExpression, out reasonType),
+            "symbol_equivalent" => SetReasonType(LlmEquivalenceReasonType.SymbolEquivalent, out reasonType),
+            "semantic_difference" => SetReasonType(LlmEquivalenceReasonType.SemanticDifference, out reasonType),
+            "symbol_conflict" => SetReasonType(LlmEquivalenceReasonType.SymbolConflict, out reasonType),
+            "uncertain" => SetReasonType(LlmEquivalenceReasonType.Uncertain, out reasonType),
+            _ => false
+        };
+    }
+
+    private static bool SetVerdict(LlmEquivalenceVerdict value, out LlmEquivalenceVerdict verdict)
+    {
+        verdict = value;
+        return true;
+    }
+
+    private static bool SetReasonType(LlmEquivalenceReasonType value, out LlmEquivalenceReasonType reasonType)
+    {
+        reasonType = value;
         return true;
     }
 }

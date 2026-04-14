@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import MatchPreviewTable from "./MatchPreviewTable.vue";
-import type { MatchPreviewItem } from "@/api/matching";
-import type { BatchTablePreviewResult } from "@/api/matching";
+import type {
+  BatchTablePreviewResult,
+  LlmEquivalenceVerdict,
+  MatchPreviewItem
+} from "@/api/matching";
 
 const props = defineProps<{
   /** 各表格预览结果 */
@@ -50,6 +53,7 @@ const getAllSelections = () => {
       specId?: number;
       matchScore?: number;
       llmReviewScore?: number;
+      llmEquivalenceVerdict?: LlmEquivalenceVerdict;
       manualConfirmed?: boolean;
     }>
   > = new Map();

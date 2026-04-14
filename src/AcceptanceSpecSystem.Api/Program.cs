@@ -191,10 +191,12 @@ builder.Services.AddScoped<PromptTemplateValidationService>();
 builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmEntityResolutionService, LlmMatchingAssistService>();
+builder.Services.AddScoped<ILlmEquivalenceAdjudicationService, LlmMatchingAssistService>();
 builder.Services.AddScoped<IMatchingService>(serviceProvider => new SemanticKernelMatchingService(
     serviceProvider.GetRequiredService<IEmbeddingService>(),
     serviceProvider.GetRequiredService<ILogger<SemanticKernelMatchingService>>(),
     knowledgeProvider: serviceProvider.GetRequiredService<IMatchingKnowledgeProvider>(),
+    llmEquivalenceAdjudicationService: serviceProvider.GetRequiredService<ILlmEquivalenceAdjudicationService>(),
     llmEntityResolutionService: serviceProvider.GetRequiredService<ILlmEntityResolutionService>()));
 builder.Services.AddScoped<IMatchingKnowledgeDraftAiService, MatchingKnowledgeDraftAiService>();
 

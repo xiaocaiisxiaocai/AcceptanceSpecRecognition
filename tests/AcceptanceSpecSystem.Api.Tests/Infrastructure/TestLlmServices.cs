@@ -170,6 +170,90 @@ public class TestLlmEntityResolutionService : ILlmEntityResolutionService
     }
 }
 
+public class TestLlmEquivalenceAdjudicationService : ILlmEquivalenceAdjudicationService
+{
+    public Task<LlmEquivalenceAdjudicationResult?> AdjudicateAsync(
+        LlmEquivalenceAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var sourceProject = request.SourceProject.Trim();
+        var candidateProject = request.CandidateProject.Trim();
+        var sourceSpecification = request.SourceSpecification.Trim();
+        var candidateSpecification = request.CandidateSpecification.Trim();
+
+        LlmEquivalenceAdjudicationResult result =
+            (sourceProject, sourceSpecification, candidateProject, candidateSpecification) switch
+            {
+                ("安装要求", "最大不可拆部件≈3200", "安装要求", "最大不可拆部件约等于3200。") => new LlmEquivalenceAdjudicationResult
+                {
+                    Verdict = LlmEquivalenceVerdict.Equivalent,
+                    ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+                    Confidence = 0.92,
+                    Reason = "≈ 与 约等于属于同义表达"
+                },
+                ("安装要求", "最大不可拆部件≈3200", "安装要求", "最大不可拆部件约为3200") => new LlmEquivalenceAdjudicationResult
+                {
+                    Verdict = LlmEquivalenceVerdict.Uncertain,
+                    ReasonType = LlmEquivalenceReasonType.Uncertain,
+                    Confidence = 0.45,
+                    Reason = "上下文不足，无法确认是否完全等价"
+                },
+                _ when string.Equals(sourceProject, candidateProject, StringComparison.OrdinalIgnoreCase) &&
+                       string.Equals(sourceSpecification, candidateSpecification, StringComparison.OrdinalIgnoreCase) => new LlmEquivalenceAdjudicationResult
+                {
+                    Verdict = LlmEquivalenceVerdict.Equivalent,
+                    ReasonType = LlmEquivalenceReasonType.FormatOnly,
+                    Confidence = 0.99,
+                    Reason = "源项与候选项文本一致"
+                },
+                _ => new LlmEquivalenceAdjudicationResult
+                {
+                    Verdict = LlmEquivalenceVerdict.Different,
+                    ReasonType = LlmEquivalenceReasonType.SemanticDifference,
+                    Confidence = 0.88,
+                    Reason = "测试环境中未配置该等价关系"
+                }
+            };
+
+        return Task.FromResult<LlmEquivalenceAdjudicationResult?>(result);
+    }
+
+    public bool TryParseAdjudicationResult(string raw, out LlmEquivalenceAdjudicationResult result)
+    {
+        result = null!;
+        using var doc = JsonDocument.Parse(raw);
+        var verdictText = doc.RootElement.GetProperty("verdict").GetString();
+        var reasonTypeText = doc.RootElement.GetProperty("reasonType").GetString();
+        var confidence = doc.RootElement.GetProperty("confidence").GetDouble();
+        var reason = doc.RootElement.TryGetProperty("reason", out var reasonElement)
+            ? reasonElement.GetString()
+            : null;
+
+        result = new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = verdictText?.ToLowerInvariant() switch
+            {
+                "equivalent" => LlmEquivalenceVerdict.Equivalent,
+                "different" => LlmEquivalenceVerdict.Different,
+                _ => LlmEquivalenceVerdict.Uncertain
+            },
+            ReasonType = reasonTypeText?.ToLowerInvariant() switch
+            {
+                "format_only" => LlmEquivalenceReasonType.FormatOnly,
+                "punctuation_only" => LlmEquivalenceReasonType.PunctuationOnly,
+                "equivalent_expression" => LlmEquivalenceReasonType.EquivalentExpression,
+                "symbol_equivalent" => LlmEquivalenceReasonType.SymbolEquivalent,
+                "semantic_difference" => LlmEquivalenceReasonType.SemanticDifference,
+                "symbol_conflict" => LlmEquivalenceReasonType.SymbolConflict,
+                _ => LlmEquivalenceReasonType.Uncertain
+            },
+            Confidence = confidence,
+            Reason = reason
+        };
+        return true;
+    }
+}
+
 public class TestMatchingKnowledgeDraftAiService : IMatchingKnowledgeDraftAiService
 {
     public Task<IReadOnlyList<MatchingKnowledgeDraftCandidate>> GenerateAsync(

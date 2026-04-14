@@ -215,6 +215,11 @@ public class MatchResult
     public bool IsLlmReviewed => LlmScore.HasValue;
 
     /// <summary>
+    /// AI 等价裁决结果
+    /// </summary>
+    public LlmEquivalenceAdjudicationResult? LlmEquivalence { get; set; }
+
+    /// <summary>
     /// 最终决策
     /// </summary>
     public MatchDecision Decision { get; set; } = MatchDecision.AutoApply;
@@ -229,13 +234,15 @@ public class MatchResult
     /// </summary>
     public bool IsHighConfidence =>
         Decision == MatchDecision.AutoApply &&
-        Score >= HighConfidenceThreshold;
+        (Score >= HighConfidenceThreshold ||
+         LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent);
 
     /// <summary>
     /// 是否为中置信度匹配
     /// </summary>
     public bool IsMediumConfidence =>
         Decision == MatchDecision.AutoApply &&
+        LlmEquivalence?.Verdict != LlmEquivalenceVerdict.Equivalent &&
         Score >= MatchingThresholds.MediumConfidenceScore &&
         Score < HighConfidenceThreshold;
 
@@ -244,6 +251,7 @@ public class MatchResult
     /// </summary>
     public bool IsLowConfidence =>
         Decision == MatchDecision.AutoApply &&
+        LlmEquivalence?.Verdict != LlmEquivalenceVerdict.Equivalent &&
         Score < MatchingThresholds.MediumConfidenceScore;
 
     /// <summary>
@@ -321,6 +329,11 @@ public class MatchCandidateSnapshot
     /// 重排摘要（多阶段时可用）
     /// </summary>
     public string? RerankSummary { get; set; }
+
+    /// <summary>
+    /// AI 等价裁决结果（仅 Top1 或参与裁决候选可用）
+    /// </summary>
+    public LlmEquivalenceAdjudicationResult? LlmEquivalence { get; set; }
 }
 
 /// <summary>

@@ -4,9 +4,18 @@ import {
   DEFAULT_AMBIGUITY_MARGIN,
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   LLM_REVIEW_PASS_THRESHOLD,
+  type LlmEquivalenceVerdict,
   type MatchIssue,
   type MatchPreviewItem
 } from "@/api/matching";
+import {
+  getLlmEquivalenceDifferenceTone,
+  getLlmEquivalenceDifferenceToneTagType,
+  getLlmEquivalenceDifferenceToneText,
+  getLlmEquivalenceSummaryText,
+  getLlmEquivalenceVerdictTagType,
+  isLlmEquivalenceDecisionRisk
+} from "./scoreDetail.llmEquivalence";
 
 const props = defineProps<{
   items: MatchPreviewItem[];
@@ -276,6 +285,7 @@ const hasCustomerVisibleRisk = (item: MatchPreviewItem) => {
   );
 
   return (
+    isLlmEquivalenceDecisionRisk(item.bestMatch.llmEquivalence) ||
     item.confidenceLevel !== "high" ||
     !!item.bestMatch?.isAmbiguous ||
     !!item.bestMatch?.conflictSummary?.length ||
@@ -386,6 +396,7 @@ const hasReasonColumn = computed(() =>
       !!item.bestMatch?.conflictSummary?.length ||
       !!item.bestMatch?.evidenceSummary?.length ||
       !!item.bestMatch?.llmReason ||
+      !!item.bestMatch?.llmEquivalence ||
       !!item.llmReviewError
   )
 );
@@ -397,6 +408,7 @@ defineExpose({
       specId?: number;
       matchScore?: number;
       llmReviewScore?: number;
+      llmEquivalenceVerdict?: LlmEquivalenceVerdict;
       manualConfirmed?: boolean;
     }> = [];
 
@@ -411,6 +423,7 @@ defineExpose({
         specId: item.bestMatch.specId,
         matchScore: item.bestMatch.score,
         llmReviewScore: normalizeReviewScore(item.bestMatch.llmScore),
+        llmEquivalenceVerdict: item.bestMatch.llmEquivalence?.verdict,
         manualConfirmed: selection.manualConfirmed
       });
     });
@@ -572,6 +585,38 @@ defineExpose({
               {{ row.bestMatch.evidenceSummary.slice(0, 2).join("；") }}
             </div>
             <div
+              v-if="row.bestMatch.llmEquivalence"
+              class="equivalence-summary"
+            >
+              <div class="equivalence-summary__tags">
+                <el-tag
+                  size="small"
+                  effect="plain"
+                  :type="getLlmEquivalenceVerdictTagType(row.bestMatch.llmEquivalence.verdict)"
+                >
+                  AI 等价裁决
+                </el-tag>
+                <el-tag
+                  size="small"
+                  effect="plain"
+                  :type="
+                    getLlmEquivalenceDifferenceToneTagType(
+                      getLlmEquivalenceDifferenceTone(row.bestMatch.llmEquivalence)
+                    )
+                  "
+                >
+                  {{
+                    getLlmEquivalenceDifferenceToneText(
+                      getLlmEquivalenceDifferenceTone(row.bestMatch.llmEquivalence)
+                    )
+                  }}
+                </el-tag>
+              </div>
+              <div class="equivalence-summary__text">
+                {{ getLlmEquivalenceSummaryText(row.bestMatch.llmEquivalence) }}
+              </div>
+            </div>
+            <div
               v-if="row.bestMatch.conflictSummary?.length"
               class="conflict-summary"
             >
@@ -623,7 +668,7 @@ defineExpose({
       <el-table-column v-if="hasReasonColumn" label="说明" min-width="220">
         <template #default="{ row }">
           <div
-            v-if="!row.hasMatch || row.noMatchReason || row.bestMatch?.issues?.length || row.bestMatch?.conflictSummary?.length || row.bestMatch?.evidenceSummary?.length || row.bestMatch?.llmReason || row.llmReviewError"
+            v-if="!row.hasMatch || row.noMatchReason || row.bestMatch?.issues?.length || row.bestMatch?.conflictSummary?.length || row.bestMatch?.evidenceSummary?.length || row.bestMatch?.llmReason || row.bestMatch?.llmEquivalence || row.llmReviewError"
             class="reason-cell"
           >
             <div v-if="!row.hasMatch && row.noMatchReason" class="reason-text">
@@ -661,6 +706,9 @@ defineExpose({
             </div>
             <div v-if="row.bestMatch?.llmReason" class="suggestion-reason">
               复核结论：{{ row.bestMatch.llmReason }}
+            </div>
+            <div v-if="row.bestMatch?.llmEquivalence" class="suggestion-reason">
+              AI 裁决：{{ getLlmEquivalenceSummaryText(row.bestMatch.llmEquivalence) }}
             </div>
             <div v-if="row.llmReviewError" class="suggestion-reason">
               复核异常：{{ row.llmReviewError }}
@@ -886,6 +934,28 @@ defineExpose({
   font-size: 12px;
   color: #b42318;
   line-height: 1.5;
+}
+
+.equivalence-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+
+.equivalence-summary__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.equivalence-summary__text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #1d4ed8;
 }
 
 .issue-summary {

@@ -32,3 +32,12 @@ public interface ILlmEntityResolutionService
 
     bool TryParseEntityResolutionResult(string raw, out LlmEntityResolutionResult result);
 }
+
+public interface ILlmEquivalenceAdjudicationService
+{
+    Task<LlmEquivalenceAdjudicationResult?> AdjudicateAsync(
+        LlmEquivalenceAdjudicationRequest request,
+        CancellationToken cancellationToken = default);
+
+    bool TryParseAdjudicationResult(string raw, out LlmEquivalenceAdjudicationResult result);
+}

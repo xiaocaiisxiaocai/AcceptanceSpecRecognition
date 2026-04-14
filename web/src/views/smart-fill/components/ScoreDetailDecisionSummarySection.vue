@@ -3,6 +3,19 @@ import { computed } from "vue";
 import type { MatchPreviewItem } from "@/api/matching";
 import { getIssueFieldText } from "./scoreDetail.formatters";
 import type { ScoreDetailDiffRow } from "../composables/useScoreDetailDiff";
+import {
+  getLlmEquivalenceDifferenceTone,
+  getLlmEquivalenceDifferenceToneDescription,
+  getLlmEquivalenceDifferenceToneTagType,
+  getLlmEquivalenceDifferenceToneText,
+  getLlmEquivalenceReasonTagType,
+  getLlmEquivalenceReasonTypeText,
+  getLlmEquivalenceSummaryText,
+  getLlmEquivalenceVerdictTagType,
+  getLlmEquivalenceVerdictText,
+  isLlmEquivalenceDecisionRisk,
+  isLlmEquivalenceHintOnly
+} from "./scoreDetail.llmEquivalence";
 
 const props = defineProps<{
   item: MatchPreviewItem;
@@ -10,6 +23,16 @@ const props = defineProps<{
 }>();
 
 const bestMatch = computed(() => props.item.bestMatch);
+const llmEquivalence = computed(() => bestMatch.value?.llmEquivalence);
+const llmEquivalenceTone = computed(() =>
+  getLlmEquivalenceDifferenceTone(llmEquivalence.value)
+);
+const hasHintOnlyEquivalence = computed(() =>
+  isLlmEquivalenceHintOnly(llmEquivalence.value)
+);
+const hasDecisionEquivalenceRisk = computed(() =>
+  isLlmEquivalenceDecisionRisk(llmEquivalence.value)
+);
 
 const hasCustomerVisibleDifference = computed(() => {
   if (!bestMatch.value) return false;
@@ -19,7 +42,8 @@ const hasCustomerVisibleDifference = computed(() => {
   );
 
   return (
-    props.sourceBestRows.length > 0 ||
+    hasDecisionEquivalenceRisk.value ||
+    (props.sourceBestRows.length > 0 && !hasHintOnlyEquivalence.value) ||
     props.item.confidenceLevel !== "high" ||
     !!bestMatch.value?.isAmbiguous ||
     hasMediumOrHighIssues
@@ -40,6 +64,22 @@ const recommendation = computed(() => {
       title: "不建议填充",
       description: "存在冲突，请先处理。",
       type: "error" as const
+    };
+  }
+
+  if (hasDecisionEquivalenceRisk.value && llmEquivalence.value) {
+    return {
+      title: "先确认后填充",
+      description: getLlmEquivalenceSummaryText(llmEquivalence.value),
+      type: "warning" as const
+    };
+  }
+
+  if (hasHintOnlyEquivalence.value && llmEquivalence.value) {
+    return {
+      title: "可直接填充",
+      description: "AI 已判定为提示型差异，不单独提升风险。",
+      type: "success" as const
     };
   }
 
@@ -75,6 +115,10 @@ const actionSuggestion = computed(() => {
     return "先处理冲突";
   }
 
+  if (hasDecisionEquivalenceRisk.value) {
+    return "核对 AI 风险后再填充";
+  }
+
   if (hasCustomerVisibleDifference.value) {
     return "核对差异后再填充";
   }
@@ -95,6 +139,22 @@ const riskLevel = computed(() => {
     return { label: "高", type: "danger" as const, description: "存在冲突" };
   }
 
+  if (hasDecisionEquivalenceRisk.value) {
+    return {
+      label: "中",
+      type: "warning" as const,
+      description: "存在决策型风险"
+    };
+  }
+
+  if (hasHintOnlyEquivalence.value) {
+    return {
+      label: "低",
+      type: "success" as const,
+      description: "AI 已判定为提示型差异"
+    };
+  }
+
   if (hasCustomerVisibleDifference.value) {
     return { label: "中", type: "warning" as const, description: "有差异" };
   }
@@ -103,6 +163,11 @@ const riskLevel = computed(() => {
 });
 
 const riskItems = computed(() => {
+  const llmRiskItems =
+    hasDecisionEquivalenceRisk.value && llmEquivalence.value
+      ? [{ text: getLlmEquivalenceSummaryText(llmEquivalence.value) }]
+      : [];
+
   const conflicts =
     bestMatch.value?.conflictSummary?.map(item => ({
       text: item
@@ -113,11 +178,16 @@ const riskItems = computed(() => {
       text: `${issue.message}${issue.fieldName ? `（${getIssueFieldText(issue)}）` : ""}`
     })) ?? [];
 
-  return [...conflicts, ...issues].slice(0, 4);
+  return [...llmRiskItems, ...conflicts, ...issues].slice(0, 4);
 });
 
 const focusChecklist = computed(() => {
   const checklist = [
+    ...(llmEquivalence.value
+      ? [
+          `AI 裁决提示：${getLlmEquivalenceSummaryText(llmEquivalence.value)}`
+        ]
+      : []),
     ...props.sourceBestRows.map(row => `${row.label}与推荐项不一致`),
     ...riskItems.value.slice(0, 2).map(item => item.text)
   ];
@@ -175,6 +245,41 @@ const getComparisonHtml = (
         </div>
         <div class="hero-card__desc">{{ riskLevel.description }}</div>
       </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__title">AI 等价裁决</div>
+      <div v-if="bestMatch?.llmEquivalence" class="equivalence-card">
+        <div class="equivalence-card__tags">
+          <el-tag
+            size="small"
+            :type="getLlmEquivalenceVerdictTagType(bestMatch.llmEquivalence.verdict)"
+          >
+            {{ getLlmEquivalenceVerdictText(bestMatch.llmEquivalence.verdict) }}
+          </el-tag>
+          <el-tag
+            size="small"
+            effect="plain"
+            :type="getLlmEquivalenceReasonTagType(bestMatch.llmEquivalence.reasonType)"
+          >
+            {{ getLlmEquivalenceReasonTypeText(bestMatch.llmEquivalence.reasonType) }}
+          </el-tag>
+          <el-tag
+            size="small"
+            effect="plain"
+            :type="getLlmEquivalenceDifferenceToneTagType(llmEquivalenceTone)"
+          >
+            {{ getLlmEquivalenceDifferenceToneText(llmEquivalenceTone) }}
+          </el-tag>
+        </div>
+        <div class="equivalence-card__text">
+          {{ getLlmEquivalenceSummaryText(bestMatch.llmEquivalence) }}
+        </div>
+        <div class="equivalence-card__hint">
+          {{ getLlmEquivalenceDifferenceToneDescription(llmEquivalenceTone) }}
+        </div>
+      </div>
+      <div v-else class="plain-item">当前最佳匹配未触发 AI 等价裁决。</div>
     </div>
 
     <div class="panel">
@@ -317,6 +422,34 @@ const getComparisonHtml = (
   line-height: 1.8;
   color: #111827;
   word-break: break-word;
+}
+
+.equivalence-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #eff6ff 0%, #f8fbff 100%);
+}
+
+.equivalence-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.equivalence-card__text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1e3a8a;
+}
+
+.equivalence-card__hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #475569;
 }
 
 :deep(.inline-mark) {

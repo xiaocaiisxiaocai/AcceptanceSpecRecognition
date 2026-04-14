@@ -146,6 +146,28 @@ export interface MatchEntityEvidence {
     | "unknown";
 }
 
+export type LlmEquivalenceVerdict = "equivalent" | "different" | "uncertain";
+
+export type LlmEquivalenceReasonType =
+  | "format_only"
+  | "punctuation_only"
+  | "equivalent_expression"
+  | "symbol_equivalent"
+  | "semantic_difference"
+  | "symbol_conflict"
+  | "uncertain";
+
+export interface LlmEquivalenceResult {
+  /** 裁决结论 */
+  verdict: LlmEquivalenceVerdict;
+  /** 原因类型 */
+  reasonType: LlmEquivalenceReasonType;
+  /** 中文原因 */
+  reason?: string;
+  /** 置信度（0-1） */
+  confidence: number;
+}
+
 /** 匹配结果 */
 export interface MatchResult {
   /** 匹配的验收规格ID */
@@ -196,6 +218,8 @@ export interface MatchResult {
   llmCommentary?: string;
   /** 是否经过LLM复核 */
   isLlmReviewed?: boolean;
+  /** AI 等价裁决 */
+  llmEquivalence?: LlmEquivalenceResult;
 }
 
 /** 匹配详情中的候选项 */
@@ -232,6 +256,8 @@ export interface MatchCandidateOption {
   entities?: MatchEntityEvidence[];
   /** 重排摘要 */
   rerankSummary?: string;
+  /** AI 等价裁决 */
+  llmEquivalence?: LlmEquivalenceResult;
 }
 
 /** LLM生成建议 */
@@ -298,6 +324,8 @@ export interface FillMapping {
   matchScore?: number;
   /** LLM 复核得分（0-100） */
   llmReviewScore?: number;
+  /** AI 等价裁决结论 */
+  llmEquivalenceVerdict?: LlmEquivalenceVerdict;
   /** 是否已由用户人工确认 */
   manualConfirmed?: boolean;
   /** 是否使用LLM生成建议 */

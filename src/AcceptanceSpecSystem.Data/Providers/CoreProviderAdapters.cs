@@ -132,6 +132,7 @@ internal static class PromptTemplateMapper
             PromptTemplateScene.MatchingGenerate => Entities.PromptTemplateScene.MatchingGenerate,
             PromptTemplateScene.MatchingEntityResolution => Entities.PromptTemplateScene.MatchingEntityResolution,
             PromptTemplateScene.MatchingKnowledgeGenerate => Entities.PromptTemplateScene.MatchingKnowledgeGenerate,
+            PromptTemplateScene.MatchingEquivalenceAdjudication => Entities.PromptTemplateScene.MatchingEquivalenceAdjudication,
             _ => Entities.PromptTemplateScene.Unknown
         };
     }

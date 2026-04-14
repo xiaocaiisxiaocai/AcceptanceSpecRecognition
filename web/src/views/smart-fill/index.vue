@@ -13,6 +13,7 @@ import {
   batchPreviewMatch,
   batchExecuteFill,
   downloadFillResult,
+  type LlmEquivalenceVerdict,
   type MatchPreviewItem,
   type MatchConfig as MatchConfigType,
   type MatchResult,
@@ -681,6 +682,7 @@ const handleExecute = async () => {
           specId: s.specId,
           matchScore: s.matchScore,
           llmReviewScore: s.llmReviewScore,
+          llmEquivalenceVerdict: s.llmEquivalenceVerdict,
           manualConfirmed: s.manualConfirmed
         }))
       };
@@ -694,6 +696,7 @@ const handleExecute = async () => {
       specId?: number;
       matchScore?: number;
       llmReviewScore?: number;
+      llmEquivalenceVerdict?: LlmEquivalenceVerdict;
       manualConfirmed?: boolean;
     }>;
   }>;

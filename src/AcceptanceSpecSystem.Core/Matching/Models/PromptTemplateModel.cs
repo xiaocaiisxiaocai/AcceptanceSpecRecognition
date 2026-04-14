@@ -7,7 +7,8 @@ public enum PromptTemplateScene
     ImportDuplicateReview = 2,
     MatchingGenerate = 3,
     MatchingKnowledgeGenerate = 4,
-    MatchingEntityResolution = 5
+    MatchingEntityResolution = 5,
+    MatchingEquivalenceAdjudication = 6
 }
 
 public class PromptTemplateModel

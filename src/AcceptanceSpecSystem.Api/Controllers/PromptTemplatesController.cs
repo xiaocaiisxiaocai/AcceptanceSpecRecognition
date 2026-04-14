@@ -316,6 +316,7 @@ public class PromptTemplatesController : BaseApiController
             PromptTemplateScene.MatchingGenerate => CorePromptTemplateScene.MatchingGenerate,
             PromptTemplateScene.MatchingEntityResolution => CorePromptTemplateScene.MatchingEntityResolution,
             PromptTemplateScene.MatchingKnowledgeGenerate => CorePromptTemplateScene.MatchingKnowledgeGenerate,
+            PromptTemplateScene.MatchingEquivalenceAdjudication => CorePromptTemplateScene.MatchingEquivalenceAdjudication,
             _ => CorePromptTemplateScene.Unknown
         };
     }
@@ -329,6 +330,7 @@ public class PromptTemplatesController : BaseApiController
             CorePromptTemplateScene.MatchingGenerate => PromptTemplateScene.MatchingGenerate,
             CorePromptTemplateScene.MatchingEntityResolution => PromptTemplateScene.MatchingEntityResolution,
             CorePromptTemplateScene.MatchingKnowledgeGenerate => PromptTemplateScene.MatchingKnowledgeGenerate,
+            CorePromptTemplateScene.MatchingEquivalenceAdjudication => PromptTemplateScene.MatchingEquivalenceAdjudication,
             _ => PromptTemplateScene.Unknown
         };
     }

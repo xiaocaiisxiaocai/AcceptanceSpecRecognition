@@ -28,6 +28,7 @@ public class SemanticKernelMatchingService : IMatchingService
     private readonly IEmbeddingService _embeddingService;
     private readonly IMatchEvidenceBuilder _evidenceBuilder;
     private readonly EntitySurfaceExtractor _entitySurfaceExtractor = new();
+    private readonly ILlmEquivalenceAdjudicationService? _llmEquivalenceAdjudicationService;
     private readonly ILlmEntityResolutionService? _llmEntityResolutionService;
     private readonly IMatchingKnowledgeProvider _knowledgeProvider;
     private readonly ILogger<SemanticKernelMatchingService> _logger;
@@ -37,11 +38,13 @@ public class SemanticKernelMatchingService : IMatchingService
         ILogger<SemanticKernelMatchingService> logger,
         IMatchEvidenceBuilder? evidenceBuilder = null,
         IMatchingKnowledgeProvider? knowledgeProvider = null,
+        ILlmEquivalenceAdjudicationService? llmEquivalenceAdjudicationService = null,
         ILlmEntityResolutionService? llmEntityResolutionService = null)
     {
         _embeddingService = embeddingService;
         _evidenceBuilder = evidenceBuilder ?? new MatchEvidenceBuilder();
         _knowledgeProvider = knowledgeProvider ?? DefaultMatchingKnowledgeProvider.Instance;
+        _llmEquivalenceAdjudicationService = llmEquivalenceAdjudicationService;
         _llmEntityResolutionService = llmEntityResolutionService;
         _logger = logger;
     }
@@ -262,6 +265,9 @@ public class SemanticKernelMatchingService : IMatchingService
 
         var ordered = OrderByFinal(recalled).ToList();
         var best = ordered[0];
+
+        await ApplyLlmEquivalenceAdjudicationAsync(source, best, config);
+
         var second = ordered.Count > 1 ? ordered[1] : null;
         double? scoreGap = second == null ? null : best.FinalScore - second.FinalScore;
         var isAmbiguous = ShouldMarkAsAmbiguous(best, second, scoreGap, config.AmbiguityMargin);
@@ -274,6 +280,57 @@ public class SemanticKernelMatchingService : IMatchingService
             config.HighConfidenceThreshold,
             MatchingStrategy.MultiStage,
             orderedCandidates: ordered);
+    }
+
+    private async Task ApplyLlmEquivalenceAdjudicationAsync(
+        MatchSource source,
+        EvaluatedCandidate best,
+        MatchingConfig config)
+    {
+        if (_llmEquivalenceAdjudicationService == null ||
+            !config.UseLlmReview ||
+            !ShouldRunLlmEquivalenceAdjudication(best, config))
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await _llmEquivalenceAdjudicationService.AdjudicateAsync(
+                new LlmEquivalenceAdjudicationRequest
+                {
+                    SourceProject = source.Project,
+                    SourceSpecification = source.Specification,
+                    CandidateProject = best.Candidate.Project,
+                    CandidateSpecification = best.Candidate.Specification,
+                    CurrentDecision = "manualReview",
+                    ScoreDetails = CreateScoreDetails(best, MatchingStrategy.MultiStage),
+                    EvidenceSummary = [.. (best.Evidence?.Summary ?? [])],
+                    ConflictSummary = [.. (best.Evidence?.Conflicts ?? [])],
+                    LlmServiceId = config.LlmServiceId
+                });
+
+            best.LlmEquivalence = result ?? new LlmEquivalenceAdjudicationResult
+            {
+                Verdict = LlmEquivalenceVerdict.Uncertain,
+                ReasonType = LlmEquivalenceReasonType.Uncertain,
+                Confidence = 0,
+                Reason = "AI 等价裁决未返回有效结果，已回退为人工确认"
+            };
+            best.RerankSummary = AppendEquivalenceSummary(best.RerankSummary, best.LlmEquivalence);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI 等价裁决失败，按 uncertain 回退");
+            best.LlmEquivalence = new LlmEquivalenceAdjudicationResult
+            {
+                Verdict = LlmEquivalenceVerdict.Uncertain,
+                ReasonType = LlmEquivalenceReasonType.Uncertain,
+                Confidence = 0,
+                Reason = "AI 等价裁决失败，已回退为人工确认"
+            };
+            best.RerankSummary = AppendEquivalenceSummary(best.RerankSummary, best.LlmEquivalence);
+        }
     }
 
     private static MatchResult? SelectBestBySingleStage(
@@ -407,7 +464,8 @@ public class SemanticKernelMatchingService : IMatchingService
             RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null,
             Decision = DetermineDecision(candidate, isAmbiguous, highConfidenceThreshold),
             HighConfidenceThreshold = MatchingThresholds.NormalizeHighConfidenceThreshold(highConfidenceThreshold),
-            TopCandidates = BuildTopCandidates(orderedCandidates, strategy)
+            TopCandidates = BuildTopCandidates(orderedCandidates, strategy),
+            LlmEquivalence = candidate.LlmEquivalence
         };
     }
 
@@ -468,7 +526,8 @@ public class SemanticKernelMatchingService : IMatchingService
                 ScoreDetails = CreateScoreDetails(candidate, strategy),
                 Evidence = candidate.Evidence ?? new MatchEvidence(),
                 Issues = candidate.Issues ?? [],
-                RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null
+                RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null,
+                LlmEquivalence = candidate.LlmEquivalence
             })
             .ToList();
     }
@@ -789,6 +848,12 @@ public class SemanticKernelMatchingService : IMatchingService
         if (candidate.Evidence?.HasHardConflict == true)
             return MatchDecision.Reject;
 
+        if (candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent)
+            return MatchDecision.AutoApply;
+
+        if (candidate.LlmEquivalence?.Verdict is LlmEquivalenceVerdict.Different or LlmEquivalenceVerdict.Uncertain)
+            return MatchDecision.ManualReview;
+
         if (RequiresManualReview(candidate.Evidence))
             return MatchDecision.ManualReview;
 
@@ -822,6 +887,67 @@ public class SemanticKernelMatchingService : IMatchingService
             return true;
 
         return false;
+    }
+
+    private static bool ShouldRunLlmEquivalenceAdjudication(
+        EvaluatedCandidate candidate,
+        MatchingConfig config)
+    {
+        if (candidate.Evidence?.HasHardConflict == true)
+            return false;
+
+        if (candidate.FinalScore < MatchingThresholds.MediumConfidenceScore)
+            return false;
+
+        var hasTextDifference =
+            !string.Equals(candidate.Source.Project, candidate.Candidate.Project, StringComparison.Ordinal) ||
+            !string.Equals(candidate.Source.Specification, candidate.Candidate.Specification, StringComparison.Ordinal);
+
+        if (!hasTextDifference)
+            return false;
+
+        var highConfidenceThreshold = MatchingThresholds.NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
+        if (candidate.FinalScore >= highConfidenceThreshold &&
+            (candidate.Issues?.Count ?? 0) == 0 &&
+            !candidate.HasLooseNumericMismatch)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string AppendEquivalenceSummary(
+        string? current,
+        LlmEquivalenceAdjudicationResult result)
+    {
+        var summary = $"AI裁决：{GetEquivalenceSummaryText(result)}";
+        return string.IsNullOrWhiteSpace(current) ? summary : $"{current}；{summary}";
+    }
+
+    private static string GetEquivalenceSummaryText(LlmEquivalenceAdjudicationResult result)
+    {
+        var verdictText = result.Verdict switch
+        {
+            LlmEquivalenceVerdict.Equivalent => "等价",
+            LlmEquivalenceVerdict.Different => "不同",
+            _ => "不确定"
+        };
+
+        var reasonTypeText = result.ReasonType switch
+        {
+            LlmEquivalenceReasonType.FormatOnly => "仅格式差异",
+            LlmEquivalenceReasonType.PunctuationOnly => "仅标点差异",
+            LlmEquivalenceReasonType.EquivalentExpression => "等价表达",
+            LlmEquivalenceReasonType.SymbolEquivalent => "等价符号",
+            LlmEquivalenceReasonType.SemanticDifference => "语义差异",
+            LlmEquivalenceReasonType.SymbolConflict => "符号冲突",
+            _ => "不确定"
+        };
+
+        return string.IsNullOrWhiteSpace(result.Reason)
+            ? $"{verdictText}（{reasonTypeText}）"
+            : $"{verdictText}（{reasonTypeText}）：{result.Reason}";
     }
 
     private static bool RequiresManualReview(MatchEvidence? evidence)
@@ -1032,6 +1158,7 @@ public class SemanticKernelMatchingService : IMatchingService
         public string? RerankSummary { get; set; }
         public MatchEvidence? Evidence { get; set; }
         public List<MatchIssue>? Issues { get; set; }
+        public LlmEquivalenceAdjudicationResult? LlmEquivalence { get; set; }
     }
 
     private sealed class DefaultMatchingKnowledgeProvider : IMatchingKnowledgeProvider

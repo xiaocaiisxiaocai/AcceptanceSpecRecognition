@@ -385,6 +385,55 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
+    public async Task Preview_WhenLlmEquivalenceReturnsEquivalent_ShouldExposeEquivalenceAndHighConfidence()
+    {
+        var (customerId, processId) = await CreateScopeAsync("EquivalenceApi");
+
+        await CreateSpecAsync(customerId, processId, "安装要求", "最大不可拆部件约等于3200。", "OK");
+
+        var previewResp = await _client.PostAsync(
+            "/api/matching/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                items = new[]
+                {
+                    new
+                    {
+                        rowIndex = 0,
+                        project = "安装要求",
+                        specification = "最大不可拆部件≈3200"
+                    }
+                },
+                customerId,
+                processId,
+                config = new
+                {
+                    matchingStrategy = 2,
+                    minScoreThreshold = 0.0,
+                    recallTopK = 3,
+                    useLlmReview = true,
+                    highConfidenceThreshold = 0.98
+                }
+            }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var item = previewJson.Data.GetProperty("items")[0];
+        var bestMatch = item.GetProperty("bestMatch");
+        var llmEquivalence = bestMatch.GetProperty("llmEquivalence");
+        var topCandidateEquivalence = bestMatch
+            .GetProperty("topCandidates")[0]
+            .GetProperty("llmEquivalence");
+
+        bestMatch.GetProperty("decision").GetString().Should().Be("autoApply");
+        item.GetProperty("confidenceLevel").GetString().Should().Be("high");
+        llmEquivalence.GetProperty("verdict").GetString().Should().Be("equivalent");
+        llmEquivalence.GetProperty("reasonType").GetString().Should().Be("equivalent_expression");
+        llmEquivalence.GetProperty("reason").GetString().Should().Contain("同义表达");
+        topCandidateEquivalence.GetProperty("verdict").GetString().Should().Be("equivalent");
+    }
+
+    [Fact]
     public async Task Preview_WhenSingleStageEnablesLlmEntityResolution_ShouldReturnBadRequest()
     {
         var (customerId, processId) = await CreateScopeAsync("EntitySingleStageApi");

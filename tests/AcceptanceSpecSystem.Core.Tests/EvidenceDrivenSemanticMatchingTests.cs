@@ -504,6 +504,261 @@ public class EvidenceDrivenSemanticMatchingTests
     }
 
     [Fact]
+    public async Task BatchMatch_WhenLlmEquivalenceReturnsEquivalent_ShouldAutoApplyAndTreatAsHighConfidence()
+    {
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "最大不可拆部件≈3200"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 192,
+                Project = "安装要求",
+                Specification = "最大不可拆部件约等于3200。",
+                Embedding = [0.88f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.92,
+            Reason = "≈ 与 约等于属于同义表达"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98,
+                UseLlmReview = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(192);
+        result.Results[0].Score.Should().BeLessThan(0.98);
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
+        result.Results[0].IsHighConfidence.Should().BeTrue();
+        var equivalentResult = result.Results[0].LlmEquivalence;
+        equivalentResult.Should().NotBeNull();
+        equivalentResult!.Verdict.Should().Be(LlmEquivalenceVerdict.Equivalent);
+        equivalentResult.ReasonType.Should().Be(LlmEquivalenceReasonType.EquivalentExpression);
+        equivalenceService.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenLlmEquivalenceReturnsUncertain_ShouldRequireManualReview()
+    {
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "最大不可拆部件≈3200"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 193,
+                Project = "安装要求",
+                Specification = "最大不可拆部件约为3200",
+                Embedding = [0.88f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Uncertain,
+            ReasonType = LlmEquivalenceReasonType.Uncertain,
+            Confidence = 0.45,
+            Reason = "上下文不足，无法确认是否完全等价"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98,
+                UseLlmReview = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(193);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].IsHighConfidence.Should().BeFalse();
+        result.Results[0].LlmEquivalence.Should().NotBeNull();
+        result.Results[0].LlmEquivalence!.Verdict.Should().Be(LlmEquivalenceVerdict.Uncertain);
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenLlmEquivalenceReturnsDifferent_ShouldRequireManualReview()
+    {
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "最大不可拆部件≈3200"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 194,
+                Project = "安装要求",
+                Specification = "最大不可拆部件约为2200",
+                Embedding = [0.88f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Different,
+            ReasonType = LlmEquivalenceReasonType.SemanticDifference,
+            Confidence = 0.91,
+            Reason = "关键数值不同，语义不等价"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98,
+                UseLlmReview = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(194);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        var differentResult = result.Results[0].LlmEquivalence;
+        differentResult.Should().NotBeNull();
+        differentResult!.Verdict.Should().Be(LlmEquivalenceVerdict.Different);
+        differentResult.ReasonType.Should().Be(LlmEquivalenceReasonType.SemanticDifference);
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenLlmEquivalenceReturnsNull_ShouldFallbackToUncertainManualReview()
+    {
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "最大不可拆部件≈3200"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 195,
+                Project = "安装要求",
+                Specification = "最大不可拆部件约等于3200。",
+                Embedding = [0.88f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(null);
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98,
+                UseLlmReview = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        var nullFallbackResult = result.Results[0].LlmEquivalence;
+        nullFallbackResult.Should().NotBeNull();
+        nullFallbackResult!.Verdict.Should().Be(LlmEquivalenceVerdict.Uncertain);
+        nullFallbackResult.Reason.Should().Contain("未返回有效结果");
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenLlmEquivalenceThrows_ShouldFallbackToUncertainManualReview()
+    {
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "最大不可拆部件≈3200"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 196,
+                Project = "安装要求",
+                Specification = "最大不可拆部件约等于3200。",
+                Embedding = [0.88f]
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: new ThrowingLlmEquivalenceAdjudicationService());
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98,
+                UseLlmReview = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        var exceptionFallbackResult = result.Results[0].LlmEquivalence;
+        exceptionFallbackResult.Should().NotBeNull();
+        exceptionFallbackResult!.Verdict.Should().Be(LlmEquivalenceVerdict.Uncertain);
+        exceptionFallbackResult.Reason.Should().Contain("裁决失败");
+    }
+
+    [Fact]
     public async Task BatchMatch_WhenNumericConflictExists_ShouldNotBeOverriddenByEntityAlias()
     {
         var source = new MatchSource
@@ -1091,6 +1346,46 @@ public class EvidenceDrivenSemanticMatchingTests
         }
 
         public bool TryParseEntityResolutionResult(string raw, out LlmEntityResolutionResult result)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
+    private sealed class FixedLlmEquivalenceAdjudicationService : ILlmEquivalenceAdjudicationService
+    {
+        private readonly LlmEquivalenceAdjudicationResult? _result;
+
+        public FixedLlmEquivalenceAdjudicationService(LlmEquivalenceAdjudicationResult? result)
+        {
+            _result = result;
+        }
+
+        public List<LlmEquivalenceAdjudicationRequest> Requests { get; } = [];
+
+        public Task<LlmEquivalenceAdjudicationResult?> AdjudicateAsync(
+            LlmEquivalenceAdjudicationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return Task.FromResult(_result);
+        }
+
+        public bool TryParseAdjudicationResult(string raw, out LlmEquivalenceAdjudicationResult result)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
+    private sealed class ThrowingLlmEquivalenceAdjudicationService : ILlmEquivalenceAdjudicationService
+    {
+        public Task<LlmEquivalenceAdjudicationResult?> AdjudicateAsync(
+            LlmEquivalenceAdjudicationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("模拟 AI 等价裁决异常");
+        }
+
+        public bool TryParseAdjudicationResult(string raw, out LlmEquivalenceAdjudicationResult result)
         {
             throw new NotSupportedException();
         }

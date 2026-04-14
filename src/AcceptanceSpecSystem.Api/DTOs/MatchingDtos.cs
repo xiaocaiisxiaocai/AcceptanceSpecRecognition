@@ -413,6 +413,11 @@ public class MatchResultDto
     /// 是否经过LLM复核
     /// </summary>
     public bool IsLlmReviewed { get; set; }
+
+    /// <summary>
+    /// AI 等价裁决结果
+    /// </summary>
+    public LlmEquivalenceDto? LlmEquivalence { get; set; }
 }
 
 /// <summary>
@@ -499,6 +504,37 @@ public class MatchCandidateDto
     /// 重排摘要
     /// </summary>
     public string? RerankSummary { get; set; }
+
+    /// <summary>
+    /// AI 等价裁决结果
+    /// </summary>
+    public LlmEquivalenceDto? LlmEquivalence { get; set; }
+}
+
+/// <summary>
+/// AI 等价裁决 DTO
+/// </summary>
+public class LlmEquivalenceDto
+{
+    /// <summary>
+    /// 裁决结论
+    /// </summary>
+    public string Verdict { get; set; } = "uncertain";
+
+    /// <summary>
+    /// 原因类型
+    /// </summary>
+    public string ReasonType { get; set; } = "uncertain";
+
+    /// <summary>
+    /// 中文原因说明
+    /// </summary>
+    public string? Reason { get; set; }
+
+    /// <summary>
+    /// 置信度（0~1）
+    /// </summary>
+    public double Confidence { get; set; }
 }
 
 /// <summary>
@@ -689,6 +725,11 @@ public class FillMapping
     /// LLM 复核得分（0-100）
     /// </summary>
     public double? LlmReviewScore { get; set; }
+
+    /// <summary>
+    /// AI 等价裁决结论
+    /// </summary>
+    public string? LlmEquivalenceVerdict { get; set; }
 
     /// <summary>
     /// 是否已由用户人工确认
