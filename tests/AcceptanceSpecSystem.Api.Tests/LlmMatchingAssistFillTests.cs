@@ -185,7 +185,8 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
                         rowIndex = 1,
                         specId,
                         matchScore = 0.88,
-                        llmEquivalenceVerdict = "equivalent"
+                        llmEquivalenceVerdict = "equivalent",
+                        decision = "autoApply"
                     }
                 }
             }));
@@ -195,6 +196,39 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
         execJson.Code.Should().Be(0);
         execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(1);
         execJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ExecuteFill_WithEquivalentVerdictButManualReviewDecision_ShouldSkip()
+    {
+        var (fileId, specId) = await PrepareSingleSpecFillAsync("SkipEquivalentManualReview");
+
+        var execResp = await _client.PostAsync("/api/matching/execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                tableIndex = 0,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = 3,
+                highConfidenceThreshold = 0.95,
+                mappings = new[]
+                {
+                    new
+                    {
+                        rowIndex = 1,
+                        specId,
+                        matchScore = 0.88,
+                        llmEquivalenceVerdict = "equivalent",
+                        decision = "manualReview"
+                    }
+                }
+            }));
+
+        execResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        execJson.Code.Should().Be(0);
+        execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(0);
+        execJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(1);
     }
 
     #region Helpers

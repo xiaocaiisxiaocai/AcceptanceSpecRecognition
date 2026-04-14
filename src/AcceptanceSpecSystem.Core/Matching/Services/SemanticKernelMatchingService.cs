@@ -848,9 +848,6 @@ public class SemanticKernelMatchingService : IMatchingService
         if (candidate.Evidence?.HasHardConflict == true)
             return MatchDecision.Reject;
 
-        if (candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent)
-            return MatchDecision.AutoApply;
-
         if (candidate.LlmEquivalence?.Verdict is LlmEquivalenceVerdict.Different or LlmEquivalenceVerdict.Uncertain)
             return MatchDecision.ManualReview;
 
@@ -862,6 +859,9 @@ public class SemanticKernelMatchingService : IMatchingService
 
         if (isAmbiguous)
             return MatchDecision.ManualReview;
+
+        if (candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent)
+            return MatchDecision.AutoApply;
 
         if (HasDecisiveEvidence(candidate.Evidence))
             return MatchDecision.AutoApply;

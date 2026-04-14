@@ -15,6 +15,66 @@ public sealed record SystemPromptTemplateDefinition(
 
 public static class PromptTemplateCatalog
 {
+    private const string MatchingEquivalenceAdjudicationLegacyDefaultContent =
+        """
+        你是验收规格等价裁决助手。你的任务不是判断是否要编造内容，而是判断源项与候选项在当前上下文下是否表达同一含义。
+
+        【源项】
+        项目：{{sourceProject}}
+        规格：{{sourceSpecification}}
+
+        【候选项】
+        项目：{{candidateProject}}
+        规格：{{candidateSpecification}}
+
+        【当前决策】{{currentDecision}}
+        【得分明细】{{scoreDetailsJson}}
+        【证据摘要】{{evidenceSummaryJson}}
+        【冲突摘要】{{conflictSummaryJson}}
+
+        【裁决规则】
+        1. 只允许输出 equivalent、different、uncertain 三种 verdict
+        2. 当差异仅为换行、空格、普通标点、等价符号或等价表达时，应返回 equivalent
+        3. 当确有语义差异或关键符号导致含义不同，应返回 different
+        4. 证据不足时必须返回 uncertain，禁止猜测
+        5. confidence 取值 0~1
+
+        仅返回严格 JSON：
+        {"verdict":"uncertain","reasonType":"uncertain","reason":"...","confidence":0.0}
+        """;
+
+    private const string MatchingEquivalenceAdjudicationDefaultContent =
+        """
+        你是验收规格等价裁决助手。你的任务不是判断是否要编造内容，而是判断源项与候选项在当前上下文下是否表达同一含义。
+
+        【源项】
+        项目：{{sourceProject}}
+        规格：{{sourceSpecification}}
+
+        【候选项】
+        项目：{{candidateProject}}
+        规格：{{candidateSpecification}}
+
+        【当前决策】{{currentDecision}}
+        【得分明细】{{scoreDetailsJson}}
+        【证据摘要】{{evidenceSummaryJson}}
+        【冲突摘要】{{conflictSummaryJson}}
+
+        【裁决规则】
+        1. 只允许输出 equivalent、different、uncertain 三种 verdict
+        2. reasonType 只允许 format_only、punctuation_only、equivalent_expression、symbol_equivalent、semantic_difference、symbol_conflict、uncertain
+        3. verdict 为 equivalent 时，reasonType 只能是 format_only、punctuation_only、equivalent_expression、symbol_equivalent
+        4. verdict 为 different 时，reasonType 只能是 semantic_difference、symbol_conflict
+        5. verdict 为 uncertain 时，reasonType 必须是 uncertain
+        6. 当差异仅为换行、空格、普通标点、等价符号或等价表达时，应返回 equivalent
+        7. 当确有语义差异或关键符号导致含义不同时，应返回 different
+        8. 证据不足时必须返回 uncertain，禁止猜测
+        9. confidence 取值 0~1
+
+        仅返回严格 JSON：
+        {"verdict":"uncertain","reasonType":"uncertain","reason":"...","confidence":0.0}
+        """;
+
     private static readonly SystemPromptTemplateDefinition[] Definitions =
     [
         new(
@@ -150,26 +210,8 @@ public static class PromptTemplateCatalog
             "matching-equivalence-adjudication",
             "智能填充等价裁决",
             "用于智能填充边界样本中的等价表达裁决。",
-            "你是验收规格等价裁决助手。你的任务不是判断是否要编造内容，而是判断源项与候选项在当前上下文下是否表达同一含义。\n\n" +
-            "【源项】\n" +
-            "项目：{{sourceProject}}\n" +
-            "规格：{{sourceSpecification}}\n\n" +
-            "【候选项】\n" +
-            "项目：{{candidateProject}}\n" +
-            "规格：{{candidateSpecification}}\n\n" +
-            "【当前决策】{{currentDecision}}\n" +
-            "【得分明细】{{scoreDetailsJson}}\n" +
-            "【证据摘要】{{evidenceSummaryJson}}\n" +
-            "【冲突摘要】{{conflictSummaryJson}}\n\n" +
-            "【裁决规则】\n" +
-            "1. 只允许输出 equivalent、different、uncertain 三种 verdict\n" +
-            "2. 当差异仅为换行、空格、普通标点、等价符号或等价表达时，应返回 equivalent\n" +
-            "3. 当确有语义差异或关键符号导致含义不同，应返回 different\n" +
-            "4. 证据不足时必须返回 uncertain，禁止猜测\n" +
-            "5. confidence 取值 0~1\n\n" +
-            "仅返回严格 JSON：\n" +
-            "{\"verdict\":\"uncertain\",\"reasonType\":\"uncertain\",\"reason\":\"...\",\"confidence\":0.0}",
-            null,
+            MatchingEquivalenceAdjudicationDefaultContent,
+            MatchingEquivalenceAdjudicationLegacyDefaultContent,
             ["sourceProject", "sourceSpecification", "candidateProject", "candidateSpecification", "currentDecision", "scoreDetailsJson", "evidenceSummaryJson", "conflictSummaryJson"],
             ["sourceProject", "sourceSpecification", "candidateProject", "candidateSpecification", "currentDecision", "scoreDetailsJson", "evidenceSummaryJson", "conflictSummaryJson"],
             ["verdict", "reasonType", "reason", "confidence"]),

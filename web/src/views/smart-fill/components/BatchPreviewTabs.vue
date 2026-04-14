@@ -54,6 +54,7 @@ const getAllSelections = () => {
       matchScore?: number;
       llmReviewScore?: number;
       llmEquivalenceVerdict?: LlmEquivalenceVerdict;
+      decision?: "autoApply" | "manualReview" | "reject";
       manualConfirmed?: boolean;
     }>
   > = new Map();

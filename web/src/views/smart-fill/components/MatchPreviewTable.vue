@@ -79,7 +79,7 @@ const isRejectDecision = (item: MatchPreviewItem) => getDecision(item) === "reje
 
 const isHighConfidence = (item: MatchPreviewItem) =>
   isAutoApply(item) &&
-  (item.bestMatch?.score ?? 0) >= effectiveHighConfidenceThreshold.value;
+  item.confidenceLevel === "high";
 
 const requiresReview = (item: MatchPreviewItem) =>
   !!item.bestMatch &&
@@ -403,14 +403,15 @@ const hasReasonColumn = computed(() =>
 
 defineExpose({
   getSelections: () => {
-    const selections: Array<{
-      rowIndex: number;
-      specId?: number;
-      matchScore?: number;
-      llmReviewScore?: number;
-      llmEquivalenceVerdict?: LlmEquivalenceVerdict;
-      manualConfirmed?: boolean;
-    }> = [];
+        const selections: Array<{
+          rowIndex: number;
+          specId?: number;
+          matchScore?: number;
+          llmReviewScore?: number;
+          llmEquivalenceVerdict?: LlmEquivalenceVerdict;
+          decision?: "autoApply" | "manualReview" | "reject";
+          manualConfirmed?: boolean;
+        }> = [];
 
     selectedSpecs.value.forEach((selection, rowIndex) => {
       if (!selection) return;
@@ -419,13 +420,14 @@ defineExpose({
       if (!item?.bestMatch) return;
 
       selections.push({
-        rowIndex,
-        specId: item.bestMatch.specId,
-        matchScore: item.bestMatch.score,
-        llmReviewScore: normalizeReviewScore(item.bestMatch.llmScore),
-        llmEquivalenceVerdict: item.bestMatch.llmEquivalence?.verdict,
-        manualConfirmed: selection.manualConfirmed
-      });
+          rowIndex,
+          specId: item.bestMatch.specId,
+          matchScore: item.bestMatch.score,
+          llmReviewScore: normalizeReviewScore(item.bestMatch.llmScore),
+          llmEquivalenceVerdict: item.bestMatch.llmEquivalence?.verdict,
+          decision: item.bestMatch.decision,
+          manualConfirmed: selection.manualConfirmed
+        });
     });
 
     return selections;

@@ -409,6 +409,11 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
             return false;
         }
 
+        if (!IsCompatibleEquivalenceReasonType(verdict, reasonType))
+        {
+            return false;
+        }
+
         if (!TryGetDouble(doc.RootElement, "confidence", out var confidence))
             return false;
 
@@ -814,5 +819,23 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmSuggestionService
     {
         reasonType = value;
         return true;
+    }
+
+    private static bool IsCompatibleEquivalenceReasonType(
+        LlmEquivalenceVerdict verdict,
+        LlmEquivalenceReasonType reasonType)
+    {
+        return verdict switch
+        {
+            LlmEquivalenceVerdict.Equivalent => reasonType is
+                LlmEquivalenceReasonType.FormatOnly or
+                LlmEquivalenceReasonType.PunctuationOnly or
+                LlmEquivalenceReasonType.EquivalentExpression or
+                LlmEquivalenceReasonType.SymbolEquivalent,
+            LlmEquivalenceVerdict.Different => reasonType is
+                LlmEquivalenceReasonType.SemanticDifference or
+                LlmEquivalenceReasonType.SymbolConflict,
+            _ => reasonType == LlmEquivalenceReasonType.Uncertain
+        };
     }
 }

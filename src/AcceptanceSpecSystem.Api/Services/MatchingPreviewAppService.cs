@@ -852,6 +852,11 @@ public sealed class MatchingPreviewAppService
             return "low";
         }
 
+        if (result.Decision != MatchDecision.AutoApply)
+        {
+            return result.Score >= MatchingThresholds.MediumConfidenceScore ? "medium" : "low";
+        }
+
         if (result.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent ||
             result.Score >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
         {

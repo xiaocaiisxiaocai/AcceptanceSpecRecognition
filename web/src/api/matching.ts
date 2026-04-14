@@ -326,6 +326,8 @@ export interface FillMapping {
   llmReviewScore?: number;
   /** AI 等价裁决结论 */
   llmEquivalenceVerdict?: LlmEquivalenceVerdict;
+  /** 预览阶段的最终决策 */
+  decision?: "autoApply" | "manualReview" | "reject";
   /** 是否已由用户人工确认 */
   manualConfirmed?: boolean;
   /** 是否使用LLM生成建议 */

@@ -683,6 +683,7 @@ const handleExecute = async () => {
           matchScore: s.matchScore,
           llmReviewScore: s.llmReviewScore,
           llmEquivalenceVerdict: s.llmEquivalenceVerdict,
+          decision: s.decision,
           manualConfirmed: s.manualConfirmed
         }))
       };
@@ -697,6 +698,7 @@ const handleExecute = async () => {
       matchScore?: number;
       llmReviewScore?: number;
       llmEquivalenceVerdict?: LlmEquivalenceVerdict;
+      decision?: "autoApply" | "manualReview" | "reject";
       manualConfirmed?: boolean;
     }>;
   }>;

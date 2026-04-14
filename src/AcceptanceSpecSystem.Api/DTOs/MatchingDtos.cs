@@ -732,6 +732,11 @@ public class FillMapping
     public string? LlmEquivalenceVerdict { get; set; }
 
     /// <summary>
+    /// 预览阶段给出的最终决策
+    /// </summary>
+    public string? Decision { get; set; }
+
+    /// <summary>
     /// 是否已由用户人工确认
     /// </summary>
     public bool ManualConfirmed { get; set; }

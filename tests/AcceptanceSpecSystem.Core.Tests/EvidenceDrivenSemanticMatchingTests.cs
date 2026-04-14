@@ -561,6 +561,69 @@ public class EvidenceDrivenSemanticMatchingTests
     }
 
     [Fact]
+    public async Task BatchMatch_WhenEquivalentButStillAmbiguous_ShouldKeepManualReview()
+    {
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "最大不可拆部件≈3200"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 195,
+                Project = "安装要求",
+                Specification = "最大不可拆部件约等于3200。",
+                Embedding = [0.88f]
+            },
+            new()
+            {
+                SpecId = 194,
+                Project = "安装要求",
+                Specification = "最大不可拆部件近似3200。",
+                Embedding = [0.88f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.9,
+            Reason = "≈ 与约等于属于等价表达"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MatchingStrategy = MatchingStrategy.MultiStage,
+                MinScoreThreshold = 0.0,
+                RecallTopK = 2,
+                AmbiguityMargin = 0.02,
+                HighConfidenceThreshold = 0.98,
+                UseLlmReview = true
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(195);
+        result.Results[0].IsAmbiguous.Should().BeTrue();
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].IsHighConfidence.Should().BeFalse();
+        result.Results[0].LlmEquivalence.Should().NotBeNull();
+        result.Results[0].LlmEquivalence!.Verdict.Should().Be(LlmEquivalenceVerdict.Equivalent);
+        equivalenceService.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task BatchMatch_WhenLlmEquivalenceReturnsUncertain_ShouldRequireManualReview()
     {
         var source = new MatchSource

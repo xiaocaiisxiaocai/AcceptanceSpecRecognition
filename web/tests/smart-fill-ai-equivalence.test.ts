@@ -77,11 +77,20 @@ test("语义差异与不确定应被识别为决策型风险", () => {
 test("匹配 API 与执行填充应接收并透传 AI 等价裁决字段", () => {
   const matchingApiSource = readProjectFile("web/src/api/matching.ts");
   const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const previewTableSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchPreviewTable.vue"
+  );
 
   assert.match(matchingApiSource, /export interface LlmEquivalenceResult \{/);
   assert.match(matchingApiSource, /llmEquivalence\?: LlmEquivalenceResult;/);
   assert.match(matchingApiSource, /llmEquivalenceVerdict\?: LlmEquivalenceVerdict;/);
+  assert.match(
+    matchingApiSource,
+    /decision\?: "autoApply" \| "manualReview" \| "reject";/
+  );
   assert.match(smartFillPageSource, /llmEquivalenceVerdict:\s*s\.llmEquivalenceVerdict/);
+  assert.match(smartFillPageSource, /decision:\s*s\.decision/);
+  assert.match(previewTableSource, /decision:\s*item\.bestMatch\.decision/);
 });
 
 test("详情区域应展示 AI 裁决与提示型\/决策型差异说明", () => {
@@ -99,4 +108,19 @@ test("详情区域应展示 AI 裁决与提示型\/决策型差异说明", () =>
   assert.match(diffSectionSource, /getLlmEquivalenceDifferenceToneText/);
   assert.match(equivalenceHelperSource, /提示型差异/);
   assert.match(equivalenceHelperSource, /决策型风险/);
+});
+
+test("主表只应将 autoApply 且 high 的结果视为高置信可直填", () => {
+  const previewTableSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchPreviewTable.vue"
+  );
+
+  assert.match(
+    previewTableSource,
+    /const isAutoApply = \(item: MatchPreviewItem\) => getDecision\(item\) === "autoApply";/
+  );
+  assert.match(
+    previewTableSource,
+    /isAutoApply\(item\)\s*&&\s*item\.confidenceLevel === "high"/
+  );
 });

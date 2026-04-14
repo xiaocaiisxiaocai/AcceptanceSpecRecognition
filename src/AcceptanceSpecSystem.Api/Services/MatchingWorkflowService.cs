@@ -1301,9 +1301,18 @@ public sealed class MatchingWorkflowSupportService
             return true;
         }
 
-        if (string.Equals(mapping.LlmEquivalenceVerdict, "equivalent", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(mapping.Decision))
         {
-            return true;
+            if (string.Equals(mapping.Decision, "autoApply", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.Equals(mapping.Decision, "manualReview", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mapping.Decision, "reject", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
         }
 
         if (!mapping.MatchScore.HasValue)
@@ -1340,6 +1349,11 @@ public sealed class MatchingWorkflowSupportService
         if (result.Decision == MatchDecision.Reject)
         {
             return "low";
+        }
+
+        if (result.Decision != MatchDecision.AutoApply)
+        {
+            return result.Score >= MatchingThresholds.MediumConfidenceScore ? "medium" : "low";
         }
 
         if (result.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent ||
