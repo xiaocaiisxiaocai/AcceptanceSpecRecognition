@@ -21,9 +21,14 @@ public class TableData
     public IList<RowData> Rows { get; set; } = new List<RowData>();
 
     /// <summary>
+    /// 原始数据总行数（不含表头）。预览截断时用于保留完整计数。
+    /// </summary>
+    public int? TotalDataRowCount { get; set; }
+
+    /// <summary>
     /// 总行数（含表头）
     /// </summary>
-    public int TotalRowCount => Rows.Count + (Headers.Count > 0 ? 1 : 0);
+    public int TotalRowCount => (TotalDataRowCount ?? Rows.Count) + (Headers.Count > 0 ? 1 : 0);
 
     /// <summary>
     /// 总列数

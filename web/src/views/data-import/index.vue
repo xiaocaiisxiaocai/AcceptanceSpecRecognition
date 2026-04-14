@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onActivated, onMounted, nextTick } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElLoading, ElMessage, ElMessageBox } from "element-plus";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
 import DataImportDifferenceDialog from "./components/DataImportDifferenceDialog.vue";
@@ -54,6 +54,7 @@ import { getProcessList, type Process } from "@/api/process";
 import { getMachineModelList, type MachineModel } from "@/api/machine-model";
 import {
   getFileTables,
+  getTablePreview,
   importData,
   importExcelData,
   type FileUploadResponse,
@@ -75,6 +76,8 @@ import { ensurePermission } from "@/utils/permission-guard";
 defineOptions({
   name: "DataImport"
 });
+
+const MAPPING_PREVIEW_ROWS = 50;
 
 // 步骤
 const currentStep = ref(0);
@@ -378,6 +381,65 @@ const handlePreviewLoaded = (tableIndex: number, data: TableData) => {
     cfg.previewData = data;
     // 表头/预览更新后，若尚未选择映射列，则再次尝试按规则自动预填（不覆盖手工选择）
     applyRulesToConfig(cfg, false);
+  }
+};
+
+const buildPreviewQuery = (cfg: TableImportConfig, previewRows: number) => ({
+  previewRows,
+  headerRowIndex: isExcelFile.value
+    ? getExcelPreviewOptions(cfg).headerRowIndex
+    : (cfg.wordMapping?.headerRowIndex ?? 0),
+  headerRowCount: isExcelFile.value ? getExcelPreviewOptions(cfg).headerRowCount : 1,
+  dataStartRowIndex: isExcelFile.value
+    ? getExcelPreviewOptions(cfg).dataStartRowIndex
+    : (cfg.wordMapping?.dataStartRowIndex ?? 1)
+});
+
+const loadPreviewData = async (
+  cfg: TableImportConfig,
+  previewRows: number
+): Promise<TableData> => {
+  if (!uploadedFile.value) {
+    throw new Error("源文件不存在，无法加载预览");
+  }
+
+  const res = await getTablePreview(
+    uploadedFile.value.fileId,
+    cfg.tableIndex,
+    buildPreviewQuery(cfg, previewRows)
+  );
+
+  if (res.code !== 0 || !res.data) {
+    throw new Error(res.message || "加载预览失败");
+  }
+
+  return res.data;
+};
+
+const ensureFullPreviewDataLoaded = async () => {
+  const pendingConfigs = tableConfigs.value.filter(
+    cfg => !cfg.previewData || cfg.previewData.rows.length < cfg.previewData.totalRows
+  );
+
+  if (pendingConfigs.length === 0) {
+    return true;
+  }
+
+  const loading = ElLoading.service({
+    lock: true,
+    text: "正在生成导入预览..."
+  });
+
+  try {
+    for (const cfg of pendingConfigs) {
+      cfg.previewData = await loadPreviewData(cfg, 0);
+    }
+    return true;
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "加载导入预览失败");
+    return false;
+  } finally {
+    loading.close();
   }
 };
 
@@ -820,6 +882,11 @@ const goNext = async () => {
       ElMessage.warning(`请先完成列映射：${summary}${more}`);
       return;
     }
+  }
+
+  if (currentStep.value === 3) {
+    const loaded = await ensureFullPreviewDataLoaded();
+    if (!loaded) return;
   }
 
   if (currentStep.value < steps.value.length - 1) currentStep.value++;
@@ -1636,18 +1703,20 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
           :closable="tableConfigs.length > 1"
           @tab-remove="handleTabRemove"
         >
-          <el-tab-pane
-            v-for="cfg in tableConfigs"
-            :key="cfg.tableIndex"
-            :name="cfg.tableIndex"
-            :label="`${isExcelFile ? '工作表' : '表格'} ${cfg.tableIndex + 1}`"
-          >
+        <el-tab-pane
+          v-for="cfg in tableConfigs"
+          :key="cfg.tableIndex"
+          :name="cfg.tableIndex"
+          :label="`${isExcelFile ? '工作表' : '表格'} ${cfg.tableIndex + 1}`"
+          lazy
+        >
             <!-- 表格预览 -->
             <div class="preview-section">
               <h4>{{ isExcelFile ? "工作表预览" : "表格预览" }}</h4>
               <TablePreview
                 :file-id="uploadedFile.fileId"
                 :table-index="cfg.tableIndex"
+                :preview-rows="MAPPING_PREVIEW_ROWS"
                 :header-row-index="
                   isExcelFile
                     ? getExcelPreviewOptions(cfg).headerRowIndex

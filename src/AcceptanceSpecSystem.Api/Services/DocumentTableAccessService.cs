@@ -64,13 +64,17 @@ public sealed class DocumentTableAccessService
         return await parser.GetTablesAsync(stream);
     }
 
-    public async Task<TableData> ExtractTableDataAsync(WordFile wordFile, int tableIndex, ColumnMapping mapping)
+    public async Task<TableData> ExtractTableDataAsync(
+        WordFile wordFile,
+        int tableIndex,
+        ColumnMapping mapping,
+        int? maxDataRowCount = null)
     {
         var parser = GetRequiredParser(wordFile.FileType);
         using var stream = _documentFileAccessService.OpenReadStream(wordFile);
         try
         {
-            return await parser.ExtractTableDataAsync(stream, tableIndex, mapping);
+            return await parser.ExtractTableDataAsync(stream, tableIndex, mapping, maxDataRowCount);
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -94,7 +98,8 @@ public sealed class DocumentTableAccessService
                 HeaderRowIndex = headerRowIndex,
                 HeaderRowCount = headerRowCount,
                 DataStartRowIndex = dataStartRowIndex
-            });
+            },
+            previewRows > 0 ? previewRows : null);
 
         var rowSource = previewRows <= 0 ? tableData.Rows : tableData.Rows.Take(previewRows);
         return new TableDataDto
@@ -103,7 +108,7 @@ public sealed class DocumentTableAccessService
             Headers = tableData.Headers.ToList(),
             Rows = rowSource.Select(row => row.Cells.Select(FormatPreviewCellText).ToList()).ToList(),
             StructuredRows = rowSource.Select(row => row.Cells.Select(cell => MapStructuredCellValue(cell.StructuredValue)).ToList()).ToList(),
-            TotalRows = tableData.Rows.Count,
+            TotalRows = tableData.TotalDataRowCount ?? tableData.Rows.Count,
             ColumnCount = tableData.ColumnCount
         };
     }

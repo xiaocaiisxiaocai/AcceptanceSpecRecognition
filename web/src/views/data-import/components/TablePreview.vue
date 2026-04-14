@@ -17,9 +17,12 @@ export type TablePreviewLoader = (
   }
 ) => Promise<TableData>;
 
+const DEFAULT_PREVIEW_ROWS = 50;
+
 const props = defineProps<{
   fileId?: number;
   tableIndex: number;
+  previewRows?: number;
   headerRowIndex?: number;
   headerRowCount?: number;
   dataStartRowIndex?: number;
@@ -99,7 +102,8 @@ const loadPreview = async () => {
 
   const requestId = ++latestRequestId;
   const query = {
-    previewRows: 0,
+    // 预览阶段默认只取有限行，避免切换工作表时整张表都重新解析一遍
+    previewRows: props.previewRows ?? DEFAULT_PREVIEW_ROWS,
     headerRowIndex: props.headerRowIndex ?? 0,
     headerRowCount: props.headerRowCount ?? 1,
     dataStartRowIndex: props.dataStartRowIndex ?? 1
@@ -142,6 +146,7 @@ watch(
     props.previewLoader,
     props.fileId,
     props.tableIndex,
+    props.previewRows,
     props.headerRowIndex,
     props.headerRowCount,
     props.dataStartRowIndex

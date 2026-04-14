@@ -97,11 +97,16 @@ public class WordDocumentParser : IDocumentParser
     /// <param name="filePath">文件路径</param>
     /// <param name="tableIndex">表格索引（从0开始，顶层表格）</param>
     /// <param name="mapping">列映射（可选）</param>
+    /// <param name="maxDataRowCount">最大数据行数（可选，仅用于预览限流）</param>
     /// <returns>表格数据</returns>
-    public Task<TableData> ExtractTableDataAsync(string filePath, int tableIndex, ColumnMapping? mapping = null)
+    public Task<TableData> ExtractTableDataAsync(
+        string filePath,
+        int tableIndex,
+        ColumnMapping? mapping = null,
+        int? maxDataRowCount = null)
     {
         using var stream = File.OpenRead(filePath);
-        return ExtractTableDataAsync(stream, tableIndex, mapping);
+        return ExtractTableDataAsync(stream, tableIndex, mapping, maxDataRowCount);
     }
 
     /// <summary>
@@ -110,8 +115,13 @@ public class WordDocumentParser : IDocumentParser
     /// <param name="stream">输入流</param>
     /// <param name="tableIndex">表格索引（从0开始，顶层表格）</param>
     /// <param name="mapping">列映射（可选）</param>
+    /// <param name="maxDataRowCount">最大数据行数（可选，仅用于预览限流）</param>
     /// <returns>表格数据</returns>
-    public Task<TableData> ExtractTableDataAsync(Stream stream, int tableIndex, ColumnMapping? mapping = null)
+    public Task<TableData> ExtractTableDataAsync(
+        Stream stream,
+        int tableIndex,
+        ColumnMapping? mapping = null,
+        int? maxDataRowCount = null)
     {
         return Task.Run(() =>
         {
@@ -123,7 +133,7 @@ public class WordDocumentParser : IDocumentParser
                 throw new ArgumentOutOfRangeException(nameof(tableIndex), $"表格索引超出范围。文档共有 {tables.Count} 个表格。");
 
             var table = tables[tableIndex];
-            return ExtractTableData(table, tableIndex, mapping);
+            return ExtractTableData(table, tableIndex, mapping, maxDataRowCount);
         });
     }
 
@@ -261,7 +271,11 @@ public class WordDocumentParser : IDocumentParser
     /// <summary>
     /// 提取表格数据
     /// </summary>
-    private TableData ExtractTableData(Table table, int tableIndex, ColumnMapping? mapping)
+    private TableData ExtractTableData(
+        Table table,
+        int tableIndex,
+        ColumnMapping? mapping,
+        int? maxDataRowCount = null)
     {
         var tableData = new TableData { TableIndex = tableIndex };
         var rows = table.Elements<TableRow>().ToList();
@@ -279,6 +293,7 @@ public class WordDocumentParser : IDocumentParser
         // 确定表头行和数据起始行
         var headerRowIndex = mapping?.HeaderRowIndex ?? 0;
         var dataStartRowIndex = mapping?.DataStartRowIndex ?? 1;
+        tableData.TotalDataRowCount = Math.Max(0, rows.Count - dataStartRowIndex);
 
         // 提取表头
         if (headerRowIndex < rows.Count)
@@ -303,7 +318,15 @@ public class WordDocumentParser : IDocumentParser
         }
 
         // 提取数据行
-        for (int rowIndex = dataStartRowIndex; rowIndex < rows.Count; rowIndex++)
+        var dataEndExclusive = rows.Count;
+        if (maxDataRowCount.HasValue && maxDataRowCount.Value >= 0)
+        {
+            dataEndExclusive = Math.Min(
+                rows.Count,
+                dataStartRowIndex + Math.Max(0, maxDataRowCount.Value));
+        }
+
+        for (int rowIndex = dataStartRowIndex; rowIndex < dataEndExclusive; rowIndex++)
         {
             var row = rows[rowIndex];
             var rowData = ExtractRowData(row, rowIndex, mergedCellsMap, mergeStartValues, mergeStartStructuredValues);

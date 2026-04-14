@@ -19,3 +19,7 @@ test("预览表容器应显式开启横向滚动", () => {
 test("预览表列头不应支持手动拖拽改列宽", () => {
   assert.match(tablePreviewSource, /<el-table-column[\s\S]*:resizable="false"/);
 });
+
+test("工作表预览请求不应再拉取整张表全部数据", () => {
+  assert.doesNotMatch(tablePreviewSource, /previewRows:\s*0/);
+});

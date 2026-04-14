@@ -39,8 +39,13 @@ public interface IDocumentParser
     /// <param name="stream">文档流</param>
     /// <param name="tableIndex">表格索引（从0开始）</param>
     /// <param name="mapping">列映射配置（可选）</param>
+    /// <param name="maxDataRowCount">最大数据行数（可选，仅用于预览限流）</param>
     /// <returns>表格数据</returns>
-    Task<TableData> ExtractTableDataAsync(Stream stream, int tableIndex, ColumnMapping? mapping = null);
+    Task<TableData> ExtractTableDataAsync(
+        Stream stream,
+        int tableIndex,
+        ColumnMapping? mapping = null,
+        int? maxDataRowCount = null);
 
     /// <summary>
     /// 从文件路径提取指定表格的数据
@@ -48,8 +53,13 @@ public interface IDocumentParser
     /// <param name="filePath">文件路径</param>
     /// <param name="tableIndex">表格索引（从0开始）</param>
     /// <param name="mapping">列映射配置（可选）</param>
+    /// <param name="maxDataRowCount">最大数据行数（可选，仅用于预览限流）</param>
     /// <returns>表格数据</returns>
-    Task<TableData> ExtractTableDataAsync(string filePath, int tableIndex, ColumnMapping? mapping = null);
+    Task<TableData> ExtractTableDataAsync(
+        string filePath,
+        int tableIndex,
+        ColumnMapping? mapping = null,
+        int? maxDataRowCount = null);
 
     /// <summary>
     /// 提取所有表格的数据

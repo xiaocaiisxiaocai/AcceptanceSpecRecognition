@@ -103,3 +103,5 @@ tmp/
 
 # DataProtection key ring (runtime generated)
 **/data-protection-keys/
+.ace-tool/
+*.lscache

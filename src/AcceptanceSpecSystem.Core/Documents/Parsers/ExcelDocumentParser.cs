@@ -32,16 +32,24 @@ public class ExcelDocumentParser : IDocumentParser
         return await Task.FromResult(GetSheetInfos(workbook));
     }
 
-    public async Task<TableData> ExtractTableDataAsync(Stream stream, int tableIndex, ColumnMapping? mapping = null)
+    public async Task<TableData> ExtractTableDataAsync(
+        Stream stream,
+        int tableIndex,
+        ColumnMapping? mapping = null,
+        int? maxDataRowCount = null)
     {
         using var workbook = new XLWorkbook(stream);
-        return await Task.FromResult(ExtractSheetTableData(workbook, tableIndex, mapping));
+        return await Task.FromResult(ExtractSheetTableData(workbook, tableIndex, mapping, maxDataRowCount));
     }
 
-    public async Task<TableData> ExtractTableDataAsync(string filePath, int tableIndex, ColumnMapping? mapping = null)
+    public async Task<TableData> ExtractTableDataAsync(
+        string filePath,
+        int tableIndex,
+        ColumnMapping? mapping = null,
+        int? maxDataRowCount = null)
     {
         using var workbook = new XLWorkbook(filePath);
-        return await Task.FromResult(ExtractSheetTableData(workbook, tableIndex, mapping));
+        return await Task.FromResult(ExtractSheetTableData(workbook, tableIndex, mapping, maxDataRowCount));
     }
 
     public async Task<IReadOnlyList<TableData>> ExtractAllTablesDataAsync(Stream stream)
@@ -113,7 +121,11 @@ public class ExcelDocumentParser : IDocumentParser
         return list;
     }
 
-    private static TableData ExtractSheetTableData(XLWorkbook workbook, int tableIndex, ColumnMapping? mapping)
+    private static TableData ExtractSheetTableData(
+        XLWorkbook workbook,
+        int tableIndex,
+        ColumnMapping? mapping,
+        int? maxDataRowCount = null)
     {
         var sheets = workbook.Worksheets.ToList();
         if (tableIndex < 0 || tableIndex >= sheets.Count)
@@ -173,6 +185,13 @@ public class ExcelDocumentParser : IDocumentParser
         var rows = new List<RowData>();
         var dataAbsStartRow = startRow + dataStartRowIndex;
         var dataAbsEndRow = startRow + rowCount - 1;
+        var totalDataRowCount = Math.Max(0, dataAbsEndRow - dataAbsStartRow + 1);
+        if (maxDataRowCount.HasValue && maxDataRowCount.Value >= 0)
+        {
+            dataAbsEndRow = Math.Min(
+                dataAbsEndRow,
+                dataAbsStartRow + Math.Max(0, maxDataRowCount.Value) - 1);
+        }
 
         var rowIndex = 0;
         for (var r = dataAbsStartRow; r <= dataAbsEndRow; r++)
@@ -196,7 +215,8 @@ public class ExcelDocumentParser : IDocumentParser
         {
             TableIndex = tableIndex,
             Headers = headers,
-            Rows = rows
+            Rows = rows,
+            TotalDataRowCount = totalDataRowCount
         };
     }
 
