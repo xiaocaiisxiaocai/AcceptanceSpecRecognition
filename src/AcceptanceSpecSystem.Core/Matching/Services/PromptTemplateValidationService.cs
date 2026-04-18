@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Core.Matching.Models;
 
@@ -63,9 +63,9 @@ public sealed class PromptTemplateValidationService
 
     private static string Render(string template)
     {
-        var result = template ?? string.Empty;
         var sampleValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
+            ["workflowScene"] = "智能填充复核",
             ["sourceProject"] = "平台吸附精度",
             ["sourceSpecification"] = "平台平面度需控制在0.05mm以内",
             ["bestMatchProject"] = "平台吸附精度",
@@ -75,19 +75,18 @@ public sealed class PromptTemplateValidationService
             ["baseScore"] = "95.6",
             ["scoreDetailsJson"] = "{\"Embedding\":95.6}",
             ["currentDecision"] = "manualReview",
-            ["hasHardConflict"] = "false",
             ["reviewTrigger"] = "Top1 与 Top2 证据接近，需要进一步复核",
             ["evidenceSummaryJson"] = "[\"数值约束相容：平面度\",\"项目一致\"]",
             ["conflictSummaryJson"] = "[]",
-            ["referenceInfo"] = "项目：平台吸附精度\\n规格：平台平面度需控制在0.05mm以内"
+            ["referenceInfo"] = "项目：平台吸附精度\\n规格：平台平面度需控制在0.05mm以内",
+            ["candidateProject"] = "平台吸附精度候选",
+            ["candidateSpecification"] = "平台平面度不超过0.05mm",
+            ["currentTopCandidateSpecId"] = "101",
+            ["candidatesJson"] =
+                "[{\"rank\":1,\"specId\":101,\"project\":\"平台吸附精度\",\"specification\":\"平台平面度控制在0.08mm以内\",\"embeddingScore\":0.98,\"finalScore\":0.87,\"scoreDetails\":{\"Embedding\":0.98,\"Final\":0.87},\"evidenceSummary\":[\"项目一致\"],\"conflictSummary\":[\"边界条件疑似偏宽\"]},{\"rank\":2,\"specId\":102,\"project\":\"平台吸附精度\",\"specification\":\"平台平面度控制在0.05mm以内\",\"embeddingScore\":0.95,\"finalScore\":0.85,\"scoreDetails\":{\"Embedding\":0.95,\"Final\":0.85},\"evidenceSummary\":[\"项目一致\",\"规格更接近\"],\"conflictSummary\":[]}]"
         };
 
-        foreach (var pair in sampleValues)
-        {
-            result = result.Replace($"{{{{{pair.Key}}}}}", pair.Value, StringComparison.OrdinalIgnoreCase);
-        }
-
-        return result;
+        return PromptTemplatePlaceholderRenderer.ReplacePlaceholders(template, sampleValues);
     }
 
     private static bool TryValidateStructuredOutputExample(
@@ -120,8 +119,17 @@ public sealed class PromptTemplateValidationService
                     .FirstOrDefault(key => !document.RootElement.TryGetProperty(key, out _));
                 if (missingKey == null)
                 {
-                    exampleJson = candidate;
-                    return true;
+                    if (TryValidateStructuredOutputPayload(
+                            definition.Scene,
+                            document.RootElement,
+                            out var payloadError))
+                    {
+                        exampleJson = candidate;
+                        return true;
+                    }
+
+                    lastError = payloadError;
+                    continue;
                 }
 
                 lastError = $"JSON 示例缺少字段: {missingKey}";
@@ -135,6 +143,228 @@ public sealed class PromptTemplateValidationService
         exampleJson = lastParsedJson ?? candidates[^1];
         error = lastError ?? "未找到满足场景要求的 JSON 示例";
         return false;
+    }
+
+    private static bool TryValidateStructuredOutputPayload(
+        PromptTemplateScene scene,
+        JsonElement payload,
+        out string? error)
+    {
+        return scene switch
+        {
+            PromptTemplateScene.MatchingReview or PromptTemplateScene.ImportDuplicateReview
+                => TryValidateMatchingReviewPayload(payload, out error),
+            PromptTemplateScene.MatchingEquivalenceAdjudication
+                => TryValidateEquivalencePayload(payload, out error),
+            PromptTemplateScene.MatchingCandidateRerank
+                => TryValidateCandidateRerankPayload(payload, out error),
+            _ => Succeed(out error)
+        };
+    }
+
+    private static bool TryValidateMatchingReviewPayload(JsonElement payload, out string? error)
+    {
+        if (!TryReadRequiredNumber(payload, "score", out var score, out error))
+        {
+            return false;
+        }
+
+        if (score is < 0 or > 100)
+        {
+            error = "JSON 示例字段 score 必须位于 0~100";
+            return false;
+        }
+
+        if (!TryReadRequiredString(payload, "reason", out _, out error) ||
+            !TryReadRequiredString(payload, "commentary", out _, out error))
+        {
+            return false;
+        }
+
+        return Succeed(out error);
+    }
+
+    private static bool TryValidateEquivalencePayload(JsonElement payload, out string? error)
+    {
+        if (!TryReadRequiredString(payload, "verdict", out var verdictText, out error))
+        {
+            return false;
+        }
+
+        if (!TryParseEquivalenceVerdict(verdictText, out var verdict))
+        {
+            error = $"JSON 示例字段 verdict 值无效: {verdictText}";
+            return false;
+        }
+
+        if (!TryReadRequiredString(payload, "reasonType", out var reasonTypeText, out error))
+        {
+            return false;
+        }
+
+        if (!TryParseEquivalenceReasonType(reasonTypeText, out var reasonType))
+        {
+            error = $"JSON 示例字段 reasonType 值无效: {reasonTypeText}";
+            return false;
+        }
+
+        if (!TryReadRequiredNumber(payload, "confidence", out var confidence, out error))
+        {
+            return false;
+        }
+
+        if (confidence is < 0 or > 1)
+        {
+            error = "JSON 示例字段 confidence 必须位于 0~1";
+            return false;
+        }
+
+        if (!TryReadRequiredString(payload, "reason", out _, out error))
+        {
+            return false;
+        }
+
+        if (!IsReasonTypeCompatible(verdict, reasonType))
+        {
+            error = "JSON 示例字段 verdict 与 reasonType 组合不兼容";
+            return false;
+        }
+
+        return Succeed(out error);
+    }
+
+    private static bool TryValidateCandidateRerankPayload(JsonElement payload, out string? error)
+    {
+        if (!payload.TryGetProperty("selectedSpecId", out var selectedSpecIdElement) ||
+            selectedSpecIdElement.ValueKind != JsonValueKind.Number ||
+            !selectedSpecIdElement.TryGetInt32(out var selectedSpecId) ||
+            selectedSpecId <= 0)
+        {
+            error = "JSON 示例字段 selectedSpecId 必须是正整数";
+            return false;
+        }
+
+        if (!TryReadRequiredString(payload, "reason", out _, out error))
+        {
+            return false;
+        }
+
+        if (!TryReadRequiredNumber(payload, "confidence", out var confidence, out error))
+        {
+            return false;
+        }
+
+        if (confidence is < 0 or > 1)
+        {
+            error = "JSON 示例字段 confidence 必须位于 0~1";
+            return false;
+        }
+
+        return Succeed(out error);
+    }
+
+    private static bool TryReadRequiredNumber(
+        JsonElement payload,
+        string propertyName,
+        out double value,
+        out string? error)
+    {
+        value = 0;
+        error = null;
+
+        if (!payload.TryGetProperty(propertyName, out var element))
+        {
+            error = $"JSON 示例缺少字段: {propertyName}";
+            return false;
+        }
+
+        if (element.ValueKind != JsonValueKind.Number || !element.TryGetDouble(out value))
+        {
+            error = $"JSON 示例字段 {propertyName} 必须是数字";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryReadRequiredString(
+        JsonElement payload,
+        string propertyName,
+        out string value,
+        out string? error)
+    {
+        value = string.Empty;
+        error = null;
+
+        if (!payload.TryGetProperty(propertyName, out var element))
+        {
+            error = $"JSON 示例缺少字段: {propertyName}";
+            return false;
+        }
+
+        if (element.ValueKind != JsonValueKind.String)
+        {
+            error = $"JSON 示例字段 {propertyName} 必须是字符串";
+            return false;
+        }
+
+        value = element.GetString() ?? string.Empty;
+        return true;
+    }
+
+    private static bool TryParseEquivalenceVerdict(string value, out LlmEquivalenceVerdict verdict)
+    {
+        verdict = value.Trim().ToLowerInvariant() switch
+        {
+            "equivalent" => LlmEquivalenceVerdict.Equivalent,
+            "different" => LlmEquivalenceVerdict.Different,
+            "uncertain" => LlmEquivalenceVerdict.Uncertain,
+            _ => default
+        };
+
+        return verdict != default;
+    }
+
+    private static bool TryParseEquivalenceReasonType(string value, out LlmEquivalenceReasonType reasonType)
+    {
+        reasonType = value.Trim().ToLowerInvariant() switch
+        {
+            "format_only" => LlmEquivalenceReasonType.FormatOnly,
+            "punctuation_only" => LlmEquivalenceReasonType.PunctuationOnly,
+            "equivalent_expression" => LlmEquivalenceReasonType.EquivalentExpression,
+            "symbol_equivalent" => LlmEquivalenceReasonType.SymbolEquivalent,
+            "semantic_difference" => LlmEquivalenceReasonType.SemanticDifference,
+            "symbol_conflict" => LlmEquivalenceReasonType.SymbolConflict,
+            "uncertain" => LlmEquivalenceReasonType.Uncertain,
+            _ => default
+        };
+
+        return reasonType != default;
+    }
+
+    private static bool IsReasonTypeCompatible(
+        LlmEquivalenceVerdict verdict,
+        LlmEquivalenceReasonType reasonType)
+    {
+        return verdict switch
+        {
+            LlmEquivalenceVerdict.Equivalent => reasonType is
+                LlmEquivalenceReasonType.FormatOnly or
+                LlmEquivalenceReasonType.PunctuationOnly or
+                LlmEquivalenceReasonType.EquivalentExpression or
+                LlmEquivalenceReasonType.SymbolEquivalent,
+            LlmEquivalenceVerdict.Different => reasonType is
+                LlmEquivalenceReasonType.SemanticDifference or
+                LlmEquivalenceReasonType.SymbolConflict,
+            LlmEquivalenceVerdict.Uncertain => reasonType == LlmEquivalenceReasonType.Uncertain,
+            _ => false
+        };
+    }
+
+    private static bool Succeed(out string? error)
+    {
+        error = null;
+        return true;
     }
 
     private static IEnumerable<string> ExtractJsonObjects(string text)
@@ -206,4 +436,39 @@ public sealed class PromptTemplateValidationResult
     public bool StructuredOutputIsValid { get; set; }
 
     public string? StructuredOutputError { get; set; }
+}
+
+internal static class PromptTemplatePlaceholderRenderer
+{
+    private static readonly Regex PlaceholderRegex = new(
+        @"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    public static string ReplacePlaceholders(string? template, IReadOnlyDictionary<string, string> values)
+    {
+        var input = template ?? string.Empty;
+        if (string.IsNullOrEmpty(input) || values.Count == 0)
+        {
+            return input;
+        }
+
+        return PlaceholderRegex.Replace(input, match =>
+        {
+            var key = match.Groups[1].Value;
+            if (values.TryGetValue(key, out var value))
+            {
+                return value ?? string.Empty;
+            }
+
+            foreach (var pair in values)
+            {
+                if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return pair.Value ?? string.Empty;
+                }
+            }
+
+            return match.Value;
+        });
+    }
 }

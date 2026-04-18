@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Data.Context;
@@ -22,6 +23,18 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public void PermissionConventions_ShouldNotReserveLegacyMatchingSimilarityPermissionCode()
+    {
+        var permissionCode = PermissionConventions.ResolveApiPermissionCode(
+            controllerName: "Matching",
+            actionName: "Similarity",
+            routeTemplate: "api/matching/similarity",
+            httpMethod: "POST");
+
+        permissionCode.Should().Be("api:matching:create", "历史 similarity 路由已移除，不应继续保留专用权限动作");
+    }
+
+    [Fact]
     public async Task GetList_AfterSeed_ShouldIncludeMenuPermissions()
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
@@ -38,7 +51,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GetList_AfterSeed_ShouldExposeMatchingKnowledgePermissions_AndHideLegacyPermissions()
+    public async Task GetList_AfterSeed_ShouldHideRemovedMatchingKnowledgeAndLegacyPermissions()
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
 
@@ -53,13 +66,18 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .ToList();
 
-        permissionCodes.Should().Contain("page:config:matching-knowledge");
-        permissionCodes.Should().Contain("btn:matching-knowledge:update");
-        permissionCodes.Should().Contain("btn:matching-knowledge:reset");
-        permissionCodes.Should().Contain("btn:matching-knowledge:generate-draft");
+        permissionCodes.Should().NotContain("page:config:matching-knowledge");
+        permissionCodes.Should().NotContain("btn:matching-knowledge:update");
+        permissionCodes.Should().NotContain("btn:matching-knowledge:reset");
+        permissionCodes.Should().NotContain("btn:matching-knowledge:generate-draft");
         permissionCodes.Should().NotContain("page:config:text-processing");
         permissionCodes.Should().NotContain("page:other:synonyms");
         permissionCodes.Should().NotContain("page:other:keywords");
+        permissionCodes.Should().NotContain("api:auth:routes");
+        permissionCodes.Should().NotContain("api:org-unit:create");
+        permissionCodes.Should().NotContain("api:org-unit:delete");
+        permissionCodes.Should().NotContain("btn:org-unit:create");
+        permissionCodes.Should().NotContain("btn:org-unit:delete");
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -67,7 +85,12 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
             .Where(permission =>
                 permission.Code == "page:config:text-processing" ||
                 permission.Code == "page:other:synonyms" ||
-                permission.Code == "page:other:keywords")
+                permission.Code == "page:other:keywords" ||
+                permission.Code == "api:auth:routes" ||
+                permission.Code == "api:org-unit:create" ||
+                permission.Code == "api:org-unit:delete" ||
+                permission.Code == "btn:org-unit:create" ||
+                permission.Code == "btn:org-unit:delete")
             .ToListAsync();
 
         legacyPermissions.Should().OnlyContain(permission => !permission.IsActive);
@@ -95,7 +118,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Login_AfterSeed_ShouldIncludeMatchingKnowledgePermissionsInAuthorizationSnapshot()
+    public async Task Login_AfterSeed_ShouldHideRemovedMatchingKnowledgePermissionsInAuthorizationSnapshot()
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
 
@@ -111,13 +134,18 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .ToList();
 
-        permissions.Should().Contain("page:config:matching-knowledge");
-        permissions.Should().Contain("btn:matching-knowledge:update");
-        permissions.Should().Contain("btn:matching-knowledge:reset");
-        permissions.Should().Contain("btn:matching-knowledge:generate-draft");
+        permissions.Should().NotContain("page:config:matching-knowledge");
+        permissions.Should().NotContain("btn:matching-knowledge:update");
+        permissions.Should().NotContain("btn:matching-knowledge:reset");
+        permissions.Should().NotContain("btn:matching-knowledge:generate-draft");
         permissions.Should().NotContain("page:config:text-processing");
         permissions.Should().NotContain("page:other:synonyms");
         permissions.Should().NotContain("page:other:keywords");
+        permissions.Should().NotContain("api:auth:routes");
+        permissions.Should().NotContain("api:org-unit:create");
+        permissions.Should().NotContain("api:org-unit:delete");
+        permissions.Should().NotContain("btn:org-unit:create");
+        permissions.Should().NotContain("btn:org-unit:delete");
     }
 
     [Fact]
@@ -147,12 +175,12 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("btn:file-compare:upload");
         permissions.Should().Contain("btn:file-compare:preview");
         permissions.Should().Contain("btn:file-compare:download");
-        permissions.Should().Contain("btn:matching:preview");
         permissions.Should().Contain("btn:matching:preview-batch");
         permissions.Should().Contain("btn:matching:download");
         permissions.Should().Contain("btn:matching-fill:llm-stream");
-        permissions.Should().Contain("btn:matching-fill:execute");
         permissions.Should().Contain("btn:matching-fill:execute-batch");
+        permissions.Should().NotContain("btn:matching:preview");
+        permissions.Should().NotContain("btn:matching-fill:execute");
         permissions.Should().NotContain("btn:matching:llm-stream");
         permissions.Should().NotContain("api:matching:execute");
         permissions.Should().NotContain("api:matching:execute-batch");
@@ -189,5 +217,30 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("api:batch-reply:download");
         permissions.Should().Contain("btn:batch-reply:preview");
         permissions.Should().Contain("btn:batch-reply:execute");
+    }
+
+    [Fact]
+    public async Task Login_CommonUserAfterSeed_ShouldNotIncludeLegacyMatchingSimilarityPermission()
+    {
+        await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
+
+        var response = await _client.PostAsync(
+            "/login",
+            ApiClientJson.ToJsonContent(new
+            {
+                username = "common",
+                password = ApiWebApplicationFactory.TestCommonPassword
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<JsonElement>();
+        var permissions = body.GetProperty("data").GetProperty("permissions")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToList();
+
+        permissions.Should().NotContain("api:matching:similarity");
+        permissions.Should().NotContain("btn:matching:similarity");
     }
 }

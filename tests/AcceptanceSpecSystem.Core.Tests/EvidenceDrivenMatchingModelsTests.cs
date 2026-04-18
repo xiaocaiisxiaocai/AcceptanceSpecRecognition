@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Core.Matching.Models;
 using FluentAssertions;
+using System.Reflection;
 
 namespace AcceptanceSpecSystem.Core.Tests;
 
@@ -20,16 +21,14 @@ public class EvidenceDrivenMatchingModelsTests
     }
 
     [Fact]
-    public void MatchEvidence_ShouldTrackHardConflictAndSummary()
+    public void MatchEvidence_ShouldTrackSummaryWithoutLegacyHardConflictFlag()
     {
         var evidence = new MatchEvidence
         {
-            HasHardConflict = true,
-            Summary = ["命中型号硬冲突"]
+            Summary = ["命中实体硬冲突"]
         };
 
-        evidence.HasHardConflict.Should().BeTrue();
-        evidence.Summary.Should().ContainSingle().Which.Should().Be("命中型号硬冲突");
+        evidence.Summary.Should().ContainSingle().Which.Should().Be("命中实体硬冲突");
     }
 
     [Fact]
@@ -42,19 +41,30 @@ public class EvidenceDrivenMatchingModelsTests
     }
 
     [Fact]
-    public void MatchingConfig_ShouldExposeLlmEntityResolutionSettings()
+    public void MatchingConfig_ShouldNotExposeRemovedLlmEntityResolutionSettings()
     {
         var config = new MatchingConfig();
 
-        config.MatchingStrategy.Should().Be(MatchingStrategy.SingleStage);
         config.MinScoreThreshold.Should().Be(0.9);
         config.RecallTopK.Should().Be(2);
         config.AmbiguityMargin.Should().Be(0.02);
         config.HighConfidenceThreshold.Should().Be(0.98);
-        config.UseLlmEntityResolution.Should().BeFalse();
-        config.LlmEntityResolutionTopCandidates.Should().Be(2);
-        config.LlmEntityPositiveConfidenceThreshold.Should().Be(0.85);
-        config.LlmEntityConflictReviewConfidenceThreshold.Should().Be(0.7);
-        config.LlmEntityConflictRejectConfidenceThreshold.Should().Be(0.9);
+        typeof(MatchingConfig).GetProperty("UseLlmEntityResolution", BindingFlags.Public | BindingFlags.Instance)
+            .Should().BeNull();
+        typeof(MatchingConfig).GetProperty("LlmEntityResolutionTopCandidates", BindingFlags.Public | BindingFlags.Instance)
+            .Should().BeNull();
+        typeof(MatchingConfig).GetProperty("LlmEntityPositiveConfidenceThreshold", BindingFlags.Public | BindingFlags.Instance)
+            .Should().BeNull();
+        typeof(MatchingConfig).GetProperty("LlmEntityConflictReviewConfidenceThreshold", BindingFlags.Public | BindingFlags.Instance)
+            .Should().BeNull();
+        typeof(MatchingConfig).GetProperty("LlmEntityConflictRejectConfidenceThreshold", BindingFlags.Public | BindingFlags.Instance)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void MatchingConfig_ShouldNotExposeLegacyUseLlmReviewFlag()
+    {
+        typeof(MatchingConfig).GetProperty("UseLlmReview", BindingFlags.Public | BindingFlags.Instance)
+            .Should().BeNull();
     }
 }

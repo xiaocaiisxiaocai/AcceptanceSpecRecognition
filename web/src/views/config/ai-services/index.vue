@@ -19,8 +19,7 @@ import {
 } from "@/api/ai-service";
 import {
   DEFAULT_RECALL_TOP_K,
-  MAX_RECALL_TOP_K,
-  MatchingStrategy
+  MAX_RECALL_TOP_K
 } from "@/api/matching";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
@@ -82,11 +81,6 @@ const serviceTypeOptions = [
 const purposeOptions = [
   { label: "LLM", value: AiServicePurpose.Llm },
   { label: "Embedding", value: AiServicePurpose.Embedding }
-];
-
-const matchingStrategyOptions = [
-  { label: "单阶段 Embedding", value: MatchingStrategy.SingleStage },
-  { label: "多阶段证据重排", value: MatchingStrategy.MultiStage }
 ];
 
 const canCreate = computed(() => hasPerms("btn:ai-service:create"));
@@ -153,7 +147,6 @@ const formData = reactive({
   embeddingModel: "",
   llmModel: "",
   disableThinking: false,
-  defaultMatchingStrategy: MatchingStrategy.MultiStage,
   defaultRecallTopK: DEFAULT_RECALL_TOP_K
 });
 
@@ -443,7 +436,6 @@ const handleAdd = (purpose: AiServicePurpose) => {
       purpose === AiServicePurpose.Embedding ? "nomic-embed-text" : "",
     llmModel: "",
     disableThinking: false,
-    defaultMatchingStrategy: MatchingStrategy.MultiStage,
     defaultRecallTopK: DEFAULT_RECALL_TOP_K
   });
   dialogVisible.value = true;
@@ -482,8 +474,6 @@ const handleEdit = async (row: AiServiceConfig) => {
         embeddingModel: detail.embeddingModel ?? "",
         llmModel: detail.llmModel ?? "",
         disableThinking: !!detail.disableThinking,
-        defaultMatchingStrategy:
-          detail.defaultMatchingStrategy ?? MatchingStrategy.MultiStage,
         defaultRecallTopK: detail.defaultRecallTopK ?? DEFAULT_RECALL_TOP_K
       });
     } else {
@@ -710,7 +700,6 @@ const handleSubmit = async () => {
     embeddingModel,
     llmModel,
     disableThinking: !!formData.disableThinking,
-    defaultMatchingStrategy: formData.defaultMatchingStrategy,
     defaultRecallTopK: Math.min(
       MAX_RECALL_TOP_K,
       Math.max(1, formData.defaultRecallTopK || DEFAULT_RECALL_TOP_K)
@@ -932,15 +921,8 @@ onMounted(loadData);
             </div>
           </div>
           <div class="config-row">
-            <div class="config-label">默认匹配策略</div>
-            <div class="config-value">
-              {{
-                embeddingConfig.defaultMatchingStrategy ===
-                MatchingStrategy.MultiStage
-                  ? "多阶段证据重排"
-                  : "单阶段 Embedding"
-              }}
-            </div>
+            <div class="config-label">匹配链路</div>
+            <div class="config-value">证据裁决</div>
           </div>
           <div class="config-row">
             <div class="config-label">默认召回候选数</div>
@@ -1167,17 +1149,14 @@ onMounted(loadData);
         </el-form-item>
         <el-form-item
           v-if="hasPurpose(formData.purpose, AiServicePurpose.Embedding)"
-          label="默认匹配策略"
+          label="匹配链路"
         >
-          <el-radio-group v-model="formData.defaultMatchingStrategy">
-            <el-radio
-              v-for="opt in matchingStrategyOptions"
-              :key="opt.value"
-              :label="opt.value"
-            >
-              {{ opt.label }}
-            </el-radio>
-          </el-radio-group>
+          <div class="thinking-config">
+            <el-tag type="success">证据裁决</el-tag>
+            <div class="thinking-tip">
+              固定执行 Embedding 召回、证据重排、冲突门禁和高歧义复核。
+            </div>
+          </div>
         </el-form-item>
         <el-form-item
           v-if="hasPurpose(formData.purpose, AiServicePurpose.Embedding)"

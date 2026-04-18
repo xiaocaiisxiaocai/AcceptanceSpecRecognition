@@ -26,6 +26,7 @@
 - **WHEN** 前端访问 Prompt 模板相关接口
 - **THEN** 系统按系统模板场景返回模板数据
 - **AND** 系统支持模板校验预览与按场景恢复默认内容
+- **AND** 系统不再暴露任意新增、删除、设默认或非系统模板旁路读写等旧兼容接口
 
 ### Requirement: 匹配接口支持 LLM 实体判别配置
 系统 SHALL 在智能匹配相关接口中接收 LLM 实体判别配置，并将其传入运行时匹配链路。
@@ -68,42 +69,6 @@
 - **WHEN** 前端调用验收规格语义搜索接口且 Embedding 服务不可用
 - **THEN** 系统返回明确失败信息
 - **AND** 不静默降级为普通关键词搜索
-
-### Requirement: 匹配知识 AI 草稿生成 API
-系统 SHALL 提供匹配知识 AI 草稿生成接口，支持按单个分类基于历史验规筛选结果生成可审核候选项。
-
-#### Scenario: 按单个分类生成草稿
-- **GIVEN** 请求中指定分类为 `entityAliases`
-- **WHEN** 前端调用匹配知识 AI 草稿生成接口
-- **THEN** 系统只返回实体别名候选草稿
-- **AND** 不返回单位规则、字段别名或冲突词对候选
-
-#### Scenario: 仅接受历史验规筛选条件
-- **GIVEN** 请求中包含客户、制程、机型、关键词或导入时间范围中的任意组合
-- **WHEN** 系统执行草稿生成
-- **THEN** 系统仅基于当前用户可访问且符合筛选条件的历史验规生成候选结果
-- **AND** 不读取粘贴文本或上传文档作为输入来源
-
-#### Scenario: 当前筛选条件没有命中历史验规
-- **GIVEN** 当前筛选条件下没有可访问的历史验规
-- **WHEN** 前端调用匹配知识 AI 草稿生成接口
-- **THEN** 系统返回明确错误并提示用户调整筛选条件
-
-#### Scenario: 当前筛选结果超过系统安全上限
-- **GIVEN** 当前筛选结果数量或拼接文本超过系统安全上限
-- **WHEN** 系统执行草稿生成
-- **THEN** 系统返回明确错误并提示用户收窄筛选条件
-- **AND** 不允许静默截断后继续生成
-
-#### Scenario: 返回结构化候选与状态
-- **WHEN** 系统返回草稿生成结果
-- **THEN** 每条候选包含值、标准值或配对值、命中片段、生成理由和状态
-- **AND** 状态至少覆盖“可导入”“重复忽略”“冲突待确认”
-
-#### Scenario: 不直接持久化草稿
-- **WHEN** 前端调用匹配知识 AI 草稿生成接口
-- **THEN** 系统仅返回草稿结果
-- **AND** 不直接修改数据库中的匹配知识配置
 
 ### Requirement: API 权限默认拒绝
 系统 MUST 对所有控制器接口执行权限校验，采用 `api:resource:action` 权限码；未命中权限时返回 403。
@@ -156,26 +121,46 @@
 - **THEN** 系统只允许引用当前填充结果对应的临时会话数据
 - **AND** 系统不要求用户从历史模板列表中选择
 
-### Requirement: 统一匹配知识配置 API
-系统 SHALL 提供统一的匹配知识配置 API，用于读取、保存和重置当前生效的结构化匹配知识。
+### Requirement: 智能填充预览与执行接口不再暴露旧兼容字段
+系统 SHALL 以服务端当前匹配结果和决策门禁为准，不再暴露或信任旧的 suggestion / compatibility 字段。
 
-#### Scenario: 读取当前匹配知识配置
-- **WHEN** 前端发送 `GET /api/matching-knowledge`
-- **THEN** 系统返回当前生效的实体别名、单位别名、单位换算、字段别名和冲突词对配置
+#### Scenario: 预览契约不再包含旧 suggestion 语义
+- **WHEN** 客户端调用智能填充预览接口
+- **THEN** 预览配置与结果仅暴露召回、歧义、实体判别、复核与等价裁决相关字段
+- **AND** 不再暴露 `UseLlmReview`、`UseLlmSuggestion`、`SuggestNoMatchRows`、`LlmSuggestionScoreThreshold` 或 `LlmSuggestion`
 
-#### Scenario: 保存匹配知识配置
-- **GIVEN** 用户已编辑匹配知识配置
-- **WHEN** 前端发送 `PUT /api/matching-knowledge`
-- **THEN** 系统校验并持久化整套配置
-- **AND** 后续匹配请求读取更新后的配置
+#### Scenario: 执行接口不再信任旧客户端决策字段
+- **WHEN** 客户端提交智能填充执行请求
+- **THEN** 请求仅允许提交当前文件定位、目标列、匹配范围、匹配配置和用户确认映射
+- **AND** 服务端在执行前按当前文件与配置重算门禁
+- **AND** 不要求也不接受 `SourceFileId`、`SourceTableIndex`、`SelectedSpecId`、`Acceptance`、`Remark` 或其他旧兼容透传字段
+- **AND** 当请求携带这些旧字段时，接口在请求解析阶段直接返回 `400 Bad Request`，而不是静默忽略
 
-#### Scenario: 重置为系统默认配置
-- **WHEN** 前端发送 `POST /api/matching-knowledge/reset`
-- **THEN** 系统将当前匹配知识恢复为系统默认配置
-- **AND** 返回重置后的完整配置
+### Requirement: 智能填充 llm-stream SSE 契约
+系统 SHALL 通过 `text/event-stream` 暴露智能填充复核进度，并在结束时发送显式终止事件。
 
-#### Scenario: 旧配置接口移除
-- **WHEN** 客户端访问 `/api/text-processing/config`、`/api/synonyms` 或 `/api/keywords`
+#### Scenario: 复核生命周期事件
+- **WHEN** 客户端调用 `POST /api/matching/llm-stream`
+- **THEN** 响应 `Content-Type` 为 `text/event-stream`
+- **AND** 对进入流式复核的行依次发送 `review.start`、一个或多个 `review.delta`，以及 `review.done` 或 `review.error`
+
+#### Scenario: AI 等价裁决已要求人工确认时跳过旧复核流
+- **GIVEN** 当前最佳候选的 AI 等价裁决结果已要求人工确认
+- **WHEN** 客户端调用 `POST /api/matching/llm-stream`
+- **THEN** 系统可以直接发送一个 `review.done`
+- **AND** 该事件用于告知“保留 AI 等价裁决结果，不再进入旧复核流”
+- **AND** 该行不要求先发送 `review.start` 或 `review.delta`
+
+#### Scenario: 流式会话结束事件
+- **WHEN** `llm-stream` 本次请求处理结束
+- **THEN** 系统发送 `stream.complete`
+- **AND** 事件数据至少包含 `totalItems`、`reviewTargets`、`reviewSuccess`、`reviewFailed`、`reviewTimeout`、`reviewRetries`、`totalFailures`、`circuitOpened` 与 `elapsedMs`
+
+### Requirement: 运行时匹配知识不提供对外配置 API
+系统 SHALL 将匹配知识限制为匹配引擎内部运行时知识，而不是对外可编辑的配置 API。
+
+#### Scenario: 客户端访问旧匹配知识接口
+- **WHEN** 客户端访问 `/api/matching-knowledge`、`/api/matching-knowledge-drafts/generate`、`/api/matching-knowledge/clear`、`/api/matching-knowledge/restore-defaults`、`/api/text-processing/config`、`/api/synonyms` 或 `/api/keywords`
 - **THEN** 系统不再提供这些旧配置接口
 
 ### Requirement: 数据库存储的用户认证
@@ -265,6 +250,7 @@
 #### Scenario: 预览模板
 - **WHEN** 前端发送 Prompt 模板预览请求
 - **THEN** 系统返回模板校验结果、样例渲染内容与结构化输出校验结果
+- **AND** 样例渲染内容会覆盖该系统模板场景运行时必需的占位符
 
 #### Scenario: 按场景恢复默认模板
 - **WHEN** 前端请求恢复某个系统模板场景的默认内容

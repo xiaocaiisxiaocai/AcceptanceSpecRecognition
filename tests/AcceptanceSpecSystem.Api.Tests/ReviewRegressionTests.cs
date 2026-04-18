@@ -222,14 +222,18 @@ public class ReviewRegressionTests
             GetRepositoryRoot(),
             "web/src/views/smart-fill/components/MatchPreviewTable.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("可直接填充 (",
-            "主表筛选应改成客户能直接理解的业务分组，而不是继续暴露算法术语");
+        content.Should().Contain("100%精确直达 (",
+            "主表应继续把完全精确命中的可填充项单独分组，方便客户快速确认");
+        content.Should().Contain("AI/普通可填充 (",
+            "主表应单独展示非精确直达但仍可填充的项，满足客户区分精确命中与 AI/普通填充的需求");
         content.Should().Contain("需要确认 (",
             "主表应单独统计需要客户确认的行，避免把不同状态混成一类");
         content.Should().Contain("不建议填充 (",
             "主表应把拒绝或冲突项单独归类，方便客户快速避开风险行");
         content.Should().Contain("无匹配 (",
             "主表应把无匹配单独列出，而不是并入需关注造成口径混乱");
+        content.Should().NotContain("可直接填充 (",
+            "当前主表已拆分为精确直达与 AI/普通可填充两个分组，不应再退回单一口径");
         content.Should().NotContain("自动采用 (",
             "客户主表不应继续使用自动采用这类技术性决策文案");
         content.Should().NotContain("需关注 (",
@@ -239,22 +243,18 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void MatchPreviewTable_ShouldNotMarkRiskyReviewedRowsAsDirectFill()
+    public void MatchPreviewTable_ShouldUseAuthoritativeDecisionForFillRecommendation()
     {
         var content = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/smart-fill/components/MatchPreviewTable.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("const hasCustomerVisibleRisk = (item: MatchPreviewItem) =>",
-            "主表应抽出客户可见风险判断，避免仅凭复核通过就标记为可直接填充");
-        content.Should().Contain("item.confidenceLevel !== \"high\"",
-            "中低置信度匹配即使复核通过，也应继续归入需要确认");
-        content.Should().Contain("item.bestMatch?.isAmbiguous",
-            "高歧义候选不应直接标记为可直接填充");
-        content.Should().Contain("item.bestMatch?.issues",
-            "存在结构化问题时不应直接标记为可直接填充");
-        content.Should().Contain("if (hasCustomerVisibleRisk(item)) return \"review\";",
-            "客户可见风险应优先把结果降级为需要确认");
+        content.Should().Contain("return tableState.fillRecommendation;",
+            "主表的填充建议应以后端 authoritative decision 为准，不应再本地二次改写");
+        content.Should().NotContain("if (hasCustomerVisibleRisk(item)) return \"review\";",
+            "主表不应再因为本地置信度/歧义/issues 信号把 autoApply 二次降级为 review");
+        content.Should().NotContain("硬冲突拦截",
+            "AI-only 口径下主表状态文案不应继续假装存在本地硬冲突门禁");
     }
 
     [Fact]
@@ -279,8 +279,14 @@ public class ReviewRegressionTests
             GetRepositoryRoot(),
             "web/src/views/smart-fill/components/MatchPreviewTable.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("复核分",
-            "复核状态应只展示模型分数，不应把高分直接表述成通过结论");
+        content.Should().Contain("AI判定可采用",
+            "复核状态应直接展示 authoritative 决策结果，而不是继续暴露旧的复核分指标");
+        content.Should().Contain("复核后待确认",
+            "AI 复核完成但仍需人工确认时，应明确显示待确认状态");
+        content.Should().NotContain("模型复核分",
+            "主表不应再展示旧的模型复核分字段");
+        content.Should().NotContain("LLM复核",
+            "主表状态文案不应再把旧的 LLM 复核指标当成最终状态标签");
         content.Should().NotContain("分通过",
             "主表不应继续显示“100分通过”这类强结论文案");
         content.Should().NotContain("分未通过",
@@ -294,29 +300,29 @@ public class ReviewRegressionTests
             GetRepositoryRoot(),
             "web/src/views/smart-fill/components/ScoreDetailBestMatchSection.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("label: \"模型复核分\"",
-            "技术概览中的 LLM 分数应以中性指标呈现，避免被理解成最终通过结论");
+        content.Should().Contain("label: \"AI 等价裁决\"",
+            "技术概览应改为展示 AI 等价裁决，而不是继续保留旧的复核分指标");
+        content.Should().NotContain("label: \"模型复核分\"",
+            "技术概览不应继续使用旧的模型复核分标题");
         content.Should().NotContain("label: \"LLM复核\"",
             "技术概览不应继续使用带结论感的旧指标标题");
     }
 
     [Fact]
-    public void ScoreDetailDecisionSummarySection_ShouldDowngradeAutoApplyWhenDifferencesExist()
+    public void ScoreDetailDecisionSummarySection_ShouldKeepAuthoritativeRecommendationAndExposeDifferencesSeparately()
     {
         var content = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/smart-fill/components/ScoreDetailDecisionSummarySection.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("const hasCustomerVisibleDifference = computed(() =>",
-            "详情页应统一计算客户能看懂的差异风险，而不是只看最终决策字段");
-        content.Should().Contain("props.sourceBestRows.length > 0",
-            "源项与推荐项存在差异时，应降级为需要确认");
-        content.Should().Contain("bestMatch.value.issues",
-            "存在结构化问题时，应降级为需要确认");
-        content.Should().Contain("bestMatch.value?.isAmbiguous",
-            "高歧义候选不应在详情页宣称可以直接采用");
-        content.Should().Contain("props.item.confidenceLevel !== \"high\"",
-            "中低置信度匹配不应在详情页直接显示建议填充");
+        content.Should().NotContain("const hasCustomerVisibleDifference = computed(() =>",
+            "详情页不应再以本地差异信号覆盖 authoritative recommendation");
+        content.Should().NotContain("description: \"存在差异，请先确认\"",
+            "详情页不应再把 autoApply 二次改写为本地降级文案");
+        content.Should().NotContain("return \"核对差异后再填充\";",
+            "建议动作应直接沿用 authoritative recommendation，差异提示应留在 checklist");
+        content.Should().Contain("const focusChecklist = computed(() =>",
+            "详情页仍应保留差异/问题 checklist，供用户人工核对");
     }
 
     [Fact]
@@ -330,10 +336,12 @@ public class ReviewRegressionTests
             "客户视角不应再叠加顶部提示条，否则会和结论卡重复表达同一件事");
         content.Should().NotContain("补充说明",
             "客户视角应把重复说明压缩进重点确认区，不应再单独保留补充说明面板");
-        content.Should().Contain("核对差异后再填充",
-            "建议动作应压缩成一句可执行短句");
-        content.Should().Contain("存在差异，请先确认",
-            "结论说明应收敛成短句，而不是继续输出整段解释");
+        content.Should().NotContain("核对差异后再填充",
+            "旧差异确认话术已经下线，不应继续覆盖当前 AI 结论");
+        content.Should().NotContain("存在差异，请先确认",
+            "旧结论短句已经下线，不应继续出现在详情摘要里");
+        content.Should().Contain("请结合详情表格核对源项与推荐项差异",
+            "重点确认区仍应保留一条简洁、面向用户的差异核对提示");
     }
 
     [Fact]
@@ -545,9 +553,8 @@ public class ReviewRegressionTests
         controllerTypes.Select(type => type.Name).Should().Contain([
             "MatchingPreviewController",
             "MatchingExecutionController",
-            "MatchingTaskController",
-            "MatchingReuseController"
-        ], "匹配预览、执行、下载与严格复用应拆分为独立控制器");
+            "MatchingTaskController"
+        ], "匹配预览、执行与下载应拆分为独立控制器；strict reuse 已从当前主链移除");
 
         controllerTypes.Should().NotContain(type => type.Name == "MatchingController",
             "巨型 MatchingController 应被拆分，避免继续堆叠职责");
@@ -618,28 +625,29 @@ public class ReviewRegressionTests
         var taskContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Services/MatchingTaskAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
-        var strictReuseContent = File.ReadAllText(Path.Combine(
-            GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/StrictReuseAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
-
         workflowContent.Should().Contain("PayloadVersion", "任务快照应带版本元数据，便于未来兼容迁移");
         snapshotContent.Should().Contain("EnsureTaskOwnership", "任务快照服务应统一校验任务归属");
         taskContent.Should().Contain("DownloadAsync(ClaimsPrincipal user, string taskId)", "下载接口应结合当前用户校验任务归属");
         taskContent.Should().Contain("MatchingTaskSnapshotService", "下载应用服务应通过共享快照服务读取任务归属");
-        strictReuseContent.Should().Contain("PreviewStrictReuseAsync(", "严格复用预检也应校验任务归属");
-        strictReuseContent.Should().Contain("ExecuteStrictReuseAsync(", "严格复用执行也应校验任务归属");
-        strictReuseContent.Should().Contain("MatchingTaskSnapshotService", "严格复用应用服务应通过共享快照服务校验来源任务归属");
+        File.Exists(Path.Combine(
+                GetRepositoryRoot(),
+                "src/AcceptanceSpecSystem.Api/Services/StrictReuseAppService.cs".Replace('/', Path.DirectorySeparatorChar)))
+            .Should()
+            .BeFalse("strict reuse 主链已经移除，不应再保留独立应用服务");
     }
 
     [Fact]
-    public void PromptTemplateRepository_SetDefault_ShouldUseTransaction()
+    public void PromptTemplate_ShouldNotRetainLegacyDefaultTemplateSemantics()
     {
-        var content = File.ReadAllText(Path.Combine(
+        var repositoryContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Data/Repositories/PromptTemplateRepository.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var dtoContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/DTOs/PromptTemplateDtos.cs".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("BeginTransactionAsync", "设置默认模板应使用事务收拢并发窗口");
-        content.Should().Contain("ExecuteUpdateAsync", "设置默认模板应以集合更新清理旧默认，避免逐条切换带来竞态");
+        repositoryContent.Should().NotContain("SetDefaultAsync", "Prompt 模板不应继续保留设默认模板仓储能力");
+        dtoContent.Should().NotContain("IsDefault", "Prompt 模板 DTO 不应继续暴露默认模板语义");
     }
 
     [Fact]
@@ -738,68 +746,106 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void SmartFillMatchConfig_ShouldExposeLlmEntityResolutionOptions()
+    public void SmartFillMatchConfig_ShouldNotExposeRemovedLlmEntityResolutionOptions()
     {
         var apiContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/api/matching.ts".Replace('/', Path.DirectorySeparatorChar)));
-        apiContent.Should().Contain("useLlmEntityResolution");
-        apiContent.Should().Contain("llmEntityResolutionTopCandidates");
-        apiContent.Should().Contain("llmEntityPositiveConfidenceThreshold");
-        apiContent.Should().Contain("llmEntityConflictReviewConfidenceThreshold");
-        apiContent.Should().Contain("llmEntityConflictRejectConfidenceThreshold");
+        apiContent.Should().NotContain("useLlmEntityResolution");
+        apiContent.Should().NotContain("llmEntityResolutionTopCandidates");
+        apiContent.Should().NotContain("llmEntityPositiveConfidenceThreshold");
+        apiContent.Should().NotContain("llmEntityConflictReviewConfidenceThreshold");
+        apiContent.Should().NotContain("llmEntityConflictRejectConfidenceThreshold");
 
         var matchConfigContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/smart-fill/components/MatchConfig.vue".Replace('/', Path.DirectorySeparatorChar)));
-        matchConfigContent.Should().Contain("config.useLlmEntityResolution");
-        matchConfigContent.Should().Contain("config.llmEntityResolutionTopCandidates");
-        matchConfigContent.Should().Contain("config.llmEntityPositiveConfidenceThreshold");
-        matchConfigContent.Should().Contain("config.llmEntityConflictReviewConfidenceThreshold");
-        matchConfigContent.Should().Contain("config.llmEntityConflictRejectConfidenceThreshold");
-        matchConfigContent.Should().Contain("LLM 实体判别");
+        matchConfigContent.Should().NotContain("config.useLlmEntityResolution");
+        matchConfigContent.Should().NotContain("config.llmEntityResolutionTopCandidates");
+        matchConfigContent.Should().NotContain("config.llmEntityPositiveConfidenceThreshold");
+        matchConfigContent.Should().NotContain("config.llmEntityConflictReviewConfidenceThreshold");
+        matchConfigContent.Should().NotContain("config.llmEntityConflictRejectConfidenceThreshold");
+        matchConfigContent.Should().NotContain("LLM 实体判别");
     }
 
     [Fact]
-    public void SmartFillMatchConfig_ShouldExposeSingleStageAndMultiStageSwitch()
+    public void MatchingStrategyLegacyCode_ShouldBeRemovedFromFrontendAndBackend()
     {
         var apiContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/api/matching.ts".Replace('/', Path.DirectorySeparatorChar)));
-        apiContent.Should().Contain("SingleStage = 1");
-        apiContent.Should().Contain("matchingStrategy: MatchingStrategy.SingleStage");
+        apiContent.Should().NotContain("export enum MatchingStrategy");
+        apiContent.Should().NotContain("matchingStrategy?:");
+        apiContent.Should().NotContain("matchingStrategy:");
 
         var matchConfigContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/smart-fill/components/MatchConfig.vue".Replace('/', Path.DirectorySeparatorChar)));
-        matchConfigContent.Should().Contain("config.matchingStrategy");
-        matchConfigContent.Should().Contain("单阶段");
-        matchConfigContent.Should().Contain("多阶段");
+        matchConfigContent.Should().Contain("证据裁决");
+        matchConfigContent.Should().NotContain("MatchingStrategy");
+        matchConfigContent.Should().NotContain("isMultiStage");
+        matchConfigContent.Should().NotContain("单阶段");
+        matchConfigContent.Should().NotContain("多阶段");
+
+        var aiServiceConfigContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/ai-services/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        aiServiceConfigContent.Should().Contain("证据裁决");
+        aiServiceConfigContent.Should().NotContain("defaultMatchingStrategy");
+        aiServiceConfigContent.Should().NotContain("单阶段");
+        aiServiceConfigContent.Should().NotContain("多阶段");
+
+        var apiDtoContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/DTOs/AiServiceDtos.cs".Replace('/', Path.DirectorySeparatorChar)));
+        apiDtoContent.Should().NotContain("DefaultMatchingStrategy");
+
+        var matchingDtoContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/DTOs/MatchingDtos.cs".Replace('/', Path.DirectorySeparatorChar)));
+        matchingDtoContent.Should().NotContain("MatchingStrategy");
+
+        var matchingServiceContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Core/Matching/Services/SemanticKernelMatchingService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        matchingServiceContent.Should().NotContain("SelectBestBySingleStage");
+        matchingServiceContent.Should().NotContain("SelectBestByMultiStage");
+        matchingServiceContent.Should().NotContain("MatchingStrategy.MultiStage");
+
+        var dataEntityContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Data/Entities/AiServiceConfig.cs".Replace('/', Path.DirectorySeparatorChar)));
+        dataEntityContent.Should().NotContain("DefaultMatchingStrategy");
+
+        var dataEnumContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Data/Entities/Enums.cs".Replace('/', Path.DirectorySeparatorChar)));
+        dataEnumContent.Should().NotContain("AiServiceDefaultMatchingStrategy");
     }
 
     [Fact]
-    public void PromptTemplateSceneMappings_ShouldIncludeMatchingEntityResolution()
+    public void PromptTemplateSceneMappings_ShouldNotIncludeRemovedMatchingEntityResolution()
     {
         var dataEntityContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Data/Entities/PromptTemplate.cs".Replace('/', Path.DirectorySeparatorChar)));
-        dataEntityContent.Should().Contain("MatchingEntityResolution");
+        dataEntityContent.Should().NotContain("MatchingEntityResolution");
 
         var providerContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Data/Providers/CoreProviderAdapters.cs".Replace('/', Path.DirectorySeparatorChar)));
-        providerContent.Should().Contain("PromptTemplateScene.MatchingEntityResolution");
-        providerContent.Should().Contain("Entities.PromptTemplateScene.MatchingEntityResolution");
+        providerContent.Should().NotContain("PromptTemplateScene.MatchingEntityResolution");
+        providerContent.Should().NotContain("Entities.PromptTemplateScene.MatchingEntityResolution");
 
         var controllerContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Controllers/PromptTemplatesController.cs".Replace('/', Path.DirectorySeparatorChar)));
-        controllerContent.Should().Contain("CorePromptTemplateScene.MatchingEntityResolution");
-        controllerContent.Should().Contain("PromptTemplateScene.MatchingEntityResolution");
+        controllerContent.Should().NotContain("CorePromptTemplateScene.MatchingEntityResolution");
+        controllerContent.Should().NotContain("PromptTemplateScene.MatchingEntityResolution");
     }
 
     [Fact]
-    public void ScoreDetailDialog_ShouldExposeEntityEvidenceSection()
+    public void ScoreDetailDialog_ShouldHideRemovedEntityEvidenceSection()
     {
         var bestMatchSectionContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
@@ -808,9 +854,21 @@ public class ReviewRegressionTests
             GetRepositoryRoot(),
             "web/src/views/smart-fill/components/ScoreDetailCandidateList.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        bestMatchSectionContent.Should().Contain("实体证据");
-        bestMatchSectionContent.Should().Contain("bestMatchEntities");
-        candidateListContent.Should().Contain("candidate.entities?.length");
+        bestMatchSectionContent.Should().NotContain("实体证据");
+        bestMatchSectionContent.Should().NotContain("bestMatchEntities");
+        candidateListContent.Should().NotContain("candidate.entities?.length");
+    }
+
+    [Fact]
+    public void ScoreDetailBestMatchSection_ShouldNotContainLegacyKeywordFallbackExplanation()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/smart-fill/components/ScoreDetailBestMatchSection.vue".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().NotContain("KeywordOverlap");
+        content.Should().NotContain("关键词项");
+        content.Should().NotContain("有效关键词 token");
     }
 
     [Fact]
@@ -1108,6 +1166,22 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void MatchingSimilarityPermissionResidue_ShouldBeRemovedFromConventionsAndSeedWhitelist()
+    {
+        var permissionConventionContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Authorization/PermissionConventions.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var authSeedContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/AuthUserSeedService.cs".Replace('/', Path.DirectorySeparatorChar)));
+
+        permissionConventionContent.Should().NotContain("return \"similarity\"",
+            "legacy /api/matching/similarity 已移除，不应继续保留专用动作映射");
+        authSeedContent.Should().NotContain("\"api:matching:similarity\"",
+            "普通角色白名单不应继续残留 similarity API 权限");
+    }
+
+    [Fact]
     public void AppDbContext_ShouldLogWhenApiKeyDecryptFallbackIsTriggered()
     {
         var content = File.ReadAllText(Path.Combine(
@@ -1154,14 +1228,13 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void StrictReuseDialog_ShouldWarnWhenPermissionPropsAreMissing()
+    public void StrictReuseDialog_ShouldBeRemoved()
     {
-        var content = File.ReadAllText(Path.Combine(
-            GetRepositoryRoot(),
-            "web/src/views/smart-fill/components/StrictReuseDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
-
-        content.Should().Contain("console.warn", "开发环境下应提示父组件遗漏权限 props");
-        content.Should().Contain("import.meta.env.DEV", "仅开发环境输出权限 props 警告即可");
+        File.Exists(Path.Combine(
+                GetRepositoryRoot(),
+                "web/src/views/smart-fill/components/StrictReuseDialog.vue".Replace('/', Path.DirectorySeparatorChar)))
+            .Should()
+            .BeFalse("前端 strict reuse 入口已经移除，不应继续保留对话框组件");
     }
 
     [Fact]
@@ -1210,11 +1283,25 @@ public class ReviewRegressionTests
         httpContent.Should().Contain("PureHttp.handleAuthFailure",
             "原生 fetch 鉴权封装应复用统一的 401/403 处理逻辑");
 
+        var matchingApiContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/api/matching.ts".Replace('/', Path.DirectorySeparatorChar)));
+        matchingApiContent.Should().Contain("export const requestMatchLlmStream = async",
+            "智能填充流式请求应收敛到匹配 API 模块，避免页面直接拼装原生请求");
+        matchingApiContent.Should().Contain("createAuthorizedFetchInit(url, {",
+            "匹配 API 模块应复用共享鉴权初始化");
+        matchingApiContent.Should().Contain("ensureFetchResponseAuthHandled(response, url)",
+            "匹配 API 模块应复用统一的认证失败处理");
+
         var smartFillContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/smart-fill/index.vue".Replace('/', Path.DirectorySeparatorChar)));
-        smartFillContent.Should().Contain("authorizedFetch(\"/api/matching/llm-stream\"",
-            "Smart Fill 的流式请求应走共享鉴权/审计封装，而不是自行拼 Authorization 头");
+        smartFillContent.Should().Contain("requestMatchLlmStream(payload, controller.signal)",
+            "Smart Fill 页面应通过类型化匹配 API 发起流式请求，而不是直接发原生 fetch");
+        smartFillContent.Should().Contain("createMatchLlmStreamRequest({",
+            "Smart Fill 页面应先构造类型化 payload，再交给匹配 API 发送");
+        smartFillContent.Should().NotContain("authorizedFetch(\"/api/matching/llm-stream\"",
+            "页面层不应再直接调用原生鉴权 fetch 访问 llm-stream");
         smartFillContent.Should().NotContain("Authorization: formatToken(",
             "Smart Fill 不应再手工拼接流式请求的 Authorization 头");
     }

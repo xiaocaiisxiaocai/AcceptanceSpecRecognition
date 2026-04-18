@@ -2,12 +2,9 @@
 import { computed, ref, watch } from "vue";
 import {
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
-  DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES,
-  MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES,
   MAX_RECALL_TOP_K,
   type MatchConfig,
-  defaultMatchConfig,
-  MatchingStrategy
+  defaultMatchConfig
 } from "@/api/matching";
 import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
@@ -42,9 +39,8 @@ const loadingAiServices = ref(false);
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
 const allowLlm = computed(() => props.allowLlm !== false);
-const isMultiStage = computed(
-  () => config.value.matchingStrategy === MatchingStrategy.MultiStage
-);
+const hasAvailableEmbeddingService = computed(() => embeddingServices.value.length > 0);
+const hasAvailableLlmService = computed(() => llmServices.value.length > 0);
 
 const hasExplicitMatchingDefaults = computed(() => {
   const incoming = props.modelValue;
@@ -52,12 +48,8 @@ const hasExplicitMatchingDefaults = computed(() => {
     return false;
   }
 
-  return (
-    (incoming.matchingStrategy !== undefined &&
-      incoming.matchingStrategy !== defaultMatchConfig.matchingStrategy) ||
-    (incoming.recallTopK !== undefined &&
-      incoming.recallTopK !== defaultMatchConfig.recallTopK)
-  );
+  return incoming.recallTopK !== undefined &&
+    incoming.recallTopK !== defaultMatchConfig.recallTopK;
 });
 
 // 高级选项展开
@@ -78,11 +70,6 @@ watch(
         (config.value as any)[key] = (source as any)[key];
       }
     }
-    if (!allowLlm.value) {
-      config.value.useLlmReview = false;
-      config.value.useLlmSuggestion = false;
-      config.value.useLlmEntityResolution = false;
-    }
   },
   { immediate: true }
 );
@@ -100,23 +87,9 @@ const updateConfig = () => {
 watch(config, updateConfig, { deep: true });
 
 watch(
-  allowLlm,
-  enabled => {
-    if (!enabled) {
-      config.value.useLlmReview = false;
-      config.value.useLlmSuggestion = false;
-      config.value.useLlmEntityResolution = false;
-    }
-  },
-  { immediate: true }
-);
-
-watch(
   () => [
-    config.value.matchingStrategy,
     config.value.recallTopK,
-    config.value.ambiguityMargin,
-    config.value.llmEntityResolutionTopCandidates
+    config.value.ambiguityMargin
   ],
   () => {
     if (!config.value.recallTopK || config.value.recallTopK < 1) {
@@ -126,22 +99,6 @@ watch(
     }
     if (config.value.ambiguityMargin === undefined || config.value.ambiguityMargin === null) {
       config.value.ambiguityMargin = defaultMatchConfig.ambiguityMargin;
-    }
-    if (
-      !config.value.llmEntityResolutionTopCandidates ||
-      config.value.llmEntityResolutionTopCandidates < 1
-    ) {
-      config.value.llmEntityResolutionTopCandidates =
-        DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES;
-    } else if (
-      config.value.llmEntityResolutionTopCandidates >
-      MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES
-    ) {
-      config.value.llmEntityResolutionTopCandidates =
-        MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES;
-    }
-    if (!isMultiStage.value) {
-      config.value.useLlmEntityResolution = false;
     }
   },
   { immediate: true }
@@ -234,7 +191,6 @@ const applyEmbeddingServiceDefaults = (serviceId?: number) => {
   const selectedService = embeddingServices.value.find(item => item.id === serviceId);
   if (!selectedService) return;
 
-  config.value.matchingStrategy = selectedService.defaultMatchingStrategy;
   config.value.recallTopK = Math.min(
     MAX_RECALL_TOP_K,
     Math.max(1, selectedService.defaultRecallTopK)
@@ -281,11 +237,6 @@ const resetConfig = () => {
     llmServiceId
   };
   applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
-  if (!allowLlm.value) {
-    config.value.useLlmReview = false;
-    config.value.useLlmSuggestion = false;
-    config.value.useLlmEntityResolution = false;
-  }
 };
 
 // 初始化
@@ -301,6 +252,10 @@ defineExpose({
     customerId: selectedCustomerId.value,
     processId: selectedProcessId.value,
     machineModelId: selectedMachineModelId.value
+  }),
+  getServiceStatus: () => ({
+    hasAvailableEmbeddingService: hasAvailableEmbeddingService.value,
+    hasAvailableLlmService: hasAvailableLlmService.value
   })
 });
 </script>
@@ -395,6 +350,15 @@ defineExpose({
               :value="service.id"
             />
           </el-select>
+          <el-alert
+            v-if="!loadingAiServices && !hasAvailableEmbeddingService"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="未检测到可用 Embedding 服务"
+            description="请先在 AI 服务配置中启用至少一个带 Embedding 模型的服务。"
+            class="service-status-alert"
+          />
         </el-form-item>
         <el-form-item label="LLM 服务">
           <el-select
@@ -413,20 +377,24 @@ defineExpose({
               :value="service.id"
             />
           </el-select>
+          <el-alert
+            v-if="allowLlm && !loadingAiServices && !hasAvailableLlmService"
+            type="info"
+            :closable="false"
+            show-icon
+            title="未检测到可用 LLM 服务"
+            description="当前仍可执行 Embedding 召回和证据重排；如需 AI 复核，请先启用至少一个带 LLM 模型的服务。"
+            class="service-status-alert"
+          />
         </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="匹配策略">
-              <el-radio-group v-model="config.matchingStrategy">
-                <el-radio-button :label="MatchingStrategy.SingleStage">
-                  单阶段 Embedding
-                </el-radio-button>
-                <el-radio-button :label="MatchingStrategy.MultiStage">
-                  多阶段证据重排
-                </el-radio-button>
-              </el-radio-group>
+            <el-form-item label="匹配链路">
+              <div class="fixed-mode">
+                <el-tag type="success">证据裁决</el-tag>
+              </div>
               <div class="form-inline-tip">
-                单阶段按 Embedding 直接排序；多阶段会追加证据重排、冲突门禁和高歧义判定。
+                固定执行 Embedding 召回、证据重排、冲突门禁和高歧义复核。
               </div>
             </el-form-item>
           </el-col>
@@ -442,7 +410,7 @@ defineExpose({
                 :show-input-controls="false"
               />
               <div class="form-inline-tip">
-                该阈值用于保留候选，自动勾选仍以高置信阈值为准
+                该阈值仅用于保留候选，不决定自动采用
               </div>
             </el-form-item>
           </el-col>
@@ -458,7 +426,7 @@ defineExpose({
                 :show-input-controls="false"
               />
               <div class="form-inline-tip">
-                达到该阈值的匹配会默认选中；默认值为
+                高置信阈值只用于结果分层展示，不决定自动采用；默认值为
                 {{ (DEFAULT_HIGH_CONFIDENCE_THRESHOLD * 100).toFixed(0) }}%
               </div>
             </el-form-item>
@@ -476,7 +444,7 @@ defineExpose({
             </el-form-item>
           </el-col>
         </el-row>
-        <el-row v-if="isMultiStage" :gutter="20">
+        <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="召回候选数">
               <el-input-number
@@ -511,9 +479,7 @@ defineExpose({
           type="info"
           :closable="false"
           show-icon
-          :title="isMultiStage
-            ? `系统仅自动填充匹配得分大于等于 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 的结果；其余命中只做 LLM 复核，不会生成新验收标准写回。`
-            : `单阶段模式按 Embedding 直接排序，达到 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 才会自动采用；其余命中需要人工确认或 LLM 复核。`"
+          :title="`系统会先对当前最佳候选执行 AI 等价裁决；只有裁决明确为等价且无需人工确认时才允许自动采用。高歧义样本会继续进入 LLM 复核；高置信阈值 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 只用于结果分层展示，不决定自动采用。`"
         />
       </el-form>
     </div>
@@ -538,120 +504,20 @@ defineExpose({
               title="当前账号没有 LLM 复核权限，本页仅保留基础匹配能力。"
               class="mb-4"
             />
-            <!-- LLM复核 -->
             <el-row :gutter="20" align="middle" class="llm-row">
               <el-col :span="8">
-                <el-form-item label="LLM复核">
-                  <el-switch v-model="config.useLlmReview" :disabled="!allowLlm" />
+                <el-form-item label="AI 复核门禁">
+                  <div class="fixed-mode">
+                    <el-tag type="success">固定开启</el-tag>
+                  </div>
                 </el-form-item>
               </el-col>
               <el-col :span="16">
                 <span class="parallelism-hint">
-                  仅对未达到当前高置信阈值的匹配结果进行语义复核，通过后才允许采用已有规格
+                  当前链路固定执行 AI 等价裁决门禁；高歧义样本会继续进入 AI 复核，不再提供关闭开关。
                 </span>
               </el-col>
             </el-row>
-
-            <el-row v-if="isMultiStage" :gutter="20" align="middle" class="llm-row">
-              <el-col :span="8">
-                <el-form-item label="LLM 实体判别">
-                  <el-switch v-model="config.useLlmEntityResolution" :disabled="!allowLlm" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="16">
-                <span class="parallelism-hint">
-                  仅在品牌/实体无配置时辅助判断 same、alias_same、conflict、unknown；数值和型号硬冲突仍优先。
-                </span>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="isMultiStage" :gutter="20" align="middle">
-              <el-col :span="8">
-                <el-form-item label="实体复判候选数">
-                  <el-input-number
-                    v-model="config.llmEntityResolutionTopCandidates"
-                    :min="1"
-                    :max="MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES"
-                    :step="1"
-                    :disabled="!allowLlm || !config.useLlmEntityResolution"
-                    size="default"
-                    controls-position="right"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :span="16">
-                <span class="parallelism-hint">
-                  仅对前 TopM 个候选补做实体关系判别，默认 2 个，避免增加过多延迟。
-                </span>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="isMultiStage" :gutter="20" align="middle">
-              <el-col :span="8">
-                <el-form-item label="同一实体阈值">
-                  <el-input-number
-                    v-model="config.llmEntityPositiveConfidenceThreshold"
-                    :min="0"
-                    :max="1"
-                    :step="0.05"
-                    :precision="2"
-                    :disabled="!allowLlm || !config.useLlmEntityResolution"
-                    size="default"
-                    controls-position="right"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :span="16">
-                <span class="parallelism-hint">
-                  关系为 same 或 alias_same 且达到该阈值时，才记为正向实体证据。
-                </span>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="isMultiStage" :gutter="20" align="middle">
-              <el-col :span="8">
-                <el-form-item label="冲突复核阈值">
-                  <el-input-number
-                    v-model="config.llmEntityConflictReviewConfidenceThreshold"
-                    :min="0"
-                    :max="1"
-                    :step="0.05"
-                    :precision="2"
-                    :disabled="!allowLlm || !config.useLlmEntityResolution"
-                    size="default"
-                    controls-position="right"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :span="16">
-                <span class="parallelism-hint">
-                  关系为 conflict 且达到该阈值时，结果至少降级为人工确认。
-                </span>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="isMultiStage" :gutter="20" align="middle">
-              <el-col :span="8">
-                <el-form-item label="冲突拒绝阈值">
-                  <el-input-number
-                    v-model="config.llmEntityConflictRejectConfidenceThreshold"
-                    :min="0"
-                    :max="1"
-                    :step="0.05"
-                    :precision="2"
-                    :disabled="!allowLlm || !config.useLlmEntityResolution"
-                    size="default"
-                    controls-position="right"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :span="16">
-                <span class="parallelism-hint">
-                  高于该阈值的实体冲突会直接拒绝；低于该值则只提示问题并等待人工确认。
-                </span>
-              </el-col>
-            </el-row>
-
             <!-- LLM并行度 -->
             <el-row :gutter="20" align="middle">
               <el-col :span="8">
@@ -661,7 +527,7 @@ defineExpose({
                     :min="1"
                     :max="10"
                     :step="1"
-                    :disabled="!allowLlm || !config.useLlmReview"
+                    :disabled="!allowLlm"
                     size="default"
                     controls-position="right"
                   />
@@ -747,6 +613,10 @@ export default {
 
 .advanced-options {
   padding-top: 16px;
+}
+
+.service-status-alert {
+  margin-top: 12px;
 }
 
 .llm-row {

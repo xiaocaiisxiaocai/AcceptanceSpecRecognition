@@ -37,7 +37,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 ```bash
 # 启动 API（仓库根目录执行）
-dotnet run --project src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj -c Debug --urls http://localhost:5014
+dotnet run --project src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj -c Debug --urls http://localhost:5291
 
 # 运行全部测试
 dotnet test AcceptanceSpecSystem.sln -c Debug
@@ -56,7 +56,7 @@ dotnet ef migrations remove -p src/AcceptanceSpecSystem.Data -s src/AcceptanceSp
 ```bash
 cd web
 pnpm install
-pnpm dev           # 开发服务器，http://localhost:8848
+pnpm dev           # 开发服务器，http://localhost:8849
 pnpm build         # 生产构建
 pnpm typecheck     # TypeScript + Vue 类型检查
 pnpm lint          # ESLint + Prettier + Stylelint 全量检查
@@ -66,7 +66,7 @@ pnpm lint          # ESLint + Prettier + Stylelint 全量检查
 
 ```bash
 dotnet run --project tools/E2ETest/E2ETest.csproj -c Debug -- \
-  --baseUrl http://localhost:5014 \
+  --baseUrl http://localhost:5291 \
   --docx docs/example.docx \
   --tableIndex 0 \
   --projectColumnIndex 0 --specificationColumnIndex 1 \
@@ -83,7 +83,7 @@ dotnet run --project tools/E2ETest/E2ETest.csproj -c Debug -- \
 前端 SPA (Vue 3)  →  IIS 站点/子应用  →  ASP.NET Core API (IIS)  →  MySQL (3306)
 ```
 
-开发时 Vite 代理 `/api/*` → `http://localhost:5014`，无需手动切换地址。
+开发时 Vite 代理 `/api/*` → `http://localhost:5291`，无需手动切换地址。
 
 ### 后端项目依赖
 
@@ -114,7 +114,7 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、DI 注册、Program.cs
 | `/data-import/` | Word/Excel 导入验收规格 |
 | `/smart-fill/` | 匹配预览 → 执行填充 → 下载结果文档 |
 | `/file-compare/` | 填充前后文件对比 |
-| `/config/` | AI 服务配置、提示词模板、同义词、关键词 |
+| `/config/` | AI 服务配置、提示词模板、列映射规则 |
 
 API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。
 

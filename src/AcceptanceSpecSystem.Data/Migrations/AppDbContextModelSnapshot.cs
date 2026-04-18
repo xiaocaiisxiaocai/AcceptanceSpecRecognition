@@ -97,11 +97,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<int>("DefaultMatchingStrategy")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(2);
-
                     b.Property<int>("DefaultRecallTopK")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
@@ -728,42 +723,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("MatchingFillTasks");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MatchingKnowledgeConfig", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ConflictPairsJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("EntityAliasesJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("FieldAliasesJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("UnitAliasesJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("UnitFactorsJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("MatchingKnowledgeConfigs");
-                });
-
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.OrgCompany", b =>
                 {
                     b.Property<int>("Id")
@@ -906,9 +865,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("tinyint(1)");
 
                     b.Property<bool>("IsSystem")
                         .HasColumnType("tinyint(1)");

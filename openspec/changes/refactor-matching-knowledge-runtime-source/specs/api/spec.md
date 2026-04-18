@@ -1,32 +1,13 @@
 ## MODIFIED Requirements
-### Requirement: 统一匹配知识配置 API
-系统 SHALL 提供统一的匹配知识配置 API，用于读取、保存、清空和恢复当前生效的结构化匹配知识，并以数据库中的当前配置作为唯一运行时来源。
+### Requirement: 运行时匹配知识不提供对外配置 API
+系统 SHALL 将匹配知识限制为匹配引擎内部运行时知识，不再提供 `/api/matching-knowledge` 及其派生配置接口。
 
-#### Scenario: 读取当前匹配知识配置
-- **WHEN** 前端发送 `GET /api/matching-knowledge`
-- **THEN** 系统返回数据库中当前生效的实体别名、单位别名、单位换算、字段别名和冲突词对配置
-- **AND** 返回结果不包含 `builtIn`、`custom`、`effective` 等分层视图
-- **AND** 系统不在读取时隐式叠加配置文件中的默认规则
+#### Scenario: 客户端访问旧匹配知识读写接口
+- **WHEN** 客户端访问 `GET /api/matching-knowledge`、`PUT /api/matching-knowledge`、`POST /api/matching-knowledge/clear` 或 `POST /api/matching-knowledge/restore-defaults`
+- **THEN** 系统不再提供这些接口
+- **AND** 运行时不再以数据库中的 matching-knowledge 配置作为来源
 
-#### Scenario: 保存匹配知识配置
-- **GIVEN** 用户已编辑匹配知识配置
-- **WHEN** 前端发送 `PUT /api/matching-knowledge`
-- **THEN** 系统校验并持久化整套当前配置
-- **AND** 后续匹配请求直接读取更新后的数据库配置
-
-#### Scenario: 清空当前匹配知识配置
-- **WHEN** 前端发送清空当前配置的接口请求
-- **THEN** 系统清空数据库中的当前匹配知识配置内容
-- **AND** 返回清空后的完整配置
-- **AND** 系统不会在同一次读取或后续读取时自动回补默认规则
-
-#### Scenario: 恢复默认种子配置
-- **WHEN** 前端发送恢复默认配置的接口请求
-- **THEN** 系统使用默认种子模板覆盖当前数据库配置
-- **AND** 返回恢复后的完整配置
-- **AND** 默认种子仅在该显式操作下生效，而不是在每次运行时读取时自动参与合并
-
-#### Scenario: AI 草稿生成不直接改写正式配置
-- **WHEN** 前端调用匹配知识 AI 草稿生成接口
-- **THEN** 系统仍只返回可审核候选项
-- **AND** 不直接修改数据库中的正式匹配知识配置
+#### Scenario: 客户端访问旧草稿接口
+- **WHEN** 客户端访问 `POST /api/matching-knowledge/drafts/generate`
+- **THEN** 系统不再提供该接口
+- **AND** 不再暴露 `builtIn`、`custom`、`effective` 等旧分层视图语义

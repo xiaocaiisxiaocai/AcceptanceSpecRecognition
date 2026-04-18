@@ -98,6 +98,7 @@ artifacts/
 docs/design-overview.pdf
 .cursor/
 .deploy/
+.worktrees/
 tmp/
 提供测试的文档/
 

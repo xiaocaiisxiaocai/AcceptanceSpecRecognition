@@ -80,12 +80,6 @@ public static class PermissionConventions
             ? "GET"
             : httpMethod.ToUpperInvariant();
 
-        if (normalizedActionName.Contains("getasyncroutes", StringComparison.OrdinalIgnoreCase) ||
-            normalizedRouteTemplate.Contains("get-async-routes", StringComparison.Ordinal))
-        {
-            return "routes";
-        }
-
         if (normalizedActionName.Contains("refresh", StringComparison.OrdinalIgnoreCase) ||
             normalizedRouteTemplate.Contains("refresh-token", StringComparison.Ordinal))
         {
@@ -96,12 +90,6 @@ public static class PermissionConventions
             normalizedRouteTemplate.EndsWith("login", StringComparison.Ordinal))
         {
             return "login";
-        }
-
-        if (normalizedRouteTemplate.Contains("set-default", StringComparison.Ordinal) ||
-            normalizedActionName.Contains("setdefault", StringComparison.Ordinal))
-        {
-            return "set-default";
         }
 
         if (normalizedRouteTemplate.Contains("status", StringComparison.Ordinal) ||
@@ -140,11 +128,6 @@ public static class PermissionConventions
         if (normalizedRouteTemplate.Contains("llm-stream", StringComparison.Ordinal))
         {
             return "llm-stream";
-        }
-
-        if (normalizedRouteTemplate.Contains("similarity", StringComparison.Ordinal))
-        {
-            return "similarity";
         }
 
         if (normalizedRouteTemplate.Contains("preview", StringComparison.Ordinal))

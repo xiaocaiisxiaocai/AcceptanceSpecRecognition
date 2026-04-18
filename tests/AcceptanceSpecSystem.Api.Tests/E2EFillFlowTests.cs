@@ -54,43 +54,60 @@ public class E2EFillFlowTests : IClassFixture<ApiWebApplicationFactory>
 
         // 4) Preview (file mode, manual column indices)
         var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
+            "/api/matching/batch-preview",
             ApiClientJson.ToJsonContent(new
             {
                 fileId,
-                tableIndex = 0,
-                projectColumnIndex = 0,
-                specificationColumnIndex = 1,
                 customerId,
                 processId,
-                config = new { minScoreThreshold = 0.0 }
+                config = new { minScoreThreshold = 0.0 },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3
+                    }
+                }
             }));
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
         previewJson.Code.Should().Be(0);
 
-        var items = previewJson.Data.GetProperty("items");
+        var items = previewJson.Data.GetProperty("tables")[0].GetProperty("items");
         items.GetArrayLength().Should().Be(2);
 
         // Build mappings using bestMatch
         var mappings = items.EnumerateArray().Select(i => new
         {
             rowIndex = i.GetProperty("rowIndex").GetInt32(),
-            specId = i.GetProperty("bestMatch").GetProperty("specId").GetInt32(),
-            matchScore = i.GetProperty("bestMatch").GetProperty("score").GetDouble()
+            specId = i.GetProperty("bestMatch").GetProperty("specId").GetInt32()
         }).ToArray();
 
         // 5) Execute fill (manual acceptance/remark columns)
         var execResp = await _client.PostAsync(
-            "/api/matching/execute",
+            "/api/matching/batch-execute",
             ApiClientJson.ToJsonContent(new
             {
                 fileId,
-                tableIndex = 0,
-                acceptanceColumnIndex = 2,
-                remarkColumnIndex = 3,
-                highConfidenceThreshold = 0.95,
-                mappings
+                customerId,
+                processId,
+                config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.95 },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        mappings
+                    }
+                }
             }));
         execResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();

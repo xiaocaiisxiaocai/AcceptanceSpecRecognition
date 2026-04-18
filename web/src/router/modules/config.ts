@@ -24,16 +24,6 @@ export default {
       }
     },
     {
-      path: "/config/matching-knowledge",
-      name: "MatchingKnowledgeConfig",
-      component: () => import("@/views/config/matching-knowledge/index.vue"),
-      meta: {
-        icon: "ri:book-open-line",
-        title: getPageTitle("config-matching-knowledge"),
-        permissions: getPagePermission("config-matching-knowledge")
-      }
-    },
-    {
       path: "/config/prompt-templates",
       name: "PromptTemplates",
       component: () => import("@/views/config/prompt-templates/index.vue"),

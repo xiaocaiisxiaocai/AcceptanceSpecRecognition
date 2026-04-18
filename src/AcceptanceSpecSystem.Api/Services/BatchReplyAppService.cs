@@ -353,7 +353,7 @@ public sealed class BatchReplyAppService
             throw Failure(400, "请先完成预检后再执行批量回复");
         }
 
-        var generatedFiles = new List<StrictReuseGeneratedFile>();
+        var generatedFiles = new List<GeneratedArtifactFile>();
         var executeResults = new List<BatchReplyExecuteFileResult>();
         var executionHistoryRows = new Dictionary<string, IReadOnlyCollection<BatchReplyWriteTable>>(StringComparer.Ordinal);
         foreach (var target in session.TargetFiles)
@@ -471,7 +471,7 @@ public sealed class BatchReplyAppService
         var sourceTables = await BuildSourceTablesAsync(sourceFile, sourceTableMetas, normalizedSourceConfigs);
         var sourceLookup = sourceTables.ToDictionary(table => table.TableIndex);
 
-        var generatedFiles = new List<StrictReuseGeneratedFile>();
+        var generatedFiles = new List<GeneratedArtifactFile>();
         var executeResults = new List<BatchReplyExecuteFileResult>();
         var executionHistoryRows = new Dictionary<string, IReadOnlyCollection<BatchReplyWriteTable>>(StringComparer.Ordinal);
         var selectedTargetFiles = new List<BatchReplyTargetFile>();
@@ -1031,7 +1031,7 @@ public sealed class BatchReplyAppService
     private async Task<BatchReplyDownloadArtifact> SaveDownloadArtifactAsync(
         string taskId,
         string sourceFileName,
-        IReadOnlyCollection<StrictReuseGeneratedFile> generatedFiles,
+        IReadOnlyCollection<GeneratedArtifactFile> generatedFiles,
         CancellationToken cancellationToken)
     {
         if (generatedFiles.Count == 0)

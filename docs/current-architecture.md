@@ -18,15 +18,15 @@ flowchart TB
   subgraph C[智能匹配与填充]
     C1[Web 前端\n导入/智能填充/配置]
     C2[API 网关\nASP.NET Core]
-    C3[文本预处理\n简繁/同义词/OKNG]
-    C4[匹配引擎\n相似度/Embedding/混合]
+    C3[最小安全归一化\nTrim/空白折叠]
+    C4[AI-only 匹配引擎\nEmbedding召回/证据重排/AI裁决]
     C5[匹配预览结果]
     C6[文档填充写入]
   end
 
   subgraph D[AI 与向量服务]
     D1[Embedding 服务\nOpenAI/Azure/Ollama/LM Studio]
-    D2[Prompt 模板管理]
+    D2[Prompt 模板管理\n4 个系统场景]
   end
 
   A1 --> A2 --> B1

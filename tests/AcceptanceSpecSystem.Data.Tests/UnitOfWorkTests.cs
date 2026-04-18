@@ -30,7 +30,6 @@ public class UnitOfWorkTests
         services.AddScoped<IEmbeddingCacheRepository, EmbeddingCacheRepository>();
         services.AddScoped<IWordFileRepository, WordFileRepository>();
         services.AddScoped<IAiServiceConfigRepository, AiServiceConfigRepository>();
-        services.AddScoped<IMatchingKnowledgeConfigRepository, MatchingKnowledgeConfigRepository>();
         services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
         services.AddScoped<IColumnMappingRuleRepository, ColumnMappingRuleRepository>();
         services.AddScoped<ISystemUserRepository, SystemUserRepository>();
@@ -100,8 +99,8 @@ public class UnitOfWorkTests
         unitOfWork.EmbeddingCaches.Should().NotBeNull();
         unitOfWork.WordFiles.Should().NotBeNull();
         unitOfWork.AiServiceConfigs.Should().NotBeNull();
-        unitOfWork.MatchingKnowledgeConfigs.Should().NotBeNull();
         unitOfWork.PromptTemplates.Should().NotBeNull();
+        unitOfWork.ColumnMappingRules.Should().NotBeNull();
     }
 
     [Fact]

@@ -5,11 +5,11 @@ import {
   getCandidateDelta,
   getDecisionTagType,
   getDecisionText,
-  getEntityRelationTagType,
-  getEntityRelationText,
   getIssueFieldText,
   getIssueSeverityText,
   getIssueTagType,
+  getSelectionModeTagType,
+  getSelectionModeText,
   getScoreLabel,
   getSortedScoreDetails
 } from "./scoreDetail.formatters";
@@ -50,6 +50,15 @@ defineProps<{
               当前对比
             </span>
           </div>
+          <div class="candidate-tag-row">
+            <el-tag
+              size="small"
+              effect="plain"
+              :type="getSelectionModeTagType(candidate.selectionMode)"
+            >
+              {{ getSelectionModeText(candidate.selectionMode) }}
+            </el-tag>
+          </div>
           <div class="candidate-title">
             {{ candidate.project }} - {{ candidate.specification }}
           </div>
@@ -74,14 +83,6 @@ defineProps<{
               size="small"
             >
               {{ getDecisionText(candidate.decision) }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="硬冲突">
-            <el-tag
-              :type="candidate.hasHardConflict ? 'danger' : 'success'"
-              size="small"
-            >
-              {{ candidate.hasHardConflict ? "存在" : "无" }}
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="验收标准">
@@ -135,36 +136,6 @@ defineProps<{
         </div>
 
         <div
-          v-if="candidate.entities?.length"
-          class="info-block compact"
-        >
-          <div class="info-label">实体证据</div>
-          <div class="entity-list">
-            <div
-              v-for="(entity, index) in candidate.entities"
-              :key="`candidate-${candidate.rank}-entity-${index}-${entity.sourceValue}-${entity.candidateValue}`"
-              class="entity-card"
-            >
-              <div class="entity-card__header">
-                <div class="entity-card__title">
-                  {{ entity.entityType || "实体" }}：{{ entity.sourceValue }} -> {{ entity.candidateValue }}
-                </div>
-                <el-tag
-                  size="small"
-                  effect="plain"
-                  :type="getEntityRelationTagType(entity.relation)"
-                >
-                  {{ getEntityRelationText(entity.relation) }}
-                </el-tag>
-              </div>
-              <div class="entity-card__meta">
-                归一化：{{ entity.normalizedSourceValue || "-" }} / {{ entity.normalizedCandidateValue || "-" }}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div
           v-if="candidate.evidenceSummary?.length"
           class="info-block compact"
         >
@@ -190,6 +161,15 @@ defineProps<{
         </div>
 
         <div
+          v-if="candidate.selectionSummary"
+          class="info-block compact"
+          :class="{ 'info-block--highlight': candidate.selectionMode === 'aiRerank' }"
+        >
+          <div class="info-label">选定摘要</div>
+          <div class="info-text">{{ candidate.selectionSummary }}</div>
+        </div>
+
+        <div
           v-if="getSortedScoreDetails(candidate).length > 0"
           class="score-grid"
         >
@@ -210,6 +190,13 @@ defineProps<{
         </div>
         <div v-if="candidate.rerankSummary" class="candidate-collapsed-summary">
           {{ candidate.rerankSummary }}
+        </div>
+        <div
+          v-if="candidate.selectionSummary"
+          class="candidate-collapsed-summary"
+          :class="{ 'candidate-collapsed-summary--highlight': candidate.selectionMode === 'aiRerank' }"
+        >
+          {{ candidate.selectionSummary }}
         </div>
         <div class="candidate-collapsed-tip">
           点击卡片切换为当前对比项并展开详情
@@ -288,6 +275,10 @@ defineProps<{
   line-height: 1.6;
 }
 
+.candidate-collapsed-summary--highlight {
+  color: #9a3412;
+}
+
 .candidate-collapsed-tip {
   font-size: 12px;
   color: #b45309;
@@ -334,6 +325,10 @@ defineProps<{
   color: #111827;
 }
 
+.candidate-tag-row {
+  margin-bottom: 8px;
+}
+
 .candidate-score {
   display: flex;
   flex-direction: column;
@@ -366,6 +361,11 @@ defineProps<{
   background: #fff9f5;
 }
 
+.info-block--highlight {
+  background: #fff8eb;
+  border: 1px solid #fed7aa;
+}
+
 .info-label {
   font-size: 12px;
   color: #6b7280;
@@ -379,22 +379,12 @@ defineProps<{
   line-height: 1.6;
 }
 
-.issue-list,
-.entity-list {
+.issue-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-top: 8px;
 }
-
-.entity-card {
-  padding: 12px;
-  border: 1px solid #dbeafe;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
-}
-
-.entity-card__header,
 .issue-card__header {
   display: flex;
   align-items: flex-start;
@@ -402,31 +392,21 @@ defineProps<{
   gap: 12px;
 }
 
-.entity-card__title,
 .issue-card__title {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.6;
 }
 
-.entity-card__title {
-  color: #1d4ed8;
-}
-
 .issue-card__title {
   color: #9a3412;
 }
 
-.entity-card__meta,
 .issue-card__meta,
 .issue-card__action {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.6;
-}
-
-.entity-card__meta {
-  color: #1e3a8a;
 }
 
 .issue-card__meta {
@@ -470,7 +450,6 @@ defineProps<{
 
 @media (max-width: 900px) {
   .candidate-top,
-  .entity-card__header,
   .issue-card__header {
     flex-direction: column;
   }

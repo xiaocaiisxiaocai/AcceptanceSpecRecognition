@@ -104,6 +104,11 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
                     uniqueTexts.Count, textList.Count, dedupCount, sw.ElapsedMilliseconds);
                 return results;
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Embedding 批量生成已取消");
+                throw;
+            }
             catch (Exception ex)
             {
                 errors.Add($"{cfg.Name}: {ex.Message}");
@@ -146,6 +151,11 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
                 var generator = _factory.CreateEmbeddingGenerator(cfg);
                 var vector = await generator.GenerateVectorAsync(text, cancellationToken: cancellationToken);
                 return vector.ToArray();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Embedding 生成已取消");
+                throw;
             }
             catch (Exception ex)
             {

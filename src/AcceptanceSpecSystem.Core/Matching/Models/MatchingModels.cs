@@ -11,7 +11,7 @@ public static class MatchingThresholds
     public const double DefaultMinScoreThreshold = 0.90;
 
     /// <summary>
-    /// 默认高置信自动采用阈值
+    /// 默认高置信结果分层阈值
     /// </summary>
     public const double DefaultHighConfidenceScore = 0.98;
 
@@ -29,16 +29,6 @@ public static class MatchingThresholds
     /// 默认歧义分差阈值
     /// </summary>
     public const double DefaultAmbiguityMargin = 0.02;
-
-    /// <summary>
-    /// 默认实体复判候选数
-    /// </summary>
-    public const int DefaultLlmEntityResolutionTopCandidates = 2;
-
-    /// <summary>
-    /// 实体复判候选数上限
-    /// </summary>
-    public const int MaxLlmEntityResolutionTopCandidates = 3;
 
     /// <summary>
     /// 中置信度下限
@@ -81,22 +71,6 @@ public class MatchSource
     /// 组合文本
     /// </summary>
     public string CombinedText => $"{Project} {Specification}".Trim();
-}
-
-/// <summary>
-/// 匹配策略
-/// </summary>
-public enum MatchingStrategy
-{
-    /// <summary>
-    /// 单阶段匹配（仅按 Embedding 排序）
-    /// </summary>
-    SingleStage = 1,
-
-    /// <summary>
-    /// 多阶段匹配（Embedding 召回 + 证据重排 + 门禁决策）
-    /// </summary>
-    MultiStage = 2
 }
 
 /// <summary>
@@ -170,11 +144,6 @@ public class MatchResult
     public List<MatchCandidateSnapshot> TopCandidates { get; set; } = [];
 
     /// <summary>
-    /// 匹配策略
-    /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
-
-    /// <summary>
     /// 第一阶段召回候选数
     /// </summary>
     public int RecalledCandidateCount { get; set; }
@@ -195,24 +164,14 @@ public class MatchResult
     public string? RerankSummary { get; set; }
 
     /// <summary>
-    /// LLM 复核得分（0-100，可选）
+    /// 当前最佳候选的选中方式
     /// </summary>
-    public double? LlmScore { get; set; }
+    public MatchSelectionMode SelectionMode { get; set; } = MatchSelectionMode.EmbeddingTop1;
 
     /// <summary>
-    /// LLM 复核原因（可选）
+    /// 当前最佳候选的选中摘要
     /// </summary>
-    public string? LlmReason { get; set; }
-
-    /// <summary>
-    /// LLM 复核评论（可选）
-    /// </summary>
-    public string? LlmCommentary { get; set; }
-
-    /// <summary>
-    /// 是否经过 LLM 复核
-    /// </summary>
-    public bool IsLlmReviewed => LlmScore.HasValue;
+    public string? SelectionSummary { get; set; }
 
     /// <summary>
     /// AI 等价裁决结果
@@ -253,16 +212,6 @@ public class MatchResult
         Decision == MatchDecision.AutoApply &&
         LlmEquivalence?.Verdict != LlmEquivalenceVerdict.Equivalent &&
         Score < MatchingThresholds.MediumConfidenceScore;
-
-    /// <summary>
-    /// 是否为降级结果（Embedding 不可用时回退到文本相似度）
-    /// </summary>
-    public bool IsDegraded { get; set; }
-
-    /// <summary>
-    /// 降级原因说明
-    /// </summary>
-    public string? DegradationReason { get; set; }
 }
 
 /// <summary>
@@ -326,9 +275,19 @@ public class MatchCandidateSnapshot
     public List<MatchIssue> Issues { get; set; } = [];
 
     /// <summary>
-    /// 重排摘要（多阶段时可用）
+    /// 重排摘要
     /// </summary>
     public string? RerankSummary { get; set; }
+
+    /// <summary>
+    /// 该候选在当前结果中的选中方式
+    /// </summary>
+    public MatchSelectionMode SelectionMode { get; set; } = MatchSelectionMode.EmbeddingTop1;
+
+    /// <summary>
+    /// 该候选在当前结果中的选中摘要
+    /// </summary>
+    public string? SelectionSummary { get; set; }
 
     /// <summary>
     /// AI 等价裁决结果（仅 Top1 或参与裁决候选可用）
@@ -377,16 +336,18 @@ public class MatchCandidate
     public float[]? Embedding { get; set; }
 }
 
+public enum MatchSelectionMode
+{
+    ExactShortcut = 1,
+    EmbeddingTop1 = 2,
+    AiRerank = 3
+}
+
 /// <summary>
 /// 匹配配置
 /// </summary>
 public class MatchingConfig
 {
-    /// <summary>
-    /// 匹配策略
-    /// </summary>
-    public MatchingStrategy MatchingStrategy { get; set; } = MatchingStrategy.SingleStage;
-
     /// <summary>
     /// 使用的 Embedding 服务ID（为空则自动选择）
     /// </summary>
@@ -403,64 +364,19 @@ public class MatchingConfig
     public double MinScoreThreshold { get; set; } = MatchingThresholds.DefaultMinScoreThreshold;
 
     /// <summary>
-    /// 多阶段模式下第一阶段召回数量
+    /// 第一阶段召回数量
     /// </summary>
     public int RecallTopK { get; set; } = MatchingThresholds.DefaultRecallTopK;
 
     /// <summary>
-    /// 多阶段模式下的歧义分差阈值
+    /// 歧义分差阈值
     /// </summary>
     public double AmbiguityMargin { get; set; } = MatchingThresholds.DefaultAmbiguityMargin;
 
     /// <summary>
-    /// 高置信自动采用阈值
+    /// 高置信结果分层阈值
     /// </summary>
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
-
-    /// <summary>
-    /// 是否启用 LLM 实体判别
-    /// </summary>
-    public bool UseLlmEntityResolution { get; set; } = false;
-
-    /// <summary>
-    /// 启用实体判别时参与复判的候选数量
-    /// </summary>
-    public int LlmEntityResolutionTopCandidates { get; set; } = MatchingThresholds.DefaultLlmEntityResolutionTopCandidates;
-
-    /// <summary>
-    /// 判定为同一实体所需的最低置信度
-    /// </summary>
-    public double LlmEntityPositiveConfidenceThreshold { get; set; } = 0.85;
-
-    /// <summary>
-    /// 判定为实体冲突并降级人工复核的最低置信度
-    /// </summary>
-    public double LlmEntityConflictReviewConfidenceThreshold { get; set; } = 0.7;
-
-    /// <summary>
-    /// 判定为实体冲突并直接拒绝的最低置信度
-    /// </summary>
-    public double LlmEntityConflictRejectConfidenceThreshold { get; set; } = 0.9;
-
-    /// <summary>
-    /// 是否启用 LLM 复核
-    /// </summary>
-    public bool UseLlmReview { get; set; } = false;
-
-    /// <summary>
-    /// 是否启用 LLM 生成建议
-    /// </summary>
-    public bool UseLlmSuggestion { get; set; } = false;
-
-    /// <summary>
-    /// 是否对完全无匹配的行也生成建议
-    /// </summary>
-    public bool SuggestNoMatchRows { get; set; } = false;
-
-    /// <summary>
-    /// 生成建议触发阈值（最佳得分低于该值）
-    /// </summary>
-    public double LlmSuggestionScoreThreshold { get; set; } = 0.6;
 
     /// <summary>
     /// LLM 并行处理数（1~10，默认3）
@@ -548,4 +464,35 @@ public class BatchMatchResult
     /// 高歧义样本数
     /// </summary>
     public int AmbiguousCount => Results.Count(r => r.IsAmbiguous);
+}
+
+/// <summary>
+/// 批量匹配进度快照。
+/// </summary>
+public sealed class BatchMatchProgress
+{
+    /// <summary>
+    /// 当前阶段标识。
+    /// </summary>
+    public string Stage { get; set; } = "matching";
+
+    /// <summary>
+    /// 当前阶段文案。
+    /// </summary>
+    public string? StageText { get; set; }
+
+    /// <summary>
+    /// 阶段补充说明。
+    /// </summary>
+    public string? DetailText { get; set; }
+
+    /// <summary>
+    /// 已完成的行数。
+    /// </summary>
+    public int CompletedItems { get; set; }
+
+    /// <summary>
+    /// 总行数。
+    /// </summary>
+    public int TotalItems { get; set; }
 }

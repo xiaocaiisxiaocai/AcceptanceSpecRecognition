@@ -7,7 +7,7 @@
 1. 从 Word / Excel 文档中批量提取验收规格数据并导入数据库。
 2. 按客户、机型、制程维度组织和检索验收规格。
 3. 通过 Embedding 主匹配能力对新文档进行智能填充。
-4. 在低置信度场景下提供可选的 LLM 复核和建议生成能力。
+4. 在低置信度或高歧义场景下提供可选的 LLM 复核、实体判别与等价裁决能力。
 5. 支持文件对比、配置管理、历史追踪等配套能力。
 6. 同时支持在线 AI 服务与本地私有化 AI 服务接入。
 
@@ -28,7 +28,7 @@
 | 场景 | 端口 / 形态 | 说明 |
 |------|-------------|------|
 | 前端开发 | Vite Dev Server | 本地开发调试 |
-| 后端开发 | `http://localhost:5290` | 见 `src/AcceptanceSpecSystem.Api/Properties/launchSettings.json` |
+| 后端开发 | `http://localhost:5291` | 见 `src/AcceptanceSpecSystem.Api/Properties/launchSettings.json` |
 | 生产部署 | Docker Compose | `web + api + mysql` 三容器 |
 | 文件存储 | `uploads/` 目录 | Word、Excel、填充结果文件 |
 
@@ -100,8 +100,8 @@
 
 ### 匹配与 AI 规则
 - 当前主匹配策略是 **Embedding 主匹配**。
-- LLM 仅作为复核和建议生成能力，不替代主匹配排序。
-- 低于阈值的结果会被过滤或触发建议生成，具体由配置决定。
+- LLM 仅作为复核、实体判别与等价裁决辅助能力，不替代主匹配排序。
+- 未通过 AI 等价裁决门禁的结果不会自动采用；达到中置信门槛的当前最佳候选会先进入 AI 等价裁决，高歧义样本再追加 LLM 复核。实体冲突高风险阈值只影响负向证据强度，不会在该阶段直接短路拒绝。
 
 ## Important Constraints
 - 必须保持中文界面与中文业务语义一致，不要把核心术语改成英文主导。

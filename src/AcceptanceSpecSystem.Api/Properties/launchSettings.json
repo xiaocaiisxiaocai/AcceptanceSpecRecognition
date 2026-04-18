@@ -14,9 +14,10 @@
       "dotnetRunMessages": true,
       "launchBrowser": true,
       "launchUrl": "swagger",
-      "applicationUrl": "http://localhost:5290",
+      "applicationUrl": "http://localhost:5843",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost;Database=acceptance_spec_ai_equivalence_adjudication_db;User=root;Password=abc+123;CharSet=utf8mb4;"
       }
     },
     "IIS Express": {

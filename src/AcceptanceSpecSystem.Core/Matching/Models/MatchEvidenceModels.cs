@@ -56,11 +56,6 @@ public sealed class MatchEvidence
     public List<EntityEvidence> Entities { get; set; } = [];
 
     /// <summary>
-    /// 是否存在硬冲突
-    /// </summary>
-    public bool HasHardConflict { get; set; }
-
-    /// <summary>
     /// 简要证据摘要
     /// </summary>
     public List<string> Summary { get; set; } = [];

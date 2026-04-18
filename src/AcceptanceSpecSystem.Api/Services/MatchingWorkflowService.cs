@@ -10,10 +10,13 @@ using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -26,6 +29,7 @@ public sealed class MatchingWorkflowSupportService
 {
     private const int MaxScopedCandidateCount = 2000;
     private const int EmbeddingGenerationBatchSize = 200;
+    private static readonly TimeSpan ReviewApprovalTokenLifetime = TimeSpan.FromHours(2);
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMatchingService _matchingService;
@@ -33,14 +37,13 @@ public sealed class MatchingWorkflowSupportService
     private readonly DocumentTableAccessService _documentTableAccessService;
     private readonly MatchingResultWriteBackService _matchingResultWriteBackService;
     private readonly ITextPreprocessingPipeline _textPipeline;
-    private readonly ILlmReviewService _llmReviewService;
-    private readonly ILlmSuggestionService _llmSuggestionService;
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IEmbeddingService _embeddingService;
     private readonly IAiServiceSelector _aiServiceSelector;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly MatchingTaskSnapshotService _matchingTaskSnapshotService;
     private readonly ExecutionHistoryAppService _executionHistoryAppService;
+    private readonly IDataProtector _reviewApprovalProtector;
     private readonly ILogger<MatchingWorkflowSupportService> _logger;
 
     private static readonly JsonSerializerOptions SseJsonOptions = new()
@@ -63,6 +66,74 @@ public sealed class MatchingWorkflowSupportService
         public DateTime ImportedAt { get; init; }
     }
 
+    private sealed class ExecutionMatchSnapshot
+    {
+        public Dictionary<int, MatchResult> MatchLookup { get; init; } = [];
+
+        public Dictionary<int, MatchSourceItem> SourceRowLookup { get; init; } = [];
+    }
+
+    private sealed class ReviewApprovalTokenPayload
+    {
+        public int UserId { get; init; }
+
+        public int? TableIndex { get; init; }
+
+        public int RowIndex { get; init; }
+
+        public int SpecId { get; init; }
+
+        public string SourceProject { get; init; } = string.Empty;
+
+        public string SourceSpecification { get; init; } = string.Empty;
+
+        public string SpecFingerprint { get; init; } = string.Empty;
+
+        public int? CustomerId { get; init; }
+
+        public int? ProcessId { get; init; }
+
+        public int? MachineModelId { get; init; }
+
+        public MatchingConfig Config { get; init; } = new();
+
+        public DateTimeOffset IssuedAtUtc { get; init; }
+
+        public DateTimeOffset ExpiresAtUtc { get; init; }
+    }
+
+    private sealed class ReviewApprovalBundle
+    {
+        public int UserId { get; init; }
+
+        public int? CustomerId { get; init; }
+
+        public int? ProcessId { get; init; }
+
+        public int? MachineModelId { get; init; }
+
+        public MatchingConfig Config { get; init; } = new();
+
+        public Dictionary<ReviewApprovalLookupKey, ReviewApprovalTokenPayload> Tokens { get; init; } = [];
+    }
+
+    private readonly record struct ReviewApprovalLookupKey(int? TableIndex, int RowIndex);
+    private readonly record struct LlmStreamItemKey(int? TableIndex, int RowIndex);
+
+    private sealed class LlmStepFailureException : Exception
+    {
+        public LlmStepFailureException(string eventMessage, string? decision = null, Exception? innerException = null)
+            : base(eventMessage, innerException)
+        {
+            EventMessage = eventMessage;
+            Decision = decision;
+        }
+
+        public string EventMessage { get; }
+
+        public string? Decision { get; }
+    }
+
     /// <summary>
     /// 创建匹配工作流协作组件实例。
     /// </summary>
@@ -73,14 +144,13 @@ public sealed class MatchingWorkflowSupportService
         DocumentTableAccessService documentTableAccessService,
         MatchingResultWriteBackService matchingResultWriteBackService,
         ITextPreprocessingPipeline textPipeline,
-        ILlmReviewService llmReviewService,
-        ILlmSuggestionService llmSuggestionService,
         IAuthDataScopeService authDataScopeService,
         IEmbeddingService embeddingService,
         IAiServiceSelector aiServiceSelector,
         IServiceScopeFactory scopeFactory,
         MatchingTaskSnapshotService matchingTaskSnapshotService,
         ExecutionHistoryAppService executionHistoryAppService,
+        IDataProtectionProvider dataProtectionProvider,
         ILogger<MatchingWorkflowSupportService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -89,14 +159,13 @@ public sealed class MatchingWorkflowSupportService
         _documentTableAccessService = documentTableAccessService;
         _matchingResultWriteBackService = matchingResultWriteBackService;
         _textPipeline = textPipeline;
-        _llmReviewService = llmReviewService;
-        _llmSuggestionService = llmSuggestionService;
         _authDataScopeService = authDataScopeService;
         _embeddingService = embeddingService;
         _aiServiceSelector = aiServiceSelector;
         _scopeFactory = scopeFactory;
         _matchingTaskSnapshotService = matchingTaskSnapshotService;
         _executionHistoryAppService = executionHistoryAppService;
+        _reviewApprovalProtector = dataProtectionProvider.CreateProtector("MatchingWorkflowSupportService.ReviewApprovalToken.v1");
         _logger = logger;
     }
 
@@ -115,12 +184,171 @@ public sealed class MatchingWorkflowSupportService
         return new MatchingApiException(404, message, isNotFound: true);
     }
 
+    private string IssueReviewApprovalToken(
+        DataScopeResult scope,
+        int? customerId,
+        int? processId,
+        int? machineModelId,
+        MatchingConfig config,
+        MatchLlmStreamItem item,
+        MatchCandidate spec)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var payload = new ReviewApprovalTokenPayload
+        {
+            UserId = scope.UserId,
+            TableIndex = item.TableIndex,
+            RowIndex = item.RowIndex,
+            SpecId = item.BestMatchSpecId ?? 0,
+            SourceProject = NormalizeForDedup(item.SourceProject),
+            SourceSpecification = NormalizeForDedup(item.SourceSpecification),
+            SpecFingerprint = ComputeReviewApprovalSpecFingerprint(
+                spec.Project,
+                spec.Specification,
+                spec.Acceptance,
+                spec.Remark),
+            CustomerId = customerId,
+            ProcessId = processId,
+            MachineModelId = machineModelId,
+            Config = CloneMatchingConfig(config),
+            IssuedAtUtc = now,
+            ExpiresAtUtc = now.Add(ReviewApprovalTokenLifetime)
+        };
+
+        var json = JsonSerializer.Serialize(payload);
+        return _reviewApprovalProtector.Protect(json);
+    }
+
+    private ReviewApprovalBundle? ResolveReviewApprovalBundle(
+        IEnumerable<(int? TableIndex, FillMapping Mapping)> mappings,
+        int executingUserId)
+    {
+        ReviewApprovalTokenPayload? baseline = null;
+        var tokens = new Dictionary<ReviewApprovalLookupKey, ReviewApprovalTokenPayload>();
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var (tableIndex, mapping) in mappings)
+        {
+            if (string.IsNullOrWhiteSpace(mapping.ReviewApprovalToken))
+            {
+                continue;
+            }
+
+            ReviewApprovalTokenPayload payload;
+            try
+            {
+                var json = _reviewApprovalProtector.Unprotect(mapping.ReviewApprovalToken);
+                payload = JsonSerializer.Deserialize<ReviewApprovalTokenPayload>(json)
+                    ?? throw new InvalidOperationException("复核放行令牌为空");
+            }
+            catch (Exception ex) when (ex is CryptographicException or JsonException or InvalidOperationException)
+            {
+                throw Failure(400, "复核放行令牌无效，请重新预览并复核");
+            }
+
+            if (payload.ExpiresAtUtc <= now)
+            {
+                throw Failure(400, "复核放行令牌已过期，请重新预览并复核");
+            }
+
+            if (payload.UserId != executingUserId)
+            {
+                throw Failure(400, "复核放行令牌不属于当前用户，请重新预览并复核");
+            }
+
+            if (payload.TableIndex != tableIndex ||
+                payload.RowIndex != mapping.RowIndex ||
+                payload.SpecId != (mapping.SpecId ?? 0))
+            {
+                throw Failure(400, "复核放行令牌与当前行或规格不一致，请重新预览并复核");
+            }
+
+            var key = new ReviewApprovalLookupKey(payload.TableIndex, payload.RowIndex);
+            if (!tokens.TryAdd(key, payload))
+            {
+                throw Failure(400, "同一行存在重复的复核放行令牌，请重新预览并复核");
+            }
+
+            if (baseline == null)
+            {
+                baseline = payload;
+                continue;
+            }
+
+            if (!HasSameReviewApprovalContext(baseline, payload))
+            {
+                throw Failure(400, "复核放行令牌来自不同的预览上下文，请分批执行");
+            }
+        }
+
+        if (baseline == null)
+        {
+            return null;
+        }
+
+        return new ReviewApprovalBundle
+        {
+            UserId = baseline.UserId,
+            CustomerId = baseline.CustomerId,
+            ProcessId = baseline.ProcessId,
+            MachineModelId = baseline.MachineModelId,
+            Config = CloneMatchingConfig(baseline.Config),
+            Tokens = tokens
+        };
+    }
+
+    private static bool HasSameReviewApprovalContext(
+        ReviewApprovalTokenPayload left,
+        ReviewApprovalTokenPayload right)
+    {
+        return left.UserId == right.UserId &&
+               left.CustomerId == right.CustomerId &&
+               left.ProcessId == right.ProcessId &&
+               left.MachineModelId == right.MachineModelId &&
+               HasSameMatchingConfig(left.Config, right.Config);
+    }
+
+    private static bool HasSameMatchingConfig(MatchingConfig left, MatchingConfig right)
+    {
+        return left.EmbeddingServiceId == right.EmbeddingServiceId &&
+               left.LlmServiceId == right.LlmServiceId &&
+               left.MinScoreThreshold == right.MinScoreThreshold &&
+               left.RecallTopK == right.RecallTopK &&
+               left.AmbiguityMargin == right.AmbiguityMargin &&
+               left.HighConfidenceThreshold == right.HighConfidenceThreshold &&
+               left.LlmParallelism == right.LlmParallelism &&
+               left.LlmRowTimeoutSeconds == right.LlmRowTimeoutSeconds &&
+               left.LlmRetryCount == right.LlmRetryCount &&
+               left.LlmCircuitBreakFailures == right.LlmCircuitBreakFailures &&
+               left.FilterEmptySourceRows == right.FilterEmptySourceRows;
+    }
+
+    private static MatchingConfig CloneMatchingConfig(MatchingConfig config)
+    {
+        return new MatchingConfig
+        {
+            EmbeddingServiceId = config.EmbeddingServiceId,
+            LlmServiceId = config.LlmServiceId,
+            MinScoreThreshold = config.MinScoreThreshold,
+            RecallTopK = config.RecallTopK,
+            AmbiguityMargin = config.AmbiguityMargin,
+            HighConfidenceThreshold = config.HighConfidenceThreshold,
+            LlmParallelism = config.LlmParallelism,
+            LlmRowTimeoutSeconds = config.LlmRowTimeoutSeconds,
+            LlmRetryCount = config.LlmRetryCount,
+            LlmCircuitBreakFailures = config.LlmCircuitBreakFailures,
+            FilterEmptySourceRows = config.FilterEmptySourceRows
+        };
+    }
+
     internal async Task RunLlmStreamAsync(ClaimsPrincipal user, HttpResponse response, MatchLlmStreamRequest request, CancellationToken cancellationToken)
     {
         if (request.Items == null || request.Items.Count == 0)
         {
             throw Failure(400, "Items不能为空");
         }
+
+        EnsureDistinctLlmStreamItems(request.Items);
 
         var scope = await ResolveSpecScopeAsync(user);
         if (scope == null)
@@ -129,12 +357,14 @@ public sealed class MatchingWorkflowSupportService
         }
 
         var config = await ConvertToMatchingConfigAsync(request.Config);
-        var accessibleSpecLookup = await GetScopedSpecDictionaryAsync(
-            request.Items.Select(item => item.BestMatchSpecId ?? 0),
-            scope);
-        var normalizedItems = request.Items
-            .Select(item => NormalizeLlmStreamItem(item, accessibleSpecLookup.ContainsKey(item.BestMatchSpecId ?? 0)))
-            .ToList();
+        var candidates = await GetCandidatesAsync(
+            request.CustomerId,
+            request.ProcessId,
+            request.MachineModelId,
+            scope,
+            config.EmbeddingServiceId);
+        var accessibleSpecLookup = candidates.ToDictionary(candidate => candidate.SpecId);
+        var normalizedItems = await BuildAuthoritativeLlmStreamItemsAsync(request.Items, candidates, config);
 
         response.Headers.CacheControl = "no-cache";
         response.Headers.TryAdd("X-Accel-Buffering", "no");
@@ -148,23 +378,22 @@ public sealed class MatchingWorkflowSupportService
         var rowTimeoutSeconds = config.LlmRowTimeoutSeconds;
         var retryCount = config.LlmRetryCount;
         var circuitBreakFailures = config.LlmCircuitBreakFailures;
-        var reviewCount = normalizedItems.Count(item => config.UseLlmReview && item.BestMatchSpecId.HasValue);
-        var suggestionCount = normalizedItems.Count(item => ShouldGenerateSuggestion(config, item));
+        var reviewTargetLookup = normalizedItems.ToDictionary(
+            GetLlmStreamItemKey,
+            RequiresReviewForStreamItem);
+        var reviewCount = reviewTargetLookup.Count(item => item.Value);
+        var reviewTerminalLookup = new ConcurrentDictionary<LlmStreamItemKey, byte>();
         var reviewSuccess = 0;
         var reviewFailed = 0;
         var reviewTimeout = 0;
         var reviewRetries = 0;
-        var suggestionSuccess = 0;
-        var suggestionFailed = 0;
-        var suggestionTimeout = 0;
-        var suggestionRetries = 0;
         var totalFailures = 0;
         var circuitOpened = 0;
+        var requestAborted = false;
 
         _logger.LogInformation(
-            "[LLM-Stream] 开始并行处理 {Count} 行 (review={ReviewCount}, suggestion={SuggestionCount}, maxParallelism={Parallelism}), useLlmReview={Review}, useLlmSuggestion={Suggestion}, suggestNoMatch={SuggestNoMatch}, suggestionThreshold={Threshold}, rowTimeoutSec={RowTimeoutSec}, retryCount={RetryCount}, circuitBreakFailures={CircuitBreakFailures}",
-            normalizedItems.Count, reviewCount, suggestionCount, parallelism,
-            config.UseLlmReview, config.UseLlmSuggestion, config.SuggestNoMatchRows, config.LlmSuggestionScoreThreshold,
+            "[LLM-Stream] 开始并行处理 {Count} 行 (review={ReviewCount}, maxParallelism={Parallelism}, rowTimeoutSec={RowTimeoutSec}, retryCount={RetryCount}, circuitBreakFailures={CircuitBreakFailures})",
+            normalizedItems.Count, reviewCount, parallelism,
             rowTimeoutSeconds, retryCount, circuitBreakFailures);
 
         try
@@ -178,19 +407,19 @@ public sealed class MatchingWorkflowSupportService
                 },
                 async (item, ct) =>
                 {
-                    using var scope = _scopeFactory.CreateScope();
-                    var reviewService = scope.ServiceProvider.GetRequiredService<ILlmReviewService>();
-                    var suggestionService = scope.ServiceProvider.GetRequiredService<ILlmSuggestionService>();
+                    using var serviceScope = _scopeFactory.CreateScope();
+                    var reviewService = serviceScope.ServiceProvider.GetRequiredService<ILlmReviewService>();
                     var location = FormatStreamItemLocation(item);
+                    var itemKey = GetLlmStreamItemKey(item);
+                    var requiresReview = reviewTargetLookup.GetValueOrDefault(itemKey);
 
                     if (Volatile.Read(ref circuitOpened) == 1)
                     {
-                        await WriteCircuitOpenEventsAsync(response, item, config, sseWriteLock, ct);
+                        await WriteCircuitOpenEventsAsync(response, item, requiresReview, reviewTerminalLookup, sseWriteLock, ct);
                         return;
                     }
 
-                    // 同一行内：先复核，再生成建议（顺序执行）
-                    if (config.UseLlmReview && item.BestMatchSpecId.HasValue)
+                    if (requiresReview)
                     {
                         _logger.LogDebug("[LLM-Stream] {Location}: 开始复核 (specId={SpecId}, score={Score:P1})",
                             location, item.BestMatchSpecId, item.BestMatchScore ?? 0);
@@ -201,7 +430,20 @@ public sealed class MatchingWorkflowSupportService
                             item,
                             rowTimeoutSeconds,
                             retryCount,
-                            token => StreamLlmReviewAsync(response, item, config, token, accessibleSpecLookup, reviewService, sseWriteLock),
+                            token => StreamLlmReviewAsync(
+                                response,
+                                item,
+                                config,
+                                scope,
+                                request.CustomerId,
+                                request.ProcessId,
+                                request.MachineModelId,
+                                token,
+                                accessibleSpecLookup,
+                                reviewService,
+                                reviewTerminalLookup,
+                                sseWriteLock),
+                            reviewTerminalLookup,
                             sseWriteLock,
                             ct);
 
@@ -213,16 +455,22 @@ public sealed class MatchingWorkflowSupportService
                                 break;
                             case LlmStepOutcome.Timeout:
                                 Interlocked.Increment(ref reviewTimeout);
-                                if (Interlocked.Increment(ref totalFailures) >= circuitBreakFailures)
+                                var timeoutFailures = Interlocked.Increment(ref totalFailures);
+                                var openedByTimeout = timeoutFailures >= circuitBreakFailures &&
+                                                     Interlocked.Exchange(ref circuitOpened, 1) == 0;
+                                if (openedByTimeout)
                                 {
-                                    Interlocked.Exchange(ref circuitOpened, 1);
+                                    return;
                                 }
                                 break;
                             default:
                                 Interlocked.Increment(ref reviewFailed);
-                                if (Interlocked.Increment(ref totalFailures) >= circuitBreakFailures)
+                                var failedCount = Interlocked.Increment(ref totalFailures);
+                                var openedByFailure = failedCount >= circuitBreakFailures &&
+                                                      Interlocked.Exchange(ref circuitOpened, 1) == 0;
+                                if (openedByFailure)
                                 {
-                                    Interlocked.Exchange(ref circuitOpened, 1);
+                                    return;
                                 }
                                 break;
                         }
@@ -231,282 +479,42 @@ public sealed class MatchingWorkflowSupportService
                     if (ct.IsCancellationRequested) return;
                     if (Volatile.Read(ref circuitOpened) == 1)
                     {
-                        await WriteCircuitOpenEventsAsync(response, item, config, sseWriteLock, ct);
+                        await WriteCircuitOpenEventsAsync(response, item, requiresReview, reviewTerminalLookup, sseWriteLock, ct);
                         return;
-                    }
-
-                    if (ShouldGenerateSuggestion(config, item))
-                    {
-                        _logger.LogDebug("[LLM-Stream] {Location}: 开始生成建议 (specId={SpecId}, score={Score}, threshold={Threshold}, suggestNoMatch={SuggestNoMatch})",
-                            location, item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
-                            config.LlmSuggestionScoreThreshold, config.SuggestNoMatchRows);
-
-                        var suggestionResult = await ExecuteLlmStepWithPolicyAsync(
-                            response,
-                            "suggestion",
-                            item,
-                            rowTimeoutSeconds,
-                            retryCount,
-                            token => StreamLlmSuggestionAsync(response, item, config, token, accessibleSpecLookup, suggestionService, sseWriteLock),
-                            sseWriteLock,
-                            ct);
-
-                        Interlocked.Add(ref suggestionRetries, suggestionResult.RetriesUsed);
-                        switch (suggestionResult.Outcome)
-                        {
-                            case LlmStepOutcome.Success:
-                                Interlocked.Increment(ref suggestionSuccess);
-                                break;
-                            case LlmStepOutcome.Timeout:
-                                Interlocked.Increment(ref suggestionTimeout);
-                                if (Interlocked.Increment(ref totalFailures) >= circuitBreakFailures)
-                                {
-                                    Interlocked.Exchange(ref circuitOpened, 1);
-                                }
-                                break;
-                            default:
-                                Interlocked.Increment(ref suggestionFailed);
-                                if (Interlocked.Increment(ref totalFailures) >= circuitBreakFailures)
-                                {
-                                    Interlocked.Exchange(ref circuitOpened, 1);
-                                }
-                                break;
-                        }
-                    }
-                    else if (config.UseLlmSuggestion)
-                    {
-                        _logger.LogDebug("[LLM-Stream] {Location}: 跳过建议 (specId={SpecId}, score={Score}, threshold={Threshold}, suggestNoMatch={SuggestNoMatch})",
-                            location, item.BestMatchSpecId, item.BestMatchScore?.ToString("P1") ?? "无匹配",
-                            config.LlmSuggestionScoreThreshold, config.SuggestNoMatchRows);
                     }
                 });
         }
         catch (OperationCanceledException)
         {
+            requestAborted = true;
             _logger.LogDebug("LLM 流式输出：客户端已断开连接");
         }
         finally
         {
+            if (!requestAborted && !response.HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                await WriteSseEventSafeAsync(response, "stream.complete", new
+                {
+                    totalItems = normalizedItems.Count,
+                    reviewTargets = reviewCount,
+                    reviewSuccess,
+                    reviewFailed,
+                    reviewTimeout,
+                    reviewRetries,
+                    totalFailures,
+                    circuitOpened = circuitOpened == 1,
+                    elapsedMs = sw.ElapsedMilliseconds
+                }, CancellationToken.None);
+            }
+
             sseWriteLock.Dispose();
         }
 
         _logger.LogInformation(
-            "[LLM-Stream] 全部完成, 耗时 {Elapsed}ms, review(success={ReviewSuccess}, failed={ReviewFailed}, timeout={ReviewTimeout}, retries={ReviewRetries}), suggestion(success={SuggestionSuccess}, failed={SuggestionFailed}, timeout={SuggestionTimeout}, retries={SuggestionRetries}), totalFailures={TotalFailures}, circuitOpened={CircuitOpened}",
+            "[LLM-Stream] 全部完成, 耗时 {Elapsed}ms, review(success={ReviewSuccess}, failed={ReviewFailed}, timeout={ReviewTimeout}, retries={ReviewRetries}), totalFailures={TotalFailures}, circuitOpened={CircuitOpened}",
             sw.ElapsedMilliseconds,
             reviewSuccess, reviewFailed, reviewTimeout, reviewRetries,
-            suggestionSuccess, suggestionFailed, suggestionTimeout, suggestionRetries,
             totalFailures, circuitOpened == 1);
-    }
-
-    internal async Task<MatchingOperationResult<ExecuteFillResponse>> ExecuteFillCoreAsync(ClaimsPrincipal user, ExecuteFillRequest request)
-    {
-        if (request.Mappings == null || request.Mappings.Count == 0)
-        {
-            throw Failure(400, "填充映射不能为空");
-        }
-
-        var fileId = request.FileId ?? request.SourceFileId;
-        var tableIndex = request.TableIndex ?? request.SourceTableIndex;
-
-        if (!fileId.HasValue)
-        {
-            throw Failure(400, "源文件ID不能为空");
-        }
-
-        if (!tableIndex.HasValue)
-        {
-            throw Failure(400, "源表格索引不能为空");
-        }
-
-        // 获取源文件
-        var scope = await ResolveSpecScopeAsync(user);
-        if (scope == null)
-        {
-            throw Failure(401, "会话缺少用户上下文");
-        }
-
-        var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(fileId.Value, scope);
-        if (wordFile == null)
-        {
-            throw Failure(400, "源文件不存在");
-        }
-        var highConfidenceThreshold = NormalizeHighConfidenceThreshold(request.HighConfidenceThreshold);
-
-        // 获取所有相关的验收规格
-        var hasLlmSuggestions = request.Mappings.Any(m => m.UseLlmSuggestion);
-        if (hasLlmSuggestions)
-        {
-            throw Failure(400, "已停用 LLM 生成建议写回，请仅使用匹配结果");
-        }
-
-        var specIds = request.Mappings
-            .Where(m => !m.UseLlmSuggestion)
-            .Select(m => m.SpecId ?? m.SelectedSpecId)
-            .Where(id => id.HasValue && id.Value > 0)
-            .Select(id => id!.Value)
-            .Distinct()
-            .ToList();
-
-        if (specIds.Count == 0)
-        {
-            throw Failure(400, "未提供有效的验收规格ID");
-        }
-
-        var specDict = await GetScopedSpecDictionaryAsync(specIds, scope);
-
-        TableData tableData;
-        try
-        {
-            tableData = await _documentTableAccessService.ExtractTableDataAsync(
-                wordFile,
-                tableIndex.Value,
-                new ColumnMapping
-                {
-                    HeaderRowIndex = 0,
-                    DataStartRowIndex = 1
-                });
-        }
-        catch (ApplicationServiceException ex)
-        {
-            throw Failure(ex.Code, ex.Message);
-        }
-
-        // 列索引必须由用户手动指定（不做关键字推断）
-        if (!request.AcceptanceColumnIndex.HasValue)
-        {
-            throw Failure(400, "请手动指定验收列索引");
-        }
-        var acceptanceColumnIndex = request.AcceptanceColumnIndex.Value;
-        var remarkColumnIndex = request.RemarkColumnIndex;
-
-        // 执行填充
-        int filledCount = 0;
-        int skippedCount = 0;
-        var fillResults = new List<FillResult>();
-
-        foreach (var fillMapping in request.Mappings)
-        {
-            var selectedSpecId = (fillMapping.SpecId ?? fillMapping.SelectedSpecId) ?? 0;
-            if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
-            {
-                skippedCount++;
-                continue;
-            }
-
-            if (!CanApplyMatchedSpec(fillMapping, highConfidenceThreshold))
-            {
-                skippedCount++;
-                continue;
-            }
-
-            // 记录填充信息
-            fillResults.Add(new FillResult
-            {
-                RowIndex = fillMapping.RowIndex,
-                SpecId = spec.Id,
-                Acceptance = spec.Acceptance ?? "",
-                Remark = spec.Remark
-            });
-            filledCount++;
-        }
-
-        // 生成任务ID
-        var taskId = Guid.NewGuid().ToString("N");
-        var taskResult = new FillTaskResult
-        {
-            TaskId = taskId,
-            SourceFileId = fileId.Value,
-            SourceTableIndex = tableIndex.Value,
-            AcceptanceColumnIndex = acceptanceColumnIndex,
-            RemarkColumnIndex = remarkColumnIndex,
-            FillResults = fillResults,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        taskResult.StrictReuseSession = await TryBuildStrictReuseSessionAsync(
-            wordFile,
-            [
-                new StrictReuseSourceTableDefinition
-                {
-                    TableIndex = tableIndex.Value,
-                    ProjectColumnIndex = request.ProjectColumnIndex,
-                    SpecificationColumnIndex = request.SpecificationColumnIndex,
-                    AcceptanceColumnIndex = acceptanceColumnIndex,
-                    RemarkColumnIndex = remarkColumnIndex,
-                    HeaderRowStart = request.HeaderRowStart,
-                    HeaderRowCount = request.HeaderRowCount,
-                    DataStartRow = request.DataStartRow,
-                    FilterEmptySourceRows = request.FilterEmptySourceRows,
-                    FillResults = fillResults
-                }
-            ],
-            taskResult.CreatedAt);
-
-        var isExcelSource = wordFile.FileType == UploadedFileType.ExcelXlsx;
-        if (isExcelSource)
-        {
-            try
-            {
-                var writeBackSummary = await _matchingResultWriteBackService.ApplyFillResultToSourceFileAsync(wordFile, taskResult);
-                if (writeBackSummary.RequestedCells > 0 && writeBackSummary.WrittenCells == 0)
-                {
-                    throw Failure(400, "未写入任何单元格，请检查列索引和行配置是否正确");
-                }
-
-                if (writeBackSummary.WrittenCells < writeBackSummary.RequestedCells)
-                {
-                    _logger.LogWarning(
-                        "Excel回写存在部分未命中: task={TaskId}, requested={Requested}, written={Written}",
-                        taskId, writeBackSummary.RequestedCells, writeBackSummary.WrittenCells);
-                }
-                await _unitOfWork.SaveChangesAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "执行填充后写回 Excel 失败: 文件{FileId}", wordFile.Id);
-                throw Failure(500, $"写回 Excel 失败: {ex.Message}");
-            }
-        }
-
-        await _matchingTaskSnapshotService.SaveAsync(user, taskResult);
-        await SaveExecutionHistoryAsync(
-            user,
-            wordFile,
-            taskId,
-            taskResult.CreatedAt,
-            [
-                new BatchTableFillMapping
-                {
-                    TableIndex = tableIndex.Value,
-                    AcceptanceColumnIndex = acceptanceColumnIndex,
-                    RemarkColumnIndex = remarkColumnIndex,
-                    ProjectColumnIndex = request.ProjectColumnIndex,
-                    SpecificationColumnIndex = request.SpecificationColumnIndex,
-                    HeaderRowStart = request.HeaderRowStart,
-                    HeaderRowCount = request.HeaderRowCount,
-                    DataStartRow = request.DataStartRow,
-                    FilterEmptySourceRows = request.FilterEmptySourceRows,
-                    Mappings = request.Mappings
-                }
-            ],
-            specDict,
-            highConfidenceThreshold);
-
-        var response = new ExecuteFillResponse
-        {
-            TaskId = taskId,
-            FilledCount = filledCount,
-            SkippedCount = skippedCount,
-            DownloadUrl = isExcelSource ? string.Empty : $"/api/matching/download/{taskId}"
-        };
-
-        _logger.LogInformation(
-            "执行填充完成: 任务{TaskId}, 文件类型{FileType}, 填充{Filled}行, 跳过{Skipped}行",
-            taskId, wordFile.FileType, filledCount, skippedCount);
-
-        return Result(response, isExcelSource
-            ? $"填充完成：已填充{filledCount}行，跳过{skippedCount}行，已写回并可下载 Excel"
-            : $"填充完成：已填充{filledCount}行，跳过{skippedCount}行");
     }
 
     internal async Task<MatchingOperationResult<ExecuteFillResponse>> BatchExecuteFillCoreAsync(ClaimsPrincipal user, BatchExecuteFillRequest request)
@@ -514,6 +522,14 @@ public sealed class MatchingWorkflowSupportService
         if (request.Tables == null || request.Tables.Count == 0)
         {
             throw Failure(400, "请至少提供一个表格的填充映射");
+        }
+
+        EnsureDistinctBatchTableIndexes(request.Tables);
+        foreach (var table in request.Tables)
+        {
+            EnsureDistinctFillMappings(
+                table.Mappings,
+                $"表格{table.TableIndex + 1}存在重复的行索引，请删除重复映射后重试");
         }
 
         const int MaxBatchTableCount = 500;
@@ -539,18 +555,19 @@ public sealed class MatchingWorkflowSupportService
         {
             throw Failure(400, "源文件不存在");
         }
-        var highConfidenceThreshold = NormalizeHighConfidenceThreshold(request.HighConfidenceThreshold);
-
-        if (request.Tables.SelectMany(t => t.Mappings).Any(m => m.UseLlmSuggestion))
-        {
-            throw Failure(400, "已停用 LLM 生成建议写回，请仅使用匹配结果");
-        }
+        var reviewApprovalBundle = ResolveReviewApprovalBundle(
+            request.Tables.SelectMany(table =>
+                table.Mappings.Select(mapping => (TableIndex: (int?)table.TableIndex, Mapping: mapping))),
+            scope.UserId);
+        var executionConfig = reviewApprovalBundle?.Config ?? await ResolveExecutionMatchingConfigAsync(request.Config);
+        var effectiveCustomerId = reviewApprovalBundle?.CustomerId ?? request.CustomerId;
+        var effectiveProcessId = reviewApprovalBundle?.ProcessId ?? request.ProcessId;
+        var effectiveMachineModelId = reviewApprovalBundle?.MachineModelId ?? request.MachineModelId;
 
         // 收集所有 specId 一次查 DB
         var allSpecIds = request.Tables
             .SelectMany(t => t.Mappings)
-            .Where(m => !m.UseLlmSuggestion)
-            .Select(m => m.SpecId ?? m.SelectedSpecId)
+            .Select(m => m.SpecId)
             .Where(id => id.HasValue && id.Value > 0)
             .Select(id => id!.Value)
             .Distinct()
@@ -558,9 +575,30 @@ public sealed class MatchingWorkflowSupportService
 
         var specDict = await GetScopedSpecDictionaryAsync(allSpecIds, scope);
 
+        var currentMatchLookups = new Dictionary<int, ExecutionMatchSnapshot>();
+        foreach (var table in request.Tables)
+        {
+            EnsureExecutionPreviewContext(table.ProjectColumnIndex, table.SpecificationColumnIndex, table.TableIndex);
+            currentMatchLookups[table.TableIndex] = await BuildCurrentMatchLookupAsync(
+                wordFile,
+                table.TableIndex,
+                table.ProjectColumnIndex,
+                table.SpecificationColumnIndex,
+                table.HeaderRowStart,
+                table.HeaderRowCount,
+                table.DataStartRow,
+                table.FilterEmptySourceRows ?? executionConfig.FilterEmptySourceRows,
+                effectiveCustomerId,
+                effectiveProcessId,
+                effectiveMachineModelId,
+                executionConfig,
+                scope);
+        }
+
         // 遍历每个表格生成 TableFillEntry
         int totalFilled = 0, totalSkipped = 0;
         var tableEntries = new List<TableFillEntry>();
+        var adoptedRowLookup = new Dictionary<int, HashSet<int>>();
 
         foreach (var tableFill in request.Tables)
         {
@@ -570,17 +608,29 @@ public sealed class MatchingWorkflowSupportService
                 AcceptanceColumnIndex = tableFill.AcceptanceColumnIndex,
                 RemarkColumnIndex = tableFill.RemarkColumnIndex
             };
+            adoptedRowLookup[tableFill.TableIndex] = new HashSet<int>();
+            currentMatchLookups.TryGetValue(tableFill.TableIndex, out var currentMatchSnapshot);
+            currentMatchSnapshot ??= new ExecutionMatchSnapshot();
+            var currentMatchLookup = currentMatchSnapshot.MatchLookup;
+            var currentSourceRowLookup = currentMatchSnapshot.SourceRowLookup;
 
             foreach (var mapping in tableFill.Mappings)
             {
-                var selectedSpecId = (mapping.SpecId ?? mapping.SelectedSpecId) ?? 0;
+                var selectedSpecId = mapping.SpecId ?? 0;
                 if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
                 {
                     totalSkipped++;
                 }
                 else
                 {
-                    if (!CanApplyMatchedSpec(mapping, highConfidenceThreshold))
+                    currentMatchLookup.TryGetValue(mapping.RowIndex, out var currentMatch);
+                    var reviewApprovalToken = reviewApprovalBundle?.Tokens.GetValueOrDefault(
+                        new ReviewApprovalLookupKey(tableFill.TableIndex, mapping.RowIndex));
+                    if (!CanApplyMatchedSpec(
+                            mapping,
+                            currentMatch,
+                            currentSourceRowLookup.GetValueOrDefault(mapping.RowIndex),
+                            reviewApprovalToken))
                     {
                         totalSkipped++;
                         continue;
@@ -590,9 +640,10 @@ public sealed class MatchingWorkflowSupportService
                     {
                         RowIndex = mapping.RowIndex,
                         SpecId = spec.Id,
-                        Acceptance = spec.Acceptance ?? "",
-                        Remark = spec.Remark
+                        Acceptance = mapping.OverrideAcceptance ?? spec.Acceptance ?? "",
+                        Remark = mapping.OverrideRemark ?? spec.Remark
                     });
+                    adoptedRowLookup[tableFill.TableIndex].Add(mapping.RowIndex);
                     totalFilled++;
                 }
             }
@@ -611,42 +662,28 @@ public sealed class MatchingWorkflowSupportService
             CreatedAt = DateTime.UtcNow
         };
 
-        taskResult.StrictReuseSession = await TryBuildStrictReuseSessionAsync(
-            wordFile,
-            request.Tables.Select(table => new StrictReuseSourceTableDefinition
-            {
-                TableIndex = table.TableIndex,
-                ProjectColumnIndex = table.ProjectColumnIndex,
-                SpecificationColumnIndex = table.SpecificationColumnIndex,
-                AcceptanceColumnIndex = table.AcceptanceColumnIndex,
-                RemarkColumnIndex = table.RemarkColumnIndex,
-                HeaderRowStart = table.HeaderRowStart,
-                HeaderRowCount = table.HeaderRowCount,
-                DataStartRow = table.DataStartRow,
-                FilterEmptySourceRows = table.FilterEmptySourceRows,
-                FillResults = tableEntries
-                    .FirstOrDefault(entry => entry.TableIndex == table.TableIndex)?.FillResults ?? []
-            }),
-            taskResult.CreatedAt);
-
         var isExcelSource = wordFile.FileType == UploadedFileType.ExcelXlsx;
         if (isExcelSource)
         {
             try
             {
-                var writeBackSummary = await _matchingResultWriteBackService.ApplyFillResultToSourceFileAsync(wordFile, taskResult);
-                if (writeBackSummary.RequestedCells > 0 && writeBackSummary.WrittenCells == 0)
-                {
-                    throw Failure(400, "未写入任何单元格，请检查列索引和行配置是否正确");
-                }
+                var renderedFile = await _matchingResultWriteBackService.RenderFillResultToSourceFileAsync(wordFile, taskResult);
+                EnsureWriteBackCompleted(renderedFile.Summary);
 
-                if (writeBackSummary.WrittenCells < writeBackSummary.RequestedCells)
-                {
-                    _logger.LogWarning(
-                        "Excel批量回写存在部分未命中: task={TaskId}, requested={Requested}, written={Written}",
-                        taskId, writeBackSummary.RequestedCells, writeBackSummary.WrittenCells);
-                }
-                await _unitOfWork.SaveChangesAsync();
+                await _matchingTaskSnapshotService.SaveAsync(user, taskResult, saveImmediately: false);
+                await SaveExecutionHistoryAsync(
+                    user,
+                    wordFile,
+                    taskId,
+                    taskResult.CreatedAt,
+                    request.Tables,
+                    specDict,
+                    adoptedRowLookup,
+                    currentMatchLookups,
+                    saveImmediately: false);
+
+                await PersistExcelExecutionAsync(wordFile, renderedFile.Content);
+                await PersistDownloadArtifactAsync(taskId, taskResult, wordFile, renderedFile.Content);
             }
             catch (Exception ex)
             {
@@ -654,16 +691,35 @@ public sealed class MatchingWorkflowSupportService
                 throw Failure(500, $"写回 Excel 失败: {ex.Message}");
             }
         }
+        else
+        {
+            try
+            {
+                var renderedFile = await _matchingResultWriteBackService.RenderFillResultToSourceFileAsync(wordFile, taskResult);
+                EnsureWriteBackCompleted(renderedFile.Summary);
 
-        await _matchingTaskSnapshotService.SaveAsync(user, taskResult);
-        await SaveExecutionHistoryAsync(
-            user,
-            wordFile,
-            taskId,
-            taskResult.CreatedAt,
-            request.Tables,
-            specDict,
-            highConfidenceThreshold);
+                await _matchingTaskSnapshotService.SaveAsync(user, taskResult);
+                await PersistDownloadArtifactAsync(taskId, taskResult, wordFile, renderedFile.Content);
+                await SaveExecutionHistoryAsync(
+                    user,
+                    wordFile,
+                    taskId,
+                    taskResult.CreatedAt,
+                    request.Tables,
+                    specDict,
+                    adoptedRowLookup,
+                    currentMatchLookups);
+            }
+            catch (MatchingApiException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "批量填充后固化 Word 下载产物失败: 文件{FileId}", wordFile.Id);
+                throw Failure(500, $"固化下载产物失败: {ex.Message}");
+            }
+        }
 
         var response = new ExecuteFillResponse
         {
@@ -682,93 +738,88 @@ public sealed class MatchingWorkflowSupportService
             : $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行");
     }
 
-    private async Task<StrictReuseSession?> TryBuildStrictReuseSessionAsync(
-        WordFile sourceFile,
-        IEnumerable<StrictReuseSourceTableDefinition> sourceTables,
-        DateTime createdAt)
+    private static void EnsureWriteBackCompleted(WriteBackSummary summary)
     {
-        var normalizedTables = sourceTables?
-            .Where(table =>
-                table.FillResults.Count > 0 &&
-                table.ProjectColumnIndex.HasValue &&
-                table.SpecificationColumnIndex.HasValue)
-            .GroupBy(table => table.TableIndex)
-            .Select(group => group.First())
-            .OrderBy(table => table.TableIndex)
-            .ToList() ?? [];
-
-        if (normalizedTables.Count == 0)
+        if (summary.RequestedCells > 0 && summary.WrittenCells == 0)
         {
-            return null;
+            throw Failure(400, "未写入任何单元格，请检查列索引和行配置是否正确");
         }
 
-        var snapshots = new List<StrictReuseTableSnapshot>();
-        foreach (var table in normalizedTables)
+        if (summary.WrittenCells < summary.RequestedCells)
         {
-            var sourceRows = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
-                sourceFile,
-                table.TableIndex,
-                table.ProjectColumnIndex!.Value,
-                table.SpecificationColumnIndex!.Value,
-                table.HeaderRowStart,
-                table.HeaderRowCount,
-                table.DataStartRow,
-                table.FilterEmptySourceRows ?? true);
-
-            if (sourceRows.Count == 0)
-            {
-                continue;
-            }
-
-            snapshots.Add(new StrictReuseTableSnapshot
-            {
-                TableIndex = table.TableIndex,
-                ProjectColumnIndex = table.ProjectColumnIndex.Value,
-                SpecificationColumnIndex = table.SpecificationColumnIndex.Value,
-                AcceptanceColumnIndex = table.AcceptanceColumnIndex,
-                RemarkColumnIndex = table.RemarkColumnIndex,
-                HeaderRowStart = table.HeaderRowStart,
-                HeaderRowCount = table.HeaderRowCount,
-                DataStartRow = table.DataStartRow,
-                FilterEmptySourceRows = table.FilterEmptySourceRows ?? true,
-                RowSignatures = sourceRows
-                    .Select(row => new StrictReuseRowSignature
-                    {
-                        RowIndex = row.RowIndex,
-                        Project = row.Project,
-                        Specification = row.Specification
-                    })
-                    .ToList(),
-                FillResults = CloneFillResults(table.FillResults)
-            });
+            throw Failure(500, $"写回不完整：期望写入{summary.RequestedCells}个单元格，实际仅写入{summary.WrittenCells}个");
         }
-
-        if (snapshots.Count == 0)
-        {
-            return null;
-        }
-
-        return new StrictReuseSession
-        {
-            SourceFileId = sourceFile.Id,
-            SourceFileName = sourceFile.FileName,
-            SourceFileType = sourceFile.FileType,
-            CreatedAt = createdAt,
-            Tables = snapshots
-        };
     }
 
-    private static List<FillResult> CloneFillResults(IEnumerable<FillResult> fillResults)
+    private async Task PersistExcelExecutionAsync(WordFile wordFile, byte[] updatedContent, CancellationToken cancellationToken = default)
     {
-        return fillResults
-            .Select(fill => new FillResult
+        var originalContent = await ReadSourceFileContentAsync(wordFile, cancellationToken);
+        var filePersisted = false;
+
+        try
+        {
+            await _documentFileAccessService.PersistUpdatedFileContentAsync(wordFile, updatedContent, cancellationToken);
+            filePersisted = true;
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch
+        {
+            if (filePersisted)
             {
-                RowIndex = fill.RowIndex,
-                SpecId = fill.SpecId,
-                Acceptance = fill.Acceptance,
-                Remark = fill.Remark
-            })
-            .ToList();
+                try
+                {
+                    await _documentFileAccessService.PersistUpdatedFileContentAsync(wordFile, originalContent, cancellationToken);
+                }
+                catch (Exception restoreEx)
+                {
+                    _logger.LogError(restoreEx, "Excel 源文件回滚失败: 文件{FileId}", wordFile.Id);
+                }
+            }
+
+            throw;
+        }
+    }
+
+    private async Task<byte[]> ReadSourceFileContentAsync(WordFile wordFile, CancellationToken cancellationToken)
+    {
+        await using var stream = _documentFileAccessService.OpenReadStream(wordFile);
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream, cancellationToken);
+        return memoryStream.ToArray();
+    }
+
+    private async Task PersistDownloadArtifactAsync(
+        string taskId,
+        FillTaskResult taskResult,
+        WordFile wordFile,
+        byte[] content,
+        CancellationToken cancellationToken = default)
+    {
+        await _matchingTaskSnapshotService.PersistDownloadArtifactAsync(
+            taskId,
+            taskResult,
+            GetDownloadFileName(wordFile),
+            GetDownloadContentType(wordFile.FileType),
+            content,
+            cancellationToken);
+    }
+
+    private static string GetDownloadFileName(WordFile wordFile)
+    {
+        var downloadFileName = Path.GetFileName(wordFile.FileName);
+        if (!string.IsNullOrWhiteSpace(downloadFileName))
+        {
+            return downloadFileName;
+        }
+
+        return wordFile.FileType == UploadedFileType.ExcelXlsx ? "filled.xlsx" : "filled.docx";
+    }
+
+    private static string GetDownloadContentType(UploadedFileType fileType)
+    {
+        return fileType == UploadedFileType.ExcelXlsx
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     }
 
     private async Task SaveExecutionHistoryAsync(
@@ -778,7 +829,9 @@ public sealed class MatchingWorkflowSupportService
         DateTime createdAt,
         IReadOnlyCollection<BatchTableFillMapping> tables,
         IReadOnlyDictionary<int, AcceptanceSpec> specDict,
-        double highConfidenceThreshold)
+        IReadOnlyDictionary<int, HashSet<int>> adoptedRowLookup,
+        IReadOnlyDictionary<int, ExecutionMatchSnapshot> currentMatchLookups,
+        bool saveImmediately = true)
     {
         var tableMetas = await _documentTableAccessService.GetTablesAsync(wordFile);
         var tableMetaLookup = tableMetas.ToDictionary(table => table.Index);
@@ -790,7 +843,12 @@ public sealed class MatchingWorkflowSupportService
 
         foreach (var table in tables.OrderBy(item => item.TableIndex))
         {
-            var rows = await BuildExecutionHistoryRowsAsync(wordFile, table, specDict, highConfidenceThreshold);
+            var rows = await BuildExecutionHistoryRowsAsync(
+                wordFile,
+                table,
+                specDict,
+                adoptedRowLookup.GetValueOrDefault(table.TableIndex),
+                currentMatchLookups.GetValueOrDefault(table.TableIndex)?.MatchLookup);
             var sheetName = tableMetaLookup.TryGetValue(table.TableIndex, out var meta) && !string.IsNullOrWhiteSpace(meta.Name)
                 ? meta.Name!
                 : $"表格 {table.TableIndex + 1}";
@@ -812,14 +870,15 @@ public sealed class MatchingWorkflowSupportService
             SourceFileType = wordFile.FileType,
             CreatedAt = createdAt,
             Files = [fileDetail]
-        });
+        }, saveImmediately: saveImmediately);
     }
 
     private async Task<List<ExecutionHistoryRowDto>> BuildExecutionHistoryRowsAsync(
         WordFile wordFile,
         BatchTableFillMapping table,
         IReadOnlyDictionary<int, AcceptanceSpec> specDict,
-        double highConfidenceThreshold)
+        HashSet<int>? adoptedRows,
+        IReadOnlyDictionary<int, MatchResult>? currentMatchLookup)
     {
         var mappingLookup = table.Mappings.ToDictionary(item => item.RowIndex);
         var sourceRows = new List<MatchSourceItem>();
@@ -847,7 +906,8 @@ public sealed class MatchingWorkflowSupportService
                     string.Empty,
                     mappingLookup.GetValueOrDefault(item.RowIndex),
                     specDict,
-                    highConfidenceThreshold,
+                    adoptedRows,
+                    currentMatchLookup?.GetValueOrDefault(item.RowIndex),
                     table.AcceptanceColumnIndex,
                     table.RemarkColumnIndex))
                 .ToList();
@@ -861,7 +921,8 @@ public sealed class MatchingWorkflowSupportService
                 item.Specification,
                 mappingLookup.GetValueOrDefault(item.RowIndex),
                 specDict,
-                highConfidenceThreshold,
+                adoptedRows,
+                currentMatchLookup?.GetValueOrDefault(item.RowIndex),
                 table.AcceptanceColumnIndex,
                 table.RemarkColumnIndex))
             .ToList();
@@ -873,14 +934,19 @@ public sealed class MatchingWorkflowSupportService
         string specification,
         FillMapping? mapping,
         IReadOnlyDictionary<int, AcceptanceSpec> specDict,
-        double highConfidenceThreshold,
+        HashSet<int>? adoptedRows,
+        MatchResult? currentMatch,
         int acceptanceColumnIndex,
         int? remarkColumnIndex)
     {
-        var selectedSpecId = (mapping?.SpecId ?? mapping?.SelectedSpecId) ?? 0;
+        var selectedSpecId = mapping?.SpecId ?? 0;
         AcceptanceSpec? matchedSpec = null;
         var hasSpec = selectedSpecId > 0 && specDict.TryGetValue(selectedSpecId, out matchedSpec);
-        var confidencePercent = Math.Round(Math.Max(mapping?.MatchScore ?? 0, 0) * 100, 1);
+        var confidencePercent = currentMatch != null &&
+                                currentMatch.MatchedSpecId == selectedSpecId &&
+                                currentMatch.Score > 0
+            ? Math.Round(currentMatch.Score * 100, 1)
+            : 0;
 
         if (mapping == null || !hasSpec)
         {
@@ -897,7 +963,7 @@ public sealed class MatchingWorkflowSupportService
             };
         }
 
-        var status = CanApplyMatchedSpec(mapping, highConfidenceThreshold)
+        var status = adoptedRows?.Contains(rowIndex) == true
             ? ExecutionHistoryStatuses.Adopted
             : ExecutionHistoryStatuses.NotAdopted;
 
@@ -909,14 +975,186 @@ public sealed class MatchingWorkflowSupportService
             MatchedSpecId = matchedSpec!.Id,
             MatchedProject = matchedSpec.Project,
             MatchedSpecification = matchedSpec.Specification,
-            Acceptance = matchedSpec.Acceptance,
-            Remark = matchedSpec.Remark,
+            Acceptance = mapping.OverrideAcceptance ?? matchedSpec.Acceptance,
+            Remark = mapping.OverrideRemark ?? matchedSpec.Remark,
             ConfidencePercent = confidencePercent,
             Status = status,
             IsManualSelected = mapping.ManualConfirmed,
             AcceptanceColumnIndex = acceptanceColumnIndex,
             RemarkColumnIndex = remarkColumnIndex
         };
+    }
+
+    private async Task<MatchingConfig> ResolveExecutionMatchingConfigAsync(MatchConfigDto? dto)
+    {
+        return await ConvertToMatchingConfigAsync(dto);
+    }
+
+    private async Task<ExecutionMatchSnapshot> BuildCurrentMatchLookupAsync(
+        WordFile wordFile,
+        int tableIndex,
+        int? projectColumnIndex,
+        int? specificationColumnIndex,
+        int? headerRowStart,
+        int? headerRowCount,
+        int? dataStartRow,
+        bool filterEmptySourceRows,
+        int? customerId,
+        int? processId,
+        int? machineModelId,
+        MatchingConfig config,
+        DataScopeResult scope)
+    {
+        if (!projectColumnIndex.HasValue || !specificationColumnIndex.HasValue)
+        {
+            return new ExecutionMatchSnapshot();
+        }
+
+        var sourceRows = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
+            wordFile,
+            tableIndex,
+            projectColumnIndex.Value,
+            specificationColumnIndex.Value,
+            headerRowStart,
+            headerRowCount,
+            dataStartRow,
+            filterEmptySourceRows);
+
+        if (sourceRows.Count == 0)
+        {
+            throw Failure(400, "无法重建执行前的源项目/规格数据，请重新预览后再执行");
+        }
+
+        var sourceRowLookup = sourceRows.ToDictionary(item => item.RowIndex);
+
+        var candidates = await GetCandidatesAsync(
+            customerId,
+            processId,
+            machineModelId,
+            scope,
+            config.EmbeddingServiceId);
+
+        if (candidates.Count == 0)
+        {
+            return new ExecutionMatchSnapshot
+            {
+                SourceRowLookup = sourceRowLookup
+            };
+        }
+
+        var tpSession = await _textPipeline.CreateSessionAsync();
+        var processedCandidates = candidates.Select(candidate => new MatchCandidate
+        {
+            SpecId = candidate.SpecId,
+            Project = tpSession.Process(candidate.Project),
+            Specification = tpSession.Process(candidate.Specification),
+            Acceptance = candidate.Acceptance,
+            Remark = candidate.Remark,
+            Embedding = candidate.Embedding
+        }).ToList();
+
+        var sourceItems = sourceRows.Select(item => new MatchSource
+        {
+            Project = tpSession.Process(item.Project),
+            Specification = tpSession.Process(item.Specification)
+        }).ToList();
+
+        BatchMatchResult batchResult;
+        try
+        {
+            batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
+        }
+        catch (AiServiceUnavailableException ex)
+        {
+            throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
+        }
+
+        var lookup = new Dictionary<int, MatchResult>();
+        for (var index = 0; index < sourceRows.Count && index < batchResult.Results.Count; index++)
+        {
+            var result = batchResult.Results[index];
+            if (!result.MatchedSpecId.HasValue)
+            {
+                continue;
+            }
+
+            lookup[sourceRows[index].RowIndex] = result;
+        }
+
+        return new ExecutionMatchSnapshot
+        {
+            MatchLookup = lookup,
+            SourceRowLookup = sourceRowLookup
+        };
+    }
+
+    private async Task<List<MatchLlmStreamItem>> BuildAuthoritativeLlmStreamItemsAsync(
+        IReadOnlyList<MatchLlmStreamItem> requestItems,
+        IReadOnlyList<MatchCandidate> candidates,
+        MatchingConfig config)
+    {
+        if (requestItems.Count == 0)
+        {
+            return [];
+        }
+
+        if (candidates.Count == 0)
+        {
+            return requestItems.Select(CreateNoMatchLlmStreamItem).ToList();
+        }
+
+        var tpSession = await _textPipeline.CreateSessionAsync();
+        var processedCandidates = candidates.Select(candidate => new MatchCandidate
+        {
+            SpecId = candidate.SpecId,
+            Project = tpSession.Process(candidate.Project),
+            Specification = tpSession.Process(candidate.Specification),
+            Acceptance = candidate.Acceptance,
+            Remark = candidate.Remark,
+            Embedding = candidate.Embedding
+        }).ToList();
+
+        var sourceItems = requestItems.Select(item => new MatchSource
+        {
+            Project = tpSession.Process(item.SourceProject),
+            Specification = tpSession.Process(item.SourceSpecification)
+        }).ToList();
+
+        BatchMatchResult batchResult;
+        try
+        {
+            batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
+        }
+        catch (AiServiceUnavailableException ex)
+        {
+            throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
+        }
+
+        var normalizedItems = new List<MatchLlmStreamItem>(requestItems.Count);
+        for (var index = 0; index < requestItems.Count; index++)
+        {
+            var requestItem = requestItems[index];
+            var result = index < batchResult.Results.Count
+                ? batchResult.Results[index]
+                : null;
+
+            normalizedItems.Add(CreateAuthoritativeLlmStreamItem(requestItem, result));
+        }
+
+        return normalizedItems;
+    }
+
+    private void EnsureExecutionPreviewContext(int? projectColumnIndex, int? specificationColumnIndex, int? tableIndex = null)
+    {
+        if (projectColumnIndex.HasValue && specificationColumnIndex.HasValue)
+        {
+            return;
+        }
+
+        var prefix = tableIndex.HasValue
+            ? $"表格{tableIndex.Value}执行填充"
+            : "执行填充";
+        throw Failure(400, $"{prefix}必须提供项目列索引和规格列索引，请重新预览后再执行");
     }
 
     /// <summary>
@@ -1026,10 +1264,15 @@ public sealed class MatchingWorkflowSupportService
         {
             newEmbeddings = await GenerateEmbeddingsInBatchesAsync(missingTexts, embeddingServiceId);
         }
+        catch (AiServiceUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "匹配候选生成 Embedding 失败");
+            throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "匹配候选生成 Embedding 失败，将使用空向量继续匹配");
-            return;
+            _logger.LogWarning(ex, "匹配候选生成 Embedding 失败");
+            throw Failure(400, "Embedding 服务不可用: 匹配候选 Embedding 生成失败");
         }
 
         if (!string.IsNullOrWhiteSpace(embeddingModel))
@@ -1200,7 +1443,10 @@ public sealed class MatchingWorkflowSupportService
 
     private static string BuildCandidateDedupKey(string? project, string? specification)
     {
-        return $"{NormalizeForDedup(project)}\u001f{NormalizeForDedup(specification)}";
+        return string.Join(
+            "\u001f",
+            NormalizeForDedup(project),
+            NormalizeForDedup(specification));
     }
 
     private static string NormalizeForDedup(string? value)
@@ -1211,6 +1457,42 @@ public sealed class MatchingWorkflowSupportService
         return string.Join(" ", value
             .Trim()
             .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static void EnsureDistinctBatchTableIndexes(IReadOnlyCollection<BatchTableFillMapping> tables)
+    {
+        var uniqueCount = tables
+            .Select(table => table.TableIndex)
+            .Distinct()
+            .Count();
+        if (uniqueCount != tables.Count)
+        {
+            throw Failure(400, "存在重复的表格索引，请删除重复表格后重试");
+        }
+    }
+
+    private static void EnsureDistinctFillMappings(IReadOnlyCollection<FillMapping> mappings, string message)
+    {
+        var uniqueCount = mappings
+            .Select(mapping => mapping.RowIndex)
+            .Distinct()
+            .Count();
+        if (uniqueCount != mappings.Count)
+        {
+            throw Failure(400, message);
+        }
+    }
+
+    private static void EnsureDistinctLlmStreamItems(IReadOnlyCollection<MatchLlmStreamItem> items)
+    {
+        var uniqueCount = items
+            .Select(item => (item.TableIndex, item.RowIndex))
+            .Distinct()
+            .Count();
+        if (uniqueCount != items.Count)
+        {
+            throw Failure(400, "同一行存在重复的复核请求，请刷新预览后重试");
+        }
     }
 
     private static bool HasText(string? value)
@@ -1224,38 +1506,16 @@ public sealed class MatchingWorkflowSupportService
     private async Task<MatchingConfig> ConvertToMatchingConfigAsync(MatchConfigDto? dto)
     {
         var fallbackConfig = new MatchingConfig();
-        var (defaultStrategy, defaultRecallTopK) = await ResolveMatchingDefaultsAsync(dto?.EmbeddingServiceId);
-
-        var strategy = dto?.MatchingStrategy is { } configuredStrategy && Enum.IsDefined(configuredStrategy)
-            ? configuredStrategy
-            : defaultStrategy;
-
-        if (dto?.UseLlmEntityResolution == true && strategy != MatchingStrategy.MultiStage)
-        {
-            throw Failure(400, "LLM 实体判别仅支持多阶段匹配策略，请切换为多阶段后再启用");
-        }
+        var defaultRecallTopK = await ResolveDefaultRecallTopKAsync(dto?.EmbeddingServiceId);
 
         return new MatchingConfig
         {
-            MatchingStrategy = strategy,
             EmbeddingServiceId = dto?.EmbeddingServiceId,
             LlmServiceId = dto?.LlmServiceId,
             MinScoreThreshold = dto?.MinScoreThreshold ?? fallbackConfig.MinScoreThreshold,
             HighConfidenceThreshold = NormalizeHighConfidenceThreshold(dto?.HighConfidenceThreshold ?? fallbackConfig.HighConfidenceThreshold),
             RecallTopK = Math.Clamp(dto?.RecallTopK ?? defaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK),
             AmbiguityMargin = Math.Clamp(dto?.AmbiguityMargin ?? fallbackConfig.AmbiguityMargin, 0, 1),
-            UseLlmEntityResolution = dto?.UseLlmEntityResolution ?? fallbackConfig.UseLlmEntityResolution,
-            LlmEntityResolutionTopCandidates = Math.Clamp(
-                dto?.LlmEntityResolutionTopCandidates ?? fallbackConfig.LlmEntityResolutionTopCandidates,
-                1,
-                MatchingThresholds.MaxLlmEntityResolutionTopCandidates),
-            LlmEntityPositiveConfidenceThreshold = Math.Clamp(dto?.LlmEntityPositiveConfidenceThreshold ?? fallbackConfig.LlmEntityPositiveConfidenceThreshold, 0, 1),
-            LlmEntityConflictReviewConfidenceThreshold = Math.Clamp(dto?.LlmEntityConflictReviewConfidenceThreshold ?? fallbackConfig.LlmEntityConflictReviewConfidenceThreshold, 0, 1),
-            LlmEntityConflictRejectConfidenceThreshold = Math.Clamp(dto?.LlmEntityConflictRejectConfidenceThreshold ?? fallbackConfig.LlmEntityConflictRejectConfidenceThreshold, 0, 1),
-            UseLlmReview = dto?.UseLlmReview ?? fallbackConfig.UseLlmReview,
-            UseLlmSuggestion = dto?.UseLlmSuggestion ?? fallbackConfig.UseLlmSuggestion,
-            SuggestNoMatchRows = dto?.SuggestNoMatchRows ?? fallbackConfig.SuggestNoMatchRows,
-            LlmSuggestionScoreThreshold = dto?.LlmSuggestionScoreThreshold ?? fallbackConfig.LlmSuggestionScoreThreshold,
             LlmParallelism = Math.Clamp(dto?.LlmParallelism ?? fallbackConfig.LlmParallelism, 1, 10),
             LlmRowTimeoutSeconds = Math.Clamp(dto?.LlmRowTimeoutSeconds ?? fallbackConfig.LlmRowTimeoutSeconds, 5, 300),
             LlmRetryCount = Math.Clamp(dto?.LlmRetryCount ?? fallbackConfig.LlmRetryCount, 0, 3),
@@ -1264,7 +1524,7 @@ public sealed class MatchingWorkflowSupportService
         };
     }
 
-    private async Task<(MatchingStrategy Strategy, int RecallTopK)> ResolveMatchingDefaultsAsync(int? embeddingServiceId)
+    private async Task<int> ResolveDefaultRecallTopKAsync(int? embeddingServiceId)
     {
         var fallbackConfig = new MatchingConfig();
         var query = _unitOfWork.AiServiceConfigs
@@ -1285,53 +1545,80 @@ public sealed class MatchingWorkflowSupportService
                 .FirstOrDefaultAsync();
         }
 
-        return embeddingService == null
-            ? (fallbackConfig.MatchingStrategy, fallbackConfig.RecallTopK)
-            : (embeddingService.DefaultMatchingStrategy switch
-            {
-                AiServiceDefaultMatchingStrategy.MultiStage => MatchingStrategy.MultiStage,
-                _ => MatchingStrategy.SingleStage
-            }, embeddingService.DefaultRecallTopK);
+        return embeddingService?.DefaultRecallTopK ?? fallbackConfig.RecallTopK;
     }
 
-    private static bool CanApplyMatchedSpec(FillMapping mapping, double highConfidenceThreshold)
+    private static bool CanApplyMatchedSpec(
+        FillMapping mapping,
+        MatchResult? currentMatch,
+        MatchSourceItem? currentSourceRow,
+        ReviewApprovalTokenPayload? reviewApprovalToken)
     {
+        if (currentMatch == null || !currentMatch.MatchedSpecId.HasValue)
+        {
+            return false;
+        }
+
+        if (mapping.SpecId != currentMatch.MatchedSpecId)
+        {
+            return false;
+        }
+
+        if (currentMatch.Decision == MatchDecision.Reject)
+        {
+            return false;
+        }
+
+        if (RequiresManualReviewByEquivalenceVerdict(currentMatch.LlmEquivalence?.Verdict.ToString()))
+        {
+            return false;
+        }
+
         if (mapping.ManualConfirmed)
         {
             return true;
         }
 
-        if (!string.IsNullOrWhiteSpace(mapping.Decision))
+        if (reviewApprovalToken != null)
         {
-            if (string.Equals(mapping.Decision, "autoApply", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            if (string.Equals(mapping.Decision, "manualReview", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(mapping.Decision, "reject", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
+            return MatchesReviewApprovalToken(reviewApprovalToken, currentMatch, currentSourceRow);
         }
 
-        if (!mapping.MatchScore.HasValue)
-        {
-            return false;
-        }
-
-        var matchScore = mapping.MatchScore.Value;
-        if (matchScore >= highConfidenceThreshold)
+        if (currentMatch.Decision == MatchDecision.AutoApply)
         {
             return true;
         }
 
-        if (matchScore < MatchingThresholds.MediumConfidenceScore)
+        return false;
+    }
+
+    private static bool MatchesReviewApprovalToken(
+        ReviewApprovalTokenPayload reviewApprovalToken,
+        MatchResult currentMatch,
+        MatchSourceItem? currentSourceRow)
+    {
+        if (currentSourceRow == null)
         {
             return false;
         }
 
-        return NormalizeLlmReviewScore(mapping.LlmReviewScore) >= MatchingThresholds.LlmReviewPassScore;
+        return reviewApprovalToken.SpecId == currentMatch.MatchedSpecId &&
+               string.Equals(reviewApprovalToken.SourceProject, NormalizeForDedup(currentSourceRow.Project), StringComparison.Ordinal) &&
+               string.Equals(reviewApprovalToken.SourceSpecification, NormalizeForDedup(currentSourceRow.Specification), StringComparison.Ordinal) &&
+               string.Equals(
+                   reviewApprovalToken.SpecFingerprint,
+                   ComputeReviewApprovalSpecFingerprint(
+                       currentMatch.MatchedProject,
+                       currentMatch.MatchedSpecification,
+                       currentMatch.MatchedAcceptance,
+                       currentMatch.MatchedRemark),
+                   StringComparison.Ordinal);
+    }
+
+    private static bool RequiresManualReviewByEquivalenceVerdict(string? verdict)
+    {
+        return string.Equals(verdict, "different", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(verdict, "uncertain", StringComparison.OrdinalIgnoreCase);
     }
 
     private static double NormalizeHighConfidenceThreshold(double? highConfidenceThreshold)
@@ -1386,6 +1673,23 @@ public sealed class MatchingWorkflowSupportService
         return Math.Clamp(normalized, 0, 100);
     }
 
+    private static string ComputeReviewApprovalSpecFingerprint(
+        string? project,
+        string? specification,
+        string? acceptance,
+        string? remark)
+    {
+        var normalized = string.Join('\n', [
+            NormalizeForDedup(project),
+            NormalizeForDedup(specification),
+            NormalizeForDedup(acceptance),
+            NormalizeForDedup(remark)
+        ]);
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexString(hash);
+    }
+
     /// <summary>
     /// 转换为匹配结果DTO
     /// </summary>
@@ -1402,7 +1706,6 @@ public sealed class MatchingWorkflowSupportService
             EmbeddingScore = result.EmbeddingScore,
             ScoreDetails = result.ScoreDetails,
             Decision = ToDecisionKey(result.Decision),
-            HasHardConflict = result.Evidence.HasHardConflict,
             EvidenceSummary = [.. result.Evidence.Summary],
             ConflictSummary = [.. result.Evidence.Conflicts],
             Issues = result.Issues.Select(ConvertToIssueDto).ToList(),
@@ -1420,29 +1723,25 @@ public sealed class MatchingWorkflowSupportService
                     Score = candidate.Score,
                     EmbeddingScore = candidate.EmbeddingScore,
                     ScoreDetails = candidate.ScoreDetails,
-                    Decision = candidate.Evidence.HasHardConflict
-                        ? "reject"
-                        : result.MatchedSpecId == candidate.SpecId
-                            ? ToDecisionKey(result.Decision)
-                            : "manualReview",
-                    HasHardConflict = candidate.Evidence.HasHardConflict,
+                    Decision = result.MatchedSpecId == candidate.SpecId
+                        ? ToDecisionKey(result.Decision)
+                        : "manualReview",
                     EvidenceSummary = [.. candidate.Evidence.Summary],
                     ConflictSummary = [.. candidate.Evidence.Conflicts],
                     Issues = candidate.Issues.Select(ConvertToIssueDto).ToList(),
                     Entities = candidate.Evidence.Entities.Select(ConvertToEntityDto).ToList(),
                     RerankSummary = candidate.RerankSummary,
+                    SelectionMode = ToSelectionModeKey(candidate.SelectionMode),
+                    SelectionSummary = candidate.SelectionSummary,
                     LlmEquivalence = ConvertToLlmEquivalenceDto(candidate.LlmEquivalence)
                 })
                 .ToList(),
-            MatchingStrategy = result.MatchingStrategy,
             RecalledCandidateCount = result.RecalledCandidateCount,
             IsAmbiguous = result.IsAmbiguous,
             ScoreGap = result.ScoreGap,
             RerankSummary = result.RerankSummary,
-            LlmScore = result.LlmScore,
-            LlmReason = result.LlmReason,
-            LlmCommentary = result.LlmCommentary,
-            IsLlmReviewed = result.IsLlmReviewed
+            SelectionMode = ToSelectionModeKey(result.SelectionMode),
+            SelectionSummary = result.SelectionSummary
         };
     }
 
@@ -1483,6 +1782,16 @@ public sealed class MatchingWorkflowSupportService
             LlmEquivalenceReasonType.SemanticDifference => "semantic_difference",
             LlmEquivalenceReasonType.SymbolConflict => "symbol_conflict",
             _ => "uncertain"
+        };
+    }
+
+    private static string ToSelectionModeKey(MatchSelectionMode selectionMode)
+    {
+        return selectionMode switch
+        {
+            MatchSelectionMode.ExactShortcut => "exactShortcut",
+            MatchSelectionMode.AiRerank => "aiRerank",
+            _ => "embeddingTop1"
         };
     }
 
@@ -1543,9 +1852,14 @@ public sealed class MatchingWorkflowSupportService
         HttpResponse response,
         MatchLlmStreamItem item,
         MatchingConfig config,
+        DataScopeResult scope,
+        int? customerId,
+        int? processId,
+        int? machineModelId,
         CancellationToken cancellationToken,
-        IReadOnlyDictionary<int, AcceptanceSpec> accessibleSpecLookup,
+        IReadOnlyDictionary<int, MatchCandidate> accessibleSpecLookup,
         ILlmReviewService reviewService,
+        ConcurrentDictionary<LlmStreamItemKey, byte> reviewTerminalLookup,
         SemaphoreSlim sseWriteLock)
     {
         var specId = item.BestMatchSpecId ?? 0;
@@ -1554,17 +1868,30 @@ public sealed class MatchingWorkflowSupportService
 
         var location = FormatStreamItemLocation(item);
 
-        if (!accessibleSpecLookup.TryGetValue(specId, out var spec))
+        if (RequiresManualReviewByEquivalenceVerdict(item.LlmEquivalenceVerdict))
         {
-            _logger.LogWarning("[LLM复核] {Location}: 最佳匹配规格ID={SpecId}不存在或无权限", location, specId);
-            await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
+            await WriteSseEventLockedAsync(response, sseWriteLock, "review.done", new
             {
                 tableIndex = item.TableIndex,
                 rowIndex = item.RowIndex,
-                message = "最佳匹配规格不存在或无权限",
+                score = 0,
+                reason = "AI 等价裁决已要求人工确认，跳过旧复核",
+                commentary = "保留 AI 等价裁决结果，不再用旧 LLM 复核反向放行",
                 decision = "manualReview"
             }, cancellationToken);
-            return LlmStepOutcome.Failed;
+            reviewTerminalLookup.TryAdd(GetLlmStreamItemKey(item), 0);
+            return LlmStepOutcome.Success;
+        }
+
+        if (!item.IsAmbiguous)
+        {
+            return LlmStepOutcome.Success;
+        }
+
+        if (!accessibleSpecLookup.TryGetValue(specId, out var spec))
+        {
+            _logger.LogWarning("[LLM复核] {Location}: 最佳匹配规格ID={SpecId}不存在或无权限", location, specId);
+            throw new LlmStepFailureException("最佳匹配规格不存在或无权限", "manualReview");
         }
 
         _logger.LogDebug(
@@ -1583,7 +1910,6 @@ public sealed class MatchingWorkflowSupportService
             BaseScore = (item.BestMatchScore ?? 0) * 100,
             ScoreDetails = item.ScoreDetails ?? new Dictionary<string, double>(),
             CurrentDecision = item.Decision ?? "manualReview",
-            HasHardConflict = item.HasHardConflict,
             EvidenceSummary = item.EvidenceSummary ?? [],
             ConflictSummary = item.ConflictSummary ?? [],
             ReviewTrigger = BuildReviewTrigger(item),
@@ -1614,7 +1940,10 @@ public sealed class MatchingWorkflowSupportService
             if (reviewService.TryParseReviewResult(buffer.ToString(), out var result))
             {
                 var normalizedScore = NormalizeLlmReviewScore(result.Score);
-                var passed = normalizedScore >= MatchingThresholds.LlmReviewPassScore && !item.HasHardConflict;
+                var passed = normalizedScore >= MatchingThresholds.LlmReviewPassScore;
+                var reviewApprovalToken = passed
+                    ? IssueReviewApprovalToken(scope, customerId, processId, machineModelId, config, item, spec)
+                    : null;
                 _logger.LogDebug("[LLM复核] {Location}: 完成, score={Score}, reason={Reason}",
                     location, normalizedScore, result.Reason);
                 await WriteSseEventLockedAsync(response, sseWriteLock, "review.done", new
@@ -1624,21 +1953,16 @@ public sealed class MatchingWorkflowSupportService
                     score = normalizedScore,
                     reason = result.Reason,
                     commentary = result.Commentary,
-                    decision = passed ? "autoApply" : "manualReview"
+                    decision = passed ? "autoApply" : "manualReview",
+                    reviewApprovalToken
                 }, cancellationToken);
+                reviewTerminalLookup.TryAdd(GetLlmStreamItemKey(item), 0);
                 return LlmStepOutcome.Success;
             }
             else
             {
                 _logger.LogWarning("[LLM复核] {Location}: JSON解析失败, 原始输出: {Raw}", location, buffer.ToString());
-                await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
-                {
-                    tableIndex = item.TableIndex,
-                    rowIndex = item.RowIndex,
-                    message = "LLM复核输出解析失败",
-                    decision = "manualReview"
-                }, cancellationToken);
-                return LlmStepOutcome.Failed;
+                throw new LlmStepFailureException("LLM复核输出解析失败", "manualReview");
             }
         }
         catch (OperationCanceledException)
@@ -1648,151 +1972,29 @@ public sealed class MatchingWorkflowSupportService
         catch (AiServiceUnavailableException ex)
         {
             _logger.LogWarning(ex, "LLM复核失败");
-            await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
-            {
-                tableIndex = item.TableIndex,
-                rowIndex = item.RowIndex,
-                message = ex.Reason,
-                decision = "manualReview"
-            }, cancellationToken);
-            return LlmStepOutcome.Failed;
+            throw new LlmStepFailureException(ex.Reason, "manualReview", ex);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "LLM复核失败");
-            await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
+            if (ex is LlmStepFailureException)
             {
-                tableIndex = item.TableIndex,
-                rowIndex = item.RowIndex,
-                message = "LLM复核失败",
-                decision = "manualReview"
-            }, cancellationToken);
-            return LlmStepOutcome.Failed;
+                throw;
+            }
+
+            throw new LlmStepFailureException("LLM复核失败", "manualReview", ex);
         }
     }
 
-    private async Task<LlmStepOutcome> StreamLlmSuggestionAsync(
-        HttpResponse response,
-        MatchLlmStreamItem item,
-        MatchingConfig config,
-        CancellationToken cancellationToken,
-        IReadOnlyDictionary<int, AcceptanceSpec> accessibleSpecLookup,
-        ILlmSuggestionService suggestionService,
-        SemaphoreSlim sseWriteLock)
+    private static LlmStreamItemKey GetLlmStreamItemKey(MatchLlmStreamItem item)
     {
-        var request = new LlmSuggestionRequest
-        {
-            SourceProject = item.SourceProject,
-            SourceSpecification = item.SourceSpecification,
-            LlmServiceId = config.LlmServiceId
-        };
-        var location = FormatStreamItemLocation(item);
-
-        // 如果有最佳匹配（虽然得分低于阈值），包含为参考数据
-        if (item.BestMatchSpecId.HasValue && item.BestMatchSpecId.Value > 0)
-        {
-            if (accessibleSpecLookup.TryGetValue(item.BestMatchSpecId.Value, out var spec))
-            {
-                request.BestMatchProject = spec.Project;
-                request.BestMatchSpecification = spec.Specification;
-                request.BestMatchAcceptance = spec.Acceptance;
-                request.BestMatchRemark = spec.Remark;
-                request.BestMatchScore = item.BestMatchScore;
-            }
-        }
-
-        _logger.LogDebug(
-            "[LLM建议] {Location}: 源=[{SrcProj}/{SrcSpec}] 参考=[{RefProj}] 得分={Score}",
-            location, item.SourceProject, item.SourceSpecification,
-            request.BestMatchProject ?? "(无)", item.BestMatchScore?.ToString("P1") ?? "N/A");
-
-        await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.start", new
-        {
-            tableIndex = item.TableIndex,
-            rowIndex = item.RowIndex
-        }, cancellationToken);
-
-        var buffer = new StringBuilder();
-        try
-        {
-            await foreach (var chunk in suggestionService.GenerateSuggestionStreamAsync(request, cancellationToken))
-            {
-                buffer.Append(chunk);
-                await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.delta", new
-                {
-                    tableIndex = item.TableIndex,
-                    rowIndex = item.RowIndex,
-                    chunk
-                }, cancellationToken);
-            }
-
-            if (suggestionService.TryParseSuggestionResult(buffer.ToString(), out var result))
-            {
-                _logger.LogDebug("[LLM建议] {Location}: 完成, acceptance={Acceptance}, remark={Remark}",
-                    location, result.Acceptance ?? "(空)", result.Remark ?? "(空)");
-                await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.done", new
-                {
-                    tableIndex = item.TableIndex,
-                    rowIndex = item.RowIndex,
-                    acceptance = result.Acceptance,
-                    remark = result.Remark,
-                    reason = result.Reason
-                }, cancellationToken);
-                return LlmStepOutcome.Success;
-            }
-            else
-            {
-                _logger.LogWarning("[LLM建议] {Location}: JSON解析失败, 原始输出: {Raw}", location, buffer.ToString());
-                await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.error", new
-                {
-                    tableIndex = item.TableIndex,
-                    rowIndex = item.RowIndex,
-                    message = "LLM生成输出解析失败"
-                }, cancellationToken);
-                return LlmStepOutcome.Failed;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (AiServiceUnavailableException ex)
-        {
-            _logger.LogWarning(ex, "LLM生成建议失败");
-            await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.error", new
-            {
-                tableIndex = item.TableIndex,
-                rowIndex = item.RowIndex,
-                message = ex.Reason
-            }, cancellationToken);
-            return LlmStepOutcome.Failed;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "LLM生成建议失败");
-            await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.error", new
-            {
-                tableIndex = item.TableIndex,
-                rowIndex = item.RowIndex,
-                message = "LLM生成建议失败"
-            }, cancellationToken);
-            return LlmStepOutcome.Failed;
-        }
+        return new LlmStreamItemKey(item.TableIndex, item.RowIndex);
     }
 
-    private static bool ShouldGenerateSuggestion(MatchingConfig config, MatchLlmStreamItem item)
+    private static bool RequiresReviewForStreamItem(MatchLlmStreamItem item)
     {
-        if (!config.UseLlmSuggestion)
-        {
-            return false;
-        }
-
-        if (item.BestMatchSpecId.HasValue)
-        {
-            return (item.BestMatchScore ?? 0) < config.LlmSuggestionScoreThreshold;
-        }
-
-        return config.SuggestNoMatchRows;
+        return item.BestMatchSpecId.HasValue &&
+               (item.IsAmbiguous || RequiresManualReviewByEquivalenceVerdict(item.LlmEquivalenceVerdict));
     }
 
     private static string FormatStreamItemLocation(MatchLlmStreamItem item)
@@ -1805,12 +2007,14 @@ public sealed class MatchingWorkflowSupportService
     private async Task WriteCircuitOpenEventsAsync(
         HttpResponse response,
         MatchLlmStreamItem item,
-        MatchingConfig config,
+        bool requiresReview,
+        ConcurrentDictionary<LlmStreamItemKey, byte> reviewTerminalLookup,
         SemaphoreSlim sseWriteLock,
         CancellationToken cancellationToken)
     {
         const string message = "LLM 失败率过高，已触发熔断，请稍后重试";
-        if (config.UseLlmReview && item.BestMatchSpecId.HasValue)
+        var itemKey = GetLlmStreamItemKey(item);
+        if (requiresReview && reviewTerminalLookup.TryAdd(itemKey, 0))
         {
             await WriteSseEventLockedAsync(response, sseWriteLock, "review.error", new
             {
@@ -1818,16 +2022,6 @@ public sealed class MatchingWorkflowSupportService
                 rowIndex = item.RowIndex,
                 message,
                 decision = "manualReview"
-            }, cancellationToken);
-        }
-
-        if (ShouldGenerateSuggestion(config, item))
-        {
-            await WriteSseEventLockedAsync(response, sseWriteLock, "suggestion.error", new
-            {
-                tableIndex = item.TableIndex,
-                rowIndex = item.RowIndex,
-                message
             }, cancellationToken);
         }
     }
@@ -1839,9 +2033,11 @@ public sealed class MatchingWorkflowSupportService
         int timeoutSeconds,
         int retryCount,
         Func<CancellationToken, Task<LlmStepOutcome>> executeAsync,
+        ConcurrentDictionary<LlmStreamItemKey, byte> reviewTerminalLookup,
         SemaphoreSlim sseWriteLock,
         CancellationToken requestCancellationToken)
     {
+        var itemKey = GetLlmStreamItemKey(item);
         for (var attempt = 0; attempt <= retryCount; attempt++)
         {
             using var stepCts = CancellationTokenSource.CreateLinkedTokenSource(requestCancellationToken);
@@ -1880,7 +2076,31 @@ public sealed class MatchingWorkflowSupportService
                         ? "manualReview"
                         : null
                 }, requestCancellationToken);
+                reviewTerminalLookup.TryAdd(itemKey, 0);
                 return new LlmStepExecutionResult(LlmStepOutcome.Timeout, attempt);
+            }
+            catch (LlmStepFailureException ex)
+            {
+                if (attempt < retryCount)
+                {
+                    _logger.LogWarning(ex, "[LLM-Stream] {Location}: {Step} 第 {Attempt} 次失败，准备重试",
+                        FormatStreamItemLocation(item), stepName, attempt + 1);
+                    continue;
+                }
+
+                _logger.LogWarning(ex, "[LLM-Stream] {Location}: {Step} 重试后仍失败",
+                    FormatStreamItemLocation(item), stepName);
+                await WriteSseEventLockedAsync(response, sseWriteLock, $"{stepName}.error", new
+                {
+                    tableIndex = item.TableIndex,
+                    rowIndex = item.RowIndex,
+                    message = ex.EventMessage,
+                    decision = ex.Decision ?? (string.Equals(stepName, "review", StringComparison.OrdinalIgnoreCase)
+                        ? "manualReview"
+                        : null)
+                }, requestCancellationToken);
+                reviewTerminalLookup.TryAdd(itemKey, 0);
+                return new LlmStepExecutionResult(LlmStepOutcome.Failed, attempt);
             }
             catch (Exception ex)
             {
@@ -1902,6 +2122,7 @@ public sealed class MatchingWorkflowSupportService
                         ? "manualReview"
                         : null
                 }, requestCancellationToken);
+                reviewTerminalLookup.TryAdd(itemKey, 0);
                 return new LlmStepExecutionResult(LlmStepOutcome.Failed, attempt);
             }
         }
@@ -1913,7 +2134,7 @@ public sealed class MatchingWorkflowSupportService
     {
         return string.Equals(stepName, "review", StringComparison.OrdinalIgnoreCase)
             ? "LLM复核"
-            : "LLM建议";
+            : stepName;
     }
 
     private async Task<DataScopeResult?> ResolveSpecScopeAsync(ClaimsPrincipal user)
@@ -1940,15 +2161,36 @@ public sealed class MatchingWorkflowSupportService
             .ToDictionary(spec => spec.Id);
     }
 
-    private static MatchLlmStreamItem NormalizeLlmStreamItem(
-        MatchLlmStreamItem item,
-        bool hasAccessibleBestMatch)
+    private static MatchLlmStreamItem CreateAuthoritativeLlmStreamItem(
+        MatchLlmStreamItem requestItem,
+        MatchResult? result)
     {
-        if (hasAccessibleBestMatch)
+        if (result == null || !result.MatchedSpecId.HasValue)
         {
-            return item;
+            return CreateNoMatchLlmStreamItem(requestItem);
         }
 
+        return new MatchLlmStreamItem
+        {
+            TableIndex = requestItem.TableIndex,
+            RowIndex = requestItem.RowIndex,
+            SourceProject = requestItem.SourceProject,
+            SourceSpecification = requestItem.SourceSpecification,
+            BestMatchSpecId = result.MatchedSpecId,
+            BestMatchScore = result.Score,
+            ScoreDetails = result.ScoreDetails,
+            Decision = ToDecisionKey(result.Decision),
+            LlmEquivalenceVerdict = result.LlmEquivalence == null
+                ? null
+                : ToEquivalenceVerdictKey(result.LlmEquivalence.Verdict),
+            IsAmbiguous = result.IsAmbiguous,
+            EvidenceSummary = [.. result.Evidence.Summary],
+            ConflictSummary = [.. result.Evidence.Conflicts]
+        };
+    }
+
+    private static MatchLlmStreamItem CreateNoMatchLlmStreamItem(MatchLlmStreamItem item)
+    {
         return new MatchLlmStreamItem
         {
             TableIndex = item.TableIndex,
@@ -1959,17 +2201,23 @@ public sealed class MatchingWorkflowSupportService
             BestMatchScore = null,
             ScoreDetails = null,
             Decision = "manualReview",
-            HasHardConflict = item.HasHardConflict,
-            EvidenceSummary = item.EvidenceSummary,
-            ConflictSummary = item.ConflictSummary
+            LlmEquivalenceVerdict = null,
+            IsAmbiguous = false,
+            EvidenceSummary = [],
+            ConflictSummary = []
         };
     }
 
     private static string BuildReviewTrigger(MatchLlmStreamItem item)
     {
-        if (item.HasHardConflict)
+        if (RequiresManualReviewByEquivalenceVerdict(item.LlmEquivalenceVerdict))
         {
-            return "存在硬冲突，默认不允许自动采用，仅记录复核上下文";
+            return "AI 等价裁决已要求人工确认，禁止旧复核反向放行";
+        }
+
+        if (item.ConflictSummary?.Count > 0)
+        {
+            return "存在结构化冲突证据，需要结合 AI 复核确认";
         }
 
         if (!string.IsNullOrWhiteSpace(item.Decision) &&
@@ -2079,22 +2327,17 @@ internal class FillTaskResult
     public List<TableFillEntry> TableEntries { get; set; } = [];
 
     /// <summary>
-    /// 当前填充任务的严格复用会话
-    /// </summary>
-    public StrictReuseSession? StrictReuseSession { get; set; }
-
-    /// <summary>
-    /// 批量严格复用产物相对路径
+    /// 下载产物相对路径
     /// </summary>
     public string? DownloadArtifactRelativePath { get; set; }
 
     /// <summary>
-    /// 批量严格复用下载文件名
+    /// 下载产物文件名
     /// </summary>
     public string? DownloadArtifactFileName { get; set; }
 
     /// <summary>
-    /// 批量严格复用下载内容类型
+    /// 下载产物内容类型
     /// </summary>
     public string? DownloadArtifactContentType { get; set; }
 }
@@ -2121,64 +2364,12 @@ internal class FillResult
     public string? Remark { get; set; }
 }
 
-internal class StrictReuseSession
-{
-    public int SourceFileId { get; set; }
-    public string SourceFileName { get; set; } = string.Empty;
-    public UploadedFileType SourceFileType { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public List<StrictReuseTableSnapshot> Tables { get; set; } = [];
-}
-
-internal class StrictReuseTableSnapshot
-{
-    public int TableIndex { get; set; }
-    public int ProjectColumnIndex { get; set; }
-    public int SpecificationColumnIndex { get; set; }
-    public int AcceptanceColumnIndex { get; set; }
-    public int? RemarkColumnIndex { get; set; }
-    public int? HeaderRowStart { get; set; }
-    public int? HeaderRowCount { get; set; }
-    public int? DataStartRow { get; set; }
-    public bool FilterEmptySourceRows { get; set; } = true;
-    public List<StrictReuseRowSignature> RowSignatures { get; set; } = [];
-    public List<FillResult> FillResults { get; set; } = [];
-}
-
-internal class StrictReuseRowSignature
-{
-    public int RowIndex { get; set; }
-    public string Project { get; set; } = string.Empty;
-    public string Specification { get; set; } = string.Empty;
-}
-
-internal class StrictReuseSourceTableDefinition
-{
-    public int TableIndex { get; set; }
-    public int? ProjectColumnIndex { get; set; }
-    public int? SpecificationColumnIndex { get; set; }
-    public int AcceptanceColumnIndex { get; set; }
-    public int? RemarkColumnIndex { get; set; }
-    public int? HeaderRowStart { get; set; }
-    public int? HeaderRowCount { get; set; }
-    public int? DataStartRow { get; set; }
-    public bool? FilterEmptySourceRows { get; set; }
-    public List<FillResult> FillResults { get; set; } = [];
-}
-
-internal class StrictReuseGeneratedFile
+internal class GeneratedArtifactFile
 {
     public int FileId { get; set; }
     public string FileName { get; set; } = string.Empty;
     public string ContentType { get; set; } = "application/octet-stream";
     public byte[] Content { get; set; } = [];
-}
-
-internal class SavedDownloadArtifact
-{
-    public string RelativePath { get; set; } = string.Empty;
-    public string FileName { get; set; } = string.Empty;
-    public string ContentType { get; set; } = "application/octet-stream";
 }
 
 internal readonly record struct WriteBackSummary(int RequestedCells, int WrittenCells);

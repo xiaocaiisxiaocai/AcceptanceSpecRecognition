@@ -8,7 +8,6 @@ export interface PromptTemplate {
   displayName: string;
   content: string;
   isSystem: boolean;
-  isDefault: boolean;
   usageDescription: string;
   availableVariables: string[];
   createdAt: string;

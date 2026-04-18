@@ -1,5 +1,8 @@
 using System.Net;
 using System.Text.Json;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
@@ -40,14 +43,26 @@ public class MatchingPreviewScoreDetailsTests : IClassFixture<ApiWebApplicationF
             }));
         specResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        var fileId = await UploadSingleRowDocxAsync("P1", "S1");
         var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
+            "/api/matching/batch-preview",
             ApiClientJson.ToJsonContent(new
             {
-                items = new[] { new { rowIndex = 0, project = "P1", specification = "S1" } },
+                fileId,
                 customerId,
                 processId,
-                config = new { minScoreThreshold = 0.0 }
+                config = new { minScoreThreshold = 0.0 },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3
+                    }
+                }
             }));
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -55,7 +70,7 @@ public class MatchingPreviewScoreDetailsTests : IClassFixture<ApiWebApplicationF
         previewJson.Code.Should().Be(0);
         previewJson.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
 
-        var item = previewJson.Data.GetProperty("items")[0];
+        var item = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
         item.TryGetProperty("bestMatch", out var bestMatch).Should().BeTrue();
         bestMatch.ValueKind.Should().NotBe(JsonValueKind.Null);
 
@@ -69,5 +84,55 @@ public class MatchingPreviewScoreDetailsTests : IClassFixture<ApiWebApplicationF
         topCandidates.GetArrayLength().Should().BeGreaterThan(0);
         topCandidates[0].GetProperty("rank").GetInt32().Should().Be(1);
         topCandidates[0].GetProperty("scoreDetails").TryGetProperty("Embedding", out _).Should().BeTrue();
+    }
+
+    private async Task<int> UploadSingleRowDocxAsync(string project, string specification)
+    {
+        using var multipart = new MultipartFormDataContent();
+        multipart.Add(new ByteArrayContent(CreateDocxBytes(new[]
+        {
+            new[] { "项目", "规格", "验收", "备注" },
+            new[] { project, specification, "", "" }
+        })), "file", "score-details-preview.docx");
+
+        var response = await _client.PostAsync("/api/documents/upload", multipart);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateDocxBytes(string[][] rows)
+    {
+        using var stream = new MemoryStream();
+        using (var document = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document, true))
+        {
+            var mainPart = document.AddMainDocumentPart();
+            mainPart.Document = new Document(new Body());
+
+            var table = new Table();
+            table.AppendChild(new TableProperties(new TableBorders(
+                new TopBorder { Val = BorderValues.Single, Size = 4 },
+                new BottomBorder { Val = BorderValues.Single, Size = 4 },
+                new LeftBorder { Val = BorderValues.Single, Size = 4 },
+                new RightBorder { Val = BorderValues.Single, Size = 4 },
+                new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
+                new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 })));
+
+            foreach (var row in rows)
+            {
+                var tableRow = new TableRow();
+                foreach (var cell in row)
+                {
+                    tableRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(cell ?? string.Empty)))));
+                }
+
+                table.AppendChild(tableRow);
+            }
+
+            mainPart.Document.Body!.Append(table);
+            mainPart.Document.Save();
+        }
+
+        return stream.ToArray();
     }
 }

@@ -28,13 +28,6 @@ public sealed class MatchingExecutionAppService
         return _matchingLlmStreamAppService.LlmStreamAsync(user, response, request, cancellationToken);
     }
 
-    public Task<MatchingOperationResult<ExecuteFillResponse>> ExecuteFillAsync(
-        ClaimsPrincipal user,
-        ExecuteFillRequest request)
-    {
-        return _matchingFillExecutionAppService.ExecuteFillAsync(user, request);
-    }
-
     public Task<MatchingOperationResult<ExecuteFillResponse>> BatchExecuteFillAsync(
         ClaimsPrincipal user,
         BatchExecuteFillRequest request)

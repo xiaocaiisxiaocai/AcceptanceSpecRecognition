@@ -107,8 +107,6 @@ builder.Services.Configure<EmbeddingCacheCleanupOptions>(
     builder.Configuration.GetSection(EmbeddingCacheCleanupOptions.SectionName));
 builder.Services.Configure<AiServiceTestOptions>(
     builder.Configuration.GetSection(AiServiceTestOptions.SectionName));
-builder.Services.Configure<MatchingKnowledgeOptions>(
-    builder.Configuration.GetSection(MatchingKnowledgeOptions.SectionName));
 builder.Services.AddSingleton<IValidateOptions<AuthSeedOptions>, AuthSeedOptionsValidator>();
 builder.Services.AddOptions<AuthSeedOptions>()
     .Bind(builder.Configuration.GetSection(AuthSeedOptions.SectionName))
@@ -117,8 +115,12 @@ builder.Services.Configure<SemanticKernelOptions>(
     builder.Configuration.GetSection(SemanticKernelOptions.SectionName));
 
 // 配置MySQL数据库连接
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? AppDbContext.DefaultConnectionString;
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")?.Trim();
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection 未配置，当前分支禁止回退到硬编码默认数据库。");
+}
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
@@ -130,7 +132,6 @@ builder.Services.AddScoped<IAcceptanceSpecRepository, AcceptanceSpecRepository>(
 builder.Services.AddScoped<IEmbeddingCacheRepository, EmbeddingCacheRepository>();
 builder.Services.AddScoped<IWordFileRepository, WordFileRepository>();
 builder.Services.AddScoped<IAiServiceConfigRepository, AiServiceConfigRepository>();
-builder.Services.AddScoped<IMatchingKnowledgeConfigRepository, MatchingKnowledgeConfigRepository>();
 builder.Services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
 builder.Services.AddScoped<IColumnMappingRuleRepository, ColumnMappingRuleRepository>();
 builder.Services.AddScoped<ISystemUserRepository, SystemUserRepository>();
@@ -158,6 +159,7 @@ builder.Services.AddScoped<ImportDuplicateDetectionService>();
 builder.Services.AddScoped<DocumentFileAccessService>();
 builder.Services.AddScoped<DocumentTableAccessService>();
 builder.Services.AddScoped<MatchingResultWriteBackService>();
+builder.Services.AddSingleton<BatchPreviewProgressTracker>();
 builder.Services.AddSingleton<BatchReplySessionService>();
 builder.Services.AddScoped<BatchReplyAppService>();
 builder.Services.AddScoped<DocumentFileAppService>();
@@ -170,9 +172,7 @@ builder.Services.AddScoped<MatchingFillExecutionAppService>();
 builder.Services.AddScoped<MatchingExecutionAppService>();
 builder.Services.AddScoped<MatchingTaskAppService>();
 builder.Services.AddScoped<ExecutionHistoryAppService>();
-builder.Services.AddScoped<StrictReuseAppService>();
-builder.Services.AddScoped<MatchingKnowledgeBootstrapper>();
-builder.Services.AddScoped<MatchingKnowledgeDraftGenerationService>();
+builder.Services.AddScoped<SystemPromptTemplateInitializer>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
 
@@ -182,23 +182,18 @@ builder.Services.AddScoped<IFileCompareService, FileCompareService>();
 builder.Services.AddAcceptanceApplicationLayer();
 
 // 注册匹配服务（Semantic Kernel）
-builder.Services.AddScoped<IMatchingKnowledgeProvider, ConfigurationMatchingKnowledgeProvider>();
 builder.Services.AddScoped<IAiServiceSelector, AiServiceSelector>();
 builder.Services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
 builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
-builder.Services.AddSingleton<ITextSimilarityService, TextSimilarityService>();
 builder.Services.AddScoped<PromptTemplateValidationService>();
 builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
-builder.Services.AddScoped<ILlmSuggestionService, LlmMatchingAssistService>();
-builder.Services.AddScoped<ILlmEntityResolutionService, LlmMatchingAssistService>();
 builder.Services.AddScoped<ILlmEquivalenceAdjudicationService, LlmMatchingAssistService>();
+builder.Services.AddScoped<ILlmCandidateRerankService, LlmMatchingAssistService>();
 builder.Services.AddScoped<IMatchingService>(serviceProvider => new SemanticKernelMatchingService(
     serviceProvider.GetRequiredService<IEmbeddingService>(),
     serviceProvider.GetRequiredService<ILogger<SemanticKernelMatchingService>>(),
-    knowledgeProvider: serviceProvider.GetRequiredService<IMatchingKnowledgeProvider>(),
     llmEquivalenceAdjudicationService: serviceProvider.GetRequiredService<ILlmEquivalenceAdjudicationService>(),
-    llmEntityResolutionService: serviceProvider.GetRequiredService<ILlmEntityResolutionService>()));
-builder.Services.AddScoped<IMatchingKnowledgeDraftAiService, MatchingKnowledgeDraftAiService>();
+    llmCandidateRerankService: serviceProvider.GetRequiredService<ILlmCandidateRerankService>()));
 
 // 文本处理：仅保留最小安全归一化
 builder.Services.AddScoped<ITextPreprocessingPipeline, MinimalTextPreprocessingPipeline>();
@@ -292,6 +287,12 @@ if (!app.Environment.IsEnvironment("Testing"))
     await DatabaseInitializer.InitializeAsync(db);
 }
 
+using (var scope = app.Services.CreateScope())
+{
+    var initializer = scope.ServiceProvider.GetRequiredService<SystemPromptTemplateInitializer>();
+    await initializer.EnsureAsync();
+}
+
 // 使用异常处理中间件
 app.UseExceptionHandling();
 
@@ -314,13 +315,6 @@ app.UseAuthentication();
 app.UseMiddleware<ApiPermissionMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
-
-// 系统鉴权基础数据初始化（公司、组织、角色、权限、默认账号）
-using (var scope = app.Services.CreateScope())
-{
-    var bootstrapper = scope.ServiceProvider.GetRequiredService<MatchingKnowledgeBootstrapper>();
-    await bootstrapper.EnsureInitializedAsync();
-}
 
 await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
 

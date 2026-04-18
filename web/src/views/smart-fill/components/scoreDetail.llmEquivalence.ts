@@ -188,3 +188,19 @@ export const getLlmEquivalenceSummaryText = (result?: EquivalenceLike) => {
 
   return getLlmEquivalenceHeadline(result);
 };
+
+export const shouldHideInlineLlmEquivalenceSummary = (
+  result?: EquivalenceLike,
+  score?: number
+) => {
+  if (!result || score !== 1 || result.verdict !== "equivalent") {
+    return false;
+  }
+
+  const reason = result.reason?.trim();
+  if (!reason) {
+    return false;
+  }
+
+  return reason.includes("已直接视为等价");
+};

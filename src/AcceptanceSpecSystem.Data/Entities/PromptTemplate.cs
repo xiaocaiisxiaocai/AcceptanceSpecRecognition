@@ -5,10 +5,8 @@ public enum PromptTemplateScene
     Unknown = 0,
     MatchingReview = 1,
     ImportDuplicateReview = 2,
-    MatchingGenerate = 3,
-    MatchingKnowledgeGenerate = 4,
-    MatchingEntityResolution = 5,
-    MatchingEquivalenceAdjudication = 6
+    MatchingEquivalenceAdjudication = 6,
+    MatchingCandidateRerank = 7
 }
 
 /// <summary>
@@ -24,7 +22,7 @@ public class PromptTemplate
     /// <summary>
     /// 模板名称（唯一）
     /// </summary>
-    public string Name { get; set; } = "default";
+    public string Name { get; set; } = string.Empty;
 
     /// <summary>
     /// Prompt模板内容
@@ -45,11 +43,6 @@ public class PromptTemplate
     /// 是否为系统模板
     /// </summary>
     public bool IsSystem { get; set; }
-
-    /// <summary>
-    /// 是否为默认模板
-    /// </summary>
-    public bool IsDefault { get; set; }
 
     /// <summary>
     /// 创建时间

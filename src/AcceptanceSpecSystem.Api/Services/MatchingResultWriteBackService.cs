@@ -26,6 +26,24 @@ public sealed class MatchingResultWriteBackService
         FillTaskResult taskResult,
         CancellationToken cancellationToken = default)
     {
+        var rendered = await RenderFillResultToSourceFileAsync(wordFile, taskResult, cancellationToken);
+
+        if (rendered.Summary.WrittenCells > 0)
+        {
+            await _documentFileAccessService.PersistUpdatedFileContentAsync(
+                wordFile,
+                rendered.Content,
+                cancellationToken);
+        }
+
+        return rendered.Summary;
+    }
+
+    internal async Task<RenderedWriteBackFile> RenderFillResultToSourceFileAsync(
+        WordFile wordFile,
+        FillTaskResult taskResult,
+        CancellationToken cancellationToken = default)
+    {
         using var resultStream = new MemoryStream();
         await using (var sourceStream = _documentFileAccessService.OpenReadStream(wordFile))
         {
@@ -38,15 +56,7 @@ public sealed class MatchingResultWriteBackService
             taskResult,
             GetRequiredWriter(wordFile.FileType));
 
-        if (writtenCells > 0)
-        {
-            await _documentFileAccessService.PersistUpdatedFileContentAsync(
-                wordFile,
-                resultStream.ToArray(),
-                cancellationToken);
-        }
-
-        return new WriteBackSummary(requestedCells, writtenCells);
+        return new RenderedWriteBackFile(resultStream.ToArray(), new WriteBackSummary(requestedCells, writtenCells));
     }
 
     internal async Task<byte[]> RenderFilledContentAsync(
@@ -65,53 +75,7 @@ public sealed class MatchingResultWriteBackService
         return resultStream.ToArray();
     }
 
-    internal async Task<StrictReuseGeneratedFile> GenerateStrictReuseTargetFileAsync(
-        WordFile targetFile,
-        StrictReuseSession session,
-        CancellationToken cancellationToken = default)
-    {
-        using var resultStream = new MemoryStream();
-        await using (var sourceStream = _documentFileAccessService.OpenReadStream(targetFile))
-        {
-            await sourceStream.CopyToAsync(resultStream, cancellationToken);
-        }
-
-        resultStream.Position = 0;
-        var tableOperations = session.Tables
-            .Select(table => new
-            {
-                table.TableIndex,
-                Operations = BuildCellWriteOperations(
-                    table.FillResults,
-                    table.AcceptanceColumnIndex,
-                    table.RemarkColumnIndex)
-            })
-            .Where(item => item.Operations.Count > 0)
-            .ToDictionary(item => item.TableIndex, item => item.Operations);
-
-        if (tableOperations.Count == 0)
-        {
-            throw new InvalidOperationException("来源填充结果为空，无法执行严格复用");
-        }
-
-        var requestedCells = tableOperations.Sum(item => item.Value.Count);
-        var writtenCells = await GetRequiredWriter(targetFile.FileType)
-            .WriteMultipleTablesAsync(resultStream, tableOperations);
-        if (writtenCells != requestedCells)
-        {
-            throw new InvalidOperationException($"目标文件写回不完整，期望写入{requestedCells}个单元格，实际写入{writtenCells}个");
-        }
-
-        return new StrictReuseGeneratedFile
-        {
-            FileId = targetFile.Id,
-            FileName = targetFile.FileName,
-            ContentType = GetDownloadContentType(targetFile.FileType),
-            Content = resultStream.ToArray()
-        };
-    }
-
-    internal async Task<StrictReuseGeneratedFile> GenerateBatchReplyTargetFileAsync(
+    internal async Task<GeneratedArtifactFile> GenerateBatchReplyTargetFileAsync(
         WordFile targetFile,
         IReadOnlyCollection<BatchReplyWriteTable> writeTables,
         CancellationToken cancellationToken = default)
@@ -145,7 +109,7 @@ public sealed class MatchingResultWriteBackService
             throw new InvalidOperationException($"目标文件写回不完整，期望写入{requestedCells}个单元格，实际写入{writtenCells}个");
         }
 
-        return new StrictReuseGeneratedFile
+        return new GeneratedArtifactFile
         {
             FileId = targetFile.Id,
             FileName = targetFile.FileName,
@@ -240,14 +204,13 @@ public sealed class MatchingResultWriteBackService
             });
 
             if (remarkColumnIndex.HasValue &&
-                remarkColumnIndex.Value != acceptanceColumnIndex &&
-                !string.IsNullOrWhiteSpace(fillResult.Remark))
+                remarkColumnIndex.Value != acceptanceColumnIndex)
             {
                 operations.Add(new CellWriteOperation
                 {
                     RowIndex = fillResult.RowIndex,
                     ColumnIndex = remarkColumnIndex.Value,
-                    Value = fillResult.Remark!,
+                    Value = fillResult.Remark ?? string.Empty,
                     PreserveFormatting = true
                 });
             }
@@ -288,3 +251,5 @@ public sealed class MatchingResultWriteBackService
         return operations;
     }
 }
+
+internal readonly record struct RenderedWriteBackFile(byte[] Content, WriteBackSummary Summary);

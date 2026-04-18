@@ -5,13 +5,13 @@
 在仓库根目录：
 
 ```powershell
-dotnet run --project src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj -c Debug --urls http://localhost:5014
+dotnet run --project src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj -c Debug --urls http://localhost:5291
 ```
 
 健康检查：
 
 ```powershell
-curl http://localhost:5014/health
+curl http://localhost:5291/health
 ```
 
 > 注意：后端默认会在启动时执行 EF Core 迁移（Development/Production）。测试环境（`ASPNETCORE_ENVIRONMENT=Testing`）会跳过迁移，由测试自行初始化数据库。
@@ -33,7 +33,7 @@ pnpm dev
 - `POST /api/documents/upload`：上传 `docx/xlsx`
 - `POST /api/documents/import` / `POST /api/documents/excel/import`：导入 Word/Excel 表格到验规
 - `POST /api/matching/batch-preview`：批量匹配预览
-- `POST /api/matching/llm-stream`：对低置信结果执行流式 LLM 复核
+- `POST /api/matching/llm-stream`：对高歧义结果执行流式 LLM 复核，并在结束时返回 `stream.complete`
 - `POST /api/matching/batch-execute` / `GET /api/matching/download/{taskId}`：批量填充与下载
 - `POST /api/specs/semantic-search`：验收规格 AI 语义搜索
 - `GET /api/auth-roles` / `GET /api/system-users` / `GET /api/org-units`：RBAC 与组织管理
@@ -63,7 +63,7 @@ pnpm build
 
 ```powershell
 dotnet run --project tools/E2ETest/E2ETest.csproj -c Debug -- `
-  --baseUrl http://localhost:5014 `
+  --baseUrl http://localhost:5291 `
   --docx docs/example.docx `
   --tableIndex 0 `
   --projectColumnIndex 0 `

@@ -3,9 +3,9 @@ defineProps<{
   isExcelFile: boolean;
   uploadedFile: any;
   tableConfigs: any[];
-  loadingMappingRules: boolean;
-  mappingRulesLength: number;
   canPasteClipboard: boolean;
+  mappingRulesCount: number;
+  loadingMappingRules: boolean;
   mappingClipboardSourceIndex: number | null;
   activeTableIndex: number | null;
   getExcelPreviewOptions: (cfg: any) => {
@@ -16,8 +16,6 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "reloadRules"): void;
-  (e: "reapplyRules"): void;
   (e: "copyMapping"): void;
   (e: "pasteMapping"): void;
   (e: "update:activeTableIndex", value: number | null): void;
@@ -26,32 +24,33 @@ const emit = defineEmits<{
   (e: "updateExcelMapping", payload: { tableIndex: number; value: any }): void;
   (e: "restoreTables"): void;
   (e: "goPrev"): void;
+  (e: "reloadRules"): void;
+  (e: "reapplyRules"): void;
 }>();
 </script>
 
 <template>
   <div class="step-panel">
     <h3 class="step-title">{{ isExcelFile ? "配置列序号" : "配置列映射" }}</h3>
-    <div class="flex items-center justify-between mb-2">
-      <p class="step-desc m-0">
-        <span v-if="!isExcelFile">
-          系统会根据“列映射规则”自动预填映射；若未命中你仍可手动调整
-        </span>
-        <span v-else>按列序号指定字段（列号 1-based：第 1 列为 A）。</span>
-      </p>
-      <div v-if="!isExcelFile" class="flex gap-2">
-        <el-button size="small" :loading="loadingMappingRules" @click="emit('reloadRules')">
-          重新加载规则
-        </el-button>
-        <el-button
-          size="small"
-          type="primary"
-          :disabled="!mappingRulesLength"
-          @click="emit('reapplyRules')"
-        >
-          重新应用规则
-        </el-button>
-      </div>
+    <p class="step-desc m-0">
+      <span v-if="!isExcelFile">
+        系统会按列映射规则对 Word 表头自动预填，命中后仍可逐表手工调整。
+      </span>
+      <span v-else>按列序号指定字段（列号 1-based：第 1 列为 A）。</span>
+    </p>
+    <div v-if="!isExcelFile" class="mapping-rule-actions">
+      <el-tag size="small" type="info">列映射规则：{{ mappingRulesCount }} 条</el-tag>
+      <el-button size="small" :loading="loadingMappingRules" @click="emit('reloadRules')">
+        重新加载规则
+      </el-button>
+      <el-button
+        size="small"
+        type="primary"
+        :disabled="mappingRulesCount === 0"
+        @click="emit('reapplyRules')"
+      >
+        重新应用自动预填
+      </el-button>
     </div>
     <div v-if="uploadedFile && tableConfigs.length > 0" class="mapping-quick-actions">
       <el-button size="small" @click="emit('copyMapping')">
@@ -82,3 +81,13 @@ const emit = defineEmits<{
     </div>
   </div>
 </template>
+
+<style scoped>
+.mapping-rule-actions {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+</style>

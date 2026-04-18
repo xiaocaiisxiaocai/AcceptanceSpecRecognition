@@ -21,18 +21,21 @@ public class MatchingExecutionController : MatchingApiControllerBase
 
     [HttpPost("llm-stream")]
     [AuditOperation("llm-stream", "matching-fill")]
-    public Task LlmStream([FromBody] MatchLlmStreamRequest request)
+    public async Task<IActionResult> LlmStream([FromBody] MatchLlmStreamRequest request)
     {
-        return _matchingExecutionAppService.LlmStreamAsync(User, Response, request, HttpContext.RequestAborted);
-    }
-
-    [HttpPost("execute")]
-    [AuditOperation("execute", "matching-fill")]
-    [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status400BadRequest)]
-    public Task<ActionResult<ApiResponse<ExecuteFillResponse>>> ExecuteFill([FromBody] ExecuteFillRequest request)
-    {
-        return HandleAsync(() => _matchingExecutionAppService.ExecuteFillAsync(User, request));
+        try
+        {
+            await _matchingExecutionAppService.LlmStreamAsync(User, Response, request, HttpContext.RequestAborted);
+            return new EmptyResult();
+        }
+        catch (MatchingApiException ex) when (ex.IsNotFound)
+        {
+            return NotFound(ApiResponse.Error(404, ex.Message));
+        }
+        catch (MatchingApiException ex)
+        {
+            return BadRequest(ApiResponse.Error(ex.Code, ex.Message));
+        }
     }
 
     [HttpPost("batch-execute")]

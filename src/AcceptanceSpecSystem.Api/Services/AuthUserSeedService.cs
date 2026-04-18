@@ -252,8 +252,7 @@ public static class AuthUserSeedService
 
             if (!string.Equals(action, "read", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(action, "login", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(action, "refresh-token", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(action, "routes", StringComparison.OrdinalIgnoreCase))
+                !string.Equals(action, "refresh-token", StringComparison.OrdinalIgnoreCase))
             {
                 var buttonCode = PermissionConventions.BuildButtonPermissionCode(apiPermissionCode);
                 permissionSeeds[buttonCode] = new PermissionSeedItem(
@@ -565,7 +564,6 @@ public static class AuthUserSeedService
             "menu:smart-fill",
             "menu:batch-reply",
             "menu:file-compare",
-            "api:auth:routes",
             "page:home:dashboard",
             "page:data-import:index",
             "page:smart-fill:index",
@@ -578,19 +576,14 @@ public static class AuthUserSeedService
             "btn:document:upload",
             "btn:document:import",
             "btn:excel-document:import",
-            "api:matching:preview",
             "api:matching:preview-batch",
             "api:matching:download",
-            "btn:matching:preview",
             "btn:matching:preview-batch",
             "btn:matching:download",
             "api:matching-fill:llm-stream",
-            "api:matching-fill:execute",
             "api:matching-fill:execute-batch",
             "btn:matching-fill:llm-stream",
-            "btn:matching-fill:execute",
             "btn:matching-fill:execute-batch",
-            "api:matching:similarity",
             "api:batch-reply:read",
             "api:batch-reply:upload",
             "api:batch-reply:upload-source",

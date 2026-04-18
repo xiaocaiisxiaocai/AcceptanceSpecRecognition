@@ -2,9 +2,6 @@
 import { computed, ref, watch } from "vue";
 import {
   DEFAULT_AMBIGUITY_MARGIN,
-  DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
-  LLM_REVIEW_PASS_THRESHOLD,
-  type LlmEquivalenceVerdict,
   type MatchIssue,
   type MatchPreviewItem
 } from "@/api/matching";
@@ -13,9 +10,14 @@ import {
   getLlmEquivalenceDifferenceToneTagType,
   getLlmEquivalenceDifferenceToneText,
   getLlmEquivalenceSummaryText,
-  getLlmEquivalenceVerdictTagType,
-  isLlmEquivalenceDecisionRisk
+  shouldHideInlineLlmEquivalenceSummary,
+  getLlmEquivalenceVerdictTagType
 } from "./scoreDetail.llmEquivalence";
+import {
+  getSmartFillTableState,
+  type SmartFillFillRecommendation,
+  type SmartFillReviewStatus
+} from "./scoreDetail.formatters";
 
 const props = defineProps<{
   items: MatchPreviewItem[];
@@ -24,6 +26,8 @@ const props = defineProps<{
   ambiguityMargin?: number;
   /** LLM 流式处理是否进行中 */
   llmStreaming?: boolean;
+  /** 父组件缓存的已选中行，用于切换 Tab 后恢复 */
+  persistedSelections?: PersistedSelection[];
 }>();
 
 const emit = defineEmits<{
@@ -31,22 +35,35 @@ const emit = defineEmits<{
   (e: "showDetail", item: MatchPreviewItem): void;
 }>();
 
-type ReviewStatus =
-  | "none"
-  | "direct"
-  | "manual"
-  | "pending"
-  | "waiting"
-  | "streaming"
-  | "passed"
-  | "rejected"
-  | "blocked"
-  | "error";
+type Selection = {
+  type: "best";
+  manualConfirmed: boolean;
+  reviewApprovalToken?: string;
+};
 
-type Selection = { type: "best"; manualConfirmed: boolean };
-type FillRecommendation = "fillable" | "review" | "blocked" | "unmatched";
+type EditOverride = {
+  overrideAcceptance?: string;
+  overrideRemark?: string;
+};
+
+type PersistedSelection = {
+  rowIndex: number;
+  selected?: boolean;
+  specId?: number;
+  manualConfirmed?: boolean;
+  reviewApprovalToken?: string;
+  overrideAcceptance?: string;
+  overrideRemark?: string;
+};
 
 const selectedSpecs = ref<Map<number, Selection | null>>(new Map());
+const editedOverrides = ref<Map<number, EditOverride>>(new Map());
+const editDialogVisible = ref(false);
+const editingItem = ref<MatchPreviewItem | null>(null);
+const editForm = ref({
+  overrideAcceptance: "",
+  overrideRemark: ""
+});
 
 const isNoAnswerPlaceholderRow = (item: MatchPreviewItem) => {
   const project = (item.sourceProject || "").trim();
@@ -57,17 +74,12 @@ const isNoAnswerPlaceholderRow = (item: MatchPreviewItem) => {
   return placeholderProjects.has(project.toLowerCase());
 };
 
-const normalizeReviewScore = (score?: number) => {
-  if (score === undefined || score === null) return 0;
-  if (score > 0 && score <= 1) {
-    return Math.min(score * 100, 100);
-  }
-  return Math.min(score, 100);
-};
+const getTableState = (item: MatchPreviewItem) =>
+  getSmartFillTableState(item, { llmStreaming: props.llmStreaming });
 
-const effectiveHighConfidenceThreshold = computed(
-  () => props.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD
-);
+const getReviewStatus = (item: MatchPreviewItem): SmartFillReviewStatus =>
+  getTableState(item).reviewStatus;
+
 const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN);
 
 const getDecision = (item: MatchPreviewItem) =>
@@ -81,19 +93,8 @@ const isHighConfidence = (item: MatchPreviewItem) =>
   isAutoApply(item) &&
   item.confidenceLevel === "high";
 
-const requiresReview = (item: MatchPreviewItem) =>
-  !!item.bestMatch &&
-  getDecision(item) === "manualReview" &&
-  !item.bestMatch.hasHardConflict;
-
-const isReviewPassed = (item: MatchPreviewItem) =>
-  normalizeReviewScore(item.bestMatch?.llmScore) >= LLM_REVIEW_PASS_THRESHOLD;
-
 const isReviewInFlight = (item: MatchPreviewItem) =>
-  requiresReview(item) &&
-  !item.bestMatch?.isLlmReviewed &&
-  !item.llmReviewError &&
-  (props.llmStreaming || item.llmReviewDraft !== undefined);
+  getReviewStatus(item) === "streaming";
 
 const canUseBestMatch = (item: MatchPreviewItem) => {
   if (!item.bestMatch || isNoAnswerPlaceholderRow(item)) {
@@ -113,11 +114,13 @@ const canUseBestMatch = (item: MatchPreviewItem) => {
 
 const initSelections = () => {
   selectedSpecs.value.clear();
+  editedOverrides.value.clear();
   props.items.forEach(item => {
     if (item.bestMatch && isHighConfidence(item) && !isNoAnswerPlaceholderRow(item)) {
       selectedSpecs.value.set(item.rowIndex, {
         type: "best",
-        manualConfirmed: false
+        manualConfirmed: false,
+        reviewApprovalToken: item.bestMatch?.reviewApprovalToken
       });
     } else {
       selectedSpecs.value.set(item.rowIndex, null);
@@ -125,11 +128,193 @@ const initSelections = () => {
   });
 };
 
-watch(
-  () => [props.items, props.highConfidenceThreshold],
-  () => initSelections(),
-  { immediate: true }
+const hasOverrideValue = (value?: EditOverride | null) =>
+  !!value &&
+  (value.overrideAcceptance !== undefined || value.overrideRemark !== undefined);
+
+const cloneOverride = (value?: EditOverride | null): EditOverride | undefined => {
+  if (!hasOverrideValue(value)) {
+    return undefined;
+  }
+
+  return {
+    overrideAcceptance: value.overrideAcceptance,
+    overrideRemark: value.overrideRemark
+  };
+};
+
+const getPersistedState = (rowIndex: number) =>
+  props.persistedSelections?.find(item => item.rowIndex === rowIndex);
+
+const getPersistedSelection = (rowIndex: number): Selection | null => {
+  const persisted = getPersistedState(rowIndex);
+  if (!persisted?.selected) {
+    return null;
+  }
+
+  return {
+    type: "best",
+    manualConfirmed: !!persisted.manualConfirmed,
+    reviewApprovalToken: persisted.reviewApprovalToken
+  };
+};
+
+const getPersistedOverride = (rowIndex: number) =>
+  cloneOverride(getPersistedState(rowIndex));
+
+const getExistingSelection = (rowIndex: number): Selection | null => {
+  if (selectedSpecs.value.has(rowIndex)) {
+    return selectedSpecs.value.get(rowIndex) ?? null;
+  }
+
+  return getPersistedSelection(rowIndex);
+};
+
+const getOverride = (rowIndex: number) => {
+  if (editedOverrides.value.has(rowIndex)) {
+    return cloneOverride(editedOverrides.value.get(rowIndex));
+  }
+
+  return getPersistedOverride(rowIndex);
+};
+
+const getRawAcceptanceText = (item: MatchPreviewItem) =>
+  getOverride(item.rowIndex)?.overrideAcceptance ?? item.bestMatch?.acceptance ?? "";
+
+const getRawRemarkText = (item: MatchPreviewItem) =>
+  getOverride(item.rowIndex)?.overrideRemark ?? item.bestMatch?.remark ?? "";
+
+const getDisplayAcceptanceText = (item: MatchPreviewItem) =>
+  getRawAcceptanceText(item) || "-";
+
+const getDisplayRemarkText = (item: MatchPreviewItem) =>
+  getRawRemarkText(item) || "-";
+
+const hasAcceptanceOverride = (item: MatchPreviewItem) =>
+  getOverride(item.rowIndex)?.overrideAcceptance !== undefined;
+
+const hasRemarkOverride = (item: MatchPreviewItem) =>
+  getOverride(item.rowIndex)?.overrideRemark !== undefined;
+
+const closeEditDialog = () => {
+  editDialogVisible.value = false;
+  editingItem.value = null;
+  editForm.value = {
+    overrideAcceptance: "",
+    overrideRemark: ""
+  };
+};
+
+const openEditDialog = (item: MatchPreviewItem) => {
+  if (!item.bestMatch || !canUseBestMatch(item)) {
+    return;
+  }
+
+  editingItem.value = item;
+  editForm.value = {
+    overrideAcceptance: getRawAcceptanceText(item),
+    overrideRemark: getRawRemarkText(item)
+  };
+  editDialogVisible.value = true;
+};
+
+const handleSaveEditedSelection = () => {
+  const item = editingItem.value;
+  if (!item?.bestMatch || !canUseBestMatch(item)) {
+    return;
+  }
+
+  const nextOverride: EditOverride = {
+    overrideAcceptance:
+      editForm.value.overrideAcceptance === (item.bestMatch.acceptance ?? "")
+        ? undefined
+        : editForm.value.overrideAcceptance,
+    overrideRemark:
+      editForm.value.overrideRemark === (item.bestMatch.remark ?? "")
+        ? undefined
+        : editForm.value.overrideRemark
+  };
+
+  if (hasOverrideValue(nextOverride)) {
+    editedOverrides.value.set(item.rowIndex, nextOverride);
+  } else {
+    editedOverrides.value.delete(item.rowIndex);
+  }
+
+  selectedSpecs.value.set(item.rowIndex, {
+    type: "best",
+    manualConfirmed: !item.bestMatch.reviewApprovalToken,
+    reviewApprovalToken: item.bestMatch.reviewApprovalToken
+  });
+  emit("select", item.rowIndex, item.bestMatch ?? null);
+  closeEditDialog();
+};
+
+const selectionSyncKey = computed(() =>
+  props.items
+    .map(item =>
+      [
+        item.rowIndex,
+        item.bestMatch?.decision,
+        item.bestMatch?.reviewApprovalToken,
+        item.llmReviewStage
+      ].join(":")
+    )
+    .join("|")
 );
+
+const syncSelectionsWithItems = () => {
+  const nextSelections = new Map<number, Selection | null>();
+  const nextOverrides = new Map<number, EditOverride>();
+
+  props.items.forEach(item => {
+    const existing = getExistingSelection(item.rowIndex);
+    const existingOverride = getOverride(item.rowIndex);
+
+    if (existingOverride) {
+      nextOverrides.set(item.rowIndex, existingOverride);
+    }
+
+    if (!item.bestMatch || isNoAnswerPlaceholderRow(item) || !canUseBestMatch(item)) {
+      nextSelections.set(item.rowIndex, null);
+      return;
+    }
+
+    if (item.bestMatch?.reviewApprovalToken) {
+      nextSelections.set(item.rowIndex, {
+        type: "best",
+        manualConfirmed: false,
+        reviewApprovalToken: item.bestMatch.reviewApprovalToken
+      });
+      return;
+    }
+
+    if (isHighConfidence(item)) {
+      nextSelections.set(item.rowIndex, {
+        type: "best",
+        manualConfirmed: false,
+        reviewApprovalToken: undefined
+      });
+      return;
+    }
+
+    if (existing?.manualConfirmed) {
+      nextSelections.set(item.rowIndex, {
+        type: "best",
+        manualConfirmed: true,
+        reviewApprovalToken: undefined
+      });
+      return;
+    }
+
+    nextSelections.set(item.rowIndex, null);
+  });
+
+  selectedSpecs.value = nextSelections;
+  editedOverrides.value = nextOverrides;
+};
+
+watch(selectionSyncKey, () => syncSelectionsWithItems(), { immediate: true });
 
 const getSelection = (rowIndex: number) => selectedSpecs.value.get(rowIndex);
 
@@ -140,7 +325,8 @@ const handleSelectBest = (item: MatchPreviewItem) => {
 
   selectedSpecs.value.set(item.rowIndex, {
     type: "best",
-    manualConfirmed: true
+    manualConfirmed: !item.bestMatch?.reviewApprovalToken,
+    reviewApprovalToken: item.bestMatch?.reviewApprovalToken
   });
   emit("select", item.rowIndex, item.bestMatch ?? null);
 };
@@ -209,48 +395,25 @@ const formatIssueComparison = (issue?: MatchIssue) => {
   return `候选 ${issue?.candidateValue}`;
 };
 
-const getReviewStatus = (item: MatchPreviewItem): ReviewStatus => {
-  if (!item.bestMatch) return "none";
-  if (item.bestMatch.hasHardConflict || isRejectDecision(item)) return "blocked";
-  if (isHighConfidence(item)) return "direct";
-  if (item.llmReviewError) return "error";
-  if (item.bestMatch.isLlmReviewed) {
-    return isReviewPassed(item) ? "passed" : "rejected";
-  }
-  if (requiresReview(item) && item.llmReviewDraft !== undefined) return "streaming";
-  if (props.llmStreaming && requiresReview(item)) return "waiting";
-  if (requiresReview(item)) return "pending";
-  if (isAutoApply(item)) return "manual";
-  return "none";
-};
-
-const formatLlmScore = (score?: number) => {
-  const normalized = normalizeReviewScore(score);
-  if (normalized <= 0) return "-";
-  return `${normalized.toFixed(0)}`;
-};
-
 const getReviewStatusText = (item: MatchPreviewItem) => {
   const status = getReviewStatus(item);
   switch (status) {
     case "direct":
       return "无需复核";
+    case "completed":
+      return isHighConfidence(item) ? "无需复核" : "AI判定可采用";
     case "manual":
-      return "待确认";
+      return item.llmReviewStage === "done" ? "复核后待确认" : "待确认";
     case "waiting":
       return "等待复核";
     case "pending":
       return "待复核";
     case "streaming":
       return "复核中...";
-    case "passed":
-      return `复核分 ${formatLlmScore(item.bestMatch?.llmScore)}`;
-    case "rejected":
-      return `复核分 ${formatLlmScore(item.bestMatch?.llmScore)}`;
     case "blocked":
-      return "硬冲突拦截";
+      return "暂不采用";
     case "error":
-      return "复核失败";
+      return "已转人工确认";
     default:
       return "-";
   }
@@ -260,62 +423,37 @@ const getReviewTagType = (item: MatchPreviewItem) => {
   switch (getReviewStatus(item)) {
     case "direct":
       return "success";
-    case "passed":
-      return hasCustomerVisibleRisk(item) ? "warning" : "success";
+    case "completed":
+      return "success";
     case "manual":
     case "pending":
     case "streaming":
+    case "error":
       return "warning";
     case "waiting":
       return "info";
     case "blocked":
-    case "rejected":
-    case "error":
       return "danger";
     default:
       return "info";
   }
 };
 
-const hasCustomerVisibleRisk = (item: MatchPreviewItem) => {
-  if (!item.bestMatch) return false;
-
-  const hasMediumOrHighIssues = (item.bestMatch?.issues ?? []).some(issue =>
-    ["high", "medium", "warning"].includes(issue.severity || "")
-  );
-
-  return (
-    isLlmEquivalenceDecisionRisk(item.bestMatch.llmEquivalence) ||
-    item.confidenceLevel !== "high" ||
-    !!item.bestMatch?.isAmbiguous ||
-    !!item.bestMatch?.conflictSummary?.length ||
-    !!item.llmReviewError ||
-    hasMediumOrHighIssues
-  );
+const getFillRecommendation = (
+  item: MatchPreviewItem
+): SmartFillFillRecommendation => {
+  const tableState = getTableState(item);
+  return tableState.fillRecommendation;
 };
 
-const getFillRecommendation = (item: MatchPreviewItem): FillRecommendation => {
-  if (!item.hasMatch || !item.bestMatch) return "unmatched";
-  if (isRejectDecision(item) || item.bestMatch.hasHardConflict) return "blocked";
-  if (hasCustomerVisibleRisk(item)) return "review";
+const isExactFillable = (item: MatchPreviewItem) =>
+  getFillRecommendation(item) === "fillable" &&
+  item.bestMatch?.selectionMode === "exactShortcut";
 
-  switch (getReviewStatus(item)) {
-    case "direct":
-    case "passed":
-      return "fillable";
-    case "blocked":
-    case "rejected":
-      return "blocked";
-    case "manual":
-    case "pending":
-    case "waiting":
-    case "streaming":
-    case "error":
-    case "none":
-    default:
-      return "review";
-  }
-};
+const isPartialFillable = (item: MatchPreviewItem) =>
+  getFillRecommendation(item) === "fillable" &&
+  !!item.bestMatch &&
+  item.bestMatch.selectionMode !== "exactShortcut";
 
 const getFillRecommendationText = (item: MatchPreviewItem) => {
   switch (getFillRecommendation(item)) {
@@ -350,9 +488,8 @@ const getFillRecommendationTagType = (
 const stats = computed(() => {
   const total = props.items.length;
   const matched = props.items.filter(i => i.hasMatch).length;
-  const fillable = props.items.filter(
-    item => getFillRecommendation(item) === "fillable"
-  ).length;
+  const exactFillable = props.items.filter(item => isExactFillable(item)).length;
+  const partialFillable = props.items.filter(item => isPartialFillable(item)).length;
   const review = props.items.filter(
     item => getFillRecommendation(item) === "review"
   ).length;
@@ -368,7 +505,8 @@ const stats = computed(() => {
   return {
     total,
     matched,
-    fillable,
+    exactFillable,
+    partialFillable,
     review,
     blocked,
     unmatched,
@@ -377,14 +515,28 @@ const stats = computed(() => {
   };
 });
 
-type ScoreFilter = "all" | "fillable" | "review" | "blocked" | "unmatched";
+type ScoreFilter =
+  | "all"
+  | "exactFillable"
+  | "partialFillable"
+  | "review"
+  | "blocked"
+  | "unmatched";
 const scoreFilter = ref<ScoreFilter>("all");
 
 const filteredItems = computed(() => {
   if (scoreFilter.value === "all") return props.items;
-  return props.items.filter(
-    item => getFillRecommendation(item) === scoreFilter.value
-  );
+
+  return props.items.filter(item => {
+    switch (scoreFilter.value) {
+      case "exactFillable":
+        return isExactFillable(item);
+      case "partialFillable":
+        return isPartialFillable(item);
+      default:
+        return getFillRecommendation(item) === scoreFilter.value;
+    }
+  });
 });
 
 const hasReasonColumn = computed(() =>
@@ -392,11 +544,7 @@ const hasReasonColumn = computed(() =>
     item =>
       !item.hasMatch ||
       !!item.noMatchReason ||
-      !!item.bestMatch?.issues?.length ||
       !!item.bestMatch?.conflictSummary?.length ||
-      !!item.bestMatch?.evidenceSummary?.length ||
-      !!item.bestMatch?.llmReason ||
-      !!item.bestMatch?.llmEquivalence ||
       !!item.llmReviewError
   )
 );
@@ -405,28 +553,35 @@ defineExpose({
   getSelections: () => {
         const selections: Array<{
           rowIndex: number;
+          selected?: boolean;
           specId?: number;
-          matchScore?: number;
-          llmReviewScore?: number;
-          llmEquivalenceVerdict?: LlmEquivalenceVerdict;
-          decision?: "autoApply" | "manualReview" | "reject";
           manualConfirmed?: boolean;
+          reviewApprovalToken?: string;
+          overrideAcceptance?: string;
+          overrideRemark?: string;
         }> = [];
 
-    selectedSpecs.value.forEach((selection, rowIndex) => {
-      if (!selection) return;
+    const rowIndexes = new Set<number>([
+      ...selectedSpecs.value.keys(),
+      ...editedOverrides.value.keys()
+    ]);
+
+    rowIndexes.forEach(rowIndex => {
+      const selection = selectedSpecs.value.get(rowIndex) ?? null;
+      const override = editedOverrides.value.get(rowIndex);
+      if (!selection && !hasOverrideValue(override)) return;
 
       const item = props.items.find(i => i.rowIndex === rowIndex);
-      if (!item?.bestMatch) return;
+      if (!item) return;
 
       selections.push({
           rowIndex,
-          specId: item.bestMatch.specId,
-          matchScore: item.bestMatch.score,
-          llmReviewScore: normalizeReviewScore(item.bestMatch.llmScore),
-          llmEquivalenceVerdict: item.bestMatch.llmEquivalence?.verdict,
-          decision: item.bestMatch.decision,
-          manualConfirmed: selection.manualConfirmed
+          selected: !!selection,
+          specId: selection ? item.bestMatch?.specId : undefined,
+          manualConfirmed: selection?.manualConfirmed,
+          reviewApprovalToken: selection?.reviewApprovalToken,
+          overrideAcceptance: override?.overrideAcceptance,
+          overrideRemark: override?.overrideRemark
         });
     });
 
@@ -458,8 +613,11 @@ defineExpose({
         <el-radio-button value="all">
           全部 ({{ stats.total }})
         </el-radio-button>
-        <el-radio-button value="fillable">
-          可直接填充 ({{ stats.fillable }})
+        <el-radio-button value="exactFillable">
+          100%精确直达 ({{ stats.exactFillable }})
+        </el-radio-button>
+        <el-radio-button value="partialFillable">
+          AI/普通可填充 ({{ stats.partialFillable }})
         </el-radio-button>
         <el-radio-button value="review">
           需要确认 ({{ stats.review }})
@@ -550,14 +708,6 @@ defineExpose({
                 >
                   高歧义
                 </el-tag>
-                <el-tag
-                  v-if="row.bestMatch.hasHardConflict"
-                  size="small"
-                  type="danger"
-                  effect="plain"
-                >
-                  硬冲突
-                </el-tag>
               </div>
             </div>
             <div class="match-score">{{ formatScore(row.bestMatch.score) }}</div>
@@ -587,7 +737,7 @@ defineExpose({
               {{ row.bestMatch.evidenceSummary.slice(0, 2).join("；") }}
             </div>
             <div
-              v-if="row.bestMatch.llmEquivalence"
+              v-if="row.bestMatch.llmEquivalence && !shouldHideInlineLlmEquivalenceSummary(row.bestMatch.llmEquivalence, row.bestMatch.score)"
               class="equivalence-summary"
             >
               <div class="equivalence-summary__tags">
@@ -651,48 +801,50 @@ defineExpose({
       <!-- 验收标准预览 -->
       <el-table-column label="验收标准" min-width="180">
         <template #default="{ row }">
-          <span class="acceptance-text">
-            {{ row.bestMatch?.acceptance || "-" }}
-          </span>
+          <div class="preview-cell">
+            <span class="acceptance-text">
+              {{ getDisplayAcceptanceText(row) }}
+            </span>
+            <el-tag
+              v-if="hasAcceptanceOverride(row)"
+              size="small"
+              type="warning"
+              effect="plain"
+            >
+              已编辑
+            </el-tag>
+          </div>
         </template>
       </el-table-column>
 
       <!-- 备注预览 -->
       <el-table-column label="备注" min-width="150">
         <template #default="{ row }">
-          <span class="acceptance-text">
-            {{ row.bestMatch?.remark || "-" }}
-          </span>
+          <div class="preview-cell">
+            <span class="acceptance-text">
+              {{ getDisplayRemarkText(row) }}
+            </span>
+            <el-tag
+              v-if="hasRemarkOverride(row)"
+              size="small"
+              type="warning"
+              effect="plain"
+            >
+              已编辑
+            </el-tag>
+          </div>
         </template>
       </el-table-column>
 
       <!-- 不匹配原因 / 复核说明 -->
-      <el-table-column v-if="hasReasonColumn" label="说明" min-width="220">
+      <el-table-column v-if="hasReasonColumn" label="异常/原因" min-width="220">
         <template #default="{ row }">
           <div
-            v-if="!row.hasMatch || row.noMatchReason || row.bestMatch?.issues?.length || row.bestMatch?.conflictSummary?.length || row.bestMatch?.evidenceSummary?.length || row.bestMatch?.llmReason || row.bestMatch?.llmEquivalence || row.llmReviewError"
+            v-if="!row.hasMatch || row.noMatchReason || row.bestMatch?.conflictSummary?.length || row.llmReviewError"
             class="reason-cell"
           >
-            <div v-if="!row.hasMatch && row.noMatchReason" class="reason-text">
-              {{ row.noMatchReason }}
-            </div>
-            <div
-              v-if="getPrimaryIssue(row)"
-              class="reason-issue"
-            >
-              问题：{{ getPrimaryIssue(row)?.message }}
-            </div>
-            <div
-              v-if="formatIssueComparison(getPrimaryIssue(row))"
-              class="reason-issue-detail"
-            >
-              {{ formatIssueComparison(getPrimaryIssue(row)) }}
-            </div>
-            <div
-              v-if="getPrimaryIssue(row)?.suggestedAction"
-              class="reason-issue-detail"
-            >
-              建议：{{ getPrimaryIssue(row)?.suggestedAction }}
+            <div v-if="!row.hasMatch" class="reason-text">
+              {{ row.noMatchReason || "未找到可匹配数据" }}
             </div>
             <div
               v-if="row.bestMatch?.conflictSummary?.length"
@@ -700,19 +852,7 @@ defineExpose({
             >
               冲突：{{ row.bestMatch.conflictSummary.join("；") }}
             </div>
-            <div
-              v-else-if="row.bestMatch?.evidenceSummary?.length"
-              class="suggestion-reason"
-            >
-              证据：{{ row.bestMatch.evidenceSummary.join("；") }}
-            </div>
-            <div v-if="row.bestMatch?.llmReason" class="suggestion-reason">
-              复核结论：{{ row.bestMatch.llmReason }}
-            </div>
-            <div v-if="row.bestMatch?.llmEquivalence" class="suggestion-reason">
-              AI 裁决：{{ getLlmEquivalenceSummaryText(row.bestMatch.llmEquivalence) }}
-            </div>
-            <div v-if="row.llmReviewError" class="suggestion-reason">
+            <div v-if="row.llmReviewError" class="reason-text">
               复核异常：{{ row.llmReviewError }}
             </div>
           </div>
@@ -732,6 +872,14 @@ defineExpose({
               @click="emit('showDetail', row)"
             >
               详情
+            </el-button>
+            <el-button
+              v-if="row.bestMatch && canUseBestMatch(row)"
+              link
+              size="small"
+              @click="openEditDialog(row)"
+            >
+              编辑
             </el-button>
             <el-button
               v-if="row.bestMatch && canUseBestMatch(row) && getSelection(row.rowIndex)?.type !== 'best'"
@@ -756,6 +904,54 @@ defineExpose({
         </template>
       </el-table-column>
     </el-table>
+
+    <el-dialog
+      v-model="editDialogVisible"
+      title="编辑本次导出内容"
+      width="640px"
+      @closed="closeEditDialog"
+    >
+      <div v-if="editingItem" class="edit-dialog">
+        <div class="edit-dialog__hint">仅本次导出使用，不会修改系统里的验收规格。</div>
+        <el-form label-position="top">
+          <el-form-item label="项目">
+            <el-input :model-value="editingItem.sourceProject" readonly />
+          </el-form-item>
+          <el-form-item label="规格">
+            <el-input
+              :model-value="editingItem.sourceSpecification"
+              readonly
+              type="textarea"
+              :rows="2"
+            />
+          </el-form-item>
+          <el-form-item label="验收标准">
+            <el-input
+              v-model="editForm.overrideAcceptance"
+              type="textarea"
+              :rows="3"
+              placeholder="请输入本次导出的验收标准"
+            />
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input
+              v-model="editForm.overrideRemark"
+              type="textarea"
+              :rows="3"
+              placeholder="请输入本次导出的备注"
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <div class="edit-dialog__footer">
+          <el-button @click="closeEditDialog">取消</el-button>
+          <el-button type="primary" @click="handleSaveEditedSelection">
+            保存并采用
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -885,17 +1081,6 @@ defineExpose({
   font-size: 12px;
 }
 
-.reason-issue {
-  color: #b42318;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.reason-issue-detail {
-  color: #6b7280;
-  font-size: 12px;
-}
-
 .reason-cell {
   display: flex;
   flex-direction: column;
@@ -920,10 +1105,10 @@ defineExpose({
   color: #4b5563;
 }
 
-.suggestion-reason {
-  font-size: 12px;
-  color: #9ca3af;
-  font-style: italic;
+.preview-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .evidence-summary {
@@ -1004,6 +1189,27 @@ defineExpose({
 
 .ai-streaming {
   animation: ai-pulse 1.2s ease-in-out infinite;
+}
+
+.edit-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edit-dialog__hint {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f5f7fa;
+  color: #606266;
+  font-size: 13px;
+}
+
+.edit-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @keyframes ai-pulse {

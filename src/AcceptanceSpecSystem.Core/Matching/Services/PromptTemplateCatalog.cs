@@ -15,35 +15,134 @@ public sealed record SystemPromptTemplateDefinition(
 
 public static class PromptTemplateCatalog
 {
-    private const string MatchingEquivalenceAdjudicationLegacyDefaultContent =
+    private const string MatchingReviewLegacyDefaultContent =
         """
-        你是验收规格等价裁决助手。你的任务不是判断是否要编造内容，而是判断源项与候选项在当前上下文下是否表达同一含义。
+        你是验收规格匹配复核助手。系统已经完成 Embedding 召回与证据裁决，现在只允许你基于结构化证据判断该匹配是否可通过复核。
 
-        【源项】
+        【任务】对比"源文档"与"系统匹配结果"的项目名称、规格描述和结构化证据，判断两者是否指向同一个验收项。
+        若存在关键字段明显冲突或证据明显不足，必须给出低分，不得因为语义相近而放行。
+
+        【源文档】
         项目：{{sourceProject}}
         规格：{{sourceSpecification}}
 
-        【候选项】
-        项目：{{candidateProject}}
-        规格：{{candidateSpecification}}
+        【系统匹配结果】
+        项目：{{bestMatchProject}}
+        规格：{{bestMatchSpecification}}
+        验收标准：{{bestMatchAcceptance}}
+        备注：{{bestMatchRemark}}
 
         【当前决策】{{currentDecision}}
+        【复核触发原因】{{reviewTrigger}}
+        【Embedding 基础得分】{{baseScore}}
         【得分明细】{{scoreDetailsJson}}
         【证据摘要】{{evidenceSummaryJson}}
         【冲突摘要】{{conflictSummaryJson}}
 
-        【裁决规则】
-        1. 只允许输出 equivalent、different、uncertain 三种 verdict
-        2. 当差异仅为换行、空格、普通标点、等价符号或等价表达时，应返回 equivalent
-        3. 当确有语义差异或关键符号导致含义不同，应返回 different
-        4. 证据不足时必须返回 uncertain，禁止猜测
-        5. confidence 取值 0~1
-
         仅返回严格 JSON：
-        {"verdict":"uncertain","reasonType":"uncertain","reason":"...","confidence":0.0}
+        {"score":0,"reason":"...","commentary":"..."}
         """;
 
-    private const string MatchingEquivalenceAdjudicationDefaultContent =
+    private const string MatchingReviewDefaultContent =
+        """
+        你是验收规格匹配复核助手。系统已经完成 AI 召回、结构化证据整理与初步判定，你只能基于已提供证据复核，不得补充事实、不得自行放宽标准。
+
+        【业务场景】{{workflowScene}}
+
+        【复核目标】
+        判断“源文档”与“系统匹配结果”是否可视为同一条验收项，并给出 0~100 的复核分。
+
+        【源文档】
+        项目：{{sourceProject}}
+        规格：{{sourceSpecification}}
+
+        【系统匹配结果】
+        项目：{{bestMatchProject}}
+        规格：{{bestMatchSpecification}}
+        验收标准：{{bestMatchAcceptance}}
+        备注：{{bestMatchRemark}}
+
+        【当前决策】{{currentDecision}}
+        【复核触发原因】{{reviewTrigger}}
+        【Embedding 基础得分】{{baseScore}}
+        【得分明细】{{scoreDetailsJson}}
+        【证据摘要】{{evidenceSummaryJson}}
+        【冲突摘要】{{conflictSummaryJson}}
+
+        【评分规则】
+        1. score 取值 0~100，分数越高代表越可以直接通过复核
+        2. 90~100：项目主体、规格语义、关键约束基本一致，证据充分且无实质冲突
+        3. 60~89：主体大体一致，但存在表述差异、证据链偏弱或仍需人工关注的边界风险
+        4. 0~59：项目主体、关键参数、比较符号、范围、单位、方向、极性、对象或约束条件存在明显冲突，或证据明显不足
+        5. 不能因为“看起来差不多”“语义接近”“行业常识上可能一样”就放行
+        6. 证据不足时必须保守给分，并在 reason 中明确指出缺失证据
+        7. commentary 只说明实际对比了哪些关键信息，不要输出额外结论
+
+        仅返回严格 JSON：
+        {"score":0,"reason":"...","commentary":"..."}
+        """;
+
+    private const string ImportDuplicateReviewLegacyDefaultContent =
+        """
+        你是导入重复复核助手。系统已经完成候选召回与证据整理，现在需要你判断“导入源项”与“现有规格”是否实质重复。
+
+        【导入源项】
+        项目：{{sourceProject}}
+        规格：{{sourceSpecification}}
+
+        【现有规格】
+        项目：{{bestMatchProject}}
+        规格：{{bestMatchSpecification}}
+        验收标准：{{bestMatchAcceptance}}
+        备注：{{bestMatchRemark}}
+
+        【当前决策】{{currentDecision}}
+        【复核触发原因】{{reviewTrigger}}
+        【Embedding 基础得分】{{baseScore}}
+        【得分明细】{{scoreDetailsJson}}
+        【证据摘要】{{evidenceSummaryJson}}
+        【冲突摘要】{{conflictSummaryJson}}
+
+        仅返回严格 JSON：
+        {"score":0,"reason":"...","commentary":"..."}
+        """;
+
+    private const string ImportDuplicateReviewDefaultContent =
+        """
+        你是导入重复复核助手。你的任务是判断“导入源项”与“现有规格”是否表达同一条验收要求，从而决定是否应视为重复项。
+
+        【业务场景】{{workflowScene}}
+
+        【导入源项】
+        项目：{{sourceProject}}
+        规格：{{sourceSpecification}}
+
+        【现有规格】
+        项目：{{bestMatchProject}}
+        规格：{{bestMatchSpecification}}
+        验收标准：{{bestMatchAcceptance}}
+        备注：{{bestMatchRemark}}
+
+        【当前决策】{{currentDecision}}
+        【复核触发原因】{{reviewTrigger}}
+        【Embedding 基础得分】{{baseScore}}
+        【得分明细】{{scoreDetailsJson}}
+        【证据摘要】{{evidenceSummaryJson}}
+        【冲突摘要】{{conflictSummaryJson}}
+
+        【判定要求】
+        1. 只比较是否为同一条验收要求，不要生成新表述，也不要补充未给出的事实
+        2. 90~100：两者表达的项目主体、规格语义、关键参数和约束对象基本一致，可视为重复
+        3. 60~89：主体接近，但仍存在边界差异、证据不足或潜在风险，需要谨慎处理
+        4. 0~59：主体、关键参数、单位、方向、边界、约束对象或语义存在实质差异，不应视为重复
+        5. 不能因为“很像”“行业里通常一样”就判定重复；证据不足时必须保守给分
+        6. commentary 只说明实际核对了哪些信息，不要输出额外结论
+
+        仅返回严格 JSON：
+        {"score":0,"reason":"...","commentary":"..."}
+        """;
+
+    private const string MatchingEquivalenceAdjudicationLegacyDefaultContent =
         """
         你是验收规格等价裁决助手。你的任务不是判断是否要编造内容，而是判断源项与候选项在当前上下文下是否表达同一含义。
 
@@ -75,48 +174,74 @@ public static class PromptTemplateCatalog
         {"verdict":"uncertain","reasonType":"uncertain","reason":"...","confidence":0.0}
         """;
 
+    private const string MatchingEquivalenceAdjudicationDefaultContent =
+        """
+        你是验收规格等价裁决助手。你的任务是判断源项与候选项在当前上下文下是否表达同一验收语义，不是润色文本，也不是补充事实。
+
+        【源项】
+        项目：{{sourceProject}}
+        规格：{{sourceSpecification}}
+
+        【候选项】
+        项目：{{candidateProject}}
+        规格：{{candidateSpecification}}
+
+        【当前决策】{{currentDecision}}
+        【得分明细】{{scoreDetailsJson}}
+        【证据摘要】{{evidenceSummaryJson}}
+        【冲突摘要】{{conflictSummaryJson}}
+
+        【裁决规则】
+        1. 只允许输出 equivalent、different、uncertain 三种 verdict
+        2. reasonType 只允许 format_only、punctuation_only、equivalent_expression、symbol_equivalent、semantic_difference、symbol_conflict、uncertain
+        3. verdict 为 equivalent 时，reasonType 只能是 format_only、punctuation_only、equivalent_expression、symbol_equivalent
+        4. verdict 为 different 时，reasonType 只能是 semantic_difference、symbol_conflict
+        5. verdict 为 uncertain 时，reasonType 必须是 uncertain
+        6. 只有在差异仅限于换行、空格、普通标点、稳定同义表达或等价符号替换时，才可判定 equivalent
+        7. 只要区间上下限、比较符、方向、极性、单位、容差、是否包含边界、约束对象任一不同，就优先判定 different
+        8. “约等于”“≈”“不大于”“≤”这类表达，只有在语义和边界完全一致时才算等价；不能只看字面接近
+        9. 无法确认符号差异是否影响语义时，必须返回 uncertain，禁止猜测
+        10. confidence 取值 0~1
+
+        仅返回严格 JSON：
+        {"verdict":"uncertain","reasonType":"uncertain","reason":"...","confidence":0.0}
+        """;
+
+    private const string MatchingCandidateRerankDefaultContent =
+        """
+        你是验收规格候选重排助手。你的任务是在系统已经召回的候选集中选出“当前最应作为最佳候选的一条”，不是生成新候选，也不是补充未提供的事实。
+
+        【源项】
+        项目：{{sourceProject}}
+        规格：{{sourceSpecification}}
+
+        【当前本地 Top1 SpecId】{{currentTopCandidateSpecId}}
+
+        【候选列表 JSON】
+        {{candidatesJson}}
+
+        【选择规则】
+        1. 只能从候选列表中选择一个 selectedSpecId
+        2. 若你认为当前本地 Top1 仍是最佳，可以直接返回它的 SpecId
+        3. 重点比较项目主体、规格语义、边界条件、比较符、范围、单位、方向、对象和约束是否更一致
+        4. 不得因为 Embedding 更高就机械保留某候选，也不得因为表述相似就忽略关键语义冲突
+        5. 无法确认时，保守返回当前本地 Top1
+        6. confidence 取值 0~1
+
+        仅返回严格 JSON：
+        {"selectedSpecId":1,"reason":"候选 1 更符合源项语义","confidence":0.0}
+        """;
+
     private static readonly SystemPromptTemplateDefinition[] Definitions =
     [
         new(
             PromptTemplateScene.MatchingReview,
             "matching-review",
             "智能填充复核",
-            "用于智能填充流程中的 LLM 复核。",
-            "你是验收规格匹配复核助手。系统已经完成 Embedding 召回与证据裁决，现在只允许你基于结构化证据判断该匹配是否可通过复核。\n\n" +
-            "【任务】对比\"源文档\"与\"系统匹配结果\"的项目名称、规格描述和结构化证据，判断两者是否指向同一个验收项。\n" +
-            "若存在关键字段硬冲突或证据明显不足，必须给出低分，不得因为语义相近而放行。\n\n" +
-            "【源文档】\n" +
-            "项目：{{sourceProject}}\n" +
-            "规格：{{sourceSpecification}}\n\n" +
-            "【系统匹配结果】\n" +
-            "项目：{{bestMatchProject}}\n" +
-            "规格：{{bestMatchSpecification}}\n" +
-            "验收标准：{{bestMatchAcceptance}}\n" +
-            "备注：{{bestMatchRemark}}\n\n" +
-            "【当前决策】{{currentDecision}}\n" +
-            "【是否硬冲突】{{hasHardConflict}}\n" +
-            "【复核触发原因】{{reviewTrigger}}\n" +
-            "【Embedding 基础得分】{{baseScore}}\n" +
-            "【得分明细】{{scoreDetailsJson}}\n" +
-            "【证据摘要】{{evidenceSummaryJson}}\n" +
-            "【冲突摘要】{{conflictSummaryJson}}\n\n" +
-            "仅返回严格 JSON：\n" +
-            "{\"score\":0,\"reason\":\"...\",\"commentary\":\"...\"}",
-            "你是验收规格匹配评审助手。给定源项目/规格与系统最佳匹配结果，请复核评分并说明原因。\n" +
-            "仅返回严格 JSON：\n" +
-            "{\"score\":0,\"reason\":\"...\",\"commentary\":\"...\"}\n" +
-            "要求：\n" +
-            "- score 取值 0~100\n" +
-            "- reason 解释为什么评分高/低（重点说明低分原因）\n" +
-            "- commentary 简短描述评论过程（对比了哪些关键信息）\n" +
-            "源项目：{{sourceProject}}\n" +
-            "源规格：{{sourceSpecification}}\n" +
-            "最佳匹配项目：{{bestMatchProject}}\n" +
-            "最佳匹配规格：{{bestMatchSpecification}}\n" +
-            "验收标准：{{bestMatchAcceptance}}\n" +
-            "基础得分：{{baseScore}}\n" +
-            "得分明细(JSON)：{{scoreDetailsJson}}",
-            ["sourceProject", "sourceSpecification", "bestMatchProject", "bestMatchSpecification", "baseScore", "scoreDetailsJson"],
+            "用于智能填充流程中的 AI 复核。",
+            MatchingReviewDefaultContent,
+            MatchingReviewLegacyDefaultContent,
+            ["sourceProject", "sourceSpecification", "bestMatchProject", "bestMatchSpecification", "baseScore", "scoreDetailsJson", "workflowScene"],
             [
                 "sourceProject",
                 "sourceSpecification",
@@ -127,114 +252,56 @@ public static class PromptTemplateCatalog
                 "baseScore",
                 "scoreDetailsJson",
                 "currentDecision",
-                "hasHardConflict",
                 "reviewTrigger",
                 "evidenceSummaryJson",
-                "conflictSummaryJson"
+                "conflictSummaryJson",
+                "workflowScene"
             ],
             ["score", "reason", "commentary"]),
         new(
             PromptTemplateScene.ImportDuplicateReview,
             "import-duplicate-review",
             "导入重复复核",
-            "用于导入疑似重复识别中的 LLM 复核。",
-            "你是导入重复识别复核助手。系统基于 Embedding 找到了疑似重复的历史验收规格，请判断它们是否代表同一条验收规格。\n\n" +
-            "【导入内容】\n" +
-            "项目：{{sourceProject}}\n" +
-            "规格：{{sourceSpecification}}\n\n" +
-            "【历史验收规格】\n" +
-            "项目：{{bestMatchProject}}\n" +
-            "规格：{{bestMatchSpecification}}\n" +
-            "验收标准：{{bestMatchAcceptance}}\n" +
-            "备注：{{bestMatchRemark}}\n\n" +
-            "【Embedding 基础得分】{{baseScore}}\n" +
-            "【得分明细】{{scoreDetailsJson}}\n\n" +
-            "仅返回严格 JSON：\n" +
-            "{\"score\":0,\"reason\":\"...\",\"commentary\":\"...\"}",
-            null,
-            ["sourceProject", "sourceSpecification", "bestMatchProject", "bestMatchSpecification", "baseScore", "scoreDetailsJson"],
-            ["sourceProject", "sourceSpecification", "bestMatchProject", "bestMatchSpecification", "bestMatchAcceptance", "bestMatchRemark", "baseScore", "scoreDetailsJson"],
+            "用于导入重复检查流程中的 LLM 复核。",
+            ImportDuplicateReviewDefaultContent,
+            ImportDuplicateReviewLegacyDefaultContent,
+            ["sourceProject", "sourceSpecification", "bestMatchProject", "bestMatchSpecification", "baseScore", "scoreDetailsJson", "workflowScene"],
+            [
+                "sourceProject",
+                "sourceSpecification",
+                "bestMatchProject",
+                "bestMatchSpecification",
+                "bestMatchAcceptance",
+                "bestMatchRemark",
+                "baseScore",
+                "scoreDetailsJson",
+                "currentDecision",
+                "reviewTrigger",
+                "evidenceSummaryJson",
+                "conflictSummaryJson",
+                "workflowScene"
+            ],
             ["score", "reason", "commentary"]),
-        new(
-            PromptTemplateScene.MatchingGenerate,
-            "matching-generate",
-            "智能填充建议生成",
-            "用于智能填充流程中的验收/备注建议生成。",
-            "你是验收规格助手。请根据源文档信息整理验收标准与备注。\n\n" +
-            "【源文档】\n" +
-            "项目：{{sourceProject}}\n" +
-            "规格：{{sourceSpecification}}\n\n" +
-            "【参考数据】\n" +
-            "{{referenceInfo}}\n\n" +
-            "【核心约束】\n" +
-            "1. 严禁编造任何数值、标准、检验方法或技术参数\n" +
-            "2. 只能整理源文档中已经明确写出的信息\n" +
-            "3. 信息不足时 acceptance 和 remark 必须返回空字符串\n\n" +
-            "仅返回严格 JSON：\n" +
-            "{\"acceptance\":\"...\",\"remark\":\"...\",\"reason\":\"...\"}",
-            "你是验收规格助手。请根据\u201c源项目/规格\u201d生成验收标准与备注建议。\n" +
-            "仅返回严格 JSON：\n" +
-            "{\"acceptance\":\"...\",\"remark\":\"...\",\"reason\":\"...\"}\n" +
-            "要求：\n" +
-            "- 用中文\n" +
-            "- 内容简洁、可执行\n" +
-            "- 不确定时可返回空字符串\n" +
-            "源项目：{{sourceProject}}\n" +
-            "源规格：{{sourceSpecification}}",
-            ["sourceProject", "sourceSpecification", "referenceInfo"],
-            ["sourceProject", "sourceSpecification", "referenceInfo"],
-            ["acceptance", "remark", "reason"]),
-        new(
-            PromptTemplateScene.MatchingEntityResolution,
-            "matching-entity-resolution",
-            "智能填充实体判别",
-            "用于智能填充流程中的品牌/实体关系判别。",
-            "你是品牌/实体判别助手。系统已经提取出两个实体候选，你只能判断它们是否为同一实体、别名同一、明确冲突，或无法判断。\n\n" +
-            "【源项实体】{{sourceEntity}}\n" +
-            "【候选实体】{{candidateEntity}}\n\n" +
-            "【源项上下文】{{sourceText}}\n" +
-            "【候选上下文】{{candidateText}}\n\n" +
-            "【约束】\n" +
-            "1. 只判断实体关系，不要根据数值或型号是否一致来推断品牌关系\n" +
-            "2. 证据不足时必须返回 unknown，禁止猜测\n" +
-            "3. relation 只允许 same、alias_same、conflict、unknown 四个值\n" +
-            "4. confidence 取值 0~1\n\n" +
-            "仅返回严格 JSON：\n" +
-            "{\"relation\":\"unknown\",\"confidence\":0.0,\"normalizedEntity\":\"\",\"reason\":\"...\"}",
-            null,
-            ["sourceEntity", "candidateEntity", "sourceText", "candidateText"],
-            ["sourceEntity", "candidateEntity", "sourceText", "candidateText"],
-            ["relation", "confidence", "normalizedEntity", "reason"]),
         new(
             PromptTemplateScene.MatchingEquivalenceAdjudication,
             "matching-equivalence-adjudication",
             "智能填充等价裁决",
-            "用于智能填充边界样本中的等价表达裁决。",
+            "用于智能填充当前最佳候选的等价表达裁决门禁。",
             MatchingEquivalenceAdjudicationDefaultContent,
             MatchingEquivalenceAdjudicationLegacyDefaultContent,
             ["sourceProject", "sourceSpecification", "candidateProject", "candidateSpecification", "currentDecision", "scoreDetailsJson", "evidenceSummaryJson", "conflictSummaryJson"],
             ["sourceProject", "sourceSpecification", "candidateProject", "candidateSpecification", "currentDecision", "scoreDetailsJson", "evidenceSummaryJson", "conflictSummaryJson"],
             ["verdict", "reasonType", "reason", "confidence"]),
         new(
-            PromptTemplateScene.MatchingKnowledgeGenerate,
-            "matching-knowledge-generate",
-            "匹配知识草稿生成",
-            "用于从文本或文档样本中生成匹配知识草稿候选。",
-            "你是匹配知识整理助手。请从输入内容中提取当前分类的候选项。\n\n" +
-            "【当前分类】{{category}}\n" +
-            "【分类说明】{{categoryDescription}}\n\n" +
-            "【输入内容】\n{{sourceText}}\n\n" +
-            "【约束】\n" +
-            "1. 只输出当前分类需要的候选项\n" +
-            "2. 不要编造输入中不存在的专业名词\n" +
-            "3. 单位规则只输出单位别名，不允许输出倍率或换算系数\n" +
-            "4. 冲突词对只输出明确互斥的词，不要输出语义模糊的关系\n\n" +
-            "仅返回严格 JSON：\n" +
-            "{\"items\":[{\"key\":\"...\",\"value\":\"...\",\"evidenceSnippet\":\"...\",\"reason\":\"...\"}]}",
+            PromptTemplateScene.MatchingCandidateRerank,
+            "matching-candidate-rerank",
+            "智能填充候选重排",
+            "用于智能填充 TopK 候选中的 AI 改选。",
+            MatchingCandidateRerankDefaultContent,
             null,
-            ["category", "categoryDescription", "sourceText"],
-            ["category", "categoryDescription", "sourceText"],
-            ["items"])
+            ["sourceProject", "sourceSpecification", "currentTopCandidateSpecId", "candidatesJson"],
+            ["sourceProject", "sourceSpecification", "currentTopCandidateSpecId", "candidatesJson"],
+            ["selectedSpecId", "reason", "confidence"])
     ];
 
     public static IReadOnlyList<SystemPromptTemplateDefinition> GetSystemTemplates() => Definitions;

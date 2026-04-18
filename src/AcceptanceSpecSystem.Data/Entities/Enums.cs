@@ -56,22 +56,6 @@ public enum AiServicePurpose
 }
 
 /// <summary>
-/// AI 默认匹配策略枚举（持久化层）
-/// </summary>
-public enum AiServiceDefaultMatchingStrategy
-{
-    /// <summary>
-    /// 单阶段匹配
-    /// </summary>
-    SingleStage = 1,
-
-    /// <summary>
-    /// 多阶段匹配
-    /// </summary>
-    MultiStage = 2
-}
-
-/// <summary>
 /// 简繁转换模式枚举
 /// </summary>
 public enum ChineseConversionMode

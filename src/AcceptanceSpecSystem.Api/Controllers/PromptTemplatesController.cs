@@ -19,19 +19,13 @@ public class PromptTemplatesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly PromptTemplateValidationService _validationService;
-    private readonly ILogger<PromptTemplatesController> _logger;
-
-    private const string DefaultPromptContent =
-        "你是验收规格助手。给定项目与规格内容，请生成验收方法与备注。";
 
     public PromptTemplatesController(
         IUnitOfWork unitOfWork,
-        PromptTemplateValidationService validationService,
-        ILogger<PromptTemplatesController> logger)
+        PromptTemplateValidationService validationService)
     {
         _unitOfWork = unitOfWork;
         _validationService = validationService;
-        _logger = logger;
     }
 
     /// <summary>
@@ -47,10 +41,9 @@ public class PromptTemplatesController : BaseApiController
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
-        await EnsureSystemTemplatesAsync();
-
+        var currentSystemTemplateNames = GetCurrentSystemTemplateNames();
         var query = _unitOfWork.PromptTemplates.Query()
-            .Where(t => t.IsSystem);
+            .Where(t => t.IsSystem && currentSystemTemplateNames.Contains(t.Name));
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var key = keyword.Trim();
@@ -79,99 +72,46 @@ public class PromptTemplatesController : BaseApiController
     }
 
     /// <summary>
-    /// 获取默认Prompt模板（若不存在则创建）
-    /// </summary>
-    [HttpGet("default")]
-    [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> GetDefault()
-    {
-        var tpl = await _unitOfWork.PromptTemplates.GetOrCreateDefaultAsync(DefaultPromptContent);
-        await _unitOfWork.SaveChangesAsync();
-        return Success(ToDto(tpl));
-    }
-
-    /// <summary>
     /// 获取模板详情
     /// </summary>
-    [HttpGet("{id}")]
+    [HttpGet("{id:int}")]
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> GetById(int id)
     {
-        await EnsureSystemTemplatesAsync();
-
         var entity = await _unitOfWork.PromptTemplates.GetByIdAsync(id);
         if (entity == null)
+            return NotFoundResult<PromptTemplateDto>("模板不存在");
+        if (!TryGetCurrentSystemDefinition(entity, out _))
             return NotFoundResult<PromptTemplateDto>("模板不存在");
 
         return Success(ToDto(entity));
     }
 
     /// <summary>
-    /// 新增Prompt模板
-    /// </summary>
-    [HttpPost]
-    [AuditOperation("create", "prompt-template")]
-    [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> Create([FromBody] CreatePromptTemplateRequest request)
-    {
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return Error<PromptTemplateDto>(400, "名称不能为空");
-        if (string.IsNullOrWhiteSpace(request.Content))
-            return Error<PromptTemplateDto>(400, "内容不能为空");
-
-        var name = request.Name.Trim();
-        var exists = await _unitOfWork.PromptTemplates.GetByNameAsync(name);
-        if (exists != null)
-            return Error<PromptTemplateDto>(400, "名称已存在");
-
-        var entity = new PromptTemplate
-        {
-            Name = name,
-            DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? name : request.DisplayName.Trim(),
-            Content = request.Content,
-            Scene = PromptTemplateScene.Unknown,
-            IsSystem = false,
-            IsDefault = false,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        await _unitOfWork.PromptTemplates.AddAsync(entity);
-        await _unitOfWork.SaveChangesAsync();
-
-        if (request.IsDefault)
-        {
-            await _unitOfWork.PromptTemplates.SetDefaultAsync(entity.Id);
-            await _unitOfWork.SaveChangesAsync();
-            entity.IsDefault = true;
-        }
-
-        _logger.LogInformation("创建Prompt模板: {Id} {Name}", entity.Id, entity.Name);
-        return Success(ToDto(entity), "创建成功");
-    }
-
-    /// <summary>
     /// 更新Prompt模板
     /// </summary>
-    [HttpPut("{id}")]
+    [HttpPut("{id:int}")]
     [AuditOperation("update", "prompt-template")]
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> Update(int id, [FromBody] UpdatePromptTemplateRequest request)
     {
         var entity = await _unitOfWork.PromptTemplates.GetByIdAsync(id);
         if (entity == null)
-            return Error<PromptTemplateDto>(400, "模板不存在");
+            return NotFoundResult<PromptTemplateDto>("模板不存在");
 
         if (string.IsNullOrWhiteSpace(request.Content))
             return Error<PromptTemplateDto>(400, "内容不能为空");
 
-        if (entity.IsSystem)
+        if (!TryGetCurrentSystemDefinition(entity, out var definition))
         {
-            var validation = _validationService.Validate(ToCorePromptTemplateScene(entity.Scene), request.Content);
-            if (!validation.IsValid)
-            {
-                return Error<PromptTemplateDto>(400, string.Join("；", validation.Errors));
-            }
+            return NotFoundResult<PromptTemplateDto>("模板不存在");
+        }
+
+        var validation = _validationService.Validate(definition, request.Content);
+        if (!validation.IsValid)
+        {
+            return Error<PromptTemplateDto>(400, string.Join("；", validation.Errors));
         }
 
         if (!string.IsNullOrWhiteSpace(request.DisplayName))
@@ -215,40 +155,6 @@ public class PromptTemplatesController : BaseApiController
     }
 
     /// <summary>
-    /// 删除Prompt模板
-    /// </summary>
-    [HttpDelete("{id}")]
-    [AuditOperation("delete", "prompt-template")]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse>> Delete(int id)
-    {
-        var entity = await _unitOfWork.PromptTemplates.GetByIdAsync(id);
-        if (entity == null)
-            return Error(400, "模板不存在");
-
-        _unitOfWork.PromptTemplates.Remove(entity);
-        await _unitOfWork.SaveChangesAsync();
-        return Success("删除成功");
-    }
-
-    /// <summary>
-    /// 设置默认Prompt模板
-    /// </summary>
-    [HttpPost("{id}/set-default")]
-    [AuditOperation("set-default", "prompt-template")]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse>> SetDefault(int id)
-    {
-        var entity = await _unitOfWork.PromptTemplates.GetByIdAsync(id);
-        if (entity == null)
-            return Error(400, "模板不存在");
-
-        await _unitOfWork.PromptTemplates.SetDefaultAsync(id);
-        await _unitOfWork.SaveChangesAsync();
-        return Success("设置默认成功");
-    }
-
-    /// <summary>
     /// 恢复系统模板默认内容
     /// </summary>
     [HttpPost("reset-system/{scene}")]
@@ -274,18 +180,17 @@ public class PromptTemplatesController : BaseApiController
         return Success(ToDto(entity), "恢复默认成功");
     }
 
-    private async Task EnsureSystemTemplatesAsync()
+    private static string[] GetCurrentSystemTemplateNames()
     {
-        foreach (var definition in PromptTemplateCatalog.GetSystemTemplates())
-        {
-            await _unitOfWork.PromptTemplates.GetOrCreateSystemAsync(
-                ToDataPromptTemplateScene(definition.Scene),
-                definition.Name,
-                definition.DisplayName,
-                definition.DefaultContent);
-        }
+        return PromptTemplateCatalog.GetSystemTemplates()
+            .Select(item => item.Name)
+            .ToArray();
+    }
 
-        await _unitOfWork.SaveChangesAsync();
+    private static bool TryGetCurrentSystemDefinition(PromptTemplate template, out SystemPromptTemplateDefinition definition)
+    {
+        definition = null!;
+        return template.IsSystem && PromptTemplateCatalog.TryGetByName(template.Name, out definition);
     }
 
     private static PromptTemplateDto ToDto(PromptTemplate template)
@@ -299,25 +204,10 @@ public class PromptTemplatesController : BaseApiController
             DisplayName = string.IsNullOrWhiteSpace(template.DisplayName) ? template.Name : template.DisplayName,
             Content = template.Content,
             IsSystem = template.IsSystem,
-            IsDefault = template.IsDefault,
             UsageDescription = definition?.UsageDescription ?? string.Empty,
             AvailableVariables = definition?.AvailableVariables.ToList() ?? [],
             CreatedAt = template.CreatedAt,
             UpdatedAt = template.UpdatedAt
-        };
-    }
-
-    private static CorePromptTemplateScene ToCorePromptTemplateScene(PromptTemplateScene scene)
-    {
-        return scene switch
-        {
-            PromptTemplateScene.MatchingReview => CorePromptTemplateScene.MatchingReview,
-            PromptTemplateScene.ImportDuplicateReview => CorePromptTemplateScene.ImportDuplicateReview,
-            PromptTemplateScene.MatchingGenerate => CorePromptTemplateScene.MatchingGenerate,
-            PromptTemplateScene.MatchingEntityResolution => CorePromptTemplateScene.MatchingEntityResolution,
-            PromptTemplateScene.MatchingKnowledgeGenerate => CorePromptTemplateScene.MatchingKnowledgeGenerate,
-            PromptTemplateScene.MatchingEquivalenceAdjudication => CorePromptTemplateScene.MatchingEquivalenceAdjudication,
-            _ => CorePromptTemplateScene.Unknown
         };
     }
 
@@ -327,10 +217,8 @@ public class PromptTemplatesController : BaseApiController
         {
             CorePromptTemplateScene.MatchingReview => PromptTemplateScene.MatchingReview,
             CorePromptTemplateScene.ImportDuplicateReview => PromptTemplateScene.ImportDuplicateReview,
-            CorePromptTemplateScene.MatchingGenerate => PromptTemplateScene.MatchingGenerate,
-            CorePromptTemplateScene.MatchingEntityResolution => PromptTemplateScene.MatchingEntityResolution,
-            CorePromptTemplateScene.MatchingKnowledgeGenerate => PromptTemplateScene.MatchingKnowledgeGenerate,
             CorePromptTemplateScene.MatchingEquivalenceAdjudication => PromptTemplateScene.MatchingEquivalenceAdjudication,
+            CorePromptTemplateScene.MatchingCandidateRerank => PromptTemplateScene.MatchingCandidateRerank,
             _ => PromptTemplateScene.Unknown
         };
     }

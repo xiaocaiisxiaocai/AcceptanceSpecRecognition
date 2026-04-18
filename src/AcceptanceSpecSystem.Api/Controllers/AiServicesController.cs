@@ -161,7 +161,6 @@ public class AiServicesController : BaseApiController
             EmbeddingModel = embeddingModel,
             LlmModel = llmModel,
             DisableThinking = request.DisableThinking,
-            DefaultMatchingStrategy = ToDataMatchingStrategy(request.DefaultMatchingStrategy),
             DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK),
             CreatedAt = DateTime.UtcNow
         };
@@ -185,6 +184,8 @@ public class AiServicesController : BaseApiController
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
         if (entity == null)
             return Error<AiServiceConfigDto>(400, "配置不存在");
+        if (entity.IsLegacyDualPurposeConfiguration())
+            return Error<AiServiceConfigDto>(400, BuildLegacyDualPurposeMessage());
 
         if (string.IsNullOrWhiteSpace(request.Name))
             return Error<AiServiceConfigDto>(400, "名称不能为空");
@@ -212,7 +213,6 @@ public class AiServicesController : BaseApiController
         entity.Priority = request.Priority;
         entity.Endpoint = normalizedEndpoint;
         entity.DisableThinking = request.DisableThinking;
-        entity.DefaultMatchingStrategy = ToDataMatchingStrategy(request.DefaultMatchingStrategy);
         entity.DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK);
 
         var embeddingModel = NormalizeOptional(request.EmbeddingModel);
@@ -268,8 +268,11 @@ public class AiServicesController : BaseApiController
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
         if (entity == null)
             return Error<AiServiceTestResultDto>(400, "配置不存在");
+        if (entity.IsLegacyDualPurposeConfiguration())
+            return Error<AiServiceTestResultDto>(400, BuildLegacyDualPurposeMessage());
 
-        var purposeError = ValidatePurpose(entity.Purpose);
+        var effectivePurpose = entity.GetEffectivePurpose();
+        var purposeError = ValidatePurpose(effectivePurpose);
         if (purposeError != null)
             return Error<AiServiceTestResultDto>(400, purposeError);
 
@@ -281,13 +284,13 @@ public class AiServicesController : BaseApiController
             IReadOnlyCollection<string>? ollamaModels = null;
             long? serviceElapsedMs = null;
             var isFullMode = mode == AiServiceConnectionTestMode.Full;
-            var targetModel = entity.Purpose == AiServicePurpose.Llm
+            var targetModel = effectivePurpose == AiServicePurpose.Llm
                 ? NormalizeOptional(entity.LlmModel)
                 : NormalizeOptional(entity.EmbeddingModel);
             var targetEndpoint = NormalizeOptional(entity.Endpoint);
             var hostPort = ResolveHostPort();
 
-            if (entity.Purpose.HasFlag(AiServicePurpose.Llm))
+            if (effectivePurpose.HasFlag(AiServicePurpose.Llm))
             {
                 var serviceSw = Stopwatch.StartNew();
                 try
@@ -352,7 +355,7 @@ public class AiServicesController : BaseApiController
                 }
             }
 
-            if (entity.Purpose.HasFlag(AiServicePurpose.Embedding))
+            if (effectivePurpose.HasFlag(AiServicePurpose.Embedding))
             {
                 var serviceSw = Stopwatch.StartNew();
                 try
@@ -442,7 +445,7 @@ public class AiServicesController : BaseApiController
                 HttpStatusCode = null,
                 ElapsedMs = sw.ElapsedMilliseconds,
                 ServiceElapsedMs = null,
-                TargetModel = entity.Purpose == AiServicePurpose.Llm
+                TargetModel = effectivePurpose == AiServicePurpose.Llm
                     ? NormalizeOptional(entity.LlmModel)
                     : NormalizeOptional(entity.EmbeddingModel),
                 TargetEndpoint = NormalizeOptional(entity.Endpoint),
@@ -700,47 +703,55 @@ public class AiServicesController : BaseApiController
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
         if (entity == null)
             return Error<AiServiceModelsResultDto>(400, "配置不存在");
+        if (entity.IsLegacyDualPurposeConfiguration())
+            return Error<AiServiceModelsResultDto>(400, BuildLegacyDualPurposeMessage());
 
         var result = await ProbeModelsAsync(entity, HttpContext.RequestAborted);
         return Success(result, result.Message ?? "模型探测完成");
     }
 
-    private static AiServiceConfigDto ToDto(AiServiceConfig c) => new()
+    private static AiServiceConfigDto ToDto(AiServiceConfig c)
     {
-        Id = c.Id,
-        Name = c.Name,
-        ServiceType = c.ServiceType,
-        Purpose = c.Purpose,
-        Priority = c.Priority,
-        Endpoint = c.Endpoint,
-        EmbeddingModel = c.EmbeddingModel,
-        LlmModel = c.LlmModel,
-        DisableThinking = c.DisableThinking,
-        DefaultMatchingStrategy = ToCoreMatchingStrategy(c.DefaultMatchingStrategy),
-        DefaultRecallTopK = c.DefaultRecallTopK,
-        HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
-        CreatedAt = c.CreatedAt,
-        UpdatedAt = c.UpdatedAt
-    };
+        var effectivePurpose = c.GetEffectivePurpose();
+        return new AiServiceConfigDto
+        {
+            Id = c.Id,
+            Name = c.Name,
+            ServiceType = c.ServiceType,
+            Purpose = effectivePurpose,
+            Priority = c.Priority,
+            Endpoint = c.Endpoint,
+            EmbeddingModel = effectivePurpose.HasFlag(AiServicePurpose.Embedding) ? c.EmbeddingModel : null,
+            LlmModel = effectivePurpose.HasFlag(AiServicePurpose.Llm) ? c.LlmModel : null,
+            DisableThinking = c.DisableThinking,
+            DefaultRecallTopK = c.DefaultRecallTopK,
+            HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
+            CreatedAt = c.CreatedAt,
+            UpdatedAt = c.UpdatedAt
+        };
+    }
 
-    private static AiServiceConfigDetailDto ToDetailDto(AiServiceConfig c) => new()
+    private static AiServiceConfigDetailDto ToDetailDto(AiServiceConfig c)
     {
-        Id = c.Id,
-        Name = c.Name,
-        ServiceType = c.ServiceType,
-        Purpose = c.Purpose,
-        Priority = c.Priority,
-        Endpoint = c.Endpoint,
-        EmbeddingModel = c.EmbeddingModel,
-        LlmModel = c.LlmModel,
-        DisableThinking = c.DisableThinking,
-        DefaultMatchingStrategy = ToCoreMatchingStrategy(c.DefaultMatchingStrategy),
-        DefaultRecallTopK = c.DefaultRecallTopK,
-        HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
-        ApiKey = MaskApiKey(c.ApiKey),
-        CreatedAt = c.CreatedAt,
-        UpdatedAt = c.UpdatedAt
-    };
+        var effectivePurpose = c.GetEffectivePurpose();
+        return new AiServiceConfigDetailDto
+        {
+            Id = c.Id,
+            Name = c.Name,
+            ServiceType = c.ServiceType,
+            Purpose = effectivePurpose,
+            Priority = c.Priority,
+            Endpoint = c.Endpoint,
+            EmbeddingModel = effectivePurpose.HasFlag(AiServicePurpose.Embedding) ? c.EmbeddingModel : null,
+            LlmModel = effectivePurpose.HasFlag(AiServicePurpose.Llm) ? c.LlmModel : null,
+            DisableThinking = c.DisableThinking,
+            DefaultRecallTopK = c.DefaultRecallTopK,
+            HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
+            ApiKey = MaskApiKey(c.ApiKey),
+            CreatedAt = c.CreatedAt,
+            UpdatedAt = c.UpdatedAt
+        };
+    }
 
     private static string? MaskApiKey(string? apiKey)
     {
@@ -756,24 +767,6 @@ public class AiServicesController : BaseApiController
         return $"{value[..4]}***{value[^4..]}";
     }
 
-    private static AiServiceDefaultMatchingStrategy ToDataMatchingStrategy(MatchingStrategy strategy)
-    {
-        return strategy switch
-        {
-            MatchingStrategy.MultiStage => AiServiceDefaultMatchingStrategy.MultiStage,
-            _ => AiServiceDefaultMatchingStrategy.SingleStage
-        };
-    }
-
-    private static MatchingStrategy ToCoreMatchingStrategy(AiServiceDefaultMatchingStrategy strategy)
-    {
-        return strategy switch
-        {
-            AiServiceDefaultMatchingStrategy.MultiStage => MatchingStrategy.MultiStage,
-            _ => MatchingStrategy.SingleStage
-        };
-    }
-
     private async Task<AiServiceModelsResultDto> ProbeModelsAsync(AiServiceConfig config, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(config.Endpoint))
@@ -786,6 +779,7 @@ public class AiServicesController : BaseApiController
 
         try
         {
+            var effectivePurpose = config.GetEffectivePurpose();
             var models = config.ServiceType switch
             {
                 AiServiceType.OpenAI or AiServiceType.CustomOpenAICompatible or AiServiceType.LMStudio
@@ -800,9 +794,9 @@ public class AiServicesController : BaseApiController
                 Message = models.Count == 0 ? "远端未返回可用模型" : $"远端返回 {models.Count} 个模型（未区分 LLM/Embedding）"
             };
 
-            if (config.Purpose.HasFlag(AiServicePurpose.Llm))
+            if (effectivePurpose.HasFlag(AiServicePurpose.Llm))
                 result.LlmModels = models.ToList();
-            if (config.Purpose.HasFlag(AiServicePurpose.Embedding))
+            if (effectivePurpose.HasFlag(AiServicePurpose.Embedding))
                 result.EmbeddingModels = models.ToList();
 
             return result;
@@ -1033,6 +1027,11 @@ public class AiServicesController : BaseApiController
         return null;
     }
 
+    private static string BuildLegacyDualPurposeMessage()
+    {
+        return "检测到历史双用途 AI 服务配置，当前记录同时保留了 LLM 和 Embedding 模型。请先完成迁移拆分后再编辑或测试，避免静默丢失另一侧模型。";
+    }
+
     private static string? ValidateModelForPurpose(
         AiServicePurpose purpose,
         string? llmModel,
@@ -1047,6 +1046,7 @@ public class AiServicesController : BaseApiController
 
     private static CoreAiServiceConfigModel ToCoreModel(AiServiceConfig entity)
     {
+        var effectivePurpose = entity.GetEffectivePurpose();
         return new CoreAiServiceConfigModel
         {
             Id = entity.Id,
@@ -1059,7 +1059,7 @@ public class AiServicesController : BaseApiController
                 AcceptanceSpecSystem.Data.Entities.AiServiceType.LMStudio => AcceptanceSpecSystem.Core.AI.Models.AiServiceType.LMStudio,
                 _ => AcceptanceSpecSystem.Core.AI.Models.AiServiceType.CustomOpenAICompatible
             },
-            Purpose = entity.Purpose switch
+            Purpose = effectivePurpose switch
             {
                 AcceptanceSpecSystem.Data.Entities.AiServicePurpose.Llm => AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose.Llm,
                 AcceptanceSpecSystem.Data.Entities.AiServicePurpose.Embedding => AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose.Embedding,
@@ -1070,8 +1070,12 @@ public class AiServicesController : BaseApiController
             Priority = entity.Priority,
             ApiKey = entity.ApiKey,
             Endpoint = entity.Endpoint,
-            EmbeddingModel = entity.EmbeddingModel,
-            LlmModel = entity.LlmModel,
+            EmbeddingModel = effectivePurpose.HasFlag(AcceptanceSpecSystem.Data.Entities.AiServicePurpose.Embedding)
+                ? entity.EmbeddingModel
+                : null,
+            LlmModel = effectivePurpose.HasFlag(AcceptanceSpecSystem.Data.Entities.AiServicePurpose.Llm)
+                ? entity.LlmModel
+                : null,
             DisableThinking = entity.DisableThinking,
             CreatedAt = entity.CreatedAt,
             UpdatedAt = entity.UpdatedAt

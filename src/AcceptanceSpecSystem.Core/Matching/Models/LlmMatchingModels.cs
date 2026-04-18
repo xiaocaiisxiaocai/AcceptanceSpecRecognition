@@ -20,7 +20,6 @@ public class LlmReviewRequest
     public double? BaseScore { get; set; }
     public Dictionary<string, double> ScoreDetails { get; set; } = [];
     public string CurrentDecision { get; set; } = "manualReview";
-    public bool HasHardConflict { get; set; }
     public List<string> EvidenceSummary { get; set; } = [];
     public List<string> ConflictSummary { get; set; } = [];
     public string? ReviewTrigger { get; set; }
@@ -39,47 +38,39 @@ public class LlmReviewResult
 }
 
 /// <summary>
-/// LLM 生成建议请求
+/// LLM TopK 候选重排请求
 /// </summary>
-public class LlmSuggestionRequest
+public class LlmCandidateRerankRequest
 {
     public string SourceProject { get; set; } = string.Empty;
     public string SourceSpecification { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 参考数据：最佳匹配的项目名称（如果有）
-    /// </summary>
-    public string? BestMatchProject { get; set; }
-
-    /// <summary>
-    /// 参考数据：最佳匹配的规格内容
-    /// </summary>
-    public string? BestMatchSpecification { get; set; }
-
-    /// <summary>
-    /// 参考数据：最佳匹配的验收标准
-    /// </summary>
-    public string? BestMatchAcceptance { get; set; }
-
-    /// <summary>
-    /// 参考数据：最佳匹配的备注
-    /// </summary>
-    public string? BestMatchRemark { get; set; }
-
-    /// <summary>
-    /// 参考数据：最佳匹配得分（0-1）
-    /// </summary>
-    public double? BestMatchScore { get; set; }
-
+    public int CurrentTopCandidateSpecId { get; set; }
+    public List<LlmCandidateRerankCandidate> Candidates { get; set; } = [];
     public int? LlmServiceId { get; set; }
 }
 
 /// <summary>
-/// LLM 生成建议结果
+/// LLM TopK 候选重排中的候选项
 /// </summary>
-public class LlmSuggestionResult
+public class LlmCandidateRerankCandidate
 {
-    public string? Acceptance { get; set; }
-    public string? Remark { get; set; }
+    public int Rank { get; set; }
+    public int SpecId { get; set; }
+    public string Project { get; set; } = string.Empty;
+    public string Specification { get; set; } = string.Empty;
+    public double EmbeddingScore { get; set; }
+    public double FinalScore { get; set; }
+    public Dictionary<string, double> ScoreDetails { get; set; } = [];
+    public List<string> EvidenceSummary { get; set; } = [];
+    public List<string> ConflictSummary { get; set; } = [];
+}
+
+/// <summary>
+/// LLM TopK 候选重排结果
+/// </summary>
+public class LlmCandidateRerankResult
+{
+    public int SelectedSpecId { get; set; }
     public string? Reason { get; set; }
+    public double Confidence { get; set; }
 }

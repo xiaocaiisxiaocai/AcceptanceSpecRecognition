@@ -1,18 +1,14 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import MatchPreviewTable from "./MatchPreviewTable.vue";
-import type {
-  BatchTablePreviewResult,
-  LlmEquivalenceVerdict,
-  MatchPreviewItem
-} from "@/api/matching";
+import type { BatchTablePreviewResult, MatchPreviewItem } from "@/api/matching";
 
 const props = defineProps<{
   /** 各表格预览结果 */
   results: BatchTablePreviewResult[];
   /** 加载状态 */
   loading?: boolean;
-  /** 高置信自动采用阈值 */
+  /** 高置信结果分层阈值 */
   highConfidenceThreshold?: number;
   /** 高歧义分差阈值 */
   ambiguityMargin?: number;
@@ -31,39 +27,164 @@ const emit = defineEmits<{
 }>();
 
 /** 活跃的 Tab */
-const activeTab = computed(() =>
-  props.results.length > 0 ? String(props.results[0].tableIndex) : "0"
+const activeTab = ref("0");
+const activeTableRef = ref<InstanceType<typeof MatchPreviewTable> | null>(null);
+const selectionCache = new Map<
+  number,
+  Array<{
+    rowIndex: number;
+    selected?: boolean;
+    specId?: number;
+    manualConfirmed?: boolean;
+    reviewApprovalToken?: string;
+    overrideAcceptance?: string;
+    overrideRemark?: string;
+  }>
+>();
+
+const activeTableResult = computed(() =>
+  props.results.find(result => String(result.tableIndex) === activeTab.value) ?? null
 );
 
-/** 每个表格的 MatchPreviewTable ref */
-const tableRefs = new Map<number, InstanceType<typeof MatchPreviewTable>>();
-
-const setTableRef = (tableIndex: number, el: any) => {
-  if (el) {
-    tableRefs.set(tableIndex, el);
+const isNoAnswerPlaceholderRow = (item: MatchPreviewItem) => {
+  const project = (item.sourceProject || "").trim().toLowerCase();
+  const specification = (item.sourceSpecification || "").trim();
+  if (specification) {
+    return false;
   }
+
+  return new Set(["其他", "-", "/", "无", "n/a", "na"]).has(project);
+};
+
+const getDecision = (item: MatchPreviewItem) =>
+  item.bestMatch?.decision ?? "manualReview";
+
+const canUseBestMatch = (item: MatchPreviewItem) => {
+  if (!item.bestMatch || isNoAnswerPlaceholderRow(item)) {
+    return false;
+  }
+
+  if (getDecision(item) === "reject") {
+    return false;
+  }
+
+  if (item.llmReviewStage === "streaming") {
+    return false;
+  }
+
+  return true;
+};
+
+const isHighConfidence = (item: MatchPreviewItem) =>
+  getDecision(item) === "autoApply" && item.confidenceLevel === "high";
+
+const buildDefaultSelections = (tableResult?: BatchTablePreviewResult | null) => {
+  if (!tableResult) {
+    return [];
+  }
+
+  return tableResult.items
+    .filter(item => {
+      if (!canUseBestMatch(item)) {
+        return false;
+      }
+
+      return !!item.bestMatch?.reviewApprovalToken || isHighConfidence(item);
+    })
+    .map(item => ({
+      rowIndex: item.rowIndex,
+      selected: true,
+      specId: item.bestMatch?.specId,
+      manualConfirmed: false,
+      reviewApprovalToken: item.bestMatch?.reviewApprovalToken,
+      overrideAcceptance: undefined,
+      overrideRemark: undefined
+    }));
+};
+
+watch(
+  () => props.results,
+  (results) => {
+    selectionCache.clear();
+    if (results.length === 0) {
+      activeTab.value = "0";
+      return;
+    }
+
+    const hasActiveTab = results.some(
+      result => String(result.tableIndex) === activeTab.value
+    );
+    if (!hasActiveTab) {
+      activeTab.value = String(results[0].tableIndex);
+    }
+  },
+  { immediate: true }
+);
+
+watch(activeTab, (_newTab, oldTab) => {
+  const previousTableIndex = Number(oldTab);
+  if (!Number.isNaN(previousTableIndex)) {
+    syncTableSelections(previousTableIndex);
+  }
+});
+
+const getPersistedSelections = (tableIndex: number) =>
+  selectionCache.get(tableIndex)?.map(item => ({ ...item })) ??
+  buildDefaultSelections(
+    props.results.find(result => result.tableIndex === tableIndex)
+  );
+
+const syncTableSelections = (tableIndex?: number) => {
+  const targetTableIndex = tableIndex ?? activeTableResult.value?.tableIndex;
+  if (targetTableIndex === undefined || targetTableIndex === null) {
+    return;
+  }
+  if (!activeTableRef.value) {
+    return;
+  }
+
+  selectionCache.set(
+    targetTableIndex,
+    activeTableRef.value.getSelections().map(item => ({ ...item }))
+  );
+};
+
+const handleSelect = (
+  rowIndex: number,
+  spec: MatchPreviewItem["bestMatch"] | null
+) => {
+  const currentTable = activeTableResult.value;
+  if (!currentTable) {
+    return;
+  }
+
+  syncTableSelections(currentTable.tableIndex);
+  emit("select", currentTable.tableIndex, rowIndex, spec);
 };
 
 /** 获取所有表格的选择结果（按表格分组） */
 const getAllSelections = () => {
+  syncTableSelections();
+
   const result: Map<
     number,
     Array<{
       rowIndex: number;
       specId?: number;
-      matchScore?: number;
-      llmReviewScore?: number;
-      llmEquivalenceVerdict?: LlmEquivalenceVerdict;
-      decision?: "autoApply" | "manualReview" | "reject";
       manualConfirmed?: boolean;
+      reviewApprovalToken?: string;
+      overrideAcceptance?: string;
+      overrideRemark?: string;
     }>
   > = new Map();
 
   for (const tableResult of props.results) {
-    const ref = tableRefs.get(tableResult.tableIndex);
-    if (ref) {
-      result.set(tableResult.tableIndex, ref.getSelections());
-    }
+    result.set(
+      tableResult.tableIndex,
+      getPersistedSelections(tableResult.tableIndex)
+        .filter(item => item.selected)
+        .map(({ selected: _selected, ...item }) => ({ ...item }))
+    );
   }
 
   return result;
@@ -80,41 +201,44 @@ defineExpose({ getAllSelections });
         :key="tableResult.tableIndex"
         :label="`表格 ${tableResult.tableIndex + 1} (${tableResult.totalMatched}/${tableResult.items.length})`"
         :name="String(tableResult.tableIndex)"
-      >
-        <div class="table-stats">
-          <el-tag type="success" size="small">
-            高 {{ tableResult.highConfidenceCount }}
-          </el-tag>
-          <el-tag type="warning" size="small">
-            中 {{ tableResult.mediumConfidenceCount }}
-          </el-tag>
-          <el-tag type="danger" size="small">
-            低 {{ tableResult.lowConfidenceCount }}
-          </el-tag>
-          <el-tag
-            v-if="tableResult.ambiguousCount > 0"
-            type="warning"
-            size="small"
-            effect="plain"
-          >
-            歧义 {{ tableResult.ambiguousCount }}
-          </el-tag>
-        </div>
-
-        <MatchPreviewTable
-          :ref="(el: any) => setTableRef(tableResult.tableIndex, el)"
-          :items="tableResult.items"
-          :loading="loading"
-          :high-confidence-threshold="highConfidenceThreshold"
-          :ambiguity-margin="ambiguityMargin"
-          :llm-streaming="llmStreaming"
-          @select="
-            (rowIndex, spec) => emit('select', tableResult.tableIndex, rowIndex, spec)
-          "
-          @show-detail="(item) => emit('showDetail', item)"
-        />
-      </el-tab-pane>
+      />
     </el-tabs>
+
+    <div v-if="activeTableResult" class="active-preview-table">
+      <div class="table-stats">
+        <el-tag type="success" size="small">
+          高 {{ activeTableResult.highConfidenceCount }}
+        </el-tag>
+        <el-tag type="warning" size="small">
+          中 {{ activeTableResult.mediumConfidenceCount }}
+        </el-tag>
+        <el-tag type="danger" size="small">
+          低 {{ activeTableResult.lowConfidenceCount }}
+        </el-tag>
+        <el-tag
+          v-if="activeTableResult.ambiguousCount > 0"
+          type="warning"
+          size="small"
+          effect="plain"
+        >
+          歧义 {{ activeTableResult.ambiguousCount }}
+        </el-tag>
+      </div>
+
+      <MatchPreviewTable
+        v-if="activeTableResult"
+        ref="activeTableRef"
+        :key="activeTableResult.tableIndex"
+        :items="activeTableResult.items"
+        :loading="loading"
+        :high-confidence-threshold="highConfidenceThreshold"
+        :ambiguity-margin="ambiguityMargin"
+        :llm-streaming="llmStreaming"
+        :persisted-selections="getPersistedSelections(activeTableResult.tableIndex)"
+        @select="handleSelect"
+        @show-detail="(item) => emit('showDetail', item)"
+      />
+    </div>
   </div>
 </template>
 
@@ -127,5 +251,9 @@ defineExpose({ getAllSelections });
   margin-bottom: 12px;
   display: flex;
   gap: 8px;
+}
+
+.active-preview-table {
+  margin-top: 12px;
 }
 </style>

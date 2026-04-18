@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 智能填充界面展示 AI 等价裁决
-系统 SHALL 在智能填充预览和详情中展示 AI 对边界样本的等价裁决结果。
+系统 SHALL 在智能填充预览和详情中展示 AI 对当前最佳候选的等价裁决结果。
 
 #### Scenario: 展示等价表达提示
 - **GIVEN** 某行匹配结果包含 AI 等价裁决

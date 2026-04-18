@@ -5,10 +5,8 @@ public enum PromptTemplateScene
     Unknown = 0,
     MatchingReview = 1,
     ImportDuplicateReview = 2,
-    MatchingGenerate = 3,
-    MatchingKnowledgeGenerate = 4,
-    MatchingEntityResolution = 5,
-    MatchingEquivalenceAdjudication = 6
+    MatchingEquivalenceAdjudication = 6,
+    MatchingCandidateRerank = 7
 }
 
 public class PromptTemplateModel

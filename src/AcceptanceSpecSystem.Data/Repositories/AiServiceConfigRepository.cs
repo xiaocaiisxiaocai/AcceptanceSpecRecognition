@@ -47,8 +47,25 @@ public class AiServiceConfigRepository : Repository<AiServiceConfig>, IAiService
     /// <returns>配置列表</returns>
     public async Task<IReadOnlyList<AiServiceConfig>> GetByPurposeAsync(AiServicePurpose purpose)
     {
-        return await _dbSet
-            .Where(c => (c.Purpose & purpose) != AiServicePurpose.None)
-            .ToListAsync();
+        return purpose switch
+        {
+            AiServicePurpose.Llm => await _dbSet
+                .Where(c =>
+                    c.Purpose == AiServicePurpose.Llm ||
+                    (c.Purpose != AiServicePurpose.Embedding &&
+                     c.LlmModel != null &&
+                     c.LlmModel != "" &&
+                     (c.EmbeddingModel == null || c.EmbeddingModel == "")))
+                .ToListAsync(),
+            AiServicePurpose.Embedding => await _dbSet
+                .Where(c =>
+                    c.Purpose == AiServicePurpose.Embedding ||
+                    (c.Purpose != AiServicePurpose.Llm &&
+                     c.EmbeddingModel != null &&
+                     c.EmbeddingModel != "" &&
+                     (c.LlmModel == null || c.LlmModel == "")))
+                .ToListAsync(),
+            _ => []
+        };
     }
 }

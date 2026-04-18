@@ -21,7 +21,6 @@ public class UnitOfWork : IUnitOfWork
     private IEmbeddingCacheRepository? _embeddingCaches;
     private IWordFileRepository? _wordFiles;
     private IAiServiceConfigRepository? _aiServiceConfigs;
-    private IMatchingKnowledgeConfigRepository? _matchingKnowledgeConfigs;
     private IPromptTemplateRepository? _promptTemplates;
     private IColumnMappingRuleRepository? _columnMappingRules;
     private ISystemUserRepository? _systemUsers;
@@ -83,17 +82,12 @@ public class UnitOfWork : IUnitOfWork
     public IAiServiceConfigRepository AiServiceConfigs => GetOrCreate(ref _aiServiceConfigs);
 
     /// <summary>
-    /// 匹配知识配置数据仓储。
-    /// </summary>
-    public IMatchingKnowledgeConfigRepository MatchingKnowledgeConfigs => GetOrCreate(ref _matchingKnowledgeConfigs);
-
-    /// <summary>
     /// Prompt 模板数据仓储。
     /// </summary>
     public IPromptTemplateRepository PromptTemplates => GetOrCreate(ref _promptTemplates);
 
     /// <summary>
-    /// 导入列映射规则数据仓储（全局）。
+    /// Word 列映射规则仓储。
     /// </summary>
     public IColumnMappingRuleRepository ColumnMappingRules => GetOrCreate(ref _columnMappingRules);
 

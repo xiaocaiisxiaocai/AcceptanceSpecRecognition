@@ -93,21 +93,9 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task CommonUser_ShouldAccessAsyncRoutes()
+    public async Task AsyncRoutesEndpoint_ShouldReturnNotFound()
     {
-        var loginResp = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new { username = "common", password = ApiWebApplicationFactory.TestCommonPassword }));
-        loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var loginJson = await loginResp.ReadAsAsync<JsonElement>();
-        var accessToken = loginJson.GetProperty("data").GetProperty("accessToken").GetString();
-        accessToken.Should().NotBeNullOrWhiteSpace();
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/get-async-routes");
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-
-        using var resp = await _client.SendAsync(request);
-        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var resp = await _client.GetAsync("/get-async-routes");
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

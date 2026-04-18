@@ -6,7 +6,6 @@ using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -32,287 +31,6 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task MatchingKnowledge_GetSaveClearAndRestoreDefaults_ShouldWork()
-    {
-        var getResp = await _client.GetAsync("/api/matching-knowledge");
-        getResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var cfg = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        cfg.Code.Should().Be(0);
-        cfg.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        cfg.Data.GetProperty("entityGroups").ValueKind.Should().Be(JsonValueKind.Array);
-        cfg.Data.GetProperty("unitGroups").ValueKind.Should().Be(JsonValueKind.Array);
-        cfg.Data.GetProperty("fieldGroups").ValueKind.Should().Be(JsonValueKind.Array);
-        cfg.Data.GetProperty("conflictGroups").ValueKind.Should().Be(JsonValueKind.Array);
-        cfg.Data.GetProperty("unitFactors").ValueKind.Should().Be(JsonValueKind.Object);
-
-        var putResp = await _client.PutAsync(
-            "/api/matching-knowledge",
-            ApiClientJson.ToJsonContent(new
-            {
-                entityGroups = new[]
-                {
-                    new
-                    {
-                        items = new[] { "松下", "Panasonic品牌" }
-                    }
-                },
-                unitGroups = new[]
-                {
-                    new
-                    {
-                        items = new[] { "cm", "公分" }
-                    }
-                },
-                unitFactors = new Dictionary<string, decimal>
-                {
-                    ["cm"] = 10m
-                },
-                fieldGroups = new[]
-                {
-                    new
-                    {
-                        items = new[] { "宽度", "宽尺寸" }
-                    }
-                },
-                conflictGroups = new[]
-                {
-                    new
-                    {
-                        leftItems = new[] { "正转" },
-                        rightItems = new[] { "反转" }
-                    }
-                }
-            }));
-        putResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var saved = await putResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        saved.Code.Should().Be(0);
-        saved.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        saved.Data.GetProperty("entityGroups").EnumerateArray()
-            .Any(group =>
-            {
-                var items = group.GetProperty("items").EnumerateArray().Select(item => item.GetString()).ToArray();
-                return items.Contains("松下") && items.Contains("Panasonic品牌");
-            })
-            .Should().BeTrue();
-
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var entity = await dbContext.Set<MatchingKnowledgeConfig>().SingleAsync();
-            var savedEntityAliases = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.EntityAliasesJson);
-            savedEntityAliases.Should().NotBeNull();
-            savedEntityAliases!.Should().ContainKey("Panasonic品牌");
-            savedEntityAliases["Panasonic品牌"].Should().Be("松下");
-            savedEntityAliases.Should().ContainKey("松下");
-            savedEntityAliases["松下"].Should().Be("松下");
-        }
-
-        var clearResp = await _client.PostAsync("/api/matching-knowledge/clear", null);
-        clearResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var clear = await clearResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        clear.Code.Should().Be(0);
-        clear.Data.GetProperty("entityGroups").EnumerateArray().Should().BeEmpty();
-        clear.Data.GetProperty("unitGroups").EnumerateArray().Should().BeEmpty();
-        clear.Data.GetProperty("fieldGroups").EnumerateArray().Should().BeEmpty();
-        clear.Data.GetProperty("conflictGroups").EnumerateArray().Should().BeEmpty();
-        clear.Data.GetProperty("unitFactors").EnumerateObject().Should().BeEmpty();
-
-        var restoreResp = await _client.PostAsync("/api/matching-knowledge/restore-defaults", null);
-        restoreResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var restore = await restoreResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        restore.Code.Should().Be(0);
-        restore.Data.GetProperty("entityGroups").EnumerateArray()
-            .Any(group =>
-            {
-                var items = group.GetProperty("items").EnumerateArray().Select(item => item.GetString()).ToArray();
-                return items.Contains("松下") && items.Contains("panasonic");
-            })
-            .Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task MatchingKnowledge_Save_ShouldRejectDuplicateTermsAcrossDifferentGroups()
-    {
-        var response = await _client.PutAsync(
-            "/api/matching-knowledge",
-            ApiClientJson.ToJsonContent(new
-            {
-                entityGroups = new[]
-                {
-                    new
-                    {
-                        items = new[] { "ABB", "abb" }
-                    },
-                    new
-                    {
-                        items = new[] { "艾波比股份有限公司", "abb" }
-                    }
-                },
-                unitGroups = Array.Empty<object>(),
-                unitFactors = new Dictionary<string, decimal>(),
-                fieldGroups = Array.Empty<object>(),
-                conflictGroups = Array.Empty<object>()
-            }));
-
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Code.Should().Be(400);
-        body.Message.Should().Contain("abb");
-    }
-
-    [Fact]
-    public async Task MatchingKnowledgeDraftGenerate_SpecFilterSource_ShouldReturnSingleCategoryDraft_AndNotModifyConfig()
-    {
-        var fixture = await SeedHistoricalSpecsAsync();
-
-        var beforeGet = await _client.GetAsync("/api/matching-knowledge");
-        beforeGet.StatusCode.Should().Be(HttpStatusCode.OK);
-        var beforeJson = await beforeGet.ReadAsAsync<ApiResponse<JsonElement>>();
-        beforeJson.Code.Should().Be(0);
-
-        var response = await _client.PostAsync(
-            "/api/matching-knowledge/drafts/generate",
-            ApiClientJson.ToJsonContent(new
-            {
-                category = "entityAliases",
-                specFilter = new
-                {
-                    customerId = fixture.CustomerId,
-                    processId = fixture.ProcessId,
-                    machineModelId = fixture.MachineModelId,
-                    keyword = "Panasonic",
-                    importedFrom = fixture.ImportedFrom,
-                    importedTo = fixture.ImportedTo
-                }
-            }));
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Code.Should().Be(0);
-        body.Data.GetProperty("category").GetString().Should().Be("entityAliases");
-        body.Data.GetProperty("items").ValueKind.Should().Be(JsonValueKind.Array);
-        body.Data.GetProperty("items").GetArrayLength().Should().BeGreaterThan(0);
-
-        var first = body.Data.GetProperty("items").EnumerateArray().First();
-        first.GetProperty("key").GetString().Should().NotBeNullOrWhiteSpace();
-        first.GetProperty("value").GetString().Should().NotBeNullOrWhiteSpace();
-        first.GetProperty("reason").GetString().Should().NotBeNullOrWhiteSpace();
-        first.GetProperty("status").GetString().Should().BeOneOf("ready", "duplicate", "conflict");
-
-        var afterGet = await _client.GetAsync("/api/matching-knowledge");
-        afterGet.StatusCode.Should().Be(HttpStatusCode.OK);
-        var afterJson = await afterGet.ReadAsAsync<ApiResponse<JsonElement>>();
-        afterJson.Code.Should().Be(0);
-        afterJson.Data.ToString().Should().Be(beforeJson.Data.ToString());
-    }
-
-    [Fact]
-    public async Task MatchingKnowledgeDraftGenerate_SpecFilterSource_ShouldReturnBadRequest_WhenNoSpecsMatched()
-    {
-        var response = await _client.PostAsync(
-            "/api/matching-knowledge/drafts/generate",
-            ApiClientJson.ToJsonContent(new
-            {
-                category = "entityAliases",
-                specFilter = new
-                {
-                    keyword = "这是一条不会命中的关键词"
-                }
-            }));
-
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Code.Should().Be(400);
-        body.Message.Should().Contain("没有可用于生成的历史验规");
-    }
-
-    [Fact]
-    public async Task MatchingKnowledgeDraftGenerate_SpecFilterSource_ShouldReturnBadRequest_WhenMatchedSpecsExceedLimit()
-    {
-        var fixture = await SeedHistoricalSpecsAsync(specCount: 201, projectPrefix: "超上限");
-
-        var response = await _client.PostAsync(
-            "/api/matching-knowledge/drafts/generate",
-            ApiClientJson.ToJsonContent(new
-            {
-                category = "entityAliases",
-                specFilter = new
-                {
-                    customerId = fixture.CustomerId,
-                    processId = fixture.ProcessId,
-                    machineModelId = fixture.MachineModelId,
-                    keyword = fixture.ProjectPrefix
-                }
-            }));
-
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Code.Should().Be(400);
-        body.Message.Should().Contain("命中的历史验规过多");
-    }
-
-    private async Task<(int CustomerId, int ProcessId, int MachineModelId, DateTime ImportedFrom, DateTime ImportedTo, string ProjectPrefix)> SeedHistoricalSpecsAsync(
-        int specCount = 1,
-        string projectPrefix = "Panasonic")
-    {
-        using var scope = _factory.Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        var customer = new Customer
-        {
-            Name = $"草稿客户-{Guid.NewGuid():N}",
-            CreatedAt = DateTime.UtcNow
-        };
-        var process = new Process
-        {
-            Name = $"草稿制程-{Guid.NewGuid():N}",
-            CreatedAt = DateTime.UtcNow
-        };
-        var machineModel = new MachineModel
-        {
-            Name = $"草稿机型-{Guid.NewGuid():N}",
-            CreatedAt = DateTime.UtcNow
-        };
-        var wordFile = new WordFile
-        {
-            FileName = $"draft-{Guid.NewGuid():N}.docx",
-            FileHash = Guid.NewGuid().ToString("N"),
-            FileContent = Array.Empty<byte>(),
-            UploadedAt = DateTime.UtcNow
-        };
-
-        dbContext.Customers.Add(customer);
-        dbContext.Processes.Add(process);
-        dbContext.MachineModels.Add(machineModel);
-        dbContext.WordFiles.Add(wordFile);
-        await dbContext.SaveChangesAsync();
-
-        var importedFrom = DateTime.UtcNow.AddDays(-2);
-        var importedTo = DateTime.UtcNow.AddDays(-1);
-
-        for (var index = 0; index < specCount; index++)
-        {
-            dbContext.AcceptanceSpecs.Add(new AcceptanceSpec
-            {
-                CustomerId = customer.Id,
-                ProcessId = process.Id,
-                MachineModelId = machineModel.Id,
-                Project = $"{projectPrefix} 控制柜 {index + 1}",
-                Specification = $"{projectPrefix} 品牌控制柜尺寸检测 {index + 1}",
-                Acceptance = "ABB 组件可共存",
-                Remark = "匹配知识草稿测试",
-                WordFileId = wordFile.Id,
-                OwnerOrgUnitId = 1,
-                CreatedByUserId = 1,
-                ImportedAt = importedFrom.AddHours(12).AddMinutes(index)
-            });
-        }
-        await dbContext.SaveChangesAsync();
-
-        return (customer.Id, process.Id, machineModel.Id, importedFrom, importedTo, projectPrefix);
-    }
-
-    [Fact]
     public async Task LegacyTextProcessingApis_ShouldReturnNotFound()
     {
         var response = await _client.GetAsync("/api/text-processing/config");
@@ -327,14 +45,10 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task PromptTemplates_Default_ShouldWork()
+    public async Task PromptTemplates_DefaultEndpoint_ShouldReturnNotFound()
     {
         var resp = await _client.GetAsync("/api/prompt-templates/default");
-        resp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var tpl = await resp.ReadAsAsync<ApiResponse<JsonElement>>();
-        tpl.Code.Should().Be(0);
-        tpl.Data.ValueKind.Should().NotBe(JsonValueKind.Undefined);
-        tpl.Data.GetProperty("id").GetInt32().Should().BeGreaterThan(0);
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -369,7 +83,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task AiServiceConfig_MatchingDefaults_ShouldPersist()
+    public async Task AiServiceConfig_DefaultRecallTopK_ShouldPersistWithoutLegacyMatchingStrategyField()
     {
         var createResp = await _client.PostAsync(
             "/api/ai-services",
@@ -382,15 +96,14 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
                 endpoint = "http://127.0.0.1:11434/api",
                 apiKey = "",
                 embeddingModel = "nomic-embed-text",
-                defaultMatchingStrategy = 2,
                 defaultRecallTopK = 3
             }));
 
         createResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
         created.Code.Should().Be(0);
-        created.Data.GetProperty("defaultMatchingStrategy").GetInt32().Should().Be(2);
         created.Data.GetProperty("defaultRecallTopK").GetInt32().Should().Be(3);
+        created.Data.TryGetProperty("defaultMatchingStrategy", out _).Should().BeFalse();
 
         var id = created.Data.GetProperty("id").GetInt32();
         var getResp = await _client.GetAsync($"/api/ai-services/{id}");
@@ -398,8 +111,8 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
 
         var detail = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
         detail.Code.Should().Be(0);
-        detail.Data.GetProperty("defaultMatchingStrategy").GetInt32().Should().Be(2);
         detail.Data.GetProperty("defaultRecallTopK").GetInt32().Should().Be(3);
+        detail.Data.TryGetProperty("defaultMatchingStrategy", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -591,6 +304,141 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         requestLine.Should().StartWith("GET /api/tags HTTP/");
     }
 
+    [Fact]
+    public async Task AiServiceConfig_GetById_WithLegacyCombinedPurpose_ShouldNormalizePurposeForRead()
+    {
+        var configId = await CreateLegacyCombinedPurposeConfigAsync(
+            endpoint: "https://api.openai.com/v1",
+            serviceType: AiServiceType.OpenAI,
+            llmModel: "gpt-4o-mini",
+            embeddingModel: null);
+
+        var response = await _client.GetAsync($"/api/ai-services/{configId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(0);
+        result.Data.GetProperty("purpose").GetInt32().Should().Be((int)AiServicePurpose.Llm);
+        result.Data.GetProperty("llmModel").GetString().Should().Be("gpt-4o-mini");
+    }
+
+    [Fact]
+    public async Task AiServiceConfig_TestConnection_WithLegacyCombinedPurposeAndSingleModel_ShouldUseNormalizedPurpose()
+    {
+        var port = GetFreeTcpPort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            var context = await listener.GetContextAsync();
+            var responseJson = """
+                {
+                  "models": [
+                    { "name": "qwen3.5:35b" }
+                  ]
+                }
+                """;
+            var responseBytes = Encoding.UTF8.GetBytes(responseJson);
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/json";
+            context.Response.ContentLength64 = responseBytes.Length;
+            await context.Response.OutputStream.WriteAsync(responseBytes);
+            context.Response.Close();
+        });
+
+        var configId = await CreateLegacyCombinedPurposeConfigAsync(
+            endpoint: $"http:127.0.0.1:{port}/api",
+            serviceType: AiServiceType.Ollama,
+            llmModel: "qwen3.5:35b",
+            embeddingModel: null);
+
+        var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(0);
+        result.Data.GetProperty("success").GetBoolean().Should().BeTrue();
+        result.Data.GetProperty("message").GetString().Should().NotContain("LLM 与 Embedding 需要分开配置");
+
+        await serverTask;
+    }
+
+    [Fact]
+    public async Task AiServiceConfig_GetById_WithLegacyDualPurposeAndBothModels_ShouldExposeBothModels()
+    {
+        var configId = await CreateLegacyCombinedPurposeConfigAsync(
+            endpoint: "https://api.openai.com/v1",
+            serviceType: AiServiceType.OpenAI,
+            llmModel: "gpt-4o-mini",
+            embeddingModel: "text-embedding-3-small");
+
+        var response = await _client.GetAsync($"/api/ai-services/{configId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(0);
+        result.Data.GetProperty("purpose").GetInt32().Should().Be((int)(AiServicePurpose.Llm | AiServicePurpose.Embedding));
+        result.Data.GetProperty("llmModel").GetString().Should().Be("gpt-4o-mini");
+        result.Data.GetProperty("embeddingModel").GetString().Should().Be("text-embedding-3-small");
+    }
+
+    [Fact]
+    public async Task AiServiceConfig_Update_WithLegacyDualPurposeAndBothModels_ShouldRejectInsteadOfDroppingHiddenModel()
+    {
+        var configId = await CreateLegacyCombinedPurposeConfigAsync(
+            endpoint: "https://api.openai.com/v1",
+            serviceType: AiServiceType.OpenAI,
+            llmModel: "gpt-4o-mini",
+            embeddingModel: "text-embedding-3-small");
+
+        var response = await _client.PutAsync(
+            $"/api/ai-services/{configId}",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = $"updated-{Guid.NewGuid():N}",
+                serviceType = 0,
+                purpose = 1,
+                priority = 0,
+                endpoint = "https://api.openai.com/v1",
+                apiKey = "",
+                llmModel = "gpt-4.1-mini",
+                disableThinking = false,
+                defaultRecallTopK = 2
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(400);
+        result.Message.Should().Contain("历史双用途");
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var entity = await dbContext.AiServiceConfigs.FindAsync(configId);
+        entity.Should().NotBeNull();
+        entity!.Purpose.Should().Be(AiServicePurpose.Llm | AiServicePurpose.Embedding);
+        entity.LlmModel.Should().Be("gpt-4o-mini");
+        entity.EmbeddingModel.Should().Be("text-embedding-3-small");
+    }
+
+    [Fact]
+    public async Task AiServiceConfig_TestConnection_WithLegacyDualPurposeAndBothModels_ShouldRejectBeforeSelectingSingleSide()
+    {
+        var configId = await CreateLegacyCombinedPurposeConfigAsync(
+            endpoint: "https://api.openai.com/v1",
+            serviceType: AiServiceType.OpenAI,
+            llmModel: "gpt-4o-mini",
+            embeddingModel: "text-embedding-3-small");
+
+        var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(400);
+        result.Message.Should().Contain("历史双用途");
+    }
+
     private async Task<int> CreateLegacyOllamaConfigAsync(string endpoint, string llmModel = "qwen3.5:35b")
     {
         using var scope = _factory.Services.CreateScope();
@@ -603,6 +451,33 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             Priority = 0,
             Endpoint = endpoint,
             LlmModel = llmModel,
+            DisableThinking = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        dbContext.AiServiceConfigs.Add(entity);
+        await dbContext.SaveChangesAsync();
+        return entity.Id;
+    }
+
+    private async Task<int> CreateLegacyCombinedPurposeConfigAsync(
+        string endpoint,
+        AiServiceType serviceType,
+        string? llmModel,
+        string? embeddingModel)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var entity = new AiServiceConfig
+        {
+            Name = $"legacy-purpose-{Guid.NewGuid():N}",
+            ServiceType = serviceType,
+            Purpose = AiServicePurpose.Llm | AiServicePurpose.Embedding,
+            Priority = 0,
+            Endpoint = endpoint,
+            ApiKey = "legacy-purpose-key",
+            LlmModel = llmModel,
+            EmbeddingModel = embeddingModel,
             DisableThinking = false,
             CreatedAt = DateTime.UtcNow
         };

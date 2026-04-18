@@ -151,6 +151,7 @@ export interface ImportPendingDifference {
 }
 
 const baseUrl = "/api/documents";
+const importRequestTimeout = 300000;
 
 /** 获取已上传的文件列表 */
 export const getFileList = (params?: PagedRequest) => {
@@ -206,7 +207,8 @@ export const getTablePreview = (
 /** 导入表格数据 */
 export const importData = (data: ImportDataRequest) => {
   return http.request<ApiResponse<ImportResult>>("post", `${baseUrl}/import`, {
-    data
+    data,
+    timeout: importRequestTimeout
   });
 };
 
@@ -238,7 +240,10 @@ export const importExcelData = (data: ExcelImportDataRequest) => {
   return http.request<ApiResponse<ImportResult>>(
     "post",
     `${baseUrl}/excel/import`,
-    { data }
+    {
+      data,
+      timeout: importRequestTimeout
+    }
   );
 };
 

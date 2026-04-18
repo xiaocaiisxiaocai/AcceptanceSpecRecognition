@@ -1,4 +1,8 @@
-import { http } from "@/utils/http";
+import {
+  createAuthorizedFetchInit,
+  ensureFetchResponseAuthHandled,
+  http
+} from "@/utils/http";
 import type { PureHttpRequestConfig } from "@/utils/http/types.d";
 import type { ApiResponse } from "./customer";
 import type { TableData, TableInfo } from "./document";
@@ -8,52 +12,21 @@ export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.98;
 export const DEFAULT_RECALL_TOP_K = 2;
 export const MAX_RECALL_TOP_K = 3;
 export const DEFAULT_AMBIGUITY_MARGIN = 0.02;
-export const DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES = 2;
-export const MAX_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES = 3;
-export const LLM_REVIEW_PASS_THRESHOLD = 90;
-
-/** 匹配策略 */
-export enum MatchingStrategy {
-  /** 单阶段匹配（仅按 Embedding 排序） */
-  SingleStage = 1,
-  /** 多阶段匹配（Embedding 召回 + 证据重排） */
-  MultiStage = 2
-}
 
 /** 匹配配置 */
 export interface MatchConfig {
-  /** 匹配策略 */
-  matchingStrategy?: MatchingStrategy;
   /** 选定的 Embedding 服务ID（为空则自动选择） */
   embeddingServiceId?: number;
   /** 选定的 LLM 服务ID（为空则自动选择） */
   llmServiceId?: number;
   /** 最小匹配阈值 */
   minScoreThreshold?: number;
-  /** 高置信自动采用阈值 */
+  /** 高置信结果分层阈值 */
   highConfidenceThreshold?: number;
-  /** 多阶段模式下第一阶段召回数量 */
+  /** 第一阶段召回数量 */
   recallTopK?: number;
-  /** 多阶段模式下的歧义分差阈值 */
+  /** 歧义分差阈值 */
   ambiguityMargin?: number;
-  /** 是否启用 LLM 实体判别 */
-  useLlmEntityResolution?: boolean;
-  /** 启用实体判别时参与复判的候选数量 */
-  llmEntityResolutionTopCandidates?: number;
-  /** 判定为同一实体的最低置信度 */
-  llmEntityPositiveConfidenceThreshold?: number;
-  /** 判定为实体冲突并降级人工复核的最低置信度 */
-  llmEntityConflictReviewConfidenceThreshold?: number;
-  /** 判定为实体冲突并直接拒绝的最低置信度 */
-  llmEntityConflictRejectConfidenceThreshold?: number;
-  /** 是否启用LLM复核 */
-  useLlmReview?: boolean;
-  /** 是否启用LLM生成建议 */
-  useLlmSuggestion?: boolean;
-  /** 是否对完全无匹配的行也生成建议 */
-  suggestNoMatchRows?: boolean;
-  /** 生成建议触发阈值 */
-  llmSuggestionScoreThreshold?: number;
   /** LLM 并行处理数（1~10） */
   llmParallelism?: number;
   /** LLM 单行处理超时（秒） */
@@ -74,34 +47,6 @@ export interface MatchSourceItem {
   project: string;
   /** 规格内容 */
   specification: string;
-}
-
-/** 匹配预览请求 */
-export interface MatchPreviewRequest {
-  /** 文件ID（文件模式） */
-  fileId?: number;
-  /** 表格索引（文件模式） */
-  tableIndex?: number;
-  /** 项目列索引（必须由用户指定，0-based） */
-  projectColumnIndex?: number;
-  /** 规格列索引（必须由用户指定，0-based） */
-  specificationColumnIndex?: number;
-  /** Excel 表头起始行（1-based，可选） */
-  headerRowStart?: number;
-  /** Excel 表头行数（可选） */
-  headerRowCount?: number;
-  /** Excel 数据起始行（1-based，可选） */
-  dataStartRow?: number;
-  /** 待匹配的文本列表（直接模式） */
-  items?: MatchSourceItem[];
-  /** 目标客户ID（限定匹配范围） */
-  customerId?: number;
-  /** 目标制程ID（限定匹配范围） */
-  processId?: number;
-  /** 目标机型ID（限定匹配范围） */
-  machineModelId?: number;
-  /** 匹配配置 */
-  config?: MatchConfig;
 }
 
 /** 匹配结果 */
@@ -147,6 +92,10 @@ export interface MatchEntityEvidence {
 }
 
 export type LlmEquivalenceVerdict = "equivalent" | "different" | "uncertain";
+export type MatchSelectionMode =
+  | "exactShortcut"
+  | "embeddingTop1"
+  | "aiRerank";
 
 export type LlmEquivalenceReasonType =
   | "format_only"
@@ -188,8 +137,10 @@ export interface MatchResult {
   scoreDetails: Record<string, number>;
   /** 最终决策 */
   decision?: "autoApply" | "manualReview" | "reject";
-  /** 是否存在硬冲突 */
-  hasHardConflict?: boolean;
+  /** 最终选定方式 */
+  selectionMode?: MatchSelectionMode;
+  /** 最终选定摘要 */
+  selectionSummary?: string;
   /** 证据摘要 */
   evidenceSummary?: string[];
   /** 冲突摘要 */
@@ -200,8 +151,6 @@ export interface MatchResult {
   entities?: MatchEntityEvidence[];
   /** Top候选列表（含Top1） */
   topCandidates: MatchCandidateOption[];
-  /** 匹配策略 */
-  matchingStrategy: MatchingStrategy;
   /** 第一阶段召回候选数 */
   recalledCandidateCount: number;
   /** 是否为高歧义样本 */
@@ -210,16 +159,16 @@ export interface MatchResult {
   scoreGap?: number;
   /** 重排摘要 */
   rerankSummary?: string;
-  /** LLM复核得分（0-100） */
-  llmScore?: number;
-  /** LLM复核原因 */
-  llmReason?: string;
-  /** LLM评论 */
-  llmCommentary?: string;
-  /** 是否经过LLM复核 */
-  isLlmReviewed?: boolean;
   /** AI 等价裁决 */
   llmEquivalence?: LlmEquivalenceResult;
+  /** AI 复核分 */
+  reviewScore?: number;
+  /** AI 复核原因 */
+  reviewReason?: string;
+  /** AI 复核说明 */
+  reviewCommentary?: string;
+  /** AI 复核确认令牌 */
+  reviewApprovalToken?: string;
 }
 
 /** 匹配详情中的候选项 */
@@ -244,8 +193,10 @@ export interface MatchCandidateOption {
   scoreDetails: Record<string, number>;
   /** 最终决策 */
   decision?: "autoApply" | "manualReview" | "reject";
-  /** 是否存在硬冲突 */
-  hasHardConflict?: boolean;
+  /** 最终选定方式 */
+  selectionMode?: MatchSelectionMode;
+  /** 最终选定摘要 */
+  selectionSummary?: string;
   /** 证据摘要 */
   evidenceSummary?: string[];
   /** 冲突摘要 */
@@ -260,16 +211,6 @@ export interface MatchCandidateOption {
   llmEquivalence?: LlmEquivalenceResult;
 }
 
-/** LLM生成建议 */
-export interface LlmSuggestion {
-  /** 验收标准建议 */
-  acceptance?: string;
-  /** 备注建议 */
-  remark?: string;
-  /** 生成理由 */
-  reason?: string;
-}
-
 /** 匹配预览项 */
 export interface MatchPreviewItem {
   /** 行索引 */
@@ -280,16 +221,12 @@ export interface MatchPreviewItem {
   sourceSpecification: string;
   /** 最佳匹配结果 */
   bestMatch?: MatchResult;
-  /** LLM生成建议 */
-  llmSuggestion?: LlmSuggestion;
-  /** LLM生成建议流式内容 */
-  llmSuggestionDraft?: string;
   /** LLM复核流式内容 */
   llmReviewDraft?: string;
   /** LLM复核错误 */
   llmReviewError?: string;
-  /** LLM生成错误 */
-  llmSuggestionError?: string;
+  /** LLM复核阶段 */
+  llmReviewStage?: "streaming" | "done" | "error";
   /** 不匹配原因 */
   noMatchReason?: string;
   /** 是否有匹配 */
@@ -298,72 +235,20 @@ export interface MatchPreviewItem {
   confidenceLevel: "high" | "medium" | "low" | "none";
 }
 
-/** 匹配预览响应 */
-export interface MatchPreviewResponse {
-  /** 匹配结果列表 */
-  items: MatchPreviewItem[];
-  /** 总匹配数 */
-  totalMatched: number;
-  /** 高置信度匹配数 */
-  highConfidenceCount: number;
-  /** 中置信度匹配数 */
-  mediumConfidenceCount: number;
-  /** 低置信度匹配数 */
-  lowConfidenceCount: number;
-  /** 高歧义样本数 */
-  ambiguousCount: number;
-}
-
 /** 填充映射 */
 export interface FillMapping {
   /** 行索引 */
   rowIndex: number;
   /** 选择的验收规格ID */
   specId?: number;
-  /** 匹配得分（0-1） */
-  matchScore?: number;
-  /** LLM 复核得分（0-100） */
-  llmReviewScore?: number;
-  /** AI 等价裁决结论 */
-  llmEquivalenceVerdict?: LlmEquivalenceVerdict;
-  /** 预览阶段的最终决策 */
-  decision?: "autoApply" | "manualReview" | "reject";
   /** 是否已由用户人工确认 */
   manualConfirmed?: boolean;
-  /** 是否使用LLM生成建议 */
-  useLlmSuggestion?: boolean;
-  /** LLM生成的验收标准 */
-  acceptance?: string;
-  /** LLM生成的备注 */
-  remark?: string;
-}
-
-/** 执行填充请求 */
-export interface ExecuteFillRequest {
-  /** 文件ID */
-  fileId: number;
-  /** 表格索引 */
-  tableIndex: number;
-  /** 验收列索引（必须由用户指定，0-based） */
-  acceptanceColumnIndex: number;
-  /** 备注列索引（可选，0-based） */
-  remarkColumnIndex?: number;
-  /** 项目列索引（用于严格复用快照） */
-  projectColumnIndex?: number;
-  /** 规格列索引（用于严格复用快照） */
-  specificationColumnIndex?: number;
-  /** Excel 表头起始行（1-based，可选） */
-  headerRowStart?: number;
-  /** Excel 表头行数（可选） */
-  headerRowCount?: number;
-  /** Excel 数据起始行（1-based，可选） */
-  dataStartRow?: number;
-  /** 是否过滤项目/规格均为空的行 */
-  filterEmptySourceRows?: boolean;
-  /** 高置信自动采用阈值 */
-  highConfidenceThreshold?: number;
-  /** 填充映射列表 */
-  mappings: FillMapping[];
+  /** 服务端签发的 AI 复核放行令牌 */
+  reviewApprovalToken?: string;
+  /** 本次导出的验收标准覆盖值 */
+  overrideAcceptance?: string;
+  /** 本次导出的备注覆盖值 */
+  overrideRemark?: string;
 }
 
 /** 执行填充响应 */
@@ -378,43 +263,7 @@ export interface ExecuteFillResponse {
   downloadUrl: string;
 }
 
-/** 相似度计算请求 */
-export interface SimilarityRequest {
-  /** 文本1 */
-  text1: string;
-  /** 文本2 */
-  text2: string;
-  /** 匹配配置 */
-  config?: MatchConfig;
-}
-
-/** 相似度计算响应 */
-export interface SimilarityResponse {
-  /** 综合得分 */
-  totalScore: number;
-  /** 各算法得分详情 */
-  scores: Record<string, number>;
-}
-
 const baseUrl = "/api/matching";
-
-/** 匹配预览（长超时：5分钟） */
-export const previewMatch = (data: MatchPreviewRequest) => {
-  return http.request<ApiResponse<MatchPreviewResponse>>(
-    "post",
-    `${baseUrl}/preview`,
-    { data, timeout: 300000 }
-  );
-};
-
-/** 执行填充（长超时：5分钟） */
-export const executeFill = (data: ExecuteFillRequest) => {
-  return http.request<ApiResponse<ExecuteFillResponse>>(
-    "post",
-    `${baseUrl}/execute`,
-    { data, timeout: 300000 }
-  );
-};
 
 /** 下载填充结果 */
 export const downloadFillResult = (taskId: string) => {
@@ -428,33 +277,12 @@ export const getDownloadUrl = (taskId: string) => {
   return `${baseUrl}/download/${taskId}`;
 };
 
-/** 计算两个文本的相似度 */
-export const computeSimilarity = (data: SimilarityRequest) => {
-  return http.request<ApiResponse<SimilarityResponse>>(
-    "post",
-    `${baseUrl}/similarity`,
-    {
-      data
-    }
-  );
-};
-
 /** 默认匹配配置 */
 export const defaultMatchConfig: MatchConfig = {
-  matchingStrategy: MatchingStrategy.SingleStage,
   minScoreThreshold: DEFAULT_MIN_SCORE_THRESHOLD,
   highConfidenceThreshold: DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   recallTopK: DEFAULT_RECALL_TOP_K,
   ambiguityMargin: DEFAULT_AMBIGUITY_MARGIN,
-  useLlmEntityResolution: false,
-  llmEntityResolutionTopCandidates: DEFAULT_LLM_ENTITY_RESOLUTION_TOP_CANDIDATES,
-  llmEntityPositiveConfidenceThreshold: 0.85,
-  llmEntityConflictReviewConfidenceThreshold: 0.7,
-  llmEntityConflictRejectConfidenceThreshold: 0.9,
-  useLlmReview: true,
-  useLlmSuggestion: false,
-  suggestNoMatchRows: false,
-  llmSuggestionScoreThreshold: 0.75,
   llmParallelism: 3,
   llmRowTimeoutSeconds: 45,
   llmRetryCount: 1,
@@ -494,6 +322,8 @@ export interface BatchTableConfig {
 export interface BatchPreviewRequest {
   /** 文件ID */
   fileId: number;
+  /** 预览请求ID，用于轮询进度 */
+  previewRequestId?: string;
   /** 各表格配置列表 */
   tables: BatchTableConfig[];
   /** 客户ID */
@@ -540,6 +370,20 @@ export interface BatchPreviewResponse {
   ambiguousCount: number;
 }
 
+export interface BatchPreviewProgressResponse {
+  requestId: string;
+  status: "running" | "completed" | "failed";
+  stage: string;
+  stageText: string;
+  detailText?: string;
+  completedItems: number;
+  totalItems: number;
+  progressPercent: number;
+  startedAt: string;
+  updatedAt: string;
+  elapsedMs: number;
+}
+
 /** 批量表格填充映射 */
 export interface BatchTableFillMapping {
   /** 表格索引 */
@@ -548,10 +392,10 @@ export interface BatchTableFillMapping {
   acceptanceColumnIndex: number;
   /** 备注列索引 */
   remarkColumnIndex?: number;
-  /** 项目列索引 */
-  projectColumnIndex?: number;
-  /** 规格列索引 */
-  specificationColumnIndex?: number;
+  /** 项目列索引（执行前重算当前最佳匹配必填） */
+  projectColumnIndex: number;
+  /** 规格列索引（执行前重算当前最佳匹配必填） */
+  specificationColumnIndex: number;
   /** Excel 表头起始行（1-based，可选） */
   headerRowStart?: number;
   /** Excel 表头行数（可选） */
@@ -568,11 +412,76 @@ export interface BatchTableFillMapping {
 export interface BatchExecuteFillRequest {
   /** 文件ID */
   fileId: number;
-  /** 高置信自动采用阈值 */
-  highConfidenceThreshold?: number;
+  /** 客户ID */
+  customerId?: number;
+  /** 制程ID */
+  processId?: number;
+  /** 机型ID */
+  machineModelId?: number;
+  /** 匹配配置 */
+  config?: MatchConfig;
   /** 各表格的填充映射 */
   tables: BatchTableFillMapping[];
 }
+
+export interface MatchLlmStreamItem {
+  tableIndex: number;
+  rowIndex: number;
+  sourceProject: string;
+  sourceSpecification: string;
+  bestMatchSpecId?: number;
+  bestMatchScore?: number;
+  scoreDetails?: Record<string, number>;
+  decision?: MatchResult["decision"];
+  llmEquivalenceVerdict?: LlmEquivalenceVerdict;
+  isAmbiguous: boolean;
+  evidenceSummary: string[];
+  conflictSummary: string[];
+}
+
+export interface MatchLlmStreamRequest {
+  customerId?: number;
+  processId?: number;
+  machineModelId?: number;
+  items: MatchLlmStreamItem[];
+  config?: MatchConfig;
+}
+
+export type MatchLlmStreamEvent =
+  | "review.start"
+  | "review.delta"
+  | "review.done"
+  | "review.error";
+
+export interface MatchLlmStreamBaseEventData {
+  tableIndex?: number;
+  rowIndex: number;
+}
+
+export interface MatchLlmStreamStartEventData extends MatchLlmStreamBaseEventData {}
+
+export interface MatchLlmStreamDeltaEventData extends MatchLlmStreamBaseEventData {
+  chunk?: string;
+}
+
+export interface MatchLlmStreamDoneEventData extends MatchLlmStreamBaseEventData {
+  decision?: MatchResult["decision"];
+  score?: number;
+  reason?: string;
+  commentary?: string;
+  reviewApprovalToken?: string;
+}
+
+export interface MatchLlmStreamErrorEventData extends MatchLlmStreamBaseEventData {
+  decision?: MatchResult["decision"];
+  message?: string;
+}
+
+export type MatchLlmStreamEventData =
+  | MatchLlmStreamStartEventData
+  | MatchLlmStreamDeltaEventData
+  | MatchLlmStreamDoneEventData
+  | MatchLlmStreamErrorEventData;
 
 /** 批量匹配预览（长超时：5分钟） */
 export const batchPreviewMatch = (
@@ -596,90 +505,40 @@ export const batchExecuteFill = (data: BatchExecuteFillRequest) => {
   );
 };
 
-export interface StrictReusePreviewRequest {
-  /** 来源填充任务ID */
-  sourceTaskId: string;
-  /** 目标文件ID列表 */
-  targetFileIds: number[];
-}
-
-export interface StrictReusePreviewFileResult {
-  /** 文件ID */
-  fileId: number;
-  /** 文件名 */
-  fileName: string;
-  /** 是否可应用 */
-  canApply: boolean;
-  /** 失败原因 */
-  errors: string[];
-}
-
-export interface StrictReusePreviewResponse {
-  /** 来源填充任务ID */
-  sourceTaskId: string;
-  /** 来源文件名 */
-  sourceFileName: string;
-  /** 来源文件类型 */
-  sourceFileType: number;
-  /** 是否严格模式 */
-  isStrictMode: boolean;
-  /** 是否使用 AI */
-  usesAi: boolean;
-  /** 可直接应用数量 */
-  readyCount: number;
-  /** 总文件数 */
-  totalCount: number;
-  /** 逐文件预检结果 */
-  files: StrictReusePreviewFileResult[];
-}
-
-export interface StrictReuseExecuteRequest {
-  /** 来源填充任务ID */
-  sourceTaskId: string;
-  /** 目标文件ID列表 */
-  targetFileIds: number[];
-}
-
-export interface StrictReuseExecuteFileResult {
-  /** 文件ID */
-  fileId: number;
-  /** 文件名 */
-  fileName: string;
-  /** 是否成功 */
-  success: boolean;
-  /** 结果说明 */
-  message: string;
-}
-
-export interface StrictReuseExecuteResponse {
-  /** 执行任务ID */
-  taskId: string;
-  /** 成功数量 */
-  successCount: number;
-  /** 失败数量 */
-  failedCount: number;
-  /** 下载地址 */
-  downloadUrl: string;
-  /** 下载文件名 */
-  downloadFileName: string;
-  /** 逐文件执行结果 */
-  files: StrictReuseExecuteFileResult[];
-}
-
-export const strictReusePreview = (data: StrictReusePreviewRequest) => {
-  return http.request<ApiResponse<StrictReusePreviewResponse>>(
-    "post",
-    `${baseUrl}/reuse/strict/preview`,
-    { data, timeout: 300000 }
+export const getBatchPreviewProgress = (requestId: string) => {
+  return http.request<ApiResponse<BatchPreviewProgressResponse>>(
+    "get",
+    `${baseUrl}/batch-preview-progress/${requestId}`
   );
 };
 
-export const strictReuseExecute = (data: StrictReuseExecuteRequest) => {
-  return http.request<ApiResponse<StrictReuseExecuteResponse>>(
-    "post",
-    `${baseUrl}/reuse/strict/execute`,
-    { data, timeout: 300000 }
-  );
+export const createMatchLlmStreamRequest = (
+  data: MatchLlmStreamRequest
+): MatchLlmStreamRequest => ({
+  ...data,
+  items: data.items.map(item => ({
+    ...item,
+    evidenceSummary: [...item.evidenceSummary],
+    conflictSummary: [...item.conflictSummary]
+  }))
+});
+
+export const requestMatchLlmStream = async (
+  data: MatchLlmStreamRequest,
+  signal?: AbortSignal
+) => {
+  const url = `${baseUrl}/llm-stream`;
+  const init = await createAuthorizedFetchInit(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(data),
+    signal
+  });
+  const response = await fetch(url, init);
+  await ensureFetchResponseAuthHandled(response, url);
+  return response;
 };
 
 export interface BatchReplySourceUploadResponse {

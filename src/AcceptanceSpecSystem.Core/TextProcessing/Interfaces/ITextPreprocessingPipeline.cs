@@ -55,7 +55,13 @@ public sealed class TextProcessingSession
 
     private static string NormalizeWhitespace(string input)
     {
-        var s = input.Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
+        var s = input
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Replace("\t", " ")
+            .Replace("\u00A0", " ")
+            .Replace("\u200B", string.Empty)
+            .Replace("\uFEFF", string.Empty);
         return System.Text.RegularExpressions.Regex.Replace(s, "\\s+", " ").Trim();
     }
 

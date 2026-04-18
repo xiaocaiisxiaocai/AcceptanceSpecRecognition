@@ -7,6 +7,7 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
+using FluentAssertions.Execution;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
 namespace AcceptanceSpecSystem.Api.Tests;
@@ -82,6 +83,59 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         tables[1].GetProperty("items").GetArrayLength().Should().Be(1);
     }
 
+    [Fact]
+    public async Task BatchPreview_WhenShortAsciiExactMatch_ShouldExposeAiEquivalenceAndHighConfidence()
+    {
+        var docxBytes = CreateMultiTableDocxBytes(
+            new[] { new[] { "项目", "规格", "验收", "备注" }, new[] { "PA", "SA", "", "" } });
+
+        var fileId = await UploadDocxAsync(docxBytes, "batch-preview-exact.docx");
+        var customerId = await CreateCustomerAsync("BatchPreviewExact-C");
+        var processId = await CreateProcessAsync("BatchPreviewExact-P");
+        await CreateSpecAsync(customerId, processId, "PA", "SA", "FILL-A", "REM-A");
+        await CreateSpecAsync(customerId, processId, "PB", "SB", "FILL-B", "REM-B");
+
+        var previewResp = await _client.PostAsync("/api/matching/batch-preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                customerId,
+                processId,
+                config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.95 },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3
+                    }
+                }
+            }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+
+        var item = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
+        var bestMatch = item.GetProperty("bestMatch");
+        var llmEquivalence = bestMatch.GetProperty("llmEquivalence");
+
+        using (new AssertionScope())
+        {
+            item.GetProperty("sourceProject").GetString().Should().Be("PA");
+            item.GetProperty("sourceSpecification").GetString().Should().Be("SA");
+            item.GetProperty("confidenceLevel").GetString().Should().Be("high");
+            bestMatch.GetProperty("specId").GetInt32().Should().BeGreaterThan(0);
+            bestMatch.GetProperty("project").GetString().Should().Be("PA");
+            bestMatch.GetProperty("specification").GetString().Should().Be("SA");
+            bestMatch.GetProperty("decision").GetString().Should().Be("autoApply");
+            llmEquivalence.GetProperty("verdict").GetString().Should().Be("equivalent");
+        }
+    }
+
     /// <summary>
     /// 批量执行填充并下载：两个表格的验收列均被正确写入
     /// </summary>
@@ -112,43 +166,42 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         var spec1Resp = await (await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         { customerId, processId, project = "PA", specification = "SA", acceptance = "FILL-A", remark = "REM-A" })))
             .ReadAsAsync<ApiResponse<JsonElement>>();
-        var specIdA = spec1Resp.Data.GetProperty("id").GetInt32();
+        spec1Resp.Data.GetProperty("id").GetInt32();
 
         var spec2Resp = await (await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         { customerId, processId, project = "PB", specification = "SB", acceptance = "FILL-B", remark = "REM-B" })))
             .ReadAsAsync<ApiResponse<JsonElement>>();
-        var specIdB = spec2Resp.Data.GetProperty("id").GetInt32();
+        spec2Resp.Data.GetProperty("id").GetInt32();
+
+        var tableDefinitions = new[]
+        {
+            new BatchTestTableDefinition
+            {
+                TableIndex = 0,
+                ProjectColumnIndex = 0,
+                SpecificationColumnIndex = 1,
+                AcceptanceColumnIndex = 2,
+                RemarkColumnIndex = 3
+            },
+            new BatchTestTableDefinition
+            {
+                TableIndex = 1,
+                ProjectColumnIndex = 0,
+                SpecificationColumnIndex = 1,
+                AcceptanceColumnIndex = 2,
+                RemarkColumnIndex = 3
+            }
+        };
 
         // 4) 批量执行填充
-        var execResp = await _client.PostAsync("/api/matching/batch-execute",
-            ApiClientJson.ToJsonContent(new
-            {
-                fileId,
-                highConfidenceThreshold = 0.95,
-                tables = new[]
-                {
-                    new
-                    {
-                        tableIndex = 0,
-                        acceptanceColumnIndex = 2,
-                        remarkColumnIndex = 3,
-                        mappings = new[] { new { rowIndex = 1, specId = specIdA, matchScore = 1.0 } }
-                    },
-                    new
-                    {
-                        tableIndex = 1,
-                        acceptanceColumnIndex = 2,
-                        remarkColumnIndex = 3,
-                        mappings = new[] { new { rowIndex = 1, specId = specIdB, matchScore = 1.0 } }
-                    }
-                }
-            }));
-
-        execResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        execJson.Code.Should().Be(0);
-        execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(2);
-        var taskId = execJson.Data.GetProperty("taskId").GetString();
+        var executeResult = await ExecuteBatchFillAsync(fileId, customerId, processId, tableDefinitions);
+        executeResult.PreviewMappedCount.Should().Be(2);
+        executeResult.PreviewHighScoreCount.Should().Be(2);
+        executeResult.PreviewLlmCount.Should().Be(2);
+        executeResult.PreviewEquivalentCount.Should().Be(2);
+        executeResult.PreviewAutoApplyCount.Should().Be(2);
+        executeResult.FilledCount.Should().Be(2);
+        var taskId = executeResult.TaskId;
 
         // 5) 下载并验证两个表格内容
         var dlResp = await _client.GetAsync($"/api/matching/download/{taskId}");
@@ -207,152 +260,96 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         GetCellText(resultBytes, 1, 1, 1).Should().Be("T2-R1C1");
     }
 
-    /// <summary>
-    /// 严格复用预检：项目/规格顺序变化时必须拒绝应用
-    /// </summary>
     [Fact]
-    public async Task StrictReusePreview_WhenProjectSpecificationOrderChanged_ShouldFail()
+    public async Task BatchExecute_WithDuplicateTableIndex_ShouldReturnBadRequest()
     {
-        var sourceDocxBytes = CreateMultiTableDocxBytes(
-            new[]
-            {
-                new[] { "项目", "规格", "验收", "备注" },
-                new[] { "P1", "S1", "", "" },
-                new[] { "P2", "S2", "", "" }
-            });
-        var sourceFileId = await UploadDocxAsync(sourceDocxBytes, "strict-source.docx");
+        var docxBytes = CreateMultiTableDocxBytes(
+            new[] { new[] { "项目", "规格", "验收", "备注" }, new[] { "PA", "SA", "", "" } });
 
-        var customerId = await CreateCustomerAsync("StrictReusePreview-C");
-        var processId = await CreateProcessAsync("StrictReusePreview-P");
-        var specId1 = await CreateSpecAsync(customerId, processId, "P1", "S1", "AC-1", "RM-1");
-        var specId2 = await CreateSpecAsync(customerId, processId, "P2", "S2", "AC-2", "RM-2");
+        var fileId = await UploadDocxAsync(docxBytes, "batch-duplicate-table-index.docx");
+        var customerId = await CreateCustomerAsync("BatchDuplicateTable-C");
+        var processId = await CreateProcessAsync("BatchDuplicateTable-P");
+        var specId = await CreateSpecAsync(customerId, processId, "PA", "SA", "FILL-A", "REM-A");
 
-        var sourceTaskId = await ExecuteBatchFillAsync(sourceFileId, new[]
-        {
-            new
-            {
-                tableIndex = 0,
-                projectColumnIndex = 0,
-                specificationColumnIndex = 1,
-                acceptanceColumnIndex = 2,
-                remarkColumnIndex = 3,
-                mappings = new[]
-                {
-                    new { rowIndex = 1, specId = specId1, matchScore = 1.0 },
-                    new { rowIndex = 2, specId = specId2, matchScore = 1.0 }
-                }
-            }
-        });
-
-        var reorderedDocxBytes = CreateMultiTableDocxBytes(
-            new[]
-            {
-                new[] { "项目", "规格", "验收", "备注" },
-                new[] { "P2", "S2", "", "" },
-                new[] { "P1", "S1", "", "" }
-            });
-        var targetFileId = await UploadDocxAsync(reorderedDocxBytes, "strict-target-reordered.docx");
-
-        var previewResp = await _client.PostAsync(
-            "/api/matching/reuse/strict/preview",
+        var executeResp = await _client.PostAsync("/api/matching/batch-execute",
             ApiClientJson.ToJsonContent(new
             {
-                sourceTaskId,
-                targetFileIds = new[] { targetFileId }
+                fileId,
+                customerId,
+                processId,
+                config = new { minScoreThreshold = 0.0 },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        mappings = new[]
+                        {
+                            new
+                            {
+                                rowIndex = 1,
+                                specId
+                            }
+                        }
+                    },
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        mappings = new[]
+                        {
+                            new
+                            {
+                                rowIndex = 1,
+                                specId
+                            }
+                        }
+                    }
+                }
             }));
 
-        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        previewJson.Code.Should().Be(0);
-        previewJson.Data.GetProperty("readyCount").GetInt32().Should().Be(0);
-
-        var fileResult = previewJson.Data.GetProperty("files")[0];
-        fileResult.GetProperty("canApply").GetBoolean().Should().BeFalse();
-        fileResult.GetProperty("errors").EnumerateArray()
-            .Select(item => item.GetString())
-            .Should().Contain(message => !string.IsNullOrWhiteSpace(message));
+        executeResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeJson.Code.Should().Be(400);
     }
 
-    /// <summary>
-    /// 严格复用执行：两个相同模板目标文件应统一打包并写入来源填充结果
-    /// </summary>
     [Fact]
-    public async Task StrictReuseExecute_WithTwoSameDocx_ShouldReturnZipAndFilledFiles()
+    public async Task BatchPreview_WhenSourceFileDoesNotExist_ShouldReturnNotFound()
     {
-        var sourceDocxBytes = CreateMultiTableDocxBytes(
-            new[]
-            {
-                new[] { "项目", "规格", "验收", "备注" },
-                new[] { "PA", "SA", "", "" },
-                new[] { "PB", "SB", "", "" }
-            });
-        var sourceFileId = await UploadDocxAsync(sourceDocxBytes, "strict-source-success.docx");
+        var customerId = await CreateCustomerAsync("BatchPreviewMissingFile-C");
+        var processId = await CreateProcessAsync("BatchPreviewMissingFile-P");
+        await CreateSpecAsync(customerId, processId, "PA", "SA", "FILL-A", "REM-A");
 
-        var customerId = await CreateCustomerAsync("StrictReuseExec-C");
-        var processId = await CreateProcessAsync("StrictReuseExec-P");
-        var specIdA = await CreateSpecAsync(customerId, processId, "PA", "SA", "FILL-A", "REM-A");
-        var specIdB = await CreateSpecAsync(customerId, processId, "PB", "SB", "FILL-B", "REM-B");
-
-        var sourceTaskId = await ExecuteBatchFillAsync(sourceFileId, new[]
-        {
-            new
-            {
-                tableIndex = 0,
-                projectColumnIndex = 0,
-                specificationColumnIndex = 1,
-                acceptanceColumnIndex = 2,
-                remarkColumnIndex = 3,
-                mappings = new[]
-                {
-                    new { rowIndex = 1, specId = specIdA, matchScore = 1.0 },
-                    new { rowIndex = 2, specId = specIdB, matchScore = 1.0 }
-                }
-            }
-        });
-
-        var targetFileId1 = await UploadDocxAsync(sourceDocxBytes, "strict-target-a.docx");
-        var targetFileId2 = await UploadDocxAsync(sourceDocxBytes, "strict-target-b.docx");
-
-        var executeResp = await _client.PostAsync(
-            "/api/matching/reuse/strict/execute",
+        var previewResp = await _client.PostAsync("/api/matching/batch-preview",
             ApiClientJson.ToJsonContent(new
             {
-                sourceTaskId,
-                targetFileIds = new[] { targetFileId1, targetFileId2 }
+                fileId = int.MaxValue,
+                customerId,
+                processId,
+                config = new { minScoreThreshold = 0.0 },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3
+                    }
+                }
             }));
 
-        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        executeJson.Code.Should().Be(0);
-        executeJson.Data.GetProperty("successCount").GetInt32().Should().Be(2);
-        executeJson.Data.GetProperty("failedCount").GetInt32().Should().Be(0);
-        executeJson.Data.GetProperty("downloadFileName").GetString().Should().EndWith(".zip");
-
-        var taskId = executeJson.Data.GetProperty("taskId").GetString();
-        taskId.Should().NotBeNullOrWhiteSpace();
-
-        var downloadResp = await _client.GetAsync($"/api/matching/download/{taskId}");
-        downloadResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        downloadResp.Content.Headers.ContentType?.MediaType.Should().Be("application/zip");
-
-        var zipBytes = await downloadResp.Content.ReadAsByteArrayAsync();
-        using var zipStream = new MemoryStream(zipBytes);
-        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
-        archive.Entries.Should().HaveCount(2);
-
-        foreach (var entry in archive.Entries)
-        {
-            entry.FullName.Should().EndWith(".docx");
-            using var entryStream = entry.Open();
-            using var docxStream = new MemoryStream();
-            await entryStream.CopyToAsync(docxStream);
-            var docxBytes = docxStream.ToArray();
-
-            GetCellText(docxBytes, 0, 1, 2).Should().Be("FILL-A");
-            GetCellText(docxBytes, 0, 1, 3).Should().Be("REM-A");
-            GetCellText(docxBytes, 0, 2, 2).Should().Be("FILL-B");
-            GetCellText(docxBytes, 0, 2, 3).Should().Be("REM-B");
-        }
+        previewResp.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(404);
     }
 
     #region Helpers
@@ -470,19 +467,144 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         return json.Data.GetProperty("id").GetInt32();
     }
 
-    private async Task<string> ExecuteBatchFillAsync<TTable>(int fileId, TTable[] tables)
+    private async Task<(string TaskId, int FilledCount, int SkippedCount, int PreviewMappedCount, int PreviewHighScoreCount, int PreviewLlmCount, int PreviewEquivalentCount, int PreviewAutoApplyCount)> ExecuteBatchFillAsync(
+        int fileId,
+        int customerId,
+        int processId,
+        BatchTestTableDefinition[] tables)
     {
+        var previewResp = await _client.PostAsync("/api/matching/batch-preview", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId,
+            processId,
+            config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.95 },
+            tables
+        }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+
+        var previewTables = previewJson.Data.GetProperty("tables")
+            .EnumerateArray()
+            .ToArray();
+        var previewMappedCount = previewTables
+            .Sum(table => table.GetProperty("items").EnumerateArray().Count(item =>
+                item.TryGetProperty("bestMatch", out var bestMatch) &&
+                bestMatch.ValueKind == JsonValueKind.Object &&
+                bestMatch.TryGetProperty("specId", out _)));
+        var previewHighScoreCount = previewTables
+            .Sum(table => table.GetProperty("highConfidenceCount").GetInt32());
+        var previewAutoApplyCount = previewTables
+            .Sum(table => table.GetProperty("items").EnumerateArray().Count(item =>
+                item.TryGetProperty("bestMatch", out var bestMatch) &&
+                bestMatch.ValueKind == JsonValueKind.Object &&
+                bestMatch.TryGetProperty("decision", out var decision) &&
+                string.Equals(decision.GetString(), "autoApply", StringComparison.Ordinal)));
+        var previewEquivalentCount = previewTables
+            .Sum(table => table.GetProperty("items").EnumerateArray().Count(item =>
+                item.TryGetProperty("bestMatch", out var bestMatch) &&
+                bestMatch.ValueKind == JsonValueKind.Object &&
+                bestMatch.TryGetProperty("llmEquivalence", out var llmEquivalence) &&
+                llmEquivalence.ValueKind == JsonValueKind.Object &&
+                llmEquivalence.TryGetProperty("verdict", out var verdict) &&
+                string.Equals(verdict.GetString(), "equivalent", StringComparison.Ordinal)));
+        var previewLlmCount = previewTables
+            .Sum(table => table.GetProperty("items").EnumerateArray().Count(item =>
+                item.TryGetProperty("bestMatch", out var bestMatch) &&
+                bestMatch.ValueKind == JsonValueKind.Object &&
+                bestMatch.TryGetProperty("llmEquivalence", out var llmEquivalence) &&
+                llmEquivalence.ValueKind == JsonValueKind.Object));
+
+        var executeTables = previewTables
+            .AsEnumerable()
+            .Select(table =>
+            {
+                var tableIndex = table.GetProperty("tableIndex").GetInt32();
+                var definition = tables.Single(item => item.TableIndex == tableIndex);
+                var mappings = table.GetProperty("items")
+                    .EnumerateArray()
+                    .Select(item =>
+                    {
+                        item.TryGetProperty("bestMatch", out var bestMatch);
+                        int? specId = null;
+                        if (bestMatch.ValueKind == JsonValueKind.Object &&
+                            bestMatch.TryGetProperty("specId", out var specIdElement))
+                        {
+                            specId = specIdElement.GetInt32();
+                        }
+
+                        return new BatchTestFillMapping
+                        {
+                            RowIndex = item.GetProperty("rowIndex").GetInt32(),
+                            SpecId = specId
+                        };
+                    })
+                    .Where(item => item.SpecId.HasValue)
+                    .ToArray();
+
+                return new BatchTestExecuteTableDefinition
+                {
+                    TableIndex = definition.TableIndex,
+                    ProjectColumnIndex = definition.ProjectColumnIndex,
+                    SpecificationColumnIndex = definition.SpecificationColumnIndex,
+                    AcceptanceColumnIndex = definition.AcceptanceColumnIndex,
+                    RemarkColumnIndex = definition.RemarkColumnIndex,
+                    HeaderRowStart = definition.HeaderRowStart,
+                    HeaderRowCount = definition.HeaderRowCount,
+                    DataStartRow = definition.DataStartRow,
+                    FilterEmptySourceRows = definition.FilterEmptySourceRows,
+                    Mappings = mappings
+                };
+            })
+            .ToArray();
+
         var response = await _client.PostAsync("/api/matching/batch-execute", ApiClientJson.ToJsonContent(new
         {
             fileId,
-            highConfidenceThreshold = 0.95,
-            tables
+            customerId,
+            processId,
+            config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.95 },
+            tables = executeTables
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(0);
-        return json.Data.GetProperty("taskId").GetString()!;
+        return (
+            json.Data.GetProperty("taskId").GetString()!,
+            json.Data.GetProperty("filledCount").GetInt32(),
+            json.Data.GetProperty("skippedCount").GetInt32(),
+            previewMappedCount,
+            previewHighScoreCount,
+            previewLlmCount,
+            previewEquivalentCount,
+            previewAutoApplyCount);
+    }
+
+    private class BatchTestTableDefinition
+    {
+        public int TableIndex { get; set; }
+        public int AcceptanceColumnIndex { get; set; }
+        public int? RemarkColumnIndex { get; set; }
+        public int ProjectColumnIndex { get; set; }
+        public int SpecificationColumnIndex { get; set; }
+        public int? HeaderRowStart { get; set; }
+        public int? HeaderRowCount { get; set; }
+        public int? DataStartRow { get; set; }
+        public bool? FilterEmptySourceRows { get; set; }
+    }
+
+    private sealed class BatchTestExecuteTableDefinition : BatchTestTableDefinition
+    {
+        public BatchTestFillMapping[] Mappings { get; set; } = [];
+    }
+
+    private sealed class BatchTestFillMapping
+    {
+        public int RowIndex { get; set; }
+        public int? SpecId { get; set; }
     }
 
     #endregion

@@ -366,18 +366,21 @@ sequenceDiagram
 flowchart TD
     A[BatchPreviewAsync 产出候选] --> B{存在硬冲突}
     B -->|是| C[reject]
-    B -->|否| D{分数达到高置信阈值}
-    D -->|是| E[autoApply]
-    D -->|否| F[manualReview]
+    B -->|否| D{达到中置信门槛}
+    D -->|否| E[manualReview]
+    D -->|是| F[AI 等价裁决门禁]
 
-    F --> G{前端是否开启 LLM 复核}
-    G -->|否| H[人工确认]
-    G -->|是| I[POST /api/matching/llm-stream]
-    I --> J[SSE 返回 review 和 suggestion]
-    J --> H
+    F -->|equivalent 且非高歧义| G[autoApply]
+    F -->|different / uncertain| E
+    F -->|equivalent 但高歧义| H[manualReview]
 
-    E --> K[POST /api/matching/batch-execute]
-    H --> K
+    H --> I[POST /api/matching/llm-stream]
+    I --> J[SSE 返回 review.start / review.delta / review.done / review.error]
+    J --> K[人工确认或复核放行]
+
+    E --> K
+    G --> L[POST /api/matching/batch-execute]
+    K --> L
 ```
 
 ---

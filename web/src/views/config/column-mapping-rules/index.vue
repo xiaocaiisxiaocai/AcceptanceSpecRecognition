@@ -19,8 +19,6 @@ defineOptions({
 
 const loading = ref(false);
 const rules = ref<ColumnMappingRule[]>([]);
-const tableSelectWidth = 320;
-const tableSelectClass = `table-select table-select--${tableSelectWidth}`;
 
 const activeTarget = ref<ColumnMappingTargetField>(ColumnMappingTargetField.Project);
 
@@ -32,24 +30,51 @@ const targetOptions = [
 ];
 
 const matchModeOptions = [
-  { label: "包含", value: ColumnMappingMatchMode.Contains },
   { label: "相等", value: ColumnMappingMatchMode.Equals },
+  { label: "包含", value: ColumnMappingMatchMode.Contains },
   { label: "正则", value: ColumnMappingMatchMode.Regex }
 ];
+
+const tabKeywords = reactive({
+  [ColumnMappingTargetField.Project]: "",
+  [ColumnMappingTargetField.Specification]: "",
+  [ColumnMappingTargetField.Acceptance]: "",
+  [ColumnMappingTargetField.Remark]: ""
+});
 
 const canCreate = computed(() => hasPerms("btn:column-mapping-rule:create"));
 const canUpdate = computed(() => hasPerms("btn:column-mapping-rule:update"));
 const canDelete = computed(() => hasPerms("btn:column-mapping-rule:delete"));
-const canSubmit = computed(() =>
-  isEdit.value ? canUpdate.value : canCreate.value
-);
+const canSubmit = computed(() => (isEdit.value ? canUpdate.value : canCreate.value));
 const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
 
-const filteredRules = computed(() =>
-  rules.value
-    .filter(r => r.targetField === activeTarget.value)
-    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id)
-);
+const getMatchModeLabel = (matchMode: ColumnMappingMatchMode) =>
+  matchModeOptions.find(option => option.value === matchMode)?.label.toLowerCase() ?? "";
+
+const filteredRulesByTarget = computed(() => {
+  const result = {} as Record<ColumnMappingTargetField, ColumnMappingRule[]>;
+
+  targetOptions.forEach(target => {
+    const keyword = tabKeywords[target.value].trim().toLowerCase();
+
+    result[target.value] = rules.value
+      .filter(rule => rule.targetField === target.value)
+      .filter(rule => {
+        if (!keyword) {
+          return true;
+        }
+
+        const matchModeLabel = getMatchModeLabel(rule.matchMode);
+        return (
+          rule.pattern.toLowerCase().includes(keyword) ||
+          matchModeLabel.includes(keyword)
+        );
+      })
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id);
+  });
+
+  return result;
+});
 
 const load = async () => {
   loading.value = true;
@@ -67,7 +92,6 @@ const load = async () => {
   }
 };
 
-// 新增 / 编辑
 const dialogVisible = ref(false);
 const dialogTitle = ref("新增规则");
 const isEdit = ref(false);
@@ -75,7 +99,7 @@ const isEdit = ref(false);
 const form = reactive({
   id: 0,
   targetField: ColumnMappingTargetField.Project,
-  matchMode: ColumnMappingMatchMode.Contains,
+  matchMode: ColumnMappingMatchMode.Equals,
   pattern: "",
   priority: 0,
   enabled: true
@@ -85,11 +109,12 @@ const openAdd = () => {
   if (!ensurePermission("btn:column-mapping-rule:create", "权限不足，无法新增列映射规则")) {
     return;
   }
+
   isEdit.value = false;
   dialogTitle.value = "新增规则";
   form.id = 0;
   form.targetField = activeTarget.value;
-  form.matchMode = ColumnMappingMatchMode.Contains;
+  form.matchMode = ColumnMappingMatchMode.Equals;
   form.pattern = "";
   form.priority = 0;
   form.enabled = true;
@@ -100,6 +125,7 @@ const openEdit = (row: ColumnMappingRule) => {
   if (!ensurePermission("btn:column-mapping-rule:update", "权限不足，无法编辑列映射规则")) {
     return;
   }
+
   isEdit.value = true;
   dialogTitle.value = "编辑规则";
   form.id = row.id;
@@ -120,6 +146,7 @@ const submit = async () => {
   ) {
     return;
   }
+
   const pattern = form.pattern.trim();
   if (!pattern) {
     ElMessage.warning("请输入匹配词");
@@ -146,8 +173,8 @@ const submit = async () => {
     } else {
       ElMessage.error(res.message || "保存失败");
     }
-  } catch (e: any) {
-    ElMessage.error(e?.message || "保存失败");
+  } catch (error: any) {
+    ElMessage.error(error?.message || "保存失败");
   }
 };
 
@@ -183,6 +210,7 @@ const remove = async (row: ColumnMappingRule) => {
   if (!ensurePermission("btn:column-mapping-rule:delete", "权限不足，无法删除列映射规则")) {
     return;
   }
+
   try {
     await ElMessageBox.confirm(`确定删除匹配词 "${row.pattern}" 吗？`, "提示", {
       confirmButtonText: "确定",
@@ -197,7 +225,7 @@ const remove = async (row: ColumnMappingRule) => {
       ElMessage.error(res.message || "删除失败");
     }
   } catch {
-    // cancel
+    // 用户取消
   }
 };
 
@@ -209,7 +237,7 @@ onMounted(load);
     <div class="page-header">
       <div>
         <div class="page-title">列映射规则</div>
-        <div class="page-subtitle">表头关键字映射与优先级配置</div>
+        <div class="page-subtitle">Word 表头关键字映射与优先级配置</div>
       </div>
     </div>
     <el-card>
@@ -225,77 +253,92 @@ onMounted(load);
       </template>
 
       <div class="mb-3 text-sm text-gray-500">
-        用于导入数据时自动识别表头列。比如将“工艺流程 / 项目 / 项目管理”都配置为“项目”列。
+        用于 Word 导入和智能填充时自动识别表头列，例如将“工艺流程 / 项目 / 项目管理”都映射到“项目”列。
       </div>
 
       <el-tabs v-model="activeTarget" type="card">
         <el-tab-pane
-          v-for="t in targetOptions"
-          :key="t.value"
-          :name="t.value"
-          :label="t.label"
-        />
-      </el-tabs>
-
-      <el-table v-loading="loading" :data="filteredRules" stripe border>
-        <el-table-column prop="pattern" label="匹配词" min-width="200" />
-        <el-table-column label="匹配模式" :width="tableSelectWidth">
-          <template #default="{ row }">
-            <el-select
-              v-model="row.matchMode"
-              size="small"
-              :disabled="!canUpdate"
-              :class="tableSelectClass"
-              popper-class="config-select-popper"
-              @change="() => persistRow(row)"
-            >
-              <el-option
-                v-for="m in matchModeOptions"
-                :key="m.value"
-                :label="m.label"
-                :value="m.value"
-              />
-            </el-select>
-          </template>
-        </el-table-column>
-        <el-table-column label="优先级" width="110">
-          <template #default="{ row }">
-            <el-input-number
-              v-model="row.priority"
-              size="small"
-              :disabled="!canUpdate"
-              :min="-999"
-              :max="999"
-              controls-position="right"
-              @change="() => persistRow(row)"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column label="启用" width="90">
-          <template #default="{ row }">
-            <el-switch
-              v-model="row.enabled"
-              :disabled="!canUpdate"
-              @change="() => toggleEnabled(row)"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column
-          v-if="hasOperationActions"
-          label="操作"
-          width="150"
-          fixed="right"
+          v-for="target in targetOptions"
+          :key="target.value"
+          :name="target.value"
+          :label="target.label"
         >
-          <template #default="{ row }">
-            <el-button v-if="canUpdate" type="primary" link @click="openEdit(row)">
-              编辑
-            </el-button>
-            <el-button v-if="canDelete" type="danger" link @click="remove(row)">
-              删除
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          <div class="rule-toolbar">
+            <el-input
+              v-model="tabKeywords[target.value]"
+              class="rule-search-input"
+              placeholder="搜索当前字段的匹配词 / 匹配模式"
+              clearable
+            />
+          </div>
+
+          <el-table
+            v-loading="loading"
+            :data="filteredRulesByTarget[target.value]"
+            stripe
+            border
+          >
+            <el-table-column prop="pattern" label="匹配词" min-width="200" />
+            <el-table-column label="匹配模式" min-width="160">
+              <template #default="{ row }">
+                <el-select
+                  v-model="row.matchMode"
+                  size="small"
+                  :disabled="!canUpdate"
+                  class="table-select"
+                  popper-class="config-select-popper"
+                  @change="() => persistRow(row)"
+                >
+                  <el-option
+                    v-for="mode in matchModeOptions"
+                    :key="mode.value"
+                    :label="mode.label"
+                    :value="mode.value"
+                  />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="优先级" width="140">
+              <template #default="{ row }">
+                <el-input-number
+                  v-model="row.priority"
+                  class="table-number-input"
+                  size="small"
+                  :disabled="!canUpdate"
+                  :min="-999"
+                  :max="999"
+                  controls-position="right"
+                  @change="() => persistRow(row)"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="启用" width="90">
+              <template #default="{ row }">
+                <el-switch
+                  v-model="row.enabled"
+                  :disabled="!canUpdate"
+                  @change="() => toggleEnabled(row)"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column
+              v-if="hasOperationActions"
+              label="操作"
+              width="150"
+              fixed="right"
+            >
+              <template #default="{ row }">
+                <el-button v-if="canUpdate" type="primary" link @click="openEdit(row)">
+                  编辑
+                </el-button>
+                <el-button v-if="canDelete" type="danger" link @click="remove(row)">
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="520">
@@ -303,20 +346,20 @@ onMounted(load);
         <el-form-item label="目标字段" required>
           <el-select v-model="form.targetField" popper-class="config-select-popper">
             <el-option
-              v-for="t in targetOptions"
-              :key="t.value"
-              :label="t.label"
-              :value="t.value"
+              v-for="target in targetOptions"
+              :key="target.value"
+              :label="target.label"
+              :value="target.value"
             />
           </el-select>
         </el-form-item>
         <el-form-item label="匹配模式">
           <el-select v-model="form.matchMode" popper-class="config-select-popper">
             <el-option
-              v-for="m in matchModeOptions"
-              :key="m.value"
-              :label="m.label"
-              :value="m.value"
+              v-for="mode in matchModeOptions"
+              :key="mode.value"
+              :label="mode.label"
+              :value="mode.value"
             />
           </el-select>
         </el-form-item>
@@ -340,3 +383,26 @@ onMounted(load);
   </div>
 </template>
 
+<style scoped>
+.rule-toolbar {
+  margin-bottom: 16px;
+}
+
+.rule-search-input {
+  width: 100%;
+  max-width: 360px;
+}
+
+.table-select {
+  display: block;
+  width: 100%;
+}
+
+:deep(.table-select .el-select__wrapper) {
+  min-width: 0;
+}
+
+.table-number-input {
+  width: 100%;
+}
+</style>

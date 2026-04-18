@@ -1,8 +1,10 @@
-# 基于真实样本文档的匹配评估与多阶段召回重排建议
+# 基于真实样本文档的匹配评估与多阶段召回重排说明
+
+> 说明：本文最初用于评估是否引入多阶段召回重排。当前分支已落地为固定的服务端多阶段证据驱动链路，文中涉及 `UseLlmReview`、`UseLlmSuggestion`、`MatchingStrategy` 等旧开关的描述已按现行实现修订。
 
 ## 1. 目的
 
-本文档基于两份真实样本文档，对当前验规系统的导入、匹配和填充能力进行一次面向业务的评估，并给出是否引入“多阶段召回重排”能力的建议。
+本文档基于两份真实样本文档，对当前验规系统的导入、匹配和填充能力进行一次面向业务的评估，并说明当前分支已经采用的多阶段召回、重排与 AI 辅助裁决链路。
 
 样本文档：
 
@@ -12,8 +14,8 @@
 评估目标：
 
 - 判断当前系统是否适合处理这两类真实文档
-- 找出当前单阶段匹配方案的主要风险点
-- 判断是否值得引入可开关的多阶段召回重排
+- 找出高重复、高近似样本下的主要风险点
+- 说明当前多阶段召回重排链路为何是必要的
 - 为后续准确率评估与功能设计提供基线
 
 ## 2. 当前实现基线
@@ -27,11 +29,12 @@ flowchart LR
   C --> D["AcceptanceSpec 数据"]
   D --> E["候选集过滤
 客户 / 制程 / 机型"]
-  E --> F["文本预处理"]
-  F --> G["Embedding 匹配"]
-  G --> H["Top1 结果"]
-  H --> I["可选 LLM 复核 / 生成建议"]
-  I --> J["写回 Word/Excel"]
+  E --> F["最小安全归一化"]
+  F --> G["Embedding TopK 召回"]
+  G --> H["服务端证据提取 / 硬冲突门禁 / 重排"]
+  H --> I["高歧义样本进入 LLM 复核
+Top1 进入 AI 等价裁决门禁"]
+  I --> J["按服务端 decision 写回 Word/Excel"]
 ```
 
 涉及的关键实现：
@@ -41,18 +44,22 @@ flowchart LR
 - Word 解析器：[WordDocumentParser.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Core/Documents/Parsers/WordDocumentParser.cs)
 - Excel 解析器：[ExcelDocumentParser.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Core/Documents/Parsers/ExcelDocumentParser.cs)
 - 导入控制器：[DocumentsController.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs)
-- 匹配控制器：[MatchingController.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Api/Controllers/MatchingController.cs)
+- 匹配预览控制器：[MatchingPreviewController.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Api/Controllers/MatchingPreviewController.cs)
+- 匹配执行控制器：[MatchingExecutionController.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Api/Controllers/MatchingExecutionController.cs)
+- 匹配任务控制器：[MatchingTaskController.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Api/Controllers/MatchingTaskController.cs)
 - 匹配模型：[MatchingModels.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Core/Matching/Models/MatchingModels.cs)
 - 当前主匹配服务：[SemanticKernelMatchingService.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Core/Matching/Services/SemanticKernelMatchingService.cs)
-- LLM 复核与建议：[LlmMatchingAssistService.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs)
+- LLM 复核 / 实体判别 / 等价裁决：[LlmMatchingAssistService.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs)
 - 验规主数据模型：[AcceptanceSpec.cs](D:/Temp/AcceptanceSpecificationSystem/src/AcceptanceSpecSystem.Data/Entities/AcceptanceSpec.cs)
 
 当前匹配配置支持的关键开关：
 
 - `MinScoreThreshold`
-- `UseLlmReview`
-- `UseLlmSuggestion`
-- `LlmSuggestionScoreThreshold`
+- `RecallTopK`
+- `AmbiguityMargin`
+- `HighConfidenceThreshold`
+- `UseLlmEntityResolution`
+- `LlmEntityResolutionTopCandidates`
 - `LlmParallelism`
 - `FilterEmptySourceRows`
 
@@ -252,13 +259,11 @@ flowchart LR
 - 入库仍可维持四字段
 - 但重排时可以额外利用更多源列信息
 
-## 7. 是否建议引入多阶段召回重排
+## 7. 当前多阶段召回重排是否合理
 
-建议引入。
+合理，而且这两份样本正好解释了为什么当前分支不再回退到旧的单阶段 `Top1` 思路。
 
-但不建议默认对所有场景全量开启，而应设计为“可配置、可回退、按歧义触发”。
-
-### 7.1 建议引入的原因
+### 7.1 当前链路成立的原因
 
 这两份样本文档同时具备以下特征：
 
@@ -267,48 +272,48 @@ flowchart LR
 - 数值、单位、范围词很多
 - 有些字段适合规则比对，不适合只做纯语义相似
 
-这正是多阶段召回重排最能发挥价值的场景。
+这正是服务端先召回、再做证据重排、最后按需进入 AI 辅助裁决最能发挥价值的场景。
 
-### 7.2 不建议直接全量开启的原因
+### 7.2 为什么不是“Embedding 命中就直接采用”
 
-如果直接对所有行都走多阶段甚至 LLM：
+如果只看 Embedding 第一名，忽略后续门禁：
 
-- 时延会增加
-- 成本会增加
-- 出错定位会更复杂
-- 对简单样本并不一定有收益
+- 数值、单位、方向词和品牌冲突会被误吞
+- 当前最佳候选会被前端旧兼容字段误导为“已可采用”
+- 相似但不等价的规格缺少 AI 辅助裁决兜底
 
-因此更合理的方案是：
+因此当前实现采用的是固定多阶段链路：
 
-- 简单样本仍走当前单阶段
-- 低置信度或高歧义样本再走第二阶段
+- Embedding 负责 TopK 召回，而不是最终拍板
+- 服务端继续做证据提取、硬冲突门禁与重排
+- 仅高歧义样本进入 LLM 复核；达到中置信门槛且无硬冲突的当前最佳候选固定进入 AI 等价裁决
+- 最终是否 `autoApply` 由服务端 `decision` 决定，不再信任旧前端兼容字段
 
-## 8. 建议的目标方案
+## 8. 当前目标方案
 
 ### 8.1 总体思路
 
 ```mermaid
 flowchart LR
-  A["源项目 + 源规格"] --> B["文本预处理"]
+  A["源项目 + 源规格"] --> B["最小安全归一化"]
   B --> C["候选过滤
 客户 / 制程 / 机型"]
   C --> D["第一阶段召回
 Embedding TopK"]
-  D --> E{"策略"}
-  E -->|"SingleStage"| F["直接输出 Top1"]
-  E -->|"MultiStage"| G["第二阶段规则重排"]
-  G --> H{"是否仍歧义"}
-  H -->|"否"| I["输出结果"]
-  H -->|"是"| J["可选 LLM 复核"]
-  J --> I
-  F --> I
+  D --> E["第二阶段证据重排
+数值 / 型号 / 品牌 / 方向词 / 问题项"]
+  E --> F{"Top1 是否高歧义或需要 AI 门禁"}
+  F -->|"否"| I["输出服务端 decision"]
+  F -->|"是"| G["按需进入 LLM 复核 / AI 等价裁决"]
+  G --> I
 ```
 
 ### 8.2 第一阶段：召回
 
-建议保留当前 Embedding 能力，但把内部候选从当前隐含的 `Top1` 思路，提升为：
+当前已经保留 Embedding 作为第一阶段召回，但内部目标不再是直接取 `Top1`：
 
-- `Top5` 或 `Top10` 召回
+- 默认 `RecallTopK = 2`
+- 上限 `MaxRecallTopK = 3`
 
 这一阶段的目标不是“立即选出最终答案”，而是：
 
@@ -316,7 +321,7 @@ Embedding TopK"]
 
 ### 8.3 第二阶段：规则重排
 
-建议优先做轻量规则重排，而不是直接全量上 LLM。
+当前已优先做服务端轻量证据重排，而不是把 LLM 当成主排序器。
 
 建议规则包括：
 
@@ -335,37 +340,35 @@ Embedding TopK"]
 
 作为辅助判别因子。
 
-### 8.4 第三阶段：可选 LLM 复核
+### 8.4 第三阶段：按需 LLM 复核与 AI 等价裁决
 
-建议仅在以下情况触发：
+当前仅在以下情况触发：
 
-- 前两名得分接近
-- 规则重排后仍无法明显拉开差距
-- 样本处于人工高风险区域
+- 前两名最终分差低于 `AmbiguityMargin` 时进入 LLM 复核
+- 当前最佳候选最终得分达到中置信门槛且无硬冲突时进入 AI 等价裁决
+- AI 等价裁决失败、不同或不确定时统一回退人工确认
 
-不建议：
+不会对所有行无差别调用 LLM。
 
-- 对所有行无差别调用 LLM
+## 9. 当前关键参数设计
 
-## 9. 建议的开关设计
+当前分支不再提供 `MatchingStrategy = SingleStage | MultiStage` 这类前端策略切换，而是固定使用服务端多阶段链路，并开放以下关键参数：
 
-不建议只做单一布尔开关。
-
-建议扩展为以下配置项：
-
-- `MatchingStrategy = SingleStage | MultiStage`
-- `RecallTopK = 5 | 10`
-- `RerankMode = RulesOnly | RulesPlusLlm`
-- `OnlyForAmbiguousMatches = true | false`
-- `AmbiguityMargin`
 - `MinScoreThreshold`
+- `RecallTopK`
+- `AmbiguityMargin`
+- `HighConfidenceThreshold`
+- `UseLlmEntityResolution`
+- `LlmEntityResolutionTopCandidates`
+- `LlmParallelism`
+- `FilterEmptySourceRows`
 
-建议默认策略：
+当前默认策略：
 
-- 默认仍是 `SingleStage`
-- 对复杂文档或用户主动启用时切到 `MultiStage`
-- 若启用 `MultiStage`，先默认 `RulesOnly`
-- 仅在歧义样本上使用 `RulesPlusLlm`
+- 固定执行 Embedding TopK 召回 + 证据重排
+- 只对高歧义样本执行 LLM 复核
+- 对达到中置信门槛且无硬冲突的当前最佳候选固定执行 AI 等价裁决
+- 执行填充前由服务端按当前文件和配置重算门禁，不采信旧前端兼容字段
 
 ## 10. 第一轮准确率评估建议
 
@@ -403,10 +406,10 @@ Embedding TopK"]
 建议按以下顺序推进：
 
 1. 先把两份样本文档整理成首批标准评估集
-2. 跑出当前单阶段方案的基线准确率
-3. 如果 `Recall@5` 明显高于 `Recall@1`，优先实现规则重排
-4. 如果规则重排后仍有较多歧义，再引入按需 LLM 复核
-5. 最后再考虑是否默认打开多阶段能力
+2. 固化当前服务端多阶段链路的准确率、召回率和歧义率基线
+3. 持续调优 `RecallTopK`、`AmbiguityMargin`、AI 实体判别与 AI 等价裁决阈值
+4. 针对高歧义样本补充 LLM 复核和执行门禁回归测试
+5. 基于评估结果迭代参数与 Prompt，而不是回退到单阶段方案
 
 ## 12. 当前已识别的注意事项
 
@@ -439,13 +442,13 @@ Embedding TopK"]
 基于本次真实样本文档评估，可以得出以下结论：
 
 - 当前系统已经具备处理这两类 Word/Excel 文档的基础能力
-- 当前单阶段 Embedding 匹配在简单样本上可用，但在高重复项目、高近似规格场景下存在明显排序风险
-- 引入“可开关的多阶段召回重排”是合理且有价值的
-- 最佳落地路径不是“全量默认开启”，而是“保留单阶段基线 + 在复杂/歧义样本上启用多阶段”
+- 单看 Embedding 命中结果不足以支撑最终自动采用，仍需要服务端证据重排与门禁
+- 当前分支已经采用多阶段召回重排，并把 LLM 复核与 AI 等价裁决收敛到明确的服务端门禁
+- 智能填充执行链路应继续以服务端 `decision` 为准，不回退到旧 suggestion / 兼容字段语义
 
-推荐结论：
+当前结论：
 
-- `建议实施多阶段召回重排`
-- `建议做成策略可切换`
-- `建议先从 RulesOnly 的第二阶段开始`
-- `建议将 LLM 复核限制在少量高歧义样本上`
+- `继续保持多阶段召回重排为现行实现`
+- `不再恢复 SingleStage / MultiStage 前端策略切换`
+- `继续把 LLM 复核限制在高歧义样本上`
+- `继续把 AI 等价裁决固定为当前最佳候选门禁`

@@ -88,7 +88,7 @@ graph TB
 
 ```
 开发环境:
-  Vite (:8848) ──proxy /api──▶ ASP.NET Core (:5014) ──▶ MySQL (:3306)
+  Vite (:5173) ──proxy /api──▶ ASP.NET Core (:5291) ──▶ MySQL (:3306)
 
 生产环境 (IIS 内网):
   IIS 站点 (/) ──/api──▶ IIS 子应用 (ASP.NET Core API) ──▶ MySQL (:3306)
@@ -122,7 +122,7 @@ graph TD
 | 层次 | 项目 | 职责 | 关键技术 |
 |------|------|------|---------|
 | **API 层** | `AcceptanceSpecSystem.Api` | HTTP 路由、请求校验、DTO 转换、DI 注册、中间件 | ASP.NET Core 8, Swagger |
-| **Core 层** | `AcceptanceSpecSystem.Core` | AI 编排、匹配算法、文本预处理、文档解析与写入 | Semantic Kernel 1.68, OpenXml, ClosedXML |
+| **Core 层** | `AcceptanceSpecSystem.Core` | AI 编排、Embedding 召回、证据重排、AI 裁决、文档解析与写入 | Semantic Kernel 1.68, OpenXml, ClosedXML |
 | **Data 层** | `AcceptanceSpecSystem.Data` | 实体定义、DbContext、Repository、迁移 | EF Core 8, Pomelo MySQL |
 
 **依赖规则**：
@@ -138,7 +138,6 @@ graph LR
         FSS[IFileStorageService]
         DSF[DocumentServiceFactory]
         SKF[ISemanticKernelServiceFactory]
-        TSS[ITextSimilarityService]
     end
 
     subgraph 作用域 Scoped
@@ -147,7 +146,8 @@ graph LR
         EMB[IEmbeddingService]
         MAT[IMatchingService]
         LLM_R[ILlmReviewService]
-        LLM_S[ILlmSuggestionService]
+        LLM_ER[ILlmEntityResolutionService]
+        LLM_EQ[ILlmEquivalenceAdjudicationService]
         TPP[ITextPreprocessingPipeline]
     end
 
@@ -256,42 +256,35 @@ classDiagram
 
 ### 4.2 匹配引擎模块 (Core/Matching)
 
-**Embedding 匹配 + LLM 复核策略**：
+**Embedding 召回 + 服务端证据重排 + AI 辅助裁决策略**：
 
 ```mermaid
 flowchart TD
-    START[源文本: 项目 + 规格] --> EMB{Embedding<br/>服务可用?}
+    START[源文本: 项目 + 规格] --> NORM[最小安全归一化]
+    NORM --> EMB{Embedding<br/>服务可用?}
 
-    EMB -- 是 --> VEC[1. Embedding 向量匹配<br/>余弦相似度]
+    EMB -- 是 --> VEC[1. Embedding TopK 召回]
     EMB -- 否 --> FAIL[返回错误<br/>Embedding 服务不可用]
 
-    VEC --> SCORE[计算综合得分]
-
-    SCORE --> LOW{得分 ≥ 0.6?}
-    LOW -- 否 --> FILTER[低置信过滤]
-
-    LOW -- 是 --> HIGH{得分 ≥ 高置信阈值?<br/>默认 0.95}
-    HIGH -- 是 --> RESULT[高置信结果<br/>允许直接采用]
-
-    HIGH -- 否 --> LLM_EN{启用 LLM<br/>复核?}
-    LLM_EN -- 否 --> PENDING[中置信结果<br/>等待人工确认]
-    LLM_EN -- 是 --> LLM_R[LLM 复核<br/>验证是否可直接采用既有规格<br/>返回 0-100 分]
-    LLM_R --> REVIEW{复核分 ≥ 90?}
-    REVIEW -- 是 --> RESULT
-    REVIEW -- 否 --> PENDING
+    VEC --> EVIDENCE[2. 结构化证据提取<br/>数值 / 型号 / 实体 / 约束]
+    EVIDENCE --> ENTITY[3. AI 实体关系复判 + 服务端重排]
+    ENTITY --> GATE{Top1 是否需要<br/>AI 等价裁决?}
+    GATE -- 否 --> RESULT[输出服务端 decision<br/>autoApply / manualReview]
+    GATE -- 是 --> LLM_R[4. AI 等价裁决<br/>高歧义再追加流式复核]
+    LLM_R --> RESULT
 
     style VEC fill:#4CAF50,color:#fff
     style FAIL fill:#F44336,color:#fff
     style LLM_R fill:#9C27B0,color:#fff
-    style PENDING fill:#FFC107,color:#000
+    style RESULT fill:#FFC107,color:#000
 ```
 
 **置信度分级**：
 
 | 等级 | 分数范围 | 颜色 | 处理策略 |
 |------|---------|------|---------|
-| 高置信 | ≥ 0.95（默认） | 🟢 | 可直接自动采用 |
-| 中置信 | 0.6 ~ 0.95 | 🟡 | 进入 LLM 复核或人工确认 |
+| 高置信 | ≥ 0.98（默认） | 🟢 | 仅用于结果分层展示；是否自动采用仍以后端最终 decision 为准 |
+| 中置信 | 0.6 ~ 0.98 | 🟡 | 进入服务端重排，并固定执行 Top1 AI 等价裁决 |
 | 低置信 | < 0.6 | 🔴 | 不自动采用 |
 
 **匹配结果模型**：
@@ -305,9 +298,16 @@ classDiagram
         +string? MatchedAcceptance
         +string? MatchedRemark
         +double Score
+        +double EmbeddingScore
         +Dictionary~string,double~ ScoreDetails
-        +double? LlmScore
-        +string? LlmReason
+        +string Decision
+        +List~string~ EvidenceSummary
+        +List~string~ ConflictSummary
+        +int RecalledCandidateCount
+        +bool IsAmbiguous
+        +double? ScoreGap
+        +string? RerankSummary
+        +LlmEquivalenceDto? LlmEquivalence
         +bool IsHighConfidence
         +bool IsMediumConfidence
         +bool IsLowConfidence
@@ -326,11 +326,14 @@ classDiagram
     class MatchingConfig {
         +int? EmbeddingServiceId
         +int? LlmServiceId
-        +double MinScoreThreshold = 0.3
-        +bool UseLlmReview = false
-        +bool UseLlmSuggestion = false
-        +double LlmSuggestionScoreThreshold = 0.6
+        +double MinScoreThreshold = 0.9
+        +int RecallTopK = 2
+        +double AmbiguityMargin = 0.02
+        +double HighConfidenceThreshold = 0.98
+        +bool UseLlmEntityResolution = false
+        +int LlmEntityResolutionTopCandidates = 2
         +int LlmParallelism = 3
+        +bool FilterEmptySourceRows = true
     }
 ```
 
@@ -389,6 +392,8 @@ classDiagram
         +string? Endpoint
         +string? EmbeddingModel
         +string? LlmModel
+        +bool DisableThinking
+        +int DefaultRecallTopK
     }
 
     ISemanticKernelServiceFactory <|.. SemanticKernelServiceFactory
@@ -420,57 +425,38 @@ flowchart TD
     G --> H
 ```
 
-### 4.4 文本预处理管道 (Core/TextProcessing)
+### 4.4 最小安全归一化与 AI 主导判别
 
-**设计模式**：管道模式 (Pipeline)
+当前匹配前不再暴露可编辑的文本预处理配置链路；运行时仅保留最小安全归一化，召回后的实体关系与语义等价判断由 AI 子链路完成，不再依赖硬编码匹配知识表驱动别名、字段、单位和冲突词推断。
 
 ```mermaid
 flowchart LR
     INPUT[原始文本] --> S1[Step 1<br/>空白符规范化<br/>\\r\\n → 空格<br/>连续空白合并]
-    S1 --> S2[Step 2<br/>简繁转换<br/>OpenCCNET<br/>简体 ↔ 台湾繁体]
-    S2 --> S3[Step 3<br/>同义词替换<br/>分词逐词匹配<br/>避免子串问题]
-    S3 --> S4[Step 4<br/>OK/NG 标准化<br/>OK → 良好<br/>NG → 不良]
-    S4 --> OUTPUT[标准化文本]
+    S1 --> S2[Step 2<br/>Embedding 召回 + 服务端重排]
+    S2 --> S3[Step 3<br/>AI 实体判别 / AI 等价裁决]
+    S3 --> OUTPUT[结构化证据与最终决策]
 
     style S1 fill:#E3F2FD
     style S2 fill:#F3E5F5
-    style S3 fill:#E8F5E9
-    style S4 fill:#FFF3E0
+    style S3 fill:#FFF3E0
 ```
 
 ```mermaid
 classDiagram
-    class ITextPreprocessingPipeline {
+    class MatchEvidenceBuilder {
+        +Build(source, candidate) MatchEvidence
+    }
+
+    class ILlmEntityResolutionService {
         <<interface>>
-        +CreateSessionAsync() Task~TextProcessingSession~
     }
 
-    class TextProcessingSession {
-        +TextProcessingConfig Config
-        +Process(text?) string
-    }
-
-    class DefaultTextPreprocessingPipeline {
-        -IUnitOfWork unitOfWork
-        -IChineseConversionService chineseConversion
-        -IOkNgConversionService okNgConversion
-        -ISynonymService synonymService
-    }
-
-    class IChineseConversionService {
+    class ILlmEquivalenceAdjudicationService {
         <<interface>>
-        +Convert(text, mode) string
     }
 
-    class IOkNgConversionService {
-        <<interface>>
-        +NormalizeOkNg(text, okFormat, ngFormat) string
-    }
-
-    ITextPreprocessingPipeline <|.. DefaultTextPreprocessingPipeline
-    DefaultTextPreprocessingPipeline --> TextProcessingSession
-    DefaultTextPreprocessingPipeline --> IChineseConversionService
-    DefaultTextPreprocessingPipeline --> IOkNgConversionService
+    MatchEvidenceBuilder --> ILlmEntityResolutionService
+    MatchEvidenceBuilder --> ILlmEquivalenceAdjudicationService
 ```
 
 ---
@@ -566,35 +552,19 @@ erDiagram
         string Endpoint "服务端点"
         string EmbeddingModel "Embedding 模型"
         string LlmModel "LLM 模型"
-    }
-
-    SynonymGroup ||--o{ SynonymWord : "包含"
-    SynonymGroup {
-        int Id PK
-        string Name "同义词组名"
-    }
-    SynonymWord {
-        int Id PK
-        int GroupId FK
-        string Word "同义词"
-        bool IsStandard "是否标准词"
-    }
-
-    TextProcessingConfig {
-        int Id PK
-        bool EnableChineseConversion
-        int ConversionMode
-        bool EnableOkNg
-        string OkFormat
-        string NgFormat
-        bool EnableSynonym
+        bool DisableThinking "是否关闭思考模式"
+        int DefaultRecallTopK "默认召回候选数"
     }
 
     PromptTemplate {
         int Id PK
-        string Name UK "模板名称"
-        string Template "含 placeholder"
-        string Description
+        string Name UK "模板标识"
+        string DisplayName "展示名称"
+        string Content "模板正文"
+        int Scene "运行时子场景"
+        bool IsSystem "是否系统模板"
+        datetime CreatedAt
+        datetime UpdatedAt
     }
 
     ColumnMappingRule {
@@ -776,11 +746,12 @@ mindmap
       CRUD /api/machine-models
     配置管理
       CRUD /api/ai-services
-      GET, PUT /api/text-processing
-      CRUD /api/prompt-templates
+      GET /api/prompt-templates
+      GET /api/prompt-templates/:id
+      PUT /api/prompt-templates/:id
+      POST /api/prompt-templates/preview
+      POST /api/prompt-templates/reset-system/:scene
       CRUD /api/column-mapping-rules
-      CRUD /api/synonyms
-      CRUD /api/keywords
     权限与组织
       CRUD /api/auth-roles
       GET /api/auth-permissions
@@ -869,9 +840,9 @@ sequenceDiagram
     MC-->>FE: { tables: [{ items, statistics }] }
 
     opt 需要逐行流式复核
-        FE->>MC: POST /llm-stream { items, config }
-        MC->>LLM: 并行复核低置信结果
-        MC-->>FE: SSE 逐行推送复核结果
+        FE->>MC: POST /api/matching/llm-stream { items, customerId, processId, machineModelId, config }
+        MC->>LLM: 并行复核高歧义结果
+        MC-->>FE: SSE 推送 review.start / review.delta / review.done / review.error / stream.complete
     end
 
     U->>FE: 确认填充内容
@@ -908,7 +879,7 @@ sequenceDiagram
 web/src/
 ├── main.ts                         应用入口
 ├── App.vue                         根组件 (ElConfigProvider 中文化)
-├── api/                            API 封装层 (20 个模块)
+├── api/                            API 封装层 (18 个模块)
 │   ├── customer.ts                 客户 API
 │   ├── process.ts                  制程 API
 │   ├── machine-model.ts            机型 API
@@ -916,12 +887,10 @@ web/src/
 │   ├── document.ts                 文档 API
 │   ├── matching.ts                 匹配 API (长超时 300s)
 │   ├── ai-service.ts               AI 服务 API
-│   ├── text-processing.ts          文本处理 API
 │   ├── prompt-template.ts          Prompt 模板 API
 │   ├── column-mapping-rules.ts     列映射规则 API
-│   ├── synonym.ts                  同义词 API
-│   ├── keyword.ts                  关键词 API
 │   ├── audit-log.ts                审计日志 API
+│   ├── execution-history.ts        执行记录 API
 │   ├── file-compare.ts             文件对比 API
 │   ├── auth-role.ts                角色 API
 │   ├── auth-permission.ts          权限字典 API
@@ -964,7 +933,6 @@ graph TB
 
   subgraph CONFIG["配置管理 /config"]
     AI_CFG[AI 服务配置]
-    TXT_CFG[文本处理配置]
     PMT_CFG["Prompt 模板"]
     COL_CFG[列映射规则]
   end
@@ -979,8 +947,7 @@ graph TB
   subgraph AUX["辅助功能"]
     FC["文件对比<br/>/file-compare"]
     AUDIT["审计日志<br/>/other/audit-logs"]
-    SYN[同义词管理]
-    KW[关键词管理]
+    EXEC["执行记录<br/>/other/execution-history"]
   end
 
   DASH --- CUST
@@ -1004,17 +971,18 @@ stateDiagram-v2
 
     state 配置匹配 {
         [*] --> 选择范围: 客户/制程/机型
-        选择范围 --> 设置阈值: 最小匹配分数
-        设置阈值 --> 选择AI: Embedding + LLM 选项
-        选择AI --> 设置并行度: LLM 并发数
+        选择范围 --> 设置召回: RecallTopK + 最小匹配分数
+        设置召回 --> 设置门禁: 高置信阈值 + 歧义分差
+        设置门禁 --> 设置AI: 实体判别 + LLM 并行参数
     }
 
     配置匹配 --> 预览结果: POST /matching/batch-preview
 
     state 预览结果 {
         [*] --> 查看匹配: 源数据 vs 最佳匹配
-        查看匹配 --> 查看得分: 综合分 + Embedding 得分明细
-        查看得分 --> 流式复核: POST /matching/llm-stream
+        查看匹配 --> 查看得分: decision + 综合分 + Embedding 得分明细
+        查看得分 --> 查看裁决: 证据摘要 + 问题项 + AI 等价裁决
+        查看裁决 --> 流式复核: POST /api/matching/llm-stream
         流式复核 --> 确认修改: 手动调整采用结果
     }
 
@@ -1052,7 +1020,7 @@ graph TB
 
     subgraph 行为型模式
         B1[策略模式<br/>IDocumentParser<br/>IMatchingService]
-        B2[管道模式<br/>TextPreprocessingPipeline]
+        B2[证据驱动模式<br/>MatchEvidenceBuilder]
         B3[服务选择器<br/>AiServiceSelector]
     end
 
@@ -1066,10 +1034,10 @@ graph TB
 | 模式 | 应用位置 | 解决的问题 |
 |------|---------|-----------|
 | **工厂模式** | `DocumentServiceFactory`, `SemanticKernelServiceFactory` | 解耦创建逻辑，支持多格式/多 AI 提供商 |
-| **策略模式** | `IDocumentParser`, `IMatchingService` | 算法可替换（Word/Excel、Embedding/LLM辅助） |
+| **策略模式** | `IDocumentParser`, `IMatchingService` | 算法可替换（Word/Excel、Embedding/AI辅助） |
 | **仓储模式** | `IRepository<T>` + 12 个特化 Repository | 数据访问抽象，屏蔽 EF Core 细节 |
 | **工作单元** | `IUnitOfWork` (13 个 Repository 聚合) | 事务管理、SaveChanges 统一 |
-| **管道模式** | `DefaultTextPreprocessingPipeline` | 文本处理步骤解耦、可配置 |
+| **证据驱动模式** | `MatchEvidenceBuilder`, `SemanticKernelMatchingService` | 先召回，再基于结构化证据重排与决策 |
 | **显式失败模式** | `SemanticKernelMatchingService` | Embedding 不可用时直接返回明确错误 |
 | **缓存模式** | `EmbeddingCache` 表, `ConcurrentDictionary` | 避免重复 AI 调用和连接创建 |
 | **服务选择器** | `AiServiceSelector` | 动态选择最优 AI 服务（离线优先 + 优先级排序） |
@@ -1116,7 +1084,8 @@ classDiagram
         -TestFileStorageService 替换文件存储
         -TestEmbeddingService 替换 Embedding
         -TestLlmReviewService 替换 LLM 复核
-        -TestLlmSuggestionService 替换 LLM 建议
+        -TestLlmEntityResolutionService 替换 LLM 实体判别
+        -TestLlmEquivalenceAdjudicationService 替换 AI 等价裁决
         -Ephemeral DataProtection
         +CreateClient() HttpClient
     }
@@ -1131,14 +1100,20 @@ classDiagram
         固定: score=0.4, reason, commentary
     }
 
-    class TestLlmSuggestionService {
-        +GenerateSuggestionAsync() LlmSuggestionResult
-        固定: acceptance, remark, reason
+    class TestLlmEntityResolutionService {
+        +ResolveAsync() LlmEntityResolutionResult
+        固定: alias_same / conflict / unknown
+    }
+
+    class TestLlmEquivalenceAdjudicationService {
+        +AdjudicateAsync() LlmEquivalenceAdjudicationResult
+        固定: equivalent / different / uncertain
     }
 
     ApiWebApplicationFactory --> TestEmbeddingService
     ApiWebApplicationFactory --> TestLlmReviewService
-    ApiWebApplicationFactory --> TestLlmSuggestionService
+    ApiWebApplicationFactory --> TestLlmEntityResolutionService
+    ApiWebApplicationFactory --> TestLlmEquivalenceAdjudicationService
 ```
 
 ### 9.3 测试覆盖矩阵
@@ -1183,8 +1158,8 @@ graph TD
 
 | 配置项 | 开发环境 | 生产环境 (IIS) |
 |--------|---------|----------------|
-| 前端端口 | Vite :8848 | IIS :80 / :443 |
-| 后端端口 | :5014 | IIS 子应用 `/api` |
+| 前端端口 | Vite :5173 | IIS :80 / :443 |
+| 后端端口 | :5291 | IIS 子应用 `/api` |
 | 数据库 | localhost:3306 | 内网 MySQL |
 | API 路径 | Vite proxy `/api` | 同站点 `/api` |
 | 文件存储 | 项目目录 `uploads/` | `FileStorage:BasePath` 指定目录 |
@@ -1244,7 +1219,7 @@ flowchart LR
 | # | 决策 | 选择 | 备选方案 | 理由 |
 |---|------|------|---------|------|
 | 1 | AI 编排框架 | **Semantic Kernel 1.68** | LangChain.NET, 直接调用 | 原生 .NET，统一多提供商接口，微软官方维护 |
-| 2 | 匹配策略 | **Embedding 主匹配（失败即报错）** | 多算法混合匹配 | 保持结果一致性，避免不同算法导致的语义偏差 |
+| 2 | 匹配策略 | **Embedding TopK 召回 + 证据重排 + AI 辅助裁决（Embedding 不可用即报错）** | 单阶段 Top1 或多算法混合 | 先保证召回，再由服务端统一决策，减少高相似场景误判 |
 | 3 | 文档处理 | **OpenXml + ClosedXML** | NPOI, Aspose | 无需安装 Office，MIT 开源，跨平台 |
 | 4 | 简繁转换 | **OpenCCNET** | 简单字符映射 | 支持台湾用语习惯，非简单一对一映射 |
 | 5 | 前端框架 | **Vue 3 + Pure Admin Thin** | React, Angular | 成熟企业管理后台方案，中文社区活跃 |
@@ -1252,7 +1227,7 @@ flowchart LR
 | 7 | 向量存储 | **数据库表 (EmbeddingCache)** | Milvus, Qdrant, pgvector | 简单直接，规模可控，无需引入额外基础设施 |
 | 8 | 文件存储 | **文件系统（相对路径）** | 数据库 BLOB, MinIO | 便于跨环境迁移，IIS 独立目录持久化 |
 | 9 | AI 服务选择 | **离线优先 + 优先级排序** | 固定服务 | 支持断网环境，灵活切换提供商 |
-| 10 | 文本预处理 | **管道模式（可配置步骤）** | 硬编码处理链 | 步骤可独立开关，运行时加载配置 |
+| 10 | 运行时归一化 | **最小安全归一化 + 本地最小解析规则** | 前端可编辑文本预处理链 | 保持召回输入稳定，同时把关键实体关系与语义等价判断收口到 AI 子链路 |
 
 ---
 
@@ -1314,11 +1289,12 @@ graph TB
     subgraph 匹配阶段
         U2[用户上传待填充文档] --> EXTRACT[提取源文本<br/>项目 + 规格]
         EXTRACT --> CAND[加载候选规格<br/>按客户/制程/机型 + 数据范围筛选]
-        CAND --> PREPROC[文本预处理管道<br/>简繁·同义词·OK/NG]
+        CAND --> PREPROC[最小安全归一化<br/>裁剪空白 / 折叠空白]
         PREPROC --> EMBCHK{Embedding 服务可用?}
         EMBCHK -- 是 --> VEC[向量匹配<br/>余弦相似度]
-        VEC --> SCORE[综合得分排序]
-        SCORE --> LLM_OPT{LLM 复核启用?}
+        VEC --> SCORE[服务端重排]
+        SCORE --> AI_DECIDE[AI 实体判别 + AI 等价裁决]
+        AI_DECIDE --> LLM_OPT{高歧义样本需要 LLM 复核?}
         EMBCHK -- 否 --> ERR[返回错误]
         LLM_OPT -- 是 --> LLM_PROC[LLM 复核]
         LLM_OPT -- 否 --> PREVIEW

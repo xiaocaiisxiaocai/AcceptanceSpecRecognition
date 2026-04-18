@@ -2,6 +2,9 @@ using System.Net;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Api.Tests;
@@ -16,72 +19,68 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
-    public async Task Preview_ShouldExposeDecisionAndEvidenceSummary()
+    public async Task Preview_ShouldExposeManualReviewWithoutLocalNumericEvidence()
     {
         var (customerId, processId) = await CreateScopeAsync("EvidenceApi");
 
         await CreateSpecAsync(customerId, processId, "尺寸要求", "宽度等于0.7cm", "RISKY");
         await CreateSpecAsync(customerId, processId, "尺寸要求", "宽度等于0.2cm", "SAFE");
 
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
+        var previewResp = await PostSingleTableBatchPreviewAsync(
+            "尺寸要求",
+            "宽度小于0.5cm",
+            customerId,
+            processId,
+            new
             {
-                items = new[] { new { rowIndex = 0, project = "尺寸要求", specification = "宽度小于0.5cm" } },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 5,
-                    ambiguityMargin = 0.01
-                }
-            }));
+                minScoreThreshold = 0.0,
+                recallTopK = 5,
+                ambiguityMargin = 0.01
+            });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var bestMatch = previewJson.Data.GetProperty("items")[0].GetProperty("bestMatch");
-        var item = previewJson.Data.GetProperty("items")[0];
+        var bestMatch = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0].GetProperty("bestMatch");
+        var item = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
 
-        bestMatch.GetProperty("acceptance").GetString().Should().Be("SAFE");
-        bestMatch.GetProperty("decision").GetString().Should().Be("autoApply");
-        bestMatch.GetProperty("hasHardConflict").GetBoolean().Should().BeFalse();
-        bestMatch.GetProperty("evidenceSummary")[0].GetString().Should().Contain("数值约束相容");
+        bestMatch.GetProperty("acceptance").GetString().Should().Be("RISKY");
+        bestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
+        bestMatch.TryGetProperty("matchingStrategy", out _).Should().BeFalse();
+        bestMatch.TryGetProperty("hasHardConflict", out _).Should().BeFalse();
+        bestMatch.GetProperty("evidenceSummary").GetArrayLength().Should().Be(0);
+        bestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("different");
         item.GetProperty("confidenceLevel").GetString().Should().Be("medium");
     }
 
     [Fact]
-    public async Task Preview_WhenOnlyHardConflictExists_ShouldReturnRejectDecisionAndLowConfidence()
+    public async Task Preview_WhenOnlyRuleConflictExists_ShouldReturnManualReviewWithoutLocalConflictSummary()
     {
         var (customerId, processId) = await CreateScopeAsync("EvidenceRejectApi");
 
         await CreateSpecAsync(customerId, processId, "尺寸要求", "宽度等于0.7cm", "RISKY");
 
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
+        var previewResp = await PostSingleTableBatchPreviewAsync(
+            "尺寸要求",
+            "宽度小于0.5cm",
+            customerId,
+            processId,
+            new
             {
-                items = new[] { new { rowIndex = 0, project = "尺寸要求", specification = "宽度小于0.5cm" } },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 5,
-                    ambiguityMargin = 0.01
-                }
-            }));
+                minScoreThreshold = 0.0,
+                recallTopK = 5,
+                ambiguityMargin = 0.01
+            });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var item = previewJson.Data.GetProperty("items")[0];
+        var item = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
         var bestMatch = item.GetProperty("bestMatch");
 
-        bestMatch.GetProperty("decision").GetString().Should().Be("reject");
-        bestMatch.GetProperty("hasHardConflict").GetBoolean().Should().BeTrue();
-        item.GetProperty("confidenceLevel").GetString().Should().Be("low");
+        bestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
+        bestMatch.TryGetProperty("hasHardConflict", out _).Should().BeFalse();
+        bestMatch.GetProperty("conflictSummary").GetArrayLength().Should().Be(0);
+        bestMatch.GetProperty("issues").GetArrayLength().Should().Be(0);
+        item.GetProperty("confidenceLevel").GetString().Should().Be("medium");
     }
 
     [Fact]
@@ -96,34 +95,22 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
             "设备供应商在到厂前提供设备的空压位置及流量要求",
             "NEAR");
 
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
+        var previewResp = await PostSingleTableBatchPreviewAsync(
+            "设备安装需求",
+            "设备供应商在到厂前提供设备的空压位置大小及流量",
+            customerId,
+            processId,
+            new
             {
-                items = new[]
-                {
-                    new
-                    {
-                        rowIndex = 0,
-                        project = "设备安装需求",
-                        specification = "设备供应商在到厂前提供设备的空压位置大小及流量"
-                    }
-                },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 5,
-                    ambiguityMargin = 0.01,
-                    highConfidenceThreshold = 0.95
-                }
-            }));
+                minScoreThreshold = 0.0,
+                recallTopK = 5,
+                ambiguityMargin = 0.01,
+                highConfidenceThreshold = 0.95
+            });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var item = previewJson.Data.GetProperty("items")[0];
+        var item = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
         var bestMatch = item.GetProperty("bestMatch");
 
         bestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
@@ -137,77 +124,58 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
 
         await CreateSpecAsync(customerId, processId, "设备交货时间", "<80天;", "OK");
 
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
+        var previewResp = await PostSingleTableBatchPreviewAsync(
+            "设备交货时间",
+            "<80天;",
+            customerId,
+            processId,
+            new
             {
-                items = new[]
-                {
-                    new
-                    {
-                        rowIndex = 0,
-                        project = "设备交货时间",
-                        specification = "<80天;"
-                    }
-                },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 3,
-                    highConfidenceThreshold = 0.98
-                }
-            }));
+                minScoreThreshold = 0.0,
+                recallTopK = 3,
+                highConfidenceThreshold = 0.98
+            });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var item = previewJson.Data.GetProperty("items")[0];
+        var item = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
         var bestMatch = item.GetProperty("bestMatch");
 
-        bestMatch.GetProperty("scoreDetails").GetProperty("KeywordOverlap").GetDouble().Should().Be(1.0);
+        bestMatch.GetProperty("scoreDetails").TryGetProperty("KeywordOverlap", out _).Should().BeFalse();
         bestMatch.GetProperty("score").GetDouble().Should().Be(1.0);
         bestMatch.GetProperty("decision").GetString().Should().Be("autoApply");
         item.GetProperty("confidenceLevel").GetString().Should().Be("high");
     }
 
     [Fact]
-    public async Task Preview_ShouldExposeStructuredIssues()
+    public async Task Preview_ShouldNotExposeRemovedLocalNumericIssues()
     {
         var (customerId, processId) = await CreateScopeAsync("IssueApi");
 
         await CreateSpecAsync(customerId, processId, "电压要求", "电压等于2.4V", "NG");
 
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
+        var previewResp = await PostSingleTableBatchPreviewAsync(
+            "电压要求",
+            "电压等于24V",
+            customerId,
+            processId,
+            new
             {
-                items = new[] { new { rowIndex = 0, project = "电压要求", specification = "电压等于24V" } },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 3
-                }
-            }));
+                minScoreThreshold = 0.0,
+                recallTopK = 3
+            });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var bestMatch = previewJson.Data.GetProperty("items")[0].GetProperty("bestMatch");
+        var bestMatch = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0].GetProperty("bestMatch");
         var issues = bestMatch.GetProperty("issues");
 
-        issues.GetArrayLength().Should().BeGreaterThan(0);
-        issues[0].GetProperty("code").GetString().Should().Be("numeric_value_conflict");
-        issues[0].GetProperty("fieldName").GetString().Should().Be("电压");
-        issues[0].GetProperty("sourceValue").GetString().Should().Be("24V");
-        issues[0].GetProperty("candidateValue").GetString().Should().Be("2.4V");
+        issues.GetArrayLength().Should().Be(0);
+        bestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("different");
     }
 
     [Fact]
-    public async Task Preview_WhenVoltageAlternativesContainTypo_ShouldExposeActualConflictingValues()
+    public async Task Preview_WhenVoltageAlternativesContainTypo_ShouldRelyOnLlmInsteadOfLocalNumericIssue()
     {
         var (customerId, processId) = await CreateScopeAsync("VoltageAlternativeIssueApi");
 
@@ -218,170 +186,58 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
             "电力规格要求: 380V三相/50HZ或220V/50HZ；气压需求≤6kg/cm3",
             "NG");
 
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
+        var previewResp = await PostSingleTableBatchPreviewAsync(
+            "水/电/气",
+            "电力规格要求: 380V三相/50HZ或22V/50HZ；气压需求≤6kg/cm3",
+            customerId,
+            processId,
+            new
             {
-                items = new[]
-                {
-                    new
-                    {
-                        rowIndex = 0,
-                        project = "水/电/气",
-                        specification = "电力规格要求: 380V三相/50HZ或22V/50HZ；气压需求≤6kg/cm3"
-                    }
-                },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 3
-                }
-            }));
+                minScoreThreshold = 0.0,
+                recallTopK = 3
+            });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var bestMatch = previewJson.Data.GetProperty("items")[0].GetProperty("bestMatch");
+        var bestMatch = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0].GetProperty("bestMatch");
         var issues = bestMatch.GetProperty("issues");
 
-        issues.EnumerateArray().Should().Contain(issue =>
-            issue.GetProperty("code").GetString() == "numeric_value_conflict" &&
-            issue.GetProperty("fieldName").GetString() == "电压" &&
-            issue.GetProperty("sourceValue").GetString() == "22V" &&
-            issue.GetProperty("candidateValue").GetString() == "220V" &&
-            issue.GetProperty("message").GetString()!.Contains("22V", StringComparison.OrdinalIgnoreCase) &&
-            issue.GetProperty("message").GetString()!.Contains("220V", StringComparison.OrdinalIgnoreCase));
+        issues.GetArrayLength().Should().Be(0);
+        bestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("different");
     }
 
     [Fact]
-    public async Task Preview_WhenLlmEntityResolutionFindsConflict_ShouldExposeEntityIssues()
+    public async Task Preview_WhenRequestCarriesLegacyEntityResolutionFlag_ShouldIgnoreItAndNotExposeEntityIssues()
     {
         var (customerId, processId) = await CreateScopeAsync("EntityIssueApi");
 
         await CreateSpecAsync(customerId, processId, "设备要求", "BetaMotion 设备需安装防护罩", "NG");
 
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
+        var previewResp = await PostSingleTableBatchPreviewAsync(
+            "设备要求",
+            "AlphaTech 设备需安装防护罩",
+            customerId,
+            processId,
+            new
             {
-                items = new[]
-                {
-                    new
-                    {
-                        rowIndex = 0,
-                        project = "设备要求",
-                        specification = "AlphaTech 设备需安装防护罩"
-                    }
-                },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 3,
-                    useLlmEntityResolution = true
-                }
-            }));
+                minScoreThreshold = 0.0,
+                recallTopK = 3,
+                useLlmEntityResolution = true
+            });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var bestMatch = previewJson.Data.GetProperty("items")[0].GetProperty("bestMatch");
+        var bestMatch = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0].GetProperty("bestMatch");
         var issues = bestMatch.GetProperty("issues");
 
-        issues.EnumerateArray().Should().Contain(issue =>
-            issue.GetProperty("code").GetString() == "entity_conflict" &&
-            issue.GetProperty("sourceValue").GetString() == "AlphaTech" &&
-            issue.GetProperty("candidateValue").GetString() == "BetaMotion");
-        bestMatch.GetProperty("decision").GetString().Should().Be("reject");
-    }
-
-    [Fact]
-    public async Task Preview_WhenLlmEntityResolutionFindsAliasSame_ShouldExposeEntityEvidence()
-    {
-        var (customerId, processId) = await CreateScopeAsync("EntityAliasApi");
-
-        await CreateSpecAsync(customerId, processId, "设备要求", "阿尔法科技设备需安装防护罩", "OK");
-
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
-            {
-                items = new[]
-                {
-                    new
-                    {
-                        rowIndex = 0,
-                        project = "设备要求",
-                        specification = "AlphaTech 设备需安装防护罩"
-                    }
-                },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 3,
-                    useLlmEntityResolution = true
-                }
-            }));
-
-        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var bestMatch = previewJson.Data.GetProperty("items")[0].GetProperty("bestMatch");
-        var entities = bestMatch.GetProperty("entities");
-
-        bestMatch.GetProperty("decision").GetString().Should().Be("autoApply");
-        entities.EnumerateArray().Should().Contain(entity =>
-            entity.GetProperty("relation").GetString() == "aliasSame" &&
-            entity.GetProperty("sourceValue").GetString() == "AlphaTech" &&
-            entity.GetProperty("candidateValue").GetString() == "阿尔法科技");
-    }
-
-    [Fact]
-    public async Task Preview_WhenLlmEntityResolutionReturnsUnknown_ShouldExposeEntityUnknownIssue()
-    {
-        var (customerId, processId) = await CreateScopeAsync("EntityUnknownApi");
-
-        await CreateSpecAsync(customerId, processId, "设备要求", "新境科技设备需安装防护罩", "CHECK");
-
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
-            {
-                items = new[]
-                {
-                    new
-                    {
-                        rowIndex = 0,
-                        project = "设备要求",
-                        specification = "XJTech 设备需安装防护罩"
-                    }
-                },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 3,
-                    useLlmEntityResolution = true
-                }
-            }));
-
-        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var bestMatch = previewJson.Data.GetProperty("items")[0].GetProperty("bestMatch");
-        var issues = bestMatch.GetProperty("issues");
-
-        bestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
-        issues.EnumerateArray().Should().Contain(issue =>
-            issue.GetProperty("code").GetString() == "entity_unknown" &&
-            issue.GetProperty("sourceValue").GetString() == "XJTech" &&
-            issue.GetProperty("candidateValue").GetString() == "新境科技");
+        issues.EnumerateArray().Should().NotContain(issue =>
+            string.Equals(issue.GetProperty("code").GetString(), "entity_conflict", StringComparison.Ordinal) ||
+            string.Equals(issue.GetProperty("code").GetString(), "entity_conflict_suspected", StringComparison.Ordinal) ||
+            string.Equals(issue.GetProperty("code").GetString(), "entity_unknown", StringComparison.Ordinal));
+        if (bestMatch.TryGetProperty("entities", out var entities))
+        {
+            entities.GetArrayLength().Should().Be(0);
+        }
     }
 
     [Fact]
@@ -391,34 +247,21 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
 
         await CreateSpecAsync(customerId, processId, "安装要求", "最大不可拆部件约等于3200。", "OK");
 
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
+        var previewResp = await PostSingleTableBatchPreviewAsync(
+            "安装要求",
+            "最大不可拆部件≈3200",
+            customerId,
+            processId,
+            new
             {
-                items = new[]
-                {
-                    new
-                    {
-                        rowIndex = 0,
-                        project = "安装要求",
-                        specification = "最大不可拆部件≈3200"
-                    }
-                },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 2,
-                    minScoreThreshold = 0.0,
-                    recallTopK = 3,
-                    useLlmReview = true,
-                    highConfidenceThreshold = 0.98
-                }
-            }));
+                minScoreThreshold = 0.0,
+                recallTopK = 3,
+                highConfidenceThreshold = 0.98
+            });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var item = previewJson.Data.GetProperty("items")[0];
+        var item = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
         var bestMatch = item.GetProperty("bestMatch");
         var llmEquivalence = bestMatch.GetProperty("llmEquivalence");
         var topCandidateEquivalence = bestMatch
@@ -434,54 +277,18 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
-    public async Task Preview_WhenSingleStageEnablesLlmEntityResolution_ShouldReturnBadRequest()
-    {
-        var (customerId, processId) = await CreateScopeAsync("EntitySingleStageApi");
-
-        await CreateSpecAsync(customerId, processId, "设备要求", "AlphaTech 设备需安装防护罩", "OK");
-
-        var previewResp = await _client.PostAsync(
-            "/api/matching/preview",
-            ApiClientJson.ToJsonContent(new
-            {
-                items = new[]
-                {
-                    new
-                    {
-                        rowIndex = 0,
-                        project = "设备要求",
-                        specification = "AlphaTech 设备需安装防护罩"
-                    }
-                },
-                customerId,
-                processId,
-                config = new
-                {
-                    matchingStrategy = 1,
-                    minScoreThreshold = 0.0,
-                    useLlmEntityResolution = true
-                }
-            }));
-
-        previewResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var errorJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        errorJson.Message.Should().Contain("LLM 实体判别");
-        errorJson.Message.Should().Contain("多阶段");
-    }
-
-    [Fact]
-    public void MatchConfigDto_ShouldExposeLlmEntityResolutionSettings()
+    public void MatchConfigDto_ShouldNotExposeRemovedLlmEntityResolutionSettings()
     {
         var config = new MatchConfigDto();
 
         config.MinScoreThreshold.Should().Be(0.9);
         config.HighConfidenceThreshold.Should().Be(0.98);
         config.AmbiguityMargin.Should().Be(0.02);
-        config.UseLlmEntityResolution.Should().BeFalse();
-        config.LlmEntityResolutionTopCandidates.Should().Be(2);
-        config.LlmEntityPositiveConfidenceThreshold.Should().Be(0.85);
-        config.LlmEntityConflictReviewConfidenceThreshold.Should().Be(0.7);
-        config.LlmEntityConflictRejectConfidenceThreshold.Should().Be(0.9);
+        typeof(MatchConfigDto).GetProperty("UseLlmEntityResolution").Should().BeNull();
+        typeof(MatchConfigDto).GetProperty("LlmEntityResolutionTopCandidates").Should().BeNull();
+        typeof(MatchConfigDto).GetProperty("LlmEntityPositiveConfidenceThreshold").Should().BeNull();
+        typeof(MatchConfigDto).GetProperty("LlmEntityConflictReviewConfidenceThreshold").Should().BeNull();
+        typeof(MatchConfigDto).GetProperty("LlmEntityConflictRejectConfidenceThreshold").Should().BeNull();
     }
 
     private async Task<(int customerId, int processId)> CreateScopeAsync(string prefix)
@@ -514,5 +321,81 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
             }));
 
         specResp.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private async Task<HttpResponseMessage> PostSingleTableBatchPreviewAsync(
+        string project,
+        string specification,
+        int customerId,
+        int processId,
+        object config)
+    {
+        using var multipart = new MultipartFormDataContent();
+        multipart.Add(new ByteArrayContent(CreateDocxBytes(new[]
+        {
+            new[] { "项目", "规格", "验收", "备注" },
+            new[] { project, specification, "", "" }
+        })), "file", $"evidence-preview-{Guid.NewGuid():N}.docx");
+
+        var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
+
+        return await _client.PostAsync(
+            "/api/matching/batch-preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                customerId,
+                processId,
+                config,
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3
+                    }
+                }
+            }));
+    }
+
+    private static byte[] CreateDocxBytes(string[][] rows)
+    {
+        using var stream = new MemoryStream();
+        using (var document = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document, true))
+        {
+            var mainPart = document.AddMainDocumentPart();
+            mainPart.Document = new Document(new Body());
+
+            var table = new Table();
+            table.AppendChild(new TableProperties(new TableBorders(
+                new TopBorder { Val = BorderValues.Single, Size = 4 },
+                new BottomBorder { Val = BorderValues.Single, Size = 4 },
+                new LeftBorder { Val = BorderValues.Single, Size = 4 },
+                new RightBorder { Val = BorderValues.Single, Size = 4 },
+                new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
+                new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 })));
+
+            foreach (var row in rows)
+            {
+                var tableRow = new TableRow();
+                foreach (var cell in row)
+                {
+                    tableRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(cell ?? string.Empty)))));
+                }
+
+                table.AppendChild(tableRow);
+            }
+
+            mainPart.Document.Body!.Append(table);
+            mainPart.Document.Save();
+        }
+
+        return stream.ToArray();
     }
 }

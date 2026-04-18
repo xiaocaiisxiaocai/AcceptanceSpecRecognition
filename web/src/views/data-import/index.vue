@@ -13,6 +13,10 @@ import ExcelColumnMapping, {
   type ExcelSheetMapping
 } from "./components/ExcelColumnMapping.vue";
 import {
+  getEffectiveColumnMappingRules,
+  type ColumnMappingRule
+} from "@/api/column-mapping-rules";
+import {
   createDefaultExcelMapping,
   defaultExcelMapping,
   defaultWordMapping,
@@ -23,6 +27,7 @@ import {
   getWordPreviewColumnIndexes,
   normalizeExcelMappingByTable
 } from "./dataImport.helpers";
+import { applyWordRulesToWordMapping } from "@/views/shared/word-column-mapping-rules";
 import type {
   CombinedImportResult,
   DifferenceColumnDef,
@@ -40,12 +45,6 @@ import type {
 import { useDataImportExecution } from "./composables/useDataImportExecution";
 import { useDataImportMapping } from "./composables/useDataImportMapping";
 import { useDataImportPreviewSelection } from "./composables/useDataImportPreviewSelection";
-import {
-  ColumnMappingMatchMode,
-  ColumnMappingTargetField,
-  getEffectiveColumnMappingRules,
-  type ColumnMappingRule
-} from "@/api/column-mapping-rules";
 import {
   getCustomerList,
   type Customer
@@ -129,8 +128,6 @@ const activeTableIndex = ref<number | null>(null);
 const tableConfigs = ref<TableImportConfig[]>([]);
 const mappingClipboard = ref<MappingClipboard | null>(null);
 const mappingClipboardSourceIndex = ref<number | null>(null);
-
-// 全局列映射规则（用于自动预填）
 const mappingRules = ref<ColumnMappingRule[]>([]);
 const loadingMappingRules = ref(false);
 
@@ -158,6 +155,7 @@ const {
 } = useDataImportExecution();
 const { excludedRowIndexMap, importPreviewSelectionKeys } =
   useDataImportPreviewSelection();
+const importProgressText = ref("");
 const importDuplicateAiConfig = ref<ImportDuplicateAiConfig>({
   enableSemanticDuplicateCheck: false,
   embeddingServiceId: undefined,
@@ -213,6 +211,9 @@ onMounted(() => {
 onActivated(() => {
   // keep-alive 返回页面时，重新绑定一次
   refreshAffix();
+  if (currentStep.value === 2 && !isExcelFile.value) {
+    loadMappingRules();
+  }
 });
 
 // 计算属性
@@ -286,7 +287,59 @@ const handleFileUploaded = (file: FileUploadResponse) => {
   importPreviewSelectionKeys.value = [];
   importResult.value = null;
   previewSkippedRows.value = false;
+  mappingRules.value = [];
+  loadingMappingRules.value = false;
   resetPendingDifferenceState();
+};
+
+const applyRulesToConfig = (cfg: TableImportConfig, overwrite: boolean) => {
+  if (isExcelFile.value) {
+    return;
+  }
+
+  const headers = cfg.tableInfo?.headers || cfg.previewData?.headers || [];
+  if (!headers.length) {
+    return;
+  }
+
+  cfg.wordMapping = applyWordRulesToWordMapping(
+    cfg.wordMapping ?? defaultWordMapping(),
+    headers,
+    mappingRules.value,
+    overwrite
+  );
+};
+
+const applyRulesToAll = (overwrite: boolean) => {
+  if (isExcelFile.value || mappingRules.value.length === 0) {
+    return;
+  }
+
+  tableConfigs.value.forEach(cfg => {
+    applyRulesToConfig(cfg, overwrite);
+  });
+};
+
+const loadMappingRules = async () => {
+  if (isExcelFile.value) {
+    mappingRules.value = [];
+    return;
+  }
+
+  loadingMappingRules.value = true;
+  try {
+    const res = await getEffectiveColumnMappingRules();
+    if (res.code === 0) {
+      mappingRules.value = res.data || [];
+      applyRulesToAll(false);
+    } else {
+      ElMessage.error(res.message || "加载列映射规则失败");
+    }
+  } catch {
+    ElMessage.error("加载列映射规则失败");
+  } finally {
+    loadingMappingRules.value = false;
+  }
 };
 
 // 表格选择（多选）
@@ -332,7 +385,6 @@ const handleTablesSelected = (tables: TableInfo[]) => {
     return activeIndexes.has(Number(tableIndex));
   });
 
-  // 若已加载规则，自动预填一次（不覆盖用户已有选择）
   applyRulesToAll(false);
 };
 
@@ -379,7 +431,6 @@ const handlePreviewLoaded = (tableIndex: number, data: TableData) => {
   const cfg = tableConfigs.value.find(c => c.tableIndex === tableIndex);
   if (cfg) {
     cfg.previewData = data;
-    // 表头/预览更新后，若尚未选择映射列，则再次尝试按规则自动预填（不覆盖手工选择）
     applyRulesToConfig(cfg, false);
   }
 };
@@ -535,160 +586,6 @@ const pasteMappingConfigToOthers = () => {
   );
 };
 
-const normalizeHeader = (s?: string) => (s || "").trim().toLowerCase();
-
-const isMatch = (header: string, rule: ColumnMappingRule) => {
-  const h = normalizeHeader(header);
-  const p = normalizeHeader(rule.pattern);
-  if (!h || !p) return false;
-  switch (rule.matchMode) {
-    case ColumnMappingMatchMode.Equals:
-      return h === p;
-    case ColumnMappingMatchMode.Regex:
-      try {
-        return new RegExp(rule.pattern).test(header);
-      } catch {
-        return false;
-      }
-    case ColumnMappingMatchMode.Contains:
-    default:
-      return h.includes(p);
-  }
-};
-
-const pickBestColumnIndex = (
-  headers: string[],
-  rulesForTarget: ColumnMappingRule[],
-  used: Set<number>
-) => {
-  let bestIndex: number | undefined = undefined;
-  let bestScore = -Infinity;
-
-  for (let i = 0; i < headers.length; i++) {
-    if (used.has(i)) continue;
-    const header = headers[i] || "";
-
-    for (const r of rulesForTarget) {
-      if (!r.enabled) continue;
-      if (!isMatch(header, r)) continue;
-
-      // 评分：优先级 > 匹配词长度 > 列越靠前越好
-      const score = (r.priority ?? 0) * 10000 + (r.pattern?.length ?? 0) * 10 - i;
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = i;
-      }
-    }
-  }
-
-  return bestIndex;
-};
-
-const applyRulesToConfig = (cfg: TableImportConfig, overwrite: boolean) => {
-  const headers = cfg.tableInfo?.headers || cfg.previewData?.headers || [];
-  if (!headers || headers.length === 0) return;
-
-  const byTarget = new Map<ColumnMappingTargetField, ColumnMappingRule[]>();
-  for (const r of mappingRules.value) {
-    if (!r.enabled) continue;
-    const list = byTarget.get(r.targetField) || [];
-    list.push(r);
-    byTarget.set(r.targetField, list);
-  }
-  // 每个目标字段内部：优先级倒序
-  for (const [k, list] of byTarget.entries()) {
-    list.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id);
-    byTarget.set(k, list);
-  }
-
-  // 注意：ColumnMapping 组件只监听 modelValue 引用变化，因此这里必须“生成新对象”触发刷新
-  const used = new Set<number>();
-  if (!cfg.wordMapping) cfg.wordMapping = defaultWordMapping();
-  const next: ColumnMappingType = { ...cfg.wordMapping };
-
-  const setIfNeed = (key: keyof ColumnMappingType, val?: number) => {
-    if (val === undefined) return;
-    if (overwrite || next[key] === undefined) {
-      next[key] = val;
-      used.add(val);
-    } else if (typeof next[key] === "number") {
-      used.add(next[key] as number);
-    }
-  };
-
-  // 先把已选的列加入 used，避免重复占用
-  for (const k of [
-    "projectColumn",
-    "specificationColumn",
-    "acceptanceColumn",
-    "remarkColumn"
-  ] as const) {
-    const v = next[k];
-    if (typeof v === "number") used.add(v);
-  }
-
-  setIfNeed(
-    "projectColumn",
-    pickBestColumnIndex(
-      headers,
-      byTarget.get(ColumnMappingTargetField.Project) || [],
-      used
-    )
-  );
-  setIfNeed(
-    "specificationColumn",
-    pickBestColumnIndex(
-      headers,
-      byTarget.get(ColumnMappingTargetField.Specification) || [],
-      used
-    )
-  );
-  setIfNeed(
-    "acceptanceColumn",
-    pickBestColumnIndex(
-      headers,
-      byTarget.get(ColumnMappingTargetField.Acceptance) || [],
-      used
-    )
-  );
-  setIfNeed(
-    "remarkColumn",
-    pickBestColumnIndex(
-      headers,
-      byTarget.get(ColumnMappingTargetField.Remark) || [],
-      used
-    )
-  );
-
-  cfg.wordMapping = next;
-};
-
-const applyRulesToAll = (overwrite: boolean) => {
-  if (isExcelFile.value) return;
-  if (!mappingRules.value.length) return;
-  for (const cfg of tableConfigs.value) {
-    applyRulesToConfig(cfg, overwrite);
-  }
-};
-
-const loadMappingRules = async () => {
-  loadingMappingRules.value = true;
-  try {
-    const res = await getEffectiveColumnMappingRules();
-    if (res.code === 0) {
-      mappingRules.value = res.data || [];
-      // 进入映射步骤后，自动预填一次（不覆盖手工选择）
-      applyRulesToAll(false);
-    } else {
-      ElMessage.error(res.message || "加载列映射规则失败");
-    }
-  } catch {
-    ElMessage.error("加载列映射规则失败");
-  } finally {
-    loadingMappingRules.value = false;
-  }
-};
-
 // 加载客户列表
 const loadCustomers = async () => {
   loadingCustomers.value = true;
@@ -807,13 +704,6 @@ watch(currentStep, (step) => {
   }
   if (step === 3 && machineModels.value.length === 0) {
     loadMachineModels();
-  }
-});
-
-// 兼容 keep-alive：从“列映射规则”页面返回导入页时，确保规则能刷新并重新预填
-onActivated(() => {
-  if (currentStep.value === 2 && !isExcelFile.value) {
-    loadMappingRules();
   }
 });
 
@@ -1308,6 +1198,14 @@ const executeImportBatch = async (
   const duplicateCheckOptions = buildDuplicateCheckOptions();
 
   for (const [idx, cfg] of configs.entries()) {
+    importProgressText.value = buildImportProgressText(
+      cfg,
+      idx + 1,
+      configs.length,
+      includeDifferenceDecisions,
+      duplicateCheckOptions
+    );
+
     const cleanupSourceFile = !hasPendingEncountered && idx === configs.length - 1;
     const { confirmed, partial, skipped } = includeDifferenceDecisions
       ? buildDifferenceKeysByTable(cfg.tableIndex)
@@ -1390,6 +1288,7 @@ const handleConfirmPendingDifferences = async () => {
     const previousCommittedAggregate = committedImportAggregate.value;
     const pendingSet = new Set(pendingTableIndexes.value);
     const pendingConfigs = tableConfigs.value.filter(cfg => pendingSet.has(cfg.tableIndex));
+    importProgressText.value = `正在按确认结果继续导入 ${pendingConfigs.length} 个${isExcelFile.value ? "工作表" : "表格"}`;
 
     const batch = await executeImportBatch(pendingConfigs, true);
     const splitResult = splitBatchAggregates(batch.tableAggregates);
@@ -1418,6 +1317,7 @@ const handleConfirmPendingDifferences = async () => {
     );
   } finally {
     importing.value = false;
+    clearImportProgress();
   }
 };
 
@@ -1461,6 +1361,7 @@ const handleImport = async () => {
     );
 
     importing.value = true;
+    importProgressText.value = `正在准备导入 ${tableConfigs.value.length} 个${isExcelFile.value ? "工作表" : "表格"}`;
     const batch = await executeImportBatch(tableConfigs.value, false);
     const splitResult = splitBatchAggregates(batch.tableAggregates);
 
@@ -1483,6 +1384,7 @@ const handleImport = async () => {
     // 用户取消
   } finally {
     importing.value = false;
+    clearImportProgress();
   }
 };
 
@@ -1566,6 +1468,66 @@ const hasCommittedImportProgress = computed(() => {
 const pendingTableIndexes = computed<number[]>(() => {
   return Array.from(new Set(pendingDifferences.value.map(item => item.tableIndex)));
 });
+
+const importProgressDescription = computed(() => {
+  if (!importing.value) {
+    return "";
+  }
+
+  const options = buildDuplicateCheckOptions();
+  if (!options.enableSemanticDuplicateCheck) {
+    return "系统正在提交并写入导入结果，请耐心等待，不要关闭页面或刷新浏览器。";
+  }
+
+  if (options.enableLlmDuplicateReview) {
+    return "当前已启用 Embedding 召回与 LLM 复核，处理时间会明显高于普通导入，请耐心等待，不要关闭页面或刷新浏览器。";
+  }
+
+  return "当前已启用 Embedding 疑似重复识别，系统会先分析候选再继续导入，请耐心等待，不要关闭页面或刷新浏览器。";
+});
+
+const importPrimaryButtonText = computed(() => {
+  if (importing.value) {
+    return importProgressText.value || "正在导入...";
+  }
+
+  return hasPendingDifferenceConfirmation.value ? "继续处理重复项" : "开始导入";
+});
+
+const confirmDifferenceButtonText = computed(() => {
+  return importing.value ? importPrimaryButtonText.value : "确认并继续导入";
+});
+
+const differenceDialogFooterTip = computed(() => {
+  return importing.value
+    ? importProgressText.value
+    : `未选择 ${pendingUndecidedCount.value} 条`;
+});
+
+const buildImportProgressText = (
+  cfg: TableImportConfig,
+  currentIndex: number,
+  total: number,
+  includeDifferenceDecisions: boolean,
+  duplicateCheckOptions: ImportDuplicateCheckOptions
+) => {
+  const sourceLabel = `${isExcelFile.value ? "工作表" : "表格"} ${cfg.tableIndex + 1}`;
+  const actionLabel = includeDifferenceDecisions ? "正在按确认结果继续导入" : "正在导入";
+
+  if (!duplicateCheckOptions.enableSemanticDuplicateCheck) {
+    return `${actionLabel}${sourceLabel}（${currentIndex}/${total}）`;
+  }
+
+  if (duplicateCheckOptions.enableLlmDuplicateReview) {
+    return `${actionLabel}${sourceLabel}（${currentIndex}/${total}），执行 Embedding 召回与 LLM 复核中`;
+  }
+
+  return `${actionLabel}${sourceLabel}（${currentIndex}/${total}），执行 Embedding 疑似重复识别中`;
+};
+
+const clearImportProgress = () => {
+  importProgressText.value = "";
+};
 
 type SkippedPreviewColumn = { index: number; label: string };
 type SkippedRowsGroup = {
@@ -1675,25 +1637,25 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
       />
 
       <!-- 步骤3: 配置映射 -->
-      <DataImportStepMapping
-        v-show="currentStep === 2"
-        :is-excel-file="isExcelFile"
-        :uploaded-file="uploadedFile"
-        :table-configs="tableConfigs"
-        :loading-mapping-rules="loadingMappingRules"
-        :mapping-rules-length="mappingRules.length"
-        :can-paste-clipboard="canPasteClipboard"
-        :mapping-clipboard-source-index="mappingClipboardSourceIndex"
-        :active-table-index="activeTableIndex"
-        :get-excel-preview-options="getExcelPreviewOptions"
-        @reload-rules="loadMappingRules"
-        @reapply-rules="applyRulesToAll(true)"
-        @copy-mapping="copyActiveMappingConfig"
-        @paste-mapping="pasteMappingConfigToOthers"
-        @update:active-table-index="value => (activeTableIndex = value)"
-        @tab-remove="handleTabRemove"
-        @restore-tables="restoreSelectedTablesForMapping"
-        @go-prev="goPrev"
+        <DataImportStepMapping
+          v-show="currentStep === 2"
+          :is-excel-file="isExcelFile"
+          :uploaded-file="uploadedFile"
+          :table-configs="tableConfigs"
+          :can-paste-clipboard="canPasteClipboard"
+          :mapping-rules-count="mappingRules.length"
+          :loading-mapping-rules="loadingMappingRules"
+          :mapping-clipboard-source-index="mappingClipboardSourceIndex"
+          :active-table-index="activeTableIndex"
+          :get-excel-preview-options="getExcelPreviewOptions"
+          @copy-mapping="copyActiveMappingConfig"
+          @paste-mapping="pasteMappingConfigToOthers"
+          @reload-rules="loadMappingRules"
+          @reapply-rules="() => applyRulesToAll(true)"
+          @update:active-table-index="value => (activeTableIndex = value)"
+          @tab-remove="handleTabRemove"
+          @restore-tables="restoreSelectedTablesForMapping"
+          @go-prev="goPrev"
       >
 
         <el-tabs
@@ -2177,6 +2139,10 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
                 inactive-text="关闭"
               />
             </div>
+            <div v-if="importing" class="import-progress-panel">
+              <div class="import-progress-panel__title">{{ importProgressText }}</div>
+              <div class="import-progress-panel__desc">{{ importProgressDescription }}</div>
+            </div>
             <el-button
               v-if="canImportCurrentFile"
               type="primary"
@@ -2185,11 +2151,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               :disabled="!hasPendingDifferenceConfirmation && previewDataCount === 0"
               @click="handleImport"
             >
-              {{
-                importing
-                  ? "处理中..."
-                  : (hasPendingDifferenceConfirmation ? "继续处理重复项" : "开始导入")
-              }}
+              {{ importPrimaryButtonText }}
             </el-button>
           </div>
         </div>
@@ -2370,7 +2332,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
         <template #footer>
           <div class="difference-dialog__footer">
             <span class="difference-dialog__footer-tip">
-              未选择 {{ pendingUndecidedCount }} 条
+              {{ differenceDialogFooterTip }}
             </span>
             <div class="difference-dialog__footer-actions">
               <el-button @click="differenceConfirmDialogVisible = false">
@@ -2382,7 +2344,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
                 :disabled="pendingUndecidedCount > 0"
                 @click="handleConfirmPendingDifferences"
               >
-                确认并继续导入
+                {{ confirmDifferenceButtonText }}
               </el-button>
             </div>
           </div>
@@ -2651,6 +2613,28 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+}
+
+.import-progress-panel {
+  width: 100%;
+  max-width: 720px;
+  border: 1px solid #dbe7f8;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #f7fbff 0%, #fff 100%);
+}
+
+.import-progress-panel__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.import-progress-panel__desc {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #64748b;
 }
 
 .skip-preview-switch {

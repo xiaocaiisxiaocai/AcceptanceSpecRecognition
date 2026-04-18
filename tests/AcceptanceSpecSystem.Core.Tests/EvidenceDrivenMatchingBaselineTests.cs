@@ -18,8 +18,7 @@ public class EvidenceDrivenMatchingBaselineTests
     {
         var service = new SemanticKernelMatchingService(
             new BaselineEmbeddingService(baselineCase.Source.CombinedText, baselineCase.Candidates),
-            NullLogger<SemanticKernelMatchingService>.Instance,
-            knowledgeProvider: new FixedMatchingKnowledgeProvider(MatchingKnowledge.CreateDefault()));
+            NullLogger<SemanticKernelMatchingService>.Instance);
 
         var result = await service.BatchMatchAsync(
             [baselineCase.Source],
@@ -34,7 +33,6 @@ public class EvidenceDrivenMatchingBaselineTests
             }),
             new MatchingConfig
             {
-                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = Math.Max(1, baselineCase.Candidates.Count),
                 AmbiguityMargin = 0.01
@@ -44,7 +42,6 @@ public class EvidenceDrivenMatchingBaselineTests
         var match = result.Results[0];
         match.MatchedSpecId.Should().Be(baselineCase.ExpectedMatchedSpecId);
         match.Decision.Should().Be(Enum.Parse<MatchDecision>(baselineCase.ExpectedDecision, ignoreCase: true));
-        match.Evidence.HasHardConflict.Should().Be(baselineCase.ExpectedHardConflict);
 
         if (!string.IsNullOrWhiteSpace(baselineCase.ExpectedEvidenceContains))
             match.Evidence.Summary.Should().Contain(item => item.Contains(baselineCase.ExpectedEvidenceContains, StringComparison.OrdinalIgnoreCase));
@@ -91,8 +88,6 @@ public class EvidenceDrivenMatchingBaselineTests
         public int? ExpectedMatchedSpecId { get; set; }
 
         public string ExpectedDecision { get; set; } = nameof(MatchDecision.ManualReview);
-
-        public bool ExpectedHardConflict { get; set; }
 
         public string? ExpectedEvidenceContains { get; set; }
 
@@ -165,21 +160,6 @@ public class EvidenceDrivenMatchingBaselineTests
                 return 0;
 
             return embedding1.Zip(embedding2, (left, right) => left * right).Sum();
-        }
-    }
-
-    private sealed class FixedMatchingKnowledgeProvider : IMatchingKnowledgeProvider
-    {
-        private readonly MatchingKnowledge _knowledge;
-
-        public FixedMatchingKnowledgeProvider(MatchingKnowledge knowledge)
-        {
-            _knowledge = knowledge;
-        }
-
-        public Task<MatchingKnowledge> GetKnowledgeAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(_knowledge);
         }
     }
 }

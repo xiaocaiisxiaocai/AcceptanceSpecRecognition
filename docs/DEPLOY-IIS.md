@@ -67,22 +67,30 @@ IIS 站点根目录示例：
 
 完成后前端调用 `/api/*` 将由同站点直接路由到后端应用，无需额外反向代理。
 
-## 6. 生产配置（已提供可运行默认值）
+## 6. 生产配置（必须显式填写）
 
 使用 `src/AcceptanceSpecSystem.Api/appsettings.Production.json`：
 
-- `ConnectionStrings:DefaultConnection`：默认已指向 `127.0.0.1:3306`，如数据库不在本机请改为实际连接串
-- `Cors:AllowedOrigins`：默认 `["*"]`（内网无固定域名可直接使用）
-- `FileStorage:BasePath`：默认 `D:\AcceptanceSpecData`（建议保留为独立持久化目录）
-- `JwtAuth:SigningKey`：已配置可用值，建议上线后替换为你自己的长随机密钥
-- 系统账号存储在数据库 `SystemUsers` 表，不再写在 `appsettings`
+- `ConnectionStrings:DefaultConnection`：必须填写当前环境实际 MySQL 连接串；未配置时后端会直接启动失败，不再回退到源码内固定数据库
+- `Cors:AllowedOrigins`：生产环境必须配置显式来源白名单；仓库中的 `https://acceptance-spec.example.com` 只是占位示例，部署时请替换为实际访问地址，不能留空，也不能使用 `["*"]`
+- `FileStorage:BasePath`：建议配置为独立持久化目录，例如 `D:\AcceptanceSpecData`
+- `JwtAuth:SigningKey`：必须填写至少 32 个字符的随机密钥
+- `AuthSeed:AdminPassword` / `AuthSeed:CommonPassword`：生产环境必须显式配置初始化口令；系统账号存储在数据库 `SystemUsers` 表，但首次启动时仍需要这两个种子密码
+- `DataProtection:KeysPath`：建议配置为站点可写的独立目录
 
-首次启动（且 `SystemUsers` 为空）会自动写入默认账号：
+首次启动前，至少确认以下 4 项已经改成你的真实值：
 
-- `admin / Admin@123456`
-- `common / Common@123456`
+- 数据库连接串
+- JWT 签名密钥
+- `AuthSeed:AdminPassword`
+- `AuthSeed:CommonPassword`
 
-建议首次登录后立即在数据库中更新 `PasswordHash`（PBKDF2）并禁用不需要的账号。
+首次启动时，如果 `SystemUsers` 为空，系统会用你配置的 `AuthSeed` 口令写入默认账号：
+
+- `admin`
+- `common`
+
+生产环境缺少上述必填项时，后端会直接报错退出，这是当前分支的预期保护行为。
 
 示例：
 
@@ -119,5 +127,5 @@ dotnet ef database update -p .\src\AcceptanceSpecSystem.Data -s .\src\Acceptance
 
 - 前端刷新 404：确认 `dist` 下有 `web.config`，且 URL Rewrite 已安装
 - 上传失败/无权限：检查 `FileStorage:BasePath` 目录权限
-- 跨域报错：若保留 `["*"]` 通常不会触发；如你改成白名单，需与实际访问地址完全一致（协议/端口都要匹配）
+- 跨域报错：优先使用本文推荐的同站点 `/ + /api` 方案；如果必须跨站访问，`Cors:AllowedOrigins` 必须与实际访问地址完全一致（协议、域名、端口都要匹配），程序会拒绝 `*`
 - API 无法启动：确认已安装 `.NET 8 Hosting Bundle`，并查看 IIS 应用事件日志

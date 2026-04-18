@@ -6,17 +6,18 @@ import {
   type MatchPreviewItem
 } from "@/api/matching";
 import {
-  formatLlmScore,
   formatScore,
   getDecisionTagType,
   getDecisionText,
-  getEntityRelationTagType,
-  getEntityRelationText,
   getConfidenceText,
   getIssueFieldText,
   getIssueSeverityText,
-  getIssueTagType
+  getIssueTagType,
+  getSelectionModeDescription,
+  getSelectionModeTagType,
+  getSelectionModeText
 } from "./scoreDetail.formatters";
+import { getLlmEquivalenceSummaryText } from "./scoreDetail.llmEquivalence";
 
 const props = defineProps<{
   item: MatchPreviewItem;
@@ -26,7 +27,6 @@ const props = defineProps<{
 
 const bestMatch = computed(() => props.item.bestMatch);
 const bestMatchIssues = computed(() => bestMatch.value?.issues ?? []);
-const bestMatchEntities = computed(() => bestMatch.value?.entities ?? []);
 const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN);
 const effectiveHighConfidenceThreshold = computed(
   () => props.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD
@@ -35,14 +35,6 @@ const formatOptionalPercent = (value?: number) => {
   if (value === undefined || value === null) return "-";
   return `${(value * 100).toFixed(1)}%`;
 };
-const normalizeComparableText = (value?: string) =>
-  (value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replaceAll("（", "(")
-    .replaceAll("）", ")");
-
 const metricCards = computed(() => {
   if (!bestMatch.value) return [];
 
@@ -54,10 +46,6 @@ const metricCards = computed(() => {
     {
       label: "Embedding",
       value: formatScore(bestMatch.value.embeddingScore)
-    },
-    {
-      label: "模型复核分",
-      value: formatLlmScore(bestMatch.value.llmScore)
     },
     {
       label: "Top1/Top2分差",
@@ -88,20 +76,6 @@ const explanationRows = computed(() => {
       : `当前高置信阈值为 ${formatScore(effectiveHighConfidenceThreshold.value)}，当前得分 ${formatScore(bestMatch.value.score)}，因此当前显示为${getConfidenceText(props.item.confidenceLevel)}置信度。`
   });
 
-  const keywordScore = bestMatch.value.scoreDetails?.KeywordOverlap;
-  if (keywordScore === 0.5) {
-    const sameComparableSpecification =
-      normalizeComparableText(props.item.sourceSpecification) ===
-      normalizeComparableText(bestMatch.value.specification);
-
-    rows.push({
-      label: "关键词项",
-      value: sameComparableSpecification
-        ? "规格文本可比后是一致的，但未提取到有效关键词 token，关键词项按保守 50% 计分。"
-        : "双方都未提取到有效关键词 token，关键词项按保守 50% 计分。短文本、符号或数字占比较高时容易出现这种情况。"
-    });
-  }
-
   return rows;
 });
 
@@ -110,12 +84,12 @@ const metaTags = computed(() => {
 
   return [
     {
-      text: getDecisionText(bestMatch.value.decision),
-      type: getDecisionTagType(bestMatch.value.decision)
+      text: getSelectionModeText(bestMatch.value.selectionMode),
+      type: getSelectionModeTagType(bestMatch.value.selectionMode)
     },
     {
-      text: bestMatch.value.hasHardConflict ? "硬冲突" : "无硬冲突",
-      type: bestMatch.value.hasHardConflict ? "danger" : "success"
+      text: getDecisionText(bestMatch.value.decision),
+      type: getDecisionTagType(bestMatch.value.decision)
     },
     {
       text: bestMatch.value.isAmbiguous ? "高歧义" : "歧义低",
@@ -124,10 +98,6 @@ const metaTags = computed(() => {
     {
       text: `问题 ${bestMatchIssues.value.length}`,
       type: bestMatchIssues.value.length > 0 ? "warning" : "info"
-    },
-    {
-      text: `实体 ${bestMatchEntities.value.length}`,
-      type: bestMatchEntities.value.length > 0 ? "primary" : "info"
     }
   ];
 });
@@ -136,6 +106,26 @@ const summaryRows = computed(() => {
   if (!bestMatch.value) return [];
 
   return [
+    {
+      label: "选定方式",
+      value: getSelectionModeText(bestMatch.value.selectionMode),
+      tone: "normal"
+    },
+    {
+      label: "方式说明",
+      value: getSelectionModeDescription(bestMatch.value.selectionMode),
+      tone: "muted"
+    },
+    {
+      label: "选定摘要",
+      value: bestMatch.value.selectionSummary || "",
+      tone: bestMatch.value.selectionMode === "aiRerank" ? "warning" : "normal"
+    },
+    {
+      label: "最终决策",
+      value: `${getDecisionText(bestMatch.value.decision ?? "manualReview")}（最终以系统 decision 为准）`,
+      tone: "normal"
+    },
     {
       label: "证据",
       value: bestMatch.value.evidenceSummary?.join("；") || "",
@@ -152,13 +142,30 @@ const summaryRows = computed(() => {
       tone: "normal"
     },
     {
-      label: "复核结论",
-      value: bestMatch.value.llmReason || props.item.llmReviewDraft || "",
+      label: "AI 等价裁决",
+      value: bestMatch.value.llmEquivalence
+        ? `${getLlmEquivalenceSummaryText(bestMatch.value.llmEquivalence)}`
+        : "",
+      tone: "normal"
+    },
+    {
+      label: "门禁说明",
+      value: "AI 等价裁决门禁固定执行，最终以系统 decision 为准。",
+      tone: "muted"
+    },
+    {
+      label: "复核原因",
+      value: bestMatch.value.reviewReason || "",
       tone: "normal"
     },
     {
       label: "复核说明",
-      value: bestMatch.value.llmCommentary || "",
+      value: bestMatch.value.reviewCommentary || "",
+      tone: "normal"
+    },
+    {
+      label: "AI 流式进度",
+      value: props.item.llmReviewDraft || "",
       tone: "muted"
     },
     {
@@ -263,36 +270,6 @@ const summaryRows = computed(() => {
             <div class="compact-row__meta">字段：{{ getIssueFieldText(issue) }}</div>
             <div v-if="issue.suggestedAction" class="compact-row__meta">
               建议：{{ issue.suggestedAction }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        v-if="bestMatchEntities.length > 0"
-        class="info-block"
-      >
-        <div class="info-label">实体证据</div>
-        <div class="compact-list">
-          <div
-            v-for="(entity, index) in bestMatchEntities"
-            :key="`best-entity-${index}-${entity.sourceValue}-${entity.candidateValue}`"
-            class="compact-row compact-row--entity"
-          >
-            <div class="compact-row__head">
-              <span class="compact-row__title">
-                {{ entity.entityType || "实体" }}：{{ entity.sourceValue }} -> {{ entity.candidateValue }}
-              </span>
-              <el-tag
-                size="small"
-                effect="plain"
-                :type="getEntityRelationTagType(entity.relation)"
-              >
-                {{ getEntityRelationText(entity.relation) }}
-              </el-tag>
-            </div>
-            <div class="compact-row__meta">
-              归一化：{{ entity.normalizedSourceValue || "-" }} / {{ entity.normalizedCandidateValue || "-" }}
             </div>
           </div>
         </div>
@@ -477,10 +454,6 @@ const summaryRows = computed(() => {
   border: 1px solid #eef2f7;
 }
 
-.compact-row--entity {
-  border-color: #dbeafe;
-}
-
 .compact-row__head {
   display: flex;
   align-items: flex-start;
@@ -517,6 +490,10 @@ const summaryRows = computed(() => {
 
 .summary-row--danger {
   background: #fff4f4;
+}
+
+.summary-row--warning {
+  background: #fff8eb;
 }
 
 .summary-row--muted {

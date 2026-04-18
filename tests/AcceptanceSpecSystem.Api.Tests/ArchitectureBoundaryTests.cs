@@ -135,8 +135,7 @@ public class ArchitectureBoundaryTests
             "src/AcceptanceSpecSystem.Api/Controllers/MatchingApiControllerBase.cs",
             "src/AcceptanceSpecSystem.Api/Controllers/MatchingPreviewController.cs",
             "src/AcceptanceSpecSystem.Api/Controllers/MatchingExecutionController.cs",
-            "src/AcceptanceSpecSystem.Api/Controllers/MatchingTaskController.cs",
-            "src/AcceptanceSpecSystem.Api/Controllers/MatchingReuseController.cs"
+            "src/AcceptanceSpecSystem.Api/Controllers/MatchingTaskController.cs"
         };
 
         foreach (var relativePath in controllerFiles)
@@ -198,11 +197,14 @@ public class ArchitectureBoundaryTests
     }
 
     [Fact]
-    public void StrictReuseAppService_ShouldNotDependOnMatchingWorkflowService()
+    public void StrictReuseLegacyService_ShouldBeRemoved()
     {
-        var content = ReadFile("src/AcceptanceSpecSystem.Api/Services/StrictReuseAppService.cs");
-
-        content.Should().NotContain("MatchingWorkflowService", "严格复用应用服务应承载独立复用用例，而不是继续透传巨型工作流服务");
+        var repositoryRoot = GetRepositoryRoot();
+        File.Exists(Path.Combine(
+                repositoryRoot,
+                "src/AcceptanceSpecSystem.Api/Services/StrictReuseAppService.cs".Replace('/', Path.DirectorySeparatorChar)))
+            .Should()
+            .BeFalse("strict reuse 已从当前主链移除，不应继续保留后端服务实现");
     }
 
     [Fact]
@@ -234,14 +236,14 @@ public class ArchitectureBoundaryTests
     }
 
     [Fact]
-    public void MatchingTaskSnapshotService_ShouldExist_AndBeSharedByExecutionTaskAndReuseServices()
+    public void MatchingTaskSnapshotService_ShouldExist_AndBeSharedByExecutionAndDownloadServices()
     {
         var repositoryRoot = GetRepositoryRoot();
         var snapshotServicePath = Path.Combine(
             repositoryRoot,
             "src/AcceptanceSpecSystem.Api/Services/MatchingTaskSnapshotService.cs".Replace('/', Path.DirectorySeparatorChar));
 
-        File.Exists(snapshotServicePath).Should().BeTrue("任务快照应收敛到独立共享服务，供执行、下载和严格复用共同使用");
+        File.Exists(snapshotServicePath).Should().BeTrue("任务快照应收敛到独立共享服务，供执行与下载共同使用");
 
         var snapshotContent = File.ReadAllText(snapshotServicePath);
         snapshotContent.Should().Contain("SaveAsync(", "快照服务应提供统一保存入口");
@@ -254,9 +256,6 @@ public class ArchitectureBoundaryTests
         ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingTaskAppService.cs")
             .Should().Contain("MatchingTaskSnapshotService",
                 "下载应用服务应通过共享快照服务读取任务结果");
-        ReadFile("src/AcceptanceSpecSystem.Api/Services/StrictReuseAppService.cs")
-            .Should().Contain("MatchingTaskSnapshotService",
-                "严格复用应用服务应通过共享快照服务读取和写入任务结果");
     }
 
     [Fact]
@@ -293,9 +292,6 @@ public class ArchitectureBoundaryTests
         ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs")
             .Should().Contain("DocumentTableAccessService",
                 "匹配预览应用服务应复用共享表格提取组件");
-        ReadFile("src/AcceptanceSpecSystem.Api/Services/StrictReuseAppService.cs")
-            .Should().Contain("DocumentTableAccessService",
-                "严格复用应用服务应复用共享表格提取组件");
         ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs")
             .Should().Contain("MatchingResultWriteBackService",
                 "执行填充协作组件应复用共享结果写回组件");
@@ -358,8 +354,26 @@ public class ArchitectureBoundaryTests
         userStoreContent.Should().NotContain("\"async-routes\"", "登出和刷新流程不应再处理 async-routes 缓存");
 
         var routesApiContent = ReadFile("web/src/api/routes.ts");
-        routesApiContent.Should().NotContain("http.request", "兼容 async-routes 接口不应再触发运行时后端请求");
-        routesApiContent.Should().Contain("Promise.resolve", "兼容 async-routes 接口应直接返回空结果");
+        routesApiContent.Should().NotContain("getAsyncRoutes", "前端不应再保留 async-routes 空壳 API");
+
+        var authControllerContent = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/AuthController.cs");
+        authControllerContent.Should().NotContain("get-async-routes", "后端不应再保留 async-routes 兼容端点");
+
+        var permissionConventionsContent = ReadFile("src/AcceptanceSpecSystem.Api/Authorization/PermissionConventions.cs");
+        permissionConventionsContent.Should().NotContain("get-async-routes", "权限约定不应继续为已删除端点保留专用动作映射");
+
+        var viteConfigContent = ReadFile("web/vite.config.ts");
+        viteConfigContent.Should().NotContain("\"/get-async-routes\"", "Vite 代理不应继续保留 async-routes 空壳链路");
+    }
+
+    [Fact]
+    public void Frontend_ShouldNotRegisterUnusedAuthOrPermsComponentsGlobally()
+    {
+        var mainContent = ReadFile("web/src/main.ts");
+        mainContent.Should().NotContain("components/ReAuth", "全局 Auth 组件已无消费，不应继续注册");
+        mainContent.Should().NotContain("components/RePerms", "全局 Perms 组件已无消费，不应继续注册");
+        mainContent.Should().NotContain("app.component(\"Auth\"", "全局 Auth 组件已无消费，不应继续注册");
+        mainContent.Should().NotContain("app.component(\"Perms\"", "全局 Perms 组件已无消费，不应继续注册");
     }
 
     private static string ReadFile(string relativePath)

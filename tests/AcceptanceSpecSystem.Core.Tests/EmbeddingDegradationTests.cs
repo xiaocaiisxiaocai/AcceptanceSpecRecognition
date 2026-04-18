@@ -1,10 +1,13 @@
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using FluentAssertions;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace AcceptanceSpecSystem.Core.Tests;
 
@@ -28,7 +31,7 @@ public class EmbeddingDegradationTests
             {
                 SpecId = 1,
                 Project = "项目A",
-                Specification = "规格A",
+                Specification = "规格A-候选",
                 Acceptance = "OK"
             }
         };
@@ -46,6 +49,38 @@ public class EmbeddingDegradationTests
         // 不再降级，直接抛出 Embedding 不可用异常
         await act.Should().ThrowAsync<AiServiceUnavailableException>()
             .WithMessage("*Embedding*不可用*");
+    }
+
+    [Fact]
+    public async Task GenerateEmbeddingAsync_WhenRequestCancelled_ShouldPropagateOperationCanceledException()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var service = new SemanticKernelEmbeddingService(
+            new StaticAiServiceSelector(),
+            new CancelOnRequestEmbeddingFactory(),
+            NullLogger<SemanticKernelEmbeddingService>.Instance);
+
+        var act = async () => await service.GenerateEmbeddingAsync("项目A\n规格A", cancellationToken: cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task GenerateEmbeddingsAsync_WhenRequestCancelled_ShouldPropagateOperationCanceledException()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var service = new SemanticKernelEmbeddingService(
+            new StaticAiServiceSelector(),
+            new CancelOnRequestEmbeddingFactory(),
+            NullLogger<SemanticKernelEmbeddingService>.Instance);
+
+        var act = async () => await service.GenerateEmbeddingsAsync(["项目A\n规格A"], cancellationToken: cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
     /// <summary>
@@ -68,6 +103,59 @@ public class EmbeddingDegradationTests
         public double ComputeSimilarity(float[] embedding1, float[] embedding2)
         {
             return 0.0;
+        }
+    }
+
+    private sealed class StaticAiServiceSelector : IAiServiceSelector
+    {
+        public Task<IReadOnlyList<AiServiceConfigModel>> GetCandidatesAsync(
+            AiServicePurpose purpose,
+            int? preferredId = null,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<AiServiceConfigModel> result =
+            [
+                new AiServiceConfigModel
+                {
+                    Id = 1,
+                    Name = "Embedding-1",
+                    ServiceType = AiServiceType.OpenAI,
+                    Purpose = AiServicePurpose.Embedding,
+                    EmbeddingModel = "text-embedding-3-small"
+                }
+            ];
+            return Task.FromResult(result);
+        }
+    }
+
+    private sealed class CancelOnRequestEmbeddingFactory : ISemanticKernelServiceFactory
+    {
+        public Microsoft.SemanticKernel.ChatCompletion.IChatCompletionService CreateChatCompletionService(AiServiceConfigModel config)
+        {
+            throw new NotSupportedException();
+        }
+
+        public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfigModel config)
+        {
+            return new CancelOnRequestEmbeddingGenerator();
+        }
+    }
+
+    private sealed class CancelOnRequestEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        public void Dispose()
+        {
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values,
+            EmbeddingGenerationOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new GeneratedEmbeddings<Embedding<float>>([]);
         }
     }
 }

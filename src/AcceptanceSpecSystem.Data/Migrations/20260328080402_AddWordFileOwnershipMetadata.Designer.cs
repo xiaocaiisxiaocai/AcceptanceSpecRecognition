@@ -643,42 +643,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("MatchingFillTasks");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MatchingKnowledgeConfig", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ConflictPairsJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("EntityAliasesJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("FieldAliasesJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("UnitAliasesJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("UnitFactorsJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("MatchingKnowledgeConfigs");
-                });
-
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.OrgCompany", b =>
                 {
                     b.Property<int>("Id")

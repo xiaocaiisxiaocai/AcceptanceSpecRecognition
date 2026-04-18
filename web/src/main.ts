@@ -41,12 +41,6 @@ app.component("IconifyIconOffline", IconifyIconOffline);
 app.component("IconifyIconOnline", IconifyIconOnline);
 app.component("FontIcon", FontIcon);
 
-// 全局注册 permission 组件（Auth 为兼容别名，底层统一走 permission code）
-import { Auth } from "@/components/ReAuth";
-import { Perms } from "@/components/RePerms";
-app.component("Auth", Auth);
-app.component("Perms", Perms);
-
 // 全局注册vue-tippy
 import "tippy.js/dist/tippy.css";
 import "tippy.js/themes/light.css";

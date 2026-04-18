@@ -1,3 +1,5 @@
+using AcceptanceSpecSystem.Data.Context;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -5,38 +7,52 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace AcceptanceSpecSystem.Data.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260325113000_EnforceSingleOrgPerUser")]
     public partial class EnforceSingleOrgPerUser : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
-                DELETE auo
-                FROM AuthUserOrgUnits auo
+                DELETE current_row
+                FROM AuthUserOrgUnits current_row
                 INNER JOIN (
-                    SELECT ranked.Id
-                    FROM (
-                        SELECT
-                            auo.Id,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY auo.UserId
-                                ORDER BY
-                                    CASE
-                                        WHEN primary_stats.PrimaryCount = 1 AND auo.IsPrimary = 1 THEN 0
-                                        ELSE 1
-                                    END,
-                                    auo.CreatedAt,
-                                    auo.Id
-                            ) AS rn
-                        FROM AuthUserOrgUnits auo
-                        INNER JOIN (
-                            SELECT UserId, SUM(CASE WHEN IsPrimary = 1 THEN 1 ELSE 0 END) AS PrimaryCount
-                            FROM AuthUserOrgUnits
-                            GROUP BY UserId
-                        ) primary_stats ON primary_stats.UserId = auo.UserId
-                    ) ranked
-                    WHERE ranked.rn > 1
-                ) duplicates ON duplicates.Id = auo.Id;
+                    SELECT UserId, SUM(CASE WHEN IsPrimary = 1 THEN 1 ELSE 0 END) AS PrimaryCount
+                    FROM AuthUserOrgUnits
+                    GROUP BY UserId
+                ) primary_stats ON primary_stats.UserId = current_row.UserId
+                INNER JOIN AuthUserOrgUnits keep_row
+                    ON keep_row.UserId = current_row.UserId
+                   AND keep_row.Id <> current_row.Id
+                WHERE
+                    CASE
+                        WHEN primary_stats.PrimaryCount = 1 AND keep_row.IsPrimary = 1 THEN 0
+                        ELSE 1
+                    END
+                    <
+                    CASE
+                        WHEN primary_stats.PrimaryCount = 1 AND current_row.IsPrimary = 1 THEN 0
+                        ELSE 1
+                    END
+                    OR (
+                        CASE
+                            WHEN primary_stats.PrimaryCount = 1 AND keep_row.IsPrimary = 1 THEN 0
+                            ELSE 1
+                        END
+                        =
+                        CASE
+                            WHEN primary_stats.PrimaryCount = 1 AND current_row.IsPrimary = 1 THEN 0
+                            ELSE 1
+                        END
+                        AND (
+                            keep_row.CreatedAt < current_row.CreatedAt
+                            OR (
+                                keep_row.CreatedAt = current_row.CreatedAt
+                                AND keep_row.Id < current_row.Id
+                            )
+                        )
+                    );
                 """);
 
             migrationBuilder.Sql("""

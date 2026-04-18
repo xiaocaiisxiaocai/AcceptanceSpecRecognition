@@ -29,6 +29,7 @@ public sealed class MatchingPreviewAppService
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IEmbeddingService _embeddingService;
     private readonly IAiServiceSelector _aiServiceSelector;
+    private readonly BatchPreviewProgressTracker _batchPreviewProgressTracker;
     private readonly ILogger<MatchingPreviewAppService> _logger;
 
     private sealed class CandidateSpecRow
@@ -50,6 +51,7 @@ public sealed class MatchingPreviewAppService
         IAuthDataScopeService authDataScopeService,
         IEmbeddingService embeddingService,
         IAiServiceSelector aiServiceSelector,
+        BatchPreviewProgressTracker batchPreviewProgressTracker,
         ILogger<MatchingPreviewAppService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -60,6 +62,7 @@ public sealed class MatchingPreviewAppService
         _authDataScopeService = authDataScopeService;
         _embeddingService = embeddingService;
         _aiServiceSelector = aiServiceSelector;
+        _batchPreviewProgressTracker = batchPreviewProgressTracker;
         _logger = logger;
     }
 
@@ -73,188 +76,9 @@ public sealed class MatchingPreviewAppService
         return new MatchingApiException(code, message);
     }
 
-    public async Task<MatchingOperationResult<MatchPreviewResponse>> PreviewAsync(
-        ClaimsPrincipal user,
-        MatchPreviewRequest request)
+    private static MatchingApiException NotFoundFailure(string message)
     {
-        var sw = Stopwatch.StartNew();
-        var config = await ConvertToMatchingConfigAsync(request.Config);
-        var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
-        var scope = await ResolveSpecScopeAsync(user);
-        if (scope == null)
-        {
-            throw Failure(401, "会话缺少用户上下文");
-        }
-
-        if (request.Items == null || request.Items.Count == 0)
-        {
-            if (request.FileId.HasValue && request.TableIndex.HasValue)
-            {
-                if (!request.ProjectColumnIndex.HasValue || !request.SpecificationColumnIndex.HasValue)
-                {
-                    throw Failure(400, "请手动指定项目列与规格列索引");
-                }
-
-                var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(
-                    request.FileId.Value,
-                    scope);
-                var extracted = wordFile == null
-                    ? []
-                    : await _documentTableAccessService.ExtractMatchSourceItemsAsync(
-                        wordFile,
-                        request.TableIndex.Value,
-                        request.ProjectColumnIndex.Value,
-                        request.SpecificationColumnIndex.Value,
-                        request.HeaderRowStart,
-                        request.HeaderRowCount,
-                        request.DataStartRow,
-                        config.FilterEmptySourceRows);
-
-                if (extracted.Count == 0)
-                {
-                    throw Failure(400, "未从表格中提取到可匹配的项目/规格数据");
-                }
-
-                request.Items = extracted;
-            }
-            else
-            {
-                throw Failure(400, "待匹配文本列表不能为空");
-            }
-        }
-
-        var candidates = await GetCandidatesAsync(
-            request.CustomerId,
-            request.ProcessId,
-            request.MachineModelId,
-            scope,
-            config.EmbeddingServiceId);
-        if (candidates.Count == 0)
-        {
-            var emptyItems = request.Items.Select(item => new MatchPreviewItem
-            {
-                RowIndex = item.RowIndex,
-                SourceProject = item.Project,
-                SourceSpecification = item.Specification,
-                BestMatch = null,
-                LlmSuggestion = null,
-                NoMatchReason = "范围内无候选数据"
-            }).ToList();
-
-            return Result(new MatchPreviewResponse
-            {
-                Items = emptyItems,
-                TotalMatched = 0,
-                HighConfidenceCount = 0,
-                MediumConfidenceCount = 0,
-                LowConfidenceCount = 0,
-                AmbiguousCount = 0
-            }, "没有找到可匹配的验收规格");
-        }
-
-        var tpSession = await _textPipeline.CreateSessionAsync();
-        var processedCandidates = candidates.Select(candidate => new MatchCandidate
-        {
-            SpecId = candidate.SpecId,
-            Project = tpSession.Process(candidate.Project),
-            Specification = tpSession.Process(candidate.Specification),
-            Acceptance = candidate.Acceptance,
-            Remark = candidate.Remark,
-            Embedding = candidate.Embedding
-        }).ToList();
-
-        var sourceItems = request.Items.Select(item => new MatchSource
-        {
-            Project = tpSession.Process(item.Project),
-            Specification = tpSession.Process(item.Specification)
-        }).ToList();
-
-        var previewItems = new List<MatchPreviewItem>();
-        var highCount = 0;
-        var mediumCount = 0;
-        var lowCount = 0;
-
-        BatchMatchResult batchResult;
-        try
-        {
-            batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
-        }
-        catch (AiServiceUnavailableException ex)
-        {
-            throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
-        }
-
-        for (var idx = 0; idx < request.Items.Count; idx++)
-        {
-            var item = request.Items[idx];
-            MatchResult? bestMatch = null;
-            string? noMatchReason = null;
-
-            if (idx < batchResult.Results.Count)
-            {
-                var matchResult = batchResult.Results[idx];
-                if (matchResult.MatchedSpecId.HasValue)
-                {
-                    bestMatch = matchResult;
-                }
-                else
-                {
-                    noMatchReason = processedCandidates.Count == 0 ? "范围内无候选数据" : "最佳得分低于阈值";
-                }
-            }
-
-            var previewItem = new MatchPreviewItem
-            {
-                RowIndex = item.RowIndex,
-                SourceProject = item.Project,
-                SourceSpecification = item.Specification,
-                BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
-                LlmSuggestion = null,
-                NoMatchReason = noMatchReason,
-                ConfidenceLevel = GetConfidenceLevel(bestMatch, highConfidenceThreshold)
-            };
-
-            previewItems.Add(previewItem);
-            if (previewItem.BestMatch == null)
-            {
-                continue;
-            }
-
-            switch (previewItem.ConfidenceLevel)
-            {
-                case "high":
-                    highCount++;
-                    break;
-                case "medium":
-                    mediumCount++;
-                    break;
-                default:
-                    lowCount++;
-                    break;
-            }
-        }
-
-        var response = new MatchPreviewResponse
-        {
-            Items = previewItems,
-            TotalMatched = previewItems.Count(item => item.HasMatch),
-            HighConfidenceCount = highCount,
-            MediumConfidenceCount = mediumCount,
-            LowConfidenceCount = lowCount,
-            AmbiguousCount = previewItems.Count(item => item.BestMatch?.IsAmbiguous == true)
-        };
-
-        sw.Stop();
-        _logger.LogInformation(
-            "匹配预览完成: 总匹配{Total}, 高{High}/中{Medium}/低{Low}, 歧义{Ambiguous}, 耗时{Elapsed}ms",
-            response.TotalMatched,
-            response.HighConfidenceCount,
-            response.MediumConfidenceCount,
-            response.LowConfidenceCount,
-            response.AmbiguousCount,
-            sw.ElapsedMilliseconds);
-
-        return Result(response);
+        return new MatchingApiException(404, message, isNotFound: true);
     }
 
     public async Task<MatchingOperationResult<BatchPreviewResponse>> BatchPreviewAsync(
@@ -262,57 +86,89 @@ public sealed class MatchingPreviewAppService
         BatchPreviewRequest request)
     {
         var sw = Stopwatch.StartNew();
+        var previewRequestId = request.PreviewRequestId?.Trim();
+        _batchPreviewProgressTracker.Start(previewRequestId, request.Tables?.Count ?? 0);
 
-        if (request.Tables == null || request.Tables.Count == 0)
+        try
         {
-            throw Failure(400, "请至少选择一个表格");
-        }
+            if (request.Tables == null || request.Tables.Count == 0)
+            {
+                throw Failure(400, "请至少选择一个表格");
+            }
 
-        const int MaxBatchTableCount = 500;
-        if (request.Tables.Count > MaxBatchTableCount)
-        {
-            throw Failure(400, $"批量操作不能超过 {MaxBatchTableCount} 个表格");
-        }
+            const int MaxBatchTableCount = 500;
+            if (request.Tables.Count > MaxBatchTableCount)
+            {
+                throw Failure(400, $"批量操作不能超过 {MaxBatchTableCount} 个表格");
+            }
 
-        if (request.FileId <= 0)
-        {
-            throw Failure(400, "文件ID不能为空");
-        }
+            if (request.FileId <= 0)
+            {
+                throw Failure(400, "文件ID不能为空");
+            }
 
-        var scope = await ResolveSpecScopeAsync(user);
-        if (scope == null)
-        {
-            throw Failure(401, "会话缺少用户上下文");
-        }
+            _batchPreviewProgressTracker.Update(
+                previewRequestId,
+                stage: "scope",
+                stageText: "正在加载匹配范围与候选数据",
+                detailText: "正在解析当前用户数据范围与匹配配置",
+                progressPercent: 6);
 
-        var config = await ConvertToMatchingConfigAsync(request.Config);
-        var candidates = await GetCandidatesAsync(
-            request.CustomerId,
-            request.ProcessId,
-            request.MachineModelId,
-            scope,
-            config.EmbeddingServiceId);
-        var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
+            var scope = await ResolveSpecScopeAsync(user);
+            if (scope == null)
+            {
+                throw Failure(401, "会话缺少用户上下文");
+            }
 
-        var tpSession = await _textPipeline.CreateSessionAsync();
-        var processedCandidates = candidates.Select(candidate => new MatchCandidate
-        {
-            SpecId = candidate.SpecId,
-            Project = tpSession.Process(candidate.Project),
-            Specification = tpSession.Process(candidate.Specification),
-            Acceptance = candidate.Acceptance,
-            Remark = candidate.Remark,
-            Embedding = candidate.Embedding
-        }).ToList();
+            var config = await ConvertToMatchingConfigAsync(request.Config);
+            var candidates = await GetCandidatesAsync(
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                scope,
+                config.EmbeddingServiceId);
+            var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
 
-        var response = new BatchPreviewResponse();
-        var allTableData = new List<(BatchTableConfig Config, List<MatchSourceItem> Items, List<MatchSource> Sources)>();
-        var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(request.FileId, scope);
-        foreach (var tableConfig in request.Tables)
-        {
-            var extracted = wordFile == null
-                ? []
-                : await _documentTableAccessService.ExtractMatchSourceItemsAsync(
+            _batchPreviewProgressTracker.Update(
+                previewRequestId,
+                stage: "candidatePreparation",
+                stageText: "候选数据已就绪",
+                detailText: $"当前范围内共 {candidates.Count} 条候选验收规格",
+                progressPercent: 14);
+
+            var tpSession = await _textPipeline.CreateSessionAsync();
+            var processedCandidates = candidates.Select(candidate => new MatchCandidate
+            {
+                SpecId = candidate.SpecId,
+                Project = tpSession.Process(candidate.Project),
+                Specification = tpSession.Process(candidate.Specification),
+                Acceptance = candidate.Acceptance,
+                Remark = candidate.Remark,
+                Embedding = candidate.Embedding
+            }).ToList();
+
+            var response = new BatchPreviewResponse();
+            var allTableData = new List<(BatchTableConfig Config, List<MatchSourceItem> Items, List<MatchSource> Sources)>();
+            var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(request.FileId, scope);
+            if (wordFile == null)
+            {
+                throw NotFoundFailure("源文件不存在");
+            }
+
+            var extractedTableCount = 0;
+            var extractedRowCount = 0;
+            foreach (var tableConfig in request.Tables)
+            {
+                _batchPreviewProgressTracker.Update(
+                    previewRequestId,
+                    stage: "extractingTables",
+                    stageText: "正在提取表格源数据",
+                    detailText: $"正在读取第 {extractedTableCount + 1}/{request.Tables.Count} 个表格",
+                    progressPercent: request.Tables.Count == 0
+                        ? 18
+                        : 18 + (12d * extractedTableCount / request.Tables.Count));
+
+                var extracted = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
                     wordFile,
                     tableConfig.TableIndex,
                     tableConfig.ProjectColumnIndex,
@@ -322,150 +178,181 @@ public sealed class MatchingPreviewAppService
                     tableConfig.DataStartRow,
                     tableConfig.FilterEmptySourceRows ?? config.FilterEmptySourceRows);
 
-            var sources = extracted.Select(item => new MatchSource
-            {
-                Project = tpSession.Process(item.Project),
-                Specification = tpSession.Process(item.Specification)
-            }).ToList();
-
-            allTableData.Add((tableConfig, extracted, sources));
-        }
-
-        var allSources = allTableData.SelectMany(item => item.Sources).ToList();
-        if (processedCandidates.Count == 0)
-        {
-            throw Failure(400, "范围内无候选数据");
-        }
-
-        BatchMatchResult batchResult;
-        if (allSources.Count > 0)
-        {
-            try
-            {
-                batchResult = await _matchingService.BatchMatchAsync(allSources, processedCandidates, config);
-            }
-            catch (AiServiceUnavailableException ex)
-            {
-                throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
-            }
-        }
-        else
-        {
-            batchResult = new BatchMatchResult();
-        }
-
-        var resultOffset = 0;
-        foreach (var (tableConfig, extracted, _) in allTableData)
-        {
-            var tableResult = new BatchTablePreviewResult
-            {
-                TableIndex = tableConfig.TableIndex
-            };
-            var highCount = 0;
-            var mediumCount = 0;
-            var lowCount = 0;
-
-            for (var idx = 0; idx < extracted.Count; idx++)
-            {
-                var item = extracted[idx];
-                MatchResult? bestMatch = null;
-                string? noMatchReason = null;
-
-                if ((resultOffset + idx) < batchResult.Results.Count)
+                var sources = extracted.Select(item => new MatchSource
                 {
-                    var matchResult = batchResult.Results[resultOffset + idx];
-                    if (matchResult.MatchedSpecId.HasValue)
-                    {
-                        bestMatch = matchResult;
-                    }
-                    else
-                    {
-                        noMatchReason = "最佳得分低于阈值";
-                    }
+                    Project = tpSession.Process(item.Project),
+                    Specification = tpSession.Process(item.Specification)
+                }).ToList();
+
+                allTableData.Add((tableConfig, extracted, sources));
+                extractedTableCount++;
+                extractedRowCount += extracted.Count;
+
+                _batchPreviewProgressTracker.Update(
+                    previewRequestId,
+                    stage: "extractingTables",
+                    stageText: "表格源数据提取完成",
+                    detailText: $"已提取 {extractedTableCount}/{request.Tables.Count} 个表格，共 {extractedRowCount} 行",
+                    progressPercent: request.Tables.Count == 0
+                        ? 30
+                        : 18 + (12d * extractedTableCount / request.Tables.Count));
+            }
+
+            var allSources = allTableData.SelectMany(item => item.Sources).ToList();
+            if (processedCandidates.Count == 0)
+            {
+                throw Failure(400, "范围内无候选数据");
+            }
+
+            BatchMatchResult batchResult;
+            if (allSources.Count > 0)
+            {
+                _batchPreviewProgressTracker.Update(
+                    previewRequestId,
+                    stage: "embedding",
+                    stageText: "正在生成向量并启动匹配",
+                    detailText: $"待匹配 {allSources.Count} 行，候选 {processedCandidates.Count} 条",
+                    completedItems: 0,
+                    totalItems: allSources.Count,
+                    progressPercent: 32);
+
+                try
+                {
+                    batchResult = await _matchingService.BatchMatchAsync(
+                        allSources,
+                        processedCandidates,
+                        config,
+                        CreateBatchMatchProgressReporter(previewRequestId));
                 }
-
-                var previewItem = new MatchPreviewItem
+                catch (AiServiceUnavailableException ex)
                 {
-                    RowIndex = item.RowIndex,
-                    SourceProject = item.Project,
-                    SourceSpecification = item.Specification,
-                    BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
-                    LlmSuggestion = null,
-                    NoMatchReason = noMatchReason,
-                    ConfidenceLevel = GetConfidenceLevel(bestMatch, highConfidenceThreshold)
+                    throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
+                }
+            }
+            else
+            {
+                batchResult = new BatchMatchResult();
+            }
+
+            _batchPreviewProgressTracker.Update(
+                previewRequestId,
+                stage: "assembling",
+                stageText: "正在整理预览结果",
+                detailText: $"正在汇总 {request.Tables.Count} 个表格的匹配结果",
+                completedItems: allSources.Count,
+                totalItems: allSources.Count,
+                progressPercent: 98);
+
+            var resultOffset = 0;
+            foreach (var (tableConfig, extracted, _) in allTableData)
+            {
+                var tableResult = new BatchTablePreviewResult
+                {
+                    TableIndex = tableConfig.TableIndex
                 };
+                var highCount = 0;
+                var mediumCount = 0;
+                var lowCount = 0;
 
-                tableResult.Items.Add(previewItem);
-                if (previewItem.BestMatch == null)
+                for (var idx = 0; idx < extracted.Count; idx++)
                 {
-                    continue;
+                    var item = extracted[idx];
+                    MatchResult? bestMatch = null;
+                    string? noMatchReason = null;
+
+                    if ((resultOffset + idx) < batchResult.Results.Count)
+                    {
+                        var matchResult = batchResult.Results[resultOffset + idx];
+                        if (matchResult.MatchedSpecId.HasValue)
+                        {
+                            bestMatch = matchResult;
+                        }
+                        else
+                        {
+                            noMatchReason = "最佳得分低于阈值";
+                        }
+                    }
+
+                    var previewItem = new MatchPreviewItem
+                    {
+                        RowIndex = item.RowIndex,
+                        SourceProject = item.Project,
+                        SourceSpecification = item.Specification,
+                        BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
+                        NoMatchReason = noMatchReason,
+                        ConfidenceLevel = GetConfidenceLevel(bestMatch, highConfidenceThreshold)
+                    };
+
+                    tableResult.Items.Add(previewItem);
+                    if (previewItem.BestMatch == null)
+                    {
+                        continue;
+                    }
+
+                    switch (previewItem.ConfidenceLevel)
+                    {
+                        case "high":
+                            highCount++;
+                            break;
+                        case "medium":
+                            mediumCount++;
+                            break;
+                        default:
+                            lowCount++;
+                            break;
+                    }
                 }
 
-                switch (previewItem.ConfidenceLevel)
-                {
-                    case "high":
-                        highCount++;
-                        break;
-                    case "medium":
-                        mediumCount++;
-                        break;
-                    default:
-                        lowCount++;
-                        break;
-                }
+                resultOffset += extracted.Count;
+                tableResult.TotalMatched = tableResult.Items.Count(item => item.HasMatch);
+                tableResult.HighConfidenceCount = highCount;
+                tableResult.MediumConfidenceCount = mediumCount;
+                tableResult.LowConfidenceCount = lowCount;
+                tableResult.AmbiguousCount = tableResult.Items.Count(item => item.BestMatch?.IsAmbiguous == true);
+
+                response.Tables.Add(tableResult);
             }
 
-            resultOffset += extracted.Count;
-            tableResult.TotalMatched = tableResult.Items.Count(item => item.HasMatch);
-            tableResult.HighConfidenceCount = highCount;
-            tableResult.MediumConfidenceCount = mediumCount;
-            tableResult.LowConfidenceCount = lowCount;
-            tableResult.AmbiguousCount = tableResult.Items.Count(item => item.BestMatch?.IsAmbiguous == true);
+            _batchPreviewProgressTracker.Complete(
+                previewRequestId,
+                completedItems: allSources.Count,
+                totalItems: allSources.Count,
+                detailText: $"已完成 {request.Tables.Count} 个表格、{allSources.Count} 行的匹配预览");
 
-            response.Tables.Add(tableResult);
+            sw.Stop();
+            _logger.LogInformation(
+                "批量匹配预览完成: {TableCount}个表格, 总匹配{Total}, 高{High}/中{Medium}/低{Low}, 歧义{Ambiguous}, 耗时{Elapsed}ms",
+                request.Tables.Count,
+                response.TotalMatched,
+                response.HighConfidenceCount,
+                response.MediumConfidenceCount,
+                response.LowConfidenceCount,
+                response.AmbiguousCount,
+                sw.ElapsedMilliseconds);
+
+            return Result(response);
         }
-
-        sw.Stop();
-        _logger.LogInformation(
-            "批量匹配预览完成: {TableCount}个表格, 总匹配{Total}, 高{High}/中{Medium}/低{Low}, 歧义{Ambiguous}, 耗时{Elapsed}ms",
-            request.Tables.Count,
-            response.TotalMatched,
-            response.HighConfidenceCount,
-            response.MediumConfidenceCount,
-            response.LowConfidenceCount,
-            response.AmbiguousCount,
-            sw.ElapsedMilliseconds);
-
-        return Result(response);
+        catch (MatchingApiException ex)
+        {
+            _batchPreviewProgressTracker.Fail(previewRequestId, ex.Message);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _batchPreviewProgressTracker.Fail(previewRequestId, ex.Message);
+            throw;
+        }
     }
 
-    public async Task<MatchingOperationResult<SimilarityResponse>> ComputeSimilarityAsync(SimilarityRequest request)
+    public MatchingOperationResult<BatchPreviewProgressResponse> GetBatchPreviewProgress(string requestId)
     {
-        if (string.IsNullOrWhiteSpace(request.Text1) || string.IsNullOrWhiteSpace(request.Text2))
+        var progress = _batchPreviewProgressTracker.GetSnapshot(requestId);
+        if (progress == null)
         {
-            throw Failure(400, "文本不能为空");
+            throw NotFoundFailure("未找到对应的预览进度，请重新发起匹配预览");
         }
 
-        var tpSession = await _textPipeline.CreateSessionAsync();
-        var text1 = tpSession.Process(request.Text1);
-        var text2 = tpSession.Process(request.Text2);
-
-        var config = await ConvertToMatchingConfigAsync(request.Config);
-        Dictionary<string, double> scores;
-        try
-        {
-            scores = await _matchingService.ComputeSimilarityAsync(text1, text2, config);
-        }
-        catch (AiServiceUnavailableException ex)
-        {
-            throw Failure(400, ex.Reason);
-        }
-
-        return Result(new SimilarityResponse
-        {
-            TotalScore = scores.TryGetValue("Total", out var total) ? total : 0,
-            Scores = scores
-        });
+        return Result(progress);
     }
 
     private async Task<List<MatchCandidate>> GetCandidatesAsync(
@@ -566,10 +453,15 @@ public sealed class MatchingPreviewAppService
                 missingCandidates.Select(candidate => candidate.CombinedText),
                 embeddingServiceId);
         }
+        catch (AiServiceUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "匹配候选生成 Embedding 失败");
+            throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "匹配候选生成 Embedding 失败，将使用空向量继续匹配");
-            return;
+            _logger.LogWarning(ex, "匹配候选生成 Embedding 失败");
+            throw Failure(400, "Embedding 服务不可用: 匹配候选 Embedding 生成失败");
         }
 
         if (!string.IsNullOrWhiteSpace(embeddingModel))
@@ -744,7 +636,10 @@ public sealed class MatchingPreviewAppService
 
     private static string BuildCandidateDedupKey(string? project, string? specification)
     {
-        return $"{NormalizeForDedup(project)}\u001f{NormalizeForDedup(specification)}";
+        return string.Join(
+            "\u001f",
+            NormalizeForDedup(project),
+            NormalizeForDedup(specification));
     }
 
     private static string NormalizeForDedup(string? value)
@@ -765,38 +660,16 @@ public sealed class MatchingPreviewAppService
     private async Task<MatchingConfig> ConvertToMatchingConfigAsync(MatchConfigDto? dto)
     {
         var fallbackConfig = new MatchingConfig();
-        var (defaultStrategy, defaultRecallTopK) = await ResolveMatchingDefaultsAsync(dto?.EmbeddingServiceId);
-
-        var strategy = dto?.MatchingStrategy is { } configuredStrategy && Enum.IsDefined(configuredStrategy)
-            ? configuredStrategy
-            : defaultStrategy;
-
-        if (dto?.UseLlmEntityResolution == true && strategy != MatchingStrategy.MultiStage)
-        {
-            throw Failure(400, "LLM 实体判别仅支持多阶段匹配策略，请切换为多阶段后再启用");
-        }
+        var defaultRecallTopK = await ResolveDefaultRecallTopKAsync(dto?.EmbeddingServiceId);
 
         return new MatchingConfig
         {
-            MatchingStrategy = strategy,
             EmbeddingServiceId = dto?.EmbeddingServiceId,
             LlmServiceId = dto?.LlmServiceId,
             MinScoreThreshold = dto?.MinScoreThreshold ?? fallbackConfig.MinScoreThreshold,
             HighConfidenceThreshold = NormalizeHighConfidenceThreshold(dto?.HighConfidenceThreshold ?? fallbackConfig.HighConfidenceThreshold),
             RecallTopK = Math.Clamp(dto?.RecallTopK ?? defaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK),
             AmbiguityMargin = Math.Clamp(dto?.AmbiguityMargin ?? fallbackConfig.AmbiguityMargin, 0, 1),
-            UseLlmEntityResolution = dto?.UseLlmEntityResolution ?? fallbackConfig.UseLlmEntityResolution,
-            LlmEntityResolutionTopCandidates = Math.Clamp(
-                dto?.LlmEntityResolutionTopCandidates ?? fallbackConfig.LlmEntityResolutionTopCandidates,
-                1,
-                MatchingThresholds.MaxLlmEntityResolutionTopCandidates),
-            LlmEntityPositiveConfidenceThreshold = Math.Clamp(dto?.LlmEntityPositiveConfidenceThreshold ?? fallbackConfig.LlmEntityPositiveConfidenceThreshold, 0, 1),
-            LlmEntityConflictReviewConfidenceThreshold = Math.Clamp(dto?.LlmEntityConflictReviewConfidenceThreshold ?? fallbackConfig.LlmEntityConflictReviewConfidenceThreshold, 0, 1),
-            LlmEntityConflictRejectConfidenceThreshold = Math.Clamp(dto?.LlmEntityConflictRejectConfidenceThreshold ?? fallbackConfig.LlmEntityConflictRejectConfidenceThreshold, 0, 1),
-            UseLlmReview = dto?.UseLlmReview ?? fallbackConfig.UseLlmReview,
-            UseLlmSuggestion = dto?.UseLlmSuggestion ?? fallbackConfig.UseLlmSuggestion,
-            SuggestNoMatchRows = dto?.SuggestNoMatchRows ?? fallbackConfig.SuggestNoMatchRows,
-            LlmSuggestionScoreThreshold = dto?.LlmSuggestionScoreThreshold ?? fallbackConfig.LlmSuggestionScoreThreshold,
             LlmParallelism = Math.Clamp(dto?.LlmParallelism ?? fallbackConfig.LlmParallelism, 1, 10),
             LlmRowTimeoutSeconds = Math.Clamp(dto?.LlmRowTimeoutSeconds ?? fallbackConfig.LlmRowTimeoutSeconds, 5, 300),
             LlmRetryCount = Math.Clamp(dto?.LlmRetryCount ?? fallbackConfig.LlmRetryCount, 0, 3),
@@ -805,7 +678,7 @@ public sealed class MatchingPreviewAppService
         };
     }
 
-    private async Task<(MatchingStrategy Strategy, int RecallTopK)> ResolveMatchingDefaultsAsync(int? embeddingServiceId)
+    private async Task<int> ResolveDefaultRecallTopKAsync(int? embeddingServiceId)
     {
         var fallbackConfig = new MatchingConfig();
         var query = _unitOfWork.AiServiceConfigs
@@ -826,13 +699,7 @@ public sealed class MatchingPreviewAppService
                 .FirstOrDefaultAsync();
         }
 
-        return embeddingService == null
-            ? (fallbackConfig.MatchingStrategy, fallbackConfig.RecallTopK)
-            : (embeddingService.DefaultMatchingStrategy switch
-            {
-                AiServiceDefaultMatchingStrategy.MultiStage => MatchingStrategy.MultiStage,
-                _ => MatchingStrategy.SingleStage
-            }, embeddingService.DefaultRecallTopK);
+        return embeddingService?.DefaultRecallTopK ?? fallbackConfig.RecallTopK;
     }
 
     private static double NormalizeHighConfidenceThreshold(double? highConfidenceThreshold)
@@ -884,7 +751,6 @@ public sealed class MatchingPreviewAppService
             EmbeddingScore = result.EmbeddingScore,
             ScoreDetails = result.ScoreDetails,
             Decision = ToDecisionKey(result.Decision),
-            HasHardConflict = result.Evidence.HasHardConflict,
             EvidenceSummary = [.. result.Evidence.Summary],
             ConflictSummary = [.. result.Evidence.Conflicts],
             Issues = result.Issues.Select(ConvertToIssueDto).ToList(),
@@ -902,29 +768,25 @@ public sealed class MatchingPreviewAppService
                     Score = candidate.Score,
                     EmbeddingScore = candidate.EmbeddingScore,
                     ScoreDetails = candidate.ScoreDetails,
-                    Decision = candidate.Evidence.HasHardConflict
-                        ? "reject"
-                        : result.MatchedSpecId == candidate.SpecId
-                            ? ToDecisionKey(result.Decision)
-                            : "manualReview",
-                    HasHardConflict = candidate.Evidence.HasHardConflict,
+                    Decision = result.MatchedSpecId == candidate.SpecId
+                        ? ToDecisionKey(result.Decision)
+                        : "manualReview",
                     EvidenceSummary = [.. candidate.Evidence.Summary],
                     ConflictSummary = [.. candidate.Evidence.Conflicts],
                     Issues = candidate.Issues.Select(ConvertToIssueDto).ToList(),
                     Entities = candidate.Evidence.Entities.Select(ConvertToEntityDto).ToList(),
                     RerankSummary = candidate.RerankSummary,
+                    SelectionMode = ToSelectionModeKey(candidate.SelectionMode),
+                    SelectionSummary = candidate.SelectionSummary,
                     LlmEquivalence = ConvertToLlmEquivalenceDto(candidate.LlmEquivalence)
                 })
                 .ToList(),
-            MatchingStrategy = result.MatchingStrategy,
             RecalledCandidateCount = result.RecalledCandidateCount,
             IsAmbiguous = result.IsAmbiguous,
             ScoreGap = result.ScoreGap,
             RerankSummary = result.RerankSummary,
-            LlmScore = result.LlmScore,
-            LlmReason = result.LlmReason,
-            LlmCommentary = result.LlmCommentary,
-            IsLlmReviewed = result.IsLlmReviewed
+            SelectionMode = ToSelectionModeKey(result.SelectionMode),
+            SelectionSummary = result.SelectionSummary
         };
     }
 
@@ -965,6 +827,16 @@ public sealed class MatchingPreviewAppService
             LlmEquivalenceReasonType.SemanticDifference => "semantic_difference",
             LlmEquivalenceReasonType.SymbolConflict => "symbol_conflict",
             _ => "uncertain"
+        };
+    }
+
+    private static string ToSelectionModeKey(MatchSelectionMode selectionMode)
+    {
+        return selectionMode switch
+        {
+            MatchSelectionMode.ExactShortcut => "exactShortcut",
+            MatchSelectionMode.AiRerank => "aiRerank",
+            _ => "embeddingTop1"
         };
     }
 
@@ -1024,5 +896,38 @@ public sealed class MatchingPreviewAppService
     private async Task<DataScopeResult?> ResolveSpecScopeAsync(ClaimsPrincipal user)
     {
         return await SpecDataScopeHelper.ResolveScopeAsync(user, _authDataScopeService);
+    }
+
+    private IProgress<BatchMatchProgress>? CreateBatchMatchProgressReporter(string? previewRequestId)
+    {
+        if (string.IsNullOrWhiteSpace(previewRequestId))
+        {
+            return null;
+        }
+
+        return new Progress<BatchMatchProgress>(progress =>
+        {
+            if (progress == null)
+            {
+                return;
+            }
+
+            var percent = progress.TotalItems <= 0
+                ? 40d
+                : 40d + (55d * progress.CompletedItems / progress.TotalItems);
+
+            _batchPreviewProgressTracker.Update(
+                previewRequestId,
+                stage: progress.Stage,
+                stageText: string.IsNullOrWhiteSpace(progress.StageText)
+                    ? "正在逐行执行匹配与 AI 裁决"
+                    : progress.StageText,
+                detailText: string.IsNullOrWhiteSpace(progress.DetailText)
+                    ? $"已完成 {progress.CompletedItems}/{progress.TotalItems} 行"
+                    : progress.DetailText,
+                completedItems: progress.CompletedItems,
+                totalItems: progress.TotalItems,
+                progressPercent: percent);
+        });
     }
 }

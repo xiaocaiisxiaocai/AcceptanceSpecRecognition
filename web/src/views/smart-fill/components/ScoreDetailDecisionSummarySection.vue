@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { MatchPreviewItem } from "@/api/matching";
-import { getIssueFieldText } from "./scoreDetail.formatters";
+import {
+  getIssueFieldText,
+  getSmartFillDecisionSummaryState
+} from "./scoreDetail.formatters";
 import type { ScoreDetailDiffRow } from "../composables/useScoreDetailDiff";
 import {
   getLlmEquivalenceDifferenceTone,
@@ -33,134 +36,11 @@ const hasHintOnlyEquivalence = computed(() =>
 const hasDecisionEquivalenceRisk = computed(() =>
   isLlmEquivalenceDecisionRisk(llmEquivalence.value)
 );
-
-const hasCustomerVisibleDifference = computed(() => {
-  if (!bestMatch.value) return false;
-
-  const hasMediumOrHighIssues = (bestMatch.value.issues ?? []).some(issue =>
-    ["high", "medium", "warning"].includes(issue.severity || "")
-  );
-
-  return (
-    hasDecisionEquivalenceRisk.value ||
-    (props.sourceBestRows.length > 0 && !hasHintOnlyEquivalence.value) ||
-    props.item.confidenceLevel !== "high" ||
-    !!bestMatch.value?.isAmbiguous ||
-    hasMediumOrHighIssues
-  );
-});
-
-const recommendation = computed(() => {
-  if (!bestMatch.value) {
-    return {
-      title: "暂不填充",
-      description: "暂无匹配结果。",
-      type: "info" as const
-    };
-  }
-
-  if (bestMatch.value.hasHardConflict || bestMatch.value.decision === "reject") {
-    return {
-      title: "不建议填充",
-      description: "存在冲突，请先处理。",
-      type: "error" as const
-    };
-  }
-
-  if (hasDecisionEquivalenceRisk.value && llmEquivalence.value) {
-    return {
-      title: "先确认后填充",
-      description: getLlmEquivalenceSummaryText(llmEquivalence.value),
-      type: "warning" as const
-    };
-  }
-
-  if (hasHintOnlyEquivalence.value && llmEquivalence.value) {
-    return {
-      title: "可直接填充",
-      description: "AI 已判定为提示型差异，不单独提升风险。",
-      type: "success" as const
-    };
-  }
-
-  if (hasCustomerVisibleDifference.value) {
-    return {
-      title: "先确认后填充",
-      description: "存在差异，请先确认。",
-      type: "warning" as const
-    };
-  }
-
-  if (bestMatch.value.decision === "autoApply") {
-    return {
-      title: "可直接填充",
-      description: "无明显差异。",
-      type: "success" as const
-    };
-  }
-
-  return {
-    title: "需要确认",
-    description: "有推荐结果，请先确认。",
-    type: "warning" as const
-  };
-});
-
-const actionSuggestion = computed(() => {
-  if (!bestMatch.value) {
-    return "人工补充";
-  }
-
-  if (bestMatch.value.hasHardConflict || bestMatch.value.decision === "reject") {
-    return "先处理冲突";
-  }
-
-  if (hasDecisionEquivalenceRisk.value) {
-    return "核对 AI 风险后再填充";
-  }
-
-  if (hasCustomerVisibleDifference.value) {
-    return "核对差异后再填充";
-  }
-
-  if (bestMatch.value.decision === "autoApply") {
-    return "可直接填充";
-  }
-
-  return "确认后再填充";
-});
-
-const riskLevel = computed(() => {
-  if (!bestMatch.value) {
-    return { label: "中", type: "warning" as const, description: "需人工判断" };
-  }
-
-  if (bestMatch.value.hasHardConflict || bestMatch.value.decision === "reject") {
-    return { label: "高", type: "danger" as const, description: "存在冲突" };
-  }
-
-  if (hasDecisionEquivalenceRisk.value) {
-    return {
-      label: "中",
-      type: "warning" as const,
-      description: "存在决策型风险"
-    };
-  }
-
-  if (hasHintOnlyEquivalence.value) {
-    return {
-      label: "低",
-      type: "success" as const,
-      description: "AI 已判定为提示型差异"
-    };
-  }
-
-  if (hasCustomerVisibleDifference.value) {
-    return { label: "中", type: "warning" as const, description: "有差异" };
-  }
-
-  return { label: "低", type: "success" as const, description: "可直接处理" };
-});
+const decisionSummaryState = computed(() =>
+  getSmartFillDecisionSummaryState(props.item, {
+    sourceBestRowCount: props.sourceBestRows.length
+  })
+);
 
 const riskItems = computed(() => {
   const llmRiskItems =
@@ -181,8 +61,14 @@ const riskItems = computed(() => {
   return [...llmRiskItems, ...conflicts, ...issues].slice(0, 4);
 });
 
+const recommendation = computed(() => decisionSummaryState.value.recommendation);
+const actionSuggestion = computed(() => decisionSummaryState.value.actionSuggestion);
+
 const focusChecklist = computed(() => {
   const checklist = [
+    ...(props.sourceBestRows.length > 0
+      ? ["请结合详情表格核对源项与推荐项差异"]
+      : []),
     ...(llmEquivalence.value
       ? [
           `AI 裁决提示：${getLlmEquivalenceSummaryText(llmEquivalence.value)}`
@@ -236,14 +122,18 @@ const getComparisonHtml = (
       </div>
       <div class="hero-card">
         <div class="hero-card__label">建议动作</div>
-        <div class="hero-card__title hero-card__title--normal">{{ actionSuggestion }}</div>
+        <div class="hero-card__title hero-card__title--normal">
+          {{ actionSuggestion }}
+        </div>
       </div>
       <div class="hero-card">
         <div class="hero-card__label">风险级别</div>
         <div class="hero-card__title">
-          <el-tag :type="riskLevel.type" size="small">{{ riskLevel.label }}</el-tag>
+          <el-tag :type="decisionSummaryState.riskLevel.type" size="small">
+            {{ decisionSummaryState.riskLevel.label }}
+          </el-tag>
         </div>
-        <div class="hero-card__desc">{{ riskLevel.description }}</div>
+        <div class="hero-card__desc">{{ decisionSummaryState.riskLevel.description }}</div>
       </div>
     </div>
 
@@ -277,6 +167,9 @@ const getComparisonHtml = (
         </div>
         <div class="equivalence-card__hint">
           {{ getLlmEquivalenceDifferenceToneDescription(llmEquivalenceTone) }}
+        </div>
+        <div class="equivalence-card__hint">
+          AI 裁决结果已纳入当前推荐，请以页面结论为准。
         </div>
       </div>
       <div v-else class="plain-item">当前最佳匹配未触发 AI 等价裁决。</div>

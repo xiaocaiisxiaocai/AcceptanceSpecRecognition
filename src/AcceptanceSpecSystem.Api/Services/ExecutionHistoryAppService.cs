@@ -24,7 +24,11 @@ public sealed class ExecutionHistoryAppService
         _logger = logger;
     }
 
-    internal async Task SaveAsync(ClaimsPrincipal user, ExecutionHistoryDraft draft, CancellationToken cancellationToken = default)
+    internal async Task SaveAsync(
+        ClaimsPrincipal user,
+        ExecutionHistoryDraft draft,
+        CancellationToken cancellationToken = default,
+        bool saveImmediately = true)
     {
         ArgumentNullException.ThrowIfNull(draft);
 
@@ -61,7 +65,10 @@ public sealed class ExecutionHistoryAppService
         entity.DetailJson = JsonSerializer.Serialize(detail, JsonOptions);
         entity.CreatedAt = draft.CreatedAt;
 
-        await _unitOfWork.SaveChangesAsync();
+        if (saveImmediately)
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
     }
 
     public async Task<PagedData<ExecutionHistoryListItemDto>> GetListAsync(

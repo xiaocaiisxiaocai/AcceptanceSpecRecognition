@@ -63,7 +63,7 @@ public sealed class MatchingTaskSnapshotService
         await _unitOfWork.SaveChangesAsync();
     }
 
-    internal async Task SaveAsync(ClaimsPrincipal user, FillTaskResult taskResult)
+    internal async Task SaveAsync(ClaimsPrincipal user, FillTaskResult taskResult, bool saveImmediately = true)
     {
         var owner = ResolveTaskOwner(user);
         taskResult.PayloadVersion = CurrentFillTaskPayloadVersion;
@@ -93,7 +93,10 @@ public sealed class MatchingTaskSnapshotService
 
         var expireTime = DateTime.UtcNow.AddHours(-FillTaskRetentionHours);
         await CleanupExpiredArtifactsAsync(expireTime);
-        await _unitOfWork.SaveChangesAsync();
+        if (saveImmediately)
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
     }
 
     internal async Task<FillTaskResult?> LoadAsync(ClaimsPrincipal user, string taskId)
@@ -104,7 +107,7 @@ public sealed class MatchingTaskSnapshotService
             return null;
         }
 
-        EnsureTaskOwnership(user, entity);
+        await EnsureTaskOwnershipAsync(user, entity);
 
         try
         {
@@ -181,11 +184,16 @@ public sealed class MatchingTaskSnapshotService
         return (userId.Value, companyId.Value);
     }
 
-    private static void EnsureTaskOwnership(ClaimsPrincipal user, MatchingFillTask entity)
+    private async Task EnsureTaskOwnershipAsync(ClaimsPrincipal user, MatchingFillTask entity)
     {
         if (!entity.CreatedByUserId.HasValue || !entity.CompanyId.HasValue)
         {
-            throw NotFoundFailure("任务不存在或已过期");
+            await TryRecoverLegacyTaskOwnershipAsync(entity);
+        }
+
+        if (!entity.CreatedByUserId.HasValue || !entity.CompanyId.HasValue)
+        {
+            throw Failure(400, "历史任务缺少归属信息，请重新执行填充后再下载");
         }
 
         var owner = ResolveTaskOwner(user);
@@ -193,6 +201,25 @@ public sealed class MatchingTaskSnapshotService
         {
             throw NotFoundFailure("任务不存在或已过期");
         }
+    }
+
+    private async Task TryRecoverLegacyTaskOwnershipAsync(MatchingFillTask entity)
+    {
+        if (entity.SourceFileId <= 0)
+        {
+            return;
+        }
+
+        var sourceFile = await _unitOfWork.WordFiles.GetByIdAsync(entity.SourceFileId);
+        if (sourceFile?.CreatedByUserId == null || sourceFile.CompanyId == null)
+        {
+            return;
+        }
+
+        entity.CreatedByUserId = sourceFile.CreatedByUserId;
+        entity.CompanyId = sourceFile.CompanyId;
+        _unitOfWork.MatchingFillTasks.Update(entity);
+        await _unitOfWork.SaveChangesAsync();
     }
 
     private static MatchingApiException Failure(int code, string message)

@@ -50,7 +50,9 @@ export const getEffectiveColumnMappingRules = () => {
   );
 };
 
-export const createColumnMappingRule = (data: CreateColumnMappingRuleRequest) => {
+export const createColumnMappingRule = (
+  data: CreateColumnMappingRuleRequest
+) => {
   return http.request<ApiResponse<ColumnMappingRule>>("post", baseUrl, { data });
 };
 
@@ -66,4 +68,3 @@ export const updateColumnMappingRule = (
 export const deleteColumnMappingRule = (id: number) => {
   return http.request<ApiResponse<void>>("delete", `${baseUrl}/${id}`);
 };
-

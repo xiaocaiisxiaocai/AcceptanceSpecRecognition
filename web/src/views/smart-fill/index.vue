@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, watch } from "vue";
+import { useEventListener } from "@vueuse/core";
 import { ElMessage } from "element-plus";
 import { Loading } from "@element-plus/icons-vue";
 import FileUpload from "@/views/data-import/components/FileUpload.vue";
@@ -7,16 +8,25 @@ import MatchConfig from "./components/MatchConfig.vue";
 import BatchTableConfig from "./components/BatchTableConfig.vue";
 import BatchPreviewTabs from "./components/BatchPreviewTabs.vue";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
-import StrictReuseDialog from "./components/StrictReuseDialog.vue";
+import {
+  applyMatchLlmStreamDisconnectToPreviewItem,
+  applyMatchLlmStreamEventToPreviewItem,
+  shouldStreamMatchReview
+} from "./components/scoreDetail.formatters";
 import type { BatchTableConfigItem } from "./components/BatchTableConfig.vue";
 import {
   batchPreviewMatch,
   batchExecuteFill,
   downloadFillResult,
-  type LlmEquivalenceVerdict,
+  requestMatchLlmStream,
+  createMatchLlmStreamRequest,
+  getBatchPreviewProgress,
   type MatchPreviewItem,
   type MatchConfig as MatchConfigType,
   type MatchResult,
+  type MatchLlmStreamEvent,
+  type MatchLlmStreamEventData,
+  type BatchPreviewProgressResponse,
   type BatchTablePreviewResult,
   DEFAULT_AMBIGUITY_MARGIN,
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
@@ -26,12 +36,10 @@ import type { FileUploadResponse, TableInfo } from "@/api/document";
 import { getFileTables } from "@/api/document";
 import {
   getEffectiveColumnMappingRules,
-  ColumnMappingTargetField,
-  ColumnMappingMatchMode,
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
+import { matchWordTableColumnsByRules } from "@/views/shared/word-column-mapping-rules";
 import { hasPerms } from "@/utils/auth";
-import { authorizedFetch } from "@/utils/http";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({ name: "SmartFill" });
@@ -53,22 +61,12 @@ const canPreviewMatching = computed(() => hasPerms("btn:matching:preview-batch")
 const canLlmStream = computed(() => hasPerms("btn:matching-fill:llm-stream"));
 const canExecuteFill = computed(() => hasPerms("btn:matching-fill:execute-batch"));
 const canDownloadFillResult = computed(() => hasPerms("btn:matching:download"));
-const canStrictReusePreview = computed(() => hasPerms("btn:matching:preview"));
-const canStrictReuseExecute = computed(() => hasPerms("btn:matching-fill:execute"));
-const canExecuteAction = computed(
-  () => canExecuteFill.value && canDownloadFillResult.value
-);
-const canUseStrictReuse = computed(
-  () =>
-    canStrictReusePreview.value &&
-    canStrictReuseExecute.value &&
-    canDownloadFillResult.value
-);
 
 // 所有表格信息
 const allTables = ref<TableInfo[]>([]);
 // 批量表格配置
 const batchTableConfigs = ref<BatchTableConfigItem[]>([]);
+const wordColumnMappingRules = ref<ColumnMappingRule[]>([]);
 
 // 匹配配置
 const matchConfig = ref<MatchConfigType>({ ...defaultMatchConfig });
@@ -81,6 +79,11 @@ const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
 );
 const loadingUploadedFileTables = ref(false);
 const loading = ref(false);
+const previewProgress = ref<BatchPreviewProgressResponse | null>(null);
+const previewElapsedSeconds = ref(0);
+const previewProgressPollTimer = ref<number | null>(null);
+const previewElapsedTimer = ref<number | null>(null);
+const currentPreviewRequestId = ref<string | null>(null);
 const llmStreaming = ref(false);
 const llmStreamController = ref<AbortController | null>(null);
 const previewAbortController = ref<AbortController | null>(null);
@@ -94,11 +97,155 @@ const stopPreviewRequest = () => {
   }
 };
 
+const clearPreviewProgressTimers = () => {
+  if (previewProgressPollTimer.value !== null && typeof window !== "undefined") {
+    window.clearInterval(previewProgressPollTimer.value);
+  }
+  if (previewElapsedTimer.value !== null && typeof window !== "undefined") {
+    window.clearInterval(previewElapsedTimer.value);
+  }
+  previewProgressPollTimer.value = null;
+  previewElapsedTimer.value = null;
+};
+
+const stopPreviewProgressPolling = () => {
+  clearPreviewProgressTimers();
+  currentPreviewRequestId.value = null;
+};
+
+const resetPreviewProgress = () => {
+  previewProgress.value = null;
+  previewElapsedSeconds.value = 0;
+};
+
 const invalidatePendingPreview = () => {
   stopPreviewRequest();
+  stopPreviewProgressPolling();
+  resetPreviewProgress();
   previewRequestVersion++;
   loading.value = false;
 };
+
+const createPreviewRequestId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `preview-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+};
+
+const fetchBatchPreviewProgress = async (requestId: string) => {
+  try {
+    const res = await getBatchPreviewProgress(requestId);
+    if (currentPreviewRequestId.value !== requestId || res.code !== 0) {
+      return;
+    }
+
+    previewProgress.value = res.data;
+    if (res.data.status !== "running") {
+      stopPreviewProgressPolling();
+    }
+  } catch (error: any) {
+    if (currentPreviewRequestId.value !== requestId) {
+      return;
+    }
+
+    if (error?.response?.status === 404) {
+      return;
+    }
+  }
+};
+
+const startPreviewProgressPolling = (requestId: string) => {
+  clearPreviewProgressTimers();
+  previewProgress.value = {
+    requestId,
+    status: "running",
+    stage: "preparing",
+    stageText: "正在准备匹配任务",
+    detailText: "正在等待后端返回真实进度",
+    completedItems: 0,
+    totalItems: 0,
+    progressPercent: 1,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    elapsedMs: 0
+  };
+  previewElapsedSeconds.value = 0;
+  currentPreviewRequestId.value = requestId;
+  void fetchBatchPreviewProgress(requestId);
+
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  previewElapsedTimer.value = window.setInterval(() => {
+    previewElapsedSeconds.value += 1;
+  }, 1000);
+
+  previewProgressPollTimer.value = window.setInterval(() => {
+    void fetchBatchPreviewProgress(requestId);
+  }, 900);
+};
+
+const markPreviewProgressCompleted = () => {
+  const requestId = currentPreviewRequestId.value;
+  if (!requestId) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  previewProgress.value = {
+    requestId,
+    status: "completed",
+    stage: "completed",
+    stageText: "匹配预览已完成",
+    detailText:
+      previewProgress.value?.detailText ||
+      `已完成 ${previewProgress.value?.completedItems ?? 0}/${
+        previewProgress.value?.totalItems ?? 0
+      } 行`,
+    completedItems:
+      previewProgress.value?.totalItems ?? previewProgress.value?.completedItems ?? 0,
+    totalItems:
+      previewProgress.value?.totalItems ?? previewProgress.value?.completedItems ?? 0,
+    progressPercent: 100,
+    startedAt: previewProgress.value?.startedAt ?? now,
+    updatedAt: now,
+    elapsedMs: previewElapsedSeconds.value * 1000
+  };
+
+  stopPreviewProgressPolling();
+};
+
+const getEffectiveFilterEmptySourceRows = (tableConfig: {
+  filterEmptySourceRows?: boolean;
+}) => tableConfig.filterEmptySourceRows ?? matchConfig.value.filterEmptySourceRows ?? true;
+
+const finalizeInterruptedLlmStreamRows = (
+  message = "LLM流式输出中断，已转为人工确认"
+) => {
+  batchPreviewResults.value.forEach((tableResult) => {
+    tableResult.items.forEach((item) => {
+      applyMatchLlmStreamDisconnectToPreviewItem(item, message);
+    });
+  });
+};
+
+const handleWindowOffline = () => {
+  if (!llmStreaming.value) {
+    return;
+  }
+
+  const message = "浏览器网络已断开，LLM 复核已转为人工确认";
+  finalizeInterruptedLlmStreamRows(message);
+  stopLlmStream();
+  ElMessage.warning(message);
+};
+
+if (typeof window !== "undefined") {
+  useEventListener(window, "offline", handleWindowOffline);
+}
 
 const triggerBrowserDownload = (blob: Blob, fileName: string) => {
   const url = window.URL.createObjectURL(blob);
@@ -130,8 +277,11 @@ const detailItem = ref<MatchPreviewItem | null>(null);
 
 // 执行状态
 const executing = ref(false);
+const downloadingResult = ref(false);
 const taskId = ref<string | null>(null);
-const strictReuseVisible = ref(false);
+const lastDownloadFailed = ref(false);
+const previewState = ref<"none" | "noScopeCandidates" | "embeddingUnavailable" | "emptyResults">("none");
+const previewFailureDetail = ref("");
 
 // 选中的表格数量
 const selectedTableCount = computed(
@@ -142,6 +292,104 @@ const selectedTableCount = computed(
 const allPreviewItems = computed(() =>
   batchPreviewResults.value.flatMap((t) => t.items)
 );
+
+const previewProgressStageText = computed(
+  () => previewProgress.value?.stageText || "正在准备匹配任务"
+);
+const previewProgressDetailText = computed(() => {
+  if (previewProgress.value?.detailText) {
+    return previewProgress.value.detailText;
+  }
+
+  if (selectedTableCount.value > 0) {
+    return `已选择 ${selectedTableCount.value} 个表格，正在等待真实进度`;
+  }
+
+  return "正在等待真实进度";
+});
+const previewProgressPercent = computed(() =>
+  Math.min(Math.max(Math.round(previewProgress.value?.progressPercent ?? 0), 0), 100)
+);
+const previewProgressCounterText = computed(() => {
+  if (!previewProgress.value?.totalItems) {
+    return "";
+  }
+
+  return `${previewProgress.value.completedItems}/${previewProgress.value.totalItems} 行`;
+});
+
+const getMatchConfigServiceStatus = () =>
+  matchConfigRef.value?.getServiceStatus?.() ?? {
+    hasAvailableEmbeddingService: true,
+    hasAvailableLlmService: true
+  };
+
+const getPrePreviewBlockingMessage = () => {
+  const { hasAvailableEmbeddingService } = getMatchConfigServiceStatus();
+  if (!hasAvailableEmbeddingService) {
+    return "请先配置可用的 Embedding 服务";
+  }
+
+  return "";
+};
+
+const previewBlockingMessage = computed(() => {
+  const prePreviewMessage = getPrePreviewBlockingMessage();
+  if (prePreviewMessage) {
+    return prePreviewMessage;
+  }
+
+  switch (previewState.value) {
+    case "noScopeCandidates":
+      return "当前范围内没有可用于匹配的验收规格";
+    case "embeddingUnavailable":
+      return "请先配置可用的 Embedding 服务";
+    case "emptyResults":
+      return "未找到可匹配的数据";
+    default:
+      return "";
+  }
+});
+
+const previewBlockingHint = computed(() => {
+  switch (previewState.value) {
+    case "noScopeCandidates":
+      return "请调整客户、制程、机型范围，或先补充对应验收规格。";
+    case "embeddingUnavailable":
+      return previewFailureDetail.value || "当前未检测到可用的 Embedding 服务。";
+    case "emptyResults":
+      return "当前表格没有命中可匹配结果，请检查源项目/规格列是否选择正确。";
+    default:
+      return getPrePreviewBlockingMessage()
+        ? "请前往 AI 服务配置启用至少一个带 Embedding 模型的服务。"
+        : "";
+  }
+});
+
+const resetPreviewState = () => {
+  previewState.value = "none";
+  previewFailureDetail.value = "";
+};
+
+const resolvePreviewFailure = (message?: string) => {
+  const normalizedMessage = (message || "").trim();
+
+  if (normalizedMessage.includes("范围内无候选数据")) {
+    previewState.value = "noScopeCandidates";
+    previewFailureDetail.value = normalizedMessage || "范围内无候选数据";
+    return normalizedMessage || "范围内无候选数据";
+  }
+
+  if (normalizedMessage.includes("Embedding 服务不可用")) {
+    previewState.value = "embeddingUnavailable";
+    previewFailureDetail.value = normalizedMessage || "Embedding 服务不可用";
+    return normalizedMessage || "Embedding 服务不可用";
+  }
+
+  previewState.value = "none";
+  previewFailureDetail.value = normalizedMessage;
+  return normalizedMessage || "匹配预览失败";
+};
 
 // 计算属性
 const canGoNext = computed(() => {
@@ -159,7 +407,7 @@ const canGoNext = computed(() => {
   }
 });
 
-const buildExcelTableConfig = (
+const buildDefaultTableConfig = (
   table: TableInfo,
   selected: boolean
 ): BatchTableConfigItem => {
@@ -167,17 +415,31 @@ const buildExcelTableConfig = (
   const totalColumns = Math.max(table.columnCount, table.headers.length, 1);
   const clampColumnIndex = (preferredIndex: number) =>
     Math.min(preferredIndex, totalColumns - 1);
+  const matchedWordColumns = isExcelFile.value
+    ? {}
+    : matchWordTableColumnsByRules(table.headers, wordColumnMappingRules.value, {
+        fallbackToSequential: true
+      });
 
   return {
     tableIndex: table.index,
-    projectColumnIndex: clampColumnIndex(0),
-    specificationColumnIndex: clampColumnIndex(1),
-    acceptanceColumnIndex: clampColumnIndex(2),
-    remarkColumnIndex: totalColumns > 3 ? 3 : undefined,
+    projectColumnIndex: clampColumnIndex(matchedWordColumns.projectColumnIndex ?? 0),
+    specificationColumnIndex: clampColumnIndex(
+      matchedWordColumns.specificationColumnIndex ?? 1
+    ),
+    acceptanceColumnIndex: clampColumnIndex(
+      matchedWordColumns.acceptanceColumnIndex ?? 2
+    ),
+    remarkColumnIndex:
+      matchedWordColumns.remarkColumnIndex !== undefined
+        ? clampColumnIndex(matchedWordColumns.remarkColumnIndex)
+        : totalColumns > 3
+          ? 3
+          : undefined,
     headerRowStart: usedStartRow,
     headerRowCount: 1,
     dataStartRow: usedStartRow + 1,
-    filterEmptySourceRows: true,
+    filterEmptySourceRows: undefined,
     selected,
     tableInfo: table
   };
@@ -187,16 +449,15 @@ const buildExcelTableConfig = (
 const handleFileUploaded = async (file: FileUploadResponse) => {
   invalidatePendingPreview();
   stopLlmStream();
+  resetPreviewState();
   uploadedFile.value = file;
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
   taskId.value = null;
-  strictReuseVisible.value = false;
+  lastDownloadFailed.value = false;
   loadingUploadedFileTables.value = true;
 
-  // Excel 改为手工配置，不再做自动识别；Word 仍按列映射规则自动匹配
   let tables: TableInfo[] = [];
-  let rules: ColumnMappingRule[] = [];
   let tableMetaLoaded = false;
   try {
     const tablesRes = await getFileTables(file.fileId);
@@ -209,7 +470,14 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
 
     if (file.fileType !== 1) {
       const rulesRes = await getEffectiveColumnMappingRules();
-      if (rulesRes.code === 0) rules = rulesRes.data;
+      if (rulesRes.code === 0) {
+        wordColumnMappingRules.value = rulesRes.data || [];
+      } else {
+        wordColumnMappingRules.value = [];
+        ElMessage.warning(rulesRes.message || "加载列映射规则失败，已按默认列位初始化");
+      }
+    } else {
+      wordColumnMappingRules.value = [];
     }
   } catch {
     ElMessage.warning("获取表格列表失败");
@@ -228,106 +496,9 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   if (!tableMetaLoaded) return;
 
   allTables.value = tables;
-
-  if (file.fileType === 1) {
-    batchTableConfigs.value = tables.map((t) =>
-      buildExcelTableConfig(t, tables.length === 1)
-    );
-    return;
-  }
-
-  // Word 文档仍按列映射规则自动匹配
-  batchTableConfigs.value = tables.map((t) => ({
-    tableIndex: t.index,
-    ...autoMatchColumns(t.headers, rules),
-    headerRowStart: Math.max(1, t.usedRangeStartRow ?? 1),
-    headerRowCount: 1,
-    dataStartRow: Math.max(1, t.usedRangeStartRow ?? 1) + 1,
-    filterEmptySourceRows: true,
-    selected: tables.length === 1,
-    tableInfo: t
-  }));
-};
-
-/**
- * 根据列映射规则自动匹配表头，返回各列的索引。
- * 匹配逻辑：遍历每个字段的规则（按优先级排序），逐个表头检测是否命中。
- * 未命中则回退到硬编码默认值 0/1/2/3。
- */
-const autoMatchColumns = (
-  headers: string[],
-  rules: ColumnMappingRule[]
-) => {
-  const fieldMap: Record<number, keyof ReturnType<typeof defaults>> = {
-    [ColumnMappingTargetField.Project]: "projectColumnIndex",
-    [ColumnMappingTargetField.Specification]: "specificationColumnIndex",
-    [ColumnMappingTargetField.Acceptance]: "acceptanceColumnIndex",
-    [ColumnMappingTargetField.Remark]: "remarkColumnIndex"
-  };
-
-  const defaults = () => ({
-    projectColumnIndex: 0,
-    specificationColumnIndex: 1,
-    acceptanceColumnIndex: 2,
-    remarkColumnIndex: 3 as number | undefined
-  });
-
-  const result = defaults();
-  if (headers.length === 0 || rules.length === 0) return result;
-
-  // 按 targetField 分组，组内按 priority 升序（越小越优先）
-  const rulesByField = new Map<number, ColumnMappingRule[]>();
-  for (const r of rules) {
-    if (!rulesByField.has(r.targetField)) rulesByField.set(r.targetField, []);
-    rulesByField.get(r.targetField)!.push(r);
-  }
-  for (const arr of rulesByField.values()) {
-    arr.sort((a, b) => a.priority - b.priority);
-  }
-
-  const matched = new Set<number>(); // 已被占用的列索引
-
-  for (const [targetField, fieldKey] of Object.entries(fieldMap)) {
-    const fieldRules = rulesByField.get(Number(targetField));
-    if (!fieldRules) continue;
-
-    let found = false;
-    for (const rule of fieldRules) {
-      for (let i = 0; i < headers.length; i++) {
-        if (matched.has(i)) continue;
-        if (matchHeader(headers[i], rule)) {
-          (result as any)[fieldKey] = i;
-          matched.add(i);
-          found = true;
-          break;
-        }
-      }
-      if (found) break;
-    }
-  }
-
-  return result;
-};
-
-/** 判断表头是否命中映射规则 */
-const matchHeader = (header: string, rule: ColumnMappingRule): boolean => {
-  if (!header) return false;
-  const h = header.toLowerCase();
-  const p = rule.pattern.toLowerCase();
-  switch (rule.matchMode) {
-    case ColumnMappingMatchMode.Contains:
-      return h.includes(p);
-    case ColumnMappingMatchMode.Equals:
-      return h === p;
-    case ColumnMappingMatchMode.Regex:
-      try {
-        return new RegExp(rule.pattern, "i").test(header);
-      } catch {
-        return false;
-      }
-    default:
-      return false;
-  }
+  batchTableConfigs.value = tables.map(t =>
+    buildDefaultTableConfig(t, tables.length === 1)
+  );
 };
 
 // 执行批量匹配预览
@@ -347,12 +518,21 @@ const doPreview = async () => {
     return;
   }
 
+  const prePreviewBlockingMessage = getPrePreviewBlockingMessage();
+  if (prePreviewBlockingMessage) {
+    ElMessage.warning(prePreviewBlockingMessage);
+    return;
+  }
+
+  resetPreviewState();
   batchPreviewResults.value = [];
   detailItem.value = null;
   detailVisible.value = false;
   taskId.value = null;
-  strictReuseVisible.value = false;
+  lastDownloadFailed.value = false;
   loading.value = true;
+  const previewRequestId = createPreviewRequestId();
+  startPreviewProgressPolling(previewRequestId);
   stopPreviewRequest();
   const controller = new AbortController();
   previewAbortController.value = controller;
@@ -365,6 +545,7 @@ const doPreview = async () => {
 
     const res = await batchPreviewMatch({
       fileId: uploadedFile.value.fileId,
+      previewRequestId,
       tables: selectedConfigs.map((t) => ({
         tableIndex: t.tableIndex,
         projectColumnIndex: t.projectColumnIndex,
@@ -374,7 +555,7 @@ const doPreview = async () => {
         headerRowStart: t.headerRowStart,
         headerRowCount: t.headerRowCount,
         dataStartRow: t.dataStartRow,
-        filterEmptySourceRows: t.filterEmptySourceRows
+        filterEmptySourceRows: getEffectiveFilterEmptySourceRows(t)
       })),
       customerId: scope.customerId,
       processId: scope.processId,
@@ -394,14 +575,22 @@ const doPreview = async () => {
         return;
       }
 
+      markPreviewProgressCompleted();
       batchPreviewResults.value = res.data.tables;
       if (res.data.totalMatched === 0) {
+        previewState.value = "emptyResults";
+        previewFailureDetail.value = "未找到可匹配的数据";
         ElMessage.warning("未找到可匹配的数据");
+      } else {
+        resetPreviewState();
       }
       startLlmStream();
     } else {
+      if (currentPreviewRequestId.value === previewRequestId) {
+        stopPreviewProgressPolling();
+      }
       if (requestVersion !== previewRequestVersion) return;
-      ElMessage.error(res.message || "匹配预览失败");
+      ElMessage.error(resolvePreviewFailure(res.message));
     }
   } catch (error: any) {
     if (
@@ -413,7 +602,10 @@ const doPreview = async () => {
     ) {
       return;
     }
-    ElMessage.error("匹配预览失败");
+    if (currentPreviewRequestId.value === previewRequestId) {
+      stopPreviewProgressPolling();
+    }
+    ElMessage.error(resolvePreviewFailure(error?.message));
   } finally {
     if (previewAbortController.value === controller) {
       previewAbortController.value = null;
@@ -448,11 +640,16 @@ const startLlmStream = async () => {
   stopLlmStream();
 
   if (!allPreviewItems.value.length) return;
-  if (!matchConfig.value.useLlmReview) return;
+
+  const scope = matchConfigRef.value?.getScope() ?? {
+    customerId: undefined,
+    processId: undefined,
+    machineModelId: undefined
+  };
 
   const llmItems = batchPreviewResults.value.flatMap((tableResult) =>
     tableResult.items
-      .filter(item => shouldStreamReview(item))
+      .filter(item => shouldStreamMatchReview(item.bestMatch))
       .map((item) => ({
         tableIndex: tableResult.tableIndex,
         rowIndex: item.rowIndex,
@@ -462,7 +659,8 @@ const startLlmStream = async () => {
         bestMatchScore: item.bestMatch?.score,
         scoreDetails: item.bestMatch?.scoreDetails,
         decision: item.bestMatch?.decision,
-        hasHardConflict: item.bestMatch?.hasHardConflict ?? false,
+        llmEquivalenceVerdict: item.bestMatch?.llmEquivalence?.verdict,
+        isAmbiguous: item.bestMatch?.isAmbiguous ?? false,
         evidenceSummary: item.bestMatch?.evidenceSummary ?? [],
         conflictSummary: item.bestMatch?.conflictSummary ?? []
       }))
@@ -477,27 +675,22 @@ const startLlmStream = async () => {
   llmStreamController.value = controller;
   llmStreaming.value = true;
 
-  const payload = {
+  const payload = createMatchLlmStreamRequest({
+    customerId: scope.customerId,
+    processId: scope.processId,
+    machineModelId: scope.machineModelId,
     items: llmItems,
     config: matchConfig.value
-  };
+  });
 
-    try {
-      const response = await authorizedFetch("/api/matching/llm-stream", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
+  try {
+    const response = await requestMatchLlmStream(payload, controller.signal);
 
-      if (!response.ok || !response.body) {
-      ElMessage.warning("LLM流式输出不可用，已降级");
-      if (llmStreamController.value === controller) {
-        llmStreamController.value = null;
-        llmStreaming.value = false;
-      }
+    if (!response.ok || !response.body) {
+      const message = "LLM流式输出不可用，已转为人工确认";
+      finalizeInterruptedLlmStreamRows(message);
+      stopLlmStream();
+      ElMessage.warning(message);
       return;
     }
 
@@ -536,6 +729,9 @@ const startLlmStream = async () => {
     }
   } finally {
     if (llmStreamController.value === controller) {
+      if (!controller.signal.aborted) {
+        finalizeInterruptedLlmStreamRows();
+      }
       llmStreamController.value = null;
       llmStreaming.value = false;
     }
@@ -558,67 +754,27 @@ const handleSseEvent = (raw: string) => {
 
   try {
     const data = JSON.parse(dataLines.join("\n"));
-    applySseUpdate(event, data);
+    applySseUpdate(event as MatchLlmStreamEvent, data as MatchLlmStreamEventData);
   } catch {
     // ignore malformed chunk
   }
 };
 
-const applySseUpdate = (event: string, data: any) => {
-  // 在所有表格的预览项中查找匹配的行
-  let row: MatchPreviewItem | undefined;
-  for (const tableResult of batchPreviewResults.value) {
-    if (
-      data.tableIndex !== undefined &&
-      data.tableIndex !== null &&
-      tableResult.tableIndex !== data.tableIndex
-    ) {
-      continue;
-    }
-
-    row = tableResult.items.find((item) => item.rowIndex === data.rowIndex);
-    if (row) break;
+const applySseUpdate = (
+  event: MatchLlmStreamEvent,
+  data: MatchLlmStreamEventData
+) => {
+  if (data.tableIndex === undefined || data.tableIndex === null) {
+    return;
   }
+
+  const tableResult = batchPreviewResults.value.find(
+    tableResult => tableResult.tableIndex === data.tableIndex
+  );
+  const row = tableResult?.items.find((item) => item.rowIndex === data.rowIndex);
   if (!row) return;
 
-  switch (event) {
-    case "review.start":
-      row.llmReviewDraft = "";
-      row.llmReviewError = undefined;
-      break;
-    case "review.delta":
-      row.llmReviewDraft = (row.llmReviewDraft || "") + (data.chunk || "");
-      break;
-    case "review.done":
-      if (row.bestMatch) {
-        row.bestMatch.llmScore = data.score;
-        row.bestMatch.llmReason = data.reason;
-        row.bestMatch.llmCommentary = data.commentary;
-        row.bestMatch.isLlmReviewed = true;
-        row.bestMatch.decision = data.decision || row.bestMatch.decision;
-      }
-      row.llmReviewDraft = "";
-      break;
-    case "review.error":
-      if (row.bestMatch) {
-        row.bestMatch.decision = data.decision || "manualReview";
-      }
-      row.llmReviewError = data.message || "LLM复核失败";
-      row.llmReviewDraft = "";
-      break;
-    default:
-      break;
-  }
-};
-
-const shouldStreamReview = (item: MatchPreviewItem) => {
-  return (
-    !!matchConfig.value.useLlmReview &&
-    !!item.bestMatch?.specId &&
-    item.bestMatch.decision === "manualReview" &&
-    !item.bestMatch.hasHardConflict &&
-    !item.bestMatch.isLlmReviewed
-  );
+  applyMatchLlmStreamEventToPreviewItem(row, event, data);
 };
 
 // 显示详情
@@ -636,14 +792,42 @@ const handleSelect = (
   // 可用于实时更新统计
 };
 
+const downloadTaskResult = async (currentTaskId: string) => {
+  downloadingResult.value = true;
+  try {
+    const blob = await downloadFillResult(currentTaskId);
+    const originalName = uploadedFile.value?.fileName || "filled.docx";
+    triggerBrowserDownload(blob, originalName);
+    lastDownloadFailed.value = false;
+    return true;
+  } catch {
+    lastDownloadFailed.value = true;
+    return false;
+  } finally {
+    downloadingResult.value = false;
+  }
+};
+
+const handleDownloadLastResult = async () => {
+  if (!taskId.value) return;
+  if (!ensurePermission("btn:matching:download", "权限不足，无法下载填充结果")) {
+    return;
+  }
+
+  const downloaded = await downloadTaskResult(taskId.value);
+  if (downloaded) {
+    ElMessage.success(isExcelFile.value ? "Excel 下载完成" : "结果文件下载完成");
+    return;
+  }
+
+  ElMessage.warning(isExcelFile.value ? "Excel 下载失败，请稍后重试" : "结果文件下载失败，请稍后重试");
+};
+
 // 执行填充
 const handleExecute = async () => {
   if (
     !ensurePermission("btn:matching-fill:execute-batch", "权限不足，无法执行智能填充")
   ) {
-    return;
-  }
-  if (!ensurePermission("btn:matching:download", "权限不足，无法下载填充结果")) {
     return;
   }
   if (!uploadedFile.value) return;
@@ -654,6 +838,12 @@ const handleExecute = async () => {
 
   const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
   if (selectedConfigs.length === 0) return;
+
+  const scope = matchConfigRef.value?.getScope() ?? {
+    customerId: undefined,
+    processId: undefined,
+    machineModelId: undefined
+  };
 
   // 获取各表格的选择结果
   const allSelections = batchPreviewTabsRef.value?.getAllSelections();
@@ -676,30 +866,30 @@ const handleExecute = async () => {
         headerRowStart: config.headerRowStart,
         headerRowCount: config.headerRowCount,
         dataStartRow: config.dataStartRow,
-        filterEmptySourceRows: config.filterEmptySourceRows,
+        filterEmptySourceRows: getEffectiveFilterEmptySourceRows(config),
         mappings: selections.map((s) => ({
           rowIndex: s.rowIndex,
           specId: s.specId,
-          matchScore: s.matchScore,
-          llmReviewScore: s.llmReviewScore,
-          llmEquivalenceVerdict: s.llmEquivalenceVerdict,
-          decision: s.decision,
-          manualConfirmed: s.manualConfirmed
+          manualConfirmed: s.manualConfirmed,
+          reviewApprovalToken: s.reviewApprovalToken,
+          overrideAcceptance: s.overrideAcceptance,
+          overrideRemark: s.overrideRemark
         }))
       };
     })
-    .filter(Boolean) as Array<{
+  .filter(Boolean) as Array<{
     tableIndex: number;
+    projectColumnIndex: number;
+    specificationColumnIndex: number;
     acceptanceColumnIndex: number;
     remarkColumnIndex?: number;
     mappings: Array<{
       rowIndex: number;
       specId?: number;
-      matchScore?: number;
-      llmReviewScore?: number;
-      llmEquivalenceVerdict?: LlmEquivalenceVerdict;
-      decision?: "autoApply" | "manualReview" | "reject";
       manualConfirmed?: boolean;
+      reviewApprovalToken?: string;
+      overrideAcceptance?: string;
+      overrideRemark?: string;
     }>;
   }>;
 
@@ -712,31 +902,43 @@ const handleExecute = async () => {
   try {
     const res = await batchExecuteFill({
       fileId: uploadedFile.value.fileId,
-      highConfidenceThreshold: getHighConfidenceThreshold(),
+      customerId: scope.customerId,
+      processId: scope.processId,
+      machineModelId: scope.machineModelId,
+      config: {
+        ...matchConfig.value,
+        highConfidenceThreshold: getHighConfidenceThreshold()
+      },
       tables
     });
 
     if (res.code === 0) {
       taskId.value = res.data.taskId;
-      try {
-        const blob = await downloadFillResult(res.data.taskId);
-        const originalName = uploadedFile.value.fileName || "filled.docx";
-        triggerBrowserDownload(blob, originalName);
-
-        if (isExcelFile.value) {
+      if (canDownloadFillResult.value) {
+        const downloaded = await downloadTaskResult(res.data.taskId);
+        if (downloaded) {
           ElMessage.success(
-            `填充完成，共填充 ${res.data.filledCount} 条，已写回并下载 Excel`
+            isExcelFile.value
+              ? `填充完成，共填充 ${res.data.filledCount} 条，Excel 已下载`
+              : `填充完成，共填充 ${res.data.filledCount} 条，结果文件已下载`
           );
         } else {
-          ElMessage.success(
-            `填充完成，共填充 ${res.data.filledCount} 条，已下载结果文档`
+          ElMessage.warning(
+            isExcelFile.value
+              ? "填充完成，但 Excel 下载失败，请使用下方入口重新下载结果"
+              : "填充完成，但结果文件下载失败，请使用下方入口重新下载结果"
           );
         }
-      } catch {
+      } else {
+        lastDownloadFailed.value = false;
         if (isExcelFile.value) {
-          ElMessage.warning("填充完成，但 Excel 下载失败，请重试下载");
+          ElMessage.success(
+            `填充完成，共填充 ${res.data.filledCount} 条，可稍后下载 Excel 结果`
+          );
         } else {
-          ElMessage.warning("填充完成，但结果文件下载失败，请重试");
+          ElMessage.success(
+            `填充完成，共填充 ${res.data.filledCount} 条，可稍后下载结果文件`
+          );
         }
       }
     } else {
@@ -755,6 +957,11 @@ const goNext = () => {
     if (!ensurePermission("btn:matching:preview-batch", "权限不足，无法执行匹配预览")) {
       return;
     }
+    const prePreviewBlockingMessage = getPrePreviewBlockingMessage();
+    if (prePreviewBlockingMessage) {
+      ElMessage.warning(prePreviewBlockingMessage);
+      return;
+    }
   }
   if (!canGoNext.value || currentStep.value >= steps.length - 1) return;
   currentStep.value++;
@@ -771,6 +978,7 @@ const goPrev = () => {
 const handleRestart = () => {
   invalidatePendingPreview();
   stopLlmStream();
+  resetPreviewState();
   loadingUploadedFileTables.value = false;
   currentStep.value = 0;
   uploadedFile.value = null;
@@ -778,7 +986,7 @@ const handleRestart = () => {
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
   taskId.value = null;
-  strictReuseVisible.value = false;
+  lastDownloadFailed.value = false;
   matchConfig.value = { ...defaultMatchConfig };
 };
 </script>
@@ -835,8 +1043,8 @@ const handleRestart = () => {
       <div v-show="currentStep === 1" class="step-panel">
         <h3 class="step-title">选择表格并配置列索引</h3>
         <p class="step-desc">
-          勾选需要填充的表格，并为每个表格指定各列索引（从0开始）
-          <span v-if="isExcelFile">；Excel 请按实际内容手工调整行配置并刷新表头</span>
+          勾选需要填充的表格，并为每个表格指定各列索引（从0开始）。
+          Word 会按列映射规则自动预填，Excel 仍需按实际内容手工调整并刷新表头。
         </p>
 
         <BatchTableConfig
@@ -862,6 +1070,15 @@ const handleRestart = () => {
           v-model="matchConfig"
           :allow-llm="canLlmStream"
         />
+        <el-alert
+          v-if="previewBlockingMessage"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="previewBlockingMessage"
+          :description="previewBlockingHint"
+          class="preview-blocking-alert"
+        />
       </div>
 
       <!-- 步骤4: 预览确认 -->
@@ -884,13 +1101,47 @@ const handleRestart = () => {
         <div v-if="loading" class="loading-overlay">
           <el-icon class="is-loading" :size="32"><Loading /></el-icon>
           <p class="loading-text">正在匹配中，请耐心等待...</p>
+          <div class="preview-progress-panel">
+            <div class="preview-progress-panel__header">
+              <span>{{ previewProgressStageText }}</span>
+              <span>{{ previewProgressPercent }}%</span>
+            </div>
+            <el-progress
+              :percentage="previewProgressPercent"
+              :stroke-width="10"
+              :show-text="false"
+            />
+            <div class="preview-progress-panel__meta">
+              <span>{{ previewProgressDetailText }}</span>
+              <span v-if="previewProgressCounterText">
+                {{ previewProgressCounterText }}
+              </span>
+              <span>已等待 {{ previewElapsedSeconds }} 秒</span>
+            </div>
+          </div>
           <p class="loading-hint">
             正在对 {{ selectedTableCount }} 个表格执行 Embedding
             向量匹配，视数据量可能需要数十秒
           </p>
         </div>
 
+        <el-empty
+          v-if="!loading && previewBlockingMessage"
+          :description="previewBlockingMessage"
+          class="preview-empty-state"
+        >
+          <template #description>
+            <div class="preview-empty-state__body">
+              <div class="preview-empty-state__title">{{ previewBlockingMessage }}</div>
+              <div v-if="previewBlockingHint" class="preview-empty-state__hint">
+                {{ previewBlockingHint }}
+              </div>
+            </div>
+          </template>
+        </el-empty>
+
         <BatchPreviewTabs
+          v-else
           ref="batchPreviewTabsRef"
           :results="batchPreviewResults"
           :loading="loading"
@@ -907,25 +1158,20 @@ const handleRestart = () => {
           :title="
             isExcelFile
               ? '填充完成 — 内容已回写到当前上传文档'
-              : '填充完成 — 已生成并下载结果文档（源文档保持不变）'
+              : '填充完成 — 已生成结果文档（源文档保持不变）'
+          "
+          :description="
+            lastDownloadFailed
+              ? '本次自动下载未完成，请使用下方入口重新下载结果。'
+              : canDownloadFillResult
+                ? '如需再次获取结果文件，可使用下方下载入口。'
+                : '当前账号没有下载权限，可稍后由有权限用户下载结果。'
           "
           type="success"
           show-icon
           closable
           class="fill-done-alert"
         />
-        <el-alert
-          v-if="taskId"
-          title="可将当前已确认结果应用到相同模板文件"
-          type="info"
-          :closable="false"
-          show-icon
-          class="strict-reuse-alert"
-        >
-          <template #default>
-            严格模式，不重新匹配，不调用 AI，不保存长期模板。
-          </template>
-        </el-alert>
 
         <!-- 操作按钮 -->
         <div v-if="allPreviewItems.length > 0" class="action-bar">
@@ -933,7 +1179,7 @@ const handleRestart = () => {
             重新匹配
           </el-button>
           <el-button
-            v-if="canExecuteAction"
+            v-if="canExecuteFill"
             type="primary"
             :loading="executing"
             :disabled="!!taskId || llmStreaming || loading"
@@ -942,12 +1188,11 @@ const handleRestart = () => {
             执行填充
           </el-button>
           <el-button
-            v-if="taskId && canUseStrictReuse"
-            type="primary"
-            plain
-            @click="strictReuseVisible = true"
+            v-if="taskId && canDownloadFillResult"
+            :loading="downloadingResult"
+            @click="handleDownloadLastResult"
           >
-            应用到相同验规
+            重新下载结果
           </el-button>
           <el-button v-if="taskId && canUploadSourceFile" @click="handleRestart">
             继续填充其他文档
@@ -977,16 +1222,6 @@ const handleRestart = () => {
       :item="detailItem"
       :ambiguity-margin="getAmbiguityMargin()"
       :high-confidence-threshold="getHighConfidenceThreshold()"
-    />
-    <StrictReuseDialog
-      v-if="taskId && uploadedFile"
-      v-model:visible="strictReuseVisible"
-      :source-task-id="taskId"
-      :source-file-name="uploadedFile.fileName"
-      :is-excel="isExcelFile"
-      :can-preview="canStrictReusePreview"
-      :can-execute="canStrictReuseExecute"
-      :can-download="canDownloadFillResult"
     />
   </div>
 </template>
@@ -1028,6 +1263,10 @@ const handleRestart = () => {
   margin-top: 16px;
 }
 
+.preview-blocking-alert {
+  margin-top: 16px;
+}
+
 .action-bar {
   margin-top: 20px;
   display: flex;
@@ -1038,12 +1277,30 @@ const handleRestart = () => {
   margin-top: 16px;
 }
 
-.strict-reuse-alert {
-  margin-top: 12px;
-}
-
 .llm-streaming-alert {
   margin-bottom: 12px;
+}
+
+.preview-empty-state {
+  padding: 32px 0;
+}
+
+.preview-empty-state__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preview-empty-state__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.preview-empty-state__hint {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.6;
 }
 
 .step-actions {
@@ -1071,9 +1328,40 @@ const handleRestart = () => {
   color: var(--color-text);
 }
 
+.preview-progress-panel {
+  width: min(560px, 100%);
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+}
+
+.preview-progress-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.preview-progress-panel__meta {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
 .loading-hint {
   margin-top: 8px;
   font-size: 13px;
   color: #9ca3af;
+  text-align: center;
 }
 </style>

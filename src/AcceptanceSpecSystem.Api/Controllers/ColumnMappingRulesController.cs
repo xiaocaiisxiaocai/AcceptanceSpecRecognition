@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AcceptanceSpecSystem.Api.Controllers;
 
 /// <summary>
-/// 导入列映射规则 API（全局）
+/// Word 列映射规则配置接口。
 /// </summary>
 [Route("api/column-mapping-rules")]
 [Authorize]
@@ -22,43 +22,34 @@ public class ColumnMappingRulesController : BaseApiController
         _unitOfWork = unitOfWork;
     }
 
-    /// <summary>
-    /// 获取规则列表
-    /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<List<ColumnMappingRuleDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<ColumnMappingRuleDto>>>> GetAll([FromQuery] bool? enabled = null)
     {
-        var all = await _unitOfWork.ColumnMappingRules.GetAllAsync();
+        var rules = await _unitOfWork.ColumnMappingRules.GetAllAsync();
         if (enabled.HasValue)
         {
-            all = all.Where(r => r.Enabled == enabled.Value).ToList();
+            rules = rules.Where(rule => rule.Enabled == enabled.Value).ToList();
         }
 
-        var items = all
-            .OrderBy(r => r.TargetField)
-            .ThenByDescending(r => r.Priority)
-            .ThenBy(r => r.Id)
+        var items = rules
+            .OrderBy(rule => rule.TargetField)
+            .ThenByDescending(rule => rule.Priority)
+            .ThenBy(rule => rule.Id)
             .Select(ToDto)
             .ToList();
 
         return Success(items);
     }
 
-    /// <summary>
-    /// 获取“当前生效规则”（仅全局一套）
-    /// </summary>
     [HttpGet("effective")]
     [ProducesResponseType(typeof(ApiResponse<List<ColumnMappingRuleDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<ColumnMappingRuleDto>>>> GetEffective()
     {
-        var items = await _unitOfWork.ColumnMappingRules.GetEnabledOrderedAsync();
-        return Success(items.Select(ToDto).ToList());
+        var rules = await _unitOfWork.ColumnMappingRules.GetEnabledOrderedAsync();
+        return Success(rules.Select(ToDto).ToList());
     }
 
-    /// <summary>
-    /// 新增规则
-    /// </summary>
     [HttpPost]
     [AuditOperation("create", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse<ColumnMappingRuleDto>), StatusCodes.Status200OK)]
@@ -66,13 +57,14 @@ public class ColumnMappingRulesController : BaseApiController
     {
         var pattern = request.Pattern?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(pattern))
-            return Error<ColumnMappingRuleDto>(400, "匹配词不能为空");
-
-        // Regex 基础校验：避免保存后前端/后端应用时报错
-        if (request.MatchMode == ColumnMappingMatchMode.Regex)
         {
-            try { _ = new Regex(pattern); }
-            catch (Exception ex) { return Error<ColumnMappingRuleDto>(400, $"正则表达式无效: {ex.Message}"); }
+            return Error<ColumnMappingRuleDto>(400, "匹配词不能为空");
+        }
+
+        var validationError = ValidateRegexRule(request.MatchMode, pattern);
+        if (validationError != null)
+        {
+            return Error<ColumnMappingRuleDto>(400, validationError);
         }
 
         var entity = new ColumnMappingRule
@@ -91,26 +83,29 @@ public class ColumnMappingRulesController : BaseApiController
         return Success(ToDto(entity), "创建成功");
     }
 
-    /// <summary>
-    /// 更新规则
-    /// </summary>
-    [HttpPut("{id}")]
+    [HttpPut("{id:int}")]
     [AuditOperation("update", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse<ColumnMappingRuleDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<ColumnMappingRuleDto>>> Update(int id, [FromBody] UpdateColumnMappingRuleRequest request)
+    public async Task<ActionResult<ApiResponse<ColumnMappingRuleDto>>> Update(
+        int id,
+        [FromBody] UpdateColumnMappingRuleRequest request)
     {
         var entity = await _unitOfWork.ColumnMappingRules.GetByIdAsync(id);
         if (entity == null)
+        {
             return Error<ColumnMappingRuleDto>(400, "规则不存在");
+        }
 
         var pattern = request.Pattern?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(pattern))
-            return Error<ColumnMappingRuleDto>(400, "匹配词不能为空");
-
-        if (request.MatchMode == ColumnMappingMatchMode.Regex)
         {
-            try { _ = new Regex(pattern); }
-            catch (Exception ex) { return Error<ColumnMappingRuleDto>(400, $"正则表达式无效: {ex.Message}"); }
+            return Error<ColumnMappingRuleDto>(400, "匹配词不能为空");
+        }
+
+        var validationError = ValidateRegexRule(request.MatchMode, pattern);
+        if (validationError != null)
+        {
+            return Error<ColumnMappingRuleDto>(400, validationError);
         }
 
         entity.TargetField = request.TargetField;
@@ -126,33 +121,49 @@ public class ColumnMappingRulesController : BaseApiController
         return Success(ToDto(entity), "更新成功");
     }
 
-    /// <summary>
-    /// 删除规则
-    /// </summary>
-    [HttpDelete("{id}")]
+    [HttpDelete("{id:int}")]
     [AuditOperation("delete", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
         var entity = await _unitOfWork.ColumnMappingRules.GetByIdAsync(id);
         if (entity == null)
+        {
             return Error(400, "规则不存在");
+        }
 
         _unitOfWork.ColumnMappingRules.Remove(entity);
         await _unitOfWork.SaveChangesAsync();
         return Success("删除成功");
     }
 
-    private static ColumnMappingRuleDto ToDto(ColumnMappingRule e) => new()
+    private static string? ValidateRegexRule(ColumnMappingMatchMode matchMode, string pattern)
     {
-        Id = e.Id,
-        TargetField = e.TargetField,
-        MatchMode = e.MatchMode,
-        Pattern = e.Pattern,
-        Priority = e.Priority,
-        Enabled = e.Enabled,
-        CreatedAt = e.CreatedAt,
-        UpdatedAt = e.UpdatedAt
+        if (matchMode != ColumnMappingMatchMode.Regex)
+        {
+            return null;
+        }
+
+        try
+        {
+            _ = new Regex(pattern);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return $"正则表达式无效: {ex.Message}";
+        }
+    }
+
+    private static ColumnMappingRuleDto ToDto(ColumnMappingRule entity) => new()
+    {
+        Id = entity.Id,
+        TargetField = entity.TargetField,
+        MatchMode = entity.MatchMode,
+        Pattern = entity.Pattern,
+        Priority = entity.Priority,
+        Enabled = entity.Enabled,
+        CreatedAt = entity.CreatedAt,
+        UpdatedAt = entity.UpdatedAt
     };
 }
-

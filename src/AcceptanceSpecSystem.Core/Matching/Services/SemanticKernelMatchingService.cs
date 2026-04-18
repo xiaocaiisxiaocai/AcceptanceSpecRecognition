@@ -14,38 +14,25 @@ public class SemanticKernelMatchingService : IMatchingService
 {
     private const double ScoreTieEpsilon = 1e-9;
     private const int TopCandidateLimit = 3;
-    private static readonly Regex NumericTokenRegex = new(
-        @"[<>≤≥]?\s*\d+(?:\.\d+)?(?:\s*[x×~～\-]\s*\d+(?:\.\d+)?)*(?:\s*(?:nm|um|μm|µm|mm|cm|m|mg|g|kg|nm|n|kn|mv|v|kv|ua|μa|µa|ma|a|mw|w|kw|hz|khz|mhz|ghz|ohm|kohm|mohm|kpa|mpa|ns|us|μs|µs|ms|s|min|hr|hrs|小时|秒|台|pcs|inch|in|%|℃|°))?",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex KeywordTokenRegex = new(
-        @"[A-Za-z]{2,}[A-Za-z0-9\-]*|[\u4e00-\u9fff]{2,}",
-        RegexOptions.Compiled);
-    private static readonly HashSet<string> KeywordStopWords =
-    [
-        "the", "and", "for", "with", "from", "into", "onto", "shall", "must", "need",
-        "项目", "规格", "要求", "技术", "参数", "内容", "方式", "备注", "进行", "支持", "具备", "根据"
-    ];
+    private const double ExactTextMatchThreshold = 0.99;
+    private const double NearTextMatchThreshold = 0.88;
     private readonly IEmbeddingService _embeddingService;
     private readonly IMatchEvidenceBuilder _evidenceBuilder;
-    private readonly EntitySurfaceExtractor _entitySurfaceExtractor = new();
+    private readonly ILlmCandidateRerankService? _llmCandidateRerankService;
     private readonly ILlmEquivalenceAdjudicationService? _llmEquivalenceAdjudicationService;
-    private readonly ILlmEntityResolutionService? _llmEntityResolutionService;
-    private readonly IMatchingKnowledgeProvider _knowledgeProvider;
     private readonly ILogger<SemanticKernelMatchingService> _logger;
 
     public SemanticKernelMatchingService(
         IEmbeddingService embeddingService,
         ILogger<SemanticKernelMatchingService> logger,
         IMatchEvidenceBuilder? evidenceBuilder = null,
-        IMatchingKnowledgeProvider? knowledgeProvider = null,
-        ILlmEquivalenceAdjudicationService? llmEquivalenceAdjudicationService = null,
-        ILlmEntityResolutionService? llmEntityResolutionService = null)
+        ILlmCandidateRerankService? llmCandidateRerankService = null,
+        ILlmEquivalenceAdjudicationService? llmEquivalenceAdjudicationService = null)
     {
         _embeddingService = embeddingService;
         _evidenceBuilder = evidenceBuilder ?? new MatchEvidenceBuilder();
-        _knowledgeProvider = knowledgeProvider ?? DefaultMatchingKnowledgeProvider.Instance;
+        _llmCandidateRerankService = llmCandidateRerankService;
         _llmEquivalenceAdjudicationService = llmEquivalenceAdjudicationService;
-        _llmEntityResolutionService = llmEntityResolutionService;
         _logger = logger;
     }
 
@@ -75,7 +62,8 @@ public class SemanticKernelMatchingService : IMatchingService
     public async Task<BatchMatchResult> BatchMatchAsync(
         IEnumerable<MatchSource> sources,
         IEnumerable<MatchCandidate> candidates,
-        MatchingConfig? config = null)
+        MatchingConfig? config = null,
+        IProgress<BatchMatchProgress>? progress = null)
     {
         config ??= new MatchingConfig();
         var sourceList = sources.ToList();
@@ -84,30 +72,73 @@ public class SemanticKernelMatchingService : IMatchingService
         if (sourceList.Count == 0)
             return new BatchMatchResult();
 
-        return await BatchMatchByEmbeddingAsync(sourceList, candidateList, config);
+        return await BatchMatchByEmbeddingAsync(sourceList, candidateList, config, progress);
     }
 
     /// <summary>
     /// 批量 Embedding 匹配：
     /// 步骤1 - 一次性批量生成所有源文本 Embedding
     /// 步骤2 - 一次性批量生成所有缺失候选 Embedding（复用已有缓存）
-    /// 步骤3 - 按配置对每条源文本执行单阶段或多阶段匹配
+    /// 步骤3 - 对每条源文本执行统一证据裁决
     /// </summary>
     private async Task<BatchMatchResult> BatchMatchByEmbeddingAsync(
         List<MatchSource> sourceList,
         List<MatchCandidate> candidateList,
-        MatchingConfig config)
+        MatchingConfig config,
+        IProgress<BatchMatchProgress>? progress)
     {
-        var knowledge = await _knowledgeProvider.GetKnowledgeAsync();
+        var orderedResults = new MatchResult[sourceList.Count];
+        var exactMatchLookup = BuildExactMatchLookup(candidateList);
+        var pendingSourceIndices = new List<int>(sourceList.Count);
+
+        for (var index = 0; index < sourceList.Count; index++)
+        {
+            var source = sourceList[index];
+            if (TryBuildExactMatchResult(source, exactMatchLookup, config, out var exactMatchResult))
+            {
+                orderedResults[index] = exactMatchResult;
+                continue;
+            }
+
+            pendingSourceIndices.Add(index);
+        }
+
+        var exactMatchedCount = sourceList.Count - pendingSourceIndices.Count;
+        if (exactMatchedCount > 0)
+        {
+            _logger.LogInformation(
+                "批量匹配命中 {Count} 行项目/规格精确一致，已跳过 Embedding 与 AI 裁决",
+                exactMatchedCount);
+        }
+
+        if (pendingSourceIndices.Count == 0)
+        {
+            progress?.Report(new BatchMatchProgress
+            {
+                Stage = "matching",
+                StageText = "项目/规格精确命中，已跳过语义匹配",
+                DetailText = $"共 {sourceList.Count} 行，全部命中精确匹配",
+                CompletedItems = sourceList.Count,
+                TotalItems = sourceList.Count
+            });
+
+            return new BatchMatchResult
+            {
+                Results = orderedResults.ToList()
+            };
+        }
 
         List<float[]> sourceEmbeddings;
         try
         {
             sourceEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(
-                sourceList.Select(s => s.CombinedText),
+                pendingSourceIndices.Select(index => sourceList[index].CombinedText),
                 config.EmbeddingServiceId);
-            EnsureEmbeddingBatchPayload(sourceEmbeddings, sourceList.Count, "源文本");
-            _logger.LogInformation("批量生成 {Count} 个源文本 Embedding 完成", sourceList.Count);
+            EnsureEmbeddingBatchPayload(sourceEmbeddings, pendingSourceIndices.Count, "源文本");
+            _logger.LogInformation(
+                "批量生成 {Count} 个源文本 Embedding 完成（精确命中直达 {ExactCount} 行）",
+                pendingSourceIndices.Count,
+                exactMatchedCount);
         }
         catch (AiServiceUnavailableException)
         {
@@ -121,22 +152,54 @@ public class SemanticKernelMatchingService : IMatchingService
 
         await EnsureCandidateEmbeddingsAsync(candidateList, config);
 
-        var result = new BatchMatchResult();
-        for (var s = 0; s < sourceList.Count; s++)
-        {
-            var source = sourceList[s];
-            var sourceEmbedding = s < sourceEmbeddings.Count ? sourceEmbeddings[s] : Array.Empty<float>();
-            var eligibleCandidates = EvaluateCandidates(source, sourceEmbedding, candidateList, config);
-            var strategy = config.MatchingStrategy;
-            MatchResult? match = strategy switch
-            {
-                MatchingStrategy.MultiStage => await SelectBestByMultiStageAsync(source, eligibleCandidates, config, knowledge),
-                _ => SelectBestBySingleStage(source, eligibleCandidates, config)
-            };
-            result.Results.Add(match ?? CreateEmptyResult(source, strategy));
-        }
+        var completedItems = exactMatchedCount;
+        var maxParallelism = Math.Clamp(config.LlmParallelism, 1, 10);
 
-        return result;
+        progress?.Report(new BatchMatchProgress
+        {
+            Stage = "matching",
+            StageText = "正在逐行执行匹配与 AI 裁决",
+            DetailText = exactMatchedCount > 0
+                ? $"精确命中 {exactMatchedCount} 行，剩余 {pendingSourceIndices.Count} 行执行语义匹配"
+                : $"共 {sourceList.Count} 行待处理",
+            CompletedItems = exactMatchedCount,
+            TotalItems = sourceList.Count
+        });
+
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, pendingSourceIndices.Count),
+            new ParallelOptions
+            {
+                MaxDegreeOfParallelism = maxParallelism
+            },
+            async (offset, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var index = pendingSourceIndices[offset];
+                var source = sourceList[index];
+                var sourceEmbedding = offset < sourceEmbeddings.Count
+                    ? sourceEmbeddings[offset]
+                    : Array.Empty<float>();
+                var eligibleCandidates = EvaluateCandidates(source, sourceEmbedding, candidateList, config);
+                var match = await SelectBestCandidateAsync(source, eligibleCandidates, config);
+                orderedResults[index] = match ?? CreateEmptyResult(source);
+
+                var completed = Interlocked.Increment(ref completedItems);
+                progress?.Report(new BatchMatchProgress
+                {
+                    Stage = "matching",
+                    StageText = "正在逐行执行匹配与 AI 裁决",
+                    DetailText = $"已完成 {completed}/{sourceList.Count} 行",
+                    CompletedItems = completed,
+                    TotalItems = sourceList.Count
+                });
+            });
+
+        return new BatchMatchResult
+        {
+            Results = orderedResults.ToList()
+        };
     }
 
     private async Task EnsureCandidateEmbeddingsAsync(List<MatchCandidate> candidateList, MatchingConfig config)
@@ -181,6 +244,98 @@ public class SemanticKernelMatchingService : IMatchingService
             missingIndices.Count, candidateList.Count, candidateList.Count - missingIndices.Count);
     }
 
+    private Dictionary<string, MatchCandidate> BuildExactMatchLookup(IEnumerable<MatchCandidate> candidateList)
+    {
+        var lookup = new Dictionary<string, MatchCandidate>(StringComparer.Ordinal);
+        foreach (var candidate in candidateList)
+        {
+            var key = BuildExactMatchKey(candidate.Project, candidate.Specification);
+            if (lookup.TryGetValue(key, out var existing) && !ShouldReplaceExactMatchCandidate(existing, candidate))
+            {
+                continue;
+            }
+
+            lookup[key] = candidate;
+        }
+
+        return lookup;
+    }
+
+    private bool TryBuildExactMatchResult(
+        MatchSource source,
+        IReadOnlyDictionary<string, MatchCandidate> exactMatchLookup,
+        MatchingConfig config,
+        out MatchResult result)
+    {
+        var key = BuildExactMatchKey(source.Project, source.Specification);
+        if (!exactMatchLookup.TryGetValue(key, out var candidate))
+        {
+            result = null!;
+            return false;
+        }
+
+        var exactCandidate = new EvaluatedCandidate
+        {
+            Source = source,
+            Candidate = candidate,
+            EmbeddingScore = 1.0,
+            ProjectScore = 1.0,
+            SpecificationTextScore = 1.0,
+            FinalScore = 1.0
+        };
+
+        exactCandidate.Evidence = _evidenceBuilder.Build(source, candidate);
+        exactCandidate.NumericScore = ComputeNumericScore(source, exactCandidate);
+        exactCandidate.Issues = BuildCandidateIssues(source, exactCandidate);
+        exactCandidate.FinalScore = ComputeFinalScore(exactCandidate);
+        exactCandidate.LlmEquivalence = CreateExactMatchEquivalenceResult();
+        exactCandidate.SelectionMode = MatchSelectionMode.ExactShortcut;
+        exactCandidate.SelectionSummary = "项目与规格精确一致，直接命中";
+        exactCandidate.RerankSummary = AppendEquivalenceSummary(
+            BuildRerankSummary(exactCandidate),
+            exactCandidate.LlmEquivalence);
+
+        result = BuildMatchResult(
+            exactCandidate,
+            recalledCandidateCount: 1,
+            isAmbiguous: false,
+            scoreGap: null,
+            config.HighConfidenceThreshold,
+            orderedCandidates: [exactCandidate]);
+        return true;
+    }
+
+    private static LlmEquivalenceAdjudicationResult CreateExactMatchEquivalenceResult()
+    {
+        return new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 1,
+            Reason = "项目与规格文本完全一致，已直接视为等价"
+        };
+    }
+
+    private static bool ShouldReplaceExactMatchCandidate(MatchCandidate current, MatchCandidate incoming)
+    {
+        if (HasText(incoming.Acceptance) != HasText(current.Acceptance))
+        {
+            return HasText(incoming.Acceptance);
+        }
+
+        if (HasText(incoming.Remark) != HasText(current.Remark))
+        {
+            return HasText(incoming.Remark);
+        }
+
+        return incoming.SpecId > current.SpecId;
+    }
+
+    private static string BuildExactMatchKey(string? project, string? specification)
+    {
+        return $"{NormalizeComparableText(project)}\n{NormalizeComparableText(specification)}";
+    }
+
     private List<EvaluatedCandidate> EvaluateCandidates(
         MatchSource source,
         float[] sourceEmbedding,
@@ -199,9 +354,9 @@ public class SemanticKernelMatchingService : IMatchingService
 
             if (!ShouldKeepCandidate(
                     embeddingScore,
-                    config.MinScoreThreshold,
                     projectScore,
-                    specificationTextScore))
+                    specificationTextScore,
+                    config.MinScoreThreshold))
             {
                 continue;
             }
@@ -220,11 +375,10 @@ public class SemanticKernelMatchingService : IMatchingService
         return evaluations;
     }
 
-    private async Task<MatchResult?> SelectBestByMultiStageAsync(
+    private async Task<MatchResult?> SelectBestCandidateAsync(
         MatchSource source,
         List<EvaluatedCandidate> eligibleCandidates,
-        MatchingConfig config,
-        MatchingKnowledge knowledge)
+        MatchingConfig config)
     {
         var recallTopK = Math.Clamp(config.RecallTopK, 1, MatchingThresholds.MaxRecallTopK);
         var recalled = OrderByEmbedding(eligibleCandidates)
@@ -236,35 +390,17 @@ public class SemanticKernelMatchingService : IMatchingService
 
         foreach (var candidate in recalled)
         {
-            candidate.Evidence = _evidenceBuilder.Build(source, candidate.Candidate, knowledge);
+            candidate.Evidence = _evidenceBuilder.Build(source, candidate.Candidate);
             candidate.NumericScore = ComputeNumericScore(source, candidate);
-            candidate.KeywordScore = ComputeKeywordScore(source.Specification, candidate.Candidate.Specification);
-            candidate.ConflictPenalty = ComputeConflictPenalty(source, candidate, knowledge);
-            candidate.HasLooseNumericMismatch = HasLooseNumericMismatch(source, candidate);
             candidate.Issues = BuildCandidateIssues(source, candidate);
             candidate.FinalScore = ComputeFinalScore(candidate);
             candidate.RerankSummary = BuildRerankSummary(candidate);
+            candidate.SelectionMode = MatchSelectionMode.EmbeddingTop1;
         }
 
-        if (config.UseLlmEntityResolution && _llmEntityResolutionService != null)
-        {
-            var entityTopCandidates = OrderByFinal(recalled)
-                .Take(Math.Clamp(config.LlmEntityResolutionTopCandidates, 1, MatchingThresholds.MaxLlmEntityResolutionTopCandidates))
-                .ToList();
-
-            await ApplyLlmEntityResolutionAsync(source, entityTopCandidates, config, knowledge);
-
-            foreach (var candidate in recalled)
-            {
-                candidate.ConflictPenalty = ComputeConflictPenalty(source, candidate, knowledge);
-                candidate.Issues = BuildCandidateIssues(source, candidate);
-                candidate.FinalScore = ComputeFinalScore(candidate);
-                candidate.RerankSummary = BuildRerankSummary(candidate);
-            }
-        }
-
-        var ordered = OrderByFinal(recalled).ToList();
-        var best = ordered[0];
+        var locallyOrdered = OrderByFinal(recalled).ToList();
+        var best = await SelectCurrentBestCandidateAsync(source, locallyOrdered, config);
+        var ordered = ReorderSelectedCandidateFirst(locallyOrdered, best);
 
         await ApplyLlmEquivalenceAdjudicationAsync(source, best, config);
 
@@ -278,8 +414,79 @@ public class SemanticKernelMatchingService : IMatchingService
             isAmbiguous,
             scoreGap,
             config.HighConfidenceThreshold,
-            MatchingStrategy.MultiStage,
             orderedCandidates: ordered);
+    }
+
+    private async Task<EvaluatedCandidate> SelectCurrentBestCandidateAsync(
+        MatchSource source,
+        IReadOnlyList<EvaluatedCandidate> orderedCandidates,
+        MatchingConfig config)
+    {
+        var localBest = orderedCandidates[0];
+        localBest.SelectionSummary ??= "沿用本地 Top1 排序结果";
+
+        if (_llmCandidateRerankService == null || orderedCandidates.Count <= 1)
+        {
+            return localBest;
+        }
+
+        try
+        {
+            var rerankResult = await _llmCandidateRerankService.RerankAsync(
+                new LlmCandidateRerankRequest
+                {
+                    SourceProject = source.Project,
+                    SourceSpecification = source.Specification,
+                    CurrentTopCandidateSpecId = localBest.Candidate.SpecId,
+                    LlmServiceId = config.LlmServiceId,
+                    Candidates = orderedCandidates
+                        .Select((candidate, index) => new LlmCandidateRerankCandidate
+                        {
+                            Rank = index + 1,
+                            SpecId = candidate.Candidate.SpecId,
+                            Project = candidate.Candidate.Project,
+                            Specification = candidate.Candidate.Specification,
+                            EmbeddingScore = candidate.EmbeddingScore,
+                            FinalScore = candidate.FinalScore,
+                            ScoreDetails = CreateScoreDetails(candidate),
+                            EvidenceSummary = [.. (candidate.Evidence?.Summary ?? [])],
+                            ConflictSummary = [.. (candidate.Evidence?.Conflicts ?? [])]
+                        })
+                        .ToList()
+                });
+
+            if (rerankResult == null)
+            {
+                localBest.SelectionSummary = "AI 重排未返回有效结果，已沿用本地 Top1";
+                return localBest;
+            }
+
+            var selected = orderedCandidates.FirstOrDefault(candidate =>
+                candidate.Candidate.SpecId == rerankResult.SelectedSpecId);
+            if (selected == null)
+            {
+                localBest.SelectionSummary = "AI 重排返回非法候选，已沿用本地 Top1";
+                return localBest;
+            }
+
+            if (selected.Candidate.SpecId == localBest.Candidate.SpecId)
+            {
+                localBest.SelectionSummary = string.IsNullOrWhiteSpace(rerankResult.Reason)
+                    ? "AI 重排确认沿用本地 Top1"
+                    : $"AI 重排确认沿用本地 Top1：{rerankResult.Reason}";
+                return localBest;
+            }
+
+            selected.SelectionMode = MatchSelectionMode.AiRerank;
+            selected.SelectionSummary = BuildAiRerankSelectionSummary(orderedCandidates, selected, rerankResult);
+            return selected;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI 候选重排失败，已沿用本地 Top1");
+            localBest.SelectionSummary = "AI 重排失败，已沿用本地 Top1";
+            return localBest;
+        }
     }
 
     private async Task ApplyLlmEquivalenceAdjudicationAsync(
@@ -288,7 +495,6 @@ public class SemanticKernelMatchingService : IMatchingService
         MatchingConfig config)
     {
         if (_llmEquivalenceAdjudicationService == null ||
-            !config.UseLlmReview ||
             !ShouldRunLlmEquivalenceAdjudication(best, config))
         {
             return;
@@ -304,7 +510,7 @@ public class SemanticKernelMatchingService : IMatchingService
                     CandidateProject = best.Candidate.Project,
                     CandidateSpecification = best.Candidate.Specification,
                     CurrentDecision = "manualReview",
-                    ScoreDetails = CreateScoreDetails(best, MatchingStrategy.MultiStage),
+                    ScoreDetails = CreateScoreDetails(best),
                     EvidenceSummary = [.. (best.Evidence?.Summary ?? [])],
                     ConflictSummary = [.. (best.Evidence?.Conflicts ?? [])],
                     LlmServiceId = config.LlmServiceId
@@ -330,82 +536,6 @@ public class SemanticKernelMatchingService : IMatchingService
                 Reason = "AI 等价裁决失败，已回退为人工确认"
             };
             best.RerankSummary = AppendEquivalenceSummary(best.RerankSummary, best.LlmEquivalence);
-        }
-    }
-
-    private static MatchResult? SelectBestBySingleStage(
-        MatchSource source,
-        List<EvaluatedCandidate> eligibleCandidates,
-        MatchingConfig config)
-    {
-        var ordered = OrderByEmbedding(eligibleCandidates).ToList();
-        if (ordered.Count == 0)
-        {
-            return null;
-        }
-
-        var best = ordered[0];
-        best.FinalScore = best.EmbeddingScore;
-        best.RerankSummary = null;
-        best.Issues = [];
-        best.Evidence = new MatchEvidence();
-
-        return BuildMatchResult(
-            best,
-            recalledCandidateCount: 1,
-            isAmbiguous: false,
-            scoreGap: null,
-            highConfidenceThreshold: config.HighConfidenceThreshold,
-            strategy: MatchingStrategy.SingleStage,
-            orderedCandidates: ordered);
-    }
-
-    private async Task ApplyLlmEntityResolutionAsync(
-        MatchSource source,
-        IReadOnlyList<EvaluatedCandidate> candidates,
-        MatchingConfig config,
-        MatchingKnowledge knowledge)
-    {
-        var sourceSurface = _entitySurfaceExtractor.Extract(source.CombinedText, knowledge);
-        if (sourceSurface == null)
-        {
-            return;
-        }
-
-        foreach (var candidate in candidates)
-        {
-            if (candidate.Evidence?.HasHardConflict == true)
-            {
-                continue;
-            }
-
-            if (candidate.Evidence?.Entities.Count > 0)
-            {
-                continue;
-            }
-
-            var candidateSurface = _entitySurfaceExtractor.Extract(candidate.Candidate.CombinedText, knowledge);
-            if (candidateSurface == null)
-            {
-                continue;
-            }
-
-            var resolution = await _llmEntityResolutionService!.ResolveAsync(
-                new LlmEntityResolutionRequest
-                {
-                    SourceEntity = sourceSurface.Raw,
-                    CandidateEntity = candidateSurface.Raw,
-                    SourceText = source.CombinedText,
-                    CandidateText = candidate.Candidate.CombinedText,
-                    LlmServiceId = config.LlmServiceId
-                });
-
-            if (resolution == null)
-            {
-                continue;
-            }
-
-            ApplyEntityResolution(candidate, sourceSurface, candidateSurface, resolution, config);
         }
     }
 
@@ -438,10 +568,9 @@ public class SemanticKernelMatchingService : IMatchingService
         bool isAmbiguous,
         double? scoreGap,
         double highConfidenceThreshold,
-        MatchingStrategy strategy,
         IReadOnlyList<EvaluatedCandidate> orderedCandidates)
     {
-        var scoreDetails = CreateScoreDetails(candidate, strategy);
+        var scoreDetails = CreateScoreDetails(candidate);
 
         return new MatchResult
         {
@@ -457,19 +586,20 @@ public class SemanticKernelMatchingService : IMatchingService
             ScoreDetails = scoreDetails,
             Evidence = candidate.Evidence ?? new MatchEvidence(),
             Issues = candidate.Issues ?? [],
-            MatchingStrategy = strategy,
             RecalledCandidateCount = recalledCandidateCount,
             IsAmbiguous = isAmbiguous,
             ScoreGap = scoreGap,
-            RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null,
-            Decision = DetermineDecision(candidate, isAmbiguous, highConfidenceThreshold),
+            RerankSummary = candidate.RerankSummary,
+            SelectionMode = candidate.SelectionMode,
+            SelectionSummary = candidate.SelectionSummary,
+            Decision = DetermineDecision(candidate, isAmbiguous),
             HighConfidenceThreshold = MatchingThresholds.NormalizeHighConfidenceThreshold(highConfidenceThreshold),
-            TopCandidates = BuildTopCandidates(orderedCandidates, strategy),
+            TopCandidates = BuildTopCandidates(orderedCandidates),
             LlmEquivalence = candidate.LlmEquivalence
         };
     }
 
-    private static MatchResult CreateEmptyResult(MatchSource source, MatchingStrategy strategy)
+    private static MatchResult CreateEmptyResult(MatchSource source)
     {
         return new MatchResult
         {
@@ -479,37 +609,24 @@ public class SemanticKernelMatchingService : IMatchingService
             Evidence = new MatchEvidence(),
             Issues = [],
             Decision = MatchDecision.ManualReview,
-            MatchingStrategy = strategy,
             RecalledCandidateCount = 0,
             IsAmbiguous = false
         };
     }
 
-    private static Dictionary<string, double> CreateScoreDetails(
-        EvaluatedCandidate candidate,
-        MatchingStrategy strategy)
+    private static Dictionary<string, double> CreateScoreDetails(EvaluatedCandidate candidate)
     {
-        var scoreDetails = new Dictionary<string, double>
+        return new Dictionary<string, double>
         {
-            ["Embedding"] = candidate.EmbeddingScore
+            ["Embedding"] = candidate.EmbeddingScore,
+            ["Final"] = candidate.FinalScore,
+            ["ProjectMatch"] = candidate.ProjectScore,
+            ["SpecificationText"] = candidate.SpecificationTextScore,
+            ["NumberUnit"] = candidate.NumericScore
         };
-
-        if (strategy == MatchingStrategy.MultiStage)
-        {
-            scoreDetails["Final"] = candidate.FinalScore;
-            scoreDetails["ProjectMatch"] = candidate.ProjectScore;
-            scoreDetails["SpecificationText"] = candidate.SpecificationTextScore;
-            scoreDetails["NumberUnit"] = candidate.NumericScore;
-            scoreDetails["KeywordOverlap"] = candidate.KeywordScore;
-            scoreDetails["ConflictPenalty"] = candidate.ConflictPenalty;
-        }
-
-        return scoreDetails;
     }
 
-    private static List<MatchCandidateSnapshot> BuildTopCandidates(
-        IReadOnlyList<EvaluatedCandidate> orderedCandidates,
-        MatchingStrategy strategy)
+    private static List<MatchCandidateSnapshot> BuildTopCandidates(IReadOnlyList<EvaluatedCandidate> orderedCandidates)
     {
         return orderedCandidates
             .Take(TopCandidateLimit)
@@ -523,13 +640,31 @@ public class SemanticKernelMatchingService : IMatchingService
                 Remark = candidate.Candidate.Remark,
                 Score = candidate.FinalScore,
                 EmbeddingScore = candidate.EmbeddingScore,
-                ScoreDetails = CreateScoreDetails(candidate, strategy),
+                ScoreDetails = CreateScoreDetails(candidate),
                 Evidence = candidate.Evidence ?? new MatchEvidence(),
                 Issues = candidate.Issues ?? [],
-                RerankSummary = strategy == MatchingStrategy.MultiStage ? candidate.RerankSummary : null,
+                RerankSummary = candidate.RerankSummary,
+                SelectionMode = candidate.SelectionMode,
+                SelectionSummary = candidate.SelectionSummary,
                 LlmEquivalence = candidate.LlmEquivalence
             })
             .ToList();
+    }
+
+    private static List<EvaluatedCandidate> ReorderSelectedCandidateFirst(
+        IReadOnlyList<EvaluatedCandidate> orderedCandidates,
+        EvaluatedCandidate selected)
+    {
+        var reordered = orderedCandidates.ToList();
+        var selectedIndex = reordered.FindIndex(candidate => candidate.Candidate.SpecId == selected.Candidate.SpecId);
+        if (selectedIndex <= 0)
+        {
+            return reordered;
+        }
+
+        reordered.RemoveAt(selectedIndex);
+        reordered.Insert(0, selected);
+        return reordered;
     }
 
     private static double ComputeFinalScore(EvaluatedCandidate candidate)
@@ -538,9 +673,7 @@ public class SemanticKernelMatchingService : IMatchingService
             candidate.EmbeddingScore * 0.55 +
             candidate.ProjectScore * 0.15 +
             candidate.SpecificationTextScore * 0.15 +
-            candidate.NumericScore * 0.10 +
-            candidate.KeywordScore * 0.05 -
-            candidate.ConflictPenalty * 0.15;
+            candidate.NumericScore * 0.15;
 
         return Math.Clamp(finalScore, 0, 1);
     }
@@ -563,45 +696,21 @@ public class SemanticKernelMatchingService : IMatchingService
             candidate.Contains(source, StringComparison.OrdinalIgnoreCase))
             return 0.85;
 
-        var sourceTokens = ExtractKeywordTokens(sourceProject);
-        var candidateTokens = ExtractKeywordTokens(candidateProject);
-        return ComputeOverlapRatio(sourceTokens, candidateTokens);
+        return 0;
     }
 
     private static double ComputeNumericScore(MatchSource source, EvaluatedCandidate candidate)
     {
-        var evidence = candidate.Evidence;
-        if (evidence?.NumericConstraints.Count > 0)
-        {
-            if (evidence.NumericConstraints.Any(item => item.Relation == EvidenceRelation.Conflict))
-                return 0.0;
-
-            if (evidence.NumericConstraints.Any(item =>
-                    item.Relation is EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
-                return 0.6;
-
-            return 1.0;
-        }
-
         var sourceText = NormalizeComparableText(source.Specification);
         var candidateText = NormalizeComparableText(candidate.Candidate.Specification);
+
+        if (string.IsNullOrWhiteSpace(sourceText) && string.IsNullOrWhiteSpace(candidateText))
+            return 1.0;
 
         if (!string.IsNullOrWhiteSpace(sourceText) && sourceText == candidateText)
             return 1.0;
 
-        var sourceTokens = ExtractNumericTokens(source.Specification);
-        var candidateTokens = ExtractNumericTokens(candidate.Candidate.Specification);
-
-        if (sourceTokens.Count == 0 && candidateTokens.Count == 0)
-            return 0.5;
-
-        if (sourceTokens.Count == 0)
-            return 0.5;
-
-        if (candidateTokens.Count == 0)
-            return 0;
-
-        return ComputeOverlapRatio(sourceTokens, candidateTokens);
+        return 0.5;
     }
 
     private static double ComputeSpecificationTextScore(string sourceSpecification, string candidateSpecification)
@@ -621,83 +730,6 @@ public class SemanticKernelMatchingService : IMatchingService
         if (source.Contains(candidate, StringComparison.OrdinalIgnoreCase) ||
             candidate.Contains(source, StringComparison.OrdinalIgnoreCase))
             return 0.88;
-
-        var sourceTokens = ExtractKeywordTokens(sourceSpecification);
-        var candidateTokens = ExtractKeywordTokens(candidateSpecification);
-        return ComputeOverlapRatio(sourceTokens, candidateTokens);
-    }
-
-    private static double ComputeKeywordScore(string sourceSpecification, string candidateSpecification)
-    {
-        var source = NormalizeComparableText(sourceSpecification);
-        var candidate = NormalizeComparableText(candidateSpecification);
-
-        if (!string.IsNullOrWhiteSpace(source) && source == candidate)
-            return 1.0;
-
-        var sourceTokens = ExtractKeywordTokens(sourceSpecification);
-        var candidateTokens = ExtractKeywordTokens(candidateSpecification);
-
-        if (sourceTokens.Count == 0 && candidateTokens.Count == 0)
-            return 0.5;
-
-        if (sourceTokens.Count == 0 || candidateTokens.Count == 0)
-            return 0;
-
-        return ComputeOverlapRatio(sourceTokens, candidateTokens);
-    }
-
-    private static double ComputeConflictPenalty(MatchSource source, EvaluatedCandidate candidate, MatchingKnowledge knowledge)
-    {
-        if (candidate.Evidence?.HasHardConflict == true)
-            return 1.0;
-
-        var sourceText = NormalizeComparableText($"{source.Project} {source.Specification}");
-        var candidateText = NormalizeComparableText($"{candidate.Candidate.Project} {candidate.Candidate.Specification}");
-
-        foreach (var (left, right) in knowledge.ConflictPairs)
-        {
-            var sourceHasLeft = sourceText.Contains(left, StringComparison.OrdinalIgnoreCase);
-            var sourceHasRight = sourceText.Contains(right, StringComparison.OrdinalIgnoreCase);
-            var candidateHasLeft = candidateText.Contains(left, StringComparison.OrdinalIgnoreCase);
-            var candidateHasRight = candidateText.Contains(right, StringComparison.OrdinalIgnoreCase);
-
-            if (sourceHasLeft && !sourceHasRight && candidateHasRight && !candidateHasLeft)
-            {
-                candidate.Evidence ??= new MatchEvidence();
-                candidate.Evidence.HasHardConflict = true;
-                candidate.Evidence.Conflicts.Add($"冲突词对冲突：{left} vs {right}");
-                candidate.Evidence.Issues.Add(new MatchIssue
-                {
-                    Code = "conflict_pair_conflict",
-                    Severity = "high",
-                    FieldName = "方向/动作",
-                    SourceValue = left,
-                    CandidateValue = right,
-                    Message = $"存在冲突语义：源项为 {left}，候选为 {right}，方向或动作相反",
-                    SuggestedAction = "请人工确认方向或动作语义，避免执行相反操作"
-                });
-                return 1.0;
-            }
-
-            if (sourceHasRight && !sourceHasLeft && candidateHasLeft && !candidateHasRight)
-            {
-                candidate.Evidence ??= new MatchEvidence();
-                candidate.Evidence.HasHardConflict = true;
-                candidate.Evidence.Conflicts.Add($"冲突词对冲突：{right} vs {left}");
-                candidate.Evidence.Issues.Add(new MatchIssue
-                {
-                    Code = "conflict_pair_conflict",
-                    Severity = "high",
-                    FieldName = "方向/动作",
-                    SourceValue = right,
-                    CandidateValue = left,
-                    Message = $"存在冲突语义：源项为 {right}，候选为 {left}，方向或动作相反",
-                    SuggestedAction = "请人工确认方向或动作语义，避免执行相反操作"
-                });
-                return 1.0;
-            }
-        }
 
         return 0;
     }
@@ -719,142 +751,28 @@ public class SemanticKernelMatchingService : IMatchingService
         else if (candidate.SpecificationTextScore >= 0.75)
             reasons.Add("规格文本接近");
 
-        if (candidate.NumericScore >= 0.99)
-            reasons.Add("数值单位一致");
-        else if (candidate.NumericScore >= 0.60)
-            reasons.Add("数值单位部分匹配");
-
-        if (candidate.HasLooseNumericMismatch)
-            reasons.Add("数值片段存在差异");
-
-        if (candidate.KeywordScore >= 0.60)
-            reasons.Add("关键词重合高");
-
-        if (candidate.ConflictPenalty > 0)
-            reasons.Add("存在冲突词已降权");
-
         if (reasons.Count == 0)
             reasons.Add("主要依据Embedding排序");
 
         return string.Join("；", reasons);
     }
 
-    private static void ApplyEntityResolution(
-        EvaluatedCandidate candidate,
-        EntitySurfaceCandidate sourceSurface,
-        EntitySurfaceCandidate candidateSurface,
-        LlmEntityResolutionResult resolution,
-        MatchingConfig config)
+    private static void RefreshCandidateScores(MatchSource source, IReadOnlyList<EvaluatedCandidate> candidates)
     {
-        candidate.Evidence ??= new MatchEvidence();
-
-        var confidence = Math.Clamp(resolution.Confidence, 0, 1);
-        if (resolution.Relation is LlmEntityRelation.Same or LlmEntityRelation.AliasSame &&
-            confidence >= config.LlmEntityPositiveConfidenceThreshold)
+        foreach (var candidate in candidates)
         {
-            var relation = resolution.Relation == LlmEntityRelation.Same
-                ? EvidenceRelation.Exact
-                : EvidenceRelation.AliasSame;
-            var normalizedEntity = string.IsNullOrWhiteSpace(resolution.NormalizedEntity)
-                ? candidateSurface.Normalized
-                : resolution.NormalizedEntity.Trim();
-
-            candidate.Evidence.Entities.Add(new EntityEvidence
-            {
-                SourceValue = sourceSurface.Raw,
-                CandidateValue = candidateSurface.Raw,
-                NormalizedSourceValue = normalizedEntity,
-                NormalizedCandidateValue = normalizedEntity,
-                Relation = relation
-            });
-            candidate.Evidence.Summary.Add($"实体同一：{normalizedEntity}");
-            return;
+            candidate.Issues = BuildCandidateIssues(source, candidate);
+            candidate.FinalScore = ComputeFinalScore(candidate);
+            candidate.RerankSummary = BuildRerankSummary(candidate);
         }
-
-        if (resolution.Relation == LlmEntityRelation.Conflict &&
-            confidence >= config.LlmEntityConflictRejectConfidenceThreshold)
-        {
-            candidate.Evidence.Entities.Add(new EntityEvidence
-            {
-                SourceValue = sourceSurface.Raw,
-                CandidateValue = candidateSurface.Raw,
-                NormalizedSourceValue = sourceSurface.Normalized,
-                NormalizedCandidateValue = candidateSurface.Normalized,
-                Relation = EvidenceRelation.Conflict
-            });
-            candidate.Evidence.HasHardConflict = true;
-            candidate.Evidence.Conflicts.Add($"实体冲突：{sourceSurface.Raw} vs {candidateSurface.Raw}");
-            candidate.Evidence.Issues.Add(new MatchIssue
-            {
-                Code = "entity_conflict",
-                Severity = "high",
-                FieldName = "实体",
-                SourceValue = sourceSurface.Raw,
-                CandidateValue = candidateSurface.Raw,
-                Message = $"品牌/实体不一致：源项为 {sourceSurface.Raw}，候选为 {candidateSurface.Raw}，无法自动采用",
-                SuggestedAction = "请人工确认品牌或组织实体，避免带入错误对象"
-            });
-            return;
-        }
-
-        if (resolution.Relation == LlmEntityRelation.Conflict &&
-            confidence >= config.LlmEntityConflictReviewConfidenceThreshold)
-        {
-            candidate.Evidence.Entities.Add(new EntityEvidence
-            {
-                SourceValue = sourceSurface.Raw,
-                CandidateValue = candidateSurface.Raw,
-                NormalizedSourceValue = sourceSurface.Normalized,
-                NormalizedCandidateValue = candidateSurface.Normalized,
-                Relation = EvidenceRelation.Conflict
-            });
-            candidate.Evidence.Warnings.Add($"实体冲突待确认：{sourceSurface.Raw} vs {candidateSurface.Raw}");
-            candidate.Evidence.Issues.Add(new MatchIssue
-            {
-                Code = "entity_conflict_suspected",
-                Severity = "warning",
-                FieldName = "实体",
-                SourceValue = sourceSurface.Raw,
-                CandidateValue = candidateSurface.Raw,
-                Message = $"品牌/实体疑似不一致：源项为 {sourceSurface.Raw}，候选为 {candidateSurface.Raw}，需要人工确认",
-                SuggestedAction = "请人工确认品牌或组织实体，避免带入错误对象"
-            });
-            return;
-        }
-
-        candidate.Evidence.Entities.Add(new EntityEvidence
-        {
-            SourceValue = sourceSurface.Raw,
-            CandidateValue = candidateSurface.Raw,
-            NormalizedSourceValue = sourceSurface.Normalized,
-            NormalizedCandidateValue = candidateSurface.Normalized,
-            Relation = EvidenceRelation.PossiblyRelated
-        });
-        candidate.Evidence.Warnings.Add($"实体关系待确认：{sourceSurface.Raw} vs {candidateSurface.Raw}");
-        candidate.Evidence.Issues.Add(new MatchIssue
-        {
-            Code = "entity_unknown",
-            Severity = "warning",
-            FieldName = "实体",
-            SourceValue = sourceSurface.Raw,
-            CandidateValue = candidateSurface.Raw,
-            Message = $"未能确认 {sourceSurface.Raw} 与 {candidateSurface.Raw} 是否为同一品牌/实体，需要人工确认",
-            SuggestedAction = "请人工确认品牌或组织实体"
-        });
     }
 
-    private static MatchDecision DetermineDecision(EvaluatedCandidate candidate, bool isAmbiguous, double highConfidenceThreshold)
+    private static MatchDecision DetermineDecision(EvaluatedCandidate candidate, bool isAmbiguous)
     {
-        if (candidate.Evidence?.HasHardConflict == true)
-            return MatchDecision.Reject;
-
         if (candidate.LlmEquivalence?.Verdict is LlmEquivalenceVerdict.Different or LlmEquivalenceVerdict.Uncertain)
             return MatchDecision.ManualReview;
 
         if (RequiresManualReview(candidate.Evidence))
-            return MatchDecision.ManualReview;
-
-        if (candidate.HasLooseNumericMismatch)
             return MatchDecision.ManualReview;
 
         if (isAmbiguous)
@@ -863,57 +781,20 @@ public class SemanticKernelMatchingService : IMatchingService
         if (candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent)
             return MatchDecision.AutoApply;
 
-        if (HasDecisiveEvidence(candidate.Evidence))
-            return MatchDecision.AutoApply;
-
-        if (candidate.FinalScore < MatchingThresholds.NormalizeHighConfidenceThreshold(highConfidenceThreshold))
-            return MatchDecision.ManualReview;
-
-        return MatchDecision.AutoApply;
-    }
-
-    private static bool HasDecisiveEvidence(MatchEvidence? evidence)
-    {
-        if (evidence == null)
-            return false;
-
-        if (evidence.NumericConstraints.Any(item => item.Relation is EvidenceRelation.Exact or EvidenceRelation.Compatible))
-            return true;
-
-        if (evidence.Identifiers.Any(item => item.Relation == EvidenceRelation.Exact))
-            return true;
-
-        if (evidence.Entities.Any(item => item.Relation is EvidenceRelation.Exact or EvidenceRelation.AliasSame))
-            return true;
-
-        return false;
+        return MatchDecision.ManualReview;
     }
 
     private static bool ShouldRunLlmEquivalenceAdjudication(
         EvaluatedCandidate candidate,
-        MatchingConfig config)
+        MatchingConfig _)
     {
-        if (candidate.Evidence?.HasHardConflict == true)
+        var shouldRunByFinalScore = candidate.FinalScore >= MatchingThresholds.MediumConfidenceScore;
+        var shouldRunByEmbedding = candidate.EmbeddingScore >= MatchingThresholds.MediumConfidenceScore;
+        if (!shouldRunByFinalScore && !shouldRunByEmbedding)
             return false;
 
-        if (candidate.FinalScore < MatchingThresholds.MediumConfidenceScore)
-            return false;
-
-        var hasTextDifference =
-            !string.Equals(candidate.Source.Project, candidate.Candidate.Project, StringComparison.Ordinal) ||
-            !string.Equals(candidate.Source.Specification, candidate.Candidate.Specification, StringComparison.Ordinal);
-
-        if (!hasTextDifference)
-            return false;
-
-        var highConfidenceThreshold = MatchingThresholds.NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
-        if (candidate.FinalScore >= highConfidenceThreshold &&
-            (candidate.Issues?.Count ?? 0) == 0 &&
-            !candidate.HasLooseNumericMismatch)
-        {
-            return false;
-        }
-
+        // 去掉本地品牌/单位/方向规则后，允许高 embedding 候选进入 AI 复议，
+        // 由模型决定是否等价，避免因为本地文本分过低而错过真实语义相近样本。
         return true;
     }
 
@@ -923,6 +804,22 @@ public class SemanticKernelMatchingService : IMatchingService
     {
         var summary = $"AI裁决：{GetEquivalenceSummaryText(result)}";
         return string.IsNullOrWhiteSpace(current) ? summary : $"{current}；{summary}";
+    }
+
+    private static string BuildAiRerankSelectionSummary(
+        IReadOnlyList<EvaluatedCandidate> orderedCandidates,
+        EvaluatedCandidate selected,
+        LlmCandidateRerankResult rerankResult)
+    {
+        var selectedRank = orderedCandidates
+            .Select((candidate, index) => new { candidate.Candidate.SpecId, Rank = index + 1 })
+            .FirstOrDefault(item => item.SpecId == selected.Candidate.SpecId)?
+            .Rank ?? 1;
+
+        var prefix = $"AI 从 Top{selectedRank} 改选为当前最佳";
+        return string.IsNullOrWhiteSpace(rerankResult.Reason)
+            ? prefix
+            : $"{prefix}：{rerankResult.Reason}";
     }
 
     private static string GetEquivalenceSummaryText(LlmEquivalenceAdjudicationResult result)
@@ -958,10 +855,6 @@ public class SemanticKernelMatchingService : IMatchingService
         if (evidence.Warnings.Count > 0)
             return true;
 
-        if (evidence.NumericConstraints.Any(item =>
-                item.Relation is EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
-            return true;
-
         if (evidence.Identifiers.Any(item =>
                 item.Relation is EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
             return true;
@@ -975,20 +868,21 @@ public class SemanticKernelMatchingService : IMatchingService
 
     private static bool ShouldKeepCandidate(
         double embeddingScore,
-        double minScoreThreshold,
         double projectScore,
-        double specificationTextScore)
+        double specificationTextScore,
+        double minScoreThreshold)
     {
-        if (embeddingScore >= minScoreThreshold)
+        return embeddingScore >= minScoreThreshold ||
+               IsExactTextRescueCandidate(projectScore, specificationTextScore);
+    }
+
+    private static bool IsExactTextRescueCandidate(double projectScore, double specificationTextScore)
+    {
+        if (specificationTextScore >= ExactTextMatchThreshold)
             return true;
 
-        if (projectScore >= 0.99 && specificationTextScore >= 0.99)
-            return true;
-
-        var relaxedThreshold = Math.Max(0.35, minScoreThreshold - 0.08);
-        return embeddingScore >= relaxedThreshold &&
-               projectScore >= 0.99 &&
-               specificationTextScore >= 0.88;
+        return projectScore >= ExactTextMatchThreshold &&
+               specificationTextScore >= NearTextMatchThreshold;
     }
 
     private static bool ShouldMarkAsAmbiguous(
@@ -1019,73 +913,9 @@ public class SemanticKernelMatchingService : IMatchingService
         return true;
     }
 
-    private static bool HasLooseNumericMismatch(MatchSource source, EvaluatedCandidate candidate)
-    {
-        if (candidate.Evidence?.NumericConstraints.Count > 0)
-            return false;
-
-        var sourceTokens = ExtractNumericTokens(source.Specification);
-        var candidateTokens = ExtractNumericTokens(candidate.Candidate.Specification);
-
-        if (sourceTokens.Count == 0 && candidateTokens.Count == 0)
-            return false;
-
-        if (sourceTokens.Count == 0 || candidateTokens.Count == 0)
-            return true;
-
-        return !sourceTokens.SetEquals(candidateTokens);
-    }
-
     private static List<MatchIssue> BuildCandidateIssues(MatchSource source, EvaluatedCandidate candidate)
     {
-        var issues = candidate.Evidence?.Issues.ToList() ?? [];
-
-        if (candidate.HasLooseNumericMismatch)
-        {
-            var sourceTokens = ExtractNumericTokens(source.Specification);
-            var candidateTokens = ExtractNumericTokens(candidate.Candidate.Specification);
-            issues.Add(new MatchIssue
-            {
-                Code = "numeric_fragment_mismatch",
-                Severity = "warning",
-                FieldName = "关键数值",
-                SourceValue = FormatNumericTokens(sourceTokens),
-                CandidateValue = FormatNumericTokens(candidateTokens),
-                Message = "检测到关键数值片段不一致，可能不是同一规格，需要人工确认",
-                SuggestedAction = "请人工确认关键数值参数，避免错误带入"
-            });
-        }
-
-        return issues;
-    }
-
-    private static HashSet<string> ExtractNumericTokens(string value)
-    {
-        var matches = NumericTokenRegex.Matches(value ?? string.Empty);
-        return matches
-            .Select(m => NormalizeComparableText(m.Value))
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static string? FormatNumericTokens(IEnumerable<string> values)
-    {
-        var tokens = values
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        return tokens.Count == 0 ? null : string.Join(" / ", tokens);
-    }
-
-    private static HashSet<string> ExtractKeywordTokens(string value)
-    {
-        var matches = KeywordTokenRegex.Matches(value ?? string.Empty);
-        return matches
-            .Select(m => NormalizeComparableText(m.Value))
-            .Where(v => !string.IsNullOrWhiteSpace(v) && !KeywordStopWords.Contains(v))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return candidate.Evidence?.Issues.ToList() ?? [];
     }
 
     private static string NormalizeComparableText(string? value)
@@ -1093,18 +923,15 @@ public class SemanticKernelMatchingService : IMatchingService
         if (string.IsNullOrWhiteSpace(value))
             return string.Empty;
 
-        var normalized = Regex.Replace(value.Trim().ToLowerInvariant(), @"\s+", " ");
+        var normalized = value
+            .Replace("\u00A0", " ", StringComparison.Ordinal)
+            .Replace("\u200B", string.Empty, StringComparison.Ordinal)
+            .Replace("\uFEFF", string.Empty, StringComparison.Ordinal)
+            .Trim()
+            .ToLowerInvariant();
+        normalized = Regex.Replace(normalized, @"\s+", " ");
         normalized = normalized.Replace("（", "(").Replace("）", ")");
         return normalized;
-    }
-
-    private static double ComputeOverlapRatio(HashSet<string> sourceTokens, HashSet<string> candidateTokens)
-    {
-        if (sourceTokens.Count == 0 || candidateTokens.Count == 0)
-            return 0;
-
-        var overlap = sourceTokens.Intersect(candidateTokens, StringComparer.OrdinalIgnoreCase).Count();
-        return overlap / (double)sourceTokens.Count;
     }
 
     private static void EnsureEmbeddingBatchPayload(IReadOnlyList<float[]> embeddings, int expectedCount, string targetName)
@@ -1126,23 +953,6 @@ public class SemanticKernelMatchingService : IMatchingService
         return !string.IsNullOrWhiteSpace(value);
     }
 
-    public async Task<Dictionary<string, double>> ComputeSimilarityAsync(
-        string text1,
-        string text2,
-        MatchingConfig? config = null)
-    {
-        config ??= new MatchingConfig();
-        var embedding1 = await _embeddingService.GenerateEmbeddingAsync(text1, config.EmbeddingServiceId);
-        var embedding2 = await _embeddingService.GenerateEmbeddingAsync(text2, config.EmbeddingServiceId);
-        var score = _embeddingService.ComputeSimilarity(embedding1, embedding2);
-
-        return new Dictionary<string, double>
-        {
-            ["Embedding"] = score,
-            ["Total"] = score
-        };
-    }
-
     private sealed class EvaluatedCandidate
     {
         public required MatchSource Source { get; init; }
@@ -1152,22 +962,12 @@ public class SemanticKernelMatchingService : IMatchingService
         public double ProjectScore { get; set; }
         public double SpecificationTextScore { get; set; }
         public double NumericScore { get; set; }
-        public double KeywordScore { get; set; }
-        public double ConflictPenalty { get; set; }
-        public bool HasLooseNumericMismatch { get; set; }
         public string? RerankSummary { get; set; }
+        public MatchSelectionMode SelectionMode { get; set; } = MatchSelectionMode.EmbeddingTop1;
+        public string? SelectionSummary { get; set; }
         public MatchEvidence? Evidence { get; set; }
         public List<MatchIssue>? Issues { get; set; }
         public LlmEquivalenceAdjudicationResult? LlmEquivalence { get; set; }
     }
 
-    private sealed class DefaultMatchingKnowledgeProvider : IMatchingKnowledgeProvider
-    {
-        public static DefaultMatchingKnowledgeProvider Instance { get; } = new();
-
-        public Task<MatchingKnowledge> GetKnowledgeAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(MatchingKnowledge.CreateDefault());
-        }
-    }
 }

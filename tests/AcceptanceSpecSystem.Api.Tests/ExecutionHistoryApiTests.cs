@@ -41,7 +41,7 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
             ApiClientJson.ToJsonContent(new
             {
                 fileId,
-                highConfidenceThreshold = 0.95,
+                config = new { highConfidenceThreshold = 0.95 },
                 tables = new[]
                 {
                     new
@@ -53,7 +53,7 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                         remarkColumnIndex = 3,
                         mappings = new[]
                         {
-                            new { rowIndex = 1, specId, matchScore = 1.0 }
+                            new { rowIndex = 1, specId }
                         }
                     }
                 }

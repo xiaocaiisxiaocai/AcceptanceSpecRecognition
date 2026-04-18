@@ -51,17 +51,12 @@ public class AppDbContext : DbContext
     public DbSet<AiServiceConfig> AiServiceConfigs => Set<AiServiceConfig>();
 
     /// <summary>
-    /// 匹配知识配置表。
-    /// </summary>
-    public DbSet<MatchingKnowledgeConfig> MatchingKnowledgeConfigs => Set<MatchingKnowledgeConfig>();
-
-    /// <summary>
     /// Prompt模板表
     /// </summary>
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
 
     /// <summary>
-    /// 导入列映射规则表（全局）
+    /// Word 列映射规则表
     /// </summary>
     public DbSet<ColumnMappingRule> ColumnMappingRules => Set<ColumnMappingRule>();
 
@@ -131,22 +126,9 @@ public class AppDbContext : DbContext
     public DbSet<ExecutionHistoryRecord> ExecutionHistoryRecords => Set<ExecutionHistoryRecord>();
 
     /// <summary>
-    /// 默认MySQL连接字符串
-    /// </summary>
-    public const string DefaultConnectionString = "Server=localhost;Database=acceptance_spec_db;User=root;Password=abc+123;CharSet=utf8mb4;";
-
-    /// <summary>
     /// 数据库连接字符串
     /// </summary>
     private readonly string _connectionString;
-
-    /// <summary>
-    /// 创建DbContext实例（使用默认连接字符串）
-    /// </summary>
-    public AppDbContext()
-    {
-        _connectionString = DefaultConnectionString;
-    }
 
     /// <summary>
     /// 创建DbContext实例（使用指定连接字符串）
@@ -279,7 +261,6 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
             entity.HasIndex(e => e.Name).IsUnique();
-            entity.Property(e => e.DefaultMatchingStrategy).HasDefaultValue(AiServiceDefaultMatchingStrategy.MultiStage);
             entity.Property(e => e.DefaultRecallTopK).HasDefaultValue(2);
 
             // ApiKey 加密存储（DataProtection ValueConverter）
@@ -293,17 +274,6 @@ public class AppDbContext : DbContext
             }
         });
 
-        // MatchingKnowledgeConfig 配置
-        modelBuilder.Entity<MatchingKnowledgeConfig>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.EntityAliasesJson).HasColumnType("longtext");
-            entity.Property(e => e.UnitAliasesJson).HasColumnType("longtext");
-            entity.Property(e => e.UnitFactorsJson).HasColumnType("longtext");
-            entity.Property(e => e.FieldAliasesJson).HasColumnType("longtext");
-            entity.Property(e => e.ConflictPairsJson).HasColumnType("longtext");
-        });
-
         // PromptTemplate配置
         modelBuilder.Entity<PromptTemplate>(entity =>
         {
@@ -313,7 +283,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Name).IsUnique();
         });
 
-        // ColumnMappingRule配置
+        // ColumnMappingRule 配置
         modelBuilder.Entity<ColumnMappingRule>(entity =>
         {
             entity.HasKey(e => e.Id);

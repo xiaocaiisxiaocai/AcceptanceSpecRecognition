@@ -1,5 +1,4 @@
 using AcceptanceSpecSystem.Data.Entities;
-using AcceptanceSpecSystem.Core.Matching.Models;
 
 namespace AcceptanceSpecSystem.Api.DTOs;
 
@@ -14,7 +13,6 @@ public class AiServiceConfigDto
     public string? EmbeddingModel { get; set; }
     public string? LlmModel { get; set; }
     public bool DisableThinking { get; set; }
-    public MatchingStrategy DefaultMatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
     public int DefaultRecallTopK { get; set; } = 2;
     public bool HasApiKey { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -37,7 +35,6 @@ public class CreateAiServiceRequest
     public string? EmbeddingModel { get; set; }
     public string? LlmModel { get; set; }
     public bool DisableThinking { get; set; }
-    public MatchingStrategy DefaultMatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
     public int DefaultRecallTopK { get; set; } = 2;
 }
 
@@ -52,7 +49,6 @@ public class UpdateAiServiceRequest
     public string? EmbeddingModel { get; set; }
     public string? LlmModel { get; set; }
     public bool DisableThinking { get; set; }
-    public MatchingStrategy DefaultMatchingStrategy { get; set; } = MatchingStrategy.MultiStage;
     public int DefaultRecallTopK { get; set; } = 2;
 }
 

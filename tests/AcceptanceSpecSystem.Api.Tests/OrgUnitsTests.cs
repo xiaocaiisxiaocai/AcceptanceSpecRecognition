@@ -21,7 +21,7 @@ public class OrgUnitsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Create_WhenRootCompanyAlreadyExists_ShouldReject()
+    public async Task Create_ShouldReturnNotFound_InSingleOrgMode()
     {
         var response = await _client.PostAsync(
             "/api/org-units",
@@ -35,29 +35,15 @@ public class OrgUnitsTests : IClassFixture<ApiWebApplicationFactory>
                 isActive = true
             }));
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Message.Should().Contain("单组织");
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task Create_WhenParentIsSection_ShouldReject()
+    public async Task Delete_ShouldReturnNotFound_InSingleOrgMode()
     {
-        var response = await _client.PostAsync(
-            "/api/org-units",
-            ApiClientJson.ToJsonContent(new
-            {
-                parentId = await GetRootOrgUnitIdAsync(),
-                unitType = 2,
-                code = $"DEP-{Guid.NewGuid():N}"[..18],
-                name = "非法新增组织",
-                sort = 0,
-                isActive = true
-            }));
+        var response = await _client.DeleteAsync($"/api/org-units/{await GetRootOrgUnitIdAsync()}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Message.Should().Contain("单组织");
+        response.StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
     }
 
     [Fact]

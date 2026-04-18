@@ -41,17 +41,12 @@ public interface IUnitOfWork : IDisposable
     IAiServiceConfigRepository AiServiceConfigs { get; }
 
     /// <summary>
-    /// 匹配知识配置Repository。
-    /// </summary>
-    IMatchingKnowledgeConfigRepository MatchingKnowledgeConfigs { get; }
-
-    /// <summary>
     /// Prompt模板Repository
     /// </summary>
     IPromptTemplateRepository PromptTemplates { get; }
 
     /// <summary>
-    /// 导入列映射规则Repository（全局）
+    /// Word 列映射规则 Repository
     /// </summary>
     IColumnMappingRuleRepository ColumnMappingRules { get; }
 

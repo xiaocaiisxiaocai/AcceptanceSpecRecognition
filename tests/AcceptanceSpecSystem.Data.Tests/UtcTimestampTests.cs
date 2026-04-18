@@ -15,7 +15,6 @@ public class UtcTimestampTests : TestBase
         new OrgUnit().CreatedAt.Kind.Should().Be(DateTimeKind.Utc);
         new AuthRole().CreatedAt.Kind.Should().Be(DateTimeKind.Utc);
         new AuthUserOrgUnit().CreatedAt.Kind.Should().Be(DateTimeKind.Utc);
-        new MatchingKnowledgeConfig().UpdatedAt.Kind.Should().Be(DateTimeKind.Utc);
         new PromptTemplate().CreatedAt.Kind.Should().Be(DateTimeKind.Utc);
         new AiServiceConfig().CreatedAt.Kind.Should().Be(DateTimeKind.Utc);
     }
@@ -50,11 +49,7 @@ public class UtcTimestampTests : TestBase
         content.Should().Contain("\"SynonymGroups\"");
         content.Should().Contain("\"Keywords\"");
         content.Should().Contain("\"TextProcessingConfigs\"");
-        content.Should().Contain("INSERT INTO `MatchingKnowledgeConfigs`");
-        content.Should().Contain("EntityAliasesJson");
-        content.Should().Contain("UnitAliasesJson");
-        content.Should().Contain("FieldAliasesJson");
-        content.Should().Contain("FROM `SynonymWords`");
+        content.Should().NotContain("MatchingKnowledgeConfigs");
     }
 
     [Fact]

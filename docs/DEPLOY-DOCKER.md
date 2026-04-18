@@ -34,10 +34,10 @@ docker compose logs -f api
 
 ## 4. 访问地址
 
-- 前端：`http://localhost:8080`
-- API（直连）：`http://localhost:5290`
+- 前端：`http://localhost`
+- API（直连排障）：`http://localhost:5290`
 - API 健康检查：`http://localhost:5290/health`
-- Swagger：`http://localhost:8080/swagger`
+- Swagger：`http://localhost/swagger`
 
 说明：
 
@@ -46,7 +46,7 @@ docker compose logs -f api
 
 ## 5. 默认容器与端口
 
-- `acceptance-web`: `8080 -> 80`
+- `acceptance-web`: `80 -> 80`
 - `acceptance-api`: `5290 -> 8080`
 - `acceptance-mysql`: 仅容器内访问（未映射宿主机端口）
 
@@ -67,6 +67,12 @@ docker compose logs -f api
 - `FileStorage__BasePath`
 - `DataProtection__KeysPath`
 - `Cors__AllowedOrigins__0`
+- `Cors__AllowedOrigins__1`
+
+说明：
+
+- 默认建议通过 `http://localhost` 走 Nginx 同源访问。
+- 如果需要前后端分站访问，再把 `Cors__AllowedOrigins__*` 改成你的实际来源地址；不要使用通配符 `*`。
 
 ## 8. 停止与清理
 

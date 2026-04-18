@@ -60,19 +60,13 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
 
             // Replace LLM services with test doubles to avoid external calls
             services.RemoveAll(typeof(ILlmReviewService));
-            services.RemoveAll(typeof(ILlmSuggestionService));
             services.RemoveAll(typeof(ILlmEquivalenceAdjudicationService));
-            services.RemoveAll(typeof(ILlmEntityResolutionService));
-            services.RemoveAll(typeof(IMatchingKnowledgeDraftAiService));
+            services.RemoveAll(typeof(ILlmCandidateRerankService));
             services.RemoveAll(typeof(IEmbeddingService));
-            services.RemoveAll(typeof(ITextSimilarityService));
             services.AddScoped<ILlmReviewService, TestLlmReviewService>();
-            services.AddScoped<ILlmSuggestionService, TestLlmSuggestionService>();
             services.AddScoped<ILlmEquivalenceAdjudicationService, TestLlmEquivalenceAdjudicationService>();
-            services.AddScoped<ILlmEntityResolutionService, TestLlmEntityResolutionService>();
-            services.AddScoped<IMatchingKnowledgeDraftAiService, TestMatchingKnowledgeDraftAiService>();
+            services.AddScoped<ILlmCandidateRerankService, TestLlmCandidateRerankService>();
             services.AddScoped<IEmbeddingService, TestEmbeddingService>();
-            services.AddSingleton<ITextSimilarityService, TestTextSimilarityService>();
 
             // 使用测试鉴权（默认 admin），避免真实 JWT 依赖影响集成测试
             if (UseTestAuthentication)

@@ -10,6 +10,17 @@ namespace AcceptanceSpecSystem.Core.Tests;
 public class SemanticKernelMatchingServiceTieBreakTests
 {
     [Fact]
+    public void SemanticKernelMatchingService_Constructor_ShouldNotDependOnMatchingKnowledgeProvider()
+    {
+        typeof(SemanticKernelMatchingService)
+            .GetConstructors()
+            .SelectMany(constructor => constructor.GetParameters())
+            .Select(parameter => parameter.ParameterType.Name)
+            .Should()
+            .NotContain("IMatchingKnowledgeProvider");
+    }
+
+    [Fact]
     public async Task BatchMatch_WhenScoreTie_ShouldPreferCandidateWithAcceptance()
     {
         var service = new SemanticKernelMatchingService(new ConstantEmbeddingService(), NullLogger<SemanticKernelMatchingService>.Instance);
@@ -82,7 +93,7 @@ public class SemanticKernelMatchingServiceTieBreakTests
                 new MatchSource
                 {
                     Project = "项目A",
-                    Specification = "规格A"
+                    Specification = "规格A-源"
                 }
             },
             candidates,
@@ -102,8 +113,8 @@ public class SemanticKernelMatchingServiceTieBreakTests
             {
                 new MatchSource
                 {
-                    Project = "项目A",
-                    Specification = "规格A"
+                    Project = "项目A-源",
+                    Specification = "规格A-源"
                 }
             },
             new List<MatchCandidate>
@@ -129,7 +140,11 @@ public class SemanticKernelMatchingServiceTieBreakTests
                     Specification = "规格A"
                 }
             },
-            new MatchingConfig { MinScoreThreshold = 0.0 });
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.0,
+                RecallTopK = 3
+            });
 
         result.Results.Should().HaveCount(1);
         result.Results[0].TopCandidates.Should().HaveCount(3);
@@ -143,11 +158,11 @@ public class SemanticKernelMatchingServiceTieBreakTests
     }
 
     [Fact]
-    public async Task BatchMatch_DefaultStrategy_ShouldUseSingleStageEmbeddingSelection()
+    public async Task BatchMatch_DefaultConfig_ShouldUseEvidenceRerank()
     {
         var source = new MatchSource
         {
-            Project = "收板模式",
+            Project = "收板模式-主线",
             Specification = "速度 100 mm/s"
         };
 
@@ -180,56 +195,6 @@ public class SemanticKernelMatchingServiceTieBreakTests
             candidates,
             new MatchingConfig
             {
-                MinScoreThreshold = 0.0
-            });
-
-        result.Results.Should().HaveCount(1);
-        result.Results[0].MatchedSpecId.Should().Be(2);
-        result.Results[0].MatchingStrategy.Should().Be(MatchingStrategy.SingleStage);
-        result.Results[0].RecalledCandidateCount.Should().Be(1);
-        result.Results[0].IsAmbiguous.Should().BeFalse();
-        result.Results[0].RerankSummary.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task BatchMatch_MultiStage_ShouldRerankToBusinessSaferCandidate()
-    {
-        var source = new MatchSource
-        {
-            Project = "收板模式",
-            Specification = "速度 100 mm/s"
-        };
-
-        var candidates = new List<MatchCandidate>
-        {
-            new()
-            {
-                SpecId = 1,
-                Project = "收板模式",
-                Specification = "速度 100 mm/s",
-                Acceptance = "SAFE",
-                Embedding = new[] { 0.90f, 0.10f }
-            },
-            new()
-            {
-                SpecId = 2,
-                Project = "投板模式",
-                Specification = "速度 100 mm/s",
-                Acceptance = "RISKY",
-                Embedding = new[] { 0.95f, 0.05f }
-            }
-        };
-
-        var service = new SemanticKernelMatchingService(
-            new SourceOnlyEmbeddingService(source.CombinedText, new[] { 1f, 0f }),
-            NullLogger<SemanticKernelMatchingService>.Instance);
-
-        var result = await service.BatchMatchAsync(
-            [source],
-            candidates,
-            new MatchingConfig
-            {
-                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 2,
                 AmbiguityMargin = 0.01
@@ -237,20 +202,69 @@ public class SemanticKernelMatchingServiceTieBreakTests
 
         result.Results.Should().HaveCount(1);
         result.Results[0].MatchedSpecId.Should().Be(1);
-        result.Results[0].MatchingStrategy.Should().Be(MatchingStrategy.MultiStage);
         result.Results[0].RecalledCandidateCount.Should().Be(2);
         result.Results[0].IsAmbiguous.Should().BeFalse();
         result.Results[0].RerankSummary.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
-    public async Task BatchMatch_MultiStage_WhenTop1AndTop2GapWithinMargin_ShouldMarkAmbiguous()
+    public async Task BatchMatch_ShouldRerankToBusinessSaferCandidate()
+    {
+        var source = new MatchSource
+        {
+            Project = "收板模式-主线",
+            Specification = "速度 100 mm/s"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 1,
+                Project = "收板模式",
+                Specification = "速度 100 mm/s",
+                Acceptance = "SAFE",
+                Embedding = new[] { 0.90f, 0.10f }
+            },
+            new()
+            {
+                SpecId = 2,
+                Project = "投板模式",
+                Specification = "速度 100 mm/s",
+                Acceptance = "RISKY",
+                Embedding = new[] { 0.95f, 0.05f }
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new SourceOnlyEmbeddingService(source.CombinedText, new[] { 1f, 0f }),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.0,
+                RecallTopK = 2,
+                AmbiguityMargin = 0.01
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(1);
+        result.Results[0].RecalledCandidateCount.Should().Be(2);
+        result.Results[0].IsAmbiguous.Should().BeFalse();
+        result.Results[0].RerankSummary.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenTop1AndTop2GapWithinMargin_ShouldMarkAmbiguous()
     {
         var service = new SemanticKernelMatchingService(new ConstantEmbeddingService(), NullLogger<SemanticKernelMatchingService>.Instance);
         var source = new MatchSource
         {
             Project = "项目A",
-            Specification = "规格A"
+            Specification = "规格A-源"
         };
 
         var candidates = new List<MatchCandidate>
@@ -276,7 +290,6 @@ public class SemanticKernelMatchingServiceTieBreakTests
             candidates,
             new MatchingConfig
             {
-                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 2,
                 AmbiguityMargin = 0.05
@@ -289,11 +302,11 @@ public class SemanticKernelMatchingServiceTieBreakTests
     }
 
     [Fact]
-    public async Task BatchMatch_MultiStage_WhenExactTextBelowThreshold_ShouldStillBeatSemanticNearMatch()
+    public async Task BatchMatch_WhenExactTextBelowThreshold_ShouldStillRemainInRecallForRerank()
     {
         var source = new MatchSource
         {
-            Project = "收板模式",
+            Project = "收板模式-主线",
             Specification = "设备供应商在到厂前提供设备的空压位置大小及流量"
         };
 
@@ -326,7 +339,6 @@ public class SemanticKernelMatchingServiceTieBreakTests
             candidates,
             new MatchingConfig
             {
-                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.95,
                 RecallTopK = 2,
                 AmbiguityMargin = 0.03
@@ -334,12 +346,14 @@ public class SemanticKernelMatchingServiceTieBreakTests
 
         result.Results.Should().HaveCount(1);
         result.Results[0].MatchedSpecId.Should().Be(300);
-        result.Results[0].ScoreDetails.Should().ContainKey("SpecificationText");
-        result.Results[0].RerankSummary.Should().Contain("规格文本一致");
+        result.Results[0].RecalledCandidateCount.Should().Be(2);
+        result.Results[0].TopCandidates.Select(candidate => candidate.SpecId)
+            .Should()
+            .ContainInOrder(300, 301);
     }
 
     [Fact]
-    public async Task BatchMatch_MultiStage_WhenBestIsExactAndSecondIsOnlyNearMatch_ShouldNotMarkAmbiguous()
+    public async Task BatchMatch_WhenBestIsExactAndSecondIsOnlyNearMatch_ShouldNotMarkAmbiguous()
     {
         var source = new MatchSource
         {
@@ -374,7 +388,6 @@ public class SemanticKernelMatchingServiceTieBreakTests
             candidates,
             new MatchingConfig
             {
-                MatchingStrategy = MatchingStrategy.MultiStage,
                 MinScoreThreshold = 0.0,
                 RecallTopK = 2,
                 AmbiguityMargin = 0.20

@@ -52,29 +52,6 @@ public class OrgUnitsController : BaseApiController
     }
 
     /// <summary>
-    /// 创建组织节点
-    /// </summary>
-    [HttpPost]
-    [AuditOperation("create", "org-unit")]
-    [ProducesResponseType(typeof(ApiResponse<OrgUnitDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<OrgUnitDto>>> Create([FromBody] CreateOrgUnitRequest request)
-    {
-        var companyId = AuthClaimHelper.GetCompanyId(User);
-        if (!companyId.HasValue)
-            return Error<OrgUnitDto>(401, "会话缺少公司上下文");
-
-        try
-        {
-            var item = await _orgUnitAppService.CreateAsync(companyId.Value, request);
-            return Success(item, "创建组织节点成功");
-        }
-        catch (ApplicationServiceException ex)
-        {
-            return Error<OrgUnitDto>(ex.Code, ex.Message);
-        }
-    }
-
-    /// <summary>
     /// 更新组织节点
     /// </summary>
     [HttpPut("{id:int}")]
@@ -97,26 +74,4 @@ public class OrgUnitsController : BaseApiController
         }
     }
 
-    /// <summary>
-    /// 删除组织节点
-    /// </summary>
-    [HttpDelete("{id:int}")]
-    [AuditOperation("delete", "org-unit")]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse>> Delete(int id)
-    {
-        var companyId = AuthClaimHelper.GetCompanyId(User);
-        if (!companyId.HasValue)
-            return Error(401, "会话缺少公司上下文");
-
-        try
-        {
-            await _orgUnitAppService.DeleteAsync(companyId.Value, id);
-            return Success("删除组织节点成功");
-        }
-        catch (ApplicationServiceException ex)
-        {
-            return Error(ex.Code, ex.Message);
-        }
-    }
 }

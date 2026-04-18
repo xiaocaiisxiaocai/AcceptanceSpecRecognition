@@ -27,16 +27,31 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
     public async Task MatchingPreview_ShouldOnlyReturnScopedSpecs()
     {
         var (customerId, processId, inScopeSpecId, _) = await SeedScopedSpecsAsync();
+        var fileId = await UploadWordFileAsync(
+            "scope-preview.docx",
+            CreateSingleTableDocxBytes("项目", "规格", "验收", "备注", "范围项目", "范围规格", "", ""),
+            role: "common");
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/preview");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/batch-preview");
         request.Headers.Add("X-Test-Role", "common");
         request.Headers.Add("X-Test-Permissions", "*:*:*");
         request.Content = ApiClientJson.ToJsonContent(new
         {
-            items = new[] { new { rowIndex = 1, project = "范围项目", specification = "范围规格" } },
+            fileId,
             customerId,
             processId,
-            config = new { minScoreThreshold = 0.0 }
+            config = new { minScoreThreshold = 0.0 },
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3
+                }
+            }
         });
 
         using var response = await _client.SendAsync(request);
@@ -44,7 +59,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
 
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(0);
-        json.Data.GetProperty("items")[0]
+        json.Data.GetProperty("tables")[0].GetProperty("items")[0]
             .GetProperty("bestMatch")
             .GetProperty("specId")
             .GetInt32()
@@ -61,25 +76,31 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             CreateSingleTableDocxBytes("项目", "规格", "验收", "备注", "范围项目", "范围规格", "", ""),
             role: "common");
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/execute");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/batch-execute");
         request.Headers.Add("X-Test-Role", "common");
         request.Headers.Add("X-Test-Permissions", "*:*:*");
         request.Content = ApiClientJson.ToJsonContent(new
         {
             fileId,
-            tableIndex = 0,
-            acceptanceColumnIndex = 2,
-            remarkColumnIndex = 3,
-            mappings = new[]
+            tables = new[]
             {
                 new
                 {
-                    rowIndex = 1,
-                    specId = outOfScopeSpecId,
-                    matchScore = 1.0
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3,
+                    mappings = new[]
+                    {
+                        new
+                        {
+                            rowIndex = 1,
+                            specId = outOfScopeSpecId
+                        }
+                    }
                 }
-            },
-            highConfidenceThreshold = 0.95
+            }
         });
 
         using var response = await _client.SendAsync(request);

@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AcceptanceSpecSystem.Api.Controllers;
 
 /// <summary>
-/// 登录与路由初始化接口（兼容前端 pure-admin 默认协议）
+/// 登录与令牌接口
 /// </summary>
 [ApiController]
 [Route("")]
@@ -173,20 +173,6 @@ public class AuthController : ControllerBase
                 RefreshToken = pair.RefreshToken,
                 Expires = pair.AccessTokenExpiresAt
             }
-        });
-    }
-
-    /// <summary>
-    /// 获取动态路由（当前返回空数组，沿用前端 pure-admin 初始化协议）
-    /// </summary>
-    [HttpGet("get-async-routes")]
-    [AllowAnonymous]
-    public IActionResult GetAsyncRoutes()
-    {
-        return Ok(new
-        {
-            success = true,
-            data = Array.Empty<object>()
         });
     }
 }

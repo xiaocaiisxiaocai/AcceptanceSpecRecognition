@@ -21,6 +21,10 @@ public abstract class MatchingApiControllerBase : BaseApiController
             var result = await action();
             return Success(result.Data, result.Message);
         }
+        catch (MatchingApiException ex) when (ex.IsNotFound)
+        {
+            return NotFound(ApiResponse<T>.Error(404, ex.Message));
+        }
         catch (MatchingApiException ex)
         {
             return Error<T>(ex.Code, ex.Message);

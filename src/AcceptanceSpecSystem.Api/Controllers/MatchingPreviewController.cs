@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AcceptanceSpecSystem.Api.Controllers;
 
 /// <summary>
-/// 匹配预览与相似度相关接口。
+/// 智能填充匹配预览接口。
 /// </summary>
 [Route("api/matching")]
 public class MatchingPreviewController : MatchingApiControllerBase
@@ -18,14 +18,6 @@ public class MatchingPreviewController : MatchingApiControllerBase
         _matchingPreviewAppService = matchingPreviewAppService;
     }
 
-    [HttpPost("preview")]
-    [ProducesResponseType(typeof(ApiResponse<MatchPreviewResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<MatchPreviewResponse>), StatusCodes.Status400BadRequest)]
-    public Task<ActionResult<ApiResponse<MatchPreviewResponse>>> Preview([FromBody] MatchPreviewRequest request)
-    {
-        return HandleAsync(() => _matchingPreviewAppService.PreviewAsync(User, request));
-    }
-
     [HttpPost("batch-preview")]
     [ProducesResponseType(typeof(ApiResponse<BatchPreviewResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchPreviewResponse>), StatusCodes.Status400BadRequest)]
@@ -34,11 +26,11 @@ public class MatchingPreviewController : MatchingApiControllerBase
         return HandleAsync(() => _matchingPreviewAppService.BatchPreviewAsync(User, request));
     }
 
-    [HttpPost("similarity")]
-    [ProducesResponseType(typeof(ApiResponse<SimilarityResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<SimilarityResponse>), StatusCodes.Status400BadRequest)]
-    public Task<ActionResult<ApiResponse<SimilarityResponse>>> ComputeSimilarity([FromBody] SimilarityRequest request)
+    [HttpGet("batch-preview-progress/{requestId}")]
+    [ProducesResponseType(typeof(ApiResponse<BatchPreviewProgressResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<BatchPreviewProgressResponse>), StatusCodes.Status404NotFound)]
+    public Task<ActionResult<ApiResponse<BatchPreviewProgressResponse>>> GetBatchPreviewProgress(string requestId)
     {
-        return HandleAsync(() => _matchingPreviewAppService.ComputeSimilarityAsync(request));
+        return HandleAsync(() => Task.FromResult(_matchingPreviewAppService.GetBatchPreviewProgress(requestId)));
     }
 }

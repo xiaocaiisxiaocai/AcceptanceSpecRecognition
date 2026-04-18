@@ -7,5 +7,5 @@ namespace AcceptanceSpecSystem.Core.Matching.Interfaces;
 /// </summary>
 public interface IMatchEvidenceBuilder
 {
-    MatchEvidence Build(MatchSource source, MatchCandidate candidate, MatchingKnowledge knowledge);
+    MatchEvidence Build(MatchSource source, MatchCandidate candidate);
 }
