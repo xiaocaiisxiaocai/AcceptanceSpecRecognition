@@ -49,6 +49,7 @@ public class EvidenceDrivenMatchingModelsTests
         config.RecallTopK.Should().Be(2);
         config.AmbiguityMargin.Should().Be(0.02);
         config.HighConfidenceThreshold.Should().Be(0.98);
+        config.LlmParallelism.Should().Be(8);
         typeof(MatchingConfig).GetProperty("UseLlmEntityResolution", BindingFlags.Public | BindingFlags.Instance)
             .Should().BeNull();
         typeof(MatchingConfig).GetProperty("LlmEntityResolutionTopCandidates", BindingFlags.Public | BindingFlags.Instance)

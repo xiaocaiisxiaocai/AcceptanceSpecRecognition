@@ -1,0 +1,2002 @@
+[
+  {
+    "caseId": "U201",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "节拍延时 U201",
+    "importSpecification": "节拍延时不超过1500ms",
+    "fillSpecification": "节拍延时不超过1.5秒",
+    "acceptance": "按 U201 标准验收：节拍延时不超过1500ms",
+    "remark": "第二组-单位时间-标准规格=节拍延时不超过1500ms"
+  },
+  {
+    "caseId": "U202",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "相机触发延迟 U202",
+    "importSpecification": "相机触发延迟不超过2000ms",
+    "fillSpecification": "相机触发延迟不超过2秒",
+    "acceptance": "按 U202 标准验收：相机触发延迟不超过2000ms",
+    "remark": "第二组-单位时间-标准规格=相机触发延迟不超过2000ms"
+  },
+  {
+    "caseId": "U203",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "保压持续时间 U203",
+    "importSpecification": "保压持续时间不超过2500ms",
+    "fillSpecification": "保压持续时间不超过2.5秒",
+    "acceptance": "按 U203 标准验收：保压持续时间不超过2500ms",
+    "remark": "第二组-单位时间-标准规格=保压持续时间不超过2500ms"
+  },
+  {
+    "caseId": "U204",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "扫码等待时间 U204",
+    "importSpecification": "扫码等待时间不超过30000ms",
+    "fillSpecification": "扫码等待时间不超过30秒",
+    "acceptance": "按 U204 标准验收：扫码等待时间不超过30000ms",
+    "remark": "第二组-单位时间-标准规格=扫码等待时间不超过30000ms"
+  },
+  {
+    "caseId": "U205",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "上料缓冲时间 U205",
+    "importSpecification": "上料缓冲时间不超过45000ms",
+    "fillSpecification": "上料缓冲时间不超过45秒",
+    "acceptance": "按 U205 标准验收：上料缓冲时间不超过45000ms",
+    "remark": "第二组-单位时间-标准规格=上料缓冲时间不超过45000ms"
+  },
+  {
+    "caseId": "U206",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "复位延时 U206",
+    "importSpecification": "复位延时不超过60000ms",
+    "fillSpecification": "复位延时不超过1分钟",
+    "acceptance": "按 U206 标准验收：复位延时不超过60000ms",
+    "remark": "第二组-单位时间-标准规格=复位延时不超过60000ms"
+  },
+  {
+    "caseId": "U207",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "点胶固化等待 U207",
+    "importSpecification": "点胶固化等待不超过90000ms",
+    "fillSpecification": "点胶固化等待不超过1.5分钟",
+    "acceptance": "按 U207 标准验收：点胶固化等待不超过90000ms",
+    "remark": "第二组-单位时间-标准规格=点胶固化等待不超过90000ms"
+  },
+  {
+    "caseId": "U208",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "吸真空保持时间 U208",
+    "importSpecification": "吸真空保持时间不超过120000ms",
+    "fillSpecification": "吸真空保持时间不超过2分钟",
+    "acceptance": "按 U208 标准验收：吸真空保持时间不超过120000ms",
+    "remark": "第二组-单位时间-标准规格=吸真空保持时间不超过120000ms"
+  },
+  {
+    "caseId": "U209",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "夹爪动作延迟 U209",
+    "importSpecification": "夹爪动作延迟不超过180000ms",
+    "fillSpecification": "夹爪动作延迟不超过3分钟",
+    "acceptance": "按 U209 标准验收：夹爪动作延迟不超过180000ms",
+    "remark": "第二组-单位时间-标准规格=夹爪动作延迟不超过180000ms"
+  },
+  {
+    "caseId": "U210",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "报警闪烁周期 U210",
+    "importSpecification": "报警闪烁周期不超过240000ms",
+    "fillSpecification": "报警闪烁周期不超过4分钟",
+    "acceptance": "按 U210 标准验收：报警闪烁周期不超过240000ms",
+    "remark": "第二组-单位时间-标准规格=报警闪烁周期不超过240000ms"
+  },
+  {
+    "caseId": "U211",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "贴标间隔 U211",
+    "importSpecification": "贴标间隔不超过500ms",
+    "fillSpecification": "贴标间隔不超过0.5秒",
+    "acceptance": "按 U211 标准验收：贴标间隔不超过500ms",
+    "remark": "第二组-单位时间-标准规格=贴标间隔不超过500ms"
+  },
+  {
+    "caseId": "U212",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "送料停顿时间 U212",
+    "importSpecification": "送料停顿时间不超过750ms",
+    "fillSpecification": "送料停顿时间不超过0.75秒",
+    "acceptance": "按 U212 标准验收：送料停顿时间不超过750ms",
+    "remark": "第二组-单位时间-标准规格=送料停顿时间不超过750ms"
+  },
+  {
+    "caseId": "U213",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "剥膜延迟 U213",
+    "importSpecification": "剥膜延迟不超过1250ms",
+    "fillSpecification": "剥膜延迟不超过1.25秒",
+    "acceptance": "按 U213 标准验收：剥膜延迟不超过1250ms",
+    "remark": "第二组-单位时间-标准规格=剥膜延迟不超过1250ms"
+  },
+  {
+    "caseId": "U214",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "喷码响应时间 U214",
+    "importSpecification": "喷码响应时间不超过3500ms",
+    "fillSpecification": "喷码响应时间不超过3.5秒",
+    "acceptance": "按 U214 标准验收：喷码响应时间不超过3500ms",
+    "remark": "第二组-单位时间-标准规格=喷码响应时间不超过3500ms"
+  },
+  {
+    "caseId": "U215",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "回零等待时间 U215",
+    "importSpecification": "回零等待时间不超过7000ms",
+    "fillSpecification": "回零等待时间不超过7秒",
+    "acceptance": "按 U215 标准验收：回零等待时间不超过7000ms",
+    "remark": "第二组-单位时间-标准规格=回零等待时间不超过7000ms"
+  },
+  {
+    "caseId": "U216",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "切刀保持时间 U216",
+    "importSpecification": "切刀保持时间不超过15000ms",
+    "fillSpecification": "切刀保持时间不超过15秒",
+    "acceptance": "按 U216 标准验收：切刀保持时间不超过15000ms",
+    "remark": "第二组-单位时间-标准规格=切刀保持时间不超过15000ms"
+  },
+  {
+    "caseId": "U217",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "封口冷却时间 U217",
+    "importSpecification": "封口冷却时间不超过20000ms",
+    "fillSpecification": "封口冷却时间不超过20秒",
+    "acceptance": "按 U217 标准验收：封口冷却时间不超过20000ms",
+    "remark": "第二组-单位时间-标准规格=封口冷却时间不超过20000ms"
+  },
+  {
+    "caseId": "U218",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "视觉判定超时 U218",
+    "importSpecification": "视觉判定超时不超过270000ms",
+    "fillSpecification": "视觉判定超时不超过4.5分钟",
+    "acceptance": "按 U218 标准验收：视觉判定超时不超过270000ms",
+    "remark": "第二组-单位时间-标准规格=视觉判定超时不超过270000ms"
+  },
+  {
+    "caseId": "U219",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "换型切换时长 U219",
+    "importSpecification": "换型切换时长不超过480000ms",
+    "fillSpecification": "换型切换时长不超过8分钟",
+    "acceptance": "按 U219 标准验收：换型切换时长不超过480000ms",
+    "remark": "第二组-单位时间-标准规格=换型切换时长不超过480000ms"
+  },
+  {
+    "caseId": "U220",
+    "category": "unit_time_positive",
+    "expectedDecision": "autoApply",
+    "project": "数据采样周期 U220",
+    "importSpecification": "数据采样周期不超过540000ms",
+    "fillSpecification": "数据采样周期不超过9分钟",
+    "acceptance": "按 U220 标准验收：数据采样周期不超过540000ms",
+    "remark": "第二组-单位时间-标准规格=数据采样周期不超过540000ms"
+  },
+  {
+    "caseId": "U221",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "主回路电流 U221",
+    "importSpecification": "主回路电流为500mA",
+    "fillSpecification": "主回路电流为0.5A",
+    "acceptance": "按 U221 标准验收：主回路电流为500mA",
+    "remark": "第二组-单位电流-标准规格=主回路电流为500mA"
+  },
+  {
+    "caseId": "U222",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "电磁阀线圈电流 U222",
+    "importSpecification": "电磁阀线圈电流为750mA",
+    "fillSpecification": "电磁阀线圈电流为0.75A",
+    "acceptance": "按 U222 标准验收：电磁阀线圈电流为750mA",
+    "remark": "第二组-单位电流-标准规格=电磁阀线圈电流为750mA"
+  },
+  {
+    "caseId": "U223",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "加热回路电流 U223",
+    "importSpecification": "加热回路电流为1000mA",
+    "fillSpecification": "加热回路电流为1A",
+    "acceptance": "按 U223 标准验收：加热回路电流为1000mA",
+    "remark": "第二组-单位电流-标准规格=加热回路电流为1000mA"
+  },
+  {
+    "caseId": "U224",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "风机工作电流 U224",
+    "importSpecification": "风机工作电流为1250mA",
+    "fillSpecification": "风机工作电流为1.25A",
+    "acceptance": "按 U224 标准验收：风机工作电流为1250mA",
+    "remark": "第二组-单位电流-标准规格=风机工作电流为1250mA"
+  },
+  {
+    "caseId": "U225",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "伺服待机电流 U225",
+    "importSpecification": "伺服待机电流为1500mA",
+    "fillSpecification": "伺服待机电流为1.5A",
+    "acceptance": "按 U225 标准验收：伺服待机电流为1500mA",
+    "remark": "第二组-单位电流-标准规格=伺服待机电流为1500mA"
+  },
+  {
+    "caseId": "U226",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "电机额定电流 U226",
+    "importSpecification": "电机额定电流为2000mA",
+    "fillSpecification": "电机额定电流为2A",
+    "acceptance": "按 U226 标准验收：电机额定电流为2000mA",
+    "remark": "第二组-单位电流-标准规格=电机额定电流为2000mA"
+  },
+  {
+    "caseId": "U227",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "照明支路电流 U227",
+    "importSpecification": "照明支路电流为250mA",
+    "fillSpecification": "照明支路电流为0.25A",
+    "acceptance": "按 U227 标准验收：照明支路电流为250mA",
+    "remark": "第二组-单位电流-标准规格=照明支路电流为250mA"
+  },
+  {
+    "caseId": "U228",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "扫码器工作电流 U228",
+    "importSpecification": "扫码器工作电流为50mA",
+    "fillSpecification": "扫码器工作电流为0.05A",
+    "acceptance": "按 U228 标准验收：扫码器工作电流为50mA",
+    "remark": "第二组-单位电流-标准规格=扫码器工作电流为50mA"
+  },
+  {
+    "caseId": "U229",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "触摸屏供电电流 U229",
+    "importSpecification": "触摸屏供电电流为80mA",
+    "fillSpecification": "触摸屏供电电流为0.08A",
+    "acceptance": "按 U229 标准验收：触摸屏供电电流为80mA",
+    "remark": "第二组-单位电流-标准规格=触摸屏供电电流为80mA"
+  },
+  {
+    "caseId": "U230",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "继电器驱动电流 U230",
+    "importSpecification": "继电器驱动电流为120mA",
+    "fillSpecification": "继电器驱动电流为0.12A",
+    "acceptance": "按 U230 标准验收：继电器驱动电流为120mA",
+    "remark": "第二组-单位电流-标准规格=继电器驱动电流为120mA"
+  },
+  {
+    "caseId": "U231",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "阀岛输出电流 U231",
+    "importSpecification": "阀岛输出电流为220mA",
+    "fillSpecification": "阀岛输出电流为0.22A",
+    "acceptance": "按 U231 标准验收：阀岛输出电流为220mA",
+    "remark": "第二组-单位电流-标准规格=阀岛输出电流为220mA"
+  },
+  {
+    "caseId": "U232",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "刹车释放电流 U232",
+    "importSpecification": "刹车释放电流为300mA",
+    "fillSpecification": "刹车释放电流为0.3A",
+    "acceptance": "按 U232 标准验收：刹车释放电流为300mA",
+    "remark": "第二组-单位电流-标准规格=刹车释放电流为300mA"
+  },
+  {
+    "caseId": "U233",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "传感器回路电流 U233",
+    "importSpecification": "传感器回路电流为330mA",
+    "fillSpecification": "传感器回路电流为0.33A",
+    "acceptance": "按 U233 标准验收：传感器回路电流为330mA",
+    "remark": "第二组-单位电流-标准规格=传感器回路电流为330mA"
+  },
+  {
+    "caseId": "U234",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "相机供电电流 U234",
+    "importSpecification": "相机供电电流为400mA",
+    "fillSpecification": "相机供电电流为0.4A",
+    "acceptance": "按 U234 标准验收：相机供电电流为400mA",
+    "remark": "第二组-单位电流-标准规格=相机供电电流为400mA"
+  },
+  {
+    "caseId": "U235",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "吸盘保持电流 U235",
+    "importSpecification": "吸盘保持电流为660mA",
+    "fillSpecification": "吸盘保持电流为0.66A",
+    "acceptance": "按 U235 标准验收：吸盘保持电流为660mA",
+    "remark": "第二组-单位电流-标准规格=吸盘保持电流为660mA"
+  },
+  {
+    "caseId": "U236",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "激光位移计电流 U236",
+    "importSpecification": "激光位移计电流为900mA",
+    "fillSpecification": "激光位移计电流为0.9A",
+    "acceptance": "按 U236 标准验收：激光位移计电流为900mA",
+    "remark": "第二组-单位电流-标准规格=激光位移计电流为900mA"
+  },
+  {
+    "caseId": "U237",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "编码器工作电流 U237",
+    "importSpecification": "编码器工作电流为1750mA",
+    "fillSpecification": "编码器工作电流为1.75A",
+    "acceptance": "按 U237 标准验收：编码器工作电流为1750mA",
+    "remark": "第二组-单位电流-标准规格=编码器工作电流为1750mA"
+  },
+  {
+    "caseId": "U238",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "控制板峰值电流 U238",
+    "importSpecification": "控制板峰值电流为2250mA",
+    "fillSpecification": "控制板峰值电流为2.25A",
+    "acceptance": "按 U238 标准验收：控制板峰值电流为2250mA",
+    "remark": "第二组-单位电流-标准规格=控制板峰值电流为2250mA"
+  },
+  {
+    "caseId": "U239",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "边缘计算盒电流 U239",
+    "importSpecification": "边缘计算盒电流为2750mA",
+    "fillSpecification": "边缘计算盒电流为2.75A",
+    "acceptance": "按 U239 标准验收：边缘计算盒电流为2750mA",
+    "remark": "第二组-单位电流-标准规格=边缘计算盒电流为2750mA"
+  },
+  {
+    "caseId": "U240",
+    "category": "unit_current_positive",
+    "expectedDecision": "autoApply",
+    "project": "报警蜂鸣器电流 U240",
+    "importSpecification": "报警蜂鸣器电流为3200mA",
+    "fillSpecification": "报警蜂鸣器电流为3.2A",
+    "acceptance": "按 U240 标准验收：报警蜂鸣器电流为3200mA",
+    "remark": "第二组-单位电流-标准规格=报警蜂鸣器电流为3200mA"
+  },
+  {
+    "caseId": "U241",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "清洗液容量 U241",
+    "importSpecification": "清洗液容量为500mL",
+    "fillSpecification": "清洗液容量为0.5L",
+    "acceptance": "按 U241 标准验收：清洗液容量为500mL",
+    "remark": "第二组-单位体积-标准规格=清洗液容量为500mL"
+  },
+  {
+    "caseId": "U242",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "储液罐容量 U242",
+    "importSpecification": "储液罐容量为750mL",
+    "fillSpecification": "储液罐容量为0.75L",
+    "acceptance": "按 U242 标准验收：储液罐容量为750mL",
+    "remark": "第二组-单位体积-标准规格=储液罐容量为750mL"
+  },
+  {
+    "caseId": "U243",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "润滑油容量 U243",
+    "importSpecification": "润滑油容量为1000mL",
+    "fillSpecification": "润滑油容量为1L",
+    "acceptance": "按 U243 标准验收：润滑油容量为1000mL",
+    "remark": "第二组-单位体积-标准规格=润滑油容量为1000mL"
+  },
+  {
+    "caseId": "U244",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "缓冲罐容积 U244",
+    "importSpecification": "缓冲罐容积为1250mL",
+    "fillSpecification": "缓冲罐容积为1.25L",
+    "acceptance": "按 U244 标准验收：缓冲罐容积为1250mL",
+    "remark": "第二组-单位体积-标准规格=缓冲罐容积为1250mL"
+  },
+  {
+    "caseId": "U245",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "胶桶容量 U245",
+    "importSpecification": "胶桶容量为1500mL",
+    "fillSpecification": "胶桶容量为1.5L",
+    "acceptance": "按 U245 标准验收：胶桶容量为1500mL",
+    "remark": "第二组-单位体积-标准规格=胶桶容量为1500mL"
+  },
+  {
+    "caseId": "U246",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "药液容量 U246",
+    "importSpecification": "药液容量为1750mL",
+    "fillSpecification": "药液容量为1.75L",
+    "acceptance": "按 U246 标准验收：药液容量为1750mL",
+    "remark": "第二组-单位体积-标准规格=药液容量为1750mL"
+  },
+  {
+    "caseId": "U247",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "废液桶容量 U247",
+    "importSpecification": "废液桶容量为2000mL",
+    "fillSpecification": "废液桶容量为2L",
+    "acceptance": "按 U247 标准验收：废液桶容量为2000mL",
+    "remark": "第二组-单位体积-标准规格=废液桶容量为2000mL"
+  },
+  {
+    "caseId": "U248",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "喷淋槽容积 U248",
+    "importSpecification": "喷淋槽容积为2500mL",
+    "fillSpecification": "喷淋槽容积为2.5L",
+    "acceptance": "按 U248 标准验收：喷淋槽容积为2500mL",
+    "remark": "第二组-单位体积-标准规格=喷淋槽容积为2500mL"
+  },
+  {
+    "caseId": "U249",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "冷却液容量 U249",
+    "importSpecification": "冷却液容量为3000mL",
+    "fillSpecification": "冷却液容量为3L",
+    "acceptance": "按 U249 标准验收：冷却液容量为3000mL",
+    "remark": "第二组-单位体积-标准规格=冷却液容量为3000mL"
+  },
+  {
+    "caseId": "U250",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "计量罐容积 U250",
+    "importSpecification": "计量罐容积为3500mL",
+    "fillSpecification": "计量罐容积为3.5L",
+    "acceptance": "按 U250 标准验收：计量罐容积为3500mL",
+    "remark": "第二组-单位体积-标准规格=计量罐容积为3500mL"
+  },
+  {
+    "caseId": "U251",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "配液桶容量 U251",
+    "importSpecification": "配液桶容量为4000mL",
+    "fillSpecification": "配液桶容量为4L",
+    "acceptance": "按 U251 标准验收：配液桶容量为4000mL",
+    "remark": "第二组-单位体积-标准规格=配液桶容量为4000mL"
+  },
+  {
+    "caseId": "U252",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "循环槽容量 U252",
+    "importSpecification": "循环槽容量为4500mL",
+    "fillSpecification": "循环槽容量为4.5L",
+    "acceptance": "按 U252 标准验收：循环槽容量为4500mL",
+    "remark": "第二组-单位体积-标准规格=循环槽容量为4500mL"
+  },
+  {
+    "caseId": "U253",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "加湿罐容量 U253",
+    "importSpecification": "加湿罐容量为600mL",
+    "fillSpecification": "加湿罐容量为0.6L",
+    "acceptance": "按 U253 标准验收：加湿罐容量为600mL",
+    "remark": "第二组-单位体积-标准规格=加湿罐容量为600mL"
+  },
+  {
+    "caseId": "U254",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "树脂桶容积 U254",
+    "importSpecification": "树脂桶容积为900mL",
+    "fillSpecification": "树脂桶容积为0.9L",
+    "acceptance": "按 U254 标准验收：树脂桶容积为900mL",
+    "remark": "第二组-单位体积-标准规格=树脂桶容积为900mL"
+  },
+  {
+    "caseId": "U255",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "水箱容量 U255",
+    "importSpecification": "水箱容量为2200mL",
+    "fillSpecification": "水箱容量为2.2L",
+    "acceptance": "按 U255 标准验收：水箱容量为2200mL",
+    "remark": "第二组-单位体积-标准规格=水箱容量为2200mL"
+  },
+  {
+    "caseId": "U256",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "补液罐容量 U256",
+    "importSpecification": "补液罐容量为2800mL",
+    "fillSpecification": "补液罐容量为2.8L",
+    "acceptance": "按 U256 标准验收：补液罐容量为2800mL",
+    "remark": "第二组-单位体积-标准规格=补液罐容量为2800mL"
+  },
+  {
+    "caseId": "U257",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "供液槽容积 U257",
+    "importSpecification": "供液槽容积为3200mL",
+    "fillSpecification": "供液槽容积为3.2L",
+    "acceptance": "按 U257 标准验收：供液槽容积为3200mL",
+    "remark": "第二组-单位体积-标准规格=供液槽容积为3200mL"
+  },
+  {
+    "caseId": "U258",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "显影液容量 U258",
+    "importSpecification": "显影液容量为4200mL",
+    "fillSpecification": "显影液容量为4.2L",
+    "acceptance": "按 U258 标准验收：显影液容量为4200mL",
+    "remark": "第二组-单位体积-标准规格=显影液容量为4200mL"
+  },
+  {
+    "caseId": "U259",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "蚀刻液容量 U259",
+    "importSpecification": "蚀刻液容量为5200mL",
+    "fillSpecification": "蚀刻液容量为5.2L",
+    "acceptance": "按 U259 标准验收：蚀刻液容量为5200mL",
+    "remark": "第二组-单位体积-标准规格=蚀刻液容量为5200mL"
+  },
+  {
+    "caseId": "U260",
+    "category": "unit_volume_positive",
+    "expectedDecision": "autoApply",
+    "project": "净水箱容积 U260",
+    "importSpecification": "净水箱容积为8000mL",
+    "fillSpecification": "净水箱容积为8L",
+    "acceptance": "按 U260 标准验收：净水箱容积为8000mL",
+    "remark": "第二组-单位体积-标准规格=净水箱容积为8000mL"
+  },
+  {
+    "caseId": "U261",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "采样频率 U261",
+    "importSpecification": "采样频率为500Hz",
+    "fillSpecification": "采样频率为0.5kHz",
+    "acceptance": "按 U261 标准验收：采样频率为500Hz",
+    "remark": "第二组-单位频率-标准规格=采样频率为500Hz"
+  },
+  {
+    "caseId": "U262",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "振动检测频率 U262",
+    "importSpecification": "振动检测频率为1000Hz",
+    "fillSpecification": "振动检测频率为1kHz",
+    "acceptance": "按 U262 标准验收：振动检测频率为1000Hz",
+    "remark": "第二组-单位频率-标准规格=振动检测频率为1000Hz"
+  },
+  {
+    "caseId": "U263",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "脉冲输出频率 U263",
+    "importSpecification": "脉冲输出频率为1500Hz",
+    "fillSpecification": "脉冲输出频率为1.5kHz",
+    "acceptance": "按 U263 标准验收：脉冲输出频率为1500Hz",
+    "remark": "第二组-单位频率-标准规格=脉冲输出频率为1500Hz"
+  },
+  {
+    "caseId": "U264",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "编码器反馈频率 U264",
+    "importSpecification": "编码器反馈频率为2000Hz",
+    "fillSpecification": "编码器反馈频率为2kHz",
+    "acceptance": "按 U264 标准验收：编码器反馈频率为2000Hz",
+    "remark": "第二组-单位频率-标准规格=编码器反馈频率为2000Hz"
+  },
+  {
+    "caseId": "U265",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "触发扫描频率 U265",
+    "importSpecification": "触发扫描频率为2500Hz",
+    "fillSpecification": "触发扫描频率为2.5kHz",
+    "acceptance": "按 U265 标准验收：触发扫描频率为2500Hz",
+    "remark": "第二组-单位频率-标准规格=触发扫描频率为2500Hz"
+  },
+  {
+    "caseId": "U266",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "工位刷新频率 U266",
+    "importSpecification": "工位刷新频率为3000Hz",
+    "fillSpecification": "工位刷新频率为3kHz",
+    "acceptance": "按 U266 标准验收：工位刷新频率为3000Hz",
+    "remark": "第二组-单位频率-标准规格=工位刷新频率为3000Hz"
+  },
+  {
+    "caseId": "U267",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "报警闪烁频率 U267",
+    "importSpecification": "报警闪烁频率为3500Hz",
+    "fillSpecification": "报警闪烁频率为3.5kHz",
+    "acceptance": "按 U267 标准验收：报警闪烁频率为3500Hz",
+    "remark": "第二组-单位频率-标准规格=报警闪烁频率为3500Hz"
+  },
+  {
+    "caseId": "U268",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "压力采集频率 U268",
+    "importSpecification": "压力采集频率为4000Hz",
+    "fillSpecification": "压力采集频率为4kHz",
+    "acceptance": "按 U268 标准验收：压力采集频率为4000Hz",
+    "remark": "第二组-单位频率-标准规格=压力采集频率为4000Hz"
+  },
+  {
+    "caseId": "U269",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "视觉取像频率 U269",
+    "importSpecification": "视觉取像频率为4500Hz",
+    "fillSpecification": "视觉取像频率为4.5kHz",
+    "acceptance": "按 U269 标准验收：视觉取像频率为4500Hz",
+    "remark": "第二组-单位频率-标准规格=视觉取像频率为4500Hz"
+  },
+  {
+    "caseId": "U270",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "电流采样频率 U270",
+    "importSpecification": "电流采样频率为5000Hz",
+    "fillSpecification": "电流采样频率为5kHz",
+    "acceptance": "按 U270 标准验收：电流采样频率为5000Hz",
+    "remark": "第二组-单位频率-标准规格=电流采样频率为5000Hz"
+  },
+  {
+    "caseId": "U271",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "温度采样频率 U271",
+    "importSpecification": "温度采样频率为750Hz",
+    "fillSpecification": "温度采样频率为0.75kHz",
+    "acceptance": "按 U271 标准验收：温度采样频率为750Hz",
+    "remark": "第二组-单位频率-标准规格=温度采样频率为750Hz"
+  },
+  {
+    "caseId": "U272",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "位置闭环频率 U272",
+    "importSpecification": "位置闭环频率为1250Hz",
+    "fillSpecification": "位置闭环频率为1.25kHz",
+    "acceptance": "按 U272 标准验收：位置闭环频率为1250Hz",
+    "remark": "第二组-单位频率-标准规格=位置闭环频率为1250Hz"
+  },
+  {
+    "caseId": "U273",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "滤波截止频率 U273",
+    "importSpecification": "滤波截止频率为1750Hz",
+    "fillSpecification": "滤波截止频率为1.75kHz",
+    "acceptance": "按 U273 标准验收：滤波截止频率为1750Hz",
+    "remark": "第二组-单位频率-标准规格=滤波截止频率为1750Hz"
+  },
+  {
+    "caseId": "U274",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "补偿更新频率 U274",
+    "importSpecification": "补偿更新频率为2250Hz",
+    "fillSpecification": "补偿更新频率为2.25kHz",
+    "acceptance": "按 U274 标准验收：补偿更新频率为2250Hz",
+    "remark": "第二组-单位频率-标准规格=补偿更新频率为2250Hz"
+  },
+  {
+    "caseId": "U275",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "速度计算频率 U275",
+    "importSpecification": "速度计算频率为2750Hz",
+    "fillSpecification": "速度计算频率为2.75kHz",
+    "acceptance": "按 U275 标准验收：速度计算频率为2750Hz",
+    "remark": "第二组-单位频率-标准规格=速度计算频率为2750Hz"
+  },
+  {
+    "caseId": "U276",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "剔除节拍频率 U276",
+    "importSpecification": "剔除节拍频率为6000Hz",
+    "fillSpecification": "剔除节拍频率为6kHz",
+    "acceptance": "按 U276 标准验收：剔除节拍频率为6000Hz",
+    "remark": "第二组-单位频率-标准规格=剔除节拍频率为6000Hz"
+  },
+  {
+    "caseId": "U277",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "输送拍照频率 U277",
+    "importSpecification": "输送拍照频率为6500Hz",
+    "fillSpecification": "输送拍照频率为6.5kHz",
+    "acceptance": "按 U277 标准验收：输送拍照频率为6500Hz",
+    "remark": "第二组-单位频率-标准规格=输送拍照频率为6500Hz"
+  },
+  {
+    "caseId": "U278",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "心跳包频率 U278",
+    "importSpecification": "心跳包频率为7000Hz",
+    "fillSpecification": "心跳包频率为7kHz",
+    "acceptance": "按 U278 标准验收：心跳包频率为7000Hz",
+    "remark": "第二组-单位频率-标准规格=心跳包频率为7000Hz"
+  },
+  {
+    "caseId": "U279",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "日志刷新频率 U279",
+    "importSpecification": "日志刷新频率为8000Hz",
+    "fillSpecification": "日志刷新频率为8kHz",
+    "acceptance": "按 U279 标准验收：日志刷新频率为8000Hz",
+    "remark": "第二组-单位频率-标准规格=日志刷新频率为8000Hz"
+  },
+  {
+    "caseId": "U280",
+    "category": "unit_frequency_positive",
+    "expectedDecision": "autoApply",
+    "project": "状态上报频率 U280",
+    "importSpecification": "状态上报频率为9000Hz",
+    "fillSpecification": "状态上报频率为9kHz",
+    "acceptance": "按 U280 标准验收：状态上报频率为9000Hz",
+    "remark": "第二组-单位频率-标准规格=状态上报频率为9000Hz"
+  },
+  {
+    "caseId": "B201",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "断路器品牌要求 B201",
+    "importSpecification": "断路器品牌为 Schneider，型号 NSX100N",
+    "fillSpecification": "断路器品牌为 施耐德，型号 NSX100N",
+    "acceptance": "按 B201 标准验收：断路器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Schneider；型号=NSX100N"
+  },
+  {
+    "caseId": "B202",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "接触器品牌要求 B202",
+    "importSpecification": "接触器品牌为 施耐德，型号 LC1D18",
+    "fillSpecification": "接触器品牌为 Schneider，型号 LC1D18",
+    "acceptance": "按 B202 标准验收：接触器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=施耐德；型号=LC1D18"
+  },
+  {
+    "caseId": "B203",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "变频器品牌要求 B203",
+    "importSpecification": "变频器品牌为 Schneider，型号 ATV320",
+    "fillSpecification": "变频器品牌为 施耐德，型号 ATV320",
+    "acceptance": "按 B203 标准验收：变频器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Schneider；型号=ATV320"
+  },
+  {
+    "caseId": "B204",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "PLC品牌要求 B204",
+    "importSpecification": "PLC品牌为 Mitsubishi，型号 FX5U-32MT",
+    "fillSpecification": "PLC品牌为 三菱，型号 FX5U-32MT",
+    "acceptance": "按 B204 标准验收：PLC品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Mitsubishi；型号=FX5U-32MT"
+  },
+  {
+    "caseId": "B205",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "伺服驱动器品牌要求 B205",
+    "importSpecification": "伺服驱动器品牌为 三菱，型号 MR-J4-10A",
+    "fillSpecification": "伺服驱动器品牌为 Mitsubishi，型号 MR-J4-10A",
+    "acceptance": "按 B205 标准验收：伺服驱动器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=三菱；型号=MR-J4-10A"
+  },
+  {
+    "caseId": "B206",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "触摸屏品牌要求 B206",
+    "importSpecification": "触摸屏品牌为 Mitsubishi，型号 GT2107",
+    "fillSpecification": "触摸屏品牌为 三菱，型号 GT2107",
+    "acceptance": "按 B206 标准验收：触摸屏品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Mitsubishi；型号=GT2107"
+  },
+  {
+    "caseId": "B207",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "光电传感器品牌要求 B207",
+    "importSpecification": "光电传感器品牌为 Omron，型号 E3Z-D61",
+    "fillSpecification": "光电传感器品牌为 欧姆龙，型号 E3Z-D61",
+    "acceptance": "按 B207 标准验收：光电传感器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Omron；型号=E3Z-D61"
+  },
+  {
+    "caseId": "B208",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "继电器品牌要求 B208",
+    "importSpecification": "继电器品牌为 欧姆龙，型号 MY2N",
+    "fillSpecification": "继电器品牌为 Omron，型号 MY2N",
+    "acceptance": "按 B208 标准验收：继电器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=欧姆龙；型号=MY2N"
+  },
+  {
+    "caseId": "B209",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "编码器品牌要求 B209",
+    "importSpecification": "编码器品牌为 Omron，型号 E6B2-CWZ6C",
+    "fillSpecification": "编码器品牌为 欧姆龙，型号 E6B2-CWZ6C",
+    "acceptance": "按 B209 标准验收：编码器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Omron；型号=E6B2-CWZ6C"
+  },
+  {
+    "caseId": "B210",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "激光传感器品牌要求 B210",
+    "importSpecification": "激光传感器品牌为 Panasonic，型号 HL-C203B",
+    "fillSpecification": "激光传感器品牌为 松下，型号 HL-C203B",
+    "acceptance": "按 B210 标准验收：激光传感器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Panasonic；型号=HL-C203B"
+  },
+  {
+    "caseId": "B211",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "贴片马达品牌要求 B211",
+    "importSpecification": "贴片马达品牌为 松下，型号 MHMF042L1U2M",
+    "fillSpecification": "贴片马达品牌为 Panasonic，型号 MHMF042L1U2M",
+    "acceptance": "按 B211 标准验收：贴片马达品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=松下；型号=MHMF042L1U2M"
+  },
+  {
+    "caseId": "B212",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "温控器品牌要求 B212",
+    "importSpecification": "温控器品牌为 Panasonic，型号 KT4H",
+    "fillSpecification": "温控器品牌为 松下，型号 KT4H",
+    "acceptance": "按 B212 标准验收：温控器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Panasonic；型号=KT4H"
+  },
+  {
+    "caseId": "B213",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "伺服电机品牌要求 B213",
+    "importSpecification": "伺服电机品牌为 Yaskawa，型号 SGM7J-04AFC6S",
+    "fillSpecification": "伺服电机品牌为 安川，型号 SGM7J-04AFC6S",
+    "acceptance": "按 B213 标准验收：伺服电机品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Yaskawa；型号=SGM7J-04AFC6S"
+  },
+  {
+    "caseId": "B214",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "伺服驱动器品牌要求 B214",
+    "importSpecification": "伺服驱动器品牌为 安川，型号 SGD7S-2R8A",
+    "fillSpecification": "伺服驱动器品牌为 Yaskawa，型号 SGD7S-2R8A",
+    "acceptance": "按 B214 标准验收：伺服驱动器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=安川；型号=SGD7S-2R8A"
+  },
+  {
+    "caseId": "B215",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "变频器品牌要求 B215",
+    "importSpecification": "变频器品牌为 Yaskawa，型号 GA500",
+    "fillSpecification": "变频器品牌为 安川，型号 GA500",
+    "acceptance": "按 B215 标准验收：变频器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Yaskawa；型号=GA500"
+  },
+  {
+    "caseId": "B216",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "读码器品牌要求 B216",
+    "importSpecification": "读码器品牌为 Keyence，型号 SR-2000",
+    "fillSpecification": "读码器品牌为 基恩士，型号 SR-2000",
+    "acceptance": "按 B216 标准验收：读码器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Keyence；型号=SR-2000"
+  },
+  {
+    "caseId": "B217",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "测量仪品牌要求 B217",
+    "importSpecification": "测量仪品牌为 基恩士，型号 TM-X5000",
+    "fillSpecification": "测量仪品牌为 Keyence，型号 TM-X5000",
+    "acceptance": "按 B217 标准验收：测量仪品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=基恩士；型号=TM-X5000"
+  },
+  {
+    "caseId": "B218",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "光纤放大器品牌要求 B218",
+    "importSpecification": "光纤放大器品牌为 Keyence，型号 FS-N41N",
+    "fillSpecification": "光纤放大器品牌为 基恩士，型号 FS-N41N",
+    "acceptance": "按 B218 标准验收：光纤放大器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Keyence；型号=FS-N41N"
+  },
+  {
+    "caseId": "B219",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "安全光幕品牌要求 B219",
+    "importSpecification": "安全光幕品牌为 SICK，型号 deTec4",
+    "fillSpecification": "安全光幕品牌为 西克，型号 deTec4",
+    "acceptance": "按 B219 标准验收：安全光幕品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=SICK；型号=deTec4"
+  },
+  {
+    "caseId": "B220",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "接近传感器品牌要求 B220",
+    "importSpecification": "接近传感器品牌为 西克，型号 IME12-04BPSZW2S",
+    "fillSpecification": "接近传感器品牌为 SICK，型号 IME12-04BPSZW2S",
+    "acceptance": "按 B220 标准验收：接近传感器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=西克；型号=IME12-04BPSZW2S"
+  },
+  {
+    "caseId": "B221",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "颜色传感器品牌要求 B221",
+    "importSpecification": "颜色传感器品牌为 SICK，型号 CS8-1",
+    "fillSpecification": "颜色传感器品牌为 西克，型号 CS8-1",
+    "acceptance": "按 B221 标准验收：颜色传感器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=SICK；型号=CS8-1"
+  },
+  {
+    "caseId": "B222",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "位移传感器品牌要求 B222",
+    "importSpecification": "位移传感器品牌为 Balluff，型号 BTL7",
+    "fillSpecification": "位移传感器品牌为 巴鲁夫，型号 BTL7",
+    "acceptance": "按 B222 标准验收：位移传感器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Balluff；型号=BTL7"
+  },
+  {
+    "caseId": "B223",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "RFID 读头品牌要求 B223",
+    "importSpecification": "RFID 读头品牌为 巴鲁夫，型号 BIS M-4",
+    "fillSpecification": "RFID 读头品牌为 Balluff，型号 BIS M-4",
+    "acceptance": "按 B223 标准验收：RFID 读头品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=巴鲁夫；型号=BIS M-4"
+  },
+  {
+    "caseId": "B224",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "光电开关品牌要求 B224",
+    "importSpecification": "光电开关品牌为 Balluff，型号 BOS 18M",
+    "fillSpecification": "光电开关品牌为 巴鲁夫，型号 BOS 18M",
+    "acceptance": "按 B224 标准验收：光电开关品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Balluff；型号=BOS 18M"
+  },
+  {
+    "caseId": "B225",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "IO 模块品牌要求 B225",
+    "importSpecification": "IO 模块品牌为 Turck，型号 TBEN-S1-8DXP",
+    "fillSpecification": "IO 模块品牌为 图尔克，型号 TBEN-S1-8DXP",
+    "acceptance": "按 B225 标准验收：IO 模块品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Turck；型号=TBEN-S1-8DXP"
+  },
+  {
+    "caseId": "B226",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "电感传感器品牌要求 B226",
+    "importSpecification": "电感传感器品牌为 图尔克，型号 BI2-M12",
+    "fillSpecification": "电感传感器品牌为 Turck，型号 BI2-M12",
+    "acceptance": "按 B226 标准验收：电感传感器品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=图尔克；型号=BI2-M12"
+  },
+  {
+    "caseId": "B227",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "总线模块品牌要求 B227",
+    "importSpecification": "总线模块品牌为 Turck，型号 BL20-GW",
+    "fillSpecification": "总线模块品牌为 图尔克，型号 BL20-GW",
+    "acceptance": "按 B227 标准验收：总线模块品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Turck；型号=BL20-GW"
+  },
+  {
+    "caseId": "B228",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "交换机品牌要求 B228",
+    "importSpecification": "交换机品牌为 Phoenix Contact，型号 FL SWITCH 1005N",
+    "fillSpecification": "交换机品牌为 菲尼克斯，型号 FL SWITCH 1005N",
+    "acceptance": "按 B228 标准验收：交换机品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Phoenix Contact；型号=FL SWITCH 1005N"
+  },
+  {
+    "caseId": "B229",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "端子模块品牌要求 B229",
+    "importSpecification": "端子模块品牌为 菲尼克斯，型号 PT 2.5",
+    "fillSpecification": "端子模块品牌为 Phoenix Contact，型号 PT 2.5",
+    "acceptance": "按 B229 标准验收：端子模块品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=菲尼克斯；型号=PT 2.5"
+  },
+  {
+    "caseId": "B230",
+    "category": "brand_positive",
+    "expectedDecision": "autoApply",
+    "project": "电源模块品牌要求 B230",
+    "importSpecification": "电源模块品牌为 Phoenix Contact，型号 QUINT4-PS",
+    "fillSpecification": "电源模块品牌为 菲尼克斯，型号 QUINT4-PS",
+    "acceptance": "按 B230 标准验收：电源模块品牌需与标准库一致",
+    "remark": "第二组-品牌别名-标准品牌=Phoenix Contact；型号=QUINT4-PS"
+  },
+  {
+    "caseId": "C201",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "断路器品牌要求 C201",
+    "importSpecification": "断路器品牌为 Schneider",
+    "fillSpecification": "断路器品牌为 西门子",
+    "acceptance": "按 C201 标准验收：断路器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Schneider"
+  },
+  {
+    "caseId": "C202",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "接触器品牌要求 C202",
+    "importSpecification": "接触器品牌为 施耐德",
+    "fillSpecification": "接触器品牌为 Siemens",
+    "acceptance": "按 C202 标准验收：接触器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=施耐德"
+  },
+  {
+    "caseId": "C203",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "电源模块品牌要求 C203",
+    "importSpecification": "电源模块品牌为 Schneider",
+    "fillSpecification": "电源模块品牌为 西门子",
+    "acceptance": "按 C203 标准验收：电源模块品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Schneider"
+  },
+  {
+    "caseId": "C204",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "伺服驱动器品牌要求 C204",
+    "importSpecification": "伺服驱动器品牌为 Mitsubishi",
+    "fillSpecification": "伺服驱动器品牌为 安川",
+    "acceptance": "按 C204 标准验收：伺服驱动器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Mitsubishi"
+  },
+  {
+    "caseId": "C205",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "伺服电机品牌要求 C205",
+    "importSpecification": "伺服电机品牌为 三菱",
+    "fillSpecification": "伺服电机品牌为 Yaskawa",
+    "acceptance": "按 C205 标准验收：伺服电机品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=三菱"
+  },
+  {
+    "caseId": "C206",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "变频器品牌要求 C206",
+    "importSpecification": "变频器品牌为 Mitsubishi",
+    "fillSpecification": "变频器品牌为 安川",
+    "acceptance": "按 C206 标准验收：变频器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Mitsubishi"
+  },
+  {
+    "caseId": "C207",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "光电传感器品牌要求 C207",
+    "importSpecification": "光电传感器品牌为 Omron",
+    "fillSpecification": "光电传感器品牌为 基恩士",
+    "acceptance": "按 C207 标准验收：光电传感器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Omron"
+  },
+  {
+    "caseId": "C208",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "读码器品牌要求 C208",
+    "importSpecification": "读码器品牌为 欧姆龙",
+    "fillSpecification": "读码器品牌为 Keyence",
+    "acceptance": "按 C208 标准验收：读码器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=欧姆龙"
+  },
+  {
+    "caseId": "C209",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "温控器品牌要求 C209",
+    "importSpecification": "温控器品牌为 Omron",
+    "fillSpecification": "温控器品牌为 基恩士",
+    "acceptance": "按 C209 标准验收：温控器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Omron"
+  },
+  {
+    "caseId": "C210",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "触摸屏品牌要求 C210",
+    "importSpecification": "触摸屏品牌为 Panasonic",
+    "fillSpecification": "触摸屏品牌为 三菱",
+    "acceptance": "按 C210 标准验收：触摸屏品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Panasonic"
+  },
+  {
+    "caseId": "C211",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "PLC品牌要求 C211",
+    "importSpecification": "PLC品牌为 松下",
+    "fillSpecification": "PLC品牌为 Mitsubishi",
+    "acceptance": "按 C211 标准验收：PLC品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=松下"
+  },
+  {
+    "caseId": "C212",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "激光传感器品牌要求 C212",
+    "importSpecification": "激光传感器品牌为 Panasonic",
+    "fillSpecification": "激光传感器品牌为 三菱",
+    "acceptance": "按 C212 标准验收：激光传感器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Panasonic"
+  },
+  {
+    "caseId": "C213",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "安全光幕品牌要求 C213",
+    "importSpecification": "安全光幕品牌为 SICK",
+    "fillSpecification": "安全光幕品牌为 巴鲁夫",
+    "acceptance": "按 C213 标准验收：安全光幕品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=SICK"
+  },
+  {
+    "caseId": "C214",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "位移传感器品牌要求 C214",
+    "importSpecification": "位移传感器品牌为 西克",
+    "fillSpecification": "位移传感器品牌为 Balluff",
+    "acceptance": "按 C214 标准验收：位移传感器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=西克"
+  },
+  {
+    "caseId": "C215",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "光电开关品牌要求 C215",
+    "importSpecification": "光电开关品牌为 SICK",
+    "fillSpecification": "光电开关品牌为 巴鲁夫",
+    "acceptance": "按 C215 标准验收：光电开关品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=SICK"
+  },
+  {
+    "caseId": "C216",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "交换机品牌要求 C216",
+    "importSpecification": "交换机品牌为 Phoenix Contact",
+    "fillSpecification": "交换机品牌为 图尔克",
+    "acceptance": "按 C216 标准验收：交换机品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Phoenix Contact"
+  },
+  {
+    "caseId": "C217",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "IO 模块品牌要求 C217",
+    "importSpecification": "IO 模块品牌为 菲尼克斯",
+    "fillSpecification": "IO 模块品牌为 Turck",
+    "acceptance": "按 C217 标准验收：IO 模块品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=菲尼克斯"
+  },
+  {
+    "caseId": "C218",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "端子模块品牌要求 C218",
+    "importSpecification": "端子模块品牌为 Phoenix Contact",
+    "fillSpecification": "端子模块品牌为 图尔克",
+    "acceptance": "按 C218 标准验收：端子模块品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Phoenix Contact"
+  },
+  {
+    "caseId": "C219",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "气缸品牌要求 C219",
+    "importSpecification": "气缸品牌为 Festo",
+    "fillSpecification": "气缸品牌为 SMC",
+    "acceptance": "按 C219 标准验收：气缸品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Festo"
+  },
+  {
+    "caseId": "C220",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "电磁阀品牌要求 C220",
+    "importSpecification": "电磁阀品牌为 费斯托",
+    "fillSpecification": "电磁阀品牌为 SMC",
+    "acceptance": "按 C220 标准验收：电磁阀品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=费斯托"
+  },
+  {
+    "caseId": "C221",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "真空发生器品牌要求 C221",
+    "importSpecification": "真空发生器品牌为 Festo",
+    "fillSpecification": "真空发生器品牌为 SMC",
+    "acceptance": "按 C221 标准验收：真空发生器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Festo"
+  },
+  {
+    "caseId": "C222",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "工业相机品牌要求 C222",
+    "importSpecification": "工业相机品牌为 Hikrobot",
+    "fillSpecification": "工业相机品牌为 基恩士",
+    "acceptance": "按 C222 标准验收：工业相机品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Hikrobot"
+  },
+  {
+    "caseId": "C223",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "读码器品牌要求 C223",
+    "importSpecification": "读码器品牌为 海康机器人",
+    "fillSpecification": "读码器品牌为 Keyence",
+    "acceptance": "按 C223 标准验收：读码器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=海康机器人"
+  },
+  {
+    "caseId": "C224",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "镜头品牌要求 C224",
+    "importSpecification": "镜头品牌为 Hikrobot",
+    "fillSpecification": "镜头品牌为 基恩士",
+    "acceptance": "按 C224 标准验收：镜头品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Hikrobot"
+  },
+  {
+    "caseId": "C225",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "PLC品牌要求 C225",
+    "importSpecification": "PLC品牌为 Allen-Bradley",
+    "fillSpecification": "PLC品牌为 施耐德",
+    "acceptance": "按 C225 标准验收：PLC品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Allen-Bradley"
+  },
+  {
+    "caseId": "C226",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "接触器品牌要求 C226",
+    "importSpecification": "接触器品牌为 罗克韦尔",
+    "fillSpecification": "接触器品牌为 Schneider",
+    "acceptance": "按 C226 标准验收：接触器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=罗克韦尔"
+  },
+  {
+    "caseId": "C227",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "变频器品牌要求 C227",
+    "importSpecification": "变频器品牌为 Allen-Bradley",
+    "fillSpecification": "变频器品牌为 施耐德",
+    "acceptance": "按 C227 标准验收：变频器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Allen-Bradley"
+  },
+  {
+    "caseId": "C228",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "伺服驱动器品牌要求 C228",
+    "importSpecification": "伺服驱动器品牌为 Lenze",
+    "fillSpecification": "伺服驱动器品牌为 安川",
+    "acceptance": "按 C228 标准验收：伺服驱动器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Lenze"
+  },
+  {
+    "caseId": "C229",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "减速电机品牌要求 C229",
+    "importSpecification": "减速电机品牌为 伦茨",
+    "fillSpecification": "减速电机品牌为 Yaskawa",
+    "acceptance": "按 C229 标准验收：减速电机品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=伦茨"
+  },
+  {
+    "caseId": "C230",
+    "category": "brand_negative",
+    "expectedDecision": "manualReview",
+    "project": "编码器品牌要求 C230",
+    "importSpecification": "编码器品牌为 Lenze",
+    "fillSpecification": "编码器品牌为 安川",
+    "acceptance": "按 C230 标准验收：编码器品牌需与标准库一致",
+    "remark": "第二组-品牌冲突-标准品牌=Lenze"
+  },
+  {
+    "caseId": "S201",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "输送方向 S201",
+    "importSpecification": "输送方向为左进右出",
+    "fillSpecification": "板件从左侧进入并从右侧送出",
+    "acceptance": "按 S201 标准验收：输送方向为左进右出",
+    "remark": "第二组-语义等价-标准语义=输送方向为左进右出"
+  },
+  {
+    "caseId": "S202",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "输送方向 S202",
+    "importSpecification": "输送方向为右进左出",
+    "fillSpecification": "板件从右侧进入并从左侧送出",
+    "acceptance": "按 S202 标准验收：输送方向为右进左出",
+    "remark": "第二组-语义等价-标准语义=输送方向为右进左出"
+  },
+  {
+    "caseId": "S203",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "待机逻辑 S203",
+    "importSpecification": "连续8分钟无料时自动进入待机",
+    "fillSpecification": "若8分钟内没有来料，设备应切换到待机状态",
+    "acceptance": "按 S203 标准验收：连续8分钟无料时自动进入待机",
+    "remark": "第二组-语义等价-标准语义=连续8分钟无料时自动进入待机"
+  },
+  {
+    "caseId": "S204",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "待机逻辑 S204",
+    "importSpecification": "连续5分钟无板时自动待机",
+    "fillSpecification": "当5分钟内未检测到来板时，系统进入待机",
+    "acceptance": "按 S204 标准验收：连续5分钟无板时自动待机",
+    "remark": "第二组-语义等价-标准语义=连续5分钟无板时自动待机"
+  },
+  {
+    "caseId": "S205",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "到位停机 S205",
+    "importSpecification": "检测到位信号后立即停止",
+    "fillSpecification": "收到到位信号后马上停机",
+    "acceptance": "按 S205 标准验收：检测到位信号后立即停止",
+    "remark": "第二组-语义等价-标准语义=检测到位信号后立即停止"
+  },
+  {
+    "caseId": "S206",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "到位停机 S206",
+    "importSpecification": "工件到位后设备停止动作",
+    "fillSpecification": "检测到工件到位时立即停止设备动作",
+    "acceptance": "按 S206 标准验收：工件到位后设备停止动作",
+    "remark": "第二组-语义等价-标准语义=工件到位后设备停止动作"
+  },
+  {
+    "caseId": "S207",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "夹爪状态 S207",
+    "importSpecification": "夹爪保持夹紧",
+    "fillSpecification": "夹爪持续处于夹持状态",
+    "acceptance": "按 S207 标准验收：夹爪保持夹紧",
+    "remark": "第二组-语义等价-标准语义=夹爪保持夹紧"
+  },
+  {
+    "caseId": "S208",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "夹爪状态 S208",
+    "importSpecification": "治具需要保持夹紧",
+    "fillSpecification": "治具应一直处于夹持状态",
+    "acceptance": "按 S208 标准验收：治具需要保持夹紧",
+    "remark": "第二组-语义等价-标准语义=治具需要保持夹紧"
+  },
+  {
+    "caseId": "S209",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "指示灯状态 S209",
+    "importSpecification": "报警灯点亮",
+    "fillSpecification": "报警灯亮起",
+    "acceptance": "按 S209 标准验收：报警灯点亮",
+    "remark": "第二组-语义等价-标准语义=报警灯点亮"
+  },
+  {
+    "caseId": "S210",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "指示灯状态 S210",
+    "importSpecification": "运行指示灯常亮",
+    "fillSpecification": "运行指示灯持续点亮",
+    "acceptance": "按 S210 标准验收：运行指示灯常亮",
+    "remark": "第二组-语义等价-标准语义=运行指示灯常亮"
+  },
+  {
+    "caseId": "S211",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "门禁联锁 S211",
+    "importSpecification": "安全门闭合后才允许启动",
+    "fillSpecification": "仅当安全门关闭到位时可启动",
+    "acceptance": "按 S211 标准验收：安全门闭合后才允许启动",
+    "remark": "第二组-语义等价-标准语义=安全门闭合后才允许启动"
+  },
+  {
+    "caseId": "S212",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "门禁联锁 S212",
+    "importSpecification": "门锁闭合后设备允许运行",
+    "fillSpecification": "只有门锁关到位时设备才可运行",
+    "acceptance": "按 S212 标准验收：门锁闭合后设备允许运行",
+    "remark": "第二组-语义等价-标准语义=门锁闭合后设备允许运行"
+  },
+  {
+    "caseId": "S213",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "供电自检 S213",
+    "importSpecification": "系统通电后执行自检",
+    "fillSpecification": "上电完成后开始自检",
+    "acceptance": "按 S213 标准验收：系统通电后执行自检",
+    "remark": "第二组-语义等价-标准语义=系统通电后执行自检"
+  },
+  {
+    "caseId": "S214",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "供电自检 S214",
+    "importSpecification": "设备通电后自动自检",
+    "fillSpecification": "设备上电后自动执行自检",
+    "acceptance": "按 S214 标准验收：设备通电后自动自检",
+    "remark": "第二组-语义等价-标准语义=设备通电后自动自检"
+  },
+  {
+    "caseId": "S215",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "平台动作 S215",
+    "importSpecification": "升降平台抬起到位",
+    "fillSpecification": "平台上升至到位位置",
+    "acceptance": "按 S215 标准验收：升降平台抬起到位",
+    "remark": "第二组-语义等价-标准语义=升降平台抬起到位"
+  },
+  {
+    "caseId": "S216",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "平台动作 S216",
+    "importSpecification": "平台下降到位后停止",
+    "fillSpecification": "平台降到目标位置后立即停止",
+    "acceptance": "按 S216 标准验收：平台下降到位后停止",
+    "remark": "第二组-语义等价-标准语义=平台下降到位后停止"
+  },
+  {
+    "caseId": "S217",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "回路状态 S217",
+    "importSpecification": "回路接通后输出信号",
+    "fillSpecification": "回路闭合时输出信号",
+    "acceptance": "按 S217 标准验收：回路接通后输出信号",
+    "remark": "第二组-语义等价-标准语义=回路接通后输出信号"
+  },
+  {
+    "caseId": "S218",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "回路状态 S218",
+    "importSpecification": "使能回路接通后允许动作",
+    "fillSpecification": "使能回路闭合后方可动作",
+    "acceptance": "按 S218 标准验收：使能回路接通后允许动作",
+    "remark": "第二组-语义等价-标准语义=使能回路接通后允许动作"
+  },
+  {
+    "caseId": "S219",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "真空取料 S219",
+    "importSpecification": "真空建立后开始取料",
+    "fillSpecification": "吸附真空达到后执行取料",
+    "acceptance": "按 S219 标准验收：真空建立后开始取料",
+    "remark": "第二组-语义等价-标准语义=真空建立后开始取料"
+  },
+  {
+    "caseId": "S220",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "真空取料 S220",
+    "importSpecification": "真空达到设定值后启动吸取",
+    "fillSpecification": "吸附压力达到设定值后开始取料",
+    "acceptance": "按 S220 标准验收：真空达到设定值后启动吸取",
+    "remark": "第二组-语义等价-标准语义=真空达到设定值后启动吸取"
+  },
+  {
+    "caseId": "S221",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "复位条件 S221",
+    "importSpecification": "回原点后允许进入自动模式",
+    "fillSpecification": "完成回零后方可切入自动模式",
+    "acceptance": "按 S221 标准验收：回原点后允许进入自动模式",
+    "remark": "第二组-语义等价-标准语义=回原点后允许进入自动模式"
+  },
+  {
+    "caseId": "S222",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "复位条件 S222",
+    "importSpecification": "回零结束后清除报警",
+    "fillSpecification": "原点复归完成后消除报警",
+    "acceptance": "按 S222 标准验收：回零结束后清除报警",
+    "remark": "第二组-语义等价-标准语义=回零结束后清除报警"
+  },
+  {
+    "caseId": "S223",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "报警逻辑 S223",
+    "importSpecification": "故障发生时立即报警",
+    "fillSpecification": "一旦发生故障立即触发报警",
+    "acceptance": "按 S223 标准验收：故障发生时立即报警",
+    "remark": "第二组-语义等价-标准语义=故障发生时立即报警"
+  },
+  {
+    "caseId": "S224",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "报警逻辑 S224",
+    "importSpecification": "检测到异常后发出报警",
+    "fillSpecification": "发现异常时输出报警信号",
+    "acceptance": "按 S224 标准验收：检测到异常后发出报警",
+    "remark": "第二组-语义等价-标准语义=检测到异常后发出报警"
+  },
+  {
+    "caseId": "S225",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "节拍控制 S225",
+    "importSpecification": "达到节拍后切换下一工位",
+    "fillSpecification": "节拍满足后转入下一工位",
+    "acceptance": "按 S225 标准验收：达到节拍后切换下一工位",
+    "remark": "第二组-语义等价-标准语义=达到节拍后切换下一工位"
+  },
+  {
+    "caseId": "S226",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "节拍控制 S226",
+    "importSpecification": "节拍到时后执行换站",
+    "fillSpecification": "到达节拍时间后进行换站",
+    "acceptance": "按 S226 标准验收：节拍到时后执行换站",
+    "remark": "第二组-语义等价-标准语义=节拍到时后执行换站"
+  },
+  {
+    "caseId": "S227",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "允许运行 S227",
+    "importSpecification": "所有条件满足后允许运行",
+    "fillSpecification": "仅在全部条件成立时允许设备运行",
+    "acceptance": "按 S227 标准验收：所有条件满足后允许运行",
+    "remark": "第二组-语义等价-标准语义=所有条件满足后允许运行"
+  },
+  {
+    "caseId": "S228",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "允许运行 S228",
+    "importSpecification": "互锁条件满足后开启自动运行",
+    "fillSpecification": "满足互锁条件后方可启动自动运行",
+    "acceptance": "按 S228 标准验收：互锁条件满足后开启自动运行",
+    "remark": "第二组-语义等价-标准语义=互锁条件满足后开启自动运行"
+  },
+  {
+    "caseId": "S229",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "气缸动作 S229",
+    "importSpecification": "气缸伸出到位后保持",
+    "fillSpecification": "气缸前进到位后维持当前位置",
+    "acceptance": "按 S229 标准验收：气缸伸出到位后保持",
+    "remark": "第二组-语义等价-标准语义=气缸伸出到位后保持"
+  },
+  {
+    "caseId": "S230",
+    "category": "semantic_positive",
+    "expectedDecision": "autoApply",
+    "project": "气缸动作 S230",
+    "importSpecification": "气缸缩回到位后停止",
+    "fillSpecification": "气缸退回到位后立即停止动作",
+    "acceptance": "按 S230 标准验收：气缸缩回到位后停止",
+    "remark": "第二组-语义等价-标准语义=气缸缩回到位后停止"
+  },
+  {
+    "caseId": "A201",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "运行方向 A201",
+    "importSpecification": "电机启动后应正转运行",
+    "fillSpecification": "电机启动后应反转运行",
+    "acceptance": "按 A201 标准验收：电机启动后应正转运行",
+    "remark": "第二组-反义冲突-标准语义=电机启动后应正转运行"
+  },
+  {
+    "caseId": "A202",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "运行方向 A202",
+    "importSpecification": "输送方向为左进右出",
+    "fillSpecification": "输送方向为右进左出",
+    "acceptance": "按 A202 标准验收：输送方向为左进右出",
+    "remark": "第二组-反义冲突-标准语义=输送方向为左进右出"
+  },
+  {
+    "caseId": "A203",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "平台动作 A203",
+    "importSpecification": "升降平台应升起到位",
+    "fillSpecification": "升降平台应降下到位",
+    "acceptance": "按 A203 标准验收：升降平台应升起到位",
+    "remark": "第二组-反义冲突-标准语义=升降平台应升起到位"
+  },
+  {
+    "caseId": "A204",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "平台动作 A204",
+    "importSpecification": "平台上升后保持当前位置",
+    "fillSpecification": "平台下降后保持当前位置",
+    "acceptance": "按 A204 标准验收：平台上升后保持当前位置",
+    "remark": "第二组-反义冲突-标准语义=平台上升后保持当前位置"
+  },
+  {
+    "caseId": "A205",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "夹爪状态 A205",
+    "importSpecification": "夹爪动作后保持夹紧",
+    "fillSpecification": "夹爪动作后保持松开",
+    "acceptance": "按 A205 标准验收：夹爪动作后保持夹紧",
+    "remark": "第二组-反义冲突-标准语义=夹爪动作后保持夹紧"
+  },
+  {
+    "caseId": "A206",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "夹爪状态 A206",
+    "importSpecification": "治具需要夹持工件",
+    "fillSpecification": "治具需要释放工件",
+    "acceptance": "按 A206 标准验收：治具需要夹持工件",
+    "remark": "第二组-反义冲突-标准语义=治具需要夹持工件"
+  },
+  {
+    "caseId": "A207",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "指示灯状态 A207",
+    "importSpecification": "报警灯需要点亮",
+    "fillSpecification": "报警灯需要熄灭",
+    "acceptance": "按 A207 标准验收：报警灯需要点亮",
+    "remark": "第二组-反义冲突-标准语义=报警灯需要点亮"
+  },
+  {
+    "caseId": "A208",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "指示灯状态 A208",
+    "importSpecification": "运行灯常亮表示可运行",
+    "fillSpecification": "运行灯熄灭表示可运行",
+    "acceptance": "按 A208 标准验收：运行灯常亮表示可运行",
+    "remark": "第二组-反义冲突-标准语义=运行灯常亮表示可运行"
+  },
+  {
+    "caseId": "A209",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "门禁联锁 A209",
+    "importSpecification": "安全门闭合后允许启动",
+    "fillSpecification": "安全门打开后允许启动",
+    "acceptance": "按 A209 标准验收：安全门闭合后允许启动",
+    "remark": "第二组-反义冲突-标准语义=安全门闭合后允许启动"
+  },
+  {
+    "caseId": "A210",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "门禁联锁 A210",
+    "importSpecification": "门锁闭合后设备可运行",
+    "fillSpecification": "门锁断开后设备可运行",
+    "acceptance": "按 A210 标准验收：门锁闭合后设备可运行",
+    "remark": "第二组-反义冲突-标准语义=门锁闭合后设备可运行"
+  },
+  {
+    "caseId": "A211",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "供电状态 A211",
+    "importSpecification": "系统通电后执行自检",
+    "fillSpecification": "系统断电后执行自检",
+    "acceptance": "按 A211 标准验收：系统通电后执行自检",
+    "remark": "第二组-反义冲突-标准语义=系统通电后执行自检"
+  },
+  {
+    "caseId": "A212",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "供电状态 A212",
+    "importSpecification": "设备上电后允许进入自动",
+    "fillSpecification": "设备掉电后允许进入自动",
+    "acceptance": "按 A212 标准验收：设备上电后允许进入自动",
+    "remark": "第二组-反义冲突-标准语义=设备上电后允许进入自动"
+  },
+  {
+    "caseId": "A213",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "回路状态 A213",
+    "importSpecification": "使能回路接通后方可动作",
+    "fillSpecification": "使能回路断开后方可动作",
+    "acceptance": "按 A213 标准验收：使能回路接通后方可动作",
+    "remark": "第二组-反义冲突-标准语义=使能回路接通后方可动作"
+  },
+  {
+    "caseId": "A214",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "回路状态 A214",
+    "importSpecification": "主回路闭合后输出使能",
+    "fillSpecification": "主回路断开后输出使能",
+    "acceptance": "按 A214 标准验收：主回路闭合后输出使能",
+    "remark": "第二组-反义冲突-标准语义=主回路闭合后输出使能"
+  },
+  {
+    "caseId": "A215",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "压力控制 A215",
+    "importSpecification": "气路应持续增压",
+    "fillSpecification": "气路应持续泄压",
+    "acceptance": "按 A215 标准验收：气路应持续增压",
+    "remark": "第二组-反义冲突-标准语义=气路应持续增压"
+  },
+  {
+    "caseId": "A216",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "压力控制 A216",
+    "importSpecification": "压力达到后保持增压",
+    "fillSpecification": "压力达到后保持泄压",
+    "acceptance": "按 A216 标准验收：压力达到后保持增压",
+    "remark": "第二组-反义冲突-标准语义=压力达到后保持增压"
+  },
+  {
+    "caseId": "A217",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "真空状态 A217",
+    "importSpecification": "真空建立后开始取料",
+    "fillSpecification": "真空释放后开始取料",
+    "acceptance": "按 A217 标准验收：真空建立后开始取料",
+    "remark": "第二组-反义冲突-标准语义=真空建立后开始取料"
+  },
+  {
+    "caseId": "A218",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "真空状态 A218",
+    "importSpecification": "吸附完成后保持真空",
+    "fillSpecification": "吸附完成后释放真空",
+    "acceptance": "按 A218 标准验收：吸附完成后保持真空",
+    "remark": "第二组-反义冲突-标准语义=吸附完成后保持真空"
+  },
+  {
+    "caseId": "A219",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "物流方向 A219",
+    "importSpecification": "小车动作方向为前进",
+    "fillSpecification": "小车动作方向为后退",
+    "acceptance": "按 A219 标准验收：小车动作方向为前进",
+    "remark": "第二组-反义冲突-标准语义=小车动作方向为前进"
+  },
+  {
+    "caseId": "A220",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "物流方向 A220",
+    "importSpecification": "工装应向前输送",
+    "fillSpecification": "工装应向后输送",
+    "acceptance": "按 A220 标准验收：工装应向前输送",
+    "remark": "第二组-反义冲突-标准语义=工装应向前输送"
+  },
+  {
+    "caseId": "A221",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "气缸动作 A221",
+    "importSpecification": "气缸应伸出到位",
+    "fillSpecification": "气缸应缩回到位",
+    "acceptance": "按 A221 标准验收：气缸应伸出到位",
+    "remark": "第二组-反义冲突-标准语义=气缸应伸出到位"
+  },
+  {
+    "caseId": "A222",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "气缸动作 A222",
+    "importSpecification": "顶升气缸伸出后保持",
+    "fillSpecification": "顶升气缸缩回后保持",
+    "acceptance": "按 A222 标准验收：顶升气缸伸出后保持",
+    "remark": "第二组-反义冲突-标准语义=顶升气缸伸出后保持"
+  },
+  {
+    "caseId": "A223",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "温控状态 A223",
+    "importSpecification": "加热回路应升温",
+    "fillSpecification": "加热回路应降温",
+    "acceptance": "按 A223 标准验收：加热回路应升温",
+    "remark": "第二组-反义冲突-标准语义=加热回路应升温"
+  },
+  {
+    "caseId": "A224",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "温控状态 A224",
+    "importSpecification": "腔体温度需要升高",
+    "fillSpecification": "腔体温度需要降低",
+    "acceptance": "按 A224 标准验收：腔体温度需要升高",
+    "remark": "第二组-反义冲突-标准语义=腔体温度需要升高"
+  },
+  {
+    "caseId": "A225",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "锁定状态 A225",
+    "importSpecification": "机构动作后应锁紧",
+    "fillSpecification": "机构动作后应解锁",
+    "acceptance": "按 A225 标准验收：机构动作后应锁紧",
+    "remark": "第二组-反义冲突-标准语义=机构动作后应锁紧"
+  },
+  {
+    "caseId": "A226",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "锁定状态 A226",
+    "importSpecification": "平台定位后保持锁定",
+    "fillSpecification": "平台定位后保持解锁",
+    "acceptance": "按 A226 标准验收：平台定位后保持锁定",
+    "remark": "第二组-反义冲突-标准语义=平台定位后保持锁定"
+  },
+  {
+    "caseId": "A227",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "数据状态 A227",
+    "importSpecification": "结果应写入成功",
+    "fillSpecification": "结果应清空成功",
+    "acceptance": "按 A227 标准验收：结果应写入成功",
+    "remark": "第二组-反义冲突-标准语义=结果应写入成功"
+  },
+  {
+    "caseId": "A228",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "数据状态 A228",
+    "importSpecification": "缓存命中后保留数据",
+    "fillSpecification": "缓存命中后删除数据",
+    "acceptance": "按 A228 标准验收：缓存命中后保留数据",
+    "remark": "第二组-反义冲突-标准语义=缓存命中后保留数据"
+  },
+  {
+    "caseId": "A229",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "送料逻辑 A229",
+    "importSpecification": "检测到来料后继续送料",
+    "fillSpecification": "检测到来料后停止送料",
+    "acceptance": "按 A229 标准验收：检测到来料后继续送料",
+    "remark": "第二组-反义冲突-标准语义=检测到来料后继续送料"
+  },
+  {
+    "caseId": "A230",
+    "category": "semantic_negative",
+    "expectedDecision": "manualReview",
+    "project": "送料逻辑 A230",
+    "importSpecification": "无料时停止输送",
+    "fillSpecification": "无料时继续输送",
+    "acceptance": "按 A230 标准验收：无料时停止输送",
+    "remark": "第二组-反义冲突-标准语义=无料时停止输送"
+  }
+]

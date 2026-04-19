@@ -30,6 +30,7 @@ public sealed class MatchingPreviewAppService
     private readonly IEmbeddingService _embeddingService;
     private readonly IAiServiceSelector _aiServiceSelector;
     private readonly BatchPreviewProgressTracker _batchPreviewProgressTracker;
+    private readonly MatchingApprovalTokenService _approvalTokenService;
     private readonly ILogger<MatchingPreviewAppService> _logger;
 
     private sealed class CandidateSpecRow
@@ -52,6 +53,7 @@ public sealed class MatchingPreviewAppService
         IEmbeddingService embeddingService,
         IAiServiceSelector aiServiceSelector,
         BatchPreviewProgressTracker batchPreviewProgressTracker,
+        MatchingApprovalTokenService approvalTokenService,
         ILogger<MatchingPreviewAppService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -63,6 +65,7 @@ public sealed class MatchingPreviewAppService
         _embeddingService = embeddingService;
         _aiServiceSelector = aiServiceSelector;
         _batchPreviewProgressTracker = batchPreviewProgressTracker;
+        _approvalTokenService = approvalTokenService;
         _logger = logger;
     }
 
@@ -273,12 +276,32 @@ public sealed class MatchingPreviewAppService
                         }
                     }
 
+                    var previewApprovalToken = bestMatch != null &&
+                                               bestMatch.MatchedSpecId.HasValue &&
+                                               bestMatch.Decision == MatchDecision.AutoApply
+                        ? _approvalTokenService.IssueToken(
+                            scope.UserId,
+                            tableConfig.TableIndex,
+                            item.RowIndex,
+                            bestMatch.MatchedSpecId.Value,
+                            item.Project,
+                            item.Specification,
+                            bestMatch.MatchedProject,
+                            bestMatch.MatchedSpecification,
+                            bestMatch.MatchedAcceptance,
+                            bestMatch.MatchedRemark,
+                            request.CustomerId,
+                            request.ProcessId,
+                            request.MachineModelId,
+                            config)
+                        : null;
+
                     var previewItem = new MatchPreviewItem
                     {
                         RowIndex = item.RowIndex,
                         SourceProject = item.Project,
                         SourceSpecification = item.Specification,
-                        BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch) : null,
+                        BestMatch = bestMatch != null ? ConvertToMatchResultDto(bestMatch, previewApprovalToken) : null,
                         NoMatchReason = noMatchReason,
                         ConfidenceLevel = GetConfidenceLevel(bestMatch, highConfidenceThreshold)
                     };
@@ -738,7 +761,7 @@ public sealed class MatchingPreviewAppService
         return "low";
     }
 
-    private static MatchResultDto ConvertToMatchResultDto(MatchResult result)
+    private static MatchResultDto ConvertToMatchResultDto(MatchResult result, string? reviewApprovalToken = null)
     {
         return new MatchResultDto
         {
@@ -786,7 +809,8 @@ public sealed class MatchingPreviewAppService
             ScoreGap = result.ScoreGap,
             RerankSummary = result.RerankSummary,
             SelectionMode = ToSelectionModeKey(result.SelectionMode),
-            SelectionSummary = result.SelectionSummary
+            SelectionSummary = result.SelectionSummary,
+            ReviewApprovalToken = reviewApprovalToken
         };
     }
 

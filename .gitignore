@@ -95,6 +95,7 @@ secrets.json
 .superpowers/
 .tmpbuild/
 artifacts/
+.artifacts/
 docs/design-overview.pdf
 .cursor/
 .deploy/

@@ -1,0 +1,201 @@
+﻿caseId,category,expectedDecision,project,importSpecification,fillSpecification,acceptance,remark
+U201,unit_time_positive,autoApply,节拍延时 U201,节拍延时不超过1500ms,节拍延时不超过1.5秒,按 U201 标准验收：节拍延时不超过1500ms,第二组-单位时间-标准规格=节拍延时不超过1500ms
+U202,unit_time_positive,autoApply,相机触发延迟 U202,相机触发延迟不超过2000ms,相机触发延迟不超过2秒,按 U202 标准验收：相机触发延迟不超过2000ms,第二组-单位时间-标准规格=相机触发延迟不超过2000ms
+U203,unit_time_positive,autoApply,保压持续时间 U203,保压持续时间不超过2500ms,保压持续时间不超过2.5秒,按 U203 标准验收：保压持续时间不超过2500ms,第二组-单位时间-标准规格=保压持续时间不超过2500ms
+U204,unit_time_positive,autoApply,扫码等待时间 U204,扫码等待时间不超过30000ms,扫码等待时间不超过30秒,按 U204 标准验收：扫码等待时间不超过30000ms,第二组-单位时间-标准规格=扫码等待时间不超过30000ms
+U205,unit_time_positive,autoApply,上料缓冲时间 U205,上料缓冲时间不超过45000ms,上料缓冲时间不超过45秒,按 U205 标准验收：上料缓冲时间不超过45000ms,第二组-单位时间-标准规格=上料缓冲时间不超过45000ms
+U206,unit_time_positive,autoApply,复位延时 U206,复位延时不超过60000ms,复位延时不超过1分钟,按 U206 标准验收：复位延时不超过60000ms,第二组-单位时间-标准规格=复位延时不超过60000ms
+U207,unit_time_positive,autoApply,点胶固化等待 U207,点胶固化等待不超过90000ms,点胶固化等待不超过1.5分钟,按 U207 标准验收：点胶固化等待不超过90000ms,第二组-单位时间-标准规格=点胶固化等待不超过90000ms
+U208,unit_time_positive,autoApply,吸真空保持时间 U208,吸真空保持时间不超过120000ms,吸真空保持时间不超过2分钟,按 U208 标准验收：吸真空保持时间不超过120000ms,第二组-单位时间-标准规格=吸真空保持时间不超过120000ms
+U209,unit_time_positive,autoApply,夹爪动作延迟 U209,夹爪动作延迟不超过180000ms,夹爪动作延迟不超过3分钟,按 U209 标准验收：夹爪动作延迟不超过180000ms,第二组-单位时间-标准规格=夹爪动作延迟不超过180000ms
+U210,unit_time_positive,autoApply,报警闪烁周期 U210,报警闪烁周期不超过240000ms,报警闪烁周期不超过4分钟,按 U210 标准验收：报警闪烁周期不超过240000ms,第二组-单位时间-标准规格=报警闪烁周期不超过240000ms
+U211,unit_time_positive,autoApply,贴标间隔 U211,贴标间隔不超过500ms,贴标间隔不超过0.5秒,按 U211 标准验收：贴标间隔不超过500ms,第二组-单位时间-标准规格=贴标间隔不超过500ms
+U212,unit_time_positive,autoApply,送料停顿时间 U212,送料停顿时间不超过750ms,送料停顿时间不超过0.75秒,按 U212 标准验收：送料停顿时间不超过750ms,第二组-单位时间-标准规格=送料停顿时间不超过750ms
+U213,unit_time_positive,autoApply,剥膜延迟 U213,剥膜延迟不超过1250ms,剥膜延迟不超过1.25秒,按 U213 标准验收：剥膜延迟不超过1250ms,第二组-单位时间-标准规格=剥膜延迟不超过1250ms
+U214,unit_time_positive,autoApply,喷码响应时间 U214,喷码响应时间不超过3500ms,喷码响应时间不超过3.5秒,按 U214 标准验收：喷码响应时间不超过3500ms,第二组-单位时间-标准规格=喷码响应时间不超过3500ms
+U215,unit_time_positive,autoApply,回零等待时间 U215,回零等待时间不超过7000ms,回零等待时间不超过7秒,按 U215 标准验收：回零等待时间不超过7000ms,第二组-单位时间-标准规格=回零等待时间不超过7000ms
+U216,unit_time_positive,autoApply,切刀保持时间 U216,切刀保持时间不超过15000ms,切刀保持时间不超过15秒,按 U216 标准验收：切刀保持时间不超过15000ms,第二组-单位时间-标准规格=切刀保持时间不超过15000ms
+U217,unit_time_positive,autoApply,封口冷却时间 U217,封口冷却时间不超过20000ms,封口冷却时间不超过20秒,按 U217 标准验收：封口冷却时间不超过20000ms,第二组-单位时间-标准规格=封口冷却时间不超过20000ms
+U218,unit_time_positive,autoApply,视觉判定超时 U218,视觉判定超时不超过270000ms,视觉判定超时不超过4.5分钟,按 U218 标准验收：视觉判定超时不超过270000ms,第二组-单位时间-标准规格=视觉判定超时不超过270000ms
+U219,unit_time_positive,autoApply,换型切换时长 U219,换型切换时长不超过480000ms,换型切换时长不超过8分钟,按 U219 标准验收：换型切换时长不超过480000ms,第二组-单位时间-标准规格=换型切换时长不超过480000ms
+U220,unit_time_positive,autoApply,数据采样周期 U220,数据采样周期不超过540000ms,数据采样周期不超过9分钟,按 U220 标准验收：数据采样周期不超过540000ms,第二组-单位时间-标准规格=数据采样周期不超过540000ms
+U221,unit_current_positive,autoApply,主回路电流 U221,主回路电流为500mA,主回路电流为0.5A,按 U221 标准验收：主回路电流为500mA,第二组-单位电流-标准规格=主回路电流为500mA
+U222,unit_current_positive,autoApply,电磁阀线圈电流 U222,电磁阀线圈电流为750mA,电磁阀线圈电流为0.75A,按 U222 标准验收：电磁阀线圈电流为750mA,第二组-单位电流-标准规格=电磁阀线圈电流为750mA
+U223,unit_current_positive,autoApply,加热回路电流 U223,加热回路电流为1000mA,加热回路电流为1A,按 U223 标准验收：加热回路电流为1000mA,第二组-单位电流-标准规格=加热回路电流为1000mA
+U224,unit_current_positive,autoApply,风机工作电流 U224,风机工作电流为1250mA,风机工作电流为1.25A,按 U224 标准验收：风机工作电流为1250mA,第二组-单位电流-标准规格=风机工作电流为1250mA
+U225,unit_current_positive,autoApply,伺服待机电流 U225,伺服待机电流为1500mA,伺服待机电流为1.5A,按 U225 标准验收：伺服待机电流为1500mA,第二组-单位电流-标准规格=伺服待机电流为1500mA
+U226,unit_current_positive,autoApply,电机额定电流 U226,电机额定电流为2000mA,电机额定电流为2A,按 U226 标准验收：电机额定电流为2000mA,第二组-单位电流-标准规格=电机额定电流为2000mA
+U227,unit_current_positive,autoApply,照明支路电流 U227,照明支路电流为250mA,照明支路电流为0.25A,按 U227 标准验收：照明支路电流为250mA,第二组-单位电流-标准规格=照明支路电流为250mA
+U228,unit_current_positive,autoApply,扫码器工作电流 U228,扫码器工作电流为50mA,扫码器工作电流为0.05A,按 U228 标准验收：扫码器工作电流为50mA,第二组-单位电流-标准规格=扫码器工作电流为50mA
+U229,unit_current_positive,autoApply,触摸屏供电电流 U229,触摸屏供电电流为80mA,触摸屏供电电流为0.08A,按 U229 标准验收：触摸屏供电电流为80mA,第二组-单位电流-标准规格=触摸屏供电电流为80mA
+U230,unit_current_positive,autoApply,继电器驱动电流 U230,继电器驱动电流为120mA,继电器驱动电流为0.12A,按 U230 标准验收：继电器驱动电流为120mA,第二组-单位电流-标准规格=继电器驱动电流为120mA
+U231,unit_current_positive,autoApply,阀岛输出电流 U231,阀岛输出电流为220mA,阀岛输出电流为0.22A,按 U231 标准验收：阀岛输出电流为220mA,第二组-单位电流-标准规格=阀岛输出电流为220mA
+U232,unit_current_positive,autoApply,刹车释放电流 U232,刹车释放电流为300mA,刹车释放电流为0.3A,按 U232 标准验收：刹车释放电流为300mA,第二组-单位电流-标准规格=刹车释放电流为300mA
+U233,unit_current_positive,autoApply,传感器回路电流 U233,传感器回路电流为330mA,传感器回路电流为0.33A,按 U233 标准验收：传感器回路电流为330mA,第二组-单位电流-标准规格=传感器回路电流为330mA
+U234,unit_current_positive,autoApply,相机供电电流 U234,相机供电电流为400mA,相机供电电流为0.4A,按 U234 标准验收：相机供电电流为400mA,第二组-单位电流-标准规格=相机供电电流为400mA
+U235,unit_current_positive,autoApply,吸盘保持电流 U235,吸盘保持电流为660mA,吸盘保持电流为0.66A,按 U235 标准验收：吸盘保持电流为660mA,第二组-单位电流-标准规格=吸盘保持电流为660mA
+U236,unit_current_positive,autoApply,激光位移计电流 U236,激光位移计电流为900mA,激光位移计电流为0.9A,按 U236 标准验收：激光位移计电流为900mA,第二组-单位电流-标准规格=激光位移计电流为900mA
+U237,unit_current_positive,autoApply,编码器工作电流 U237,编码器工作电流为1750mA,编码器工作电流为1.75A,按 U237 标准验收：编码器工作电流为1750mA,第二组-单位电流-标准规格=编码器工作电流为1750mA
+U238,unit_current_positive,autoApply,控制板峰值电流 U238,控制板峰值电流为2250mA,控制板峰值电流为2.25A,按 U238 标准验收：控制板峰值电流为2250mA,第二组-单位电流-标准规格=控制板峰值电流为2250mA
+U239,unit_current_positive,autoApply,边缘计算盒电流 U239,边缘计算盒电流为2750mA,边缘计算盒电流为2.75A,按 U239 标准验收：边缘计算盒电流为2750mA,第二组-单位电流-标准规格=边缘计算盒电流为2750mA
+U240,unit_current_positive,autoApply,报警蜂鸣器电流 U240,报警蜂鸣器电流为3200mA,报警蜂鸣器电流为3.2A,按 U240 标准验收：报警蜂鸣器电流为3200mA,第二组-单位电流-标准规格=报警蜂鸣器电流为3200mA
+U241,unit_volume_positive,autoApply,清洗液容量 U241,清洗液容量为500mL,清洗液容量为0.5L,按 U241 标准验收：清洗液容量为500mL,第二组-单位体积-标准规格=清洗液容量为500mL
+U242,unit_volume_positive,autoApply,储液罐容量 U242,储液罐容量为750mL,储液罐容量为0.75L,按 U242 标准验收：储液罐容量为750mL,第二组-单位体积-标准规格=储液罐容量为750mL
+U243,unit_volume_positive,autoApply,润滑油容量 U243,润滑油容量为1000mL,润滑油容量为1L,按 U243 标准验收：润滑油容量为1000mL,第二组-单位体积-标准规格=润滑油容量为1000mL
+U244,unit_volume_positive,autoApply,缓冲罐容积 U244,缓冲罐容积为1250mL,缓冲罐容积为1.25L,按 U244 标准验收：缓冲罐容积为1250mL,第二组-单位体积-标准规格=缓冲罐容积为1250mL
+U245,unit_volume_positive,autoApply,胶桶容量 U245,胶桶容量为1500mL,胶桶容量为1.5L,按 U245 标准验收：胶桶容量为1500mL,第二组-单位体积-标准规格=胶桶容量为1500mL
+U246,unit_volume_positive,autoApply,药液容量 U246,药液容量为1750mL,药液容量为1.75L,按 U246 标准验收：药液容量为1750mL,第二组-单位体积-标准规格=药液容量为1750mL
+U247,unit_volume_positive,autoApply,废液桶容量 U247,废液桶容量为2000mL,废液桶容量为2L,按 U247 标准验收：废液桶容量为2000mL,第二组-单位体积-标准规格=废液桶容量为2000mL
+U248,unit_volume_positive,autoApply,喷淋槽容积 U248,喷淋槽容积为2500mL,喷淋槽容积为2.5L,按 U248 标准验收：喷淋槽容积为2500mL,第二组-单位体积-标准规格=喷淋槽容积为2500mL
+U249,unit_volume_positive,autoApply,冷却液容量 U249,冷却液容量为3000mL,冷却液容量为3L,按 U249 标准验收：冷却液容量为3000mL,第二组-单位体积-标准规格=冷却液容量为3000mL
+U250,unit_volume_positive,autoApply,计量罐容积 U250,计量罐容积为3500mL,计量罐容积为3.5L,按 U250 标准验收：计量罐容积为3500mL,第二组-单位体积-标准规格=计量罐容积为3500mL
+U251,unit_volume_positive,autoApply,配液桶容量 U251,配液桶容量为4000mL,配液桶容量为4L,按 U251 标准验收：配液桶容量为4000mL,第二组-单位体积-标准规格=配液桶容量为4000mL
+U252,unit_volume_positive,autoApply,循环槽容量 U252,循环槽容量为4500mL,循环槽容量为4.5L,按 U252 标准验收：循环槽容量为4500mL,第二组-单位体积-标准规格=循环槽容量为4500mL
+U253,unit_volume_positive,autoApply,加湿罐容量 U253,加湿罐容量为600mL,加湿罐容量为0.6L,按 U253 标准验收：加湿罐容量为600mL,第二组-单位体积-标准规格=加湿罐容量为600mL
+U254,unit_volume_positive,autoApply,树脂桶容积 U254,树脂桶容积为900mL,树脂桶容积为0.9L,按 U254 标准验收：树脂桶容积为900mL,第二组-单位体积-标准规格=树脂桶容积为900mL
+U255,unit_volume_positive,autoApply,水箱容量 U255,水箱容量为2200mL,水箱容量为2.2L,按 U255 标准验收：水箱容量为2200mL,第二组-单位体积-标准规格=水箱容量为2200mL
+U256,unit_volume_positive,autoApply,补液罐容量 U256,补液罐容量为2800mL,补液罐容量为2.8L,按 U256 标准验收：补液罐容量为2800mL,第二组-单位体积-标准规格=补液罐容量为2800mL
+U257,unit_volume_positive,autoApply,供液槽容积 U257,供液槽容积为3200mL,供液槽容积为3.2L,按 U257 标准验收：供液槽容积为3200mL,第二组-单位体积-标准规格=供液槽容积为3200mL
+U258,unit_volume_positive,autoApply,显影液容量 U258,显影液容量为4200mL,显影液容量为4.2L,按 U258 标准验收：显影液容量为4200mL,第二组-单位体积-标准规格=显影液容量为4200mL
+U259,unit_volume_positive,autoApply,蚀刻液容量 U259,蚀刻液容量为5200mL,蚀刻液容量为5.2L,按 U259 标准验收：蚀刻液容量为5200mL,第二组-单位体积-标准规格=蚀刻液容量为5200mL
+U260,unit_volume_positive,autoApply,净水箱容积 U260,净水箱容积为8000mL,净水箱容积为8L,按 U260 标准验收：净水箱容积为8000mL,第二组-单位体积-标准规格=净水箱容积为8000mL
+U261,unit_frequency_positive,autoApply,采样频率 U261,采样频率为500Hz,采样频率为0.5kHz,按 U261 标准验收：采样频率为500Hz,第二组-单位频率-标准规格=采样频率为500Hz
+U262,unit_frequency_positive,autoApply,振动检测频率 U262,振动检测频率为1000Hz,振动检测频率为1kHz,按 U262 标准验收：振动检测频率为1000Hz,第二组-单位频率-标准规格=振动检测频率为1000Hz
+U263,unit_frequency_positive,autoApply,脉冲输出频率 U263,脉冲输出频率为1500Hz,脉冲输出频率为1.5kHz,按 U263 标准验收：脉冲输出频率为1500Hz,第二组-单位频率-标准规格=脉冲输出频率为1500Hz
+U264,unit_frequency_positive,autoApply,编码器反馈频率 U264,编码器反馈频率为2000Hz,编码器反馈频率为2kHz,按 U264 标准验收：编码器反馈频率为2000Hz,第二组-单位频率-标准规格=编码器反馈频率为2000Hz
+U265,unit_frequency_positive,autoApply,触发扫描频率 U265,触发扫描频率为2500Hz,触发扫描频率为2.5kHz,按 U265 标准验收：触发扫描频率为2500Hz,第二组-单位频率-标准规格=触发扫描频率为2500Hz
+U266,unit_frequency_positive,autoApply,工位刷新频率 U266,工位刷新频率为3000Hz,工位刷新频率为3kHz,按 U266 标准验收：工位刷新频率为3000Hz,第二组-单位频率-标准规格=工位刷新频率为3000Hz
+U267,unit_frequency_positive,autoApply,报警闪烁频率 U267,报警闪烁频率为3500Hz,报警闪烁频率为3.5kHz,按 U267 标准验收：报警闪烁频率为3500Hz,第二组-单位频率-标准规格=报警闪烁频率为3500Hz
+U268,unit_frequency_positive,autoApply,压力采集频率 U268,压力采集频率为4000Hz,压力采集频率为4kHz,按 U268 标准验收：压力采集频率为4000Hz,第二组-单位频率-标准规格=压力采集频率为4000Hz
+U269,unit_frequency_positive,autoApply,视觉取像频率 U269,视觉取像频率为4500Hz,视觉取像频率为4.5kHz,按 U269 标准验收：视觉取像频率为4500Hz,第二组-单位频率-标准规格=视觉取像频率为4500Hz
+U270,unit_frequency_positive,autoApply,电流采样频率 U270,电流采样频率为5000Hz,电流采样频率为5kHz,按 U270 标准验收：电流采样频率为5000Hz,第二组-单位频率-标准规格=电流采样频率为5000Hz
+U271,unit_frequency_positive,autoApply,温度采样频率 U271,温度采样频率为750Hz,温度采样频率为0.75kHz,按 U271 标准验收：温度采样频率为750Hz,第二组-单位频率-标准规格=温度采样频率为750Hz
+U272,unit_frequency_positive,autoApply,位置闭环频率 U272,位置闭环频率为1250Hz,位置闭环频率为1.25kHz,按 U272 标准验收：位置闭环频率为1250Hz,第二组-单位频率-标准规格=位置闭环频率为1250Hz
+U273,unit_frequency_positive,autoApply,滤波截止频率 U273,滤波截止频率为1750Hz,滤波截止频率为1.75kHz,按 U273 标准验收：滤波截止频率为1750Hz,第二组-单位频率-标准规格=滤波截止频率为1750Hz
+U274,unit_frequency_positive,autoApply,补偿更新频率 U274,补偿更新频率为2250Hz,补偿更新频率为2.25kHz,按 U274 标准验收：补偿更新频率为2250Hz,第二组-单位频率-标准规格=补偿更新频率为2250Hz
+U275,unit_frequency_positive,autoApply,速度计算频率 U275,速度计算频率为2750Hz,速度计算频率为2.75kHz,按 U275 标准验收：速度计算频率为2750Hz,第二组-单位频率-标准规格=速度计算频率为2750Hz
+U276,unit_frequency_positive,autoApply,剔除节拍频率 U276,剔除节拍频率为6000Hz,剔除节拍频率为6kHz,按 U276 标准验收：剔除节拍频率为6000Hz,第二组-单位频率-标准规格=剔除节拍频率为6000Hz
+U277,unit_frequency_positive,autoApply,输送拍照频率 U277,输送拍照频率为6500Hz,输送拍照频率为6.5kHz,按 U277 标准验收：输送拍照频率为6500Hz,第二组-单位频率-标准规格=输送拍照频率为6500Hz
+U278,unit_frequency_positive,autoApply,心跳包频率 U278,心跳包频率为7000Hz,心跳包频率为7kHz,按 U278 标准验收：心跳包频率为7000Hz,第二组-单位频率-标准规格=心跳包频率为7000Hz
+U279,unit_frequency_positive,autoApply,日志刷新频率 U279,日志刷新频率为8000Hz,日志刷新频率为8kHz,按 U279 标准验收：日志刷新频率为8000Hz,第二组-单位频率-标准规格=日志刷新频率为8000Hz
+U280,unit_frequency_positive,autoApply,状态上报频率 U280,状态上报频率为9000Hz,状态上报频率为9kHz,按 U280 标准验收：状态上报频率为9000Hz,第二组-单位频率-标准规格=状态上报频率为9000Hz
+B201,brand_positive,autoApply,断路器品牌要求 B201,断路器品牌为 Schneider，型号 NSX100N,断路器品牌为 施耐德，型号 NSX100N,按 B201 标准验收：断路器品牌需与标准库一致,第二组-品牌别名-标准品牌=Schneider；型号=NSX100N
+B202,brand_positive,autoApply,接触器品牌要求 B202,接触器品牌为 施耐德，型号 LC1D18,接触器品牌为 Schneider，型号 LC1D18,按 B202 标准验收：接触器品牌需与标准库一致,第二组-品牌别名-标准品牌=施耐德；型号=LC1D18
+B203,brand_positive,autoApply,变频器品牌要求 B203,变频器品牌为 Schneider，型号 ATV320,变频器品牌为 施耐德，型号 ATV320,按 B203 标准验收：变频器品牌需与标准库一致,第二组-品牌别名-标准品牌=Schneider；型号=ATV320
+B204,brand_positive,autoApply,PLC品牌要求 B204,PLC品牌为 Mitsubishi，型号 FX5U-32MT,PLC品牌为 三菱，型号 FX5U-32MT,按 B204 标准验收：PLC品牌需与标准库一致,第二组-品牌别名-标准品牌=Mitsubishi；型号=FX5U-32MT
+B205,brand_positive,autoApply,伺服驱动器品牌要求 B205,伺服驱动器品牌为 三菱，型号 MR-J4-10A,伺服驱动器品牌为 Mitsubishi，型号 MR-J4-10A,按 B205 标准验收：伺服驱动器品牌需与标准库一致,第二组-品牌别名-标准品牌=三菱；型号=MR-J4-10A
+B206,brand_positive,autoApply,触摸屏品牌要求 B206,触摸屏品牌为 Mitsubishi，型号 GT2107,触摸屏品牌为 三菱，型号 GT2107,按 B206 标准验收：触摸屏品牌需与标准库一致,第二组-品牌别名-标准品牌=Mitsubishi；型号=GT2107
+B207,brand_positive,autoApply,光电传感器品牌要求 B207,光电传感器品牌为 Omron，型号 E3Z-D61,光电传感器品牌为 欧姆龙，型号 E3Z-D61,按 B207 标准验收：光电传感器品牌需与标准库一致,第二组-品牌别名-标准品牌=Omron；型号=E3Z-D61
+B208,brand_positive,autoApply,继电器品牌要求 B208,继电器品牌为 欧姆龙，型号 MY2N,继电器品牌为 Omron，型号 MY2N,按 B208 标准验收：继电器品牌需与标准库一致,第二组-品牌别名-标准品牌=欧姆龙；型号=MY2N
+B209,brand_positive,autoApply,编码器品牌要求 B209,编码器品牌为 Omron，型号 E6B2-CWZ6C,编码器品牌为 欧姆龙，型号 E6B2-CWZ6C,按 B209 标准验收：编码器品牌需与标准库一致,第二组-品牌别名-标准品牌=Omron；型号=E6B2-CWZ6C
+B210,brand_positive,autoApply,激光传感器品牌要求 B210,激光传感器品牌为 Panasonic，型号 HL-C203B,激光传感器品牌为 松下，型号 HL-C203B,按 B210 标准验收：激光传感器品牌需与标准库一致,第二组-品牌别名-标准品牌=Panasonic；型号=HL-C203B
+B211,brand_positive,autoApply,贴片马达品牌要求 B211,贴片马达品牌为 松下，型号 MHMF042L1U2M,贴片马达品牌为 Panasonic，型号 MHMF042L1U2M,按 B211 标准验收：贴片马达品牌需与标准库一致,第二组-品牌别名-标准品牌=松下；型号=MHMF042L1U2M
+B212,brand_positive,autoApply,温控器品牌要求 B212,温控器品牌为 Panasonic，型号 KT4H,温控器品牌为 松下，型号 KT4H,按 B212 标准验收：温控器品牌需与标准库一致,第二组-品牌别名-标准品牌=Panasonic；型号=KT4H
+B213,brand_positive,autoApply,伺服电机品牌要求 B213,伺服电机品牌为 Yaskawa，型号 SGM7J-04AFC6S,伺服电机品牌为 安川，型号 SGM7J-04AFC6S,按 B213 标准验收：伺服电机品牌需与标准库一致,第二组-品牌别名-标准品牌=Yaskawa；型号=SGM7J-04AFC6S
+B214,brand_positive,autoApply,伺服驱动器品牌要求 B214,伺服驱动器品牌为 安川，型号 SGD7S-2R8A,伺服驱动器品牌为 Yaskawa，型号 SGD7S-2R8A,按 B214 标准验收：伺服驱动器品牌需与标准库一致,第二组-品牌别名-标准品牌=安川；型号=SGD7S-2R8A
+B215,brand_positive,autoApply,变频器品牌要求 B215,变频器品牌为 Yaskawa，型号 GA500,变频器品牌为 安川，型号 GA500,按 B215 标准验收：变频器品牌需与标准库一致,第二组-品牌别名-标准品牌=Yaskawa；型号=GA500
+B216,brand_positive,autoApply,读码器品牌要求 B216,读码器品牌为 Keyence，型号 SR-2000,读码器品牌为 基恩士，型号 SR-2000,按 B216 标准验收：读码器品牌需与标准库一致,第二组-品牌别名-标准品牌=Keyence；型号=SR-2000
+B217,brand_positive,autoApply,测量仪品牌要求 B217,测量仪品牌为 基恩士，型号 TM-X5000,测量仪品牌为 Keyence，型号 TM-X5000,按 B217 标准验收：测量仪品牌需与标准库一致,第二组-品牌别名-标准品牌=基恩士；型号=TM-X5000
+B218,brand_positive,autoApply,光纤放大器品牌要求 B218,光纤放大器品牌为 Keyence，型号 FS-N41N,光纤放大器品牌为 基恩士，型号 FS-N41N,按 B218 标准验收：光纤放大器品牌需与标准库一致,第二组-品牌别名-标准品牌=Keyence；型号=FS-N41N
+B219,brand_positive,autoApply,安全光幕品牌要求 B219,安全光幕品牌为 SICK，型号 deTec4,安全光幕品牌为 西克，型号 deTec4,按 B219 标准验收：安全光幕品牌需与标准库一致,第二组-品牌别名-标准品牌=SICK；型号=deTec4
+B220,brand_positive,autoApply,接近传感器品牌要求 B220,接近传感器品牌为 西克，型号 IME12-04BPSZW2S,接近传感器品牌为 SICK，型号 IME12-04BPSZW2S,按 B220 标准验收：接近传感器品牌需与标准库一致,第二组-品牌别名-标准品牌=西克；型号=IME12-04BPSZW2S
+B221,brand_positive,autoApply,颜色传感器品牌要求 B221,颜色传感器品牌为 SICK，型号 CS8-1,颜色传感器品牌为 西克，型号 CS8-1,按 B221 标准验收：颜色传感器品牌需与标准库一致,第二组-品牌别名-标准品牌=SICK；型号=CS8-1
+B222,brand_positive,autoApply,位移传感器品牌要求 B222,位移传感器品牌为 Balluff，型号 BTL7,位移传感器品牌为 巴鲁夫，型号 BTL7,按 B222 标准验收：位移传感器品牌需与标准库一致,第二组-品牌别名-标准品牌=Balluff；型号=BTL7
+B223,brand_positive,autoApply,RFID 读头品牌要求 B223,RFID 读头品牌为 巴鲁夫，型号 BIS M-4,RFID 读头品牌为 Balluff，型号 BIS M-4,按 B223 标准验收：RFID 读头品牌需与标准库一致,第二组-品牌别名-标准品牌=巴鲁夫；型号=BIS M-4
+B224,brand_positive,autoApply,光电开关品牌要求 B224,光电开关品牌为 Balluff，型号 BOS 18M,光电开关品牌为 巴鲁夫，型号 BOS 18M,按 B224 标准验收：光电开关品牌需与标准库一致,第二组-品牌别名-标准品牌=Balluff；型号=BOS 18M
+B225,brand_positive,autoApply,IO 模块品牌要求 B225,IO 模块品牌为 Turck，型号 TBEN-S1-8DXP,IO 模块品牌为 图尔克，型号 TBEN-S1-8DXP,按 B225 标准验收：IO 模块品牌需与标准库一致,第二组-品牌别名-标准品牌=Turck；型号=TBEN-S1-8DXP
+B226,brand_positive,autoApply,电感传感器品牌要求 B226,电感传感器品牌为 图尔克，型号 BI2-M12,电感传感器品牌为 Turck，型号 BI2-M12,按 B226 标准验收：电感传感器品牌需与标准库一致,第二组-品牌别名-标准品牌=图尔克；型号=BI2-M12
+B227,brand_positive,autoApply,总线模块品牌要求 B227,总线模块品牌为 Turck，型号 BL20-GW,总线模块品牌为 图尔克，型号 BL20-GW,按 B227 标准验收：总线模块品牌需与标准库一致,第二组-品牌别名-标准品牌=Turck；型号=BL20-GW
+B228,brand_positive,autoApply,交换机品牌要求 B228,交换机品牌为 Phoenix Contact，型号 FL SWITCH 1005N,交换机品牌为 菲尼克斯，型号 FL SWITCH 1005N,按 B228 标准验收：交换机品牌需与标准库一致,第二组-品牌别名-标准品牌=Phoenix Contact；型号=FL SWITCH 1005N
+B229,brand_positive,autoApply,端子模块品牌要求 B229,端子模块品牌为 菲尼克斯，型号 PT 2.5,端子模块品牌为 Phoenix Contact，型号 PT 2.5,按 B229 标准验收：端子模块品牌需与标准库一致,第二组-品牌别名-标准品牌=菲尼克斯；型号=PT 2.5
+B230,brand_positive,autoApply,电源模块品牌要求 B230,电源模块品牌为 Phoenix Contact，型号 QUINT4-PS,电源模块品牌为 菲尼克斯，型号 QUINT4-PS,按 B230 标准验收：电源模块品牌需与标准库一致,第二组-品牌别名-标准品牌=Phoenix Contact；型号=QUINT4-PS
+C201,brand_negative,manualReview,断路器品牌要求 C201,断路器品牌为 Schneider,断路器品牌为 西门子,按 C201 标准验收：断路器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Schneider
+C202,brand_negative,manualReview,接触器品牌要求 C202,接触器品牌为 施耐德,接触器品牌为 Siemens,按 C202 标准验收：接触器品牌需与标准库一致,第二组-品牌冲突-标准品牌=施耐德
+C203,brand_negative,manualReview,电源模块品牌要求 C203,电源模块品牌为 Schneider,电源模块品牌为 西门子,按 C203 标准验收：电源模块品牌需与标准库一致,第二组-品牌冲突-标准品牌=Schneider
+C204,brand_negative,manualReview,伺服驱动器品牌要求 C204,伺服驱动器品牌为 Mitsubishi,伺服驱动器品牌为 安川,按 C204 标准验收：伺服驱动器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Mitsubishi
+C205,brand_negative,manualReview,伺服电机品牌要求 C205,伺服电机品牌为 三菱,伺服电机品牌为 Yaskawa,按 C205 标准验收：伺服电机品牌需与标准库一致,第二组-品牌冲突-标准品牌=三菱
+C206,brand_negative,manualReview,变频器品牌要求 C206,变频器品牌为 Mitsubishi,变频器品牌为 安川,按 C206 标准验收：变频器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Mitsubishi
+C207,brand_negative,manualReview,光电传感器品牌要求 C207,光电传感器品牌为 Omron,光电传感器品牌为 基恩士,按 C207 标准验收：光电传感器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Omron
+C208,brand_negative,manualReview,读码器品牌要求 C208,读码器品牌为 欧姆龙,读码器品牌为 Keyence,按 C208 标准验收：读码器品牌需与标准库一致,第二组-品牌冲突-标准品牌=欧姆龙
+C209,brand_negative,manualReview,温控器品牌要求 C209,温控器品牌为 Omron,温控器品牌为 基恩士,按 C209 标准验收：温控器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Omron
+C210,brand_negative,manualReview,触摸屏品牌要求 C210,触摸屏品牌为 Panasonic,触摸屏品牌为 三菱,按 C210 标准验收：触摸屏品牌需与标准库一致,第二组-品牌冲突-标准品牌=Panasonic
+C211,brand_negative,manualReview,PLC品牌要求 C211,PLC品牌为 松下,PLC品牌为 Mitsubishi,按 C211 标准验收：PLC品牌需与标准库一致,第二组-品牌冲突-标准品牌=松下
+C212,brand_negative,manualReview,激光传感器品牌要求 C212,激光传感器品牌为 Panasonic,激光传感器品牌为 三菱,按 C212 标准验收：激光传感器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Panasonic
+C213,brand_negative,manualReview,安全光幕品牌要求 C213,安全光幕品牌为 SICK,安全光幕品牌为 巴鲁夫,按 C213 标准验收：安全光幕品牌需与标准库一致,第二组-品牌冲突-标准品牌=SICK
+C214,brand_negative,manualReview,位移传感器品牌要求 C214,位移传感器品牌为 西克,位移传感器品牌为 Balluff,按 C214 标准验收：位移传感器品牌需与标准库一致,第二组-品牌冲突-标准品牌=西克
+C215,brand_negative,manualReview,光电开关品牌要求 C215,光电开关品牌为 SICK,光电开关品牌为 巴鲁夫,按 C215 标准验收：光电开关品牌需与标准库一致,第二组-品牌冲突-标准品牌=SICK
+C216,brand_negative,manualReview,交换机品牌要求 C216,交换机品牌为 Phoenix Contact,交换机品牌为 图尔克,按 C216 标准验收：交换机品牌需与标准库一致,第二组-品牌冲突-标准品牌=Phoenix Contact
+C217,brand_negative,manualReview,IO 模块品牌要求 C217,IO 模块品牌为 菲尼克斯,IO 模块品牌为 Turck,按 C217 标准验收：IO 模块品牌需与标准库一致,第二组-品牌冲突-标准品牌=菲尼克斯
+C218,brand_negative,manualReview,端子模块品牌要求 C218,端子模块品牌为 Phoenix Contact,端子模块品牌为 图尔克,按 C218 标准验收：端子模块品牌需与标准库一致,第二组-品牌冲突-标准品牌=Phoenix Contact
+C219,brand_negative,manualReview,气缸品牌要求 C219,气缸品牌为 Festo,气缸品牌为 SMC,按 C219 标准验收：气缸品牌需与标准库一致,第二组-品牌冲突-标准品牌=Festo
+C220,brand_negative,manualReview,电磁阀品牌要求 C220,电磁阀品牌为 费斯托,电磁阀品牌为 SMC,按 C220 标准验收：电磁阀品牌需与标准库一致,第二组-品牌冲突-标准品牌=费斯托
+C221,brand_negative,manualReview,真空发生器品牌要求 C221,真空发生器品牌为 Festo,真空发生器品牌为 SMC,按 C221 标准验收：真空发生器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Festo
+C222,brand_negative,manualReview,工业相机品牌要求 C222,工业相机品牌为 Hikrobot,工业相机品牌为 基恩士,按 C222 标准验收：工业相机品牌需与标准库一致,第二组-品牌冲突-标准品牌=Hikrobot
+C223,brand_negative,manualReview,读码器品牌要求 C223,读码器品牌为 海康机器人,读码器品牌为 Keyence,按 C223 标准验收：读码器品牌需与标准库一致,第二组-品牌冲突-标准品牌=海康机器人
+C224,brand_negative,manualReview,镜头品牌要求 C224,镜头品牌为 Hikrobot,镜头品牌为 基恩士,按 C224 标准验收：镜头品牌需与标准库一致,第二组-品牌冲突-标准品牌=Hikrobot
+C225,brand_negative,manualReview,PLC品牌要求 C225,PLC品牌为 Allen-Bradley,PLC品牌为 施耐德,按 C225 标准验收：PLC品牌需与标准库一致,第二组-品牌冲突-标准品牌=Allen-Bradley
+C226,brand_negative,manualReview,接触器品牌要求 C226,接触器品牌为 罗克韦尔,接触器品牌为 Schneider,按 C226 标准验收：接触器品牌需与标准库一致,第二组-品牌冲突-标准品牌=罗克韦尔
+C227,brand_negative,manualReview,变频器品牌要求 C227,变频器品牌为 Allen-Bradley,变频器品牌为 施耐德,按 C227 标准验收：变频器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Allen-Bradley
+C228,brand_negative,manualReview,伺服驱动器品牌要求 C228,伺服驱动器品牌为 Lenze,伺服驱动器品牌为 安川,按 C228 标准验收：伺服驱动器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Lenze
+C229,brand_negative,manualReview,减速电机品牌要求 C229,减速电机品牌为 伦茨,减速电机品牌为 Yaskawa,按 C229 标准验收：减速电机品牌需与标准库一致,第二组-品牌冲突-标准品牌=伦茨
+C230,brand_negative,manualReview,编码器品牌要求 C230,编码器品牌为 Lenze,编码器品牌为 安川,按 C230 标准验收：编码器品牌需与标准库一致,第二组-品牌冲突-标准品牌=Lenze
+S201,semantic_positive,autoApply,输送方向 S201,输送方向为左进右出,板件从左侧进入并从右侧送出,按 S201 标准验收：输送方向为左进右出,第二组-语义等价-标准语义=输送方向为左进右出
+S202,semantic_positive,autoApply,输送方向 S202,输送方向为右进左出,板件从右侧进入并从左侧送出,按 S202 标准验收：输送方向为右进左出,第二组-语义等价-标准语义=输送方向为右进左出
+S203,semantic_positive,autoApply,待机逻辑 S203,连续8分钟无料时自动进入待机,若8分钟内没有来料，设备应切换到待机状态,按 S203 标准验收：连续8分钟无料时自动进入待机,第二组-语义等价-标准语义=连续8分钟无料时自动进入待机
+S204,semantic_positive,autoApply,待机逻辑 S204,连续5分钟无板时自动待机,当5分钟内未检测到来板时，系统进入待机,按 S204 标准验收：连续5分钟无板时自动待机,第二组-语义等价-标准语义=连续5分钟无板时自动待机
+S205,semantic_positive,autoApply,到位停机 S205,检测到位信号后立即停止,收到到位信号后马上停机,按 S205 标准验收：检测到位信号后立即停止,第二组-语义等价-标准语义=检测到位信号后立即停止
+S206,semantic_positive,autoApply,到位停机 S206,工件到位后设备停止动作,检测到工件到位时立即停止设备动作,按 S206 标准验收：工件到位后设备停止动作,第二组-语义等价-标准语义=工件到位后设备停止动作
+S207,semantic_positive,autoApply,夹爪状态 S207,夹爪保持夹紧,夹爪持续处于夹持状态,按 S207 标准验收：夹爪保持夹紧,第二组-语义等价-标准语义=夹爪保持夹紧
+S208,semantic_positive,autoApply,夹爪状态 S208,治具需要保持夹紧,治具应一直处于夹持状态,按 S208 标准验收：治具需要保持夹紧,第二组-语义等价-标准语义=治具需要保持夹紧
+S209,semantic_positive,autoApply,指示灯状态 S209,报警灯点亮,报警灯亮起,按 S209 标准验收：报警灯点亮,第二组-语义等价-标准语义=报警灯点亮
+S210,semantic_positive,autoApply,指示灯状态 S210,运行指示灯常亮,运行指示灯持续点亮,按 S210 标准验收：运行指示灯常亮,第二组-语义等价-标准语义=运行指示灯常亮
+S211,semantic_positive,autoApply,门禁联锁 S211,安全门闭合后才允许启动,仅当安全门关闭到位时可启动,按 S211 标准验收：安全门闭合后才允许启动,第二组-语义等价-标准语义=安全门闭合后才允许启动
+S212,semantic_positive,autoApply,门禁联锁 S212,门锁闭合后设备允许运行,只有门锁关到位时设备才可运行,按 S212 标准验收：门锁闭合后设备允许运行,第二组-语义等价-标准语义=门锁闭合后设备允许运行
+S213,semantic_positive,autoApply,供电自检 S213,系统通电后执行自检,上电完成后开始自检,按 S213 标准验收：系统通电后执行自检,第二组-语义等价-标准语义=系统通电后执行自检
+S214,semantic_positive,autoApply,供电自检 S214,设备通电后自动自检,设备上电后自动执行自检,按 S214 标准验收：设备通电后自动自检,第二组-语义等价-标准语义=设备通电后自动自检
+S215,semantic_positive,autoApply,平台动作 S215,升降平台抬起到位,平台上升至到位位置,按 S215 标准验收：升降平台抬起到位,第二组-语义等价-标准语义=升降平台抬起到位
+S216,semantic_positive,autoApply,平台动作 S216,平台下降到位后停止,平台降到目标位置后立即停止,按 S216 标准验收：平台下降到位后停止,第二组-语义等价-标准语义=平台下降到位后停止
+S217,semantic_positive,autoApply,回路状态 S217,回路接通后输出信号,回路闭合时输出信号,按 S217 标准验收：回路接通后输出信号,第二组-语义等价-标准语义=回路接通后输出信号
+S218,semantic_positive,autoApply,回路状态 S218,使能回路接通后允许动作,使能回路闭合后方可动作,按 S218 标准验收：使能回路接通后允许动作,第二组-语义等价-标准语义=使能回路接通后允许动作
+S219,semantic_positive,autoApply,真空取料 S219,真空建立后开始取料,吸附真空达到后执行取料,按 S219 标准验收：真空建立后开始取料,第二组-语义等价-标准语义=真空建立后开始取料
+S220,semantic_positive,autoApply,真空取料 S220,真空达到设定值后启动吸取,吸附压力达到设定值后开始取料,按 S220 标准验收：真空达到设定值后启动吸取,第二组-语义等价-标准语义=真空达到设定值后启动吸取
+S221,semantic_positive,autoApply,复位条件 S221,回原点后允许进入自动模式,完成回零后方可切入自动模式,按 S221 标准验收：回原点后允许进入自动模式,第二组-语义等价-标准语义=回原点后允许进入自动模式
+S222,semantic_positive,autoApply,复位条件 S222,回零结束后清除报警,原点复归完成后消除报警,按 S222 标准验收：回零结束后清除报警,第二组-语义等价-标准语义=回零结束后清除报警
+S223,semantic_positive,autoApply,报警逻辑 S223,故障发生时立即报警,一旦发生故障立即触发报警,按 S223 标准验收：故障发生时立即报警,第二组-语义等价-标准语义=故障发生时立即报警
+S224,semantic_positive,autoApply,报警逻辑 S224,检测到异常后发出报警,发现异常时输出报警信号,按 S224 标准验收：检测到异常后发出报警,第二组-语义等价-标准语义=检测到异常后发出报警
+S225,semantic_positive,autoApply,节拍控制 S225,达到节拍后切换下一工位,节拍满足后转入下一工位,按 S225 标准验收：达到节拍后切换下一工位,第二组-语义等价-标准语义=达到节拍后切换下一工位
+S226,semantic_positive,autoApply,节拍控制 S226,节拍到时后执行换站,到达节拍时间后进行换站,按 S226 标准验收：节拍到时后执行换站,第二组-语义等价-标准语义=节拍到时后执行换站
+S227,semantic_positive,autoApply,允许运行 S227,所有条件满足后允许运行,仅在全部条件成立时允许设备运行,按 S227 标准验收：所有条件满足后允许运行,第二组-语义等价-标准语义=所有条件满足后允许运行
+S228,semantic_positive,autoApply,允许运行 S228,互锁条件满足后开启自动运行,满足互锁条件后方可启动自动运行,按 S228 标准验收：互锁条件满足后开启自动运行,第二组-语义等价-标准语义=互锁条件满足后开启自动运行
+S229,semantic_positive,autoApply,气缸动作 S229,气缸伸出到位后保持,气缸前进到位后维持当前位置,按 S229 标准验收：气缸伸出到位后保持,第二组-语义等价-标准语义=气缸伸出到位后保持
+S230,semantic_positive,autoApply,气缸动作 S230,气缸缩回到位后停止,气缸退回到位后立即停止动作,按 S230 标准验收：气缸缩回到位后停止,第二组-语义等价-标准语义=气缸缩回到位后停止
+A201,semantic_negative,manualReview,运行方向 A201,电机启动后应正转运行,电机启动后应反转运行,按 A201 标准验收：电机启动后应正转运行,第二组-反义冲突-标准语义=电机启动后应正转运行
+A202,semantic_negative,manualReview,运行方向 A202,输送方向为左进右出,输送方向为右进左出,按 A202 标准验收：输送方向为左进右出,第二组-反义冲突-标准语义=输送方向为左进右出
+A203,semantic_negative,manualReview,平台动作 A203,升降平台应升起到位,升降平台应降下到位,按 A203 标准验收：升降平台应升起到位,第二组-反义冲突-标准语义=升降平台应升起到位
+A204,semantic_negative,manualReview,平台动作 A204,平台上升后保持当前位置,平台下降后保持当前位置,按 A204 标准验收：平台上升后保持当前位置,第二组-反义冲突-标准语义=平台上升后保持当前位置
+A205,semantic_negative,manualReview,夹爪状态 A205,夹爪动作后保持夹紧,夹爪动作后保持松开,按 A205 标准验收：夹爪动作后保持夹紧,第二组-反义冲突-标准语义=夹爪动作后保持夹紧
+A206,semantic_negative,manualReview,夹爪状态 A206,治具需要夹持工件,治具需要释放工件,按 A206 标准验收：治具需要夹持工件,第二组-反义冲突-标准语义=治具需要夹持工件
+A207,semantic_negative,manualReview,指示灯状态 A207,报警灯需要点亮,报警灯需要熄灭,按 A207 标准验收：报警灯需要点亮,第二组-反义冲突-标准语义=报警灯需要点亮
+A208,semantic_negative,manualReview,指示灯状态 A208,运行灯常亮表示可运行,运行灯熄灭表示可运行,按 A208 标准验收：运行灯常亮表示可运行,第二组-反义冲突-标准语义=运行灯常亮表示可运行
+A209,semantic_negative,manualReview,门禁联锁 A209,安全门闭合后允许启动,安全门打开后允许启动,按 A209 标准验收：安全门闭合后允许启动,第二组-反义冲突-标准语义=安全门闭合后允许启动
+A210,semantic_negative,manualReview,门禁联锁 A210,门锁闭合后设备可运行,门锁断开后设备可运行,按 A210 标准验收：门锁闭合后设备可运行,第二组-反义冲突-标准语义=门锁闭合后设备可运行
+A211,semantic_negative,manualReview,供电状态 A211,系统通电后执行自检,系统断电后执行自检,按 A211 标准验收：系统通电后执行自检,第二组-反义冲突-标准语义=系统通电后执行自检
+A212,semantic_negative,manualReview,供电状态 A212,设备上电后允许进入自动,设备掉电后允许进入自动,按 A212 标准验收：设备上电后允许进入自动,第二组-反义冲突-标准语义=设备上电后允许进入自动
+A213,semantic_negative,manualReview,回路状态 A213,使能回路接通后方可动作,使能回路断开后方可动作,按 A213 标准验收：使能回路接通后方可动作,第二组-反义冲突-标准语义=使能回路接通后方可动作
+A214,semantic_negative,manualReview,回路状态 A214,主回路闭合后输出使能,主回路断开后输出使能,按 A214 标准验收：主回路闭合后输出使能,第二组-反义冲突-标准语义=主回路闭合后输出使能
+A215,semantic_negative,manualReview,压力控制 A215,气路应持续增压,气路应持续泄压,按 A215 标准验收：气路应持续增压,第二组-反义冲突-标准语义=气路应持续增压
+A216,semantic_negative,manualReview,压力控制 A216,压力达到后保持增压,压力达到后保持泄压,按 A216 标准验收：压力达到后保持增压,第二组-反义冲突-标准语义=压力达到后保持增压
+A217,semantic_negative,manualReview,真空状态 A217,真空建立后开始取料,真空释放后开始取料,按 A217 标准验收：真空建立后开始取料,第二组-反义冲突-标准语义=真空建立后开始取料
+A218,semantic_negative,manualReview,真空状态 A218,吸附完成后保持真空,吸附完成后释放真空,按 A218 标准验收：吸附完成后保持真空,第二组-反义冲突-标准语义=吸附完成后保持真空
+A219,semantic_negative,manualReview,物流方向 A219,小车动作方向为前进,小车动作方向为后退,按 A219 标准验收：小车动作方向为前进,第二组-反义冲突-标准语义=小车动作方向为前进
+A220,semantic_negative,manualReview,物流方向 A220,工装应向前输送,工装应向后输送,按 A220 标准验收：工装应向前输送,第二组-反义冲突-标准语义=工装应向前输送
+A221,semantic_negative,manualReview,气缸动作 A221,气缸应伸出到位,气缸应缩回到位,按 A221 标准验收：气缸应伸出到位,第二组-反义冲突-标准语义=气缸应伸出到位
+A222,semantic_negative,manualReview,气缸动作 A222,顶升气缸伸出后保持,顶升气缸缩回后保持,按 A222 标准验收：顶升气缸伸出后保持,第二组-反义冲突-标准语义=顶升气缸伸出后保持
+A223,semantic_negative,manualReview,温控状态 A223,加热回路应升温,加热回路应降温,按 A223 标准验收：加热回路应升温,第二组-反义冲突-标准语义=加热回路应升温
+A224,semantic_negative,manualReview,温控状态 A224,腔体温度需要升高,腔体温度需要降低,按 A224 标准验收：腔体温度需要升高,第二组-反义冲突-标准语义=腔体温度需要升高
+A225,semantic_negative,manualReview,锁定状态 A225,机构动作后应锁紧,机构动作后应解锁,按 A225 标准验收：机构动作后应锁紧,第二组-反义冲突-标准语义=机构动作后应锁紧
+A226,semantic_negative,manualReview,锁定状态 A226,平台定位后保持锁定,平台定位后保持解锁,按 A226 标准验收：平台定位后保持锁定,第二组-反义冲突-标准语义=平台定位后保持锁定
+A227,semantic_negative,manualReview,数据状态 A227,结果应写入成功,结果应清空成功,按 A227 标准验收：结果应写入成功,第二组-反义冲突-标准语义=结果应写入成功
+A228,semantic_negative,manualReview,数据状态 A228,缓存命中后保留数据,缓存命中后删除数据,按 A228 标准验收：缓存命中后保留数据,第二组-反义冲突-标准语义=缓存命中后保留数据
+A229,semantic_negative,manualReview,送料逻辑 A229,检测到来料后继续送料,检测到来料后停止送料,按 A229 标准验收：检测到来料后继续送料,第二组-反义冲突-标准语义=检测到来料后继续送料
+A230,semantic_negative,manualReview,送料逻辑 A230,无料时停止输送,无料时继续输送,按 A230 标准验收：无料时停止输送,第二组-反义冲突-标准语义=无料时停止输送

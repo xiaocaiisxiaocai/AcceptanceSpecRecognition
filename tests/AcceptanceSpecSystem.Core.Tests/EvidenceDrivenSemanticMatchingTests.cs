@@ -662,6 +662,134 @@ public class EvidenceDrivenSemanticMatchingTests
     }
 
     [Fact]
+    public async Task BatchMatch_WhenWrongProjectCodeCandidateHasExactSpec_ShouldPreferExactProjectAliasCandidate()
+    {
+        var source = new MatchSource
+        {
+            Project = "接触器品牌要求 B017",
+            Specification = "接触器品牌为 Siemens，型号 3RT2025"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 324,
+                Project = "接触器品牌要求 B007",
+                Specification = "接触器品牌为 Siemens，型号 3RT2025",
+                Acceptance = "WRONG-PROJECT",
+                Embedding = [0.9353f]
+            },
+            new()
+            {
+                SpecId = 334,
+                Project = "接触器品牌要求 B017",
+                Specification = "接触器品牌为 西门子，型号 3RT2025",
+                Acceptance = "RIGHT-PROJECT",
+                Embedding = [0.9901f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.95,
+            Reason = "Siemens 与 西门子属于同一品牌的中英文表达"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.9,
+                RecallTopK = 2,
+                HighConfidenceThreshold = 0.98
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(334);
+        result.Results[0].MatchedAcceptance.Should().Be("RIGHT-PROJECT");
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
+        result.Results[0].TopCandidates.Select(candidate => candidate.SpecId)
+            .Should()
+            .ContainInOrder(334, 324);
+        result.Results[0].TopCandidates[0].ScoreDetails["ProjectMatch"].Should().Be(1.0);
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenAiRerankSelectsProjectCodeConflictCandidate_ShouldKeepLocalExactProjectTop1()
+    {
+        var source = new MatchSource
+        {
+            Project = "接触器品牌要求 B017",
+            Specification = "接触器品牌为 Siemens，型号 3RT2025"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 324,
+                Project = "接触器品牌要求 B007",
+                Specification = "接触器品牌为 Siemens，型号 3RT2025",
+                Acceptance = "WRONG-PROJECT",
+                Embedding = [0.9353f]
+            },
+            new()
+            {
+                SpecId = 334,
+                Project = "接触器品牌要求 B017",
+                Specification = "接触器品牌为 西门子，型号 3RT2025",
+                Acceptance = "RIGHT-PROJECT",
+                Embedding = [0.9901f]
+            }
+        };
+
+        var rerankService = new FixedLlmCandidateRerankService(new LlmCandidateRerankResult
+        {
+            SelectedSpecId = 324,
+            Confidence = 0.86,
+            Reason = "规格字面完全一致"
+        });
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.95,
+            Reason = "Siemens 与 西门子属于同一品牌的中英文表达"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmCandidateRerankService: rerankService,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.9,
+                RecallTopK = 2,
+                HighConfidenceThreshold = 0.98
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(334);
+        result.Results[0].MatchedAcceptance.Should().Be("RIGHT-PROJECT");
+        result.Results[0].SelectionMode.Should().Be(MatchSelectionMode.EmbeddingTop1);
+        rerankService.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task BatchMatch_WhenBrandConflictNeedsAiEquivalence_ShouldRequireManualReview()
     {
         var source = new MatchSource
@@ -709,6 +837,63 @@ public class EvidenceDrivenSemanticMatchingTests
         result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
         result.Results[0].LlmEquivalence.Should().NotBeNull();
         result.Results[0].LlmEquivalence!.Verdict.Should().Be(LlmEquivalenceVerdict.Different);
+        equivalenceService.Requests.Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(9101, "输送方向 S001", "板件从左侧进板、从右侧出板", "输送方向为左进右出")]
+    [InlineData(9130, "待机逻辑 S030", "若10分钟内没有来板，设备应自动切换到待机", "连续10分钟无板时自动进入待机")]
+    public async Task BatchMatch_WhenProjectExactAndSemanticPositiveFallsBelowThreshold_ShouldStillEnterAiEquivalence(
+        int specId,
+        string project,
+        string sourceSpecification,
+        string candidateSpecification)
+    {
+        var source = new MatchSource
+        {
+            Project = project,
+            Specification = sourceSpecification
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = specId,
+                Project = project,
+                Specification = candidateSpecification,
+                Acceptance = $"ACC-{specId}",
+                Embedding = [0.88f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.92,
+            Reason = "两段文本属于同一验收语义的不同表达"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.9,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(specId);
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
+        result.Results[0].IsHighConfidence.Should().BeTrue();
         equivalenceService.Requests.Should().ContainSingle();
     }
 

@@ -67,9 +67,9 @@ public class MatchConfigDto
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
 
     /// <summary>
-    /// LLM 并行处理数（1~10，默认3）
+    /// LLM 并行处理数（1~10，默认8）
     /// </summary>
-    public int LlmParallelism { get; set; } = 3;
+    public int LlmParallelism { get; set; } = 8;
 
     /// <summary>
     /// LLM 单行处理超时时间（秒，默认45）
@@ -242,6 +242,11 @@ public class MatchResultDto
     /// AI 等价裁决结果
     /// </summary>
     public LlmEquivalenceDto? LlmEquivalence { get; set; }
+
+    /// <summary>
+    /// 服务端签发的预览放行令牌
+    /// </summary>
+    public string? ReviewApprovalToken { get; set; }
 }
 
 /// <summary>

@@ -283,7 +283,7 @@ export const defaultMatchConfig: MatchConfig = {
   highConfidenceThreshold: DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   recallTopK: DEFAULT_RECALL_TOP_K,
   ambiguityMargin: DEFAULT_AMBIGUITY_MARGIN,
-  llmParallelism: 3,
+  llmParallelism: 8,
   llmRowTimeoutSeconds: 45,
   llmRetryCount: 1,
   llmCircuitBreakFailures: 10,

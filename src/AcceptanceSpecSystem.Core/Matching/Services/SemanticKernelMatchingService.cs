@@ -12,10 +12,13 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 /// </summary>
 public class SemanticKernelMatchingService : IMatchingService
 {
+    private static readonly Regex ProjectCodeRegex = new(@"(?<![a-z0-9])([a-z]\d{2,4})(?![a-z0-9])", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private const double ScoreTieEpsilon = 1e-9;
     private const int TopCandidateLimit = 3;
     private const double ExactTextMatchThreshold = 0.99;
     private const double NearTextMatchThreshold = 0.88;
+    private const double ProjectExactRescueEmbeddingSlack = 0.15;
+    private const double ProjectCodeConflictPenaltyScore = 0.20;
     private readonly IEmbeddingService _embeddingService;
     private readonly IMatchEvidenceBuilder _evidenceBuilder;
     private readonly ILlmCandidateRerankService? _llmCandidateRerankService;
@@ -351,6 +354,9 @@ public class SemanticKernelMatchingService : IMatchingService
             var specificationTextScore = ComputeSpecificationTextScore(
                 source.Specification,
                 candidate.Specification);
+            var projectCodeConflictPenalty = ComputeProjectCodeConflictPenalty(
+                source.Project,
+                candidate.Project);
 
             if (!ShouldKeepCandidate(
                     embeddingScore,
@@ -368,6 +374,7 @@ public class SemanticKernelMatchingService : IMatchingService
                 EmbeddingScore = embeddingScore,
                 ProjectScore = projectScore,
                 SpecificationTextScore = specificationTextScore,
+                ProjectCodeConflictPenalty = projectCodeConflictPenalty,
                 FinalScore = embeddingScore
             });
         }
@@ -469,6 +476,12 @@ public class SemanticKernelMatchingService : IMatchingService
                 return localBest;
             }
 
+            if (!ShouldAcceptAiRerankSelection(localBest, selected))
+            {
+                localBest.SelectionSummary = "AI 重排候选与本地项目一致性冲突，已沿用本地 Top1";
+                return localBest;
+            }
+
             if (selected.Candidate.SpecId == localBest.Candidate.SpecId)
             {
                 localBest.SelectionSummary = string.IsNullOrWhiteSpace(rerankResult.Reason)
@@ -487,6 +500,26 @@ public class SemanticKernelMatchingService : IMatchingService
             localBest.SelectionSummary = "AI 重排失败，已沿用本地 Top1";
             return localBest;
         }
+    }
+
+    private static bool ShouldAcceptAiRerankSelection(EvaluatedCandidate localBest, EvaluatedCandidate selected)
+    {
+        if (selected.Candidate.SpecId == localBest.Candidate.SpecId)
+            return true;
+
+        var localBestHasExactProject =
+            localBest.ProjectScore >= ExactTextMatchThreshold &&
+            localBest.ProjectCodeConflictPenalty <= 0;
+        var selectedHasProjectCodeConflict = selected.ProjectCodeConflictPenalty > 0;
+
+        if (localBestHasExactProject &&
+            selectedHasProjectCodeConflict &&
+            localBest.FinalScore >= selected.FinalScore - ScoreTieEpsilon)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private async Task ApplyLlmEquivalenceAdjudicationAsync(
@@ -622,7 +655,8 @@ public class SemanticKernelMatchingService : IMatchingService
             ["Final"] = candidate.FinalScore,
             ["ProjectMatch"] = candidate.ProjectScore,
             ["SpecificationText"] = candidate.SpecificationTextScore,
-            ["NumberUnit"] = candidate.NumericScore
+            ["NumberUnit"] = candidate.NumericScore,
+            ["ProjectCodePenalty"] = candidate.ProjectCodeConflictPenalty
         };
     }
 
@@ -673,7 +707,8 @@ public class SemanticKernelMatchingService : IMatchingService
             candidate.EmbeddingScore * 0.55 +
             candidate.ProjectScore * 0.15 +
             candidate.SpecificationTextScore * 0.15 +
-            candidate.NumericScore * 0.15;
+            candidate.NumericScore * 0.15 -
+            candidate.ProjectCodeConflictPenalty;
 
         return Math.Clamp(finalScore, 0, 1);
     }
@@ -740,6 +775,9 @@ public class SemanticKernelMatchingService : IMatchingService
 
         if (candidate.Evidence?.Summary.Count > 0)
             reasons.AddRange(candidate.Evidence.Summary);
+
+        if (candidate.ProjectCodeConflictPenalty > 0)
+            reasons.Add("项目编号冲突已降权");
 
         if (candidate.ProjectScore >= 0.99)
             reasons.Add("项目一致");
@@ -873,7 +911,23 @@ public class SemanticKernelMatchingService : IMatchingService
         double minScoreThreshold)
     {
         return embeddingScore >= minScoreThreshold ||
+               IsExactProjectRescueCandidate(embeddingScore, projectScore, minScoreThreshold) ||
                IsExactTextRescueCandidate(projectScore, specificationTextScore);
+    }
+
+    private static bool IsExactProjectRescueCandidate(
+        double embeddingScore,
+        double projectScore,
+        double minScoreThreshold)
+    {
+        if (projectScore < ExactTextMatchThreshold)
+            return false;
+
+        var rescueThreshold = Math.Max(
+            MatchingThresholds.MediumConfidenceScore,
+            minScoreThreshold - ProjectExactRescueEmbeddingSlack);
+
+        return embeddingScore >= rescueThreshold;
     }
 
     private static bool IsExactTextRescueCandidate(double projectScore, double specificationTextScore)
@@ -916,6 +970,45 @@ public class SemanticKernelMatchingService : IMatchingService
     private static List<MatchIssue> BuildCandidateIssues(MatchSource source, EvaluatedCandidate candidate)
     {
         return candidate.Evidence?.Issues.ToList() ?? [];
+    }
+
+    private static double ComputeProjectCodeConflictPenalty(string sourceProject, string candidateProject)
+    {
+        if (!TryExtractProjectCode(sourceProject, out var sourceStem, out var sourceCode) ||
+            !TryExtractProjectCode(candidateProject, out var candidateStem, out var candidateCode))
+        {
+            return 0;
+        }
+
+        if (!string.Equals(sourceStem, candidateStem, StringComparison.Ordinal))
+            return 0;
+
+        return string.Equals(sourceCode, candidateCode, StringComparison.OrdinalIgnoreCase)
+            ? 0
+            : ProjectCodeConflictPenaltyScore;
+    }
+
+    private static bool TryExtractProjectCode(string? project, out string stem, out string code)
+    {
+        stem = NormalizeComparableText(project);
+        code = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(stem))
+            return false;
+
+        var matches = ProjectCodeRegex.Matches(stem);
+        if (matches.Count == 0)
+            return false;
+
+        var lastMatch = matches[^1];
+        code = lastMatch.Groups[1].Value.ToUpperInvariant();
+        stem = Regex.Replace(
+            $"{stem[..lastMatch.Index]} {stem[(lastMatch.Index + lastMatch.Length)..]}",
+            @"\s+",
+            " ")
+            .Trim();
+
+        return !string.IsNullOrWhiteSpace(stem);
     }
 
     private static string NormalizeComparableText(string? value)
@@ -962,6 +1055,7 @@ public class SemanticKernelMatchingService : IMatchingService
         public double ProjectScore { get; set; }
         public double SpecificationTextScore { get; set; }
         public double NumericScore { get; set; }
+        public double ProjectCodeConflictPenalty { get; set; }
         public string? RerankSummary { get; set; }
         public MatchSelectionMode SelectionMode { get; set; } = MatchSelectionMode.EmbeddingTop1;
         public string? SelectionSummary { get; set; }

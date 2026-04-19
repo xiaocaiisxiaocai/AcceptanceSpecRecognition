@@ -43,6 +43,7 @@ public sealed class MatchingWorkflowSupportService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly MatchingTaskSnapshotService _matchingTaskSnapshotService;
     private readonly ExecutionHistoryAppService _executionHistoryAppService;
+    private readonly MatchingApprovalTokenService _approvalTokenService;
     private readonly IDataProtector _reviewApprovalProtector;
     private readonly ILogger<MatchingWorkflowSupportService> _logger;
 
@@ -150,6 +151,7 @@ public sealed class MatchingWorkflowSupportService
         IServiceScopeFactory scopeFactory,
         MatchingTaskSnapshotService matchingTaskSnapshotService,
         ExecutionHistoryAppService executionHistoryAppService,
+        MatchingApprovalTokenService approvalTokenService,
         IDataProtectionProvider dataProtectionProvider,
         ILogger<MatchingWorkflowSupportService> logger)
     {
@@ -165,6 +167,7 @@ public sealed class MatchingWorkflowSupportService
         _scopeFactory = scopeFactory;
         _matchingTaskSnapshotService = matchingTaskSnapshotService;
         _executionHistoryAppService = executionHistoryAppService;
+        _approvalTokenService = approvalTokenService;
         _reviewApprovalProtector = dataProtectionProvider.CreateProtector("MatchingWorkflowSupportService.ReviewApprovalToken.v1");
         _logger = logger;
     }
@@ -555,7 +558,7 @@ public sealed class MatchingWorkflowSupportService
         {
             throw Failure(400, "源文件不存在");
         }
-        var reviewApprovalBundle = ResolveReviewApprovalBundle(
+        var reviewApprovalBundle = _approvalTokenService.ResolveBundle(
             request.Tables.SelectMany(table =>
                 table.Mappings.Select(mapping => (TableIndex: (int?)table.TableIndex, Mapping: mapping))),
             scope.UserId);
@@ -625,11 +628,13 @@ public sealed class MatchingWorkflowSupportService
                 {
                     currentMatchLookup.TryGetValue(mapping.RowIndex, out var currentMatch);
                     var reviewApprovalToken = reviewApprovalBundle?.Tokens.GetValueOrDefault(
-                        new ReviewApprovalLookupKey(tableFill.TableIndex, mapping.RowIndex));
+                        new MatchingApprovalTokenService.ApprovalLookupKey(tableFill.TableIndex, mapping.RowIndex));
                     if (!CanApplyMatchedSpec(
                             mapping,
+                            spec,
                             currentMatch,
-                            currentSourceRowLookup.GetValueOrDefault(mapping.RowIndex),
+                            currentSourceRowLookup.GetValueOrDefault(mapping.RowIndex)?.Project,
+                            currentSourceRowLookup.GetValueOrDefault(mapping.RowIndex)?.Specification,
                             reviewApprovalToken))
                     {
                         totalSkipped++;
@@ -1550,10 +1555,22 @@ public sealed class MatchingWorkflowSupportService
 
     private static bool CanApplyMatchedSpec(
         FillMapping mapping,
+        AcceptanceSpec selectedSpec,
         MatchResult? currentMatch,
-        MatchSourceItem? currentSourceRow,
-        ReviewApprovalTokenPayload? reviewApprovalToken)
+        string? sourceProject,
+        string? sourceSpecification,
+        MatchingApprovalTokenService.ApprovalTokenPayload? reviewApprovalToken)
     {
+        if (reviewApprovalToken != null)
+        {
+            return MatchesPreviewApprovalToken(
+                reviewApprovalToken,
+                mapping.SpecId ?? 0,
+                sourceProject,
+                sourceSpecification,
+                selectedSpec);
+        }
+
         if (currentMatch == null || !currentMatch.MatchedSpecId.HasValue)
         {
             return false;
@@ -1579,11 +1596,6 @@ public sealed class MatchingWorkflowSupportService
             return true;
         }
 
-        if (reviewApprovalToken != null)
-        {
-            return MatchesReviewApprovalToken(reviewApprovalToken, currentMatch, currentSourceRow);
-        }
-
         if (currentMatch.Decision == MatchDecision.AutoApply)
         {
             return true;
@@ -1592,26 +1604,23 @@ public sealed class MatchingWorkflowSupportService
         return false;
     }
 
-    private static bool MatchesReviewApprovalToken(
-        ReviewApprovalTokenPayload reviewApprovalToken,
-        MatchResult currentMatch,
-        MatchSourceItem? currentSourceRow)
+    private static bool MatchesPreviewApprovalToken(
+        MatchingApprovalTokenService.ApprovalTokenPayload reviewApprovalToken,
+        int selectedSpecId,
+        string? sourceProject,
+        string? sourceSpecification,
+        AcceptanceSpec selectedSpec)
     {
-        if (currentSourceRow == null)
-        {
-            return false;
-        }
-
-        return reviewApprovalToken.SpecId == currentMatch.MatchedSpecId &&
-               string.Equals(reviewApprovalToken.SourceProject, NormalizeForDedup(currentSourceRow.Project), StringComparison.Ordinal) &&
-               string.Equals(reviewApprovalToken.SourceSpecification, NormalizeForDedup(currentSourceRow.Specification), StringComparison.Ordinal) &&
+        return reviewApprovalToken.SpecId == selectedSpecId &&
+               string.Equals(reviewApprovalToken.SourceProject, NormalizeForDedup(sourceProject), StringComparison.Ordinal) &&
+               string.Equals(reviewApprovalToken.SourceSpecification, NormalizeForDedup(sourceSpecification), StringComparison.Ordinal) &&
                string.Equals(
                    reviewApprovalToken.SpecFingerprint,
                    ComputeReviewApprovalSpecFingerprint(
-                       currentMatch.MatchedProject,
-                       currentMatch.MatchedSpecification,
-                       currentMatch.MatchedAcceptance,
-                       currentMatch.MatchedRemark),
+                       selectedSpec.Project,
+                       selectedSpec.Specification,
+                       selectedSpec.Acceptance,
+                       selectedSpec.Remark),
                    StringComparison.Ordinal);
     }
 
@@ -1942,7 +1951,21 @@ public sealed class MatchingWorkflowSupportService
                 var normalizedScore = NormalizeLlmReviewScore(result.Score);
                 var passed = normalizedScore >= MatchingThresholds.LlmReviewPassScore;
                 var reviewApprovalToken = passed
-                    ? IssueReviewApprovalToken(scope, customerId, processId, machineModelId, config, item, spec)
+                    ? _approvalTokenService.IssueToken(
+                        scope.UserId,
+                        item.TableIndex,
+                        item.RowIndex,
+                        item.BestMatchSpecId ?? 0,
+                        item.SourceProject,
+                        item.SourceSpecification,
+                        spec.Project,
+                        spec.Specification,
+                        spec.Acceptance,
+                        spec.Remark,
+                        customerId,
+                        processId,
+                        machineModelId,
+                        config)
                     : null;
                 _logger.LogDebug("[LLM复核] {Location}: 完成, score={Score}, reason={Reason}",
                     location, normalizedScore, result.Reason);

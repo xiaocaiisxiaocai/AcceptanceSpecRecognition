@@ -165,6 +165,7 @@ builder.Services.AddScoped<BatchReplyAppService>();
 builder.Services.AddScoped<DocumentFileAppService>();
 builder.Services.AddScoped<DocumentImportAppService>();
 builder.Services.AddScoped<MatchingTaskSnapshotService>();
+builder.Services.AddSingleton<MatchingApprovalTokenService>();
 builder.Services.AddScoped<MatchingWorkflowSupportService>();
 builder.Services.AddScoped<MatchingPreviewAppService>();
 builder.Services.AddScoped<MatchingLlmStreamAppService>();
