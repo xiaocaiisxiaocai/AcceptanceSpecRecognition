@@ -9,11 +9,13 @@ export type ExcelSheetMapping = {
   headerRowStart: number;
   headerRowCount: number;
   dataStartRow: number;
+  dataEndRow: number;
 };
 
 const props = defineProps<{
   modelValue?: ExcelSheetMapping;
   usedRangeStartRow?: number;
+  usedRangeEndRow?: number;
   usedRangeStartColumn?: number;
 }>();
 
@@ -28,7 +30,8 @@ const defaultMapping: ExcelSheetMapping = {
   remarkColumn: undefined,
   headerRowStart: 1,
   headerRowCount: 1,
-  dataStartRow: 2
+  dataStartRow: 2,
+  dataEndRow: 2
 };
 
 const mapping = ref<ExcelSheetMapping>({ ...defaultMapping });
@@ -39,21 +42,28 @@ function buildNormalizedMapping(source?: Partial<ExcelSheetMapping>): ExcelSheet
   };
 
   const baseRow = Math.max(1, props.usedRangeStartRow || 1);
+  const maxRow = Math.max(baseRow, props.usedRangeEndRow || baseRow);
   const headerRowStart = Math.max(
     baseRow,
     merged.headerRowStart || baseRow
   );
   const headerRowCount = Math.max(0, merged.headerRowCount ?? 1);
-  const dataStartRow = Math.max(baseRow, merged.dataStartRow || baseRow);
+  const rawDataStartRow = Math.max(baseRow, merged.dataStartRow || baseRow);
+  const dataStartRow =
+    rawDataStartRow < headerRowStart + headerRowCount
+      ? headerRowStart + headerRowCount
+      : rawDataStartRow;
+  const dataEndRow = Math.max(
+    dataStartRow,
+    Math.min(maxRow, merged.dataEndRow || maxRow)
+  );
 
   return {
     ...merged,
     headerRowStart,
     headerRowCount,
-    dataStartRow:
-    dataStartRow < headerRowStart + headerRowCount
-      ? headerRowStart + headerRowCount
-      : dataStartRow
+    dataStartRow,
+    dataEndRow
   };
 }
 
@@ -68,7 +78,8 @@ function isSameMappingValue(
     a?.remarkColumn === b?.remarkColumn &&
     a?.headerRowStart === b?.headerRowStart &&
     a?.headerRowCount === b?.headerRowCount &&
-    a?.dataStartRow === b?.dataStartRow
+    a?.dataStartRow === b?.dataStartRow &&
+    a?.dataEndRow === b?.dataEndRow
   );
 }
 
@@ -108,6 +119,13 @@ watch(
 
 watch(
   () => props.usedRangeStartRow,
+  () => {
+    normalize();
+  }
+);
+
+watch(
+  () => props.usedRangeEndRow,
   () => {
     normalize();
   }
@@ -167,6 +185,15 @@ const columnHint = computed(() => ({
             <el-input-number
               v-model="mapping.dataStartRow"
               :min="Math.max(1, props.usedRangeStartRow || 1)"
+              :step="1"
+              @change="normalize"
+            />
+          </el-form-item>
+          <el-form-item label="数据结束行">
+            <el-input-number
+              v-model="mapping.dataEndRow"
+              :min="Math.max(mapping.dataStartRow, props.usedRangeStartRow || 1)"
+              :max="props.usedRangeEndRow"
               :step="1"
               @change="normalize"
             />

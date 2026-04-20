@@ -51,6 +51,11 @@ public class ExcelImportDataRequest
     public int DataStartRow { get; set; } = 2;
 
     /// <summary>
+    /// 数据结束行（1-based，可选；未传则默认读取到已用区域末行）
+    /// </summary>
+    public int? DataEndRow { get; set; }
+
+    /// <summary>
     /// 项目列（必填，1-based；第 1 列为 A）
     /// </summary>
     [Required(ErrorMessage = "项目列不能为空")]

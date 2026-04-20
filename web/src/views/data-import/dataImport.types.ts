@@ -14,6 +14,7 @@ export type ExcelSheetMapping = {
   headerRowStart: number;
   headerRowCount: number;
   dataStartRow: number;
+  dataEndRow: number;
 };
 
 export type TableImportConfig = {

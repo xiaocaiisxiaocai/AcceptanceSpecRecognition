@@ -151,9 +151,12 @@ public sealed class DocumentImportAppService
                 throw new ApplicationServiceException(400, "项目列与规格内容列为必填，且列号必须 >= 1");
             }
 
-            if (request.HeaderRowStart < 1 || request.HeaderRowCount < 0 || request.DataStartRow < 1)
+            if (request.HeaderRowStart < 1 ||
+                request.HeaderRowCount < 0 ||
+                request.DataStartRow < 1 ||
+                request.DataEndRow is <= 0)
             {
-                throw new ApplicationServiceException(400, "表头行与数据起始行配置不合法");
+                throw new ApplicationServiceException(400, "表头行与数据范围配置不合法");
             }
 
             IReadOnlyList<TableInfo> tables;
@@ -202,6 +205,19 @@ public sealed class DocumentImportAppService
                 throw new ApplicationServiceException(400, $"数据起始行超出已用区域：{request.DataStartRow} > {usedEndRow}");
             }
 
+            if (request.DataEndRow.HasValue)
+            {
+                if (request.DataEndRow.Value < request.DataStartRow)
+                {
+                    throw new ApplicationServiceException(400, "数据结束行不能早于数据起始行");
+                }
+
+                if (request.DataEndRow.Value > usedEndRow)
+                {
+                    throw new ApplicationServiceException(400, $"数据结束行超出已用区域：{request.DataEndRow.Value} > {usedEndRow}");
+                }
+            }
+
             var mapping = new ColumnMapping
             {
                 HeaderRowIndex = Math.Max(0, request.HeaderRowStart - usedStartRow),
@@ -209,11 +225,16 @@ public sealed class DocumentImportAppService
                 DataStartRowIndex = Math.Max(0, request.DataStartRow - usedStartRow)
             };
 
+            var maxDataRowCount = request.DataEndRow.HasValue
+                ? request.DataEndRow.Value - request.DataStartRow + 1
+                : (int?)null;
+
             TableData tableData;
             tableData = await _documentTableAccessService.ExtractTableDataAsync(
                 file,
                 request.SheetIndex,
-                mapping);
+                mapping,
+                maxDataRowCount);
 
             var projectCol = request.ProjectColumn - usedStartCol;
             var specCol = request.SpecificationColumn - usedStartCol;

@@ -14,6 +14,7 @@ export type TablePreviewLoader = (
     headerRowIndex?: number;
     headerRowCount?: number;
     dataStartRowIndex?: number;
+    dataEndRowIndex?: number;
   }
 ) => Promise<TableData>;
 
@@ -26,6 +27,7 @@ const props = defineProps<{
   headerRowIndex?: number;
   headerRowCount?: number;
   dataStartRowIndex?: number;
+  dataEndRowIndex?: number;
   previewLoader?: TablePreviewLoader;
   /** 当前列映射（用于“映射预览”：把原表格映射成 项目/规格/验收/备注 四列） */
   mapping?: ColumnMapping;
@@ -106,7 +108,8 @@ const loadPreview = async () => {
     previewRows: props.previewRows ?? DEFAULT_PREVIEW_ROWS,
     headerRowIndex: props.headerRowIndex ?? 0,
     headerRowCount: props.headerRowCount ?? 1,
-    dataStartRowIndex: props.dataStartRowIndex ?? 1
+    dataStartRowIndex: props.dataStartRowIndex ?? 1,
+    dataEndRowIndex: props.dataEndRowIndex
   };
   loading.value = true;
   try {
@@ -149,7 +152,8 @@ watch(
     props.previewRows,
     props.headerRowIndex,
     props.headerRowCount,
-    props.dataStartRowIndex
+    props.dataStartRowIndex,
+    props.dataEndRowIndex
   ],
   () => {
     loadPreview();

@@ -12,6 +12,7 @@ defineProps<{
     headerRowIndex: number;
     headerRowCount: number;
     dataStartRowIndex: number;
+    dataEndRowIndex: number;
   };
 }>();
 

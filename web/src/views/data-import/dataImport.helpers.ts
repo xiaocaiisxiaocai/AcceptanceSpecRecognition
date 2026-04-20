@@ -17,7 +17,8 @@ export const defaultExcelMapping = (): ExcelSheetMapping => ({
   remarkColumn: undefined,
   headerRowStart: 1,
   headerRowCount: 1,
-  dataStartRow: 2
+  dataStartRow: 2,
+  dataEndRow: 2
 });
 
 export const normalizeExcelMappingByTable = (
@@ -25,22 +26,38 @@ export const normalizeExcelMappingByTable = (
   mapping?: ExcelSheetMapping
 ): ExcelSheetMapping => {
   const usedStartRow = Math.max(1, tableInfo?.usedRangeStartRow ?? 1);
+  const usedEndRow = Math.max(
+    usedStartRow,
+    usedStartRow + Math.max(0, (tableInfo?.rowCount ?? 0) - 1)
+  );
   const current = mapping ?? defaultExcelMapping();
   const headerRowCount = Math.max(0, current.headerRowCount ?? 1);
   const headerRowStart = Math.max(usedStartRow, current.headerRowStart || usedStartRow);
   const minDataStart = headerRowStart + headerRowCount;
   const dataStartRow = Math.max(minDataStart, current.dataStartRow || minDataStart);
+  const dataEndRow = Math.max(
+    dataStartRow,
+    Math.min(usedEndRow, current.dataEndRow || usedEndRow)
+  );
 
   return {
     ...current,
     headerRowStart,
     headerRowCount,
-    dataStartRow
+    dataStartRow,
+    dataEndRow
   };
 };
 
 export const createDefaultExcelMapping = (tableInfo?: TableInfo): ExcelSheetMapping =>
-  normalizeExcelMappingByTable(tableInfo, defaultExcelMapping());
+  normalizeExcelMappingByTable(tableInfo, {
+    ...defaultExcelMapping(),
+    headerRowStart: Math.max(1, tableInfo?.usedRangeStartRow ?? 1),
+    dataEndRow: Math.max(
+      1,
+      (tableInfo?.usedRangeStartRow ?? 1) + Math.max(0, (tableInfo?.rowCount ?? 0) - 1)
+    )
+  });
 
 export const getMissingMappingFields = (mapping: ColumnMappingType) => {
   const missing: string[] = [];
@@ -59,6 +76,7 @@ export const getMissingExcelMappingFields = (mapping?: ExcelSheetMapping) => {
   if (mapping.headerRowStart < 1) missing.push("表头起始行");
   if (mapping.headerRowCount < 0) missing.push("表头行数");
   if (mapping.dataStartRow < 1) missing.push("数据起始行");
+  if (mapping.dataEndRow < mapping.dataStartRow) missing.push("数据结束行");
   return missing;
 };
 

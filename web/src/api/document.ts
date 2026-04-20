@@ -193,6 +193,7 @@ export const getTablePreview = (
     headerRowIndex?: number;
     headerRowCount?: number;
     dataStartRowIndex?: number;
+    dataEndRowIndex?: number;
   }
 ) => {
   return http.request<ApiResponse<TableData>>(
@@ -222,6 +223,7 @@ export interface ExcelImportDataRequest {
   headerRowStart: number;
   headerRowCount: number;
   dataStartRow: number;
+  dataEndRow?: number;
   projectColumn: number;
   specificationColumn: number;
   acceptanceColumn?: number;

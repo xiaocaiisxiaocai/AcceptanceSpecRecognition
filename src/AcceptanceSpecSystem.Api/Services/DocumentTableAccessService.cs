@@ -88,8 +88,27 @@ public sealed class DocumentTableAccessService
         int previewRows,
         int headerRowIndex,
         int headerRowCount,
-        int dataStartRowIndex)
+        int dataStartRowIndex,
+        int? dataEndRowIndex = null)
     {
+        if (dataEndRowIndex.HasValue && dataEndRowIndex.Value < dataStartRowIndex)
+        {
+            throw new ApplicationServiceException(400, "数据结束行不能早于数据起始行");
+        }
+
+        var previewRangeRowCount = dataEndRowIndex.HasValue
+            ? dataEndRowIndex.Value - dataStartRowIndex + 1
+            : (int?)null;
+        var maxDataRowCount = previewRows > 0
+            ? previewRows
+            : (int?)null;
+        if (previewRangeRowCount.HasValue)
+        {
+            maxDataRowCount = maxDataRowCount.HasValue
+                ? Math.Min(maxDataRowCount.Value, previewRangeRowCount.Value)
+                : previewRangeRowCount.Value;
+        }
+
         var tableData = await ExtractTableDataAsync(
             wordFile,
             tableIndex,
@@ -99,16 +118,22 @@ public sealed class DocumentTableAccessService
                 HeaderRowCount = headerRowCount,
                 DataStartRowIndex = dataStartRowIndex
             },
-            previewRows > 0 ? previewRows : null);
+            maxDataRowCount);
 
         var rowSource = previewRows <= 0 ? tableData.Rows : tableData.Rows.Take(previewRows);
+        var totalRows = tableData.TotalDataRowCount ?? tableData.Rows.Count;
+        if (previewRangeRowCount.HasValue)
+        {
+            totalRows = Math.Max(0, Math.Min(totalRows, previewRangeRowCount.Value));
+        }
+
         return new TableDataDto
         {
             TableIndex = tableData.TableIndex,
             Headers = tableData.Headers.ToList(),
             Rows = rowSource.Select(row => row.Cells.Select(FormatPreviewCellText).ToList()).ToList(),
             StructuredRows = rowSource.Select(row => row.Cells.Select(cell => MapStructuredCellValue(cell.StructuredValue)).ToList()).ToList(),
-            TotalRows = tableData.TotalDataRowCount ?? tableData.Rows.Count,
+            TotalRows = totalRows,
             ColumnCount = tableData.ColumnCount
         };
     }

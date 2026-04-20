@@ -443,7 +443,10 @@ const buildPreviewQuery = (cfg: TableImportConfig, previewRows: number) => ({
   headerRowCount: isExcelFile.value ? getExcelPreviewOptions(cfg).headerRowCount : 1,
   dataStartRowIndex: isExcelFile.value
     ? getExcelPreviewOptions(cfg).dataStartRowIndex
-    : (cfg.wordMapping?.dataStartRowIndex ?? 1)
+    : (cfg.wordMapping?.dataStartRowIndex ?? 1),
+  dataEndRowIndex: isExcelFile.value
+    ? getExcelPreviewOptions(cfg).dataEndRowIndex
+    : undefined
 });
 
 const loadPreviewData = async (
@@ -1692,6 +1695,9 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
                     ? getExcelPreviewOptions(cfg).dataStartRowIndex
                     : (cfg.wordMapping?.dataStartRowIndex ?? 1)
                 "
+                :data-end-row-index="
+                  isExcelFile ? getExcelPreviewOptions(cfg).dataEndRowIndex : undefined
+                "
                 :mapping="isExcelFile ? undefined : cfg.wordMapping"
                 @loaded="(data) => handlePreviewLoaded(cfg.tableIndex, data)"
               />
@@ -1703,6 +1709,11 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
                 v-if="isExcelFile"
                 :model-value="cfg.excelMapping"
                 :used-range-start-row="cfg.tableInfo?.usedRangeStartRow"
+                :used-range-end-row="
+                  cfg.tableInfo
+                    ? cfg.tableInfo.usedRangeStartRow + cfg.tableInfo.rowCount - 1
+                    : undefined
+                "
                 :used-range-start-column="cfg.tableInfo?.usedRangeStartColumn"
                 @update:model-value="(value) => updateExcelMapping(cfg.tableIndex, value)"
               />

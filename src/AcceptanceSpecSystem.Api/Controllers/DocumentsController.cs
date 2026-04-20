@@ -113,7 +113,8 @@ public class DocumentsController : BaseApiController
         [FromQuery] int previewRows = 0,
         [FromQuery] int headerRowIndex = 0,
         [FromQuery] int headerRowCount = 1,
-        [FromQuery] int dataStartRowIndex = 1)
+        [FromQuery] int dataStartRowIndex = 1,
+        [FromQuery] int? dataEndRowIndex = null)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -135,7 +136,8 @@ public class DocumentsController : BaseApiController
                 previewRows,
                 headerRowIndex,
                 headerRowCount,
-                dataStartRowIndex);
+                dataStartRowIndex,
+                dataEndRowIndex);
             return Success(result);
         }
         catch (ApplicationServiceException ex)
