@@ -732,7 +732,11 @@ public sealed class BatchReplyAppService
             SourceFileName = session.SourceFileName,
             SourceFileType = session.SourceFileType,
             CreatedAt = DateTime.UtcNow,
-            Files = files
+            Files = files,
+            BatchReplyDetail = new ExecutionHistoryBatchReplyDetailDto
+            {
+                Files = files
+            }
         }, cancellationToken);
     }
 

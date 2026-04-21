@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   getExecutionHistoryDetail,
   getExecutionHistoryList,
   type ExecutionHistoryDetail,
-  type ExecutionHistoryFile,
   type ExecutionHistoryListItem,
-  type ExecutionHistorySheet
+  type ExecutionHistorySmartFillSummary
 } from "@/api/execution-history";
+import ExecutionHistoryBatchReplyDetail from "./components/ExecutionHistoryBatchReplyDetail.vue";
+import ExecutionHistorySmartFillPlayback from "./components/ExecutionHistorySmartFillPlayback.vue";
 
 defineOptions({
   name: "ExecutionHistory"
@@ -16,11 +17,10 @@ defineOptions({
 
 const loading = ref(false);
 const detailLoading = ref(false);
-const tableData = ref<ExecutionHistoryListItem[]>([]);
+const taskOptions = ref<ExecutionHistoryListItem[]>([]);
 const total = ref(0);
+const selectedTaskId = ref<number | undefined>(undefined);
 const currentDetail = ref<ExecutionHistoryDetail | null>(null);
-const selectedFileIndex = ref(0);
-const selectedSheetName = ref("");
 
 const queryParams = reactive({
   page: 1,
@@ -35,57 +35,80 @@ const taskTypeOptions = [
   { label: "批量回复", value: "batch-reply" }
 ];
 
-const currentFile = computed<ExecutionHistoryFile | null>(() => {
-  const files = currentDetail.value?.files ?? [];
-  return files[selectedFileIndex.value] ?? null;
-});
+const currentTask = computed(
+  () => taskOptions.value.find(item => item.id === selectedTaskId.value) ?? null
+);
 
-const currentSheet = computed<ExecutionHistorySheet | null>(() => {
-  const sheets = currentFile.value?.sheets ?? [];
-  return sheets.find(sheet => sheet.sheetName === selectedSheetName.value) ?? sheets[0] ?? null;
-});
+const isSmartFillTask = computed(
+  () => currentDetail.value?.taskType === "smart-fill"
+);
 
-watch(currentFile, file => {
-  const firstSheetName = file?.sheets?.[0]?.sheetName ?? "";
-  if (file && !file.sheets.some(sheet => sheet.sheetName === selectedSheetName.value)) {
-    selectedSheetName.value = firstSheetName;
-  }
-});
+const isLegacySmartFill = computed(
+  () =>
+    isSmartFillTask.value &&
+    currentDetail.value?.smartFillPlayback?.isLegacy === true
+);
 
-const getTaskTypeText = (taskType: string) => {
-  return taskType === "batch-reply" ? "批量回复" : "智能填充";
+const currentSmartFillSummary = computed<ExecutionHistorySmartFillSummary | undefined>(
+  () => currentDetail.value?.smartFillSummary ?? currentTask.value?.smartFillSummary
+);
+
+const taskTypeText = (taskType: string) =>
+  taskType === "batch-reply" ? "批量回复" : "智能填充";
+
+const formatDateTime = (value?: string) => {
+  if (!value) return "-";
+  return new Date(value).toLocaleString();
 };
 
-const getStatusText = (status: string) => {
-  switch (status) {
-    case "adopted":
-      return "已采用";
-    case "skipped":
-      return "已跳过";
-    case "not-adopted":
-      return "未采用";
-    case "unmatched":
-    default:
-      return "未匹配";
-  }
+const formatTaskOptionLabel = (item: ExecutionHistoryListItem) => {
+  const summary = item.taskType === "smart-fill" && item.smartFillSummary
+    ? `完全 ${item.smartFillSummary.exactMatchedRowCount ?? "-"} / AI ${item.smartFillSummary.aiMatchedRowCount ?? "-"} / 未采用或未匹配 ${item.smartFillSummary.notUsedRowCount ?? "-"}`
+    : `已采用 ${item.adoptedRowCount} / 未匹配 ${item.unmatchedRowCount}`;
+
+  return `${taskTypeText(item.taskType)}｜${item.sourceFileName}｜${formatDateTime(item.createdAt)}｜${summary}`;
 };
 
-const getStatusType = (status: string) => {
-  switch (status) {
-    case "adopted":
-      return "success";
-    case "skipped":
-      return "info";
-    case "not-adopted":
-      return "warning";
-    case "unmatched":
-    default:
-      return "danger";
+const summaryCards = computed(() => {
+  if (!currentDetail.value) return [];
+
+  if (isSmartFillTask.value) {
+    const summary = currentSmartFillSummary.value;
+    return [
+      { label: "完全匹配", value: summary?.exactMatchedRowCount ?? "-" },
+      { label: "AI匹配", value: summary?.aiMatchedRowCount ?? "-" },
+      { label: "人工确认", value: summary?.manualConfirmedRowCount ?? "-" },
+      { label: "人工写入", value: summary?.manualEditedRowCount ?? "-" },
+      { label: "未采用/未匹配", value: summary?.notUsedRowCount ?? "-" }
+    ];
+  }
+
+  return [
+    { label: "文件", value: currentDetail.value.fileCount },
+    { label: "总行数", value: currentDetail.value.totalRowCount },
+    { label: "已采用", value: currentDetail.value.adoptedRowCount },
+    { label: "未匹配", value: currentDetail.value.unmatchedRowCount },
+    { label: "已跳过", value: currentDetail.value.skippedRowCount }
+  ];
+});
+
+const loadDetailById = async (id: number) => {
+  detailLoading.value = true;
+  try {
+    const res = await getExecutionHistoryDetail(id);
+    if (res.code === 0) {
+      currentDetail.value = res.data;
+      selectedTaskId.value = id;
+      return;
+    }
+
+    ElMessage.error(res.message || "加载任务详情失败");
+  } catch {
+    ElMessage.error("加载任务详情失败");
+  } finally {
+    detailLoading.value = false;
   }
 };
-
-const formatConfidence = (confidencePercent: number) =>
-  `${(confidencePercent ?? 0).toFixed(1)}%`;
 
 const loadList = async () => {
   loading.value = true;
@@ -97,16 +120,25 @@ const loadList = async () => {
       taskType: queryParams.taskType || undefined
     });
 
-    if (res.code === 0) {
-      tableData.value = res.data.items;
-      total.value = res.data.total;
-
-      if (res.data.items.length > 0 && !currentDetail.value) {
-        await openDetail(res.data.items[0]);
-      }
-    } else {
+    if (res.code !== 0) {
       ElMessage.error(res.message || "加载执行记录失败");
+      return;
     }
+
+    taskOptions.value = res.data.items;
+    total.value = res.data.total;
+
+    if (taskOptions.value.length === 0) {
+      selectedTaskId.value = undefined;
+      currentDetail.value = null;
+      return;
+    }
+
+    const retained = selectedTaskId.value
+      ? taskOptions.value.find(item => item.id === selectedTaskId.value)
+      : null;
+    const target = retained ?? taskOptions.value[0];
+    await loadDetailById(target.id);
   } catch {
     ElMessage.error("加载执行记录失败");
   } finally {
@@ -114,27 +146,9 @@ const loadList = async () => {
   }
 };
 
-const openDetail = async (row: ExecutionHistoryListItem) => {
-  detailLoading.value = true;
-  try {
-    const res = await getExecutionHistoryDetail(row.id);
-    if (res.code === 0) {
-      currentDetail.value = res.data;
-      selectedFileIndex.value = 0;
-      selectedSheetName.value = res.data.files[0]?.sheets[0]?.sheetName ?? "";
-    } else {
-      ElMessage.error(res.message || "加载详情失败");
-    }
-  } catch {
-    ElMessage.error("加载详情失败");
-  } finally {
-    detailLoading.value = false;
-  }
-};
-
 const handleSearch = () => {
   queryParams.page = 1;
-  loadList();
+  void loadList();
 };
 
 const handleReset = () => {
@@ -142,21 +156,28 @@ const handleReset = () => {
   queryParams.pageSize = 20;
   queryParams.keyword = "";
   queryParams.taskType = "";
-  loadList();
+  void loadList();
+};
+
+const handleTaskChange = (id?: number) => {
+  if (!id) return;
+  void loadDetailById(id);
 };
 
 const handlePageChange = (page: number) => {
   queryParams.page = page;
-  loadList();
+  void loadList();
 };
 
 const handleSizeChange = (size: number) => {
   queryParams.pageSize = size;
   queryParams.page = 1;
-  loadList();
+  void loadList();
 };
 
-onMounted(loadList);
+onMounted(() => {
+  void loadList();
+});
 </script>
 
 <template>
@@ -165,7 +186,7 @@ onMounted(loadList);
       <div>
         <div class="page-title">执行记录</div>
         <div class="page-subtitle">
-          按任务查看智能填充与批量回复结果，详情按文件和 Sheet 展示逐行记录
+          按任务回看智能填充与批量回复结果，智能填充支持完整回放，批量回复保持简化详情
         </div>
       </div>
     </div>
@@ -173,7 +194,7 @@ onMounted(loadList);
     <el-card class="toolbar-card">
       <el-form :inline="true">
         <el-form-item label="任务类型">
-          <el-select v-model="queryParams.taskType" class="search-select search-select--300">
+          <el-select v-model="queryParams.taskType" class="search-select search-select--240">
             <el-option
               v-for="item in taskTypeOptions"
               :key="item.value"
@@ -197,156 +218,103 @@ onMounted(loadList);
       </el-form>
     </el-card>
 
-    <div class="history-layout">
-      <el-card class="history-list-card">
-        <template #header>
-          <div class="card-header">
-            <span>任务列表</span>
-            <span class="card-header-tip">一次执行一条记录</span>
-          </div>
-        </template>
-
-        <div class="table-wrap">
-          <el-table v-loading="loading" :data="tableData" stripe height="100%">
-            <el-table-column prop="taskType" label="类型" width="100">
-              <template #default="{ row }">
-                {{ getTaskTypeText(row.taskType) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="sourceFileName" label="来源文件" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="fileCount" label="文件" width="70" />
-            <el-table-column prop="totalRowCount" label="总行数" width="90" />
-            <el-table-column prop="adoptedRowCount" label="已采用" width="90" />
-            <el-table-column prop="unmatchedRowCount" label="未匹配" width="90" />
-            <el-table-column prop="skippedRowCount" label="已跳过" width="90" />
-            <el-table-column prop="notAdoptedRowCount" label="未采用" width="90" />
-            <el-table-column prop="manualSelectedRowCount" label="人工选择" width="100" />
-            <el-table-column prop="createdAt" label="时间" width="180">
-              <template #default="{ row }">
-                {{ new Date(row.createdAt).toLocaleString() }}
-              </template>
-            </el-table-column>
-            <el-table-column label="查看" width="90" fixed="right">
-              <template #default="{ row }">
-                <el-button type="primary" link @click="openDetail(row)">查看</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+    <el-card class="task-card" v-loading="loading">
+      <template #header>
+        <div class="card-header">
+          <span>任务下拉</span>
+          <span class="card-header-tip">当前页共 {{ total }} 条记录</span>
         </div>
+      </template>
 
-        <div class="pager-wrap">
-          <el-pagination
-            background
-            layout="total, sizes, prev, pager, next"
-            :total="total"
-            :page-size="queryParams.pageSize"
-            :current-page="queryParams.page"
-            @current-change="handlePageChange"
-            @size-change="handleSizeChange"
+      <div class="task-select-block">
+        <el-select
+          v-model="selectedTaskId"
+          class="task-select"
+          filterable
+          placeholder="请选择任务"
+          @change="handleTaskChange"
+        >
+          <el-option
+            v-for="item in taskOptions"
+            :key="item.id"
+            :label="formatTaskOptionLabel(item)"
+            :value="item.id"
           />
+        </el-select>
+
+        <div v-if="currentTask" class="task-brief">
+          <div class="task-brief__title">{{ currentTask.sourceFileName }}</div>
+          <div class="task-brief__meta">
+            <span>{{ taskTypeText(currentTask.taskType) }}</span>
+            <span>任务ID {{ currentTask.taskId }}</span>
+            <span>{{ formatDateTime(currentTask.createdAt) }}</span>
+          </div>
         </div>
-      </el-card>
+      </div>
 
-      <el-card class="history-detail-card" v-loading="detailLoading">
-        <template #header>
-          <div class="card-header">
-            <span>任务详情</span>
-            <span v-if="currentDetail" class="card-header-tip">
-              {{ currentDetail.sourceFileName }} / {{ getTaskTypeText(currentDetail.taskType) }}
-            </span>
+      <div class="pager-wrap">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next"
+          :total="total"
+          :page-size="queryParams.pageSize"
+          :current-page="queryParams.page"
+          @current-change="handlePageChange"
+          @size-change="handleSizeChange"
+        />
+      </div>
+    </el-card>
+
+    <el-card class="detail-card" v-loading="detailLoading">
+      <template #header>
+        <div class="card-header">
+          <span>任务详情</span>
+          <span v-if="currentDetail" class="card-header-tip">
+            {{ taskTypeText(currentDetail.taskType) }} / {{ currentDetail.sourceFileName }}
+          </span>
+        </div>
+      </template>
+
+      <template v-if="currentDetail">
+        <div class="summary-grid">
+          <div
+            v-for="item in summaryCards"
+            :key="item.label"
+            class="summary-card"
+          >
+            <div class="summary-card__label">{{ item.label }}</div>
+            <div class="summary-card__value">{{ item.value }}</div>
           </div>
-        </template>
+        </div>
 
-        <template v-if="currentDetail">
-          <el-descriptions :column="4" border size="small" class="detail-summary">
-            <el-descriptions-item label="来源文件">
-              {{ currentDetail.sourceFileName }}
-            </el-descriptions-item>
-            <el-descriptions-item label="类型">
-              {{ getTaskTypeText(currentDetail.taskType) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="文件数">
-              {{ currentDetail.fileCount }}
-            </el-descriptions-item>
-            <el-descriptions-item label="总行数">
-              {{ currentDetail.totalRowCount }}
-            </el-descriptions-item>
-          </el-descriptions>
+        <el-alert
+          v-if="isLegacySmartFill"
+          type="warning"
+          :closable="false"
+          class="legacy-alert"
+          :title="currentDetail.smartFillPlayback?.legacyMessage || '历史记录，缺少预览归档'"
+        />
 
-          <div class="file-list">
-            <span class="section-title">文件</span>
-            <el-segmented
-              v-model="selectedFileIndex"
-              :options="
-                currentDetail.files.map((file, index) => ({
-                  label: file.fileName,
-                  value: index
-                }))
-              "
-            />
-          </div>
+        <ExecutionHistorySmartFillPlayback
+          v-if="isSmartFillTask && !isLegacySmartFill"
+          :detail="currentDetail"
+        />
 
-          <el-tabs v-model="selectedSheetName" class="sheet-tabs">
-            <el-tab-pane
-              v-for="sheet in currentFile?.sheets ?? []"
-              :key="sheet.sheetName"
-              :label="sheet.sheetName || `Sheet ${sheet.sheetIndex + 1}`"
-              :name="sheet.sheetName"
-            >
-              <el-table :data="currentSheet?.rows ?? []" stripe border max-height="520">
-                <el-table-column label="行号" width="80">
-                  <template #default="{ row }">
-                    {{ row.rowIndex + 1 }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="project" label="项目" min-width="160" show-overflow-tooltip />
-                <el-table-column prop="specification" label="规格" min-width="180" show-overflow-tooltip />
-                <el-table-column label="匹配结果" min-width="180" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    {{ row.matchedSpecification || row.matchedProject || "-" }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="acceptance" label="验收" min-width="180" show-overflow-tooltip />
-                <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
-                <el-table-column label="置信度" width="100">
-                  <template #default="{ row }">
-                    {{ formatConfidence(row.confidencePercent) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="状态" width="100">
-                  <template #default="{ row }">
-                    <el-tag :type="getStatusType(row.status)">
-                      {{ getStatusText(row.status) }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="人工选择" width="100">
-                  <template #default="{ row }">
-                    {{ row.isManualSelected ? "是" : "否" }}
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-tab-pane>
-          </el-tabs>
-        </template>
+        <ExecutionHistoryBatchReplyDetail
+          v-else
+          :files="currentDetail.batchReplyDetail?.files ?? currentDetail.files"
+        />
+      </template>
 
-        <el-empty v-else description="暂无执行记录详情" />
-      </el-card>
-    </div>
+      <el-empty v-else description="暂无执行记录详情" />
+    </el-card>
   </div>
 </template>
 
 <style scoped>
-.history-layout {
-  display: grid;
-  grid-template-columns: minmax(420px, 1fr) minmax(540px, 1.3fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.history-list-card,
-.history-detail-card {
-  min-height: 720px;
+.task-card,
+.detail-card {
+  margin-top: 16px;
 }
 
 .card-header {
@@ -357,43 +325,86 @@ onMounted(loadList);
 }
 
 .card-header-tip {
-  color: #6b7280;
   font-size: 12px;
+  color: #6b7280;
 }
 
-.detail-summary {
-  margin-bottom: 16px;
-}
-
-.file-list {
+.task-select-block {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 12px;
 }
 
-.section-title {
-  font-size: 13px;
+.task-select {
+  width: 100%;
+}
+
+.task-brief {
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.task-brief__title {
+  font-size: 15px;
   font-weight: 600;
-  color: #374151;
+  color: #111827;
 }
 
-.table-wrap {
-  height: 620px;
+.task-brief__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
 }
 
 .pager-wrap {
-  margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+  margin-top: 16px;
 }
 
-.sheet-tabs :deep(.el-tabs__content) {
-  padding-top: 8px;
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-@media (max-width: 1400px) {
-  .history-layout {
+.summary-card {
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.summary-card__label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.summary-card__value {
+  margin-top: 8px;
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.legacy-alert {
+  margin-bottom: 16px;
+}
+
+@media (max-width: 1200px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .summary-grid {
     grid-template-columns: 1fr;
   }
 }

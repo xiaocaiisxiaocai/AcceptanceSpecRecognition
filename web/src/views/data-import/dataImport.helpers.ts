@@ -49,6 +49,34 @@ export const normalizeExcelMappingByTable = (
   };
 };
 
+export type ExcelMappingRowField =
+  | "headerRowStart"
+  | "headerRowCount"
+  | "dataStartRow"
+  | "dataEndRow";
+
+export const applyExcelMappingRowFieldChange = (
+  tableInfo: TableInfo | undefined,
+  mapping: ExcelSheetMapping | undefined,
+  field: ExcelMappingRowField,
+  value: number
+): ExcelSheetMapping => {
+  const normalizedCurrent = normalizeExcelMappingByTable(tableInfo, mapping);
+  const normalizedDraft = normalizeExcelMappingByTable(tableInfo, {
+    ...normalizedCurrent,
+    [field]: value
+  });
+
+  if (field === "headerRowStart" || field === "headerRowCount") {
+    return normalizeExcelMappingByTable(tableInfo, {
+      ...normalizedDraft,
+      dataStartRow: normalizedDraft.headerRowStart + normalizedDraft.headerRowCount
+    });
+  }
+
+  return normalizedDraft;
+};
+
 export const createDefaultExcelMapping = (tableInfo?: TableInfo): ExcelSheetMapping =>
   normalizeExcelMappingByTable(tableInfo, {
     ...defaultExcelMapping(),

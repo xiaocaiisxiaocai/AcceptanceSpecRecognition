@@ -35,6 +35,8 @@ public class ExecutionHistoryListItemDto
 
     public int ManualSelectedRowCount { get; set; }
 
+    public ExecutionHistorySmartFillSummaryDto? SmartFillSummary { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }
 
@@ -71,8 +73,118 @@ public class ExecutionHistoryDetailDto
 
     public int ManualSelectedRowCount { get; set; }
 
+    public ExecutionHistorySmartFillSummaryDto? SmartFillSummary { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
+    public List<ExecutionHistoryFileDto> Files { get; set; } = [];
+
+    public ExecutionHistorySmartFillPlaybackDto? SmartFillPlayback { get; set; }
+
+    public ExecutionHistoryBatchReplyDetailDto? BatchReplyDetail { get; set; }
+}
+
+public class ExecutionHistorySmartFillSummaryDto
+{
+    public int? ExactMatchedRowCount { get; set; }
+
+    public int? AiMatchedRowCount { get; set; }
+
+    public int? ManualConfirmedRowCount { get; set; }
+
+    public int? ManualEditedRowCount { get; set; }
+
+    public int? NotUsedRowCount { get; set; }
+
+    public bool HasPlaybackArchive { get; set; }
+}
+
+public class ExecutionHistorySmartFillPlaybackDto
+{
+    public int PayloadVersion { get; set; }
+
+    public bool IsLegacy { get; set; }
+
+    public string? LegacyMessage { get; set; }
+
+    public List<ExecutionHistorySmartFillFileDto> Files { get; set; } = [];
+}
+
+public class ExecutionHistorySmartFillFileDto
+{
+    public string FileName { get; set; } = string.Empty;
+
+    public UploadedFileType? FileType { get; set; }
+
+    public List<ExecutionHistorySmartFillSheetDto> Sheets { get; set; } = [];
+}
+
+public class ExecutionHistorySmartFillSheetDto
+{
+    public int SheetIndex { get; set; }
+
+    public string SheetName { get; set; } = string.Empty;
+
+    public List<ExecutionHistorySmartFillRowDto> Rows { get; set; } = [];
+}
+
+public class ExecutionHistorySmartFillRowDto
+{
+    public int RowIndex { get; set; }
+
+    public string SourceProject { get; set; } = string.Empty;
+
+    public string SourceSpecification { get; set; } = string.Empty;
+
+    public string Status { get; set; } = string.Empty;
+
+    public string MatchOrigin { get; set; } = "none";
+
+    public bool IsManualConfirmed { get; set; }
+
+    public bool IsManualEdited { get; set; }
+
+    public List<string> DisplayTags { get; set; } = [];
+
+    public ExecutionHistorySmartFillPreviewSnapshotDto PreviewSnapshot { get; set; } = new();
+
+    public ExecutionHistorySmartFillExecutionSnapshotDto ExecutionSnapshot { get; set; } = new();
+}
+
+public class ExecutionHistorySmartFillPreviewSnapshotDto
+{
+    public string ConfidenceLevel { get; set; } = "none";
+
+    public string? NoMatchReason { get; set; }
+
+    public MatchResultDto? BestMatch { get; set; }
+}
+
+public class ExecutionHistorySmartFillExecutionSnapshotDto
+{
+    public int? SelectedSpecId { get; set; }
+
+    public string? SelectedProject { get; set; }
+
+    public string? SelectedSpecification { get; set; }
+
+    public string? FinalAcceptance { get; set; }
+
+    public string? FinalRemark { get; set; }
+
+    public string? OverrideAcceptance { get; set; }
+
+    public string? OverrideRemark { get; set; }
+
+    public bool ManualConfirmed { get; set; }
+
+    public bool ManualEdited { get; set; }
+
+    public string Status { get; set; } = string.Empty;
+}
+
+public class ExecutionHistoryBatchReplyDetailDto
+{
     public List<ExecutionHistoryFileDto> Files { get; set; } = [];
 }
 

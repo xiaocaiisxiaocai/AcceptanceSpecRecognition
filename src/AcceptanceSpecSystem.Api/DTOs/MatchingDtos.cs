@@ -754,6 +754,22 @@ public class BatchTablePreviewResult
 }
 
 /// <summary>
+/// 执行记录归档用的预览表格快照
+/// </summary>
+public class ExecutionHistoryPreviewTableSnapshot
+{
+    /// <summary>
+    /// 表格索引
+    /// </summary>
+    public int TableIndex { get; set; }
+
+    /// <summary>
+    /// 预览项列表
+    /// </summary>
+    public List<MatchPreviewItem> Items { get; set; } = [];
+}
+
+/// <summary>
 /// 批量预览响应
 /// </summary>
 public class BatchPreviewResponse
@@ -932,6 +948,11 @@ public class BatchExecuteFillRequest
     /// 目标机型ID（限定匹配范围）
     /// </summary>
     public int? MachineModelId { get; set; }
+
+    /// <summary>
+    /// 执行记录归档用的预览快照
+    /// </summary>
+    public List<ExecutionHistoryPreviewTableSnapshot> PreviewTables { get; set; } = [];
 
     /// <summary>
     /// 各表格的填充映射

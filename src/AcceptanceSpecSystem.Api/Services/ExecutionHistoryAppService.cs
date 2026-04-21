@@ -89,7 +89,7 @@ public sealed class ExecutionHistoryAppService
 
         return new PagedData<ExecutionHistoryListItemDto>
         {
-            Items = items.Select(ToListDto).ToList(),
+            Items = items.Select(entity => ToListDto(entity, TryDeserializeDetail(entity))).ToList(),
             Total = total,
             Page = page <= 0 ? 1 : page,
             PageSize = pageSize <= 0 ? 20 : pageSize
@@ -107,24 +107,7 @@ public sealed class ExecutionHistoryAppService
 
         try
         {
-            var detail = JsonSerializer.Deserialize<ExecutionHistoryDetailDto>(entity.DetailJson, JsonOptions)
-                ?? new ExecutionHistoryDetailDto();
-            detail.Id = entity.Id;
-            detail.TaskId = entity.TaskId;
-            detail.TaskType = entity.TaskType;
-            detail.SourceFileId = entity.SourceFileId;
-            detail.SourceFileName = entity.SourceFileName;
-            detail.SourceFileType = entity.SourceFileType;
-            detail.FileCount = entity.FileCount;
-            detail.TotalRowCount = entity.TotalRowCount;
-            detail.MatchedRowCount = entity.MatchedRowCount;
-            detail.AdoptedRowCount = entity.AdoptedRowCount;
-            detail.UnmatchedRowCount = entity.UnmatchedRowCount;
-            detail.SkippedRowCount = entity.SkippedRowCount;
-            detail.NotAdoptedRowCount = entity.NotAdoptedRowCount;
-            detail.ManualSelectedRowCount = entity.ManualSelectedRowCount;
-            detail.CreatedAt = entity.CreatedAt;
-            return detail;
+            return NormalizeDetail(entity, TryDeserializeDetail(entity));
         }
         catch (Exception ex)
         {
@@ -152,13 +135,65 @@ public sealed class ExecutionHistoryAppService
             SkippedRowCount = rows.Count(row => row.Status == ExecutionHistoryStatuses.Skipped),
             NotAdoptedRowCount = rows.Count(row => row.Status == ExecutionHistoryStatuses.NotAdopted),
             ManualSelectedRowCount = rows.Count(row => row.IsManualSelected),
+            SmartFillSummary = draft.SmartFillSummary,
             CreatedAt = draft.CreatedAt,
-            Files = draft.Files
+            Files = draft.Files,
+            SmartFillPlayback = draft.SmartFillPlayback,
+            BatchReplyDetail = draft.BatchReplyDetail
         };
     }
 
-    private static ExecutionHistoryListItemDto ToListDto(ExecutionHistoryRecord entity)
+    private ExecutionHistoryDetailDto? TryDeserializeDetail(ExecutionHistoryRecord entity)
     {
+        if (string.IsNullOrWhiteSpace(entity.DetailJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<ExecutionHistoryDetailDto>(entity.DetailJson, JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "执行记录摘要反序列化失败: {Id}", entity.Id);
+            return null;
+        }
+    }
+
+    private static ExecutionHistoryDetailDto NormalizeDetail(
+        ExecutionHistoryRecord entity,
+        ExecutionHistoryDetailDto? detail)
+    {
+        detail ??= new ExecutionHistoryDetailDto();
+        detail.Id = entity.Id;
+        detail.TaskId = entity.TaskId;
+        detail.TaskType = entity.TaskType;
+        detail.SourceFileId = entity.SourceFileId;
+        detail.SourceFileName = entity.SourceFileName;
+        detail.SourceFileType = entity.SourceFileType;
+        detail.FileCount = entity.FileCount;
+        detail.TotalRowCount = entity.TotalRowCount;
+        detail.MatchedRowCount = entity.MatchedRowCount;
+        detail.AdoptedRowCount = entity.AdoptedRowCount;
+        detail.UnmatchedRowCount = entity.UnmatchedRowCount;
+        detail.SkippedRowCount = entity.SkippedRowCount;
+        detail.NotAdoptedRowCount = entity.NotAdoptedRowCount;
+        detail.ManualSelectedRowCount = entity.ManualSelectedRowCount;
+        detail.CreatedAt = entity.CreatedAt;
+        detail.Files ??= [];
+        detail.SmartFillSummary = NormalizeSmartFillSummary(entity, detail);
+        detail.SmartFillPlayback = NormalizeSmartFillPlayback(entity, detail);
+        detail.BatchReplyDetail = NormalizeBatchReplyDetail(entity, detail);
+        return detail;
+    }
+
+    private static ExecutionHistoryListItemDto ToListDto(
+        ExecutionHistoryRecord entity,
+        ExecutionHistoryDetailDto? detail)
+    {
+        var normalized = NormalizeDetail(entity, detail);
+
         return new ExecutionHistoryListItemDto
         {
             Id = entity.Id,
@@ -175,7 +210,79 @@ public sealed class ExecutionHistoryAppService
             SkippedRowCount = entity.SkippedRowCount,
             NotAdoptedRowCount = entity.NotAdoptedRowCount,
             ManualSelectedRowCount = entity.ManualSelectedRowCount,
+            SmartFillSummary = normalized.SmartFillSummary,
             CreatedAt = entity.CreatedAt
+        };
+    }
+
+    private static ExecutionHistorySmartFillSummaryDto? NormalizeSmartFillSummary(
+        ExecutionHistoryRecord entity,
+        ExecutionHistoryDetailDto detail)
+    {
+        if (!string.Equals(entity.TaskType, ExecutionHistoryTaskTypes.SmartFill, StringComparison.Ordinal))
+        {
+            return detail.SmartFillSummary;
+        }
+
+        if (detail.SmartFillSummary != null)
+        {
+            detail.SmartFillSummary.HasPlaybackArchive =
+                detail.SmartFillPlayback is { IsLegacy: false };
+            return detail.SmartFillSummary;
+        }
+
+        return new ExecutionHistorySmartFillSummaryDto
+        {
+            ExactMatchedRowCount = null,
+            AiMatchedRowCount = null,
+            ManualConfirmedRowCount = null,
+            ManualEditedRowCount = null,
+            NotUsedRowCount = entity.NotAdoptedRowCount + entity.UnmatchedRowCount,
+            HasPlaybackArchive = false
+        };
+    }
+
+    private static ExecutionHistorySmartFillPlaybackDto? NormalizeSmartFillPlayback(
+        ExecutionHistoryRecord entity,
+        ExecutionHistoryDetailDto detail)
+    {
+        if (!string.Equals(entity.TaskType, ExecutionHistoryTaskTypes.SmartFill, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        if (detail.SmartFillPlayback != null)
+        {
+            detail.SmartFillPlayback.Files ??= [];
+            return detail.SmartFillPlayback;
+        }
+
+        return new ExecutionHistorySmartFillPlaybackDto
+        {
+            PayloadVersion = 0,
+            IsLegacy = true,
+            LegacyMessage = "历史记录，缺少预览归档，当前仅能展示简化结果。"
+        };
+    }
+
+    private static ExecutionHistoryBatchReplyDetailDto? NormalizeBatchReplyDetail(
+        ExecutionHistoryRecord entity,
+        ExecutionHistoryDetailDto detail)
+    {
+        if (!string.Equals(entity.TaskType, ExecutionHistoryTaskTypes.BatchReply, StringComparison.Ordinal))
+        {
+            return detail.BatchReplyDetail;
+        }
+
+        if (detail.BatchReplyDetail != null)
+        {
+            detail.BatchReplyDetail.Files ??= detail.Files;
+            return detail.BatchReplyDetail;
+        }
+
+        return new ExecutionHistoryBatchReplyDetailDto
+        {
+            Files = detail.Files
         };
     }
 

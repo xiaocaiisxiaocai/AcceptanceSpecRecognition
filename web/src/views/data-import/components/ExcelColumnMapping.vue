@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import {
+  applyExcelMappingRowFieldChange,
+  normalizeExcelMappingByTable
+} from "../dataImport.helpers";
 
 export type ExcelSheetMapping = {
   projectColumn?: number;
@@ -35,36 +39,30 @@ const defaultMapping: ExcelSheetMapping = {
 };
 
 const mapping = ref<ExcelSheetMapping>({ ...defaultMapping });
-function buildNormalizedMapping(source?: Partial<ExcelSheetMapping>): ExcelSheetMapping {
-  const merged: ExcelSheetMapping = {
-    ...defaultMapping,
-    ...(source || {})
-  };
 
-  const baseRow = Math.max(1, props.usedRangeStartRow || 1);
-  const maxRow = Math.max(baseRow, props.usedRangeEndRow || baseRow);
-  const headerRowStart = Math.max(
-    baseRow,
-    merged.headerRowStart || baseRow
-  );
-  const headerRowCount = Math.max(0, merged.headerRowCount ?? 1);
-  const rawDataStartRow = Math.max(baseRow, merged.dataStartRow || baseRow);
-  const dataStartRow =
-    rawDataStartRow < headerRowStart + headerRowCount
-      ? headerRowStart + headerRowCount
-      : rawDataStartRow;
-  const dataEndRow = Math.max(
-    dataStartRow,
-    Math.min(maxRow, merged.dataEndRow || maxRow)
-  );
+function getTableInfoForNormalization() {
+  const usedStartRow = Math.max(1, props.usedRangeStartRow || 1);
+  const usedEndRow = Math.max(usedStartRow, props.usedRangeEndRow || usedStartRow);
 
   return {
-    ...merged,
-    headerRowStart,
-    headerRowCount,
-    dataStartRow,
-    dataEndRow
+    index: 0,
+    name: "Excel",
+    rowCount: usedEndRow - usedStartRow + 1,
+    columnCount: 0,
+    isNested: false,
+    previewText: "",
+    headers: [],
+    hasMergedCells: false,
+    usedRangeStartRow: usedStartRow,
+    usedRangeStartColumn: Math.max(1, props.usedRangeStartColumn || 1)
   };
+}
+
+function buildNormalizedMapping(source?: Partial<ExcelSheetMapping>): ExcelSheetMapping {
+  return normalizeExcelMappingByTable(getTableInfoForNormalization(), {
+    ...defaultMapping,
+    ...(source || {})
+  });
 }
 
 function isSameMappingValue(
@@ -88,6 +86,22 @@ function normalize() {
   if (!isSameMappingValue(mapping.value, normalized)) {
     mapping.value = normalized;
   }
+}
+
+function handleRowFieldChange(
+  field: "headerRowStart" | "headerRowCount" | "dataStartRow" | "dataEndRow",
+  value: number | undefined
+) {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) {
+    return;
+  }
+
+  mapping.value = applyExcelMappingRowFieldChange(
+    getTableInfoForNormalization(),
+    mapping.value,
+    field,
+    value
+  );
 }
 
 watch(
@@ -167,35 +181,35 @@ const columnHint = computed(() => ({
         <el-form label-width="110px">
           <el-form-item label="表头起始行">
             <el-input-number
-              v-model="mapping.headerRowStart"
+              :model-value="mapping.headerRowStart"
               :min="Math.max(1, props.usedRangeStartRow || 1)"
               :step="1"
-              @change="normalize"
+              @update:model-value="(v: number | undefined) => handleRowFieldChange('headerRowStart', v)"
             />
           </el-form-item>
           <el-form-item label="表头行数">
             <el-input-number
-              v-model="mapping.headerRowCount"
+              :model-value="mapping.headerRowCount"
               :min="0"
               :step="1"
-              @change="normalize"
+              @update:model-value="(v: number | undefined) => handleRowFieldChange('headerRowCount', v)"
             />
           </el-form-item>
           <el-form-item label="数据起始行">
             <el-input-number
-              v-model="mapping.dataStartRow"
+              :model-value="mapping.dataStartRow"
               :min="Math.max(1, props.usedRangeStartRow || 1)"
               :step="1"
-              @change="normalize"
+              @update:model-value="(v: number | undefined) => handleRowFieldChange('dataStartRow', v)"
             />
           </el-form-item>
           <el-form-item label="数据结束行">
             <el-input-number
-              v-model="mapping.dataEndRow"
+              :model-value="mapping.dataEndRow"
               :min="Math.max(mapping.dataStartRow, props.usedRangeStartRow || 1)"
               :max="props.usedRangeEndRow"
               :step="1"
-              @change="normalize"
+              @update:model-value="(v: number | undefined) => handleRowFieldChange('dataEndRow', v)"
             />
           </el-form-item>
         </el-form>

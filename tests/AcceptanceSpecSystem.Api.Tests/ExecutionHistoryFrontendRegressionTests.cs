@@ -31,12 +31,23 @@ public class ExecutionHistoryFrontendRegressionTests
 
         var pageContent = ReadRepositoryFile("web/src/views/other/execution-history/index.vue");
         pageContent.Should().Contain("执行记录");
-        pageContent.Should().Contain("置信度");
-        pageContent.Should().Contain("人工选择");
-        pageContent.Should().Contain("文件");
-        pageContent.Should().Contain("Sheet");
+        pageContent.Should().Contain("任务下拉");
+        pageContent.Should().Contain("ExecutionHistorySmartFillPlayback");
+        pageContent.Should().Contain("ExecutionHistoryBatchReplyDetail");
+        pageContent.Should().Contain("完全匹配");
+        pageContent.Should().Contain("未采用/未匹配");
         pageContent.Should().Contain("getExecutionHistoryList");
         pageContent.Should().Contain("getExecutionHistoryDetail");
+
+        var smartFillContent = ReadRepositoryFile(
+            "web/src/views/other/execution-history/components/ExecutionHistorySmartFillPlayback.vue");
+        smartFillContent.Should().Contain("ScoreDetailDecisionSummarySection");
+        smartFillContent.Should().Contain("ScoreDetailBestMatchSection");
+        smartFillContent.Should().Contain("ScoreDetailCandidateList");
+
+        var batchReplyContent = ReadRepositoryFile(
+            "web/src/views/other/execution-history/components/ExecutionHistoryBatchReplyDetail.vue");
+        batchReplyContent.Should().Contain("批量回复仅保留简化结果");
     }
 
     private static string ReadRepositoryFile(string relativePath)

@@ -682,6 +682,7 @@ public sealed class MatchingWorkflowSupportService
                     taskId,
                     taskResult.CreatedAt,
                     request.Tables,
+                    request.PreviewTables,
                     specDict,
                     adoptedRowLookup,
                     currentMatchLookups,
@@ -711,6 +712,7 @@ public sealed class MatchingWorkflowSupportService
                     taskId,
                     taskResult.CreatedAt,
                     request.Tables,
+                    request.PreviewTables,
                     specDict,
                     adoptedRowLookup,
                     currentMatchLookups);
@@ -833,6 +835,7 @@ public sealed class MatchingWorkflowSupportService
         string taskId,
         DateTime createdAt,
         IReadOnlyCollection<BatchTableFillMapping> tables,
+        IReadOnlyCollection<ExecutionHistoryPreviewTableSnapshot> previewTables,
         IReadOnlyDictionary<int, AcceptanceSpec> specDict,
         IReadOnlyDictionary<int, HashSet<int>> adoptedRowLookup,
         IReadOnlyDictionary<int, ExecutionMatchSnapshot> currentMatchLookups,
@@ -840,7 +843,13 @@ public sealed class MatchingWorkflowSupportService
     {
         var tableMetas = await _documentTableAccessService.GetTablesAsync(wordFile);
         var tableMetaLookup = tableMetas.ToDictionary(table => table.Index);
+        var previewLookup = BuildExecutionHistoryPreviewLookup(previewTables);
         var fileDetail = new ExecutionHistoryFileDto
+        {
+            FileName = wordFile.FileName,
+            FileType = wordFile.FileType
+        };
+        var playbackFile = new ExecutionHistorySmartFillFileDto
         {
             FileName = wordFile.FileName,
             FileType = wordFile.FileType
@@ -864,7 +873,28 @@ public sealed class MatchingWorkflowSupportService
                 SheetName = sheetName,
                 Rows = rows
             });
+
+            if (previewLookup.Count > 0)
+            {
+                playbackFile.Sheets.Add(new ExecutionHistorySmartFillSheetDto
+                {
+                    SheetIndex = table.TableIndex,
+                    SheetName = sheetName,
+                    Rows = BuildSmartFillPlaybackRows(
+                        rows,
+                        table.Mappings,
+                        previewLookup.GetValueOrDefault(table.TableIndex))
+                });
+            }
         }
+
+        var playback = previewLookup.Count > 0
+            ? new ExecutionHistorySmartFillPlaybackDto
+            {
+                PayloadVersion = ExecutionHistoryDraft.CurrentSmartFillPlaybackVersion,
+                Files = [playbackFile]
+            }
+            : null;
 
         await _executionHistoryAppService.SaveAsync(user, new ExecutionHistoryDraft
         {
@@ -874,7 +904,9 @@ public sealed class MatchingWorkflowSupportService
             SourceFileName = wordFile.FileName,
             SourceFileType = wordFile.FileType,
             CreatedAt = createdAt,
-            Files = [fileDetail]
+            Files = [fileDetail],
+            SmartFillSummary = playback == null ? null : BuildSmartFillSummary(playback),
+            SmartFillPlayback = playback
         }, saveImmediately: saveImmediately);
     }
 
@@ -988,6 +1020,146 @@ public sealed class MatchingWorkflowSupportService
             AcceptanceColumnIndex = acceptanceColumnIndex,
             RemarkColumnIndex = remarkColumnIndex
         };
+    }
+
+    private static IReadOnlyDictionary<int, IReadOnlyDictionary<int, MatchPreviewItem>> BuildExecutionHistoryPreviewLookup(
+        IReadOnlyCollection<ExecutionHistoryPreviewTableSnapshot>? previewTables)
+    {
+        if (previewTables == null || previewTables.Count == 0)
+        {
+            return new Dictionary<int, IReadOnlyDictionary<int, MatchPreviewItem>>();
+        }
+
+        return previewTables.ToDictionary(
+            table => table.TableIndex,
+            table => (IReadOnlyDictionary<int, MatchPreviewItem>)table.Items
+                .GroupBy(item => item.RowIndex)
+                .Select(group => group.Last())
+                .ToDictionary(item => item.RowIndex));
+    }
+
+    private static List<ExecutionHistorySmartFillRowDto> BuildSmartFillPlaybackRows(
+        IReadOnlyCollection<ExecutionHistoryRowDto> rows,
+        IReadOnlyCollection<FillMapping> mappings,
+        IReadOnlyDictionary<int, MatchPreviewItem>? previewLookup)
+    {
+        var mappingLookup = mappings.ToDictionary(item => item.RowIndex);
+
+        return rows
+            .OrderBy(row => row.RowIndex)
+            .Select(row =>
+            {
+                mappingLookup.TryGetValue(row.RowIndex, out var mapping);
+                var previewItem = previewLookup?.GetValueOrDefault(row.RowIndex);
+                var matchOrigin = ResolveMatchOrigin(previewItem);
+                var manualEdited = mapping != null &&
+                                   (mapping.OverrideAcceptance != null || mapping.OverrideRemark != null);
+
+                return new ExecutionHistorySmartFillRowDto
+                {
+                    RowIndex = row.RowIndex,
+                    SourceProject = row.Project,
+                    SourceSpecification = row.Specification,
+                    Status = row.Status,
+                    MatchOrigin = matchOrigin,
+                    IsManualConfirmed = mapping?.ManualConfirmed == true,
+                    IsManualEdited = manualEdited,
+                    DisplayTags = BuildDisplayTags(
+                        matchOrigin,
+                        mapping?.ManualConfirmed == true,
+                        manualEdited,
+                        row.Status),
+                    PreviewSnapshot = new ExecutionHistorySmartFillPreviewSnapshotDto
+                    {
+                        ConfidenceLevel = previewItem?.ConfidenceLevel ?? "none",
+                        NoMatchReason = previewItem?.NoMatchReason,
+                        BestMatch = previewItem?.BestMatch
+                    },
+                    ExecutionSnapshot = new ExecutionHistorySmartFillExecutionSnapshotDto
+                    {
+                        SelectedSpecId = row.MatchedSpecId,
+                        SelectedProject = row.MatchedProject,
+                        SelectedSpecification = row.MatchedSpecification,
+                        FinalAcceptance = row.Acceptance,
+                        FinalRemark = row.Remark,
+                        OverrideAcceptance = mapping?.OverrideAcceptance,
+                        OverrideRemark = mapping?.OverrideRemark,
+                        ManualConfirmed = mapping?.ManualConfirmed == true,
+                        ManualEdited = manualEdited,
+                        Status = row.Status
+                    }
+                };
+            })
+            .ToList();
+    }
+
+    private static ExecutionHistorySmartFillSummaryDto BuildSmartFillSummary(
+        ExecutionHistorySmartFillPlaybackDto playback)
+    {
+        var rows = playback.Files
+            .SelectMany(file => file.Sheets)
+            .SelectMany(sheet => sheet.Rows)
+            .ToList();
+
+        return new ExecutionHistorySmartFillSummaryDto
+        {
+            ExactMatchedRowCount = rows.Count(row => row.MatchOrigin == ExecutionHistoryMatchOrigins.Exact),
+            AiMatchedRowCount = rows.Count(row => row.MatchOrigin == ExecutionHistoryMatchOrigins.Ai),
+            ManualConfirmedRowCount = rows.Count(row => row.IsManualConfirmed),
+            ManualEditedRowCount = rows.Count(row => row.IsManualEdited),
+            NotUsedRowCount = rows.Count(row => row.Status != ExecutionHistoryStatuses.Adopted),
+            HasPlaybackArchive = true
+        };
+    }
+
+    private static string ResolveMatchOrigin(MatchPreviewItem? previewItem)
+    {
+        if (string.Equals(previewItem?.BestMatch?.SelectionMode, "exactShortcut", StringComparison.Ordinal))
+        {
+            return ExecutionHistoryMatchOrigins.Exact;
+        }
+
+        if (previewItem?.HasMatch == true)
+        {
+            return ExecutionHistoryMatchOrigins.Ai;
+        }
+
+        return ExecutionHistoryMatchOrigins.None;
+    }
+
+    private static List<string> BuildDisplayTags(
+        string matchOrigin,
+        bool isManualConfirmed,
+        bool isManualEdited,
+        string status)
+    {
+        var tags = new List<string>();
+
+        if (string.Equals(matchOrigin, ExecutionHistoryMatchOrigins.Exact, StringComparison.Ordinal))
+        {
+            tags.Add(ExecutionHistoryDisplayTags.ExactMatch);
+        }
+        else if (string.Equals(matchOrigin, ExecutionHistoryMatchOrigins.Ai, StringComparison.Ordinal))
+        {
+            tags.Add(ExecutionHistoryDisplayTags.AiMatch);
+        }
+
+        if (isManualConfirmed)
+        {
+            tags.Add(ExecutionHistoryDisplayTags.ManualConfirm);
+        }
+
+        if (isManualEdited)
+        {
+            tags.Add(ExecutionHistoryDisplayTags.ManualWrite);
+        }
+
+        if (!string.Equals(status, ExecutionHistoryStatuses.Adopted, StringComparison.Ordinal))
+        {
+            tags.Add(ExecutionHistoryDisplayTags.NotUsed);
+        }
+
+        return tags;
     }
 
     private async Task<MatchingConfig> ResolveExecutionMatchingConfigAsync(MatchConfigDto? dto)

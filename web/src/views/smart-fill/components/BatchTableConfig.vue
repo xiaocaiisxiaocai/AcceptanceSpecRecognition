@@ -5,6 +5,10 @@ import TablePreview from "@/views/data-import/components/TablePreview.vue";
 import type { TablePreviewLoader } from "@/views/data-import/components/TablePreview.vue";
 import { normalizePreviewHeaders } from "@/views/data-import/components/table-preview-columns";
 import type { BatchReplyTablePreviewResponse, BatchTableConfig } from "@/api/matching";
+import {
+  applyExcelBatchTableRowFieldChange,
+  normalizeExcelBatchTableRows
+} from "./batchTableConfig.helpers";
 
 /** 带勾选状态的表格配置项 */
 export interface BatchTableConfigItem extends BatchTableConfig {
@@ -106,7 +110,7 @@ const applyPrimaryExcelConfigToOthers = (
       filterEmptySourceRows: primary.filterEmptySourceRows
     };
 
-    const normalized = normalizeExcelRows({
+    const normalized = normalizeExcelBatchTableRows({
       ...next,
       headerRowStart: primary.headerRowStart,
       headerRowCount: primary.headerRowCount,
@@ -164,22 +168,6 @@ const updateField = (
   items.value = updated;
 };
 
-/** 归一化 Excel 行配置 */
-const normalizeExcelRows = (item: BatchTableConfigItem) => {
-  const usedStartRow = Math.max(1, item.tableInfo.usedRangeStartRow ?? 1);
-  const headerRowStart = Math.max(usedStartRow, item.headerRowStart ?? usedStartRow);
-  const headerRowCount = Math.max(0, item.headerRowCount ?? 1);
-  const minDataStartRow = headerRowStart + headerRowCount;
-  const dataStartRow = Math.max(minDataStartRow, item.dataStartRow ?? minDataStartRow);
-
-  return {
-    usedStartRow,
-    headerRowStart,
-    headerRowCount,
-    dataStartRow
-  };
-};
-
 /** 更新 Excel 行配置并做联动校正 */
 const updateExcelRowField = (
   index: number,
@@ -192,9 +180,8 @@ const updateExcelRowField = (
 
   markExcelTableAsCustomized(index);
 
-  const oldNormalized = normalizeExcelRows(old);
-  const draft: BatchTableConfigItem = { ...old, [field]: value };
-  const normalized = normalizeExcelRows(draft);
+  const oldNormalized = normalizeExcelBatchTableRows(old);
+  const normalized = applyExcelBatchTableRowFieldChange(old, field, value);
 
   const changed =
     oldNormalized.headerRowStart !== normalized.headerRowStart ||
@@ -205,7 +192,7 @@ const updateExcelRowField = (
 
   const updated = [...items.value];
   updated[index] = {
-    ...draft,
+    ...old,
     headerRowStart: normalized.headerRowStart,
     headerRowCount: normalized.headerRowCount,
     dataStartRow: normalized.dataStartRow
@@ -264,16 +251,17 @@ const getDisplayHeaders = (item: BatchTableConfigItem) => {
 };
 
 const getPreviewOptions = (item: BatchTableConfigItem) => {
-  const normalized = normalizeExcelRows(item);
+  const normalized = normalizeExcelBatchTableRows(item);
+  const usedStartRow = Math.max(1, item.tableInfo.usedRangeStartRow ?? 1);
   return {
-    headerRowIndex: Math.max(0, normalized.headerRowStart - normalized.usedStartRow),
+    headerRowIndex: Math.max(0, normalized.headerRowStart - usedStartRow),
     headerRowCount: Math.max(1, normalized.headerRowCount === 0 ? 1 : normalized.headerRowCount),
-    dataStartRowIndex: Math.max(0, normalized.dataStartRow - normalized.usedStartRow)
+    dataStartRowIndex: Math.max(0, normalized.dataStartRow - usedStartRow)
   };
 };
 
 const getPreviewKey = (item: BatchTableConfigItem) => {
-  const normalized = normalizeExcelRows(item);
+  const normalized = normalizeExcelBatchTableRows(item);
   return `${item.tableIndex}-${normalized.headerRowStart}-${normalized.headerRowCount}-${normalized.dataStartRow}`;
 };
 
@@ -431,11 +419,11 @@ const getPreviewResult = (tableIndex: number) => {
               <div class="config-section__title">行设置</div>
               <div class="row-config-title">行配置（1-based）</div>
               <div class="row-config-hint">
-                已用区域首行：第 {{ normalizeExcelRows(item).usedStartRow }} 行
+                已用区域首行：第 {{ Math.max(1, item.tableInfo.usedRangeStartRow ?? 1) }} 行
               </div>
               <el-form-item label="表头起始行">
                 <el-input-number
-                  :model-value="normalizeExcelRows(item).headerRowStart"
+                  :model-value="normalizeExcelBatchTableRows(item).headerRowStart"
                   :min="1"
                   controls-position="right"
                   @update:model-value="(v: number | undefined) => updateExcelRowField(idx, 'headerRowStart', v)"
@@ -443,7 +431,7 @@ const getPreviewResult = (tableIndex: number) => {
               </el-form-item>
               <el-form-item label="表头行数">
                 <el-input-number
-                  :model-value="normalizeExcelRows(item).headerRowCount"
+                  :model-value="normalizeExcelBatchTableRows(item).headerRowCount"
                   :min="0"
                   controls-position="right"
                   @update:model-value="(v: number | undefined) => updateExcelRowField(idx, 'headerRowCount', v)"
@@ -451,7 +439,7 @@ const getPreviewResult = (tableIndex: number) => {
               </el-form-item>
               <el-form-item label="数据起始行">
                 <el-input-number
-                  :model-value="normalizeExcelRows(item).dataStartRow"
+                  :model-value="normalizeExcelBatchTableRows(item).dataStartRow"
                   :min="1"
                   controls-position="right"
                   @update:model-value="(v: number | undefined) => updateExcelRowField(idx, 'dataStartRow', v)"

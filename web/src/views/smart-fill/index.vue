@@ -823,6 +823,55 @@ const handleDownloadLastResult = async () => {
   ElMessage.warning(isExcelFile.value ? "Excel 下载失败，请稍后重试" : "结果文件下载失败，请稍后重试");
 };
 
+const cloneExecutionHistoryBestMatch = (bestMatch?: MatchResult) => {
+  if (!bestMatch) return undefined;
+
+  return {
+    ...bestMatch,
+    scoreDetails: { ...(bestMatch.scoreDetails ?? {}) },
+    evidenceSummary: [...(bestMatch.evidenceSummary ?? [])],
+    conflictSummary: [...(bestMatch.conflictSummary ?? [])],
+    issues: [...(bestMatch.issues ?? [])],
+    entities: [...(bestMatch.entities ?? [])],
+    llmEquivalence: bestMatch.llmEquivalence
+      ? { ...bestMatch.llmEquivalence }
+      : undefined,
+    topCandidates: (bestMatch.topCandidates ?? []).map(candidate => ({
+      ...candidate,
+      scoreDetails: { ...(candidate.scoreDetails ?? {}) },
+      evidenceSummary: [...(candidate.evidenceSummary ?? [])],
+      conflictSummary: [...(candidate.conflictSummary ?? [])],
+      issues: [...(candidate.issues ?? [])],
+      entities: [...(candidate.entities ?? [])],
+      llmEquivalence: candidate.llmEquivalence
+        ? { ...candidate.llmEquivalence }
+        : undefined
+    }))
+  };
+};
+
+const buildExecutionHistoryPreviewTables = (tableIndexes: number[]) => {
+  const selectedTableIndexes = new Set(tableIndexes);
+
+  return batchPreviewResults.value
+    .filter(result => selectedTableIndexes.has(result.tableIndex))
+    .map(result => ({
+      tableIndex: result.tableIndex,
+      items: result.items.map(item => ({
+        rowIndex: item.rowIndex,
+        sourceProject: item.sourceProject,
+        sourceSpecification: item.sourceSpecification,
+        bestMatch: cloneExecutionHistoryBestMatch(item.bestMatch),
+        llmReviewDraft: item.llmReviewDraft,
+        llmReviewError: item.llmReviewError,
+        llmReviewStage: item.llmReviewStage,
+        noMatchReason: item.noMatchReason,
+        hasMatch: item.hasMatch,
+        confidenceLevel: item.confidenceLevel
+      }))
+    }));
+};
+
 // 执行填充
 const handleExecute = async () => {
   if (
@@ -898,6 +947,10 @@ const handleExecute = async () => {
     return;
   }
 
+  const previewTables = buildExecutionHistoryPreviewTables(
+    selectedConfigs.map(config => config.tableIndex)
+  );
+
   executing.value = true;
   try {
     const res = await batchExecuteFill({
@@ -909,6 +962,7 @@ const handleExecute = async () => {
         ...matchConfig.value,
         highConfidenceThreshold: getHighConfidenceThreshold()
       },
+      previewTables,
       tables
     });
 

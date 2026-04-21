@@ -354,6 +354,13 @@ export interface BatchTablePreviewResult {
   ambiguousCount: number;
 }
 
+export interface ExecutionHistoryPreviewTableSnapshot {
+  /** 表格索引 */
+  tableIndex: number;
+  /** 预览结果列表 */
+  items: MatchPreviewItem[];
+}
+
 /** 批量预览响应 */
 export interface BatchPreviewResponse {
   /** 各表格预览结果 */
@@ -420,6 +427,8 @@ export interface BatchExecuteFillRequest {
   machineModelId?: number;
   /** 匹配配置 */
   config?: MatchConfig;
+  /** 执行记录归档用的预览快照 */
+  previewTables?: ExecutionHistoryPreviewTableSnapshot[];
   /** 各表格的填充映射 */
   tables: BatchTableFillMapping[];
 }
