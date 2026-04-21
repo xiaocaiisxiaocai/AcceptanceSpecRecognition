@@ -1287,6 +1287,9 @@ const handleConfirmPendingDifferences = async () => {
   }
 
   importing.value = true;
+  // 先收起旧弹窗并清空旧提示，避免大批量确认时残留旧状态造成“重复确认循环”的错觉。
+  differenceConfirmDialogVisible.value = false;
+  ElMessage.closeAll();
   try {
     const previousCommittedAggregate = committedImportAggregate.value;
     const pendingSet = new Set(pendingTableIndexes.value);
@@ -1304,6 +1307,7 @@ const handleConfirmPendingDifferences = async () => {
       pendingImportAggregate.value = splitResult.pending;
       syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
       differenceConfirmDialogVisible.value = true;
+      ElMessage.closeAll();
       ElMessage.warning(`仍有 ${splitResult.pending.pendingCount || 0} 条重复项未确认`);
       return;
     }
@@ -1315,6 +1319,7 @@ const handleConfirmPendingDifferences = async () => {
 
     importResult.value = finalAggregate;
     resetPendingDifferenceState();
+    ElMessage.closeAll();
     ElMessage.success(
       `导入完成：成功${finalAggregate.successCount}条，失败${finalAggregate.failedCount}条`
     );
@@ -1374,6 +1379,7 @@ const handleImport = async () => {
       pendingImportAggregate.value = splitResult.pending;
       syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
       differenceConfirmDialogVisible.value = true;
+      ElMessage.closeAll();
       ElMessage.warning(
         `检测到 ${splitResult.pending.pendingCount || 0} 条重复、差异或 AI 疑似重复数据，请在弹窗中逐条确认是否覆盖已有记录`
       );
@@ -1382,6 +1388,7 @@ const handleImport = async () => {
 
     importResult.value = batch.aggregate;
     resetPendingDifferenceState();
+    ElMessage.closeAll();
     ElMessage.success(`导入完成：成功${batch.aggregate.successCount}条，失败${batch.aggregate.failedCount}条`);
   } catch {
     // 用户取消

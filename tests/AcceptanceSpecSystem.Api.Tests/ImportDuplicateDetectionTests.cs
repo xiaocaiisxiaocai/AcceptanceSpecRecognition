@@ -247,6 +247,254 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
         specs[0].WordFileId.Should().Be(fileId);
     }
 
+    [Fact]
+    public async Task ImportExcel_WhenReimportingExactMultiRowTable_ShouldFinishAfterSingleConfirmationRound()
+    {
+        var seeded = await SeedImportScopeAsync();
+        var firstFileId = await UploadExcelAsync(CreateExcelBytes(new[]
+        {
+            ("P-1", "S-1", "A-1", "R-1"),
+            ("P-2", "S-2", "A-2", "R-2")
+        }), "initial-exact-multi.xlsx");
+
+        var firstImportResponse = await ImportExcelAsync(new
+        {
+            fileId = firstFileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4
+        });
+
+        firstImportResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var firstImportJson = await firstImportResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        firstImportJson.Code.Should().Be(0);
+        firstImportJson.Data.GetProperty("successCount").GetInt32().Should().Be(2);
+
+        var secondFileId = await UploadExcelAsync(CreateExcelBytes(new[]
+        {
+            ("P-1", "S-1", "A-1", "R-1"),
+            ("P-2", "S-2", "A-2", "R-2")
+        }), "reimport-exact-multi.xlsx");
+
+        var pendingResponse = await ImportExcelAsync(new
+        {
+            fileId = secondFileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4
+        });
+
+        pendingResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var pendingJson = await pendingResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        pendingJson.Code.Should().Be(0);
+        pendingJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeTrue();
+        var pendingKeys = pendingJson.Data.GetProperty("pendingDifferences")
+            .EnumerateArray()
+            .Select(item => item.GetProperty("key").GetString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Cast<string>()
+            .ToArray();
+        pendingKeys.Should().HaveCount(2);
+
+        var confirmResponse = await ImportExcelAsync(new
+        {
+            fileId = secondFileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            confirmedDifferenceKeys = pendingKeys
+        });
+
+        confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var confirmJson = await confirmResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        confirmJson.Code.Should().Be(0);
+        confirmJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeFalse();
+        confirmJson.Data.GetProperty("pendingCount").GetInt32().Should().Be(0);
+        confirmJson.Data.GetProperty("successCount").GetInt32().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ImportExcel_WhenReimportingConflictRows_ShouldFinishAfterSingleConfirmationRound()
+    {
+        var seeded = await SeedImportScopeAsync();
+        await SeedExistingSpecAsync(
+            seeded.CustomerId,
+            seeded.ProcessId,
+            "P-CONFLICT",
+            "S-CONFLICT",
+            "A-OLD",
+            "R-OLD");
+
+        var fileId = await UploadExcelAsync(CreateExcelBytes(new[]
+        {
+            ("P-CONFLICT", "S-CONFLICT", "A-1", "R-1"),
+            ("P-CONFLICT", "S-CONFLICT", "A-2", "R-2")
+        }), "reimport-conflict-multi.xlsx");
+
+        var pendingResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4
+        });
+
+        pendingResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var pendingJson = await pendingResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        pendingJson.Code.Should().Be(0);
+        pendingJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeTrue();
+        var pendingKeys = pendingJson.Data.GetProperty("pendingDifferences")
+            .EnumerateArray()
+            .Select(item => item.GetProperty("key").GetString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Cast<string>()
+            .ToArray();
+        pendingKeys.Should().HaveCount(2);
+
+        var confirmResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            confirmedDifferenceKeys = pendingKeys
+        });
+
+        confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var confirmJson = await confirmResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        confirmJson.Code.Should().Be(0);
+        confirmJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeFalse();
+        confirmJson.Data.GetProperty("pendingCount").GetInt32().Should().Be(0);
+        confirmJson.Data.GetProperty("successCount").GetInt32().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ImportExcel_WhenConfirmationRoundStillHasPendingRows_ShouldPersistAlreadyConfirmedOverwrite()
+    {
+        var seeded = await SeedImportScopeAsync();
+        await SeedExistingSpecAsync(
+            seeded.CustomerId,
+            seeded.ProcessId,
+            "P-1",
+            "S-1",
+            "A-OLD-1",
+            "R-OLD-1");
+        await SeedExistingSpecAsync(
+            seeded.CustomerId,
+            seeded.ProcessId,
+            "P-2",
+            "S-2",
+            "A-OLD-2",
+            "R-OLD-2");
+
+        var fileId = await UploadExcelAsync(CreateExcelBytes(new[]
+        {
+            ("P-1", "S-1", "A-NEW-1", "R-NEW-1"),
+            ("P-2", "S-2", "A-NEW-2", "R-NEW-2")
+        }), "partial-confirm-still-pending.xlsx");
+
+        var pendingResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4
+        });
+
+        pendingResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var pendingJson = await pendingResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        pendingJson.Code.Should().Be(0);
+        pendingJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeTrue();
+        var pendingKeys = pendingJson.Data.GetProperty("pendingDifferences")
+            .EnumerateArray()
+            .Select(item => item.GetProperty("key").GetString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Cast<string>()
+            .ToArray();
+        pendingKeys.Should().HaveCount(2);
+
+        var partialConfirmResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            confirmedDifferenceKeys = new[] { pendingKeys[0] }
+        });
+
+        partialConfirmResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var partialConfirmJson = await partialConfirmResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        partialConfirmJson.Code.Should().Be(0);
+        partialConfirmJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeTrue();
+        partialConfirmJson.Data.GetProperty("pendingCount").GetInt32().Should().Be(1);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var specs = await dbContext.AcceptanceSpecs
+            .Where(spec => spec.CustomerId == seeded.CustomerId && spec.ProcessId == seeded.ProcessId)
+            .OrderBy(spec => spec.Project)
+            .ToListAsync();
+
+        specs.Should().HaveCount(2);
+        specs[0].Project.Should().Be("P-1");
+        specs[0].Specification.Should().Be("S-1");
+        specs[0].Acceptance.Should().Be("A-NEW-1");
+        specs[0].Remark.Should().Be("R-NEW-1");
+        specs[1].Project.Should().Be("P-2");
+        specs[1].Specification.Should().Be("S-2");
+        specs[1].Acceptance.Should().Be("A-OLD-2");
+        specs[1].Remark.Should().Be("R-OLD-2");
+    }
+
     private async Task<(int CustomerId, int ProcessId)> SeedImportScopeAsync()
     {
         using var scope = _factory.Services.CreateScope();
