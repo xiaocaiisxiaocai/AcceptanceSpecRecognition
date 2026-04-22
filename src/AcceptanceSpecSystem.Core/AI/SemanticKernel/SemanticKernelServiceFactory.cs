@@ -30,6 +30,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
     private static readonly TimeSpan CacheSlidingExpiration = TimeSpan.FromMinutes(30);
 
     private readonly MemoryCache _cache;
+    private readonly object _cacheSync = new();
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly string _azureOpenAiApiVersion;
@@ -85,16 +86,19 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
 
     private T GetOrCreateCached<T>(string key, Func<T> factory) where T : class
     {
-        if (_cache.TryGetValue(key, out T? cached) && cached != null)
-            return cached;
+        lock (_cacheSync)
+        {
+            if (_cache.TryGetValue(key, out T? cached) && cached != null)
+                return cached;
 
-        var created = factory();
-        using var entry = _cache.CreateEntry(key);
-        entry.SetSize(1);
-        entry.SetSlidingExpiration(CacheSlidingExpiration);
-        entry.RegisterPostEvictionCallback(static (_, value, _, _) => _ = DisposeIfNeededAsync(value));
-        entry.Value = created;
-        return created;
+            var created = factory();
+            using var entry = _cache.CreateEntry(key);
+            entry.SetSize(1);
+            entry.SetSlidingExpiration(CacheSlidingExpiration);
+            entry.RegisterPostEvictionCallback(static (_, value, _, _) => _ = DisposeIfNeededAsync(value));
+            entry.Value = created;
+            return created;
+        }
     }
 
     private IChatCompletionService CreateChatCompletionServiceInternal(AiServiceConfigModel config)
@@ -211,7 +215,8 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         var options = new OpenAIClientOptions
         {
             Endpoint = new Uri(endpoint),
-            NetworkTimeout = TimeSpan.FromSeconds(OllamaNativeChatCompletionService.DefaultRequestTimeoutSeconds)
+            // OpenAI 兼容 SDK 需要保留网络超时配置，这里放宽到长时间推理可接受的级别。
+            NetworkTimeout = OllamaNativeChatCompletionService.DefaultLongRunningNetworkTimeout
         };
         var credential = new ApiKeyCredential(config.ApiKey ?? "sk-placeholder");
         return new OpenAIClient(credential, options);

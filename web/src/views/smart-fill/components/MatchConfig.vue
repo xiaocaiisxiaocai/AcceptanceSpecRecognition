@@ -514,7 +514,7 @@ defineExpose({
               </el-col>
               <el-col :span="16">
                 <span class="parallelism-hint">
-                  当前链路固定执行 AI 等价裁决门禁；高歧义样本会继续进入 AI 复核，不再提供关闭开关。
+                  当前链路固定执行 AI 等价裁决；触发门槛与“最小得分阈值”保持一致，高歧义样本会继续进入 AI 复核，不再提供关闭开关。
                 </span>
               </el-col>
             </el-row>

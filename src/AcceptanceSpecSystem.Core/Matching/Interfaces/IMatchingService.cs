@@ -26,10 +26,12 @@ public interface IMatchingService
     /// <param name="candidates">候选列表</param>
     /// <param name="config">匹配配置</param>
     /// <param name="progress">批量匹配进度回调</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>批量匹配结果</returns>
     Task<BatchMatchResult> BatchMatchAsync(
         IEnumerable<MatchSource> sources,
         IEnumerable<MatchCandidate> candidates,
         MatchingConfig? config = null,
-        IProgress<BatchMatchProgress>? progress = null);
+        IProgress<BatchMatchProgress>? progress = null,
+        CancellationToken cancellationToken = default);
 }

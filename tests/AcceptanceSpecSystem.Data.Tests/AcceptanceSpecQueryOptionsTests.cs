@@ -8,7 +8,7 @@ public class AcceptanceSpecQueryOptionsTests
     [Theory]
     [InlineData(-10, 1)]
     [InlineData(20, 20)]
-    [InlineData(99999, 200)]
+    [InlineData(99999, 1000)]
     public void PageSize_ShouldBeClampedIntoSupportedRange(int input, int expected)
     {
         var options = new AcceptanceSpecQueryOptions

@@ -724,7 +724,7 @@ public class EvidenceDrivenSemanticMatchingTests
     }
 
     [Fact]
-    public async Task BatchMatch_WhenAiRerankSelectsProjectCodeConflictCandidate_ShouldKeepLocalExactProjectTop1()
+    public async Task BatchMatch_WhenProjectConflictCandidateFallsClearlyBehind_ShouldSkipAiRerankAndKeepLocalExactProjectTop1()
     {
         var source = new MatchSource
         {
@@ -786,7 +786,75 @@ public class EvidenceDrivenSemanticMatchingTests
         result.Results[0].MatchedSpecId.Should().Be(334);
         result.Results[0].MatchedAcceptance.Should().Be("RIGHT-PROJECT");
         result.Results[0].SelectionMode.Should().Be(MatchSelectionMode.EmbeddingTop1);
-        rerankService.Requests.Should().ContainSingle();
+        rerankService.Requests.Should().BeEmpty("项目编码冲突候选明显落后时不应进入 AI 候选重排");
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenLocalTop1IsExactProjectAndClearlyAhead_ShouldSkipAiRerank()
+    {
+        var source = new MatchSource
+        {
+            Project = "接触器品牌要求 B017",
+            Specification = "接触器品牌为 Siemens，型号 3RT2025"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 324,
+                Project = "接触器品牌要求 B007",
+                Specification = "接触器品牌为 Siemens，型号 3RT2025",
+                Acceptance = "WRONG-PROJECT",
+                Embedding = [0.9353f]
+            },
+            new()
+            {
+                SpecId = 334,
+                Project = "接触器品牌要求 B017",
+                Specification = "接触器品牌为 西门子，型号 3RT2025",
+                Acceptance = "RIGHT-PROJECT",
+                Embedding = [0.9901f]
+            }
+        };
+
+        var rerankService = new FixedLlmCandidateRerankService(new LlmCandidateRerankResult
+        {
+            SelectedSpecId = 324,
+            Confidence = 0.86,
+            Reason = "不应触发"
+        });
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.95,
+            Reason = "Siemens 与 西门子属于同一品牌的中英文表达"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmCandidateRerankService: rerankService,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.9,
+                RecallTopK = 2,
+                HighConfidenceThreshold = 0.98,
+                AmbiguityMargin = 0.02
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(334);
+        result.Results[0].MatchedAcceptance.Should().Be("RIGHT-PROJECT");
+        result.Results[0].SelectionMode.Should().Be(MatchSelectionMode.EmbeddingTop1);
+        rerankService.Requests.Should().BeEmpty("本地 Top1 项目精确命中且分差明确时不应进入 AI 候选重排");
+        equivalenceService.Requests.Should().ContainSingle();
     }
 
     [Fact]
@@ -945,6 +1013,57 @@ public class EvidenceDrivenSemanticMatchingTests
         result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
         result.Results[0].LlmEquivalence.Should().NotBeNull();
         equivalenceService.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenBestCandidateOnlyPassesLegacyMediumThreshold_ShouldSkipLlmEquivalenceAdjudication()
+    {
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "安装位置保持水平"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 1923,
+                Project = "安装要求",
+                Specification = "安装位置应保持水平",
+                Embedding = [0.89f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.95,
+            Reason = "测试桩：不应触发"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.90,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(1923);
+        result.Results[0].Score.Should().BeGreaterThan(MatchingThresholds.MediumConfidenceScore);
+        result.Results[0].Score.Should().BeLessThan(0.90);
+        result.Results[0].LlmEquivalence.Should().BeNull();
+        equivalenceService.Requests.Should().BeEmpty();
     }
 
     [Fact]

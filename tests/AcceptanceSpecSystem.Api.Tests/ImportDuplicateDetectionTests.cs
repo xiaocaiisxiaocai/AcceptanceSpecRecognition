@@ -24,7 +24,7 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
-    public async Task ImportExcel_WhenDatabaseContainsExactDuplicate_ShouldRequireConfirmationAndOverwriteExisting()
+    public async Task ImportExcel_WhenDatabaseContainsExactDuplicate_ShouldAutoSkipWithoutOverwritingExisting()
     {
         var seeded = await SeedImportScopeAsync();
         await SeedExistingSpecAsync(
@@ -58,34 +58,10 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
         firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var firstJson = await firstResponse.ReadAsAsync<ApiResponse<JsonElement>>();
         firstJson.Code.Should().Be(0);
-        firstJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeTrue();
-        firstJson.Data.GetProperty("pendingCount").GetInt32().Should().Be(1);
-        var pending = firstJson.Data.GetProperty("pendingDifferences")[0];
-        pending.GetProperty("matchType").GetString().Should().Be("exact");
-        var pendingKey = pending.GetProperty("key").GetString();
-        pendingKey.Should().NotBeNullOrWhiteSpace();
-
-        var confirmResponse = await ImportExcelAsync(new
-        {
-            fileId,
-            sheetIndex = 0,
-            customerId = seeded.CustomerId,
-            processId = seeded.ProcessId,
-            headerRowStart = 1,
-            headerRowCount = 1,
-            dataStartRow = 2,
-            projectColumn = 1,
-            specificationColumn = 2,
-            acceptanceColumn = 3,
-            remarkColumn = 4,
-            confirmedDifferenceKeys = new[] { pendingKey }
-        });
-
-        confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        var confirmJson = await confirmResponse.ReadAsAsync<ApiResponse<JsonElement>>();
-        confirmJson.Code.Should().Be(0);
-        confirmJson.Data.GetProperty("successCount").GetInt32().Should().Be(1);
-        confirmJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(0);
+        firstJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeFalse();
+        firstJson.Data.GetProperty("pendingCount").GetInt32().Should().Be(0);
+        firstJson.Data.GetProperty("successCount").GetInt32().Should().Be(0);
+        firstJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(1);
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -98,7 +74,7 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
         specs[0].Specification.Should().Be("S-EXACT");
         specs[0].Acceptance.Should().Be("A-EXACT");
         specs[0].Remark.Should().Be("R-EXACT");
-        specs[0].WordFileId.Should().Be(fileId);
+        specs[0].WordFileId.Should().NotBe(fileId);
     }
 
     [Fact]
@@ -248,7 +224,7 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
-    public async Task ImportExcel_WhenReimportingExactMultiRowTable_ShouldFinishAfterSingleConfirmationRound()
+    public async Task ImportExcel_WhenReimportingExactMultiRowTable_ShouldAutoSkipAllRowsWithoutConfirmation()
     {
         var seeded = await SeedImportScopeAsync();
         var firstFileId = await UploadExcelAsync(CreateExcelBytes(new[]
@@ -301,37 +277,10 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
         pendingResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var pendingJson = await pendingResponse.ReadAsAsync<ApiResponse<JsonElement>>();
         pendingJson.Code.Should().Be(0);
-        pendingJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeTrue();
-        var pendingKeys = pendingJson.Data.GetProperty("pendingDifferences")
-            .EnumerateArray()
-            .Select(item => item.GetProperty("key").GetString())
-            .Where(item => !string.IsNullOrWhiteSpace(item))
-            .Cast<string>()
-            .ToArray();
-        pendingKeys.Should().HaveCount(2);
-
-        var confirmResponse = await ImportExcelAsync(new
-        {
-            fileId = secondFileId,
-            sheetIndex = 0,
-            customerId = seeded.CustomerId,
-            processId = seeded.ProcessId,
-            headerRowStart = 1,
-            headerRowCount = 1,
-            dataStartRow = 2,
-            projectColumn = 1,
-            specificationColumn = 2,
-            acceptanceColumn = 3,
-            remarkColumn = 4,
-            confirmedDifferenceKeys = pendingKeys
-        });
-
-        confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        var confirmJson = await confirmResponse.ReadAsAsync<ApiResponse<JsonElement>>();
-        confirmJson.Code.Should().Be(0);
-        confirmJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeFalse();
-        confirmJson.Data.GetProperty("pendingCount").GetInt32().Should().Be(0);
-        confirmJson.Data.GetProperty("successCount").GetInt32().Should().Be(2);
+        pendingJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeFalse();
+        pendingJson.Data.GetProperty("pendingCount").GetInt32().Should().Be(0);
+        pendingJson.Data.GetProperty("successCount").GetInt32().Should().Be(0);
+        pendingJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(2);
     }
 
     [Fact]

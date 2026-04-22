@@ -67,9 +67,9 @@ public class MatchConfigDto
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
 
     /// <summary>
-    /// LLM 并行处理数（1~10，默认8）
+    /// LLM 并行处理数（1~10，默认4）
     /// </summary>
-    public int LlmParallelism { get; set; } = 8;
+    public int LlmParallelism { get; set; } = 4;
 
     /// <summary>
     /// LLM 单行处理超时时间（秒，默认45）

@@ -284,7 +284,7 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
         config.MinScoreThreshold.Should().Be(0.9);
         config.HighConfidenceThreshold.Should().Be(0.98);
         config.AmbiguityMargin.Should().Be(0.02);
-        config.LlmParallelism.Should().Be(8);
+        config.LlmParallelism.Should().Be(4);
         typeof(MatchConfigDto).GetProperty("UseLlmEntityResolution").Should().BeNull();
         typeof(MatchConfigDto).GetProperty("LlmEntityResolutionTopCandidates").Should().BeNull();
         typeof(MatchConfigDto).GetProperty("LlmEntityPositiveConfidenceThreshold").Should().BeNull();

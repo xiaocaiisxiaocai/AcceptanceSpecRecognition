@@ -60,6 +60,9 @@ const selectedSpecs = ref<Map<number, Selection | null>>(new Map());
 const editedOverrides = ref<Map<number, EditOverride>>(new Map());
 const editDialogVisible = ref(false);
 const editingItem = ref<MatchPreviewItem | null>(null);
+const currentPage = ref(1);
+const pageSize = ref(100);
+const pageSizeOptions = [50, 100, 200, 500];
 const editForm = ref({
   overrideAcceptance: "",
   overrideRemark: ""
@@ -143,8 +146,12 @@ const cloneOverride = (value?: EditOverride | null): EditOverride | undefined =>
   };
 };
 
+const persistedStateMap = computed(() =>
+  new Map((props.persistedSelections ?? []).map(item => [item.rowIndex, item]))
+);
+
 const getPersistedState = (rowIndex: number) =>
-  props.persistedSelections?.find(item => item.rowIndex === rowIndex);
+  persistedStateMap.value.get(rowIndex);
 
 const getPersistedSelection = (rowIndex: number): Selection | null => {
   const persisted = getPersistedState(rowIndex);
@@ -485,6 +492,16 @@ const getFillRecommendationTagType = (
   }
 };
 
+const selectedCount = computed(() => {
+  let count = 0;
+  selectedSpecs.value.forEach(value => {
+    if (value !== null) {
+      count += 1;
+    }
+  });
+  return count;
+});
+
 const stats = computed(() => {
   const total = props.items.length;
   const matched = props.items.filter(i => i.hasMatch).length;
@@ -499,8 +516,6 @@ const stats = computed(() => {
   const unmatched = props.items.filter(
     item => getFillRecommendation(item) === "unmatched"
   ).length;
-  const selected = Array.from(selectedSpecs.value.values()).filter(v => v !== null)
-    .length;
   const ambiguous = props.items.filter(i => i.bestMatch?.isAmbiguous).length;
   return {
     total,
@@ -510,7 +525,7 @@ const stats = computed(() => {
     review,
     blocked,
     unmatched,
-    selected,
+    selected: selectedCount.value,
     ambiguous
   };
 });
@@ -539,6 +554,11 @@ const filteredItems = computed(() => {
   });
 });
 
+const pagedFilteredItems = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return filteredItems.value.slice(start, start + pageSize.value);
+});
+
 const hasReasonColumn = computed(() =>
   props.items.some(
     item =>
@@ -546,8 +566,31 @@ const hasReasonColumn = computed(() =>
       !!item.noMatchReason ||
       !!item.bestMatch?.conflictSummary?.length ||
       !!item.llmReviewError
-  )
+    )
 );
+
+watch(scoreFilter, () => {
+  currentPage.value = 1;
+});
+
+watch(
+  () => props.items,
+  () => {
+    currentPage.value = 1;
+  }
+);
+
+watch(filteredItems, items => {
+  const maxPage = Math.max(1, Math.ceil(items.length / pageSize.value));
+  if (currentPage.value > maxPage) {
+    currentPage.value = maxPage;
+  }
+}, { immediate: true });
+
+const handlePageSizeChange = (size: number) => {
+  pageSize.value = size;
+  currentPage.value = 1;
+};
 
 defineExpose({
   getSelections: () => {
@@ -633,7 +676,7 @@ defineExpose({
 
     <!-- 表格 -->
     <el-table
-      :data="filteredItems"
+      :data="pagedFilteredItems"
       v-loading="loading"
       stripe
       border
@@ -905,6 +948,19 @@ defineExpose({
       </el-table-column>
     </el-table>
 
+    <div class="table-pagination">
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        background
+        small
+        :page-sizes="pageSizeOptions"
+        :total="filteredItems.length"
+        layout="total, sizes, prev, pager, next"
+        @size-change="handlePageSizeChange"
+      />
+    </div>
+
     <el-dialog
       v-model="editDialogVisible"
       title="编辑本次导出内容"
@@ -980,6 +1036,12 @@ defineExpose({
 
 .score-filter {
   flex-shrink: 0;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .divider {

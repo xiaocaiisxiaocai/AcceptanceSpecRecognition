@@ -3,12 +3,15 @@ using System.IO.Compression;
 using System.Text.Json;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Documents.Writers;
+using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Entities;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -18,9 +21,11 @@ namespace AcceptanceSpecSystem.Api.Tests;
 public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly ApiWebApplicationFactory _factory;
 
     public BatchFillTests(ApiWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -352,6 +357,46 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         previewJson.Code.Should().Be(404);
     }
 
+    [Fact]
+    public async Task BatchPreview_WhenCandidateScopeHasExactlyThreeThousandRows_ShouldAllowPreview()
+    {
+        var docxBytes = CreateMultiTableDocxBytes(
+            new[] { new[] { "项目", "规格", "验收", "备注" }, new[] { "P1500", "S1500", "", "" } });
+
+        var fileId = await UploadDocxAsync(docxBytes, "batch-preview-3000.docx");
+        var customerId = await CreateCustomerAsync("BatchPreview3000-C");
+        var processId = await CreateProcessAsync("BatchPreview3000-P");
+        await SeedSpecsAsync(fileId, customerId, processId, 3000);
+
+        var previewResp = await _client.PostAsync("/api/matching/batch-preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                customerId,
+                processId,
+                config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.95 },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3
+                    }
+                }
+            }));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+
+        var item = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
+        item.GetProperty("bestMatch").GetProperty("project").GetString().Should().Be("P1500");
+        item.GetProperty("bestMatch").GetProperty("specification").GetString().Should().Be("S1500");
+    }
+
     #region Helpers
 
     /// <summary>
@@ -465,6 +510,32 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(0);
         return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private async Task SeedSpecsAsync(int wordFileId, int customerId, int processId, int count)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var importedAt = DateTime.UtcNow;
+
+        var specs = Enumerable.Range(1, count)
+            .Select(index => new AcceptanceSpec
+            {
+                CustomerId = customerId,
+                ProcessId = processId,
+                Project = $"P{index:0000}",
+                Specification = $"S{index:0000}",
+                Acceptance = $"AC-{index:0000}",
+                Remark = $"RM-{index:0000}",
+                OwnerOrgUnitId = 1,
+                CreatedByUserId = 1,
+                WordFileId = wordFileId,
+                ImportedAt = importedAt.AddSeconds(index)
+            })
+            .ToList();
+
+        db.AcceptanceSpecs.AddRange(specs);
+        await db.SaveChangesAsync();
     }
 
     private async Task<(string TaskId, int FilledCount, int SkippedCount, int PreviewMappedCount, int PreviewHighScoreCount, int PreviewLlmCount, int PreviewEquivalentCount, int PreviewAutoApplyCount)> ExecuteBatchFillAsync(

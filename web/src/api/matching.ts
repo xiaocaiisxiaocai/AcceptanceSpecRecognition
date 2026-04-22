@@ -283,7 +283,7 @@ export const defaultMatchConfig: MatchConfig = {
   highConfidenceThreshold: DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   recallTopK: DEFAULT_RECALL_TOP_K,
   ambiguityMargin: DEFAULT_AMBIGUITY_MARGIN,
-  llmParallelism: 8,
+  llmParallelism: 4,
   llmRowTimeoutSeconds: 45,
   llmRetryCount: 1,
   llmCircuitBreakFailures: 10,
@@ -492,7 +492,7 @@ export type MatchLlmStreamEventData =
   | MatchLlmStreamDoneEventData
   | MatchLlmStreamErrorEventData;
 
-/** 批量匹配预览（长超时：5分钟） */
+/** 批量匹配预览（不设置前端固定超时，避免慢模型时浏览器先超时） */
 export const batchPreviewMatch = (
   data: BatchPreviewRequest,
   config?: PureHttpRequestConfig
@@ -500,8 +500,11 @@ export const batchPreviewMatch = (
   return http.request<ApiResponse<BatchPreviewResponse>>(
     "post",
     `${baseUrl}/batch-preview`,
-    { data, timeout: 300000 },
-    config
+    { data },
+    {
+      ...config,
+      timeout: 0
+    }
   );
 };
 

@@ -239,7 +239,7 @@ internal sealed class DriftBetweenPreviewAndExecuteMatchingService : IMatchingSe
     private int _batchCallCount;
 
     public Task<List<MatchResult>> FindMatchesAsync(
-        MatchingSource source,
+        AcceptanceSpecSystem.Core.Matching.Models.MatchSource source,
         IEnumerable<MatchCandidate> candidates,
         MatchingConfig? config = null)
     {
@@ -248,10 +248,11 @@ internal sealed class DriftBetweenPreviewAndExecuteMatchingService : IMatchingSe
     }
 
     public Task<BatchMatchResult> BatchMatchAsync(
-        IEnumerable<MatchingSource> sources,
+        IEnumerable<AcceptanceSpecSystem.Core.Matching.Models.MatchSource> sources,
         IEnumerable<MatchCandidate> candidates,
         MatchingConfig? config = null,
-        IProgress<BatchMatchProgress>? progress = null)
+        IProgress<BatchMatchProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         var sourceList = sources.ToList();
         var orderedCandidates = candidates.OrderBy(c => c.SpecId).ToList();

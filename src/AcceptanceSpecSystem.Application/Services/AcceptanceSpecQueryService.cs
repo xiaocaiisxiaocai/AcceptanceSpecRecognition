@@ -122,7 +122,7 @@ public sealed class AcceptanceSpecQueryService
         DateTime? importedTo = null)
     {
         page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 200);
+        pageSize = Math.Clamp(pageSize, 1, AcceptanceSpecQueryOptions.MaxPageSize);
 
         var options = BuildQueryOptions(
             scope,

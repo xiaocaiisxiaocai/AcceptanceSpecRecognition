@@ -184,6 +184,11 @@ public class MatchResult
     public MatchDecision Decision { get; set; } = MatchDecision.AutoApply;
 
     /// <summary>
+    /// 本次匹配使用的最小得分阈值
+    /// </summary>
+    public double MinScoreThreshold { get; set; } = MatchingThresholds.DefaultMinScoreThreshold;
+
+    /// <summary>
     /// 本次匹配使用的高置信阈值
     /// </summary>
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
@@ -202,7 +207,7 @@ public class MatchResult
     public bool IsMediumConfidence =>
         Decision == MatchDecision.AutoApply &&
         LlmEquivalence?.Verdict != LlmEquivalenceVerdict.Equivalent &&
-        Score >= MatchingThresholds.MediumConfidenceScore &&
+        Score >= MinScoreThreshold &&
         Score < HighConfidenceThreshold;
 
     /// <summary>
@@ -211,7 +216,7 @@ public class MatchResult
     public bool IsLowConfidence =>
         Decision == MatchDecision.AutoApply &&
         LlmEquivalence?.Verdict != LlmEquivalenceVerdict.Equivalent &&
-        Score < MatchingThresholds.MediumConfidenceScore;
+        Score < MinScoreThreshold;
 }
 
 /// <summary>
@@ -379,9 +384,9 @@ public class MatchingConfig
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
 
     /// <summary>
-    /// LLM 并行处理数（1~10，默认8）
+    /// LLM 并行处理数（1~10，默认4）
     /// </summary>
-    public int LlmParallelism { get; set; } = 8;
+    public int LlmParallelism { get; set; } = 4;
 
     /// <summary>
     /// LLM 单行处理超时时间（秒，默认45）

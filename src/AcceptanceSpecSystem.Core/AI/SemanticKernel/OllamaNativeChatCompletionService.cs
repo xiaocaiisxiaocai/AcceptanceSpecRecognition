@@ -17,7 +17,7 @@ namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 /// </summary>
 internal sealed class OllamaNativeChatCompletionService : IChatCompletionService, IDisposable
 {
-    internal const int DefaultRequestTimeoutSeconds = 120;
+    internal static readonly TimeSpan DefaultLongRunningNetworkTimeout = TimeSpan.FromHours(12);
     private const string KeepAlive = "30m";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -231,9 +231,8 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
 
     private static CancellationTokenSource CreateRequestCancellationTokenSource(CancellationToken cancellationToken)
     {
-        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        linkedCts.CancelAfter(TimeSpan.FromSeconds(DefaultRequestTimeoutSeconds));
-        return linkedCts;
+        // 慢模型可能运行很久，这里不再做固定硬超时，真正取消交给外层请求链路。
+        return CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
     }
 
     private static string NormalizeOllamaBaseUrl(string? endpoint)

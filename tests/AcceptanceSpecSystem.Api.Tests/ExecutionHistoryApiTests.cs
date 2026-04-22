@@ -253,11 +253,13 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
 
         rows[0].GetProperty("displayTags")[0].GetString().Should().Be("完全匹配");
         rows[0].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("exactShortcut");
+        rows[0].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates").GetArrayLength().Should().Be(0, "完全一致的归档无需重复保存候选列表");
         rows[0].GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be("AC-1");
 
         rows[1].GetProperty("matchOrigin").GetString().Should().Be("ai");
         rows[1].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("AI匹配", "人工确认", "人工写入");
         rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("aiRerank");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates").GetArrayLength().Should().Be(1, "非完全一致的归档仍需保留候选上下文");
         rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("equivalent");
         rows[1].GetProperty("executionSnapshot").GetProperty("manualConfirmed").GetBoolean().Should().BeTrue();
         rows[1].GetProperty("executionSnapshot").GetProperty("manualEdited").GetBoolean().Should().BeTrue();

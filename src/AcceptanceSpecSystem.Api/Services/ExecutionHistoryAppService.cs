@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
@@ -13,6 +14,8 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// </summary>
 public sealed class ExecutionHistoryAppService
 {
+    private const int MaxPersistedDetailBytes = 512 * 1024;
+    private const string CompressedSmartFillLegacyMessage = "执行记录过大，已自动压缩，仅保留汇总信息。";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly IUnitOfWork _unitOfWork;
@@ -34,6 +37,21 @@ public sealed class ExecutionHistoryAppService
 
         var owner = ResolveOwner(user);
         var detail = BuildDetailDto(draft);
+        var detailJson = JsonSerializer.Serialize(detail, JsonOptions);
+        var detailBytes = Encoding.UTF8.GetByteCount(detailJson);
+        if (ShouldCompressSmartFillDetail(draft, detailBytes))
+        {
+            detail = BuildCompressedSmartFillDetail(detail);
+            detailJson = JsonSerializer.Serialize(detail, JsonOptions);
+
+            _logger.LogWarning(
+                "智能填充执行记录过大，已自动压缩归档: taskId={TaskId}, sourceFileId={SourceFileId}, originalBytes={OriginalBytes}, compressedBytes={CompressedBytes}",
+                draft.TaskId,
+                draft.SourceFileId,
+                detailBytes,
+                Encoding.UTF8.GetByteCount(detailJson));
+        }
+
         var entity = await _unitOfWork.ExecutionHistoryRecords.GetOwnedByTaskIdAsync(
             draft.TaskId,
             owner.CompanyId,
@@ -62,7 +80,7 @@ public sealed class ExecutionHistoryAppService
         entity.SkippedRowCount = detail.SkippedRowCount;
         entity.NotAdoptedRowCount = detail.NotAdoptedRowCount;
         entity.ManualSelectedRowCount = detail.ManualSelectedRowCount;
-        entity.DetailJson = JsonSerializer.Serialize(detail, JsonOptions);
+        entity.DetailJson = detailJson;
         entity.CreatedAt = draft.CreatedAt;
 
         if (saveImmediately)
@@ -140,6 +158,62 @@ public sealed class ExecutionHistoryAppService
             Files = draft.Files,
             SmartFillPlayback = draft.SmartFillPlayback,
             BatchReplyDetail = draft.BatchReplyDetail
+        };
+    }
+
+    private static bool ShouldCompressSmartFillDetail(ExecutionHistoryDraft draft, int detailBytes)
+    {
+        return string.Equals(draft.TaskType, ExecutionHistoryTaskTypes.SmartFill, StringComparison.Ordinal) &&
+               detailBytes > MaxPersistedDetailBytes;
+    }
+
+    private static ExecutionHistoryDetailDto BuildCompressedSmartFillDetail(ExecutionHistoryDetailDto detail)
+    {
+        return new ExecutionHistoryDetailDto
+        {
+            TaskId = detail.TaskId,
+            TaskType = detail.TaskType,
+            SourceFileId = detail.SourceFileId,
+            SourceFileName = detail.SourceFileName,
+            SourceFileType = detail.SourceFileType,
+            FileCount = detail.FileCount,
+            TotalRowCount = detail.TotalRowCount,
+            MatchedRowCount = detail.MatchedRowCount,
+            AdoptedRowCount = detail.AdoptedRowCount,
+            UnmatchedRowCount = detail.UnmatchedRowCount,
+            SkippedRowCount = detail.SkippedRowCount,
+            NotAdoptedRowCount = detail.NotAdoptedRowCount,
+            ManualSelectedRowCount = detail.ManualSelectedRowCount,
+            SmartFillSummary = CloneSmartFillSummary(detail.SmartFillSummary, hasPlaybackArchive: false),
+            CreatedAt = detail.CreatedAt,
+            Files = [],
+            SmartFillPlayback = new ExecutionHistorySmartFillPlaybackDto
+            {
+                PayloadVersion = detail.SmartFillPlayback?.PayloadVersion ?? ExecutionHistoryDraft.CurrentSmartFillPlaybackVersion,
+                IsLegacy = true,
+                LegacyMessage = CompressedSmartFillLegacyMessage,
+                Files = []
+            }
+        };
+    }
+
+    private static ExecutionHistorySmartFillSummaryDto? CloneSmartFillSummary(
+        ExecutionHistorySmartFillSummaryDto? summary,
+        bool hasPlaybackArchive)
+    {
+        if (summary == null)
+        {
+            return null;
+        }
+
+        return new ExecutionHistorySmartFillSummaryDto
+        {
+            ExactMatchedRowCount = summary.ExactMatchedRowCount,
+            AiMatchedRowCount = summary.AiMatchedRowCount,
+            ManualConfirmedRowCount = summary.ManualConfirmedRowCount,
+            ManualEditedRowCount = summary.ManualEditedRowCount,
+            NotUsedRowCount = summary.NotUsedRowCount,
+            HasPlaybackArchive = hasPlaybackArchive
         };
     }
 

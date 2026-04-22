@@ -151,6 +151,9 @@ const fetchBatchPreviewProgress = async (requestId: string) => {
     }
 
     if (error?.response?.status === 404) {
+      if (!loading.value) {
+        stopPreviewProgressPolling();
+      }
       return;
     }
   }
@@ -391,6 +394,15 @@ const resolvePreviewFailure = (message?: string) => {
   return normalizedMessage || "匹配预览失败";
 };
 
+const getRequestErrorMessage = (error: any) => {
+  return (
+    error?.response?.data?.message ||
+    error?.response?.data?.error?.message ||
+    error?.message ||
+    ""
+  );
+};
+
 // 计算属性
 const canGoNext = computed(() => {
   switch (currentStep.value) {
@@ -605,7 +617,7 @@ const doPreview = async () => {
     if (currentPreviewRequestId.value === previewRequestId) {
       stopPreviewProgressPolling();
     }
-    ElMessage.error(resolvePreviewFailure(error?.message));
+    ElMessage.error(resolvePreviewFailure(getRequestErrorMessage(error)));
   } finally {
     if (previewAbortController.value === controller) {
       previewAbortController.value = null;
@@ -1192,6 +1204,22 @@ const handleRestart = () => {
               </div>
             </div>
           </template>
+        </el-empty>
+
+        <el-empty
+          v-else-if="!loading && batchPreviewResults.length === 0"
+          description="当前没有预览结果"
+          class="preview-empty-state"
+        >
+          <template #description>
+            <div class="preview-empty-state__body">
+              <div class="preview-empty-state__title">当前没有预览结果</div>
+              <div class="preview-empty-state__hint">
+                页面状态可能已失效，请返回上一步重新匹配。
+              </div>
+            </div>
+          </template>
+          <el-button v-if="!taskId" @click="goPrev">返回上一步</el-button>
         </el-empty>
 
         <BatchPreviewTabs

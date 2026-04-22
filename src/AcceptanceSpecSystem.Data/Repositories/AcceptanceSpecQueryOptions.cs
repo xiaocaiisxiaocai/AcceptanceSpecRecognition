@@ -4,7 +4,7 @@ namespace AcceptanceSpecSystem.Data.Repositories;
 
 public sealed class AcceptanceSpecQueryOptions
 {
-    public const int MaxPageSize = 200;
+    public const int MaxPageSize = 1000;
 
     private int _page = 1;
     private int _pageSize = 20;

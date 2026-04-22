@@ -21,6 +21,38 @@ public class EvidenceDrivenMatchingModelsTests
     }
 
     [Fact]
+    public void MatchResult_WhenScoreBelowMinScoreThreshold_ShouldBeLowConfidence()
+    {
+        var result = new MatchResult
+        {
+            Score = 0.89,
+            Decision = MatchDecision.AutoApply,
+            MinScoreThreshold = 0.90,
+            HighConfidenceThreshold = 0.98
+        };
+
+        result.IsHighConfidence.Should().BeFalse();
+        result.IsMediumConfidence.Should().BeFalse();
+        result.IsLowConfidence.Should().BeTrue();
+    }
+
+    [Fact]
+    public void MatchResult_WhenScoreBetweenMinAndHighThreshold_ShouldBeMediumConfidence()
+    {
+        var result = new MatchResult
+        {
+            Score = 0.92,
+            Decision = MatchDecision.AutoApply,
+            MinScoreThreshold = 0.90,
+            HighConfidenceThreshold = 0.98
+        };
+
+        result.IsHighConfidence.Should().BeFalse();
+        result.IsMediumConfidence.Should().BeTrue();
+        result.IsLowConfidence.Should().BeFalse();
+    }
+
+    [Fact]
     public void MatchEvidence_ShouldTrackSummaryWithoutLegacyHardConflictFlag()
     {
         var evidence = new MatchEvidence
@@ -49,7 +81,7 @@ public class EvidenceDrivenMatchingModelsTests
         config.RecallTopK.Should().Be(2);
         config.AmbiguityMargin.Should().Be(0.02);
         config.HighConfidenceThreshold.Should().Be(0.98);
-        config.LlmParallelism.Should().Be(8);
+        config.LlmParallelism.Should().Be(4);
         typeof(MatchingConfig).GetProperty("UseLlmEntityResolution", BindingFlags.Public | BindingFlags.Instance)
             .Should().BeNull();
         typeof(MatchingConfig).GetProperty("LlmEntityResolutionTopCandidates", BindingFlags.Public | BindingFlags.Instance)

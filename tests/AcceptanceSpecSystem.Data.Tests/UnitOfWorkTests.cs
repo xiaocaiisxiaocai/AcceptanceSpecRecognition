@@ -4,6 +4,8 @@ using AcceptanceSpecSystem.Data.Repositories;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using System.Reflection;
 
 namespace AcceptanceSpecSystem.Data.Tests;
 
@@ -119,5 +121,101 @@ public class UnitOfWorkTests
         var savedProcess = await unitOfWork.Processes.GetByIdAsync(process.Id);
         savedProcess.Should().NotBeNull();
         savedProcess!.Name.Should().Be("制程");
+    }
+
+    [Fact]
+    public async Task RollbackTransactionAsync_ShouldClearTransaction_WhenRollbackThrows()
+    {
+        var (context, serviceProvider) = CreateContextWithServices();
+        using var unitOfWork = new UnitOfWork(context, serviceProvider);
+        var transaction = new ThrowingRollbackDbContextTransaction();
+        SetTransaction(unitOfWork, transaction);
+
+        await unitOfWork.Invoking(item => item.RollbackTransactionAsync()).Should().NotThrowAsync();
+
+        transaction.DisposeAsyncCalled.Should().BeTrue();
+        GetTransaction(unitOfWork).Should().BeNull();
+    }
+
+    private static void SetTransaction(UnitOfWork unitOfWork, IDbContextTransaction transaction)
+    {
+        var field = typeof(UnitOfWork).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic);
+        field.Should().NotBeNull();
+        field!.SetValue(unitOfWork, transaction);
+    }
+
+    private static IDbContextTransaction? GetTransaction(UnitOfWork unitOfWork)
+    {
+        var field = typeof(UnitOfWork).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic);
+        field.Should().NotBeNull();
+        return field!.GetValue(unitOfWork) as IDbContextTransaction;
+    }
+
+    private sealed class ThrowingRollbackDbContextTransaction : IDbContextTransaction
+    {
+        public Guid TransactionId { get; } = Guid.NewGuid();
+
+        public bool SupportsSavepoints => false;
+
+        public bool DisposeAsyncCalled { get; private set; }
+
+        public void Commit()
+        {
+        }
+
+        public Task CommitAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public void Rollback()
+        {
+            throw new InvalidOperationException("模拟连接已关闭");
+        }
+
+        public Task RollbackAsync(CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("模拟连接已关闭");
+        }
+
+        public void CreateSavepoint(string name)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task CreateSavepointAsync(string name, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void RollbackToSavepoint(string name)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task RollbackToSavepointAsync(string name, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void ReleaseSavepoint(string name)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task ReleaseSavepointAsync(string name, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeAsyncCalled = true;
+            return ValueTask.CompletedTask;
+        }
     }
 }

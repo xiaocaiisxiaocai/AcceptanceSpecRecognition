@@ -15,6 +15,45 @@ namespace AcceptanceSpecSystem.Core.Tests;
 public class OllamaNativeChatCompletionServiceTests
 {
     [Fact]
+    public async Task SemanticKernelServiceFactory_GetOrCreateCached_ShouldCreateSingleInstance_PerKeyUnderConcurrency()
+    {
+        using var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            new FakeHttpClientFactory(new HttpClient()),
+            Options.Create(new SemanticKernelOptions()));
+
+        var method = typeof(SemanticKernelServiceFactory)
+            .GetMethod("GetOrCreateCached", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .MakeGenericMethod(typeof(TestDisposableService));
+
+        const int concurrentCount = 12;
+        using var startGate = new ManualResetEventSlim(false);
+        var createdCount = 0;
+        var tasks = Enumerable.Range(0, concurrentCount)
+            .Select(_ => Task.Run(() =>
+            {
+                startGate.Wait();
+                return (TestDisposableService)method.Invoke(factory,
+                [
+                    "chat_concurrency_key",
+                    new Func<TestDisposableService>(() =>
+                    {
+                        Interlocked.Increment(ref createdCount);
+                        Thread.Sleep(80);
+                        return new TestDisposableService();
+                    })
+                ])!;
+            }))
+            .ToArray();
+
+        startGate.Set();
+        var instances = await Task.WhenAll(tasks);
+
+        createdCount.Should().Be(1);
+        instances.Distinct().Should().ContainSingle();
+    }
+
+    [Fact]
     public void CreateChatCompletionService_OllamaDisableThinkingChanged_ShouldUseDifferentCachedInstances()
     {
         var factory = new SemanticKernelServiceFactory(
@@ -169,6 +208,16 @@ public class OllamaNativeChatCompletionServiceTests
         {
             CreateClientCallCount++;
             return _httpClient;
+        }
+    }
+
+    private sealed class TestDisposableService : IDisposable
+    {
+        public bool IsDisposed { get; private set; }
+
+        public void Dispose()
+        {
+            IsDisposed = true;
         }
     }
 }

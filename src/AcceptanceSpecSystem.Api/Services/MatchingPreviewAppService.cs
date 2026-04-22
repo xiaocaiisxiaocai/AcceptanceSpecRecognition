@@ -18,7 +18,7 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// </summary>
 public sealed class MatchingPreviewAppService
 {
-    private const int MaxScopedCandidateCount = 2000;
+    private const int MaxScopedCandidateCount = 3000;
     private const int EmbeddingGenerationBatchSize = 200;
 
     private readonly IUnitOfWork _unitOfWork;
@@ -86,7 +86,8 @@ public sealed class MatchingPreviewAppService
 
     public async Task<MatchingOperationResult<BatchPreviewResponse>> BatchPreviewAsync(
         ClaimsPrincipal user,
-        BatchPreviewRequest request)
+        BatchPreviewRequest request,
+        CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var previewRequestId = request.PreviewRequestId?.Trim();
@@ -94,6 +95,8 @@ public sealed class MatchingPreviewAppService
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (request.Tables == null || request.Tables.Count == 0)
             {
                 throw Failure(400, "请至少选择一个表格");
@@ -123,13 +126,16 @@ public sealed class MatchingPreviewAppService
                 throw Failure(401, "会话缺少用户上下文");
             }
 
-            var config = await ConvertToMatchingConfigAsync(request.Config);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var config = await ConvertToMatchingConfigAsync(request.Config, cancellationToken);
             var candidates = await GetCandidatesAsync(
                 request.CustomerId,
                 request.ProcessId,
                 request.MachineModelId,
                 scope,
-                config.EmbeddingServiceId);
+                config.EmbeddingServiceId,
+                cancellationToken);
             var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
 
             _batchPreviewProgressTracker.Update(
@@ -139,7 +145,7 @@ public sealed class MatchingPreviewAppService
                 detailText: $"当前范围内共 {candidates.Count} 条候选验收规格",
                 progressPercent: 14);
 
-            var tpSession = await _textPipeline.CreateSessionAsync();
+            var tpSession = await _textPipeline.CreateSessionAsync(cancellationToken);
             var processedCandidates = candidates.Select(candidate => new MatchCandidate
             {
                 SpecId = candidate.SpecId,
@@ -162,6 +168,8 @@ public sealed class MatchingPreviewAppService
             var extractedRowCount = 0;
             foreach (var tableConfig in request.Tables)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 _batchPreviewProgressTracker.Update(
                     previewRequestId,
                     stage: "extractingTables",
@@ -225,7 +233,8 @@ public sealed class MatchingPreviewAppService
                         allSources,
                         processedCandidates,
                         config,
-                        CreateBatchMatchProgressReporter(previewRequestId));
+                        CreateBatchMatchProgressReporter(previewRequestId),
+                        cancellationToken);
                 }
                 catch (AiServiceUnavailableException ex)
                 {
@@ -249,6 +258,8 @@ public sealed class MatchingPreviewAppService
             var resultOffset = 0;
             foreach (var (tableConfig, extracted, _) in allTableData)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var tableResult = new BatchTablePreviewResult
                 {
                     TableIndex = tableConfig.TableIndex
@@ -383,12 +394,13 @@ public sealed class MatchingPreviewAppService
         int? processId,
         int? machineModelId,
         DataScopeResult scope,
-        int? embeddingServiceId)
+        int? embeddingServiceId,
+        CancellationToken cancellationToken = default)
     {
         var baseQuery = BuildCandidateSpecQuery(customerId, processId, machineModelId);
         var scopedQuery = ApplySpecScopeToQuery(baseQuery, scope);
-        var rawCount = await baseQuery.CountAsync();
-        var scopedCount = await scopedQuery.CountAsync();
+        var rawCount = await baseQuery.CountAsync(cancellationToken);
+        var scopedCount = await scopedQuery.CountAsync(cancellationToken);
         EnsureCandidateScopeWithinLimit(scopedCount, customerId, processId, machineModelId);
 
         var scopedSpecs = await scopedQuery
@@ -401,7 +413,7 @@ public sealed class MatchingPreviewAppService
                 Remark = spec.Remark,
                 ImportedAt = spec.ImportedAt
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         var dedupedSpecs = scopedSpecs
             .GroupBy(spec => BuildCandidateDedupKey(spec.Project, spec.Specification))
@@ -431,18 +443,24 @@ public sealed class MatchingPreviewAppService
             Remark = spec.Remark
         }).ToList();
 
-        await HydrateCandidateEmbeddingsAsync(candidates, embeddingServiceId);
+        await HydrateCandidateEmbeddingsAsync(candidates, embeddingServiceId, cancellationToken);
         return candidates;
     }
 
-    private async Task HydrateCandidateEmbeddingsAsync(List<MatchCandidate> candidates, int? embeddingServiceId)
+    private async Task HydrateCandidateEmbeddingsAsync(
+        List<MatchCandidate> candidates,
+        int? embeddingServiceId,
+        CancellationToken cancellationToken = default)
     {
         string? embeddingModel = null;
         IReadOnlyList<EmbeddingCache> caches = [];
 
         if (embeddingServiceId.HasValue)
         {
-            var configs = await _aiServiceSelector.GetCandidatesAsync(CoreAiServicePurpose.Embedding, embeddingServiceId);
+            var configs = await _aiServiceSelector.GetCandidatesAsync(
+                CoreAiServicePurpose.Embedding,
+                embeddingServiceId,
+                cancellationToken);
             embeddingModel = configs.FirstOrDefault()?.EmbeddingModel?.Trim();
         }
 
@@ -474,7 +492,8 @@ public sealed class MatchingPreviewAppService
         {
             newEmbeddings = await GenerateEmbeddingsInBatchesAsync(
                 missingCandidates.Select(candidate => candidate.CombinedText),
-                embeddingServiceId);
+                embeddingServiceId,
+                cancellationToken);
         }
         catch (AiServiceUnavailableException ex)
         {
@@ -524,6 +543,7 @@ public sealed class MatchingPreviewAppService
 
             if (hasMutation)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 await _unitOfWork.SaveChangesAsync();
             }
         }
@@ -564,12 +584,17 @@ public sealed class MatchingPreviewAppService
 
     private async Task<List<float[]>> GenerateEmbeddingsInBatchesAsync(
         IEnumerable<string> texts,
-        int? embeddingServiceId)
+        int? embeddingServiceId,
+        CancellationToken cancellationToken = default)
     {
         var vectors = new List<float[]>();
         foreach (var batch in texts.Chunk(EmbeddingGenerationBatchSize))
         {
-            var batchVectors = await _embeddingService.GenerateEmbeddingsAsync(batch, embeddingServiceId);
+            cancellationToken.ThrowIfCancellationRequested();
+            var batchVectors = await _embeddingService.GenerateEmbeddingsAsync(
+                batch,
+                embeddingServiceId,
+                cancellationToken);
             vectors.AddRange(batchVectors);
         }
 
@@ -680,10 +705,12 @@ public sealed class MatchingPreviewAppService
         return !string.IsNullOrWhiteSpace(value);
     }
 
-    private async Task<MatchingConfig> ConvertToMatchingConfigAsync(MatchConfigDto? dto)
+    private async Task<MatchingConfig> ConvertToMatchingConfigAsync(
+        MatchConfigDto? dto,
+        CancellationToken cancellationToken = default)
     {
         var fallbackConfig = new MatchingConfig();
-        var defaultRecallTopK = await ResolveDefaultRecallTopKAsync(dto?.EmbeddingServiceId);
+        var defaultRecallTopK = await ResolveDefaultRecallTopKAsync(dto?.EmbeddingServiceId, cancellationToken);
 
         return new MatchingConfig
         {
@@ -701,7 +728,9 @@ public sealed class MatchingPreviewAppService
         };
     }
 
-    private async Task<int> ResolveDefaultRecallTopKAsync(int? embeddingServiceId)
+    private async Task<int> ResolveDefaultRecallTopKAsync(
+        int? embeddingServiceId,
+        CancellationToken cancellationToken = default)
     {
         var fallbackConfig = new MatchingConfig();
         var query = _unitOfWork.AiServiceConfigs
@@ -712,14 +741,16 @@ public sealed class MatchingPreviewAppService
         AiServiceConfig? embeddingService;
         if (embeddingServiceId.HasValue)
         {
-            embeddingService = await query.FirstOrDefaultAsync(item => item.Id == embeddingServiceId.Value);
+            embeddingService = await query.FirstOrDefaultAsync(
+                item => item.Id == embeddingServiceId.Value,
+                cancellationToken);
         }
         else
         {
             embeddingService = await query
                 .OrderBy(item => item.Priority)
                 .ThenByDescending(item => item.UpdatedAt ?? item.CreatedAt)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(cancellationToken);
         }
 
         return embeddingService?.DefaultRecallTopK ?? fallbackConfig.RecallTopK;
@@ -737,6 +768,8 @@ public sealed class MatchingPreviewAppService
             return "none";
         }
 
+        var minScoreThreshold = Math.Clamp(result.MinScoreThreshold, 0, 1);
+
         if (result.Decision == MatchDecision.Reject)
         {
             return "low";
@@ -744,7 +777,7 @@ public sealed class MatchingPreviewAppService
 
         if (result.Decision != MatchDecision.AutoApply)
         {
-            return result.Score >= MatchingThresholds.MediumConfidenceScore ? "medium" : "low";
+            return result.Score >= minScoreThreshold ? "medium" : "low";
         }
 
         if (result.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent ||
@@ -753,7 +786,7 @@ public sealed class MatchingPreviewAppService
             return "high";
         }
 
-        if (result.Score >= MatchingThresholds.MediumConfidenceScore)
+        if (result.Score >= minScoreThreshold)
         {
             return "medium";
         }

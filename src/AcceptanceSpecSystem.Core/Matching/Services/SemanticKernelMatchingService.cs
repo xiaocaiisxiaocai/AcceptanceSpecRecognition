@@ -66,7 +66,8 @@ public class SemanticKernelMatchingService : IMatchingService
         IEnumerable<MatchSource> sources,
         IEnumerable<MatchCandidate> candidates,
         MatchingConfig? config = null,
-        IProgress<BatchMatchProgress>? progress = null)
+        IProgress<BatchMatchProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         config ??= new MatchingConfig();
         var sourceList = sources.ToList();
@@ -75,7 +76,7 @@ public class SemanticKernelMatchingService : IMatchingService
         if (sourceList.Count == 0)
             return new BatchMatchResult();
 
-        return await BatchMatchByEmbeddingAsync(sourceList, candidateList, config, progress);
+        return await BatchMatchByEmbeddingAsync(sourceList, candidateList, config, progress, cancellationToken);
     }
 
     /// <summary>
@@ -88,7 +89,8 @@ public class SemanticKernelMatchingService : IMatchingService
         List<MatchSource> sourceList,
         List<MatchCandidate> candidateList,
         MatchingConfig config,
-        IProgress<BatchMatchProgress>? progress)
+        IProgress<BatchMatchProgress>? progress,
+        CancellationToken cancellationToken)
     {
         var orderedResults = new MatchResult[sourceList.Count];
         var exactMatchLookup = BuildExactMatchLookup(candidateList);
@@ -136,12 +138,17 @@ public class SemanticKernelMatchingService : IMatchingService
         {
             sourceEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(
                 pendingSourceIndices.Select(index => sourceList[index].CombinedText),
-                config.EmbeddingServiceId);
+                config.EmbeddingServiceId,
+                cancellationToken);
             EnsureEmbeddingBatchPayload(sourceEmbeddings, pendingSourceIndices.Count, "源文本");
             _logger.LogInformation(
                 "批量生成 {Count} 个源文本 Embedding 完成（精确命中直达 {ExactCount} 行）",
                 pendingSourceIndices.Count,
                 exactMatchedCount);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (AiServiceUnavailableException)
         {
@@ -153,7 +160,7 @@ public class SemanticKernelMatchingService : IMatchingService
             throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
         }
 
-        await EnsureCandidateEmbeddingsAsync(candidateList, config);
+        await EnsureCandidateEmbeddingsAsync(candidateList, config, cancellationToken);
 
         var completedItems = exactMatchedCount;
         var maxParallelism = Math.Clamp(config.LlmParallelism, 1, 10);
@@ -173,7 +180,8 @@ public class SemanticKernelMatchingService : IMatchingService
             Enumerable.Range(0, pendingSourceIndices.Count),
             new ParallelOptions
             {
-                MaxDegreeOfParallelism = maxParallelism
+                MaxDegreeOfParallelism = maxParallelism,
+                CancellationToken = cancellationToken
             },
             async (offset, cancellationToken) =>
             {
@@ -185,7 +193,7 @@ public class SemanticKernelMatchingService : IMatchingService
                     ? sourceEmbeddings[offset]
                     : Array.Empty<float>();
                 var eligibleCandidates = EvaluateCandidates(source, sourceEmbedding, candidateList, config);
-                var match = await SelectBestCandidateAsync(source, eligibleCandidates, config);
+                var match = await SelectBestCandidateAsync(source, eligibleCandidates, config, cancellationToken);
                 orderedResults[index] = match ?? CreateEmptyResult(source);
 
                 var completed = Interlocked.Increment(ref completedItems);
@@ -205,7 +213,10 @@ public class SemanticKernelMatchingService : IMatchingService
         };
     }
 
-    private async Task EnsureCandidateEmbeddingsAsync(List<MatchCandidate> candidateList, MatchingConfig config)
+    private async Task EnsureCandidateEmbeddingsAsync(
+        List<MatchCandidate> candidateList,
+        MatchingConfig config,
+        CancellationToken cancellationToken)
     {
         var missingIndices = new List<int>();
         for (var i = 0; i < candidateList.Count; i++)
@@ -224,7 +235,14 @@ public class SemanticKernelMatchingService : IMatchingService
         List<float[]> newEmbeddings;
         try
         {
-            newEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(missingTexts, config.EmbeddingServiceId);
+            newEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(
+                missingTexts,
+                config.EmbeddingServiceId,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (AiServiceUnavailableException)
         {
@@ -303,6 +321,7 @@ public class SemanticKernelMatchingService : IMatchingService
             recalledCandidateCount: 1,
             isAmbiguous: false,
             scoreGap: null,
+            config.MinScoreThreshold,
             config.HighConfidenceThreshold,
             orderedCandidates: [exactCandidate]);
         return true;
@@ -385,7 +404,8 @@ public class SemanticKernelMatchingService : IMatchingService
     private async Task<MatchResult?> SelectBestCandidateAsync(
         MatchSource source,
         List<EvaluatedCandidate> eligibleCandidates,
-        MatchingConfig config)
+        MatchingConfig config,
+        CancellationToken cancellationToken)
     {
         var recallTopK = Math.Clamp(config.RecallTopK, 1, MatchingThresholds.MaxRecallTopK);
         var recalled = OrderByEmbedding(eligibleCandidates)
@@ -406,10 +426,10 @@ public class SemanticKernelMatchingService : IMatchingService
         }
 
         var locallyOrdered = OrderByFinal(recalled).ToList();
-        var best = await SelectCurrentBestCandidateAsync(source, locallyOrdered, config);
+        var best = await SelectCurrentBestCandidateAsync(source, locallyOrdered, config, cancellationToken);
         var ordered = ReorderSelectedCandidateFirst(locallyOrdered, best);
 
-        await ApplyLlmEquivalenceAdjudicationAsync(source, best, config);
+        await ApplyLlmEquivalenceAdjudicationAsync(source, best, config, cancellationToken);
 
         var second = ordered.Count > 1 ? ordered[1] : null;
         double? scoreGap = second == null ? null : best.FinalScore - second.FinalScore;
@@ -420,6 +440,7 @@ public class SemanticKernelMatchingService : IMatchingService
             recalled.Count,
             isAmbiguous,
             scoreGap,
+            config.MinScoreThreshold,
             config.HighConfidenceThreshold,
             orderedCandidates: ordered);
     }
@@ -427,13 +448,20 @@ public class SemanticKernelMatchingService : IMatchingService
     private async Task<EvaluatedCandidate> SelectCurrentBestCandidateAsync(
         MatchSource source,
         IReadOnlyList<EvaluatedCandidate> orderedCandidates,
-        MatchingConfig config)
+        MatchingConfig config,
+        CancellationToken cancellationToken)
     {
         var localBest = orderedCandidates[0];
         localBest.SelectionSummary ??= "沿用本地 Top1 排序结果";
 
         if (_llmCandidateRerankService == null || orderedCandidates.Count <= 1)
         {
+            return localBest;
+        }
+
+        if (!ShouldRunAiRerank(orderedCandidates, config.AmbiguityMargin))
+        {
+            localBest.SelectionSummary = "本地 Top1 项目精确命中且优势明确，跳过 AI 重排";
             return localBest;
         }
 
@@ -460,7 +488,8 @@ public class SemanticKernelMatchingService : IMatchingService
                             ConflictSummary = [.. (candidate.Evidence?.Conflicts ?? [])]
                         })
                         .ToList()
-                });
+                },
+                cancellationToken);
 
             if (rerankResult == null)
             {
@@ -494,6 +523,10 @@ public class SemanticKernelMatchingService : IMatchingService
             selected.SelectionSummary = BuildAiRerankSelectionSummary(orderedCandidates, selected, rerankResult);
             return selected;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "AI 候选重排失败，已沿用本地 Top1");
@@ -522,10 +555,39 @@ public class SemanticKernelMatchingService : IMatchingService
         return true;
     }
 
+    private static bool ShouldRunAiRerank(
+        IReadOnlyList<EvaluatedCandidate> orderedCandidates,
+        double ambiguityMargin)
+    {
+        if (orderedCandidates.Count <= 1)
+            return false;
+
+        var localBest = orderedCandidates[0];
+        var second = orderedCandidates[1];
+        var localBestHasExactProject =
+            localBest.ProjectScore >= ExactTextMatchThreshold &&
+            localBest.ProjectCodeConflictPenalty <= 0;
+
+        if (!localBestHasExactProject)
+            return true;
+
+        var scoreGap = localBest.FinalScore - second.FinalScore;
+        var secondHasProjectMismatchOrConflict =
+            second.ProjectScore < ExactTextMatchThreshold ||
+            second.ProjectCodeConflictPenalty > 0;
+
+        if (secondHasProjectMismatchOrConflict &&
+            scoreGap > ambiguityMargin + ScoreTieEpsilon)
+            return false;
+
+        return true;
+    }
+
     private async Task ApplyLlmEquivalenceAdjudicationAsync(
         MatchSource source,
         EvaluatedCandidate best,
-        MatchingConfig config)
+        MatchingConfig config,
+        CancellationToken cancellationToken)
     {
         if (_llmEquivalenceAdjudicationService == null ||
             !ShouldRunLlmEquivalenceAdjudication(best, config))
@@ -547,7 +609,8 @@ public class SemanticKernelMatchingService : IMatchingService
                     EvidenceSummary = [.. (best.Evidence?.Summary ?? [])],
                     ConflictSummary = [.. (best.Evidence?.Conflicts ?? [])],
                     LlmServiceId = config.LlmServiceId
-                });
+                },
+                cancellationToken);
 
             best.LlmEquivalence = result ?? new LlmEquivalenceAdjudicationResult
             {
@@ -557,6 +620,10 @@ public class SemanticKernelMatchingService : IMatchingService
                 Reason = "AI 等价裁决未返回有效结果，已回退为人工确认"
             };
             best.RerankSummary = AppendEquivalenceSummary(best.RerankSummary, best.LlmEquivalence);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -600,6 +667,7 @@ public class SemanticKernelMatchingService : IMatchingService
         int recalledCandidateCount,
         bool isAmbiguous,
         double? scoreGap,
+        double minScoreThreshold,
         double highConfidenceThreshold,
         IReadOnlyList<EvaluatedCandidate> orderedCandidates)
     {
@@ -626,6 +694,7 @@ public class SemanticKernelMatchingService : IMatchingService
             SelectionMode = candidate.SelectionMode,
             SelectionSummary = candidate.SelectionSummary,
             Decision = DetermineDecision(candidate, isAmbiguous),
+            MinScoreThreshold = minScoreThreshold,
             HighConfidenceThreshold = MatchingThresholds.NormalizeHighConfidenceThreshold(highConfidenceThreshold),
             TopCandidates = BuildTopCandidates(orderedCandidates),
             LlmEquivalence = candidate.LlmEquivalence
@@ -824,15 +893,16 @@ public class SemanticKernelMatchingService : IMatchingService
 
     private static bool ShouldRunLlmEquivalenceAdjudication(
         EvaluatedCandidate candidate,
-        MatchingConfig _)
+        MatchingConfig config)
     {
-        var shouldRunByFinalScore = candidate.FinalScore >= MatchingThresholds.MediumConfidenceScore;
-        var shouldRunByEmbedding = candidate.EmbeddingScore >= MatchingThresholds.MediumConfidenceScore;
+        var llmGateThreshold = Math.Clamp(config.MinScoreThreshold, 0, 1);
+        var shouldRunByFinalScore = candidate.FinalScore >= llmGateThreshold;
+        var shouldRunByEmbedding = candidate.EmbeddingScore >= llmGateThreshold;
         if (!shouldRunByFinalScore && !shouldRunByEmbedding)
             return false;
 
-        // 去掉本地品牌/单位/方向规则后，允许高 embedding 候选进入 AI 复议，
-        // 由模型决定是否等价，避免因为本地文本分过低而错过真实语义相近样本。
+        // LLM 等价裁决门槛跟随当前匹配配置的最小得分阈值，
+        // 避免页面可见阈值与后端实际触发门槛不一致。
         return true;
     }
 

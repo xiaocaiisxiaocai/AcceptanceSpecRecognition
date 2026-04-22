@@ -156,6 +156,8 @@ const {
 const { excludedRowIndexMap, importPreviewSelectionKeys } =
   useDataImportPreviewSelection();
 const importProgressText = ref("");
+const pendingDifferencePage = ref(1);
+const pendingDifferencePageSize = ref(20);
 const importDuplicateAiConfig = ref<ImportDuplicateAiConfig>({
   enableSemanticDuplicateCheck: false,
   embeddingServiceId: undefined,
@@ -1437,6 +1439,14 @@ const pendingDifferences = computed<ImportPendingDifferenceWithTable[]>(() => {
   return pendingImportAggregate.value?.pendingDifferences || [];
 });
 
+const pagedPendingDifferences = computed<ImportPendingDifferenceWithTable[]>(() => {
+  const start = (pendingDifferencePage.value - 1) * pendingDifferencePageSize.value;
+  return pendingDifferences.value.slice(
+    start,
+    start + pendingDifferencePageSize.value
+  );
+});
+
 const pendingUndecidedCount = computed(() => {
   return pendingDifferences.value.filter(
     item => !differenceDecisionMap.value[item.key]
@@ -1479,6 +1489,19 @@ const pendingTableIndexes = computed<number[]>(() => {
   return Array.from(new Set(pendingDifferences.value.map(item => item.tableIndex)));
 });
 
+const pendingDifferenceDisplayStart = computed(() => {
+  if (pendingDifferences.value.length === 0) return 0;
+  return (pendingDifferencePage.value - 1) * pendingDifferencePageSize.value + 1;
+});
+
+const pendingDifferenceDisplayEnd = computed(() => {
+  if (pendingDifferences.value.length === 0) return 0;
+  return Math.min(
+    pendingDifferencePage.value * pendingDifferencePageSize.value,
+    pendingDifferences.value.length
+  );
+});
+
 const importProgressDescription = computed(() => {
   if (!importing.value) {
     return "";
@@ -1513,6 +1536,27 @@ const differenceDialogFooterTip = computed(() => {
     ? importProgressText.value
     : `未选择 ${pendingUndecidedCount.value} 条`;
 });
+
+watch(
+  () => pendingImportAggregate.value?.pendingDifferences,
+  () => {
+    pendingDifferencePage.value = 1;
+  }
+);
+
+watch(
+  [pendingDifferences, pendingDifferencePageSize],
+  () => {
+    const maxPage = Math.max(
+      1,
+      Math.ceil(pendingDifferences.value.length / pendingDifferencePageSize.value)
+    );
+    if (pendingDifferencePage.value > maxPage) {
+      pendingDifferencePage.value = maxPage;
+    }
+  },
+  { immediate: true }
+);
 
 const buildImportProgressText = (
   cfg: TableImportConfig,
@@ -2227,7 +2271,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
 
         <div class="difference-dialog__list">
           <div
-            v-for="item in pendingDifferences"
+            v-for="item in pagedPendingDifferences"
             :key="item.key"
             class="difference-card"
           >
@@ -2345,6 +2389,22 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               </el-radio-group>
             </div>
           </div>
+        </div>
+
+        <div v-if="pendingDifferences.length > 0" class="difference-dialog__pagination">
+          <span class="difference-dialog__pagination-summary">
+            当前显示 {{ pendingDifferenceDisplayStart }} - {{ pendingDifferenceDisplayEnd }} 条，共
+            {{ pendingDifferences.length }} 条
+          </span>
+          <el-pagination
+            v-model:current-page="pendingDifferencePage"
+            v-model:page-size="pendingDifferencePageSize"
+            background
+            small
+            layout="total, sizes, prev, pager, next"
+            :page-sizes="[20, 50, 100]"
+            :total="pendingDifferences.length"
+          />
         </div>
 
         <template #footer>
@@ -2767,6 +2827,20 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.difference-dialog__pagination {
+  margin-top: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.difference-dialog__pagination-summary {
+  font-size: 13px;
+  color: #6b7280;
 }
 
 .difference-card {

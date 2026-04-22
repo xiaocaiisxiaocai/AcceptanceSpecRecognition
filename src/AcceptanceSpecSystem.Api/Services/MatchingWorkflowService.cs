@@ -27,7 +27,7 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// </summary>
 public sealed class MatchingWorkflowSupportService
 {
-    private const int MaxScopedCandidateCount = 2000;
+    private const int MaxScopedCandidateCount = 3000;
     private const int EmbeddingGenerationBatchSize = 200;
     private static readonly TimeSpan ReviewApprovalTokenLifetime = TimeSpan.FromHours(2);
 
@@ -668,6 +668,9 @@ public sealed class MatchingWorkflowSupportService
         };
 
         var isExcelSource = wordFile.FileType == UploadedFileType.ExcelXlsx;
+        var persistedTaskResult = isExcelSource
+            ? CreatePersistableTaskResult(taskResult, includeFillEntries: false)
+            : taskResult;
         if (isExcelSource)
         {
             try
@@ -675,21 +678,34 @@ public sealed class MatchingWorkflowSupportService
                 var renderedFile = await _matchingResultWriteBackService.RenderFillResultToSourceFileAsync(wordFile, taskResult);
                 EnsureWriteBackCompleted(renderedFile.Summary);
 
-                await _matchingTaskSnapshotService.SaveAsync(user, taskResult, saveImmediately: false);
-                await SaveExecutionHistoryAsync(
-                    user,
-                    wordFile,
-                    taskId,
-                    taskResult.CreatedAt,
-                    request.Tables,
-                    request.PreviewTables,
-                    specDict,
-                    adoptedRowLookup,
-                    currentMatchLookups,
-                    saveImmediately: false);
+                await _unitOfWork.BeginTransactionAsync();
+                try
+                {
+                    await _matchingTaskSnapshotService.SaveAsync(user, persistedTaskResult, saveImmediately: false);
+                    await _unitOfWork.SaveChangesAsync();
 
-                await PersistExcelExecutionAsync(wordFile, renderedFile.Content);
-                await PersistDownloadArtifactAsync(taskId, taskResult, wordFile, renderedFile.Content);
+                    await SaveExecutionHistoryAsync(
+                        user,
+                        wordFile,
+                        taskId,
+                        taskResult.CreatedAt,
+                        request.Tables,
+                        request.PreviewTables,
+                        specDict,
+                        adoptedRowLookup,
+                        currentMatchLookups,
+                        saveImmediately: false);
+                    await _unitOfWork.SaveChangesAsync();
+
+                    await PersistExcelExecutionAsync(wordFile, renderedFile.Content);
+                    await PersistDownloadArtifactAsync(taskId, persistedTaskResult, wordFile, renderedFile.Content);
+                    await _unitOfWork.CommitTransactionAsync();
+                }
+                catch
+                {
+                    await _unitOfWork.RollbackTransactionAsync();
+                    throw;
+                }
             }
             catch (Exception ex)
             {
@@ -704,8 +720,8 @@ public sealed class MatchingWorkflowSupportService
                 var renderedFile = await _matchingResultWriteBackService.RenderFillResultToSourceFileAsync(wordFile, taskResult);
                 EnsureWriteBackCompleted(renderedFile.Summary);
 
-                await _matchingTaskSnapshotService.SaveAsync(user, taskResult);
-                await PersistDownloadArtifactAsync(taskId, taskResult, wordFile, renderedFile.Content);
+                await _matchingTaskSnapshotService.SaveAsync(user, persistedTaskResult);
+                await PersistDownloadArtifactAsync(taskId, persistedTaskResult, wordFile, renderedFile.Content);
                 await SaveExecutionHistoryAsync(
                     user,
                     wordFile,
@@ -827,6 +843,54 @@ public sealed class MatchingWorkflowSupportService
         return fileType == UploadedFileType.ExcelXlsx
             ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
+
+    private static FillTaskResult CreatePersistableTaskResult(FillTaskResult taskResult, bool includeFillEntries)
+    {
+        return new FillTaskResult
+        {
+            PayloadVersion = taskResult.PayloadVersion,
+            TaskId = taskResult.TaskId,
+            SourceFileId = taskResult.SourceFileId,
+            SourceTableIndex = taskResult.SourceTableIndex,
+            AcceptanceColumnIndex = taskResult.AcceptanceColumnIndex,
+            RemarkColumnIndex = taskResult.RemarkColumnIndex,
+            FillResults = includeFillEntries
+                ? taskResult.FillResults
+                    .Select(CloneFillResult)
+                    .ToList()
+                : [],
+            FilledFilePath = taskResult.FilledFilePath,
+            CreatedAt = taskResult.CreatedAt,
+            IsBatchMode = taskResult.IsBatchMode,
+            TableEntries = includeFillEntries
+                ? taskResult.TableEntries
+                    .Select(entry => new TableFillEntry
+                    {
+                        TableIndex = entry.TableIndex,
+                        AcceptanceColumnIndex = entry.AcceptanceColumnIndex,
+                        RemarkColumnIndex = entry.RemarkColumnIndex,
+                        FillResults = entry.FillResults
+                            .Select(CloneFillResult)
+                            .ToList()
+                    })
+                    .ToList()
+                : [],
+            DownloadArtifactRelativePath = taskResult.DownloadArtifactRelativePath,
+            DownloadArtifactFileName = taskResult.DownloadArtifactFileName,
+            DownloadArtifactContentType = taskResult.DownloadArtifactContentType
+        };
+    }
+
+    private static FillResult CloneFillResult(FillResult fillResult)
+    {
+        return new FillResult
+        {
+            RowIndex = fillResult.RowIndex,
+            SpecId = fillResult.SpecId,
+            Acceptance = fillResult.Acceptance,
+            Remark = fillResult.Remark
+        };
     }
 
     private async Task SaveExecutionHistoryAsync(
@@ -1069,12 +1133,7 @@ public sealed class MatchingWorkflowSupportService
                         mapping?.ManualConfirmed == true,
                         manualEdited,
                         row.Status),
-                    PreviewSnapshot = new ExecutionHistorySmartFillPreviewSnapshotDto
-                    {
-                        ConfidenceLevel = previewItem?.ConfidenceLevel ?? "none",
-                        NoMatchReason = previewItem?.NoMatchReason,
-                        BestMatch = previewItem?.BestMatch
-                    },
+                    PreviewSnapshot = BuildPersistedPreviewSnapshot(previewItem, matchOrigin),
                     ExecutionSnapshot = new ExecutionHistorySmartFillExecutionSnapshotDto
                     {
                         SelectedSpecId = row.MatchedSpecId,
@@ -1091,6 +1150,95 @@ public sealed class MatchingWorkflowSupportService
                 };
             })
             .ToList();
+    }
+
+    private static ExecutionHistorySmartFillPreviewSnapshotDto BuildPersistedPreviewSnapshot(
+        MatchPreviewItem? previewItem,
+        string matchOrigin)
+    {
+        var isExactMatch = string.Equals(matchOrigin, ExecutionHistoryMatchOrigins.Exact, StringComparison.Ordinal);
+        return new ExecutionHistorySmartFillPreviewSnapshotDto
+        {
+            ConfidenceLevel = previewItem?.ConfidenceLevel ?? "none",
+            NoMatchReason = previewItem?.NoMatchReason,
+            BestMatch = previewItem?.BestMatch == null
+                ? null
+                : BuildPersistedBestMatchSnapshot(previewItem.BestMatch, isExactMatch)
+        };
+    }
+
+    private static MatchResultDto BuildPersistedBestMatchSnapshot(MatchResultDto bestMatch, bool isExactMatch)
+    {
+        return new MatchResultDto
+        {
+            SpecId = bestMatch.SpecId,
+            Project = bestMatch.Project,
+            Specification = bestMatch.Specification,
+            Acceptance = isExactMatch ? null : bestMatch.Acceptance,
+            Remark = isExactMatch ? null : bestMatch.Remark,
+            Score = bestMatch.Score,
+            EmbeddingScore = bestMatch.EmbeddingScore,
+            ScoreDetails = isExactMatch
+                ? []
+                : new Dictionary<string, double>(bestMatch.ScoreDetails),
+            Decision = bestMatch.Decision,
+            EvidenceSummary = isExactMatch ? [] : [.. bestMatch.EvidenceSummary],
+            ConflictSummary = isExactMatch ? [] : [.. bestMatch.ConflictSummary],
+            Issues = isExactMatch ? [] : [.. bestMatch.Issues.Select(CloneIssueDto)],
+            Entities = [],
+            TopCandidates = isExactMatch
+                ? []
+                : [.. bestMatch.TopCandidates.Select(CloneCandidateDto)],
+            RecalledCandidateCount = isExactMatch
+                ? Math.Min(bestMatch.RecalledCandidateCount, 1)
+                : bestMatch.RecalledCandidateCount,
+            IsAmbiguous = bestMatch.IsAmbiguous,
+            ScoreGap = isExactMatch ? null : bestMatch.ScoreGap,
+            RerankSummary = isExactMatch ? null : bestMatch.RerankSummary,
+            SelectionMode = bestMatch.SelectionMode,
+            SelectionSummary = bestMatch.SelectionSummary,
+            LlmEquivalence = isExactMatch ? null : bestMatch.LlmEquivalence,
+            ReviewApprovalToken = null
+        };
+    }
+
+    private static MatchCandidateDto CloneCandidateDto(MatchCandidateDto candidate)
+    {
+        return new MatchCandidateDto
+        {
+            Rank = candidate.Rank,
+            SpecId = candidate.SpecId,
+            Project = candidate.Project,
+            Specification = candidate.Specification,
+            Acceptance = candidate.Acceptance,
+            Remark = candidate.Remark,
+            Score = candidate.Score,
+            EmbeddingScore = candidate.EmbeddingScore,
+            ScoreDetails = new Dictionary<string, double>(candidate.ScoreDetails),
+            Decision = candidate.Decision,
+            EvidenceSummary = [.. candidate.EvidenceSummary],
+            ConflictSummary = [.. candidate.ConflictSummary],
+            Issues = [.. candidate.Issues.Select(CloneIssueDto)],
+            Entities = [],
+            RerankSummary = candidate.RerankSummary,
+            SelectionMode = candidate.SelectionMode,
+            SelectionSummary = candidate.SelectionSummary,
+            LlmEquivalence = candidate.LlmEquivalence
+        };
+    }
+
+    private static MatchIssueDto CloneIssueDto(MatchIssueDto issue)
+    {
+        return new MatchIssueDto
+        {
+            Code = issue.Code,
+            Severity = issue.Severity,
+            FieldName = issue.FieldName,
+            SourceValue = issue.SourceValue,
+            CandidateValue = issue.CandidateValue,
+            Message = issue.Message,
+            SuggestedAction = issue.SuggestedAction
+        };
     }
 
     private static ExecutionHistorySmartFillSummaryDto BuildSmartFillSummary(
@@ -1814,6 +1962,8 @@ public sealed class MatchingWorkflowSupportService
             return "none";
         }
 
+        var minScoreThreshold = Math.Clamp(result.MinScoreThreshold, 0, 1);
+
         if (result.Decision == MatchDecision.Reject)
         {
             return "low";
@@ -1821,7 +1971,7 @@ public sealed class MatchingWorkflowSupportService
 
         if (result.Decision != MatchDecision.AutoApply)
         {
-            return result.Score >= MatchingThresholds.MediumConfidenceScore ? "medium" : "low";
+            return result.Score >= minScoreThreshold ? "medium" : "low";
         }
 
         if (result.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent ||
@@ -1830,7 +1980,7 @@ public sealed class MatchingWorkflowSupportService
             return "high";
         }
 
-        if (result.Score >= MatchingThresholds.MediumConfidenceScore)
+        if (result.Score >= minScoreThreshold)
         {
             return "medium";
         }

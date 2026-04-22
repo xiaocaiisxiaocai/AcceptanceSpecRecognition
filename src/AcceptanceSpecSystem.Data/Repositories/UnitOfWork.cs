@@ -142,11 +142,27 @@ public class UnitOfWork : IUnitOfWork
     /// </summary>
     public async Task CommitTransactionAsync()
     {
-        if (_transaction != null)
+        if (_transaction == null)
         {
-            await _transaction.CommitAsync();
-            await _transaction.DisposeAsync();
-            _transaction = null;
+            return;
+        }
+
+        var transaction = _transaction;
+        _transaction = null;
+        try
+        {
+            await transaction.CommitAsync();
+        }
+        finally
+        {
+            try
+            {
+                await transaction.DisposeAsync();
+            }
+            catch
+            {
+                // 提交结果以主异常为准，释放失败不应覆盖真实错误。
+            }
         }
     }
 
@@ -155,11 +171,31 @@ public class UnitOfWork : IUnitOfWork
     /// </summary>
     public async Task RollbackTransactionAsync()
     {
-        if (_transaction != null)
+        if (_transaction == null)
         {
-            await _transaction.RollbackAsync();
-            await _transaction.DisposeAsync();
-            _transaction = null;
+            return;
+        }
+
+        var transaction = _transaction;
+        _transaction = null;
+        try
+        {
+            await transaction.RollbackAsync();
+        }
+        catch
+        {
+            // 回滚通常发生在主异常之后，这里不能再用次生异常覆盖原始失败原因。
+        }
+        finally
+        {
+            try
+            {
+                await transaction.DisposeAsync();
+            }
+            catch
+            {
+                // 回滚后的清理失败同样属于次生异常，避免继续污染后续请求。
+            }
         }
     }
 

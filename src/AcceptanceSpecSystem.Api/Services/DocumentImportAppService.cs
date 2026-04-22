@@ -517,34 +517,7 @@ public sealed class DocumentImportAppService
             IsSameContent(spec, normalizedProject, normalizedSpecification, normalizedAcceptance, normalizedRemark));
         if (exactExisting != null)
         {
-            var diffKey = BuildDifferenceKey(
-                tableIndex,
-                row.RowIndex,
-                MatchTypeExact,
-                exactExisting.Id,
-                normalizedProject,
-                normalizedSpecification,
-                normalizedAcceptance,
-                normalizedRemark);
-            if (await TryApplyPendingDecisionAsync(
-                    context,
-                    row,
-                    diffKey,
-                    MatchTypeExact,
-                    exactExisting,
-                    null,
-                    cancellationToken))
-            {
-                return;
-            }
-
-            AddPendingDifference(
-                context,
-                row,
-                diffKey,
-                MatchTypeExact,
-                exactExisting,
-                null);
+            AddSkippedRow(context, row.RowIndex, "数据库中已存在完全相同内容，已自动跳过", row.RowValues);
             return;
         }
 
