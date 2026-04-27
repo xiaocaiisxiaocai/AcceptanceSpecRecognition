@@ -11,3 +11,7 @@ const batchTableConfigSource = readFileSync(
 test("数据预览外层容器应使用 border-box，避免 width:100% 加内边距后把页面撑宽", () => {
   assert.match(batchTableConfigSource, /\.table-preview-wrap\s*\{[\s\S]*box-sizing:\s*border-box;/);
 });
+
+test("智能填充 Excel 行设置数字输入应使用导入数据同款左右按钮", () => {
+  assert.doesNotMatch(batchTableConfigSource, /controls-position="right"/);
+});

@@ -425,7 +425,6 @@ const getPreviewResult = (tableIndex: number) => {
                 <el-input-number
                   :model-value="normalizeExcelBatchTableRows(item).headerRowStart"
                   :min="1"
-                  controls-position="right"
                   @update:model-value="(v: number | undefined) => updateExcelRowField(idx, 'headerRowStart', v)"
                 />
               </el-form-item>
@@ -433,7 +432,6 @@ const getPreviewResult = (tableIndex: number) => {
                 <el-input-number
                   :model-value="normalizeExcelBatchTableRows(item).headerRowCount"
                   :min="0"
-                  controls-position="right"
                   @update:model-value="(v: number | undefined) => updateExcelRowField(idx, 'headerRowCount', v)"
                 />
               </el-form-item>
@@ -441,7 +439,6 @@ const getPreviewResult = (tableIndex: number) => {
                 <el-input-number
                   :model-value="normalizeExcelBatchTableRows(item).dataStartRow"
                   :min="1"
-                  controls-position="right"
                   @update:model-value="(v: number | undefined) => updateExcelRowField(idx, 'dataStartRow', v)"
                 />
               </el-form-item>
