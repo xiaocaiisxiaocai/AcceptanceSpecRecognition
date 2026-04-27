@@ -36,6 +36,7 @@ const selectionCache = new Map<
     selected?: boolean;
     specId?: number;
     manualConfirmed?: boolean;
+    manualFill?: boolean;
     reviewApprovalToken?: string;
     overrideAcceptance?: string;
     overrideRemark?: string;
@@ -96,6 +97,7 @@ const buildDefaultSelections = (tableResult?: BatchTablePreviewResult | null) =>
       selected: true,
       specId: item.bestMatch?.specId,
       manualConfirmed: false,
+      manualFill: false,
       reviewApprovalToken: item.bestMatch?.reviewApprovalToken,
       overrideAcceptance: undefined,
       overrideRemark: undefined
@@ -172,6 +174,7 @@ const getAllSelections = () => {
       rowIndex: number;
       specId?: number;
       manualConfirmed?: boolean;
+      manualFill?: boolean;
       reviewApprovalToken?: string;
       overrideAcceptance?: string;
       overrideRemark?: string;

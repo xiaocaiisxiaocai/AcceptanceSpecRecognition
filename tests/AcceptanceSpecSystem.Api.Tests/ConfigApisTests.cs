@@ -2,10 +2,12 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -113,6 +115,94 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         detail.Code.Should().Be(0);
         detail.Data.GetProperty("defaultRecallTopK").GetInt32().Should().Be(3);
         detail.Data.TryGetProperty("defaultMatchingStrategy", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AiServiceConfig_DisabledState_ShouldToggleAndPersist()
+    {
+        var createResp = await _client.PostAsync(
+            "/api/ai-services",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = $"toggle-disabled-{Guid.NewGuid():N}",
+                serviceType = 2,
+                purpose = 1,
+                priority = 0,
+                endpoint = "http://127.0.0.1:11434/api",
+                apiKey = "",
+                llmModel = "qwen3.5:35b",
+                disableThinking = false
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        created.Code.Should().Be(0);
+        created.Data.GetProperty("isDisabled").GetBoolean().Should().BeFalse();
+
+        var id = created.Data.GetProperty("id").GetInt32();
+        var disabledResp = await _client.PutAsync(
+            $"/api/ai-services/{id}/disabled",
+            ApiClientJson.ToJsonContent(new { isDisabled = true }));
+
+        disabledResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var disabled = await disabledResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        disabled.Code.Should().Be(0);
+        disabled.Data.GetProperty("isDisabled").GetBoolean().Should().BeTrue();
+
+        var getResp = await _client.GetAsync($"/api/ai-services/{id}");
+        getResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detail = await getResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        detail.Data.GetProperty("isDisabled").GetBoolean().Should().BeTrue();
+
+        var testResp = await _client.PostAsync($"/api/ai-services/{id}/test", null);
+        testResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var testResult = await testResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        testResult.Message.Should().Contain("已禁用");
+
+        var enabledResp = await _client.PutAsync(
+            $"/api/ai-services/{id}/disabled",
+            ApiClientJson.ToJsonContent(new { isDisabled = false }));
+        enabledResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var enabled = await enabledResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        enabled.Data.GetProperty("isDisabled").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AiServiceConfig_DisabledConfigs_ShouldNotBeReturnedByPurposeProvider()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var disabledConfig = new AiServiceConfig
+        {
+            Name = $"disabled-llm-{Guid.NewGuid():N}",
+            ServiceType = AiServiceType.Ollama,
+            Purpose = AiServicePurpose.Llm,
+            Priority = 0,
+            Endpoint = "http://127.0.0.1:11434/api",
+            LlmModel = "disabled-model",
+            IsDisabled = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        var enabledConfig = new AiServiceConfig
+        {
+            Name = $"enabled-llm-{Guid.NewGuid():N}",
+            ServiceType = AiServiceType.Ollama,
+            Purpose = AiServicePurpose.Llm,
+            Priority = 1,
+            Endpoint = "http://127.0.0.1:11434/api",
+            LlmModel = "enabled-model",
+            IsDisabled = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        dbContext.AiServiceConfigs.AddRange(disabledConfig, enabledConfig);
+        await dbContext.SaveChangesAsync();
+
+        var provider = scope.ServiceProvider.GetRequiredService<IAiServiceConfigProvider>();
+        var candidates = await provider.GetByPurposeAsync(CoreAiServicePurpose.Llm);
+
+        candidates.Select(c => c.Id).Should().Contain(enabledConfig.Id);
+        candidates.Select(c => c.Id).Should().NotContain(disabledConfig.Id);
     }
 
     [Fact]

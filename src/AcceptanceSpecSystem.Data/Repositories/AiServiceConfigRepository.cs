@@ -51,19 +51,21 @@ public class AiServiceConfigRepository : Repository<AiServiceConfig>, IAiService
         {
             AiServicePurpose.Llm => await _dbSet
                 .Where(c =>
-                    c.Purpose == AiServicePurpose.Llm ||
-                    (c.Purpose != AiServicePurpose.Embedding &&
-                     c.LlmModel != null &&
-                     c.LlmModel != "" &&
-                     (c.EmbeddingModel == null || c.EmbeddingModel == "")))
+                    !c.IsDisabled &&
+                    (c.Purpose == AiServicePurpose.Llm ||
+                     (c.Purpose != AiServicePurpose.Embedding &&
+                      c.LlmModel != null &&
+                      c.LlmModel != "" &&
+                      (c.EmbeddingModel == null || c.EmbeddingModel == ""))))
                 .ToListAsync(),
             AiServicePurpose.Embedding => await _dbSet
                 .Where(c =>
-                    c.Purpose == AiServicePurpose.Embedding ||
-                    (c.Purpose != AiServicePurpose.Llm &&
-                     c.EmbeddingModel != null &&
-                     c.EmbeddingModel != "" &&
-                     (c.LlmModel == null || c.LlmModel == "")))
+                    !c.IsDisabled &&
+                    (c.Purpose == AiServicePurpose.Embedding ||
+                     (c.Purpose != AiServicePurpose.Llm &&
+                      c.EmbeddingModel != null &&
+                      c.EmbeddingModel != "" &&
+                      (c.LlmModel == null || c.LlmModel == ""))))
                 .ToListAsync(),
             _ => []
         };

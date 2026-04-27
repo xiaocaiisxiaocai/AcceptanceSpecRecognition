@@ -154,6 +154,66 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
     }
 
     [Fact]
+    public async Task ExecuteFill_WithManualFillWithoutSpecId_ShouldWriteOverridesToExportedFile()
+    {
+        var setup = await PrepareScopedSingleSpecFillAsync("ApplyManualFillWithoutSpec");
+
+        var execResp = await _client.PostAsync("/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId = setup.FileId,
+                customerId = setup.CustomerId,
+                processId = setup.ProcessId,
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        mappings = new[]
+                        {
+                            new
+                            {
+                                rowIndex = 1,
+                                manualFill = true,
+                                overrideAcceptance = "MANUAL-AC",
+                                overrideRemark = "MANUAL-REM"
+                            }
+                        }
+                    }
+                }
+            }));
+
+        execResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        execJson.Code.Should().Be(0);
+        execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(1);
+        execJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(0);
+
+        var taskId = execJson.Data.GetProperty("taskId").GetString();
+        taskId.Should().NotBeNullOrWhiteSpace();
+
+        var downloadResp = await _client.GetAsync($"/api/matching/download/{taskId}");
+        downloadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var filledBytes = await downloadResp.Content.ReadAsByteArrayAsync();
+
+        GetCellText(filledBytes, tableIndex: 0, rowIndex: 1, colIndex: 2)
+            .Should().Be("MANUAL-AC");
+        GetCellText(filledBytes, tableIndex: 0, rowIndex: 1, colIndex: 3)
+            .Should().Be("MANUAL-REM");
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var spec = await db.AcceptanceSpecs.FindAsync(setup.SpecId);
+        spec.Should().NotBeNull();
+        spec!.Acceptance.Should().Be("DB-AC-1");
+        spec.Remark.Should().Be("DB-REM-1");
+    }
+
+    [Fact]
     public async Task ExecuteFill_WithClientAutoApplyOnNonBestSpec_ShouldSkip()
     {
         var setup = await PrepareCompetingSpecsFillAsync("SkipWrongAutoApply");

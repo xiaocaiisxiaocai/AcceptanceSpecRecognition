@@ -404,6 +404,11 @@ public class MatchingConfig
     public int LlmCircuitBreakFailures { get; set; } = 10;
 
     /// <summary>
+    /// 是否仅按项目+规格完全一致命中
+    /// </summary>
+    public bool ExactMatchOnly { get; set; }
+
+    /// <summary>
     /// 是否过滤项目列与规格列都为空的源行（默认过滤）
     /// </summary>
     public bool FilterEmptySourceRows { get; set; } = true;

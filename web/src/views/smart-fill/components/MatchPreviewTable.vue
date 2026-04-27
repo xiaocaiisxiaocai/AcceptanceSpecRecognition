@@ -36,7 +36,7 @@ const emit = defineEmits<{
 }>();
 
 type Selection = {
-  type: "best";
+  type: "best" | "manual";
   manualConfirmed: boolean;
   reviewApprovalToken?: string;
 };
@@ -51,6 +51,7 @@ type PersistedSelection = {
   selected?: boolean;
   specId?: number;
   manualConfirmed?: boolean;
+  manualFill?: boolean;
   reviewApprovalToken?: string;
   overrideAcceptance?: string;
   overrideRemark?: string;
@@ -115,6 +116,14 @@ const canUseBestMatch = (item: MatchPreviewItem) => {
   return true;
 };
 
+const canEditRow = (item: MatchPreviewItem) => {
+  if (isNoAnswerPlaceholderRow(item) || isReviewInFlight(item)) {
+    return false;
+  }
+
+  return item.bestMatch ? canUseBestMatch(item) : true;
+};
+
 const initSelections = () => {
   selectedSpecs.value.clear();
   editedOverrides.value.clear();
@@ -160,7 +169,7 @@ const getPersistedSelection = (rowIndex: number): Selection | null => {
   }
 
   return {
-    type: "best",
+    type: persisted.manualFill ? "manual" : "best",
     manualConfirmed: !!persisted.manualConfirmed,
     reviewApprovalToken: persisted.reviewApprovalToken
   };
@@ -213,7 +222,7 @@ const closeEditDialog = () => {
 };
 
 const openEditDialog = (item: MatchPreviewItem) => {
-  if (!item.bestMatch || !canUseBestMatch(item)) {
+  if (!canEditRow(item)) {
     return;
   }
 
@@ -227,20 +236,26 @@ const openEditDialog = (item: MatchPreviewItem) => {
 
 const handleSaveEditedSelection = () => {
   const item = editingItem.value;
-  if (!item?.bestMatch || !canUseBestMatch(item)) {
+  if (!item || !canEditRow(item)) {
     return;
   }
 
+  const baseAcceptance = item.bestMatch?.acceptance ?? "";
+  const baseRemark = item.bestMatch?.remark ?? "";
   const nextOverride: EditOverride = {
     overrideAcceptance:
-      editForm.value.overrideAcceptance === (item.bestMatch.acceptance ?? "")
+      item.bestMatch && editForm.value.overrideAcceptance === baseAcceptance
         ? undefined
         : editForm.value.overrideAcceptance,
     overrideRemark:
-      editForm.value.overrideRemark === (item.bestMatch.remark ?? "")
+      item.bestMatch && editForm.value.overrideRemark === baseRemark
         ? undefined
         : editForm.value.overrideRemark
   };
+
+  if (!item.bestMatch && !hasOverrideValue(nextOverride)) {
+    return;
+  }
 
   if (hasOverrideValue(nextOverride)) {
     editedOverrides.value.set(item.rowIndex, nextOverride);
@@ -249,9 +264,9 @@ const handleSaveEditedSelection = () => {
   }
 
   selectedSpecs.value.set(item.rowIndex, {
-    type: "best",
-    manualConfirmed: !item.bestMatch.reviewApprovalToken,
-    reviewApprovalToken: item.bestMatch.reviewApprovalToken
+    type: item.bestMatch ? "best" : "manual",
+    manualConfirmed: item.bestMatch ? !item.bestMatch.reviewApprovalToken : true,
+    reviewApprovalToken: item.bestMatch?.reviewApprovalToken
   });
   emit("select", item.rowIndex, item.bestMatch ?? null);
   closeEditDialog();
@@ -282,7 +297,21 @@ const syncSelectionsWithItems = () => {
       nextOverrides.set(item.rowIndex, existingOverride);
     }
 
-    if (!item.bestMatch || isNoAnswerPlaceholderRow(item) || !canUseBestMatch(item)) {
+    if (!item.bestMatch) {
+      nextSelections.set(
+        item.rowIndex,
+        existing?.type === "manual" && hasOverrideValue(existingOverride)
+          ? {
+              type: "manual",
+              manualConfirmed: true,
+              reviewApprovalToken: undefined
+            }
+          : null
+      );
+      return;
+    }
+
+    if (isNoAnswerPlaceholderRow(item) || !canUseBestMatch(item)) {
       nextSelections.set(item.rowIndex, null);
       return;
     }
@@ -599,6 +628,7 @@ defineExpose({
           selected?: boolean;
           specId?: number;
           manualConfirmed?: boolean;
+          manualFill?: boolean;
           reviewApprovalToken?: string;
           overrideAcceptance?: string;
           overrideRemark?: string;
@@ -620,8 +650,9 @@ defineExpose({
       selections.push({
           rowIndex,
           selected: !!selection,
-          specId: selection ? item.bestMatch?.specId : undefined,
+          specId: selection?.type === "best" ? item.bestMatch?.specId : undefined,
           manualConfirmed: selection?.manualConfirmed,
+          manualFill: selection?.type === "manual",
           reviewApprovalToken: selection?.reviewApprovalToken,
           overrideAcceptance: override?.overrideAcceptance,
           overrideRemark: override?.overrideRemark
@@ -856,6 +887,14 @@ defineExpose({
             >
               已编辑
             </el-tag>
+            <el-tag
+              v-if="getSelection(row.rowIndex)?.type === 'manual'"
+              size="small"
+              type="success"
+              effect="plain"
+            >
+              已手工填写
+            </el-tag>
           </div>
         </template>
       </el-table-column>
@@ -874,6 +913,14 @@ defineExpose({
               effect="plain"
             >
               已编辑
+            </el-tag>
+            <el-tag
+              v-if="getSelection(row.rowIndex)?.type === 'manual'"
+              size="small"
+              type="success"
+              effect="plain"
+            >
+              已手工填写
             </el-tag>
           </div>
         </template>
@@ -917,7 +964,7 @@ defineExpose({
               详情
             </el-button>
             <el-button
-              v-if="row.bestMatch && canUseBestMatch(row)"
+              v-if="canEditRow(row)"
               link
               size="small"
               @click="openEditDialog(row)"

@@ -87,6 +87,11 @@ public class MatchConfigDto
     public int LlmCircuitBreakFailures { get; set; } = 10;
 
     /// <summary>
+    /// 是否仅按项目+规格完全一致命中
+    /// </summary>
+    public bool ExactMatchOnly { get; set; }
+
+    /// <summary>
     /// 是否过滤项目列与规格列都为空的源行（默认过滤）
     /// </summary>
     public bool FilterEmptySourceRows { get; set; } = true;
@@ -468,6 +473,11 @@ public class FillMapping
     /// 是否已由用户人工确认
     /// </summary>
     public bool ManualConfirmed { get; set; }
+
+    /// <summary>
+    /// 无匹配规格时，是否使用本次提交的手工填写值
+    /// </summary>
+    public bool ManualFill { get; set; }
 
     /// <summary>
     /// 服务端签发的复核放行令牌

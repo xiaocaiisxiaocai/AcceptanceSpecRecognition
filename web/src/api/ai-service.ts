@@ -25,6 +25,7 @@ export interface AiServiceConfig {
   embeddingModel?: string | null;
   llmModel?: string | null;
   disableThinking: boolean;
+  isDisabled: boolean;
   defaultRecallTopK: number;
   hasApiKey: boolean;
   createdAt: string;
@@ -96,6 +97,16 @@ export const updateAiService = (id: number, data: UpdateAiServiceRequest) => {
   return http.request<ApiResponse<AiServiceConfig>>("put", `${baseUrl}/${id}`, {
     data
   });
+};
+
+export const setAiServiceDisabled = (id: number, isDisabled: boolean) => {
+  return http.request<ApiResponse<AiServiceConfig>>(
+    "put",
+    `${baseUrl}/${id}/disabled`,
+    {
+      data: { isDisabled }
+    }
+  );
 };
 
 export const deleteAiService = (id: number) => {

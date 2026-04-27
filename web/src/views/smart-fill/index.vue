@@ -328,6 +328,10 @@ const getMatchConfigServiceStatus = () =>
   };
 
 const getPrePreviewBlockingMessage = () => {
+  if (matchConfig.value.exactMatchOnly) {
+    return "";
+  }
+
   const { hasAvailableEmbeddingService } = getMatchConfigServiceStatus();
   if (!hasAvailableEmbeddingService) {
     return "请先配置可用的 Embedding 服务";
@@ -340,6 +344,10 @@ const previewBlockingMessage = computed(() => {
   const prePreviewMessage = getPrePreviewBlockingMessage();
   if (prePreviewMessage) {
     return prePreviewMessage;
+  }
+
+  if (matchConfig.value.exactMatchOnly && previewState.value === "embeddingUnavailable") {
+    return "";
   }
 
   switch (previewState.value) {
@@ -589,12 +597,19 @@ const doPreview = async () => {
 
       markPreviewProgressCompleted();
       batchPreviewResults.value = res.data.tables;
-      if (res.data.totalMatched === 0) {
+      const hasPreviewRows = res.data.tables.some(table => table.items.length > 0);
+      if (!hasPreviewRows) {
         previewState.value = "emptyResults";
         previewFailureDetail.value = "未找到可匹配的数据";
         ElMessage.warning("未找到可匹配的数据");
       } else {
         resetPreviewState();
+        if (res.data.totalMatched === 0) {
+          ElMessage.warning("当前没有完全命中的数据，可在未命中行中手工填写");
+        }
+      }
+      if (matchConfig.value.exactMatchOnly) {
+        return;
       }
       startLlmStream();
     } else {
@@ -932,6 +947,7 @@ const handleExecute = async () => {
           rowIndex: s.rowIndex,
           specId: s.specId,
           manualConfirmed: s.manualConfirmed,
+          manualFill: s.manualFill,
           reviewApprovalToken: s.reviewApprovalToken,
           overrideAcceptance: s.overrideAcceptance,
           overrideRemark: s.overrideRemark
@@ -948,6 +964,7 @@ const handleExecute = async () => {
       rowIndex: number;
       specId?: number;
       manualConfirmed?: boolean;
+      manualFill?: boolean;
       reviewApprovalToken?: string;
       overrideAcceptance?: string;
       overrideRemark?: string;

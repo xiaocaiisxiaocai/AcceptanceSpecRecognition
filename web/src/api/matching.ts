@@ -35,6 +35,8 @@ export interface MatchConfig {
   llmRetryCount?: number;
   /** LLM 熔断阈值（累计失败次数） */
   llmCircuitBreakFailures?: number;
+  /** 是否仅按项目+规格完全一致命中 */
+  exactMatchOnly?: boolean;
   /** 是否过滤项目/规格均为空的行 */
   filterEmptySourceRows?: boolean;
 }
@@ -243,6 +245,8 @@ export interface FillMapping {
   specId?: number;
   /** 是否已由用户人工确认 */
   manualConfirmed?: boolean;
+  /** 无匹配规格时，是否使用本次手工填写值 */
+  manualFill?: boolean;
   /** 服务端签发的 AI 复核放行令牌 */
   reviewApprovalToken?: string;
   /** 本次导出的验收标准覆盖值 */
@@ -287,6 +291,7 @@ export const defaultMatchConfig: MatchConfig = {
   llmRowTimeoutSeconds: 45,
   llmRetryCount: 1,
   llmCircuitBreakFailures: 10,
+  exactMatchOnly: false,
   filterEmptySourceRows: true
 };
 

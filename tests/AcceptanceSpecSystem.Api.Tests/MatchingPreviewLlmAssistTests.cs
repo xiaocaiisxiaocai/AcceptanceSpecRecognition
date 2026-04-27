@@ -132,6 +132,82 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
+    public async Task Preview_WithExactMatchOnly_ShouldOnlyReturnProjectSpecificationExactMatches()
+    {
+        var aiServiceResp = await _client.PostAsync(
+            "/api/ai-services",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = $"ExactOnlyEmbedding-{Guid.NewGuid():N}",
+                serviceType = 2,
+                purpose = 2,
+                priority = 0,
+                endpoint = "http://127.0.0.1:11434/api",
+                apiKey = "",
+                embeddingModel = "nomic-embed-text",
+                defaultRecallTopK = 3
+            }));
+        aiServiceResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var embeddingServiceId = (await aiServiceResp.ReadAsAsync<ApiResponse<JsonElement>>())
+            .Data.GetProperty("id").GetInt32();
+
+        var customerId = (await (await _client.PostAsync(
+                "/api/customers",
+                ApiClientJson.ToJsonContent(new { name = "ExactOnly-C" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var processId = (await (await _client.PostAsync(
+                "/api/processes",
+                ApiClientJson.ToJsonContent(new { name = "ExactOnly-P" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        await _client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                project = "项目A",
+                specification = "规格A",
+                acceptance = "OK-EXACT",
+                remark = "R-EXACT"
+            }));
+
+        var previewResp = await BatchPreviewTestHelper.PostAsync(
+            _client,
+            customerId,
+            processId,
+            new
+            {
+                embeddingServiceId,
+                exactMatchOnly = true,
+                minScoreThreshold = 0.0,
+                recallTopK = 3,
+                ambiguityMargin = 1.0
+            },
+            ("项目A", "规格A"),
+            ("项目A", "规格A 变体"));
+
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewJson.Code.Should().Be(0);
+
+        var items = previewJson.Data.GetProperty("tables")[0].GetProperty("items").EnumerateArray().ToArray();
+        items.Should().HaveCount(2);
+
+        var exactItem = items[0];
+        exactItem.GetProperty("hasMatch").GetBoolean().Should().BeTrue();
+        exactItem.GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("exactShortcut");
+        exactItem.GetProperty("bestMatch").GetProperty("decision").GetString().Should().Be("autoApply");
+        exactItem.GetProperty("bestMatch").GetProperty("score").GetDouble().Should().Be(1);
+
+        var nearItem = items[1];
+        nearItem.GetProperty("hasMatch").GetBoolean().Should().BeFalse();
+        nearItem.GetProperty("bestMatch").ValueKind.Should().Be(JsonValueKind.Null);
+        nearItem.GetProperty("noMatchReason").GetString().Should().Contain("仅精确匹配");
+    }
+
+    [Fact]
     public async Task Preview_ShouldReturnAiRerankSelectionMetadata_WhenAiPromotesAnotherCandidate()
     {
         await using var factory = new PromoteLastCandidateRerankApiWebApplicationFactory();

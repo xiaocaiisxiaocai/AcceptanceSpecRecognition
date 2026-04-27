@@ -56,6 +56,11 @@ public class AiServiceConfig
     public bool DisableThinking { get; set; }
 
     /// <summary>
+    /// 是否禁用。禁用后不参与 AI/Embedding 服务选择。
+    /// </summary>
+    public bool IsDisabled { get; set; }
+
+    /// <summary>
     /// 该服务对应的默认召回候选数（主要供 Embedding 服务使用）
     /// </summary>
     public int DefaultRecallTopK { get; set; } = 2;

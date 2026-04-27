@@ -13,6 +13,7 @@ public class AiServiceConfigDto
     public string? EmbeddingModel { get; set; }
     public string? LlmModel { get; set; }
     public bool DisableThinking { get; set; }
+    public bool IsDisabled { get; set; }
     public int DefaultRecallTopK { get; set; } = 2;
     public bool HasApiKey { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -50,6 +51,11 @@ public class UpdateAiServiceRequest
     public string? LlmModel { get; set; }
     public bool DisableThinking { get; set; }
     public int DefaultRecallTopK { get; set; } = 2;
+}
+
+public class SetAiServiceDisabledRequest
+{
+    public bool IsDisabled { get; set; }
 }
 
 public enum AiServiceConnectionTestMode

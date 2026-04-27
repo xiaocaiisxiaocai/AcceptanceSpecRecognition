@@ -642,16 +642,33 @@ const loadAiServices = async () => {
     const res = await getAiServiceList({ page: 1, pageSize: 200 });
     if (res.code === 0) {
       const items = res.data.items || [];
-      embeddingServices.value = items.filter(
+      const enabledItems = items.filter(item => !item.isDisabled);
+      embeddingServices.value = enabledItems.filter(
         item =>
           (item.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
           !!item.embeddingModel
       );
-      llmServices.value = items.filter(
+      llmServices.value = enabledItems.filter(
         item =>
           (item.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
           !!item.llmModel
       );
+
+      if (
+        importDuplicateAiConfig.value.embeddingServiceId &&
+        !embeddingServices.value.some(
+          service => service.id === importDuplicateAiConfig.value.embeddingServiceId
+        )
+      ) {
+        importDuplicateAiConfig.value.embeddingServiceId = undefined;
+      }
+
+      if (
+        importDuplicateAiConfig.value.llmServiceId &&
+        !llmServices.value.some(service => service.id === importDuplicateAiConfig.value.llmServiceId)
+      ) {
+        importDuplicateAiConfig.value.llmServiceId = undefined;
+      }
 
       if (!importDuplicateAiConfig.value.embeddingServiceId && embeddingServices.value.length > 0) {
         importDuplicateAiConfig.value.embeddingServiceId = embeddingServices.value[0].id;

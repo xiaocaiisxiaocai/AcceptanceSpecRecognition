@@ -376,6 +376,30 @@ public class ArchitectureBoundaryTests
         mainContent.Should().NotContain("app.component(\"Perms\"", "全局 Perms 组件已无消费，不应继续注册");
     }
 
+    [Fact]
+    public void MatchingDefaultRecallTopKQueries_ShouldIgnoreDisabledEmbeddingServices()
+    {
+        var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
+        var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+
+        previewContent.Should().Contain("!item.IsDisabled");
+        workflowContent.Should().Contain("!item.IsDisabled");
+    }
+
+    [Fact]
+    public void ExactMatchOnly_ShouldNotRequireEmbeddingService()
+    {
+        var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
+        var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+
+        previewContent.Should().NotMatchRegex(
+            @"if\s*\(\s*config\.ExactMatchOnly\s*\)\s*\{\s*await EnsureEmbeddingServiceConfiguredAsync",
+            "仅精确匹配只比较项目+规格文本，不应依赖 Embedding 服务");
+        workflowContent.Should().NotMatchRegex(
+            @"if\s*\(\s*config\.ExactMatchOnly\s*\)\s*\{\s*await EnsureEmbeddingServiceConfiguredAsync",
+            "仅精确匹配只比较项目+规格文本，不应依赖 Embedding 服务");
+    }
+
     private static string ReadFile(string relativePath)
     {
         return File.ReadAllText(Path.Combine(GetRepositoryRoot(), relativePath.Replace('/', Path.DirectorySeparatorChar)));

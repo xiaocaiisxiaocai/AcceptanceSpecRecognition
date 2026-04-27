@@ -10,6 +10,7 @@ import {
 } from "@/api/execution-history";
 import ExecutionHistoryBatchReplyDetail from "./components/ExecutionHistoryBatchReplyDetail.vue";
 import ExecutionHistorySmartFillPlayback from "./components/ExecutionHistorySmartFillPlayback.vue";
+import { formatExecutionHistoryDateTime } from "./executionHistory.formatters";
 
 defineOptions({
   name: "ExecutionHistory"
@@ -56,17 +57,12 @@ const currentSmartFillSummary = computed<ExecutionHistorySmartFillSummary | unde
 const taskTypeText = (taskType: string) =>
   taskType === "batch-reply" ? "批量回复" : "智能填充";
 
-const formatDateTime = (value?: string) => {
-  if (!value) return "-";
-  return new Date(value).toLocaleString();
-};
-
 const formatTaskOptionLabel = (item: ExecutionHistoryListItem) => {
   const summary = item.taskType === "smart-fill" && item.smartFillSummary
     ? `完全 ${item.smartFillSummary.exactMatchedRowCount ?? "-"} / AI ${item.smartFillSummary.aiMatchedRowCount ?? "-"} / 未采用或未匹配 ${item.smartFillSummary.notUsedRowCount ?? "-"}`
     : `已采用 ${item.adoptedRowCount} / 未匹配 ${item.unmatchedRowCount}`;
 
-  return `${taskTypeText(item.taskType)}｜${item.sourceFileName}｜${formatDateTime(item.createdAt)}｜${summary}`;
+  return `${taskTypeText(item.taskType)}｜${item.sourceFileName}｜${formatExecutionHistoryDateTime(item.createdAt)}｜${summary}`;
 };
 
 const summaryCards = computed(() => {
@@ -247,7 +243,7 @@ onMounted(() => {
           <div class="task-brief__meta">
             <span>{{ taskTypeText(currentTask.taskType) }}</span>
             <span>任务ID {{ currentTask.taskId }}</span>
-            <span>{{ formatDateTime(currentTask.createdAt) }}</span>
+            <span>{{ formatExecutionHistoryDateTime(currentTask.createdAt) }}</span>
           </div>
         </div>
       </div>

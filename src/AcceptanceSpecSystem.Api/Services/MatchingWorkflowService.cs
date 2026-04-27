@@ -622,7 +622,16 @@ public sealed class MatchingWorkflowSupportService
                 var selectedSpecId = mapping.SpecId ?? 0;
                 if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
                 {
-                    totalSkipped++;
+                    if (TryCreateManualFillResult(mapping, out var manualFillResult))
+                    {
+                        entry.FillResults.Add(manualFillResult);
+                        adoptedRowLookup[tableFill.TableIndex].Add(mapping.RowIndex);
+                        totalFilled++;
+                    }
+                    else
+                    {
+                        totalSkipped++;
+                    }
                 }
                 else
                 {
@@ -891,6 +900,32 @@ public sealed class MatchingWorkflowSupportService
             Acceptance = fillResult.Acceptance,
             Remark = fillResult.Remark
         };
+    }
+
+    private static bool TryCreateManualFillResult(FillMapping mapping, out FillResult fillResult)
+    {
+        fillResult = null!;
+        if (!mapping.ManualFill)
+        {
+            return false;
+        }
+
+        var hasManualValue =
+            !string.IsNullOrWhiteSpace(mapping.OverrideAcceptance) ||
+            !string.IsNullOrWhiteSpace(mapping.OverrideRemark);
+        if (!hasManualValue)
+        {
+            return false;
+        }
+
+        fillResult = new FillResult
+        {
+            RowIndex = mapping.RowIndex,
+            SpecId = 0,
+            Acceptance = mapping.OverrideAcceptance ?? string.Empty,
+            Remark = mapping.OverrideRemark
+        };
+        return true;
     }
 
     private async Task SaveExecutionHistoryAsync(
@@ -1357,7 +1392,8 @@ public sealed class MatchingWorkflowSupportService
             processId,
             machineModelId,
             scope,
-            config.EmbeddingServiceId);
+            config.EmbeddingServiceId,
+            hydrateEmbeddings: !config.ExactMatchOnly);
 
         if (candidates.Count == 0)
         {
@@ -1387,7 +1423,9 @@ public sealed class MatchingWorkflowSupportService
         BatchMatchResult batchResult;
         try
         {
-            batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
+            batchResult = config.ExactMatchOnly
+                ? BuildExactMatchBatchResult(sourceItems, processedCandidates, config)
+                : await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
         }
         catch (AiServiceUnavailableException ex)
         {
@@ -1490,7 +1528,8 @@ public sealed class MatchingWorkflowSupportService
         int? processId,
         int? machineModelId,
         DataScopeResult scope,
-        int? embeddingServiceId)
+        int? embeddingServiceId,
+        bool hydrateEmbeddings = true)
     {
         var baseQuery = BuildCandidateSpecQuery(customerId, processId, machineModelId);
         var scopedQuery = ApplySpecScopeToQuery(baseQuery, scope);
@@ -1537,9 +1576,113 @@ public sealed class MatchingWorkflowSupportService
         }).ToList();
 
         // 复用 EmbeddingCache（避免每次都重新调用 Embedding API）
-        await HydrateCandidateEmbeddingsAsync(candidates, embeddingServiceId);
+        if (hydrateEmbeddings)
+        {
+            await HydrateCandidateEmbeddingsAsync(candidates, embeddingServiceId);
+        }
 
         return candidates;
+    }
+
+    private async Task EnsureEmbeddingServiceConfiguredAsync(int? embeddingServiceId)
+    {
+        var configs = await _aiServiceSelector.GetCandidatesAsync(
+            CoreAiServicePurpose.Embedding,
+            embeddingServiceId);
+        if (configs.Count == 0)
+        {
+            throw Failure(400, "Embedding 服务不可用: 未检测到可用的 Embedding 服务配置");
+        }
+    }
+
+    private static BatchMatchResult BuildExactMatchBatchResult(
+        IReadOnlyList<MatchSource> sources,
+        IReadOnlyList<MatchCandidate> candidates,
+        MatchingConfig config)
+    {
+        var lookup = candidates
+            .GroupBy(candidate => BuildCandidateDedupKey(candidate.Project, candidate.Specification))
+            .ToDictionary(group => group.Key, group => group.First());
+
+        return new BatchMatchResult
+        {
+            Results = sources
+                .Select(source =>
+                {
+                    var key = BuildCandidateDedupKey(source.Project, source.Specification);
+                    return lookup.TryGetValue(key, out var candidate)
+                        ? CreateExactMatchResult(source, candidate, config)
+                        : new MatchResult
+                        {
+                            SourceText = source.CombinedText,
+                            MinScoreThreshold = config.MinScoreThreshold,
+                            HighConfidenceThreshold = config.HighConfidenceThreshold,
+                            Decision = MatchDecision.ManualReview
+                        };
+                })
+                .ToList()
+        };
+    }
+
+    private static MatchResult CreateExactMatchResult(
+        MatchSource source,
+        MatchCandidate candidate,
+        MatchingConfig config)
+    {
+        var scoreDetails = new Dictionary<string, double>
+        {
+            ["Final"] = 1,
+            ["Embedding"] = 1,
+            ["Exact"] = 1
+        };
+
+        var equivalence = new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Reason = "项目与规格文本完全一致，已直接视为等价",
+            Confidence = 1
+        };
+
+        return new MatchResult
+        {
+            SourceText = source.CombinedText,
+            MatchedText = candidate.CombinedText,
+            MatchedSpecId = candidate.SpecId,
+            MatchedProject = candidate.Project,
+            MatchedSpecification = candidate.Specification,
+            MatchedAcceptance = candidate.Acceptance,
+            MatchedRemark = candidate.Remark,
+            Score = 1,
+            EmbeddingScore = 1,
+            ScoreDetails = scoreDetails,
+            Decision = MatchDecision.AutoApply,
+            SelectionMode = MatchSelectionMode.ExactShortcut,
+            SelectionSummary = "项目与规格精确一致，直接命中",
+            RecalledCandidateCount = 1,
+            IsAmbiguous = false,
+            MinScoreThreshold = config.MinScoreThreshold,
+            HighConfidenceThreshold = config.HighConfidenceThreshold,
+            LlmEquivalence = equivalence,
+            TopCandidates =
+            [
+                new MatchCandidateSnapshot
+                {
+                    Rank = 1,
+                    SpecId = candidate.SpecId,
+                    Project = candidate.Project,
+                    Specification = candidate.Specification,
+                    Acceptance = candidate.Acceptance,
+                    Remark = candidate.Remark,
+                    Score = 1,
+                    EmbeddingScore = 1,
+                    ScoreDetails = scoreDetails,
+                    SelectionMode = MatchSelectionMode.ExactShortcut,
+                    SelectionSummary = "项目与规格精确一致，直接命中",
+                    LlmEquivalence = equivalence
+                }
+            ]
+        };
     }
 
     /// <summary>
@@ -1845,6 +1988,7 @@ public sealed class MatchingWorkflowSupportService
             LlmRowTimeoutSeconds = Math.Clamp(dto?.LlmRowTimeoutSeconds ?? fallbackConfig.LlmRowTimeoutSeconds, 5, 300),
             LlmRetryCount = Math.Clamp(dto?.LlmRetryCount ?? fallbackConfig.LlmRetryCount, 0, 3),
             LlmCircuitBreakFailures = Math.Clamp(dto?.LlmCircuitBreakFailures ?? fallbackConfig.LlmCircuitBreakFailures, 3, 200),
+            ExactMatchOnly = dto?.ExactMatchOnly ?? fallbackConfig.ExactMatchOnly,
             FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows
         };
     }
@@ -1855,7 +1999,9 @@ public sealed class MatchingWorkflowSupportService
         var query = _unitOfWork.AiServiceConfigs
             .Query()
             .AsNoTracking()
-            .Where(item => (item.Purpose & AiServicePurpose.Embedding) == AiServicePurpose.Embedding);
+            .Where(item =>
+                !item.IsDisabled &&
+                (item.Purpose & AiServicePurpose.Embedding) == AiServicePurpose.Embedding);
 
         AiServiceConfig? embeddingService;
         if (embeddingServiceId.HasValue)

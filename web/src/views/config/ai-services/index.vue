@@ -9,6 +9,7 @@ import {
   getAiServiceById,
   getAiServiceList,
   getAiServiceModels,
+  setAiServiceDisabled,
   testAiServiceConnection,
   type AiServiceTestResult,
   updateAiService,
@@ -33,6 +34,7 @@ const tableData = ref<AiServiceConfig[]>([]);
 const showAllConfigs = ref(false);
 const testingState = reactive<Record<string, boolean>>({});
 const probingState = reactive<Record<string, boolean>>({});
+const disabledState = reactive<Record<string, boolean>>({});
 const expandedTestRowKeys = ref<string[]>([]);
 const TEST_ACTION_LABEL = "完整测试";
 
@@ -365,10 +367,11 @@ const formatValue = (value?: string | number | null) => {
 };
 
 const pickConfigByPurpose = (purpose: AiServicePurpose) => {
-  const exact = tableData.value.find(item => item.purpose === purpose);
+  const enabledConfigs = tableData.value.filter(item => !item.isDisabled);
+  const exact = enabledConfigs.find(item => item.purpose === purpose);
   if (exact) return exact;
   return (
-    tableData.value.find(item => hasPurpose(item.purpose, purpose)) || null
+    enabledConfigs.find(item => hasPurpose(item.purpose, purpose)) || null
   );
 };
 
@@ -378,14 +381,15 @@ const embeddingConfig = computed(() =>
 );
 const llmCount = computed(
   () =>
-    tableData.value.filter(item =>
-      hasPurpose(item.purpose, AiServicePurpose.Llm)
+    tableData.value.filter(
+      item => !item.isDisabled && hasPurpose(item.purpose, AiServicePurpose.Llm)
     ).length
 );
 const embeddingCount = computed(
   () =>
-    tableData.value.filter(item =>
-      hasPurpose(item.purpose, AiServicePurpose.Embedding)
+    tableData.value.filter(
+      item =>
+        !item.isDisabled && hasPurpose(item.purpose, AiServicePurpose.Embedding)
     ).length
 );
 
@@ -514,10 +518,55 @@ const handleDelete = async (row: AiServiceConfig) => {
   }
 };
 
+const handleToggleDisabled = async (row: AiServiceConfig) => {
+  if (
+    !ensurePermission("btn:ai-service:update", "权限不足，无法修改AI服务配置")
+  ) {
+    return;
+  }
+
+  const nextDisabled = !row.isDisabled;
+  try {
+    await ElMessageBox.confirm(
+      nextDisabled
+        ? `确定禁用配置“${row.name}”吗？禁用后不会被智能填充等 AI 功能使用。`
+        : `确定启用配置“${row.name}”吗？`,
+      "提示",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: nextDisabled ? "warning" : "info"
+      }
+    );
+
+    setRowLoading(disabledState, row.id, true);
+    const res = await setAiServiceDisabled(row.id, nextDisabled);
+    if (res.code === 0) {
+      if (nextDisabled && activeTestResult.value?.rowId === row.id) {
+        clearInlineTestResult();
+      }
+      ElMessage.success(nextDisabled ? "已禁用" : "已启用");
+      await loadData();
+    } else {
+      ElMessage.error(res.message || "操作失败");
+    }
+  } catch (error) {
+    if (error !== "cancel" && error !== "close") {
+      ElMessage.error(extractErrorMessage(error, "操作失败"));
+    }
+  } finally {
+    setRowLoading(disabledState, row.id, false);
+  }
+};
+
 const handleTest = async (row: AiServiceConfig) => {
   if (
     !ensurePermission("btn:ai-service:test", "权限不足，无法测试AI服务配置")
   ) {
+    return;
+  }
+  if (row.isDisabled) {
+    ElMessage.warning("该配置已禁用，不能测试");
     return;
   }
   const testingKey = row.id;
@@ -572,6 +621,10 @@ const handleProbeModels = async (row: AiServiceConfig) => {
   if (
     !ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")
   ) {
+    return;
+  }
+  if (row.isDisabled) {
+    ElMessage.warning("该配置已禁用，不能探测模型");
     return;
   }
   if (isRowLoading(probingState, row.id)) {
@@ -751,6 +804,9 @@ onMounted(loadData);
         <div class="page-title">AI 服务配置</div>
         <div class="page-subtitle">管理 LLM 与 Embedding 服务连接</div>
       </div>
+      <el-button v-if="tableData.length" @click="showAllConfigs = !showAllConfigs">
+        {{ showAllConfigs ? "收起全部" : "查看全部" }}
+      </el-button>
     </div>
     <el-alert
       v-if="llmCount > 1 || embeddingCount > 1"
@@ -787,6 +843,16 @@ onMounted(loadData);
                   @click="handleEdit(llmConfig)"
                 >
                   编辑
+                </el-button>
+                <el-button
+                  v-if="canUpdate"
+                  type="warning"
+                  link
+                  :loading="isRowLoading(disabledState, llmConfig.id)"
+                  :disabled="isRowLoading(disabledState, llmConfig.id)"
+                  @click="handleToggleDisabled(llmConfig)"
+                >
+                  禁用
                 </el-button>
                 <el-button
                   v-if="canDelete"
@@ -867,6 +933,16 @@ onMounted(loadData);
                   @click="handleEdit(embeddingConfig)"
                 >
                   编辑
+                </el-button>
+                <el-button
+                  v-if="canUpdate"
+                  type="warning"
+                  link
+                  :loading="isRowLoading(disabledState, embeddingConfig.id)"
+                  :disabled="isRowLoading(disabledState, embeddingConfig.id)"
+                  @click="handleToggleDisabled(embeddingConfig)"
+                >
+                  禁用
                 </el-button>
                 <el-button
                   v-if="canDelete"
@@ -1018,6 +1094,17 @@ onMounted(loadData);
         </el-table-column>
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="名称" min-width="180" />
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag
+              :type="row.isDisabled ? 'info' : 'success'"
+              size="small"
+              effect="light"
+            >
+              {{ row.isDisabled ? "已禁用" : "启用中" }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="serviceType" label="类型" width="160">
           <template #default="{ row }">
             {{ getServiceTypeLabel(row.serviceType) }}
@@ -1043,7 +1130,7 @@ onMounted(loadData);
         <el-table-column
           v-if="hasActionButtons"
           label="操作"
-          width="300"
+          width="360"
           fixed="right"
         >
           <template #default="{ row }">
@@ -1054,6 +1141,16 @@ onMounted(loadData);
               @click="handleEdit(row)"
             >
               编辑
+            </el-button>
+            <el-button
+              v-if="canUpdate"
+              :type="row.isDisabled ? 'success' : 'warning'"
+              link
+              :loading="isRowLoading(disabledState, row.id)"
+              :disabled="isRowLoading(disabledState, row.id)"
+              @click="handleToggleDisabled(row)"
+            >
+              {{ row.isDisabled ? "启用" : "禁用" }}
             </el-button>
             <el-button
               v-if="canDelete"
@@ -1068,7 +1165,7 @@ onMounted(loadData);
               type="warning"
               link
               :loading="isRowLoading(testingState, row.id)"
-              :disabled="isRowLoading(testingState, row.id)"
+              :disabled="row.isDisabled || isRowLoading(testingState, row.id)"
               @click="handleTest(row)"
             >
               完整测试
@@ -1078,7 +1175,7 @@ onMounted(loadData);
               type="success"
               link
               :loading="isRowLoading(probingState, row.id)"
-              :disabled="isRowLoading(probingState, row.id)"
+              :disabled="row.isDisabled || isRowLoading(probingState, row.id)"
               @click="handleProbeModels(row)"
             >
               模型
@@ -1276,6 +1373,13 @@ onMounted(loadData);
 
 .config-alert {
   margin-bottom: 8px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .service-grid {

@@ -156,16 +156,29 @@ const loadAiServices = async () => {
     const res = await getAiServiceList({ page: 1, pageSize: 200 });
     if (res.code === 0) {
       const items = res.data.items;
-      embeddingServices.value = items.filter(
+      const enabledItems = items.filter(item => !item.isDisabled);
+      embeddingServices.value = enabledItems.filter(
         (s) =>
           (s.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
           !!s.embeddingModel
       );
-      llmServices.value = items.filter(
+      llmServices.value = enabledItems.filter(
         (s) =>
           (s.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
           !!s.llmModel
       );
+      if (
+        config.value.embeddingServiceId &&
+        !embeddingServices.value.some(service => service.id === config.value.embeddingServiceId)
+      ) {
+        config.value.embeddingServiceId = undefined;
+      }
+      if (
+        config.value.llmServiceId &&
+        !llmServices.value.some(service => service.id === config.value.llmServiceId)
+      ) {
+        config.value.llmServiceId = undefined;
+      }
       // 自动选择第一个可用服务（如果尚未选择）
       if (!config.value.embeddingServiceId && embeddingServices.value.length > 0) {
         config.value.embeddingServiceId = embeddingServices.value[0].id;
@@ -334,6 +347,28 @@ defineExpose({
     <div class="config-section">
       <div class="section-title">匹配设置</div>
       <el-form label-width="130px">
+        <el-form-item label="仅精确匹配">
+          <div class="exact-match-option">
+            <el-switch
+              v-model="config.exactMatchOnly"
+              active-text="开启"
+              inactive-text="关闭"
+            />
+            <div class="exact-match-option__title">仅匹配项目+规格完全一致</div>
+            <div class="form-inline-tip">
+              开启后无需 AI/Embedding，只采用项目+规格完全一致的规格；未命中行可手工填写验收标准和备注。
+            </div>
+            <el-alert
+              v-if="!loadingAiServices && !hasAvailableEmbeddingService"
+              type="info"
+              :closable="false"
+              show-icon
+              title="Embedding 不可用时可开启此模式"
+              description="即使未配置可用 Embedding，也可以开启仅精确匹配继续预览。"
+              class="service-status-alert"
+            />
+          </div>
+        </el-form-item>
         <el-form-item label="Embedding 服务">
           <el-select
             v-model="config.embeddingServiceId"
@@ -356,7 +391,11 @@ defineExpose({
             :closable="false"
             show-icon
             title="未检测到可用 Embedding 服务"
-            description="请先在 AI 服务配置中启用至少一个带 Embedding 模型的服务。"
+            :description="
+              config.exactMatchOnly
+                ? '当前已开启仅精确匹配，可继续预览完全一致命中；如需语义召回，请启用 Embedding 服务。'
+                : '请先在 AI 服务配置中启用至少一个带 Embedding 模型的服务，或开启上方仅精确匹配。'
+            "
             class="service-status-alert"
           />
         </el-form-item>
@@ -617,6 +656,19 @@ export default {
 
 .service-status-alert {
   margin-top: 12px;
+}
+
+.exact-match-option {
+  width: 100%;
+}
+
+.exact-match-option__title {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
 }
 
 .llm-row {

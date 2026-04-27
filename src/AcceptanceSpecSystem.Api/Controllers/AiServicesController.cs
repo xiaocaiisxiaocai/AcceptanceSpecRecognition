@@ -238,6 +238,28 @@ public class AiServicesController : BaseApiController
     }
 
     /// <summary>
+    /// 启用或禁用AI服务配置
+    /// </summary>
+    [HttpPut("{id}/disabled")]
+    [AuditOperation("update", "ai-service")]
+    [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> SetDisabled(int id, [FromBody] SetAiServiceDisabledRequest request)
+    {
+        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
+        if (entity == null)
+            return Error<AiServiceConfigDto>(400, "配置不存在");
+
+        entity.IsDisabled = request.IsDisabled;
+        entity.UpdatedAt = DateTime.UtcNow;
+        _unitOfWork.AiServiceConfigs.Update(entity);
+
+        await _unitOfWork.SaveChangesAsync();
+
+        return Success(ToDto(entity), request.IsDisabled ? "已禁用" : "已启用");
+    }
+
+    /// <summary>
     /// 删除AI服务配置
     /// </summary>
     [HttpDelete("{id}")]
@@ -268,6 +290,8 @@ public class AiServicesController : BaseApiController
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
         if (entity == null)
             return Error<AiServiceTestResultDto>(400, "配置不存在");
+        if (entity.IsDisabled)
+            return Error<AiServiceTestResultDto>(400, "配置已禁用");
         if (entity.IsLegacyDualPurposeConfiguration())
             return Error<AiServiceTestResultDto>(400, BuildLegacyDualPurposeMessage());
 
@@ -703,6 +727,8 @@ public class AiServicesController : BaseApiController
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
         if (entity == null)
             return Error<AiServiceModelsResultDto>(400, "配置不存在");
+        if (entity.IsDisabled)
+            return Error<AiServiceModelsResultDto>(400, "配置已禁用");
         if (entity.IsLegacyDualPurposeConfiguration())
             return Error<AiServiceModelsResultDto>(400, BuildLegacyDualPurposeMessage());
 
@@ -724,6 +750,7 @@ public class AiServicesController : BaseApiController
             EmbeddingModel = effectivePurpose.HasFlag(AiServicePurpose.Embedding) ? c.EmbeddingModel : null,
             LlmModel = effectivePurpose.HasFlag(AiServicePurpose.Llm) ? c.LlmModel : null,
             DisableThinking = c.DisableThinking,
+            IsDisabled = c.IsDisabled,
             DefaultRecallTopK = c.DefaultRecallTopK,
             HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
             CreatedAt = c.CreatedAt,
@@ -745,6 +772,7 @@ public class AiServicesController : BaseApiController
             EmbeddingModel = effectivePurpose.HasFlag(AiServicePurpose.Embedding) ? c.EmbeddingModel : null,
             LlmModel = effectivePurpose.HasFlag(AiServicePurpose.Llm) ? c.LlmModel : null,
             DisableThinking = c.DisableThinking,
+            IsDisabled = c.IsDisabled,
             DefaultRecallTopK = c.DefaultRecallTopK,
             HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
             ApiKey = MaskApiKey(c.ApiKey),

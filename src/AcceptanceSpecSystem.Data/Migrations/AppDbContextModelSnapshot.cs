@@ -111,6 +111,11 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<string>("Endpoint")
                         .HasColumnType("longtext");
 
+                    b.Property<bool>("IsDisabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("LlmModel")
                         .HasColumnType("longtext");
 

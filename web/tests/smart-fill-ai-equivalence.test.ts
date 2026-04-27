@@ -585,6 +585,46 @@ test("智能填充执行请求应透传本次导出覆盖值，而不是只发�
   assert.match(smartFillPageSource, /overrideRemark:\s*s\.overrideRemark/);
 });
 
+test("智能填充前端应支持仅精确匹配模式与未命中行手工填充", () => {
+  const matchingApiSource = readProjectFile("web/src/api/matching.ts");
+  const matchConfigSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchConfig.vue"
+  );
+  const previewTabsSource = readProjectFile(
+    "web/src/views/smart-fill/components/BatchPreviewTabs.vue"
+  );
+  const previewTableSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchPreviewTable.vue"
+  );
+  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const matchConfigBlock = getInterfaceBlock(matchingApiSource, "MatchConfig");
+  const fillMappingBlock = getInterfaceBlock(matchingApiSource, "FillMapping");
+
+  assert.match(matchConfigBlock, /exactMatchOnly\?: boolean;/);
+  assert.match(matchingApiSource, /exactMatchOnly:\s*false/);
+  assert.match(fillMappingBlock, /manualFill\?: boolean;/);
+  assert.match(matchConfigSource, /仅精确匹配/);
+  assert.match(matchConfigSource, /项目\+规格完全一致/);
+  assert.match(previewTabsSource, /manualFill\?: boolean;/);
+  assert.match(previewTableSource, /manualFill\?: boolean;/);
+  assert.doesNotMatch(
+    previewTableSource,
+    /const openEditDialog = \(item: MatchPreviewItem\) => \{\s*if \(!item\.bestMatch/
+  );
+  assert.doesNotMatch(
+    previewTableSource,
+    /const handleSaveEditedSelection = \(\) => \{[\s\S]*?if \(!item\?\.bestMatch/
+  );
+  assert.match(previewTableSource, /type: "manual"/);
+  assert.match(previewTableSource, /manualFill:\s*selection\?\.type === "manual"/);
+  assert.match(previewTableSource, /已手工填写/);
+  assert.match(smartFillPageSource, /manualFill:\s*s\.manualFill/);
+  assert.match(
+    smartFillPageSource,
+    /if \(matchConfig\.value\.exactMatchOnly\) \{[\s\S]*return;[\s\S]*\}[\s\S]*startLlmStream\(\)/
+  );
+});
+
 test("智能填充预览页应提供编辑弹窗、保存并采用和已编辑标记", () => {
   const previewTableSource = readProjectFile(
     "web/src/views/smart-fill/components/MatchPreviewTable.vue"
@@ -898,4 +938,60 @@ test("smart-fill 页面应在预览前给出 Embedding 与范围空态引导", (
   assert.match(smartFillPageSource, /范围内无候选数据/);
   assert.match(smartFillPageSource, /Embedding 服务不可用/);
   assert.match(smartFillPageSource, /v-if="previewBlockingMessage"/);
+});
+
+test("智能填充服务下拉应过滤禁用的 AI 服务，并清空已禁用选中项", () => {
+  const matchConfigSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchConfig.vue"
+  );
+
+  assert.match(matchConfigSource, /const enabledItems = items\.filter\(item => !item\.isDisabled\);/);
+  assert.match(matchConfigSource, /config\.value\.embeddingServiceId = undefined;/);
+  assert.match(matchConfigSource, /config\.value\.llmServiceId = undefined;/);
+  assert.doesNotMatch(
+    matchConfigSource,
+    /embeddingServices\.value = items\.filter\([\s\S]*llmServices\.value = items\.filter/
+  );
+});
+
+test("导入数据页疑似重复识别下拉应过滤禁用的 AI 服务，并清空已禁用选中项", () => {
+  const dataImportSource = readProjectFile("web/src/views/data-import/index.vue");
+
+  assert.match(dataImportSource, /const enabledItems = items\.filter\(item => !item\.isDisabled\);/);
+  assert.match(dataImportSource, /importDuplicateAiConfig\.value\.embeddingServiceId = undefined;/);
+  assert.match(dataImportSource, /importDuplicateAiConfig\.value\.llmServiceId = undefined;/);
+  assert.doesNotMatch(
+    dataImportSource,
+    /embeddingServices\.value = items\.filter\([\s\S]*llmServices\.value = items\.filter/
+  );
+});
+
+test("仅精确匹配模式不应被 Embedding 空态阻塞，并应给出明显入口", () => {
+  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const matchConfigSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchConfig.vue"
+  );
+
+  assert.match(
+    smartFillPageSource,
+    /const getPrePreviewBlockingMessage = \(\) => \{[\s\S]*if \(matchConfig\.value\.exactMatchOnly\) \{[\s\S]*return "";/,
+    "仅精确匹配开启后，前端不应再要求可用 Embedding 服务"
+  );
+  assert.match(matchConfigSource, /仅匹配项目\+规格完全一致/);
+  assert.match(matchConfigSource, /无需 AI\/Embedding/);
+  assert.match(matchConfigSource, /即使未配置可用 Embedding/);
+});
+
+test("预览零命中但存在源行时应展示未命中行，不能直接进入空态", () => {
+  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+
+  assert.match(
+    smartFillPageSource,
+    /const hasPreviewRows = res\.data\.tables\.some\(table => table\.items\.length > 0\);/
+  );
+  assert.match(smartFillPageSource, /if \(!hasPreviewRows\) \{/);
+  assert.doesNotMatch(
+    smartFillPageSource,
+    /if \(res\.data\.totalMatched === 0\) \{[\s\S]*previewState\.value = "emptyResults"/
+  );
 });
