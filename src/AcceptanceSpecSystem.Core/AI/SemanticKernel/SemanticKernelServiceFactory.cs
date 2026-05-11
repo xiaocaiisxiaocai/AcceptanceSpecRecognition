@@ -17,6 +17,13 @@ public interface ISemanticKernelServiceFactory
     IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfigModel config);
 }
 
+public static class AiServiceHttpClientDefaults
+{
+    public const string OllamaNativeChatClientName = "OllamaNativeChatCompletionService";
+
+    public static readonly TimeSpan LongRunningNetworkTimeout = TimeSpan.FromHours(12);
+}
+
 /// <summary>
 /// Semantic Kernel 服务工厂（统一构建 LLM/Embedding 连接器）
 /// 使用有界缓存复用实例，避免无限增长。
@@ -216,7 +223,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         {
             Endpoint = new Uri(endpoint),
             // OpenAI 兼容 SDK 需要保留网络超时配置，这里放宽到长时间推理可接受的级别。
-            NetworkTimeout = OllamaNativeChatCompletionService.DefaultLongRunningNetworkTimeout
+            NetworkTimeout = AiServiceHttpClientDefaults.LongRunningNetworkTimeout
         };
         var credential = new ApiKeyCredential(config.ApiKey ?? "sk-placeholder");
         return new OpenAIClient(credential, options);
@@ -224,7 +231,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
 
     private HttpClient CreateOllamaHttpClient()
     {
-        return _httpClientFactory.CreateClient(nameof(OllamaNativeChatCompletionService));
+        return _httpClientFactory.CreateClient(AiServiceHttpClientDefaults.OllamaNativeChatClientName);
     }
 
     private static string BuildOpenAiEndpoint(AiServiceConfigModel config)

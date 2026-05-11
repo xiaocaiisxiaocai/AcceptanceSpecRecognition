@@ -17,7 +17,6 @@ namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 /// </summary>
 internal sealed class OllamaNativeChatCompletionService : IChatCompletionService, IDisposable
 {
-    internal static readonly TimeSpan DefaultLongRunningNetworkTimeout = TimeSpan.FromHours(12);
     private const string KeepAlive = "30m";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {

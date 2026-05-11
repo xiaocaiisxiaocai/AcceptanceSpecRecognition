@@ -692,6 +692,17 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void Program_ShouldConfigureOllamaNativeHttpClientLongTimeout()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Program.cs".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().Contain("AddHttpClient(AiServiceHttpClientDefaults.OllamaNativeChatClientName", "Ollama 原生聊天不能使用 HttpClient 默认 100 秒超时");
+        content.Should().Contain("client.Timeout = AiServiceHttpClientDefaults.LongRunningNetworkTimeout", "慢模型推理应沿用长网络超时配置");
+    }
+
+    [Fact]
     public void AuthRolePermissionTouch_ShouldUseSetBasedUpdate()
     {
         var authRoleAppServiceContent = File.ReadAllText(Path.Combine(
