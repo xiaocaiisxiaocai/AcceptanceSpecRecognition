@@ -20,7 +20,8 @@ export default {
       meta: {
         icon: "ri:compare-line",
         title: getPageTitle("file-compare-index"),
-        permissions: getPagePermission("file-compare-index")
+        permissions: getPagePermission("file-compare-index"),
+        keepAlive: true
       }
     }
   ]

@@ -404,6 +404,11 @@ public class MatchingConfig
     public int LlmCircuitBreakFailures { get; set; } = 10;
 
     /// <summary>
+    /// 是否在同步匹配阶段启用 LLM 等价裁决。
+    /// </summary>
+    public bool EnableLlmEquivalenceAdjudication { get; set; } = true;
+
+    /// <summary>
     /// 是否仅按项目+规格完全一致命中
     /// </summary>
     public bool ExactMatchOnly { get; set; }

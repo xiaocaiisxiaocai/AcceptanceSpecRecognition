@@ -20,7 +20,8 @@ export default {
       meta: {
         icon: "ri:file-copy-2-line",
         title: getPageTitle("batch-reply-index"),
-        permissions: getPagePermission("batch-reply-index")
+        permissions: getPagePermission("batch-reply-index"),
+        keepAlive: true
       }
     }
   ]

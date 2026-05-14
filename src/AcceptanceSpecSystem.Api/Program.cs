@@ -176,6 +176,7 @@ builder.Services.AddScoped<MatchingPreviewAppService>();
 builder.Services.AddScoped<MatchingLlmStreamAppService>();
 builder.Services.AddScoped<MatchingFillExecutionAppService>();
 builder.Services.AddScoped<MatchingExecutionAppService>();
+builder.Services.AddScoped<SmartFillSpecBackfillAppService>();
 builder.Services.AddScoped<MatchingTaskAppService>();
 builder.Services.AddScoped<ExecutionHistoryAppService>();
 builder.Services.AddScoped<SystemPromptTemplateInitializer>();

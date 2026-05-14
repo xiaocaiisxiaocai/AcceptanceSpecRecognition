@@ -21,7 +21,7 @@ import UnifiedDiffView from "./components/UnifiedDiffView.vue";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
-defineOptions({ name: "FileCompare" });
+defineOptions({ name: "FileComparePage" });
 
 type CompareViewMode = "document" | "unified";
 type WordPaneSide = "left" | "right";

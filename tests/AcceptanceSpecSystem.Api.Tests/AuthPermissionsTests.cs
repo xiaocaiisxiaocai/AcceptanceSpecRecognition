@@ -179,6 +179,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("btn:matching:download");
         permissions.Should().Contain("btn:matching-fill:llm-stream");
         permissions.Should().Contain("btn:matching-fill:execute-batch");
+        permissions.Should().Contain("api:matching-fill:spec-backfill");
         permissions.Should().NotContain("btn:matching:preview");
         permissions.Should().NotContain("btn:matching-fill:execute");
         permissions.Should().NotContain("btn:matching:llm-stream");

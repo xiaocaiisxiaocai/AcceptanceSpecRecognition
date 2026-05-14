@@ -895,6 +895,9 @@ public class SemanticKernelMatchingService : IMatchingService
         EvaluatedCandidate candidate,
         MatchingConfig config)
     {
+        if (!config.EnableLlmEquivalenceAdjudication)
+            return false;
+
         var llmGateThreshold = Math.Clamp(config.MinScoreThreshold, 0, 1);
         var shouldRunByFinalScore = candidate.FinalScore >= llmGateThreshold;
         var shouldRunByEmbedding = candidate.EmbeddingScore >= llmGateThreshold;

@@ -582,6 +582,7 @@ public static class AuthUserSeedService
             "btn:matching:download",
             "api:matching-fill:llm-stream",
             "api:matching-fill:execute-batch",
+            "api:matching-fill:spec-backfill",
             "btn:matching-fill:llm-stream",
             "btn:matching-fill:execute-batch",
             "api:batch-reply:read",

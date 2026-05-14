@@ -1,0 +1,11 @@
+## 1. Implementation
+- [x] 1.1 梳理现有智能填充预览编辑状态，定义“手动修改过”的前端判定与提交结构。
+- [x] 1.2 新增智能填充回填验收规格 API DTO、控制器动作与应用服务。
+- [x] 1.3 实现已匹配行更新现有 `AcceptanceSpec` 的验收标准与备注，并校验当前用户数据范围权限。
+- [x] 1.4 实现未匹配手工填写行新增 `AcceptanceSpec`，使用当前客户、制程、机型范围与源项目/规格。
+- [x] 1.5 回填后处理相关 Embedding 缓存失效或刷新，避免后续匹配使用旧向量。
+- [x] 1.6 前端新增回填确认弹窗，支持默认全选、部分选择、不回填继续执行。
+- [x] 1.7 将确认回填流程接入 `执行填充` 按钮，保证回填成功后继续原文档填充流程。
+- [x] 1.8 补充 API 测试：已匹配更新、未匹配新增、越权/无效 `specId` 拒绝、空回填列表拒绝或无操作。
+- [x] 1.9 补充前端测试或源码回归断言：编辑项进入回填弹窗、可选择部分回填、不回填仍执行填充。
+- [x] 1.10 运行 `dotnet test AcceptanceSpecSystem.sln -c Debug` 与 `pnpm build`。`pnpm build` 已通过；`dotnet test AcceptanceSpecSystem.sln -c Debug` 已执行，但存在 2 个与本变更无关的 `AcceptanceSpecSystem.Core.Tests.EvidenceDrivenSemanticMatchingTests` 既有失败。

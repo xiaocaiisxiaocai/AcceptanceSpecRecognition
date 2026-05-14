@@ -13,10 +13,14 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 public class MatchingExecutionController : MatchingApiControllerBase
 {
     private readonly MatchingExecutionAppService _matchingExecutionAppService;
+    private readonly SmartFillSpecBackfillAppService _smartFillSpecBackfillAppService;
 
-    public MatchingExecutionController(MatchingExecutionAppService matchingExecutionAppService)
+    public MatchingExecutionController(
+        MatchingExecutionAppService matchingExecutionAppService,
+        SmartFillSpecBackfillAppService smartFillSpecBackfillAppService)
     {
         _matchingExecutionAppService = matchingExecutionAppService;
+        _smartFillSpecBackfillAppService = smartFillSpecBackfillAppService;
     }
 
     [HttpPost("llm-stream")]
@@ -45,5 +49,15 @@ public class MatchingExecutionController : MatchingApiControllerBase
     public Task<ActionResult<ApiResponse<ExecuteFillResponse>>> BatchExecuteFill([FromBody] BatchExecuteFillRequest request)
     {
         return HandleAsync(() => _matchingExecutionAppService.BatchExecuteFillAsync(User, request));
+    }
+
+    [HttpPost("spec-backfill")]
+    [AuditOperation("spec-backfill", "matching-fill")]
+    [ProducesResponseType(typeof(ApiResponse<SmartFillSpecBackfillResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SmartFillSpecBackfillResponse>), StatusCodes.Status400BadRequest)]
+    public Task<ActionResult<ApiResponse<SmartFillSpecBackfillResponse>>> SpecBackfill(
+        [FromBody] SmartFillSpecBackfillRequest request)
+    {
+        return HandleAsync(() => _smartFillSpecBackfillAppService.BackfillAsync(User, request));
     }
 }

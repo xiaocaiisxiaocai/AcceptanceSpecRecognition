@@ -1293,6 +1293,56 @@ public class EvidenceDrivenSemanticMatchingTests
     }
 
     [Fact]
+    public async Task BatchMatch_WhenLlmEquivalenceAdjudicationDisabled_ShouldNotCallLlm()
+    {
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "最大不可拆部件≈3200"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 193,
+                Project = "安装要求",
+                Specification = "最大不可拆部件约为3200",
+                Embedding = [0.88f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.99,
+            Reason = "应被配置关闭"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = false
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(193);
+        result.Results[0].LlmEquivalence.Should().BeNull();
+        equivalenceService.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task BatchMatch_WhenLlmEquivalenceReturnsDifferent_ShouldRequireManualReview()
     {
         var source = new MatchSource

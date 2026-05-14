@@ -438,6 +438,27 @@ export interface BatchExecuteFillRequest {
   tables: BatchTableFillMapping[];
 }
 
+export interface SmartFillSpecBackfillItem {
+  specId?: number;
+  sourceProject?: string;
+  sourceSpecification?: string;
+  overrideAcceptance?: string;
+  overrideRemark?: string;
+}
+
+export interface SmartFillSpecBackfillRequest {
+  customerId?: number;
+  processId?: number;
+  machineModelId?: number;
+  items: SmartFillSpecBackfillItem[];
+}
+
+export interface SmartFillSpecBackfillResponse {
+  updatedCount: number;
+  createdCount: number;
+  totalCount: number;
+}
+
 export interface MatchLlmStreamItem {
   tableIndex: number;
   rowIndex: number;
@@ -505,11 +526,8 @@ export const batchPreviewMatch = (
   return http.request<ApiResponse<BatchPreviewResponse>>(
     "post",
     `${baseUrl}/batch-preview`,
-    { data },
-    {
-      ...config,
-      timeout: 0
-    }
+    { data, timeout: 0 },
+    config
   );
 };
 
@@ -518,6 +536,14 @@ export const batchExecuteFill = (data: BatchExecuteFillRequest) => {
   return http.request<ApiResponse<ExecuteFillResponse>>(
     "post",
     `${baseUrl}/batch-execute`,
+    { data, timeout: 300000 }
+  );
+};
+
+export const backfillSmartFillSpecs = (data: SmartFillSpecBackfillRequest) => {
+  return http.request<ApiResponse<SmartFillSpecBackfillResponse>>(
+    "post",
+    `${baseUrl}/spec-backfill`,
     { data, timeout: 300000 }
   );
 };

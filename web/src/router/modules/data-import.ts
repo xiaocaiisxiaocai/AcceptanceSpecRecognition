@@ -20,7 +20,8 @@ export default {
       meta: {
         icon: "ri:file-upload-line",
         title: getPageTitle("data-import-index"),
-        permissions: getPagePermission("data-import-index")
+        permissions: getPagePermission("data-import-index"),
+        keepAlive: true
       }
     }
   ]

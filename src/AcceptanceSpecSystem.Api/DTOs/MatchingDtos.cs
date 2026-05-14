@@ -976,6 +976,77 @@ public class BatchExecuteFillRequest
 }
 
 /// <summary>
+/// 智能填充编辑值回填验收规格请求。
+/// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public class SmartFillSpecBackfillRequest
+{
+    /// <summary>
+    /// 当前匹配范围客户ID。
+    /// </summary>
+    public int? CustomerId { get; set; }
+
+    /// <summary>
+    /// 当前匹配范围制程ID。
+    /// </summary>
+    public int? ProcessId { get; set; }
+
+    /// <summary>
+    /// 当前匹配范围机型ID。
+    /// </summary>
+    public int? MachineModelId { get; set; }
+
+    /// <summary>
+    /// 待回填行。
+    /// </summary>
+    public List<SmartFillSpecBackfillItem> Items { get; set; } = [];
+}
+
+/// <summary>
+/// 智能填充编辑值回填行。
+/// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public class SmartFillSpecBackfillItem
+{
+    /// <summary>
+    /// 已匹配规格ID；为空时新增规格。
+    /// </summary>
+    public int? SpecId { get; set; }
+
+    /// <summary>
+    /// 源文档项目。
+    /// </summary>
+    public string? SourceProject { get; set; }
+
+    /// <summary>
+    /// 源文档规格。
+    /// </summary>
+    public string? SourceSpecification { get; set; }
+
+    /// <summary>
+    /// 用户编辑后的验收标准。
+    /// </summary>
+    public string? OverrideAcceptance { get; set; }
+
+    /// <summary>
+    /// 用户编辑后的备注。
+    /// </summary>
+    public string? OverrideRemark { get; set; }
+}
+
+/// <summary>
+/// 智能填充编辑值回填结果。
+/// </summary>
+public class SmartFillSpecBackfillResponse
+{
+    public int UpdatedCount { get; set; }
+
+    public int CreatedCount { get; set; }
+
+    public int TotalCount => UpdatedCount + CreatedCount;
+}
+
+/// <summary>
 /// 批量回复来源上传响应
 /// </summary>
 public class BatchReplySourceUploadResponse

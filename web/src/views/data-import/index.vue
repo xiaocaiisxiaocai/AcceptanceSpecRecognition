@@ -73,7 +73,7 @@ import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
-  name: "DataImport"
+  name: "ImportData"
 });
 
 const MAPPING_PREVIEW_ROWS = 50;

@@ -17,6 +17,7 @@ import type { BatchTableConfigItem } from "./components/BatchTableConfig.vue";
 import {
   batchPreviewMatch,
   batchExecuteFill,
+  backfillSmartFillSpecs,
   downloadFillResult,
   requestMatchLlmStream,
   createMatchLlmStreamRequest,
@@ -24,6 +25,7 @@ import {
   type MatchPreviewItem,
   type MatchConfig as MatchConfigType,
   type MatchResult,
+  type BatchExecuteFillRequest,
   type MatchLlmStreamEvent,
   type MatchLlmStreamEventData,
   type BatchPreviewProgressResponse,
@@ -42,7 +44,7 @@ import { matchWordTableColumnsByRules } from "@/views/shared/word-column-mapping
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
-defineOptions({ name: "SmartFill" });
+defineOptions({ name: "FillData" });
 
 // 步骤
 const currentStep = ref(0);
@@ -151,9 +153,9 @@ const fetchBatchPreviewProgress = async (requestId: string) => {
     }
 
     if (error?.response?.status === 404) {
-      if (!loading.value) {
-        stopPreviewProgressPolling();
-      }
+      // 后端进度快照是内存态，页面切换、服务重启或缓存过期后可能丢失。
+      // 主匹配请求仍可继续完成，因此只停止进度轮询，避免控制台持续 404。
+      stopPreviewProgressPolling();
       return;
     }
   }
@@ -176,7 +178,6 @@ const startPreviewProgressPolling = (requestId: string) => {
   };
   previewElapsedSeconds.value = 0;
   currentPreviewRequestId.value = requestId;
-  void fetchBatchPreviewProgress(requestId);
 
   if (typeof window === "undefined") {
     return;
@@ -285,6 +286,36 @@ const taskId = ref<string | null>(null);
 const lastDownloadFailed = ref(false);
 const previewState = ref<"none" | "noScopeCandidates" | "embeddingUnavailable" | "emptyResults">("none");
 const previewFailureDetail = ref("");
+type SmartFillBackfillCandidate = {
+  tableIndex: number;
+  rowIndex: number;
+  specId?: number;
+  sourceProject: string;
+  sourceSpecification: string;
+  originalAcceptance?: string;
+  originalRemark?: string;
+  overrideAcceptance?: string;
+  overrideRemark?: string;
+  actionType: "update" | "create";
+  selected: boolean;
+};
+const backfillDialogVisible = ref(false);
+const backfillCandidates = ref<SmartFillBackfillCandidate[]>([]);
+const pendingExecuteRequest = ref<BatchExecuteFillRequest | null>(null);
+const backfillingSpecs = ref(false);
+const matchScope = ref<{
+  customerId?: number;
+  processId?: number;
+  machineModelId?: number;
+}>({
+  customerId: undefined,
+  processId: undefined,
+  machineModelId: undefined
+});
+
+const selectedBackfillCandidates = computed(() =>
+  backfillCandidates.value.filter(item => item.selected)
+);
 
 // 选中的表格数量
 const selectedTableCount = computed(
@@ -409,6 +440,18 @@ const getRequestErrorMessage = (error: any) => {
     error?.message ||
     ""
   );
+};
+
+const handleScopeChange = (
+  customerId?: number,
+  processId?: number,
+  machineModelId?: number
+) => {
+  matchScope.value = {
+    customerId,
+    processId,
+    machineModelId
+  };
 };
 
 // 计算属性
@@ -557,11 +600,7 @@ const doPreview = async () => {
   const controller = new AbortController();
   previewAbortController.value = controller;
   try {
-    const scope = matchConfigRef.value?.getScope() ?? {
-      customerId: undefined,
-      processId: undefined,
-      machineModelId: undefined
-    };
+    const scope = matchConfigRef.value?.getScope() ?? matchScope.value;
 
     const res = await batchPreviewMatch({
       fileId: uploadedFile.value.fileId,
@@ -668,11 +707,7 @@ const startLlmStream = async () => {
 
   if (!allPreviewItems.value.length) return;
 
-  const scope = matchConfigRef.value?.getScope() ?? {
-    customerId: undefined,
-    processId: undefined,
-    machineModelId: undefined
-  };
+  const scope = matchConfigRef.value?.getScope() ?? matchScope.value;
 
   const llmItems = batchPreviewResults.value.flatMap((tableResult) =>
     tableResult.items
@@ -899,36 +934,11 @@ const buildExecutionHistoryPreviewTables = (tableIndexes: number[]) => {
     }));
 };
 
-// 执行填充
-const handleExecute = async () => {
-  if (
-    !ensurePermission("btn:matching-fill:execute-batch", "权限不足，无法执行智能填充")
-  ) {
-    return;
-  }
-  if (!uploadedFile.value) return;
-  if (llmStreaming.value) {
-    ElMessage.warning("AI 仍在处理中，请等待完成后再执行填充");
-    return;
-  }
-
-  const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
-  if (selectedConfigs.length === 0) return;
-
-  const scope = matchConfigRef.value?.getScope() ?? {
-    customerId: undefined,
-    processId: undefined,
-    machineModelId: undefined
-  };
-
-  // 获取各表格的选择结果
-  const allSelections = batchPreviewTabsRef.value?.getAllSelections();
-  if (!allSelections || allSelections.size === 0) {
-    ElMessage.warning("请至少选择一项匹配结果");
-    return;
-  }
-
-  // 构建批量填充请求
+const buildExecuteFillRequest = (
+  scope: { customerId?: number; processId?: number; machineModelId?: number },
+  selectedConfigs: BatchTableConfigItem[],
+  allSelections: ReturnType<NonNullable<typeof batchPreviewTabsRef.value>["getAllSelections"]>
+): BatchExecuteFillRequest | null => {
   const tables = selectedConfigs
     .map((config) => {
       const selections = allSelections.get(config.tableIndex) || [];
@@ -954,79 +964,176 @@ const handleExecute = async () => {
         }))
       };
     })
-  .filter(Boolean) as Array<{
-    tableIndex: number;
-    projectColumnIndex: number;
-    specificationColumnIndex: number;
-    acceptanceColumnIndex: number;
-    remarkColumnIndex?: number;
-    mappings: Array<{
-      rowIndex: number;
-      specId?: number;
-      manualConfirmed?: boolean;
-      manualFill?: boolean;
-      reviewApprovalToken?: string;
-      overrideAcceptance?: string;
-      overrideRemark?: string;
-    }>;
-  }>;
+    .filter(Boolean) as BatchExecuteFillRequest["tables"];
 
-  if (tables.length === 0) {
+  if (tables.length === 0 || !uploadedFile.value) {
+    return null;
+  }
+
+  return {
+    fileId: uploadedFile.value.fileId,
+    customerId: scope.customerId,
+    processId: scope.processId,
+    machineModelId: scope.machineModelId,
+    config: {
+      ...matchConfig.value,
+      highConfidenceThreshold: getHighConfidenceThreshold()
+    },
+    previewTables: buildExecutionHistoryPreviewTables(
+      selectedConfigs.map(config => config.tableIndex)
+    ),
+    tables
+  };
+};
+
+const runExecuteFill = async (request: BatchExecuteFillRequest) => {
+  const res = await batchExecuteFill(request);
+
+  if (res.code === 0) {
+    taskId.value = res.data.taskId;
+    if (canDownloadFillResult.value) {
+      const downloaded = await downloadTaskResult(res.data.taskId);
+      if (downloaded) {
+        ElMessage.success(
+          isExcelFile.value
+            ? `填充完成，共填充 ${res.data.filledCount} 条，Excel 已下载`
+            : `填充完成，共填充 ${res.data.filledCount} 条，结果文件已下载`
+        );
+      } else {
+        ElMessage.warning(
+          isExcelFile.value
+            ? "填充完成，但 Excel 下载失败，请使用下方入口重新下载结果"
+            : "填充完成，但结果文件下载失败，请使用下方入口重新下载结果"
+        );
+      }
+    } else {
+      lastDownloadFailed.value = false;
+      if (isExcelFile.value) {
+        ElMessage.success(
+          `填充完成，共填充 ${res.data.filledCount} 条，可稍后下载 Excel 结果`
+        );
+      } else {
+        ElMessage.success(
+          `填充完成，共填充 ${res.data.filledCount} 条，可稍后下载结果文件`
+        );
+      }
+    }
+  } else {
+    ElMessage.error(res.message || "填充失败");
+  }
+};
+
+const closeBackfillDialog = () => {
+  backfillDialogVisible.value = false;
+};
+
+const executePendingWithoutBackfill = async () => {
+  const request = pendingExecuteRequest.value;
+  if (!request) return;
+
+  closeBackfillDialog();
+  executing.value = true;
+  try {
+    await runExecuteFill(request);
+  } catch {
+    ElMessage.error("填充失败");
+  } finally {
+    pendingExecuteRequest.value = null;
+    executing.value = false;
+  }
+};
+
+const confirmBackfillAndExecute = async () => {
+  const request = pendingExecuteRequest.value;
+  if (!request) return;
+
+  const selected = selectedBackfillCandidates.value;
+  if (
+    selected.some(item => item.actionType === "create") &&
+    !request.customerId
+  ) {
+    ElMessage.warning("回填新增规格前，请先选择客户范围");
+    return;
+  }
+
+  backfillingSpecs.value = true;
+  executing.value = true;
+  try {
+    if (selected.length > 0) {
+      const res = await backfillSmartFillSpecs({
+        customerId: request.customerId,
+        processId: request.processId,
+        machineModelId: request.machineModelId,
+        items: selected.map(item => ({
+          specId: item.specId,
+          sourceProject: item.sourceProject,
+          sourceSpecification: item.sourceSpecification,
+          overrideAcceptance: item.overrideAcceptance,
+          overrideRemark: item.overrideRemark
+        }))
+      });
+      if (res.code !== 0) {
+        ElMessage.error(res.message || "回填验收规格失败");
+        return;
+      }
+      ElMessage.success(`已回填 ${res.data.totalCount} 条验收规格`);
+    }
+
+    closeBackfillDialog();
+    await runExecuteFill(request);
+    pendingExecuteRequest.value = null;
+  } catch (error) {
+    ElMessage.error(getRequestErrorMessage(error) || "回填或填充失败");
+  } finally {
+    backfillingSpecs.value = false;
+    executing.value = false;
+  }
+};
+
+// 执行填充
+const handleExecute = async () => {
+  if (
+    !ensurePermission("btn:matching-fill:execute-batch", "权限不足，无法执行智能填充")
+  ) {
+    return;
+  }
+  if (!uploadedFile.value) return;
+  if (llmStreaming.value) {
+    ElMessage.warning("AI 仍在处理中，请等待完成后再执行填充");
+    return;
+  }
+
+  const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
+  if (selectedConfigs.length === 0) return;
+
+  const scope = matchConfigRef.value?.getScope() ?? matchScope.value;
+
+  // 获取各表格的选择结果
+  const allSelections = batchPreviewTabsRef.value?.getAllSelections();
+  if (!allSelections || allSelections.size === 0) {
     ElMessage.warning("请至少选择一项匹配结果");
     return;
   }
 
-  const previewTables = buildExecutionHistoryPreviewTables(
-    selectedConfigs.map(config => config.tableIndex)
-  );
+  const executeRequest = buildExecuteFillRequest(scope, selectedConfigs, allSelections);
+  if (!executeRequest) {
+    ElMessage.warning("请至少选择一项匹配结果");
+    return;
+  }
+
+  const editedItems = batchPreviewTabsRef.value
+    ?.getAllEditedBackfillItems()
+    .map(item => ({ ...item, selected: true })) ?? [];
+  if (editedItems.length > 0) {
+    pendingExecuteRequest.value = executeRequest;
+    backfillCandidates.value = editedItems;
+    backfillDialogVisible.value = true;
+    return;
+  }
 
   executing.value = true;
   try {
-    const res = await batchExecuteFill({
-      fileId: uploadedFile.value.fileId,
-      customerId: scope.customerId,
-      processId: scope.processId,
-      machineModelId: scope.machineModelId,
-      config: {
-        ...matchConfig.value,
-        highConfidenceThreshold: getHighConfidenceThreshold()
-      },
-      previewTables,
-      tables
-    });
-
-    if (res.code === 0) {
-      taskId.value = res.data.taskId;
-      if (canDownloadFillResult.value) {
-        const downloaded = await downloadTaskResult(res.data.taskId);
-        if (downloaded) {
-          ElMessage.success(
-            isExcelFile.value
-              ? `填充完成，共填充 ${res.data.filledCount} 条，Excel 已下载`
-              : `填充完成，共填充 ${res.data.filledCount} 条，结果文件已下载`
-          );
-        } else {
-          ElMessage.warning(
-            isExcelFile.value
-              ? "填充完成，但 Excel 下载失败，请使用下方入口重新下载结果"
-              : "填充完成，但结果文件下载失败，请使用下方入口重新下载结果"
-          );
-        }
-      } else {
-        lastDownloadFailed.value = false;
-        if (isExcelFile.value) {
-          ElMessage.success(
-            `填充完成，共填充 ${res.data.filledCount} 条，可稍后下载 Excel 结果`
-          );
-        } else {
-          ElMessage.success(
-            `填充完成，共填充 ${res.data.filledCount} 条，可稍后下载结果文件`
-          );
-        }
-      }
-    } else {
-      ElMessage.error(res.message || "填充失败");
-    }
+    await runExecuteFill(executeRequest);
   } catch {
     ElMessage.error("填充失败");
   } finally {
@@ -1152,6 +1259,7 @@ const handleRestart = () => {
           ref="matchConfigRef"
           v-model="matchConfig"
           :allow-llm="canLlmStream"
+          @scope-change="handleScopeChange"
         />
         <el-alert
           v-if="previewBlockingMessage"
@@ -1315,6 +1423,106 @@ const handleRestart = () => {
       </div>
     </el-card>
 
+    <el-dialog
+      v-model="backfillDialogVisible"
+      title="回填验收规格"
+      width="1080px"
+      :close-on-click-modal="false"
+    >
+      <div class="backfill-dialog">
+        <div class="backfill-summary">
+          <span>共 {{ backfillCandidates.length }} 条手动修改内容</span>
+          <span>已选择 {{ selectedBackfillCandidates.length }} 条回填</span>
+        </div>
+        <el-table
+          :data="backfillCandidates"
+          border
+          max-height="460"
+          row-key="rowIndex"
+        >
+          <el-table-column width="56" align="center">
+            <template #header>
+              <el-checkbox
+                :model-value="
+                  backfillCandidates.length > 0 &&
+                  selectedBackfillCandidates.length === backfillCandidates.length
+                "
+                :indeterminate="
+                  selectedBackfillCandidates.length > 0 &&
+                  selectedBackfillCandidates.length < backfillCandidates.length
+                "
+                @change="(checked: boolean) => backfillCandidates.forEach(item => { item.selected = checked; })"
+              />
+            </template>
+            <template #default="{ row }">
+              <el-checkbox v-model="row.selected" />
+            </template>
+          </el-table-column>
+          <el-table-column label="行" width="80" align="center">
+            <template #default="{ row }">
+              {{ row.rowIndex + 1 }}
+            </template>
+          </el-table-column>
+          <el-table-column label="动作" width="120" align="center">
+            <template #default="{ row }">
+              <el-tag
+                size="small"
+                :type="row.actionType === 'update' ? 'warning' : 'success'"
+              >
+                {{ row.actionType === "update" ? "更新现有规格" : "新增规格" }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="项目/规格" min-width="220">
+            <template #default="{ row }">
+              <div class="backfill-source">
+                <div>{{ row.sourceProject }}</div>
+                <div>{{ row.sourceSpecification }}</div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="验收标准" min-width="260">
+            <template #default="{ row }">
+              <div class="backfill-change">
+                <div class="backfill-change__old">
+                  {{ row.originalAcceptance || "-" }}
+                </div>
+                <div class="backfill-change__new">
+                  {{ row.overrideAcceptance || "-" }}
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="备注" min-width="220">
+            <template #default="{ row }">
+              <div class="backfill-change">
+                <div class="backfill-change__old">
+                  {{ row.originalRemark || "-" }}
+                </div>
+                <div class="backfill-change__new">
+                  {{ row.overrideRemark || "-" }}
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <template #footer>
+        <div class="backfill-footer">
+          <el-button @click="executePendingWithoutBackfill">
+            不回填，仅执行填充
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="backfillingSpecs || executing"
+            @click="confirmBackfillAndExecute"
+          >
+            确认回填并执行填充
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 详情弹窗 -->
     <ScoreDetailDialog
       v-model:visible="detailVisible"
@@ -1374,6 +1582,59 @@ const handleRestart = () => {
 
 .fill-done-alert {
   margin-top: 16px;
+}
+
+.backfill-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.backfill-summary {
+  display: flex;
+  gap: 16px;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+.backfill-source {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.5;
+}
+
+.backfill-source > div:first-child {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.backfill-source > div:last-child {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.backfill-change {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.backfill-change__old {
+  color: #9ca3af;
+  text-decoration: line-through;
+}
+
+.backfill-change__new {
+  color: #111827;
+  font-weight: 500;
+}
+
+.backfill-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .llm-streaming-alert {

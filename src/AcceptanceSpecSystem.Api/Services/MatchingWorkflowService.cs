@@ -323,6 +323,7 @@ public sealed class MatchingWorkflowSupportService
                left.LlmRowTimeoutSeconds == right.LlmRowTimeoutSeconds &&
                left.LlmRetryCount == right.LlmRetryCount &&
                left.LlmCircuitBreakFailures == right.LlmCircuitBreakFailures &&
+               left.EnableLlmEquivalenceAdjudication == right.EnableLlmEquivalenceAdjudication &&
                left.FilterEmptySourceRows == right.FilterEmptySourceRows;
     }
 
@@ -340,6 +341,7 @@ public sealed class MatchingWorkflowSupportService
             LlmRowTimeoutSeconds = config.LlmRowTimeoutSeconds,
             LlmRetryCount = config.LlmRetryCount,
             LlmCircuitBreakFailures = config.LlmCircuitBreakFailures,
+            EnableLlmEquivalenceAdjudication = config.EnableLlmEquivalenceAdjudication,
             FilterEmptySourceRows = config.FilterEmptySourceRows
         };
     }
@@ -578,24 +580,36 @@ public sealed class MatchingWorkflowSupportService
 
         var specDict = await GetScopedSpecDictionaryAsync(allSpecIds, scope);
 
-        var currentMatchLookups = new Dictionary<int, ExecutionMatchSnapshot>();
+        var currentMatchLookups = BuildExecutionPreviewSnapshots(request.PreviewTables);
         foreach (var table in request.Tables)
         {
-            EnsureExecutionPreviewContext(table.ProjectColumnIndex, table.SpecificationColumnIndex, table.TableIndex);
-            currentMatchLookups[table.TableIndex] = await BuildCurrentMatchLookupAsync(
-                wordFile,
-                table.TableIndex,
-                table.ProjectColumnIndex,
-                table.SpecificationColumnIndex,
-                table.HeaderRowStart,
-                table.HeaderRowCount,
-                table.DataStartRow,
-                table.FilterEmptySourceRows ?? executionConfig.FilterEmptySourceRows,
-                effectiveCustomerId,
-                effectiveProcessId,
-                effectiveMachineModelId,
-                executionConfig,
-                scope);
+            if (ExecutionPreviewSnapshotCoversMappings(table, currentMatchLookups.GetValueOrDefault(table.TableIndex), reviewApprovalBundle))
+            {
+                continue;
+            }
+
+            if (RequiresCurrentMatchRebuild(table, reviewApprovalBundle))
+            {
+                EnsureExecutionPreviewContext(table.ProjectColumnIndex, table.SpecificationColumnIndex, table.TableIndex);
+                currentMatchLookups[table.TableIndex] = await BuildCurrentMatchLookupAsync(
+                    wordFile,
+                    table.TableIndex,
+                    table.ProjectColumnIndex,
+                    table.SpecificationColumnIndex,
+                    table.HeaderRowStart,
+                    table.HeaderRowCount,
+                    table.DataStartRow,
+                    table.FilterEmptySourceRows ?? executionConfig.FilterEmptySourceRows,
+                    effectiveCustomerId,
+                    effectiveProcessId,
+                    effectiveMachineModelId,
+                    executionConfig,
+                    scope);
+            }
+            else if (!currentMatchLookups.ContainsKey(table.TableIndex))
+            {
+                currentMatchLookups[table.TableIndex] = new ExecutionMatchSnapshot();
+            }
         }
 
         // 遍历每个表格生成 TableFillEntry
@@ -1350,6 +1364,170 @@ public sealed class MatchingWorkflowSupportService
         return await ConvertToMatchingConfigAsync(dto);
     }
 
+    private static Dictionary<int, ExecutionMatchSnapshot> BuildExecutionPreviewSnapshots(
+        IReadOnlyCollection<ExecutionHistoryPreviewTableSnapshot>? previewTables)
+    {
+        if (previewTables == null || previewTables.Count == 0)
+        {
+            return [];
+        }
+
+        return previewTables.ToDictionary(
+            table => table.TableIndex,
+            table =>
+            {
+                var sourceRowLookup = table.Items
+                    .GroupBy(item => item.RowIndex)
+                    .ToDictionary(
+                        group => group.Key,
+                        group =>
+                        {
+                            var item = group.First();
+                            return new MatchSourceItem
+                            {
+                                RowIndex = item.RowIndex,
+                                Project = item.SourceProject,
+                                Specification = item.SourceSpecification
+                            };
+                        });
+
+                var matchLookup = table.Items
+                    .Where(item => item.BestMatch != null)
+                    .GroupBy(item => item.RowIndex)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => ConvertPreviewBestMatchToMatchResult(group.First().BestMatch!));
+
+                return new ExecutionMatchSnapshot
+                {
+                    MatchLookup = matchLookup,
+                    SourceRowLookup = sourceRowLookup
+                };
+            });
+    }
+
+    private static bool ExecutionPreviewSnapshotCoversMappings(
+        BatchTableFillMapping table,
+        ExecutionMatchSnapshot? snapshot,
+        MatchingApprovalTokenService.ApprovalTokenBundle? reviewApprovalBundle)
+    {
+        if (snapshot == null)
+        {
+            return false;
+        }
+
+        foreach (var mapping in table.Mappings)
+        {
+            if (MappingHasApprovalToken(table.TableIndex, mapping, reviewApprovalBundle) ||
+                mapping.SpecId.GetValueOrDefault() <= 0)
+            {
+                if (!snapshot.SourceRowLookup.ContainsKey(mapping.RowIndex))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            if (!snapshot.MatchLookup.TryGetValue(mapping.RowIndex, out var previewMatch) ||
+                previewMatch.MatchedSpecId != mapping.SpecId)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool RequiresCurrentMatchRebuild(
+        BatchTableFillMapping table,
+        MatchingApprovalTokenService.ApprovalTokenBundle? reviewApprovalBundle)
+    {
+        return table.Mappings.Any(mapping =>
+            mapping.SpecId.GetValueOrDefault() > 0 &&
+            !MappingHasApprovalToken(table.TableIndex, mapping, reviewApprovalBundle));
+    }
+
+    private static bool MappingHasApprovalToken(
+        int tableIndex,
+        FillMapping mapping,
+        MatchingApprovalTokenService.ApprovalTokenBundle? reviewApprovalBundle)
+    {
+        return reviewApprovalBundle?.Tokens.ContainsKey(
+            new MatchingApprovalTokenService.ApprovalLookupKey(tableIndex, mapping.RowIndex)) == true;
+    }
+
+    private static MatchResult ConvertPreviewBestMatchToMatchResult(MatchResultDto dto)
+    {
+        return new MatchResult
+        {
+            SourceText = string.Empty,
+            MatchedText = $"{dto.Project} {dto.Specification}".Trim(),
+            MatchedSpecId = dto.SpecId,
+            MatchedProject = dto.Project,
+            MatchedSpecification = dto.Specification,
+            MatchedAcceptance = dto.Acceptance,
+            MatchedRemark = dto.Remark,
+            Score = dto.Score,
+            EmbeddingScore = dto.EmbeddingScore,
+            ScoreDetails = new Dictionary<string, double>(dto.ScoreDetails),
+            Decision = ParseMatchDecision(dto.Decision),
+            IsAmbiguous = dto.IsAmbiguous,
+            ScoreGap = dto.ScoreGap,
+            RerankSummary = dto.RerankSummary,
+            LlmEquivalence = ConvertPreviewLlmEquivalence(dto.LlmEquivalence)
+        };
+    }
+
+    private static MatchDecision ParseMatchDecision(string? value)
+    {
+        return value switch
+        {
+            "autoApply" => MatchDecision.AutoApply,
+            "reject" => MatchDecision.Reject,
+            _ => MatchDecision.ManualReview
+        };
+    }
+
+    private static LlmEquivalenceAdjudicationResult? ConvertPreviewLlmEquivalence(LlmEquivalenceDto? dto)
+    {
+        if (dto == null)
+        {
+            return null;
+        }
+
+        return new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = ParseLlmEquivalenceVerdict(dto.Verdict),
+            ReasonType = ParseLlmEquivalenceReasonType(dto.ReasonType),
+            Confidence = dto.Confidence,
+            Reason = dto.Reason
+        };
+    }
+
+    private static LlmEquivalenceVerdict ParseLlmEquivalenceVerdict(string? value)
+    {
+        return value switch
+        {
+            "equivalent" => LlmEquivalenceVerdict.Equivalent,
+            "different" => LlmEquivalenceVerdict.Different,
+            _ => LlmEquivalenceVerdict.Uncertain
+        };
+    }
+
+    private static LlmEquivalenceReasonType ParseLlmEquivalenceReasonType(string? value)
+    {
+        return value switch
+        {
+            "format_only" => LlmEquivalenceReasonType.FormatOnly,
+            "punctuation_only" => LlmEquivalenceReasonType.PunctuationOnly,
+            "equivalent_expression" => LlmEquivalenceReasonType.EquivalentExpression,
+            "symbol_equivalent" => LlmEquivalenceReasonType.SymbolEquivalent,
+            "semantic_difference" => LlmEquivalenceReasonType.SemanticDifference,
+            "symbol_conflict" => LlmEquivalenceReasonType.SymbolConflict,
+            _ => LlmEquivalenceReasonType.Uncertain
+        };
+    }
+
     private async Task<ExecutionMatchSnapshot> BuildCurrentMatchLookupAsync(
         WordFile wordFile,
         int tableIndex,
@@ -1988,6 +2166,7 @@ public sealed class MatchingWorkflowSupportService
             LlmRowTimeoutSeconds = Math.Clamp(dto?.LlmRowTimeoutSeconds ?? fallbackConfig.LlmRowTimeoutSeconds, 5, 300),
             LlmRetryCount = Math.Clamp(dto?.LlmRetryCount ?? fallbackConfig.LlmRetryCount, 0, 3),
             LlmCircuitBreakFailures = Math.Clamp(dto?.LlmCircuitBreakFailures ?? fallbackConfig.LlmCircuitBreakFailures, 3, 200),
+            EnableLlmEquivalenceAdjudication = false,
             ExactMatchOnly = dto?.ExactMatchOnly ?? fallbackConfig.ExactMatchOnly,
             FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows
         };

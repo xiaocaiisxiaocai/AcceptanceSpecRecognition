@@ -57,6 +57,18 @@ type PersistedSelection = {
   overrideRemark?: string;
 };
 
+export type EditedBackfillItem = {
+  rowIndex: number;
+  specId?: number;
+  sourceProject: string;
+  sourceSpecification: string;
+  originalAcceptance?: string;
+  originalRemark?: string;
+  overrideAcceptance?: string;
+  overrideRemark?: string;
+  actionType: "update" | "create";
+};
+
 const selectedSpecs = ref<Map<number, Selection | null>>(new Map());
 const editedOverrides = ref<Map<number, EditOverride>>(new Map());
 const editDialogVisible = ref(false);
@@ -661,6 +673,28 @@ defineExpose({
 
     return selections;
   },
+  getEditedBackfillItems: (): EditedBackfillItem[] => {
+    return [...editedOverrides.value.entries()]
+      .map((entry): EditedBackfillItem | null => {
+        const [rowIndex, override] = entry;
+        if (!hasOverrideValue(override)) return null;
+        const item = props.items.find(i => i.rowIndex === rowIndex);
+        if (!item) return null;
+
+        return {
+          rowIndex,
+          specId: item.bestMatch?.specId,
+          sourceProject: item.sourceProject,
+          sourceSpecification: item.sourceSpecification,
+          originalAcceptance: item.bestMatch?.acceptance,
+          originalRemark: item.bestMatch?.remark,
+          overrideAcceptance: override.overrideAcceptance,
+          overrideRemark: override.overrideRemark,
+          actionType: item.bestMatch ? "update" : "create"
+        } satisfies EditedBackfillItem;
+      })
+      .filter((item): item is EditedBackfillItem => !!item);
+  },
   initSelections,
   clearSelectionByRow
 });
@@ -1015,7 +1049,9 @@ defineExpose({
       @closed="closeEditDialog"
     >
       <div v-if="editingItem" class="edit-dialog">
-        <div class="edit-dialog__hint">仅本次导出使用，不会修改系统里的验收规格。</div>
+        <div class="edit-dialog__hint">
+          修改将用于本次导出，执行填充前可选择是否回填到验收规格。
+        </div>
         <el-form label-position="top">
           <el-form-item label="项目">
             <el-input :model-value="editingItem.sourceProject" readonly />

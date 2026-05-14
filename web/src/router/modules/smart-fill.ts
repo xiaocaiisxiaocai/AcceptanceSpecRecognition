@@ -20,7 +20,8 @@ export default {
       meta: {
         icon: "ri:edit-2-line",
         title: getPageTitle("smart-fill-index"),
-        permissions: getPagePermission("smart-fill-index")
+        permissions: getPagePermission("smart-fill-index"),
+        keepAlive: true
       }
     }
   ]

@@ -789,8 +789,8 @@ const handleSubmit = async () => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    ElMessage.error("操作失败");
+  } catch (error) {
+    ElMessage.error(extractErrorMessage(error, "操作失败"));
   }
 };
 

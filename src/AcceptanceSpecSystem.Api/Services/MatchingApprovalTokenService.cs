@@ -229,6 +229,7 @@ public sealed class MatchingApprovalTokenService
                left.LlmRowTimeoutSeconds == right.LlmRowTimeoutSeconds &&
                left.LlmRetryCount == right.LlmRetryCount &&
                left.LlmCircuitBreakFailures == right.LlmCircuitBreakFailures &&
+               left.EnableLlmEquivalenceAdjudication == right.EnableLlmEquivalenceAdjudication &&
                left.FilterEmptySourceRows == right.FilterEmptySourceRows;
     }
 
@@ -246,6 +247,7 @@ public sealed class MatchingApprovalTokenService
             LlmRowTimeoutSeconds = config.LlmRowTimeoutSeconds,
             LlmRetryCount = config.LlmRetryCount,
             LlmCircuitBreakFailures = config.LlmCircuitBreakFailures,
+            EnableLlmEquivalenceAdjudication = config.EnableLlmEquivalenceAdjudication,
             FilterEmptySourceRows = config.FilterEmptySourceRows
         };
     }
