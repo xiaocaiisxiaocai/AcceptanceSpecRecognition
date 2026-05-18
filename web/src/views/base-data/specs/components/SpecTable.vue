@@ -18,10 +18,10 @@ import SpecDuplicateDialog from "./SpecDuplicateDialog.vue";
 import SpecSemanticSearchDialog from "./SpecSemanticSearchDialog.vue";
 
 const props = defineProps<{
-  customerId: number;
+  customerId?: number;
   machineModelId?: number;
   processId?: number;
-  customerName: string;
+  customerName?: string;
   machineModelName?: string;
   processName?: string;
 }>();
@@ -38,7 +38,8 @@ const selectedRows = ref<AcceptanceSpec[]>([]);
 const queryParams = reactive({
   page: 1,
   pageSize: 500,
-  keyword: ""
+  keyword: "",
+  globalSearch: props.customerId == null
 });
 
 const dialogVisible = ref(false);
@@ -70,6 +71,7 @@ const canInspectDuplicates = computed(() => hasPerms("api:spec:read"));
 const canSubmit = computed(() =>
   isEdit.value ? canUpdate.value : canCreate.value
 );
+const hasSelectedGroup = computed(() => props.customerId != null);
 const showToolbarRight = computed(
   () =>
     canCreate.value ||
@@ -88,13 +90,45 @@ const actionColumnWidth = computed(() => {
 const buildRequestParams = (): SpecListRequest => {
   const params: SpecListRequest = {
     page: queryParams.page,
-    pageSize: queryParams.pageSize,
-    customerId: props.customerId
+    pageSize: queryParams.pageSize
   };
 
   if (queryParams.keyword) {
     params.keyword = queryParams.keyword;
   }
+
+  if (queryParams.globalSearch) {
+    return params;
+  }
+
+  params.customerId = props.customerId;
+
+  if (props.machineModelId != null) {
+    params.machineModelId = props.machineModelId;
+  } else {
+    params.machineModelIdIsNull = true;
+  }
+
+  if (props.processId != null) {
+    params.processId = props.processId;
+  } else {
+    params.processIdIsNull = true;
+  }
+
+  return params;
+};
+
+const buildGroupRequestParams = (): SpecListRequest => {
+  const params: SpecListRequest = {
+    page: queryParams.page,
+    pageSize: queryParams.pageSize
+  };
+
+  if (queryParams.keyword) {
+    params.keyword = queryParams.keyword;
+  }
+
+  params.customerId = props.customerId;
 
   if (props.machineModelId != null) {
     params.machineModelId = props.machineModelId;
@@ -138,6 +172,7 @@ watch(
   () => {
     queryParams.page = 1;
     queryParams.keyword = "";
+    queryParams.globalSearch = props.customerId == null;
     selectedRows.value = [];
     duplicateDialogVisible.value = false;
     duplicateResult.value = null;
@@ -154,6 +189,15 @@ const handleSearch = () => {
 
 const handleReset = () => {
   queryParams.keyword = "";
+  queryParams.globalSearch = props.customerId == null;
+  queryParams.page = 1;
+  loadData();
+};
+
+const handleGlobalSearchChange = () => {
+  if (!hasSelectedGroup.value) {
+    queryParams.globalSearch = true;
+  }
   queryParams.page = 1;
   loadData();
 };
@@ -172,6 +216,10 @@ const openCreateDialog = () => {
 const handleAdd = () => {
   if (!canCreate.value) {
     ElMessage.error("权限不足，无法新增规格");
+    return;
+  }
+  if (props.customerId == null) {
+    ElMessage.warning("请先在左侧选择分组后再新增规格");
     return;
   }
   openCreateDialog();
@@ -270,6 +318,10 @@ const handleInspectDuplicates = async () => {
     ElMessage.error("权限不足，无法执行重复排查");
     return;
   }
+  if (!hasSelectedGroup.value) {
+    ElMessage.warning("请先在左侧选择分组后再执行重复排查");
+    return;
+  }
 
   duplicateDialogVisible.value = true;
   duplicateLoading.value = true;
@@ -277,7 +329,7 @@ const handleInspectDuplicates = async () => {
 
   try {
     const res = await detectSpecDuplicateGroups({
-      ...buildRequestParams(),
+      ...buildGroupRequestParams(),
       maxGroups: 30
     });
     if (res.code === 0) {
@@ -297,6 +349,10 @@ const handleInspectDuplicates = async () => {
 const handleOpenSemanticSearch = () => {
   if (!canSemanticSearch.value) {
     ElMessage.error("权限不足，无法执行AI搜索");
+    return;
+  }
+  if (!hasSelectedGroup.value) {
+    ElMessage.warning("请先在左侧选择分组后再执行AI搜索");
     return;
   }
   semanticSearchDialogVisible.value = true;
@@ -341,7 +397,7 @@ const handleSubmit = async () => {
           remark: formData.remark || undefined
         })
       : await createSpec({
-          customerId: props.customerId,
+          customerId: props.customerId!,
           processId: props.processId,
           machineModelId: props.machineModelId,
           project: formData.project,
@@ -376,6 +432,9 @@ const handleSizeChange = (size: number) => {
 };
 
 const groupLabel = () => {
+  if (props.customerId == null) {
+    return "全局搜索";
+  }
   const parts = [props.customerName];
   parts.push(props.machineModelName || "未指定机型");
   parts.push(props.processName || "未指定制程");
@@ -387,7 +446,7 @@ const groupLabel = () => {
   <div class="spec-table">
     <div class="group-label">
       <el-tag type="info" size="large" effect="plain">
-        {{ groupLabel() }}
+        {{ queryParams.globalSearch ? "全局搜索" : groupLabel() }}
       </el-tag>
     </div>
 
@@ -395,11 +454,18 @@ const groupLabel = () => {
       <div class="toolbar-left">
         <el-input
           v-model="queryParams.keyword"
-          placeholder="项目/规格/验收标准"
+          placeholder="项目/规格/验收标准/备注"
           clearable
-          style="width: 220px"
+          style="width: 260px"
           @keyup.enter="handleSearch"
         />
+        <el-checkbox
+          v-model="queryParams.globalSearch"
+          :disabled="!hasSelectedGroup"
+          @change="handleGlobalSearchChange"
+        >
+          全局搜索
+        </el-checkbox>
         <el-button type="primary" @click="handleSearch">搜索</el-button>
         <el-button @click="handleReset">重置</el-button>
       </div>
@@ -434,6 +500,52 @@ const groupLabel = () => {
       >
         <el-table-column v-if="canBatchDelete" type="selection" width="50" />
         <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column
+          v-if="queryParams.globalSearch"
+          prop="customerName"
+          label="客户"
+          min-width="120"
+        >
+          <template #default="{ row }">
+            <el-tooltip :content="row.customerName" placement="top">
+              <span class="line-clamp-1">{{ row.customerName }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-if="queryParams.globalSearch"
+          prop="machineModelName"
+          label="机型"
+          min-width="120"
+        >
+          <template #default="{ row }">
+            <el-tooltip
+              v-if="row.machineModelName"
+              :content="row.machineModelName"
+              placement="top"
+            >
+              <span class="line-clamp-1">{{ row.machineModelName }}</span>
+            </el-tooltip>
+            <span v-else class="text-gray-400">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-if="queryParams.globalSearch"
+          prop="processName"
+          label="制程"
+          min-width="120"
+        >
+          <template #default="{ row }">
+            <el-tooltip
+              v-if="row.processName"
+              :content="row.processName"
+              placement="top"
+            >
+              <span class="line-clamp-1">{{ row.processName }}</span>
+            </el-tooltip>
+            <span v-else class="text-gray-400">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="project" label="项目" min-width="150">
           <template #default="{ row }">
             <el-tooltip :content="row.project" placement="top">
@@ -548,13 +660,13 @@ const groupLabel = () => {
           detailData.id
         }}</el-descriptions-item>
         <el-descriptions-item label="客户">{{
-          customerName
+          detailData.customerName || customerName
         }}</el-descriptions-item>
         <el-descriptions-item label="机型">{{
-          machineModelName || "-"
+          detailData.machineModelName || machineModelName || "-"
         }}</el-descriptions-item>
         <el-descriptions-item label="制程">{{
-          processName || "-"
+          detailData.processName || processName || "-"
         }}</el-descriptions-item>
         <el-descriptions-item label="项目">{{
           detailData.project

@@ -43,6 +43,7 @@ export interface SpecListRequest extends PagedRequest {
   machineModelId?: number;
   processIdIsNull?: boolean;
   machineModelIdIsNull?: boolean;
+  globalSearch?: boolean;
   importedFrom?: string;
   importedTo?: string;
 }

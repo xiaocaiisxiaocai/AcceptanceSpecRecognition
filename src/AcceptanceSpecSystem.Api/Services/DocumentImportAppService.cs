@@ -554,6 +554,14 @@ public sealed class DocumentImportAppService
                 return;
             }
 
+            // 确认回放时，只重跑有待确认项的工作表；其它工作表可能已先落库。
+            // 同一文件内后续发现的相同项目/规格，直接保留已落库首条，避免反复弹确认框。
+            if (IsSameFileConfirmationReplayConflict(context, projectConflict))
+            {
+                AddSkippedRow(context, row.RowIndex, "同一文件已导入相同项目与规格，确认回放时已自动保留首条", row.RowValues);
+                return;
+            }
+
             AddPendingDifference(
                 context,
                 row,
@@ -924,6 +932,14 @@ public sealed class DocumentImportAppService
                NormalizeText(spec.Specification) == normalizedSpecification;
     }
 
+    private static bool IsSameFileConfirmationReplayConflict(
+        ImportExecutionContext context,
+        AcceptanceSpec existingSpec)
+    {
+        return context.IsConfirmationReplay &&
+               existingSpec.WordFileId == context.FileId;
+    }
+
     private static Dictionary<string, PendingDecisionEntry> BuildPendingDecisionMap(
         IEnumerable<string>? confirmedDifferenceKeys,
         IEnumerable<string>? partiallyConfirmedDifferenceKeys,
@@ -1213,6 +1229,8 @@ public sealed class DocumentImportAppService
             ConfirmedDifferenceKeys.Count > 0 ||
             PartiallyConfirmedDifferenceKeys.Count > 0 ||
             SkippedDifferenceKeys.Count > 0;
+
+        public bool IsConfirmationReplay => SkipSemanticDetection;
     }
 
     private sealed class PendingDecisionEntry

@@ -444,6 +444,113 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
         specs[1].Remark.Should().Be("R-OLD-2");
     }
 
+    [Fact]
+    public async Task ImportExcel_WhenLaterSheetFromSameFileWasCommittedBeforeConfirmation_ShouldNotAskAgainForSameFileDuplicate()
+    {
+        var seeded = await SeedImportScopeAsync();
+        var fileId = await UploadExcelAsync(CreateMultiSheetExcelBytes(new[]
+        {
+            new[]
+            {
+                ("P-LOCK", "S-LOCK", "A-BASE", "R-BASE")
+            },
+            new[]
+            {
+                ("P-LOCK", "S-LOCK", "A-PENDING", "R-PENDING"),
+                ("P-LATE", "S-LATE", "A-FIRST", "R-FIRST")
+            },
+            new[]
+            {
+                ("P-LATE", "S-LATE", "A-LATER", "R-LATER")
+            }
+        }), "same-file-later-sheet-duplicate.xlsx");
+
+        var firstSheetResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            cleanupSourceFile = false
+        });
+        firstSheetResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var pendingSheetResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 1,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            cleanupSourceFile = false
+        });
+        pendingSheetResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var pendingJson = await pendingSheetResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        pendingJson.Code.Should().Be(0);
+        pendingJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeTrue();
+        var pendingKey = pendingJson.Data.GetProperty("pendingDifferences")[0]
+            .GetProperty("key")
+            .GetString();
+        pendingKey.Should().NotBeNullOrWhiteSpace();
+
+        var laterSheetResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 2,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            cleanupSourceFile = false
+        });
+        laterSheetResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var laterJson = await laterSheetResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        laterJson.Code.Should().Be(0);
+        laterJson.Data.GetProperty("successCount").GetInt32().Should().Be(1);
+
+        var confirmResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 1,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            confirmedDifferenceKeys = new[] { pendingKey },
+            cleanupSourceFile = false
+        });
+
+        confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var confirmJson = await confirmResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        confirmJson.Code.Should().Be(0);
+        confirmJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeFalse();
+        confirmJson.Data.GetProperty("pendingCount").GetInt32().Should().Be(0);
+        confirmJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(1);
+    }
+
     private async Task<(int CustomerId, int ProcessId)> SeedImportScopeAsync()
     {
         using var scope = _factory.Services.CreateScope();
@@ -546,6 +653,37 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
             worksheet.Cell(currentRow, 3).Value = row.Acceptance;
             worksheet.Cell(currentRow, 4).Value = row.Remark;
             currentRow++;
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateMultiSheetExcelBytes(
+        IEnumerable<IEnumerable<(string Project, string Specification, string Acceptance, string Remark)>> sheets)
+    {
+        using var workbook = new XLWorkbook();
+        var sheetIndex = 1;
+        foreach (var sheetRows in sheets)
+        {
+            var worksheet = workbook.AddWorksheet($"Sheet{sheetIndex}");
+            worksheet.Cell(1, 1).Value = "项目";
+            worksheet.Cell(1, 2).Value = "规格内容";
+            worksheet.Cell(1, 3).Value = "验收标准";
+            worksheet.Cell(1, 4).Value = "备注";
+
+            var currentRow = 2;
+            foreach (var row in sheetRows)
+            {
+                worksheet.Cell(currentRow, 1).Value = row.Project;
+                worksheet.Cell(currentRow, 2).Value = row.Specification;
+                worksheet.Cell(currentRow, 3).Value = row.Acceptance;
+                worksheet.Cell(currentRow, 4).Value = row.Remark;
+                currentRow++;
+            }
+
+            sheetIndex++;
         }
 
         using var stream = new MemoryStream();

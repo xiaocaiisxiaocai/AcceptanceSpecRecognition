@@ -1,0 +1,127 @@
+using System.Security.Claims;
+using AcceptanceSpecSystem.Api.Authorization;
+using AcceptanceSpecSystem.Api.DTOs;
+using AcceptanceSpecSystem.Data.Context;
+using Microsoft.EntityFrameworkCore;
+
+namespace AcceptanceSpecSystem.Api.Services;
+
+/// <summary>
+/// 首页统计应用服务。
+/// </summary>
+public sealed class DashboardAppService
+{
+    private readonly AppDbContext _dbContext;
+    private readonly IAuthDataScopeService _authDataScopeService;
+
+    public DashboardAppService(AppDbContext dbContext, IAuthDataScopeService authDataScopeService)
+    {
+        _dbContext = dbContext;
+        _authDataScopeService = authDataScopeService;
+    }
+
+    public async Task<DashboardSummaryDto?> GetSummaryAsync(
+        ClaimsPrincipal user,
+        string? range,
+        DateTime? from,
+        DateTime? to)
+    {
+        var scope = await SpecDataScopeHelper.ResolveScopeAsync(user, _authDataScopeService);
+        if (scope == null)
+        {
+            return null;
+        }
+
+        var period = ResolvePeriod(range, from, to);
+        var scopedSpecs = SpecDataScopeHelper.ApplyScopeToQuery(
+            _dbContext.AcceptanceSpecs.AsNoTracking(),
+            scope);
+
+        var smartFillRecords = _dbContext.ExecutionHistoryRecords
+            .AsNoTracking()
+            .Where(record =>
+                record.CompanyId == scope.CompanyId &&
+                record.CreatedByUserId == scope.UserId &&
+                record.TaskType == ExecutionHistoryTaskTypes.SmartFill &&
+                record.CreatedAt >= period.Start &&
+                record.CreatedAt <= period.End);
+
+        var customerTotal = await scopedSpecs
+            .Select(spec => spec.CustomerId)
+            .Distinct()
+            .CountAsync();
+        var processTotal = await scopedSpecs
+            .Where(spec => spec.ProcessId.HasValue)
+            .Select(spec => spec.ProcessId!.Value)
+            .Distinct()
+            .CountAsync();
+        var specTotal = await scopedSpecs.CountAsync();
+        var importedSpecCount = await scopedSpecs
+            .CountAsync(spec => spec.ImportedAt >= period.Start && spec.ImportedAt <= period.End);
+
+        var smartFillTaskCount = await smartFillRecords.CountAsync();
+        var smartFillTotalRows = await smartFillRecords.SumAsync(record => (int?)record.TotalRowCount) ?? 0;
+        var smartFillMatchedRows = await smartFillRecords.SumAsync(record => (int?)record.MatchedRowCount) ?? 0;
+        var smartFillAdoptedRows = await smartFillRecords.SumAsync(record => (int?)record.AdoptedRowCount) ?? 0;
+
+        return new DashboardSummaryDto
+        {
+            PeriodPreset = period.Preset,
+            PeriodStart = period.Start,
+            PeriodEnd = period.End,
+            CustomerTotal = customerTotal,
+            ProcessTotal = processTotal,
+            SpecTotal = specTotal,
+            ImportedSpecCount = importedSpecCount,
+            SmartFillTaskCount = smartFillTaskCount,
+            SmartFillTotalRows = smartFillTotalRows,
+            SmartFillMatchedRows = smartFillMatchedRows,
+            SmartFillAdoptedRows = smartFillAdoptedRows,
+            MatchingRate = CalculateRate(smartFillMatchedRows, smartFillTotalRows),
+            AdoptionRate = CalculateRate(smartFillAdoptedRows, smartFillTotalRows)
+        };
+    }
+
+    private static DashboardPeriod ResolvePeriod(string? range, DateTime? from, DateTime? to)
+    {
+        var now = DateTime.UtcNow;
+        var normalizedRange = string.IsNullOrWhiteSpace(range)
+            ? "last7"
+            : range.Trim().ToLowerInvariant();
+
+        return normalizedRange switch
+        {
+            "last30" => new DashboardPeriod("last30", now.AddDays(-30), now),
+            "custom" when from.HasValue && to.HasValue =>
+                NormalizeCustomPeriod(from.Value, to.Value),
+            _ => new DashboardPeriod("last7", now.AddDays(-7), now)
+        };
+    }
+
+    private static DashboardPeriod NormalizeCustomPeriod(DateTime from, DateTime to)
+    {
+        var start = ToUtc(from);
+        var end = ToUtc(to);
+        if (start > end)
+        {
+            (start, end) = (end, start);
+        }
+
+        return new DashboardPeriod("custom", start, end);
+    }
+
+    private static DateTime ToUtc(DateTime value)
+    {
+        return value.Kind == DateTimeKind.Utc
+            ? value
+            : DateTime.SpecifyKind(value, value.Kind == DateTimeKind.Unspecified ? DateTimeKind.Local : value.Kind)
+                .ToUniversalTime();
+    }
+
+    private static double CalculateRate(int numerator, int denominator)
+    {
+        return denominator <= 0 ? 0 : Math.Round((double)numerator / denominator, 4);
+    }
+
+    private sealed record DashboardPeriod(string Preset, DateTime Start, DateTime End);
+}

@@ -179,6 +179,7 @@ builder.Services.AddScoped<MatchingExecutionAppService>();
 builder.Services.AddScoped<SmartFillSpecBackfillAppService>();
 builder.Services.AddScoped<MatchingTaskAppService>();
 builder.Services.AddScoped<ExecutionHistoryAppService>();
+builder.Services.AddScoped<DashboardAppService>();
 builder.Services.AddScoped<SystemPromptTemplateInitializer>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 builder.Services.AddHostedService<EmbeddingCacheCleanupService>();

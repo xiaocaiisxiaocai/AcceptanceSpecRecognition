@@ -36,6 +36,76 @@ public class SpecPaginationRegressionTests : IClassFixture<ApiWebApplicationFact
         payload.Data.Items.Should().HaveCount(expectedCount);
     }
 
+    [Fact]
+    public async Task GetSpecs_GlobalKeyword_ShouldSearchCustomerMachineModelAndProcessNames()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var keyword = $"全局对象-{suffix}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var customer = new Customer
+            {
+                Name = $"客户-{keyword}",
+                CreatedAt = DateTime.UtcNow
+            };
+            var process = new Process
+            {
+                Name = $"制程-{keyword}",
+                CreatedAt = DateTime.UtcNow
+            };
+            var machineModel = new MachineModel
+            {
+                Name = $"机型-{keyword}",
+                CreatedAt = DateTime.UtcNow
+            };
+            var wordFile = new WordFile
+            {
+                FileName = $"global-keyword-{suffix}.docx",
+                FileHash = Guid.NewGuid().ToString("N"),
+                FileContent = Array.Empty<byte>(),
+                UploadedAt = DateTime.UtcNow
+            };
+
+            dbContext.Customers.Add(customer);
+            dbContext.Processes.Add(process);
+            dbContext.MachineModels.Add(machineModel);
+            dbContext.WordFiles.Add(wordFile);
+            await dbContext.SaveChangesAsync();
+
+            dbContext.AcceptanceSpecs.Add(new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                ProcessId = process.Id,
+                MachineModelId = machineModel.Id,
+                Project = $"项目不含目标词-{suffix}",
+                Specification = $"规格不含目标词-{suffix}",
+                Acceptance = $"验收不含目标词-{suffix}",
+                Remark = $"备注不含目标词-{suffix}",
+                WordFileId = wordFile.Id,
+                OwnerOrgUnitId = 1,
+                CreatedByUserId = 1,
+                ImportedAt = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var response = await _client.GetAsync(
+            $"/api/specs?page=1&pageSize=20&keyword={Uri.EscapeDataString(keyword)}");
+
+        response.EnsureSuccessStatusCode();
+
+        var payload = await response.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        payload.Code.Should().Be(0);
+        payload.Data.Should().NotBeNull();
+        payload.Data!.Total.Should().Be(1);
+        payload.Data.Items.Should().ContainSingle(item =>
+            item.GetProperty("customerName").GetString() == $"客户-{keyword}" &&
+            item.GetProperty("machineModelName").GetString() == $"机型-{keyword}" &&
+            item.GetProperty("processName").GetString() == $"制程-{keyword}");
+    }
+
     private async Task<(int CustomerId, int ProcessId, int Count)> SeedSpecsAsync(int count)
     {
         using var scope = _factory.Services.CreateScope();

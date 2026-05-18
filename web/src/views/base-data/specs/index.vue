@@ -123,19 +123,13 @@ onBeforeUnmount(() => {
       <!-- 右侧面板：规格表格 -->
       <el-card class="right-panel">
         <SpecTable
-          v-if="selectedGroup"
-          :customer-id="selectedGroup.customerId"
-          :machine-model-id="selectedGroup.machineModelId"
-          :process-id="selectedGroup.processId"
-          :customer-name="selectedGroup.customerName"
-          :machine-model-name="selectedGroup.machineModelName"
-          :process-name="selectedGroup.processName"
+          :customer-id="selectedGroup?.customerId"
+          :machine-model-id="selectedGroup?.machineModelId"
+          :process-id="selectedGroup?.processId"
+          :customer-name="selectedGroup?.customerName"
+          :machine-model-name="selectedGroup?.machineModelName"
+          :process-name="selectedGroup?.processName"
           @data-change="handleDataChange"
-        />
-        <el-empty
-          v-else
-          description="请在左侧选择一个分组以查看规格数据"
-          :image-size="120"
         />
       </el-card>
     </div>
