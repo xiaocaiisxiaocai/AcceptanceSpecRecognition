@@ -41,6 +41,11 @@ public class AppDbContext : DbContext
     public DbSet<EmbeddingCache> EmbeddingCaches => Set<EmbeddingCache>();
 
     /// <summary>
+    /// 向量缓存预热覆盖配置表
+    /// </summary>
+    public DbSet<EmbeddingCacheWarmupSetting> EmbeddingCacheWarmupSettings => Set<EmbeddingCacheWarmupSetting>();
+
+    /// <summary>
     /// Word文件表
     /// </summary>
     public DbSet<WordFile> WordFiles => Set<WordFile>();
@@ -241,6 +246,13 @@ public class AppDbContext : DbContext
                   .WithMany(s => s.EmbeddingCaches)
                   .HasForeignKey(e => e.SpecId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // EmbeddingCacheWarmupSetting 配置
+        modelBuilder.Entity<EmbeddingCacheWarmupSetting>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.RunAtLocalTime).HasMaxLength(16);
         });
 
         // WordFile配置

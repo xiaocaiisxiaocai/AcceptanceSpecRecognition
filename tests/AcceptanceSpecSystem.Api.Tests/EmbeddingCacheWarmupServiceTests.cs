@@ -1,6 +1,10 @@
 using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -77,6 +81,108 @@ public class EmbeddingCacheWarmupServiceTests
         logger.WarningMessages.Should().Contain(message => message.Contains("向量缓存预热失败", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void GetOptions_WhenDatabaseContainsOverride_ShouldUsePersistedOptions()
+    {
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+
+        var services = CreateServicesWithDatabase(
+            connection,
+            new EmbeddingCacheWarmupOptions
+            {
+                Enabled = false,
+                RunOnStartup = false,
+                IntervalHours = 24,
+                BatchSize = 100,
+                MaxItemsPerRun = 1000
+            });
+
+        using (var scope = services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Database.EnsureCreated();
+            db.EmbeddingCacheWarmupSettings.Add(new EmbeddingCacheWarmupSetting
+            {
+                Enabled = true,
+                RunOnStartup = true,
+                RunAtLocalTime = "03:30",
+                IntervalHours = 6,
+                BatchSize = 25,
+                MaxItemsPerRun = 250,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+            db.SaveChanges();
+        }
+
+        var manager = new EmbeddingCacheWarmupManager(
+            services.GetRequiredService<IServiceScopeFactory>(),
+            services.GetRequiredService<IOptions<EmbeddingCacheWarmupOptions>>(),
+            new CollectingLogger<EmbeddingCacheWarmupManager>());
+
+        var options = manager.GetOptions();
+
+        options.Enabled.Should().BeTrue();
+        options.RunOnStartup.Should().BeTrue();
+        options.RunAtLocalTime.Should().Be("03:30");
+        options.IntervalHours.Should().Be(6);
+        options.BatchSize.Should().Be(25);
+        options.MaxItemsPerRun.Should().Be(250);
+    }
+
+    [Fact]
+    public void UpdateOptions_ShouldPersistOverrideToDatabase()
+    {
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+
+        var services = CreateServicesWithDatabase(
+            connection,
+            new EmbeddingCacheWarmupOptions
+            {
+                Enabled = false,
+                RunOnStartup = false,
+                IntervalHours = 24,
+                BatchSize = 100,
+                MaxItemsPerRun = 1000
+            });
+
+        using (var scope = services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.EnsureCreated();
+        }
+
+        var manager = new EmbeddingCacheWarmupManager(
+            services.GetRequiredService<IServiceScopeFactory>(),
+            services.GetRequiredService<IOptions<EmbeddingCacheWarmupOptions>>(),
+            new CollectingLogger<EmbeddingCacheWarmupManager>());
+
+        manager.UpdateOptions(new()
+        {
+            Enabled = true,
+            RunOnStartup = true,
+            RunAtLocalTime = "04:45",
+            IntervalHours = 8,
+            BatchSize = 32,
+            MaxItemsPerRun = 320
+        });
+
+        using var verifyScope = services.CreateScope();
+        var setting = verifyScope.ServiceProvider
+            .GetRequiredService<AppDbContext>()
+            .EmbeddingCacheWarmupSettings
+            .Single();
+
+        setting.Enabled.Should().BeTrue();
+        setting.RunOnStartup.Should().BeTrue();
+        setting.RunAtLocalTime.Should().Be("04:45");
+        setting.IntervalHours.Should().Be(8);
+        setting.BatchSize.Should().Be(32);
+        setting.MaxItemsPerRun.Should().Be(320);
+        setting.UpdatedAt.Should().NotBeNull();
+    }
+
     private static EmbeddingCacheWarmupService CreateService(
         EmbeddingCacheWarmupOptions options,
         IEmbeddingCacheWarmupExecutor executor,
@@ -105,6 +211,26 @@ public class EmbeddingCacheWarmupServiceTests
         return new EmbeddingCacheWarmupService(
             manager,
             new CollectingLogger<EmbeddingCacheWarmupService>());
+    }
+
+    private static ServiceProvider CreateServicesWithDatabase(
+        SqliteConnection connection,
+        EmbeddingCacheWarmupOptions options)
+    {
+        var services = new ServiceCollection();
+        services.AddOptions();
+        services.Configure<EmbeddingCacheWarmupOptions>(current =>
+        {
+            current.Enabled = options.Enabled;
+            current.RunOnStartup = options.RunOnStartup;
+            current.RunAtLocalTime = options.RunAtLocalTime;
+            current.IntervalHours = options.IntervalHours;
+            current.BatchSize = options.BatchSize;
+            current.MaxItemsPerRun = options.MaxItemsPerRun;
+        });
+        services.AddDbContext<AppDbContext>(builder => builder.UseSqlite(connection));
+
+        return services.BuildServiceProvider();
     }
 
     private sealed class RecordingWarmupExecutor : IEmbeddingCacheWarmupExecutor

@@ -1,5 +1,7 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Options;
+using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Services;
@@ -11,6 +13,7 @@ public sealed class EmbeddingCacheWarmupManager
     private readonly object _lock = new();
     private EmbeddingCacheWarmupOptions _options;
     private EmbeddingCacheWarmupStatusDto _status = new();
+    private bool _persistedOptionsLoaded;
 
     public EmbeddingCacheWarmupManager(
         IServiceScopeFactory scopeFactory,
@@ -24,6 +27,8 @@ public sealed class EmbeddingCacheWarmupManager
 
     public EmbeddingCacheWarmupOptions GetOptions()
     {
+        EnsurePersistedOptionsLoaded();
+
         lock (_lock)
         {
             return CloneOptions(_options);
@@ -32,6 +37,8 @@ public sealed class EmbeddingCacheWarmupManager
 
     public EmbeddingCacheWarmupOverviewDto GetOverview()
     {
+        EnsurePersistedOptionsLoaded();
+
         lock (_lock)
         {
             return new EmbeddingCacheWarmupOverviewDto
@@ -45,9 +52,11 @@ public sealed class EmbeddingCacheWarmupManager
 
     public EmbeddingCacheWarmupOverviewDto UpdateOptions(UpdateEmbeddingCacheWarmupOptionsRequest request)
     {
+        EnsurePersistedOptionsLoaded();
+
         lock (_lock)
         {
-            _options = NormalizeOptions(new EmbeddingCacheWarmupOptions
+            var options = NormalizeOptions(new EmbeddingCacheWarmupOptions
             {
                 Enabled = request.Enabled,
                 RunOnStartup = request.RunOnStartup,
@@ -58,6 +67,9 @@ public sealed class EmbeddingCacheWarmupManager
                 BatchSize = request.BatchSize,
                 MaxItemsPerRun = request.MaxItemsPerRun
             });
+
+            SavePersistedOptions(options);
+            _options = CloneOptions(options);
 
             return new EmbeddingCacheWarmupOverviewDto
             {
@@ -70,6 +82,8 @@ public sealed class EmbeddingCacheWarmupManager
 
     public async Task<EmbeddingCacheWarmupRunResult> RunOnceAsync(CancellationToken cancellationToken)
     {
+        EnsurePersistedOptionsLoaded();
+
         EmbeddingCacheWarmupOptions options;
         DateTime startedAt;
         int batchSize;
@@ -139,6 +153,70 @@ public sealed class EmbeddingCacheWarmupManager
         }
     }
 
+    private void EnsurePersistedOptionsLoaded()
+    {
+        if (_persistedOptionsLoaded)
+            return;
+
+        lock (_lock)
+        {
+            if (_persistedOptionsLoaded)
+                return;
+
+            var persistedOptions = LoadPersistedOptions();
+            if (persistedOptions is not null)
+            {
+                // 数据库覆盖值用于承接管理页保存结果；appsettings 仍作为首次默认值。
+                _options = persistedOptions;
+            }
+
+            _persistedOptionsLoaded = true;
+        }
+    }
+
+    private EmbeddingCacheWarmupOptions? LoadPersistedOptions()
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetService<AppDbContext>();
+        var setting = db?.EmbeddingCacheWarmupSettings
+            .OrderBy(item => item.Id)
+            .FirstOrDefault();
+
+        return setting is null ? null : ToOptions(setting);
+    }
+
+    private void SavePersistedOptions(EmbeddingCacheWarmupOptions options)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetService<AppDbContext>();
+        if (db is null)
+            return;
+
+        var now = DateTime.UtcNow;
+        var setting = db.EmbeddingCacheWarmupSettings
+            .OrderBy(item => item.Id)
+            .FirstOrDefault();
+
+        if (setting is null)
+        {
+            setting = new EmbeddingCacheWarmupSetting
+            {
+                CreatedAt = now
+            };
+            db.EmbeddingCacheWarmupSettings.Add(setting);
+        }
+
+        setting.Enabled = options.Enabled;
+        setting.RunOnStartup = options.RunOnStartup;
+        setting.RunAtLocalTime = options.RunAtLocalTime;
+        setting.IntervalHours = options.IntervalHours;
+        setting.BatchSize = options.BatchSize;
+        setting.MaxItemsPerRun = options.MaxItemsPerRun;
+        setting.UpdatedAt = now;
+
+        db.SaveChanges();
+    }
+
     private static EmbeddingCacheWarmupOptions NormalizeOptions(EmbeddingCacheWarmupOptions options)
     {
         options.IntervalHours = Math.Max(1, options.IntervalHours);
@@ -156,6 +234,17 @@ public sealed class EmbeddingCacheWarmupManager
             IntervalHours = options.IntervalHours,
             BatchSize = options.BatchSize,
             MaxItemsPerRun = options.MaxItemsPerRun
+        });
+
+    private static EmbeddingCacheWarmupOptions ToOptions(EmbeddingCacheWarmupSetting setting)
+        => NormalizeOptions(new EmbeddingCacheWarmupOptions
+        {
+            Enabled = setting.Enabled,
+            RunOnStartup = setting.RunOnStartup,
+            RunAtLocalTime = setting.RunAtLocalTime,
+            IntervalHours = setting.IntervalHours,
+            BatchSize = setting.BatchSize,
+            MaxItemsPerRun = setting.MaxItemsPerRun
         });
 
     private static EmbeddingCacheWarmupOptionsDto ToOptionsDto(EmbeddingCacheWarmupOptions options)
