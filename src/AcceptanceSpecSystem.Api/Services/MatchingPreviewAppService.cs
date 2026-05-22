@@ -27,6 +27,7 @@ public sealed class MatchingPreviewAppService
     private readonly ITextPreprocessingPipeline _textPipeline;
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IAiServiceSelector _aiServiceSelector;
+    private readonly IEmbeddingService _embeddingService;
     private readonly SpecEmbeddingCacheService _specEmbeddingCacheService;
     private readonly BatchPreviewProgressTracker _batchPreviewProgressTracker;
     private readonly MatchingApprovalTokenService _approvalTokenService;
@@ -50,6 +51,7 @@ public sealed class MatchingPreviewAppService
         ITextPreprocessingPipeline textPipeline,
         IAuthDataScopeService authDataScopeService,
         IAiServiceSelector aiServiceSelector,
+        IEmbeddingService embeddingService,
         SpecEmbeddingCacheService specEmbeddingCacheService,
         BatchPreviewProgressTracker batchPreviewProgressTracker,
         MatchingApprovalTokenService approvalTokenService,
@@ -62,6 +64,7 @@ public sealed class MatchingPreviewAppService
         _textPipeline = textPipeline;
         _authDataScopeService = authDataScopeService;
         _aiServiceSelector = aiServiceSelector;
+        _embeddingService = embeddingService;
         _specEmbeddingCacheService = specEmbeddingCacheService;
         _batchPreviewProgressTracker = batchPreviewProgressTracker;
         _approvalTokenService = approvalTokenService;
@@ -128,6 +131,7 @@ public sealed class MatchingPreviewAppService
             cancellationToken.ThrowIfCancellationRequested();
 
             var config = await ConvertToMatchingConfigAsync(request.Config, cancellationToken);
+            EnsureEmbeddingServiceAvailable(config);
             var candidates = await GetCandidatesAsync(
                 request.CustomerId,
                 request.ProcessId,
@@ -469,6 +473,16 @@ public sealed class MatchingPreviewAppService
         }
     }
 
+    private void EnsureEmbeddingServiceAvailable(MatchingConfig config)
+    {
+        if (config.ExactMatchOnly || _embeddingService.IsAvailable)
+        {
+            return;
+        }
+
+        throw Failure(400, "Embedding 服务不可用: 未检测到可用的 Embedding 服务配置");
+    }
+
     private static BatchMatchResult BuildExactMatchBatchResult(
         IReadOnlyList<MatchSource> sources,
         IReadOnlyList<MatchCandidate> candidates,
@@ -735,7 +749,7 @@ public sealed class MatchingPreviewAppService
             LlmRowTimeoutSeconds = Math.Clamp(dto?.LlmRowTimeoutSeconds ?? fallbackConfig.LlmRowTimeoutSeconds, 5, 300),
             LlmRetryCount = Math.Clamp(dto?.LlmRetryCount ?? fallbackConfig.LlmRetryCount, 0, 3),
             LlmCircuitBreakFailures = Math.Clamp(dto?.LlmCircuitBreakFailures ?? fallbackConfig.LlmCircuitBreakFailures, 3, 200),
-            EnableLlmEquivalenceAdjudication = false,
+            EnableLlmEquivalenceAdjudication = fallbackConfig.EnableLlmEquivalenceAdjudication,
             ExactMatchOnly = dto?.ExactMatchOnly ?? fallbackConfig.ExactMatchOnly,
             FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows
         };

@@ -879,14 +879,14 @@ public class SemanticKernelMatchingService : IMatchingService
         if (candidate.LlmEquivalence?.Verdict is LlmEquivalenceVerdict.Different or LlmEquivalenceVerdict.Uncertain)
             return MatchDecision.ManualReview;
 
-        if (RequiresManualReview(candidate.Evidence))
-            return MatchDecision.ManualReview;
-
         if (isAmbiguous)
             return MatchDecision.ManualReview;
 
         if (candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent)
             return MatchDecision.AutoApply;
+
+        if (RequiresManualReview(candidate.Evidence))
+            return MatchDecision.ManualReview;
 
         return MatchDecision.ManualReview;
     }
@@ -901,12 +901,25 @@ public class SemanticKernelMatchingService : IMatchingService
         var llmGateThreshold = Math.Clamp(config.MinScoreThreshold, 0, 1);
         var shouldRunByFinalScore = candidate.FinalScore >= llmGateThreshold;
         var shouldRunByEmbedding = candidate.EmbeddingScore >= llmGateThreshold;
-        if (!shouldRunByFinalScore && !shouldRunByEmbedding)
+        var shouldRunByCodedProjectRescue = IsCodedProjectSemanticRescueCandidate(candidate);
+        if (!shouldRunByFinalScore && !shouldRunByEmbedding && !shouldRunByCodedProjectRescue)
             return false;
 
         // LLM 等价裁决门槛跟随当前匹配配置的最小得分阈值，
         // 避免页面可见阈值与后端实际触发门槛不一致。
         return true;
+    }
+
+    private static bool IsCodedProjectSemanticRescueCandidate(EvaluatedCandidate candidate)
+    {
+        if (candidate.ProjectScore < ExactTextMatchThreshold ||
+            candidate.ProjectCodeConflictPenalty > 0 ||
+            candidate.EmbeddingScore < NearTextMatchThreshold - 1e-6)
+        {
+            return false;
+        }
+
+        return TryExtractProjectCode(candidate.Source.Project, out _, out _);
     }
 
     private static string AppendEquivalenceSummary(
