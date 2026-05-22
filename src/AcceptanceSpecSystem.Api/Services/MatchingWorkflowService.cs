@@ -582,12 +582,14 @@ public sealed class MatchingWorkflowSupportService
         var currentMatchLookups = BuildExecutionPreviewSnapshots(request.PreviewTables);
         foreach (var table in request.Tables)
         {
-            if (ExecutionPreviewSnapshotCoversMappings(table, currentMatchLookups.GetValueOrDefault(table.TableIndex), reviewApprovalBundle))
+            var currentSnapshot = currentMatchLookups.GetValueOrDefault(table.TableIndex);
+            if (ExecutionPreviewSnapshotCoversMappings(table, currentSnapshot, reviewApprovalBundle))
             {
                 continue;
             }
 
-            if (RequiresCurrentMatchRebuild(table, reviewApprovalBundle))
+            var currentMatchRows = GetRowsRequiringCurrentMatch(table, reviewApprovalBundle);
+            if (currentMatchRows.Count > 0 || MissingSourceRowsForTokenValidation(table, currentSnapshot, reviewApprovalBundle))
             {
                 EnsureExecutionPreviewContext(table.ProjectColumnIndex, table.SpecificationColumnIndex, table.TableIndex);
                 currentMatchLookups[table.TableIndex] = await BuildCurrentMatchLookupAsync(
@@ -603,7 +605,9 @@ public sealed class MatchingWorkflowSupportService
                     effectiveProcessId,
                     effectiveMachineModelId,
                     executionConfig,
-                    scope);
+                    scope,
+                    currentSnapshot,
+                    currentMatchRows);
             }
             else if (!currentMatchLookups.ContainsKey(table.TableIndex))
             {
@@ -1427,23 +1431,39 @@ public sealed class MatchingWorkflowSupportService
                 continue;
             }
 
-            if (!snapshot.MatchLookup.TryGetValue(mapping.RowIndex, out var previewMatch) ||
-                previewMatch.MatchedSpecId != mapping.SpecId)
-            {
-                return false;
-            }
+            // previewTables 来自客户端回传，只能作为性能快照，不能单独决定规格是否可执行。
+            // 无服务端签名 token 的规格映射必须重建当前匹配门禁，避免客户端伪造 autoApply。
+            return false;
         }
 
         return true;
     }
 
-    private static bool RequiresCurrentMatchRebuild(
+    private static HashSet<int> GetRowsRequiringCurrentMatch(
         BatchTableFillMapping table,
         MatchingApprovalTokenService.ApprovalTokenBundle? reviewApprovalBundle)
     {
+        return table.Mappings
+            .Where(mapping =>
+                mapping.SpecId.GetValueOrDefault() > 0 &&
+                !MappingHasApprovalToken(table.TableIndex, mapping, reviewApprovalBundle))
+            .Select(mapping => mapping.RowIndex)
+            .ToHashSet();
+    }
+
+    private static bool MissingSourceRowsForTokenValidation(
+        BatchTableFillMapping table,
+        ExecutionMatchSnapshot? snapshot,
+        MatchingApprovalTokenService.ApprovalTokenBundle? reviewApprovalBundle)
+    {
+        if (reviewApprovalBundle == null)
+        {
+            return false;
+        }
+
         return table.Mappings.Any(mapping =>
-            mapping.SpecId.GetValueOrDefault() > 0 &&
-            !MappingHasApprovalToken(table.TableIndex, mapping, reviewApprovalBundle));
+            MappingHasApprovalToken(table.TableIndex, mapping, reviewApprovalBundle) &&
+            snapshot?.SourceRowLookup.ContainsKey(mapping.RowIndex) != true);
     }
 
     private static bool MappingHasApprovalToken(
@@ -1540,7 +1560,9 @@ public sealed class MatchingWorkflowSupportService
         int? processId,
         int? machineModelId,
         MatchingConfig config,
-        DataScopeResult scope)
+        DataScopeResult scope,
+        ExecutionMatchSnapshot? existingSnapshot = null,
+        IReadOnlySet<int>? rowIndexesRequiringCurrentMatch = null)
     {
         if (!projectColumnIndex.HasValue || !specificationColumnIndex.HasValue)
         {
@@ -1563,6 +1585,31 @@ public sealed class MatchingWorkflowSupportService
         }
 
         var sourceRowLookup = sourceRows.ToDictionary(item => item.RowIndex);
+        var rowsToMatch = rowIndexesRequiringCurrentMatch == null
+            ? sourceRows
+            : sourceRows.Where(item => rowIndexesRequiringCurrentMatch.Contains(item.RowIndex)).ToList();
+
+        var lookup = existingSnapshot?.MatchLookup != null
+            ? new Dictionary<int, MatchResult>(existingSnapshot.MatchLookup)
+            : [];
+
+        if (rowIndexesRequiringCurrentMatch != null)
+        {
+            foreach (var rowIndex in rowIndexesRequiringCurrentMatch)
+            {
+                // 这些行必须用服务端当前匹配结果覆盖，不能沿用客户端回传的预览决策。
+                lookup.Remove(rowIndex);
+            }
+        }
+
+        if (rowsToMatch.Count == 0)
+        {
+            return new ExecutionMatchSnapshot
+            {
+                MatchLookup = lookup,
+                SourceRowLookup = sourceRowLookup
+            };
+        }
 
         var candidates = await GetCandidatesAsync(
             customerId,
@@ -1576,6 +1623,7 @@ public sealed class MatchingWorkflowSupportService
         {
             return new ExecutionMatchSnapshot
             {
+                MatchLookup = lookup,
                 SourceRowLookup = sourceRowLookup
             };
         }
@@ -1591,7 +1639,7 @@ public sealed class MatchingWorkflowSupportService
             Embedding = candidate.Embedding
         }).ToList();
 
-        var sourceItems = sourceRows.Select(item => new MatchSource
+        var sourceItems = rowsToMatch.Select(item => new MatchSource
         {
             Project = tpSession.Process(item.Project),
             Specification = tpSession.Process(item.Specification)
@@ -1609,8 +1657,7 @@ public sealed class MatchingWorkflowSupportService
             throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
         }
 
-        var lookup = new Dictionary<int, MatchResult>();
-        for (var index = 0; index < sourceRows.Count && index < batchResult.Results.Count; index++)
+        for (var index = 0; index < rowsToMatch.Count && index < batchResult.Results.Count; index++)
         {
             var result = batchResult.Results[index];
             if (!result.MatchedSpecId.HasValue)
@@ -1618,7 +1665,7 @@ public sealed class MatchingWorkflowSupportService
                 continue;
             }
 
-            lookup[sourceRows[index].RowIndex] = result;
+            lookup[rowsToMatch[index].RowIndex] = result;
         }
 
         return new ExecutionMatchSnapshot

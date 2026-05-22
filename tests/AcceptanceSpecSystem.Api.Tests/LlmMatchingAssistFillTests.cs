@@ -527,6 +527,92 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
     }
 
     [Fact]
+    public async Task BatchExecuteFill_WithForgedPreviewTablesAutoApply_ShouldStillRequireServerCurrentMatch()
+    {
+        var setup = await PrepareAmbiguousSpecsFillAsync("RejectForgedPreviewTablesAutoApply");
+        var previewBestMatch = await PreviewBestMatchAsync(setup.FileId, setup.CustomerId, setup.ProcessId, rowIndex: 1);
+
+        previewBestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
+        previewBestMatch.GetProperty("isAmbiguous").GetBoolean().Should().BeTrue();
+
+        var execResp = await _client.PostAsync("/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId = setup.FileId,
+                customerId = setup.CustomerId,
+                processId = setup.ProcessId,
+                config = new
+                {
+                    minScoreThreshold = 0.0,
+                    recallTopK = 5,
+                    ambiguityMargin = 0.05,
+                    highConfidenceThreshold = 0.95
+                },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        mappings = new[]
+                        {
+                            new
+                            {
+                                rowIndex = 1,
+                                specId = previewBestMatch.GetProperty("specId").GetInt32()
+                            }
+                        }
+                    }
+                },
+                previewTables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        items = new[]
+                        {
+                            new
+                            {
+                                rowIndex = 1,
+                                sourceProject = ReviewScenarioSamples.ApprovedSourceProject,
+                                sourceSpecification = ReviewScenarioSamples.ApprovedSourceSpecification,
+                                bestMatch = new
+                                {
+                                    specId = previewBestMatch.GetProperty("specId").GetInt32(),
+                                    project = previewBestMatch.GetProperty("project").GetString(),
+                                    specification = previewBestMatch.GetProperty("specification").GetString(),
+                                    acceptance = previewBestMatch.GetProperty("acceptance").GetString(),
+                                    remark = previewBestMatch.GetProperty("remark").GetString(),
+                                    score = previewBestMatch.GetProperty("score").GetDouble(),
+                                    embeddingScore = previewBestMatch.GetProperty("embeddingScore").GetDouble(),
+                                    decision = "autoApply",
+                                    isAmbiguous = false,
+                                    llmEquivalence = new
+                                    {
+                                        verdict = "equivalent",
+                                        reasonType = "equivalent_expression",
+                                        confidence = 0.99,
+                                        reason = "客户端伪造的等价结论"
+                                    }
+                                },
+                                confidenceLevel = "high"
+                            }
+                        }
+                    }
+                }
+            }));
+
+        execResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        execJson.Code.Should().Be(0);
+        execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(0);
+        execJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
     public async Task ExecuteFill_WithDuplicateRowMappings_ShouldReturnBadRequest()
     {
         var setup = await PrepareCompetingSpecsFillAsync("RejectDuplicateExecuteMappings");
@@ -644,7 +730,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
                         bestMatchScore = previewBestMatch.GetProperty("score").GetDouble(),
                         scoreDetails = previewBestMatch.GetProperty("scoreDetails"),
                         decision = previewBestMatch.GetProperty("decision").GetString(),
-                        llmEquivalenceVerdict = previewBestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString(),
+                        llmEquivalenceVerdict = GetLlmEquivalenceVerdict(previewBestMatch),
                         isAmbiguous = previewBestMatch.GetProperty("isAmbiguous").GetBoolean(),
                         evidenceSummary = previewBestMatch.GetProperty("evidenceSummary"),
                         conflictSummary = previewBestMatch.GetProperty("conflictSummary")
@@ -659,7 +745,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
                         bestMatchScore = previewBestMatch.GetProperty("score").GetDouble(),
                         scoreDetails = previewBestMatch.GetProperty("scoreDetails"),
                         decision = previewBestMatch.GetProperty("decision").GetString(),
-                        llmEquivalenceVerdict = previewBestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString(),
+                        llmEquivalenceVerdict = GetLlmEquivalenceVerdict(previewBestMatch),
                         isAmbiguous = previewBestMatch.GetProperty("isAmbiguous").GetBoolean(),
                         evidenceSummary = previewBestMatch.GetProperty("evidenceSummary"),
                         conflictSummary = previewBestMatch.GetProperty("conflictSummary")
@@ -906,7 +992,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
                         bestMatchScore = previewBestMatch.GetProperty("score").GetDouble(),
                         scoreDetails = previewBestMatch.GetProperty("scoreDetails"),
                         decision = previewBestMatch.GetProperty("decision").GetString(),
-                        llmEquivalenceVerdict = previewBestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString(),
+                        llmEquivalenceVerdict = GetLlmEquivalenceVerdict(previewBestMatch),
                         isAmbiguous = previewBestMatch.GetProperty("isAmbiguous").GetBoolean(),
                         evidenceSummary = previewBestMatch.GetProperty("evidenceSummary"),
                         conflictSummary = previewBestMatch.GetProperty("conflictSummary")
@@ -924,6 +1010,18 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
         reviewDone.TryGetProperty("reviewApprovalToken", out var tokenElement).Should().BeTrue();
         tokenElement.GetString().Should().NotBeNullOrWhiteSpace();
         return tokenElement.GetString()!;
+    }
+
+    private static string? GetLlmEquivalenceVerdict(JsonElement previewBestMatch)
+    {
+        if (!previewBestMatch.TryGetProperty("llmEquivalence", out var llmEquivalence) ||
+            llmEquivalence.ValueKind != JsonValueKind.Object ||
+            !llmEquivalence.TryGetProperty("verdict", out var verdict))
+        {
+            return null;
+        }
+
+        return verdict.GetString();
     }
 
     private static async Task<List<SseEvent>> ReadSseEventsAsync(HttpResponseMessage response)
