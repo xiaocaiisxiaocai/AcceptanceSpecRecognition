@@ -134,7 +134,7 @@ public sealed class MatchingPreviewAppService
                 request.MachineModelId,
                 scope,
                 config.EmbeddingServiceId,
-                hydrateEmbeddings: !config.ExactMatchOnly,
+                hydrateEmbeddings: false,
                 cancellationToken);
             var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
 
@@ -146,15 +146,7 @@ public sealed class MatchingPreviewAppService
                 progressPercent: 14);
 
             var tpSession = await _textPipeline.CreateSessionAsync(cancellationToken);
-            var processedCandidates = candidates.Select(candidate => new MatchCandidate
-            {
-                SpecId = candidate.SpecId,
-                Project = tpSession.Process(candidate.Project),
-                Specification = tpSession.Process(candidate.Specification),
-                Acceptance = candidate.Acceptance,
-                Remark = candidate.Remark,
-                Embedding = candidate.Embedding
-            }).ToList();
+            var processedCandidates = BuildProcessedCandidates(candidates, tpSession);
 
             var response = new BatchPreviewResponse();
             var allTableData = new List<(BatchTableConfig Config, List<MatchSourceItem> Items, List<MatchSource> Sources)>();
@@ -229,14 +221,21 @@ public sealed class MatchingPreviewAppService
 
                 try
                 {
-                    batchResult = config.ExactMatchOnly
-                        ? BuildExactMatchBatchResult(allSources, processedCandidates, config)
-                        : await _matchingService.BatchMatchAsync(
+                    if (config.ExactMatchOnly || !RequiresSemanticMatching(allSources, processedCandidates))
+                    {
+                        batchResult = BuildExactMatchBatchResult(allSources, processedCandidates, config);
+                    }
+                    else
+                    {
+                        await HydrateCandidateEmbeddingsAsync(candidates, config.EmbeddingServiceId, cancellationToken);
+                        processedCandidates = BuildProcessedCandidates(candidates, tpSession);
+                        batchResult = await _matchingService.BatchMatchAsync(
                             allSources,
                             processedCandidates,
                             config,
                             CreateBatchMatchProgressReporter(previewRequestId),
                             cancellationToken);
+                    }
                 }
                 catch (AiServiceUnavailableException ex)
                 {
@@ -497,6 +496,38 @@ public sealed class MatchingPreviewAppService
                 })
                 .ToList()
         };
+    }
+
+    private static bool RequiresSemanticMatching(
+        IReadOnlyList<MatchSource> sources,
+        IReadOnlyList<MatchCandidate> candidates)
+    {
+        if (sources.Count == 0)
+        {
+            return false;
+        }
+
+        var lookup = candidates
+            .GroupBy(candidate => BuildCandidateDedupKey(candidate.Project, candidate.Specification))
+            .ToDictionary(group => group.Key, group => group.First());
+
+        return sources.Any(source =>
+            !lookup.ContainsKey(BuildCandidateDedupKey(source.Project, source.Specification)));
+    }
+
+    private static List<MatchCandidate> BuildProcessedCandidates(
+        IEnumerable<MatchCandidate> candidates,
+        TextProcessingSession tpSession)
+    {
+        return candidates.Select(candidate => new MatchCandidate
+        {
+            SpecId = candidate.SpecId,
+            Project = tpSession.Process(candidate.Project),
+            Specification = tpSession.Process(candidate.Specification),
+            Acceptance = candidate.Acceptance,
+            Remark = candidate.Remark,
+            Embedding = candidate.Embedding
+        }).ToList();
     }
 
     private static MatchResult CreateExactMatchResult(

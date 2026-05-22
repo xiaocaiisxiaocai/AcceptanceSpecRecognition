@@ -366,7 +366,8 @@ public sealed class MatchingWorkflowSupportService
             request.ProcessId,
             request.MachineModelId,
             scope,
-            config.EmbeddingServiceId);
+            config.EmbeddingServiceId,
+            hydrateEmbeddings: false);
         var accessibleSpecLookup = candidates.ToDictionary(candidate => candidate.SpecId);
         var normalizedItems = await BuildAuthoritativeLlmStreamItemsAsync(request.Items, candidates, config);
 
@@ -1617,7 +1618,7 @@ public sealed class MatchingWorkflowSupportService
             machineModelId,
             scope,
             config.EmbeddingServiceId,
-            hydrateEmbeddings: !config.ExactMatchOnly);
+            hydrateEmbeddings: false);
 
         if (candidates.Count == 0)
         {
@@ -1629,15 +1630,7 @@ public sealed class MatchingWorkflowSupportService
         }
 
         var tpSession = await _textPipeline.CreateSessionAsync();
-        var processedCandidates = candidates.Select(candidate => new MatchCandidate
-        {
-            SpecId = candidate.SpecId,
-            Project = tpSession.Process(candidate.Project),
-            Specification = tpSession.Process(candidate.Specification),
-            Acceptance = candidate.Acceptance,
-            Remark = candidate.Remark,
-            Embedding = candidate.Embedding
-        }).ToList();
+        var processedCandidates = BuildProcessedCandidates(candidates, tpSession);
 
         var sourceItems = rowsToMatch.Select(item => new MatchSource
         {
@@ -1648,9 +1641,16 @@ public sealed class MatchingWorkflowSupportService
         BatchMatchResult batchResult;
         try
         {
-            batchResult = config.ExactMatchOnly
-                ? BuildExactMatchBatchResult(sourceItems, processedCandidates, config)
-                : await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
+            if (config.ExactMatchOnly || !RequiresSemanticMatching(sourceItems, processedCandidates))
+            {
+                batchResult = BuildExactMatchBatchResult(sourceItems, processedCandidates, config);
+            }
+            else
+            {
+                await HydrateCandidateEmbeddingsAsync(candidates, config.EmbeddingServiceId);
+                processedCandidates = BuildProcessedCandidates(candidates, tpSession);
+                batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
+            }
         }
         catch (AiServiceUnavailableException ex)
         {
@@ -1690,16 +1690,9 @@ public sealed class MatchingWorkflowSupportService
             return requestItems.Select(CreateNoMatchLlmStreamItem).ToList();
         }
 
+        var candidateList = candidates.ToList();
         var tpSession = await _textPipeline.CreateSessionAsync();
-        var processedCandidates = candidates.Select(candidate => new MatchCandidate
-        {
-            SpecId = candidate.SpecId,
-            Project = tpSession.Process(candidate.Project),
-            Specification = tpSession.Process(candidate.Specification),
-            Acceptance = candidate.Acceptance,
-            Remark = candidate.Remark,
-            Embedding = candidate.Embedding
-        }).ToList();
+        var processedCandidates = BuildProcessedCandidates(candidateList, tpSession);
 
         var sourceItems = requestItems.Select(item => new MatchSource
         {
@@ -1710,7 +1703,16 @@ public sealed class MatchingWorkflowSupportService
         BatchMatchResult batchResult;
         try
         {
-            batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
+            if (RequiresSemanticMatching(sourceItems, processedCandidates))
+            {
+                await HydrateCandidateEmbeddingsAsync(candidateList, config.EmbeddingServiceId);
+                processedCandidates = BuildProcessedCandidates(candidateList, tpSession);
+                batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
+            }
+            else
+            {
+                batchResult = BuildExactMatchBatchResult(sourceItems, processedCandidates, config);
+            }
         }
         catch (AiServiceUnavailableException ex)
         {
@@ -1846,6 +1848,38 @@ public sealed class MatchingWorkflowSupportService
                 })
                 .ToList()
         };
+    }
+
+    private static bool RequiresSemanticMatching(
+        IReadOnlyList<MatchSource> sources,
+        IReadOnlyList<MatchCandidate> candidates)
+    {
+        if (sources.Count == 0)
+        {
+            return false;
+        }
+
+        var lookup = candidates
+            .GroupBy(candidate => BuildCandidateDedupKey(candidate.Project, candidate.Specification))
+            .ToDictionary(group => group.Key, group => group.First());
+
+        return sources.Any(source =>
+            !lookup.ContainsKey(BuildCandidateDedupKey(source.Project, source.Specification)));
+    }
+
+    private static List<MatchCandidate> BuildProcessedCandidates(
+        IEnumerable<MatchCandidate> candidates,
+        TextProcessingSession tpSession)
+    {
+        return candidates.Select(candidate => new MatchCandidate
+        {
+            SpecId = candidate.SpecId,
+            Project = tpSession.Process(candidate.Project),
+            Specification = tpSession.Process(candidate.Specification),
+            Acceptance = candidate.Acceptance,
+            Remark = candidate.Remark,
+            Embedding = candidate.Embedding
+        }).ToList();
     }
 
     private static MatchResult CreateExactMatchResult(
