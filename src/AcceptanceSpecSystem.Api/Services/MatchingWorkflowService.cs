@@ -28,7 +28,6 @@ namespace AcceptanceSpecSystem.Api.Services;
 public sealed class MatchingWorkflowSupportService
 {
     private const int MaxScopedCandidateCount = 3000;
-    private const int EmbeddingGenerationBatchSize = 200;
     private static readonly TimeSpan ReviewApprovalTokenLifetime = TimeSpan.FromHours(2);
 
     private readonly IUnitOfWork _unitOfWork;
@@ -38,8 +37,8 @@ public sealed class MatchingWorkflowSupportService
     private readonly MatchingResultWriteBackService _matchingResultWriteBackService;
     private readonly ITextPreprocessingPipeline _textPipeline;
     private readonly IAuthDataScopeService _authDataScopeService;
-    private readonly IEmbeddingService _embeddingService;
     private readonly IAiServiceSelector _aiServiceSelector;
+    private readonly SpecEmbeddingCacheService _specEmbeddingCacheService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly MatchingTaskSnapshotService _matchingTaskSnapshotService;
     private readonly ExecutionHistoryAppService _executionHistoryAppService;
@@ -146,8 +145,8 @@ public sealed class MatchingWorkflowSupportService
         MatchingResultWriteBackService matchingResultWriteBackService,
         ITextPreprocessingPipeline textPipeline,
         IAuthDataScopeService authDataScopeService,
-        IEmbeddingService embeddingService,
         IAiServiceSelector aiServiceSelector,
+        SpecEmbeddingCacheService specEmbeddingCacheService,
         IServiceScopeFactory scopeFactory,
         MatchingTaskSnapshotService matchingTaskSnapshotService,
         ExecutionHistoryAppService executionHistoryAppService,
@@ -162,8 +161,8 @@ public sealed class MatchingWorkflowSupportService
         _matchingResultWriteBackService = matchingResultWriteBackService;
         _textPipeline = textPipeline;
         _authDataScopeService = authDataScopeService;
-        _embeddingService = embeddingService;
         _aiServiceSelector = aiServiceSelector;
+        _specEmbeddingCacheService = specEmbeddingCacheService;
         _scopeFactory = scopeFactory;
         _matchingTaskSnapshotService = matchingTaskSnapshotService;
         _executionHistoryAppService = executionHistoryAppService;
@@ -1868,47 +1867,9 @@ public sealed class MatchingWorkflowSupportService
     /// </summary>
     private async Task HydrateCandidateEmbeddingsAsync(List<MatchCandidate> candidates, int? embeddingServiceId)
     {
-        string? embeddingModel = null;
-        IReadOnlyList<EmbeddingCache> caches = [];
-
-        if (embeddingServiceId.HasValue)
-        {
-            var configs = await _aiServiceSelector.GetCandidatesAsync(CoreAiServicePurpose.Embedding, embeddingServiceId);
-            var config = configs.FirstOrDefault();
-            embeddingModel = config?.EmbeddingModel?.Trim();
-        }
-
-        if (!string.IsNullOrWhiteSpace(embeddingModel))
-        {
-            caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdsAndModelAsync(
-                candidates.Select(c => c.SpecId),
-                embeddingModel);
-
-            var cacheLookup = caches.ToDictionary(c => c.SpecId);
-            foreach (var candidate in candidates)
-            {
-                if (cacheLookup.TryGetValue(candidate.SpecId, out var cache))
-                {
-                    candidate.Embedding = DeserializeVector(cache.Vector);
-                }
-            }
-        }
-
-        var missingCandidates = candidates.Where(c => c.Embedding == null || c.Embedding.Length == 0).ToList();
-        if (missingCandidates.Count == 0)
-        {
-            _logger.LogDebug("匹配候选 Embedding 全部命中缓存，跳过远程调用");
-            return;
-        }
-
-        var missingTexts = missingCandidates
-            .Select(c => c.CombinedText)
-            .ToList();
-
-        List<float[]> newEmbeddings;
         try
         {
-            newEmbeddings = await GenerateEmbeddingsInBatchesAsync(missingTexts, embeddingServiceId);
+            await _specEmbeddingCacheService.HydrateMatchingCandidatesAsync(candidates, embeddingServiceId);
         }
         catch (AiServiceUnavailableException ex)
         {
@@ -1920,56 +1881,6 @@ public sealed class MatchingWorkflowSupportService
             _logger.LogWarning(ex, "匹配候选生成 Embedding 失败");
             throw Failure(400, "Embedding 服务不可用: 匹配候选 Embedding 生成失败");
         }
-
-        if (!string.IsNullOrWhiteSpace(embeddingModel))
-        {
-            var existingCacheLookup = caches.ToDictionary(c => c.SpecId);
-            var hasMutation = false;
-
-            for (var i = 0; i < missingCandidates.Count; i++)
-            {
-                if (i < newEmbeddings.Count && newEmbeddings[i].Length > 0)
-                {
-                    missingCandidates[i].Embedding = newEmbeddings[i];
-
-                    var specId = missingCandidates[i].SpecId;
-                    if (existingCacheLookup.TryGetValue(specId, out var existingCache))
-                    {
-                        existingCache.Vector = SerializeVector(newEmbeddings[i]);
-                        existingCache.CreatedAt = DateTime.UtcNow;
-                        _unitOfWork.EmbeddingCaches.Update(existingCache);
-                    }
-                    else
-                    {
-                        await _unitOfWork.EmbeddingCaches.AddAsync(new EmbeddingCache
-                        {
-                            SpecId = specId,
-                            ModelName = embeddingModel,
-                            Vector = SerializeVector(newEmbeddings[i]),
-                            CreatedAt = DateTime.UtcNow
-                        });
-                    }
-
-                    hasMutation = true;
-                }
-            }
-
-            if (hasMutation)
-            {
-                await _unitOfWork.SaveChangesAsync();
-            }
-        }
-        else
-        {
-            for (var i = 0; i < missingCandidates.Count && i < newEmbeddings.Count; i++)
-            {
-                missingCandidates[i].Embedding = newEmbeddings[i];
-            }
-        }
-
-        _logger.LogInformation(
-            "匹配候选 Embedding: 命中缓存{Cached}个, 新生成{Generated}个",
-            candidates.Count - missingCandidates.Count, missingCandidates.Count);
     }
 
     private void EnsureCandidateScopeWithinLimit(
@@ -1991,40 +1902,6 @@ public sealed class MatchingWorkflowSupportService
             processId,
             machineModelId);
         throw Failure(400, $"匹配范围内候选数据过多（{scopedCount}条），请按客户/制程/机型缩小范围后重试");
-    }
-
-    private async Task<List<float[]>> GenerateEmbeddingsInBatchesAsync(
-        IEnumerable<string> texts,
-        int? embeddingServiceId)
-    {
-        var vectors = new List<float[]>();
-        foreach (var batch in texts.Chunk(EmbeddingGenerationBatchSize))
-        {
-            var batchVectors = await _embeddingService.GenerateEmbeddingsAsync(batch, embeddingServiceId);
-            vectors.AddRange(batchVectors);
-        }
-
-        return vectors;
-    }
-
-    private static byte[] SerializeVector(float[] vector)
-    {
-        if (vector.Length == 0)
-            return Array.Empty<byte>();
-
-        var bytes = new byte[vector.Length * sizeof(float)];
-        Buffer.BlockCopy(vector, 0, bytes, 0, bytes.Length);
-        return bytes;
-    }
-
-    private static float[] DeserializeVector(byte[]? bytes)
-    {
-        if (bytes == null || bytes.Length == 0 || bytes.Length % sizeof(float) != 0)
-            return Array.Empty<float>();
-
-        var vector = new float[bytes.Length / sizeof(float)];
-        Buffer.BlockCopy(bytes, 0, vector, 0, bytes.Length);
-        return vector;
     }
 
     private IQueryable<AcceptanceSpec> BuildCandidateSpecQuery(

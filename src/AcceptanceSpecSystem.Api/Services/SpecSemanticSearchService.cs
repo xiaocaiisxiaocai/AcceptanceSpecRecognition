@@ -1,7 +1,5 @@
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
-using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
-using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -20,18 +18,18 @@ public sealed class SpecSemanticSearchService
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IEmbeddingService _embeddingService;
-    private readonly IAiServiceSelector _aiServiceSelector;
+    private readonly SpecEmbeddingCacheService _specEmbeddingCacheService;
     private readonly ILogger<SpecSemanticSearchService> _logger;
 
     public SpecSemanticSearchService(
         IUnitOfWork unitOfWork,
         IEmbeddingService embeddingService,
-        IAiServiceSelector aiServiceSelector,
+        SpecEmbeddingCacheService specEmbeddingCacheService,
         ILogger<SpecSemanticSearchService> logger)
     {
         _unitOfWork = unitOfWork;
         _embeddingService = embeddingService;
-        _aiServiceSelector = aiServiceSelector;
+        _specEmbeddingCacheService = specEmbeddingCacheService;
         _logger = logger;
     }
 
@@ -98,7 +96,9 @@ public sealed class SpecSemanticSearchService
             return response;
         }
 
-        var embeddingModel = await ResolveEmbeddingModelNameAsync(request.EmbeddingServiceId);
+        var embeddingModel = await _specEmbeddingCacheService.ResolveEmbeddingModelNameAsync(
+            request.EmbeddingServiceId,
+            cancellationToken);
         response.EmbeddingModel = embeddingModel;
 
         var candidates = filteredSpecs
@@ -109,16 +109,19 @@ public sealed class SpecSemanticSearchService
             })
             .ToList();
 
-        if (!string.IsNullOrWhiteSpace(embeddingModel))
-        {
-            await LoadCachedEmbeddingsAsync(candidates, embeddingModel);
-        }
-
-        await EnsureCandidateEmbeddingsAsync(
-            candidates,
+        var cachedEmbeddings = await _specEmbeddingCacheService.GetOrCreateForSpecsAsync(
+            filteredSpecs,
+            EmbeddingCacheUsages.SemanticSearch,
             request.EmbeddingServiceId,
-            embeddingModel,
             cancellationToken);
+        var embeddingLookup = cachedEmbeddings.ToDictionary(item => item.SpecId);
+        foreach (var candidate in candidates)
+        {
+            if (embeddingLookup.TryGetValue(candidate.Spec.Id, out var embedding))
+            {
+                candidate.Embedding = embedding.Embedding;
+            }
+        }
 
         var queryEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(
             queries,
@@ -168,84 +171,6 @@ public sealed class SpecSemanticSearchService
             response.EmbeddingModel ?? "N/A");
 
         return response;
-    }
-
-    private async Task<string?> ResolveEmbeddingModelNameAsync(int? embeddingServiceId)
-    {
-        var configs = await _aiServiceSelector.GetCandidatesAsync(CoreAiServicePurpose.Embedding, embeddingServiceId);
-        return configs.FirstOrDefault()?.EmbeddingModel?.Trim();
-    }
-
-    private async Task LoadCachedEmbeddingsAsync(
-        List<SpecSemanticCandidate> candidates,
-        string embeddingModel)
-    {
-        var caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdsAndModelAsync(
-            candidates.Select(candidate => candidate.Spec.Id),
-            embeddingModel);
-
-        var cacheLookup = caches.ToDictionary(cache => cache.SpecId);
-        foreach (var candidate in candidates)
-        {
-            if (cacheLookup.TryGetValue(candidate.Spec.Id, out var cache))
-            {
-                candidate.Cache = cache;
-                candidate.Embedding = DeserializeVector(cache.Vector);
-            }
-        }
-    }
-
-    private async Task EnsureCandidateEmbeddingsAsync(
-        List<SpecSemanticCandidate> candidates,
-        int? embeddingServiceId,
-        string? embeddingModel,
-        CancellationToken cancellationToken)
-    {
-        var missingCandidates = candidates
-            .Where(candidate => candidate.Embedding == null || candidate.Embedding.Length == 0)
-            .ToList();
-
-        if (missingCandidates.Count == 0)
-            return;
-
-        var embeddings = await _embeddingService.GenerateEmbeddingsAsync(
-            missingCandidates.Select(candidate => candidate.SearchText),
-            embeddingServiceId,
-            cancellationToken);
-
-        var hasCacheMutation = false;
-        for (var index = 0; index < missingCandidates.Count; index++)
-        {
-            var embedding = index < embeddings.Count ? embeddings[index] : Array.Empty<float>();
-            missingCandidates[index].Embedding = embedding;
-
-            if (!string.IsNullOrWhiteSpace(embeddingModel) && embedding.Length > 0)
-            {
-                if (missingCandidates[index].Cache != null)
-                {
-                    missingCandidates[index].Cache!.Vector = SerializeVector(embedding);
-                    missingCandidates[index].Cache!.CreatedAt = DateTime.UtcNow;
-                    _unitOfWork.EmbeddingCaches.Update(missingCandidates[index].Cache!);
-                }
-                else
-                {
-                    await _unitOfWork.EmbeddingCaches.AddAsync(new EmbeddingCache
-                    {
-                        SpecId = missingCandidates[index].Spec.Id,
-                        ModelName = embeddingModel,
-                        Vector = SerializeVector(embedding),
-                        CreatedAt = DateTime.UtcNow
-                    });
-                }
-
-                hasCacheMutation = true;
-            }
-        }
-
-        if (hasCacheMutation)
-        {
-            await _unitOfWork.SaveChangesAsync();
-        }
     }
 
     private static List<string> NormalizeQueries(IEnumerable<string>? queries)
@@ -330,33 +255,11 @@ public sealed class SpecSemanticSearchService
         };
     }
 
-    private static byte[] SerializeVector(float[] vector)
-    {
-        if (vector.Length == 0)
-            return Array.Empty<byte>();
-
-        var bytes = new byte[vector.Length * sizeof(float)];
-        Buffer.BlockCopy(vector, 0, bytes, 0, bytes.Length);
-        return bytes;
-    }
-
-    private static float[] DeserializeVector(byte[]? bytes)
-    {
-        if (bytes == null || bytes.Length == 0 || bytes.Length % sizeof(float) != 0)
-            return Array.Empty<float>();
-
-        var vector = new float[bytes.Length / sizeof(float)];
-        Buffer.BlockCopy(bytes, 0, vector, 0, bytes.Length);
-        return vector;
-    }
-
     private sealed class SpecSemanticCandidate
     {
         public required AcceptanceSpec Spec { get; init; }
 
         public required string SearchText { get; init; }
-
-        public EmbeddingCache? Cache { get; set; }
 
         public float[]? Embedding { get; set; }
     }

@@ -51,6 +51,30 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task GetList_AfterSeed_ShouldIncludeEmbeddingCacheWarmupManagementPermissions()
+    {
+        await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
+
+        var response = await _client.GetAsync("/api/auth-permissions");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(0);
+
+        var permissionCodes = body.Data!.EnumerateArray()
+            .Select(item => item.GetProperty("code").GetString())
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .ToList();
+
+        permissionCodes.Should().Contain("page:config:embedding-cache-warmup");
+        permissionCodes.Should().Contain("api:embedding-cache-warmup:update");
+        permissionCodes.Should().Contain("btn:embedding-cache-warmup:update");
+        permissionCodes.Should().Contain("api:embedding-cache-warmup:execute");
+        permissionCodes.Should().Contain("btn:embedding-cache-warmup:execute");
+        permissionCodes.Should().NotContain("btn:embedding-cache-warmup:create");
+    }
+
+    [Fact]
     public async Task GetList_AfterSeed_ShouldHideRemovedMatchingKnowledgeAndLegacyPermissions()
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);

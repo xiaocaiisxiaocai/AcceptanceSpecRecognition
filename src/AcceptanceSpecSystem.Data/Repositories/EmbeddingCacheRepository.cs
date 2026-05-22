@@ -26,7 +26,10 @@ public class EmbeddingCacheRepository : Repository<EmbeddingCache>, IEmbeddingCa
     public async Task<EmbeddingCache?> GetBySpecAndModelAsync(int specId, string modelName)
     {
         return await _dbSet
-            .FirstOrDefaultAsync(e => e.SpecId == specId && e.ModelName == modelName);
+            .FirstOrDefaultAsync(e =>
+                e.SpecId == specId &&
+                e.ModelName == modelName &&
+                e.Usage == EmbeddingCache.DefaultUsage);
     }
 
     /// <summary>
@@ -60,9 +63,24 @@ public class EmbeddingCacheRepository : Repository<EmbeddingCache>, IEmbeddingCa
     /// <returns>向量缓存列表</returns>
     public async Task<IReadOnlyList<EmbeddingCache>> GetBySpecIdsAndModelAsync(IEnumerable<int> specIds, string modelName)
     {
+        return await GetBySpecIdsAndModelAndUsageAsync(specIds, modelName, EmbeddingCache.DefaultUsage);
+    }
+
+    /// <summary>
+    /// 根据多个规格ID、模型名称与用途批量获取向量缓存记录。
+    /// </summary>
+    /// <param name="specIds">验收规格ID集合</param>
+    /// <param name="modelName">模型名称</param>
+    /// <param name="usage">向量用途</param>
+    /// <returns>向量缓存列表</returns>
+    public async Task<IReadOnlyList<EmbeddingCache>> GetBySpecIdsAndModelAndUsageAsync(
+        IEnumerable<int> specIds,
+        string modelName,
+        string usage)
+    {
         var idList = specIds.ToList();
         return await _dbSet
-            .Where(e => idList.Contains(e.SpecId) && e.ModelName == modelName)
+            .Where(e => idList.Contains(e.SpecId) && e.ModelName == modelName && e.Usage == usage)
             .ToListAsync();
     }
 

@@ -37,6 +37,18 @@ public interface IEmbeddingCacheRepository : IRepository<EmbeddingCache>
     Task<IReadOnlyList<EmbeddingCache>> GetBySpecIdsAndModelAsync(IEnumerable<int> specIds, string modelName);
 
     /// <summary>
+    /// 按用途批量获取验收规格的向量缓存
+    /// </summary>
+    /// <param name="specIds">验收规格ID列表</param>
+    /// <param name="modelName">模型名称</param>
+    /// <param name="usage">向量用途</param>
+    /// <returns>向量缓存列表</returns>
+    Task<IReadOnlyList<EmbeddingCache>> GetBySpecIdsAndModelAndUsageAsync(
+        IEnumerable<int> specIds,
+        string modelName,
+        string usage);
+
+    /// <summary>
     /// 删除指定时间之前过期的缓存
     /// </summary>
     /// <param name="beforeTime">过期时间阈值</param>

@@ -12,15 +12,18 @@ public sealed class ImportDuplicateDetectionService
 {
     private readonly IEmbeddingService _embeddingService;
     private readonly ILlmReviewService _llmReviewService;
+    private readonly SpecEmbeddingCacheService? _specEmbeddingCacheService;
     private readonly ILogger<ImportDuplicateDetectionService> _logger;
 
     public ImportDuplicateDetectionService(
         IEmbeddingService embeddingService,
         ILlmReviewService llmReviewService,
-        ILogger<ImportDuplicateDetectionService> logger)
+        ILogger<ImportDuplicateDetectionService> logger,
+        SpecEmbeddingCacheService? specEmbeddingCacheService = null)
     {
         _embeddingService = embeddingService;
         _llmReviewService = llmReviewService;
+        _specEmbeddingCacheService = specEmbeddingCacheService;
         _logger = logger;
     }
 
@@ -50,16 +53,35 @@ public sealed class ImportDuplicateDetectionService
             return ImportDuplicateDetectionSession.Disabled(normalizedOptions);
         }
 
-        var embeddings = await _embeddingService.GenerateEmbeddingsAsync(
-            candidates.Select(candidate => candidate.SearchText),
-            normalizedOptions.EmbeddingServiceId,
-            cancellationToken);
-
-        for (var index = 0; index < candidates.Count; index++)
+        if (_specEmbeddingCacheService != null)
         {
-            candidates[index].Embedding = index < embeddings.Count
-                ? embeddings[index]
-                : Array.Empty<float>();
+            var cachedEmbeddings = await _specEmbeddingCacheService.GetOrCreateForSpecsAsync(
+                existingSpecs,
+                EmbeddingCacheUsages.ImportDuplicateDetection,
+                normalizedOptions.EmbeddingServiceId,
+                cancellationToken);
+            var embeddingLookup = cachedEmbeddings.ToDictionary(item => item.SpecId);
+            foreach (var candidate in candidates)
+            {
+                if (embeddingLookup.TryGetValue(candidate.Spec.Id, out var embedding))
+                {
+                    candidate.Embedding = embedding.Embedding;
+                }
+            }
+        }
+        else
+        {
+            var embeddings = await _embeddingService.GenerateEmbeddingsAsync(
+                candidates.Select(candidate => candidate.SearchText),
+                normalizedOptions.EmbeddingServiceId,
+                cancellationToken);
+
+            for (var index = 0; index < candidates.Count; index++)
+            {
+                candidates[index].Embedding = index < embeddings.Count
+                    ? embeddings[index]
+                    : Array.Empty<float>();
+            }
         }
 
         _logger.LogInformation(

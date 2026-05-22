@@ -45,6 +45,18 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void SpecEmbeddingCacheWarmup_ShouldAvoidNavigationFirstOrDefaultInDatabaseQuery()
+    {
+        var content = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/SpecEmbeddingCacheService.cs".Replace('/', Path.DirectorySeparatorChar)));
+
+        content.Should().NotMatchRegex(
+            @"EmbeddingCaches\s*[\r\n\s.]*FirstOrDefault\s*\(",
+            "Pomelo 在旧 MySQL 兼容级别下会把导航集合 FirstOrDefault 翻译成 ROW_NUMBER 窗口函数，预热扫描应分步查询缓存");
+    }
+
+    [Fact]
     public void AcceptanceSpecRepository_ShouldNotExposeLegacyGroupSummaryMethod()
     {
         typeof(AcceptanceSpecSystem.Data.Repositories.IAcceptanceSpecRepository)
@@ -656,7 +668,7 @@ public class ReviewRegressionTests
         var files = new[]
         {
             "src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs",
-            "src/AcceptanceSpecSystem.Api/Services/SpecSemanticSearchService.cs",
+            "src/AcceptanceSpecSystem.Api/Services/SpecEmbeddingCacheService.cs",
             "src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs",
             "src/AcceptanceSpecSystem.Core/Matching/Services/SemanticKernelEmbeddingService.cs"
         };
@@ -1344,6 +1356,9 @@ public class ReviewRegressionTests
         var workflowContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var cacheServiceContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/SpecEmbeddingCacheService.cs".Replace('/', Path.DirectorySeparatorChar)));
 
         foreach (var content in new[] { previewContent, workflowContent })
         {
@@ -1351,9 +1366,10 @@ public class ReviewRegressionTests
                 "匹配服务应在加载候选前限制候选范围大小，避免单请求全量拉入内存");
             content.Should().Contain("EnsureCandidateScopeWithinLimit",
                 "匹配服务应对候选总量做显式保护并给出可操作的错误提示");
-            content.Should().Contain("GenerateEmbeddingsInBatchesAsync",
-                "Embedding 缺失候选应分批生成，避免单次远程调用承载全部候选");
         }
+
+        cacheServiceContent.Should().Contain("GenerateEmbeddingsInBatchesAsync",
+            "Embedding 缺失候选应通过统一缓存服务分批生成，避免单次远程调用承载全部候选");
     }
 
     private static string[] ReadFile(string relativePath)

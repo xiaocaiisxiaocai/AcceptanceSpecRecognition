@@ -22,6 +22,7 @@ public sealed class DocumentImportAppService
     private readonly DocumentFileAccessService _documentFileAccessService;
     private readonly DocumentTableAccessService _documentTableAccessService;
     private readonly ImportDuplicateDetectionService _importDuplicateDetectionService;
+    private readonly SpecEmbeddingCacheService _specEmbeddingCacheService;
     private readonly ILogger<DocumentImportAppService> _logger;
 
     public DocumentImportAppService(
@@ -29,12 +30,14 @@ public sealed class DocumentImportAppService
         DocumentFileAccessService documentFileAccessService,
         DocumentTableAccessService documentTableAccessService,
         ImportDuplicateDetectionService importDuplicateDetectionService,
+        SpecEmbeddingCacheService specEmbeddingCacheService,
         ILogger<DocumentImportAppService> logger)
     {
         _unitOfWork = unitOfWork;
         _documentFileAccessService = documentFileAccessService;
         _documentTableAccessService = documentTableAccessService;
         _importDuplicateDetectionService = importDuplicateDetectionService;
+        _specEmbeddingCacheService = specEmbeddingCacheService;
         _logger = logger;
     }
 
@@ -501,14 +504,15 @@ public sealed class DocumentImportAppService
         var normalizedAcceptance = NormalizeText(row.Acceptance);
         var normalizedRemark = NormalizeText(row.Remark);
 
-        if (TryApplyExplicitPendingDecision(
+        if (await TryApplyExplicitPendingDecisionAsync(
                 context,
                 tableIndex,
                 row,
                 normalizedProject,
                 normalizedSpecification,
                 normalizedAcceptance,
-                normalizedRemark))
+                normalizedRemark,
+                cancellationToken))
         {
             return;
         }
@@ -660,6 +664,7 @@ public sealed class DocumentImportAppService
                 row.Specification,
                 row.Acceptance,
                 row.Remark);
+            await _specEmbeddingCacheService.RemoveSpecCachesAsync(existingSpec.Id);
 
             if (searchTextChanged && !context.SkipSemanticDetection)
             {
@@ -680,6 +685,7 @@ public sealed class DocumentImportAppService
                 context.FileId,
                 row.Acceptance,
                 row.Remark);
+            await _specEmbeddingCacheService.RemoveSpecCachesAsync(existingSpec.Id);
             context.OverwriteCount++;
             return true;
         }
@@ -771,14 +777,15 @@ public sealed class DocumentImportAppService
         };
     }
 
-    private static bool TryApplyExplicitPendingDecision(
+    private async Task<bool> TryApplyExplicitPendingDecisionAsync(
         ImportExecutionContext context,
         int tableIndex,
         ImportRowPayload row,
         string normalizedProject,
         string normalizedSpecification,
         string normalizedAcceptance,
-        string normalizedRemark)
+        string normalizedRemark,
+        CancellationToken cancellationToken)
     {
         if (context.PendingDecisionMap.Count == 0)
         {
@@ -816,6 +823,7 @@ public sealed class DocumentImportAppService
                 row.Specification,
                 row.Acceptance,
                 row.Remark);
+            await _specEmbeddingCacheService.RemoveSpecCachesAsync(existingSpec.Id);
             context.OverwriteCount++;
             return true;
         }
@@ -830,6 +838,7 @@ public sealed class DocumentImportAppService
                 context.FileId,
                 row.Acceptance,
                 row.Remark);
+            await _specEmbeddingCacheService.RemoveSpecCachesAsync(existingSpec.Id);
             context.OverwriteCount++;
             return true;
         }

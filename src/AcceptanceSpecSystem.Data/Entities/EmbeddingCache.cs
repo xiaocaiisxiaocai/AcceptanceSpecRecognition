@@ -6,6 +6,11 @@ namespace AcceptanceSpecSystem.Data.Entities;
 public class EmbeddingCache
 {
     /// <summary>
+    /// 默认用途：验收规格匹配
+    /// </summary>
+    public const string DefaultUsage = "matching";
+
+    /// <summary>
     /// 缓存ID
     /// </summary>
     public int Id { get; set; }
@@ -19,6 +24,16 @@ public class EmbeddingCache
     /// 使用的模型名称
     /// </summary>
     public string ModelName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 向量用途
+    /// </summary>
+    public string Usage { get; set; } = DefaultUsage;
+
+    /// <summary>
+    /// 源文本指纹
+    /// </summary>
+    public string TextHash { get; set; } = string.Empty;
 
     /// <summary>
     /// 向量数据（序列化的float数组）

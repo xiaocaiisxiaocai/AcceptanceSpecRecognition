@@ -169,6 +169,7 @@ public sealed class AcceptanceSpecAppService
         spec.Remark = NormalizeOptionalText(remark);
 
         _unitOfWork.AcceptanceSpecs.Update(spec);
+        await RemoveEmbeddingCachesAsync(spec.Id);
         await _unitOfWork.SaveChangesAsync();
 
         _logger.LogInformation("更新验收规格成功: {SpecId} - {Project}", spec.Id, spec.Project);
@@ -316,6 +317,15 @@ public sealed class AcceptanceSpecAppService
         await _unitOfWork.WordFiles.AddAsync(wordFile);
         await _unitOfWork.SaveChangesAsync();
         return wordFile;
+    }
+
+    private async Task RemoveEmbeddingCachesAsync(int specId)
+    {
+        var caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdAsync(specId);
+        if (caches.Count > 0)
+        {
+            _unitOfWork.EmbeddingCaches.RemoveRange(caches);
+        }
     }
 
     private static string NormalizeRequiredText(string? value, string message)

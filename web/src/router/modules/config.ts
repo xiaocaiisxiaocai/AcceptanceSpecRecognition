@@ -24,6 +24,16 @@ export default {
       }
     },
     {
+      path: "/config/embedding-cache-warmup",
+      name: "EmbeddingCacheWarmup",
+      component: () => import("@/views/config/embedding-cache-warmup/index.vue"),
+      meta: {
+        icon: "ri:database-2-line",
+        title: getPageTitle("config-embedding-cache-warmup"),
+        permissions: getPagePermission("config-embedding-cache-warmup")
+      }
+    },
+    {
       path: "/config/prompt-templates",
       name: "PromptTemplates",
       component: () => import("@/views/config/prompt-templates/index.vue"),

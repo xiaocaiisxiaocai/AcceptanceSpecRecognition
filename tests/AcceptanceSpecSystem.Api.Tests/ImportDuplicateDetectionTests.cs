@@ -224,6 +224,91 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
+    public async Task ImportExcel_WhenConfirmedOverwriteChangesExistingSpec_ShouldRemoveEmbeddingCaches()
+    {
+        var seeded = await SeedImportScopeAsync();
+        var specId = await SeedExistingSpecAsync(
+            seeded.CustomerId,
+            seeded.ProcessId,
+            "平台吸附精度",
+            "平台平面度需控制在0.05mm以内",
+            "旧验收",
+            "旧备注");
+        await SeedEmbeddingCacheAsync(specId);
+
+        var fileId = await UploadExcelAsync(CreateExcelBytes(new[]
+        {
+            ("平台精度", "平面度控制在0.05mm以内", "新验收", "新备注")
+        }), "semantic-confirmed-overwrite-cache.xlsx");
+
+        var firstResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            duplicateCheckOptions = new
+            {
+                enableSemanticDuplicateCheck = true,
+                semanticTopK = 3,
+                semanticMinScore = 0.1,
+                enableLlmDuplicateReview = true,
+                llmPassScore = 0.3,
+                highConfidenceThreshold = 0.95
+            }
+        });
+
+        firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var firstJson = await firstResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        var pendingKey = firstJson.Data.GetProperty("pendingDifferences")[0]
+            .GetProperty("key")
+            .GetString();
+        pendingKey.Should().NotBeNullOrWhiteSpace();
+
+        var confirmResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            confirmedDifferenceKeys = new[] { pendingKey },
+            duplicateCheckOptions = new
+            {
+                enableSemanticDuplicateCheck = true,
+                semanticTopK = 3,
+                semanticMinScore = 0.1,
+                enableLlmDuplicateReview = true,
+                llmPassScore = 0.3,
+                highConfidenceThreshold = 0.95
+            }
+        });
+
+        confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var confirmJson = await confirmResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        confirmJson.Code.Should().Be(0);
+        confirmJson.Data.GetProperty("successCount").GetInt32().Should().Be(1);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var cacheExists = await dbContext.EmbeddingCaches.AnyAsync(cache => cache.SpecId == specId);
+        cacheExists.Should().BeFalse("导入覆盖已有规格后旧向量已失效，应清理该规格的全部 EmbeddingCaches");
+    }
+
+    [Fact]
     public async Task ImportExcel_WhenReimportingExactMultiRowTable_ShouldAutoSkipAllRowsWithoutConfirmation()
     {
         var seeded = await SeedImportScopeAsync();
@@ -575,7 +660,7 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
         return (customer.Id, process.Id);
     }
 
-    private async Task SeedExistingSpecAsync(
+    private async Task<int> SeedExistingSpecAsync(
         int customerId,
         int processId,
         string project,
@@ -598,7 +683,7 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
         dbContext.WordFiles.Add(wordFile);
         await dbContext.SaveChangesAsync();
 
-        dbContext.AcceptanceSpecs.Add(new AcceptanceSpec
+        var spec = new AcceptanceSpec
         {
             CustomerId = customerId,
             ProcessId = processId,
@@ -610,6 +695,22 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
             OwnerOrgUnitId = 1,
             CreatedByUserId = 1,
             ImportedAt = DateTime.UtcNow
+        };
+        dbContext.AcceptanceSpecs.Add(spec);
+        await dbContext.SaveChangesAsync();
+        return spec.Id;
+    }
+
+    private async Task SeedEmbeddingCacheAsync(int specId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        dbContext.EmbeddingCaches.Add(new EmbeddingCache
+        {
+            SpecId = specId,
+            ModelName = "test-embedding",
+            Vector = [1, 2, 3, 4],
+            CreatedAt = DateTime.UtcNow
         });
         await dbContext.SaveChangesAsync();
     }

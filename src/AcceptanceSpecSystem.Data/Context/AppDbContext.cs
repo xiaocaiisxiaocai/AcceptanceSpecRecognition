@@ -232,8 +232,10 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.ModelName).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Usage).IsRequired().HasMaxLength(64).HasDefaultValue(EmbeddingCache.DefaultUsage);
+            entity.Property(e => e.TextHash).IsRequired().HasMaxLength(128).HasDefaultValue(string.Empty);
             entity.Property(e => e.ModelVersion).HasMaxLength(50);
-            entity.HasIndex(e => new { e.SpecId, e.ModelName }).IsUnique();
+            entity.HasIndex(e => new { e.SpecId, e.ModelName, e.Usage }).IsUnique();
             entity.HasIndex(e => e.ExpiresAt);
             entity.HasOne(e => e.Spec)
                   .WithMany(s => s.EmbeddingCaches)
