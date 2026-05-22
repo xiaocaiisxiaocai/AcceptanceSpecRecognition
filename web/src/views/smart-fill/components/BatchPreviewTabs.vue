@@ -15,6 +15,8 @@ const props = defineProps<{
   ambiguityMargin?: number;
   /** LLM 流式处理是否进行中 */
   llmStreaming?: boolean;
+  /** 表格索引到 Sheet 名的映射 */
+  tableNames?: Record<number, string>;
 }>();
 
 const emit = defineEmits<{
@@ -47,6 +49,12 @@ const selectionCache = new Map<
 const activeTableResult = computed(() =>
   props.results.find(result => String(result.tableIndex) === activeTab.value) ?? null
 );
+
+const getTableTabLabel = (tableResult: BatchTablePreviewResult) => {
+  const name = props.tableNames?.[tableResult.tableIndex]?.trim();
+  const base = name || `表格 ${tableResult.tableIndex + 1}`;
+  return `${base} (${tableResult.totalMatched}/${tableResult.items.length})`;
+};
 
 const isNoAnswerPlaceholderRow = (item: MatchPreviewItem) => {
   const project = (item.sourceProject || "").trim().toLowerCase();
@@ -238,7 +246,7 @@ defineExpose({ getAllSelections, getAllEditedBackfillItems });
       <el-tab-pane
         v-for="tableResult in results"
         :key="tableResult.tableIndex"
-        :label="`表格 ${tableResult.tableIndex + 1} (${tableResult.totalMatched}/${tableResult.items.length})`"
+        :label="getTableTabLabel(tableResult)"
         :name="String(tableResult.tableIndex)"
       />
     </el-tabs>

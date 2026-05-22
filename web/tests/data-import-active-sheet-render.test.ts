@@ -14,3 +14,14 @@ test("导入映射步骤的工作表页签应启用懒渲染，避免一次性�
     /<el-tab-pane[\s\S]*\slazy[\s\S]*<TablePreview[\s\S]*<div class="mapping-section">/
   );
 });
+
+test("导入映射步骤的工作表页签应显示 Sheet 名，降低多 Sheet 切换识别成本", () => {
+  assert.match(
+    dataImportSource,
+    /getTableConfigTabLabel\(cfg\)/
+  );
+  assert.match(
+    dataImportSource,
+    /cfg\.tableInfo\?\.name\?\.trim\(\)/
+  );
+});

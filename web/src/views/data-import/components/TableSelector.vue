@@ -21,6 +21,8 @@ const loading = ref(false);
 const tables = ref<TableInfo[]>([]);
 const selectedIndex = ref<number | null>(null);
 const selectedIndexes = ref<number[]>([]);
+const searchKeyword = ref("");
+const compactMode = ref(false);
 
 const syncLocalSelectionFromModel = () => {
   if (props.multiple) {
@@ -44,20 +46,45 @@ const emitMultipleSelection = () => {
   );
 };
 
+const filteredTables = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase();
+  if (!keyword) return tables.value;
+
+  return tables.value.filter(table => {
+    const haystack = [
+      String(table.index + 1),
+      table.name ?? "",
+      `${table.rowCount}x${table.columnCount}`,
+      ...(table.headers ?? [])
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(keyword);
+  });
+});
+
+const filteredSelectedCount = computed(() =>
+  filteredTables.value.filter(table => selectedIndexes.value.includes(table.index)).length
+);
+
 const allSelected = computed(() => {
   if (!props.multiple) return false;
-  if (tables.value.length === 0) return false;
-  return selectedIndexes.value.length === tables.value.length;
+  if (filteredTables.value.length === 0) return false;
+  return filteredSelectedCount.value === filteredTables.value.length;
 });
 
 const itemLabel = computed(() => props.itemLabel || "表格");
 
 const toggleSelectAll = (val: boolean) => {
   if (!props.multiple) return;
+  const filteredIndexes = filteredTables.value.map(t => t.index);
   if (val) {
-    selectedIndexes.value = tables.value.map(t => t.index).sort((a, b) => a - b);
+    selectedIndexes.value = Array.from(
+      new Set([...selectedIndexes.value, ...filteredIndexes])
+    ).sort((a, b) => a - b);
   } else {
-    selectedIndexes.value = [];
+    const filteredSet = new Set(filteredIndexes);
+    selectedIndexes.value = selectedIndexes.value.filter(index => !filteredSet.has(index));
   }
   emitMultipleSelection();
 };
@@ -113,12 +140,6 @@ watch(
     syncLocalSelectionFromModel();
   }
 );
-
-// 格式化预览文本
-const formatPreview = (text?: string) => {
-  if (!text) return "无预览";
-  return text.length > 100 ? text.substring(0, 100) + "..." : text;
-};
 </script>
 
 <template>
@@ -131,23 +152,45 @@ const formatPreview = (text?: string) => {
       <el-empty :description="`该文件中没有${itemLabel}`" />
     </div>
 
-    <div v-else class="table-list">
+    <div v-else class="table-list" :class="{ compact: compactMode }">
+      <div class="table-list-actions">
+        <el-input
+          v-model="searchKeyword"
+          class="table-search"
+          clearable
+          size="small"
+          :placeholder="`搜索${itemLabel}名称或表头`"
+        />
+        <el-switch
+          v-model="compactMode"
+          size="small"
+          active-text="紧凑"
+          inactive-text="标准"
+        />
+      </div>
+
       <div v-if="props.multiple" class="bulk-actions">
         <el-checkbox
           :model-value="allSelected"
+          :indeterminate="filteredSelectedCount > 0 && !allSelected"
           @change="(v: any) => toggleSelectAll(!!v)"
         >
-          全选
+          全选当前列表
         </el-checkbox>
         <span class="bulk-tip">
-          已选 {{ selectedIndexes.length }} / {{ tables.length }}
+          已选 {{ selectedIndexes.length }} / {{ tables.length }}，当前显示 {{ filteredTables.length }}
         </span>
-        <el-button size="small" @click.stop="toggleSelectAll(true)">全选</el-button>
-        <el-button size="small" @click.stop="toggleSelectAll(false)">清空</el-button>
+        <el-button size="small" @click.stop="toggleSelectAll(true)">全选当前</el-button>
+        <el-button size="small" @click.stop="toggleSelectAll(false)">清空当前</el-button>
       </div>
 
+      <el-empty
+        v-if="filteredTables.length === 0"
+        :description="`未找到匹配的${itemLabel}`"
+      />
+
       <div
-        v-for="table in tables"
+        v-for="table in filteredTables"
         :key="table.index"
         class="table-item"
         :class="{
@@ -213,6 +256,16 @@ const formatPreview = (text?: string) => {
   gap: 12px;
 }
 
+.table-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.table-search {
+  max-width: 360px;
+}
+
 .bulk-actions {
   display: flex;
   align-items: center;
@@ -246,6 +299,31 @@ const formatPreview = (text?: string) => {
 .table-item.selected {
   border-color: var(--color-primary);
   background-color: #f4efff;
+}
+
+.table-list.compact .table-item {
+  padding: 10px 12px;
+  border-width: 1px;
+}
+
+.table-list.compact .table-header {
+  margin-bottom: 4px;
+}
+
+.table-list.compact .table-index {
+  font-size: 14px;
+}
+
+.table-list.compact .table-headers {
+  margin-bottom: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.table-list.compact .table-headers .headers {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .table-header {

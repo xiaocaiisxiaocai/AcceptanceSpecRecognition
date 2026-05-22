@@ -514,6 +514,12 @@ const getActiveTableConfig = (): TableImportConfig | null => {
   );
 };
 
+const getTableConfigTabLabel = (cfg: TableImportConfig) => {
+  const base = `${isExcelFile.value ? "工作表" : "表格"} ${cfg.tableIndex + 1}`;
+  const sheetName = cfg.tableInfo?.name?.trim();
+  return sheetName ? `${base}（${sheetName}）` : base;
+};
+
 const canPasteClipboard = computed(() => {
   if (!mappingClipboard.value) return false;
   if (isExcelFile.value) return mappingClipboard.value.kind === "excel";
@@ -1740,7 +1746,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
           v-for="cfg in tableConfigs"
           :key="cfg.tableIndex"
           :name="cfg.tableIndex"
-          :label="`${isExcelFile ? '工作表' : '表格'} ${cfg.tableIndex + 1}`"
+          :label="getTableConfigTabLabel(cfg)"
           lazy
         >
             <!-- 表格预览 -->

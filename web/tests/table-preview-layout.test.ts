@@ -23,3 +23,9 @@ test("预览表列头不应支持手动拖拽改列宽", () => {
 test("工作表预览请求不应再拉取整张表全部数据", () => {
   assert.doesNotMatch(tablePreviewSource, /previewRows:\s*0/);
 });
+
+test("表格预览应按请求参数缓存结果，避免切换页签重复请求相同预览", () => {
+  assert.match(tablePreviewSource, /previewDataCache = new Map<string, TableData>/);
+  assert.match(tablePreviewSource, /buildPreviewCacheKey/);
+  assert.match(tablePreviewSource, /loadPreview\(forceRefresh = false\)/);
+});

@@ -1050,7 +1050,7 @@ defineExpose({
     >
       <div v-if="editingItem" class="edit-dialog">
         <div class="edit-dialog__hint">
-          修改将用于本次导出，执行填充前可选择是否回填到验收规格。
+          修改仅本次导出使用，执行填充前可选择是否回填到验收规格。
         </div>
         <el-form label-position="top">
           <el-form-item label="项目">

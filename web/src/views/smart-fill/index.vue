@@ -66,6 +66,13 @@ const canDownloadFillResult = computed(() => hasPerms("btn:matching:download"));
 
 // 所有表格信息
 const allTables = ref<TableInfo[]>([]);
+const previewTableNames = computed(() =>
+  Object.fromEntries(
+    allTables.value
+      .filter(table => !!table.name?.trim())
+      .map(table => [table.index, table.name!.trim()])
+  )
+);
 // 批量表格配置
 const batchTableConfigs = ref<BatchTableConfigItem[]>([]);
 const wordColumnMappingRules = ref<ColumnMappingRule[]>([]);
@@ -149,6 +156,11 @@ const fetchBatchPreviewProgress = async (requestId: string) => {
     }
   } catch (error: any) {
     if (currentPreviewRequestId.value !== requestId) {
+      return;
+    }
+
+    if (!loading.value) {
+      stopPreviewProgressPolling();
       return;
     }
 
@@ -1355,6 +1367,7 @@ const handleRestart = () => {
           :high-confidence-threshold="getHighConfidenceThreshold()"
           :ambiguity-margin="getAmbiguityMargin()"
           :llm-streaming="llmStreaming"
+          :table-names="previewTableNames"
           @select="handleSelect"
           @show-detail="handleShowDetail"
         />

@@ -50,7 +50,7 @@ const emit = defineEmits<{
 }>();
 
 type TablePreviewRef = {
-  refresh?: () => Promise<void> | void;
+  refresh?: (forceRefresh?: boolean) => Promise<void> | void;
 } | null;
 
 const items = computed({
@@ -232,7 +232,7 @@ const refreshHeaders = async (index: number) => {
     [item.tableIndex]: []
   };
 
-  await previewRefs.value[item.tableIndex]?.refresh?.();
+  await previewRefs.value[item.tableIndex]?.refresh?.(true);
 };
 
 const getDisplayHeaders = (item: BatchTableConfigItem) => {
@@ -278,10 +278,23 @@ const handlePreviewLoaded = (tableIndex: number, data: TableData) => {
 };
 
 /** 构建表头下拉选项（索引 + 名称） */
-const getHeaderOptions = (headers: string[]) => {
+const toExcelColumnLetter = (columnNumber: number) => {
+  let current = Math.max(1, Math.floor(columnNumber));
+  let result = "";
+  while (current > 0) {
+    current--;
+    result = String.fromCharCode(65 + (current % 26)) + result;
+    current = Math.floor(current / 26);
+  }
+  return result;
+};
+
+const getHeaderOptions = (item: BatchTableConfigItem) => {
+  const headers = getDisplayHeaders(item);
+  const usedStartColumn = Math.max(1, item.tableInfo.usedRangeStartColumn ?? 1);
   return headers.map((header, i) => ({
     value: i,
-    label: `[${i}] ${header || `列${i + 1}`}`
+    label: `[${i}] 第 ${i + 1} 列 (${toExcelColumnLetter(usedStartColumn + i)}) ${header || `列${i + 1}`}`
   }));
 };
 
@@ -327,6 +340,7 @@ const getPreviewResult = (tableIndex: number) => {
         v-for="(item, idx) in items"
         :key="item.tableIndex"
         :name="String(item.tableIndex)"
+        lazy
       >
         <template #label>
           <div class="sheet-tab-label">
@@ -486,7 +500,7 @@ const getPreviewResult = (tableIndex: number) => {
                   @change="(v: number) => updateField(idx, 'projectColumnIndex', v)"
                 >
                   <el-option
-                    v-for="opt in getHeaderOptions(getDisplayHeaders(item))"
+                    v-for="opt in getHeaderOptions(item)"
                     :key="opt.value"
                     :label="opt.label"
                     :value="opt.value"
@@ -500,7 +514,7 @@ const getPreviewResult = (tableIndex: number) => {
                   @change="(v: number) => updateField(idx, 'specificationColumnIndex', v)"
                 >
                   <el-option
-                    v-for="opt in getHeaderOptions(getDisplayHeaders(item))"
+                    v-for="opt in getHeaderOptions(item)"
                     :key="opt.value"
                     :label="opt.label"
                     :value="opt.value"
@@ -514,7 +528,7 @@ const getPreviewResult = (tableIndex: number) => {
                   @change="(v: number) => updateField(idx, 'acceptanceColumnIndex', v)"
                 >
                   <el-option
-                    v-for="opt in getHeaderOptions(getDisplayHeaders(item))"
+                    v-for="opt in getHeaderOptions(item)"
                     :key="opt.value"
                     :label="opt.label"
                     :value="opt.value"
@@ -529,7 +543,7 @@ const getPreviewResult = (tableIndex: number) => {
                   @change="(v: number) => updateField(idx, 'remarkColumnIndex', v)"
                 >
                   <el-option
-                    v-for="opt in getHeaderOptions(getDisplayHeaders(item))"
+                    v-for="opt in getHeaderOptions(item)"
                     :key="opt.value"
                     :label="opt.label"
                     :value="opt.value"

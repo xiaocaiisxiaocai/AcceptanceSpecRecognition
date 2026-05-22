@@ -19,6 +19,8 @@ export type TablePreviewLoader = (
 ) => Promise<TableData>;
 
 const DEFAULT_PREVIEW_ROWS = 50;
+const MAX_PREVIEW_CACHE_SIZE = 80;
+const previewDataCache = new Map<string, TableData>();
 
 const props = defineProps<{
   fileId?: number;
@@ -97,8 +99,36 @@ const displayColumnCount = computed(() => {
 const shouldShowHorizontalScrollHint = computed(() => displayColumnCount.value > 8);
 const previewColumnMinWidth = computed(() => (displayColumnCount.value >= 10 ? 140 : 120));
 
+const buildPreviewCacheKey = (query: {
+  previewRows: number;
+  headerRowIndex: number;
+  headerRowCount: number;
+  dataStartRowIndex: number;
+  dataEndRowIndex?: number;
+}) => {
+  if (props.previewLoader || !props.fileId) return "";
+  return [
+    props.fileId,
+    props.tableIndex,
+    query.previewRows,
+    query.headerRowIndex,
+    query.headerRowCount,
+    query.dataStartRowIndex,
+    query.dataEndRowIndex ?? ""
+  ].join(":");
+};
+
+const setPreviewCache = (key: string, data: TableData) => {
+  if (!key) return;
+  if (previewDataCache.size >= MAX_PREVIEW_CACHE_SIZE) {
+    const oldestKey = previewDataCache.keys().next().value;
+    if (oldestKey) previewDataCache.delete(oldestKey);
+  }
+  previewDataCache.set(key, data);
+};
+
 // 加载表格预览
-const loadPreview = async () => {
+async function loadPreview(forceRefresh = false) {
   if (props.tableIndex === undefined) return;
   if (!props.previewLoader && !props.fileId) return;
 
@@ -111,6 +141,17 @@ const loadPreview = async () => {
     dataStartRowIndex: props.dataStartRowIndex ?? 1,
     dataEndRowIndex: props.dataEndRowIndex
   };
+
+  const cacheKey = buildPreviewCacheKey(query);
+  if (!forceRefresh && cacheKey) {
+    const cached = previewDataCache.get(cacheKey);
+    if (cached) {
+      tableData.value = cached;
+      emit("loaded", cached);
+      return;
+    }
+  }
+
   loading.value = true;
   try {
     const res: {
@@ -130,6 +171,7 @@ const loadPreview = async () => {
 
     if (res.code === 0) {
       tableData.value = res.data;
+      setPreviewCache(cacheKey, res.data);
       emit("loaded", res.data);
     } else {
       ElMessage.error(res.message || "加载预览失败");
@@ -141,7 +183,7 @@ const loadPreview = async () => {
     if (requestId !== latestRequestId) return;
     loading.value = false;
   }
-};
+}
 
 // 监听参数变化
 watch(
@@ -163,7 +205,7 @@ watch(
 
 // 暴露刷新方法
 defineExpose({
-  refresh: loadPreview
+  refresh: () => loadPreview(true)
 });
 </script>
 

@@ -1,14 +1,17 @@
 <script setup lang="ts">
+import type { FileUploadResponse, TableData } from "@/api/document";
+import type { ExcelSheetMapping, TableImportConfig } from "../dataImport.types";
+
 defineProps<{
   isExcelFile: boolean;
-  uploadedFile: any;
-  tableConfigs: any[];
+  uploadedFile: FileUploadResponse | null;
+  tableConfigs: TableImportConfig[];
   canPasteClipboard: boolean;
   mappingRulesCount: number;
   loadingMappingRules: boolean;
   mappingClipboardSourceIndex: number | null;
   activeTableIndex: number | null;
-  getExcelPreviewOptions: (cfg: any) => {
+  getExcelPreviewOptions: (cfg: TableImportConfig) => {
     headerRowIndex: number;
     headerRowCount: number;
     dataStartRowIndex: number;
@@ -21,8 +24,8 @@ const emit = defineEmits<{
   (e: "pasteMapping"): void;
   (e: "update:activeTableIndex", value: number | null): void;
   (e: "tabRemove", value: string | number): void;
-  (e: "previewLoaded", payload: { tableIndex: number; data: any }): void;
-  (e: "updateExcelMapping", payload: { tableIndex: number; value: any }): void;
+  (e: "previewLoaded", payload: { tableIndex: number; data: TableData }): void;
+  (e: "updateExcelMapping", payload: { tableIndex: number; value: ExcelSheetMapping }): void;
   (e: "restoreTables"): void;
   (e: "goPrev"): void;
   (e: "reloadRules"): void;
