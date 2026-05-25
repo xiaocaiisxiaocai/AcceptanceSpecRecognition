@@ -17,7 +17,10 @@ WORKDIR /app
 
 ENV ASPNETCORE_URLS=http://+:8080
 
-RUN mkdir -p /data/files /data/dp-keys
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends default-mysql-client gzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /data/files /data/dp-keys /app/backups
 
 COPY --from=build /app/publish .
 COPY shared/ /app/shared/

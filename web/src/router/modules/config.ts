@@ -34,6 +34,16 @@ export default {
       }
     },
     {
+      path: "/config/database-backup",
+      name: "DatabaseBackup",
+      component: () => import("@/views/config/database-backup/index.vue"),
+      meta: {
+        icon: "ri:database-line",
+        title: getPageTitle("config-database-backup"),
+        permissions: getPagePermission("config-database-backup")
+      }
+    },
+    {
       path: "/config/prompt-templates",
       name: "PromptTemplates",
       component: () => import("@/views/config/prompt-templates/index.vue"),

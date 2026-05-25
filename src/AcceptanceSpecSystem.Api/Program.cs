@@ -112,6 +112,8 @@ builder.Services.Configure<EmbeddingCacheCleanupOptions>(
     builder.Configuration.GetSection(EmbeddingCacheCleanupOptions.SectionName));
 builder.Services.Configure<EmbeddingCacheWarmupOptions>(
     builder.Configuration.GetSection(EmbeddingCacheWarmupOptions.SectionName));
+builder.Services.Configure<DatabaseBackupOptions>(
+    builder.Configuration.GetSection(DatabaseBackupOptions.SectionName));
 builder.Services.Configure<AiServiceTestOptions>(
     builder.Configuration.GetSection(AiServiceTestOptions.SectionName));
 builder.Services.AddSingleton<IValidateOptions<AuthSeedOptions>, AuthSeedOptionsValidator>();
@@ -163,9 +165,11 @@ builder.Services.AddScoped<OrgUnitAppService>();
 builder.Services.AddScoped<SystemUserAppService>();
 builder.Services.AddScoped<SpecSemanticSearchService>();
 builder.Services.AddSingleton<EmbeddingCacheWarmupManager>();
+builder.Services.AddSingleton<DatabaseBackupManager>();
 builder.Services.AddScoped<SpecEmbeddingCacheService>();
 builder.Services.AddScoped<IEmbeddingCacheWarmupExecutor>(sp =>
     sp.GetRequiredService<SpecEmbeddingCacheService>());
+builder.Services.AddScoped<IDatabaseBackupExecutor, MySqlDumpDatabaseBackupExecutor>();
 builder.Services.AddScoped<ImportDuplicateDetectionService>();
 builder.Services.AddScoped<DocumentFileAccessService>();
 builder.Services.AddScoped<DocumentTableAccessService>();
@@ -190,6 +194,7 @@ builder.Services.AddScoped<SystemPromptTemplateInitializer>();
 builder.Services.AddHostedService<AuditLogCleanupService>();
 builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
 builder.Services.AddHostedService<EmbeddingCacheWarmupService>();
+builder.Services.AddHostedService<DatabaseBackupService>();
 
 // 注册文档服务
 builder.Services.AddSingleton<DocumentServiceFactory>();

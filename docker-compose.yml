@@ -37,6 +37,7 @@ services:
       ConnectionStrings__DefaultConnection: Server=mysql;Port=3306;Database=acceptance_spec_ai_equivalence_adjudication_db;User=acceptance;Password=acceptance123;CharSet=utf8mb4;
       FileStorage__BasePath: /data/files
       DataProtection__KeysPath: /data/dp-keys
+      DatabaseBackup__BackupDirectory: /app/backups
       Cors__AllowedOrigins__0: "http://localhost"
       Cors__AllowedOrigins__1: "http://127.0.0.1"
       JwtAuth__SigningKey: AcceptanceSpec_DockerJwtKey_2026_ReplaceWithLongRandom
@@ -46,6 +47,7 @@ services:
     volumes:
       - api-files:/data/files
       - api-dpkeys:/data/dp-keys
+      - api-backups:/app/backups
     ports:
       - "5290:8080"
 
@@ -64,3 +66,4 @@ volumes:
   mysql-data:
   api-files:
   api-dpkeys:
+  api-backups:

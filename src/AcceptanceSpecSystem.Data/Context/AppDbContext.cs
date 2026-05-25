@@ -46,6 +46,11 @@ public class AppDbContext : DbContext
     public DbSet<EmbeddingCacheWarmupSetting> EmbeddingCacheWarmupSettings => Set<EmbeddingCacheWarmupSetting>();
 
     /// <summary>
+    /// 数据库备份配置表
+    /// </summary>
+    public DbSet<DatabaseBackupSetting> DatabaseBackupSettings => Set<DatabaseBackupSetting>();
+
+    /// <summary>
     /// Word文件表
     /// </summary>
     public DbSet<WordFile> WordFiles => Set<WordFile>();
@@ -253,6 +258,16 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.RunAtLocalTime).HasMaxLength(16);
+        });
+
+        // DatabaseBackupSetting 配置
+        modelBuilder.Entity<DatabaseBackupSetting>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.RunAtLocalTime).HasMaxLength(16);
+            entity.Property(e => e.BackupDirectory).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.LastError).HasMaxLength(2000);
+            entity.Property(e => e.LastFileName).HasMaxLength(255);
         });
 
         // WordFile配置
