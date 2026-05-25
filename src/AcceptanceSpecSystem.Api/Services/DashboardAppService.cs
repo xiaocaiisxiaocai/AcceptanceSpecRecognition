@@ -43,6 +43,7 @@ public sealed class DashboardAppService
                 record.CompanyId == scope.CompanyId &&
                 record.CreatedByUserId == scope.UserId &&
                 record.TaskType == ExecutionHistoryTaskTypes.SmartFill &&
+                record.DetailJson != string.Empty &&
                 record.CreatedAt >= period.Start &&
                 record.CreatedAt <= period.End);
 
@@ -61,7 +62,8 @@ public sealed class DashboardAppService
 
         var smartFillTaskCount = await smartFillRecords.CountAsync();
         var smartFillTotalRows = await smartFillRecords.SumAsync(record => (int?)record.TotalRowCount) ?? 0;
-        var smartFillMatchedRows = await smartFillRecords.SumAsync(record => (int?)record.MatchedRowCount) ?? 0;
+        // 首页“匹配度”只统计最终完整执行且已采用的行；预览候选、中途取消或卡住的任务不计入成功匹配。
+        var smartFillMatchedRows = await smartFillRecords.SumAsync(record => (int?)record.AdoptedRowCount) ?? 0;
         var smartFillAdoptedRows = await smartFillRecords.SumAsync(record => (int?)record.AdoptedRowCount) ?? 0;
 
         return new DashboardSummaryDto

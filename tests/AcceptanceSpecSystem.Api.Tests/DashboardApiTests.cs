@@ -36,9 +36,9 @@ public class DashboardApiTests : IClassFixture<ApiWebApplicationFactory>
         data.GetProperty("importedSpecCount").GetInt32().Should().Be(2);
         data.GetProperty("smartFillTaskCount").GetInt32().Should().Be(1);
         data.GetProperty("smartFillTotalRows").GetInt32().Should().Be(10);
-        data.GetProperty("smartFillMatchedRows").GetInt32().Should().Be(8);
+        data.GetProperty("smartFillMatchedRows").GetInt32().Should().Be(6);
         data.GetProperty("smartFillAdoptedRows").GetInt32().Should().Be(6);
-        data.GetProperty("matchingRate").GetDouble().Should().Be(0.8);
+        data.GetProperty("matchingRate").GetDouble().Should().Be(0.6);
         data.GetProperty("adoptionRate").GetDouble().Should().Be(0.6);
     }
 
@@ -61,8 +61,38 @@ public class DashboardApiTests : IClassFixture<ApiWebApplicationFactory>
         data.GetProperty("importedSpecCount").GetInt32().Should().Be(1);
         data.GetProperty("smartFillTaskCount").GetInt32().Should().Be(1);
         data.GetProperty("smartFillTotalRows").GetInt32().Should().Be(5);
-        data.GetProperty("smartFillMatchedRows").GetInt32().Should().Be(2);
-        data.GetProperty("matchingRate").GetDouble().Should().Be(0.4);
+        data.GetProperty("smartFillMatchedRows").GetInt32().Should().Be(1);
+        data.GetProperty("matchingRate").GetDouble().Should().Be(0.2);
+    }
+
+    [Fact]
+    public async Task Summary_ShouldOnlyCountCompletedAndAdoptedSmartFillRows()
+    {
+        var now = DateTime.UtcNow;
+        await SeedDashboardDataAsync(now);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.ExecutionHistoryRecords.Add(CreateExecutionHistory(
+                "smart-fill",
+                now.AddDays(-1),
+                totalRows: 20,
+                matchedRows: 20,
+                adoptedRows: 0,
+                detailJson: ""));
+            await db.SaveChangesAsync();
+        }
+
+        var response = await _client.GetAsync("/api/dashboard/summary");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var data = json.Data;
+        data.GetProperty("smartFillTaskCount").GetInt32().Should().Be(1);
+        data.GetProperty("smartFillTotalRows").GetInt32().Should().Be(10);
+        data.GetProperty("smartFillMatchedRows").GetInt32().Should().Be(6);
+        data.GetProperty("matchingRate").GetDouble().Should().Be(0.6);
     }
 
     private async Task SeedDashboardDataAsync(DateTime now)
@@ -136,7 +166,8 @@ public class DashboardApiTests : IClassFixture<ApiWebApplicationFactory>
         DateTime createdAt,
         int totalRows,
         int matchedRows,
-        int adoptedRows)
+        int adoptedRows,
+        string detailJson = "{}")
     {
         return new ExecutionHistoryRecord
         {
@@ -152,7 +183,7 @@ public class DashboardApiTests : IClassFixture<ApiWebApplicationFactory>
             SkippedRowCount = 0,
             NotAdoptedRowCount = Math.Max(0, matchedRows - adoptedRows),
             ManualSelectedRowCount = 0,
-            DetailJson = "{}",
+            DetailJson = detailJson,
             CreatedByUserId = 1,
             CompanyId = 1,
             CreatedAt = createdAt
