@@ -152,6 +152,29 @@ public class SmartFillLegacyCleanupTests : IClassFixture<ApiWebApplicationFactor
     }
 
     [Fact]
+    public void MatchConfigDto_ShouldExposeSynchronousAiEquivalenceSwitch_DefaultOff()
+    {
+        typeof(MatchConfigDto).GetProperty("EnableLlmEquivalenceAdjudication", BindingFlags.Public | BindingFlags.Instance)
+            .Should().NotBeNull("同步 AI 等价裁决需要显式开关，避免智能填充预览默认逐行调用 LLM");
+
+        var defaultConfig = JsonSerializer.Deserialize<MatchConfigDto>(
+            "{}",
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        defaultConfig.Should().NotBeNull();
+        defaultConfig!.EnableLlmEquivalenceAdjudication.Should().BeFalse();
+
+        var enabledConfig = JsonSerializer.Deserialize<MatchConfigDto>(
+            """
+            {
+              "enableLlmEquivalenceAdjudication": true
+            }
+            """,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        enabledConfig.Should().NotBeNull();
+        enabledConfig!.EnableLlmEquivalenceAdjudication.Should().BeTrue();
+    }
+
+    [Fact]
     public void SmartFillMainChainDtosAndModels_ShouldNotExposeLegacyLlmReviewFields()
     {
         foreach (var type in new[] { typeof(MatchResultDto), typeof(MatchResult) })

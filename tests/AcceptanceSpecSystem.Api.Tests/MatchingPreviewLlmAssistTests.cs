@@ -652,7 +652,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             new
             {
                 minScoreThreshold = 0.0,
-                useLlmEntityResolution = true
+                enableLlmEquivalenceAdjudication = true
             },
             ("安装要求", "最大不可拆部件≈3200"));
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -686,7 +686,11 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
                     isAmbiguous = false
                 }
             },
-            config = new { }
+            config = new
+            {
+                minScoreThreshold = 0.0,
+                enableLlmEquivalenceAdjudication = true
+            }
         };
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/llm-stream")

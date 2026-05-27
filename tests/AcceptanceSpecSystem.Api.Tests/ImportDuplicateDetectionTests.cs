@@ -224,6 +224,79 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
+    public async Task ImportExcel_WhenPendingDifferenceFieldsContainSeparator_ShouldReplayConfirmedOverwrite()
+    {
+        var seeded = await SeedImportScopeAsync();
+        await SeedExistingSpecAsync(
+            seeded.CustomerId,
+            seeded.ProcessId,
+            "P|PIPE",
+            "S|PIPE",
+            "A|OLD",
+            "R|OLD");
+
+        var fileId = await UploadExcelAsync(CreateExcelBytes(new[]
+        {
+            ("P|PIPE", "S|PIPE", "A|NEW", "R|NEW")
+        }), "pipe-difference-key.xlsx");
+
+        var firstResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4
+        });
+
+        firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var firstJson = await firstResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        firstJson.Code.Should().Be(0);
+        firstJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeTrue();
+        var pendingKey = firstJson.Data.GetProperty("pendingDifferences")[0]
+            .GetProperty("key")
+            .GetString();
+        pendingKey.Should().NotBeNullOrWhiteSpace();
+
+        var confirmResponse = await ImportExcelAsync(new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4,
+            confirmedDifferenceKeys = new[] { pendingKey }
+        });
+
+        confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var confirmJson = await confirmResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        confirmJson.Code.Should().Be(0);
+        confirmJson.Data.GetProperty("requiresConfirmation").GetBoolean().Should().BeFalse();
+        confirmJson.Data.GetProperty("successCount").GetInt32().Should().Be(1);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var spec = await dbContext.AcceptanceSpecs
+            .SingleAsync(item => item.CustomerId == seeded.CustomerId && item.ProcessId == seeded.ProcessId);
+        spec.Project.Should().Be("P|PIPE");
+        spec.Specification.Should().Be("S|PIPE");
+        spec.Acceptance.Should().Be("A|NEW");
+        spec.Remark.Should().Be("R|NEW");
+    }
+
+    [Fact]
     public async Task ImportExcel_WhenConfirmedOverwriteChangesExistingSpec_ShouldRemoveEmbeddingCaches()
     {
         var seeded = await SeedImportScopeAsync();

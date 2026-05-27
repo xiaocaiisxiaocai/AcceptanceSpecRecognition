@@ -35,6 +35,8 @@ export interface MatchConfig {
   llmRetryCount?: number;
   /** LLM 熔断阈值（累计失败次数） */
   llmCircuitBreakFailures?: number;
+  /** 是否在同步预览/执行匹配阶段启用 AI 等价裁决 */
+  enableLlmEquivalenceAdjudication?: boolean;
   /** 是否仅按项目+规格完全一致命中 */
   exactMatchOnly?: boolean;
   /** 是否过滤项目/规格均为空的行 */
@@ -291,6 +293,7 @@ export const defaultMatchConfig: MatchConfig = {
   llmRowTimeoutSeconds: 45,
   llmRetryCount: 1,
   llmCircuitBreakFailures: 10,
+  enableLlmEquivalenceAdjudication: false,
   exactMatchOnly: false,
   filterEmptySourceRows: true
 };

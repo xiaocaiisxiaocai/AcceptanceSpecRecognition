@@ -316,6 +316,7 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor
         if (hasMutation)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // 懒生成的 Embedding 缓存立即独立落库，避免后续匹配/导入流程重复生成同一批向量。
             await _unitOfWork.SaveChangesAsync();
         }
 

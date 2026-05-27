@@ -87,6 +87,11 @@ public class MatchConfigDto
     public int LlmCircuitBreakFailures { get; set; } = 10;
 
     /// <summary>
+    /// 是否在同步匹配阶段启用 AI 等价裁决（默认关闭，避免预览阶段逐行调用 LLM）。
+    /// </summary>
+    public bool EnableLlmEquivalenceAdjudication { get; set; }
+
+    /// <summary>
     /// 是否仅按项目+规格完全一致命中
     /// </summary>
     public bool ExactMatchOnly { get; set; }

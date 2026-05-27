@@ -10,13 +10,11 @@ using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -28,7 +26,6 @@ namespace AcceptanceSpecSystem.Api.Services;
 public sealed class MatchingWorkflowSupportService
 {
     private const int MaxScopedCandidateCount = 3000;
-    private static readonly TimeSpan ReviewApprovalTokenLifetime = TimeSpan.FromHours(2);
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMatchingService _matchingService;
@@ -43,7 +40,6 @@ public sealed class MatchingWorkflowSupportService
     private readonly MatchingTaskSnapshotService _matchingTaskSnapshotService;
     private readonly ExecutionHistoryAppService _executionHistoryAppService;
     private readonly MatchingApprovalTokenService _approvalTokenService;
-    private readonly IDataProtector _reviewApprovalProtector;
     private readonly ILogger<MatchingWorkflowSupportService> _logger;
 
     private static readonly JsonSerializerOptions SseJsonOptions = new()
@@ -73,51 +69,6 @@ public sealed class MatchingWorkflowSupportService
         public Dictionary<int, MatchSourceItem> SourceRowLookup { get; init; } = [];
     }
 
-    private sealed class ReviewApprovalTokenPayload
-    {
-        public int UserId { get; init; }
-
-        public int? TableIndex { get; init; }
-
-        public int RowIndex { get; init; }
-
-        public int SpecId { get; init; }
-
-        public string SourceProject { get; init; } = string.Empty;
-
-        public string SourceSpecification { get; init; } = string.Empty;
-
-        public string SpecFingerprint { get; init; } = string.Empty;
-
-        public int? CustomerId { get; init; }
-
-        public int? ProcessId { get; init; }
-
-        public int? MachineModelId { get; init; }
-
-        public MatchingConfig Config { get; init; } = new();
-
-        public DateTimeOffset IssuedAtUtc { get; init; }
-
-        public DateTimeOffset ExpiresAtUtc { get; init; }
-    }
-
-    private sealed class ReviewApprovalBundle
-    {
-        public int UserId { get; init; }
-
-        public int? CustomerId { get; init; }
-
-        public int? ProcessId { get; init; }
-
-        public int? MachineModelId { get; init; }
-
-        public MatchingConfig Config { get; init; } = new();
-
-        public Dictionary<ReviewApprovalLookupKey, ReviewApprovalTokenPayload> Tokens { get; init; } = [];
-    }
-
-    private readonly record struct ReviewApprovalLookupKey(int? TableIndex, int RowIndex);
     private readonly record struct LlmStreamItemKey(int? TableIndex, int RowIndex);
 
     private sealed class LlmStepFailureException : Exception
@@ -151,7 +102,6 @@ public sealed class MatchingWorkflowSupportService
         MatchingTaskSnapshotService matchingTaskSnapshotService,
         ExecutionHistoryAppService executionHistoryAppService,
         MatchingApprovalTokenService approvalTokenService,
-        IDataProtectionProvider dataProtectionProvider,
         ILogger<MatchingWorkflowSupportService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -167,7 +117,6 @@ public sealed class MatchingWorkflowSupportService
         _matchingTaskSnapshotService = matchingTaskSnapshotService;
         _executionHistoryAppService = executionHistoryAppService;
         _approvalTokenService = approvalTokenService;
-        _reviewApprovalProtector = dataProtectionProvider.CreateProtector("MatchingWorkflowSupportService.ReviewApprovalToken.v1");
         _logger = logger;
     }
 
@@ -184,165 +133,6 @@ public sealed class MatchingWorkflowSupportService
     private static MatchingApiException NotFoundFailure(string message)
     {
         return new MatchingApiException(404, message, isNotFound: true);
-    }
-
-    private string IssueReviewApprovalToken(
-        DataScopeResult scope,
-        int? customerId,
-        int? processId,
-        int? machineModelId,
-        MatchingConfig config,
-        MatchLlmStreamItem item,
-        MatchCandidate spec)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var payload = new ReviewApprovalTokenPayload
-        {
-            UserId = scope.UserId,
-            TableIndex = item.TableIndex,
-            RowIndex = item.RowIndex,
-            SpecId = item.BestMatchSpecId ?? 0,
-            SourceProject = NormalizeForDedup(item.SourceProject),
-            SourceSpecification = NormalizeForDedup(item.SourceSpecification),
-            SpecFingerprint = ComputeReviewApprovalSpecFingerprint(
-                spec.Project,
-                spec.Specification,
-                spec.Acceptance,
-                spec.Remark),
-            CustomerId = customerId,
-            ProcessId = processId,
-            MachineModelId = machineModelId,
-            Config = CloneMatchingConfig(config),
-            IssuedAtUtc = now,
-            ExpiresAtUtc = now.Add(ReviewApprovalTokenLifetime)
-        };
-
-        var json = JsonSerializer.Serialize(payload);
-        return _reviewApprovalProtector.Protect(json);
-    }
-
-    private ReviewApprovalBundle? ResolveReviewApprovalBundle(
-        IEnumerable<(int? TableIndex, FillMapping Mapping)> mappings,
-        int executingUserId)
-    {
-        ReviewApprovalTokenPayload? baseline = null;
-        var tokens = new Dictionary<ReviewApprovalLookupKey, ReviewApprovalTokenPayload>();
-        var now = DateTimeOffset.UtcNow;
-
-        foreach (var (tableIndex, mapping) in mappings)
-        {
-            if (string.IsNullOrWhiteSpace(mapping.ReviewApprovalToken))
-            {
-                continue;
-            }
-
-            ReviewApprovalTokenPayload payload;
-            try
-            {
-                var json = _reviewApprovalProtector.Unprotect(mapping.ReviewApprovalToken);
-                payload = JsonSerializer.Deserialize<ReviewApprovalTokenPayload>(json)
-                    ?? throw new InvalidOperationException("复核放行令牌为空");
-            }
-            catch (Exception ex) when (ex is CryptographicException or JsonException or InvalidOperationException)
-            {
-                throw Failure(400, "复核放行令牌无效，请重新预览并复核");
-            }
-
-            if (payload.ExpiresAtUtc <= now)
-            {
-                throw Failure(400, "复核放行令牌已过期，请重新预览并复核");
-            }
-
-            if (payload.UserId != executingUserId)
-            {
-                throw Failure(400, "复核放行令牌不属于当前用户，请重新预览并复核");
-            }
-
-            if (payload.TableIndex != tableIndex ||
-                payload.RowIndex != mapping.RowIndex ||
-                payload.SpecId != (mapping.SpecId ?? 0))
-            {
-                throw Failure(400, "复核放行令牌与当前行或规格不一致，请重新预览并复核");
-            }
-
-            var key = new ReviewApprovalLookupKey(payload.TableIndex, payload.RowIndex);
-            if (!tokens.TryAdd(key, payload))
-            {
-                throw Failure(400, "同一行存在重复的复核放行令牌，请重新预览并复核");
-            }
-
-            if (baseline == null)
-            {
-                baseline = payload;
-                continue;
-            }
-
-            if (!HasSameReviewApprovalContext(baseline, payload))
-            {
-                throw Failure(400, "复核放行令牌来自不同的预览上下文，请分批执行");
-            }
-        }
-
-        if (baseline == null)
-        {
-            return null;
-        }
-
-        return new ReviewApprovalBundle
-        {
-            UserId = baseline.UserId,
-            CustomerId = baseline.CustomerId,
-            ProcessId = baseline.ProcessId,
-            MachineModelId = baseline.MachineModelId,
-            Config = CloneMatchingConfig(baseline.Config),
-            Tokens = tokens
-        };
-    }
-
-    private static bool HasSameReviewApprovalContext(
-        ReviewApprovalTokenPayload left,
-        ReviewApprovalTokenPayload right)
-    {
-        return left.UserId == right.UserId &&
-               left.CustomerId == right.CustomerId &&
-               left.ProcessId == right.ProcessId &&
-               left.MachineModelId == right.MachineModelId &&
-               HasSameMatchingConfig(left.Config, right.Config);
-    }
-
-    private static bool HasSameMatchingConfig(MatchingConfig left, MatchingConfig right)
-    {
-        return left.EmbeddingServiceId == right.EmbeddingServiceId &&
-               left.LlmServiceId == right.LlmServiceId &&
-               left.MinScoreThreshold == right.MinScoreThreshold &&
-               left.RecallTopK == right.RecallTopK &&
-               left.AmbiguityMargin == right.AmbiguityMargin &&
-               left.HighConfidenceThreshold == right.HighConfidenceThreshold &&
-               left.LlmParallelism == right.LlmParallelism &&
-               left.LlmRowTimeoutSeconds == right.LlmRowTimeoutSeconds &&
-               left.LlmRetryCount == right.LlmRetryCount &&
-               left.LlmCircuitBreakFailures == right.LlmCircuitBreakFailures &&
-               left.EnableLlmEquivalenceAdjudication == right.EnableLlmEquivalenceAdjudication &&
-               left.FilterEmptySourceRows == right.FilterEmptySourceRows;
-    }
-
-    private static MatchingConfig CloneMatchingConfig(MatchingConfig config)
-    {
-        return new MatchingConfig
-        {
-            EmbeddingServiceId = config.EmbeddingServiceId,
-            LlmServiceId = config.LlmServiceId,
-            MinScoreThreshold = config.MinScoreThreshold,
-            RecallTopK = config.RecallTopK,
-            AmbiguityMargin = config.AmbiguityMargin,
-            HighConfidenceThreshold = config.HighConfidenceThreshold,
-            LlmParallelism = config.LlmParallelism,
-            LlmRowTimeoutSeconds = config.LlmRowTimeoutSeconds,
-            LlmRetryCount = config.LlmRetryCount,
-            LlmCircuitBreakFailures = config.LlmCircuitBreakFailures,
-            EnableLlmEquivalenceAdjudication = config.EnableLlmEquivalenceAdjudication,
-            FilterEmptySourceRows = config.FilterEmptySourceRows
-        };
     }
 
     internal async Task RunLlmStreamAsync(ClaimsPrincipal user, HttpResponse response, MatchLlmStreamRequest request, CancellationToken cancellationToken)
@@ -657,6 +447,7 @@ public sealed class MatchingWorkflowSupportService
                     var reviewApprovalToken = reviewApprovalBundle?.Tokens.GetValueOrDefault(
                         new MatchingApprovalTokenService.ApprovalLookupKey(tableFill.TableIndex, mapping.RowIndex));
                     if (!CanApplyMatchedSpec(
+                            _approvalTokenService,
                             mapping,
                             spec,
                             currentMatch,
@@ -1703,15 +1494,15 @@ public sealed class MatchingWorkflowSupportService
         BatchMatchResult batchResult;
         try
         {
-            if (RequiresSemanticMatching(sourceItems, processedCandidates))
+            if (config.ExactMatchOnly || !RequiresSemanticMatching(sourceItems, processedCandidates))
+            {
+                batchResult = BuildExactMatchBatchResult(sourceItems, processedCandidates, config);
+            }
+            else
             {
                 await HydrateCandidateEmbeddingsAsync(candidateList, config.EmbeddingServiceId);
                 processedCandidates = BuildProcessedCandidates(candidateList, tpSession);
                 batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
-            }
-            else
-            {
-                batchResult = BuildExactMatchBatchResult(sourceItems, processedCandidates, config);
             }
         }
         catch (AiServiceUnavailableException ex)
@@ -2124,7 +1915,7 @@ public sealed class MatchingWorkflowSupportService
             LlmRowTimeoutSeconds = Math.Clamp(dto?.LlmRowTimeoutSeconds ?? fallbackConfig.LlmRowTimeoutSeconds, 5, 300),
             LlmRetryCount = Math.Clamp(dto?.LlmRetryCount ?? fallbackConfig.LlmRetryCount, 0, 3),
             LlmCircuitBreakFailures = Math.Clamp(dto?.LlmCircuitBreakFailures ?? fallbackConfig.LlmCircuitBreakFailures, 3, 200),
-            EnableLlmEquivalenceAdjudication = fallbackConfig.EnableLlmEquivalenceAdjudication,
+            EnableLlmEquivalenceAdjudication = dto?.EnableLlmEquivalenceAdjudication ?? false,
             ExactMatchOnly = dto?.ExactMatchOnly ?? fallbackConfig.ExactMatchOnly,
             FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows
         };
@@ -2157,6 +1948,7 @@ public sealed class MatchingWorkflowSupportService
     }
 
     private static bool CanApplyMatchedSpec(
+        MatchingApprovalTokenService approvalTokenService,
         FillMapping mapping,
         AcceptanceSpec selectedSpec,
         MatchResult? currentMatch,
@@ -2167,6 +1959,7 @@ public sealed class MatchingWorkflowSupportService
         if (reviewApprovalToken != null)
         {
             return MatchesPreviewApprovalToken(
+                approvalTokenService,
                 reviewApprovalToken,
                 mapping.SpecId ?? 0,
                 sourceProject,
@@ -2208,23 +2001,19 @@ public sealed class MatchingWorkflowSupportService
     }
 
     private static bool MatchesPreviewApprovalToken(
+        MatchingApprovalTokenService approvalTokenService,
         MatchingApprovalTokenService.ApprovalTokenPayload reviewApprovalToken,
         int selectedSpecId,
         string? sourceProject,
         string? sourceSpecification,
         AcceptanceSpec selectedSpec)
     {
-        return reviewApprovalToken.SpecId == selectedSpecId &&
-               string.Equals(reviewApprovalToken.SourceProject, NormalizeForDedup(sourceProject), StringComparison.Ordinal) &&
-               string.Equals(reviewApprovalToken.SourceSpecification, NormalizeForDedup(sourceSpecification), StringComparison.Ordinal) &&
-               string.Equals(
-                   reviewApprovalToken.SpecFingerprint,
-                   ComputeReviewApprovalSpecFingerprint(
-                       selectedSpec.Project,
-                       selectedSpec.Specification,
-                       selectedSpec.Acceptance,
-                       selectedSpec.Remark),
-                   StringComparison.Ordinal);
+        return approvalTokenService.MatchesToken(
+            reviewApprovalToken,
+            selectedSpecId,
+            sourceProject,
+            sourceSpecification,
+            selectedSpec);
     }
 
     private static bool RequiresManualReviewByEquivalenceVerdict(string? verdict)
@@ -2285,23 +2074,6 @@ public sealed class MatchingWorkflowSupportService
         }
 
         return Math.Clamp(normalized, 0, 100);
-    }
-
-    private static string ComputeReviewApprovalSpecFingerprint(
-        string? project,
-        string? specification,
-        string? acceptance,
-        string? remark)
-    {
-        var normalized = string.Join('\n', [
-            NormalizeForDedup(project),
-            NormalizeForDedup(specification),
-            NormalizeForDedup(acceptance),
-            NormalizeForDedup(remark)
-        ]);
-
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
-        return Convert.ToHexString(hash);
     }
 
     /// <summary>
@@ -2809,7 +2581,7 @@ public sealed class MatchingWorkflowSupportService
             ScoreDetails = result.ScoreDetails,
             Decision = ToDecisionKey(result.Decision),
             LlmEquivalenceVerdict = result.LlmEquivalence == null
-                ? null
+                ? GetAuthoritativeRequestManualReviewVerdict(requestItem)
                 : ToEquivalenceVerdictKey(result.LlmEquivalence.Verdict),
             IsAmbiguous = result.IsAmbiguous,
             EvidenceSummary = [.. result.Evidence.Summary],
@@ -2834,6 +2606,13 @@ public sealed class MatchingWorkflowSupportService
             EvidenceSummary = [],
             ConflictSummary = []
         };
+    }
+
+    private static string? GetAuthoritativeRequestManualReviewVerdict(MatchLlmStreamItem item)
+    {
+        return RequiresManualReviewByEquivalenceVerdict(item.LlmEquivalenceVerdict)
+            ? item.LlmEquivalenceVerdict
+            : null;
     }
 
     private static string BuildReviewTrigger(MatchLlmStreamItem item)

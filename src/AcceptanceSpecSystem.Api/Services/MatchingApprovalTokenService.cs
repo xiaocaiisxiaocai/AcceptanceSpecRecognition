@@ -230,6 +230,7 @@ public sealed class MatchingApprovalTokenService
                left.LlmRetryCount == right.LlmRetryCount &&
                left.LlmCircuitBreakFailures == right.LlmCircuitBreakFailures &&
                left.EnableLlmEquivalenceAdjudication == right.EnableLlmEquivalenceAdjudication &&
+               left.ExactMatchOnly == right.ExactMatchOnly &&
                left.FilterEmptySourceRows == right.FilterEmptySourceRows;
     }
 
@@ -248,6 +249,7 @@ public sealed class MatchingApprovalTokenService
             LlmRetryCount = config.LlmRetryCount,
             LlmCircuitBreakFailures = config.LlmCircuitBreakFailures,
             EnableLlmEquivalenceAdjudication = config.EnableLlmEquivalenceAdjudication,
+            ExactMatchOnly = config.ExactMatchOnly,
             FilterEmptySourceRows = config.FilterEmptySourceRows
         };
     }

@@ -518,7 +518,7 @@ defineExpose({
           type="info"
           :closable="false"
           show-icon
-          :title="`系统会先对当前最佳候选执行 AI 等价裁决；只有裁决明确为等价且无需人工确认时才允许自动采用。高歧义样本会继续进入 LLM 复核；高置信阈值 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 只用于结果分层展示，不决定自动采用。`"
+          :title="`默认先完成快速预览，不在同步阶段逐行调用 AI 等价裁决；需要精度优先时可在高级选项中开启。高置信阈值 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 只用于结果分层展示，不决定自动采用。`"
         />
       </el-form>
     </div>
@@ -545,15 +545,18 @@ defineExpose({
             />
             <el-row :gutter="20" align="middle" class="llm-row">
               <el-col :span="8">
-                <el-form-item label="AI 复核门禁">
-                  <div class="fixed-mode">
-                    <el-tag type="success">固定开启</el-tag>
-                  </div>
+                <el-form-item label="AI 等价裁决">
+                  <el-switch
+                    v-model="config.enableLlmEquivalenceAdjudication"
+                    active-text="开启"
+                    inactive-text="关闭"
+                    :disabled="!allowLlm || !hasAvailableLlmService"
+                  />
                 </el-form-item>
               </el-col>
               <el-col :span="16">
                 <span class="parallelism-hint">
-                  当前链路固定执行 AI 等价裁决；触发门槛与“最小得分阈值”保持一致，高歧义样本会继续进入 AI 复核，不再提供关闭开关。
+                  默认关闭以优先保证预览速度；开启后，达到最小得分阈值的当前最佳候选会在同步匹配阶段进入 AI 等价裁决。
                 </span>
               </el-col>
             </el-row>

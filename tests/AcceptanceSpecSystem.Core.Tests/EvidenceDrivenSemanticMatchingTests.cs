@@ -251,7 +251,8 @@ public class EvidenceDrivenSemanticMatchingTests
             new MatchingConfig
             {
                 MinScoreThreshold = 0.0,
-                RecallTopK = 2
+                RecallTopK = 2,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -367,7 +368,8 @@ public class EvidenceDrivenSemanticMatchingTests
             new MatchingConfig
             {
                 MinScoreThreshold = 0.0,
-                RecallTopK = 2
+                RecallTopK = 2,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -419,7 +421,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
-                AmbiguityMargin = 0.01
+                AmbiguityMargin = 0.01,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -595,7 +598,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -650,7 +654,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -710,7 +715,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.9,
                 RecallTopK = 2,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -846,7 +852,8 @@ public class EvidenceDrivenSemanticMatchingTests
                 MinScoreThreshold = 0.9,
                 RecallTopK = 2,
                 HighConfidenceThreshold = 0.98,
-                AmbiguityMargin = 0.02
+                AmbiguityMargin = 0.02,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -897,7 +904,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -955,7 +963,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.9,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -1005,7 +1014,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.90
+                HighConfidenceThreshold = 0.90,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -1228,7 +1238,8 @@ public class EvidenceDrivenSemanticMatchingTests
                 MinScoreThreshold = 0.0,
                 RecallTopK = 2,
                 AmbiguityMargin = 0.02,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -1281,7 +1292,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -1382,7 +1394,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -1427,7 +1440,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -1470,7 +1484,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.0,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -1521,7 +1536,8 @@ public class EvidenceDrivenSemanticMatchingTests
             new MatchingConfig
             {
                 MinScoreThreshold = 0.0,
-                RecallTopK = 1
+                RecallTopK = 1,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
@@ -1572,7 +1588,8 @@ public class EvidenceDrivenSemanticMatchingTests
             new MatchingConfig
             {
                 MinScoreThreshold = 0.0,
-                RecallTopK = 1
+                RecallTopK = 1,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(1);
