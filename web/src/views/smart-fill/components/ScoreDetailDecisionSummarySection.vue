@@ -36,9 +36,12 @@ const hasHintOnlyEquivalence = computed(() =>
 const hasDecisionEquivalenceRisk = computed(() =>
   isLlmEquivalenceDecisionRisk(llmEquivalence.value)
 );
+const riskRelevantSourceRows = computed(() =>
+  props.sourceBestRows.filter(row => row.isRiskRelevant)
+);
 const decisionSummaryState = computed(() =>
   getSmartFillDecisionSummaryState(props.item, {
-    sourceBestRowCount: props.sourceBestRows.length
+    sourceBestRowCount: riskRelevantSourceRows.value.length
   })
 );
 
@@ -67,14 +70,14 @@ const actionSuggestion = computed(() => decisionSummaryState.value.actionSuggest
 const focusChecklist = computed(() => {
   const checklist = [
     ...(props.sourceBestRows.length > 0
-      ? ["请结合详情表格核对源项与推荐项差异"]
+      ? ["存在格式、符号或原文差异，详情中已保留高亮供复核"]
       : []),
     ...(llmEquivalence.value
       ? [
           `AI 裁决提示：${getLlmEquivalenceSummaryText(llmEquivalence.value)}`
         ]
       : []),
-    ...props.sourceBestRows.map(row => `${row.label}与推荐项不一致`),
+    ...riskRelevantSourceRows.value.map(row => `${row.label}与推荐项不一致`),
     ...riskItems.value.slice(0, 2).map(item => item.text)
   ];
 

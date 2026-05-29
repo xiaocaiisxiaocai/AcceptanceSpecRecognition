@@ -31,6 +31,14 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
     }
 
     [Fact]
+    public void AiServiceTestOptions_DefaultLlmTimeout_ShouldAllowOllamaColdStart()
+    {
+        var options = new AcceptanceSpecSystem.Api.Options.AiServiceTestOptions();
+
+        options.LlmTimeoutSeconds.Should().BeGreaterThanOrEqualTo(120);
+    }
+
+    [Fact]
     public async Task TestConnection_WhenLlmServiceHangs_ShouldReturnLlmSpecificTimeoutResult()
     {
         var configId = await CreateConfigAsync(AiServicePurpose.Llm);

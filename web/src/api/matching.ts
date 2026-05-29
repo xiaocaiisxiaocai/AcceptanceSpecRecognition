@@ -299,7 +299,7 @@ export const defaultMatchConfig: MatchConfig = {
   recallTopK: DEFAULT_RECALL_TOP_K,
   ambiguityMargin: DEFAULT_AMBIGUITY_MARGIN,
   llmParallelism: 4,
-  llmRowTimeoutSeconds: 45,
+  llmRowTimeoutSeconds: 120,
   llmRetryCount: 1,
   llmCircuitBreakFailures: 10,
   matchingMode: "projectSpecification",

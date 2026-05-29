@@ -10,7 +10,7 @@ public class AiServiceTestOptions
     /// <summary>
     /// LLM 服务测试超时（秒）。
     /// </summary>
-    public int LlmTimeoutSeconds { get; set; } = 60;
+    public int LlmTimeoutSeconds { get; set; } = 120;
 
     /// <summary>
     /// Embedding 服务测试超时（秒）。

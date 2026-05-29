@@ -9,6 +9,7 @@ export type ScoreDetailDiffRow = {
   leftHtml: string;
   rightHtml: string;
   isSame: boolean;
+  isRiskRelevant: boolean;
 };
 
 type InlineDiffCache = Map<
@@ -38,6 +39,23 @@ const renderHtmlText = (text?: string) => {
     return `<span class="placeholder-text">（空）</span>`;
   }
   return formatHtmlFragment(text);
+};
+
+export const normalizeHintOnlyDiffText = (text?: string) =>
+  (text ?? "")
+    .replaceAll("\u00A0", " ")
+    .replaceAll("\u200B", "")
+    .replaceAll("\uFEFF", "")
+    .trim()
+    .toLowerCase()
+    .replace(/[，,。；;：:、\s\r\n\t\-—–_·.]+/g, "")
+    .replaceAll("（", "(")
+    .replaceAll("）", ")");
+
+export const isHintOnlyTextDifference = (leftText?: string, rightText?: string) => {
+  const left = normalizeHintOnlyDiffText(leftText);
+  const right = normalizeHintOnlyDiffText(rightText);
+  return left.length > 0 && left === right && (leftText ?? "") !== (rightText ?? "");
 };
 
 const buildInlineDiffHtml = (
@@ -192,7 +210,8 @@ export function useScoreDetailDiff({
           label: row.label,
           leftHtml: diff.leftHtml,
           rightHtml: diff.rightHtml,
-          isSame: diff.isSame
+          isSame: diff.isSame,
+          isRiskRelevant: !diff.isSame && !isHintOnlyTextDifference(row.left, row.right)
         };
       });
   });
@@ -230,7 +249,8 @@ export function useScoreDetailDiff({
           label: row.label,
           leftHtml: diff.leftHtml,
           rightHtml: diff.rightHtml,
-          isSame: diff.isSame
+          isSame: diff.isSame,
+          isRiskRelevant: !diff.isSame && !isHintOnlyTextDifference(row.left, row.right)
         };
       })
       .filter(row => !row.isSame);

@@ -411,9 +411,9 @@ public class MatchingConfig
     public int LlmParallelism { get; set; } = 4;
 
     /// <summary>
-    /// LLM 单行处理超时时间（秒，默认45）
+    /// LLM 单行处理超时时间（秒，默认120）
     /// </summary>
-    public int LlmRowTimeoutSeconds { get; set; } = 45;
+    public int LlmRowTimeoutSeconds { get; set; } = 120;
 
     /// <summary>
     /// LLM 单行失败重试次数（默认1）
