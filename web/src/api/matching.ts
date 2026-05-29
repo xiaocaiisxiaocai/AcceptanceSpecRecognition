@@ -13,6 +13,9 @@ export const DEFAULT_RECALL_TOP_K = 2;
 export const MAX_RECALL_TOP_K = 3;
 export const DEFAULT_AMBIGUITY_MARGIN = 0.02;
 
+export type MatchingMode = "projectSpecification" | "specificationOnly";
+export type MatchBasis = "projectSpecification" | "specification";
+
 /** 匹配配置 */
 export interface MatchConfig {
   /** 选定的 Embedding 服务ID（为空则自动选择） */
@@ -35,6 +38,8 @@ export interface MatchConfig {
   llmRetryCount?: number;
   /** LLM 熔断阈值（累计失败次数） */
   llmCircuitBreakFailures?: number;
+  /** 匹配方式 */
+  matchingMode?: MatchingMode;
   /** 是否在同步预览/执行匹配阶段启用 AI 等价裁决 */
   enableLlmEquivalenceAdjudication?: boolean;
   /** 是否仅按项目+规格完全一致命中 */
@@ -145,6 +150,8 @@ export interface MatchResult {
   selectionMode?: MatchSelectionMode;
   /** 最终选定摘要 */
   selectionSummary?: string;
+  /** 匹配依据 */
+  matchBasis?: MatchBasis;
   /** 证据摘要 */
   evidenceSummary?: string[];
   /** 冲突摘要 */
@@ -201,6 +208,8 @@ export interface MatchCandidateOption {
   selectionMode?: MatchSelectionMode;
   /** 最终选定摘要 */
   selectionSummary?: string;
+  /** 匹配依据 */
+  matchBasis?: MatchBasis;
   /** 证据摘要 */
   evidenceSummary?: string[];
   /** 冲突摘要 */
@@ -293,6 +302,7 @@ export const defaultMatchConfig: MatchConfig = {
   llmRowTimeoutSeconds: 45,
   llmRetryCount: 1,
   llmCircuitBreakFailures: 10,
+  matchingMode: "projectSpecification",
   enableLlmEquivalenceAdjudication: false,
   exactMatchOnly: false,
   filterEmptySourceRows: true

@@ -208,6 +208,127 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
+    public async Task Preview_WithSpecificationOnlyMode_ShouldMatchBySpecificationWithinScope()
+    {
+        var customerId = (await (await _client.PostAsync(
+                "/api/customers",
+                ApiClientJson.ToJsonContent(new { name = $"SpecOnly-C-{Guid.NewGuid():N}" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var processId = (await (await _client.PostAsync(
+                "/api/processes",
+                ApiClientJson.ToJsonContent(new { name = $"SpecOnly-P-{Guid.NewGuid():N}" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        await _client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                project = "历史项目A",
+                specification = "规格-同一",
+                acceptance = "按规格验收",
+                remark = "规格备注"
+            }));
+
+        var defaultPreviewResp = await BatchPreviewTestHelper.PostAsync(
+            _client,
+            customerId,
+            processId,
+            new
+            {
+                exactMatchOnly = true,
+                minScoreThreshold = 0.0
+            },
+            ("客户项目B", "规格-同一"));
+        defaultPreviewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var defaultPreviewJson = await defaultPreviewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var defaultItem = defaultPreviewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
+        defaultItem.GetProperty("hasMatch").GetBoolean().Should().BeFalse();
+
+        var specOnlyPreviewResp = await BatchPreviewTestHelper.PostAsync(
+            _client,
+            customerId,
+            processId,
+            new
+            {
+                matchingMode = "specificationOnly",
+                exactMatchOnly = true,
+                minScoreThreshold = 0.0
+            },
+            ("客户项目B", "规格-同一"));
+        specOnlyPreviewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var specOnlyPreviewJson = await specOnlyPreviewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var specOnlyItem = specOnlyPreviewJson.Data.GetProperty("tables")[0].GetProperty("items")[0];
+        specOnlyItem.GetProperty("hasMatch").GetBoolean().Should().BeTrue();
+
+        var bestMatch = specOnlyItem.GetProperty("bestMatch");
+        bestMatch.GetProperty("acceptance").GetString().Should().Be("按规格验收");
+        bestMatch.GetProperty("remark").GetString().Should().Be("规格备注");
+        bestMatch.GetProperty("matchBasis").GetString().Should().Be("specification");
+        bestMatch.GetProperty("selectionSummary").GetString().Should().Contain("规格精确一致");
+    }
+
+    [Fact]
+    public async Task Preview_WithSpecificationOnlyMode_ShouldRequireManualReview_WhenSameSpecificationHasMultipleCandidates()
+    {
+        var customerId = (await (await _client.PostAsync(
+                "/api/customers",
+                ApiClientJson.ToJsonContent(new { name = $"SpecOnlyMulti-C-{Guid.NewGuid():N}" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var processId = (await (await _client.PostAsync(
+                "/api/processes",
+                ApiClientJson.ToJsonContent(new { name = $"SpecOnlyMulti-P-{Guid.NewGuid():N}" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        await _client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                project = "历史项目A",
+                specification = "规格-重复",
+                acceptance = "验收A",
+                remark = "备注A"
+            }));
+
+        await _client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                project = "历史项目B",
+                specification = "规格-重复",
+                acceptance = "验收B",
+                remark = "备注B"
+            }));
+
+        var previewResp = await BatchPreviewTestHelper.PostAsync(
+            _client,
+            customerId,
+            processId,
+            new
+            {
+                matchingMode = "specificationOnly",
+                exactMatchOnly = true,
+                minScoreThreshold = 0.0
+            },
+            ("客户项目C", "规格-重复"));
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var bestMatch = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0].GetProperty("bestMatch");
+        bestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
+        bestMatch.GetProperty("isAmbiguous").GetBoolean().Should().BeTrue();
+        bestMatch.GetProperty("matchBasis").GetString().Should().Be("specification");
+        bestMatch.GetProperty("topCandidates").EnumerateArray().Should().HaveCount(2);
+    }
+
+    [Fact]
     public async Task Preview_ShouldReturnAiRerankSelectionMetadata_WhenAiPromotesAnotherCandidate()
     {
         await using var factory = new PromoteLastCandidateRerankApiWebApplicationFactory();

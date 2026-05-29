@@ -87,6 +87,11 @@ public class MatchConfigDto
     public int LlmCircuitBreakFailures { get; set; } = 10;
 
     /// <summary>
+    /// 匹配方式：projectSpecification=项目+规格，specificationOnly=仅规格。
+    /// </summary>
+    public string? MatchingMode { get; set; }
+
+    /// <summary>
     /// 是否在同步匹配阶段启用 AI 等价裁决（默认关闭，避免预览阶段逐行调用 LLM）。
     /// </summary>
     public bool EnableLlmEquivalenceAdjudication { get; set; }
@@ -249,6 +254,11 @@ public class MatchResultDto
     public string? SelectionSummary { get; set; }
 
     /// <summary>
+    /// 匹配依据
+    /// </summary>
+    public string MatchBasis { get; set; } = "projectSpecification";
+
+    /// <summary>
     /// AI 等价裁决结果
     /// </summary>
     public LlmEquivalenceDto? LlmEquivalence { get; set; }
@@ -348,6 +358,11 @@ public class MatchCandidateDto
     /// 当前候选的选中摘要
     /// </summary>
     public string? SelectionSummary { get; set; }
+
+    /// <summary>
+    /// 匹配依据
+    /// </summary>
+    public string MatchBasis { get; set; } = "projectSpecification";
 
     /// <summary>
     /// AI 等价裁决结果

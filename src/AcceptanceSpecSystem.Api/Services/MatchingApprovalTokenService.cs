@@ -229,6 +229,7 @@ public sealed class MatchingApprovalTokenService
                left.LlmRowTimeoutSeconds == right.LlmRowTimeoutSeconds &&
                left.LlmRetryCount == right.LlmRetryCount &&
                left.LlmCircuitBreakFailures == right.LlmCircuitBreakFailures &&
+               left.MatchingMode == right.MatchingMode &&
                left.EnableLlmEquivalenceAdjudication == right.EnableLlmEquivalenceAdjudication &&
                left.ExactMatchOnly == right.ExactMatchOnly &&
                left.FilterEmptySourceRows == right.FilterEmptySourceRows;
@@ -248,6 +249,7 @@ public sealed class MatchingApprovalTokenService
             LlmRowTimeoutSeconds = config.LlmRowTimeoutSeconds,
             LlmRetryCount = config.LlmRetryCount,
             LlmCircuitBreakFailures = config.LlmCircuitBreakFailures,
+            MatchingMode = config.MatchingMode,
             EnableLlmEquivalenceAdjudication = config.EnableLlmEquivalenceAdjudication,
             ExactMatchOnly = config.ExactMatchOnly,
             FilterEmptySourceRows = config.FilterEmptySourceRows

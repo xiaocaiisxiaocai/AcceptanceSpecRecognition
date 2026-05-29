@@ -174,6 +174,11 @@ public class MatchResult
     public string? SelectionSummary { get; set; }
 
     /// <summary>
+    /// 当前结果的匹配依据
+    /// </summary>
+    public MatchBasis MatchBasis { get; set; } = MatchBasis.ProjectSpecification;
+
+    /// <summary>
     /// AI 等价裁决结果
     /// </summary>
     public LlmEquivalenceAdjudicationResult? LlmEquivalence { get; set; }
@@ -295,6 +300,11 @@ public class MatchCandidateSnapshot
     public string? SelectionSummary { get; set; }
 
     /// <summary>
+    /// 该候选在当前结果中的匹配依据
+    /// </summary>
+    public MatchBasis MatchBasis { get; set; } = MatchBasis.ProjectSpecification;
+
+    /// <summary>
     /// AI 等价裁决结果（仅 Top1 或参与裁决候选可用）
     /// </summary>
     public LlmEquivalenceAdjudicationResult? LlmEquivalence { get; set; }
@@ -346,6 +356,18 @@ public enum MatchSelectionMode
     ExactShortcut = 1,
     EmbeddingTop1 = 2,
     AiRerank = 3
+}
+
+public enum MatchingMode
+{
+    ProjectSpecification = 1,
+    SpecificationOnly = 2
+}
+
+public enum MatchBasis
+{
+    ProjectSpecification = 1,
+    Specification = 2
 }
 
 /// <summary>
@@ -402,6 +424,11 @@ public class MatchingConfig
     /// LLM 熔断阈值（累计失败次数达到后停止新任务，默认10）
     /// </summary>
     public int LlmCircuitBreakFailures { get; set; } = 10;
+
+    /// <summary>
+    /// 匹配方式，默认项目+规格。
+    /// </summary>
+    public MatchingMode MatchingMode { get; set; } = MatchingMode.ProjectSpecification;
 
     /// <summary>
     /// 是否在同步匹配阶段启用 LLM 等价裁决。

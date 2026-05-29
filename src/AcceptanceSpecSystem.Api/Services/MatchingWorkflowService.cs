@@ -1414,7 +1414,7 @@ public sealed class MatchingWorkflowSupportService
         BatchMatchResult batchResult;
         try
         {
-            if (config.ExactMatchOnly || !RequiresSemanticMatching(sourceItems, processedCandidates))
+            if (config.ExactMatchOnly || !RequiresSemanticMatching(sourceItems, processedCandidates, config))
             {
                 batchResult = BuildExactMatchBatchResult(sourceItems, processedCandidates, config);
             }
@@ -1479,7 +1479,7 @@ public sealed class MatchingWorkflowSupportService
         BatchMatchResult batchResult;
         try
         {
-            if (config.ExactMatchOnly || !RequiresSemanticMatching(sourceItems, processedCandidates))
+            if (config.ExactMatchOnly || !RequiresSemanticMatching(sourceItems, processedCandidates, config))
             {
                 batchResult = BuildExactMatchBatchResult(sourceItems, processedCandidates, config);
             }
@@ -1530,45 +1530,72 @@ public sealed class MatchingWorkflowSupportService
         IReadOnlyList<MatchCandidate> candidates,
         MatchingConfig config)
     {
-        var lookup = candidates
-            .GroupBy(candidate => MatchingCandidateProvider.BuildCandidateDedupKey(candidate.Project, candidate.Specification))
-            .ToDictionary(group => group.Key, group => group.First());
+        var lookup = BuildExactMatchLookup(candidates, config);
 
         return new BatchMatchResult
         {
             Results = sources
                 .Select(source =>
                 {
-                    var key = MatchingCandidateProvider.BuildCandidateDedupKey(source.Project, source.Specification);
-                    return lookup.TryGetValue(key, out var candidate)
-                        ? CreateExactMatchResult(source, candidate, config)
-                        : new MatchResult
-                        {
-                            SourceText = source.CombinedText,
-                            MinScoreThreshold = config.MinScoreThreshold,
-                            HighConfidenceThreshold = config.HighConfidenceThreshold,
-                            Decision = MatchDecision.ManualReview
-                        };
+                    var key = BuildExactMatchLookupKey(source.Project, source.Specification, config);
+                    return lookup.TryGetValue(key, out var candidatesForKey)
+                        ? CreateExactMatchResult(source, candidatesForKey, config)
+                        : CreateNoMatchResult(source, config);
                 })
                 .ToList()
         };
     }
 
+    private static Dictionary<string, List<MatchCandidate>> BuildExactMatchLookup(
+        IReadOnlyList<MatchCandidate> candidates,
+        MatchingConfig config)
+    {
+        return candidates
+            .GroupBy(candidate => BuildExactMatchLookupKey(candidate.Project, candidate.Specification, config))
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(candidate => HasText(candidate.Acceptance))
+                    .ThenByDescending(candidate => HasText(candidate.Remark))
+                    .ThenByDescending(candidate => candidate.SpecId)
+                    .ToList());
+    }
+
+    private static string BuildExactMatchLookupKey(
+        string? project,
+        string? specification,
+        MatchingConfig config)
+    {
+        return config.MatchingMode == MatchingMode.SpecificationOnly
+            ? MatchingCandidateProvider.BuildCandidateDedupKey(null, specification)
+            : MatchingCandidateProvider.BuildCandidateDedupKey(project, specification);
+    }
+
+    private static MatchResult CreateNoMatchResult(MatchSource source, MatchingConfig config)
+    {
+        return new MatchResult
+        {
+            SourceText = source.CombinedText,
+            MinScoreThreshold = config.MinScoreThreshold,
+            HighConfidenceThreshold = config.HighConfidenceThreshold,
+            Decision = MatchDecision.ManualReview
+        };
+    }
+
     private static bool RequiresSemanticMatching(
         IReadOnlyList<MatchSource> sources,
-        IReadOnlyList<MatchCandidate> candidates)
+        IReadOnlyList<MatchCandidate> candidates,
+        MatchingConfig config)
     {
         if (sources.Count == 0)
         {
             return false;
         }
 
-        var lookup = candidates
-            .GroupBy(candidate => MatchingCandidateProvider.BuildCandidateDedupKey(candidate.Project, candidate.Specification))
-            .ToDictionary(group => group.Key, group => group.First());
+        var lookup = BuildExactMatchLookup(candidates, config);
 
         return sources.Any(source =>
-            !lookup.ContainsKey(MatchingCandidateProvider.BuildCandidateDedupKey(source.Project, source.Specification)));
+            !lookup.ContainsKey(BuildExactMatchLookupKey(source.Project, source.Specification, config)));
     }
 
     private static List<MatchCandidate> BuildProcessedCandidates(
@@ -1588,9 +1615,12 @@ public sealed class MatchingWorkflowSupportService
 
     private static MatchResult CreateExactMatchResult(
         MatchSource source,
-        MatchCandidate candidate,
+        IReadOnlyList<MatchCandidate> candidates,
         MatchingConfig config)
     {
+        var candidate = candidates[0];
+        var isSpecificationOnly = config.MatchingMode == MatchingMode.SpecificationOnly;
+        var hasMultipleCandidates = isSpecificationOnly && candidates.Count > 1;
         var scoreDetails = new Dictionary<string, double>
         {
             ["Final"] = 1,
@@ -1602,7 +1632,9 @@ public sealed class MatchingWorkflowSupportService
         {
             Verdict = LlmEquivalenceVerdict.Equivalent,
             ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
-            Reason = "项目与规格文本完全一致，已直接视为等价",
+            Reason = isSpecificationOnly
+                ? "规格文本完全一致，已按用户选择的仅规格模式命中"
+                : "项目与规格文本完全一致，已直接视为等价",
             Confidence = 1
         };
 
@@ -1618,32 +1650,38 @@ public sealed class MatchingWorkflowSupportService
             Score = 1,
             EmbeddingScore = 1,
             ScoreDetails = scoreDetails,
-            Decision = MatchDecision.AutoApply,
+            Decision = hasMultipleCandidates ? MatchDecision.ManualReview : MatchDecision.AutoApply,
             SelectionMode = MatchSelectionMode.ExactShortcut,
-            SelectionSummary = "项目与规格精确一致，直接命中",
-            RecalledCandidateCount = 1,
-            IsAmbiguous = false,
+            SelectionSummary = isSpecificationOnly
+                ? hasMultipleCandidates
+                    ? "规格精确一致，但同规格存在多条候选，需人工确认"
+                    : "规格精确一致，按仅规格模式直接命中"
+                : "项目与规格精确一致，直接命中",
+            MatchBasis = isSpecificationOnly ? MatchBasis.Specification : MatchBasis.ProjectSpecification,
+            RecalledCandidateCount = isSpecificationOnly ? candidates.Count : 1,
+            IsAmbiguous = hasMultipleCandidates,
             MinScoreThreshold = config.MinScoreThreshold,
             HighConfidenceThreshold = config.HighConfidenceThreshold,
             LlmEquivalence = equivalence,
-            TopCandidates =
-            [
-                new MatchCandidateSnapshot
+            TopCandidates = candidates
+                .Take(isSpecificationOnly ? 3 : 1)
+                .Select((item, index) => new MatchCandidateSnapshot
                 {
-                    Rank = 1,
-                    SpecId = candidate.SpecId,
-                    Project = candidate.Project,
-                    Specification = candidate.Specification,
-                    Acceptance = candidate.Acceptance,
-                    Remark = candidate.Remark,
+                    Rank = index + 1,
+                    SpecId = item.SpecId,
+                    Project = item.Project,
+                    Specification = item.Specification,
+                    Acceptance = item.Acceptance,
+                    Remark = item.Remark,
                     Score = 1,
                     EmbeddingScore = 1,
                     ScoreDetails = scoreDetails,
                     SelectionMode = MatchSelectionMode.ExactShortcut,
-                    SelectionSummary = "项目与规格精确一致，直接命中",
-                    LlmEquivalence = equivalence
-                }
-            ]
+                    SelectionSummary = isSpecificationOnly ? "规格精确一致" : "项目与规格精确一致，直接命中",
+                    MatchBasis = isSpecificationOnly ? MatchBasis.Specification : MatchBasis.ProjectSpecification,
+                    LlmEquivalence = index == 0 ? equivalence : null
+                })
+                .ToList()
         };
     }
 

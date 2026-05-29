@@ -93,7 +93,7 @@ public class SemanticKernelMatchingService : IMatchingService
         CancellationToken cancellationToken)
     {
         var orderedResults = new MatchResult[sourceList.Count];
-        var exactMatchLookup = BuildExactMatchLookup(candidateList);
+        var exactMatchLookup = BuildExactMatchLookup(candidateList, config);
         var pendingSourceIndices = new List<int>(sourceList.Count);
 
         for (var index = 0; index < sourceList.Count; index++)
@@ -137,7 +137,7 @@ public class SemanticKernelMatchingService : IMatchingService
         try
         {
             sourceEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(
-                pendingSourceIndices.Select(index => sourceList[index].CombinedText),
+                pendingSourceIndices.Select(index => GetSourceEmbeddingText(sourceList[index], config)),
                 config.EmbeddingServiceId,
                 cancellationToken);
             EnsureEmbeddingBatchPayload(sourceEmbeddings, pendingSourceIndices.Count, "源文本");
@@ -231,7 +231,7 @@ public class SemanticKernelMatchingService : IMatchingService
             return;
         }
 
-        var missingTexts = missingIndices.Select(i => candidateList[i].CombinedText).ToList();
+        var missingTexts = missingIndices.Select(i => GetCandidateEmbeddingText(candidateList[i], config)).ToList();
         List<float[]> newEmbeddings;
         try
         {
@@ -265,12 +265,14 @@ public class SemanticKernelMatchingService : IMatchingService
             missingIndices.Count, candidateList.Count, candidateList.Count - missingIndices.Count);
     }
 
-    private Dictionary<string, MatchCandidate> BuildExactMatchLookup(IEnumerable<MatchCandidate> candidateList)
+    private Dictionary<string, MatchCandidate> BuildExactMatchLookup(
+        IEnumerable<MatchCandidate> candidateList,
+        MatchingConfig config)
     {
         var lookup = new Dictionary<string, MatchCandidate>(StringComparer.Ordinal);
         foreach (var candidate in candidateList)
         {
-            var key = BuildExactMatchKey(candidate.Project, candidate.Specification);
+            var key = BuildExactMatchKey(candidate.Project, candidate.Specification, config);
             if (lookup.TryGetValue(key, out var existing) && !ShouldReplaceExactMatchCandidate(existing, candidate))
             {
                 continue;
@@ -288,7 +290,7 @@ public class SemanticKernelMatchingService : IMatchingService
         MatchingConfig config,
         out MatchResult result)
     {
-        var key = BuildExactMatchKey(source.Project, source.Specification);
+        var key = BuildExactMatchKey(source.Project, source.Specification, config);
         if (!exactMatchLookup.TryGetValue(key, out var candidate))
         {
             result = null!;
@@ -300,7 +302,7 @@ public class SemanticKernelMatchingService : IMatchingService
             Source = source,
             Candidate = candidate,
             EmbeddingScore = 1.0,
-            ProjectScore = 1.0,
+            ProjectScore = config.MatchingMode == MatchingMode.SpecificationOnly ? 0 : 1.0,
             SpecificationTextScore = 1.0,
             FinalScore = 1.0
         };
@@ -309,9 +311,14 @@ public class SemanticKernelMatchingService : IMatchingService
         exactCandidate.NumericScore = ComputeNumericScore(source, exactCandidate);
         exactCandidate.Issues = BuildCandidateIssues(source, exactCandidate);
         exactCandidate.FinalScore = ComputeFinalScore(exactCandidate);
-        exactCandidate.LlmEquivalence = CreateExactMatchEquivalenceResult();
+        exactCandidate.LlmEquivalence = CreateExactMatchEquivalenceResult(config);
         exactCandidate.SelectionMode = MatchSelectionMode.ExactShortcut;
-        exactCandidate.SelectionSummary = "项目与规格精确一致，直接命中";
+        exactCandidate.SelectionSummary = config.MatchingMode == MatchingMode.SpecificationOnly
+            ? "规格精确一致，按仅规格模式直接命中"
+            : "项目与规格精确一致，直接命中";
+        exactCandidate.MatchBasis = config.MatchingMode == MatchingMode.SpecificationOnly
+            ? MatchBasis.Specification
+            : MatchBasis.ProjectSpecification;
         exactCandidate.RerankSummary = AppendEquivalenceSummary(
             BuildRerankSummary(exactCandidate),
             exactCandidate.LlmEquivalence);
@@ -327,14 +334,16 @@ public class SemanticKernelMatchingService : IMatchingService
         return true;
     }
 
-    private static LlmEquivalenceAdjudicationResult CreateExactMatchEquivalenceResult()
+    private static LlmEquivalenceAdjudicationResult CreateExactMatchEquivalenceResult(MatchingConfig config)
     {
         return new LlmEquivalenceAdjudicationResult
         {
             Verdict = LlmEquivalenceVerdict.Equivalent,
             ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
             Confidence = 1,
-            Reason = "项目与规格文本完全一致，已直接视为等价"
+            Reason = config.MatchingMode == MatchingMode.SpecificationOnly
+                ? "规格文本完全一致，已按用户选择的仅规格模式命中"
+                : "项目与规格文本完全一致，已直接视为等价"
         };
     }
 
@@ -353,8 +362,16 @@ public class SemanticKernelMatchingService : IMatchingService
         return incoming.SpecId > current.SpecId;
     }
 
-    private static string BuildExactMatchKey(string? project, string? specification)
+    private static string BuildExactMatchKey(
+        string? project,
+        string? specification,
+        MatchingConfig config)
     {
+        if (config.MatchingMode == MatchingMode.SpecificationOnly)
+        {
+            return NormalizeComparableText(specification);
+        }
+
         return $"{NormalizeComparableText(project)}\n{NormalizeComparableText(specification)}";
     }
 
@@ -373,9 +390,11 @@ public class SemanticKernelMatchingService : IMatchingService
             var specificationTextScore = ComputeSpecificationTextScore(
                 source.Specification,
                 candidate.Specification);
-            var projectCodeConflictPenalty = ComputeProjectCodeConflictPenalty(
-                source.Project,
-                candidate.Project);
+            var projectCodeConflictPenalty = config.MatchingMode == MatchingMode.SpecificationOnly
+                ? 0
+                : ComputeProjectCodeConflictPenalty(
+                    source.Project,
+                    candidate.Project);
 
             if (!ShouldKeepCandidate(
                     embeddingScore,
@@ -394,6 +413,9 @@ public class SemanticKernelMatchingService : IMatchingService
                 ProjectScore = projectScore,
                 SpecificationTextScore = specificationTextScore,
                 ProjectCodeConflictPenalty = projectCodeConflictPenalty,
+                MatchBasis = config.MatchingMode == MatchingMode.SpecificationOnly
+                    ? MatchBasis.Specification
+                    : MatchBasis.ProjectSpecification,
                 FinalScore = embeddingScore
             });
         }
@@ -693,6 +715,7 @@ public class SemanticKernelMatchingService : IMatchingService
             RerankSummary = candidate.RerankSummary,
             SelectionMode = candidate.SelectionMode,
             SelectionSummary = candidate.SelectionSummary,
+            MatchBasis = candidate.MatchBasis,
             Decision = DetermineDecision(candidate, isAmbiguous),
             MinScoreThreshold = minScoreThreshold,
             HighConfidenceThreshold = MatchingThresholds.NormalizeHighConfidenceThreshold(highConfidenceThreshold),
@@ -749,6 +772,7 @@ public class SemanticKernelMatchingService : IMatchingService
                 RerankSummary = candidate.RerankSummary,
                 SelectionMode = candidate.SelectionMode,
                 SelectionSummary = candidate.SelectionSummary,
+                MatchBasis = candidate.MatchBasis,
                 LlmEquivalence = candidate.LlmEquivalence
             })
             .ToList();
@@ -772,12 +796,15 @@ public class SemanticKernelMatchingService : IMatchingService
 
     private static double ComputeFinalScore(EvaluatedCandidate candidate)
     {
-        var finalScore =
-            candidate.EmbeddingScore * 0.55 +
-            candidate.ProjectScore * 0.15 +
-            candidate.SpecificationTextScore * 0.15 +
-            candidate.NumericScore * 0.15 -
-            candidate.ProjectCodeConflictPenalty;
+        var finalScore = candidate.MatchBasis == MatchBasis.Specification
+            ? candidate.EmbeddingScore * 0.55 +
+              candidate.SpecificationTextScore * 0.30 +
+              candidate.NumericScore * 0.15
+            : candidate.EmbeddingScore * 0.55 +
+              candidate.ProjectScore * 0.15 +
+              candidate.SpecificationTextScore * 0.15 +
+              candidate.NumericScore * 0.15 -
+              candidate.ProjectCodeConflictPenalty;
 
         return Math.Clamp(finalScore, 0, 1);
     }
@@ -1025,6 +1052,20 @@ public class SemanticKernelMatchingService : IMatchingService
                specificationTextScore >= NearTextMatchThreshold;
     }
 
+    private static string GetSourceEmbeddingText(MatchSource source, MatchingConfig config)
+    {
+        return config.MatchingMode == MatchingMode.SpecificationOnly
+            ? source.Specification
+            : source.CombinedText;
+    }
+
+    private static string GetCandidateEmbeddingText(MatchCandidate candidate, MatchingConfig config)
+    {
+        return config.MatchingMode == MatchingMode.SpecificationOnly
+            ? candidate.Specification
+            : candidate.CombinedText;
+    }
+
     private static bool ShouldMarkAsAmbiguous(
         EvaluatedCandidate best,
         EvaluatedCandidate? second,
@@ -1145,6 +1186,7 @@ public class SemanticKernelMatchingService : IMatchingService
         public string? RerankSummary { get; set; }
         public MatchSelectionMode SelectionMode { get; set; } = MatchSelectionMode.EmbeddingTop1;
         public string? SelectionSummary { get; set; }
+        public MatchBasis MatchBasis { get; set; } = MatchBasis.ProjectSpecification;
         public MatchEvidence? Evidence { get; set; }
         public List<MatchIssue>? Issues { get; set; }
         public LlmEquivalenceAdjudicationResult? LlmEquivalence { get; set; }

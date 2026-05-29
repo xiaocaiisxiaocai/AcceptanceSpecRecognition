@@ -816,6 +816,14 @@ defineExpose({
                 >
                   高歧义
                 </el-tag>
+                <el-tag
+                  v-if="row.bestMatch.matchBasis"
+                  size="small"
+                  type="info"
+                  effect="plain"
+                >
+                  匹配依据：{{ row.bestMatch.matchBasis === "specification" ? "规格" : "项目+规格" }}
+                </el-tag>
               </div>
             </div>
             <div class="match-score">{{ formatScore(row.bestMatch.score) }}</div>

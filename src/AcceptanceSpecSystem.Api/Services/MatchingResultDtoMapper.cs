@@ -50,6 +50,7 @@ public static class MatchingResultDtoMapper
                     RerankSummary = candidate.RerankSummary,
                     SelectionMode = ToSelectionModeKey(candidate.SelectionMode),
                     SelectionSummary = candidate.SelectionSummary,
+                    MatchBasis = ToMatchBasisKey(candidate.MatchBasis),
                     LlmEquivalence = ToLlmEquivalenceDto(candidate.LlmEquivalence)
                 })
                 .ToList(),
@@ -59,6 +60,7 @@ public static class MatchingResultDtoMapper
             RerankSummary = result.RerankSummary,
             SelectionMode = ToSelectionModeKey(result.SelectionMode),
             SelectionSummary = result.SelectionSummary,
+            MatchBasis = ToMatchBasisKey(result.MatchBasis),
             ReviewApprovalToken = reviewApprovalToken
         };
     }
@@ -110,6 +112,15 @@ public static class MatchingResultDtoMapper
             MatchSelectionMode.ExactShortcut => "exactShortcut",
             MatchSelectionMode.AiRerank => "aiRerank",
             _ => "embeddingTop1"
+        };
+    }
+
+    private static string ToMatchBasisKey(MatchBasis matchBasis)
+    {
+        return matchBasis switch
+        {
+            MatchBasis.Specification => "specification",
+            _ => "projectSpecification"
         };
     }
 

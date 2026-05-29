@@ -38,9 +38,20 @@ public sealed class MatchingConfigResolver
             LlmRowTimeoutSeconds = Math.Clamp(dto?.LlmRowTimeoutSeconds ?? fallbackConfig.LlmRowTimeoutSeconds, 5, 300),
             LlmRetryCount = Math.Clamp(dto?.LlmRetryCount ?? fallbackConfig.LlmRetryCount, 0, 3),
             LlmCircuitBreakFailures = Math.Clamp(dto?.LlmCircuitBreakFailures ?? fallbackConfig.LlmCircuitBreakFailures, 3, 200),
+            MatchingMode = ParseMatchingMode(dto?.MatchingMode, fallbackConfig.MatchingMode),
             EnableLlmEquivalenceAdjudication = dto?.EnableLlmEquivalenceAdjudication ?? false,
             ExactMatchOnly = dto?.ExactMatchOnly ?? fallbackConfig.ExactMatchOnly,
             FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows
+        };
+    }
+
+    private static MatchingMode ParseMatchingMode(string? value, MatchingMode fallback)
+    {
+        return value?.Trim() switch
+        {
+            "specificationOnly" => MatchingMode.SpecificationOnly,
+            "projectSpecification" or null or "" => fallback,
+            _ => fallback
         };
     }
 

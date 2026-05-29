@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import {
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   MAX_RECALL_TOP_K,
+  type MatchingMode,
   type MatchConfig,
   defaultMatchConfig
 } from "@/api/matching";
@@ -46,6 +47,10 @@ const llmServices = ref<AiServiceConfig[]>([]);
 const allowLlm = computed(() => props.allowLlm !== false);
 const hasAvailableEmbeddingService = computed(() => embeddingServices.value.length > 0);
 const hasAvailableLlmService = computed(() => llmServices.value.length > 0);
+const matchingModeOptions: Array<{ label: string; value: MatchingMode; hint: string }> = [
+  { label: "项目+规格", value: "projectSpecification", hint: "保持现有匹配方式" },
+  { label: "仅规格", value: "specificationOnly", hint: "允许项目不一致时按规格命中" }
+];
 
 const hasExplicitMatchingDefaults = computed(() => {
   const incoming = props.modelValue;
@@ -444,6 +449,25 @@ defineExpose({
               </div>
               <div class="form-inline-tip">
                 固定执行 Embedding 召回、证据重排、冲突门禁和高歧义复核。
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="匹配方式">
+              <el-radio-group v-model="config.matchingMode" class="match-mode-group">
+                <el-radio-button
+                  v-for="option in matchingModeOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </el-radio-button>
+              </el-radio-group>
+              <div class="form-inline-tip">
+                {{
+                  matchingModeOptions.find(item => item.value === config.matchingMode)?.hint
+                    ?? "保持现有匹配方式"
+                }}
               </div>
             </el-form-item>
           </el-col>
