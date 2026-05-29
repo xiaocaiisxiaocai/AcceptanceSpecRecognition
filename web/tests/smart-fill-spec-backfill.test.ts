@@ -7,7 +7,7 @@ const readProjectFile = (relativePath: string) =>
   readFileSync(resolve(process.cwd(), relativePath), "utf8");
 
 test("smart-fill 应提供编辑值回填验收规格 API 封装", () => {
-  const matchingApiSource = readProjectFile("src/api/matching.ts");
+  const matchingApiSource = readProjectFile("web/src/api/matching.ts");
 
   assert.match(matchingApiSource, /SmartFillSpecBackfillRequest/);
   assert.match(matchingApiSource, /SmartFillSpecBackfillResponse/);
@@ -16,12 +16,12 @@ test("smart-fill 应提供编辑值回填验收规格 API 封装", () => {
 });
 
 test("smart-fill 执行填充前应弹出编辑值回填确认框", () => {
-  const smartFillSource = readProjectFile("src/views/smart-fill/index.vue");
+  const smartFillSource = readProjectFile("web/src/views/smart-fill/index.vue");
   const batchPreviewTabsSource = readProjectFile(
-    "src/views/smart-fill/components/BatchPreviewTabs.vue"
+    "web/src/views/smart-fill/components/BatchPreviewTabs.vue"
   );
   const matchPreviewTableSource = readProjectFile(
-    "src/views/smart-fill/components/MatchPreviewTable.vue"
+    "web/src/views/smart-fill/components/MatchPreviewTable.vue"
   );
 
   assert.match(matchPreviewTableSource, /getEditedBackfillItems/);
@@ -33,7 +33,7 @@ test("smart-fill 执行填充前应弹出编辑值回填确认框", () => {
 });
 
 test("smart-fill 回填前应校验新增规格范围并透出真实错误", () => {
-  const smartFillSource = readProjectFile("src/views/smart-fill/index.vue");
+  const smartFillSource = readProjectFile("web/src/views/smart-fill/index.vue");
 
   assert.match(smartFillSource, /selected\.some\(item => item\.actionType === "create"\)/);
   assert.match(smartFillSource, /回填新增规格前，请先选择客户范围/);
@@ -44,10 +44,28 @@ test("smart-fill 回填前应校验新增规格范围并透出真实错误", () 
 });
 
 test("smart-fill 应缓存匹配范围并在执行回填时复用", () => {
-  const smartFillSource = readProjectFile("src/views/smart-fill/index.vue");
+  const smartFillSource = readProjectFile("web/src/views/smart-fill/index.vue");
 
   assert.match(smartFillSource, /const matchScope = ref<\{/);
   assert.match(smartFillSource, /const handleScopeChange = \(/);
   assert.match(smartFillSource, /matchConfigRef\.value\?\.getScope\(\) \?\? matchScope\.value/);
   assert.match(smartFillSource, /@scope-change="handleScopeChange"/);
+});
+
+test("smart-fill 重新开始或重新上传文件时应清空回填待执行状态和范围缓存", () => {
+  const smartFillSource = readProjectFile("web/src/views/smart-fill/index.vue");
+
+  assert.match(smartFillSource, /const resetPendingBackfillState = \(\) => \{/);
+  assert.match(smartFillSource, /pendingExecuteRequest\.value = null;/);
+  assert.match(smartFillSource, /backfillCandidates\.value = \[\];/);
+  assert.match(smartFillSource, /backfillDialogVisible\.value = false;/);
+  assert.match(smartFillSource, /matchScope\.value = \{/);
+  assert.match(
+    smartFillSource,
+    /const handleFileUploaded = async \(file: FileUploadResponse\) => \{[\s\S]*resetPendingBackfillState\(\);/
+  );
+  assert.match(
+    smartFillSource,
+    /const handleRestart = \(\) => \{[\s\S]*resetPendingBackfillState\(\);/
+  );
 });

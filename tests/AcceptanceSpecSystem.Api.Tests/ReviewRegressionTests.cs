@@ -667,7 +667,7 @@ public class ReviewRegressionTests
     {
         var files = new[]
         {
-            "src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs",
+            "src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs",
             "src/AcceptanceSpecSystem.Api/Services/SpecEmbeddingCacheService.cs",
             "src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs",
             "src/AcceptanceSpecSystem.Core/Matching/Services/SemanticKernelEmbeddingService.cs"
@@ -1356,18 +1356,23 @@ public class ReviewRegressionTests
         var workflowContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var candidateProviderContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs".Replace('/', Path.DirectorySeparatorChar)));
         var cacheServiceContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Services/SpecEmbeddingCacheService.cs".Replace('/', Path.DirectorySeparatorChar)));
 
         foreach (var content in new[] { previewContent, workflowContent })
         {
-            content.Should().Contain("MaxScopedCandidateCount",
-                "匹配服务应在加载候选前限制候选范围大小，避免单请求全量拉入内存");
-            content.Should().Contain("EnsureCandidateScopeWithinLimit",
-                "匹配服务应对候选总量做显式保护并给出可操作的错误提示");
+            content.Should().Contain("MatchingCandidateProvider",
+                "匹配服务应复用共享候选提供器，避免候选范围保护和去重规则双写");
         }
 
+        candidateProviderContent.Should().Contain("MaxScopedCandidateCount",
+            "候选提供器应在加载候选前限制候选范围大小，避免单请求全量拉入内存");
+        candidateProviderContent.Should().Contain("EnsureCandidateScopeWithinLimit",
+            "候选提供器应对候选总量做显式保护并给出可操作的错误提示");
         cacheServiceContent.Should().Contain("GenerateEmbeddingsInBatchesAsync",
             "Embedding 缺失候选应通过统一缓存服务分批生成，避免单次远程调用承载全部候选");
     }

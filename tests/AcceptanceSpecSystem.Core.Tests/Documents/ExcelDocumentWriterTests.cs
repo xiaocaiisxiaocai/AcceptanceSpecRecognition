@@ -146,6 +146,33 @@ public class ExcelDocumentWriterTests
     }
 
     [Fact]
+    public async Task WriteMultipleTablesAsync_ShouldWriteLargeWorksheetWithExcelTable()
+    {
+        const int dataRowCount = 1000;
+        using var stream = CreateWorkbookWithExcelTable(dataRowCount);
+        var operations = Enumerable.Range(1, dataRowCount)
+            .SelectMany(rowIndex => new[]
+            {
+                CellWriteOperation.Create(rowIndex, 3, $"AC-{rowIndex}"),
+                CellWriteOperation.Create(rowIndex, 4, $"RM-{rowIndex}")
+            })
+            .ToList();
+
+        var count = await _writer.WriteMultipleTablesAsync(stream, new Dictionary<int, List<CellWriteOperation>>
+        {
+            [0] = operations
+        });
+
+        count.Should().Be(dataRowCount * 2);
+        using var workbook = new XLWorkbook(stream);
+        var sheet = workbook.Worksheet("Sheet1");
+        sheet.Cell(2, 4).GetString().Should().Be("AC-1");
+        sheet.Cell(2, 5).GetString().Should().Be("RM-1");
+        sheet.Cell(1001, 4).GetString().Should().Be("AC-1000");
+        sheet.Cell(1001, 5).GetString().Should().Be("RM-1000");
+    }
+
+    [Fact]
     public void DocumentType_ShouldBeExcel()
     {
         _writer.DocumentType.Should().Be(DocumentType.Excel);
@@ -168,6 +195,38 @@ public class ExcelDocumentWriterTests
                 }
             }
 
+            workbook.SaveAs(stream);
+        }
+
+        stream.Position = 0;
+        return stream;
+    }
+
+    private static MemoryStream CreateWorkbookWithExcelTable(int dataRowCount)
+    {
+        var stream = new MemoryStream();
+        using (var workbook = new XLWorkbook())
+        {
+            var sheet = workbook.AddWorksheet("Sheet1");
+            sheet.Cell(1, 1).Value = "序号";
+            sheet.Cell(1, 2).Value = "项目";
+            sheet.Cell(1, 3).Value = "规格";
+            sheet.Cell(1, 4).Value = "验收";
+            sheet.Cell(1, 5).Value = "备注";
+            sheet.Cell(1, 6).Value = "期望命中键";
+
+            for (var rowIndex = 1; rowIndex <= dataRowCount; rowIndex++)
+            {
+                var rowNumber = rowIndex + 1;
+                sheet.Cell(rowNumber, 1).Value = rowIndex;
+                sheet.Cell(rowNumber, 2).Value = $"P-{rowIndex:0000}";
+                sheet.Cell(rowNumber, 3).Value = $"S-{rowIndex:0000}";
+                sheet.Cell(rowNumber, 4).Value = string.Empty;
+                sheet.Cell(rowNumber, 5).Value = string.Empty;
+                sheet.Cell(rowNumber, 6).Value = $"P-{rowIndex:0000}|S-{rowIndex:0000}";
+            }
+
+            sheet.Range(1, 1, dataRowCount + 1, 6).CreateTable("TargetFillTable");
             workbook.SaveAs(stream);
         }
 

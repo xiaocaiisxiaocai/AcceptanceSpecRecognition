@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   MAX_RECALL_TOP_K,
@@ -9,7 +9,12 @@ import {
 import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
 import { getMachineModelList, type MachineModel } from "@/api/machine-model";
-import { getAiServiceList, AiServicePurpose, type AiServiceConfig } from "@/api/ai-service";
+import {
+  getAiServiceList,
+  AiServicePurpose,
+  sortAiServicesByPriority,
+  type AiServiceConfig
+} from "@/api/ai-service";
 import { ElMessage } from "element-plus";
 
 const props = defineProps<{
@@ -157,15 +162,19 @@ const loadAiServices = async () => {
     if (res.code === 0) {
       const items = res.data.items;
       const enabledItems = items.filter(item => !item.isDisabled);
-      embeddingServices.value = enabledItems.filter(
-        (s) =>
-          (s.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
-          !!s.embeddingModel
+      embeddingServices.value = sortAiServicesByPriority(
+        enabledItems.filter(
+          (s) =>
+            (s.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
+            !!s.embeddingModel
+        )
       );
-      llmServices.value = enabledItems.filter(
-        (s) =>
-          (s.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
-          !!s.llmModel
+      llmServices.value = sortAiServicesByPriority(
+        enabledItems.filter(
+          (s) =>
+            (s.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
+            !!s.llmModel
+        )
       );
       if (
         config.value.embeddingServiceId &&
@@ -252,11 +261,12 @@ const resetConfig = () => {
   applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
 };
 
-// 初始化
-loadCustomers();
-loadProcesses();
-loadMachineModels();
-loadAiServices();
+onMounted(() => {
+  loadCustomers();
+  loadProcesses();
+  loadMachineModels();
+  loadAiServices();
+});
 
 // 暴露方法
 defineExpose({
@@ -577,7 +587,7 @@ defineExpose({
               </el-col>
               <el-col :span="16">
                 <span class="parallelism-hint">
-                  同时处理的行数，值越大速度越快但占用资源越多
+                  同时处理的行数，值越大速度越快但占用资源越多；本地 Ollama 建议 1-4
                 </span>
               </el-col>
             </el-row>

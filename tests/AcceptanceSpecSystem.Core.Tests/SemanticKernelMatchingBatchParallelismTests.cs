@@ -45,7 +45,8 @@ public class SemanticKernelMatchingBatchParallelismTests
             {
                 MinScoreThreshold = 0,
                 RecallTopK = 1,
-                LlmParallelism = 4
+                LlmParallelism = 4,
+                EnableLlmEquivalenceAdjudication = true
             });
 
         result.Results.Should().HaveCount(4);

@@ -27,12 +27,19 @@ import {
   getWordPreviewColumnIndexes,
   normalizeExcelMappingByTable
 } from "./dataImport.helpers";
+import {
+  differenceColumnDefs,
+  formatDifferenceValue,
+  formatScorePercent,
+  getDifferenceMatchTypeLabel,
+  getDifferenceMatchTypeTagType,
+  hasAiDifferenceMeta,
+  isDifferenceColumnChanged
+} from "./dataImport.difference-formatters";
 import { applyWordRulesToWordMapping } from "@/views/shared/word-column-mapping-rules";
 import type {
   CombinedImportResult,
-  DifferenceColumnDef,
   DifferenceDecision,
-  ImportBatchExecutionResult,
   ImportDuplicateAiConfig,
   ImportErrorWithTable,
   ImportPendingDifferenceWithTable,
@@ -42,7 +49,11 @@ import type {
   MappingClipboard,
   TableImportConfig
 } from "./dataImport.types";
-import { useDataImportExecution } from "./composables/useDataImportExecution";
+import {
+  createDefaultImportDuplicateAiConfig,
+  useDataImportExecution
+} from "./composables/useDataImportExecution";
+import { useDataImportBatchExecution } from "./composables/useDataImportBatchExecution";
 import { useDataImportMapping } from "./composables/useDataImportMapping";
 import { useDataImportPreviewSelection } from "./composables/useDataImportPreviewSelection";
 import {
@@ -54,23 +65,18 @@ import { getMachineModelList, type MachineModel } from "@/api/machine-model";
 import {
   getFileTables,
   getTablePreview,
-  importData,
-  importExcelData,
   type FileUploadResponse,
   type TableInfo,
   type TableData,
-  type ColumnMapping as ColumnMappingType,
-  type ExcelImportDataRequest,
-  type ImportDuplicateCheckOptions,
-  type ImportResult
+  type ColumnMapping as ColumnMappingType
 } from "@/api/document";
 import {
   getAiServiceList,
   AiServicePurpose,
+  sortAiServicesByPriority,
   type AiServiceConfig
 } from "@/api/ai-service";
 import { hasPerms } from "@/utils/auth";
-import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
   name: "ImportData"
@@ -144,6 +150,7 @@ const loadingMachineModels = ref(false);
 const loadingAiServices = ref(false);
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
+
 const {
   importing,
   importResult,
@@ -158,16 +165,9 @@ const { excludedRowIndexMap, importPreviewSelectionKeys } =
 const importProgressText = ref("");
 const pendingDifferencePage = ref(1);
 const pendingDifferencePageSize = ref(20);
-const importDuplicateAiConfig = ref<ImportDuplicateAiConfig>({
-  enableSemanticDuplicateCheck: false,
-  embeddingServiceId: undefined,
-  semanticTopK: 3,
-  semanticMinScore: 0.75,
-  enableLlmDuplicateReview: false,
-  llmServiceId: undefined,
-  llmPassScore: 0.9,
-  highConfidenceThreshold: 0.95
-});
+const importDuplicateAiConfig = ref<ImportDuplicateAiConfig>(
+  createDefaultImportDuplicateAiConfig()
+);
 
 // 让步骤条吸顶到实际滚动容器（pure-admin 使用 el-scrollbar）
 const affixTarget = ref<string>("");
@@ -275,10 +275,12 @@ const nextDisabled = computed(() => {
   return !canGoNext.value;
 });
 
-// 文件上传完成
-const handleFileUploaded = (file: FileUploadResponse) => {
-  uploadedFile.value = file;
-  // 重置后续步骤数据
+const resetImportFlowState = ({
+  preserveTargetSelection = false
+}: {
+  preserveTargetSelection?: boolean;
+} = {}) => {
+  currentStep.value = 0;
   selectedTableIndexes.value = [];
   selectedTables.value = [];
   activeTableIndex.value = null;
@@ -291,7 +293,22 @@ const handleFileUploaded = (file: FileUploadResponse) => {
   previewSkippedRows.value = false;
   mappingRules.value = [];
   loadingMappingRules.value = false;
+  pendingDifferencePage.value = 1;
+  pendingDifferencePageSize.value = 20;
+  importProgressText.value = "";
   resetPendingDifferenceState();
+
+  if (!preserveTargetSelection) {
+    selectedCustomerId.value = undefined;
+    selectedProcessId.value = undefined;
+    selectedMachineModelId.value = undefined;
+  }
+};
+
+// 文件上传完成
+const handleFileUploaded = (file: FileUploadResponse) => {
+  resetImportFlowState({ preserveTargetSelection: true });
+  uploadedFile.value = file;
 };
 
 const applyRulesToConfig = (cfg: TableImportConfig, overwrite: boolean) => {
@@ -649,15 +666,19 @@ const loadAiServices = async () => {
     if (res.code === 0) {
       const items = res.data.items || [];
       const enabledItems = items.filter(item => !item.isDisabled);
-      embeddingServices.value = enabledItems.filter(
-        item =>
-          (item.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
-          !!item.embeddingModel
+      embeddingServices.value = sortAiServicesByPriority(
+        enabledItems.filter(
+          item =>
+            (item.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
+            !!item.embeddingModel
+        )
       );
-      llmServices.value = enabledItems.filter(
-        item =>
-          (item.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
-          !!item.llmModel
+      llmServices.value = sortAiServicesByPriority(
+        enabledItems.filter(
+          item =>
+            (item.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
+            !!item.llmModel
+        )
       );
 
       if (
@@ -692,26 +713,6 @@ const loadAiServices = async () => {
   } finally {
     loadingAiServices.value = false;
   }
-};
-
-const buildDuplicateCheckOptions = (): ImportDuplicateCheckOptions => {
-  const config = importDuplicateAiConfig.value;
-  return {
-    enableSemanticDuplicateCheck: config.enableSemanticDuplicateCheck,
-    embeddingServiceId: config.enableSemanticDuplicateCheck
-      ? config.embeddingServiceId
-      : undefined,
-    semanticTopK: config.semanticTopK,
-    semanticMinScore: config.semanticMinScore,
-    enableLlmDuplicateReview:
-      config.enableSemanticDuplicateCheck && config.enableLlmDuplicateReview,
-    llmServiceId:
-      config.enableSemanticDuplicateCheck && config.enableLlmDuplicateReview
-        ? config.llmServiceId
-        : undefined,
-    llmPassScore: config.llmPassScore,
-    highConfidenceThreshold: config.highConfidenceThreshold
-  };
 };
 
 // 监听步骤变化
@@ -984,84 +985,6 @@ const handleRestoreRemovedPreviewRows = () => {
   ElMessage.success("已恢复全部待导入数据");
 };
 
-const buildEmptyImportAggregate = (): CombinedImportResult => ({
-  successCount: 0,
-  failedCount: 0,
-  skippedCount: 0,
-  totalCount: 0,
-  errors: [],
-  skippedRows: [],
-  requiresConfirmation: false,
-  pendingCount: 0,
-  pendingDifferences: []
-});
-
-const mergeImportAggregates = (
-  ...aggregates: Array<CombinedImportResult | null | undefined>
-): CombinedImportResult => {
-  const merged = buildEmptyImportAggregate();
-
-  for (const aggregate of aggregates) {
-    if (!aggregate) continue;
-
-    merged.successCount += aggregate.successCount;
-    merged.failedCount += aggregate.failedCount;
-    merged.skippedCount += aggregate.skippedCount;
-    merged.totalCount += aggregate.totalCount;
-    merged.requiresConfirmation =
-      merged.requiresConfirmation || !!aggregate.requiresConfirmation;
-    merged.pendingCount += aggregate.pendingCount || 0;
-    merged.errors.push(...(aggregate.errors || []));
-    merged.skippedRows.push(...(aggregate.skippedRows || []));
-    merged.pendingDifferences.push(...(aggregate.pendingDifferences || []));
-  }
-
-  return merged;
-};
-
-const createSingleTableAggregate = (
-  tableIndex: number,
-  result: ImportResult
-): CombinedImportResult => ({
-  successCount: result.successCount,
-  failedCount: result.failedCount,
-  skippedCount: result.skippedCount,
-  totalCount: result.totalCount,
-  errors: (result.errors || []).map(error => ({
-    tableIndex,
-    ...error
-  })),
-  skippedRows: (result.skippedRows || []).map(row => ({
-    tableIndex,
-    ...row
-  })),
-  requiresConfirmation: !!result.requiresConfirmation,
-  pendingCount: result.pendingCount || 0,
-  pendingDifferences: (result.pendingDifferences || []).map(item => ({
-    tableIndex,
-    ...item
-  }))
-});
-
-const splitBatchAggregates = (tableAggregates: CombinedImportResult[]) => {
-  const pending: CombinedImportResult[] = [];
-  const completed: CombinedImportResult[] = [];
-
-  for (const aggregate of tableAggregates) {
-    if ((aggregate.pendingCount || 0) > 0 || aggregate.pendingDifferences.length > 0) {
-      pending.push(aggregate);
-      continue;
-    }
-
-    completed.push(aggregate);
-  }
-
-  return {
-    pending: mergeImportAggregates(...pending),
-    completed: mergeImportAggregates(...completed)
-  };
-};
-
 const syncDifferenceDecisionMap = (items: ImportPendingDifferenceWithTable[]) => {
   const nextMap: Record<string, DifferenceDecision | undefined> = {};
 
@@ -1079,83 +1002,6 @@ const resetPendingDifferenceState = () => {
   differenceDecisionMap.value = {};
 };
 
-const validateDuplicateAiConfig = () => {
-  if (!importDuplicateAiConfig.value.enableSemanticDuplicateCheck) {
-    return true;
-  }
-
-  if (!importDuplicateAiConfig.value.embeddingServiceId) {
-    ElMessage.warning("已启用 AI 疑似重复识别，请先选择 Embedding 服务");
-    return false;
-  }
-
-  if (
-    importDuplicateAiConfig.value.enableLlmDuplicateReview &&
-    !importDuplicateAiConfig.value.llmServiceId
-  ) {
-    ElMessage.warning("已启用 LLM 复核，请先选择 LLM 服务");
-    return false;
-  }
-
-  return true;
-};
-
-const formatDifferenceValue = (value?: string | null) => {
-  const normalized = value?.trim();
-  return normalized ? normalized : "-";
-};
-
-const formatScorePercent = (value?: number | null) => {
-  if (value === undefined || value === null || Number.isNaN(value)) return "-";
-  return `${(value * 100).toFixed(1)}%`;
-};
-
-const getDifferenceMatchTypeLabel = (matchType?: string) => {
-  switch (matchType) {
-    case "exact":
-      return "完全重复";
-    case "semantic":
-      return "AI 疑似重复";
-    case "conflict":
-    default:
-      return "同项目同规格";
-  }
-};
-
-const getDifferenceMatchTypeTagType = (matchType?: string) => {
-  switch (matchType) {
-    case "exact":
-      return "danger";
-    case "semantic":
-      return "success";
-    case "conflict":
-    default:
-      return "warning";
-  }
-};
-
-const hasAiDifferenceMeta = (item: ImportPendingDifferenceWithTable) => {
-  return (
-    item.matchType === "semantic" &&
-    (item.embeddingScore !== undefined ||
-      item.llmScore !== undefined ||
-      item.finalScore !== undefined ||
-      !!item.reviewReason)
-  );
-};
-
-const isDifferenceFieldChanged = (
-  existing?: string | null,
-  incoming?: string | null
-) => {
-  return (existing?.trim() || "") !== (incoming?.trim() || "");
-};
-
-const openDifferenceConfirmDialog = () => {
-  if (!pendingImportAggregate.value?.pendingDifferences.length) return;
-  differenceConfirmDialogVisible.value = true;
-};
-
 const applyDifferenceDecisionToAll = (decision: DifferenceDecision) => {
   const nextMap = { ...differenceDecisionMap.value };
 
@@ -1166,291 +1012,14 @@ const applyDifferenceDecisionToAll = (decision: DifferenceDecision) => {
   differenceDecisionMap.value = nextMap;
 };
 
-const differenceColumnDefs: DifferenceColumnDef[] = [
-  {
-    key: "project",
-    label: "项目",
-    getExisting: item => item.existingProject,
-    getIncoming: item => item.incomingProject
-  },
-  {
-    key: "specification",
-    label: "规格",
-    getExisting: item => item.existingSpecification,
-    getIncoming: item => item.incomingSpecification
-  },
-  {
-    key: "acceptance",
-    label: "验收",
-    getExisting: item => item.existingAcceptance,
-    getIncoming: item => item.incomingAcceptance
-  },
-  {
-    key: "remark",
-    label: "备注",
-    getExisting: item => item.existingRemark,
-    getIncoming: item => item.incomingRemark
-  }
-];
-
-const isDifferenceColumnChanged = (
-  item: ImportPendingDifferenceWithTable,
-  column: DifferenceColumnDef
-) => {
-  return isDifferenceFieldChanged(
-    column.getExisting(item),
-    column.getIncoming(item)
-  );
-};
-
-const buildDifferenceKeysByTable = (tableIndex: number) => {
-  const confirmed: string[] = [];
-  const partial: string[] = [];
-  const skipped: string[] = [];
-  for (const item of pendingDifferences.value) {
-    if (item.tableIndex !== tableIndex) continue;
-    const decision = differenceDecisionMap.value[item.key];
-    if (decision === "import") confirmed.push(item.key);
-    if (decision === "partial") partial.push(item.key);
-    if (decision === "skip") skipped.push(item.key);
-  }
-  return { confirmed, partial, skipped };
-};
-
-const executeImportBatch = async (
-  configs: TableImportConfig[],
-  includeDifferenceDecisions: boolean
-): Promise<ImportBatchExecutionResult> => {
-  const tableAggregates: CombinedImportResult[] = [];
-  let hasPendingEncountered = false;
-  const duplicateCheckOptions = buildDuplicateCheckOptions();
-
-  for (const [idx, cfg] of configs.entries()) {
-    importProgressText.value = buildImportProgressText(
-      cfg,
-      idx + 1,
-      configs.length,
-      includeDifferenceDecisions,
-      duplicateCheckOptions
-    );
-
-    const cleanupSourceFile = !hasPendingEncountered && idx === configs.length - 1;
-    const { confirmed, partial, skipped } = includeDifferenceDecisions
-      ? buildDifferenceKeysByTable(cfg.tableIndex)
-      : { confirmed: [] as string[], partial: [] as string[], skipped: [] as string[] };
-    const excludedRowIndexes = getExcludedRowIndexes(cfg.tableIndex);
-
-    const res = isExcelFile.value
-      ? await importExcelData({
-          fileId: uploadedFile.value!.fileId,
-          sheetIndex: cfg.tableIndex,
-          customerId: selectedCustomerId.value!,
-          processId: selectedProcessId.value || undefined,
-          machineModelId: selectedMachineModelId.value || undefined,
-          cleanupSourceFile,
-          previewSkippedRows: previewSkippedRows.value,
-          confirmedDifferenceKeys: confirmed,
-          partiallyConfirmedDifferenceKeys: partial,
-          skippedDifferenceKeys: skipped,
-          excludedRowIndexes,
-          duplicateCheckOptions,
-          ...(normalizeExcelMappingByTable(
-            cfg.tableInfo,
-            cfg.excelMapping ?? defaultExcelMapping()
-          ) as ExcelImportDataRequest)
-        })
-      : await importData({
-          fileId: uploadedFile.value!.fileId,
-          tableIndex: cfg.tableIndex,
-          customerId: selectedCustomerId.value!,
-          processId: selectedProcessId.value || undefined,
-          machineModelId: selectedMachineModelId.value || undefined,
-          cleanupSourceFile,
-          previewSkippedRows: previewSkippedRows.value,
-          confirmedDifferenceKeys: confirmed,
-          partiallyConfirmedDifferenceKeys: partial,
-          skippedDifferenceKeys: skipped,
-          excludedRowIndexes,
-          duplicateCheckOptions,
-          mapping: cfg.wordMapping!
-        });
-
-    if (res.code !== 0) {
-      tableAggregates.push({
-        ...buildEmptyImportAggregate(),
-        failedCount: 1,
-        errors: [{
-          tableIndex: cfg.tableIndex,
-          rowIndex: 0,
-          message: res.message || "导入失败"
-        }]
-      });
-      continue;
-    }
-
-    if (res.data.requiresConfirmation && (res.data.pendingCount || 0) > 0) {
-      hasPendingEncountered = true;
-    }
-
-    tableAggregates.push(createSingleTableAggregate(cfg.tableIndex, res.data));
-  }
-
-  return {
-    aggregate: mergeImportAggregates(...tableAggregates),
-    tableAggregates
-  };
-};
-
-const handleConfirmPendingDifferences = async () => {
-  if (!pendingImportAggregate.value || pendingDifferences.value.length === 0) {
-    return;
-  }
-
-  if (pendingUndecidedCount.value > 0) {
-    ElMessage.warning(`请先逐条确认重复项（仍有 ${pendingUndecidedCount.value} 条未选择）`);
-    return;
-  }
-
-  importing.value = true;
-  // 先收起旧弹窗并清空旧提示，避免大批量确认时残留旧状态造成“重复确认循环”的错觉。
-  differenceConfirmDialogVisible.value = false;
-  ElMessage.closeAll();
-  try {
-    const previousCommittedAggregate = committedImportAggregate.value;
-    const pendingSet = new Set(pendingTableIndexes.value);
-    const pendingConfigs = tableConfigs.value.filter(cfg => pendingSet.has(cfg.tableIndex));
-    importProgressText.value = `正在按确认结果继续导入 ${pendingConfigs.length} 个${isExcelFile.value ? "工作表" : "表格"}`;
-
-    const batch = await executeImportBatch(pendingConfigs, true);
-    const splitResult = splitBatchAggregates(batch.tableAggregates);
-
-    if (splitResult.pending.pendingDifferences.length > 0) {
-      committedImportAggregate.value = mergeImportAggregates(
-        previousCommittedAggregate,
-        splitResult.completed
-      );
-      pendingImportAggregate.value = splitResult.pending;
-      syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
-      differenceConfirmDialogVisible.value = true;
-      ElMessage.closeAll();
-      ElMessage.warning(`仍有 ${splitResult.pending.pendingCount || 0} 条重复项未确认`);
-      return;
-    }
-
-    const finalAggregate = mergeImportAggregates(
-      previousCommittedAggregate,
-      batch.aggregate
-    );
-
-    importResult.value = finalAggregate;
-    resetPendingDifferenceState();
-    ElMessage.closeAll();
-    ElMessage.success(
-      `导入完成：成功${finalAggregate.successCount}条，失败${finalAggregate.failedCount}条`
-    );
-  } finally {
-    importing.value = false;
-    clearImportProgress();
-  }
-};
-
-const handleImport = async () => {
-  if (!uploadedFile.value || tableConfigs.value.length === 0 || !selectedCustomerId.value) {
-    return;
-  }
-
-  if (pendingImportAggregate.value && pendingDifferences.value.length > 0) {
-    openDifferenceConfirmDialog();
-    return;
-  }
-
-  if (previewDataCount.value <= 0) {
-    ElMessage.warning("当前没有可导入的数据，请先恢复或重新选择待导入行");
-    return;
-  }
-
-  if (!validateDuplicateAiConfig()) {
-    return;
-  }
-
-  if (
-    !ensurePermission(
-      currentImportPermissionCode.value,
-      currentImportPermissionMessage.value
-    )
-  ) {
-    return;
-  }
-
-  try {
-    await ElMessageBox.confirm(
-      `确定要将 ${tableConfigs.value.length} 个${isExcelFile.value ? "工作表" : "表格"}的数据导入到所选客户/制程/机型吗？`,
-      "确认导入",
-      {
-        confirmButtonText: "确定",
-        cancelButtonText: "取消",
-        type: "warning"
-      }
-    );
-
-    importing.value = true;
-    importProgressText.value = `正在准备导入 ${tableConfigs.value.length} 个${isExcelFile.value ? "工作表" : "表格"}`;
-    const batch = await executeImportBatch(tableConfigs.value, false);
-    const splitResult = splitBatchAggregates(batch.tableAggregates);
-
-    if (splitResult.pending.pendingDifferences.length > 0) {
-      importResult.value = null;
-      committedImportAggregate.value = splitResult.completed;
-      pendingImportAggregate.value = splitResult.pending;
-      syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
-      differenceConfirmDialogVisible.value = true;
-      ElMessage.closeAll();
-      ElMessage.warning(
-        `检测到 ${splitResult.pending.pendingCount || 0} 条重复、差异或 AI 疑似重复数据，请在弹窗中逐条确认是否覆盖已有记录`
-      );
-      return;
-    }
-
-    importResult.value = batch.aggregate;
-    resetPendingDifferenceState();
-    ElMessage.closeAll();
-    ElMessage.success(`导入完成：成功${batch.aggregate.successCount}条，失败${batch.aggregate.failedCount}条`);
-  } catch {
-    // 用户取消
-  } finally {
-    importing.value = false;
-    clearImportProgress();
-  }
-};
-
 // 重新开始
 const handleRestart = () => {
-  currentStep.value = 0;
+  resetImportFlowState();
   uploadedFile.value = null;
-  selectedTableIndexes.value = [];
-  selectedTables.value = [];
-  activeTableIndex.value = null;
-  tableConfigs.value = [];
-  selectedCustomerId.value = undefined;
-  selectedProcessId.value = undefined;
-  selectedMachineModelId.value = undefined;
-  importResult.value = null;
-  previewSkippedRows.value = false;
-  importDuplicateAiConfig.value = {
-    enableSemanticDuplicateCheck: false,
+  importDuplicateAiConfig.value = createDefaultImportDuplicateAiConfig({
     embeddingServiceId: embeddingServices.value[0]?.id,
-    semanticTopK: 3,
-    semanticMinScore: 0.75,
-    enableLlmDuplicateReview: false,
-    llmServiceId: llmServices.value[0]?.id,
-    llmPassScore: 0.9,
-    highConfidenceThreshold: 0.95
-  };
-  excludedRowIndexMap.value = {};
-  importPreviewSelectionKeys.value = [];
-  mappingClipboard.value = null;
-  mappingClipboardSourceIndex.value = null;
-  resetPendingDifferenceState();
+    llmServiceId: llmServices.value[0]?.id
+  });
 };
 
 // 预览数据条数（totalRows 已是纯数据行数，无需再减表头）
@@ -1512,6 +1081,41 @@ const pendingTableIndexes = computed<number[]>(() => {
   return Array.from(new Set(pendingDifferences.value.map(item => item.tableIndex)));
 });
 
+const {
+  openDifferenceConfirmDialog,
+  handleConfirmPendingDifferences,
+  handleImport,
+  importProgressDescription,
+  importPrimaryButtonText,
+  confirmDifferenceButtonText
+} = useDataImportBatchExecution({
+  isExcelFile,
+  uploadedFile,
+  tableConfigs,
+  selectedCustomerId,
+  selectedProcessId,
+  selectedMachineModelId,
+  importing,
+  importResult,
+  pendingImportAggregate,
+  committedImportAggregate,
+  previewSkippedRows,
+  differenceDecisionMap,
+  differenceConfirmDialogVisible,
+  importDuplicateAiConfig,
+  importProgressText,
+  pendingDifferences,
+  pendingUndecidedCount,
+  pendingTableIndexes,
+  previewDataCount,
+  hasPendingDifferenceConfirmation,
+  currentImportPermissionCode,
+  currentImportPermissionMessage,
+  getExcludedRowIndexes,
+  resetPendingDifferenceState,
+  syncDifferenceDecisionMap
+});
+
 const pendingDifferenceDisplayStart = computed(() => {
   if (pendingDifferences.value.length === 0) return 0;
   return (pendingDifferencePage.value - 1) * pendingDifferencePageSize.value + 1;
@@ -1525,39 +1129,10 @@ const pendingDifferenceDisplayEnd = computed(() => {
   );
 });
 
-const importProgressDescription = computed(() => {
-  if (!importing.value) {
-    return "";
-  }
-
-  const options = buildDuplicateCheckOptions();
-  if (!options.enableSemanticDuplicateCheck) {
-    return "系统正在提交并写入导入结果，请耐心等待，不要关闭页面或刷新浏览器。";
-  }
-
-  if (options.enableLlmDuplicateReview) {
-    return "当前已启用 Embedding 召回与 LLM 复核，处理时间会明显高于普通导入，请耐心等待，不要关闭页面或刷新浏览器。";
-  }
-
-  return "当前已启用 Embedding 疑似重复识别，系统会先分析候选再继续导入，请耐心等待，不要关闭页面或刷新浏览器。";
-});
-
-const importPrimaryButtonText = computed(() => {
-  if (importing.value) {
-    return importProgressText.value || "正在导入...";
-  }
-
-  return hasPendingDifferenceConfirmation.value ? "继续处理重复项" : "开始导入";
-});
-
-const confirmDifferenceButtonText = computed(() => {
-  return importing.value ? importPrimaryButtonText.value : "确认并继续导入";
-});
-
 const differenceDialogFooterTip = computed(() => {
   return importing.value
     ? importProgressText.value
-    : `未选择 ${pendingUndecidedCount.value} 条`;
+    : `未确认 ${pendingUndecidedCount.value} 条`;
 });
 
 watch(
@@ -1580,31 +1155,6 @@ watch(
   },
   { immediate: true }
 );
-
-const buildImportProgressText = (
-  cfg: TableImportConfig,
-  currentIndex: number,
-  total: number,
-  includeDifferenceDecisions: boolean,
-  duplicateCheckOptions: ImportDuplicateCheckOptions
-) => {
-  const sourceLabel = `${isExcelFile.value ? "工作表" : "表格"} ${cfg.tableIndex + 1}`;
-  const actionLabel = includeDifferenceDecisions ? "正在按确认结果继续导入" : "正在导入";
-
-  if (!duplicateCheckOptions.enableSemanticDuplicateCheck) {
-    return `${actionLabel}${sourceLabel}（${currentIndex}/${total}）`;
-  }
-
-  if (duplicateCheckOptions.enableLlmDuplicateReview) {
-    return `${actionLabel}${sourceLabel}（${currentIndex}/${total}），执行 Embedding 召回与 LLM 复核中`;
-  }
-
-  return `${actionLabel}${sourceLabel}（${currentIndex}/${total}），执行 Embedding 疑似重复识别中`;
-};
-
-const clearImportProgress = () => {
-  importProgressText.value = "";
-};
 
 type SkippedPreviewColumn = { index: number; label: string };
 type SkippedRowsGroup = {
@@ -2276,7 +1826,7 @@ const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
               <span>覆盖 {{ pendingImportDecisionCount }} 条</span>
               <span>部分覆盖 {{ pendingPartialDecisionCount }} 条</span>
               <span>跳过 {{ pendingSkipDecisionCount }} 条</span>
-              <span>未选择 {{ pendingUndecidedCount }} 条</span>
+              <span>未确认 {{ pendingUndecidedCount }} 条</span>
             </div>
             <div class="difference-dialog__batch-actions">
               <el-button size="small" @click="applyDifferenceDecisionToAll('skip')">

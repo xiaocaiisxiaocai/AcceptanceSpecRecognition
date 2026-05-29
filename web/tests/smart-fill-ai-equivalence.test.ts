@@ -549,7 +549,9 @@ test("AI 复核放行令牌应透传到执行填充请求，避免客户端布�
   const previewTableSource = readProjectFile(
     "web/src/views/smart-fill/components/MatchPreviewTable.vue"
   );
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const executionHelperSource = readProjectFile(
+    "web/src/views/smart-fill/smartFillExecution.helpers.ts"
+  );
   const fillMappingBlock = getInterfaceBlock(matchingApiSource, "FillMapping");
 
   assert.match(fillMappingBlock, /reviewApprovalToken\?: string;/);
@@ -559,7 +561,7 @@ test("AI 复核放行令牌应透传到执行填充请求，避免客户端布�
     previewTableSource,
     /reviewApprovalToken:\s*item\.bestMatch\?\.reviewApprovalToken/
   );
-  assert.match(smartFillPageSource, /reviewApprovalToken:\s*s\.reviewApprovalToken/);
+  assert.match(executionHelperSource, /reviewApprovalToken:\s*s\.reviewApprovalToken/);
 });
 
 test("智能填充执行请求应透传本次导出覆盖值，而不是只发送规格ID", () => {
@@ -570,7 +572,9 @@ test("智能填充执行请求应透传本次导出覆盖值，而不是只发�
   const previewTableSource = readProjectFile(
     "web/src/views/smart-fill/components/MatchPreviewTable.vue"
   );
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const executionHelperSource = readProjectFile(
+    "web/src/views/smart-fill/smartFillExecution.helpers.ts"
+  );
   const fillMappingBlock = getInterfaceBlock(matchingApiSource, "FillMapping");
 
   assert.match(fillMappingBlock, /overrideAcceptance\?: string;/);
@@ -581,8 +585,8 @@ test("智能填充执行请求应透传本次导出覆盖值，而不是只发�
   assert.match(previewTableSource, /overrideRemark\?: string;/);
   assert.match(previewTableSource, /overrideAcceptance:\s*.*overrideAcceptance/);
   assert.match(previewTableSource, /overrideRemark:\s*.*overrideRemark/);
-  assert.match(smartFillPageSource, /overrideAcceptance:\s*s\.overrideAcceptance/);
-  assert.match(smartFillPageSource, /overrideRemark:\s*s\.overrideRemark/);
+  assert.match(executionHelperSource, /overrideAcceptance:\s*s\.overrideAcceptance/);
+  assert.match(executionHelperSource, /overrideRemark:\s*s\.overrideRemark/);
 });
 
 test("智能填充前端应支持仅精确匹配模式与未命中行手工填充", () => {
@@ -597,6 +601,9 @@ test("智能填充前端应支持仅精确匹配模式与未命中行手工填�
     "web/src/views/smart-fill/components/MatchPreviewTable.vue"
   );
   const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const executionHelperSource = readProjectFile(
+    "web/src/views/smart-fill/smartFillExecution.helpers.ts"
+  );
   const matchConfigBlock = getInterfaceBlock(matchingApiSource, "MatchConfig");
   const fillMappingBlock = getInterfaceBlock(matchingApiSource, "FillMapping");
 
@@ -618,7 +625,7 @@ test("智能填充前端应支持仅精确匹配模式与未命中行手工填�
   assert.match(previewTableSource, /type: "manual"/);
   assert.match(previewTableSource, /manualFill:\s*selection\?\.type === "manual"/);
   assert.match(previewTableSource, /已手工填写/);
-  assert.match(smartFillPageSource, /manualFill:\s*s\.manualFill/);
+  assert.match(executionHelperSource, /manualFill:\s*s\.manualFill/);
   assert.match(
     smartFillPageSource,
     /if \(matchConfig\.value\.exactMatchOnly\) \{[\s\S]*return;[\s\S]*\}[\s\S]*startLlmStream\(\)/
@@ -724,6 +731,9 @@ test("SSE 事件缺少 tableIndex 时应直接丢弃，不能再跨表按 rowInd
 
 test("批量链路应让表级 filterEmptySourceRows 回退到全局配置", () => {
   const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const executionHelperSource = readProjectFile(
+    "web/src/views/smart-fill/smartFillExecution.helpers.ts"
+  );
 
   assert.match(
     smartFillPageSource,
@@ -734,8 +744,8 @@ test("批量链路应让表级 filterEmptySourceRows 回退到全局配置", () 
     /filterEmptySourceRows:\s*getEffectiveFilterEmptySourceRows\(t\)/
   );
   assert.match(
-    smartFillPageSource,
-    /filterEmptySourceRows:\s*getEffectiveFilterEmptySourceRows\(config\)/
+    executionHelperSource,
+    /filterEmptySourceRows:\s*resolveFilterEmptySourceRows\(config\)/
   );
 });
 
@@ -946,6 +956,10 @@ test("智能填充服务下拉应过滤禁用的 AI 服务，并清空已禁用�
   );
 
   assert.match(matchConfigSource, /const enabledItems = items\.filter\(item => !item\.isDisabled\);/);
+  assert.match(matchConfigSource, /sortAiServicesByPriority[\s\S]*from "@\/api\/ai-service"/);
+  assert.doesNotMatch(matchConfigSource, /const sortAiServicesByPriority = \(services: AiServiceConfig\[\]\) =>/);
+  assert.match(matchConfigSource, /embeddingServices\.value = sortAiServicesByPriority\(/);
+  assert.match(matchConfigSource, /llmServices\.value = sortAiServicesByPriority\(/);
   assert.match(matchConfigSource, /config\.value\.embeddingServiceId = undefined;/);
   assert.match(matchConfigSource, /config\.value\.llmServiceId = undefined;/);
   assert.doesNotMatch(
@@ -958,6 +972,10 @@ test("导入数据页疑似重复识别下拉应过滤禁用的 AI 服务，并�
   const dataImportSource = readProjectFile("web/src/views/data-import/index.vue");
 
   assert.match(dataImportSource, /const enabledItems = items\.filter\(item => !item\.isDisabled\);/);
+  assert.match(dataImportSource, /sortAiServicesByPriority[\s\S]*from "@\/api\/ai-service"/);
+  assert.doesNotMatch(dataImportSource, /const sortAiServicesByPriority = \(services: AiServiceConfig\[\]\) =>/);
+  assert.match(dataImportSource, /embeddingServices\.value = sortAiServicesByPriority\(/);
+  assert.match(dataImportSource, /llmServices\.value = sortAiServicesByPriority\(/);
   assert.match(dataImportSource, /importDuplicateAiConfig\.value\.embeddingServiceId = undefined;/);
   assert.match(dataImportSource, /importDuplicateAiConfig\.value\.llmServiceId = undefined;/);
   assert.doesNotMatch(

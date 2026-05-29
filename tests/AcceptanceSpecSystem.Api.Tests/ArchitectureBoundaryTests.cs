@@ -379,11 +379,72 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void MatchingDefaultRecallTopKQueries_ShouldIgnoreDisabledEmbeddingServices()
     {
+        var resolverContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingConfigResolver.cs");
+
+        resolverContent.Should().Contain("!item.IsDisabled");
+    }
+
+    [Fact]
+    public void MatchingUseCases_ShouldShareMatchingConfigResolver()
+    {
+        var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
+        var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/Program.cs");
+
+        previewContent.Should().Contain("MatchingConfigResolver");
+        workflowContent.Should().Contain("MatchingConfigResolver");
+        programContent.Should().Contain("AddScoped<MatchingConfigResolver>()");
+
+        previewContent.Should().NotContain("ConvertToMatchingConfigAsync",
+            "匹配配置归一化应收敛到共享解析器，避免预览与执行路径双写后漂移");
+        workflowContent.Should().NotContain("ConvertToMatchingConfigAsync",
+            "匹配配置归一化应收敛到共享解析器，避免预览与执行路径双写后漂移");
+        previewContent.Should().NotContain("ResolveDefaultRecallTopKAsync",
+            "默认召回数量查询应只保留一份");
+        workflowContent.Should().NotContain("ResolveDefaultRecallTopKAsync",
+            "默认召回数量查询应只保留一份");
+    }
+
+    [Fact]
+    public void MatchingUseCases_ShouldShareResultDtoMapper()
+    {
+        var mapperContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingResultDtoMapper.cs");
         var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
         var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
 
-        previewContent.Should().Contain("!item.IsDisabled");
-        workflowContent.Should().Contain("!item.IsDisabled");
+        mapperContent.Should().Contain("ToMatchResultDto");
+        previewContent.Should().Contain("MatchingResultDtoMapper");
+        workflowContent.Should().Contain("MatchingResultDtoMapper");
+
+        previewContent.Should().NotContain("ConvertToMatchResultDto");
+        workflowContent.Should().NotContain("ConvertToMatchResultDto");
+        previewContent.Should().NotContain("ConvertToIssueDto");
+        workflowContent.Should().NotContain("ConvertToIssueDto");
+        previewContent.Should().NotContain("ToEvidenceRelationKey");
+        workflowContent.Should().NotContain("ToEvidenceRelationKey");
+    }
+
+    [Fact]
+    public void MatchingUseCases_ShouldShareCandidateProvider()
+    {
+        var providerContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs");
+        var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
+        var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/Program.cs");
+
+        providerContent.Should().Contain("GetCandidatesAsync");
+        providerContent.Should().Contain("MaxScopedCandidateCount");
+        providerContent.Should().Contain("BuildCandidateDedupKey");
+        programContent.Should().Contain("AddScoped<MatchingCandidateProvider>()");
+        previewContent.Should().Contain("MatchingCandidateProvider");
+        workflowContent.Should().Contain("MatchingCandidateProvider");
+
+        previewContent.Should().NotContain("private async Task<List<MatchCandidate>> GetCandidatesAsync");
+        workflowContent.Should().NotContain("private async Task<List<MatchCandidate>> GetCandidatesAsync");
+        previewContent.Should().NotContain("BuildCandidateSpecQuery");
+        workflowContent.Should().NotContain("BuildCandidateSpecQuery");
+        previewContent.Should().NotContain("ApplySpecScopeToQuery");
+        workflowContent.Should().NotContain("ApplySpecScopeToQuery");
     }
 
     [Fact]

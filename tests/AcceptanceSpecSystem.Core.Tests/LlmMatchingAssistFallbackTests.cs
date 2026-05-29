@@ -128,6 +128,42 @@ public class LlmMatchingAssistFallbackTests
     }
 
     [Fact]
+    public async Task ReviewAsync_WhenExplicitServiceReturnsMalformedPayload_ShouldNotFallbackToNextService()
+    {
+        var promptProvider = new StaticPromptTemplateProvider(
+            "【业务场景】{{ workflowScene }}\n源项目：{{ sourceProject }}\n当前决策：{{ currentDecision }}\n仅返回严格 JSON");
+        var firstChat = new FixedChatCompletionService("""{"score":"N/A","reason":"无法判断","commentary":"缺少结构"}""");
+        var secondChat = new FixedChatCompletionService(
+            """{"score":88,"reason":"后备服务返回有效结果","commentary":"不应被调用"}""");
+        var selector = new FixedAiServiceSelector(CreateConfig(21, "llm-a"), CreateConfig(22, "llm-b"));
+        var factory = new RoutingSemanticKernelServiceFactory(new Dictionary<int, IChatCompletionService>
+        {
+            [21] = firstChat,
+            [22] = secondChat
+        });
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            selector,
+            factory,
+            NullLogger<LlmMatchingAssistService>.Instance);
+
+        var result = await service.ReviewAsync(new LlmReviewRequest
+        {
+            SourceProject = "导入项目",
+            SourceSpecification = "导入规格",
+            BestMatchProject = "历史项目",
+            BestMatchSpecification = "历史规格",
+            CurrentDecision = "manualReview",
+            ReviewScene = LlmReviewScene.ImportDuplicateReview,
+            LlmServiceId = 21
+        });
+
+        result.Should().BeNull();
+        firstChat.CallCount.Should().Be(1);
+        secondChat.CallCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task ReviewStreamAsync_WhenFirstServiceCompletesWithEmptyStream_ShouldFallbackToNextService()
     {
         var promptProvider = new StaticPromptTemplateProvider(
@@ -165,6 +201,45 @@ public class LlmMatchingAssistFallbackTests
         string.Concat(chunks).Should().Contain("\"score\":92");
         firstChat.CallCount.Should().Be(1);
         secondChat.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ReviewStreamAsync_WhenExplicitServiceCompletesWithEmptyStream_ShouldNotFallbackToNextService()
+    {
+        var promptProvider = new StaticPromptTemplateProvider(
+            "源项目：{{ sourceProject }}\n源规格：{{ sourceSpecification }}\n仅返回严格 JSON");
+        var firstChat = new FixedChatCompletionService(string.Empty);
+        var secondChat = new FixedChatCompletionService(
+            """{"score":92,"reason":"后备服务返回有效结果","commentary":"不应被调用"}""");
+        var selector = new FixedAiServiceSelector(CreateConfig(41, "llm-a"), CreateConfig(42, "llm-b"));
+        var factory = new RoutingSemanticKernelServiceFactory(new Dictionary<int, IChatCompletionService>
+        {
+            [41] = firstChat,
+            [42] = secondChat
+        });
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            selector,
+            factory,
+            NullLogger<LlmMatchingAssistService>.Instance);
+
+        var act = async () =>
+        {
+            await foreach (var _ in service.ReviewStreamAsync(new LlmReviewRequest
+                           {
+                               SourceProject = ApprovedSourceProject,
+                               SourceSpecification = ApprovedSourceSpecification,
+                               BestMatchProject = ApprovedBestProject,
+                               BestMatchSpecification = ApprovedBestSpecification,
+                               LlmServiceId = 41
+                           }))
+            {
+            }
+        };
+
+        await act.Should().ThrowAsync<AiServiceUnavailableException>();
+        firstChat.CallCount.Should().Be(1);
+        secondChat.CallCount.Should().Be(0);
     }
 
     [Fact]

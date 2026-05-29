@@ -74,6 +74,18 @@ export interface AiServiceListRequest extends PagedRequest {
   serviceType?: AiServiceType;
 }
 
+export const sortAiServicesByPriority = (services: AiServiceConfig[]) =>
+  [...services].sort((a, b) => {
+    const priorityDiff = a.priority - b.priority;
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+
+    const aTime = Date.parse(a.updatedAt || a.createdAt || "");
+    const bTime = Date.parse(b.updatedAt || b.createdAt || "");
+    return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+  });
+
 const baseUrl = "/api/ai-services";
 
 export const getAiServiceList = (params?: AiServiceListRequest) => {

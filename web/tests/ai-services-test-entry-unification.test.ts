@@ -27,3 +27,9 @@ test("AI服务配置页提供禁用切换且禁用后不可测试或探测模型
   assert.match(aiServicesPageSource, /row\.isDisabled \|\| isRowLoading\(testingState, row\.id\)/);
   assert.match(aiServicesPageSource, /row\.isDisabled \|\| isRowLoading\(probingState, row\.id\)/);
 });
+
+test("AI服务排序规则应由共享 API helper 统一维护", () => {
+  assert.match(aiServiceApiSource, /export const sortAiServicesByPriority = \(services: AiServiceConfig\[\]\) =>/);
+  assert.match(aiServiceApiSource, /const priorityDiff = a\.priority - b\.priority/);
+  assert.match(aiServiceApiSource, /Date\.parse\(a\.updatedAt \|\| a\.createdAt \|\| ""\)/);
+});

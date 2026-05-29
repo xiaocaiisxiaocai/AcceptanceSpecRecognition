@@ -81,6 +81,7 @@ public class ExcelDocumentWriter : IDocumentWriter
 
         var sheet = sheets[tableIndex];
         var successCount = WriteSheetOperations(sheet, operationsList);
+        RemoveWorksheetTables(sheet);
 
         SaveWorkbookToStream(workbook, stream);
         return successCount;
@@ -106,7 +107,9 @@ public class ExcelDocumentWriter : IDocumentWriter
                     $"工作表索引 {tableIndex} 超出范围。文档共有 {sheets.Count} 个工作表。");
             }
 
-            totalSuccess += WriteSheetOperations(sheets[tableIndex], operations);
+            var sheet = sheets[tableIndex];
+            totalSuccess += WriteSheetOperations(sheet, operations);
+            RemoveWorksheetTables(sheet);
         }
 
         SaveWorkbookToStream(workbook, stream);
@@ -134,6 +137,19 @@ public class ExcelDocumentWriter : IDocumentWriter
         }
 
         return successCount;
+    }
+
+    private static void RemoveWorksheetTables(IXLWorksheet sheet)
+    {
+        var tableNames = sheet.Tables.Select(table => table.Name).ToList();
+        if (tableNames.Count == 0)
+            return;
+
+        // 部分外部生成的 Excel Table 关系会让 ClosedXML 保存时报关系 id 异常；写回只依赖单元格内容，移除表元数据保留数据。
+        foreach (var tableName in tableNames)
+        {
+            sheet.Tables.Remove(tableName);
+        }
     }
 
     private static bool TryWriteCell(

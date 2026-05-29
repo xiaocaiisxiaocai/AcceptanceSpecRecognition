@@ -719,14 +719,14 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             }
         }
 
-        return ReorderCandidates(cachedCandidates, preferredId);
+        return FilterCandidatesForPreferredService(cachedCandidates, preferredId);
     }
 
-    private static IReadOnlyList<AiServiceConfigModel> ReorderCandidates(
+    private static IReadOnlyList<AiServiceConfigModel> FilterCandidatesForPreferredService(
         IReadOnlyList<AiServiceConfigModel> candidates,
         int? preferredId)
     {
-        if (!preferredId.HasValue || candidates.Count <= 1)
+        if (!preferredId.HasValue)
         {
             return candidates;
         }
@@ -734,13 +734,11 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
         var preferred = candidates.FirstOrDefault(candidate => candidate.Id == preferredId.Value);
         if (preferred == null)
         {
-            return candidates;
+            return [];
         }
 
-        var reordered = candidates.ToList();
-        reordered.Remove(preferred);
-        reordered.Insert(0, preferred);
-        return reordered;
+        // 用户显式选择的 LLM 只使用该服务，避免高显存模型作为自动兜底触发 Ollama 驱逐。
+        return [preferred];
     }
 
     private static string GetTemplateCacheKey(SystemPromptTemplateDefinition definition)

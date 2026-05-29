@@ -6,13 +6,13 @@ import type {
 } from "../dataImport.types";
 
 export const createDefaultImportDuplicateAiConfig =
-  (): ImportDuplicateAiConfig => ({
+  (serviceIds: Pick<ImportDuplicateAiConfig, "embeddingServiceId" | "llmServiceId"> = {}): ImportDuplicateAiConfig => ({
     enableSemanticDuplicateCheck: false,
-    embeddingServiceId: undefined,
+    embeddingServiceId: serviceIds.embeddingServiceId,
     semanticTopK: 3,
     semanticMinScore: 0.75,
     enableLlmDuplicateReview: false,
-    llmServiceId: undefined,
+    llmServiceId: serviceIds.llmServiceId,
     llmPassScore: 0.9,
     highConfidenceThreshold: 0.95
   });

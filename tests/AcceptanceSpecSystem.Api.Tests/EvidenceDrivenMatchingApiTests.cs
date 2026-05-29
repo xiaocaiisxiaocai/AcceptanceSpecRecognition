@@ -35,7 +35,8 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
             {
                 minScoreThreshold = 0.0,
                 recallTopK = 5,
-                ambiguityMargin = 0.01
+                ambiguityMargin = 0.01,
+                enableLlmEquivalenceAdjudication = true
             });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -162,7 +163,8 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
             new
             {
                 minScoreThreshold = 0.0,
-                recallTopK = 3
+                recallTopK = 3,
+                enableLlmEquivalenceAdjudication = true
             });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -194,7 +196,8 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
             new
             {
                 minScoreThreshold = 0.0,
-                recallTopK = 3
+                recallTopK = 3,
+                enableLlmEquivalenceAdjudication = true
             });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -256,7 +259,8 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
             {
                 minScoreThreshold = 0.0,
                 recallTopK = 3,
-                highConfidenceThreshold = 0.98
+                highConfidenceThreshold = 0.98,
+                enableLlmEquivalenceAdjudication = true
             });
 
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);

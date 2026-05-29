@@ -28,8 +28,7 @@ public class EmbeddingCacheInvalidationTests : IClassFixture<ApiWebApplicationFa
         var repositoryContent = ReadFileText("src/AcceptanceSpecSystem.Data/Repositories/EmbeddingCacheRepository.cs");
         var cacheServiceContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/SpecEmbeddingCacheService.cs");
         var semanticSearchContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/SpecSemanticSearchService.cs");
-        var matchingPreviewContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
-        var matchingWorkflowContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var matchingCandidateProviderContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs");
 
         entityContent.Should().Contain(
             "Usage",
@@ -46,12 +45,9 @@ public class EmbeddingCacheInvalidationTests : IClassFixture<ApiWebApplicationFa
         semanticSearchContent.Should().Contain(
             "EmbeddingCacheUsages.SemanticSearch",
             "语义搜索应使用独立 usage");
-        matchingPreviewContent.Should().Contain(
+        matchingCandidateProviderContent.Should().Contain(
             "HydrateMatchingCandidatesAsync",
-            "智能匹配预览应通过统一服务使用独立 usage");
-        matchingWorkflowContent.Should().Contain(
-            "HydrateMatchingCandidatesAsync",
-            "智能匹配执行链路应通过统一服务使用独立 usage");
+            "智能匹配预览和执行链路应通过统一候选提供器使用独立 usage");
     }
 
     [Fact]

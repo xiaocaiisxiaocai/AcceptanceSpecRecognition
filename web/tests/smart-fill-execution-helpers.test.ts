@@ -1,0 +1,198 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  buildExecutionHistoryPreviewTables,
+  buildSmartFillExecuteRequest
+} from "../src/views/smart-fill/smartFillExecution.helpers.ts";
+import type {
+  BatchTablePreviewResult,
+  MatchConfig,
+  MatchResult
+} from "../src/api/matching.ts";
+
+const createMatchResult = (overrides: Partial<MatchResult> = {}): MatchResult => ({
+  specId: 101,
+  project: "项目A",
+  specification: "规格A",
+  acceptance: "验收A",
+  remark: "备注A",
+  score: 0.98,
+  embeddingScore: 0.96,
+  scoreDetails: { final: 0.98 },
+  decision: "autoApply",
+  evidenceSummary: ["项目一致"],
+  conflictSummary: [],
+  issues: [],
+  entities: [],
+  topCandidates: [],
+  recalledCandidateCount: 1,
+  isAmbiguous: false,
+  ...overrides
+});
+
+const previewResults: BatchTablePreviewResult[] = [
+  {
+    tableIndex: 0,
+    totalMatched: 1,
+    highConfidenceCount: 1,
+    mediumConfidenceCount: 0,
+    lowConfidenceCount: 0,
+    ambiguousCount: 0,
+    items: [
+      {
+        rowIndex: 2,
+        sourceProject: "项目A",
+        sourceSpecification: "规格A",
+        bestMatch: createMatchResult({
+          topCandidates: [
+            {
+              ...createMatchResult({
+              specId: 102,
+              scoreDetails: { final: 0.92 },
+              evidenceSummary: ["候选证据"]
+              }),
+              rank: 1
+            }
+          ]
+        }),
+        llmReviewDraft: "复核草稿",
+        llmReviewStage: "done",
+        hasMatch: true,
+        confidenceLevel: "high"
+      }
+    ]
+  },
+  {
+    tableIndex: 1,
+    totalMatched: 0,
+    highConfidenceCount: 0,
+    mediumConfidenceCount: 0,
+    lowConfidenceCount: 0,
+    ambiguousCount: 0,
+    items: []
+  }
+];
+
+test("智能填充执行请求 helper 应只包含有选择项的表格并生成预览快照", () => {
+  const matchConfig: MatchConfig = {
+    minScoreThreshold: 0.9,
+    highConfidenceThreshold: 0.8,
+    filterEmptySourceRows: true
+  };
+
+  const request = buildSmartFillExecuteRequest({
+    uploadedFileId: 88,
+    scope: { customerId: 1, processId: 2, machineModelId: 3 },
+    selectedConfigs: [
+      {
+        tableIndex: 0,
+        acceptanceColumnIndex: 4,
+        remarkColumnIndex: 5,
+        projectColumnIndex: 1,
+        specificationColumnIndex: 2,
+        headerRowStart: 1,
+        headerRowCount: 1,
+        dataStartRow: 2,
+        filterEmptySourceRows: undefined
+      },
+      {
+        tableIndex: 1,
+        acceptanceColumnIndex: 4,
+        projectColumnIndex: 1,
+        specificationColumnIndex: 2
+      }
+    ],
+    allSelections: new Map([
+      [
+        0,
+        [
+          {
+            rowIndex: 2,
+            specId: 101,
+            manualConfirmed: true,
+            reviewApprovalToken: "token",
+            overrideAcceptance: "覆盖验收"
+          }
+        ]
+      ],
+      [1, []]
+    ]),
+    matchConfig,
+    highConfidenceThreshold: 0.97,
+    previewResults,
+    resolveFilterEmptySourceRows: config => config.filterEmptySourceRows ?? false
+  });
+
+  assert.ok(request);
+  assert.equal(request.fileId, 88);
+  assert.equal(request.customerId, 1);
+  assert.equal(request.config?.highConfidenceThreshold, 0.97);
+  assert.equal(request.tables.length, 1);
+  assert.equal(request.tables[0].tableIndex, 0);
+  assert.equal(request.tables[0].filterEmptySourceRows, false);
+  assert.deepEqual(request.tables[0].mappings, [
+    {
+      rowIndex: 2,
+      specId: 101,
+      manualConfirmed: true,
+      manualFill: undefined,
+      reviewApprovalToken: "token",
+      overrideAcceptance: "覆盖验收",
+      overrideRemark: undefined
+    }
+  ]);
+  assert.equal(request.previewTables?.length, 1);
+  assert.equal(request.previewTables?.[0].tableIndex, 0);
+  assert.equal(request.previewTables?.[0].items[0].bestMatch?.specId, 101);
+});
+
+test("智能填充执行请求 helper 在无文件或无选择项时应返回 null", () => {
+  const baseOptions = {
+    scope: {},
+    selectedConfigs: [
+      {
+        tableIndex: 0,
+        acceptanceColumnIndex: 4,
+        projectColumnIndex: 1,
+        specificationColumnIndex: 2
+      }
+    ],
+    matchConfig: {},
+    highConfidenceThreshold: 0.98,
+    previewResults,
+    resolveFilterEmptySourceRows: () => true
+  };
+
+  assert.equal(
+    buildSmartFillExecuteRequest({
+      ...baseOptions,
+      uploadedFileId: undefined,
+      allSelections: new Map([[0, [{ rowIndex: 2, specId: 101 }]]])
+    }),
+    null
+  );
+  assert.equal(
+    buildSmartFillExecuteRequest({
+      ...baseOptions,
+      uploadedFileId: 88,
+      allSelections: new Map([[0, []]])
+    }),
+    null
+  );
+});
+
+test("执行记录预览快照应深拷贝匹配证据，避免后续编辑污染历史", () => {
+  const snapshots = buildExecutionHistoryPreviewTables(previewResults, [0]);
+  const snapshotBestMatch = snapshots[0].items[0].bestMatch;
+  assert.ok(snapshotBestMatch);
+
+  snapshotBestMatch.scoreDetails.final = 0.1;
+  snapshotBestMatch.evidenceSummary?.push("新增证据");
+  snapshotBestMatch.topCandidates[0].scoreDetails.final = 0.2;
+
+  const originalBestMatch = previewResults[0].items[0].bestMatch;
+  assert.equal(originalBestMatch?.scoreDetails.final, 0.98);
+  assert.deepEqual(originalBestMatch?.evidenceSummary, ["项目一致"]);
+  assert.equal(originalBestMatch?.topCandidates[0].scoreDetails.final, 0.92);
+});

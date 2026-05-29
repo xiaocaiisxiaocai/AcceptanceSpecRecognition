@@ -2,16 +2,14 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
-using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 using AcceptanceSpecSystem.Core.Documents.Models;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
-using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Claims;
@@ -25,8 +23,6 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// </summary>
 public sealed class MatchingWorkflowSupportService
 {
-    private const int MaxScopedCandidateCount = 3000;
-
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMatchingService _matchingService;
     private readonly DocumentFileAccessService _documentFileAccessService;
@@ -34,33 +30,18 @@ public sealed class MatchingWorkflowSupportService
     private readonly MatchingResultWriteBackService _matchingResultWriteBackService;
     private readonly ITextPreprocessingPipeline _textPipeline;
     private readonly IAuthDataScopeService _authDataScopeService;
-    private readonly IAiServiceSelector _aiServiceSelector;
-    private readonly SpecEmbeddingCacheService _specEmbeddingCacheService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly MatchingTaskSnapshotService _matchingTaskSnapshotService;
     private readonly ExecutionHistoryAppService _executionHistoryAppService;
     private readonly MatchingApprovalTokenService _approvalTokenService;
+    private readonly MatchingConfigResolver _matchingConfigResolver;
+    private readonly MatchingCandidateProvider _matchingCandidateProvider;
     private readonly ILogger<MatchingWorkflowSupportService> _logger;
 
     private static readonly JsonSerializerOptions SseJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
-
-    private sealed class CandidateSpecRow
-    {
-        public int Id { get; init; }
-
-        public string Project { get; init; } = string.Empty;
-
-        public string Specification { get; init; } = string.Empty;
-
-        public string? Acceptance { get; init; }
-
-        public string? Remark { get; init; }
-
-        public DateTime ImportedAt { get; init; }
-    }
 
     private sealed class ExecutionMatchSnapshot
     {
@@ -96,12 +77,12 @@ public sealed class MatchingWorkflowSupportService
         MatchingResultWriteBackService matchingResultWriteBackService,
         ITextPreprocessingPipeline textPipeline,
         IAuthDataScopeService authDataScopeService,
-        IAiServiceSelector aiServiceSelector,
-        SpecEmbeddingCacheService specEmbeddingCacheService,
         IServiceScopeFactory scopeFactory,
         MatchingTaskSnapshotService matchingTaskSnapshotService,
         ExecutionHistoryAppService executionHistoryAppService,
         MatchingApprovalTokenService approvalTokenService,
+        MatchingConfigResolver matchingConfigResolver,
+        MatchingCandidateProvider matchingCandidateProvider,
         ILogger<MatchingWorkflowSupportService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -111,12 +92,12 @@ public sealed class MatchingWorkflowSupportService
         _matchingResultWriteBackService = matchingResultWriteBackService;
         _textPipeline = textPipeline;
         _authDataScopeService = authDataScopeService;
-        _aiServiceSelector = aiServiceSelector;
-        _specEmbeddingCacheService = specEmbeddingCacheService;
         _scopeFactory = scopeFactory;
         _matchingTaskSnapshotService = matchingTaskSnapshotService;
         _executionHistoryAppService = executionHistoryAppService;
         _approvalTokenService = approvalTokenService;
+        _matchingConfigResolver = matchingConfigResolver;
+        _matchingCandidateProvider = matchingCandidateProvider;
         _logger = logger;
     }
 
@@ -150,14 +131,15 @@ public sealed class MatchingWorkflowSupportService
             throw Failure(401, "会话缺少用户上下文");
         }
 
-        var config = await ConvertToMatchingConfigAsync(request.Config);
-        var candidates = await GetCandidatesAsync(
+        var config = await _matchingConfigResolver.ResolveAsync(request.Config, cancellationToken);
+        var candidates = await _matchingCandidateProvider.GetCandidatesAsync(
             request.CustomerId,
             request.ProcessId,
             request.MachineModelId,
             scope,
             config.EmbeddingServiceId,
-            hydrateEmbeddings: false);
+            hydrateEmbeddings: false,
+            cancellationToken);
         var accessibleSpecLookup = candidates.ToDictionary(candidate => candidate.SpecId);
         var normalizedItems = await BuildAuthoritativeLlmStreamItemsAsync(request.Items, candidates, config);
 
@@ -1156,7 +1138,7 @@ public sealed class MatchingWorkflowSupportService
 
     private async Task<MatchingConfig> ResolveExecutionMatchingConfigAsync(MatchConfigDto? dto)
     {
-        return await ConvertToMatchingConfigAsync(dto);
+        return await _matchingConfigResolver.ResolveAsync(dto);
     }
 
     private static Dictionary<int, ExecutionMatchSnapshot> BuildExecutionPreviewSnapshots(
@@ -1403,7 +1385,7 @@ public sealed class MatchingWorkflowSupportService
             };
         }
 
-        var candidates = await GetCandidatesAsync(
+        var candidates = await _matchingCandidateProvider.GetCandidatesAsync(
             customerId,
             processId,
             machineModelId,
@@ -1438,7 +1420,10 @@ public sealed class MatchingWorkflowSupportService
             }
             else
             {
-                await HydrateCandidateEmbeddingsAsync(candidates, config.EmbeddingServiceId);
+                await _matchingCandidateProvider.HydrateCandidateEmbeddingsAsync(
+                    candidates,
+                    config.EmbeddingServiceId,
+                    CancellationToken.None);
                 processedCandidates = BuildProcessedCandidates(candidates, tpSession);
                 batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
             }
@@ -1500,7 +1485,10 @@ public sealed class MatchingWorkflowSupportService
             }
             else
             {
-                await HydrateCandidateEmbeddingsAsync(candidateList, config.EmbeddingServiceId);
+                await _matchingCandidateProvider.HydrateCandidateEmbeddingsAsync(
+                    candidateList,
+                    config.EmbeddingServiceId,
+                    CancellationToken.None);
                 processedCandidates = BuildProcessedCandidates(candidateList, tpSession);
                 batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
             }
@@ -1537,88 +1525,13 @@ public sealed class MatchingWorkflowSupportService
         throw Failure(400, $"{prefix}必须提供项目列索引和规格列索引，请重新预览后再执行");
     }
 
-    /// <summary>
-    /// 获取候选验收规格列表（含 EmbeddingCache 复用）
-    /// </summary>
-    private async Task<List<MatchCandidate>> GetCandidatesAsync(
-        int? customerId,
-        int? processId,
-        int? machineModelId,
-        DataScopeResult scope,
-        int? embeddingServiceId,
-        bool hydrateEmbeddings = true)
-    {
-        var baseQuery = BuildCandidateSpecQuery(customerId, processId, machineModelId);
-        var scopedQuery = ApplySpecScopeToQuery(baseQuery, scope);
-        var rawCount = await baseQuery.CountAsync();
-        var scopedCount = await scopedQuery.CountAsync();
-        EnsureCandidateScopeWithinLimit(scopedCount, customerId, processId, machineModelId);
-
-        var scopedSpecs = await scopedQuery
-            .Select(s => new CandidateSpecRow
-            {
-                Id = s.Id,
-                Project = s.Project,
-                Specification = s.Specification,
-                Acceptance = s.Acceptance,
-                Remark = s.Remark,
-                ImportedAt = s.ImportedAt
-            })
-            .ToListAsync();
-
-        // 同一范围内可能存在重复导入（项目+规格相同，但验收/备注完整度不同）。
-        // 这里先做候选去重，优先保留“验收标准非空 > 备注非空 > 导入时间新 > ID大”的记录，
-        // 避免匹配命中到信息缺失的旧记录。
-        var dedupedSpecs = scopedSpecs
-            .GroupBy(s => BuildCandidateDedupKey(s.Project, s.Specification))
-            .Select(g => g
-                .OrderByDescending(s => HasText(s.Acceptance))
-                .ThenByDescending(s => HasText(s.Remark))
-                .ThenByDescending(s => s.ImportedAt)
-                .ThenByDescending(s => s.Id)
-                .First())
-            .ToList();
-
-        _logger.LogInformation(
-            "匹配候选去重: 原始{RawCount}条, 范围内{ScopedCount}条 -> 去重后{DedupedCount}条 (customerId={CustomerId}, processId={ProcessId}, machineModelId={MachineModelId})",
-            rawCount, scopedCount, dedupedSpecs.Count, customerId, processId, machineModelId);
-
-        var candidates = dedupedSpecs.Select(s => new MatchCandidate
-        {
-            SpecId = s.Id,
-            Project = s.Project,
-            Specification = s.Specification,
-            Acceptance = s.Acceptance,
-            Remark = s.Remark
-        }).ToList();
-
-        // 复用 EmbeddingCache（避免每次都重新调用 Embedding API）
-        if (hydrateEmbeddings)
-        {
-            await HydrateCandidateEmbeddingsAsync(candidates, embeddingServiceId);
-        }
-
-        return candidates;
-    }
-
-    private async Task EnsureEmbeddingServiceConfiguredAsync(int? embeddingServiceId)
-    {
-        var configs = await _aiServiceSelector.GetCandidatesAsync(
-            CoreAiServicePurpose.Embedding,
-            embeddingServiceId);
-        if (configs.Count == 0)
-        {
-            throw Failure(400, "Embedding 服务不可用: 未检测到可用的 Embedding 服务配置");
-        }
-    }
-
     private static BatchMatchResult BuildExactMatchBatchResult(
         IReadOnlyList<MatchSource> sources,
         IReadOnlyList<MatchCandidate> candidates,
         MatchingConfig config)
     {
         var lookup = candidates
-            .GroupBy(candidate => BuildCandidateDedupKey(candidate.Project, candidate.Specification))
+            .GroupBy(candidate => MatchingCandidateProvider.BuildCandidateDedupKey(candidate.Project, candidate.Specification))
             .ToDictionary(group => group.Key, group => group.First());
 
         return new BatchMatchResult
@@ -1626,7 +1539,7 @@ public sealed class MatchingWorkflowSupportService
             Results = sources
                 .Select(source =>
                 {
-                    var key = BuildCandidateDedupKey(source.Project, source.Specification);
+                    var key = MatchingCandidateProvider.BuildCandidateDedupKey(source.Project, source.Specification);
                     return lookup.TryGetValue(key, out var candidate)
                         ? CreateExactMatchResult(source, candidate, config)
                         : new MatchResult
@@ -1651,11 +1564,11 @@ public sealed class MatchingWorkflowSupportService
         }
 
         var lookup = candidates
-            .GroupBy(candidate => BuildCandidateDedupKey(candidate.Project, candidate.Specification))
+            .GroupBy(candidate => MatchingCandidateProvider.BuildCandidateDedupKey(candidate.Project, candidate.Specification))
             .ToDictionary(group => group.Key, group => group.First());
 
         return sources.Any(source =>
-            !lookup.ContainsKey(BuildCandidateDedupKey(source.Project, source.Specification)));
+            !lookup.ContainsKey(MatchingCandidateProvider.BuildCandidateDedupKey(source.Project, source.Specification)));
     }
 
     private static List<MatchCandidate> BuildProcessedCandidates(
@@ -1734,126 +1647,6 @@ public sealed class MatchingWorkflowSupportService
         };
     }
 
-    /// <summary>
-    /// 从缓存读取候选项的 Embedding，生成缺失的向量并写入缓存
-    /// </summary>
-    private async Task HydrateCandidateEmbeddingsAsync(List<MatchCandidate> candidates, int? embeddingServiceId)
-    {
-        try
-        {
-            await _specEmbeddingCacheService.HydrateMatchingCandidatesAsync(candidates, embeddingServiceId);
-        }
-        catch (AiServiceUnavailableException ex)
-        {
-            _logger.LogWarning(ex, "匹配候选生成 Embedding 失败");
-            throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "匹配候选生成 Embedding 失败");
-            throw Failure(400, "Embedding 服务不可用: 匹配候选 Embedding 生成失败");
-        }
-    }
-
-    private void EnsureCandidateScopeWithinLimit(
-        int scopedCount,
-        int? customerId,
-        int? processId,
-        int? machineModelId)
-    {
-        if (scopedCount <= MaxScopedCandidateCount)
-        {
-            return;
-        }
-
-        _logger.LogWarning(
-            "匹配范围候选过多，拒绝继续处理: scopedCount={ScopedCount}, limit={Limit}, customerId={CustomerId}, processId={ProcessId}, machineModelId={MachineModelId}",
-            scopedCount,
-            MaxScopedCandidateCount,
-            customerId,
-            processId,
-            machineModelId);
-        throw Failure(400, $"匹配范围内候选数据过多（{scopedCount}条），请按客户/制程/机型缩小范围后重试");
-    }
-
-    private IQueryable<AcceptanceSpec> BuildCandidateSpecQuery(
-        int? customerId,
-        int? processId,
-        int? machineModelId)
-    {
-        var query = _unitOfWork.AcceptanceSpecs.Query();
-
-        if (customerId.HasValue)
-        {
-            query = query.Where(s => s.CustomerId == customerId.Value);
-        }
-
-        if (processId.HasValue)
-        {
-            query = query.Where(s => s.ProcessId == processId.Value);
-        }
-
-        if (machineModelId.HasValue)
-        {
-            query = query.Where(s => s.MachineModelId == machineModelId.Value);
-        }
-
-        return query;
-    }
-
-    private static IQueryable<AcceptanceSpec> ApplySpecScopeToQuery(
-        IQueryable<AcceptanceSpec> query,
-        DataScopeResult scope)
-    {
-        if (scope.IsAll)
-        {
-            return query;
-        }
-
-        var scopedOrgUnitIds = scope.OrgUnitIds
-            .Distinct()
-            .ToArray();
-
-        if (scope.IncludeSelf && scopedOrgUnitIds.Length > 0)
-        {
-            return query.Where(s =>
-                (s.CreatedByUserId.HasValue && s.CreatedByUserId.Value == scope.UserId) ||
-                (s.OwnerOrgUnitId.HasValue && scopedOrgUnitIds.Contains(s.OwnerOrgUnitId.Value)));
-        }
-
-        if (scope.IncludeSelf)
-        {
-            return query.Where(s =>
-                s.CreatedByUserId.HasValue && s.CreatedByUserId.Value == scope.UserId);
-        }
-
-        if (scopedOrgUnitIds.Length > 0)
-        {
-            return query.Where(s =>
-                s.OwnerOrgUnitId.HasValue && scopedOrgUnitIds.Contains(s.OwnerOrgUnitId.Value));
-        }
-
-        return query.Where(_ => false);
-    }
-
-    private static string BuildCandidateDedupKey(string? project, string? specification)
-    {
-        return string.Join(
-            "\u001f",
-            NormalizeForDedup(project),
-            NormalizeForDedup(specification));
-    }
-
-    private static string NormalizeForDedup(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return string.Empty;
-
-        return string.Join(" ", value
-            .Trim()
-            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-    }
-
     private static void EnsureDistinctBatchTableIndexes(IReadOnlyCollection<BatchTableFillMapping> tables)
     {
         var uniqueCount = tables
@@ -1893,58 +1686,6 @@ public sealed class MatchingWorkflowSupportService
     private static bool HasText(string? value)
     {
         return !string.IsNullOrWhiteSpace(value);
-    }
-
-    /// <summary>
-    /// 转换为匹配配置
-    /// </summary>
-    private async Task<MatchingConfig> ConvertToMatchingConfigAsync(MatchConfigDto? dto)
-    {
-        var fallbackConfig = new MatchingConfig();
-        var defaultRecallTopK = await ResolveDefaultRecallTopKAsync(dto?.EmbeddingServiceId);
-
-        return new MatchingConfig
-        {
-            EmbeddingServiceId = dto?.EmbeddingServiceId,
-            LlmServiceId = dto?.LlmServiceId,
-            MinScoreThreshold = dto?.MinScoreThreshold ?? fallbackConfig.MinScoreThreshold,
-            HighConfidenceThreshold = NormalizeHighConfidenceThreshold(dto?.HighConfidenceThreshold ?? fallbackConfig.HighConfidenceThreshold),
-            RecallTopK = Math.Clamp(dto?.RecallTopK ?? defaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK),
-            AmbiguityMargin = Math.Clamp(dto?.AmbiguityMargin ?? fallbackConfig.AmbiguityMargin, 0, 1),
-            LlmParallelism = Math.Clamp(dto?.LlmParallelism ?? fallbackConfig.LlmParallelism, 1, 10),
-            LlmRowTimeoutSeconds = Math.Clamp(dto?.LlmRowTimeoutSeconds ?? fallbackConfig.LlmRowTimeoutSeconds, 5, 300),
-            LlmRetryCount = Math.Clamp(dto?.LlmRetryCount ?? fallbackConfig.LlmRetryCount, 0, 3),
-            LlmCircuitBreakFailures = Math.Clamp(dto?.LlmCircuitBreakFailures ?? fallbackConfig.LlmCircuitBreakFailures, 3, 200),
-            EnableLlmEquivalenceAdjudication = dto?.EnableLlmEquivalenceAdjudication ?? false,
-            ExactMatchOnly = dto?.ExactMatchOnly ?? fallbackConfig.ExactMatchOnly,
-            FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows
-        };
-    }
-
-    private async Task<int> ResolveDefaultRecallTopKAsync(int? embeddingServiceId)
-    {
-        var fallbackConfig = new MatchingConfig();
-        var query = _unitOfWork.AiServiceConfigs
-            .Query()
-            .AsNoTracking()
-            .Where(item =>
-                !item.IsDisabled &&
-                (item.Purpose & AiServicePurpose.Embedding) == AiServicePurpose.Embedding);
-
-        AiServiceConfig? embeddingService;
-        if (embeddingServiceId.HasValue)
-        {
-            embeddingService = await query.FirstOrDefaultAsync(item => item.Id == embeddingServiceId.Value);
-        }
-        else
-        {
-            embeddingService = await query
-                .OrderBy(item => item.Priority)
-                .ThenByDescending(item => item.UpdatedAt ?? item.CreatedAt)
-                .FirstOrDefaultAsync();
-        }
-
-        return embeddingService?.DefaultRecallTopK ?? fallbackConfig.RecallTopK;
     }
 
     private static bool CanApplyMatchedSpec(
@@ -2074,164 +1815,6 @@ public sealed class MatchingWorkflowSupportService
         }
 
         return Math.Clamp(normalized, 0, 100);
-    }
-
-    /// <summary>
-    /// 转换为匹配结果DTO
-    /// </summary>
-    private static MatchResultDto ConvertToMatchResultDto(MatchResult result)
-    {
-        return new MatchResultDto
-        {
-            SpecId = result.MatchedSpecId ?? 0,
-            Project = result.MatchedProject ?? "",
-            Specification = result.MatchedSpecification ?? "",
-            Acceptance = result.MatchedAcceptance,
-            Remark = result.MatchedRemark,
-            Score = result.Score,
-            EmbeddingScore = result.EmbeddingScore,
-            ScoreDetails = result.ScoreDetails,
-            Decision = ToDecisionKey(result.Decision),
-            EvidenceSummary = [.. result.Evidence.Summary],
-            ConflictSummary = [.. result.Evidence.Conflicts],
-            Issues = result.Issues.Select(ConvertToIssueDto).ToList(),
-            Entities = result.Evidence.Entities.Select(ConvertToEntityDto).ToList(),
-            LlmEquivalence = ConvertToLlmEquivalenceDto(result.LlmEquivalence),
-            TopCandidates = result.TopCandidates
-                .Select(candidate => new MatchCandidateDto
-                {
-                    Rank = candidate.Rank,
-                    SpecId = candidate.SpecId,
-                    Project = candidate.Project,
-                    Specification = candidate.Specification,
-                    Acceptance = candidate.Acceptance,
-                    Remark = candidate.Remark,
-                    Score = candidate.Score,
-                    EmbeddingScore = candidate.EmbeddingScore,
-                    ScoreDetails = candidate.ScoreDetails,
-                    Decision = result.MatchedSpecId == candidate.SpecId
-                        ? ToDecisionKey(result.Decision)
-                        : "manualReview",
-                    EvidenceSummary = [.. candidate.Evidence.Summary],
-                    ConflictSummary = [.. candidate.Evidence.Conflicts],
-                    Issues = candidate.Issues.Select(ConvertToIssueDto).ToList(),
-                    Entities = candidate.Evidence.Entities.Select(ConvertToEntityDto).ToList(),
-                    RerankSummary = candidate.RerankSummary,
-                    SelectionMode = ToSelectionModeKey(candidate.SelectionMode),
-                    SelectionSummary = candidate.SelectionSummary,
-                    LlmEquivalence = ConvertToLlmEquivalenceDto(candidate.LlmEquivalence)
-                })
-                .ToList(),
-            RecalledCandidateCount = result.RecalledCandidateCount,
-            IsAmbiguous = result.IsAmbiguous,
-            ScoreGap = result.ScoreGap,
-            RerankSummary = result.RerankSummary,
-            SelectionMode = ToSelectionModeKey(result.SelectionMode),
-            SelectionSummary = result.SelectionSummary
-        };
-    }
-
-    private static LlmEquivalenceDto? ConvertToLlmEquivalenceDto(LlmEquivalenceAdjudicationResult? result)
-    {
-        if (result == null)
-        {
-            return null;
-        }
-
-        return new LlmEquivalenceDto
-        {
-            Verdict = ToEquivalenceVerdictKey(result.Verdict),
-            ReasonType = ToEquivalenceReasonTypeKey(result.ReasonType),
-            Reason = result.Reason,
-            Confidence = result.Confidence
-        };
-    }
-
-    private static string ToEquivalenceVerdictKey(LlmEquivalenceVerdict verdict)
-    {
-        return verdict switch
-        {
-            LlmEquivalenceVerdict.Equivalent => "equivalent",
-            LlmEquivalenceVerdict.Different => "different",
-            _ => "uncertain"
-        };
-    }
-
-    private static string ToEquivalenceReasonTypeKey(LlmEquivalenceReasonType reasonType)
-    {
-        return reasonType switch
-        {
-            LlmEquivalenceReasonType.FormatOnly => "format_only",
-            LlmEquivalenceReasonType.PunctuationOnly => "punctuation_only",
-            LlmEquivalenceReasonType.EquivalentExpression => "equivalent_expression",
-            LlmEquivalenceReasonType.SymbolEquivalent => "symbol_equivalent",
-            LlmEquivalenceReasonType.SemanticDifference => "semantic_difference",
-            LlmEquivalenceReasonType.SymbolConflict => "symbol_conflict",
-            _ => "uncertain"
-        };
-    }
-
-    private static string ToSelectionModeKey(MatchSelectionMode selectionMode)
-    {
-        return selectionMode switch
-        {
-            MatchSelectionMode.ExactShortcut => "exactShortcut",
-            MatchSelectionMode.AiRerank => "aiRerank",
-            _ => "embeddingTop1"
-        };
-    }
-
-    private static MatchEntityEvidenceDto ConvertToEntityDto(EntityEvidence entity)
-    {
-        return new MatchEntityEvidenceDto
-        {
-            EntityType = entity.EntityType,
-            SourceValue = entity.SourceValue,
-            CandidateValue = entity.CandidateValue,
-            NormalizedSourceValue = entity.NormalizedSourceValue,
-            NormalizedCandidateValue = entity.NormalizedCandidateValue,
-            Relation = ToEvidenceRelationKey(entity.Relation)
-        };
-    }
-
-    private static MatchIssueDto ConvertToIssueDto(MatchIssue issue)
-    {
-        return new MatchIssueDto
-        {
-            Code = issue.Code,
-            Severity = issue.Severity,
-            FieldName = issue.FieldName,
-            SourceValue = issue.SourceValue,
-            CandidateValue = issue.CandidateValue,
-            Message = issue.Message,
-            SuggestedAction = issue.SuggestedAction
-        };
-    }
-
-    private static string ToDecisionKey(MatchDecision decision)
-    {
-        return decision switch
-        {
-            MatchDecision.AutoApply => "autoApply",
-            MatchDecision.ManualReview => "manualReview",
-            MatchDecision.Reject => "reject",
-            _ => "manualReview"
-        };
-    }
-
-    private static string ToEvidenceRelationKey(EvidenceRelation relation)
-    {
-        return relation switch
-        {
-            EvidenceRelation.Exact => "exact",
-            EvidenceRelation.Compatible => "compatible",
-            EvidenceRelation.Overlap => "overlap",
-            EvidenceRelation.Conflict => "conflict",
-            EvidenceRelation.AliasSame => "aliasSame",
-            EvidenceRelation.ParentChild => "parentChild",
-            EvidenceRelation.PossiblyRelated => "possiblyRelated",
-            _ => "unknown"
-        };
     }
 
     private async Task<LlmStepOutcome> StreamLlmReviewAsync(
@@ -2579,10 +2162,10 @@ public sealed class MatchingWorkflowSupportService
             BestMatchSpecId = result.MatchedSpecId,
             BestMatchScore = result.Score,
             ScoreDetails = result.ScoreDetails,
-            Decision = ToDecisionKey(result.Decision),
+            Decision = MatchingResultDtoMapper.ToDecisionKey(result.Decision),
             LlmEquivalenceVerdict = result.LlmEquivalence == null
                 ? GetAuthoritativeRequestManualReviewVerdict(requestItem)
-                : ToEquivalenceVerdictKey(result.LlmEquivalence.Verdict),
+                : MatchingResultDtoMapper.ToEquivalenceVerdictKey(result.LlmEquivalence.Verdict),
             IsAmbiguous = result.IsAmbiguous,
             EvidenceSummary = [.. result.Evidence.Summary],
             ConflictSummary = [.. result.Evidence.Conflicts]
