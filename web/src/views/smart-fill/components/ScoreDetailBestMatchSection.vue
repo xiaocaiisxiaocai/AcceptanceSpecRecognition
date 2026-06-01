@@ -35,6 +35,8 @@ const formatOptionalPercent = (value?: number) => {
   if (value === undefined || value === null) return "-";
   return `${(value * 100).toFixed(1)}%`;
 };
+type TagType = "success" | "info" | "warning" | "danger";
+
 const metricCards = computed(() => {
   if (!bestMatch.value) return [];
 
@@ -79,7 +81,7 @@ const explanationRows = computed(() => {
   return rows;
 });
 
-const metaTags = computed(() => {
+const metaTags = computed<Array<{ text: string; type: TagType }>>(() => {
   if (!bestMatch.value) return [];
 
   return [
@@ -200,7 +202,7 @@ const summaryRows = computed(() => {
             :key="tag.text"
             size="small"
             effect="plain"
-            :type="tag.type as any"
+            :type="tag.type"
           >
             {{ tag.text }}
           </el-tag>

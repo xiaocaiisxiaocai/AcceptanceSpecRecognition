@@ -2,29 +2,39 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
-  AiServiceType,
   AiServicePurpose,
   createAiService,
   deleteAiService,
   getAiServiceById,
   getAiServiceList,
-  getAiServiceModels,
   setAiServiceDisabled,
   testAiServiceConnection,
   updateAiService,
-  type AiServiceConfig,
-  type AiServiceModelsResult,
-  type CreateAiServiceRequest,
-  type UpdateAiServiceRequest
+  type AiServiceConfig
 } from "@/api/ai-service";
-import {
-  DEFAULT_RECALL_TOP_K,
-  MAX_RECALL_TOP_K
-} from "@/api/matching";
+import { MAX_RECALL_TOP_K } from "@/api/matching";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import { purposeOptions, serviceTypeOptions } from "./constants";
+import {
+  buildAiServiceConfigSummary,
+  getDefaultPriority,
+  getServiceTypeLabel
+} from "./config-selection";
+import {
+  buildCreateAiServicePayload,
+  buildUpdateAiServicePayload,
+  clearModelOutsidePurpose,
+  createEditAiServiceFormData,
+  createEmptyAiServiceFormData,
+  createNewAiServiceFormData,
+  getAiServiceDialogTitle,
+  getAiServiceSubmitPermission,
+  getAiServiceSubmitSuccessMessage,
+  validateAiServiceFormData
+} from "./form";
+import { useAiServiceModelsProbe } from "./composables/useAiServiceModelsProbe";
 import {
   buildInlineTestResultCard,
   getTestResultCardClass,
@@ -35,7 +45,6 @@ import {
   formatValue,
   hasPurpose,
   isRowLoading,
-  normalizePurpose,
   setRowLoading
 } from "./utils";
 
@@ -47,7 +56,6 @@ const loading = ref(false);
 const tableData = ref<AiServiceConfig[]>([]);
 const showAllConfigs = ref(false);
 const testingState = reactive<Record<string, boolean>>({});
-const probingState = reactive<Record<string, boolean>>({});
 const disabledState = reactive<Record<string, boolean>>({});
 const expandedTestRowKeys = ref<string[]>([]);
 
@@ -95,30 +103,16 @@ const dialogVisible = ref(false);
 const dialogTitle = ref("");
 const isEdit = ref(false);
 const originalApiKey = ref("");
-const modelsDialogVisible = ref(false);
-const modelsLoading = ref(false);
-const modelsInfo = reactive({
-  id: 0,
-  name: "",
-  purpose: AiServicePurpose.Llm,
-  llmModels: [] as string[],
-  embeddingModels: [] as string[],
-  message: ""
-});
-
-const formData = reactive({
-  id: 0,
-  name: "",
-  serviceType: AiServiceType.Ollama,
-  purpose: AiServicePurpose.Llm,
-  priority: 0,
-  endpoint: "",
-  apiKey: "",
-  embeddingModel: "",
-  llmModel: "",
-  disableThinking: false,
-  defaultRecallTopK: DEFAULT_RECALL_TOP_K
-});
+const formData = reactive(createEmptyAiServiceFormData());
+const {
+  probingState,
+  modelsDialogVisible,
+  modelsLoading,
+  modelsInfo,
+  handleProbeModels,
+  loadModels,
+  copyModelName
+} = useAiServiceModelsProbe();
 
 const showInlineTestResult = async (card: InlineTestResultCard) => {
   activeTestResult.value = card;
@@ -139,53 +133,17 @@ const clearInlineTestResult = () => {
 const extractErrorMessage = (error: unknown, fallback: string) =>
   getRequestErrorMessage(error, fallback);
 
-const getServiceTypeLabel = (value: AiServiceType) =>
-  serviceTypeOptions.find(x => x.value === value)?.label || "-";
-
-const pickConfigByPurpose = (purpose: AiServicePurpose) => {
-  const enabledConfigs = tableData.value.filter(item => !item.isDisabled);
-  const exact = enabledConfigs.find(item => item.purpose === purpose);
-  if (exact) return exact;
-  return (
-    enabledConfigs.find(item => hasPurpose(item.purpose, purpose)) || null
-  );
-};
-
-const llmConfig = computed(() => pickConfigByPurpose(AiServicePurpose.Llm));
-const embeddingConfig = computed(() =>
-  pickConfigByPurpose(AiServicePurpose.Embedding)
+const configSummary = computed(() =>
+  buildAiServiceConfigSummary(tableData.value)
 );
-const llmCount = computed(
-  () =>
-    tableData.value.filter(
-      item => !item.isDisabled && hasPurpose(item.purpose, AiServicePurpose.Llm)
-    ).length
-);
-const embeddingCount = computed(
-  () =>
-    tableData.value.filter(
-      item =>
-        !item.isDisabled && hasPurpose(item.purpose, AiServicePurpose.Embedding)
-    ).length
-);
-
-const getDefaultPriority = (purpose: AiServicePurpose) => {
-  const samePurpose = tableData.value
-    .filter(item => item.purpose === purpose)
-    .map(item => item.priority ?? 0);
-  if (samePurpose.length === 0) return 0;
-  return Math.max(...samePurpose) + 1;
-};
+const llmConfig = computed(() => configSummary.value.llmConfig);
+const embeddingConfig = computed(() => configSummary.value.embeddingConfig);
+const llmCount = computed(() => configSummary.value.llmCount);
+const embeddingCount = computed(() => configSummary.value.embeddingCount);
 
 watch(
   () => formData.purpose,
-  value => {
-    if (value === AiServicePurpose.Llm) {
-      formData.embeddingModel = "";
-    } else if (value === AiServicePurpose.Embedding) {
-      formData.llmModel = "";
-    }
-  }
+  () => clearModelOutsidePurpose(formData)
 );
 
 const handleAdd = (purpose: AiServicePurpose) => {
@@ -194,23 +152,16 @@ const handleAdd = (purpose: AiServicePurpose) => {
   ) {
     return;
   }
-  dialogTitle.value = "新增AI服务配置";
   isEdit.value = false;
+  dialogTitle.value = getAiServiceDialogTitle(isEdit.value);
   originalApiKey.value = "";
-  Object.assign(formData, {
-    id: 0,
-    name: "",
-    serviceType: AiServiceType.Ollama,
-    purpose,
-    priority: getDefaultPriority(purpose),
-    endpoint: "http://localhost:11434",
-    apiKey: "",
-    embeddingModel:
-      purpose === AiServicePurpose.Embedding ? "nomic-embed-text" : "",
-    llmModel: "",
-    disableThinking: false,
-    defaultRecallTopK: DEFAULT_RECALL_TOP_K
-  });
+  Object.assign(
+    formData,
+    createNewAiServiceFormData(
+      purpose,
+      getDefaultPriority(tableData.value, purpose)
+    )
+  );
   dialogVisible.value = true;
 };
 
@@ -220,8 +171,8 @@ const handleEdit = async (row: AiServiceConfig) => {
   ) {
     return;
   }
-  dialogTitle.value = "编辑AI服务配置";
   isEdit.value = true;
+  dialogTitle.value = getAiServiceDialogTitle(isEdit.value);
   try {
     const res = await getAiServiceById(row.id);
     if (res.code === 0) {
@@ -236,19 +187,7 @@ const handleEdit = async (row: AiServiceConfig) => {
         );
       }
       originalApiKey.value = (detail.apiKey ?? "").trim();
-      Object.assign(formData, {
-        id: detail.id,
-        name: detail.name,
-        serviceType: detail.serviceType,
-        purpose: normalizePurpose(rawPurpose),
-        priority: detail.priority ?? 0,
-        endpoint: detail.endpoint ?? "",
-        apiKey: detail.apiKey ?? "",
-        embeddingModel: detail.embeddingModel ?? "",
-        llmModel: detail.llmModel ?? "",
-        disableThinking: !!detail.disableThinking,
-        defaultRecallTopK: detail.defaultRecallTopK ?? DEFAULT_RECALL_TOP_K
-      });
+      Object.assign(formData, createEditAiServiceFormData(detail));
     } else {
       ElMessage.error(res.message || "加载配置失败");
       return;
@@ -386,166 +325,33 @@ const handleTest = async (row: AiServiceConfig) => {
   }
 };
 
-const handleProbeModels = async (row: AiServiceConfig) => {
-  if (
-    !ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")
-  ) {
-    return;
-  }
-  if (row.isDisabled) {
-    ElMessage.warning("该配置已禁用，不能探测模型");
-    return;
-  }
-  if (isRowLoading(probingState, row.id)) {
-    return;
-  }
-
-  modelsInfo.id = row.id;
-  modelsInfo.name = row.name;
-  modelsInfo.purpose = row.purpose;
-  modelsInfo.llmModels = [];
-  modelsInfo.embeddingModels = [];
-  modelsInfo.message = "正在探测远端模型，请稍候...";
-  modelsDialogVisible.value = true;
-  await loadModels();
-};
-
-const loadModels = async () => {
-  if (
-    !ensurePermission("btn:ai-service:models", "权限不足，无法探测AI服务模型")
-  ) {
-    return;
-  }
-  if (!modelsInfo.id) return;
-
-  setRowLoading(probingState, modelsInfo.id, true);
-  modelsLoading.value = true;
-  try {
-    const res = await getAiServiceModels(modelsInfo.id);
-    if (res.code === 0) {
-      const data = res.data as AiServiceModelsResult;
-      modelsInfo.llmModels = data.llmModels || [];
-      modelsInfo.embeddingModels = data.embeddingModels || [];
-      modelsInfo.message = data.message || "";
-    } else {
-      modelsInfo.message = res.message || "模型探测失败";
-    }
-  } catch (error) {
-    modelsInfo.message = extractErrorMessage(error, "模型探测失败");
-  } finally {
-    modelsLoading.value = false;
-    setRowLoading(probingState, modelsInfo.id, false);
-  }
-};
-
-const copyModelName = async (name: string) => {
-  if (!name) return;
-  try {
-    await navigator.clipboard.writeText(name);
-    ElMessage.success("已复制模型名称");
-  } catch {
-    try {
-      const textarea = document.createElement("textarea");
-      textarea.value = name;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      const ok = document.execCommand("copy");
-      document.body.removeChild(textarea);
-      if (ok) {
-        ElMessage.success("已复制模型名称");
-      } else {
-        ElMessage.error("复制失败，请手动复制");
-      }
-    } catch {
-      ElMessage.error("复制失败，请手动复制");
-    }
-  }
-};
-
 const handleSubmit = async () => {
+  const submitPermission = getAiServiceSubmitPermission(isEdit.value);
   if (
-    !ensurePermission(
-      isEdit.value ? "btn:ai-service:update" : "btn:ai-service:create",
-      isEdit.value
-        ? "权限不足，无法保存AI服务配置"
-        : "权限不足，无法新增AI服务配置"
-    )
+    !ensurePermission(submitPermission.code, submitPermission.message)
   ) {
     return;
   }
-  if (!formData.name.trim()) {
-    ElMessage.warning("请输入名称");
+  const validateMessage = validateAiServiceFormData(formData);
+  if (validateMessage) {
+    ElMessage.warning(validateMessage);
     return;
-  }
-  if (!formData.purpose) {
-    ElMessage.warning("请至少选择一个用途");
-    return;
-  }
-  if (
-    formData.purpose !== AiServicePurpose.Llm &&
-    formData.purpose !== AiServicePurpose.Embedding
-  ) {
-    ElMessage.warning("用途只能选择一个（LLM 或 Embedding）");
-    return;
-  }
-  if (formData.purpose === AiServicePurpose.Llm && !formData.llmModel.trim()) {
-    ElMessage.warning("请输入 LLM 模型");
-    return;
-  }
-  if (
-    formData.purpose === AiServicePurpose.Embedding &&
-    !formData.embeddingModel.trim()
-  ) {
-    ElMessage.warning("请输入 Embedding 模型");
-    return;
-  }
-
-  const apiKey = formData.apiKey.trim();
-  const embeddingModel = formData.embeddingModel?.trim() || null;
-  const llmModel = formData.llmModel?.trim() || null;
-  const basePayload: CreateAiServiceRequest = {
-    name: formData.name.trim(),
-    serviceType: formData.serviceType,
-    purpose: formData.purpose,
-    priority: formData.priority,
-    endpoint: formData.endpoint?.trim() || null,
-    embeddingModel,
-    llmModel,
-    disableThinking: !!formData.disableThinking,
-    defaultRecallTopK: Math.min(
-      MAX_RECALL_TOP_K,
-      Math.max(1, formData.defaultRecallTopK || DEFAULT_RECALL_TOP_K)
-    )
-  };
-  if (formData.purpose === AiServicePurpose.Llm) {
-    basePayload.embeddingModel = null;
-  }
-  if (formData.purpose === AiServicePurpose.Embedding) {
-    basePayload.llmModel = null;
   }
 
   try {
     const res = await (async () => {
       if (isEdit.value) {
-        const updatePayload: UpdateAiServiceRequest = { ...basePayload };
-        if (apiKey !== originalApiKey.value) {
-          updatePayload.apiKey = apiKey; // 允许清空
-        }
-        return updateAiService(formData.id, updatePayload);
+        return updateAiService(
+          formData.id,
+          buildUpdateAiServicePayload(formData, originalApiKey.value)
+        );
       }
 
-      const createPayload: CreateAiServiceRequest = {
-        ...basePayload,
-        apiKey: apiKey || ""
-      };
-      return createAiService(createPayload);
+      return createAiService(buildCreateAiServicePayload(formData));
     })();
 
     if (res.code === 0) {
-      ElMessage.success(isEdit.value ? "更新成功" : "创建成功");
+      ElMessage.success(getAiServiceSubmitSuccessMessage(isEdit.value));
       dialogVisible.value = false;
       loadData();
     } else {

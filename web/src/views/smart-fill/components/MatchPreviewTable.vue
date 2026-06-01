@@ -20,21 +20,27 @@ import {
 import {
   formatIssueComparison,
   formatPreviewScore,
+  canEditMatchPreviewRow,
+  canUseMatchPreviewBestMatch,
+  filterMatchPreviewItems,
   getAmbiguityHint as getPreviewAmbiguityHint,
+  getConfirmBestMatchButtonText,
   getFillRecommendationTagType as getPreviewFillRecommendationTagType,
   getFillRecommendationText as getPreviewFillRecommendationText,
-  getMatchPreviewDecision,
+  getMatchBasisText,
+  getMatchPreviewStats,
+  getPagedMatchPreviewItems,
   getPreviewConfidenceClass,
   getPreviewConfidenceText,
   getPrimaryIssue,
   getReviewStatusText as getPreviewReviewStatusText,
   getReviewTagType as getPreviewReviewTagType,
-  isExactFillable as isExactFillableByRecommendation,
+  type MatchPreviewScoreFilter,
   isHighConfidenceMatchPreview,
-  isMatchPreviewAutoApply,
-  isMatchPreviewRejectDecision,
   isNoAnswerPlaceholderRow,
-  isPartialFillable as isPartialFillableByRecommendation
+  shouldShowFillRecommendation,
+  shouldShowReasonColumn,
+  shouldShowReasonColumnForItem
 } from "./matchPreviewTable.formatters";
 
 const props = defineProps<{
@@ -107,40 +113,13 @@ const getReviewStatus = (item: MatchPreviewItem): SmartFillReviewStatus =>
 
 const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN);
 
-const getDecision = getMatchPreviewDecision;
-
-const isAutoApply = isMatchPreviewAutoApply;
-
-const isRejectDecision = isMatchPreviewRejectDecision;
-
 const isHighConfidence = isHighConfidenceMatchPreview;
 
-const isReviewInFlight = (item: MatchPreviewItem) =>
-  getReviewStatus(item) === "streaming";
+const canUseBestMatch = (item: MatchPreviewItem) =>
+  canUseMatchPreviewBestMatch(item, getReviewStatus(item));
 
-const canUseBestMatch = (item: MatchPreviewItem) => {
-  if (!item.bestMatch || isNoAnswerPlaceholderRow(item)) {
-    return false;
-  }
-
-  if (isRejectDecision(item)) {
-    return false;
-  }
-
-  if (isReviewInFlight(item)) {
-    return false;
-  }
-
-  return true;
-};
-
-const canEditRow = (item: MatchPreviewItem) => {
-  if (isNoAnswerPlaceholderRow(item) || isReviewInFlight(item)) {
-    return false;
-  }
-
-  return item.bestMatch ? canUseBestMatch(item) : true;
-};
+const canEditRow = (item: MatchPreviewItem) =>
+  canEditMatchPreviewRow(item, getReviewStatus(item));
 
 const initSelections = () => {
   selectedSpecs.value.clear();
@@ -421,12 +400,6 @@ const getFillRecommendation = (
   return tableState.fillRecommendation;
 };
 
-const isExactFillable = (item: MatchPreviewItem) =>
-  isExactFillableByRecommendation(item, getFillRecommendation(item));
-
-const isPartialFillable = (item: MatchPreviewItem) =>
-  isPartialFillableByRecommendation(item, getFillRecommendation(item));
-
 const getFillRecommendationText = (item: MatchPreviewItem) => {
   return getPreviewFillRecommendationText(getFillRecommendation(item));
 };
@@ -448,70 +421,33 @@ const selectedCount = computed(() => {
 });
 
 const stats = computed(() => {
-  const total = props.items.length;
-  const matched = props.items.filter(i => i.hasMatch).length;
-  const exactFillable = props.items.filter(item => isExactFillable(item)).length;
-  const partialFillable = props.items.filter(item => isPartialFillable(item)).length;
-  const review = props.items.filter(
-    item => getFillRecommendation(item) === "review"
-  ).length;
-  const blocked = props.items.filter(
-    item => getFillRecommendation(item) === "blocked"
-  ).length;
-  const unmatched = props.items.filter(
-    item => getFillRecommendation(item) === "unmatched"
-  ).length;
-  const ambiguous = props.items.filter(i => i.bestMatch?.isAmbiguous).length;
-  return {
-    total,
-    matched,
-    exactFillable,
-    partialFillable,
-    review,
-    blocked,
-    unmatched,
-    selected: selectedCount.value,
-    ambiguous
-  };
+  return getMatchPreviewStats(
+    props.items,
+    selectedCount.value,
+    getFillRecommendation
+  );
 });
 
-type ScoreFilter =
-  | "all"
-  | "exactFillable"
-  | "partialFillable"
-  | "review"
-  | "blocked"
-  | "unmatched";
-const scoreFilter = ref<ScoreFilter>("all");
+const scoreFilter = ref<MatchPreviewScoreFilter>("all");
 
 const filteredItems = computed(() => {
-  if (scoreFilter.value === "all") return props.items;
-
-  return props.items.filter(item => {
-    switch (scoreFilter.value) {
-      case "exactFillable":
-        return isExactFillable(item);
-      case "partialFillable":
-        return isPartialFillable(item);
-      default:
-        return getFillRecommendation(item) === scoreFilter.value;
-    }
-  });
+  return filterMatchPreviewItems(
+    props.items,
+    scoreFilter.value,
+    getFillRecommendation
+  );
 });
 
 const pagedFilteredItems = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value;
-  return filteredItems.value.slice(start, start + pageSize.value);
+  return getPagedMatchPreviewItems(
+    filteredItems.value,
+    currentPage.value,
+    pageSize.value
+  );
 });
 
 const hasReasonColumn = computed(() =>
-  props.items.some(
-    item =>
-      !item.hasMatch ||
-      !!item.noMatchReason ||
-      !!item.bestMatch?.conflictSummary?.length ||
-      !!item.llmReviewError
-    )
+  shouldShowReasonColumn(props.items)
 );
 
 watch(scoreFilter, () => {
@@ -686,7 +622,7 @@ defineExpose({
       <el-table-column label="填充建议" width="120" align="center">
         <template #default="{ row }">
           <el-tag
-            v-if="row.bestMatch || !row.hasMatch"
+            v-if="shouldShowFillRecommendation(row)"
             size="small"
             :type="getFillRecommendationTagType(row)"
           >
@@ -726,7 +662,7 @@ defineExpose({
                   type="info"
                   effect="plain"
                 >
-                  匹配依据：{{ row.bestMatch.matchBasis === "specification" ? "规格" : "项目+规格" }}
+                  匹配依据：{{ getMatchBasisText(row.bestMatch.matchBasis) }}
                 </el-tag>
               </div>
             </div>
@@ -876,7 +812,7 @@ defineExpose({
       <el-table-column v-if="hasReasonColumn" label="异常/原因" min-width="220">
         <template #default="{ row }">
           <div
-            v-if="!row.hasMatch || row.noMatchReason || row.bestMatch?.conflictSummary?.length || row.llmReviewError"
+            v-if="shouldShowReasonColumnForItem(row)"
             class="reason-cell"
           >
             <div v-if="!row.hasMatch" class="reason-text">
@@ -923,9 +859,7 @@ defineExpose({
               @click="handleSelectBest(row)"
             >
               {{
-                isHighConfidence(row)
-                  ? "使用匹配"
-                  : "确认采用"
+                getConfirmBestMatchButtonText(row)
               }}
             </el-button>
             <el-button

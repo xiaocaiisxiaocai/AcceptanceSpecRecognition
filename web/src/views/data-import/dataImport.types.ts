@@ -80,6 +80,14 @@ export type ImportPreviewGroup = {
   rows: ImportPreviewRow[];
 };
 
+export type SkippedPreviewColumn = { index: number; label: string };
+
+export type SkippedRowsGroup = {
+  tableIndex: number;
+  rows: ImportSkippedRowWithTable[];
+  columns: SkippedPreviewColumn[];
+};
+
 export type ImportBatchExecutionResult = {
   aggregate: CombinedImportResult;
   tableAggregates: CombinedImportResult[];

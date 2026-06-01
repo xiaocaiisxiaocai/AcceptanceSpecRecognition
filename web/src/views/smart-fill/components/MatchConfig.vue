@@ -51,6 +51,30 @@ const matchingModeOptions: Array<{ label: string; value: MatchingMode; hint: str
   { label: "项目+规格", value: "projectSpecification", hint: "保持现有匹配方式" },
   { label: "仅规格", value: "specificationOnly", hint: "允许项目不一致时按规格命中" }
 ];
+const matchConfigSyncKeys = [
+  "embeddingServiceId",
+  "llmServiceId",
+  "minScoreThreshold",
+  "highConfidenceThreshold",
+  "recallTopK",
+  "ambiguityMargin",
+  "llmParallelism",
+  "llmRowTimeoutSeconds",
+  "llmRetryCount",
+  "llmCircuitBreakFailures",
+  "matchingMode",
+  "enableLlmEquivalenceAdjudication",
+  "exactMatchOnly",
+  "filterEmptySourceRows"
+] satisfies Array<keyof MatchConfig>;
+const syncMatchConfigField = <K extends keyof MatchConfig>(
+  key: K,
+  source: MatchConfig
+) => {
+  if (config.value[key] !== source[key]) {
+    config.value[key] = source[key];
+  }
+};
 
 const hasExplicitMatchingDefaults = computed(() => {
   const incoming = props.modelValue;
@@ -74,11 +98,8 @@ watch(
   (val) => {
     if (isInternalUpdate) return;
     const source = { ...defaultMatchConfig, ...val };
-    const keys = Object.keys(source) as (keyof typeof source)[];
-    for (const key of keys) {
-      if ((config.value as any)[key] !== (source as any)[key]) {
-        (config.value as any)[key] = (source as any)[key];
-      }
+    for (const key of matchConfigSyncKeys) {
+      syncMatchConfigField(key, source);
     }
   },
   { immediate: true }

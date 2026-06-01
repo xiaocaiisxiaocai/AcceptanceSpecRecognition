@@ -19,6 +19,7 @@ import {
 } from "@/api/column-mapping-rules";
 import {
   createDefaultExcelMapping,
+  buildSkippedRowsGroups,
   defaultExcelMapping,
   defaultWordMapping,
   normalizeExcelMappingByTable
@@ -34,12 +35,10 @@ import {
 } from "./dataImport.difference-formatters";
 import { applyWordRulesToWordMapping } from "@/views/shared/word-column-mapping-rules";
 import type {
-  CombinedImportResult,
   DifferenceDecision,
-  ImportErrorWithTable,
   ImportPendingDifferenceWithTable,
-  ImportSkippedRowWithTable,
   MappingClipboard,
+  SkippedRowsGroup,
   TableImportConfig
 } from "./dataImport.types";
 import {
@@ -48,6 +47,7 @@ import {
 } from "./composables/useDataImportExecution";
 import { useDataImportBatchExecution } from "./composables/useDataImportBatchExecution";
 import { useDataImportMapping } from "./composables/useDataImportMapping";
+import { useDataImportPermissions } from "./dataImport.permissions";
 import { useDataImportPreviewSelection } from "./composables/useDataImportPreviewSelection";
 import { useDataImportTarget } from "./composables/useDataImportTarget";
 import { useDataImportStoreHook } from "@/store/modules/dataImport";
@@ -90,34 +90,15 @@ const steps = computed(() => [
   { title: "确认导入", description: "预览并确认" }
 ]);
 
-const canUploadSourceFile = computed(() => hasPerms("btn:document:upload"));
-const canImportWord = computed(() => hasPerms("btn:document:import"));
-const canImportExcel = computed(() => hasPerms("btn:excel-document:import"));
-const canImportAny = computed(() => canImportWord.value || canImportExcel.value);
-const canImportCurrentFile = computed(() =>
-  isExcelFile.value ? canImportExcel.value : canImportWord.value
-);
-const currentImportPermissionCode = computed(() =>
-  isExcelFile.value ? "btn:excel-document:import" : "btn:document:import"
-);
-const currentImportPermissionMessage = computed(() =>
-  isExcelFile.value
-    ? "权限不足，无法导入 Excel 数据"
-    : "权限不足，无法导入 Word 数据"
-);
-const uploadAccept = computed(() => {
-  if (canImportWord.value && canImportExcel.value) return ".docx,.xlsx";
-  if (canImportWord.value) return ".docx";
-  if (canImportExcel.value) return ".xlsx";
-  return "";
-});
-const uploadBlockedMessage = computed(() => {
-  if (!canUploadSourceFile.value) {
-    return "当前账号没有文档上传权限";
-  }
-
-  return "当前账号没有数据导入权限";
-});
+const {
+  canUploadSourceFile,
+  canImportAny,
+  canImportCurrentFile,
+  currentImportPermissionCode,
+  currentImportPermissionMessage,
+  uploadAccept,
+  uploadBlockedMessage
+} = useDataImportPermissions({ isExcelFile, hasPermission: hasPerms });
 
 const mappingClipboard = ref<MappingClipboard | null>(null);
 const mappingClipboardSourceIndex = ref<number | null>(null);
@@ -883,52 +864,9 @@ watch(
   { immediate: true }
 );
 
-type SkippedPreviewColumn = { index: number; label: string };
-type SkippedRowsGroup = {
-  tableIndex: number;
-  rows: ImportSkippedRowWithTable[];
-  columns: SkippedPreviewColumn[];
-};
-
-const skippedRowsGroups = computed<SkippedRowsGroup[]>(() => {
-  const rows = importResult.value?.skippedRows || [];
-  if (rows.length === 0) return [];
-
-  const grouped = new Map<number, ImportSkippedRowWithTable[]>();
-  for (const row of rows) {
-    const list = grouped.get(row.tableIndex) || [];
-    list.push(row);
-    grouped.set(row.tableIndex, list);
-  }
-
-  return Array.from(grouped.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([tableIndex, groupRows]) => {
-      const tableCfg = tableConfigs.value.find(cfg => cfg.tableIndex === tableIndex);
-      const headers = tableCfg?.previewData?.headers || tableCfg?.tableInfo?.headers || [];
-      const maxColumnCount = groupRows.reduce(
-        (max, row) => Math.max(max, row.rowValues?.length || 0),
-        0
-      );
-
-      const columns: SkippedPreviewColumn[] = Array.from(
-        { length: maxColumnCount },
-        (_, i) => {
-          const header = (headers[i] || "").trim();
-          return {
-            index: i,
-            label: header || `列${i + 1}`
-          };
-        }
-      );
-
-      return {
-        tableIndex,
-        rows: groupRows,
-        columns
-      };
-    });
-});
+const skippedRowsGroups = computed<SkippedRowsGroup[]>(() =>
+  buildSkippedRowsGroups(importResult.value?.skippedRows || [], tableConfigs.value)
+);
 </script>
 
 <template>

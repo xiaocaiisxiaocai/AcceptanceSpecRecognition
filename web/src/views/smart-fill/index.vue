@@ -18,6 +18,7 @@ import {
   buildSmartFillExecuteRequest,
   type SmartFillSelection
 } from "./smartFillExecution.helpers";
+import { triggerBrowserDownload } from "./smartFillDownload.helpers";
 import {
   batchPreviewMatch,
   batchExecuteFill,
@@ -47,6 +48,8 @@ import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
+import { useSmartFillBackfillState } from "./composables/useSmartFillBackfillState";
+import { useSmartFillPreviewBlocking } from "./composables/useSmartFillPreviewBlocking";
 
 defineOptions({ name: "FillData" });
 
@@ -160,17 +163,6 @@ if (typeof window !== "undefined") {
   useEventListener(window, "offline", handleWindowOffline);
 }
 
-const triggerBrowserDownload = (blob: Blob, fileName: string) => {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
-};
-
 // 页面卸载时清理进行中的预览/流式请求，防止离页后继续占用资源
 onBeforeUnmount(() => {
   invalidatePendingPreview();
@@ -193,25 +185,6 @@ const executing = ref(false);
 const downloadingResult = ref(false);
 const taskId = ref<string | null>(null);
 const lastDownloadFailed = ref(false);
-const previewState = ref<"none" | "noScopeCandidates" | "embeddingUnavailable" | "emptyResults">("none");
-const previewFailureDetail = ref("");
-type SmartFillBackfillCandidate = {
-  tableIndex: number;
-  rowIndex: number;
-  specId?: number;
-  sourceProject: string;
-  sourceSpecification: string;
-  originalAcceptance?: string;
-  originalRemark?: string;
-  overrideAcceptance?: string;
-  overrideRemark?: string;
-  actionType: "update" | "create";
-  selected: boolean;
-};
-const backfillDialogVisible = ref(false);
-const backfillCandidates = ref<SmartFillBackfillCandidate[]>([]);
-const pendingExecuteRequest = ref<BatchExecuteFillRequest | null>(null);
-const backfillingSpecs = ref(false);
 const matchScope = ref<{
   customerId?: number;
   processId?: number;
@@ -222,13 +195,6 @@ const matchScope = ref<{
   machineModelId: undefined
 });
 
-const resetPendingBackfillState = () => {
-  pendingExecuteRequest.value = null;
-  backfillCandidates.value = [];
-  backfillDialogVisible.value = false;
-  backfillingSpecs.value = false;
-};
-
 const resetMatchScope = () => {
   matchScope.value = {
     customerId: undefined,
@@ -236,10 +202,6 @@ const resetMatchScope = () => {
     machineModelId: undefined
   };
 };
-
-const selectedBackfillCandidates = computed(() =>
-  backfillCandidates.value.filter(item => item.selected)
-);
 
 // 所有预览项（扁平化）
 const allPreviewItems = computed(() =>
@@ -252,80 +214,30 @@ const getMatchConfigServiceStatus = () =>
     hasAvailableLlmService: true
   };
 
-const getPrePreviewBlockingMessage = () => {
-  if (matchConfig.value.exactMatchOnly) {
-    return "";
-  }
+const {
+  backfillDialogVisible,
+  backfillCandidates,
+  pendingExecuteRequest,
+  backfillingSpecs,
+  selectedBackfillCandidates,
+  resetPendingBackfillState,
+  closeBackfillDialog,
+  openBackfillDialog,
+  setBackfillingSpecs,
+  clearPendingExecuteRequest
+} = useSmartFillBackfillState();
 
-  const { hasAvailableEmbeddingService } = getMatchConfigServiceStatus();
-  if (!hasAvailableEmbeddingService) {
-    return "请先配置可用的 Embedding 服务";
-  }
-
-  return "";
-};
-
-const previewBlockingMessage = computed(() => {
-  const prePreviewMessage = getPrePreviewBlockingMessage();
-  if (prePreviewMessage) {
-    return prePreviewMessage;
-  }
-
-  if (matchConfig.value.exactMatchOnly && previewState.value === "embeddingUnavailable") {
-    return "";
-  }
-
-  switch (previewState.value) {
-    case "noScopeCandidates":
-      return "当前范围内没有可用于匹配的验收规格";
-    case "embeddingUnavailable":
-      return "请先配置可用的 Embedding 服务";
-    case "emptyResults":
-      return "未找到可匹配的数据";
-    default:
-      return "";
-  }
+const {
+  previewBlockingMessage,
+  previewBlockingHint,
+  getPrePreviewBlockingMessage,
+  resetPreviewState,
+  markPreviewEmptyResults,
+  resolvePreviewFailure
+} = useSmartFillPreviewBlocking({
+  matchConfig,
+  getMatchConfigServiceStatus
 });
-
-const previewBlockingHint = computed(() => {
-  switch (previewState.value) {
-    case "noScopeCandidates":
-      return "请调整客户、制程、机型范围，或先补充对应验收规格。";
-    case "embeddingUnavailable":
-      return previewFailureDetail.value || "当前未检测到可用的 Embedding 服务。";
-    case "emptyResults":
-      return "当前表格没有命中可匹配结果，请检查源项目/规格列是否选择正确。";
-    default:
-      return getPrePreviewBlockingMessage()
-        ? "请前往 AI 服务配置启用至少一个带 Embedding 模型的服务。"
-        : "";
-  }
-});
-
-const resetPreviewState = () => {
-  previewState.value = "none";
-  previewFailureDetail.value = "";
-};
-
-const resolvePreviewFailure = (message?: string) => {
-  const normalizedMessage = (message || "").trim();
-
-  if (normalizedMessage.includes("范围内无候选数据")) {
-    previewState.value = "noScopeCandidates";
-    previewFailureDetail.value = normalizedMessage || "范围内无候选数据";
-    return normalizedMessage || "范围内无候选数据";
-  }
-
-  if (normalizedMessage.includes("Embedding 服务不可用")) {
-    previewState.value = "embeddingUnavailable";
-    previewFailureDetail.value = normalizedMessage || "Embedding 服务不可用";
-    return normalizedMessage || "Embedding 服务不可用";
-  }
-
-  previewState.value = "none";
-  previewFailureDetail.value = normalizedMessage;
-  return normalizedMessage || "匹配预览失败";
-};
 
 const handleScopeChange = (
   customerId?: number,
@@ -525,8 +437,7 @@ const doPreview = async () => {
       batchPreviewResults.value = res.data.tables;
       const hasPreviewRows = res.data.tables.some(table => table.items.length > 0);
       if (!hasPreviewRows) {
-        previewState.value = "emptyResults";
-        previewFailureDetail.value = "未找到可匹配的数据";
+        markPreviewEmptyResults();
         ElMessage.warning("未找到可匹配的数据");
       } else {
         resetPreviewState();
@@ -831,10 +742,6 @@ const runExecuteFill = async (request: BatchExecuteFillRequest) => {
   }
 };
 
-const closeBackfillDialog = () => {
-  backfillDialogVisible.value = false;
-};
-
 const executePendingWithoutBackfill = async () => {
   const request = pendingExecuteRequest.value;
   if (!request) return;
@@ -846,7 +753,7 @@ const executePendingWithoutBackfill = async () => {
   } catch {
     ElMessage.error("填充失败");
   } finally {
-    pendingExecuteRequest.value = null;
+    clearPendingExecuteRequest();
     executing.value = false;
   }
 };
@@ -864,7 +771,7 @@ const confirmBackfillAndExecute = async () => {
     return;
   }
 
-  backfillingSpecs.value = true;
+  setBackfillingSpecs(true);
   executing.value = true;
   try {
     if (selected.length > 0) {
@@ -889,11 +796,11 @@ const confirmBackfillAndExecute = async () => {
 
     closeBackfillDialog();
     await runExecuteFill(request);
-    pendingExecuteRequest.value = null;
+    clearPendingExecuteRequest();
   } catch (error) {
     ElMessage.error(getRequestErrorMessage(error, "回填或填充失败"));
   } finally {
-    backfillingSpecs.value = false;
+    setBackfillingSpecs(false);
     executing.value = false;
   }
 };
@@ -933,9 +840,7 @@ const handleExecute = async () => {
     ?.getAllEditedBackfillItems()
     .map(item => ({ ...item, selected: true })) ?? [];
   if (editedItems.length > 0) {
-    pendingExecuteRequest.value = executeRequest;
-    backfillCandidates.value = editedItems;
-    backfillDialogVisible.value = true;
+    openBackfillDialog(executeRequest, editedItems);
     return;
   }
 

@@ -16,10 +16,8 @@ import {
   uploadBatchReplySource,
   uploadBatchReplyTargets,
   type BatchReplyDuplicateGroup,
-  type BatchReplyDuplicateResolution,
   type BatchReplyDuplicateStrategy,
   type BatchReplyExecuteResponse,
-  type BatchReplyTablePreviewResponse,
   type BatchReplyUploadedTargetFile
 } from "@/api/matching";
 import type { TableData, TableInfo } from "@/api/document";
@@ -38,42 +36,33 @@ import {
   resolveDefaultSourceTableIndex,
   toBatchTableConfig
 } from "./batch-reply-table-config";
+import {
+  applyDuplicateResolutionState,
+  buildDuplicateDialogState,
+  getDuplicateSourceLabel,
+  updateDuplicateDialogStrategyState,
+  type BatchReplyDuplicateDialogState
+} from "./batch-reply-duplicates";
+import {
+  buildBatchReplyExecuteRequest,
+  buildBatchReplyExecuteSuccessMessage,
+  triggerBrowserDownload
+} from "./batch-reply-execution";
+import {
+  buildBatchReplyDerivedState,
+  buildBatchReplyPermissionState,
+  getBatchReplyResultFiles,
+  type BatchReplySourceFileState,
+  type BatchReplyTargetState
+} from "./batch-reply-state";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({ name: "BatchReplyPage" });
 
-type BatchReplySourceFile = {
-  sessionId: string;
-  sourceFileName: string;
-  sourceFileType: number;
-  tableCount: number;
-};
-
-type BatchReplyTargetState = {
-  targetId: string;
-  fileName: string;
-  fileType: number;
-  tableCount: number;
-  size: number;
-  signature: string;
-  tables: TableInfo[];
-  configs: BatchTableConfigItem[];
-  previewResults: Record<number, BatchReplyTablePreviewResponse | null>;
-  previewLoadingTableIndex?: number;
-};
-
-type BatchReplyDuplicateDialogState = {
-  targetId: string;
-  tableIndex: number;
-  sourceTableIndex: number;
-  groups: BatchReplyDuplicateGroup[];
-  strategies: Record<string, BatchReplyDuplicateStrategy>;
-};
-
 const activeRootTab = ref("source");
 const activeSourceFileTab = ref("");
-const sourceFile = ref<BatchReplySourceFile | null>(null);
+const sourceFile = ref<BatchReplySourceFileState | null>(null);
 const sourceTables = ref<TableInfo[]>([]);
 const sourceConfigs = ref<BatchTableConfigItem[]>([]);
 const targetFiles = ref<BatchReplyTargetState[]>([]);
@@ -89,23 +78,28 @@ const pendingTargetUploadFiles = ref<File[]>([]);
 const pendingTargetUploadSignatures = ref<string[]>([]);
 let targetUploadFlushTimer: number | undefined;
 
-const sourceSessionId = computed(() => sourceFile.value?.sessionId ?? "");
-const sourceIsExcel = computed(() => sourceFile.value?.sourceFileType === 1);
-const targetAccept = computed(() => (sourceIsExcel.value ? ".xlsx" : ".docx"));
-const canUploadSourceFile = computed(() => hasPerms("api:batch-reply:upload-source"));
-const canUploadTargetFile = computed(() => hasPerms("api:batch-reply:upload"));
-const canPreviewBatchReply = computed(() => hasPerms("btn:batch-reply:preview"));
-const canExecuteBatchReply = computed(() => hasPerms("btn:batch-reply:execute"));
-const canDownloadBatchReply = computed(() => hasPerms("api:batch-reply:download"));
-const selectedSourceConfigs = computed(() => sourceConfigs.value.filter(item => item.selected));
-const selectedSourceTableOptions = computed(() =>
-  selectedSourceConfigs.value.map(item => ({
-    value: item.tableIndex,
-    label: item.tableInfo.name || `来源表 ${item.tableIndex + 1}`
-  }))
+const permissionState = computed(() => buildBatchReplyPermissionState(hasPerms));
+const batchReplyState = computed(() =>
+  buildBatchReplyDerivedState({
+    sourceFile: sourceFile.value,
+    sourceConfigs: sourceConfigs.value,
+    targetFiles: targetFiles.value,
+    duplicateDialogVisible: duplicateDialog.value !== null,
+    permissions: permissionState.value
+  })
 );
-const executableTargets = computed(() => targetFiles.value.filter(isTargetExecutable));
-const duplicateDialogVisible = computed(() => duplicateDialog.value !== null);
+const sourceSessionId = computed(() => batchReplyState.value.sourceSessionId);
+const sourceIsExcel = computed(() => batchReplyState.value.sourceIsExcel);
+const targetAccept = computed(() => batchReplyState.value.targetAccept);
+const canUploadSourceFile = computed(() => permissionState.value.canUploadSourceFile);
+const canUploadTargetFile = computed(() => permissionState.value.canUploadTargetFile);
+const canPreviewBatchReply = computed(() => permissionState.value.canPreviewBatchReply);
+const selectedSourceConfigs = computed(() => batchReplyState.value.selectedSourceConfigs);
+const selectedSourceTableOptions = computed(() => batchReplyState.value.selectedSourceTableOptions);
+const executableTargets = computed(() => batchReplyState.value.executableTargets);
+const duplicateDialogVisible = computed(() => batchReplyState.value.duplicateDialogVisible);
+const executeDisabled = computed(() => batchReplyState.value.executeDisabled);
+const resultFiles = computed(() => getBatchReplyResultFiles(executeResult.value));
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -377,55 +371,19 @@ const removeTargetFile = (targetId: string) => {
   }
 };
 
-const getDuplicateResolutionFromConfig = (
-  resolutions: BatchReplyDuplicateResolution[] | undefined,
-  groupId: string
-) => resolutions?.find(item => item.groupId === groupId)?.strategy;
-
-const upsertDuplicateResolutions = (
-  resolutions: BatchReplyDuplicateResolution[] | undefined,
-  nextResolution: BatchReplyDuplicateResolution
-) => {
-  const nextList = [...(resolutions ?? [])];
-  const existingIndex = nextList.findIndex(item => item.groupId === nextResolution.groupId);
-  if (existingIndex >= 0) {
-    nextList[existingIndex] = nextResolution;
-  } else {
-    nextList.push(nextResolution);
-  }
-
-  return nextList;
-};
-
-const getDuplicateSourceLabel = (duplicateSource: BatchReplyDuplicateGroup["duplicateSource"]) =>
-  duplicateSource === "source" ? "来源表重复" : "目标表重复";
-
 const openDuplicateDialog = (
   targetId: string,
   item: BatchTableConfigItem,
   groups: BatchReplyDuplicateGroup[]
 ) => {
   const targetFile = targetFiles.value.find(file => file.targetId === targetId);
-  const strategies = Object.fromEntries(
-    groups.map(group => {
-      const config =
-        group.duplicateSource === "source"
-          ? sourceConfigs.value.find(source => source.tableIndex === group.tableIndex)
-          : targetFile?.configs.find(configItem => configItem.tableIndex === group.tableIndex);
-      return [
-        group.groupId,
-        getDuplicateResolutionFromConfig(config?.duplicateResolutions, group.groupId) ?? "keepFirst"
-      ];
-    })
-  ) as Record<string, BatchReplyDuplicateStrategy>;
-
-  duplicateDialog.value = {
+  duplicateDialog.value = buildDuplicateDialogState({
     targetId,
-    tableIndex: item.tableIndex,
-    sourceTableIndex: item.sourceTableIndex ?? item.tableIndex,
+    item,
     groups,
-    strategies
-  };
+    sourceConfigs: sourceConfigs.value,
+    targetConfigs: targetFile?.configs
+  });
 };
 
 const closeDuplicateDialog = () => {
@@ -436,63 +394,21 @@ const updateDuplicateDialogStrategy = (
   groupId: string,
   strategy: BatchReplyDuplicateStrategy
 ) => {
-  if (!duplicateDialog.value) {
-    return;
-  }
-
-  duplicateDialog.value = {
-    ...duplicateDialog.value,
-    strategies: {
-      ...duplicateDialog.value.strategies,
-      [groupId]: strategy
-    }
-  };
+  duplicateDialog.value = updateDuplicateDialogStrategyState(
+    duplicateDialog.value,
+    groupId,
+    strategy
+  );
 };
 
 const applyDuplicateResolutions = (dialog: BatchReplyDuplicateDialogState) => {
-  const groupedResolutions = dialog.groups.reduce(
-    (acc, group) => {
-      const resolution: BatchReplyDuplicateResolution = {
-        groupId: group.groupId,
-        strategy: dialog.strategies[group.groupId] ?? "keepFirst"
-      };
-      if (group.duplicateSource === "source") {
-        acc.source[group.tableIndex] = upsertDuplicateResolutions(acc.source[group.tableIndex], resolution);
-      } else {
-        acc.target[group.tableIndex] = upsertDuplicateResolutions(acc.target[group.tableIndex], resolution);
-      }
-      return acc;
-    },
-    {
-      source: {} as Record<number, BatchReplyDuplicateResolution[]>,
-      target: {} as Record<number, BatchReplyDuplicateResolution[]>
-    }
-  );
-
-  sourceConfigs.value = sourceConfigs.value.map(config =>
-    groupedResolutions.source[config.tableIndex]
-      ? {
-          ...config,
-          duplicateResolutions: groupedResolutions.source[config.tableIndex]
-        }
-      : config
-  );
-
-  targetFiles.value = targetFiles.value.map(file =>
-    file.targetId !== dialog.targetId
-      ? file
-      : {
-          ...file,
-          configs: file.configs.map(config =>
-            groupedResolutions.target[config.tableIndex]
-              ? {
-                  ...config,
-                  duplicateResolutions: groupedResolutions.target[config.tableIndex]
-                }
-              : config
-          )
-        }
-  );
+  const nextState = applyDuplicateResolutionState({
+    dialog,
+    sourceConfigs: sourceConfigs.value,
+    targetFiles: targetFiles.value
+  });
+  sourceConfigs.value = nextState.sourceConfigs;
+  targetFiles.value = nextState.targetFiles;
 };
 
 const confirmDuplicateDialog = async () => {
@@ -655,14 +571,13 @@ const executeReadyTargets = async () => {
 
   executing.value = true;
   try {
-    const res = await executeBatchReply({
-      sessionId: sourceSessionId.value,
-      sourceTables: selectedSourceConfigs.value.map(toBatchTableConfig),
-      targets: executableTargets.value.map(target => ({
-        targetId: target.targetId,
-        tables: target.configs.filter(item => item.selected).map(toBatchTableConfig)
-      }))
-    });
+    const res = await executeBatchReply(
+      buildBatchReplyExecuteRequest({
+        sessionId: sourceSessionId.value,
+        sourceConfigs: selectedSourceConfigs.value,
+        executableTargets: executableTargets.value
+      })
+    );
 
     if (res.code !== 0) {
       ElMessage.error(res.message || "批量回复执行失败");
@@ -673,27 +588,12 @@ const executeReadyTargets = async () => {
     activeRootTab.value = "result";
     const blob = await downloadBatchReplyResult(res.data.taskId);
     triggerBrowserDownload(blob, res.data.downloadFileName);
-    ElMessage.success(
-      res.data.failedCount > 0
-        ? `批量回复完成，成功 ${res.data.successCount} 份，失败 ${res.data.failedCount} 份`
-        : `批量回复完成，成功 ${res.data.successCount} 份`
-    );
+    ElMessage.success(buildBatchReplyExecuteSuccessMessage(res.data));
   } catch {
     ElMessage.error("批量回复执行失败");
   } finally {
     executing.value = false;
   }
-};
-
-const triggerBrowserDownload = (blob: Blob, fileName: string) => {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
 };
 </script>
 
@@ -946,7 +846,7 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
             <el-button
               type="success"
               :loading="executing"
-              :disabled="executableTargets.length === 0 || !canExecuteBatchReply || !canDownloadBatchReply"
+              :disabled="executeDisabled"
               @click="executeReadyTargets"
             >
               执行已完成目标文件
@@ -968,7 +868,7 @@ const triggerBrowserDownload = (blob: Blob, fileName: string) => {
               show-icon
             />
 
-            <el-table class="preview-table" :data="executeResult.files" border>
+            <el-table class="preview-table" :data="resultFiles" border>
               <el-table-column prop="fileName" label="文件名" min-width="280" />
               <el-table-column label="结果" width="120" align="center">
                 <template #default="{ row }">

@@ -323,7 +323,7 @@ const getPreviewResult = (tableIndex: number) => {
       <el-checkbox
         :model-value="allSelected"
         :indeterminate="selectedCount > 0 && !allSelected"
-        @change="(v: any) => toggleSelectAll(!!v)"
+        @change="(v: string | number | boolean) => toggleSelectAll(Boolean(v))"
       >
         全选
       </el-checkbox>

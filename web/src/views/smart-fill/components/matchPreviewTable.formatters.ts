@@ -4,6 +4,30 @@ import type {
   SmartFillReviewStatus
 } from "./scoreDetail.formatters";
 
+export type MatchPreviewScoreFilter =
+  | "all"
+  | "exactFillable"
+  | "partialFillable"
+  | "review"
+  | "blocked"
+  | "unmatched";
+
+export type MatchPreviewStats = {
+  total: number;
+  matched: number;
+  exactFillable: number;
+  partialFillable: number;
+  review: number;
+  blocked: number;
+  unmatched: number;
+  selected: number;
+  ambiguous: number;
+};
+
+type FillRecommendationGetter = (
+  item: MatchPreviewItem
+) => SmartFillFillRecommendation;
+
 export const isNoAnswerPlaceholderRow = (item: MatchPreviewItem) => {
   const project = (item.sourceProject || "").trim();
   const specification = (item.sourceSpecification || "").trim();
@@ -24,6 +48,67 @@ export const isMatchPreviewRejectDecision = (item: MatchPreviewItem) =>
 
 export const isHighConfidenceMatchPreview = (item: MatchPreviewItem) =>
   isMatchPreviewAutoApply(item) && item.confidenceLevel === "high";
+
+export const isMatchPreviewReviewInFlight = (
+  status: SmartFillReviewStatus
+) => status === "streaming";
+
+export const canUseMatchPreviewBestMatch = (
+  item: MatchPreviewItem,
+  reviewStatus: SmartFillReviewStatus
+) => {
+  if (!item.bestMatch || isNoAnswerPlaceholderRow(item)) {
+    return false;
+  }
+
+  if (isMatchPreviewRejectDecision(item)) {
+    return false;
+  }
+
+  if (isMatchPreviewReviewInFlight(reviewStatus)) {
+    return false;
+  }
+
+  return true;
+};
+
+export const canEditMatchPreviewRow = (
+  item: MatchPreviewItem,
+  reviewStatus: SmartFillReviewStatus
+) => {
+  if (
+    isNoAnswerPlaceholderRow(item) ||
+    isMatchPreviewReviewInFlight(reviewStatus)
+  ) {
+    return false;
+  }
+
+  return item.bestMatch
+    ? canUseMatchPreviewBestMatch(item, reviewStatus)
+    : true;
+};
+
+export const shouldShowFillRecommendation = (item: MatchPreviewItem) =>
+  !!item.bestMatch || !item.hasMatch;
+
+export const getMatchBasisText = (
+  matchBasis?: MatchPreviewItem["bestMatch"]["matchBasis"]
+) => {
+  if (!matchBasis) return "";
+  return matchBasis === "specification" ? "规格" : "项目+规格";
+};
+
+export const getConfirmBestMatchButtonText = (item: MatchPreviewItem) =>
+  isHighConfidenceMatchPreview(item) ? "使用匹配" : "确认采用";
+
+export const shouldShowReasonColumnForItem = (item: MatchPreviewItem) =>
+  !item.hasMatch ||
+  !!item.noMatchReason ||
+  !!item.bestMatch?.conflictSummary?.length ||
+  !!item.llmReviewError;
+
+export const shouldShowReasonColumn = (items: MatchPreviewItem[]) =>
+  items.some(shouldShowReasonColumnForItem);
 
 export const getPreviewConfidenceClass = (level: string) => {
   switch (level) {
@@ -175,4 +260,63 @@ export const getFillRecommendationTagType = (
     default:
       return "warning";
   }
+};
+
+export const getMatchPreviewStats = (
+  items: MatchPreviewItem[],
+  selectedCount: number,
+  getFillRecommendation: FillRecommendationGetter
+): MatchPreviewStats => {
+  const initialStats: MatchPreviewStats = {
+    total: items.length,
+    matched: 0,
+    exactFillable: 0,
+    partialFillable: 0,
+    review: 0,
+    blocked: 0,
+    unmatched: 0,
+    selected: selectedCount,
+    ambiguous: 0
+  };
+
+  return items.reduce((stats, item) => {
+    const recommendation = getFillRecommendation(item);
+    if (item.hasMatch) stats.matched += 1;
+    if (isExactFillable(item, recommendation)) stats.exactFillable += 1;
+    if (isPartialFillable(item, recommendation)) stats.partialFillable += 1;
+    if (recommendation === "review") stats.review += 1;
+    if (recommendation === "blocked") stats.blocked += 1;
+    if (recommendation === "unmatched") stats.unmatched += 1;
+    if (item.bestMatch?.isAmbiguous) stats.ambiguous += 1;
+    return stats;
+  }, initialStats);
+};
+
+export const filterMatchPreviewItems = (
+  items: MatchPreviewItem[],
+  scoreFilter: MatchPreviewScoreFilter,
+  getFillRecommendation: FillRecommendationGetter
+) => {
+  if (scoreFilter === "all") return items;
+
+  return items.filter(item => {
+    const recommendation = getFillRecommendation(item);
+    switch (scoreFilter) {
+      case "exactFillable":
+        return isExactFillable(item, recommendation);
+      case "partialFillable":
+        return isPartialFillable(item, recommendation);
+      default:
+        return recommendation === scoreFilter;
+    }
+  });
+};
+
+export const getPagedMatchPreviewItems = (
+  items: MatchPreviewItem[],
+  currentPage: number,
+  pageSize: number
+) => {
+  const start = (currentPage - 1) * pageSize;
+  return items.slice(start, start + pageSize);
 };

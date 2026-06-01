@@ -173,7 +173,7 @@ watch(
         <el-checkbox
           :model-value="allSelected"
           :indeterminate="filteredSelectedCount > 0 && !allSelected"
-          @change="(v: any) => toggleSelectAll(!!v)"
+          @change="(v: string | number | boolean) => toggleSelectAll(Boolean(v))"
         >
           全选当前列表
         </el-checkbox>

@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import type { Customer } from "@/api/customer";
+import type { MachineModel } from "@/api/machine-model";
+import type { Process } from "@/api/process";
+
 defineProps<{
-  customers: any[];
-  processes: any[];
-  machineModels: any[];
+  customers: Customer[];
+  processes: Process[];
+  machineModels: MachineModel[];
   selectedCustomerId: number | undefined;
   selectedProcessId: number | undefined;
   selectedMachineModelId: number | undefined;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { MatchPreviewItem } from "@/api/matching";
+import type { MatchCandidateOption, MatchPreviewItem } from "@/api/matching";
 import type {
   ScoreDetailDiffRow,
   ScoreDetailDiffViewMode
@@ -19,8 +19,8 @@ import {
 
 const props = defineProps<{
   item: MatchPreviewItem;
-  topCandidates: any[];
-  comparisonCandidate: any | null;
+  topCandidates: MatchCandidateOption[];
+  comparisonCandidate: MatchCandidateOption | null;
   comparisonOptions: Array<{ label: string; value: number }>;
   comparisonRank: number | null;
   diffViewMode: ScoreDetailDiffViewMode;

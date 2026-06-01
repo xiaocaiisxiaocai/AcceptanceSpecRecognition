@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import type { CombinedImportResult } from "../dataImport.types";
+
 defineProps<{
-  importResult: any;
+  importResult: CombinedImportResult | null;
 }>();
 </script>
 

@@ -1,5 +1,11 @@
 import type { ColumnMapping as ColumnMappingType, TableInfo } from "@/api/document";
-import type { ExcelSheetMapping, TableImportConfig } from "./dataImport.types";
+import type {
+  ExcelSheetMapping,
+  ImportSkippedRowWithTable,
+  SkippedPreviewColumn,
+  SkippedRowsGroup,
+  TableImportConfig
+} from "./dataImport.types";
 
 export const defaultWordMapping = (): ColumnMappingType => ({
   projectColumn: undefined,
@@ -136,4 +142,46 @@ export const getPreviewCellValue = (row: string[], columnIndex?: number) => {
   if (columnIndex === undefined || columnIndex < 0) return "";
   const value = row?.[columnIndex];
   return typeof value === "string" ? value.trim() : "";
+};
+
+export const buildSkippedRowsGroups = (
+  rows: ImportSkippedRowWithTable[],
+  tableConfigs: TableImportConfig[]
+): SkippedRowsGroup[] => {
+  if (rows.length === 0) return [];
+
+  const grouped = new Map<number, ImportSkippedRowWithTable[]>();
+  for (const row of rows) {
+    const list = grouped.get(row.tableIndex) || [];
+    list.push(row);
+    grouped.set(row.tableIndex, list);
+  }
+
+  return Array.from(grouped.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([tableIndex, groupRows]) => {
+      const tableCfg = tableConfigs.find(cfg => cfg.tableIndex === tableIndex);
+      const headers = tableCfg?.previewData?.headers || tableCfg?.tableInfo?.headers || [];
+      const maxColumnCount = groupRows.reduce(
+        (max, row) => Math.max(max, row.rowValues?.length || 0),
+        0
+      );
+
+      const columns: SkippedPreviewColumn[] = Array.from(
+        { length: maxColumnCount },
+        (_, i) => {
+          const header = (headers[i] || "").trim();
+          return {
+            index: i,
+            label: header || `列${i + 1}`
+          };
+        }
+      );
+
+      return {
+        tableIndex,
+        rows: groupRows,
+        columns
+      };
+    });
 };
