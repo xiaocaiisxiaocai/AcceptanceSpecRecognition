@@ -3,17 +3,30 @@ using System.Security.Claims;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IMatchingExecutionAppService
+{
+    Task LlmStreamAsync(
+        ClaimsPrincipal user,
+        HttpResponse response,
+        MatchLlmStreamRequest request,
+        CancellationToken cancellationToken);
+
+    Task<MatchingOperationResult<ExecuteFillResponse>> BatchExecuteFillAsync(
+        ClaimsPrincipal user,
+        BatchExecuteFillRequest request);
+}
+
 /// <summary>
 /// 匹配执行应用服务。
 /// </summary>
-public sealed class MatchingExecutionAppService
+public sealed class MatchingExecutionAppService : IMatchingExecutionAppService
 {
-    private readonly MatchingLlmStreamAppService _matchingLlmStreamAppService;
-    private readonly MatchingFillExecutionAppService _matchingFillExecutionAppService;
+    private readonly IMatchingLlmStreamAppService _matchingLlmStreamAppService;
+    private readonly IMatchingFillExecutionAppService _matchingFillExecutionAppService;
 
     public MatchingExecutionAppService(
-        MatchingLlmStreamAppService matchingLlmStreamAppService,
-        MatchingFillExecutionAppService matchingFillExecutionAppService)
+        IMatchingLlmStreamAppService matchingLlmStreamAppService,
+        IMatchingFillExecutionAppService matchingFillExecutionAppService)
     {
         _matchingLlmStreamAppService = matchingLlmStreamAppService;
         _matchingFillExecutionAppService = matchingFillExecutionAppService;

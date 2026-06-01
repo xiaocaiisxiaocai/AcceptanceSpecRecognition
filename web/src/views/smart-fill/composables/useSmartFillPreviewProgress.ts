@@ -1,11 +1,17 @@
-import { ref } from "vue";
+import { computed, ref, toValue, type MaybeRefOrGetter } from "vue";
 import { getBatchPreviewProgress, type BatchPreviewProgressResponse } from "@/api/matching";
+
+interface UseSmartFillPreviewProgressOptions {
+  selectedTableCount?: MaybeRefOrGetter<number>;
+}
 
 /**
  * 匹配预览进度管理
- * 封装进度轮询、计时器、中断等逻辑
+ * 封装进度轮询、计时器、中断与展示派生逻辑
  */
-export function useSmartFillPreviewProgress() {
+export function useSmartFillPreviewProgress(
+  options: UseSmartFillPreviewProgressOptions = {}
+) {
   const previewProgress = ref<BatchPreviewProgressResponse | null>(null);
   const previewElapsedSeconds = ref(0);
   const previewProgressPollTimer = ref<number | null>(null);
@@ -136,9 +142,41 @@ export function useSmartFillPreviewProgress() {
     stopPreviewProgressPolling();
   };
 
+  const previewProgressStageText = computed(
+    () => previewProgress.value?.stageText || "正在准备匹配任务"
+  );
+  const previewProgressDetailText = computed(() => {
+    if (previewProgress.value?.detailText) {
+      return previewProgress.value.detailText;
+    }
+
+    const selectedTableCount = options.selectedTableCount === undefined
+      ? 0
+      : toValue(options.selectedTableCount);
+    if (selectedTableCount > 0) {
+      return `已选择 ${selectedTableCount} 个表格，正在等待真实进度`;
+    }
+
+    return "正在等待真实进度";
+  });
+  const previewProgressPercent = computed(() =>
+    Math.min(Math.max(Math.round(previewProgress.value?.progressPercent ?? 0), 0), 100)
+  );
+  const previewProgressCounterText = computed(() => {
+    if (!previewProgress.value?.totalItems) {
+      return "";
+    }
+
+    return `${previewProgress.value.completedItems}/${previewProgress.value.totalItems} 行`;
+  });
+
   return {
     previewProgress,
     previewElapsedSeconds,
+    previewProgressStageText,
+    previewProgressDetailText,
+    previewProgressPercent,
+    previewProgressCounterText,
     currentPreviewRequestId,
     clearPreviewProgressTimers,
     stopPreviewProgressPolling,

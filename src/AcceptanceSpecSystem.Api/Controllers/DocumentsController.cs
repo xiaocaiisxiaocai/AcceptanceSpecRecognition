@@ -14,13 +14,13 @@ public class DocumentsController : BaseApiController
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IDocumentFileAppService _documentFileAppService;
     private readonly DocumentTableAccessService _documentTableAccessService;
-    private readonly DocumentImportAppService _documentImportAppService;
+    private readonly IDocumentImportAppService _documentImportAppService;
 
     public DocumentsController(
         IAuthDataScopeService authDataScopeService,
         IDocumentFileAppService documentFileAppService,
         DocumentTableAccessService documentTableAccessService,
-        DocumentImportAppService documentImportAppService)
+        IDocumentImportAppService documentImportAppService)
     {
         _authDataScopeService = authDataScopeService;
         _documentFileAppService = documentFileAppService;

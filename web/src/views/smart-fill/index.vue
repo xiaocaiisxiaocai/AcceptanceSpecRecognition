@@ -92,16 +92,24 @@ const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
 );
 const loadingUploadedFileTables = ref(false);
 const loading = ref(false);
+// 选中的表格数量
+const selectedTableCount = computed(
+  () => batchTableConfigs.value.filter((t) => t.selected).length
+);
 const {
   previewProgress,
   previewElapsedSeconds,
+  previewProgressStageText,
+  previewProgressDetailText,
+  previewProgressPercent,
+  previewProgressCounterText,
   currentPreviewRequestId,
   stopPreviewProgressPolling,
   resetPreviewProgress,
   createPreviewRequestId,
   startPreviewProgressPolling,
   markPreviewProgressCompleted
-} = useSmartFillPreviewProgress();
+} = useSmartFillPreviewProgress({ selectedTableCount });
 const llmStreaming = ref(false);
 const llmStreamController = ref<AbortController | null>(null);
 const previewAbortController = ref<AbortController | null>(null);
@@ -233,40 +241,10 @@ const selectedBackfillCandidates = computed(() =>
   backfillCandidates.value.filter(item => item.selected)
 );
 
-// 选中的表格数量
-const selectedTableCount = computed(
-  () => batchTableConfigs.value.filter((t) => t.selected).length
-);
-
 // 所有预览项（扁平化）
 const allPreviewItems = computed(() =>
   batchPreviewResults.value.flatMap((t) => t.items)
 );
-
-const previewProgressStageText = computed(
-  () => previewProgress.value?.stageText || "正在准备匹配任务"
-);
-const previewProgressDetailText = computed(() => {
-  if (previewProgress.value?.detailText) {
-    return previewProgress.value.detailText;
-  }
-
-  if (selectedTableCount.value > 0) {
-    return `已选择 ${selectedTableCount.value} 个表格，正在等待真实进度`;
-  }
-
-  return "正在等待真实进度";
-});
-const previewProgressPercent = computed(() =>
-  Math.min(Math.max(Math.round(previewProgress.value?.progressPercent ?? 0), 0), 100)
-);
-const previewProgressCounterText = computed(() => {
-  if (!previewProgress.value?.totalItems) {
-    return "";
-  }
-
-  return `${previewProgress.value.completedItems}/${previewProgress.value.totalItems} 行`;
-});
 
 const getMatchConfigServiceStatus = () =>
   matchConfigRef.value?.getServiceStatus?.() ?? {

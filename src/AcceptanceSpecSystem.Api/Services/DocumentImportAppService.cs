@@ -9,10 +9,23 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IDocumentImportAppService
+{
+    Task<DocumentImportAppResult> ImportWordAsync(
+        DataScopeResult scope,
+        ImportDataRequest request,
+        CancellationToken cancellationToken);
+
+    Task<DocumentImportAppResult> ImportExcelAsync(
+        DataScopeResult scope,
+        ExcelImportDataRequest request,
+        CancellationToken cancellationToken);
+}
+
 /// <summary>
 /// 文档导入应用服务。
 /// </summary>
-public sealed class DocumentImportAppService
+public sealed class DocumentImportAppService : IDocumentImportAppService
 {
     private const string MatchTypeExact = "exact";
     private const string MatchTypeConflict = "conflict";

@@ -11,6 +11,7 @@ import {
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
 import { hasPerms } from "@/utils/auth";
+import { getRequestErrorMessage } from "@/utils/error-message";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
@@ -173,8 +174,8 @@ const submit = async () => {
     } else {
       ElMessage.error(res.message || "保存失败");
     }
-  } catch (error: any) {
-    ElMessage.error(error?.message || "保存失败");
+  } catch (error: unknown) {
+    ElMessage.error(getRequestErrorMessage(error, "保存失败"));
   }
 };
 

@@ -13,12 +13,12 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Route("api/matching")]
 public class MatchingExecutionController : MatchingApiControllerBase
 {
-    private readonly MatchingExecutionAppService _matchingExecutionAppService;
-    private readonly SmartFillSpecBackfillAppService _smartFillSpecBackfillAppService;
+    private readonly IMatchingExecutionAppService _matchingExecutionAppService;
+    private readonly ISmartFillSpecBackfillAppService _smartFillSpecBackfillAppService;
 
     public MatchingExecutionController(
-        MatchingExecutionAppService matchingExecutionAppService,
-        SmartFillSpecBackfillAppService smartFillSpecBackfillAppService)
+        IMatchingExecutionAppService matchingExecutionAppService,
+        ISmartFillSpecBackfillAppService smartFillSpecBackfillAppService)
     {
         _matchingExecutionAppService = matchingExecutionAppService;
         _smartFillSpecBackfillAppService = smartFillSpecBackfillAppService;

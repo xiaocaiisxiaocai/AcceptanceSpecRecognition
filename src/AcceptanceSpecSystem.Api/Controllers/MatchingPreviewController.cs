@@ -12,9 +12,9 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Route("api/matching")]
 public class MatchingPreviewController : MatchingApiControllerBase
 {
-    private readonly MatchingPreviewAppService _matchingPreviewAppService;
+    private readonly IMatchingPreviewAppService _matchingPreviewAppService;
 
-    public MatchingPreviewController(MatchingPreviewAppService matchingPreviewAppService)
+    public MatchingPreviewController(IMatchingPreviewAppService matchingPreviewAppService)
     {
         _matchingPreviewAppService = matchingPreviewAppService;
     }

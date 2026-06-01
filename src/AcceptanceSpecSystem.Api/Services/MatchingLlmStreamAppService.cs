@@ -3,10 +3,19 @@ using System.Security.Claims;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IMatchingLlmStreamAppService
+{
+    Task LlmStreamAsync(
+        ClaimsPrincipal user,
+        HttpResponse response,
+        MatchLlmStreamRequest request,
+        CancellationToken cancellationToken);
+}
+
 /// <summary>
 /// LLM 流式复核应用服务。
 /// </summary>
-public sealed class MatchingLlmStreamAppService
+public sealed class MatchingLlmStreamAppService : IMatchingLlmStreamAppService
 {
     private readonly MatchingWorkflowSupportService _workflowSupportService;
 

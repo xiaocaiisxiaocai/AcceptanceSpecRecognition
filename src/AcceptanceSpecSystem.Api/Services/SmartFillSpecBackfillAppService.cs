@@ -6,10 +6,17 @@ using AcceptanceSpecSystem.Data.Repositories;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface ISmartFillSpecBackfillAppService
+{
+    Task<MatchingOperationResult<SmartFillSpecBackfillResponse>> BackfillAsync(
+        ClaimsPrincipal user,
+        SmartFillSpecBackfillRequest request);
+}
+
 /// <summary>
 /// 智能填充编辑值回填验收规格服务。
 /// </summary>
-public sealed class SmartFillSpecBackfillAppService
+public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppService
 {
     private const string ManualFileName = "__MANUAL_ENTRY__";
     private const string ManualFileHash = "manual_entry_placeholder";

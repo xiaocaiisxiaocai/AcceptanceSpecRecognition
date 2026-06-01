@@ -368,7 +368,27 @@ public class ArchitectureBoundaryTests
             ("src/AcceptanceSpecSystem.Api/Services/ExecutionHistoryAppService.cs",
                 "IExecutionHistoryAppService",
                 "ExecutionHistoryAppService",
-                "src/AcceptanceSpecSystem.Api/Controllers/ExecutionHistoryController.cs")
+                "src/AcceptanceSpecSystem.Api/Controllers/ExecutionHistoryController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/BatchReplyAppService.cs",
+                "IBatchReplyAppService",
+                "BatchReplyAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/BatchReplyController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/DocumentImportAppService.cs",
+                "IDocumentImportAppService",
+                "DocumentImportAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs",
+                "IMatchingPreviewAppService",
+                "MatchingPreviewAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/MatchingPreviewController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/MatchingExecutionAppService.cs",
+                "IMatchingExecutionAppService",
+                "MatchingExecutionAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/MatchingExecutionController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/SmartFillSpecBackfillAppService.cs",
+                "ISmartFillSpecBackfillAppService",
+                "SmartFillSpecBackfillAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/MatchingExecutionController.cs")
         };
 
         foreach (var (servicePath, interfaceName, implementationName, controllerPath) in services)

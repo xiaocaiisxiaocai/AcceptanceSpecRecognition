@@ -3,10 +3,17 @@ using System.Security.Claims;
 
 namespace AcceptanceSpecSystem.Api.Services
 {
+    public interface IMatchingFillExecutionAppService
+    {
+        Task<MatchingOperationResult<ExecuteFillResponse>> BatchExecuteFillAsync(
+            ClaimsPrincipal user,
+            BatchExecuteFillRequest request);
+    }
+
     /// <summary>
     /// 匹配填充执行应用服务。
     /// </summary>
-    public sealed class MatchingFillExecutionAppService
+    public sealed class MatchingFillExecutionAppService : IMatchingFillExecutionAppService
     {
         private readonly MatchingWorkflowSupportService _workflowSupportService;
 

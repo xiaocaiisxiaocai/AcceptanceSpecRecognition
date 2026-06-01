@@ -68,23 +68,23 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<MatchingConfigResolver>();
         services.AddScoped<MatchingCandidateProvider>();
         services.AddScoped<MatchingWorkflowSupportService>();
-        services.AddScoped<MatchingPreviewAppService>();
-        services.AddScoped<MatchingLlmStreamAppService>();
-        services.AddScoped<MatchingFillExecutionAppService>();
-        services.AddScoped<MatchingExecutionAppService>();
-        services.AddScoped<SmartFillSpecBackfillAppService>();
+        services.AddScoped<IMatchingPreviewAppService, MatchingPreviewAppService>();
+        services.AddScoped<IMatchingLlmStreamAppService, MatchingLlmStreamAppService>();
+        services.AddScoped<IMatchingFillExecutionAppService, MatchingFillExecutionAppService>();
+        services.AddScoped<IMatchingExecutionAppService, MatchingExecutionAppService>();
+        services.AddScoped<ISmartFillSpecBackfillAppService, SmartFillSpecBackfillAppService>();
         services.AddScoped<IMatchingTaskAppService, MatchingTaskAppService>();
         services.AddScoped<MatchingTaskSnapshotService>();
         services.AddSingleton<MatchingApprovalTokenService>();
 
         // ── 文档导入 ──
         services.AddScoped<IDocumentFileAppService, DocumentFileAppService>();
-        services.AddScoped<DocumentImportAppService>();
+        services.AddScoped<IDocumentImportAppService, DocumentImportAppService>();
         services.AddScoped<ImportDuplicateDetectionService>();
 
         // ── 批量回复 ──
         services.AddSingleton<BatchReplySessionService>();
-        services.AddScoped<BatchReplyAppService>();
+        services.AddScoped<IBatchReplyAppService, BatchReplyAppService>();
 
         // ── Embedding 缓存 ──
         services.AddScoped<SpecSemanticSearchService>();

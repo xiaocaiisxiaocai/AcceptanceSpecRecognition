@@ -16,9 +16,9 @@ public class BatchReplyController : MatchingApiControllerBase
 {
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly BatchReplyAppService _batchReplyAppService;
+    private readonly IBatchReplyAppService _batchReplyAppService;
 
-    public BatchReplyController(BatchReplyAppService batchReplyAppService)
+    public BatchReplyController(IBatchReplyAppService batchReplyAppService)
     {
         _batchReplyAppService = batchReplyAppService;
     }

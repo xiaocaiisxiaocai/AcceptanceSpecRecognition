@@ -9,10 +9,20 @@ using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IMatchingPreviewAppService
+{
+    Task<MatchingOperationResult<BatchPreviewResponse>> BatchPreviewAsync(
+        ClaimsPrincipal user,
+        BatchPreviewRequest request,
+        CancellationToken cancellationToken = default);
+
+    MatchingOperationResult<BatchPreviewProgressResponse> GetBatchPreviewProgress(string requestId);
+}
+
 /// <summary>
 /// 匹配预览应用服务。
 /// </summary>
-public sealed class MatchingPreviewAppService
+public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
 {
     private readonly IMatchingService _matchingService;
     private readonly DocumentFileAccessService _documentFileAccessService;
