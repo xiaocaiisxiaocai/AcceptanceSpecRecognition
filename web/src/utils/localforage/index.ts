@@ -42,9 +42,10 @@ class StorageProxy implements ProxyStorage {
     return new Promise((resolve, reject) => {
       this.storage
         .getItem(k)
-        .then((value: ExpiresData<T>) => {
-          value && (value.expires > new Date().getTime() || value.expires === 0)
-            ? resolve(value.data)
+        .then((value: unknown) => {
+          const data = value as ExpiresData<T>;
+          data && (data.expires > new Date().getTime() || data.expires === 0)
+            ? resolve(data.data)
             : resolve(null);
         })
         .catch(err => {

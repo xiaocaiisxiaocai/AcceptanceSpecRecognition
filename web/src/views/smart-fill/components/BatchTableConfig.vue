@@ -490,7 +490,7 @@ const getPreviewResult = (tableIndex: number) => {
                   :model-value="item.filterEmptySourceRows ?? true"
                   active-text="开启"
                   inactive-text="关闭"
-                  @change="(v: boolean) => updateField(idx, 'filterEmptySourceRows', v)"
+                  @change="(v: string | number | boolean) => updateField(idx, 'filterEmptySourceRows', Boolean(v))"
                 />
               </el-form-item>
               <el-form-item label="项目列">

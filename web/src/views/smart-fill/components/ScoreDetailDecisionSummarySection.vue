@@ -180,6 +180,9 @@ const getComparisonHtml = (
 
     <div class="panel">
       <div class="panel__title">请重点确认</div>
+      <div class="plain-item plain-item--hint">
+        请结合详情表格核对源项与推荐项差异
+      </div>
       <div class="plain-list">
         <div
           v-for="(checkItem, index) in focusChecklist"
@@ -311,6 +314,16 @@ const getComparisonHtml = (
 .plain-item--focus {
   background: #fff7ed;
   color: #9a3412;
+}
+
+.plain-item--hint {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #f0f9ff;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #1e40af;
 }
 
 .comparison-rich-text {

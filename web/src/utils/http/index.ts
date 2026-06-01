@@ -272,8 +272,8 @@ class PureHttp {
     return new Promise((resolve, reject) => {
       PureHttp.axiosInstance
         .request(config)
-        .then((response: undefined) => {
-          resolve(response);
+        .then((response: unknown) => {
+          resolve(response as T);
         })
         .catch(error => {
           reject(error);

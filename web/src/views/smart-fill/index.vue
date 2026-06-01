@@ -464,11 +464,11 @@ const resolvePreviewFailure = (message?: string) => {
   return normalizedMessage || "匹配预览失败";
 };
 
-const getRequestErrorMessage = (error: any) => {
+const getRequestErrorMessage = (error: unknown) => {
   return (
-    error?.response?.data?.message ||
-    error?.response?.data?.error?.message ||
-    error?.message ||
+    (error as any)?.response?.data?.message ||
+    (error as any)?.response?.data?.error?.message ||
+    (error instanceof Error ? error.message : "") ||
     ""
   );
 };
@@ -1403,7 +1403,7 @@ const handleRestart = () => {
                   selectedBackfillCandidates.length > 0 &&
                   selectedBackfillCandidates.length < backfillCandidates.length
                 "
-                @change="(checked: boolean) => backfillCandidates.forEach(item => { item.selected = checked; })"
+                @change="(checked: string | number | boolean) => backfillCandidates.forEach(item => { item.selected = Boolean(checked); })"
               />
             </template>
             <template #default="{ row }">

@@ -126,7 +126,7 @@ useEventListener(document, "keydown", ({ code }) => {
         inline-prompt
         :active-icon="dayIcon"
         :inactive-icon="darkIcon"
-        @change="dataThemeChange"
+        @change="(val: string | number | boolean) => dataThemeChange(String(val))"
       />
     </div>
     <div class="login-container">
