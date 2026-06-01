@@ -389,7 +389,7 @@ public class ArchitectureBoundaryTests
     {
         var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
         var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
-        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/Program.cs");
+        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs");
 
         previewContent.Should().Contain("MatchingConfigResolver");
         workflowContent.Should().Contain("MatchingConfigResolver");
@@ -430,7 +430,7 @@ public class ArchitectureBoundaryTests
         var providerContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs");
         var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
         var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
-        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/Program.cs");
+        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs");
 
         providerContent.Should().Contain("GetCandidatesAsync");
         providerContent.Should().Contain("MaxScopedCandidateCount");

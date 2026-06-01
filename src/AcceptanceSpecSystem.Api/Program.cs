@@ -1,4 +1,5 @@
 using System.Text;
+using AcceptanceSpecSystem.Api;
 using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Controllers;
@@ -104,24 +105,6 @@ builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = UploadFileValidation.MaxAllowedFileSizeBytes * 10;
 });
-builder.Services.Configure<JwtAuthOptions>(
-    builder.Configuration.GetSection(JwtAuthOptions.SectionName));
-builder.Services.Configure<AuditLogOptions>(
-    builder.Configuration.GetSection(AuditLogOptions.SectionName));
-builder.Services.Configure<EmbeddingCacheCleanupOptions>(
-    builder.Configuration.GetSection(EmbeddingCacheCleanupOptions.SectionName));
-builder.Services.Configure<EmbeddingCacheWarmupOptions>(
-    builder.Configuration.GetSection(EmbeddingCacheWarmupOptions.SectionName));
-builder.Services.Configure<DatabaseBackupOptions>(
-    builder.Configuration.GetSection(DatabaseBackupOptions.SectionName));
-builder.Services.Configure<AiServiceTestOptions>(
-    builder.Configuration.GetSection(AiServiceTestOptions.SectionName));
-builder.Services.AddSingleton<IValidateOptions<AuthSeedOptions>, AuthSeedOptionsValidator>();
-builder.Services.AddOptions<AuthSeedOptions>()
-    .Bind(builder.Configuration.GetSection(AuthSeedOptions.SectionName))
-    .ValidateOnStart();
-builder.Services.Configure<SemanticKernelOptions>(
-    builder.Configuration.GetSection(SemanticKernelOptions.SectionName));
 
 // 配置MySQL数据库连接
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")?.Trim();
@@ -133,92 +116,10 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
-// 注册所有 Repository（供 UnitOfWork 通过 IServiceProvider 解析）
-builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
-builder.Services.AddScoped<IProcessRepository, ProcessRepository>();
-builder.Services.AddScoped<IMachineModelRepository, MachineModelRepository>();
-builder.Services.AddScoped<IAcceptanceSpecRepository, AcceptanceSpecRepository>();
-builder.Services.AddScoped<IEmbeddingCacheRepository, EmbeddingCacheRepository>();
-builder.Services.AddScoped<IWordFileRepository, WordFileRepository>();
-builder.Services.AddScoped<IAiServiceConfigRepository, AiServiceConfigRepository>();
-builder.Services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
-builder.Services.AddScoped<IColumnMappingRuleRepository, ColumnMappingRuleRepository>();
-builder.Services.AddScoped<ISystemUserRepository, SystemUserRepository>();
-builder.Services.AddScoped<IAuthRoleLookupRepository, AuthRoleLookupRepository>();
-builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
-builder.Services.AddScoped<IMatchingFillTaskRepository, MatchingFillTaskRepository>();
-builder.Services.AddScoped<IExecutionHistoryRecordRepository, ExecutionHistoryRecordRepository>();
-
-// 注册UnitOfWork
-builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-
-// 文件存储服务（服务器文件系统）
-builder.Services.AddSingleton<IFileStorageService, FileStorageService>();
-builder.Services.AddSingleton<IAuthTokenService, AuthTokenService>();
-builder.Services.AddSingleton<IAuthPasswordService, AuthPasswordService>();
-builder.Services.AddScoped<IAuthAccessService, AuthAccessService>();
-builder.Services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
-builder.Services.AddScoped<IAuthSessionValidationService, AuthSessionValidationService>();
-builder.Services.AddScoped<AuthPermissionQueryService>();
-builder.Services.AddScoped<AuthRoleAppService>();
-builder.Services.AddScoped<OrgUnitAppService>();
-builder.Services.AddScoped<SystemUserAppService>();
-builder.Services.AddScoped<SpecSemanticSearchService>();
-builder.Services.AddSingleton<EmbeddingCacheWarmupManager>();
-builder.Services.AddSingleton<DatabaseBackupManager>();
-builder.Services.AddScoped<SpecEmbeddingCacheService>();
-builder.Services.AddScoped<IEmbeddingCacheWarmupExecutor>(sp =>
-    sp.GetRequiredService<SpecEmbeddingCacheService>());
-builder.Services.AddScoped<IDatabaseBackupExecutor, MySqlDumpDatabaseBackupExecutor>();
-builder.Services.AddScoped<ImportDuplicateDetectionService>();
-builder.Services.AddScoped<DocumentFileAccessService>();
-builder.Services.AddScoped<DocumentTableAccessService>();
-builder.Services.AddScoped<MatchingResultWriteBackService>();
-builder.Services.AddSingleton<BatchPreviewProgressTracker>();
-builder.Services.AddSingleton<BatchReplySessionService>();
-builder.Services.AddScoped<BatchReplyAppService>();
-builder.Services.AddScoped<DocumentFileAppService>();
-builder.Services.AddScoped<DocumentImportAppService>();
-builder.Services.AddScoped<MatchingTaskSnapshotService>();
-builder.Services.AddSingleton<MatchingApprovalTokenService>();
-builder.Services.AddScoped<MatchingConfigResolver>();
-builder.Services.AddScoped<MatchingCandidateProvider>();
-builder.Services.AddScoped<MatchingWorkflowSupportService>();
-builder.Services.AddScoped<MatchingPreviewAppService>();
-builder.Services.AddScoped<MatchingLlmStreamAppService>();
-builder.Services.AddScoped<MatchingFillExecutionAppService>();
-builder.Services.AddScoped<MatchingExecutionAppService>();
-builder.Services.AddScoped<SmartFillSpecBackfillAppService>();
-builder.Services.AddScoped<MatchingTaskAppService>();
-builder.Services.AddScoped<ExecutionHistoryAppService>();
-builder.Services.AddScoped<DashboardAppService>();
-builder.Services.AddScoped<SystemPromptTemplateInitializer>();
-builder.Services.AddHostedService<AuditLogCleanupService>();
-builder.Services.AddHostedService<EmbeddingCacheCleanupService>();
-builder.Services.AddHostedService<EmbeddingCacheWarmupService>();
-builder.Services.AddHostedService<DatabaseBackupService>();
-
-// 注册文档服务
-builder.Services.AddSingleton<DocumentServiceFactory>();
-builder.Services.AddScoped<IFileCompareService, FileCompareService>();
+// 模块化服务注册
+builder.Services.AddDataRepositories();
 builder.Services.AddAcceptanceApplicationLayer();
-
-// 注册匹配服务（Semantic Kernel）
-builder.Services.AddScoped<IAiServiceSelector, AiServiceSelector>();
-builder.Services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
-builder.Services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
-builder.Services.AddScoped<PromptTemplateValidationService>();
-builder.Services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
-builder.Services.AddScoped<ILlmEquivalenceAdjudicationService, LlmMatchingAssistService>();
-builder.Services.AddScoped<ILlmCandidateRerankService, LlmMatchingAssistService>();
-builder.Services.AddScoped<IMatchingService>(serviceProvider => new SemanticKernelMatchingService(
-    serviceProvider.GetRequiredService<IEmbeddingService>(),
-    serviceProvider.GetRequiredService<ILogger<SemanticKernelMatchingService>>(),
-    llmEquivalenceAdjudicationService: serviceProvider.GetRequiredService<ILlmEquivalenceAdjudicationService>(),
-    llmCandidateRerankService: serviceProvider.GetRequiredService<ILlmCandidateRerankService>()));
-
-// 文本处理：仅保留最小安全归一化
-builder.Services.AddScoped<ITextPreprocessingPipeline, MinimalTextPreprocessingPipeline>();
+builder.Services.AddApiLayerServices(builder.Configuration);
 
 var jwtOptions = builder.Configuration.GetSection(JwtAuthOptions.SectionName).Get<JwtAuthOptions>()
     ?? new JwtAuthOptions();

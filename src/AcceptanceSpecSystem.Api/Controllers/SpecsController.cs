@@ -4,7 +4,6 @@ using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
-using ApplicationServiceException = AcceptanceSpecSystem.Application.ApplicationServiceException;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

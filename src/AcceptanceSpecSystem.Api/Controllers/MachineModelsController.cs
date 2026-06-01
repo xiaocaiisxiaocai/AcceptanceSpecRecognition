@@ -3,7 +3,6 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Application.Services;
-using ApplicationServiceException = AcceptanceSpecSystem.Application.ApplicationServiceException;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
