@@ -89,6 +89,7 @@ uploads/
 secrets.json
 *.pfx
 *.key
+.env.docker
 
 # Local scratch / generated artifacts
 .claude/plan.md

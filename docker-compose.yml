@@ -4,10 +4,10 @@ services:
     container_name: acceptance-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root123456
-      MYSQL_DATABASE: acceptance_spec_ai_equivalence_adjudication_db
-      MYSQL_USER: acceptance
-      MYSQL_PASSWORD: acceptance123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-acceptance_spec_db}
+      MYSQL_USER: ${MYSQL_USER:-acceptance}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -34,15 +34,15 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: Server=mysql;Port=3306;Database=acceptance_spec_ai_equivalence_adjudication_db;User=acceptance;Password=acceptance123;CharSet=utf8mb4;
+      ConnectionStrings__DefaultConnection: Server=mysql;Port=3306;Database=${MYSQL_DATABASE:-acceptance_spec_db};User=${MYSQL_USER:-acceptance};Password=${MYSQL_PASSWORD};CharSet=utf8mb4;
       FileStorage__BasePath: /data/files
       DataProtection__KeysPath: /data/dp-keys
       DatabaseBackup__BackupDirectory: /app/backups
-      Cors__AllowedOrigins__0: "http://localhost"
-      Cors__AllowedOrigins__1: "http://127.0.0.1"
-      JwtAuth__SigningKey: AcceptanceSpec_DockerJwtKey_2026_ReplaceWithLongRandom
-      AuthSeed__AdminPassword: Admin@20260403
-      AuthSeed__CommonPassword: Common@20260403
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_0:-http://localhost}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_1:-http://127.0.0.1}
+      JwtAuth__SigningKey: ${JWT_SIGNING_KEY}
+      AuthSeed__AdminPassword: ${AUTH_SEED_ADMIN_PASSWORD}
+      AuthSeed__CommonPassword: ${AUTH_SEED_COMMON_PASSWORD}
       TZ: Asia/Shanghai
     volumes:
       - api-files:/data/files
