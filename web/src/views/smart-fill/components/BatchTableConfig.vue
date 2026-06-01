@@ -9,14 +9,7 @@ import {
   applyExcelBatchTableRowFieldChange,
   normalizeExcelBatchTableRows
 } from "./batchTableConfig.helpers";
-
-/** 带勾选状态的表格配置项 */
-export interface BatchTableConfigItem extends BatchTableConfig {
-  /** 是否被选中 */
-  selected: boolean;
-  /** 表格信息（用于展示） */
-  tableInfo: TableInfo;
-}
+import type { BatchTableConfigItem } from "./batchTableConfig.types";
 
 const props = defineProps<{
   /** 所有可选表格 */

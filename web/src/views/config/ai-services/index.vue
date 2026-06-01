@@ -12,16 +12,17 @@ import {
   updateAiService,
   type AiServiceConfig
 } from "@/api/ai-service";
-import { MAX_RECALL_TOP_K } from "@/api/matching";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 import { getRequestErrorMessage } from "@/utils/error-message";
-import { purposeOptions, serviceTypeOptions } from "./constants";
 import {
   buildAiServiceConfigSummary,
   getDefaultPriority,
-  getServiceTypeLabel
 } from "./config-selection";
+import AiServiceConfigsTable from "./components/AiServiceConfigsTable.vue";
+import AiServiceEditDialog from "./components/AiServiceEditDialog.vue";
+import AiServiceModelsDialog from "./components/AiServiceModelsDialog.vue";
+import AiServiceSummaryCard from "./components/AiServiceSummaryCard.vue";
 import {
   buildCreateAiServicePayload,
   buildUpdateAiServicePayload,
@@ -37,12 +38,9 @@ import {
 import { useAiServiceModelsProbe } from "./composables/useAiServiceModelsProbe";
 import {
   buildInlineTestResultCard,
-  getTestResultCardClass,
   type InlineTestResultCard
 } from "./test-result";
 import {
-  formatPurpose,
-  formatValue,
   hasPurpose,
   isRowLoading,
   setRowLoading
@@ -391,782 +389,86 @@ onMounted(loadData);
     </el-alert>
 
     <div class="service-grid">
-      <el-card v-loading="loading" class="service-card">
-        <template #header>
-          <div class="card-header">
-            <span>LLM 服务</span>
-            <div class="card-actions">
-              <el-button
-                v-if="canCreate"
-                type="primary"
-                @click="handleAdd(AiServicePurpose.Llm)"
-              >
-                新增
-              </el-button>
-              <template v-if="llmConfig && hasSummaryActionButtons">
-                <el-button
-                  v-if="canUpdate"
-                  type="primary"
-                  link
-                  @click="handleEdit(llmConfig)"
-                >
-                  编辑
-                </el-button>
-                <el-button
-                  v-if="canUpdate"
-                  type="warning"
-                  link
-                  :loading="isRowLoading(disabledState, llmConfig.id)"
-                  :disabled="isRowLoading(disabledState, llmConfig.id)"
-                  @click="handleToggleDisabled(llmConfig)"
-                >
-                  禁用
-                </el-button>
-                <el-button
-                  v-if="canDelete"
-                  type="danger"
-                  link
-                  @click="handleDelete(llmConfig)"
-                >
-                  删除
-                </el-button>
-                <el-button
-                  v-if="canProbeModels"
-                  type="success"
-                  link
-                  :loading="isRowLoading(probingState, llmConfig.id)"
-                  :disabled="isRowLoading(probingState, llmConfig.id)"
-                  @click="handleProbeModels(llmConfig)"
-                >
-                  模型
-                </el-button>
-              </template>
-            </div>
-          </div>
-        </template>
-        <el-empty v-if="!llmConfig" description="未配置 LLM 服务" />
-        <div v-else class="config-grid">
-          <div class="config-row">
-            <div class="config-label">名称</div>
-            <div class="config-value">{{ formatValue(llmConfig.name) }}</div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">类型</div>
-            <div class="config-value">
-              {{ getServiceTypeLabel(llmConfig.serviceType) }}
-            </div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">优先级</div>
-            <div class="config-value">{{ llmConfig.priority }}</div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">Endpoint</div>
-            <div class="config-value">
-              {{ formatValue(llmConfig.endpoint) }}
-            </div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">LLM 模型</div>
-            <div class="config-value">
-              {{ formatValue(llmConfig.llmModel) }}
-            </div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">关闭思考模式</div>
-            <div class="config-value">
-              {{ llmConfig.disableThinking ? "已开启" : "未开启" }}
-            </div>
-          </div>
-        </div>
-      </el-card>
+      <AiServiceSummaryCard
+        title="LLM 服务"
+        :purpose="AiServicePurpose.Llm"
+        empty-description="未配置 LLM 服务"
+        :config="llmConfig"
+        :loading="loading"
+        :can-create="canCreate"
+        :can-update="canUpdate"
+        :can-delete="canDelete"
+        :can-probe-models="canProbeModels"
+        :has-summary-action-buttons="hasSummaryActionButtons"
+        :disabled-state="disabledState"
+        :probing-state="probingState"
+        @add="handleAdd"
+        @edit="handleEdit"
+        @toggle-disabled="handleToggleDisabled"
+        @delete="handleDelete"
+        @probe-models="handleProbeModels"
+      />
 
-      <el-card v-loading="loading" class="service-card">
-        <template #header>
-          <div class="card-header">
-            <span>Embedding 服务</span>
-            <div class="card-actions">
-              <el-button
-                v-if="canCreate"
-                type="primary"
-                @click="handleAdd(AiServicePurpose.Embedding)"
-              >
-                新增
-              </el-button>
-              <template v-if="embeddingConfig && hasSummaryActionButtons">
-                <el-button
-                  v-if="canUpdate"
-                  type="primary"
-                  link
-                  @click="handleEdit(embeddingConfig)"
-                >
-                  编辑
-                </el-button>
-                <el-button
-                  v-if="canUpdate"
-                  type="warning"
-                  link
-                  :loading="isRowLoading(disabledState, embeddingConfig.id)"
-                  :disabled="isRowLoading(disabledState, embeddingConfig.id)"
-                  @click="handleToggleDisabled(embeddingConfig)"
-                >
-                  禁用
-                </el-button>
-                <el-button
-                  v-if="canDelete"
-                  type="danger"
-                  link
-                  @click="handleDelete(embeddingConfig)"
-                >
-                  删除
-                </el-button>
-                <el-button
-                  v-if="canProbeModels"
-                  type="success"
-                  link
-                  :loading="isRowLoading(probingState, embeddingConfig.id)"
-                  :disabled="isRowLoading(probingState, embeddingConfig.id)"
-                  @click="handleProbeModels(embeddingConfig)"
-                >
-                  模型
-                </el-button>
-              </template>
-            </div>
-          </div>
-        </template>
-        <el-empty v-if="!embeddingConfig" description="未配置 Embedding 服务" />
-        <div v-else class="config-grid">
-          <div class="config-row">
-            <div class="config-label">名称</div>
-            <div class="config-value">
-              {{ formatValue(embeddingConfig.name) }}
-            </div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">类型</div>
-            <div class="config-value">
-              {{ getServiceTypeLabel(embeddingConfig.serviceType) }}
-            </div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">优先级</div>
-            <div class="config-value">{{ embeddingConfig.priority }}</div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">Endpoint</div>
-            <div class="config-value">
-              {{ formatValue(embeddingConfig.endpoint) }}
-            </div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">Embedding 模型</div>
-            <div class="config-value">
-              {{ formatValue(embeddingConfig.embeddingModel) }}
-            </div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">匹配链路</div>
-            <div class="config-value">证据裁决</div>
-          </div>
-          <div class="config-row">
-            <div class="config-label">默认召回候选数</div>
-            <div class="config-value">
-              {{ embeddingConfig.defaultRecallTopK }}
-            </div>
-          </div>
-        </div>
-      </el-card>
+      <AiServiceSummaryCard
+        title="Embedding 服务"
+        :purpose="AiServicePurpose.Embedding"
+        empty-description="未配置 Embedding 服务"
+        :config="embeddingConfig"
+        :loading="loading"
+        :can-create="canCreate"
+        :can-update="canUpdate"
+        :can-delete="canDelete"
+        :can-probe-models="canProbeModels"
+        :has-summary-action-buttons="hasSummaryActionButtons"
+        :disabled-state="disabledState"
+        :probing-state="probingState"
+        @add="handleAdd"
+        @edit="handleEdit"
+        @toggle-disabled="handleToggleDisabled"
+        @delete="handleDelete"
+        @probe-models="handleProbeModels"
+      />
     </div>
 
-    <el-card v-if="showAllConfigs" class="service-table">
-      <template #header>
-        <div class="flex justify-between items-center">
-          <span>全部配置</span>
-          <el-button @click="showAllConfigs = false">收起</el-button>
-        </div>
-      </template>
-      <el-table
-        :data="tableData"
-        stripe
-        :row-key="row => String(row.id)"
-        :expand-row-keys="expandedTestRowKeys"
-      >
-        <el-table-column
-          type="expand"
-          width="1"
-          class-name="test-result-expand-column"
-        >
-          <template #default="{ row }">
-            <div
-              v-if="activeTestResult && activeTestResult.rowId === row.id"
-              :id="`ai-test-result-${row.id}`"
-              class="ai-test-result-shell"
-            >
-              <div
-                class="ai-test-result-card"
-                :class="
-                  getTestResultCardClass(
-                    activeTestResult?.category || 'general',
-                    !!activeTestResult?.success
-                  )
-                "
-              >
-                <div class="ai-test-result-card__header">
-                  <div>
-                    <div class="ai-test-result-card__title">
-                      {{ activeTestResult?.rowName }} ·
-                      {{ activeTestResult?.summary }}
-                    </div>
-                    <div class="ai-test-result-card__subtitle">
-                      {{ activeTestResult?.statusText }}
-                    </div>
-                  </div>
-                  <el-button link type="info" @click="clearInlineTestResult">
-                    收起
-                  </el-button>
-                </div>
+    <AiServiceConfigsTable
+      v-if="showAllConfigs"
+      :table-data="tableData"
+      :expanded-test-row-keys="expandedTestRowKeys"
+      :active-test-result="activeTestResult"
+      :has-action-buttons="hasActionButtons"
+      :can-update="canUpdate"
+      :can-delete="canDelete"
+      :can-test="canTest"
+      :can-probe-models="canProbeModels"
+      :disabled-state="disabledState"
+      :testing-state="testingState"
+      :probing-state="probingState"
+      @collapse="showAllConfigs = false"
+      @clear-test-result="clearInlineTestResult"
+      @edit="handleEdit"
+      @toggle-disabled="handleToggleDisabled"
+      @delete="handleDelete"
+      @test="handleTest"
+      @probe-models="handleProbeModels"
+    />
 
-                <div class="ai-test-result-card__tags">
-                  <el-tag
-                    v-for="tag in activeTestResult?.tags || []"
-                    :key="`${row.id}-${tag.label}`"
-                    size="small"
-                    :type="tag.type"
-                    effect="light"
-                  >
-                    {{ tag.label }}
-                  </el-tag>
-                </div>
+    <AiServiceEditDialog
+      v-model="dialogVisible"
+      :form-data="formData"
+      :title="dialogTitle"
+      :can-submit="canSubmit"
+      @submit="handleSubmit"
+    />
 
-                <div class="ai-test-result-card__message">
-                  {{ activeTestResult?.message }}
-                </div>
-
-                <div class="ai-test-result-card__details">
-                  <div
-                    v-for="detail in activeTestResult?.details || []"
-                    :key="`${row.id}-${detail.label}`"
-                    class="ai-test-result-card__detail"
-                  >
-                    <span class="ai-test-result-card__detail-label">{{
-                      detail.label
-                    }}</span>
-                    <span class="ai-test-result-card__detail-value">{{
-                      detail.value
-                    }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="名称" min-width="180" />
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag
-              :type="row.isDisabled ? 'info' : 'success'"
-              size="small"
-              effect="light"
-            >
-              {{ row.isDisabled ? "已禁用" : "启用中" }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="serviceType" label="类型" width="160">
-          <template #default="{ row }">
-            {{ getServiceTypeLabel(row.serviceType) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="purpose" label="用途" width="160">
-          <template #default="{ row }">
-            {{ formatPurpose(row.purpose) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="endpoint" label="Endpoint" min-width="240" />
-        <el-table-column
-          prop="embeddingModel"
-          label="EmbeddingModel"
-          min-width="160"
-        />
-        <el-table-column prop="llmModel" label="LLMModel" min-width="160" />
-        <el-table-column label="关闭思考模式" width="140">
-          <template #default="{ row }">
-            {{ row.disableThinking ? "是" : "否" }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          v-if="hasActionButtons"
-          label="操作"
-          width="360"
-          fixed="right"
-        >
-          <template #default="{ row }">
-            <el-button
-              v-if="canUpdate"
-              type="primary"
-              link
-              @click="handleEdit(row)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              v-if="canUpdate"
-              :type="row.isDisabled ? 'success' : 'warning'"
-              link
-              :loading="isRowLoading(disabledState, row.id)"
-              :disabled="isRowLoading(disabledState, row.id)"
-              @click="handleToggleDisabled(row)"
-            >
-              {{ row.isDisabled ? "启用" : "禁用" }}
-            </el-button>
-            <el-button
-              v-if="canDelete"
-              type="danger"
-              link
-              @click="handleDelete(row)"
-            >
-              删除
-            </el-button>
-            <el-button
-              v-if="canTest"
-              type="warning"
-              link
-              :loading="isRowLoading(testingState, row.id)"
-              :disabled="row.isDisabled || isRowLoading(testingState, row.id)"
-              @click="handleTest(row)"
-            >
-              完整测试
-            </el-button>
-            <el-button
-              v-if="canProbeModels"
-              type="success"
-              link
-              :loading="isRowLoading(probingState, row.id)"
-              :disabled="row.isDisabled || isRowLoading(probingState, row.id)"
-              @click="handleProbeModels(row)"
-            >
-              模型
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="620">
-      <el-form label-width="120px">
-        <el-form-item label="名称" required>
-          <el-input v-model="formData.name" maxlength="100" />
-        </el-form-item>
-        <el-form-item label="类型" required>
-          <el-select
-            v-model="formData.serviceType"
-            class="w-full"
-            popper-class="config-select-popper"
-          >
-            <el-option
-              v-for="opt in serviceTypeOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="用途" required>
-          <el-radio-group v-model="formData.purpose">
-            <el-radio
-              v-for="opt in purposeOptions"
-              :key="opt.value"
-              :label="opt.value"
-            >
-              {{ opt.label }}
-            </el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="优先级">
-          <el-input-number
-            v-model="formData.priority"
-            :min="0"
-            :max="9999"
-            controls-position="right"
-          />
-        </el-form-item>
-        <el-form-item label="Endpoint">
-          <el-input
-            v-model="formData.endpoint"
-            placeholder="例如 http://localhost:11434 或 https://api.moonshot.cn（不包含 /v1）"
-          />
-        </el-form-item>
-        <el-form-item label="ApiKey">
-          <el-input
-            v-model="formData.apiKey"
-            type="password"
-            show-password
-            placeholder="可查看/修改（编辑时）"
-          />
-        </el-form-item>
-        <el-form-item
-          v-if="hasPurpose(formData.purpose, AiServicePurpose.Embedding)"
-          label="EmbeddingModel"
-          required
-        >
-          <el-input v-model="formData.embeddingModel" />
-        </el-form-item>
-        <el-form-item
-          v-if="hasPurpose(formData.purpose, AiServicePurpose.Embedding)"
-          label="匹配链路"
-        >
-          <div class="thinking-config">
-            <el-tag type="success">证据裁决</el-tag>
-            <div class="thinking-tip">
-              固定执行 Embedding 召回、证据重排、冲突门禁和高歧义复核。
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item
-          v-if="hasPurpose(formData.purpose, AiServicePurpose.Embedding)"
-          label="默认召回数"
-        >
-          <el-input-number
-            v-model="formData.defaultRecallTopK"
-            :min="1"
-            :max="MAX_RECALL_TOP_K"
-            controls-position="right"
-          />
-        </el-form-item>
-        <el-form-item
-          v-if="hasPurpose(formData.purpose, AiServicePurpose.Llm)"
-          label="LLMModel"
-          required
-        >
-          <el-input v-model="formData.llmModel" />
-        </el-form-item>
-        <el-form-item
-          v-if="hasPurpose(formData.purpose, AiServicePurpose.Llm)"
-          label="关闭思考模式"
-        >
-          <div class="thinking-config">
-            <el-switch v-model="formData.disableThinking" />
-            <div class="thinking-tip">
-              当前主要对 Ollama 生效，系统会优先请求关闭思考输出，并对
-              `&lt;think&gt;` 内容做兜底清理
-            </div>
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
-          确定
-        </el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="modelsDialogVisible" title="远端模型探测" width="520px">
-      <div v-loading="modelsLoading">
-        <div class="model-title">
-          {{ modelsInfo.name || "AI服务" }}
-        </div>
-        <div v-if="modelsInfo.message" class="model-message">
-          {{ modelsInfo.message }}
-        </div>
-        <div
-          v-if="
-            !modelsLoading &&
-            hasPurpose(modelsInfo.purpose, AiServicePurpose.Llm)
-          "
-          class="model-section"
-        >
-          <div class="model-label">LLM 模型</div>
-          <div v-if="modelsInfo.llmModels.length" class="model-tags">
-            <el-tag
-              v-for="m in modelsInfo.llmModels"
-              :key="m"
-              size="small"
-              class="model-tag"
-              :title="`点击复制 ${m}`"
-              @click="copyModelName(m)"
-            >
-              {{ m }}
-            </el-tag>
-          </div>
-          <div v-else class="model-empty">未返回 LLM 模型</div>
-        </div>
-        <div
-          v-if="
-            !modelsLoading &&
-            hasPurpose(modelsInfo.purpose, AiServicePurpose.Embedding)
-          "
-          class="model-section"
-        >
-          <div class="model-label">Embedding 模型</div>
-          <div v-if="modelsInfo.embeddingModels.length" class="model-tags">
-            <el-tag
-              v-for="m in modelsInfo.embeddingModels"
-              :key="m"
-              size="small"
-              type="info"
-              class="model-tag"
-              :title="`点击复制 ${m}`"
-              @click="copyModelName(m)"
-            >
-              {{ m }}
-            </el-tag>
-          </div>
-          <div v-else class="model-empty">未返回 Embedding 模型</div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="modelsDialogVisible = false">关闭</el-button>
-        <el-button
-          v-if="canProbeModels"
-          type="primary"
-          :loading="modelsLoading"
-          @click="loadModels"
-        >
-          重新探测
-        </el-button>
-      </template>
-    </el-dialog>
+    <AiServiceModelsDialog
+      v-model="modelsDialogVisible"
+      :loading="modelsLoading"
+      :can-probe-models="canProbeModels"
+      :models-info="modelsInfo"
+      @reload="loadModels"
+      @copy-model-name="copyModelName"
+    />
   </div>
 </template>
 
-<style scoped>
-.page {
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.config-alert {
-  margin-bottom: 8px;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.service-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 16px;
-}
-
-.service-card {
-  min-height: 220px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.card-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.config-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-
-.config-row {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 12px;
-  align-items: start;
-}
-
-.config-label {
-  font-size: 12px;
-  color: #6b7280;
-}
-
-.config-value {
-  font-size: 13px;
-  color: var(--color-text);
-  word-break: break-all;
-}
-
-.thinking-config {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-}
-
-.thinking-tip {
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.5;
-}
-
-.service-table {
-  margin-top: 8px;
-}
-
-:deep(.test-result-expand-column .cell),
-:deep(.test-result-expand-column .el-table__expand-icon) {
-  width: 0;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-}
-
-:deep(.test-result-expand-column) {
-  border-right: none;
-}
-
-.ai-test-result-shell {
-  padding: 8px 0 4px;
-}
-
-.ai-test-result-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px;
-  border-radius: 14px;
-  border: 1px solid #dbeafe;
-  background: linear-gradient(180deg, #f8fbff 0%, #f3f8ff 100%);
-  box-shadow: 0 10px 24px rgb(15 23 42 / 6%);
-}
-
-.ai-test-result-card__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.ai-test-result-card__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #0f172a;
-  line-height: 1.5;
-}
-
-.ai-test-result-card__subtitle {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #64748b;
-}
-
-.ai-test-result-card__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.ai-test-result-card__message {
-  font-size: 13px;
-  line-height: 1.7;
-  color: #1e293b;
-  word-break: break-word;
-}
-
-.ai-test-result-card__details {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-}
-
-.ai-test-result-card__detail {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgb(255 255 255 / 68%);
-}
-
-.ai-test-result-card__detail-label {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.ai-test-result-card__detail-value {
-  font-size: 13px;
-  color: #0f172a;
-  line-height: 1.5;
-  word-break: break-word;
-}
-
-.ai-test-result-card--success {
-  border-color: #bbf7d0;
-  background: linear-gradient(180deg, #f3fff7 0%, #ecfdf3 100%);
-}
-
-.ai-test-result-card--auth {
-  border-color: #fecaca;
-  background: linear-gradient(180deg, #fff7f7 0%, #fef2f2 100%);
-}
-
-.ai-test-result-card--endpoint {
-  border-color: #fed7aa;
-  background: linear-gradient(180deg, #fffaf5 0%, #fff7ed 100%);
-}
-
-.ai-test-result-card--rate-limit,
-.ai-test-result-card--timeout {
-  border-color: #fde68a;
-  background: linear-gradient(180deg, #fffdf2 0%, #fefce8 100%);
-}
-
-.ai-test-result-card--remote,
-.ai-test-result-card--general {
-  border-color: #cbd5e1;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-}
-
-.model-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 8px;
-}
-
-.model-message {
-  font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 12px;
-}
-
-.model-section {
-  margin-bottom: 12px;
-}
-
-.model-label {
-  font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 6px;
-}
-
-.model-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.model-tag {
-  cursor: pointer;
-}
-
-.model-tag:hover {
-  opacity: 0.85;
-}
-
-.model-empty {
-  font-size: 12px;
-  color: #c0c4cc;
-}
-</style>
+<style scoped src="./index.styles.css"></style>

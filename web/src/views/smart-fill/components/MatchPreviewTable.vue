@@ -5,43 +5,44 @@ import {
   type MatchPreviewItem
 } from "@/api/matching";
 import {
-  getLlmEquivalenceDifferenceTone,
-  getLlmEquivalenceDifferenceToneTagType,
-  getLlmEquivalenceDifferenceToneText,
-  getLlmEquivalenceSummaryText,
-  shouldHideInlineLlmEquivalenceSummary,
-  getLlmEquivalenceVerdictTagType
-} from "./scoreDetail.llmEquivalence";
-import {
   getSmartFillTableState,
   type SmartFillFillRecommendation,
   type SmartFillReviewStatus
 } from "./scoreDetail.formatters";
 import {
-  formatIssueComparison,
-  formatPreviewScore,
   canEditMatchPreviewRow,
   canUseMatchPreviewBestMatch,
   filterMatchPreviewItems,
-  getAmbiguityHint as getPreviewAmbiguityHint,
   getConfirmBestMatchButtonText,
   getFillRecommendationTagType as getPreviewFillRecommendationTagType,
   getFillRecommendationText as getPreviewFillRecommendationText,
-  getMatchBasisText,
   getMatchPreviewStats,
   getPagedMatchPreviewItems,
   getPreviewConfidenceClass,
   getPreviewConfidenceText,
-  getPrimaryIssue,
   getReviewStatusText as getPreviewReviewStatusText,
   getReviewTagType as getPreviewReviewTagType,
   type MatchPreviewScoreFilter,
   isHighConfidenceMatchPreview,
   isNoAnswerPlaceholderRow,
   shouldShowFillRecommendation,
-  shouldShowReasonColumn,
-  shouldShowReasonColumnForItem
+  shouldShowReasonColumn
 } from "./matchPreviewTable.formatters";
+import MatchPreviewDataTable from "./MatchPreviewDataTable.vue";
+import MatchPreviewEditDialog from "./MatchPreviewEditDialog.vue";
+import MatchPreviewStatsBar from "./MatchPreviewStatsBar.vue";
+import {
+  cloneMatchPreviewOverride,
+  collectEditedBackfillItems,
+  collectMatchPreviewSelections,
+  hasMatchPreviewOverrideValue
+} from "./matchPreviewTable.selection";
+import type {
+  EditedBackfillItem,
+  MatchPreviewEditOverride,
+  MatchPreviewSelection,
+  PersistedSelection
+} from "./matchPreviewTable.types";
 
 const props = defineProps<{
   items: MatchPreviewItem[];
@@ -59,42 +60,10 @@ const emit = defineEmits<{
   (e: "showDetail", item: MatchPreviewItem): void;
 }>();
 
-type Selection = {
-  type: "best" | "manual";
-  manualConfirmed: boolean;
-  reviewApprovalToken?: string;
-};
+export type { EditedBackfillItem } from "./matchPreviewTable.types";
 
-type EditOverride = {
-  overrideAcceptance?: string;
-  overrideRemark?: string;
-};
-
-type PersistedSelection = {
-  rowIndex: number;
-  selected?: boolean;
-  specId?: number;
-  manualConfirmed?: boolean;
-  manualFill?: boolean;
-  reviewApprovalToken?: string;
-  overrideAcceptance?: string;
-  overrideRemark?: string;
-};
-
-export type EditedBackfillItem = {
-  rowIndex: number;
-  specId?: number;
-  sourceProject: string;
-  sourceSpecification: string;
-  originalAcceptance?: string;
-  originalRemark?: string;
-  overrideAcceptance?: string;
-  overrideRemark?: string;
-  actionType: "update" | "create";
-};
-
-const selectedSpecs = ref<Map<number, Selection | null>>(new Map());
-const editedOverrides = ref<Map<number, EditOverride>>(new Map());
+const selectedSpecs = ref<Map<number, MatchPreviewSelection | null>>(new Map());
+const editedOverrides = ref<Map<number, MatchPreviewEditOverride>>(new Map());
 const editDialogVisible = ref(false);
 const editingItem = ref<MatchPreviewItem | null>(null);
 const currentPage = ref(1);
@@ -137,20 +106,7 @@ const initSelections = () => {
   });
 };
 
-const hasOverrideValue = (value?: EditOverride | null) =>
-  !!value &&
-  (value.overrideAcceptance !== undefined || value.overrideRemark !== undefined);
-
-const cloneOverride = (value?: EditOverride | null): EditOverride | undefined => {
-  if (!hasOverrideValue(value)) {
-    return undefined;
-  }
-
-  return {
-    overrideAcceptance: value.overrideAcceptance,
-    overrideRemark: value.overrideRemark
-  };
-};
+const hasOverrideValue = hasMatchPreviewOverrideValue;
 
 const persistedStateMap = computed(() =>
   new Map((props.persistedSelections ?? []).map(item => [item.rowIndex, item]))
@@ -159,7 +115,9 @@ const persistedStateMap = computed(() =>
 const getPersistedState = (rowIndex: number) =>
   persistedStateMap.value.get(rowIndex);
 
-const getPersistedSelection = (rowIndex: number): Selection | null => {
+const getPersistedSelection = (
+  rowIndex: number
+): MatchPreviewSelection | null => {
   const persisted = getPersistedState(rowIndex);
   if (!persisted?.selected) {
     return null;
@@ -173,9 +131,11 @@ const getPersistedSelection = (rowIndex: number): Selection | null => {
 };
 
 const getPersistedOverride = (rowIndex: number) =>
-  cloneOverride(getPersistedState(rowIndex));
+  cloneMatchPreviewOverride(getPersistedState(rowIndex));
 
-const getExistingSelection = (rowIndex: number): Selection | null => {
+const getExistingSelection = (
+  rowIndex: number
+): MatchPreviewSelection | null => {
   if (selectedSpecs.value.has(rowIndex)) {
     return selectedSpecs.value.get(rowIndex) ?? null;
   }
@@ -185,7 +145,7 @@ const getExistingSelection = (rowIndex: number): Selection | null => {
 
 const getOverride = (rowIndex: number) => {
   if (editedOverrides.value.has(rowIndex)) {
-    return cloneOverride(editedOverrides.value.get(rowIndex));
+    return cloneMatchPreviewOverride(editedOverrides.value.get(rowIndex));
   }
 
   return getPersistedOverride(rowIndex);
@@ -239,7 +199,7 @@ const handleSaveEditedSelection = () => {
 
   const baseAcceptance = item.bestMatch?.acceptance ?? "";
   const baseRemark = item.bestMatch?.remark ?? "";
-  const nextOverride: EditOverride = {
+  const nextOverride: MatchPreviewEditOverride = {
     overrideAcceptance:
       item.bestMatch && editForm.value.overrideAcceptance === baseAcceptance
         ? undefined
@@ -283,8 +243,8 @@ const selectionSyncKey = computed(() =>
 );
 
 const syncSelectionsWithItems = () => {
-  const nextSelections = new Map<number, Selection | null>();
-  const nextOverrides = new Map<number, EditOverride>();
+  const nextSelections = new Map<number, MatchPreviewSelection | null>();
+  const nextOverrides = new Map<number, MatchPreviewEditOverride>();
 
   props.items.forEach(item => {
     const existing = getExistingSelection(item.rowIndex);
@@ -375,12 +335,6 @@ const clearSelectionByRow = (rowIndex: number) => {
 
 const getConfidenceClass = getPreviewConfidenceClass;
 const getConfidenceText = getPreviewConfidenceText;
-const formatScore = formatPreviewScore;
-
-const getAmbiguityHint = (item: MatchPreviewItem) => {
-  return getPreviewAmbiguityHint(item, effectiveAmbiguityMargin.value);
-};
-
 const getReviewStatusText = (item: MatchPreviewItem) => {
   return getPreviewReviewStatusText(
     item,
@@ -474,67 +428,14 @@ const handlePageSizeChange = (size: number) => {
 };
 
 defineExpose({
-  getSelections: () => {
-        const selections: Array<{
-          rowIndex: number;
-          selected?: boolean;
-          specId?: number;
-          manualConfirmed?: boolean;
-          manualFill?: boolean;
-          reviewApprovalToken?: string;
-          overrideAcceptance?: string;
-          overrideRemark?: string;
-        }> = [];
-
-    const rowIndexes = new Set<number>([
-      ...selectedSpecs.value.keys(),
-      ...editedOverrides.value.keys()
-    ]);
-
-    rowIndexes.forEach(rowIndex => {
-      const selection = selectedSpecs.value.get(rowIndex) ?? null;
-      const override = editedOverrides.value.get(rowIndex);
-      if (!selection && !hasOverrideValue(override)) return;
-
-      const item = props.items.find(i => i.rowIndex === rowIndex);
-      if (!item) return;
-
-      selections.push({
-          rowIndex,
-          selected: !!selection,
-          specId: selection?.type === "best" ? item.bestMatch?.specId : undefined,
-          manualConfirmed: selection?.manualConfirmed,
-          manualFill: selection?.type === "manual",
-          reviewApprovalToken: selection?.reviewApprovalToken,
-          overrideAcceptance: override?.overrideAcceptance,
-          overrideRemark: override?.overrideRemark
-        });
-    });
-
-    return selections;
-  },
-  getEditedBackfillItems: (): EditedBackfillItem[] => {
-    return [...editedOverrides.value.entries()]
-      .map((entry): EditedBackfillItem | null => {
-        const [rowIndex, override] = entry;
-        if (!hasOverrideValue(override)) return null;
-        const item = props.items.find(i => i.rowIndex === rowIndex);
-        if (!item) return null;
-
-        return {
-          rowIndex,
-          specId: item.bestMatch?.specId,
-          sourceProject: item.sourceProject,
-          sourceSpecification: item.sourceSpecification,
-          originalAcceptance: item.bestMatch?.acceptance,
-          originalRemark: item.bestMatch?.remark,
-          overrideAcceptance: override.overrideAcceptance,
-          overrideRemark: override.overrideRemark,
-          actionType: item.bestMatch ? "update" : "create"
-        } satisfies EditedBackfillItem;
-      })
-      .filter((item): item is EditedBackfillItem => !!item);
-  },
+  getSelections: () =>
+    collectMatchPreviewSelections(
+      props.items,
+      selectedSpecs.value,
+      editedOverrides.value
+    ),
+  getEditedBackfillItems: (): EditedBackfillItem[] =>
+    collectEditedBackfillItems(props.items, editedOverrides.value),
   initSelections,
   clearSelectionByRow
 });
@@ -542,674 +443,48 @@ defineExpose({
 
 <template>
   <div class="match-preview-table">
-    <!-- 统计栏 + 筛选 -->
-    <div class="stats-bar">
-      <div class="stats-info">
-        <span>共 {{ stats.total }} 行</span>
-        <span class="divider">|</span>
-        <span>已匹配 {{ stats.matched }} 行</span>
-        <span class="divider">|</span>
-        <span class="selected">已选择 {{ stats.selected }} 行</span>
-        <span class="divider">|</span>
-        <span class="ambiguous">高歧义 {{ stats.ambiguous }} 行</span>
-      </div>
-      <el-radio-group
-        v-model="scoreFilter"
-        size="small"
-        class="score-filter"
-      >
-        <el-radio-button value="all">
-          全部 ({{ stats.total }})
-        </el-radio-button>
-        <el-radio-button value="exactFillable">
-          100%精确直达 ({{ stats.exactFillable }})
-        </el-radio-button>
-        <el-radio-button value="partialFillable">
-          AI/普通可填充 ({{ stats.partialFillable }})
-        </el-radio-button>
-        <el-radio-button value="review">
-          需要确认 ({{ stats.review }})
-        </el-radio-button>
-        <el-radio-button value="blocked">
-          不建议填充 ({{ stats.blocked }})
-        </el-radio-button>
-        <el-radio-button value="unmatched">
-          无匹配 ({{ stats.unmatched }})
-        </el-radio-button>
-      </el-radio-group>
-    </div>
+    <MatchPreviewStatsBar v-model:score-filter="scoreFilter" :stats="stats" />
 
-    <!-- 表格 -->
-    <el-table
-      :data="pagedFilteredItems"
-      v-loading="loading"
-      stripe
-      border
-      max-height="500"
-      row-key="rowIndex"
-    >
-      <!-- 行号 -->
-      <el-table-column label="行" width="60" align="center">
-        <template #default="{ row }">
-          {{ row.rowIndex + 1 }}
-        </template>
-      </el-table-column>
+    <MatchPreviewDataTable
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      :items="pagedFilteredItems"
+      :loading="loading"
+      :has-reason-column="hasReasonColumn"
+      :page-size-options="pageSizeOptions"
+      :total="filteredItems.length"
+      :ambiguity-margin="effectiveAmbiguityMargin"
+      :get-confidence-class="getConfidenceClass"
+      :get-confidence-text="getConfidenceText"
+      :should-show-fill-recommendation="shouldShowFillRecommendation"
+      :get-fill-recommendation-tag-type="getFillRecommendationTagType"
+      :get-fill-recommendation-text="getFillRecommendationText"
+      :get-review-status="getReviewStatus"
+      :get-review-tag-type="getReviewTagType"
+      :get-review-status-text="getReviewStatusText"
+      :get-display-acceptance-text="getDisplayAcceptanceText"
+      :get-display-remark-text="getDisplayRemarkText"
+      :has-acceptance-override="hasAcceptanceOverride"
+      :has-remark-override="hasRemarkOverride"
+      :get-selection="getSelection"
+      :can-edit-row="canEditRow"
+      :can-use-best-match="canUseBestMatch"
+      :get-confirm-best-match-button-text="getConfirmBestMatchButtonText"
+      @page-size-change="handlePageSizeChange"
+      @show-detail="emit('showDetail', $event)"
+      @edit="openEditDialog"
+      @select-best="handleSelectBest"
+      @clear-selection="handleClearSelection"
+    />
 
-      <!-- 源数据 -->
-      <el-table-column label="源数据" min-width="200">
-        <template #default="{ row }">
-          <div class="source-data">
-            <div class="source-project">{{ row.sourceProject }}</div>
-            <div class="source-spec">{{ row.sourceSpecification }}</div>
-          </div>
-        </template>
-      </el-table-column>
-
-      <!-- 置信度 -->
-      <el-table-column label="置信度" width="80" align="center">
-        <template #default="{ row }">
-          <el-tag
-            :class="getConfidenceClass(row.confidenceLevel)"
-            size="small"
-            effect="dark"
-          >
-            {{ getConfidenceText(row.confidenceLevel) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-
-      <!-- 填充建议 -->
-      <el-table-column label="填充建议" width="120" align="center">
-        <template #default="{ row }">
-          <el-tag
-            v-if="shouldShowFillRecommendation(row)"
-            size="small"
-            :type="getFillRecommendationTagType(row)"
-          >
-            {{ getFillRecommendationText(row) }}
-          </el-tag>
-          <span v-else class="reason-none">-</span>
-        </template>
-      </el-table-column>
-
-      <!-- 最佳匹配 -->
-      <el-table-column label="最佳匹配" min-width="260">
-        <template #default="{ row }">
-          <div v-if="row.bestMatch" class="match-best">
-            <div class="match-main">
-              <div class="match-text">
-                {{ row.bestMatch.project }} - {{ row.bestMatch.specification }}
-              </div>
-              <div class="match-meta">
-                <el-tag
-                  size="small"
-                  type="info"
-                  effect="plain"
-                >
-                  召回 {{ row.bestMatch.recalledCandidateCount }}
-                </el-tag>
-                <el-tag
-                  v-if="row.bestMatch.isAmbiguous"
-                  size="small"
-                  type="warning"
-                  effect="plain"
-                >
-                  高歧义
-                </el-tag>
-                <el-tag
-                  v-if="row.bestMatch.matchBasis"
-                  size="small"
-                  type="info"
-                  effect="plain"
-                >
-                  匹配依据：{{ getMatchBasisText(row.bestMatch.matchBasis) }}
-                </el-tag>
-              </div>
-            </div>
-            <div class="match-score">{{ formatScore(row.bestMatch.score) }}</div>
-            <div
-              v-if="row.bestMatch.isAmbiguous"
-              class="ambiguity-reason"
-            >
-              {{ getAmbiguityHint(row) }}
-            </div>
-            <div
-              v-if="getPrimaryIssue(row)"
-              class="issue-summary"
-            >
-              <span class="issue-summary__title">问题：</span>
-              <span>{{ getPrimaryIssue(row)?.message }}</span>
-              <div
-                v-if="formatIssueComparison(getPrimaryIssue(row))"
-                class="issue-summary__meta"
-              >
-                {{ formatIssueComparison(getPrimaryIssue(row)) }}
-              </div>
-            </div>
-            <div
-              v-if="row.bestMatch.evidenceSummary?.length"
-              class="evidence-summary"
-            >
-              {{ row.bestMatch.evidenceSummary.slice(0, 2).join("；") }}
-            </div>
-            <div
-              v-if="row.bestMatch.llmEquivalence && !shouldHideInlineLlmEquivalenceSummary(row.bestMatch.llmEquivalence, row.bestMatch.score)"
-              class="equivalence-summary"
-            >
-              <div class="equivalence-summary__tags">
-                <el-tag
-                  size="small"
-                  effect="plain"
-                  :type="getLlmEquivalenceVerdictTagType(row.bestMatch.llmEquivalence.verdict)"
-                >
-                  AI 等价裁决
-                </el-tag>
-                <el-tag
-                  size="small"
-                  effect="plain"
-                  :type="
-                    getLlmEquivalenceDifferenceToneTagType(
-                      getLlmEquivalenceDifferenceTone(row.bestMatch.llmEquivalence)
-                    )
-                  "
-                >
-                  {{
-                    getLlmEquivalenceDifferenceToneText(
-                      getLlmEquivalenceDifferenceTone(row.bestMatch.llmEquivalence)
-                    )
-                  }}
-                </el-tag>
-              </div>
-              <div class="equivalence-summary__text">
-                {{ getLlmEquivalenceSummaryText(row.bestMatch.llmEquivalence) }}
-              </div>
-            </div>
-            <div
-              v-if="row.bestMatch.conflictSummary?.length"
-              class="conflict-summary"
-            >
-              {{ row.bestMatch.conflictSummary.join("；") }}
-            </div>
-          </div>
-          <div v-else class="no-match">
-            <el-tag type="info" size="small">无匹配</el-tag>
-          </div>
-        </template>
-      </el-table-column>
-
-      <!-- 复核状态 -->
-      <el-table-column label="复核状态" width="130" align="center">
-        <template #default="{ row }">
-          <div class="ai-status-cell">
-            <el-tag
-              v-if="getReviewStatus(row) !== 'none'"
-              size="small"
-              :type="getReviewTagType(row)"
-              :class="{ 'ai-streaming': getReviewStatus(row) === 'streaming' }"
-            >
-              {{ getReviewStatusText(row) }}
-            </el-tag>
-            <span v-else class="reason-none">-</span>
-          </div>
-        </template>
-      </el-table-column>
-
-      <!-- 验收标准预览 -->
-      <el-table-column label="验收标准" min-width="180">
-        <template #default="{ row }">
-          <div class="preview-cell">
-            <span class="acceptance-text">
-              {{ getDisplayAcceptanceText(row) }}
-            </span>
-            <el-tag
-              v-if="hasAcceptanceOverride(row)"
-              size="small"
-              type="warning"
-              effect="plain"
-            >
-              已编辑
-            </el-tag>
-            <el-tag
-              v-if="getSelection(row.rowIndex)?.type === 'manual'"
-              size="small"
-              type="success"
-              effect="plain"
-            >
-              已手工填写
-            </el-tag>
-          </div>
-        </template>
-      </el-table-column>
-
-      <!-- 备注预览 -->
-      <el-table-column label="备注" min-width="150">
-        <template #default="{ row }">
-          <div class="preview-cell">
-            <span class="acceptance-text">
-              {{ getDisplayRemarkText(row) }}
-            </span>
-            <el-tag
-              v-if="hasRemarkOverride(row)"
-              size="small"
-              type="warning"
-              effect="plain"
-            >
-              已编辑
-            </el-tag>
-            <el-tag
-              v-if="getSelection(row.rowIndex)?.type === 'manual'"
-              size="small"
-              type="success"
-              effect="plain"
-            >
-              已手工填写
-            </el-tag>
-          </div>
-        </template>
-      </el-table-column>
-
-      <!-- 不匹配原因 / 复核说明 -->
-      <el-table-column v-if="hasReasonColumn" label="异常/原因" min-width="220">
-        <template #default="{ row }">
-          <div
-            v-if="shouldShowReasonColumnForItem(row)"
-            class="reason-cell"
-          >
-            <div v-if="!row.hasMatch" class="reason-text">
-              {{ row.noMatchReason || "未找到可匹配数据" }}
-            </div>
-            <div
-              v-if="row.bestMatch?.conflictSummary?.length"
-              class="reason-conflict"
-            >
-              冲突：{{ row.bestMatch.conflictSummary.join("；") }}
-            </div>
-            <div v-if="row.llmReviewError" class="reason-text">
-              复核异常：{{ row.llmReviewError }}
-            </div>
-          </div>
-          <span v-else class="reason-none">-</span>
-        </template>
-      </el-table-column>
-
-      <!-- 操作 -->
-      <el-table-column label="操作" width="140" align="center" fixed="right">
-        <template #default="{ row }">
-          <div class="action-buttons">
-            <el-button
-              v-if="row.bestMatch"
-              type="primary"
-              link
-              size="small"
-              @click="emit('showDetail', row)"
-            >
-              详情
-            </el-button>
-            <el-button
-              v-if="canEditRow(row)"
-              link
-              size="small"
-              @click="openEditDialog(row)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              v-if="row.bestMatch && canUseBestMatch(row) && getSelection(row.rowIndex)?.type !== 'best'"
-              size="small"
-              @click="handleSelectBest(row)"
-            >
-              {{
-                getConfirmBestMatchButtonText(row)
-              }}
-            </el-button>
-            <el-button
-              v-if="getSelection(row.rowIndex)"
-              link
-              size="small"
-              @click="handleClearSelection(row)"
-            >
-              不填充
-            </el-button>
-          </div>
-        </template>
-      </el-table-column>
-    </el-table>
-
-    <div class="table-pagination">
-      <el-pagination
-        v-model:current-page="currentPage"
-        v-model:page-size="pageSize"
-        background
-        small
-        :page-sizes="pageSizeOptions"
-        :total="filteredItems.length"
-        layout="total, sizes, prev, pager, next"
-        @size-change="handlePageSizeChange"
-      />
-    </div>
-
-    <el-dialog
-      v-model="editDialogVisible"
-      title="编辑本次导出内容"
-      width="640px"
+    <MatchPreviewEditDialog
+      v-model:visible="editDialogVisible"
+      :item="editingItem"
+      :form="editForm"
       @closed="closeEditDialog"
-    >
-      <div v-if="editingItem" class="edit-dialog">
-        <div class="edit-dialog__hint">
-          修改仅本次导出使用，执行填充前可选择是否回填到验收规格。
-        </div>
-        <el-form label-position="top">
-          <el-form-item label="项目">
-            <el-input :model-value="editingItem.sourceProject" readonly />
-          </el-form-item>
-          <el-form-item label="规格">
-            <el-input
-              :model-value="editingItem.sourceSpecification"
-              readonly
-              type="textarea"
-              :rows="2"
-            />
-          </el-form-item>
-          <el-form-item label="验收标准">
-            <el-input
-              v-model="editForm.overrideAcceptance"
-              type="textarea"
-              :rows="3"
-              placeholder="请输入本次导出的验收标准"
-            />
-          </el-form-item>
-          <el-form-item label="备注">
-            <el-input
-              v-model="editForm.overrideRemark"
-              type="textarea"
-              :rows="3"
-              placeholder="请输入本次导出的备注"
-            />
-          </el-form-item>
-        </el-form>
-      </div>
-      <template #footer>
-        <div class="edit-dialog__footer">
-          <el-button @click="closeEditDialog">取消</el-button>
-          <el-button type="primary" @click="handleSaveEditedSelection">
-            保存并采用
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
+      @save="handleSaveEditedSelection"
+    />
   </div>
 </template>
 
-<style scoped>
-.match-preview-table {
-  width: 100%;
-}
-
-.stats-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: #f8f5ff;
-  border-radius: 8px;
-  margin-bottom: 12px;
-  font-size: 14px;
-  color: #4b5563;
-}
-
-.stats-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.score-filter {
-  flex-shrink: 0;
-}
-
-.table-pagination {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-
-.divider {
-  color: #dcdfe6;
-}
-
-.selected {
-  color: var(--color-primary);
-  font-weight: 500;
-}
-
-.ambiguous {
-  color: #b45309;
-  font-weight: 500;
-}
-
-.source-data {
-  line-height: 1.5;
-}
-
-.source-project {
-  font-weight: 500;
-  color: var(--color-text);
-}
-
-.source-spec {
-  font-size: 12px;
-  color: #6b7280;
-  margin-top: 4px;
-}
-
-.confidence-high {
-  background-color: #67c23a !important;
-  border-color: #67c23a !important;
-}
-
-.confidence-medium {
-  background-color: #e6a23c !important;
-  border-color: #e6a23c !important;
-}
-
-.confidence-low {
-  background-color: #f56c6c !important;
-  border-color: #f56c6c !important;
-}
-
-.confidence-none {
-  background-color: #909399 !important;
-  border-color: #909399 !important;
-}
-
-.no-match {
-  text-align: center;
-}
-
-.match-best {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.match-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.match-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text);
-  font-weight: 500;
-}
-
-.match-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.match-score {
-  flex-shrink: 0;
-  color: var(--color-primary);
-  font-weight: 600;
-}
-
-.acceptance-none {
-  color: #c0c4cc;
-}
-
-.reason-text {
-  color: #6b7280;
-  font-size: 12px;
-}
-
-.reason-conflict {
-  color: #b42318;
-  font-size: 12px;
-}
-
-.reason-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.reason-none {
-  color: #c0c4cc;
-}
-
-.action-buttons {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-  justify-content: center;
-}
-
-.acceptance-text {
-  font-size: 13px;
-  color: #4b5563;
-}
-
-.preview-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.evidence-summary {
-  font-size: 12px;
-  color: #4b5563;
-  line-height: 1.5;
-}
-
-.conflict-summary {
-  font-size: 12px;
-  color: #b42318;
-  line-height: 1.5;
-}
-
-.equivalence-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
-}
-
-.equivalence-summary__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.equivalence-summary__text {
-  font-size: 12px;
-  line-height: 1.5;
-  color: #1d4ed8;
-}
-
-.issue-summary {
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: #fff7ed;
-  color: #9a3412;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.ambiguity-reason {
-  font-size: 12px;
-  color: #b45309;
-  line-height: 1.5;
-}
-
-.issue-summary__title {
-  font-weight: 600;
-}
-
-.issue-summary__meta {
-  margin-top: 4px;
-  color: #7c2d12;
-}
-
-.ai-status-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ai-status-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.ai-label {
-  font-size: 11px;
-  color: #9ca3af;
-  min-width: 24px;
-}
-
-.ai-streaming {
-  animation: ai-pulse 1.2s ease-in-out infinite;
-}
-
-.edit-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.edit-dialog__hint {
-  margin-bottom: 8px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #f5f7fa;
-  color: #606266;
-  font-size: 13px;
-}
-
-.edit-dialog__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-@keyframes ai-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-</style>
+<style scoped src="./MatchPreviewTable.styles.css"></style>

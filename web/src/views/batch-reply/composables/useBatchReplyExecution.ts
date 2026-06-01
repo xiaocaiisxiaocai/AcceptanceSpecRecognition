@@ -1,0 +1,83 @@
+import { ref, type ComputedRef, type Ref } from "vue";
+import { ElMessage } from "element-plus";
+import {
+  downloadBatchReplyResult,
+  executeBatchReply,
+  type BatchReplyExecuteResponse
+} from "@/api/matching";
+import { ensurePermission } from "@/utils/permission-guard";
+import {
+  buildBatchReplyExecuteRequest,
+  buildBatchReplyExecuteSuccessMessage,
+  triggerBrowserDownload
+} from "../batch-reply-execution";
+import type { BatchReplyTableConfigItem } from "../batch-reply-table-config";
+import type { BatchReplyTargetState } from "../batch-reply-state";
+
+type UseBatchReplyExecutionParams = {
+  sourceSessionId: ComputedRef<string>;
+  selectedSourceConfigs: ComputedRef<BatchReplyTableConfigItem[]>;
+  executableTargets: ComputedRef<BatchReplyTargetState[]>;
+  activeRootTab: Ref<string>;
+};
+
+export const useBatchReplyExecution = (params: UseBatchReplyExecutionParams) => {
+  const executeResult = ref<BatchReplyExecuteResponse | null>(null);
+  const executing = ref(false);
+
+  const executeReadyTargets = async () => {
+    if (
+      !ensurePermission("btn:batch-reply:execute", "权限不足，无法执行批量回复") ||
+      !ensurePermission("api:batch-reply:download", "权限不足，无法下载批量回复结果")
+    ) {
+      return;
+    }
+
+    if (!params.sourceSessionId.value) {
+      ElMessage.warning("请先上传来源文件");
+      return;
+    }
+
+    if (params.selectedSourceConfigs.value.length === 0) {
+      ElMessage.warning("请至少选择一个来源表");
+      return;
+    }
+
+    if (params.executableTargets.value.length === 0) {
+      ElMessage.warning("请至少完成一个目标文件的逐表预览");
+      return;
+    }
+
+    executing.value = true;
+    try {
+      const res = await executeBatchReply(
+        buildBatchReplyExecuteRequest({
+          sessionId: params.sourceSessionId.value,
+          sourceConfigs: params.selectedSourceConfigs.value,
+          executableTargets: params.executableTargets.value
+        })
+      );
+
+      if (res.code !== 0) {
+        ElMessage.error(res.message || "批量回复执行失败");
+        return;
+      }
+
+      executeResult.value = res.data;
+      params.activeRootTab.value = "result";
+      const blob = await downloadBatchReplyResult(res.data.taskId);
+      triggerBrowserDownload(blob, res.data.downloadFileName);
+      ElMessage.success(buildBatchReplyExecuteSuccessMessage(res.data));
+    } catch {
+      ElMessage.error("批量回复执行失败");
+    } finally {
+      executing.value = false;
+    }
+  };
+
+  return {
+    executeResult,
+    executing,
+    executeReadyTargets
+  };
+};

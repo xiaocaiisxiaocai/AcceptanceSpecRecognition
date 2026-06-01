@@ -2,54 +2,32 @@
 import { ref, computed, onBeforeUnmount, watch } from "vue";
 import { useEventListener } from "@vueuse/core";
 import { ElMessage } from "element-plus";
-import { Loading } from "@element-plus/icons-vue";
-import FileUpload from "@/views/data-import/components/FileUpload.vue";
-import MatchConfig from "./components/MatchConfig.vue";
-import BatchTableConfig from "./components/BatchTableConfig.vue";
-import BatchPreviewTabs from "./components/BatchPreviewTabs.vue";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
+import SmartFillBackfillDialog from "./components/SmartFillBackfillDialog.vue";
+import SmartFillMatchStep from "./components/SmartFillMatchStep.vue";
+import SmartFillPreviewStep from "./components/SmartFillPreviewStep.vue";
+import SmartFillSteps from "./components/SmartFillSteps.vue";
+import SmartFillTableStep from "./components/SmartFillTableStep.vue";
+import SmartFillUploadStep from "./components/SmartFillUploadStep.vue";
+import type { BatchTableConfigItem } from "./components/batchTableConfig.types";
 import {
-  applyMatchLlmStreamDisconnectToPreviewItem,
-  applyMatchLlmStreamEventToPreviewItem,
-  shouldStreamMatchReview
-} from "./components/scoreDetail.formatters";
-import type { BatchTableConfigItem } from "./components/BatchTableConfig.vue";
-import {
-  buildSmartFillExecuteRequest,
-  type SmartFillSelection
-} from "./smartFillExecution.helpers";
-import { triggerBrowserDownload } from "./smartFillDownload.helpers";
-import {
-  batchPreviewMatch,
-  batchExecuteFill,
-  backfillSmartFillSpecs,
-  downloadFillResult,
-  requestMatchLlmStream,
-  createMatchLlmStreamRequest,
   type MatchPreviewItem,
   type MatchConfig as MatchConfigType,
   type MatchResult,
-  type BatchExecuteFillRequest,
-  type MatchLlmStreamEvent,
-  type MatchLlmStreamEventData,
   type BatchTablePreviewResult,
-  DEFAULT_AMBIGUITY_MARGIN,
-  DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   defaultMatchConfig
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
-import { getFileTables } from "@/api/document";
-import {
-  getEffectiveColumnMappingRules,
-  type ColumnMappingRule
-} from "@/api/column-mapping-rules";
-import { matchWordTableColumnsByRules } from "@/views/shared/word-column-mapping-rules";
+import type { ColumnMappingRule } from "@/api/column-mapping-rules";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
-import { getRequestErrorMessage } from "@/utils/error-message";
 import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
 import { useSmartFillBackfillState } from "./composables/useSmartFillBackfillState";
 import { useSmartFillPreviewBlocking } from "./composables/useSmartFillPreviewBlocking";
+import { useSmartFillLlmStream } from "./composables/useSmartFillLlmStream";
+import { useSmartFillPreviewRequest } from "./composables/useSmartFillPreviewRequest";
+import { useSmartFillExecution } from "./composables/useSmartFillExecution";
+import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTables";
 
 defineOptions({ name: "FillData" });
 
@@ -86,11 +64,11 @@ const wordColumnMappingRules = ref<ColumnMappingRule[]>([]);
 
 // 匹配配置
 const matchConfig = ref<MatchConfigType>({ ...defaultMatchConfig });
-const matchConfigRef = ref<InstanceType<typeof MatchConfig> | null>(null);
+const matchConfigRef = ref<InstanceType<typeof SmartFillMatchStep> | null>(null);
 
 // 批量预览结果
 const batchPreviewResults = ref<BatchTablePreviewResult[]>([]);
-const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
+const batchPreviewTabsRef = ref<InstanceType<typeof SmartFillPreviewStep> | null>(
   null
 );
 const loadingUploadedFileTables = ref(false);
@@ -100,7 +78,6 @@ const selectedTableCount = computed(
   () => batchTableConfigs.value.filter((t) => t.selected).length
 );
 const {
-  previewProgress,
   previewElapsedSeconds,
   previewProgressStageText,
   previewProgressDetailText,
@@ -113,78 +90,15 @@ const {
   startPreviewProgressPolling,
   markPreviewProgressCompleted
 } = useSmartFillPreviewProgress({ selectedTableCount });
-const llmStreaming = ref(false);
-const llmStreamController = ref<AbortController | null>(null);
-const previewAbortController = ref<AbortController | null>(null);
-let previewRequestVersion = 0;
-
-const stopPreviewRequest = () => {
-  const controller = previewAbortController.value;
-  controller?.abort();
-  if (previewAbortController.value === controller) {
-    previewAbortController.value = null;
-  }
-};
-
-const invalidatePendingPreview = () => {
-  stopPreviewRequest();
-  stopPreviewProgressPolling();
-  resetPreviewProgress();
-  previewRequestVersion++;
-  loading.value = false;
-};
 
 const getEffectiveFilterEmptySourceRows = (tableConfig: {
   filterEmptySourceRows?: boolean;
 }) => tableConfig.filterEmptySourceRows ?? matchConfig.value.filterEmptySourceRows ?? true;
 
-const finalizeInterruptedLlmStreamRows = (
-  message = "LLM流式输出中断，已转为人工确认"
-) => {
-  batchPreviewResults.value.forEach((tableResult) => {
-    tableResult.items.forEach((item) => {
-      applyMatchLlmStreamDisconnectToPreviewItem(item, message);
-    });
-  });
-};
-
-const handleWindowOffline = () => {
-  if (!llmStreaming.value) {
-    return;
-  }
-
-  const message = "浏览器网络已断开，LLM 复核已转为人工确认";
-  finalizeInterruptedLlmStreamRows(message);
-  stopLlmStream();
-  ElMessage.warning(message);
-};
-
-if (typeof window !== "undefined") {
-  useEventListener(window, "offline", handleWindowOffline);
-}
-
-// 页面卸载时清理进行中的预览/流式请求，防止离页后继续占用资源
-onBeforeUnmount(() => {
-  invalidatePendingPreview();
-  stopLlmStream();
-});
-
-watch(currentStep, (step) => {
-  if (step !== 3) {
-    invalidatePendingPreview();
-    stopLlmStream();
-  }
-});
-
 // 详情弹窗
 const detailVisible = ref(false);
 const detailItem = ref<MatchPreviewItem | null>(null);
 
-// 执行状态
-const executing = ref(false);
-const downloadingResult = ref(false);
-const taskId = ref<string | null>(null);
-const lastDownloadFailed = ref(false);
 const matchScope = ref<{
   customerId?: number;
   processId?: number;
@@ -207,6 +121,8 @@ const resetMatchScope = () => {
 const allPreviewItems = computed(() =>
   batchPreviewResults.value.flatMap((t) => t.items)
 );
+
+const getCurrentScope = () => matchConfigRef.value?.getScope() ?? matchScope.value;
 
 const getMatchConfigServiceStatus = () =>
   matchConfigRef.value?.getServiceStatus?.() ?? {
@@ -239,6 +155,23 @@ const {
   getMatchConfigServiceStatus
 });
 
+const {
+  llmStreaming,
+  startLlmStream,
+  stopLlmStream,
+  handleWindowOffline
+} = useSmartFillLlmStream({
+  canLlmStream,
+  batchPreviewResults,
+  allPreviewItems,
+  matchConfig,
+  getScope: getCurrentScope
+});
+
+if (typeof window !== "undefined") {
+  useEventListener(window, "offline", handleWindowOffline);
+}
+
 const handleScopeChange = (
   customerId?: number,
   processId?: number,
@@ -250,6 +183,84 @@ const handleScopeChange = (
     machineModelId
   };
 };
+
+const clearPreviewDetail = () => {
+  detailItem.value = null;
+  detailVisible.value = false;
+};
+
+const {
+  executing,
+  downloadingResult,
+  taskId,
+  lastDownloadFailed,
+  getHighConfidenceThreshold,
+  getAmbiguityMargin,
+  handleDownloadLastResult,
+  executePendingWithoutBackfill,
+  confirmBackfillAndExecute,
+  handleExecute,
+  resetExecutionState
+} = useSmartFillExecution({
+  uploadedFile,
+  isExcelFile,
+  batchTableConfigs,
+  batchPreviewResults,
+  matchConfig,
+  llmStreaming,
+  canDownloadFillResult,
+  batchPreviewTabsRef,
+  getScope: getCurrentScope,
+  getEffectiveFilterEmptySourceRows,
+  pendingExecuteRequest,
+  selectedBackfillCandidates,
+  closeBackfillDialog,
+  openBackfillDialog,
+  setBackfillingSpecs,
+  clearPendingExecuteRequest
+});
+
+const {
+  doPreview,
+  invalidatePendingPreview
+} = useSmartFillPreviewRequest({
+  currentStep,
+  uploadedFile,
+  batchTableConfigs,
+  batchPreviewResults,
+  matchConfig,
+  loading,
+  taskId,
+  lastDownloadFailed,
+  getScope: getCurrentScope,
+  stopLlmStream,
+  startLlmStream,
+  getEffectiveFilterEmptySourceRows,
+  getPrePreviewBlockingMessage,
+  resetPreviewState,
+  markPreviewEmptyResults,
+  resolvePreviewFailure,
+  createPreviewRequestId,
+  startPreviewProgressPolling,
+  stopPreviewProgressPolling,
+  resetPreviewProgress,
+  markPreviewProgressCompleted,
+  getCurrentPreviewRequestId: () => currentPreviewRequestId.value,
+  clearPreviewDetail
+});
+
+// 页面卸载时清理进行中的预览/流式请求，防止离页后继续占用资源
+onBeforeUnmount(() => {
+  invalidatePendingPreview();
+  stopLlmStream();
+});
+
+watch(currentStep, (step) => {
+  if (step !== 3) {
+    invalidatePendingPreview();
+    stopLlmStream();
+  }
+});
 
 // 计算属性
 const canGoNext = computed(() => {
@@ -267,43 +278,14 @@ const canGoNext = computed(() => {
   }
 });
 
-const buildDefaultTableConfig = (
-  table: TableInfo,
-  selected: boolean
-): BatchTableConfigItem => {
-  const usedStartRow = Math.max(1, table.usedRangeStartRow ?? 1);
-  const totalColumns = Math.max(table.columnCount, table.headers.length, 1);
-  const clampColumnIndex = (preferredIndex: number) =>
-    Math.min(preferredIndex, totalColumns - 1);
-  const matchedWordColumns = isExcelFile.value
-    ? {}
-    : matchWordTableColumnsByRules(table.headers, wordColumnMappingRules.value, {
-        fallbackToSequential: true
-      });
-
-  return {
-    tableIndex: table.index,
-    projectColumnIndex: clampColumnIndex(matchedWordColumns.projectColumnIndex ?? 0),
-    specificationColumnIndex: clampColumnIndex(
-      matchedWordColumns.specificationColumnIndex ?? 1
-    ),
-    acceptanceColumnIndex: clampColumnIndex(
-      matchedWordColumns.acceptanceColumnIndex ?? 2
-    ),
-    remarkColumnIndex:
-      matchedWordColumns.remarkColumnIndex !== undefined
-        ? clampColumnIndex(matchedWordColumns.remarkColumnIndex)
-        : totalColumns > 3
-          ? 3
-          : undefined,
-    headerRowStart: usedStartRow,
-    headerRowCount: 1,
-    dataStartRow: usedStartRow + 1,
-    filterEmptySourceRows: undefined,
-    selected,
-    tableInfo: table
-  };
-};
+const { loadUploadedFileTables } = useSmartFillUploadedTables({
+  uploadedFile,
+  isExcelFile,
+  allTables,
+  batchTableConfigs,
+  wordColumnMappingRules,
+  loadingUploadedFileTables
+});
 
 // 文件上传完成
 const handleFileUploaded = async (file: FileUploadResponse) => {
@@ -312,334 +294,11 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   resetPreviewState();
   resetPendingBackfillState();
   resetMatchScope();
+  resetExecutionState();
   uploadedFile.value = file;
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
-  taskId.value = null;
-  lastDownloadFailed.value = false;
-  loadingUploadedFileTables.value = true;
-
-  let tables: TableInfo[] = [];
-  let tableMetaLoaded = false;
-  try {
-    const tablesRes = await getFileTables(file.fileId);
-    if (tablesRes.code === 0) {
-      tables = tablesRes.data;
-      tableMetaLoaded = true;
-    } else {
-      throw new Error(tablesRes.message || "获取表格列表失败");
-    }
-
-    if (file.fileType !== 1) {
-      const rulesRes = await getEffectiveColumnMappingRules();
-      if (rulesRes.code === 0) {
-        wordColumnMappingRules.value = rulesRes.data || [];
-      } else {
-        wordColumnMappingRules.value = [];
-        ElMessage.warning(rulesRes.message || "加载列映射规则失败，已按默认列位初始化");
-      }
-    } else {
-      wordColumnMappingRules.value = [];
-    }
-  } catch {
-    ElMessage.warning("获取表格列表失败");
-  } finally {
-    if (uploadedFile.value?.fileId === file.fileId) {
-      uploadedFile.value = {
-        ...uploadedFile.value,
-        tableCount: tables.length,
-        tableCountReady: true
-      };
-    }
-    loadingUploadedFileTables.value = false;
-  }
-
-  if (uploadedFile.value?.fileId !== file.fileId) return;
-  if (!tableMetaLoaded) return;
-
-  allTables.value = tables;
-  batchTableConfigs.value = tables.map(t =>
-    buildDefaultTableConfig(t, tables.length === 1)
-  );
-};
-
-// 执行批量匹配预览
-const doPreview = async () => {
-  if (!ensurePermission("btn:matching:preview-batch", "权限不足，无法执行匹配预览")) {
-    return;
-  }
-  if (!uploadedFile.value) return;
-
-  const requestVersion = ++previewRequestVersion;
-  const fileId = uploadedFile.value.fileId;
-  stopLlmStream();
-
-  const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
-  if (selectedConfigs.length === 0) {
-    ElMessage.warning("请至少选择一个表格");
-    return;
-  }
-
-  const prePreviewBlockingMessage = getPrePreviewBlockingMessage();
-  if (prePreviewBlockingMessage) {
-    ElMessage.warning(prePreviewBlockingMessage);
-    return;
-  }
-
-  resetPreviewState();
-  batchPreviewResults.value = [];
-  detailItem.value = null;
-  detailVisible.value = false;
-  taskId.value = null;
-  lastDownloadFailed.value = false;
-  loading.value = true;
-  const previewRequestId = createPreviewRequestId();
-  startPreviewProgressPolling(previewRequestId, () => loading.value);
-  stopPreviewRequest();
-  const controller = new AbortController();
-  previewAbortController.value = controller;
-  try {
-    const scope = matchConfigRef.value?.getScope() ?? matchScope.value;
-
-    const res = await batchPreviewMatch({
-      fileId: uploadedFile.value.fileId,
-      previewRequestId,
-      tables: selectedConfigs.map((t) => ({
-        tableIndex: t.tableIndex,
-        projectColumnIndex: t.projectColumnIndex,
-        specificationColumnIndex: t.specificationColumnIndex,
-        acceptanceColumnIndex: t.acceptanceColumnIndex,
-        remarkColumnIndex: t.remarkColumnIndex,
-        headerRowStart: t.headerRowStart,
-        headerRowCount: t.headerRowCount,
-        dataStartRow: t.dataStartRow,
-        filterEmptySourceRows: getEffectiveFilterEmptySourceRows(t)
-      })),
-      customerId: scope.customerId,
-      processId: scope.processId,
-      machineModelId: scope.machineModelId,
-      config: matchConfig.value
-    }, {
-      signal: controller.signal
-    });
-
-    if (res.code === 0) {
-      if (
-        requestVersion !== previewRequestVersion ||
-        currentStep.value !== 3 ||
-        uploadedFile.value?.fileId !== fileId ||
-        previewAbortController.value !== controller
-      ) {
-        return;
-      }
-
-      markPreviewProgressCompleted();
-      batchPreviewResults.value = res.data.tables;
-      const hasPreviewRows = res.data.tables.some(table => table.items.length > 0);
-      if (!hasPreviewRows) {
-        markPreviewEmptyResults();
-        ElMessage.warning("未找到可匹配的数据");
-      } else {
-        resetPreviewState();
-        if (res.data.totalMatched === 0) {
-          ElMessage.warning("当前没有完全命中的数据，可在未命中行中手工填写");
-        }
-      }
-      if (matchConfig.value.exactMatchOnly) {
-        return;
-      }
-      startLlmStream();
-    } else {
-      if (currentPreviewRequestId.value === previewRequestId) {
-        stopPreviewProgressPolling();
-      }
-      if (requestVersion !== previewRequestVersion) return;
-      ElMessage.error(resolvePreviewFailure(res.message));
-    }
-  } catch (error: unknown) {
-    const requestError = error as {
-      code?: string;
-      name?: string;
-      isCancelRequest?: boolean;
-    };
-    if (
-      requestVersion !== previewRequestVersion ||
-      controller.signal.aborted ||
-      requestError.code === "ERR_CANCELED" ||
-      requestError.name === "CanceledError" ||
-      requestError.isCancelRequest
-    ) {
-      return;
-    }
-    if (currentPreviewRequestId.value === previewRequestId) {
-      stopPreviewProgressPolling();
-    }
-    ElMessage.error(resolvePreviewFailure(getRequestErrorMessage(error, "")));
-  } finally {
-    if (previewAbortController.value === controller) {
-      previewAbortController.value = null;
-    }
-    if (requestVersion === previewRequestVersion) {
-      loading.value = false;
-    }
-  }
-};
-
-const stopLlmStream = () => {
-  const controller = llmStreamController.value;
-  controller?.abort();
-  if (llmStreamController.value === controller) {
-    llmStreamController.value = null;
-  }
-  llmStreaming.value = false;
-};
-
-const getHighConfidenceThreshold = () =>
-  Math.min(
-    Math.max(matchConfig.value.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD, 0.5),
-    1
-  );
-const getAmbiguityMargin = () =>
-  Math.min(Math.max(matchConfig.value.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN, 0), 1);
-
-const startLlmStream = async () => {
-  if (!canLlmStream.value) {
-    return;
-  }
-  stopLlmStream();
-
-  if (!allPreviewItems.value.length) return;
-
-  const scope = matchConfigRef.value?.getScope() ?? matchScope.value;
-
-  const llmItems = batchPreviewResults.value.flatMap((tableResult) =>
-    tableResult.items
-      .filter(item => shouldStreamMatchReview(item.bestMatch))
-      .map((item) => ({
-        tableIndex: tableResult.tableIndex,
-        rowIndex: item.rowIndex,
-        sourceProject: item.sourceProject,
-        sourceSpecification: item.sourceSpecification,
-        bestMatchSpecId: item.bestMatch?.specId,
-        bestMatchScore: item.bestMatch?.score,
-        scoreDetails: item.bestMatch?.scoreDetails,
-        decision: item.bestMatch?.decision,
-        llmEquivalenceVerdict: item.bestMatch?.llmEquivalence?.verdict,
-        isAmbiguous: item.bestMatch?.isAmbiguous ?? false,
-        evidenceSummary: item.bestMatch?.evidenceSummary ?? [],
-        conflictSummary: item.bestMatch?.conflictSummary ?? []
-      }))
-  );
-
-  if (!llmItems.length) {
-    llmStreaming.value = false;
-    return;
-  }
-
-  const controller = new AbortController();
-  llmStreamController.value = controller;
-  llmStreaming.value = true;
-
-  const payload = createMatchLlmStreamRequest({
-    customerId: scope.customerId,
-    processId: scope.processId,
-    machineModelId: scope.machineModelId,
-    items: llmItems,
-    config: matchConfig.value
-  });
-
-  try {
-    const response = await requestMatchLlmStream(payload, controller.signal);
-
-    if (!response.ok || !response.body) {
-      const message = "LLM流式输出不可用，已转为人工确认";
-      finalizeInterruptedLlmStreamRows(message);
-      stopLlmStream();
-      ElMessage.warning(message);
-      return;
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buffer = "";
-
-    while (true) {
-      if (
-        controller.signal.aborted ||
-        llmStreamController.value !== controller
-      ) {
-        break;
-      }
-
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop() || "";
-
-      for (const part of parts) {
-        if (
-          controller.signal.aborted ||
-          llmStreamController.value !== controller
-        ) {
-          break;
-        }
-        handleSseEvent(part);
-      }
-    }
-  } catch {
-    if (!controller.signal.aborted) {
-      ElMessage.warning("LLM流式输出中断，已降级");
-    }
-  } finally {
-    if (llmStreamController.value === controller) {
-      if (!controller.signal.aborted) {
-        finalizeInterruptedLlmStreamRows();
-      }
-      llmStreamController.value = null;
-      llmStreaming.value = false;
-    }
-  }
-};
-
-const handleSseEvent = (raw: string) => {
-  const lines = raw.split("\n").filter((line) => line.trim().length > 0);
-  let event = "message";
-  const dataLines: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith("event:")) {
-      event = line.replace("event:", "").trim();
-    } else if (line.startsWith("data:")) {
-      dataLines.push(line.replace("data:", "").trim());
-    }
-  }
-
-  if (dataLines.length === 0) return;
-
-  try {
-    const data = JSON.parse(dataLines.join("\n"));
-    applySseUpdate(event as MatchLlmStreamEvent, data as MatchLlmStreamEventData);
-  } catch {
-    // ignore malformed chunk
-  }
-};
-
-const applySseUpdate = (
-  event: MatchLlmStreamEvent,
-  data: MatchLlmStreamEventData
-) => {
-  if (data.tableIndex === undefined || data.tableIndex === null) {
-    return;
-  }
-
-  const tableResult = batchPreviewResults.value.find(
-    tableResult => tableResult.tableIndex === data.tableIndex
-  );
-  const row = tableResult?.items.find((item) => item.rowIndex === data.rowIndex);
-  if (!row) return;
-
-  applyMatchLlmStreamEventToPreviewItem(row, event, data);
+  await loadUploadedFileTables(file);
 };
 
 // 显示详情
@@ -657,201 +316,10 @@ const handleSelect = (
   // 可用于实时更新统计
 };
 
-const downloadTaskResult = async (currentTaskId: string) => {
-  downloadingResult.value = true;
-  try {
-    const blob = await downloadFillResult(currentTaskId);
-    const originalName = uploadedFile.value?.fileName || "filled.docx";
-    triggerBrowserDownload(blob, originalName);
-    lastDownloadFailed.value = false;
-    return true;
-  } catch {
-    lastDownloadFailed.value = true;
-    return false;
-  } finally {
-    downloadingResult.value = false;
-  }
-};
-
-const handleDownloadLastResult = async () => {
-  if (!taskId.value) return;
-  if (!ensurePermission("btn:matching:download", "权限不足，无法下载填充结果")) {
-    return;
-  }
-
-  const downloaded = await downloadTaskResult(taskId.value);
-  if (downloaded) {
-    ElMessage.success(isExcelFile.value ? "Excel 下载完成" : "结果文件下载完成");
-    return;
-  }
-
-  ElMessage.warning(isExcelFile.value ? "Excel 下载失败，请稍后重试" : "结果文件下载失败，请稍后重试");
-};
-
-const buildExecuteFillRequest = (
-  scope: { customerId?: number; processId?: number; machineModelId?: number },
-  selectedConfigs: BatchTableConfigItem[],
-  allSelections: ReturnType<NonNullable<typeof batchPreviewTabsRef.value>["getAllSelections"]>
-): BatchExecuteFillRequest | null => {
-  return buildSmartFillExecuteRequest({
-    uploadedFileId: uploadedFile.value?.fileId,
-    scope,
-    selectedConfigs,
-    allSelections: allSelections as Map<number, SmartFillSelection[]>,
-    matchConfig: matchConfig.value,
-    highConfidenceThreshold: getHighConfidenceThreshold(),
-    previewResults: batchPreviewResults.value,
-    resolveFilterEmptySourceRows: getEffectiveFilterEmptySourceRows
+const toggleBackfillCandidates = (checked: boolean) => {
+  backfillCandidates.value.forEach(item => {
+    item.selected = checked;
   });
-};
-
-const runExecuteFill = async (request: BatchExecuteFillRequest) => {
-  const res = await batchExecuteFill(request);
-
-  if (res.code === 0) {
-    taskId.value = res.data.taskId;
-    if (canDownloadFillResult.value) {
-      const downloaded = await downloadTaskResult(res.data.taskId);
-      if (downloaded) {
-        ElMessage.success(
-          isExcelFile.value
-            ? `填充完成，共填充 ${res.data.filledCount} 条，Excel 已下载`
-            : `填充完成，共填充 ${res.data.filledCount} 条，结果文件已下载`
-        );
-      } else {
-        ElMessage.warning(
-          isExcelFile.value
-            ? "填充完成，但 Excel 下载失败，请使用下方入口重新下载结果"
-            : "填充完成，但结果文件下载失败，请使用下方入口重新下载结果"
-        );
-      }
-    } else {
-      lastDownloadFailed.value = false;
-      if (isExcelFile.value) {
-        ElMessage.success(
-          `填充完成，共填充 ${res.data.filledCount} 条，可稍后下载 Excel 结果`
-        );
-      } else {
-        ElMessage.success(
-          `填充完成，共填充 ${res.data.filledCount} 条，可稍后下载结果文件`
-        );
-      }
-    }
-  } else {
-    ElMessage.error(res.message || "填充失败");
-  }
-};
-
-const executePendingWithoutBackfill = async () => {
-  const request = pendingExecuteRequest.value;
-  if (!request) return;
-
-  closeBackfillDialog();
-  executing.value = true;
-  try {
-    await runExecuteFill(request);
-  } catch {
-    ElMessage.error("填充失败");
-  } finally {
-    clearPendingExecuteRequest();
-    executing.value = false;
-  }
-};
-
-const confirmBackfillAndExecute = async () => {
-  const request = pendingExecuteRequest.value;
-  if (!request) return;
-
-  const selected = selectedBackfillCandidates.value;
-  if (
-    selected.some(item => item.actionType === "create") &&
-    !request.customerId
-  ) {
-    ElMessage.warning("回填新增规格前，请先选择客户范围");
-    return;
-  }
-
-  setBackfillingSpecs(true);
-  executing.value = true;
-  try {
-    if (selected.length > 0) {
-      const res = await backfillSmartFillSpecs({
-        customerId: request.customerId,
-        processId: request.processId,
-        machineModelId: request.machineModelId,
-        items: selected.map(item => ({
-          specId: item.specId,
-          sourceProject: item.sourceProject,
-          sourceSpecification: item.sourceSpecification,
-          overrideAcceptance: item.overrideAcceptance,
-          overrideRemark: item.overrideRemark
-        }))
-      });
-      if (res.code !== 0) {
-        ElMessage.error(res.message || "回填验收规格失败");
-        return;
-      }
-      ElMessage.success(`已回填 ${res.data.totalCount} 条验收规格`);
-    }
-
-    closeBackfillDialog();
-    await runExecuteFill(request);
-    clearPendingExecuteRequest();
-  } catch (error) {
-    ElMessage.error(getRequestErrorMessage(error, "回填或填充失败"));
-  } finally {
-    setBackfillingSpecs(false);
-    executing.value = false;
-  }
-};
-
-// 执行填充
-const handleExecute = async () => {
-  if (
-    !ensurePermission("btn:matching-fill:execute-batch", "权限不足，无法执行智能填充")
-  ) {
-    return;
-  }
-  if (!uploadedFile.value) return;
-  if (llmStreaming.value) {
-    ElMessage.warning("AI 仍在处理中，请等待完成后再执行填充");
-    return;
-  }
-
-  const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
-  if (selectedConfigs.length === 0) return;
-
-  const scope = matchConfigRef.value?.getScope() ?? matchScope.value;
-
-  // 获取各表格的选择结果
-  const allSelections = batchPreviewTabsRef.value?.getAllSelections();
-  if (!allSelections || allSelections.size === 0) {
-    ElMessage.warning("请至少选择一项匹配结果");
-    return;
-  }
-
-  const executeRequest = buildExecuteFillRequest(scope, selectedConfigs, allSelections);
-  if (!executeRequest) {
-    ElMessage.warning("请至少选择一项匹配结果");
-    return;
-  }
-
-  const editedItems = batchPreviewTabsRef.value
-    ?.getAllEditedBackfillItems()
-    .map(item => ({ ...item, selected: true })) ?? [];
-  if (editedItems.length > 0) {
-    openBackfillDialog(executeRequest, editedItems);
-    return;
-  }
-
-  executing.value = true;
-  try {
-    await runExecuteFill(executeRequest);
-  } catch {
-    ElMessage.error("填充失败");
-  } finally {
-    executing.value = false;
-  }
 };
 
 // 步骤切换
@@ -884,14 +352,13 @@ const handleRestart = () => {
   resetPreviewState();
   resetPendingBackfillState();
   resetMatchScope();
+  resetExecutionState();
   loadingUploadedFileTables.value = false;
   currentStep.value = 0;
   uploadedFile.value = null;
   allTables.value = [];
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
-  taskId.value = null;
-  lastDownloadFailed.value = false;
   matchConfig.value = { ...defaultMatchConfig };
 };
 </script>
@@ -904,224 +371,72 @@ const handleRestart = () => {
         <div class="page-subtitle">匹配验收规格并批量回写文档</div>
       </div>
     </div>
-    <!-- 步骤条 -->
-    <el-card class="mb-4">
-      <el-steps :active="currentStep" finish-status="success">
-        <el-step
-          v-for="(step, index) in steps"
-          :key="index"
-          :title="step.title"
-          :description="step.description"
-        />
-      </el-steps>
-    </el-card>
+    <SmartFillSteps :steps="steps" :current-step="currentStep" />
 
     <!-- 步骤内容 -->
     <el-card class="step-content">
-      <!-- 步骤1: 上传文件 -->
-      <div v-show="currentStep === 0" class="step-panel">
-        <h3 class="step-title">上传目标文档</h3>
-        <p class="step-desc">请选择需要填充验收标准的 Word/Excel 文档</p>
-        <FileUpload
-          v-if="canUploadSourceFile"
-          v-model="uploadedFile"
-          @uploaded="handleFileUploaded"
-        />
-        <el-alert
-          v-if="canUploadSourceFile && uploadedFile && loadingUploadedFileTables"
-          type="info"
-          :closable="false"
-          show-icon
-          title="正在读取表格结构，请稍候"
-          class="upload-meta-alert"
-        />
-        <el-alert
-          v-if="!canUploadSourceFile"
-          type="warning"
-          :closable="false"
-          show-icon
-          title="当前账号没有文档上传权限"
-        />
-      </div>
+      <SmartFillUploadStep
+        v-show="currentStep === 0"
+        v-model:uploaded-file="uploadedFile"
+        :loading-uploaded-file-tables="loadingUploadedFileTables"
+        :can-upload-source-file="canUploadSourceFile"
+        @uploaded="handleFileUploaded"
+      />
 
-      <!-- 步骤2: 选择表格 + 配置列索引 -->
-      <div v-show="currentStep === 1" class="step-panel">
-        <h3 class="step-title">选择表格并配置列索引</h3>
-        <p class="step-desc">
-          勾选需要填充的表格，并为每个表格指定各列索引（从0开始）。
-          Word 会按列映射规则自动预填，Excel 仍需按实际内容手工调整并刷新表头。
-        </p>
+      <SmartFillTableStep
+        v-show="currentStep === 1"
+        v-model:batch-table-configs="batchTableConfigs"
+        :uploaded-file-id="uploadedFile?.fileId"
+        :is-excel-file="isExcelFile"
+        :all-tables="allTables"
+        :has-uploaded-file="!!uploadedFile"
+      />
 
-        <BatchTableConfig
-          v-if="batchTableConfigs.length > 0"
-          v-model="batchTableConfigs"
-          :file-id="uploadedFile?.fileId"
-          :is-excel="isExcelFile"
-          :tables="allTables"
-        />
+      <SmartFillMatchStep
+        v-show="currentStep === 2"
+        ref="matchConfigRef"
+        v-model:match-config="matchConfig"
+        :can-llm-stream="canLlmStream"
+        :preview-blocking-message="previewBlockingMessage"
+        :preview-blocking-hint="previewBlockingHint"
+        @scope-change="handleScopeChange"
+      />
 
-        <el-empty
-          v-else-if="uploadedFile"
-          description="未检测到表格，请确认文档格式"
-        />
-      </div>
-
-      <!-- 步骤3: 配置匹配 -->
-      <div v-show="currentStep === 2" class="step-panel">
-        <h3 class="step-title">配置匹配参数</h3>
-        <p class="step-desc">设置匹配范围和算法参数</p>
-        <MatchConfig
-          ref="matchConfigRef"
-          v-model="matchConfig"
-          :allow-llm="canLlmStream"
-          @scope-change="handleScopeChange"
-        />
-        <el-alert
-          v-if="previewBlockingMessage"
-          type="warning"
-          :closable="false"
-          show-icon
-          :title="previewBlockingMessage"
-          :description="previewBlockingHint"
-          class="preview-blocking-alert"
-        />
-      </div>
-
-      <!-- 步骤4: 预览确认 -->
-      <div v-show="currentStep === 3" class="step-panel">
-        <h3 class="step-title">匹配预览</h3>
-        <p class="step-desc">确认匹配结果，可手动调整选择</p>
-
-        <!-- LLM 流式处理提示 -->
-        <el-alert
-          v-if="llmStreaming"
-          title="AI 正在处理中..."
-          description="LLM 正在逐行复核中，请等待完成后再执行填充"
-          type="info"
-          show-icon
-          :closable="false"
-          class="llm-streaming-alert"
-        />
-
-        <!-- 匹配进行中遮罩 -->
-        <div v-if="loading" class="loading-overlay">
-          <el-icon class="is-loading" :size="32"><Loading /></el-icon>
-          <p class="loading-text">正在匹配中，请耐心等待...</p>
-          <div class="preview-progress-panel">
-            <div class="preview-progress-panel__header">
-              <span>{{ previewProgressStageText }}</span>
-              <span>{{ previewProgressPercent }}%</span>
-            </div>
-            <el-progress
-              :percentage="previewProgressPercent"
-              :stroke-width="10"
-              :show-text="false"
-            />
-            <div class="preview-progress-panel__meta">
-              <span>{{ previewProgressDetailText }}</span>
-              <span v-if="previewProgressCounterText">
-                {{ previewProgressCounterText }}
-              </span>
-              <span>已等待 {{ previewElapsedSeconds }} 秒</span>
-            </div>
-          </div>
-          <p class="loading-hint">
-            正在对 {{ selectedTableCount }} 个表格执行 Embedding
-            向量匹配，视数据量可能需要数十秒
-          </p>
-        </div>
-
-        <el-empty
-          v-if="!loading && previewBlockingMessage"
-          :description="previewBlockingMessage"
-          class="preview-empty-state"
-        >
-          <template #description>
-            <div class="preview-empty-state__body">
-              <div class="preview-empty-state__title">{{ previewBlockingMessage }}</div>
-              <div v-if="previewBlockingHint" class="preview-empty-state__hint">
-                {{ previewBlockingHint }}
-              </div>
-            </div>
-          </template>
-        </el-empty>
-
-        <el-empty
-          v-else-if="!loading && batchPreviewResults.length === 0"
-          description="当前没有预览结果"
-          class="preview-empty-state"
-        >
-          <template #description>
-            <div class="preview-empty-state__body">
-              <div class="preview-empty-state__title">当前没有预览结果</div>
-              <div class="preview-empty-state__hint">
-                页面状态可能已失效，请返回上一步重新匹配。
-              </div>
-            </div>
-          </template>
-          <el-button v-if="!taskId" @click="goPrev">返回上一步</el-button>
-        </el-empty>
-
-        <BatchPreviewTabs
-          v-else
-          ref="batchPreviewTabsRef"
-          :results="batchPreviewResults"
-          :loading="loading"
-          :high-confidence-threshold="getHighConfidenceThreshold()"
-          :ambiguity-margin="getAmbiguityMargin()"
-          :llm-streaming="llmStreaming"
-          :table-names="previewTableNames"
-          @select="handleSelect"
-          @show-detail="handleShowDetail"
-        />
-
-        <!-- 填充完成提示（紧凑内联） -->
-        <el-alert
-          v-if="taskId"
-          :title="
-            isExcelFile
-              ? '填充完成 — 内容已回写到当前上传文档'
-              : '填充完成 — 已生成结果文档（源文档保持不变）'
-          "
-          :description="
-            lastDownloadFailed
-              ? '本次自动下载未完成，请使用下方入口重新下载结果。'
-              : canDownloadFillResult
-                ? '如需再次获取结果文件，可使用下方下载入口。'
-                : '当前账号没有下载权限，可稍后由有权限用户下载结果。'
-          "
-          type="success"
-          show-icon
-          closable
-          class="fill-done-alert"
-        />
-
-        <!-- 操作按钮 -->
-        <div v-if="allPreviewItems.length > 0" class="action-bar">
-          <el-button v-if="canPreviewMatching" @click="doPreview" :loading="loading">
-            重新匹配
-          </el-button>
-          <el-button
-            v-if="canExecuteFill"
-            type="primary"
-            :loading="executing"
-            :disabled="!!taskId || llmStreaming || loading"
-            @click="handleExecute"
-          >
-            执行填充
-          </el-button>
-          <el-button
-            v-if="taskId && canDownloadFillResult"
-            :loading="downloadingResult"
-            @click="handleDownloadLastResult"
-          >
-            重新下载结果
-          </el-button>
-          <el-button v-if="taskId && canUploadSourceFile" @click="handleRestart">
-            继续填充其他文档
-          </el-button>
-        </div>
-      </div>
+      <SmartFillPreviewStep
+        v-show="currentStep === 3"
+        ref="batchPreviewTabsRef"
+        :llm-streaming="llmStreaming"
+        :loading="loading"
+        :preview-progress-stage-text="previewProgressStageText"
+        :preview-progress-percent="previewProgressPercent"
+        :preview-progress-detail-text="previewProgressDetailText"
+        :preview-progress-counter-text="previewProgressCounterText"
+        :preview-elapsed-seconds="previewElapsedSeconds"
+        :selected-table-count="selectedTableCount"
+        :preview-blocking-message="previewBlockingMessage"
+        :preview-blocking-hint="previewBlockingHint"
+        :batch-preview-results="batchPreviewResults"
+        :high-confidence-threshold="getHighConfidenceThreshold()"
+        :ambiguity-margin="getAmbiguityMargin()"
+        :preview-table-names="previewTableNames"
+        :task-id="taskId"
+        :is-excel-file="isExcelFile"
+        :last-download-failed="lastDownloadFailed"
+        :can-download-fill-result="canDownloadFillResult"
+        :all-preview-items-count="allPreviewItems.length"
+        :can-preview-matching="canPreviewMatching"
+        :can-execute-fill="canExecuteFill"
+        :executing="executing"
+        :downloading-result="downloadingResult"
+        :can-upload-source-file="canUploadSourceFile"
+        @go-prev="goPrev"
+        @select="handleSelect"
+        @show-detail="handleShowDetail"
+        @preview="doPreview"
+        @execute="handleExecute"
+        @download-last-result="handleDownloadLastResult"
+        @restart="handleRestart"
+      />
 
       <!-- 步骤按钮 -->
       <div class="step-actions">
@@ -1139,105 +454,16 @@ const handleRestart = () => {
       </div>
     </el-card>
 
-    <el-dialog
-      v-model="backfillDialogVisible"
-      title="回填验收规格"
-      width="1080px"
-      :close-on-click-modal="false"
-    >
-      <div class="backfill-dialog">
-        <div class="backfill-summary">
-          <span>共 {{ backfillCandidates.length }} 条手动修改内容</span>
-          <span>已选择 {{ selectedBackfillCandidates.length }} 条回填</span>
-        </div>
-        <el-table
-          :data="backfillCandidates"
-          border
-          max-height="460"
-          row-key="rowIndex"
-        >
-          <el-table-column width="56" align="center">
-            <template #header>
-              <el-checkbox
-                :model-value="
-                  backfillCandidates.length > 0 &&
-                  selectedBackfillCandidates.length === backfillCandidates.length
-                "
-                :indeterminate="
-                  selectedBackfillCandidates.length > 0 &&
-                  selectedBackfillCandidates.length < backfillCandidates.length
-                "
-                @change="(checked: string | number | boolean) => backfillCandidates.forEach(item => { item.selected = Boolean(checked); })"
-              />
-            </template>
-            <template #default="{ row }">
-              <el-checkbox v-model="row.selected" />
-            </template>
-          </el-table-column>
-          <el-table-column label="行" width="80" align="center">
-            <template #default="{ row }">
-              {{ row.rowIndex + 1 }}
-            </template>
-          </el-table-column>
-          <el-table-column label="动作" width="120" align="center">
-            <template #default="{ row }">
-              <el-tag
-                size="small"
-                :type="row.actionType === 'update' ? 'warning' : 'success'"
-              >
-                {{ row.actionType === "update" ? "更新现有规格" : "新增规格" }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="项目/规格" min-width="220">
-            <template #default="{ row }">
-              <div class="backfill-source">
-                <div>{{ row.sourceProject }}</div>
-                <div>{{ row.sourceSpecification }}</div>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="验收标准" min-width="260">
-            <template #default="{ row }">
-              <div class="backfill-change">
-                <div class="backfill-change__old">
-                  {{ row.originalAcceptance || "-" }}
-                </div>
-                <div class="backfill-change__new">
-                  {{ row.overrideAcceptance || "-" }}
-                </div>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="备注" min-width="220">
-            <template #default="{ row }">
-              <div class="backfill-change">
-                <div class="backfill-change__old">
-                  {{ row.originalRemark || "-" }}
-                </div>
-                <div class="backfill-change__new">
-                  {{ row.overrideRemark || "-" }}
-                </div>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-      <template #footer>
-        <div class="backfill-footer">
-          <el-button @click="executePendingWithoutBackfill">
-            不回填，仅执行填充
-          </el-button>
-          <el-button
-            type="primary"
-            :loading="backfillingSpecs || executing"
-            @click="confirmBackfillAndExecute"
-          >
-            确认回填并执行填充
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <SmartFillBackfillDialog
+      v-model:visible="backfillDialogVisible"
+      :candidates="backfillCandidates"
+      :selected-count="selectedBackfillCandidates.length"
+      :backfilling-specs="backfillingSpecs"
+      :executing="executing"
+      @toggle-all="toggleBackfillCandidates"
+      @execute-without-backfill="executePendingWithoutBackfill"
+      @confirm-backfill="confirmBackfillAndExecute"
+    />
 
     <!-- 详情弹窗 -->
     <ScoreDetailDialog
@@ -1249,195 +475,4 @@ const handleRestart = () => {
   </div>
 </template>
 
-<style scoped>
-.smart-fill {
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.mb-4 {
-  margin-bottom: 16px;
-}
-
-.step-content {
-  min-height: 500px;
-}
-
-.step-panel {
-  padding: 20px 0;
-}
-
-.step-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 8px;
-}
-
-.step-desc {
-  font-size: 14px;
-  color: #6b7280;
-  margin-bottom: 24px;
-}
-
-.upload-meta-alert {
-  margin-top: 16px;
-}
-
-.preview-blocking-alert {
-  margin-top: 16px;
-}
-
-.action-bar {
-  margin-top: 20px;
-  display: flex;
-  gap: 12px;
-}
-
-.fill-done-alert {
-  margin-top: 16px;
-}
-
-.backfill-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.backfill-summary {
-  display: flex;
-  gap: 16px;
-  color: #4b5563;
-  font-size: 13px;
-}
-
-.backfill-source {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  line-height: 1.5;
-}
-
-.backfill-source > div:first-child {
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.backfill-source > div:last-child {
-  color: #6b7280;
-  font-size: 12px;
-}
-
-.backfill-change {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  line-height: 1.5;
-}
-
-.backfill-change__old {
-  color: #9ca3af;
-  text-decoration: line-through;
-}
-
-.backfill-change__new {
-  color: #111827;
-  font-weight: 500;
-}
-
-.backfill-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.llm-streaming-alert {
-  margin-bottom: 12px;
-}
-
-.preview-empty-state {
-  padding: 32px 0;
-}
-
-.preview-empty-state__body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.preview-empty-state__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.preview-empty-state__hint {
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.6;
-}
-
-.step-actions {
-  margin-top: 32px;
-  padding-top: 16px;
-  border-top: 1px solid var(--el-border-color-lighter);
-  display: flex;
-  justify-content: center;
-  gap: 16px;
-}
-
-.loading-overlay {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  color: var(--el-color-primary);
-}
-
-.loading-text {
-  margin-top: 16px;
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--color-text);
-}
-
-.preview-progress-panel {
-  width: min(560px, 100%);
-  margin-top: 20px;
-  padding: 16px;
-  border-radius: 12px;
-  border: 1px solid #dbeafe;
-  background: #f8fbff;
-}
-
-.preview-progress-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.preview-progress-panel__meta {
-  margin-top: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px 16px;
-  font-size: 12px;
-  color: #6b7280;
-}
-
-.loading-hint {
-  margin-top: 8px;
-  font-size: 13px;
-  color: #9ca3af;
-  text-align: center;
-}
-</style>
+<style scoped src="./index.styles.css"></style>
