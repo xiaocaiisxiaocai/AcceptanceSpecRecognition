@@ -80,7 +80,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("CustomerId", "ProcessId", "MachineModelId");
 
-                    b.ToTable("AcceptanceSpecs");
+                    b.ToTable("AcceptanceSpecs", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AiServiceConfig", b =>
@@ -141,7 +141,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("AiServiceConfigs");
+                    b.ToTable("AiServiceConfigs", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuditLog", b =>
@@ -221,7 +221,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("Source", "CreatedAt");
 
-                    b.ToTable("AuditLogs");
+                    b.ToTable("AuditLogs", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthPermission", b =>
@@ -288,7 +288,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("PermissionType", "Resource", "Action");
 
-                    b.ToTable("AuthPermissions");
+                    b.ToTable("AuthPermissions", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthRole", b =>
@@ -336,7 +336,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("CompanyId", "Code")
                         .IsUnique();
 
-                    b.ToTable("AuthRoles");
+                    b.ToTable("AuthRoles", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthRoleDataScope", b =>
@@ -365,7 +365,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("RoleId", "Resource", "ScopeType");
 
-                    b.ToTable("AuthRoleDataScopes");
+                    b.ToTable("AuthRoleDataScopes", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthRoleDataScopeNode", b =>
@@ -389,7 +389,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("RoleDataScopeId", "OrgUnitId")
                         .IsUnique();
 
-                    b.ToTable("AuthRoleDataScopeNodes");
+                    b.ToTable("AuthRoleDataScopeNodes", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthRolePermission", b =>
@@ -404,7 +404,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("PermissionId");
 
-                    b.ToTable("AuthRolePermissions");
+                    b.ToTable("AuthRolePermissions", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthUserOrgUnit", b =>
@@ -442,7 +442,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("UserId", "OrgUnitId", "StartAt", "EndAt");
 
-                    b.ToTable("AuthUserOrgUnits");
+                    b.ToTable("AuthUserOrgUnits", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthUserRole", b =>
@@ -477,7 +477,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("UserId", "RoleId", "StartAt", "EndAt");
 
-                    b.ToTable("AuthUserRoles");
+                    b.ToTable("AuthUserRoles", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.ColumnMappingRule", b =>
@@ -517,7 +517,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("TargetField", "Priority");
 
-                    b.ToTable("ColumnMappingRules");
+                    b.ToTable("ColumnMappingRules", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.Customer", b =>
@@ -541,7 +541,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("Customers");
+                    b.ToTable("Customers", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.DatabaseBackupSetting", b =>
@@ -595,7 +595,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("DatabaseBackupSettings");
+                    b.ToTable("DatabaseBackupSettings", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.EmbeddingCache", b =>
@@ -649,7 +649,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("SpecId", "ModelName", "Usage")
                         .IsUnique();
 
-                    b.ToTable("EmbeddingCaches");
+                    b.ToTable("EmbeddingCaches", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.EmbeddingCacheWarmupSetting", b =>
@@ -687,7 +687,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("EmbeddingCacheWarmupSettings");
+                    b.ToTable("EmbeddingCacheWarmupSettings", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.ExecutionHistoryRecord", b =>
@@ -765,7 +765,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("CompanyId", "CreatedByUserId", "CreatedAt");
 
-                    b.ToTable("ExecutionHistoryRecords");
+                    b.ToTable("ExecutionHistoryRecords", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MachineModel", b =>
@@ -788,7 +788,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("Name");
 
-                    b.ToTable("MachineModels");
+                    b.ToTable("MachineModels", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.MatchingFillTask", b =>
@@ -831,7 +831,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("CompanyId", "CreatedByUserId", "CreatedAt");
 
-                    b.ToTable("MatchingFillTasks");
+                    b.ToTable("MatchingFillTasks", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.OrgCompany", b =>
@@ -868,7 +868,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("OrgCompanies");
+                    b.ToTable("OrgCompanies", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.OrgUnit", b =>
@@ -931,7 +931,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("CompanyId", "Path");
 
-                    b.ToTable("OrgUnits");
+                    b.ToTable("OrgUnits", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.Process", b =>
@@ -954,7 +954,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("Name");
 
-                    b.ToTable("Processes");
+                    b.ToTable("Processes", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.PromptTemplate", b =>
@@ -996,7 +996,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("PromptTemplates");
+                    b.ToTable("PromptTemplates", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SystemUser", b =>
@@ -1053,7 +1053,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("CompanyId", "IsActive");
 
-                    b.ToTable("SystemUsers");
+                    b.ToTable("SystemUsers", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.WordFile", b =>
@@ -1107,7 +1107,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.HasIndex("OwnerOrgUnitId");
 
-                    b.ToTable("WordFiles");
+                    b.ToTable("WordFiles", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AcceptanceSpec", b =>

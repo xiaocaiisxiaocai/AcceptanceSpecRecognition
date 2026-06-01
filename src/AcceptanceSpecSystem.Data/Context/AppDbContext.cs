@@ -209,6 +209,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Project).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Specification).IsRequired();
             entity.HasIndex(e => new { e.CustomerId, e.ProcessId, e.MachineModelId });
+            entity.HasIndex(e => e.WordFileId);
             entity.HasIndex(e => e.OwnerOrgUnitId);
             entity.HasIndex(e => e.CreatedByUserId);
             entity.HasOne(e => e.Customer)
