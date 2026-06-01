@@ -66,7 +66,7 @@ feat/add-ai-equivalence-adjudication
 在仓库根目录执行：
 
 ```powershell
-docker compose up -d --build
+docker compose --env-file .env.docker up -d --build
 ```
 
 首次构建时间会较长，属于正常现象。
@@ -119,15 +119,20 @@ Invoke-WebRequest http://localhost:5290/health
 
 ## 7. 默认配置说明
 
-当前部署配置已在 `docker-compose.yml` 中写好，不需要额外改 `appsettings.Production.json`。
+当前部署配置由 `docker-compose.yml` 和 `.env.docker` 共同提供，不需要额外改 `appsettings.Production.json`。
 
 关键点如下：
 
 - 数据库名：`acceptance_spec_ai_equivalence_adjudication_db`
 - 数据库用户：`acceptance`
 - 数据库密码：`acceptance123`
+- JWT 密钥：`AcceptanceSpec_DockerJwtKey_2026_ReplaceWithLongRandom`
+- 默认管理员密码：`Admin@20260403`
+- 默认普通用户密码：`Common@20260403`
 - API 端口：`5290`
 - 前端端口：`80`
+
+启动命令必须带 `--env-file .env.docker`，否则 Docker Compose 会把未设置变量解析为空，导致 MySQL 或 API 启动失败。
 
 前端通过 Nginx 反向代理到 API，正常情况下优先通过前端地址访问系统。
 
@@ -165,7 +170,7 @@ docker compose down -v
 重新构建并启动：
 
 ```powershell
-docker compose up -d --build
+docker compose --env-file .env.docker up -d --build
 ```
 
 ## 10. 常见问题
@@ -212,7 +217,7 @@ netstat -ano | findstr :5290
 
 1. 确认 Docker 和 Git 已安装
 2. 切换到 `feat/add-ai-equivalence-adjudication`
-3. 执行 `docker compose up -d --build`
+3. 执行 `docker compose --env-file .env.docker up -d --build`
 4. 执行 `docker compose ps`
 5. 执行 `Invoke-WebRequest http://localhost:5290/health`
 6. 浏览器打开 `http://192.168.132.68`

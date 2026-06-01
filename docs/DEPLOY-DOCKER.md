@@ -7,6 +7,7 @@
 已提供如下文件：
 
 - `docker-compose.yml`
+- `.env.docker`（本机部署环境变量，不提交仓库）
 - `src/AcceptanceSpecSystem.Api/Dockerfile`
 - `web/Dockerfile`
 - `deploy/nginx/default.conf`
@@ -22,7 +23,7 @@
 在仓库根目录执行：
 
 ```bash
-docker compose up -d --build
+docker compose --env-file .env.docker up -d --build
 ```
 
 查看状态：
@@ -58,19 +59,22 @@ docker compose logs -f api
 - `api-files`：上传文件与生成文件（`FileStorage`）
 - `api-dpkeys`：DataProtection key ring
 
-## 7. 关键环境变量（API）
+## 7. 关键环境变量
 
-在 `docker-compose.yml` 的 `api.environment` 中可按需调整：
+部署默认值写在 `.env.docker`，当前保持与旧版 `docker-compose.yml` 一致：
 
-- `ConnectionStrings__DefaultConnection`
-- `JwtAuth__SigningKey`（建议替换为更长随机密钥）
-- `FileStorage__BasePath`
-- `DataProtection__KeysPath`
+- `MYSQL_DATABASE=acceptance_spec_ai_equivalence_adjudication_db`
+- `MYSQL_USER=acceptance`
+- `MYSQL_PASSWORD=acceptance123`
+- `JWT_SIGNING_KEY=AcceptanceSpec_DockerJwtKey_2026_ReplaceWithLongRandom`
+- `AUTH_SEED_ADMIN_PASSWORD=Admin@20260403`
+- `AUTH_SEED_COMMON_PASSWORD=Common@20260403`
 - `Cors__AllowedOrigins__0`
 - `Cors__AllowedOrigins__1`
 
 说明：
 
+- 启动命令必须带 `--env-file .env.docker`，否则 Docker Compose 会把未设置变量解析为空。
 - 默认建议通过 `http://localhost` 走 Nginx 同源访问。
 - 如果需要前后端分站访问，再把 `Cors__AllowedOrigins__*` 改成你的实际来源地址；不要使用通配符 `*`。
 
@@ -94,7 +98,7 @@ docker compose down -v
    先看 `docker compose logs -f api`，确认 API 已启动并迁移成功。
 
 2. API 启动失败（JWT 密钥长度）  
-   `JwtAuth__SigningKey` 至少 32 字符。
+   检查是否使用了 `docker compose --env-file .env.docker up -d --build`，且 `JWT_SIGNING_KEY` 至少 32 字符。
 
 3. MySQL 启动后 API 仍连接失败  
    等待 `mysql` 健康检查通过，或查看 `docker compose logs -f mysql`。
