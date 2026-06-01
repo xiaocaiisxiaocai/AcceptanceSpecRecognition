@@ -396,7 +396,7 @@ public class ArchitectureBoundaryTests
             var serviceContent = ReadFile(servicePath);
             serviceContent.Should().Contain($"public interface {interfaceName}",
                 $"{implementationName} 应先暴露接口，便于控制器只依赖用例契约");
-            serviceContent.Should().Contain($"public sealed class {implementationName} : {interfaceName}",
+            serviceContent.Should().MatchRegex($@"public\s+sealed\s+(partial\s+)?class\s+{implementationName}\s*:\s*{interfaceName}",
                 $"{implementationName} 应显式实现自身接口");
             serviceCollectionContent.Should().Contain($"AddScoped<{interfaceName}, {implementationName}>()",
                 $"{implementationName} 应按接口注册到 DI");
@@ -492,7 +492,7 @@ public class ArchitectureBoundaryTests
     public void MatchingUseCases_ShouldShareMatchingConfigResolver()
     {
         var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
-        var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var workflowContent = ReadServiceFamily("MatchingWorkflow");
         var programContent = ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs");
 
         previewContent.Should().Contain("MatchingConfigResolver");
@@ -514,7 +514,7 @@ public class ArchitectureBoundaryTests
     {
         var mapperContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingResultDtoMapper.cs");
         var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
-        var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var workflowContent = ReadServiceFamily("MatchingWorkflow");
 
         mapperContent.Should().Contain("ToMatchResultDto");
         previewContent.Should().Contain("MatchingResultDtoMapper");
@@ -533,7 +533,7 @@ public class ArchitectureBoundaryTests
     {
         var providerContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs");
         var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
-        var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var workflowContent = ReadServiceFamily("MatchingWorkflow");
         var programContent = ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs");
 
         providerContent.Should().Contain("GetCandidatesAsync");
@@ -555,7 +555,7 @@ public class ArchitectureBoundaryTests
     public void ExactMatchOnly_ShouldNotRequireEmbeddingService()
     {
         var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
-        var workflowContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var workflowContent = ReadServiceFamily("MatchingWorkflow");
 
         previewContent.Should().NotMatchRegex(
             @"if\s*\(\s*config\.ExactMatchOnly\s*\)\s*\{\s*await EnsureEmbeddingServiceConfiguredAsync",
@@ -565,9 +565,43 @@ public class ArchitectureBoundaryTests
             "仅精确匹配只比较项目+规格文本，不应依赖 Embedding 服务");
     }
 
+    [Fact]
+    public void BackendUseCaseServiceFiles_ShouldStayBelowLargeFileThreshold()
+    {
+        var serviceFiles = Directory.GetFiles(
+            Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Api", "Services"),
+            "*.cs")
+            .Where(path =>
+            {
+                var fileName = Path.GetFileName(path);
+                return fileName.StartsWith("MatchingWorkflow", StringComparison.Ordinal) ||
+                       fileName.StartsWith("BatchReplyAppService", StringComparison.Ordinal) ||
+                       fileName.StartsWith("DocumentImportAppService", StringComparison.Ordinal);
+            })
+            .ToList();
+
+        serviceFiles.Should().NotBeEmpty("后端核心用例服务应按职责拆成多个小文件");
+
+        foreach (var serviceFile in serviceFiles)
+        {
+            var lineCount = File.ReadLines(serviceFile).Count();
+            lineCount.Should().BeLessThan(500, $"{Path.GetFileName(serviceFile)} 应保持单一职责，避免重新膨胀为巨型文件");
+        }
+    }
+
     private static string ReadFile(string relativePath)
     {
         return File.ReadAllText(Path.Combine(GetRepositoryRoot(), relativePath.Replace('/', Path.DirectorySeparatorChar)));
+    }
+
+    private static string ReadServiceFamily(string fileNamePrefix)
+    {
+        var serviceDirectory = Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Api", "Services");
+        var contents = Directory.GetFiles(serviceDirectory, $"{fileNamePrefix}*.cs")
+            .OrderBy(Path.GetFileName, StringComparer.Ordinal)
+            .Select(File.ReadAllText);
+
+        return string.Join(Environment.NewLine, contents);
     }
 
     private static string GetRepositoryRoot()
