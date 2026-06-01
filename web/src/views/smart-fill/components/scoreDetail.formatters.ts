@@ -1,6 +1,7 @@
 import type {
   MatchCandidateOption,
   MatchIssue,
+  MatchLlmStreamDeltaEventData,
   MatchLlmStreamDoneEventData,
   MatchLlmStreamErrorEventData,
   MatchLlmStreamEvent,
@@ -367,9 +368,9 @@ export const applyMatchLlmStreamEventToPreviewItem = (
       item.llmReviewError = undefined;
       return;
     case "review.delta":
+      const delta = data as MatchLlmStreamDeltaEventData;
       item.llmReviewStage = "streaming";
-      item.llmReviewDraft =
-        (item.llmReviewDraft || "") + ((data as any).chunk || "");
+      item.llmReviewDraft = (item.llmReviewDraft || "") + (delta.chunk || "");
       item.llmReviewError = undefined;
       return;
     case "review.done": {

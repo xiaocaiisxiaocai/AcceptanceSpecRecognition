@@ -3,6 +3,7 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -25,6 +26,7 @@ public class MatchingExecutionController : MatchingApiControllerBase
 
     [HttpPost("llm-stream")]
     [AuditOperation("llm-stream", "matching-fill")]
+    [EnableRateLimiting("ai-heavy")]
     public async Task<IActionResult> LlmStream([FromBody] MatchLlmStreamRequest request)
     {
         try
@@ -44,6 +46,7 @@ public class MatchingExecutionController : MatchingApiControllerBase
 
     [HttpPost("batch-execute")]
     [AuditOperation("execute-batch", "matching-fill")]
+    [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<ExecuteFillResponse>>> BatchExecuteFill([FromBody] BatchExecuteFillRequest request)
@@ -53,6 +56,7 @@ public class MatchingExecutionController : MatchingApiControllerBase
 
     [HttpPost("spec-backfill")]
     [AuditOperation("spec-backfill", "matching-fill")]
+    [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<SmartFillSpecBackfillResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SmartFillSpecBackfillResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<SmartFillSpecBackfillResponse>>> SpecBackfill(

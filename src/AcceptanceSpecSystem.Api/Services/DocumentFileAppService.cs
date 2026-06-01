@@ -6,10 +6,32 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IDocumentFileAppService
+{
+    Task<PagedData<WordFileDto>> GetFilesAsync(
+        DataScopeResult scope,
+        int page,
+        int pageSize,
+        string? keyword,
+        CancellationToken cancellationToken = default);
+
+    Task<FileUploadResponse> UploadFileAsync(
+        DataScopeResult scope,
+        IFormFile file,
+        CancellationToken cancellationToken = default);
+
+    Task<WordFile?> FindAccessibleWordFileAsync(DataScopeResult scope, int fileId);
+
+    Task DeleteFileAsync(
+        DataScopeResult scope,
+        int fileId,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// 文档资源应用服务。
 /// </summary>
-public sealed class DocumentFileAppService
+public sealed class DocumentFileAppService : IDocumentFileAppService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly DocumentFileAccessService _documentFileAccessService;

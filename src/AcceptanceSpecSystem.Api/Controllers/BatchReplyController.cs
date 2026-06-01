@@ -4,6 +4,7 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -24,6 +25,7 @@ public class BatchReplyController : MatchingApiControllerBase
 
     [HttpPost("source/upload")]
     [AuditOperation("upload-source", "batch-reply")]
+    [EnableRateLimiting("upload")]
     [ProducesResponseType(typeof(ApiResponse<BatchReplySourceUploadResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchReplySourceUploadResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<BatchReplySourceUploadResponse>>> UploadSource(IFormFile file)
@@ -43,6 +45,7 @@ public class BatchReplyController : MatchingApiControllerBase
 
     [HttpPost("targets/upload")]
     [AuditOperation("upload", "batch-reply")]
+    [EnableRateLimiting("upload")]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyTargetUploadResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyTargetUploadResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<BatchReplyTargetUploadResponse>>> UploadTargets(
@@ -175,6 +178,7 @@ public class BatchReplyController : MatchingApiControllerBase
     }
 
     [HttpPost("preview")]
+    [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyPreviewResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyPreviewResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<BatchReplyPreviewResponse>>> Preview(
@@ -193,6 +197,7 @@ public class BatchReplyController : MatchingApiControllerBase
 
     [HttpPost("execute")]
     [AuditOperation("execute", "batch-reply")]
+    [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyExecuteResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyExecuteResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<BatchReplyExecuteResponse>>> Execute([FromBody] BatchReplyExecuteRequest request)

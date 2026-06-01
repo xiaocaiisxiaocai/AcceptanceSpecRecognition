@@ -4,6 +4,7 @@ using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -37,6 +38,7 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     [AuditOperation("login", "auth")]
     [AllowAnonymous]
+    [EnableRateLimiting("login")]
     public async Task<ActionResult<FrontendAuthResponse<LoginSuccessData>>> Login([FromBody] LoginRequest? request)
     {
         var username = request?.Username?.Trim() ?? string.Empty;

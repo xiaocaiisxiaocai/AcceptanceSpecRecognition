@@ -34,7 +34,10 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["AuthSeed:AdminPassword"] = TestAdminPassword,
-                ["AuthSeed:CommonPassword"] = TestCommonPassword
+                ["AuthSeed:CommonPassword"] = TestCommonPassword,
+                ["ApiRateLimits:Login:PermitLimit"] = "10000",
+                ["ApiRateLimits:Upload:PermitLimit"] = "10000",
+                ["ApiRateLimits:AiHeavy:PermitLimit"] = "10000"
             });
         });
 

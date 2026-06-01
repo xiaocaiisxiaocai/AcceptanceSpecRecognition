@@ -143,6 +143,33 @@ public class PromptTemplateApiTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Preview_WhenSceneMissing_ShouldReturnBadRequest()
+    {
+        var response = await _client.PostAsync(
+            "/api/prompt-templates/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                content = "项目：{{sourceProject}}"
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Preview_WhenContentTooLong_ShouldReturnBadRequest()
+    {
+        var response = await _client.PostAsync(
+            "/api/prompt-templates/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                scene = "matching-review",
+                content = new string('项', 10001)
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task GetById_WhenTemplateIsCustomOrLegacySystem_ShouldReturnNotFoundWithoutDeletingRows()
     {
         var obsoleteTemplateId = await InsertPromptTemplateAsync(new PromptTemplate

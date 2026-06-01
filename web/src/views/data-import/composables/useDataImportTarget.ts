@@ -12,18 +12,28 @@ import {
 } from "@/api/ai-service";
 import type { ImportDuplicateAiConfig } from "../dataImport.types";
 
+type DataImportTargetSelectionRefs = {
+  selectedCustomerId: Ref<number | undefined>;
+  selectedProcessId: Ref<number | undefined>;
+  selectedMachineModelId: Ref<number | undefined>;
+};
+
 /**
  * 导入目标选择逻辑（客户、制程、机型、AI 服务）
  */
 export function useDataImportTarget(
-  importDuplicateAiConfig: Ref<ImportDuplicateAiConfig>
+  importDuplicateAiConfig: Ref<ImportDuplicateAiConfig>,
+  targetSelectionRefs?: DataImportTargetSelectionRefs
 ) {
   const customers = ref<Customer[]>([]);
   const processes = ref<Process[]>([]);
   const machineModels = ref<MachineModel[]>([]);
-  const selectedCustomerId = ref<number | undefined>(undefined);
-  const selectedProcessId = ref<number | undefined>(undefined);
-  const selectedMachineModelId = ref<number | undefined>(undefined);
+  const selectedCustomerId =
+    targetSelectionRefs?.selectedCustomerId ?? ref<number | undefined>(undefined);
+  const selectedProcessId =
+    targetSelectionRefs?.selectedProcessId ?? ref<number | undefined>(undefined);
+  const selectedMachineModelId =
+    targetSelectionRefs?.selectedMachineModelId ?? ref<number | undefined>(undefined);
   const loadingCustomers = ref(false);
   const loadingProcesses = ref(false);
   const loadingMachineModels = ref(false);

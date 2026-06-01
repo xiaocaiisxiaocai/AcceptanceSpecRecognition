@@ -2,6 +2,8 @@ using System.Net;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -31,6 +33,26 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
         data.GetProperty("refreshToken").GetString().Should().NotBeNullOrWhiteSpace();
         data.GetProperty("roleCode").GetString().Should().Be("admin");
         data.TryGetProperty("roles", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Login_WhenRateLimitExceeded_ShouldReturnTooManyRequests()
+    {
+        await using var factory = new LoginRateLimitApiWebApplicationFactory();
+        using var client = factory.CreateClient();
+        HttpResponseMessage? lastResponse = null;
+        for (var i = 0; i < 3; i++)
+        {
+            lastResponse?.Dispose();
+            lastResponse = await client.PostAsync(
+                "/login",
+                ApiClientJson.ToJsonContent(new { username = "admin", password = "wrong-password" }));
+        }
+
+        using (lastResponse)
+        {
+            lastResponse!.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        }
     }
 
     [Fact]
@@ -97,5 +119,22 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     {
         using var resp = await _client.GetAsync("/get-async-routes");
         resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+}
+
+public sealed class LoginRateLimitApiWebApplicationFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ApiRateLimits:Login:PermitLimit"] = "2",
+                ["ApiRateLimits:Login:WindowSeconds"] = "60",
+                ["ApiRateLimits:Login:QueueLimit"] = "0"
+            });
+        });
     }
 }

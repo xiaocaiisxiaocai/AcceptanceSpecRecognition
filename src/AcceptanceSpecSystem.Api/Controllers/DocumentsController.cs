@@ -3,6 +3,7 @@ using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -11,13 +12,13 @@ public class DocumentsController : BaseApiController
 {
     // 文件级范围校验已下沉到应用服务和共享访问组件，底层仍统一复用 WordFileDataScopeHelper。
     private readonly IAuthDataScopeService _authDataScopeService;
-    private readonly DocumentFileAppService _documentFileAppService;
+    private readonly IDocumentFileAppService _documentFileAppService;
     private readonly DocumentTableAccessService _documentTableAccessService;
     private readonly DocumentImportAppService _documentImportAppService;
 
     public DocumentsController(
         IAuthDataScopeService authDataScopeService,
-        DocumentFileAppService documentFileAppService,
+        IDocumentFileAppService documentFileAppService,
         DocumentTableAccessService documentTableAccessService,
         DocumentImportAppService documentImportAppService)
     {
@@ -51,6 +52,7 @@ public class DocumentsController : BaseApiController
 
     [HttpPost("upload")]
     [AuditOperation("upload", "document")]
+    [EnableRateLimiting("upload")]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<FileUploadResponse>>> UploadFile(IFormFile file)
@@ -148,6 +150,7 @@ public class DocumentsController : BaseApiController
 
     [HttpPost("import")]
     [AuditOperation("import", "document")]
+    [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ImportResult>>> ImportData([FromBody] ImportDataRequest request)
@@ -174,6 +177,7 @@ public class DocumentsController : BaseApiController
 
     [HttpPost("excel/import")]
     [AuditOperation("import", "excel-document")]
+    [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ImportResult>>> ImportExcelData([FromBody] ExcelImportDataRequest request)

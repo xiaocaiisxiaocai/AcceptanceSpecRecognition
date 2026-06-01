@@ -5,10 +5,23 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IAuthRoleAppService
+{
+    Task<List<AuthRoleDto>> GetListAsync(int companyId, string? keyword = null);
+
+    Task<AuthRoleDto?> GetByIdAsync(int companyId, int id);
+
+    Task<AuthRoleDto> CreateAsync(int companyId, CreateAuthRoleRequest request);
+
+    Task<AuthRoleDto> UpdateAsync(int companyId, int id, UpdateAuthRoleRequest request);
+
+    Task DeleteAsync(int companyId, int id);
+}
+
 /// <summary>
 /// 角色管理应用服务。
 /// </summary>
-public sealed class AuthRoleAppService
+public sealed class AuthRoleAppService : IAuthRoleAppService
 {
     private readonly AppDbContext _dbContext;
 

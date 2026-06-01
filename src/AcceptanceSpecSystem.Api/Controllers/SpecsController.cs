@@ -6,6 +6,7 @@ using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -149,6 +150,7 @@ public class SpecsController : BaseApiController
     /// </summary>
     [HttpPost("semantic-search")]
     [AuditOperation("semantic-search", "spec")]
+    [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<SpecSemanticSearchResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SpecSemanticSearchResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<SpecSemanticSearchResponse>>> SemanticSearch(

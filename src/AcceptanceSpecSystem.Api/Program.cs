@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Threading.RateLimiting;
 using AcceptanceSpecSystem.Api;
 using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Api.Authorization;
@@ -20,7 +22,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -106,6 +110,23 @@ builder.Services.Configure<FormOptions>(options =>
     options.MultipartBodyLengthLimit = UploadFileValidation.MaxAllowedFileSizeBytes * 10;
 });
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", httpContext => CreateFixedWindowLimiter(
+        httpContext,
+        builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:Login").Get<RateLimitPolicyOptions>()
+            ?? new ApiRateLimitOptions().Login));
+    options.AddPolicy("upload", httpContext => CreateFixedWindowLimiter(
+        httpContext,
+        builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:Upload").Get<RateLimitPolicyOptions>()
+            ?? new ApiRateLimitOptions().Upload));
+    options.AddPolicy("ai-heavy", httpContext => CreateFixedWindowLimiter(
+        httpContext,
+        builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:AiHeavy").Get<RateLimitPolicyOptions>()
+            ?? new ApiRateLimitOptions().AiHeavy));
+});
+
 // 配置MySQL数据库连接
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")?.Trim();
 if (string.IsNullOrWhiteSpace(connectionString))
@@ -115,6 +136,11 @@ if (string.IsNullOrWhiteSpace(connectionString))
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database")
+    .AddCheck<FileStorageHealthCheck>("fileStorage")
+    .AddCheck<AiConfigHealthCheck>("aiConfig");
 
 // 模块化服务注册
 builder.Services.AddDataRepositories();
@@ -231,9 +257,11 @@ if (app.Environment.IsDevelopment())
 }
 
 // 使用CORS
+app.UseRouting();
 app.UseCors("AllowVueFrontend");
 
 // 使用路由和控制器
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<ApiPermissionMiddleware>();
 app.UseAuthorization();
@@ -242,12 +270,52 @@ app.MapControllers();
 await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
 
 // 健康检查端点
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        ResponseWriter = async (context, report) =>
+        {
+            context.Response.ContentType = "application/json";
+            var payload = new
+            {
+                status = report.Status.ToString(),
+                totalDurationMs = report.TotalDuration.TotalMilliseconds,
+                entries = report.Entries.ToDictionary(
+                    item => item.Key,
+                    item => new
+                    {
+                        status = item.Value.Status.ToString(),
+                        description = item.Value.Description,
+                        durationMs = item.Value.Duration.TotalMilliseconds
+                    })
+            };
+            await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
+        }
+    })
     .WithName("HealthCheck")
     .WithTags("System")
     .AllowAnonymous();
 
 app.Run();
+
+static RateLimitPartition<string> CreateFixedWindowLimiter(
+    HttpContext httpContext,
+    RateLimitPolicyOptions options)
+{
+    var partitionKey =
+        httpContext.User?.Identity?.IsAuthenticated == true
+            ? httpContext.User.Identity.Name
+            : httpContext.Connection.RemoteIpAddress?.ToString();
+    partitionKey = string.IsNullOrWhiteSpace(partitionKey) ? "anonymous" : partitionKey;
+
+    return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+    {
+        PermitLimit = Math.Max(1, options.PermitLimit),
+        Window = TimeSpan.FromSeconds(Math.Max(1, options.WindowSeconds)),
+        QueueLimit = Math.Max(0, options.QueueLimit),
+        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+        AutoReplenishment = true
+    });
+}
 
 // For integration tests (WebApplicationFactory)
 public partial class Program { }

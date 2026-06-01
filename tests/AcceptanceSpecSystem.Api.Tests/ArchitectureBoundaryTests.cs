@@ -335,6 +335,62 @@ public class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void SimpleApiAppServices_ShouldExposeInterfaces_AndControllersShouldDependOnInterfaces()
+    {
+        var serviceCollectionContent = ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs");
+
+        var services = new[]
+        {
+            ("src/AcceptanceSpecSystem.Api/Services/DashboardAppService.cs",
+                "IDashboardAppService",
+                "DashboardAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/DashboardController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/DocumentFileAppService.cs",
+                "IDocumentFileAppService",
+                "DocumentFileAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/MatchingTaskAppService.cs",
+                "IMatchingTaskAppService",
+                "MatchingTaskAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/MatchingTaskController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/AuthRoleAppService.cs",
+                "IAuthRoleAppService",
+                "AuthRoleAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/AuthRolesController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/OrgUnitAppService.cs",
+                "IOrgUnitAppService",
+                "OrgUnitAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/OrgUnitsController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/SystemUserAppService.cs",
+                "ISystemUserAppService",
+                "SystemUserAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/SystemUsersController.cs"),
+            ("src/AcceptanceSpecSystem.Api/Services/ExecutionHistoryAppService.cs",
+                "IExecutionHistoryAppService",
+                "ExecutionHistoryAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/ExecutionHistoryController.cs")
+        };
+
+        foreach (var (servicePath, interfaceName, implementationName, controllerPath) in services)
+        {
+            var serviceContent = ReadFile(servicePath);
+            serviceContent.Should().Contain($"public interface {interfaceName}",
+                $"{implementationName} 应先暴露接口，便于控制器只依赖用例契约");
+            serviceContent.Should().Contain($"public sealed class {implementationName} : {interfaceName}",
+                $"{implementationName} 应显式实现自身接口");
+            serviceCollectionContent.Should().Contain($"AddScoped<{interfaceName}, {implementationName}>()",
+                $"{implementationName} 应按接口注册到 DI");
+
+            var controllerContent = ReadFile(controllerPath);
+            controllerContent.Should().Contain($"private readonly {interfaceName}",
+                $"{controllerPath} 字段应依赖接口");
+            var controllerName = Path.GetFileNameWithoutExtension(controllerPath);
+            controllerContent.Should().MatchRegex($@"public\s+{controllerName}\s*\([^)]*\b{interfaceName}\s+\w+",
+                $"{controllerPath} 构造函数应注入接口");
+        }
+    }
+
+    [Fact]
     public void PermissionAndNavigationMetadata_ShouldUseSharedManifest_AndNotDependOnAsyncRoutesRuntime()
     {
         var repositoryRoot = GetRepositoryRoot();
@@ -382,6 +438,34 @@ public class ArchitectureBoundaryTests
         var resolverContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingConfigResolver.cs");
 
         resolverContent.Should().Contain("!item.IsDisabled");
+    }
+
+    [Fact]
+    public void Controllers_ShouldPassCancellationTokenToEfAsyncQueries()
+    {
+        var repositoryRoot = GetRepositoryRoot();
+        var controllerFiles = Directory.GetFiles(
+            Path.Combine(repositoryRoot, "src", "AcceptanceSpecSystem.Api", "Controllers"),
+            "*.cs");
+
+        foreach (var controllerFile in controllerFiles)
+        {
+            var content = File.ReadAllText(controllerFile);
+            content.Should().NotContain(".CountAsync();", $"{Path.GetFileName(controllerFile)} 查询计数应透传请求取消令牌");
+            content.Should().NotContain(".ToListAsync();", $"{Path.GetFileName(controllerFile)} 查询列表应透传请求取消令牌");
+        }
+    }
+
+    [Fact]
+    public void AiServicesQueryEndpoints_ShouldUseCancellableEfQueries()
+    {
+        var content = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/AiServicesController.cs");
+
+        content.Should().Contain("GetById(");
+        content.Should().Contain("CancellationToken cancellationToken = default");
+        content.Should().Contain(".SingleOrDefaultAsync(config => config.Id == id, cancellationToken)");
+        content.Should().Contain("GetModels(");
+        content.Should().Contain("ProbeModelsAsync(entity, cancellationToken)");
     }
 
     [Fact]

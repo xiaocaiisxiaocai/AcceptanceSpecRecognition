@@ -5,10 +5,23 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IOrgUnitAppService
+{
+    Task<List<OrgUnitDto>> GetTreeAsync(int companyId);
+
+    Task<List<OrgUnitDto>> GetFlatAsync(int companyId);
+
+    Task<OrgUnitDto> CreateAsync(int companyId, CreateOrgUnitRequest request);
+
+    Task<OrgUnitDto> UpdateAsync(int companyId, int id, UpdateOrgUnitRequest request);
+
+    Task DeleteAsync(int companyId, int id);
+}
+
 /// <summary>
 /// 组织管理应用服务。
 /// </summary>
-public sealed class OrgUnitAppService
+public sealed class OrgUnitAppService : IOrgUnitAppService
 {
     private readonly AppDbContext _dbContext;
 

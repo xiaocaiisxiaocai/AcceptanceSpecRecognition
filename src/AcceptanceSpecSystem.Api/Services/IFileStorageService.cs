@@ -21,6 +21,11 @@ public interface IFileStorageService
     Task<string> SaveFilledWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 写入健康检查临时文件，返回相对路径
+    /// </summary>
+    Task<string> WriteHealthCheckFileAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 将相对路径转换为绝对路径
     /// </summary>
     string GetAbsolutePath(string relativePath);

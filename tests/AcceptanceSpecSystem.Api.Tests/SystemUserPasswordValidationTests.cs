@@ -7,6 +7,52 @@ namespace AcceptanceSpecSystem.Api.Tests;
 public class SystemUserPasswordValidationTests
 {
     [Fact]
+    public void CreateCustomerRequest_WhenNameMissing_ShouldFailValidation()
+    {
+        var request = new CreateCustomerRequest();
+
+        var errors = Validate(request);
+
+        errors.Should().Contain(item => item.MemberNames.Contains(nameof(CreateCustomerRequest.Name)));
+    }
+
+    [Fact]
+    public void UpdateCustomerRequest_WhenNameTooLong_ShouldFailValidation()
+    {
+        var request = new UpdateCustomerRequest
+        {
+            Name = new string('客', 101)
+        };
+
+        var errors = Validate(request);
+
+        errors.Should().Contain(item => item.MemberNames.Contains(nameof(UpdateCustomerRequest.Name)));
+    }
+
+    [Fact]
+    public void CreateMachineModelRequest_WhenNameTooLong_ShouldFailValidation()
+    {
+        var request = new CreateMachineModelRequest
+        {
+            Name = new string('机', 101)
+        };
+
+        var errors = Validate(request);
+
+        errors.Should().Contain(item => item.MemberNames.Contains(nameof(CreateMachineModelRequest.Name)));
+    }
+
+    [Fact]
+    public void CreateProcessRequest_WhenNameMissing_ShouldFailValidation()
+    {
+        var request = new CreateProcessRequest();
+
+        var errors = Validate(request);
+
+        errors.Should().Contain(item => item.MemberNames.Contains(nameof(CreateProcessRequest.Name)));
+    }
+
+    [Fact]
     public void CreateSystemUserRequest_WhenPasswordHasFourCharacters_ShouldPassValidation()
     {
         var request = new CreateSystemUserRequest

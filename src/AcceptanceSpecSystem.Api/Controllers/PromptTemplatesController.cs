@@ -36,7 +36,8 @@ public class PromptTemplatesController : BaseApiController
     public async Task<ActionResult<ApiResponse<PagedData<PromptTemplateDto>>>> GetList(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] string? keyword = null)
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
@@ -53,13 +54,13 @@ public class PromptTemplatesController : BaseApiController
                 t.Content.Contains(key));
         }
 
-        var total = await query.CountAsync();
+        var total = await query.CountAsync(cancellationToken);
         var rows = await query
             .OrderBy(t => t.Scene)
             .ThenByDescending(t => t.UpdatedAt ?? t.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
         var items = rows.Select(ToDto).ToList();
 
         return Success(new PagedData<PromptTemplateDto>
@@ -77,9 +78,13 @@ public class PromptTemplatesController : BaseApiController
     [HttpGet("{id:int}")]
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> GetById(int id)
+    public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> GetById(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.PromptTemplates.GetByIdAsync(id);
+        var entity = await _unitOfWork.PromptTemplates
+            .Query(asNoTracking: false)
+            .SingleOrDefaultAsync(template => template.Id == id, cancellationToken);
         if (entity == null)
             return NotFoundResult<PromptTemplateDto>("模板不存在");
         if (!TryGetCurrentSystemDefinition(entity, out _))
@@ -94,9 +99,14 @@ public class PromptTemplatesController : BaseApiController
     [HttpPut("{id:int}")]
     [AuditOperation("update", "prompt-template")]
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> Update(int id, [FromBody] UpdatePromptTemplateRequest request)
+    public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> Update(
+        int id,
+        [FromBody] UpdatePromptTemplateRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.PromptTemplates.GetByIdAsync(id);
+        var entity = await _unitOfWork.PromptTemplates
+            .Query(asNoTracking: false)
+            .SingleOrDefaultAsync(template => template.Id == id, cancellationToken);
         if (entity == null)
             return NotFoundResult<PromptTemplateDto>("模板不存在");
 

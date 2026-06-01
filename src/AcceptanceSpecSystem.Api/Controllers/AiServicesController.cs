@@ -12,6 +12,7 @@ using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.AI;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -66,7 +67,8 @@ public class AiServicesController : BaseApiController
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null,
-        [FromQuery] AiServiceType? serviceType = null)
+        [FromQuery] AiServiceType? serviceType = null,
+        CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
@@ -85,13 +87,13 @@ public class AiServicesController : BaseApiController
             query = query.Where(c => c.ServiceType == serviceType.Value);
         }
 
-        var total = await query.CountAsync();
+        var total = await query.CountAsync(cancellationToken);
         var rows = await query
             .OrderBy(c => c.Priority)
             .ThenByDescending(c => c.UpdatedAt ?? c.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
         var items = rows.Select(ToDto).ToList();
 
         return Success(new PagedData<AiServiceConfigDto>
@@ -109,9 +111,13 @@ public class AiServicesController : BaseApiController
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDetailDto>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<AiServiceConfigDetailDto>>> GetById(int id)
+    public async Task<ActionResult<ApiResponse<AiServiceConfigDetailDto>>> GetById(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
+        var entity = await _unitOfWork.AiServiceConfigs
+            .Query()
+            .SingleOrDefaultAsync(config => config.Id == id, cancellationToken);
         if (entity == null)
             return NotFoundResult<AiServiceConfigDetailDto>("配置不存在");
 
@@ -282,6 +288,7 @@ public class AiServicesController : BaseApiController
     /// 测试AI服务连接
     /// </summary>
     [HttpPost("{id}/test")]
+    [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceTestResultDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<AiServiceTestResultDto>>> TestConnection(
         int id,
@@ -721,10 +728,15 @@ public class AiServicesController : BaseApiController
     /// 获取模型列表（远程探测）
     /// </summary>
     [HttpGet("{id}/models")]
+    [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceModelsResultDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<AiServiceModelsResultDto>>> GetModels(int id)
+    public async Task<ActionResult<ApiResponse<AiServiceModelsResultDto>>> GetModels(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
+        var entity = await _unitOfWork.AiServiceConfigs
+            .Query()
+            .SingleOrDefaultAsync(config => config.Id == id, cancellationToken);
         if (entity == null)
             return Error<AiServiceModelsResultDto>(400, "配置不存在");
         if (entity.IsDisabled)
@@ -732,7 +744,7 @@ public class AiServicesController : BaseApiController
         if (entity.IsLegacyDualPurposeConfiguration())
             return Error<AiServiceModelsResultDto>(400, BuildLegacyDualPurposeMessage());
 
-        var result = await ProbeModelsAsync(entity, HttpContext.RequestAborted);
+        var result = await ProbeModelsAsync(entity, cancellationToken);
         return Success(result, result.Message ?? "模型探测完成");
     }
 

@@ -30,7 +30,7 @@ public class CreateColumnMappingRuleRequest
     public ColumnMappingMatchMode MatchMode { get; set; } = ColumnMappingMatchMode.Equals;
 
     [Required(ErrorMessage = "匹配词不能为空")]
-    [StringLength(200, ErrorMessage = "匹配词不能超过200个字符")]
+    [MaxLength(200, ErrorMessage = "匹配词不能超过200个字符")]
     public string Pattern { get; set; } = string.Empty;
 
     public int Priority { get; set; }
@@ -46,7 +46,7 @@ public class UpdateColumnMappingRuleRequest
     public ColumnMappingMatchMode MatchMode { get; set; } = ColumnMappingMatchMode.Equals;
 
     [Required(ErrorMessage = "匹配词不能为空")]
-    [StringLength(200, ErrorMessage = "匹配词不能超过200个字符")]
+    [MaxLength(200, ErrorMessage = "匹配词不能超过200个字符")]
     public string Pattern { get; set; } = string.Empty;
 
     public int Priority { get; set; }

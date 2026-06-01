@@ -20,6 +20,9 @@ public sealed class TestFileStorageService : IFileStorageService
     public Task<string> SaveFilledWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
         => SaveAsync("uploads/filled-files", originalFileName, content, cancellationToken);
 
+    public Task<string> WriteHealthCheckFileAsync(CancellationToken cancellationToken = default)
+        => SaveAsync("health", "health.txt", Array.Empty<byte>(), cancellationToken);
+
     public string GetAbsolutePath(string relativePath)
     {
         var normalized = relativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);

@@ -14,9 +14,9 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class OrgUnitsController : BaseApiController
 {
-    private readonly OrgUnitAppService _orgUnitAppService;
+    private readonly IOrgUnitAppService _orgUnitAppService;
 
-    public OrgUnitsController(OrgUnitAppService orgUnitAppService)
+    public OrgUnitsController(IOrgUnitAppService orgUnitAppService)
     {
         _orgUnitAppService = orgUnitAppService;
     }

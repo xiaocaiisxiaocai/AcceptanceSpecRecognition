@@ -5,6 +5,7 @@ using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -24,29 +25,37 @@ public class ColumnMappingRulesController : BaseApiController
 
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<List<ColumnMappingRuleDto>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ColumnMappingRuleDto>>>> GetAll([FromQuery] bool? enabled = null)
+    public async Task<ActionResult<ApiResponse<List<ColumnMappingRuleDto>>>> GetAll(
+        [FromQuery] bool? enabled = null,
+        CancellationToken cancellationToken = default)
     {
-        var rules = await _unitOfWork.ColumnMappingRules.GetAllAsync();
+        var query = _unitOfWork.ColumnMappingRules.Query();
         if (enabled.HasValue)
         {
-            rules = rules.Where(rule => rule.Enabled == enabled.Value).ToList();
+            query = query.Where(rule => rule.Enabled == enabled.Value);
         }
 
-        var items = rules
+        var rules = await query
             .OrderBy(rule => rule.TargetField)
             .ThenByDescending(rule => rule.Priority)
             .ThenBy(rule => rule.Id)
-            .Select(ToDto)
-            .ToList();
+            .ToListAsync(cancellationToken);
+        var items = rules.Select(ToDto).ToList();
 
         return Success(items);
     }
 
     [HttpGet("effective")]
     [ProducesResponseType(typeof(ApiResponse<List<ColumnMappingRuleDto>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ColumnMappingRuleDto>>>> GetEffective()
+    public async Task<ActionResult<ApiResponse<List<ColumnMappingRuleDto>>>> GetEffective(
+        CancellationToken cancellationToken = default)
     {
-        var rules = await _unitOfWork.ColumnMappingRules.GetEnabledOrderedAsync();
+        var rules = await _unitOfWork.ColumnMappingRules.Query()
+            .Where(rule => rule.Enabled)
+            .OrderBy(rule => rule.TargetField)
+            .ThenByDescending(rule => rule.Priority)
+            .ThenBy(rule => rule.Id)
+            .ToListAsync(cancellationToken);
         return Success(rules.Select(ToDto).ToList());
     }
 

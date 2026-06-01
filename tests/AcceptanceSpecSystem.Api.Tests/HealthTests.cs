@@ -1,5 +1,7 @@
 using FluentAssertions;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using System.Net;
+using System.Text.Json;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -17,6 +19,22 @@ public class HealthTests : IClassFixture<ApiWebApplicationFactory>
     {
         var resp = await _client.GetAsync("/health");
         resp.IsSuccessStatusCode.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Health_ShouldReportNamedDependencyEntries()
+    {
+        var resp = await _client.GetAsync("/health");
+        var raw = await resp.Content.ReadAsStringAsync();
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK, $"返回内容: {raw}");
+        var json = JsonSerializer.Deserialize<JsonElement>(raw);
+
+        json.GetProperty("status").GetString().Should().Be("Healthy");
+        var entries = json.GetProperty("entries");
+        entries.TryGetProperty("database", out _).Should().BeTrue();
+        entries.TryGetProperty("fileStorage", out _).Should().BeTrue();
+        entries.TryGetProperty("aiConfig", out _).Should().BeTrue();
     }
 }
 

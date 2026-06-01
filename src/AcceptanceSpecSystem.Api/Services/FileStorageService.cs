@@ -47,6 +47,11 @@ public class FileStorageService : IFileStorageService
         return await SaveAsync("uploads/filled-files", originalFileName, content, cancellationToken);
     }
 
+    public async Task<string> WriteHealthCheckFileAsync(CancellationToken cancellationToken = default)
+    {
+        return await SaveAsync("health", "health.txt", Array.Empty<byte>(), cancellationToken, allowEmptyContent: true);
+    }
+
     public string GetAbsolutePath(string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath))
@@ -83,9 +88,14 @@ public class FileStorageService : IFileStorageService
         return Task.CompletedTask;
     }
 
-    private async Task<string> SaveAsync(string baseRelativeDir, string originalFileName, byte[] content, CancellationToken cancellationToken)
+    private async Task<string> SaveAsync(
+        string baseRelativeDir,
+        string originalFileName,
+        byte[] content,
+        CancellationToken cancellationToken,
+        bool allowEmptyContent = false)
     {
-        if (content == null || content.Length == 0)
+        if (content == null || (!allowEmptyContent && content.Length == 0))
             throw new ArgumentException("content不能为空", nameof(content));
 
         var ext = Path.GetExtension(originalFileName);

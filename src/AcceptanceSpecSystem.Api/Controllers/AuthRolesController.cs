@@ -14,9 +14,9 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class AuthRolesController : BaseApiController
 {
-    private readonly AuthRoleAppService _authRoleAppService;
+    private readonly IAuthRoleAppService _authRoleAppService;
 
-    public AuthRolesController(AuthRoleAppService authRoleAppService)
+    public AuthRolesController(IAuthRoleAppService authRoleAppService)
     {
         _authRoleAppService = authRoleAppService;
     }

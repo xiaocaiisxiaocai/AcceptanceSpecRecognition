@@ -14,9 +14,9 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class SystemUsersController : BaseApiController
 {
-    private readonly SystemUserAppService _systemUserAppService;
+    private readonly ISystemUserAppService _systemUserAppService;
 
-    public SystemUsersController(SystemUserAppService systemUserAppService)
+    public SystemUsersController(ISystemUserAppService systemUserAppService)
     {
         _systemUserAppService = systemUserAppService;
     }

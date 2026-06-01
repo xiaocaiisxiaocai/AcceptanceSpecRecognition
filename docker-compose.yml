@@ -38,6 +38,12 @@ services:
       FileStorage__BasePath: /data/files
       DataProtection__KeysPath: /data/dp-keys
       DatabaseBackup__BackupDirectory: /app/backups
+      ApiRateLimits__Login__PermitLimit: ${API_RATE_LIMIT_LOGIN_PERMIT_LIMIT:-10}
+      ApiRateLimits__Login__WindowSeconds: ${API_RATE_LIMIT_LOGIN_WINDOW_SECONDS:-60}
+      ApiRateLimits__Upload__PermitLimit: ${API_RATE_LIMIT_UPLOAD_PERMIT_LIMIT:-20}
+      ApiRateLimits__Upload__WindowSeconds: ${API_RATE_LIMIT_UPLOAD_WINDOW_SECONDS:-60}
+      ApiRateLimits__AiHeavy__PermitLimit: ${API_RATE_LIMIT_AI_HEAVY_PERMIT_LIMIT:-30}
+      ApiRateLimits__AiHeavy__WindowSeconds: ${API_RATE_LIMIT_AI_HEAVY_WINDOW_SECONDS:-60}
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_0:-http://localhost}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_1:-http://127.0.0.1}
       JwtAuth__SigningKey: ${JWT_SIGNING_KEY}

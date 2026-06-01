@@ -6,10 +6,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IDashboardAppService
+{
+    Task<DashboardSummaryDto?> GetSummaryAsync(
+        ClaimsPrincipal user,
+        string? range,
+        DateTime? from,
+        DateTime? to);
+}
+
 /// <summary>
 /// 首页统计应用服务。
 /// </summary>
-public sealed class DashboardAppService
+public sealed class DashboardAppService : IDashboardAppService
 {
     private readonly AppDbContext _dbContext;
     private readonly IAuthDataScopeService _authDataScopeService;

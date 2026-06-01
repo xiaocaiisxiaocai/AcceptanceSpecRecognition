@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch, onActivated, onMounted, nextTick } from "vue";
+import { ref, computed, watch, onActivated, onMounted, onUnmounted, nextTick } from "vue";
+import { storeToRefs } from "pinia";
 import { ElLoading, ElMessage, ElMessageBox } from "element-plus";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
@@ -40,7 +41,6 @@ import { applyWordRulesToWordMapping } from "@/views/shared/word-column-mapping-
 import type {
   CombinedImportResult,
   DifferenceDecision,
-  ImportDuplicateAiConfig,
   ImportErrorWithTable,
   ImportPendingDifferenceWithTable,
   ImportPreviewGroup,
@@ -56,12 +56,8 @@ import {
 import { useDataImportBatchExecution } from "./composables/useDataImportBatchExecution";
 import { useDataImportMapping } from "./composables/useDataImportMapping";
 import { useDataImportPreviewSelection } from "./composables/useDataImportPreviewSelection";
-import {
-  getCustomerList,
-  type Customer
-} from "@/api/customer";
-import { getProcessList, type Process } from "@/api/process";
-import { getMachineModelList, type MachineModel } from "@/api/machine-model";
+import { useDataImportTarget } from "./composables/useDataImportTarget";
+import { useDataImportStoreHook } from "@/store/modules/dataImport";
 import {
   getFileTables,
   getTablePreview,
@@ -70,12 +66,6 @@ import {
   type TableData,
   type ColumnMapping as ColumnMappingType
 } from "@/api/document";
-import {
-  getAiServiceList,
-  AiServicePurpose,
-  sortAiServicesByPriority,
-  type AiServiceConfig
-} from "@/api/ai-service";
 import { hasPerms } from "@/utils/auth";
 
 defineOptions({
@@ -84,8 +74,21 @@ defineOptions({
 
 const MAPPING_PREVIEW_ROWS = 50;
 
-// 步骤
-const currentStep = ref(0);
+const dataImportStore = useDataImportStoreHook();
+const {
+  currentStep,
+  uploadedFile,
+  isExcelFile,
+  selectedTableIndexes,
+  selectedTables,
+  activeTableIndex,
+  tableConfigs,
+  selectedCustomerId,
+  selectedProcessId,
+  selectedMachineModelId,
+  importDuplicateAiConfig
+} = storeToRefs(dataImportStore);
+
 const steps = computed(() => [
   { title: "上传文件", description: isExcelFile.value ? "选择 Excel 文件" : "选择 Word/Excel 文件" },
   { title: isExcelFile.value ? "选择工作表" : "选择表格", description: "选择要导入的数据范围" },
@@ -94,9 +97,6 @@ const steps = computed(() => [
   { title: "确认导入", description: "预览并确认" }
 ]);
 
-// 文件上传
-const uploadedFile = ref<FileUploadResponse | null>(null);
-const isExcelFile = computed(() => uploadedFile.value?.fileType === 1);
 const canUploadSourceFile = computed(() => hasPerms("btn:document:upload"));
 const canImportWord = computed(() => hasPerms("btn:document:import"));
 const canImportExcel = computed(() => hasPerms("btn:excel-document:import"));
@@ -126,30 +126,10 @@ const uploadBlockedMessage = computed(() => {
   return "当前账号没有数据导入权限";
 });
 
-// 表格选择（支持多选）
-const selectedTableIndexes = ref<number[]>([]);
-const selectedTables = ref<TableInfo[]>([]);
-const activeTableIndex = ref<number | null>(null);
-
-const tableConfigs = ref<TableImportConfig[]>([]);
 const mappingClipboard = ref<MappingClipboard | null>(null);
 const mappingClipboardSourceIndex = ref<number | null>(null);
 const mappingRules = ref<ColumnMappingRule[]>([]);
 const loadingMappingRules = ref(false);
-
-// 目标选择
-const customers = ref<Customer[]>([]);
-const processes = ref<Process[]>([]);
-const machineModels = ref<MachineModel[]>([]);
-const selectedCustomerId = ref<number | undefined>(undefined);
-const selectedProcessId = ref<number | undefined>(undefined);
-const selectedMachineModelId = ref<number | undefined>(undefined);
-const loadingCustomers = ref(false);
-const loadingProcesses = ref(false);
-const loadingMachineModels = ref(false);
-const loadingAiServices = ref(false);
-const embeddingServices = ref<AiServiceConfig[]>([]);
-const llmServices = ref<AiServiceConfig[]>([]);
 
 const {
   importing,
@@ -165,9 +145,27 @@ const { excludedRowIndexMap, importPreviewSelectionKeys } =
 const importProgressText = ref("");
 const pendingDifferencePage = ref(1);
 const pendingDifferencePageSize = ref(20);
-const importDuplicateAiConfig = ref<ImportDuplicateAiConfig>(
-  createDefaultImportDuplicateAiConfig()
-);
+const {
+  customers,
+  processes,
+  machineModels,
+  selectedMachineModelName,
+  loadingCustomers,
+  loadingProcesses,
+  loadingMachineModels,
+  loadingAiServices,
+  embeddingServices,
+  llmServices,
+  loadCustomers,
+  loadProcesses,
+  loadMachineModels,
+  loadAiServices,
+  resetTargetSelection
+} = useDataImportTarget(importDuplicateAiConfig, {
+  selectedCustomerId,
+  selectedProcessId,
+  selectedMachineModelId
+});
 
 // 让步骤条吸顶到实际滚动容器（pure-admin 使用 el-scrollbar）
 const affixTarget = ref<string>("");
@@ -218,6 +216,11 @@ onActivated(() => {
   }
 });
 
+onUnmounted(() => {
+  // Pinia 状态跨组件实例存在；卸载时重置，保持与原本页面本地状态一致。
+  dataImportStore.resetAll();
+});
+
 // 计算属性
 const canGoNext = computed(() => {
   switch (currentStep.value) {
@@ -242,17 +245,6 @@ const canGoNext = computed(() => {
     default:
       return false;
   }
-});
-
-const selectedMachineModelName = computed(() => {
-  if (!selectedMachineModelId.value) {
-    return "-";
-  }
-
-  return (
-    machineModels.value.find(model => model.id === selectedMachineModelId.value)?.name ??
-    `机型#${selectedMachineModelId.value}`
-  );
 });
 
 const {
@@ -299,9 +291,7 @@ const resetImportFlowState = ({
   resetPendingDifferenceState();
 
   if (!preserveTargetSelection) {
-    selectedCustomerId.value = undefined;
-    selectedProcessId.value = undefined;
-    selectedMachineModelId.value = undefined;
+    resetTargetSelection();
   }
 };
 
@@ -612,107 +602,6 @@ const pasteMappingConfigToOthers = () => {
   ElMessage.success(
     `已应用到 ${pastedCount} 个其他${isExcelFile.value ? "工作表" : "表格"}`
   );
-};
-
-// 加载客户列表
-const loadCustomers = async () => {
-  loadingCustomers.value = true;
-  try {
-    const res = await getCustomerList({ page: 1, pageSize: 100 });
-    if (res.code === 0) {
-      customers.value = res.data.items;
-    }
-  } catch {
-    ElMessage.error("加载客户列表失败");
-  } finally {
-    loadingCustomers.value = false;
-  }
-};
-
-// 加载制程列表
-const loadProcesses = async () => {
-  loadingProcesses.value = true;
-  try {
-    const res = await getProcessList({ page: 1, pageSize: 1000 });
-    if (res.code === 0) {
-      processes.value = res.data.items;
-    }
-  } catch {
-    ElMessage.error("加载制程列表失败");
-  } finally {
-    loadingProcesses.value = false;
-  }
-};
-
-// 加载机型列表
-const loadMachineModels = async () => {
-  loadingMachineModels.value = true;
-  try {
-    const res = await getMachineModelList({ page: 1, pageSize: 1000 });
-    if (res.code === 0) {
-      machineModels.value = res.data.items;
-    }
-  } catch {
-    ElMessage.error("加载机型列表失败");
-  } finally {
-    loadingMachineModels.value = false;
-  }
-};
-
-const loadAiServices = async () => {
-  loadingAiServices.value = true;
-  try {
-    const res = await getAiServiceList({ page: 1, pageSize: 200 });
-    if (res.code === 0) {
-      const items = res.data.items || [];
-      const enabledItems = items.filter(item => !item.isDisabled);
-      embeddingServices.value = sortAiServicesByPriority(
-        enabledItems.filter(
-          item =>
-            (item.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
-            !!item.embeddingModel
-        )
-      );
-      llmServices.value = sortAiServicesByPriority(
-        enabledItems.filter(
-          item =>
-            (item.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
-            !!item.llmModel
-        )
-      );
-
-      if (
-        importDuplicateAiConfig.value.embeddingServiceId &&
-        !embeddingServices.value.some(
-          service => service.id === importDuplicateAiConfig.value.embeddingServiceId
-        )
-      ) {
-        importDuplicateAiConfig.value.embeddingServiceId = undefined;
-      }
-
-      if (
-        importDuplicateAiConfig.value.llmServiceId &&
-        !llmServices.value.some(service => service.id === importDuplicateAiConfig.value.llmServiceId)
-      ) {
-        importDuplicateAiConfig.value.llmServiceId = undefined;
-      }
-
-      if (!importDuplicateAiConfig.value.embeddingServiceId && embeddingServices.value.length > 0) {
-        importDuplicateAiConfig.value.embeddingServiceId = embeddingServices.value[0].id;
-      }
-
-      if (!importDuplicateAiConfig.value.llmServiceId && llmServices.value.length > 0) {
-        importDuplicateAiConfig.value.llmServiceId = llmServices.value[0].id;
-      }
-      return;
-    }
-
-    ElMessage.error(res.message || "加载 AI 服务失败");
-  } catch {
-    ElMessage.error("加载 AI 服务失败");
-  } finally {
-    loadingAiServices.value = false;
-  }
 };
 
 // 监听步骤变化

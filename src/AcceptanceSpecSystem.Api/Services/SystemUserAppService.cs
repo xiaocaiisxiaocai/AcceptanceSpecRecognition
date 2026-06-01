@@ -8,10 +8,42 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface ISystemUserAppService
+{
+    Task<PagedData<SystemUserDto>> GetListAsync(
+        int companyId,
+        int page,
+        int pageSize,
+        string? keyword,
+        bool? isActive);
+
+    Task<SystemUserDto?> GetByIdAsync(int companyId, int id);
+
+    Task<SystemUserDto> CreateAsync(int companyId, CreateSystemUserRequest request);
+
+    Task<SystemUserDto> UpdateAsync(
+        int companyId,
+        int id,
+        UpdateSystemUserRequest request,
+        string currentUsername);
+
+    Task<SystemUserDto> UpdateStatusAsync(
+        int companyId,
+        int id,
+        UpdateSystemUserStatusRequest request,
+        string currentUsername);
+
+    Task ResetPasswordAsync(int companyId, int id, ResetSystemUserPasswordRequest request);
+
+    Task DeleteAsync(int companyId, int id, string currentUsername);
+
+    Task<int?> ResolveCurrentCompanyIdAsync(ClaimsPrincipal user);
+}
+
 /// <summary>
 /// 系统用户管理应用服务。
 /// </summary>
-public sealed class SystemUserAppService
+public sealed class SystemUserAppService : ISystemUserAppService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuthPasswordService _authPasswordService;

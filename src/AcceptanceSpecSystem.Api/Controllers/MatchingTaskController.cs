@@ -10,9 +10,9 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Route("api/matching")]
 public class MatchingTaskController : MatchingApiControllerBase
 {
-    private readonly MatchingTaskAppService _matchingTaskAppService;
+    private readonly IMatchingTaskAppService _matchingTaskAppService;
 
-    public MatchingTaskController(MatchingTaskAppService matchingTaskAppService)
+    public MatchingTaskController(IMatchingTaskAppService matchingTaskAppService)
     {
         _matchingTaskAppService = matchingTaskAppService;
     }

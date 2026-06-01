@@ -51,9 +51,9 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<IAuthDataScopeService, AuthDataScopeService>();
         services.AddScoped<IAuthSessionValidationService, AuthSessionValidationService>();
         services.AddScoped<AuthPermissionQueryService>();
-        services.AddScoped<AuthRoleAppService>();
-        services.AddScoped<OrgUnitAppService>();
-        services.AddScoped<SystemUserAppService>();
+        services.AddScoped<IAuthRoleAppService, AuthRoleAppService>();
+        services.AddScoped<IOrgUnitAppService, OrgUnitAppService>();
+        services.AddScoped<ISystemUserAppService, SystemUserAppService>();
 
         // ── 文件存储与文档处理 ──
         services.AddSingleton<IFileStorageService, FileStorageService>();
@@ -73,12 +73,12 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<MatchingFillExecutionAppService>();
         services.AddScoped<MatchingExecutionAppService>();
         services.AddScoped<SmartFillSpecBackfillAppService>();
-        services.AddScoped<MatchingTaskAppService>();
+        services.AddScoped<IMatchingTaskAppService, MatchingTaskAppService>();
         services.AddScoped<MatchingTaskSnapshotService>();
         services.AddSingleton<MatchingApprovalTokenService>();
 
         // ── 文档导入 ──
-        services.AddScoped<DocumentFileAppService>();
+        services.AddScoped<IDocumentFileAppService, DocumentFileAppService>();
         services.AddScoped<DocumentImportAppService>();
         services.AddScoped<ImportDuplicateDetectionService>();
 
@@ -98,7 +98,8 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<IDatabaseBackupExecutor, MySqlDumpDatabaseBackupExecutor>();
 
         // ── 仪表盘与历史 ──
-        services.AddScoped<DashboardAppService>();
+        services.AddScoped<IDashboardAppService, DashboardAppService>();
+        services.AddScoped<IExecutionHistoryAppService, ExecutionHistoryAppService>();
         services.AddScoped<ExecutionHistoryAppService>();
 
         // ── 系统初始化 ──

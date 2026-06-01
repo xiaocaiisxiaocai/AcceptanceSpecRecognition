@@ -13,9 +13,9 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public sealed class DashboardController : BaseApiController
 {
-    private readonly DashboardAppService _dashboardAppService;
+    private readonly IDashboardAppService _dashboardAppService;
 
-    public DashboardController(DashboardAppService dashboardAppService)
+    public DashboardController(IDashboardAppService dashboardAppService)
     {
         _dashboardAppService = dashboardAppService;
     }

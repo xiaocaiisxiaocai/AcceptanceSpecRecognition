@@ -64,6 +64,19 @@ const normalizeFetchHeaders = (
   return { ...headers };
 };
 
+const getBackendMessage = (responseData: unknown): string | undefined => {
+  if (
+    typeof responseData === "object" &&
+    responseData !== null &&
+    "message" in responseData
+  ) {
+    const message = responseData.message;
+    return typeof message === "string" && message ? message : undefined;
+  }
+
+  return undefined;
+};
+
 class PureHttp {
   constructor() {
     this.httpInterceptorsRequest();
@@ -160,14 +173,14 @@ class PureHttp {
   public static handleAuthFailure(
     status?: number,
     requestUrl = "",
-    responseData?: any
+    responseData?: unknown
   ) {
     const skipAuthHandler = requestUrl.endsWith("/login");
     if (!skipAuthHandler && status === 401) {
       if (!PureHttp.isAuthRedirecting) {
         PureHttp.isAuthRedirecting = true;
         const backendMessage =
-          responseData?.message ?? "登录状态已失效，请重新登录";
+          getBackendMessage(responseData) ?? "登录状态已失效，请重新登录";
         const currentPath = router.currentRoute.value.fullPath || "/";
 
         void ElMessageBox.alert(backendMessage, "登录状态已失效", {
@@ -185,7 +198,7 @@ class PureHttp {
       }
     } else if (!skipAuthHandler && status === 403) {
       const backendMessage =
-        responseData?.message ?? "权限不足，无法执行当前操作";
+        getBackendMessage(responseData) ?? "权限不足，无法执行当前操作";
       ElMessage.error(backendMessage);
     }
   }
@@ -245,7 +258,7 @@ class PureHttp {
         PureHttp.handleAuthFailure(
           $error?.response?.status,
           String($error?.config?.url ?? ""),
-          $error?.response?.data as any
+          $error?.response?.data
         );
 
         // 所有的响应异常 区分来源为取消请求/非取消请求
@@ -327,7 +340,7 @@ export async function ensureFetchResponseAuthHandled(
     return;
   }
 
-  let responseData: any;
+  let responseData: unknown;
   try {
     responseData = await response.clone().json();
   } catch {

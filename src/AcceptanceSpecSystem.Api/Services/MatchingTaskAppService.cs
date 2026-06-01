@@ -4,10 +4,15 @@ using AcceptanceSpecSystem.Data.Repositories;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IMatchingTaskAppService
+{
+    Task<MatchingDownloadResult> DownloadAsync(ClaimsPrincipal user, string taskId);
+}
+
 /// <summary>
 /// 匹配任务应用服务。
 /// </summary>
-public sealed class MatchingTaskAppService
+public sealed class MatchingTaskAppService : IMatchingTaskAppService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly MatchingResultWriteBackService _matchingResultWriteBackService;

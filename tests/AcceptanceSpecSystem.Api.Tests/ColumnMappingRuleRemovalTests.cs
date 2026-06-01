@@ -70,6 +70,21 @@ public class ColumnMappingRuleRecoveryTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
+    public async Task Create_WithTooLongPattern_ShouldReturnBadRequest()
+    {
+        var resp = await _client.PostAsync(BaseUrl, ApiClientJson.ToJsonContent(new
+        {
+            targetField = 1,
+            matchMode = 1,
+            pattern = new string('项', 201),
+            priority = 0,
+            enabled = true
+        }));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task GetEffective_ShouldExcludeDisabledRules_AndSortByPriority()
     {
         await _client.PostAsync(BaseUrl, ApiClientJson.ToJsonContent(new

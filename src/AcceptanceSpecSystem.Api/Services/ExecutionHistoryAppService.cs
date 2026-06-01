@@ -9,10 +9,22 @@ using AcceptanceSpecSystem.Data.Repositories;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+public interface IExecutionHistoryAppService
+{
+    Task<PagedData<ExecutionHistoryListItemDto>> GetListAsync(
+        ClaimsPrincipal user,
+        int page,
+        int pageSize,
+        string? keyword,
+        string? taskType);
+
+    Task<ExecutionHistoryDetailDto?> GetDetailAsync(ClaimsPrincipal user, int id);
+}
+
 /// <summary>
 /// 执行记录应用服务。
 /// </summary>
-public sealed class ExecutionHistoryAppService
+public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
 {
     private const int MaxPersistedDetailBytes = 512 * 1024;
     private const string CompressedSmartFillLegacyMessage = "执行记录过大，已自动压缩，仅保留汇总信息。";

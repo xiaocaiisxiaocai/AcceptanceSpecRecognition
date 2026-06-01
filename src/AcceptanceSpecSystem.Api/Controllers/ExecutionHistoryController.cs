@@ -13,9 +13,9 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class ExecutionHistoryController : BaseApiController
 {
-    private readonly ExecutionHistoryAppService _executionHistoryAppService;
+    private readonly IExecutionHistoryAppService _executionHistoryAppService;
 
-    public ExecutionHistoryController(ExecutionHistoryAppService executionHistoryAppService)
+    public ExecutionHistoryController(IExecutionHistoryAppService executionHistoryAppService)
     {
         _executionHistoryAppService = executionHistoryAppService;
     }
