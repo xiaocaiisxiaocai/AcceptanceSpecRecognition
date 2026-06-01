@@ -833,7 +833,7 @@ internal sealed class ThrowOnSaveChangesUnitOfWork : IUnitOfWork
     public IMatchingFillTaskRepository MatchingFillTasks => _inner.MatchingFillTasks;
     public IExecutionHistoryRecordRepository ExecutionHistoryRecords => _inner.ExecutionHistoryRecords;
 
-    public Task<int> SaveChangesAsync()
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException(_message);
     }
@@ -874,14 +874,14 @@ internal sealed class ThrowOnWorkflowFinalSaveUnitOfWork : IUnitOfWork
     public IMatchingFillTaskRepository MatchingFillTasks => _inner.MatchingFillTasks;
     public IExecutionHistoryRecordRepository ExecutionHistoryRecords => _inner.ExecutionHistoryRecords;
 
-    public Task<int> SaveChangesAsync()
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         if (ShouldThrowForWorkflowFinalSave())
         {
             throw new InvalidOperationException(_message);
         }
 
-        return _inner.SaveChangesAsync();
+        return _inner.SaveChangesAsync(cancellationToken);
     }
 
     public int SaveChanges()

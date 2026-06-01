@@ -27,9 +27,11 @@ public sealed class AcceptanceSpecAppService
         _logger = logger;
     }
 
-    public Task<List<SpecGroupSummary>> GetGroupsAsync(SpecAccessContext scope)
+    public Task<List<SpecGroupSummary>> GetGroupsAsync(
+        SpecAccessContext scope,
+        CancellationToken cancellationToken = default)
     {
-        return _acceptanceSpecQueryService.GetGroupSummaryAsync(scope);
+        return _acceptanceSpecQueryService.GetGroupSummaryAsync(scope, cancellationToken);
     }
 
     public Task<PagedResult<AcceptanceSpecSummary>> GetPagedAsync(
@@ -43,7 +45,8 @@ public sealed class AcceptanceSpecAppService
         bool? processIdIsNull = null,
         bool? machineModelIdIsNull = null,
         DateTime? importedFrom = null,
-        DateTime? importedTo = null)
+        DateTime? importedTo = null,
+        CancellationToken cancellationToken = default)
     {
         return _acceptanceSpecQueryService.GetPagedAsync(
             scope,
@@ -56,7 +59,8 @@ public sealed class AcceptanceSpecAppService
             processIdIsNull,
             machineModelIdIsNull,
             importedFrom,
-            importedTo);
+            importedTo,
+            cancellationToken);
     }
 
     public Task<SpecDuplicateDetectionResultModel> GetDuplicateGroupsAsync(
@@ -68,7 +72,8 @@ public sealed class AcceptanceSpecAppService
         bool? processIdIsNull = null,
         bool? machineModelIdIsNull = null,
         double? minSimilarity = null,
-        int? maxGroups = null)
+        int? maxGroups = null,
+        CancellationToken cancellationToken = default)
     {
         return _acceptanceSpecQueryService.GetDuplicateGroupsAsync(
             scope,
@@ -79,10 +84,14 @@ public sealed class AcceptanceSpecAppService
             processIdIsNull,
             machineModelIdIsNull,
             minSimilarity,
-            maxGroups);
+            maxGroups,
+            cancellationToken);
     }
 
-    public async Task<AcceptanceSpecSummary?> GetByIdAsync(SpecAccessContext scope, int id)
+    public async Task<AcceptanceSpecSummary?> GetByIdAsync(
+        SpecAccessContext scope,
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var spec = await _unitOfWork.AcceptanceSpecs.GetByIdWithCustomerAndProcessAsync(id);
         if (spec == null)
@@ -102,12 +111,13 @@ public sealed class AcceptanceSpecAppService
         string project,
         string specification,
         string? acceptance,
-        string? remark)
+        string? remark,
+        CancellationToken cancellationToken = default)
     {
-        var customer = await RequireCustomerAsync(customerId);
-        var process = await RequireProcessAsync(processId);
-        var machineModel = await RequireMachineModelAsync(machineModelId);
-        var wordFile = await GetOrCreateManualWordFileAsync(scope);
+        var customer = await RequireCustomerAsync(customerId, cancellationToken);
+        var process = await RequireProcessAsync(processId, cancellationToken);
+        var machineModel = await RequireMachineModelAsync(machineModelId, cancellationToken);
+        var wordFile = await GetOrCreateManualWordFileAsync(scope, cancellationToken);
 
         var spec = new AcceptanceSpec
         {
@@ -154,7 +164,8 @@ public sealed class AcceptanceSpecAppService
         string project,
         string specification,
         string? acceptance,
-        string? remark)
+        string? remark,
+        CancellationToken cancellationToken = default)
     {
         var spec = await _unitOfWork.AcceptanceSpecs.GetByIdWithCustomerAndProcessAsync(id);
         if (spec == null)
@@ -169,14 +180,17 @@ public sealed class AcceptanceSpecAppService
         spec.Remark = NormalizeOptionalText(remark);
 
         _unitOfWork.AcceptanceSpecs.Update(spec);
-        await RemoveEmbeddingCachesAsync(spec.Id);
+        await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
         await _unitOfWork.SaveChangesAsync();
 
         _logger.LogInformation("更新验收规格成功: {SpecId} - {Project}", spec.Id, spec.Project);
         return AcceptanceSpecQueryService.MapDto(spec);
     }
 
-    public async Task<bool> DeleteAsync(SpecAccessContext scope, int id)
+    public async Task<bool> DeleteAsync(
+        SpecAccessContext scope,
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(id);
         if (spec == null)
@@ -198,11 +212,12 @@ public sealed class AcceptanceSpecAppService
         int? processId,
         int? machineModelId,
         int wordFileId,
-        IReadOnlyCollection<BatchImportSpecItemInput> items)
+        IReadOnlyCollection<BatchImportSpecItemInput> items,
+        CancellationToken cancellationToken = default)
     {
-        await RequireCustomerAsync(customerId);
-        await RequireProcessAsync(processId);
-        await RequireMachineModelAsync(machineModelId);
+        await RequireCustomerAsync(customerId, cancellationToken);
+        await RequireProcessAsync(processId, cancellationToken);
+        await RequireMachineModelAsync(machineModelId, cancellationToken);
 
         var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(wordFileId);
         if (wordFile == null)
@@ -256,7 +271,10 @@ public sealed class AcceptanceSpecAppService
         };
     }
 
-    public async Task<int> BatchDeleteAsync(SpecAccessContext scope, IReadOnlyCollection<int> ids)
+    public async Task<int> BatchDeleteAsync(
+        SpecAccessContext scope,
+        IReadOnlyCollection<int> ids,
+        CancellationToken cancellationToken = default)
     {
         if (ids.Count == 0)
             throw new ApplicationServiceException(400, "请选择要删除的规格");
@@ -273,13 +291,17 @@ public sealed class AcceptanceSpecAppService
         return allowedSpecs.Count;
     }
 
-    private async Task<Customer> RequireCustomerAsync(int customerId)
+    private async Task<Customer> RequireCustomerAsync(
+        int customerId,
+        CancellationToken cancellationToken = default)
     {
         var customer = await _unitOfWork.Customers.GetByIdAsync(customerId);
         return customer ?? throw new ApplicationServiceException(400, "所选客户不存在");
     }
 
-    private async Task<Process?> RequireProcessAsync(int? processId)
+    private async Task<Process?> RequireProcessAsync(
+        int? processId,
+        CancellationToken cancellationToken = default)
     {
         if (!processId.HasValue)
             return null;
@@ -288,7 +310,9 @@ public sealed class AcceptanceSpecAppService
         return process ?? throw new ApplicationServiceException(400, "所选制程不存在");
     }
 
-    private async Task<MachineModel?> RequireMachineModelAsync(int? machineModelId)
+    private async Task<MachineModel?> RequireMachineModelAsync(
+        int? machineModelId,
+        CancellationToken cancellationToken = default)
     {
         if (!machineModelId.HasValue)
             return null;
@@ -297,7 +321,9 @@ public sealed class AcceptanceSpecAppService
         return machineModel ?? throw new ApplicationServiceException(400, "所选机型不存在");
     }
 
-    private async Task<WordFile> GetOrCreateManualWordFileAsync(SpecAccessContext scope)
+    private async Task<WordFile> GetOrCreateManualWordFileAsync(
+        SpecAccessContext scope,
+        CancellationToken cancellationToken = default)
     {
         var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(wordFile => wordFile.FileName == ManualFileName);
         if (existingFile != null)
@@ -319,7 +345,7 @@ public sealed class AcceptanceSpecAppService
         return wordFile;
     }
 
-    private async Task RemoveEmbeddingCachesAsync(int specId)
+    private async Task RemoveEmbeddingCachesAsync(int specId, CancellationToken cancellationToken = default)
     {
         var caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdAsync(specId);
         if (caches.Count > 0)

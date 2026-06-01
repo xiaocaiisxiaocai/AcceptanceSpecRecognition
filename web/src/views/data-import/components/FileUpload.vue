@@ -17,7 +17,7 @@ const emit = defineEmits<{
 
 const uploading = ref(false);
 const uploadedFile = computed({
-  get: () => props.modelValue,
+  get: () => props.modelValue ?? null,
   set: (val) => emit("update:modelValue", val)
 });
 

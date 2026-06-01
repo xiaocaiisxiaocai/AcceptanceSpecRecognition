@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AcceptanceSpecSystem.Api.DTOs;
 
 public sealed class EmbeddingCacheWarmupOptionsDto
@@ -14,9 +16,13 @@ public sealed class UpdateEmbeddingCacheWarmupOptionsRequest
 {
     public bool Enabled { get; set; }
     public bool RunOnStartup { get; set; }
+    [MaxLength(8, ErrorMessage = "预热执行时间不能超过8个字符")]
     public string? RunAtLocalTime { get; set; }
+    [Range(1, 8760, ErrorMessage = "预热间隔小时数必须在 1 到 8760 之间")]
     public int IntervalHours { get; set; }
+    [Range(1, 5000, ErrorMessage = "预热批量大小必须在 1 到 5000 之间")]
     public int BatchSize { get; set; }
+    [Range(1, 1000000, ErrorMessage = "单次预热数量必须在 1 到 1000000 之间")]
     public int MaxItemsPerRun { get; set; }
 }
 

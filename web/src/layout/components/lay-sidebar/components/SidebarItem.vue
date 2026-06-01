@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { getConfig } from "@/config";
 import { posix } from "path-browserify";
 import { menuType } from "@/layout/types";

@@ -48,7 +48,7 @@ const __APP_INFO__ = {
 };
 
 /** 处理环境变量 */
-const wrapperEnv = (envConf: Recordable): ViteEnv => {
+const wrapperEnv = (envConf: Recordable<string>): ViteEnv => {
   // 默认值
   const ret: ViteEnv = {
     VITE_PORT: 8848,
@@ -62,15 +62,20 @@ const wrapperEnv = (envConf: Recordable): ViteEnv => {
     VITE_DEV_WARMUP: false
   };
 
+  const env = ret as ViteEnv & Record<string, string | number | boolean>;
+
   for (const envName of Object.keys(envConf)) {
-    let realName = envConf[envName].replace(/\\n/g, "\n");
+    let realName: string | number | boolean = envConf[envName].replace(
+      /\\n/g,
+      "\n"
+    );
     realName =
       realName === "true" ? true : realName === "false" ? false : realName;
 
     if (envName === "VITE_PORT") {
       realName = Number(realName);
     }
-    ret[envName] = realName;
+    env[envName] = realName;
     if (typeof realName === "string") {
       process.env[envName] = realName;
     } else if (typeof realName === "object") {
@@ -83,14 +88,22 @@ const wrapperEnv = (envConf: Recordable): ViteEnv => {
 const fileListTotal: number[] = [];
 
 /** 获取指定文件夹中所有文件的总大小 */
-const getPackageSize = options => {
+interface PackageSizeOptions {
+  folder?: string;
+  callback: (size: string) => void;
+  format?: boolean;
+}
+
+const getPackageSize = (options: PackageSizeOptions) => {
   const { folder = "dist", callback, format = true } = options;
   readdir(folder, (err, files: string[]) => {
     if (err) throw err;
     let count = 0;
     const checkEnd = () => {
       ++count == files.length &&
-        callback(format ? formatBytes(sum(fileListTotal)) : sum(fileListTotal));
+        callback(
+          format ? formatBytes(sum(fileListTotal)) : String(sum(fileListTotal))
+        );
     };
     files.forEach((item: string) => {
       stat(`${folder}/${item}`, async (err, stats) => {
@@ -106,7 +119,7 @@ const getPackageSize = options => {
         }
       });
     });
-    files.length === 0 && callback(0);
+    files.length === 0 && callback("0");
   });
 };
 

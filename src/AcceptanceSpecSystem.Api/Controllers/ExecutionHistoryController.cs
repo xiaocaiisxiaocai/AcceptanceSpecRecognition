@@ -26,18 +26,21 @@ public class ExecutionHistoryController : BaseApiController
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null,
-        [FromQuery] string? taskType = null)
+        [FromQuery] string? taskType = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _executionHistoryAppService.GetListAsync(User, page, pageSize, keyword, taskType);
+        var result = await _executionHistoryAppService.GetListAsync(User, page, pageSize, keyword, taskType, cancellationToken);
         return Success(result);
     }
 
     [HttpGet("{id:int}")]
     [ProducesResponseType(typeof(ApiResponse<ExecutionHistoryDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ExecutionHistoryDetailDto>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<ExecutionHistoryDetailDto>>> GetDetail(int id)
+    public async Task<ActionResult<ApiResponse<ExecutionHistoryDetailDto>>> GetDetail(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _executionHistoryAppService.GetDetailAsync(User, id);
+        var result = await _executionHistoryAppService.GetDetailAsync(User, id, cancellationToken);
         if (result == null)
         {
             return NotFoundResult<ExecutionHistoryDetailDto>("执行记录不存在");

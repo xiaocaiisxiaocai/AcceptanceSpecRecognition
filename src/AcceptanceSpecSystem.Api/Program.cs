@@ -6,6 +6,7 @@ using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Middleware;
+using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.Documents;
@@ -22,6 +23,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -43,6 +45,25 @@ builder.Services.AddControllers(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
     });
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var messages = context.ModelState.Values
+            .SelectMany(value => value.Errors)
+            .Select(error => string.IsNullOrWhiteSpace(error.ErrorMessage)
+                ? "请求参数验证失败"
+                : error.ErrorMessage)
+            .Where(message => !string.IsNullOrWhiteSpace(message))
+            .Distinct()
+            .ToArray();
+        var message = messages.Length == 0
+            ? "请求参数验证失败"
+            : string.Join("；", messages);
+
+        return new BadRequestObjectResult(ApiResponse.Error(StatusCodes.Status400BadRequest, message));
+    };
+});
 
 // 配置Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
@@ -255,6 +276,17 @@ if (app.Environment.IsDevelopment())
         options.RoutePrefix = "swagger";
     });
 }
+
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/v1", out var remainingPath))
+    {
+        // v1 路径先作为兼容别名接入，保留旧 /api 路由给现有前端和脚本继续使用。
+        context.Request.Path = $"/api{remainingPath}";
+    }
+
+    await next();
+});
 
 // 使用CORS
 app.UseRouting();

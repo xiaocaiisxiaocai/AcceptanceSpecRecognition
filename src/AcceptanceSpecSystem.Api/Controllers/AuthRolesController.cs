@@ -26,13 +26,15 @@ public class AuthRolesController : BaseApiController
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<List<AuthRoleDto>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<AuthRoleDto>>>> GetList([FromQuery] string? keyword = null)
+    public async Task<ActionResult<ApiResponse<List<AuthRoleDto>>>> GetList(
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
             return Error<List<AuthRoleDto>>(401, "会话缺少公司上下文");
 
-        var roles = await _authRoleAppService.GetListAsync(companyId.Value, keyword);
+        var roles = await _authRoleAppService.GetListAsync(companyId.Value, keyword, cancellationToken);
         return Success(roles);
     }
 
@@ -41,13 +43,15 @@ public class AuthRolesController : BaseApiController
     /// </summary>
     [HttpGet("{id:int}")]
     [ProducesResponseType(typeof(ApiResponse<AuthRoleDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<AuthRoleDto>>> GetById(int id)
+    public async Task<ActionResult<ApiResponse<AuthRoleDto>>> GetById(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
             return Error<AuthRoleDto>(401, "会话缺少公司上下文");
 
-        var role = await _authRoleAppService.GetByIdAsync(companyId.Value, id);
+        var role = await _authRoleAppService.GetByIdAsync(companyId.Value, id, cancellationToken);
         if (role == null)
             return Error<AuthRoleDto>(404, "角色不存在");
 
@@ -60,7 +64,9 @@ public class AuthRolesController : BaseApiController
     [HttpPost]
     [AuditOperation("create", "auth-role")]
     [ProducesResponseType(typeof(ApiResponse<AuthRoleDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<AuthRoleDto>>> Create([FromBody] CreateAuthRoleRequest request)
+    public async Task<ActionResult<ApiResponse<AuthRoleDto>>> Create(
+        [FromBody] CreateAuthRoleRequest request,
+        CancellationToken cancellationToken = default)
     {
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
@@ -68,7 +74,7 @@ public class AuthRolesController : BaseApiController
 
         try
         {
-            var role = await _authRoleAppService.CreateAsync(companyId.Value, request);
+            var role = await _authRoleAppService.CreateAsync(companyId.Value, request, cancellationToken);
             return Success(role, "创建角色成功");
         }
         catch (ApplicationServiceException ex)
@@ -83,7 +89,10 @@ public class AuthRolesController : BaseApiController
     [HttpPut("{id:int}")]
     [AuditOperation("update", "auth-role")]
     [ProducesResponseType(typeof(ApiResponse<AuthRoleDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<AuthRoleDto>>> Update(int id, [FromBody] UpdateAuthRoleRequest request)
+    public async Task<ActionResult<ApiResponse<AuthRoleDto>>> Update(
+        int id,
+        [FromBody] UpdateAuthRoleRequest request,
+        CancellationToken cancellationToken = default)
     {
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
@@ -91,7 +100,7 @@ public class AuthRolesController : BaseApiController
 
         try
         {
-            var role = await _authRoleAppService.UpdateAsync(companyId.Value, id, request);
+            var role = await _authRoleAppService.UpdateAsync(companyId.Value, id, request, cancellationToken);
             return Success(role, "更新角色成功");
         }
         catch (ApplicationServiceException ex)
@@ -106,7 +115,9 @@ public class AuthRolesController : BaseApiController
     [HttpDelete("{id:int}")]
     [AuditOperation("delete", "auth-role")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse>> Delete(int id)
+    public async Task<ActionResult<ApiResponse>> Delete(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
@@ -114,7 +125,7 @@ public class AuthRolesController : BaseApiController
 
         try
         {
-            await _authRoleAppService.DeleteAsync(companyId.Value, id);
+            await _authRoleAppService.DeleteAsync(companyId.Value, id, cancellationToken);
             return Success("删除角色成功");
         }
         catch (ApplicationServiceException ex)

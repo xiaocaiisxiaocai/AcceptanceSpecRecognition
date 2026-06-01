@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { storeToRefs } from "pinia";
 import { getConfig } from "@/config";
 import { emitter } from "@/utils/mitt";

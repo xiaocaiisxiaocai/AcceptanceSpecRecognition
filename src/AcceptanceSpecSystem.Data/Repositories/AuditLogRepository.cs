@@ -30,7 +30,8 @@ public class AuditLogRepository : Repository<AuditLog>, IAuditLogRepository
         DateTime? from = null,
         DateTime? to = null,
         int? minStatusCode = null,
-        int? maxStatusCode = null)
+        int? maxStatusCode = null,
+        CancellationToken cancellationToken = default)
     {
         if (page <= 0) page = 1;
         if (pageSize <= 0) pageSize = 20;
@@ -70,12 +71,12 @@ public class AuditLogRepository : Repository<AuditLog>, IAuditLogRepository
                 (x.Details != null && x.Details.Contains(keyword)));
         }
 
-        var total = await query.CountAsync();
+        var total = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(x => x.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return (items, total);
     }
@@ -83,17 +84,20 @@ public class AuditLogRepository : Repository<AuditLog>, IAuditLogRepository
     /// <summary>
     /// 删除指定时间点之前的审计日志
     /// </summary>
-    public async Task<int> DeleteBeforeAsync(DateTime beforeTime)
+    public async Task<int> DeleteBeforeAsync(DateTime beforeTime, CancellationToken cancellationToken = default)
     {
         return await _dbSet
             .Where(x => x.CreatedAt < beforeTime)
-            .ExecuteDeleteAsync();
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     /// <summary>
     /// 按时间范围删除审计日志
     /// </summary>
-    public async Task<int> DeleteByRangeAsync(DateTime? from = null, DateTime? to = null)
+    public async Task<int> DeleteByRangeAsync(
+        DateTime? from = null,
+        DateTime? to = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _dbSet.AsQueryable();
 
@@ -103,6 +107,6 @@ public class AuditLogRepository : Repository<AuditLog>, IAuditLogRepository
         if (to.HasValue)
             query = query.Where(x => x.CreatedAt <= to.Value);
 
-        return await query.ExecuteDeleteAsync();
+        return await query.ExecuteDeleteAsync(cancellationToken);
     }
 }

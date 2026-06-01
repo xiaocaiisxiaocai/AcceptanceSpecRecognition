@@ -11,70 +11,83 @@ public class ExcelImportDataRequest
     /// 文件ID
     /// </summary>
     [Required(ErrorMessage = "文件ID不能为空")]
+    [Range(1, int.MaxValue, ErrorMessage = "文件ID必须大于0")]
     public int FileId { get; set; }
 
     /// <summary>
     /// 工作表索引（0-based，与工作表列表返回保持一致）
     /// </summary>
     [Required(ErrorMessage = "工作表索引不能为空")]
+    [Range(0, int.MaxValue, ErrorMessage = "工作表索引不能小于0")]
     public int SheetIndex { get; set; }
 
     /// <summary>
     /// 目标客户ID
     /// </summary>
     [Required(ErrorMessage = "客户ID不能为空")]
+    [Range(1, int.MaxValue, ErrorMessage = "客户ID必须大于0")]
     public int CustomerId { get; set; }
 
     /// <summary>
     /// 目标制程ID
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "制程ID必须大于0")]
     public int? ProcessId { get; set; }
 
     /// <summary>
     /// 目标机型ID
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "机型ID必须大于0")]
     public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 表头起始行（1-based）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "表头起始行必须大于0")]
     public int HeaderRowStart { get; set; } = 1;
 
     /// <summary>
     /// 表头行数（允许为 0；0 表示不关心表头，仅用于预览展示）
     /// </summary>
+    [Range(0, 100, ErrorMessage = "表头行数必须在 0 到 100 之间")]
     public int HeaderRowCount { get; set; } = 1;
 
     /// <summary>
     /// 数据起始行（1-based）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "数据起始行必须大于0")]
     public int DataStartRow { get; set; } = 2;
 
     /// <summary>
     /// 数据结束行（1-based，可选；未传则默认读取到已用区域末行）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "数据结束行必须大于0")]
     public int? DataEndRow { get; set; }
 
     /// <summary>
     /// 项目列（必填，1-based；第 1 列为 A）
     /// </summary>
     [Required(ErrorMessage = "项目列不能为空")]
+    [Range(1, int.MaxValue, ErrorMessage = "项目列必须大于0")]
     public int ProjectColumn { get; set; }
 
     /// <summary>
     /// 规格内容列（必填，1-based；第 1 列为 A）
     /// </summary>
     [Required(ErrorMessage = "规格内容列不能为空")]
+    [Range(1, int.MaxValue, ErrorMessage = "规格内容列必须大于0")]
     public int SpecificationColumn { get; set; }
 
     /// <summary>
     /// 验收标准列（可选，1-based）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "验收标准列必须大于0")]
     public int? AcceptanceColumn { get; set; }
 
     /// <summary>
     /// 备注列（可选，1-based）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "备注列必须大于0")]
     public int? RemarkColumn { get; set; }
 
     /// <summary>

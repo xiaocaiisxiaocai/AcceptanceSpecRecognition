@@ -3,9 +3,9 @@ import { type setType, store, getConfig } from "../utils";
 
 export const useSettingStore = defineStore("pure-setting", {
   state: (): setType => ({
-    title: getConfig().Title,
-    fixedHeader: getConfig().FixedHeader,
-    hiddenSideBar: getConfig().HiddenSideBar
+    title: getConfig().Title ?? "",
+    fixedHeader: getConfig().FixedHeader ?? true,
+    hiddenSideBar: getConfig().HiddenSideBar ?? false
   }),
   getters: {
     getTitle(state) {
@@ -19,12 +19,21 @@ export const useSettingStore = defineStore("pure-setting", {
     }
   },
   actions: {
-    CHANGE_SETTING({ key, value }) {
+    CHANGE_SETTING<T extends keyof setType>({
+      key,
+      value
+    }: {
+      key: T;
+      value: setType[T];
+    }) {
       if (Reflect.has(this, key)) {
-        this[key] = value;
+        (this.$state as setType)[key] = value;
       }
     },
-    changeSetting(data) {
+    changeSetting<T extends keyof setType>(data: {
+      key: T;
+      value: setType[T];
+    }) {
       this.CHANGE_SETTING(data);
     }
   }

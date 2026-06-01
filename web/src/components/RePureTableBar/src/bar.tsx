@@ -1,4 +1,5 @@
 import Sortable from "sortablejs";
+import type { SortableEvent } from "sortablejs";
 import { useEpThemeStoreHook } from "@/store/modules/epTheme";
 import {
   type PropType,
@@ -24,6 +25,12 @@ import ExpandIcon from "@/assets/table-bar/expand.svg?component";
 import RefreshIcon from "@/assets/table-bar/refresh.svg?component";
 import SettingIcon from "@/assets/table-bar/settings.svg?component";
 import CollapseIcon from "@/assets/table-bar/collapse.svg?component";
+
+type TableColumn = TableColumnList[number];
+type TableRow = {
+  children?: TableRow[];
+  [key: string]: unknown;
+};
 
 const props = {
   /** 头部最左边的标题 */
@@ -62,17 +69,18 @@ export default defineComponent({
     const isIndeterminate = ref(false);
     const instance = getCurrentInstance()!;
     const isExpandAll = ref(props.isExpandAll);
-    const filterColumns = cloneDeep(props?.columns).filter(column =>
-      isBoolean(column?.hide)
-        ? !column.hide
-        : !(isFunction(column?.hide) && column?.hide())
+    const filterColumns = cloneDeep(props?.columns).filter(
+      (column: TableColumn) =>
+        isBoolean(column?.hide)
+          ? !column.hide
+          : !(isFunction(column?.hide) && column?.hide())
     );
     let checkColumnList = getKeyList(cloneDeep(props?.columns), "label");
     const checkedColumns = ref(getKeyList(cloneDeep(filterColumns), "label"));
     const dynamicColumns = ref(cloneDeep(props?.columns));
 
     const getDropdownItemStyle = computed(() => {
-      return s => {
+      return (s: string) => {
         return {
           background:
             s === size.value ? useEpThemeStoreHook().epThemeColor : "",
@@ -121,8 +129,8 @@ export default defineComponent({
       emit("fullscreen", isFullscreen.value);
     }
 
-    function toggleRowExpansionAll(data, isExpansion) {
-      data.forEach(item => {
+    function toggleRowExpansionAll(data: TableRow[], isExpansion: boolean) {
+      data.forEach((item: TableRow) => {
         props.tableRef.toggleRowExpansion(item, isExpansion);
         if (item.children !== undefined && item.children !== null) {
           toggleRowExpansionAll(item.children, isExpansion);
@@ -133,7 +141,7 @@ export default defineComponent({
     function handleCheckAllChange(val: boolean) {
       checkedColumns.value = val ? checkColumnList : [];
       isIndeterminate.value = false;
-      dynamicColumns.value.map(column =>
+      dynamicColumns.value.map((column: TableColumn) =>
         val ? (column.hide = false) : (column.hide = true)
       );
     }
@@ -147,7 +155,10 @@ export default defineComponent({
     }
 
     function handleCheckColumnListChange(val: boolean, label: string) {
-      dynamicColumns.value.filter(item => item.label === label)[0].hide = !val;
+      const column = dynamicColumns.value.find(
+        (item: TableColumn) => item.label === label
+      );
+      if (column) column.hide = !val;
     }
 
     async function onReset() {
@@ -194,7 +205,8 @@ export default defineComponent({
         Sortable.create(wrapper, {
           animation: 300,
           handle: ".drag-btn",
-          onEnd: ({ newIndex, oldIndex, item }) => {
+          onEnd: ({ newIndex, oldIndex, item }: SortableEvent) => {
+            if (newIndex === undefined || oldIndex === undefined) return;
             const targetThElem = item;
             const wrapperElem = targetThElem.parentNode as HTMLElement;
             const oldColumn = dynamicColumns.value[oldIndex];
@@ -220,9 +232,9 @@ export default defineComponent({
     };
 
     const isFixedColumn = (label: string) => {
-      return dynamicColumns.value.filter(item => item.label === label)[0].fixed
-        ? true
-        : false;
+      return dynamicColumns.value.some(
+        (item: TableColumn) => item.label === label && item.fixed
+      );
     };
 
     const rendTippyProps = (content: string) => {
@@ -316,7 +328,7 @@ export default defineComponent({
                     label="列展示"
                     v-model={checkAll.value}
                     indeterminate={isIndeterminate.value}
-                    onChange={value => handleCheckAllChange(value)}
+                    onChange={(value: boolean) => handleCheckAllChange(value)}
                   />
                   <el-button type="primary" link onClick={() => onReset()}>
                     重置
@@ -328,7 +340,9 @@ export default defineComponent({
                     <el-checkbox-group
                       ref={`GroupRef${unref(props.tableKey)}`}
                       modelValue={checkedColumns.value}
-                      onChange={value => handleCheckedColumnsChange(value)}
+                      onChange={(value: string[]) =>
+                        handleCheckedColumnsChange(value)
+                      }
                     >
                       <el-space
                         direction="vertical"
@@ -353,7 +367,7 @@ export default defineComponent({
                                 key={index}
                                 label={item}
                                 value={item}
-                                onChange={value =>
+                                onChange={(value: boolean) =>
                                   handleCheckColumnListChange(value, item)
                                 }
                               >
@@ -382,7 +396,7 @@ export default defineComponent({
               />
             </div>
           </div>
-          {slots.default({
+          {slots.default?.({
             size: size.value,
             dynamicColumns: dynamicColumns.value
           })}

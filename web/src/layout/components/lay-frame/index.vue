@@ -10,7 +10,9 @@ const props = defineProps<{
   currComp: Component;
 }>();
 
-const compList = shallowRef([]);
+type FrameComponentEntry = [string, Component];
+
+const compList = shallowRef<FrameComponentEntry[]>([]);
 const { setMap, getMap, MAP, delMap } = useMultiFrame();
 
 const keep = computed(() => {
@@ -33,7 +35,7 @@ watch(useMultiTagsStoreHook().multiTags, (tags: any) => {
     for (const i of MAP.keys()) {
       if (!tags.some(s => s.path === i)) {
         delMap(i);
-        compList.value = getMap();
+        compList.value = getMap() as FrameComponentEntry[];
       }
     }
   }
@@ -55,7 +57,7 @@ watch(
     }
 
     if (MAP.size > 0) {
-      compList.value = getMap();
+      compList.value = getMap() as FrameComponentEntry[];
     }
   },
   {

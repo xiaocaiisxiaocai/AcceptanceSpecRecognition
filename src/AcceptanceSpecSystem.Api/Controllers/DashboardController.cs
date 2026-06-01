@@ -25,9 +25,10 @@ public sealed class DashboardController : BaseApiController
     public async Task<ActionResult<ApiResponse<DashboardSummaryDto>>> GetSummary(
         [FromQuery] string? range = null,
         [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null)
+        [FromQuery] DateTime? to = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _dashboardAppService.GetSummaryAsync(User, range, from, to);
+        var result = await _dashboardAppService.GetSummaryAsync(User, range, from, to, cancellationToken);
         if (result == null)
         {
             return Error<DashboardSummaryDto>(401, "会话缺少用户上下文");

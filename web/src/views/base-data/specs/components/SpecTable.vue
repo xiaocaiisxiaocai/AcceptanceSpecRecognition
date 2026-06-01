@@ -704,7 +704,7 @@ const groupLabel = () => {
       ref="semanticSearchDialogRef"
       v-model="semanticSearchDialogVisible"
       :group-label="groupLabel()"
-      :customer-id="customerId"
+      :customer-id="customerId ?? 0"
       :machine-model-id="machineModelId"
       :process-id="processId"
       :allow-edit="canUpdate"

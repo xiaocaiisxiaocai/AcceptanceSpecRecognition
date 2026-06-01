@@ -1,5 +1,12 @@
 import type { iconType } from "./types";
-import { h, defineComponent, type Component } from "vue";
+import {
+  h,
+  defineComponent,
+  isVNode,
+  type Component,
+  type VNode,
+  type ComponentPublicInstance
+} from "vue";
 import { FontIcon, IconifyIconOnline, IconifyIconOffline } from "../index";
 
 /**
@@ -9,11 +16,17 @@ import { FontIcon, IconifyIconOnline, IconifyIconOffline } from "../index";
  * @param attrs 可选 iconType 属性
  * @returns Component
  */
-export function useRenderIcon(icon: any, attrs?: iconType): Component {
+type RenderableIcon = string | Component | VNode | null | undefined;
+type RenderableComponent = Component | ComponentPublicInstance;
+
+export function useRenderIcon(
+  icon: RenderableIcon,
+  attrs?: iconType
+): Component {
   // iconfont
   const ifReg = /^IF-/;
   // typeof icon === "function" 属于SVG
-  if (ifReg.test(icon)) {
+  if (typeof icon === "string" && ifReg.test(icon)) {
     // iconfont
     const name = icon.split(ifReg)[1];
     const iconName = name.slice(
@@ -31,10 +44,17 @@ export function useRenderIcon(icon: any, attrs?: iconType): Component {
         });
       }
     });
-  } else if (typeof icon === "function" || typeof icon?.render === "function") {
+  } else if (
+    typeof icon === "function" ||
+    (typeof icon === "object" &&
+      icon !== null &&
+      "render" in icon &&
+      !isVNode(icon))
+  ) {
     // svg
-    return attrs ? h(icon, { ...attrs }) : icon;
-  } else if (typeof icon === "object") {
+    const iconComponent = icon as RenderableComponent;
+    return attrs ? h(iconComponent, { ...attrs }) : iconComponent;
+  } else if (icon && typeof icon === "object") {
     return defineComponent({
       name: "OfflineIcon",
       render() {
@@ -49,7 +69,7 @@ export function useRenderIcon(icon: any, attrs?: iconType): Component {
     return defineComponent({
       name: "Icon",
       render() {
-        if (!icon) return;
+        if (typeof icon !== "string") return null;
         const IconifyIcon = icon.includes(":")
           ? IconifyIconOnline
           : IconifyIconOffline;

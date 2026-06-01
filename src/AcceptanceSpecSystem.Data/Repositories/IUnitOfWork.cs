@@ -74,7 +74,7 @@ public interface IUnitOfWork : IDisposable
     /// 保存所有更改
     /// </summary>
     /// <returns>受影响的行数</returns>
-    Task<int> SaveChangesAsync();
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 保存所有更改（同步版本）

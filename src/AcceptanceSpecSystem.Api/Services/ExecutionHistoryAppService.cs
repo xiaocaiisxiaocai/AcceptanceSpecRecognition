@@ -16,9 +16,13 @@ public interface IExecutionHistoryAppService
         int page,
         int pageSize,
         string? keyword,
-        string? taskType);
+        string? taskType,
+        CancellationToken cancellationToken = default);
 
-    Task<ExecutionHistoryDetailDto?> GetDetailAsync(ClaimsPrincipal user, int id);
+    Task<ExecutionHistoryDetailDto?> GetDetailAsync(
+        ClaimsPrincipal user,
+        int id,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -106,7 +110,8 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         int page,
         int pageSize,
         string? keyword,
-        string? taskType)
+        string? taskType,
+        CancellationToken cancellationToken = default)
     {
         var owner = ResolveOwner(user);
         var (items, total) = await _unitOfWork.ExecutionHistoryRecords.GetPagedOwnedAsync(
@@ -126,7 +131,10 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         };
     }
 
-    public async Task<ExecutionHistoryDetailDto?> GetDetailAsync(ClaimsPrincipal user, int id)
+    public async Task<ExecutionHistoryDetailDto?> GetDetailAsync(
+        ClaimsPrincipal user,
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var owner = ResolveOwner(user);
         var entity = await _unitOfWork.ExecutionHistoryRecords.GetOwnedByIdAsync(id, owner.CompanyId, owner.UserId);

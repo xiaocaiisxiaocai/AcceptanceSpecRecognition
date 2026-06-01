@@ -50,6 +50,11 @@ const props = {
   }
 };
 
+type SegmentedItem = {
+  option: OptionsType;
+  index: number;
+};
+
 export default defineComponent({
   name: "ReSegmented",
   props,
@@ -66,7 +71,7 @@ export default defineComponent({
       ? toRef(props, "modelValue")
       : ref(0);
 
-    function handleChange({ option, index }, event: Event) {
+    function handleChange({ option, index }: SegmentedItem, event: Event) {
       if (props.disabled || option.disabled) return;
       event.preventDefault();
       isNumber(props.modelValue)
@@ -76,7 +81,7 @@ export default defineComponent({
       emit("change", { index, option });
     }
 
-    function handleMouseenter({ option, index }, event: Event) {
+    function handleMouseenter({ option, index }: SegmentedItem, event: Event) {
       if (props.disabled) return;
       event.preventDefault();
       curMouseActive.value = index;
@@ -89,7 +94,7 @@ export default defineComponent({
       }
     }
 
-    function handleMouseleave(_, event: Event) {
+    function handleMouseleave(_: unknown, event: Event) {
       if (props.disabled) return;
       event.preventDefault();
       curMouseActive.value = -1;
@@ -153,9 +158,15 @@ export default defineComponent({
                     : "rgba(0,0,0,.88)"
                   : ""
             }}
-            onMouseenter={event => handleMouseenter({ option, index }, event)}
-            onMouseleave={event => handleMouseleave({ option, index }, event)}
-            onClick={event => handleChange({ option, index }, event)}
+            onMouseenter={(event: MouseEvent) =>
+              handleMouseenter({ option, index }, event)
+            }
+            onMouseleave={(event: MouseEvent) =>
+              handleMouseleave({ option, index }, event)
+            }
+            onClick={(event: MouseEvent) =>
+              handleChange({ option, index }, event)
+            }
           >
             <input type="radio" name="segmented" />
             <div

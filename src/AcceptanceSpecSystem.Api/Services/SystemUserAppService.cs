@@ -15,29 +15,43 @@ public interface ISystemUserAppService
         int page,
         int pageSize,
         string? keyword,
-        bool? isActive);
+        bool? isActive,
+        CancellationToken cancellationToken = default);
 
-    Task<SystemUserDto?> GetByIdAsync(int companyId, int id);
+    Task<SystemUserDto?> GetByIdAsync(int companyId, int id, CancellationToken cancellationToken = default);
 
-    Task<SystemUserDto> CreateAsync(int companyId, CreateSystemUserRequest request);
+    Task<SystemUserDto> CreateAsync(
+        int companyId,
+        CreateSystemUserRequest request,
+        CancellationToken cancellationToken = default);
 
     Task<SystemUserDto> UpdateAsync(
         int companyId,
         int id,
         UpdateSystemUserRequest request,
-        string currentUsername);
+        string currentUsername,
+        CancellationToken cancellationToken = default);
 
     Task<SystemUserDto> UpdateStatusAsync(
         int companyId,
         int id,
         UpdateSystemUserStatusRequest request,
-        string currentUsername);
+        string currentUsername,
+        CancellationToken cancellationToken = default);
 
-    Task ResetPasswordAsync(int companyId, int id, ResetSystemUserPasswordRequest request);
+    Task ResetPasswordAsync(
+        int companyId,
+        int id,
+        ResetSystemUserPasswordRequest request,
+        CancellationToken cancellationToken = default);
 
-    Task DeleteAsync(int companyId, int id, string currentUsername);
+    Task DeleteAsync(
+        int companyId,
+        int id,
+        string currentUsername,
+        CancellationToken cancellationToken = default);
 
-    Task<int?> ResolveCurrentCompanyIdAsync(ClaimsPrincipal user);
+    Task<int?> ResolveCurrentCompanyIdAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -67,7 +81,8 @@ public sealed class SystemUserAppService : ISystemUserAppService
         int page,
         int pageSize,
         string? keyword,
-        bool? isActive)
+        bool? isActive,
+        CancellationToken cancellationToken = default)
     {
         var (items, total) = await _unitOfWork.SystemUsers.GetPagedAsync(
             page,
@@ -85,16 +100,22 @@ public sealed class SystemUserAppService : ISystemUserAppService
         };
     }
 
-    public async Task<SystemUserDto?> GetByIdAsync(int companyId, int id)
+    public async Task<SystemUserDto?> GetByIdAsync(
+        int companyId,
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var user = await LoadUserWithAccessAsync(id);
+        var user = await LoadUserWithAccessAsync(id, cancellationToken);
         if (user == null || user.CompanyId != companyId)
             return null;
 
         return ToDto(user);
     }
 
-    public async Task<SystemUserDto> CreateAsync(int companyId, CreateSystemUserRequest request)
+    public async Task<SystemUserDto> CreateAsync(
+        int companyId,
+        CreateSystemUserRequest request,
+        CancellationToken cancellationToken = default)
     {
         var normalizedUsername = NormalizeUsername(request.Username);
         if (string.IsNullOrWhiteSpace(normalizedUsername))
@@ -114,11 +135,11 @@ public sealed class SystemUserAppService : ISystemUserAppService
             throw new ApplicationServiceException(400, "角色不能为空");
 
         var role = await _dbContext.AuthRoles
-            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.IsActive && r.Code == roleCode);
+            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.IsActive && r.Code == roleCode, cancellationToken);
         if (role == null)
             throw new ApplicationServiceException(400, "存在无效角色编码");
 
-        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId, request.OrgUnitId);
+        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId, request.OrgUnitId, cancellationToken);
         if (!assignedOrgUnitId.HasValue)
             throw new ApplicationServiceException(400, "组织节点无效，单组织系统只允许根组织");
 
@@ -156,16 +177,17 @@ public sealed class SystemUserAppService : ISystemUserAppService
         await _unitOfWork.SaveChangesAsync();
 
         _logger.LogInformation("创建系统用户成功: {Username}", user.Username);
-        return (await GetByIdAsync(companyId, user.Id))!;
+        return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
     }
 
     public async Task<SystemUserDto> UpdateAsync(
         int companyId,
         int id,
         UpdateSystemUserRequest request,
-        string currentUsername)
+        string currentUsername,
+        CancellationToken cancellationToken = default)
     {
-        var user = await LoadUserWithAccessAsync(id);
+        var user = await LoadUserWithAccessAsync(id, cancellationToken);
         if (user == null || user.CompanyId != companyId)
             throw new ApplicationServiceException(400, "用户不存在");
 
@@ -174,11 +196,11 @@ public sealed class SystemUserAppService : ISystemUserAppService
             throw new ApplicationServiceException(400, "角色不能为空");
 
         var role = await _dbContext.AuthRoles
-            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.IsActive && r.Code == roleCode);
+            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.IsActive && r.Code == roleCode, cancellationToken);
         if (role == null)
             throw new ApplicationServiceException(400, "存在无效角色编码");
 
-        if (!await ValidateAdminBoundaryAsync(companyId, user, request.IsActive, roleCode, "更新用户"))
+        if (!await ValidateAdminBoundaryAsync(companyId, user, request.IsActive, roleCode, "更新用户", cancellationToken))
             throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户");
 
         if (!request.IsActive &&
@@ -187,7 +209,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
             throw new ApplicationServiceException(400, "不能停用当前登录账号");
         }
 
-        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId, request.OrgUnitId);
+        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId, request.OrgUnitId, cancellationToken);
         if (!assignedOrgUnitId.HasValue)
             throw new ApplicationServiceException(400, "组织节点无效，单组织系统只允许根组织");
 
@@ -207,7 +229,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
             StartAt = request.RoleStartAt,
             EndAt = request.RoleEndAt,
             CreatedAt = DateTime.UtcNow
-        });
+        }, cancellationToken);
 
         await _dbContext.AuthUserOrgUnits.AddAsync(new AuthUserOrgUnit
         {
@@ -217,25 +239,32 @@ public sealed class SystemUserAppService : ISystemUserAppService
             StartAt = request.OrgStartAt,
             EndAt = request.OrgEndAt,
             CreatedAt = DateTime.UtcNow
-        });
+        }, cancellationToken);
 
         _unitOfWork.SystemUsers.Update(user);
         await _unitOfWork.SaveChangesAsync();
 
-        return (await GetByIdAsync(companyId, user.Id))!;
+        return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
     }
 
     public async Task<SystemUserDto> UpdateStatusAsync(
         int companyId,
         int id,
         UpdateSystemUserStatusRequest request,
-        string currentUsername)
+        string currentUsername,
+        CancellationToken cancellationToken = default)
     {
-        var user = await LoadUserWithAccessAsync(id);
+        var user = await LoadUserWithAccessAsync(id, cancellationToken);
         if (user == null || user.CompanyId != companyId)
             throw new ApplicationServiceException(400, "用户不存在");
 
-        if (!await ValidateAdminBoundaryAsync(companyId, user, request.IsActive, GetEffectiveRoleCode(user), "更新状态"))
+        if (!await ValidateAdminBoundaryAsync(
+                companyId,
+                user,
+                request.IsActive,
+                GetEffectiveRoleCode(user),
+                "更新状态",
+                cancellationToken))
             throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户");
 
         if (!request.IsActive &&
@@ -251,10 +280,14 @@ public sealed class SystemUserAppService : ISystemUserAppService
         _unitOfWork.SystemUsers.Update(user);
         await _unitOfWork.SaveChangesAsync();
 
-        return (await GetByIdAsync(companyId, user.Id))!;
+        return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
     }
 
-    public async Task ResetPasswordAsync(int companyId, int id, ResetSystemUserPasswordRequest request)
+    public async Task ResetPasswordAsync(
+        int companyId,
+        int id,
+        ResetSystemUserPasswordRequest request,
+        CancellationToken cancellationToken = default)
     {
         var user = await _unitOfWork.SystemUsers.GetByIdAsync(id);
         if (user == null || user.CompanyId != companyId)
@@ -273,13 +306,17 @@ public sealed class SystemUserAppService : ISystemUserAppService
         _logger.LogInformation("重置用户密码成功: {Username}", user.Username);
     }
 
-    public async Task DeleteAsync(int companyId, int id, string currentUsername)
+    public async Task DeleteAsync(
+        int companyId,
+        int id,
+        string currentUsername,
+        CancellationToken cancellationToken = default)
     {
-        var user = await LoadUserWithAccessAsync(id);
+        var user = await LoadUserWithAccessAsync(id, cancellationToken);
         if (user == null || user.CompanyId != companyId)
             throw new ApplicationServiceException(400, "用户不存在");
 
-        if (!await ValidateAdminBoundaryAsync(companyId, user, false, null, "删除用户"))
+        if (!await ValidateAdminBoundaryAsync(companyId, user, false, null, "删除用户", cancellationToken))
             throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户");
 
         if (string.Equals(user.Username, currentUsername, StringComparison.OrdinalIgnoreCase))
@@ -291,7 +328,9 @@ public sealed class SystemUserAppService : ISystemUserAppService
         _logger.LogInformation("删除系统用户成功: {Username}", user.Username);
     }
 
-    public async Task<int?> ResolveCurrentCompanyIdAsync(ClaimsPrincipal user)
+    public async Task<int?> ResolveCurrentCompanyIdAsync(
+        ClaimsPrincipal user,
+        CancellationToken cancellationToken = default)
     {
         var claim = user.FindFirstValue("company_id");
         if (int.TryParse(claim, out var companyId))
@@ -301,10 +340,12 @@ public sealed class SystemUserAppService : ISystemUserAppService
             .AsNoTracking()
             .OrderBy(c => c.Id)
             .Select(c => (int?)c.Id)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
-    private async Task<SystemUser?> LoadUserWithAccessAsync(int id)
+    private async Task<SystemUser?> LoadUserWithAccessAsync(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         return await _dbContext.SystemUsers
             .AsSplitQuery()
@@ -314,10 +355,13 @@ public sealed class SystemUserAppService : ISystemUserAppService
                         .ThenInclude(rp => rp.Permission)
             .Include(u => u.UserOrgUnits)
                 .ThenInclude(uo => uo.OrgUnit)
-            .FirstOrDefaultAsync(u => u.Id == id);
+            .FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
     }
 
-    private async Task<int?> ResolveOrgUnitIdAsync(int companyId, int? orgUnitId)
+    private async Task<int?> ResolveOrgUnitIdAsync(
+        int companyId,
+        int? orgUnitId,
+        CancellationToken cancellationToken = default)
     {
         if (!orgUnitId.HasValue)
             return null;
@@ -327,7 +371,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
             .Where(org => org.CompanyId == companyId && org.ParentId == null && org.UnitType == OrgUnitType.Company)
             .OrderBy(org => org.Id)
             .Select(org => (int?)org.Id)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
         if (!rootOrgUnitId.HasValue)
             return null;
 
@@ -339,7 +383,8 @@ public sealed class SystemUserAppService : ISystemUserAppService
         SystemUser targetUser,
         bool nextIsActive,
         string? nextRoleCode,
-        string operationName)
+        string operationName,
+        CancellationToken cancellationToken = default)
     {
         var currentIsActiveAdmin = targetUser.IsActive && HasAdminRole(GetEffectiveRoleCode(targetUser));
         var nextIsActiveAdmin = nextIsActive && HasAdminRole(nextRoleCode);

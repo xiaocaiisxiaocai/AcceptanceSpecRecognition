@@ -7,15 +7,25 @@ namespace AcceptanceSpecSystem.Api.Services;
 
 public interface IAuthRoleAppService
 {
-    Task<List<AuthRoleDto>> GetListAsync(int companyId, string? keyword = null);
+    Task<List<AuthRoleDto>> GetListAsync(
+        int companyId,
+        string? keyword = null,
+        CancellationToken cancellationToken = default);
 
-    Task<AuthRoleDto?> GetByIdAsync(int companyId, int id);
+    Task<AuthRoleDto?> GetByIdAsync(int companyId, int id, CancellationToken cancellationToken = default);
 
-    Task<AuthRoleDto> CreateAsync(int companyId, CreateAuthRoleRequest request);
+    Task<AuthRoleDto> CreateAsync(
+        int companyId,
+        CreateAuthRoleRequest request,
+        CancellationToken cancellationToken = default);
 
-    Task<AuthRoleDto> UpdateAsync(int companyId, int id, UpdateAuthRoleRequest request);
+    Task<AuthRoleDto> UpdateAsync(
+        int companyId,
+        int id,
+        UpdateAuthRoleRequest request,
+        CancellationToken cancellationToken = default);
 
-    Task DeleteAsync(int companyId, int id);
+    Task DeleteAsync(int companyId, int id, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -30,7 +40,10 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
         _dbContext = dbContext;
     }
 
-    public async Task<List<AuthRoleDto>> GetListAsync(int companyId, string? keyword = null)
+    public async Task<List<AuthRoleDto>> GetListAsync(
+        int companyId,
+        string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _dbContext.AuthRoles
             .AsNoTracking()
@@ -50,12 +63,15 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
         var roles = await query
             .OrderByDescending(r => r.IsBuiltIn)
             .ThenBy(r => r.Code)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return roles.Select(ToDto).ToList();
     }
 
-    public async Task<AuthRoleDto?> GetByIdAsync(int companyId, int id)
+    public async Task<AuthRoleDto?> GetByIdAsync(
+        int companyId,
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var role = await _dbContext.AuthRoles
             .AsSplitQuery()
@@ -63,18 +79,21 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
                 .ThenInclude(rp => rp.Permission)
             .Include(r => r.DataScopes)
                 .ThenInclude(s => s.Nodes)
-            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.Id == id);
+            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.Id == id, cancellationToken);
 
         return role == null ? null : ToDto(role);
     }
 
-    public async Task<AuthRoleDto> CreateAsync(int companyId, CreateAuthRoleRequest request)
+    public async Task<AuthRoleDto> CreateAsync(
+        int companyId,
+        CreateAuthRoleRequest request,
+        CancellationToken cancellationToken = default)
     {
         var code = NormalizeCode(request.Code);
         if (string.IsNullOrWhiteSpace(code))
             throw new ApplicationServiceException(400, "角色编码不能为空");
 
-        if (await _dbContext.AuthRoles.AnyAsync(r => r.CompanyId == companyId && r.Code == code))
+        if (await _dbContext.AuthRoles.AnyAsync(r => r.CompanyId == companyId && r.Code == code, cancellationToken))
             throw new ApplicationServiceException(400, "角色编码已存在");
 
         var now = DateTime.UtcNow;
@@ -89,73 +108,90 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
             CreatedAt = now
         };
 
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
-        await _dbContext.AuthRoles.AddAsync(role);
-        await _dbContext.SaveChangesAsync();
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await _dbContext.AuthRoles.AddAsync(role, cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
-        var syncError = await SyncRoleRelationsAsync(role, request.PermissionCodes, request.DataScopes, companyId);
+        var syncError = await SyncRoleRelationsAsync(
+            role,
+            request.PermissionCodes,
+            request.DataScopes,
+            companyId,
+            cancellationToken);
         if (!string.IsNullOrWhiteSpace(syncError))
             throw new ApplicationServiceException(400, syncError);
 
-        await _dbContext.SaveChangesAsync();
-        await transaction.CommitAsync();
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
-        return (await GetByIdAsync(companyId, role.Id))!;
+        return (await GetByIdAsync(companyId, role.Id, cancellationToken))!;
     }
 
-    public async Task<AuthRoleDto> UpdateAsync(int companyId, int id, UpdateAuthRoleRequest request)
+    public async Task<AuthRoleDto> UpdateAsync(
+        int companyId,
+        int id,
+        UpdateAuthRoleRequest request,
+        CancellationToken cancellationToken = default)
     {
         var role = await _dbContext.AuthRoles
             .AsSplitQuery()
             .Include(r => r.RolePermissions)
             .Include(r => r.DataScopes)
                 .ThenInclude(s => s.Nodes)
-            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.Id == id);
+            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.Id == id, cancellationToken);
         if (role == null)
             throw new ApplicationServiceException(404, "角色不存在");
 
         if (role.IsBuiltIn)
             throw new ApplicationServiceException(400, "内置角色不允许修改");
 
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         role.Name = request.Name.Trim();
         role.Description = NormalizeOptional(request.Description);
         role.IsActive = request.IsActive;
         role.UpdatedAt = DateTime.UtcNow;
 
-        var syncError = await SyncRoleRelationsAsync(role, request.PermissionCodes, request.DataScopes, companyId);
+        var syncError = await SyncRoleRelationsAsync(
+            role,
+            request.PermissionCodes,
+            request.DataScopes,
+            companyId,
+            cancellationToken);
         if (!string.IsNullOrWhiteSpace(syncError))
             throw new ApplicationServiceException(400, syncError);
 
-        await TouchUsersByRoleAsync(role.Id);
-        await _dbContext.SaveChangesAsync();
-        await transaction.CommitAsync();
+        await TouchUsersByRoleAsync(role.Id, cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
-        return (await GetByIdAsync(companyId, role.Id))!;
+        return (await GetByIdAsync(companyId, role.Id, cancellationToken))!;
     }
 
-    public async Task DeleteAsync(int companyId, int id)
+    public async Task DeleteAsync(int companyId, int id, CancellationToken cancellationToken = default)
     {
-        var role = await _dbContext.AuthRoles.FirstOrDefaultAsync(r => r.CompanyId == companyId && r.Id == id);
+        var role = await _dbContext.AuthRoles.FirstOrDefaultAsync(
+            r => r.CompanyId == companyId && r.Id == id,
+            cancellationToken);
         if (role == null)
             throw new ApplicationServiceException(404, "角色不存在");
 
         if (role.IsBuiltIn)
             throw new ApplicationServiceException(400, "内置角色不允许删除");
 
-        var referenced = await _dbContext.AuthUserRoles.AnyAsync(r => r.RoleId == id);
+        var referenced = await _dbContext.AuthUserRoles.AnyAsync(r => r.RoleId == id, cancellationToken);
         if (referenced)
             throw new ApplicationServiceException(400, "角色已被用户使用，无法删除");
 
         _dbContext.AuthRoles.Remove(role);
-        await _dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<string?> SyncRoleRelationsAsync(
         AuthRole role,
         IEnumerable<string> permissionCodes,
         IEnumerable<AuthRoleDataScopeDto> dataScopes,
-        int companyId)
+        int companyId,
+        CancellationToken cancellationToken = default)
     {
         var normalizedPermissionCodes = permissionCodes
             .Where(v => !string.IsNullOrWhiteSpace(v))
@@ -167,7 +203,7 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
             ? []
             : await _dbContext.AuthPermissions
                 .Where(p => normalizedPermissionCodes.Contains(p.Code))
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
         if (permissions.Count != normalizedPermissionCodes.Count)
             return "存在无效权限编码";
 
@@ -183,7 +219,7 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
             {
                 RoleId = role.Id,
                 PermissionId = permissionId
-            });
+            }, cancellationToken);
         }
 
         var normalizedScopes = dataScopes
@@ -204,7 +240,7 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
             .Where(org => org.CompanyId == companyId && org.ParentId == null && org.UnitType == OrgUnitType.Company)
             .OrderBy(org => org.Id)
             .Select(org => (int?)org.Id)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
         if (!rootOrgUnitId.HasValue)
             return "根组织不存在";
 
@@ -218,10 +254,10 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
         var existingScopes = await _dbContext.AuthRoleDataScopes
             .Include(s => s.Nodes)
             .Where(s => s.RoleId == role.Id)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         _dbContext.AuthRoleDataScopes.RemoveRange(existingScopes);
-        await _dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         foreach (var scope in normalizedScopes)
         {
@@ -232,8 +268,8 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
                 ScopeType = scope.ScopeType,
                 CreatedAt = DateTime.UtcNow
             };
-            await _dbContext.AuthRoleDataScopes.AddAsync(scopeEntity);
-            await _dbContext.SaveChangesAsync();
+            await _dbContext.AuthRoleDataScopes.AddAsync(scopeEntity, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
 
             foreach (var nodeId in scope.OrgUnitIds)
             {
@@ -241,23 +277,24 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
                 {
                     RoleDataScopeId = scopeEntity.Id,
                     OrgUnitId = nodeId
-                });
+                }, cancellationToken);
             }
 
-            await _dbContext.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
         return null;
     }
 
-    private async Task TouchUsersByRoleAsync(int roleId)
+    private async Task TouchUsersByRoleAsync(int roleId, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         await _dbContext.SystemUsers
             .Where(user => user.UserRoles.Any(userRole => userRole.RoleId == roleId))
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(user => user.PermissionVersion, user => user.PermissionVersion + 1)
-                .SetProperty(user => user.UpdatedAt, _ => now));
+                .SetProperty(user => user.UpdatedAt, _ => now),
+                cancellationToken);
     }
 
     private static string NormalizeCode(string value)

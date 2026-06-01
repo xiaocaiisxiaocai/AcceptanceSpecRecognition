@@ -3,13 +3,13 @@ import type { Directive, DirectiveBinding } from "vue";
 import { subBefore, subAfter, isFunction } from "@pureadmin/utils";
 
 export const longpress: Directive = {
-  mounted(el: HTMLElement, binding: DirectiveBinding<Function>) {
+  mounted(el: HTMLElement, binding: DirectiveBinding<() => void>) {
     const cb = binding.value;
     if (cb && isFunction(cb)) {
-      let timer = null;
-      let interTimer = null;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      let interTimer: ReturnType<typeof setInterval> | null = null;
       let num = 500;
-      let interNum = null;
+      let interNum: number | undefined;
       const isInter = binding?.arg?.includes(":") ?? false;
 
       if (isInter) {

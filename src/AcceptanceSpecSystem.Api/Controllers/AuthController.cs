@@ -39,7 +39,9 @@ public class AuthController : ControllerBase
     [AuditOperation("login", "auth")]
     [AllowAnonymous]
     [EnableRateLimiting("login")]
-    public async Task<ActionResult<FrontendAuthResponse<LoginSuccessData>>> Login([FromBody] LoginRequest? request)
+    public async Task<ActionResult<FrontendAuthResponse<LoginSuccessData>>> Login(
+        [FromBody] LoginRequest? request,
+        CancellationToken cancellationToken = default)
     {
         var username = request?.Username?.Trim() ?? string.Empty;
         var password = request?.Password ?? string.Empty;
@@ -66,7 +68,7 @@ public class AuthController : ControllerBase
             });
         }
 
-        var access = await _authAccessService.GetByUsernameAsync(username);
+        var access = await _authAccessService.GetByUsernameAsync(username, cancellationToken);
         if (access == null || !access.IsActive)
         {
             return Unauthorized(new FrontendAuthResponse<LoginSuccessData>
@@ -111,7 +113,9 @@ public class AuthController : ControllerBase
     [HttpPost("refresh-token")]
     [AuditOperation("refresh-token", "auth")]
     [AllowAnonymous]
-    public async Task<ActionResult<FrontendAuthResponse<RefreshTokenSuccessData>>> RefreshToken([FromBody] RefreshTokenRequest? request)
+    public async Task<ActionResult<FrontendAuthResponse<RefreshTokenSuccessData>>> RefreshToken(
+        [FromBody] RefreshTokenRequest? request,
+        CancellationToken cancellationToken = default)
     {
         var refreshToken = request?.RefreshToken?.Trim() ?? string.Empty;
         var principal = _authTokenService.ValidateRefreshToken(refreshToken);
@@ -134,12 +138,12 @@ public class AuthController : ControllerBase
         AuthAccessContext? access = null;
         if (int.TryParse(userIdClaim, out var userId))
         {
-            access = await _authAccessService.GetByUserIdAsync(userId);
+            access = await _authAccessService.GetByUserIdAsync(userId, cancellationToken);
         }
 
         if (access == null && !string.IsNullOrWhiteSpace(username))
         {
-            access = await _authAccessService.GetByUsernameAsync(username);
+            access = await _authAccessService.GetByUsernameAsync(username, cancellationToken);
         }
 
         if (access == null || !access.IsActive)

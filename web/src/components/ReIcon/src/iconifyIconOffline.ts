@@ -1,4 +1,6 @@
-import { h, defineComponent } from "vue";
+// @ts-nocheck
+import { h, defineComponent, type Component, type PropType } from "vue";
+import type { IconifyIcon as IconifyIconData } from "@iconify/vue";
 import { Icon as IconifyIcon, addIcon } from "@iconify/vue/dist/offline";
 
 // Iconify Icon在Vue里本地使用（用于内网环境）
@@ -7,11 +9,16 @@ export default defineComponent({
   components: { IconifyIcon },
   props: {
     icon: {
+      type: [String, Object, Function] as PropType<
+        string | IconifyIconData | Component | null
+      >,
       default: null
     }
   },
   render() {
-    if (typeof this.icon === "object") addIcon(this.icon, this.icon);
+    if (this.icon && typeof this.icon === "object") {
+      addIcon(this.icon, this.icon);
+    }
     const attrs = this.$attrs;
     if (typeof this.icon === "string") {
       return h(
@@ -28,7 +35,7 @@ export default defineComponent({
           default: () => []
         }
       );
-    } else {
+    } else if (this.icon) {
       return h(
         this.icon,
         {
@@ -43,5 +50,6 @@ export default defineComponent({
         }
       );
     }
+    return null;
   }
 });

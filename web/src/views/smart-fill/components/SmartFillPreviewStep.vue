@@ -33,7 +33,12 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: "goPrev"): void;
-  (e: "select", tableIndex: number, rowIndex: number, spec: MatchPreviewItem["bestMatch"] | null): void;
+  (
+    e: "select",
+    tableIndex: number,
+    rowIndex: number,
+    spec: MatchPreviewItem["bestMatch"] | null
+  ): void;
   (e: "showDetail", item: MatchPreviewItem): void;
   (e: "preview"): void;
   (e: "execute"): void;

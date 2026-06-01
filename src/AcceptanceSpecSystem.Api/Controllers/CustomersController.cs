@@ -36,13 +36,14 @@ public class CustomersController : BaseApiController
     public async Task<ActionResult<ApiResponse<PagedData<CustomerDto>>>> GetCustomers(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] string? keyword = null)
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<PagedData<CustomerDto>>(401, "会话缺少用户上下文");
 
-        var data = await _customerAppService.GetPagedAsync(scope.ToAccessContext(), page, pageSize, keyword);
+        var data = await _customerAppService.GetPagedAsync(scope.ToAccessContext(), page, pageSize, keyword, cancellationToken);
         return Success(data.ToDto());
     }
 
@@ -52,13 +53,15 @@ public class CustomersController : BaseApiController
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<CustomerDto>>> GetCustomer(int id)
+    public async Task<ActionResult<ApiResponse<CustomerDto>>> GetCustomer(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<CustomerDto>(401, "会话缺少用户上下文");
 
-        var customer = await _customerAppService.GetByIdAsync(scope.ToAccessContext(), id);
+        var customer = await _customerAppService.GetByIdAsync(scope.ToAccessContext(), id, cancellationToken);
         if (customer == null)
             return NotFoundResult<CustomerDto>("客户不存在");
 
@@ -72,11 +75,13 @@ public class CustomersController : BaseApiController
     [AuditOperation("create", "customer")]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<CustomerDto>>> CreateCustomer([FromBody] CreateCustomerRequest request)
+    public async Task<ActionResult<ApiResponse<CustomerDto>>> CreateCustomer(
+        [FromBody] CreateCustomerRequest request,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var customer = await _customerAppService.CreateAsync(request.Name);
+            var customer = await _customerAppService.CreateAsync(request.Name, cancellationToken);
             return Success(customer.ToDto(), "创建客户成功");
         }
         catch (ApplicationServiceException ex)
@@ -93,7 +98,10 @@ public class CustomersController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<CustomerDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<CustomerDto>>> UpdateCustomer(int id, [FromBody] UpdateCustomerRequest request)
+    public async Task<ActionResult<ApiResponse<CustomerDto>>> UpdateCustomer(
+        int id,
+        [FromBody] UpdateCustomerRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -101,7 +109,7 @@ public class CustomersController : BaseApiController
 
         try
         {
-            var customer = await _customerAppService.UpdateAsync(scope.ToAccessContext(), id, request.Name);
+            var customer = await _customerAppService.UpdateAsync(scope.ToAccessContext(), id, request.Name, cancellationToken);
             if (customer == null)
                 return NotFoundResult<CustomerDto>("客户不存在");
 
@@ -120,9 +128,11 @@ public class CustomersController : BaseApiController
     [AuditOperation("delete", "customer")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse>> DeleteCustomer(int id)
+    public async Task<ActionResult<ApiResponse>> DeleteCustomer(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var deleted = await _customerAppService.DeleteAsync(id);
+        var deleted = await _customerAppService.DeleteAsync(id, cancellationToken);
         if (!deleted)
             return NotFound(ApiResponse.Error(404, "客户不存在"));
 
@@ -135,13 +145,15 @@ public class CustomersController : BaseApiController
     [HttpGet("{id}/processes")]
     [ProducesResponseType(typeof(ApiResponse<List<ProcessDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<List<ProcessDto>>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<List<ProcessDto>>>> GetCustomerProcesses(int id)
+    public async Task<ActionResult<ApiResponse<List<ProcessDto>>>> GetCustomerProcesses(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<List<ProcessDto>>(401, "会话缺少用户上下文");
 
-        var items = await _customerAppService.GetProcessesAsync(scope.ToAccessContext(), id);
+        var items = await _customerAppService.GetProcessesAsync(scope.ToAccessContext(), id, cancellationToken);
         if (items == null)
             return NotFoundResult<List<ProcessDto>>("客户不存在");
 

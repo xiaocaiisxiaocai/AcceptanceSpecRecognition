@@ -52,7 +52,8 @@ public class FileCompareController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<FileCompareUploadResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<FileCompareUploadResponse>>> Upload(
         IFormFile fileA,
-        IFormFile fileB)
+        IFormFile fileB,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -82,8 +83,6 @@ public class FileCompareController : BaseApiController
             return Error<FileCompareUploadResponse>(400, "仅支持同类型文件对比");
         }
 
-        var cancellationToken = HttpContext.RequestAborted;
-
         var respA = await SaveUploadedFileAsync(fileA, fileTypeA, scope, cancellationToken);
         var respB = await SaveUploadedFileAsync(fileB, fileTypeA, scope, cancellationToken);
 
@@ -100,7 +99,9 @@ public class FileCompareController : BaseApiController
     [HttpPost("preview")]
     [ProducesResponseType(typeof(ApiResponse<FileComparePreviewResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<FileComparePreviewResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<FileComparePreviewResponse>>> Preview([FromBody] FileComparePreviewRequest request)
+    public async Task<ActionResult<ApiResponse<FileComparePreviewResponse>>> Preview(
+        [FromBody] FileComparePreviewRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -117,7 +118,7 @@ public class FileCompareController : BaseApiController
         if (fileA.FileType != fileB.FileType)
             return Error<FileComparePreviewResponse>(400, "仅支持同类型文件对比");
 
-        var result = await _compareService.CompareAsync(fileA, fileB, HttpContext.RequestAborted);
+        var result = await _compareService.CompareAsync(fileA, fileB, cancellationToken);
 
         var response = ToPreviewResponse(result);
         return Success(response);
@@ -128,7 +129,9 @@ public class FileCompareController : BaseApiController
     /// </summary>
     [HttpPost("download")]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
-    public async Task<IActionResult> Download([FromBody] FileComparePreviewRequest request)
+    public async Task<IActionResult> Download(
+        [FromBody] FileComparePreviewRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -145,7 +148,7 @@ public class FileCompareController : BaseApiController
         if (fileA.FileType != fileB.FileType)
             return BadRequest(ApiResponse.Error(400, "仅支持同类型文件对比"));
 
-        var result = await _compareService.CompareAsync(fileA, fileB, HttpContext.RequestAborted);
+        var result = await _compareService.CompareAsync(fileA, fileB, cancellationToken);
         var response = ToPreviewResponse(result);
         var json = JsonSerializer.Serialize(response, new JsonSerializerOptions
         {

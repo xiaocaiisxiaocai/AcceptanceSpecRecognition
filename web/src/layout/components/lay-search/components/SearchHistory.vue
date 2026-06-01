@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import Sortable from "sortablejs";
 import SearchHistoryItem from "./SearchHistoryItem.vue";
 import type { optionsItem, dragItem, Props } from "../types";

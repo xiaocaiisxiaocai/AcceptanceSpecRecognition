@@ -87,39 +87,45 @@ public class CreateSpecRequest
     /// 所属客户ID
     /// </summary>
     [Required(ErrorMessage = "客户ID不能为空")]
+    [Range(1, int.MaxValue, ErrorMessage = "客户ID必须大于0")]
     public int CustomerId { get; set; }
 
     /// <summary>
     /// 所属制程ID
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "制程ID必须大于0")]
     public int? ProcessId { get; set; }
 
     /// <summary>
     /// 所属机型ID
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "机型ID必须大于0")]
     public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 项目名称
     /// </summary>
     [Required(ErrorMessage = "项目名称不能为空")]
-    [StringLength(500, ErrorMessage = "项目名称不能超过500个字符")]
+    [StringLength(500, MinimumLength = 1, ErrorMessage = "项目名称长度必须在1到500个字符之间")]
     public string Project { get; set; } = string.Empty;
 
     /// <summary>
     /// 规格内容
     /// </summary>
     [Required(ErrorMessage = "规格内容不能为空")]
+    [StringLength(4000, MinimumLength = 1, ErrorMessage = "规格内容长度必须在1到4000个字符之间")]
     public string Specification { get; set; } = string.Empty;
 
     /// <summary>
     /// 验收标准
     /// </summary>
+    [MaxLength(4000, ErrorMessage = "验收标准不能超过4000个字符")]
     public string? Acceptance { get; set; }
 
     /// <summary>
     /// 备注
     /// </summary>
+    [MaxLength(2000, ErrorMessage = "备注不能超过2000个字符")]
     public string? Remark { get; set; }
 }
 
@@ -132,23 +138,26 @@ public class UpdateSpecRequest
     /// 项目名称
     /// </summary>
     [Required(ErrorMessage = "项目名称不能为空")]
-    [StringLength(500, ErrorMessage = "项目名称不能超过500个字符")]
+    [StringLength(500, MinimumLength = 1, ErrorMessage = "项目名称长度必须在1到500个字符之间")]
     public string Project { get; set; } = string.Empty;
 
     /// <summary>
     /// 规格内容
     /// </summary>
     [Required(ErrorMessage = "规格内容不能为空")]
+    [StringLength(4000, MinimumLength = 1, ErrorMessage = "规格内容长度必须在1到4000个字符之间")]
     public string Specification { get; set; } = string.Empty;
 
     /// <summary>
     /// 验收标准
     /// </summary>
+    [MaxLength(4000, ErrorMessage = "验收标准不能超过4000个字符")]
     public string? Acceptance { get; set; }
 
     /// <summary>
     /// 备注
     /// </summary>
+    [MaxLength(2000, ErrorMessage = "备注不能超过2000个字符")]
     public string? Remark { get; set; }
 }
 
@@ -161,28 +170,33 @@ public class BatchImportSpecsRequest
     /// 所属客户ID
     /// </summary>
     [Required(ErrorMessage = "客户ID不能为空")]
+    [Range(1, int.MaxValue, ErrorMessage = "客户ID必须大于0")]
     public int CustomerId { get; set; }
 
     /// <summary>
     /// 所属制程ID
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "制程ID必须大于0")]
     public int? ProcessId { get; set; }
 
     /// <summary>
     /// 所属机型ID
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "机型ID必须大于0")]
     public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 来源Word文件ID
     /// </summary>
     [Required(ErrorMessage = "Word文件ID不能为空")]
+    [Range(1, int.MaxValue, ErrorMessage = "Word文件ID必须大于0")]
     public int WordFileId { get; set; }
 
     /// <summary>
     /// 验收规格列表
     /// </summary>
     [Required(ErrorMessage = "规格列表不能为空")]
+    [MinLength(1, ErrorMessage = "规格列表不能为空")]
     public List<SpecImportItem> Items { get; set; } = [];
 }
 
@@ -194,21 +208,27 @@ public class SpecImportItem
     /// <summary>
     /// 项目名称
     /// </summary>
+    [Required(ErrorMessage = "项目名称不能为空")]
+    [StringLength(500, MinimumLength = 1, ErrorMessage = "项目名称长度必须在1到500个字符之间")]
     public string Project { get; set; } = string.Empty;
 
     /// <summary>
     /// 规格内容
     /// </summary>
+    [Required(ErrorMessage = "规格内容不能为空")]
+    [StringLength(4000, MinimumLength = 1, ErrorMessage = "规格内容长度必须在1到4000个字符之间")]
     public string Specification { get; set; } = string.Empty;
 
     /// <summary>
     /// 验收标准
     /// </summary>
+    [MaxLength(4000, ErrorMessage = "验收标准不能超过4000个字符")]
     public string? Acceptance { get; set; }
 
     /// <summary>
     /// 备注
     /// </summary>
+    [MaxLength(2000, ErrorMessage = "备注不能超过2000个字符")]
     public string? Remark { get; set; }
 }
 
@@ -282,31 +302,37 @@ public class SpecFilterRequest
     /// <summary>
     /// 客户ID（可选）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "客户ID必须大于0")]
     public int? CustomerId { get; set; }
 
     /// <summary>
     /// 制程ID（可选）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "制程ID必须大于0")]
     public int? ProcessId { get; set; }
 
     /// <summary>
     /// 机型ID（可选）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "机型ID必须大于0")]
     public int? MachineModelId { get; set; }
 
     /// <summary>
     /// 搜索关键字（可选）
     /// </summary>
+    [MaxLength(200, ErrorMessage = "搜索关键字不能超过200个字符")]
     public string? Keyword { get; set; }
 
     /// <summary>
     /// 页码
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "页码必须大于0")]
     public int Page { get; set; } = 1;
 
     /// <summary>
     /// 每页数量
     /// </summary>
+    [Range(1, 200, ErrorMessage = "每页数量必须在 1 到 200 之间")]
     public int PageSize { get; set; } = 20;
 }
 
@@ -427,21 +453,25 @@ public class SpecSemanticSearchRequest
     /// 查询文本列表，多行输入时每行对应一条查询
     /// </summary>
     [Required(ErrorMessage = "搜索内容不能为空")]
+    [MinLength(1, ErrorMessage = "搜索内容不能为空")]
     public List<string> Queries { get; set; } = [];
 
     /// <summary>
     /// 客户ID（可选）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "客户ID必须大于0")]
     public int? CustomerId { get; set; }
 
     /// <summary>
     /// 制程ID（可选）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "制程ID必须大于0")]
     public int? ProcessId { get; set; }
 
     /// <summary>
     /// 机型ID（可选）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "机型ID必须大于0")]
     public int? MachineModelId { get; set; }
 
     /// <summary>
@@ -469,6 +499,7 @@ public class SpecSemanticSearchRequest
     /// <summary>
     /// 指定 Embedding 服务ID（可选）
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "Embedding 服务ID必须大于0")]
     public int? EmbeddingServiceId { get; set; }
 }
 

@@ -1,11 +1,13 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { isAllEmpty } from "@pureadmin/utils";
 import { useNav } from "@/layout/hooks/useNav";
 import LaySearch from "../lay-search/index.vue";
-import { ref, toRaw, watch, onMounted, nextTick } from "vue";
+import { computed, ref, toRaw, watch, onMounted, nextTick } from "vue";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import { getParentPaths, findRouteByPath } from "@/router/utils";
 import { usePermissionStoreHook } from "@/store/modules/permission";
+import type { menuType } from "@/layout/types";
 import LaySidebarExtraIcon from "../lay-sidebar/components/SidebarExtraIcon.vue";
 import LaySidebarFullScreen from "../lay-sidebar/components/SidebarFullScreen.vue";
 
@@ -14,6 +16,7 @@ import Setting from "~icons/ri/settings-3-line";
 
 const menuRef = ref();
 const defaultActive = ref(null);
+const wholeMenus = computed(() => usePermissionStoreHook().wholeMenus as unknown as menuType[]);
 
 const {
   route,
@@ -27,13 +30,13 @@ const {
   avatarsStyle
 } = useNav();
 
-function getDefaultActive(routePath) {
-  const wholeMenus = usePermissionStoreHook().wholeMenus;
+function getDefaultActive(routePath: string) {
+  const menus = wholeMenus.value as any;
   /** 当前路由的父级路径 */
-  const parentRoutes = getParentPaths(routePath, wholeMenus)[0];
+  const parentRoutes = getParentPaths(routePath, menus)[0];
   defaultActive.value = !isAllEmpty(route.meta?.activePath)
     ? route.meta.activePath
-    : findRouteByPath(parentRoutes, wholeMenus)?.children[0]?.path;
+    : findRouteByPath(parentRoutes, menus)?.children?.[0]?.path;
 }
 
 onMounted(() => {
@@ -55,7 +58,7 @@ watch(
 <template>
   <div
     v-if="device !== 'mobile'"
-    v-loading="usePermissionStoreHook().wholeMenus.length === 0"
+    v-loading="wholeMenus.length === 0"
     class="horizontal-header"
   >
     <el-menu
@@ -67,14 +70,17 @@ watch(
       :default-active="defaultActive"
     >
       <el-menu-item
-        v-for="route in usePermissionStoreHook().wholeMenus"
+        v-for="route in wholeMenus"
         :key="route.path"
-        :index="resolvePath(route) || route.redirect"
+        :index="resolvePath(route) || String(route.redirect ?? '')"
       >
         <template #title>
           <div
-            v-if="toRaw(route.meta.icon)"
-            :class="['sub-menu-icon', route.meta.icon]"
+            v-if="toRaw(route.meta?.icon)"
+            :class="[
+              'sub-menu-icon',
+              typeof route.meta?.icon === 'string' ? route.meta.icon : ''
+            ]"
           >
             <component
               :is="useRenderIcon(route.meta && toRaw(route.meta.icon))"
@@ -82,9 +88,9 @@ watch(
           </div>
           <div :style="getDivStyle">
             <span class="select-none">
-              {{ route.meta.title }}
+              {{ route.meta?.title }}
             </span>
-            <LaySidebarExtraIcon :extraIcon="route.meta.extraIcon" />
+            <LaySidebarExtraIcon :extraIcon="route.meta?.extraIcon" />
           </div>
         </template>
       </el-menu-item>

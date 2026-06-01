@@ -26,13 +26,14 @@ public class OrgUnitsController : BaseApiController
     /// </summary>
     [HttpGet("tree")]
     [ProducesResponseType(typeof(ApiResponse<List<OrgUnitDto>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<OrgUnitDto>>>> GetTree()
+    public async Task<ActionResult<ApiResponse<List<OrgUnitDto>>>> GetTree(
+        CancellationToken cancellationToken = default)
     {
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
             return Error<List<OrgUnitDto>>(401, "会话缺少公司上下文");
 
-        var items = await _orgUnitAppService.GetTreeAsync(companyId.Value);
+        var items = await _orgUnitAppService.GetTreeAsync(companyId.Value, cancellationToken);
         return Success(items);
     }
 
@@ -41,13 +42,14 @@ public class OrgUnitsController : BaseApiController
     /// </summary>
     [HttpGet("flat")]
     [ProducesResponseType(typeof(ApiResponse<List<OrgUnitDto>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<OrgUnitDto>>>> GetFlat()
+    public async Task<ActionResult<ApiResponse<List<OrgUnitDto>>>> GetFlat(
+        CancellationToken cancellationToken = default)
     {
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
             return Error<List<OrgUnitDto>>(401, "会话缺少公司上下文");
 
-        var items = await _orgUnitAppService.GetFlatAsync(companyId.Value);
+        var items = await _orgUnitAppService.GetFlatAsync(companyId.Value, cancellationToken);
         return Success(items);
     }
 
@@ -57,7 +59,10 @@ public class OrgUnitsController : BaseApiController
     [HttpPut("{id:int}")]
     [AuditOperation("update", "org-unit")]
     [ProducesResponseType(typeof(ApiResponse<OrgUnitDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<OrgUnitDto>>> Update(int id, [FromBody] UpdateOrgUnitRequest request)
+    public async Task<ActionResult<ApiResponse<OrgUnitDto>>> Update(
+        int id,
+        [FromBody] UpdateOrgUnitRequest request,
+        CancellationToken cancellationToken = default)
     {
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
@@ -65,7 +70,7 @@ public class OrgUnitsController : BaseApiController
 
         try
         {
-            var item = await _orgUnitAppService.UpdateAsync(companyId.Value, id, request);
+            var item = await _orgUnitAppService.UpdateAsync(companyId.Value, id, request, cancellationToken);
             return Success(item, "更新组织节点成功");
         }
         catch (ApplicationServiceException ex)

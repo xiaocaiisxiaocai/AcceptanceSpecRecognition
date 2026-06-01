@@ -19,8 +19,8 @@ export const cloneMatchPreviewOverride = (
   }
 
   return {
-    overrideAcceptance: value.overrideAcceptance,
-    overrideRemark: value.overrideRemark
+    overrideAcceptance: value?.overrideAcceptance,
+    overrideRemark: value?.overrideRemark
   };
 };
 

@@ -27,11 +27,13 @@ public class MatchingExecutionController : MatchingApiControllerBase
     [HttpPost("llm-stream")]
     [AuditOperation("llm-stream", "matching-fill")]
     [EnableRateLimiting("ai-heavy")]
-    public async Task<IActionResult> LlmStream([FromBody] MatchLlmStreamRequest request)
+    public async Task<IActionResult> LlmStream(
+        [FromBody] MatchLlmStreamRequest request,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            await _matchingExecutionAppService.LlmStreamAsync(User, Response, request, HttpContext.RequestAborted);
+            await _matchingExecutionAppService.LlmStreamAsync(User, Response, request, cancellationToken);
             return new EmptyResult();
         }
         catch (MatchingApiException ex) when (ex.IsNotFound)
@@ -49,7 +51,9 @@ public class MatchingExecutionController : MatchingApiControllerBase
     [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ExecuteFillResponse>), StatusCodes.Status400BadRequest)]
-    public Task<ActionResult<ApiResponse<ExecuteFillResponse>>> BatchExecuteFill([FromBody] BatchExecuteFillRequest request)
+    public Task<ActionResult<ApiResponse<ExecuteFillResponse>>> BatchExecuteFill(
+        [FromBody] BatchExecuteFillRequest request,
+        CancellationToken cancellationToken = default)
     {
         return HandleAsync(() => _matchingExecutionAppService.BatchExecuteFillAsync(User, request));
     }
@@ -60,7 +64,8 @@ public class MatchingExecutionController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<SmartFillSpecBackfillResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SmartFillSpecBackfillResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<SmartFillSpecBackfillResponse>>> SpecBackfill(
-        [FromBody] SmartFillSpecBackfillRequest request)
+        [FromBody] SmartFillSpecBackfillRequest request,
+        CancellationToken cancellationToken = default)
     {
         return HandleAsync(() => _smartFillSpecBackfillAppService.BackfillAsync(User, request));
     }

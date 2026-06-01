@@ -6,6 +6,7 @@ import { responsiveStorageNameSpace } from "@/config";
 import { ref, nextTick, computed, onMounted } from "vue";
 import { storageLocal, isAllEmpty } from "@pureadmin/utils";
 import { usePermissionStoreHook } from "@/store/modules/permission";
+import type { menuType } from "@/layout/types";
 import LaySidebarItem from "../lay-sidebar/components/SidebarItem.vue";
 import LaySidebarFullScreen from "../lay-sidebar/components/SidebarFullScreen.vue";
 
@@ -18,6 +19,7 @@ const showLogo = ref(
     `${responsiveStorageNameSpace()}configure`
   )?.showLogo ?? true
 );
+const wholeMenus = computed(() => usePermissionStoreHook().wholeMenus as unknown as menuType[]);
 
 const {
   route,
@@ -48,7 +50,7 @@ onMounted(() => {
 
 <template>
   <div
-    v-loading="usePermissionStoreHook().wholeMenus.length === 0"
+    v-loading="wholeMenus.length === 0"
     class="horizontal-header"
   >
     <div v-if="showLogo" class="horizontal-header-left" @click="backTopMenu">
@@ -63,7 +65,7 @@ onMounted(() => {
       :default-active="defaultActive"
     >
       <LaySidebarItem
-        v-for="route in usePermissionStoreHook().wholeMenus"
+        v-for="route in wholeMenus"
         :key="route.path"
         :item="route"
         :base-path="route.path"

@@ -131,7 +131,9 @@ public class AiServicesController : BaseApiController
     [AuditOperation("create", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> Create([FromBody] CreateAiServiceRequest request)
+    public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> Create(
+        [FromBody] CreateAiServiceRequest request,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
             return Error<AiServiceConfigDto>(400, "名称不能为空");
@@ -145,7 +147,10 @@ public class AiServicesController : BaseApiController
         if (endpointError != null)
             return Error<AiServiceConfigDto>(400, endpointError);
 
-        var exists = await _unitOfWork.AiServiceConfigs.GetByNameAsync(request.Name.Trim());
+        var trimmedName = request.Name.Trim();
+        var exists = await _unitOfWork.AiServiceConfigs
+            .Query()
+            .SingleOrDefaultAsync(config => config.Name == trimmedName, cancellationToken);
         if (exists != null)
             return Error<AiServiceConfigDto>(400, "名称已存在");
 
@@ -158,7 +163,7 @@ public class AiServicesController : BaseApiController
 
         var entity = new AiServiceConfig
         {
-            Name = request.Name.Trim(),
+            Name = trimmedName,
             ServiceType = request.ServiceType,
             Purpose = request.Purpose,
             Priority = request.Priority,
@@ -171,8 +176,8 @@ public class AiServicesController : BaseApiController
             CreatedAt = DateTime.UtcNow
         };
 
-        await _unitOfWork.AiServiceConfigs.AddAsync(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.AiServiceConfigs.AddAsync(entity, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("创建AI服务配置: {Id} {Name} {Type}", entity.Id, entity.Name, entity.ServiceType);
         return Success(ToDto(entity), "创建成功");
@@ -185,9 +190,12 @@ public class AiServicesController : BaseApiController
     [AuditOperation("update", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> Update(int id, [FromBody] UpdateAiServiceRequest request)
+    public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> Update(
+        int id,
+        [FromBody] UpdateAiServiceRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
+        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken);
         if (entity == null)
             return Error<AiServiceConfigDto>(400, "配置不存在");
         if (entity.IsLegacyDualPurposeConfiguration())
@@ -208,7 +216,9 @@ public class AiServicesController : BaseApiController
         var newName = request.Name.Trim();
         if (!string.Equals(entity.Name, newName, StringComparison.OrdinalIgnoreCase))
         {
-            var exists = await _unitOfWork.AiServiceConfigs.GetByNameAsync(newName);
+            var exists = await _unitOfWork.AiServiceConfigs
+                .Query()
+                .SingleOrDefaultAsync(config => config.Name == newName, cancellationToken);
             if (exists != null && exists.Id != id)
                 return Error<AiServiceConfigDto>(400, "名称已存在");
         }
@@ -238,7 +248,7 @@ public class AiServicesController : BaseApiController
         entity.UpdatedAt = DateTime.UtcNow;
         _unitOfWork.AiServiceConfigs.Update(entity);
 
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Success(ToDto(entity), "更新成功");
     }
@@ -250,9 +260,12 @@ public class AiServicesController : BaseApiController
     [AuditOperation("update", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> SetDisabled(int id, [FromBody] SetAiServiceDisabledRequest request)
+    public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> SetDisabled(
+        int id,
+        [FromBody] SetAiServiceDisabledRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
+        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken);
         if (entity == null)
             return Error<AiServiceConfigDto>(400, "配置不存在");
 
@@ -260,7 +273,7 @@ public class AiServicesController : BaseApiController
         entity.UpdatedAt = DateTime.UtcNow;
         _unitOfWork.AiServiceConfigs.Update(entity);
 
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Success(ToDto(entity), request.IsDisabled ? "已禁用" : "已启用");
     }
@@ -272,14 +285,16 @@ public class AiServicesController : BaseApiController
     [AuditOperation("delete", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse>> Delete(int id)
+    public async Task<ActionResult<ApiResponse>> Delete(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
+        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken);
         if (entity == null)
             return Error(400, "配置不存在");
 
         _unitOfWork.AiServiceConfigs.Remove(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Success("删除成功");
     }
@@ -292,9 +307,10 @@ public class AiServicesController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<AiServiceTestResultDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<AiServiceTestResultDto>>> TestConnection(
         int id,
-        [FromQuery] AiServiceConnectionTestMode mode = AiServiceConnectionTestMode.Full)
+        [FromQuery] AiServiceConnectionTestMode mode = AiServiceConnectionTestMode.Full,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id);
+        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken);
         if (entity == null)
             return Error<AiServiceTestResultDto>(400, "配置不存在");
         if (entity.IsDisabled)
@@ -326,7 +342,7 @@ public class AiServicesController : BaseApiController
                 var serviceSw = Stopwatch.StartNew();
                 try
                 {
-                    using var timeoutCts = CreateTestTimeoutTokenSource(_llmTestTimeout);
+                    using var timeoutCts = CreateTestTimeoutTokenSource(cancellationToken, _llmTestTimeout);
                     if (!isFullMode)
                     {
                         ollamaModels ??= await FetchRemoteModelsAsync(entity, timeoutCts.Token);
@@ -362,7 +378,7 @@ public class AiServicesController : BaseApiController
                         messages.Add("LLM: OK");
                     }
                 }
-                catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
                     success = false;
                     messages.Add(BuildTimeoutMessage("LLM", _llmTestTimeoutSeconds, isFullMode));
@@ -391,7 +407,7 @@ public class AiServicesController : BaseApiController
                 var serviceSw = Stopwatch.StartNew();
                 try
                 {
-                    using var timeoutCts = CreateTestTimeoutTokenSource(_embeddingTestTimeout);
+                    using var timeoutCts = CreateTestTimeoutTokenSource(cancellationToken, _embeddingTestTimeout);
                     if (!isFullMode)
                     {
                         ollamaModels ??= await FetchRemoteModelsAsync(entity, timeoutCts.Token);
@@ -425,7 +441,7 @@ public class AiServicesController : BaseApiController
                         messages.Add($"Embedding: OK (dim={vector.ToArray().Length})");
                     }
                 }
-                catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
                     success = false;
                     messages.Add(BuildTimeoutMessage("Embedding", _embeddingTestTimeoutSeconds, isFullMode));
@@ -462,7 +478,7 @@ public class AiServicesController : BaseApiController
                 Message = messages.Count > 0 ? string.Join("; ", messages) : "未执行测试"
             });
         }
-        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -486,9 +502,9 @@ public class AiServicesController : BaseApiController
         }
     }
 
-    private CancellationTokenSource CreateTestTimeoutTokenSource(TimeSpan timeout)
+    private static CancellationTokenSource CreateTestTimeoutTokenSource(CancellationToken cancellationToken, TimeSpan timeout)
     {
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(timeout);
         return cts;
     }

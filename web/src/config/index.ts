@@ -1,34 +1,43 @@
 import axios from "axios";
 import type { App } from "vue";
 
-let config: object = {};
+type ConfigValue = PlatformConfigs | PlatformConfigs[keyof PlatformConfigs] | null;
+
+let config: PlatformConfigs = {};
 const { VITE_PUBLIC_PATH } = import.meta.env;
 
-const setConfig = (cfg?: unknown) => {
+const setConfig = (cfg?: PlatformConfigs) => {
   config = Object.assign(config, cfg);
 };
 
-const getConfig = (key?: string): PlatformConfigs => {
+function getConfig(): PlatformConfigs;
+function getConfig(key: string): ConfigValue;
+function getConfig(key?: string): ConfigValue {
   if (typeof key === "string") {
     const arr = key.split(".");
     if (arr && arr.length) {
-      let data = config;
+      let data: unknown = config;
       arr.forEach(v => {
-        if (data && typeof data[v] !== "undefined") {
-          data = data[v];
+        if (
+          data &&
+          typeof data === "object" &&
+          v in data &&
+          typeof (data as Record<string, unknown>)[v] !== "undefined"
+        ) {
+          data = (data as Record<string, unknown>)[v];
         } else {
           data = null;
         }
       });
-      return data;
+      return data as ConfigValue;
     }
   }
   return config;
-};
+}
 
 /** 获取项目动态全局配置 */
-export const getPlatformConfig = async (app: App): Promise<undefined> => {
-  app.config.globalProperties.$config = getConfig();
+export const getPlatformConfig = async (app: App): Promise<PlatformConfigs> => {
+  app.config.globalProperties.$config = getConfig() as PlatformConfigs;
   return axios({
     method: "get",
     url: `${VITE_PUBLIC_PATH}platform-config.json`

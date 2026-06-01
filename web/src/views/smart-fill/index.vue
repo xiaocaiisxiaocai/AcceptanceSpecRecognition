@@ -122,7 +122,7 @@ const allPreviewItems = computed(() =>
   batchPreviewResults.value.flatMap((t) => t.items)
 );
 
-const getCurrentScope = () => matchConfigRef.value?.getScope() ?? matchScope.value;
+const getCurrentScope = () => matchConfigRef.value?.getScope?.() ?? matchScope.value;
 
 const getMatchConfigServiceStatus = () =>
   matchConfigRef.value?.getServiceStatus?.() ?? {
@@ -311,7 +311,7 @@ const handleShowDetail = (item: MatchPreviewItem) => {
 const handleSelect = (
   _tableIndex: number,
   _rowIndex: number,
-  _spec: MatchResult | null
+  _spec: MatchResult | null | undefined
 ) => {
   // 可用于实时更新统计
 };

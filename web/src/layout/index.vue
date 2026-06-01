@@ -61,7 +61,7 @@ const set: setType = reactive({
   }),
 
   hideTabs: computed(() => {
-    return $storage?.configure.hideTabs;
+    return $storage?.configure.hideTabs ?? false;
   })
 });
 

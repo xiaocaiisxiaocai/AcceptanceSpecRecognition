@@ -1,4 +1,9 @@
-import type { RouteRecordName } from "vue-router";
+import type {
+  LocationQueryRaw,
+  RouteLocationRaw,
+  RouteParamsRaw,
+  RouteRecordName
+} from "vue-router";
 
 export type cacheType = {
   mode: string;
@@ -24,10 +29,12 @@ export type appType = {
 
 export type multiType = {
   path: string;
-  name: string;
+  name?: RouteRecordName;
   meta: any;
-  query?: object;
-  params?: object;
+  query?: LocationQueryRaw;
+  params?: RouteParamsRaw;
+  children?: multiType[];
+  parentId?: number | string;
 };
 
 export type setType = {
@@ -37,11 +44,22 @@ export type setType = {
 };
 
 export type userType = {
-  avatar?: string;
-  username?: string;
-  nickname?: string;
-  roleCode?: string;
-  permissions?: Array<string>;
-  isRemembered?: boolean;
-  loginDay?: number;
+  avatar: string;
+  username: string;
+  nickname: string;
+  roleCode: string;
+  permissions: Array<string>;
+  isRemembered: boolean;
+  loginDay: number;
 };
+
+export type LoginRequestPayload = {
+  username: string;
+  password: string;
+};
+
+export type RefreshTokenPayload = {
+  refreshToken: string;
+};
+
+export type LoginRouteTarget = RouteLocationRaw;

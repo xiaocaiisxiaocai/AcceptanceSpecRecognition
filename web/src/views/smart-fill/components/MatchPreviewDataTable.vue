@@ -51,7 +51,7 @@ defineEmits<{
 <template>
   <el-table
     :data="items"
-    v-loading="loading"
+    v-loading="loading ?? false"
     stripe
     border
     max-height="500"

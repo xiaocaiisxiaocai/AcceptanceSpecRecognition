@@ -94,12 +94,12 @@ type Popconfirm = {
 };
 
 type BtnClickDialog = {
-  options?: DialogOptions;
-  index?: number;
+  options: DialogOptions;
+  index: number;
 };
 type BtnClickButton = {
-  btn?: ButtonProps;
-  index?: number;
+  btn: ButtonProps;
+  index: number;
 };
 /** https://element-plus.org/zh-CN/component/button.html#button-attributes */
 type ButtonProps = {

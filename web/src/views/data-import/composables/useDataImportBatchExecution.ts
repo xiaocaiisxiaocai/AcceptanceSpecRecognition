@@ -55,6 +55,18 @@ type UseDataImportBatchExecutionOptions = {
   syncDifferenceDecisionMap: (items: ImportPendingDifferenceWithTable[]) => void;
 };
 
+type CompleteExcelImportMapping = Pick<
+  ExcelImportDataRequest,
+  | "headerRowStart"
+  | "headerRowCount"
+  | "dataStartRow"
+  | "dataEndRow"
+  | "projectColumn"
+  | "specificationColumn"
+  | "acceptanceColumn"
+  | "remarkColumn"
+>;
+
 export function useDataImportBatchExecution(options: UseDataImportBatchExecutionOptions) {
   const buildDuplicateCheckOptions = (): ImportDuplicateCheckOptions => {
     const config = options.importDuplicateAiConfig.value;
@@ -154,16 +166,39 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
       );
 
       const cleanupSourceFile = !hasPendingEncountered && idx === configs.length - 1;
+      const fileId = options.uploadedFile.value?.fileId;
+      const customerId = options.selectedCustomerId.value;
+      if (fileId === undefined || customerId === undefined) {
+        throw new Error("导入上下文已失效，请重新选择文件和目标客户");
+      }
+
       const { confirmed, partial, skipped } = includeDifferenceDecisions
         ? buildDifferenceKeysByTable(cfg.tableIndex)
         : { confirmed: [] as string[], partial: [] as string[], skipped: [] as string[] };
       const excludedRowIndexes = options.getExcludedRowIndexes(cfg.tableIndex);
+      const normalizedExcelMapping = normalizeExcelMappingByTable(
+        cfg.tableInfo,
+        cfg.excelMapping ?? defaultExcelMapping()
+      );
+      if (
+        options.isExcelFile.value &&
+        (normalizedExcelMapping.projectColumn === undefined ||
+          normalizedExcelMapping.specificationColumn === undefined)
+      ) {
+        throw new Error(`工作表 ${cfg.tableIndex + 1} 缺少项目列或规格列映射`);
+      }
+      const excelImportMapping: CompleteExcelImportMapping = {
+        ...normalizedExcelMapping,
+        projectColumn: normalizedExcelMapping.projectColumn ?? 0,
+        specificationColumn: normalizedExcelMapping.specificationColumn ?? 0
+      };
 
       const res = options.isExcelFile.value
         ? await importExcelData({
-            fileId: options.uploadedFile.value!.fileId,
+            ...excelImportMapping,
+            fileId,
             sheetIndex: cfg.tableIndex,
-            customerId: options.selectedCustomerId.value!,
+            customerId,
             processId: options.selectedProcessId.value || undefined,
             machineModelId: options.selectedMachineModelId.value || undefined,
             cleanupSourceFile,
@@ -172,16 +207,12 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
             partiallyConfirmedDifferenceKeys: partial,
             skippedDifferenceKeys: skipped,
             excludedRowIndexes,
-            duplicateCheckOptions,
-            ...(normalizeExcelMappingByTable(
-              cfg.tableInfo,
-              cfg.excelMapping ?? defaultExcelMapping()
-            ) as ExcelImportDataRequest)
+            duplicateCheckOptions
           })
         : await importData({
-            fileId: options.uploadedFile.value!.fileId,
+            fileId,
             tableIndex: cfg.tableIndex,
-            customerId: options.selectedCustomerId.value!,
+            customerId,
             processId: options.selectedProcessId.value || undefined,
             machineModelId: options.selectedMachineModelId.value || undefined,
             cleanupSourceFile,

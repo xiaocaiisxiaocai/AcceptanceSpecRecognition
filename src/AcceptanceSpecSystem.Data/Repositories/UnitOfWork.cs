@@ -115,9 +115,9 @@ public class UnitOfWork : IUnitOfWork
     /// 保存所有更改（异步）。
     /// </summary>
     /// <returns>受影响的行数</returns>
-    public async Task<int> SaveChangesAsync()
+    public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        return await _context.SaveChangesAsync();
+        return await _context.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>

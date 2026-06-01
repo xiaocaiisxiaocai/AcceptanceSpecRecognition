@@ -1,7 +1,8 @@
 import { useEventListener } from "@vueuse/core";
 
 /** 是否为`img`标签 */
-function isImgElement(element) {
+function isImgElement(element: EventTarget | null) {
+  if (!(element instanceof Element)) return false;
   return typeof HTMLImageElement !== "undefined"
     ? element instanceof HTMLImageElement
     : element.tagName.toLowerCase() === "img";

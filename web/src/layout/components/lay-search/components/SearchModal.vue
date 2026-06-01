@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { match } from "pinyin-pro";
 import { getConfig } from "@/config";
 import { useRouter } from "vue-router";

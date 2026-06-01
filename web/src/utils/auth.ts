@@ -105,7 +105,18 @@ export function setToken(data: DataInfo<Date>) {
       : {}
   );
 
-  function setUserKey({ avatar, username, nickname, roleCode, permissions }) {
+  function setUserKey({
+    avatar,
+    username,
+    nickname,
+    roleCode,
+    permissions
+  }: Required<
+    Pick<
+      DataInfo<number>,
+      "avatar" | "username" | "nickname" | "roleCode" | "permissions"
+    >
+  >) {
     useUserStoreHook().SET_AVATAR(avatar);
     useUserStoreHook().SET_USERNAME(username);
     useUserStoreHook().SET_NICKNAME(nickname);

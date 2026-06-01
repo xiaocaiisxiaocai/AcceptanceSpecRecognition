@@ -272,7 +272,10 @@ export function useSmartFillExecution({
 
     const editedItems = batchPreviewTabsRef.value
       ?.getAllEditedBackfillItems()
-      .map(item => ({ ...item, selected: true })) ?? [];
+      .map((item: Omit<SmartFillBackfillCandidate, "selected">) => ({
+        ...item,
+        selected: true
+      })) ?? [];
     if (editedItems.length > 0) {
       openBackfillDialog(executeRequest, editedItems);
       return;

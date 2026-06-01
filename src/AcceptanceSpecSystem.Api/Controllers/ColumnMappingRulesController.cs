@@ -62,7 +62,9 @@ public class ColumnMappingRulesController : BaseApiController
     [HttpPost]
     [AuditOperation("create", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse<ColumnMappingRuleDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<ColumnMappingRuleDto>>> Create([FromBody] CreateColumnMappingRuleRequest request)
+    public async Task<ActionResult<ApiResponse<ColumnMappingRuleDto>>> Create(
+        [FromBody] CreateColumnMappingRuleRequest request,
+        CancellationToken cancellationToken = default)
     {
         var pattern = request.Pattern?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(pattern))
@@ -86,8 +88,8 @@ public class ColumnMappingRulesController : BaseApiController
             CreatedAt = DateTime.UtcNow
         };
 
-        await _unitOfWork.ColumnMappingRules.AddAsync(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.ColumnMappingRules.AddAsync(entity, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Success(ToDto(entity), "创建成功");
     }
@@ -97,9 +99,10 @@ public class ColumnMappingRulesController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<ColumnMappingRuleDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<ColumnMappingRuleDto>>> Update(
         int id,
-        [FromBody] UpdateColumnMappingRuleRequest request)
+        [FromBody] UpdateColumnMappingRuleRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.ColumnMappingRules.GetByIdAsync(id);
+        var entity = await _unitOfWork.ColumnMappingRules.GetByIdAsync(id, cancellationToken);
         if (entity == null)
         {
             return Error<ColumnMappingRuleDto>(400, "规则不存在");
@@ -125,7 +128,7 @@ public class ColumnMappingRulesController : BaseApiController
         entity.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.ColumnMappingRules.Update(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Success(ToDto(entity), "更新成功");
     }
@@ -133,16 +136,18 @@ public class ColumnMappingRulesController : BaseApiController
     [HttpDelete("{id:int}")]
     [AuditOperation("delete", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse>> Delete(int id)
+    public async Task<ActionResult<ApiResponse>> Delete(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.ColumnMappingRules.GetByIdAsync(id);
+        var entity = await _unitOfWork.ColumnMappingRules.GetByIdAsync(id, cancellationToken);
         if (entity == null)
         {
             return Error(400, "规则不存在");
         }
 
         _unitOfWork.ColumnMappingRules.Remove(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Success("删除成功");
     }
 

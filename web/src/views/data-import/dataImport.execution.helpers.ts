@@ -29,7 +29,7 @@ export const mergeImportAggregates = (
     merged.totalCount += aggregate.totalCount;
     merged.requiresConfirmation =
       merged.requiresConfirmation || !!aggregate.requiresConfirmation;
-    merged.pendingCount += aggregate.pendingCount || 0;
+    merged.pendingCount = (merged.pendingCount ?? 0) + (aggregate.pendingCount ?? 0);
     merged.errors.push(...(aggregate.errors || []));
     merged.skippedRows.push(...(aggregate.skippedRows || []));
     merged.pendingDifferences.push(...(aggregate.pendingDifferences || []));

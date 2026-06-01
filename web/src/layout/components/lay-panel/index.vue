@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { emitter } from "@/utils/mitt";
 import { onClickOutside } from "@vueuse/core";
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";

@@ -36,13 +36,14 @@ public class ProcessesController : BaseApiController
     public async Task<ActionResult<ApiResponse<PagedData<ProcessDto>>>> GetProcesses(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] string? keyword = null)
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<PagedData<ProcessDto>>(401, "会话缺少用户上下文");
 
-        var data = await _processAppService.GetPagedAsync(scope.ToAccessContext(), page, pageSize, keyword);
+        var data = await _processAppService.GetPagedAsync(scope.ToAccessContext(), page, pageSize, keyword, cancellationToken);
         return Success(data.ToDto());
     }
 
@@ -52,13 +53,15 @@ public class ProcessesController : BaseApiController
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<ProcessDto>>> GetProcess(int id)
+    public async Task<ActionResult<ApiResponse<ProcessDto>>> GetProcess(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<ProcessDto>(401, "会话缺少用户上下文");
 
-        var process = await _processAppService.GetByIdAsync(scope.ToAccessContext(), id);
+        var process = await _processAppService.GetByIdAsync(scope.ToAccessContext(), id, cancellationToken);
         if (process == null)
             return NotFoundResult<ProcessDto>("制程不存在");
 
@@ -72,11 +75,13 @@ public class ProcessesController : BaseApiController
     [AuditOperation("create", "process")]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<ProcessDto>>> CreateProcess([FromBody] CreateProcessRequest request)
+    public async Task<ActionResult<ApiResponse<ProcessDto>>> CreateProcess(
+        [FromBody] CreateProcessRequest request,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var process = await _processAppService.CreateAsync(request.Name);
+            var process = await _processAppService.CreateAsync(request.Name, cancellationToken);
             return Success(process.ToDto(), "创建制程成功");
         }
         catch (ApplicationServiceException ex)
@@ -93,7 +98,10 @@ public class ProcessesController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<ProcessDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<ProcessDto>>> UpdateProcess(int id, [FromBody] UpdateProcessRequest request)
+    public async Task<ActionResult<ApiResponse<ProcessDto>>> UpdateProcess(
+        int id,
+        [FromBody] UpdateProcessRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -101,7 +109,7 @@ public class ProcessesController : BaseApiController
 
         try
         {
-            var process = await _processAppService.UpdateAsync(scope.ToAccessContext(), id, request.Name);
+            var process = await _processAppService.UpdateAsync(scope.ToAccessContext(), id, request.Name, cancellationToken);
             if (process == null)
                 return NotFoundResult<ProcessDto>("制程不存在");
 
@@ -120,9 +128,11 @@ public class ProcessesController : BaseApiController
     [AuditOperation("delete", "process")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse>> DeleteProcess(int id)
+    public async Task<ActionResult<ApiResponse>> DeleteProcess(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var deleted = await _processAppService.DeleteAsync(id);
+        var deleted = await _processAppService.DeleteAsync(id, cancellationToken);
         if (!deleted)
             return NotFound(ApiResponse.Error(404, "制程不存在"));
 
@@ -139,13 +149,14 @@ public class ProcessesController : BaseApiController
         int id,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] string? keyword = null)
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
 
-        var data = await _processAppService.GetSpecsAsync(scope.ToAccessContext(), id, page, pageSize, keyword);
+        var data = await _processAppService.GetSpecsAsync(scope.ToAccessContext(), id, page, pageSize, keyword, cancellationToken);
         if (data == null)
             return NotFoundResult<PagedData<AcceptanceSpecDto>>("制程不存在");
 

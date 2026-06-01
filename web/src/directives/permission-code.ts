@@ -44,13 +44,15 @@ export function createPermissionDirective(name: string): Directive {
 
       permissionEl.__permissionCodeScope__?.stop();
       const scope = effectScope();
-      scope.run(() => {
+      const stopScope = scope.run(() => {
         watch(
           () => useUserStoreHook().permissions.slice(),
           () => applyPermissionState(permissionEl)
         );
       });
-      permissionEl.__permissionCodeScope__ = scope;
+      if (stopScope !== undefined) {
+        permissionEl.__permissionCodeScope__ = scope;
+      }
     },
     updated(el: HTMLElement, binding: DirectiveBinding<PermissionValue>) {
       const permissionEl = el as PermissionDirectiveElement;

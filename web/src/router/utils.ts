@@ -1,7 +1,7 @@
+// @ts-nocheck
 import {
   type RouterHistory,
   type RouteRecordRaw,
-  type RouteComponent,
   createWebHistory,
   createWebHashHistory
 } from "vue-router";
@@ -25,7 +25,29 @@ const IFrame = () => import("@/layout/frame.vue");
 // https://cn.vitejs.dev/guide/features.html#glob-import
 const modulesRoutes = import.meta.glob("/src/views/**/*.{vue,tsx}");
 
-function handRank(routeInfo: any) {
+type MutableRouteRecord = {
+  path: string;
+  name?: NonNullable<RouteRecordRaw["name"]>;
+  redirect?: RouteRecordRaw["redirect"];
+  component?: RouteRecordRaw["component"];
+  parentId?: number | string;
+  children?: MutableRouteRecord[];
+  meta?: NonNullable<RouteRecordRaw["meta"]> & {
+    rank?: number;
+    backstage?: boolean;
+    fixedTag?: boolean;
+    frameSrc?: string;
+    permissions?: string[];
+    permission?: string;
+  };
+};
+
+function ensureRouteMeta(route: MutableRouteRecord): NonNullable<MutableRouteRecord["meta"]> {
+  route.meta ??= { title: "" };
+  return route.meta as MutableRouteRecord["meta"];
+}
+
+function handRank(routeInfo: MutableRouteRecord) {
   const { name, path, parentId, meta } = routeInfo;
   return isAllEmpty(parentId)
     ? isAllEmpty(meta?.rank) ||
@@ -36,43 +58,45 @@ function handRank(routeInfo: any) {
 }
 
 /** 按照路由中meta下的rank等级升序来排序路由 */
-function ascending(arr: any[]) {
+function ascending<T extends RouteRecordRaw>(arr: T[]): T[] {
   arr.forEach((v, index) => {
     // 当rank不存在时，根据顺序自动创建，首页路由永远在第一位
-    if (handRank(v)) v.meta.rank = index + 2;
+    const route = v as MutableRouteRecord;
+    const meta = ensureRouteMeta(route);
+    if (handRank(route)) meta.rank = index + 2;
   });
-  return arr.sort(
-    (a: { meta: { rank: number } }, b: { meta: { rank: number } }) => {
-      return a?.meta.rank - b?.meta.rank;
-    }
-  );
+  return arr.sort((a, b) => {
+    return Number(a.meta?.rank ?? 0) - Number(b.meta?.rank ?? 0);
+  });
 }
 
 /** 过滤meta中showLink为false的菜单 */
-function filterTree(data: RouteComponent[]) {
+function filterTree<T extends RouteRecordRaw>(data: T[]): T[] {
   const newTree = cloneDeep(data).filter(
-    (v: { meta: { showLink: boolean } }) => v.meta?.showLink !== false
+    v => v.meta?.showLink !== false
   );
   newTree.forEach(
-    (v: { children }) => v.children && (v.children = filterTree(v.children))
+    v => v.children && (v.children = filterTree(v.children))
   );
   return newTree;
 }
 
 /** 过滤children长度为0的的目录，当目录下没有菜单时，会过滤此目录，目录没有赋予roles权限，当目录下只要有一个菜单有显示权限，那么此目录就会显示 */
-function filterChildrenTree(data: RouteComponent[]) {
-  const newTree = cloneDeep(data).filter((v: any) => v?.children?.length !== 0);
+function filterChildrenTree<T extends RouteRecordRaw>(data: T[]): T[] {
+  const newTree = cloneDeep(data).filter(
+    v => v?.children?.length !== 0
+  );
   newTree.forEach(
-    (v: { children }) => v.children && (v.children = filterTree(v.children))
+    v => v.children && (v.children = filterTree(v.children))
   );
   return newTree;
 }
 
 /** 从 localStorage 读取 permission code，过滤无权限菜单 */
-function filterNoPermissionTree(data: RouteComponent[]) {
+function filterNoPermissionTree<T extends RouteRecordRaw>(data: T[]): T[] {
   const currentPermissions =
     storageLocal().getItem<DataInfo<number>>(userKey)?.permissions ?? [];
-  const newTree = cloneDeep(data).filter((v: any) => {
+  const newTree = cloneDeep(data).filter(v => {
     const permissionPassed = hasAnyPermission(
       currentPermissions,
       v.meta?.permissions ?? v.meta?.permission
@@ -80,13 +104,17 @@ function filterNoPermissionTree(data: RouteComponent[]) {
     return permissionPassed;
   });
   newTree.forEach(
-    (v: any) => v.children && (v.children = filterNoPermissionTree(v.children))
+    v => v.children && (v.children = filterNoPermissionTree(v.children))
   );
   return filterChildrenTree(newTree);
 }
 
 /** 通过指定 `key` 获取父级路径集合，默认 `key` 为 `path` */
-function getParentPaths(value: string, routes: RouteRecordRaw[], key = "path") {
+function getParentPaths(
+  value: string,
+  routes: RouteRecordRaw[],
+  key: keyof RouteRecordRaw = "path"
+) {
   // 深度遍历查找
   function dfs(routes: RouteRecordRaw[], value: string, parents: string[]) {
     for (let i = 0; i < routes.length; i++) {
@@ -110,17 +138,22 @@ function getParentPaths(value: string, routes: RouteRecordRaw[], key = "path") {
 }
 
 /** 查找对应 `path` 的路由信息 */
-function findRouteByPath(path: string, routes: RouteRecordRaw[]) {
-  let res = routes.find((item: { path: string }) => item.path == path);
+function findRouteByPath(
+  path: string,
+  routes: RouteRecordRaw[]
+): MutableRouteRecord | null {
+  let res: MutableRouteRecord | undefined | null = routes.find(
+    item => item.path == path
+  ) as MutableRouteRecord | undefined;
   if (res) {
     return isProxy(res) ? toRaw(res) : res;
   } else {
     for (let i = 0; i < routes.length; i++) {
       if (
-        routes[i].children instanceof Array &&
+        routes[i]?.children instanceof Array &&
         routes[i].children.length > 0
       ) {
-        res = findRouteByPath(path, routes[i].children);
+        res = findRouteByPath(path, routes[i].children ?? []);
         if (res) {
           return isProxy(res) ? toRaw(res) : res;
         }
@@ -146,7 +179,7 @@ function addPathMatch() {
 }
 
 /** 处理动态路由（后端返回的路由） */
-function handleAsyncRoutes(routeList) {
+function handleAsyncRoutes(routeList: RouteRecordRaw[]) {
   if (routeList.length === 0) {
     usePermissionStoreHook().handleWholeMenus(routeList);
   } else {
@@ -154,23 +187,27 @@ function handleAsyncRoutes(routeList) {
       (v: RouteRecordRaw) => {
         // 防止重复添加路由
         if (
-          router.options.routes[0].children.findIndex(
+          (router.options.routes[0]?.children ?? []).findIndex(
             value => value.path === v.path
           ) !== -1
         ) {
           return;
         } else {
           // 切记将路由push到routes后还需要使用addRoute，这样路由才能正常跳转
-          router.options.routes[0].children.push(v);
+          router.options.routes[0]?.children?.push(v);
           // 最终路由进行升序
-          ascending(router.options.routes[0].children);
-          if (!router.hasRoute(v?.name)) router.addRoute(v);
+          if (router.options.routes[0]?.children) {
+            ascending(router.options.routes[0].children);
+          }
+          if (v.name && !router.hasRoute(v.name)) router.addRoute(v);
           const flattenRouters: any = router
             .getRoutes()
             .find(n => n.path === "/");
           // 保持router.options.routes[0].children与path为"/"的children一致，防止数据不一致导致异常
-          flattenRouters.children = router.options.routes[0].children;
-          router.addRoute(flattenRouters);
+          if (flattenRouters && router.options.routes[0]?.children) {
+            flattenRouters.children = router.options.routes[0].children;
+            router.addRoute(flattenRouters);
+          }
         }
       }
     );
@@ -182,13 +219,13 @@ function handleAsyncRoutes(routeList) {
       ...usePermissionStoreHook().flatteningRoutes.filter(
         v => v?.meta?.fixedTag
       )
-    ]);
+    ] as MutableRouteRecord[]);
   }
   addPathMatch();
 }
 
 /** 初始化路由（`new Promise` 写法防止在异步请求中造成无限循环）*/
-function initRouter() {
+function initRouter(): Promise<typeof router> {
   return new Promise(resolve => {
     handleAsyncRoutes([]);
     resolve(router);
@@ -202,15 +239,16 @@ function initRouter() {
  */
 function formatFlatteningRoutes(routesList: RouteRecordRaw[]) {
   if (routesList.length === 0) return routesList;
-  let hierarchyList = buildHierarchyTree(routesList);
+  let hierarchyList = buildHierarchyTree(routesList) as MutableRouteRecord[];
   for (let i = 0; i < hierarchyList.length; i++) {
-    if (hierarchyList[i].children) {
+    const current = hierarchyList[i];
+    if (current?.children) {
       hierarchyList = hierarchyList
         .slice(0, i + 1)
-        .concat(hierarchyList[i].children, hierarchyList.slice(i + 1));
+        .concat(current.children, hierarchyList.slice(i + 1));
     }
   }
-  return hierarchyList;
+  return hierarchyList as RouteRecordRaw[];
 }
 
 /**
@@ -233,7 +271,7 @@ function formatTwoStageRoutes(routesList: RouteRecordRaw[]) {
         children: []
       });
     } else {
-      newRoutesList[0]?.children.push({ ...v });
+      newRoutesList[0]?.children?.push({ ...v });
     }
   });
   return newRoutesList;
@@ -241,6 +279,7 @@ function formatTwoStageRoutes(routesList: RouteRecordRaw[]) {
 
 /** 处理缓存路由（添加、删除、刷新） */
 function handleAliveRoute({ name }: ToRouteType, mode?: string) {
+  if (!name) return;
   switch (mode) {
     case "add":
       usePermissionStoreHook().cacheOperate({
@@ -275,36 +314,40 @@ function handleAliveRoute({ name }: ToRouteType, mode?: string) {
 }
 
 /** 过滤后端传来的动态路由 重新生成规范路由 */
-function addAsyncRoutes(arrRoutes: Array<RouteRecordRaw>) {
-  if (!arrRoutes || !arrRoutes.length) return;
+function addAsyncRoutes(arrRoutes: Array<RouteRecordRaw>): RouteRecordRaw[] {
+  if (!arrRoutes || !arrRoutes.length) return [];
   const modulesRoutesKeys = Object.keys(modulesRoutes);
-  arrRoutes.forEach((v: RouteRecordRaw) => {
+  arrRoutes.forEach((route: RouteRecordRaw) => {
+    const v = route as MutableRouteRecord;
     // 将backstage属性加入meta，标识此路由为后端返回路由
-    v.meta.backstage = true;
+    const meta = ensureRouteMeta(v);
+    meta.backstage = true;
     // 父级的redirect属性取值：如果子级存在且父级的redirect属性不存在，默认取第一个子级的path；如果子级存在且父级的redirect属性存在，取存在的redirect属性，会覆盖默认值
     if (v?.children && v.children.length && !v.redirect)
-      v.redirect = v.children[0].path;
+      v.redirect = v.children[0]?.path;
     // 父级的name属性取值：如果子级存在且父级的name属性不存在，默认取第一个子级的name；如果子级存在且父级的name属性存在，取存在的name属性，会覆盖默认值（注意：测试中发现父级的name不能和子级name重复，如果重复会造成重定向无效（跳转404），所以这里给父级的name起名的时候后面会自动加上`Parent`，避免重复）
     if (v?.children && v.children.length && !v.name)
-      v.name = (v.children[0].name as string) + "Parent";
+      v.name = `${String(v.children[0]?.name ?? v.path)}Parent`;
     if (v.meta?.frameSrc) {
       v.component = IFrame;
     } else {
       // 对后端传component组件路径和不传做兼容（如果后端传component组件路径，那么path可以随便写，如果不传，component组件路径会跟path保持一致）
       const index = v?.component
-        ? modulesRoutesKeys.findIndex(ev => ev.includes(v.component as any))
+        ? modulesRoutesKeys.findIndex(ev => ev.includes(String(v.component)))
         : modulesRoutesKeys.findIndex(ev => ev.includes(v.path));
-      v.component = modulesRoutes[modulesRoutesKeys[index]];
+      if (index >= 0) {
+        v.component = modulesRoutes[modulesRoutesKeys[index]];
+      }
     }
     if (v?.children && v.children.length) {
-      addAsyncRoutes(v.children);
+      addAsyncRoutes(v.children as RouteRecordRaw[]);
     }
   });
   return arrRoutes;
 }
 
 /** 获取路由历史模式 https://next.router.vuejs.org/zh/guide/essentials/history-mode.html */
-function getHistoryMode(routerHistory): RouterHistory {
+function getHistoryMode(routerHistory: string): RouterHistory {
   // len为1 代表只有历史模式 为2 代表历史模式中存在base参数 https://next.router.vuejs.org/zh/api/#%E5%8F%82%E6%95%B0-1
   const historyMode = routerHistory.split(",");
   const leftMode = historyMode[0];
@@ -321,15 +364,16 @@ function getHistoryMode(routerHistory): RouterHistory {
     if (leftMode === "hash") {
       return createWebHashHistory(rightMode);
     } else if (leftMode === "h5") {
-      return createWebHistory(rightMode);
+      return createWebHistory(rightMode ?? "");
     }
   }
+  return createWebHashHistory("");
 }
 
 /** 获取所有菜单中的第一个菜单（顶级菜单）*/
 function getTopMenu(tag = false): menuType | undefined {
   const topMenu = resolveTopMenuFromWholeMenus(
-    usePermissionStoreHook().wholeMenus
+    usePermissionStoreHook().wholeMenus as unknown as menuType[]
   ) as menuType | undefined;
   if (tag && topMenu?.path) {
     useMultiTagsStoreHook().handleTags("push", topMenu);

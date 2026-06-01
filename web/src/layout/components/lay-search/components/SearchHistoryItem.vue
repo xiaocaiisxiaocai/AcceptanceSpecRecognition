@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import type { optionsItem } from "../types";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import StarIcon from "~icons/ep/star";

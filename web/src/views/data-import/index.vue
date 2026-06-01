@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
 import DataImportConfirmPanel from "./components/DataImportConfirmPanel.vue";
@@ -103,6 +104,13 @@ const {
   handleTabRemove,
   restoreSelectedTablesForMapping
 } = useDataImportPage();
+
+const activeTableTabModel = computed({
+  get: () => activeTableIndex.value ?? undefined,
+  set: value => {
+    activeTableIndex.value = typeof value === "number" ? value : Number(value);
+  }
+});
 </script>
 
 <template>
@@ -188,7 +196,7 @@ const {
 
         <el-tabs
           v-if="uploadedFile && tableConfigs.length > 0"
-          v-model="activeTableIndex"
+          v-model="activeTableTabModel"
           type="border-card"
           :closable="tableConfigs.length > 1"
           @tab-remove="handleTabRemove"
@@ -235,7 +243,7 @@ const {
                 :model-value="cfg.excelMapping"
                 :used-range-start-row="cfg.tableInfo?.usedRangeStartRow"
                 :used-range-end-row="
-                  cfg.tableInfo
+                  cfg.tableInfo?.usedRangeStartRow !== undefined
                     ? cfg.tableInfo.usedRangeStartRow + cfg.tableInfo.rowCount - 1
                     : undefined
                 "

@@ -7,6 +7,8 @@ import { storageLocal, isAllEmpty } from "@pureadmin/utils";
 import { findRouteByPath, getParentPaths } from "@/router/utils";
 import { usePermissionStoreHook } from "@/store/modules/permission";
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
+import type { RouteRecordRaw } from "vue-router";
+import type { menuType } from "@/layout/types";
 import LaySidebarLogo from "../lay-sidebar/components/SidebarLogo.vue";
 import LaySidebarItem from "../lay-sidebar/components/SidebarItem.vue";
 import LaySidebarLeftCollapse from "../lay-sidebar/components/SidebarLeftCollapse.vue";
@@ -29,12 +31,12 @@ const {
   toggleSideBar
 } = useNav();
 
-const subMenuData = ref([]);
+const subMenuData = ref<RouteRecordRaw[]>([]);
 
-const menuData = computed(() => {
+const menuData = computed<menuType[]>(() => {
   return pureApp.layout === "mix" && device.value !== "mobile"
-    ? subMenuData.value
-    : usePermissionStoreHook().wholeMenus;
+    ? (subMenuData.value as unknown as menuType[])
+    : (usePermissionStoreHook().wholeMenus as unknown as menuType[]);
 });
 
 const loading = computed(() =>
@@ -52,15 +54,15 @@ function getSubMenuData() {
   // path的上级路由组成的数组
   const parentPathArr = getParentPaths(
     path,
-    usePermissionStoreHook().wholeMenus
+    usePermissionStoreHook().wholeMenus as unknown as RouteRecordRaw[]
   );
   // 当前路由的父级路由信息
   const parenetRoute = findRouteByPath(
     parentPathArr[0] || path,
-    usePermissionStoreHook().wholeMenus
+    usePermissionStoreHook().wholeMenus as unknown as RouteRecordRaw[]
   );
   if (!parenetRoute?.children) return;
-  subMenuData.value = parenetRoute?.children;
+  subMenuData.value = (parenetRoute?.children ?? []) as RouteRecordRaw[];
 }
 
 watch(

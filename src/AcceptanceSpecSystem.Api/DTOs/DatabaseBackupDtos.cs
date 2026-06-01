@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AcceptanceSpecSystem.Api.DTOs;
 
 public sealed class DatabaseBackupOptionsDto
@@ -11,8 +13,12 @@ public sealed class DatabaseBackupOptionsDto
 public sealed class UpdateDatabaseBackupOptionsRequest
 {
     public bool Enabled { get; set; }
+    [MaxLength(8, ErrorMessage = "备份执行时间不能超过8个字符")]
     public string? RunAtLocalTime { get; set; }
+    [Required(ErrorMessage = "备份目录不能为空")]
+    [MaxLength(500, ErrorMessage = "备份目录不能超过500个字符")]
     public string BackupDirectory { get; set; } = string.Empty;
+    [Range(1, 365, ErrorMessage = "备份保留数量必须在 1 到 365 之间")]
     public int RetentionCount { get; set; }
 }
 

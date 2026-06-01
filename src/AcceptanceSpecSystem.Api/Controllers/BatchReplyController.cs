@@ -28,11 +28,13 @@ public class BatchReplyController : MatchingApiControllerBase
     [EnableRateLimiting("upload")]
     [ProducesResponseType(typeof(ApiResponse<BatchReplySourceUploadResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchReplySourceUploadResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<BatchReplySourceUploadResponse>>> UploadSource(IFormFile file)
+    public async Task<ActionResult<ApiResponse<BatchReplySourceUploadResponse>>> UploadSource(
+        IFormFile file,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var result = await _batchReplyAppService.UploadSourceAsync(User, file, HttpContext.RequestAborted);
+            var result = await _batchReplyAppService.UploadSourceAsync(User, file, cancellationToken);
             return Success(result, "来源文件上传成功");
         }
         catch (ApplicationServiceException ex)
@@ -50,7 +52,8 @@ public class BatchReplyController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<BatchReplyTargetUploadResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<BatchReplyTargetUploadResponse>>> UploadTargets(
         [FromForm] string sessionId,
-        [FromForm] List<IFormFile> targetFiles)
+        [FromForm] List<IFormFile> targetFiles,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -58,7 +61,7 @@ public class BatchReplyController : MatchingApiControllerBase
                 User,
                 sessionId,
                 targetFiles,
-                HttpContext.RequestAborted);
+                cancellationToken);
             return Success(result, "目标文件上传成功");
         }
         catch (ApplicationServiceException ex)
@@ -72,7 +75,9 @@ public class BatchReplyController : MatchingApiControllerBase
     [HttpGet("sessions/{sessionId}/tables")]
     [ProducesResponseType(typeof(ApiResponse<List<TableInfoDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<List<TableInfoDto>>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<List<TableInfoDto>>>> GetTables(string sessionId)
+    public async Task<ActionResult<ApiResponse<List<TableInfoDto>>>> GetTables(
+        string sessionId,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -96,7 +101,8 @@ public class BatchReplyController : MatchingApiControllerBase
         [FromQuery] int previewRows = 0,
         [FromQuery] int headerRowIndex = 0,
         [FromQuery] int headerRowCount = 1,
-        [FromQuery] int dataStartRowIndex = 1)
+        [FromQuery] int dataStartRowIndex = 1,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -121,7 +127,10 @@ public class BatchReplyController : MatchingApiControllerBase
     [HttpGet("sessions/{sessionId}/targets/{targetId}/tables")]
     [ProducesResponseType(typeof(ApiResponse<List<TableInfoDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<List<TableInfoDto>>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<List<TableInfoDto>>>> GetTargetTables(string sessionId, string targetId)
+    public async Task<ActionResult<ApiResponse<List<TableInfoDto>>>> GetTargetTables(
+        string sessionId,
+        string targetId,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -146,7 +155,8 @@ public class BatchReplyController : MatchingApiControllerBase
         [FromQuery] int previewRows = 0,
         [FromQuery] int headerRowIndex = 0,
         [FromQuery] int headerRowCount = 1,
-        [FromQuery] int dataStartRowIndex = 1)
+        [FromQuery] int dataStartRowIndex = 1,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -172,9 +182,11 @@ public class BatchReplyController : MatchingApiControllerBase
     [HttpPost("table-preview")]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyTablePreviewResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyTablePreviewResponse>), StatusCodes.Status400BadRequest)]
-    public Task<ActionResult<ApiResponse<BatchReplyTablePreviewResponse>>> TablePreview([FromBody] BatchReplyTablePreviewRequest request)
+    public Task<ActionResult<ApiResponse<BatchReplyTablePreviewResponse>>> TablePreview(
+        [FromBody] BatchReplyTablePreviewRequest request,
+        CancellationToken cancellationToken = default)
     {
-        return HandleAsync(() => _batchReplyAppService.TablePreviewAsync(User, request, HttpContext.RequestAborted));
+        return HandleAsync(() => _batchReplyAppService.TablePreviewAsync(User, request, cancellationToken));
     }
 
     [HttpPost("preview")]
@@ -184,7 +196,8 @@ public class BatchReplyController : MatchingApiControllerBase
     public Task<ActionResult<ApiResponse<BatchReplyPreviewResponse>>> Preview(
         [FromForm] string sessionId,
         [FromForm] string tableConfigsJson,
-        [FromForm] List<IFormFile> targetFiles)
+        [FromForm] List<IFormFile> targetFiles,
+        CancellationToken cancellationToken = default)
     {
         var tableConfigs = ParseTableConfigs(tableConfigsJson);
         return HandleAsync(() => _batchReplyAppService.PreviewAsync(
@@ -192,7 +205,7 @@ public class BatchReplyController : MatchingApiControllerBase
             sessionId,
             tableConfigs,
             targetFiles,
-            HttpContext.RequestAborted));
+            cancellationToken));
     }
 
     [HttpPost("execute")]
@@ -200,17 +213,21 @@ public class BatchReplyController : MatchingApiControllerBase
     [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyExecuteResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyExecuteResponse>), StatusCodes.Status400BadRequest)]
-    public Task<ActionResult<ApiResponse<BatchReplyExecuteResponse>>> Execute([FromBody] BatchReplyExecuteRequest request)
+    public Task<ActionResult<ApiResponse<BatchReplyExecuteResponse>>> Execute(
+        [FromBody] BatchReplyExecuteRequest request,
+        CancellationToken cancellationToken = default)
     {
-        return HandleAsync(() => _batchReplyAppService.ExecuteAsync(User, request, HttpContext.RequestAborted));
+        return HandleAsync(() => _batchReplyAppService.ExecuteAsync(User, request, cancellationToken));
     }
 
     [HttpGet("download/{taskId}")]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public Task<IActionResult> Download(string taskId)
+    public Task<IActionResult> Download(
+        string taskId,
+        CancellationToken cancellationToken = default)
     {
-        return HandleFileAsync(() => _batchReplyAppService.DownloadAsync(User, taskId, HttpContext.RequestAborted));
+        return HandleFileAsync(() => _batchReplyAppService.DownloadAsync(User, taskId, cancellationToken));
     }
 
     private static List<BatchTableConfig> ParseTableConfigs(string tableConfigsJson)

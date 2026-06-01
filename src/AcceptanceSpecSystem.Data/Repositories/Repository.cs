@@ -42,10 +42,11 @@ public class Repository<TEntity> : IRepository<TEntity> where TEntity : class
     /// 根据主键ID获取实体。
     /// </summary>
     /// <param name="id">实体主键ID</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>实体或 null</returns>
-    public virtual async Task<TEntity?> GetByIdAsync(int id)
+    public virtual async Task<TEntity?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        return await _dbSet.FindAsync(id);
+        return await _dbSet.FindAsync([id], cancellationToken);
     }
 
     /// <summary>
@@ -81,10 +82,11 @@ public class Repository<TEntity> : IRepository<TEntity> where TEntity : class
     /// 新增实体。
     /// </summary>
     /// <param name="entity">实体</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>实体（同一实例）</returns>
-    public virtual async Task<TEntity> AddAsync(TEntity entity)
+    public virtual async Task<TEntity> AddAsync(TEntity entity, CancellationToken cancellationToken = default)
     {
-        await _dbSet.AddAsync(entity);
+        await _dbSet.AddAsync(entity, cancellationToken);
         return entity;
     }
 
@@ -92,9 +94,10 @@ public class Repository<TEntity> : IRepository<TEntity> where TEntity : class
     /// 批量新增实体。
     /// </summary>
     /// <param name="entities">实体集合</param>
-    public virtual async Task AddRangeAsync(IEnumerable<TEntity> entities)
+    /// <param name="cancellationToken">请求取消令牌</param>
+    public virtual async Task AddRangeAsync(IEnumerable<TEntity> entities, CancellationToken cancellationToken = default)
     {
-        await _dbSet.AddRangeAsync(entities);
+        await _dbSet.AddRangeAsync(entities, cancellationToken);
     }
 
     /// <summary>

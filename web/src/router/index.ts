@@ -29,7 +29,7 @@ import { hasAnyPermission } from "@/utils/permission";
 import {
   type Router,
   type RouteRecordRaw,
-  type RouteComponent,
+  type RouteRecordName,
   createRouter
 } from "vue-router";
 import {
@@ -43,7 +43,7 @@ import {
  * 如何匹配所有文件请看：https://github.com/mrmlnc/fast-glob#basic-syntax
  * 如何排除文件请看：https://cn.vitejs.dev/guide/features.html#negative-patterns
  */
-const modules: Record<string, any> = import.meta.glob(
+const modules: Record<string, { default: RouteRecordRaw | RouteRecordRaw[] }> = import.meta.glob(
   ["./modules/**/*.ts", "!./modules/**/remaining.ts"],
   {
     eager: true
@@ -51,34 +51,41 @@ const modules: Record<string, any> = import.meta.glob(
 );
 
 /** 原始静态路由（未做任何处理） */
-const routes = [];
+const routes: RouteRecordRaw[] = [];
 
 Object.keys(modules).forEach(key => {
-  routes.push(modules[key].default);
+  const routeModule = modules[key]?.default;
+  if (Array.isArray(routeModule)) {
+    routes.push(...routeModule);
+  } else if (routeModule) {
+    routes.push(routeModule);
+  }
 });
 
 /** 导出处理后的静态路由（三级及以上的路由全部拍成二级） */
 export const constantRoutes: Array<RouteRecordRaw> = formatTwoStageRoutes(
-  formatFlatteningRoutes(buildHierarchyTree(ascending(routes.flat(Infinity))))
+  formatFlatteningRoutes(
+    buildHierarchyTree(ascending(routes.flat(Infinity) as RouteRecordRaw[]))
+  )
 );
 
 /** 初始的静态路由，用于退出登录时重置路由 */
 const initConstantRoutes: Array<RouteRecordRaw> = cloneDeep(constantRoutes);
 
 /** 用于渲染菜单，保持原始层级 */
-export const constantMenus: Array<RouteComponent> = ascending(
-  routes.flat(Infinity)
-).concat(...remainingRouter);
+export const constantMenus: Array<RouteRecordRaw> = (
+  ascending(routes.flat(Infinity) as RouteRecordRaw[]) as RouteRecordRaw[]
+).concat(...(remainingRouter as RouteRecordRaw[]));
 
 /** 不参与菜单的路由 */
 export const remainingPaths = Object.keys(remainingRouter).map(v => {
-  return remainingRouter[v].path;
+  return remainingRouter[Number(v)]?.path;
 });
 
 /** 创建路由实例 */
 export const router: Router = createRouter({
   history: getHistoryMode(import.meta.env.VITE_ROUTER_HISTORY),
-  routes: constantRoutes.concat(...(remainingRouter as any)),
+  routes: constantRoutes.concat(...(remainingRouter as RouteRecordRaw[])),
   strict: true,
   scrollBehavior(to, from, savedPosition) {
     return new Promise(resolve => {
@@ -106,11 +113,15 @@ export function resetLoadedPaths() {
 /** 重置路由 */
 export function resetRouter() {
   router.clearRoutes();
-  for (const route of initConstantRoutes.concat(...(remainingRouter as any))) {
+  for (const route of initConstantRoutes.concat(
+    ...(remainingRouter as RouteRecordRaw[])
+  )) {
     router.addRoute(route);
   }
   router.options.routes = formatTwoStageRoutes(
-    formatFlatteningRoutes(buildHierarchyTree(ascending(routes.flat(Infinity))))
+    formatFlatteningRoutes(
+      buildHierarchyTree(ascending(routes.flat(Infinity) as RouteRecordRaw[]))
+    )
   );
   usePermissionStoreHook().clearAllCachePage();
   resetLoadedPaths();
@@ -225,24 +236,26 @@ router.beforeEach((to: ToRouteType, _from, next) => {
             const { path } = to;
             const route = findRouteByPath(
               path,
-              router.options.routes[0].children
+              router.options.routes[0]?.children ?? []
             );
             getTopMenu(true);
             // query、params模式路由传参数的标签页不在此处处理
             if (route && route.meta?.title) {
               if (isAllEmpty(route.parentId) && route.meta?.backstage) {
                 // 此处为动态顶级路由（目录）
-                const { path, name, meta } = route.children[0];
+                const firstChild = route.children?.[0];
+                if (!firstChild) return;
+                const { path, name, meta } = firstChild;
                 useMultiTagsStoreHook().handleTags("push", {
                   path,
-                  name,
+                  name: name as RouteRecordName,
                   meta
                 });
               } else {
                 const { path, name, meta } = route;
                 useMultiTagsStoreHook().handleTags("push", {
                   path,
-                  name,
+                  name: name as RouteRecordName,
                   meta
                 });
               }

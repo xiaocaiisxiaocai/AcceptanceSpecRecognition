@@ -68,9 +68,9 @@ export type menuType = {
   path?: string;
   noShowingChildren?: boolean;
   children?: menuType[];
-  value: unknown;
+  value?: unknown;
   meta?: {
-    icon?: string;
+    icon?: string | FunctionalComponent;
     title?: string;
     rank?: number;
     showParent?: boolean;

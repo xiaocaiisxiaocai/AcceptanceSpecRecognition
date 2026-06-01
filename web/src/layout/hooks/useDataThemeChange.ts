@@ -62,10 +62,10 @@ export function useDataThemeChange() {
     };
 
     if (theme === "default" || theme === "light") {
-      setEpThemeColor(getConfig().EpThemeColor);
+      setEpThemeColor(getConfig().EpThemeColor ?? "#409eff");
     } else {
       const colors = themeColors.value.find(v => v.themeColor === theme);
-      setEpThemeColor(colors?.color ?? getConfig().EpThemeColor);
+      setEpThemeColor(colors?.color ?? getConfig().EpThemeColor ?? "#409eff");
     }
   }
 
@@ -90,7 +90,7 @@ export function useDataThemeChange() {
 
   /** 浅色、深色整体风格切换 */
   function dataThemeChange(overall?: string) {
-    overallStyle.value = overall;
+    overallStyle.value = overall ?? "light";
     if (useEpThemeStoreHook().epTheme === "light" && dataTheme.value) {
       setLayoutThemeColor("default", false);
     } else {
@@ -112,11 +112,11 @@ export function useDataThemeChange() {
     removeToken();
     storageLocal().clear();
     const { Grey, Weak, MultiTagsCache, EpThemeColor, Layout } = getConfig();
-    useAppStoreHook().setLayout(Layout);
-    setEpThemeColor(EpThemeColor);
-    useMultiTagsStoreHook().multiTagsCacheChange(MultiTagsCache);
-    toggleClass(Grey, "html-grey", document.querySelector("html"));
-    toggleClass(Weak, "html-weakness", document.querySelector("html"));
+    useAppStoreHook().setLayout(Layout ?? "vertical");
+    setEpThemeColor(EpThemeColor ?? "#409eff");
+    useMultiTagsStoreHook().multiTagsCacheChange(MultiTagsCache ?? false);
+    toggleClass(Grey ?? false, "html-grey", document.querySelector("html") ?? undefined);
+    toggleClass(Weak ?? false, "html-weakness", document.querySelector("html") ?? undefined);
     router.push("/login");
     useMultiTagsStoreHook().handleTags("equal", [...routerArrays]);
     resetRouter();

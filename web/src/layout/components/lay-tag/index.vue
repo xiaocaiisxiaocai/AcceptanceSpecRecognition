@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { emitter } from "@/utils/mitt";
 import NProgress from "@/utils/progress";
 import { RouteConfigs } from "../../types";

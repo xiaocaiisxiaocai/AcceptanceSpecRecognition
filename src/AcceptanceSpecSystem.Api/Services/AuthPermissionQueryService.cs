@@ -19,7 +19,8 @@ public sealed class AuthPermissionQueryService
 
     public async Task<List<AuthPermissionListItemDto>> GetListAsync(
         PermissionType? permissionType = null,
-        string? keyword = null)
+        string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _dbContext.AuthPermissions
             .AsNoTracking()
@@ -53,6 +54,6 @@ public sealed class AuthPermissionQueryService
                 Resource = p.Resource,
                 Action = p.Action
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 }

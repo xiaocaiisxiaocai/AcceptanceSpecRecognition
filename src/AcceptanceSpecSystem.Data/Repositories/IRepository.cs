@@ -18,8 +18,9 @@ public interface IRepository<TEntity> where TEntity : class
     /// 根据ID获取实体
     /// </summary>
     /// <param name="id">实体ID</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>实体或null</returns>
-    Task<TEntity?> GetByIdAsync(int id);
+    Task<TEntity?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取所有实体
@@ -45,14 +46,16 @@ public interface IRepository<TEntity> where TEntity : class
     /// 添加实体
     /// </summary>
     /// <param name="entity">要添加的实体</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>添加后的实体</returns>
-    Task<TEntity> AddAsync(TEntity entity);
+    Task<TEntity> AddAsync(TEntity entity, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 批量添加实体
     /// </summary>
     /// <param name="entities">要添加的实体列表</param>
-    Task AddRangeAsync(IEnumerable<TEntity> entities);
+    /// <param name="cancellationToken">请求取消令牌</param>
+    Task AddRangeAsync(IEnumerable<TEntity> entities, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 更新实体

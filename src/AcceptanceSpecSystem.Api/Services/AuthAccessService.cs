@@ -46,13 +46,16 @@ public sealed class AuthRoleSummary
 /// </summary>
 public interface IAuthAccessService
 {
-    Task<AuthAccessContext?> GetByUsernameAsync(string username);
+    Task<AuthAccessContext?> GetByUsernameAsync(string username, CancellationToken cancellationToken = default);
 
-    Task<AuthAccessContext?> GetByUserIdAsync(int userId);
+    Task<AuthAccessContext?> GetByUserIdAsync(int userId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<AuthRoleSummary>> GetCompanyRolesAsync(int companyId);
+    Task<IReadOnlyList<AuthRoleSummary>> GetCompanyRolesAsync(int companyId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyDictionary<int, string>> GetRoleCodeMapAsync(int companyId, IEnumerable<int> roleIds);
+    Task<IReadOnlyDictionary<int, string>> GetRoleCodeMapAsync(
+        int companyId,
+        IEnumerable<int> roleIds,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -71,19 +74,21 @@ public sealed class AuthAccessService : IAuthAccessService
         _authRoleLookupRepository = authRoleLookupRepository;
     }
 
-    public async Task<AuthAccessContext?> GetByUsernameAsync(string username)
+    public async Task<AuthAccessContext?> GetByUsernameAsync(string username, CancellationToken cancellationToken = default)
     {
         var user = await _systemUserRepository.GetByUsernameWithAccessAsync(username);
         return user == null ? null : BuildContext(user);
     }
 
-    public async Task<AuthAccessContext?> GetByUserIdAsync(int userId)
+    public async Task<AuthAccessContext?> GetByUserIdAsync(int userId, CancellationToken cancellationToken = default)
     {
         var user = await _systemUserRepository.GetByIdWithAccessAsync(userId);
         return user == null ? null : BuildContext(user);
     }
 
-    public async Task<IReadOnlyList<AuthRoleSummary>> GetCompanyRolesAsync(int companyId)
+    public async Task<IReadOnlyList<AuthRoleSummary>> GetCompanyRolesAsync(
+        int companyId,
+        CancellationToken cancellationToken = default)
     {
         var roles = await _authRoleLookupRepository.GetCompanyRolesAsync(companyId);
         return roles
@@ -96,7 +101,10 @@ public sealed class AuthAccessService : IAuthAccessService
             .ToList();
     }
 
-    public async Task<IReadOnlyDictionary<int, string>> GetRoleCodeMapAsync(int companyId, IEnumerable<int> roleIds)
+    public async Task<IReadOnlyDictionary<int, string>> GetRoleCodeMapAsync(
+        int companyId,
+        IEnumerable<int> roleIds,
+        CancellationToken cancellationToken = default)
     {
         return await _authRoleLookupRepository.GetRoleCodeMapAsync(companyId, roleIds);
     }

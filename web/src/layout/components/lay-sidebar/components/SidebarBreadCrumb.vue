@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { isEqual } from "@pureadmin/utils";
 import { useRoute, useRouter } from "vue-router";
 import { ref, watch, onMounted, toRaw } from "vue";

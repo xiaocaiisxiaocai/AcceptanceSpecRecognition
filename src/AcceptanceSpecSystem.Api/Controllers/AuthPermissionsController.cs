@@ -28,9 +28,10 @@ public class AuthPermissionsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<List<AuthPermissionListItemDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<AuthPermissionListItemDto>>>> GetList(
         [FromQuery] PermissionType? permissionType = null,
-        [FromQuery] string? keyword = null)
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
-        var items = await _authPermissionQueryService.GetListAsync(permissionType, keyword);
+        var items = await _authPermissionQueryService.GetListAsync(permissionType, keyword, cancellationToken);
         return Success(items);
     }
 }

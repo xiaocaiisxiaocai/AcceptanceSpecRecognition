@@ -21,15 +21,16 @@ public interface IAuditLogRepository : IRepository<AuditLog>
         DateTime? from = null,
         DateTime? to = null,
         int? minStatusCode = null,
-        int? maxStatusCode = null);
+        int? maxStatusCode = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 删除指定时间点之前的审计日志
     /// </summary>
-    Task<int> DeleteBeforeAsync(DateTime beforeTime);
+    Task<int> DeleteBeforeAsync(DateTime beforeTime, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 按时间范围删除审计日志
     /// </summary>
-    Task<int> DeleteByRangeAsync(DateTime? from = null, DateTime? to = null);
+    Task<int> DeleteByRangeAsync(DateTime? from = null, DateTime? to = null, CancellationToken cancellationToken = default);
 }

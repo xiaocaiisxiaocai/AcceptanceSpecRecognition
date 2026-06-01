@@ -29,7 +29,8 @@ public sealed class ProcessAppService
         SpecAccessContext scope,
         int page,
         int pageSize,
-        string? keyword)
+        string? keyword,
+        CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
@@ -41,7 +42,7 @@ public sealed class ProcessAppService
             query = query.Where(process => process.Name.Contains(normalizedKeyword));
         }
 
-        var total = await query.CountAsync();
+        var total = await query.CountAsync(cancellationToken);
         var rows = await query
             .OrderByDescending(process => process.CreatedAt)
             .Skip((page - 1) * pageSize)
@@ -52,11 +53,12 @@ public sealed class ProcessAppService
                 Name = process.Name,
                 CreatedAt = process.CreatedAt
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         var specCountByProcess = await _acceptanceSpecQueryService.GetSpecCountByProcessAsync(
             scope,
-            rows.Select(item => item.Id).ToArray());
+            rows.Select(item => item.Id).ToArray(),
+            cancellationToken);
 
         foreach (var row in rows)
         {
@@ -72,13 +74,19 @@ public sealed class ProcessAppService
         };
     }
 
-    public async Task<ProcessSummary?> GetByIdAsync(SpecAccessContext scope, int id)
+    public async Task<ProcessSummary?> GetByIdAsync(
+        SpecAccessContext scope,
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var process = await _unitOfWork.Processes.GetByIdAsync(id);
         if (process == null)
             return null;
 
-        var specCountByProcess = await _acceptanceSpecQueryService.GetSpecCountByProcessAsync(scope, [id]);
+        var specCountByProcess = await _acceptanceSpecQueryService.GetSpecCountByProcessAsync(
+            scope,
+            [id],
+            cancellationToken);
         return new ProcessSummary
         {
             Id = process.Id,
@@ -88,7 +96,9 @@ public sealed class ProcessAppService
         };
     }
 
-    public async Task<ProcessSummary> CreateAsync(string processName)
+    public async Task<ProcessSummary> CreateAsync(
+        string processName,
+        CancellationToken cancellationToken = default)
     {
         var name = NormalizeRequiredName(processName, "制程名称不能为空");
         var process = new Process
@@ -111,7 +121,11 @@ public sealed class ProcessAppService
         };
     }
 
-    public async Task<ProcessSummary?> UpdateAsync(SpecAccessContext scope, int id, string processName)
+    public async Task<ProcessSummary?> UpdateAsync(
+        SpecAccessContext scope,
+        int id,
+        string processName,
+        CancellationToken cancellationToken = default)
     {
         var process = await _unitOfWork.Processes.GetByIdAsync(id);
         if (process == null)
@@ -123,7 +137,10 @@ public sealed class ProcessAppService
 
         _logger.LogInformation("更新制程成功: {ProcessId} - {ProcessName}", process.Id, process.Name);
 
-        var specCountByProcess = await _acceptanceSpecQueryService.GetSpecCountByProcessAsync(scope, [id]);
+        var specCountByProcess = await _acceptanceSpecQueryService.GetSpecCountByProcessAsync(
+            scope,
+            [id],
+            cancellationToken);
         return new ProcessSummary
         {
             Id = process.Id,
@@ -133,7 +150,7 @@ public sealed class ProcessAppService
         };
     }
 
-    public async Task<bool> DeleteAsync(int id)
+    public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var process = await _unitOfWork.Processes.GetByIdAsync(id);
         if (process == null)
@@ -151,7 +168,8 @@ public sealed class ProcessAppService
         int id,
         int page,
         int pageSize,
-        string? keyword)
+        string? keyword,
+        CancellationToken cancellationToken = default)
     {
         var process = await _unitOfWork.Processes.GetByIdAsync(id);
         if (process == null)
@@ -162,7 +180,8 @@ public sealed class ProcessAppService
             page,
             pageSize,
             keyword,
-            processId: id);
+            processId: id,
+            cancellationToken: cancellationToken);
     }
 
     private static string NormalizeRequiredName(string? value, string message)

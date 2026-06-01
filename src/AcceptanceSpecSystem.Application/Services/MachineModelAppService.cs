@@ -29,7 +29,8 @@ public sealed class MachineModelAppService
         SpecAccessContext scope,
         int page,
         int pageSize,
-        string? keyword)
+        string? keyword,
+        CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
@@ -41,7 +42,7 @@ public sealed class MachineModelAppService
             query = query.Where(machineModel => machineModel.Name.Contains(normalizedKeyword));
         }
 
-        var total = await query.CountAsync();
+        var total = await query.CountAsync(cancellationToken);
         var rows = await query
             .OrderByDescending(machineModel => machineModel.CreatedAt)
             .Skip((page - 1) * pageSize)
@@ -52,11 +53,12 @@ public sealed class MachineModelAppService
                 Name = machineModel.Name,
                 CreatedAt = machineModel.CreatedAt
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         var specCountByModel = await _acceptanceSpecQueryService.GetSpecCountByMachineModelAsync(
             scope,
-            rows.Select(item => item.Id).ToArray());
+            rows.Select(item => item.Id).ToArray(),
+            cancellationToken);
 
         foreach (var row in rows)
         {
@@ -72,13 +74,19 @@ public sealed class MachineModelAppService
         };
     }
 
-    public async Task<MachineModelSummary?> GetByIdAsync(SpecAccessContext scope, int id)
+    public async Task<MachineModelSummary?> GetByIdAsync(
+        SpecAccessContext scope,
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var model = await _unitOfWork.MachineModels.GetByIdAsync(id);
         if (model == null)
             return null;
 
-        var specCountByModel = await _acceptanceSpecQueryService.GetSpecCountByMachineModelAsync(scope, [id]);
+        var specCountByModel = await _acceptanceSpecQueryService.GetSpecCountByMachineModelAsync(
+            scope,
+            [id],
+            cancellationToken);
         return new MachineModelSummary
         {
             Id = model.Id,
@@ -88,7 +96,9 @@ public sealed class MachineModelAppService
         };
     }
 
-    public async Task<MachineModelSummary> CreateAsync(string machineModelName)
+    public async Task<MachineModelSummary> CreateAsync(
+        string machineModelName,
+        CancellationToken cancellationToken = default)
     {
         var name = NormalizeRequiredName(machineModelName, "机型名称不能为空");
         var model = new MachineModel
@@ -111,7 +121,11 @@ public sealed class MachineModelAppService
         };
     }
 
-    public async Task<MachineModelSummary?> UpdateAsync(SpecAccessContext scope, int id, string machineModelName)
+    public async Task<MachineModelSummary?> UpdateAsync(
+        SpecAccessContext scope,
+        int id,
+        string machineModelName,
+        CancellationToken cancellationToken = default)
     {
         var model = await _unitOfWork.MachineModels.GetByIdAsync(id);
         if (model == null)
@@ -123,7 +137,10 @@ public sealed class MachineModelAppService
 
         _logger.LogInformation("更新机型成功: {MachineModelId} - {MachineModelName}", model.Id, model.Name);
 
-        var specCountByModel = await _acceptanceSpecQueryService.GetSpecCountByMachineModelAsync(scope, [id]);
+        var specCountByModel = await _acceptanceSpecQueryService.GetSpecCountByMachineModelAsync(
+            scope,
+            [id],
+            cancellationToken);
         return new MachineModelSummary
         {
             Id = model.Id,
@@ -133,7 +150,7 @@ public sealed class MachineModelAppService
         };
     }
 
-    public async Task<bool> DeleteAsync(int id)
+    public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var model = await _unitOfWork.MachineModels.GetByIdAsync(id);
         if (model == null)

@@ -39,13 +39,14 @@ public class SpecsController : BaseApiController
     /// </summary>
     [HttpGet("groups")]
     [ProducesResponseType(typeof(ApiResponse<List<SpecGroupDto>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<SpecGroupDto>>>> GetGroups()
+    public async Task<ActionResult<ApiResponse<List<SpecGroupDto>>>> GetGroups(
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<List<SpecGroupDto>>(401, "会话缺少用户上下文");
 
-        var items = await _acceptanceSpecAppService.GetGroupsAsync(scope.ToAccessContext());
+        var items = await _acceptanceSpecAppService.GetGroupsAsync(scope.ToAccessContext(), cancellationToken);
         return Success(items.Select(item => item.ToDto()).ToList());
     }
 
@@ -64,7 +65,8 @@ public class SpecsController : BaseApiController
         [FromQuery] bool? processIdIsNull = null,
         [FromQuery] bool? machineModelIdIsNull = null,
         [FromQuery] DateTime? importedFrom = null,
-        [FromQuery] DateTime? importedTo = null)
+        [FromQuery] DateTime? importedTo = null,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -81,7 +83,8 @@ public class SpecsController : BaseApiController
             processIdIsNull,
             machineModelIdIsNull,
             importedFrom,
-            importedTo);
+            importedTo,
+            cancellationToken);
 
         return Success(data.ToDto());
     }
@@ -99,7 +102,8 @@ public class SpecsController : BaseApiController
         [FromQuery] bool? processIdIsNull = null,
         [FromQuery] bool? machineModelIdIsNull = null,
         [FromQuery] double? minSimilarity = null,
-        [FromQuery] int? maxGroups = null)
+        [FromQuery] int? maxGroups = null,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -114,7 +118,8 @@ public class SpecsController : BaseApiController
             processIdIsNull,
             machineModelIdIsNull,
             minSimilarity,
-            maxGroups);
+            maxGroups,
+            cancellationToken);
 
         return Success(result.ToDto());
     }
@@ -125,7 +130,9 @@ public class SpecsController : BaseApiController
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<AcceptanceSpecDto>>> GetSpec(int id)
+    public async Task<ActionResult<ApiResponse<AcceptanceSpecDto>>> GetSpec(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -133,7 +140,7 @@ public class SpecsController : BaseApiController
 
         try
         {
-            var spec = await _acceptanceSpecAppService.GetByIdAsync(scope.ToAccessContext(), id);
+            var spec = await _acceptanceSpecAppService.GetByIdAsync(scope.ToAccessContext(), id, cancellationToken);
             if (spec == null)
                 return NotFoundResult<AcceptanceSpecDto>("验收规格不存在");
 
@@ -154,7 +161,8 @@ public class SpecsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<SpecSemanticSearchResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SpecSemanticSearchResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<SpecSemanticSearchResponse>>> SemanticSearch(
-        [FromBody] SpecSemanticSearchRequest request)
+        [FromBody] SpecSemanticSearchRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -165,7 +173,7 @@ public class SpecsController : BaseApiController
             var result = await _specSemanticSearchService.SearchAsync(
                 request,
                 scope,
-                HttpContext.RequestAborted);
+                cancellationToken);
             return Success(result);
         }
         catch (ArgumentException ex)
@@ -185,7 +193,9 @@ public class SpecsController : BaseApiController
     [AuditOperation("create", "spec")]
     [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<AcceptanceSpecDto>>> CreateSpec([FromBody] CreateSpecRequest request)
+    public async Task<ActionResult<ApiResponse<AcceptanceSpecDto>>> CreateSpec(
+        [FromBody] CreateSpecRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -201,7 +211,8 @@ public class SpecsController : BaseApiController
                 request.Project,
                 request.Specification,
                 request.Acceptance,
-                request.Remark);
+                request.Remark,
+                cancellationToken);
             return Success(spec.ToDto(), "创建验收规格成功");
         }
         catch (ApplicationServiceException ex)
@@ -218,7 +229,10 @@ public class SpecsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<AcceptanceSpecDto>>> UpdateSpec(int id, [FromBody] UpdateSpecRequest request)
+    public async Task<ActionResult<ApiResponse<AcceptanceSpecDto>>> UpdateSpec(
+        int id,
+        [FromBody] UpdateSpecRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -232,7 +246,8 @@ public class SpecsController : BaseApiController
                 request.Project,
                 request.Specification,
                 request.Acceptance,
-                request.Remark);
+                request.Remark,
+                cancellationToken);
             if (spec == null)
                 return NotFoundResult<AcceptanceSpecDto>("验收规格不存在");
 
@@ -251,7 +266,9 @@ public class SpecsController : BaseApiController
     [AuditOperation("delete", "spec")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse>> DeleteSpec(int id)
+    public async Task<ActionResult<ApiResponse>> DeleteSpec(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -259,7 +276,7 @@ public class SpecsController : BaseApiController
 
         try
         {
-            var deleted = await _acceptanceSpecAppService.DeleteAsync(scope.ToAccessContext(), id);
+            var deleted = await _acceptanceSpecAppService.DeleteAsync(scope.ToAccessContext(), id, cancellationToken);
             if (!deleted)
                 return NotFound(ApiResponse.Error(404, "验收规格不存在"));
 
@@ -278,7 +295,9 @@ public class SpecsController : BaseApiController
     [AuditOperation("import", "spec")]
     [ProducesResponseType(typeof(ApiResponse<BatchImportResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchImportResult>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<BatchImportResult>>> BatchImport([FromBody] BatchImportSpecsRequest request)
+    public async Task<ActionResult<ApiResponse<BatchImportResult>>> BatchImport(
+        [FromBody] BatchImportSpecsRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -292,7 +311,8 @@ public class SpecsController : BaseApiController
                 request.ProcessId,
                 request.MachineModelId,
                 request.WordFileId,
-                request.Items.Select(item => item.ToInput()).ToList());
+                request.Items.Select(item => item.ToInput()).ToList(),
+                cancellationToken);
             return Success(result.ToDto(), $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条");
         }
         catch (ApplicationServiceException ex)
@@ -307,7 +327,9 @@ public class SpecsController : BaseApiController
     [HttpDelete("batch")]
     [AuditOperation("delete-batch", "spec")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse>> BatchDelete([FromBody] List<int> ids)
+    public async Task<ActionResult<ApiResponse>> BatchDelete(
+        [FromBody] List<int> ids,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -315,7 +337,7 @@ public class SpecsController : BaseApiController
 
         try
         {
-            var deletedCount = await _acceptanceSpecAppService.BatchDeleteAsync(scope.ToAccessContext(), ids ?? []);
+            var deletedCount = await _acceptanceSpecAppService.BatchDeleteAsync(scope.ToAccessContext(), ids ?? [], cancellationToken);
             return Success($"成功删除{deletedCount}条规格");
         }
         catch (ApplicationServiceException ex)

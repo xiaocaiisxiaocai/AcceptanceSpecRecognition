@@ -39,8 +39,8 @@ const emit = defineEmits<{
 }>();
 
 const comparisonRankModel = computed({
-  get: () => props.comparisonRank,
-  set: value => emit("update:comparisonRank", value)
+  get: () => props.comparisonRank ?? undefined,
+  set: value => emit("update:comparisonRank", value ?? null)
 });
 
 const diffViewModeModel = computed({

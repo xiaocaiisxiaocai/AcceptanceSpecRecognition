@@ -12,7 +12,8 @@ public interface IDashboardAppService
         ClaimsPrincipal user,
         string? range,
         DateTime? from,
-        DateTime? to);
+        DateTime? to,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -33,7 +34,8 @@ public sealed class DashboardAppService : IDashboardAppService
         ClaimsPrincipal user,
         string? range,
         DateTime? from,
-        DateTime? to)
+        DateTime? to,
+        CancellationToken cancellationToken = default)
     {
         var scope = await SpecDataScopeHelper.ResolveScopeAsync(user, _authDataScopeService);
         if (scope == null)
@@ -59,21 +61,21 @@ public sealed class DashboardAppService : IDashboardAppService
         var customerTotal = await scopedSpecs
             .Select(spec => spec.CustomerId)
             .Distinct()
-            .CountAsync();
+            .CountAsync(cancellationToken);
         var processTotal = await scopedSpecs
             .Where(spec => spec.ProcessId.HasValue)
             .Select(spec => spec.ProcessId!.Value)
             .Distinct()
-            .CountAsync();
-        var specTotal = await scopedSpecs.CountAsync();
+            .CountAsync(cancellationToken);
+        var specTotal = await scopedSpecs.CountAsync(cancellationToken);
         var importedSpecCount = await scopedSpecs
-            .CountAsync(spec => spec.ImportedAt >= period.Start && spec.ImportedAt <= period.End);
+            .CountAsync(spec => spec.ImportedAt >= period.Start && spec.ImportedAt <= period.End, cancellationToken);
 
-        var smartFillTaskCount = await smartFillRecords.CountAsync();
-        var smartFillTotalRows = await smartFillRecords.SumAsync(record => (int?)record.TotalRowCount) ?? 0;
+        var smartFillTaskCount = await smartFillRecords.CountAsync(cancellationToken);
+        var smartFillTotalRows = await smartFillRecords.SumAsync(record => (int?)record.TotalRowCount, cancellationToken) ?? 0;
         // 首页“匹配度”只统计最终完整执行且已采用的行；预览候选、中途取消或卡住的任务不计入成功匹配。
-        var smartFillMatchedRows = await smartFillRecords.SumAsync(record => (int?)record.AdoptedRowCount) ?? 0;
-        var smartFillAdoptedRows = await smartFillRecords.SumAsync(record => (int?)record.AdoptedRowCount) ?? 0;
+        var smartFillMatchedRows = await smartFillRecords.SumAsync(record => (int?)record.AdoptedRowCount, cancellationToken) ?? 0;
+        var smartFillAdoptedRows = await smartFillRecords.SumAsync(record => (int?)record.AdoptedRowCount, cancellationToken) ?? 0;
 
         return new DashboardSummaryDto
         {

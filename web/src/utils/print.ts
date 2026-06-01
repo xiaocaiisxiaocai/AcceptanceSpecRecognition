@@ -5,11 +5,56 @@ interface PrintFunction {
   toPrint: Function;
 }
 
-const Print = function (dom, options?: object): PrintFunction {
+interface PrintConf {
+  styleStr: string;
+  setDomHeightArr: string[];
+  printBeforeFn: ((args: { doc: Document }) => void) | null;
+  printDoneCallBack: (() => void) | null;
+}
+
+interface PrintMethods {
+  extendOptions<T extends Record<string, unknown>>(
+    obj: Record<string, unknown>,
+    obj2: T
+  ): T;
+  init(): void;
+  getStyle(): string;
+  getHtml(): string;
+  writeIframe(content: string): void;
+  toPrint(frameWindow: Window): void;
+  isDOM(obj: unknown): obj is HTMLElement;
+  setDomHeight(arr: string[]): void;
+}
+
+interface PrintInstance extends PrintMethods {
+  conf: PrintConf;
+  dom: HTMLElement;
+}
+
+type PrintOptions = Partial<PrintConf>;
+type VueDomLike = { $el: HTMLElement };
+
+interface PrintFactory {
+  new (
+    dom: string | HTMLElement | VueDomLike,
+    options?: PrintOptions
+  ): PrintInstance;
+  (
+    dom: string | HTMLElement | VueDomLike,
+    options?: PrintOptions
+  ): PrintFunction | undefined;
+  prototype: PrintMethods;
+}
+
+const Print = function (
+  this: PrintInstance,
+  dom: string | HTMLElement | VueDomLike,
+  options: PrintOptions = {}
+): PrintFunction | undefined {
   options = options || {};
-  // @ts-expect-error
-  if (!(this instanceof Print)) return new Print(dom, options);
-  // @ts-expect-error
+  if (!(this instanceof (Print as PrintFactory))) {
+    return new (Print as PrintFactory)(dom, options);
+  }
   this.conf = {
     styleStr: "",
     // Elements that need to dynamically get and set the height
@@ -19,34 +64,30 @@ const Print = function (dom, options?: object): PrintFunction {
     // Callback after printing
     printDoneCallBack: null
   };
-  // @ts-expect-error
   for (const key in this.conf) {
-    if (key && options.hasOwnProperty(key)) {
-      // @ts-expect-error
-      this.conf[key] = options[key];
+    const confKey = key as keyof PrintConf;
+    if (key && Object.prototype.hasOwnProperty.call(options, key)) {
+      this.conf[confKey] = options[confKey] as never;
     }
   }
   if (typeof dom === "string") {
-    // @ts-expect-error
-    this.dom = document.querySelector(dom);
+    const target = document.querySelector<HTMLElement>(dom);
+    if (!target) return;
+    this.dom = target;
   } else {
-    // @ts-expect-error
     this.dom = this.isDOM(dom) ? dom : dom.$el;
   }
-  // @ts-expect-error
   if (this.conf.setDomHeightArr && this.conf.setDomHeightArr.length) {
-    // @ts-expect-error
     this.setDomHeight(this.conf.setDomHeightArr);
   }
-  // @ts-expect-error
   this.init();
-};
+} as PrintFactory;
 
 Print.prototype = {
   /**
    * init
    */
-  init: function (): void {
+  init: function (this: PrintInstance): void {
     const content = this.getStyle() + this.getHtml();
     this.writeIframe(content);
   },
@@ -55,16 +96,19 @@ Print.prototype = {
    * @param {Object} obj
    * @param {Object} obj2
    */
-  extendOptions: function <T>(obj, obj2: T): T {
+  extendOptions: function <T extends Record<string, unknown>>(
+    obj: Record<string, unknown>,
+    obj2: T
+  ): T {
     for (const k in obj2) {
       obj[k] = obj2[k];
     }
-    return obj;
+    return obj as T;
   },
   /**
     Copy all styles of the original page
   */
-  getStyle: function (): string {
+  getStyle: function (this: PrintInstance): string {
     let str = "";
     const styles: NodeListOf<Element> = document.querySelectorAll("style,link");
     for (let i = 0; i < styles.length; i++) {
@@ -74,7 +118,7 @@ Print.prototype = {
     return str;
   },
   // form assignment
-  getHtml: function (): Element {
+  getHtml: function (this: PrintInstance): string {
     const inputs = document.querySelectorAll("input");
     const selects = document.querySelectorAll("select");
     const textareas = document.querySelectorAll("textarea");
@@ -104,11 +148,12 @@ Print.prototype = {
       if (selects[k3].type == "select-one") {
         const child = selects[k3].children;
         for (const i in child) {
-          if (child[i].tagName == "OPTION") {
-            if ((child[i] as any).selected == true) {
-              child[i].setAttribute("selected", "selected");
+          const option = child[i] as HTMLOptionElement | undefined;
+          if (option?.tagName == "OPTION") {
+            if (option.selected == true) {
+              option.setAttribute("selected", "selected");
             } else {
-              child[i].removeAttribute("selected");
+              option.removeAttribute("selected");
             }
           }
         }
@@ -121,7 +166,7 @@ Print.prototype = {
       img.src = imageURL;
       img.setAttribute("style", "max-width: 100%;");
       img.className = "isNeedRemove";
-      canvass[k4].parentNode.insertBefore(img, canvass[k4].nextElementSibling);
+      canvass[k4].parentNode?.insertBefore(img, canvass[k4].nextElementSibling);
     }
 
     return this.dom.outerHTML;
@@ -129,8 +174,8 @@ Print.prototype = {
   /**
     create iframe
   */
-  writeIframe: function (content) {
-    let w: Document | Window;
+  writeIframe: function (this: PrintInstance, content: string) {
+    let w: Window;
     let doc: Document;
     const iframe: HTMLIFrameElement = document.createElement("iframe");
     const f: HTMLIFrameElement = document.body.appendChild(iframe);
@@ -140,18 +185,20 @@ Print.prototype = {
       "position:absolute;width:0;height:0;top:-10px;left:-10px;"
     );
 
-    // eslint-disable-next-line prefer-const
-    w = f.contentWindow || f.contentDocument;
+    const frameWindow = f.contentWindow;
+    const frameDocument = f.contentDocument;
+    if (!frameWindow || !frameDocument) return;
 
     // eslint-disable-next-line prefer-const
-    doc = f.contentDocument || f.contentWindow.document;
+    w = frameWindow;
+    doc = frameDocument;
     doc.open();
     doc.write(content);
     doc.close();
 
     const removes = document.querySelectorAll(".isNeedRemove");
     for (let k = 0; k < removes.length; k++) {
-      removes[k].parentNode.removeChild(removes[k]);
+      removes[k].parentNode?.removeChild(removes[k]);
     }
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -174,12 +221,12 @@ Print.prototype = {
   /**
     Print
   */
-  toPrint: function (frameWindow): void {
+  toPrint: function (frameWindow: Window): void {
     try {
       setTimeout(function () {
         frameWindow.focus();
         try {
-          if (!frameWindow.document.execCommand("print", false, null)) {
+          if (!frameWindow.document.execCommand("print", false)) {
             frameWindow.print();
           }
         } catch {
@@ -193,27 +240,28 @@ Print.prototype = {
   },
   isDOM:
     typeof HTMLElement === "object"
-      ? function (obj) {
+      ? function (obj: unknown): obj is HTMLElement {
           return obj instanceof HTMLElement;
         }
-      : function (obj) {
-          return (
+      : function (obj: unknown): obj is HTMLElement {
+          return Boolean(
             obj &&
             typeof obj === "object" &&
-            obj.nodeType === 1 &&
-            typeof obj.nodeName === "string"
+            (obj as Node).nodeType === 1 &&
+            typeof (obj as Node).nodeName === "string"
           );
         },
   /**
    * Set the height of the specified dom element by getting the existing height of the dom element and setting
    * @param {Array} arr
    */
-  setDomHeight(arr) {
+  setDomHeight(arr: string[]) {
     if (arr && arr.length) {
-      arr.forEach(name => {
+      arr.forEach((name: string) => {
         const domArr = document.querySelectorAll(name);
         domArr.forEach(dom => {
-          dom.style.height = dom.offsetHeight + "px";
+          const element = dom as HTMLElement;
+          element.style.height = element.offsetHeight + "px";
         });
       });
     }

@@ -19,7 +19,8 @@ public sealed class AcceptanceSpecQueryService
 
     public async Task<Dictionary<int, int>> GetProcessCountByCustomerAsync(
         SpecAccessContext scope,
-        IReadOnlyCollection<int> customerIds)
+        IReadOnlyCollection<int> customerIds,
+        CancellationToken cancellationToken = default)
     {
         if (customerIds.Count == 0)
             return new Dictionary<int, int>();
@@ -32,12 +33,13 @@ public sealed class AcceptanceSpecQueryService
                 CustomerId = group.Key,
                 ProcessCount = group.Select(item => item.ProcessId!.Value).Distinct().Count()
             })
-            .ToDictionaryAsync(item => item.CustomerId, item => item.ProcessCount);
+            .ToDictionaryAsync(item => item.CustomerId, item => item.ProcessCount, cancellationToken);
     }
 
     public async Task<Dictionary<int, int>> GetSpecCountByProcessAsync(
         SpecAccessContext scope,
-        IReadOnlyCollection<int> processIds)
+        IReadOnlyCollection<int> processIds,
+        CancellationToken cancellationToken = default)
     {
         if (processIds.Count == 0)
             return new Dictionary<int, int>();
@@ -50,12 +52,13 @@ public sealed class AcceptanceSpecQueryService
                 ProcessId = group.Key,
                 SpecCount = group.Count()
             })
-            .ToDictionaryAsync(item => item.ProcessId, item => item.SpecCount);
+            .ToDictionaryAsync(item => item.ProcessId, item => item.SpecCount, cancellationToken);
     }
 
     public async Task<Dictionary<int, int>> GetSpecCountByMachineModelAsync(
         SpecAccessContext scope,
-        IReadOnlyCollection<int> machineModelIds)
+        IReadOnlyCollection<int> machineModelIds,
+        CancellationToken cancellationToken = default)
     {
         if (machineModelIds.Count == 0)
             return new Dictionary<int, int>();
@@ -68,10 +71,13 @@ public sealed class AcceptanceSpecQueryService
                 MachineModelId = group.Key,
                 SpecCount = group.Count()
             })
-            .ToDictionaryAsync(item => item.MachineModelId, item => item.SpecCount);
+            .ToDictionaryAsync(item => item.MachineModelId, item => item.SpecCount, cancellationToken);
     }
 
-    public async Task<List<ProcessSummary>> GetCustomerProcessesAsync(SpecAccessContext scope, int customerId)
+    public async Task<List<ProcessSummary>> GetCustomerProcessesAsync(
+        SpecAccessContext scope,
+        int customerId,
+        CancellationToken cancellationToken = default)
     {
         var processCounts = await ApplyScope(_unitOfWork.AcceptanceSpecs.Query(), scope)
             .Where(spec => spec.CustomerId == customerId && spec.ProcessId.HasValue)
@@ -81,7 +87,7 @@ public sealed class AcceptanceSpecQueryService
                 ProcessId = group.Key,
                 SpecCount = group.Count()
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         if (processCounts.Count == 0)
             return [];
@@ -98,7 +104,7 @@ public sealed class AcceptanceSpecQueryService
                 Name = process.Name,
                 CreatedAt = process.CreatedAt
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         foreach (var process in processes)
         {
@@ -119,7 +125,8 @@ public sealed class AcceptanceSpecQueryService
         bool? processIdIsNull = null,
         bool? machineModelIdIsNull = null,
         DateTime? importedFrom = null,
-        DateTime? importedTo = null)
+        DateTime? importedTo = null,
+        CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, AcceptanceSpecQueryOptions.MaxPageSize);
@@ -148,7 +155,9 @@ public sealed class AcceptanceSpecQueryService
         };
     }
 
-    public async Task<List<SpecGroupSummary>> GetGroupSummaryAsync(SpecAccessContext scope)
+    public async Task<List<SpecGroupSummary>> GetGroupSummaryAsync(
+        SpecAccessContext scope,
+        CancellationToken cancellationToken = default)
     {
         var groups = await _unitOfWork.AcceptanceSpecs.GetGroupSummaryWithFilterAsync(BuildQueryOptions(scope));
         return groups
@@ -174,7 +183,8 @@ public sealed class AcceptanceSpecQueryService
         bool? processIdIsNull = null,
         bool? machineModelIdIsNull = null,
         double? minSimilarity = null,
-        int? maxGroups = null)
+        int? maxGroups = null,
+        CancellationToken cancellationToken = default)
     {
         var allSpecs = await _unitOfWork.AcceptanceSpecs.GetFilteredWithIncludesAsync(
             BuildQueryOptions(

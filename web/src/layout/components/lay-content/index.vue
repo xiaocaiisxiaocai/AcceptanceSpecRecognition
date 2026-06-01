@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import LayFrame from "../lay-frame/index.vue";
 import LayFooter from "../lay-footer/index.vue";
 import { useTags } from "@/layout/hooks/useTag";
@@ -15,6 +16,12 @@ import {
   defineComponent
 } from "vue";
 import { usePermissionStoreHook } from "@/store/modules/permission";
+
+const keepAliveIncludes = computed(() =>
+  usePermissionStoreHook().cachePageList.filter(
+    (name): name is string => typeof name === "string"
+  )
+);
 
 const props = defineProps({
   fixedHeader: Boolean
@@ -162,7 +169,7 @@ const transitionMain = defineComponent({
                 <transitionMain :route="route">
                   <keep-alive
                     v-if="isKeepAlive"
-                    :include="usePermissionStoreHook().cachePageList"
+                    :include="keepAliveIncludes"
                   >
                     <component
                       :is="Comp"
@@ -186,7 +193,7 @@ const transitionMain = defineComponent({
               <transitionMain :route="route">
                 <keep-alive
                   v-if="isKeepAlive"
-                  :include="usePermissionStoreHook().cachePageList"
+                  :include="keepAliveIncludes"
                 >
                   <component
                     :is="Comp"

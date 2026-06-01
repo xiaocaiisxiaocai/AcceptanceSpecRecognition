@@ -27,7 +27,9 @@ const addDialog = (options: DialogOptions) => {
 
 /** 关闭弹框 */
 const closeDialog = (options: DialogOptions, index: number, args?: any) => {
-  dialogStore.value[index].visible = false;
+  const dialog = dialogStore.value[index];
+  if (!dialog) return;
+  dialog.visible = false;
   options.closeCallBack && options.closeCallBack({ options, index, args });
 
   const closeDelay = options?.closeDelay ?? 200;
@@ -42,8 +44,15 @@ const closeDialog = (options: DialogOptions, index: number, args?: any) => {
  * @param key 属性，默认`title`
  * @param index 弹框索引（默认`0`，代表只有一个弹框，对于嵌套弹框要改哪个弹框的属性值就把该弹框索引赋给`index`）
  */
-const updateDialog = (value: any, key = "title", index = 0) => {
-  dialogStore.value[index][key] = value;
+const updateDialog = (
+  value: any,
+  key: keyof DialogOptions = "title",
+  index = 0
+) => {
+  const dialog = dialogStore.value[index];
+  if (dialog) {
+    (dialog as Record<keyof DialogOptions, any>)[key] = value;
+  }
 };
 
 /** 关闭所有弹框 */

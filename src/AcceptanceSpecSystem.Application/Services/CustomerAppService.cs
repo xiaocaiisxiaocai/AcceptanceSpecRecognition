@@ -29,7 +29,8 @@ public sealed class CustomerAppService
         SpecAccessContext scope,
         int page,
         int pageSize,
-        string? keyword)
+        string? keyword,
+        CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
@@ -41,7 +42,7 @@ public sealed class CustomerAppService
             query = query.Where(customer => customer.Name.Contains(normalizedKeyword));
         }
 
-        var total = await query.CountAsync();
+        var total = await query.CountAsync(cancellationToken);
         var rows = await query
             .OrderByDescending(customer => customer.CreatedAt)
             .Skip((page - 1) * pageSize)
@@ -52,11 +53,12 @@ public sealed class CustomerAppService
                 Name = customer.Name,
                 CreatedAt = customer.CreatedAt
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         var processCountByCustomer = await _acceptanceSpecQueryService.GetProcessCountByCustomerAsync(
             scope,
-            rows.Select(item => item.Id).ToArray());
+            rows.Select(item => item.Id).ToArray(),
+            cancellationToken);
 
         foreach (var row in rows)
         {
@@ -74,13 +76,19 @@ public sealed class CustomerAppService
         };
     }
 
-    public async Task<CustomerSummary?> GetByIdAsync(SpecAccessContext scope, int id)
+    public async Task<CustomerSummary?> GetByIdAsync(
+        SpecAccessContext scope,
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var customer = await _unitOfWork.Customers.GetByIdAsync(id);
         if (customer == null)
             return null;
 
-        var processCountByCustomer = await _acceptanceSpecQueryService.GetProcessCountByCustomerAsync(scope, [id]);
+        var processCountByCustomer = await _acceptanceSpecQueryService.GetProcessCountByCustomerAsync(
+            scope,
+            [id],
+            cancellationToken);
         return new CustomerSummary
         {
             Id = customer.Id,
@@ -90,7 +98,9 @@ public sealed class CustomerAppService
         };
     }
 
-    public async Task<CustomerSummary> CreateAsync(string customerName)
+    public async Task<CustomerSummary> CreateAsync(
+        string customerName,
+        CancellationToken cancellationToken = default)
     {
         var name = NormalizeRequiredName(customerName, "客户名称不能为空");
         if (await _unitOfWork.Customers.AnyAsync(customer => customer.Name == name))
@@ -116,7 +126,11 @@ public sealed class CustomerAppService
         };
     }
 
-    public async Task<CustomerSummary?> UpdateAsync(SpecAccessContext scope, int id, string customerName)
+    public async Task<CustomerSummary?> UpdateAsync(
+        SpecAccessContext scope,
+        int id,
+        string customerName,
+        CancellationToken cancellationToken = default)
     {
         var customer = await _unitOfWork.Customers.GetByIdAsync(id);
         if (customer == null)
@@ -132,7 +146,10 @@ public sealed class CustomerAppService
 
         _logger.LogInformation("更新客户成功: {CustomerId} - {CustomerName}", customer.Id, customer.Name);
 
-        var processCountByCustomer = await _acceptanceSpecQueryService.GetProcessCountByCustomerAsync(scope, [id]);
+        var processCountByCustomer = await _acceptanceSpecQueryService.GetProcessCountByCustomerAsync(
+            scope,
+            [id],
+            cancellationToken);
         return new CustomerSummary
         {
             Id = customer.Id,
@@ -142,7 +159,7 @@ public sealed class CustomerAppService
         };
     }
 
-    public async Task<bool> DeleteAsync(int id)
+    public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var customer = await _unitOfWork.Customers.GetByIdAsync(id);
         if (customer == null)
@@ -155,13 +172,16 @@ public sealed class CustomerAppService
         return true;
     }
 
-    public async Task<List<ProcessSummary>?> GetProcessesAsync(SpecAccessContext scope, int customerId)
+    public async Task<List<ProcessSummary>?> GetProcessesAsync(
+        SpecAccessContext scope,
+        int customerId,
+        CancellationToken cancellationToken = default)
     {
         var customer = await _unitOfWork.Customers.GetByIdAsync(customerId);
         if (customer == null)
             return null;
 
-        return await _acceptanceSpecQueryService.GetCustomerProcessesAsync(scope, customerId);
+        return await _acceptanceSpecQueryService.GetCustomerProcessesAsync(scope, customerId, cancellationToken);
     }
 
     private static string NormalizeRequiredName(string? value, string message)

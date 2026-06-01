@@ -30,16 +30,17 @@ public class SystemUsersController : BaseApiController
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null,
-        [FromQuery] bool? isActive = null)
+        [FromQuery] bool? isActive = null,
+        CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
         if (!companyId.HasValue)
             return Error<PagedData<SystemUserDto>>(401, "当前会话缺少公司上下文");
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
-        var data = await _systemUserAppService.GetListAsync(companyId.Value, page, pageSize, keyword, isActive);
+        var data = await _systemUserAppService.GetListAsync(companyId.Value, page, pageSize, keyword, isActive, cancellationToken);
         return Success(data);
     }
 
@@ -49,13 +50,15 @@ public class SystemUsersController : BaseApiController
     [HttpGet("{id:int}")]
     [ProducesResponseType(typeof(ApiResponse<SystemUserDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SystemUserDto>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<SystemUserDto>>> GetById(int id)
+    public async Task<ActionResult<ApiResponse<SystemUserDto>>> GetById(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
         if (!companyId.HasValue)
             return Error<SystemUserDto>(401, "当前会话缺少公司上下文");
 
-        var user = await _systemUserAppService.GetByIdAsync(companyId.Value, id);
+        var user = await _systemUserAppService.GetByIdAsync(companyId.Value, id, cancellationToken);
         if (user == null)
             return NotFoundResult<SystemUserDto>("用户不存在");
 
@@ -69,15 +72,17 @@ public class SystemUsersController : BaseApiController
     [AuditOperation("create", "system-user")]
     [ProducesResponseType(typeof(ApiResponse<SystemUserDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SystemUserDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<SystemUserDto>>> Create([FromBody] CreateSystemUserRequest request)
+    public async Task<ActionResult<ApiResponse<SystemUserDto>>> Create(
+        [FromBody] CreateSystemUserRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
         if (!companyId.HasValue)
             return Error<SystemUserDto>(401, "当前会话缺少公司上下文");
 
         try
         {
-            var user = await _systemUserAppService.CreateAsync(companyId.Value, request);
+            var user = await _systemUserAppService.CreateAsync(companyId.Value, request, cancellationToken);
             return Success(user, "创建用户成功");
         }
         catch (ApplicationServiceException ex)
@@ -93,9 +98,12 @@ public class SystemUsersController : BaseApiController
     [AuditOperation("update", "system-user")]
     [ProducesResponseType(typeof(ApiResponse<SystemUserDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SystemUserDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<SystemUserDto>>> Update(int id, [FromBody] UpdateSystemUserRequest request)
+    public async Task<ActionResult<ApiResponse<SystemUserDto>>> Update(
+        int id,
+        [FromBody] UpdateSystemUserRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
         if (!companyId.HasValue)
             return Error<SystemUserDto>(401, "当前会话缺少公司上下文");
 
@@ -105,7 +113,8 @@ public class SystemUsersController : BaseApiController
                 companyId.Value,
                 id,
                 request,
-                GetCurrentUsername());
+                GetCurrentUsername(),
+                cancellationToken);
             return Success(user, "更新用户成功");
         }
         catch (ApplicationServiceException ex)
@@ -121,9 +130,12 @@ public class SystemUsersController : BaseApiController
     [AuditOperation("update-status", "system-user")]
     [ProducesResponseType(typeof(ApiResponse<SystemUserDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SystemUserDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<SystemUserDto>>> UpdateStatus(int id, [FromBody] UpdateSystemUserStatusRequest request)
+    public async Task<ActionResult<ApiResponse<SystemUserDto>>> UpdateStatus(
+        int id,
+        [FromBody] UpdateSystemUserStatusRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
         if (!companyId.HasValue)
             return Error<SystemUserDto>(401, "当前会话缺少公司上下文");
 
@@ -133,7 +145,8 @@ public class SystemUsersController : BaseApiController
                 companyId.Value,
                 id,
                 request,
-                GetCurrentUsername());
+                GetCurrentUsername(),
+                cancellationToken);
             return Success(user, "更新状态成功");
         }
         catch (ApplicationServiceException ex)
@@ -149,15 +162,18 @@ public class SystemUsersController : BaseApiController
     [AuditOperation("reset-password", "system-user")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse>> ResetPassword(int id, [FromBody] ResetSystemUserPasswordRequest request)
+    public async Task<ActionResult<ApiResponse>> ResetPassword(
+        int id,
+        [FromBody] ResetSystemUserPasswordRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
         if (!companyId.HasValue)
             return Error(401, "当前会话缺少公司上下文");
 
         try
         {
-            await _systemUserAppService.ResetPasswordAsync(companyId.Value, id, request);
+            await _systemUserAppService.ResetPasswordAsync(companyId.Value, id, request, cancellationToken);
             return Success("重置密码成功");
         }
         catch (ApplicationServiceException ex)
@@ -173,15 +189,17 @@ public class SystemUsersController : BaseApiController
     [AuditOperation("delete", "system-user")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse>> Delete(int id)
+    public async Task<ActionResult<ApiResponse>> Delete(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
         if (!companyId.HasValue)
             return Error(401, "当前会话缺少公司上下文");
 
         try
         {
-            await _systemUserAppService.DeleteAsync(companyId.Value, id, GetCurrentUsername());
+            await _systemUserAppService.DeleteAsync(companyId.Value, id, GetCurrentUsername(), cancellationToken);
             return Success("删除用户成功");
         }
         catch (ApplicationServiceException ex)

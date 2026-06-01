@@ -15,12 +15,20 @@ defineOptions({
   name: "ReDialog"
 });
 
-const sureBtnMap = ref({});
+type SureButtonState = {
+  loading?: boolean;
+};
+
+type CloseCommandArgs = {
+  command: "cancel" | "sure" | "close";
+};
+
+const sureBtnMap = ref<Record<number, SureButtonState>>({});
 const fullscreen = ref(false);
 
 const footerButtons = computed(() => {
   return (options: DialogOptions) => {
-    return options?.footerButtons?.length > 0
+    return (options?.footerButtons?.length ?? 0) > 0
       ? options.footerButtons
       : ([
           {
@@ -98,10 +106,35 @@ function eventsCallBack(
 function handleClose(
   options: DialogOptions,
   index: number,
-  args = { command: "close" }
+  args: CloseCommandArgs = { command: "close" }
 ) {
   closeDialog(options, index, args);
   eventsCallBack("close", options, index);
+}
+
+function renderHeader(
+  options: DialogOptions,
+  close: () => void,
+  titleId: string,
+  titleClass: string
+) {
+  return options.headerRenderer?.({ close, titleId, titleClass });
+}
+
+function renderContent(options: DialogOptions, index: number) {
+  return options.contentRenderer?.({ options, index });
+}
+
+function renderFooter(options: DialogOptions, index: number) {
+  return options.footerRenderer?.({ options, index });
+}
+
+function handleContentClose(
+  options: DialogOptions,
+  index: number,
+  args: CloseCommandArgs
+) {
+  handleClose(options, index, args);
 }
 </script>
 
@@ -156,19 +189,20 @@ function handleClose(
         </i>
       </div>
       <component
-        :is="options?.headerRenderer({ close, titleId, titleClass })"
+        :is="renderHeader(options, close, titleId, titleClass)"
         v-else
       />
     </template>
     <component
+      v-if="options.contentRenderer"
       v-bind="options?.props"
-      :is="options.contentRenderer({ options, index })"
-      @close="args => handleClose(options, index, args)"
+      :is="renderContent(options, index)"
+      @close="handleContentClose(options, index, $event)"
     />
     <!-- footer -->
     <template v-if="!options?.hideFooter" #footer>
       <template v-if="options?.footerRenderer">
-        <component :is="options?.footerRenderer({ options, index })" />
+        <component :is="renderFooter(options, index)" />
       </template>
       <span v-else>
         <template v-for="(btn, key) in footerButtons(options)" :key="key">
@@ -176,7 +210,7 @@ function handleClose(
             v-if="btn.popconfirm"
             v-bind="btn.popconfirm"
             @confirm="
-              btn.btnClick({
+              btn.btnClick?.({
                 dialog: { options, index },
                 button: { btn, index: key }
               })
@@ -191,7 +225,7 @@ function handleClose(
             v-bind="btn"
             :loading="key === 1 && sureBtnMap[index]?.loading"
             @click="
-              btn.btnClick({
+              btn.btnClick?.({
                 dialog: { options, index },
                 button: { btn, index: key }
               })

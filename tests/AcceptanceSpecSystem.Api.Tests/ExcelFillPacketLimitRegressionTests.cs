@@ -299,10 +299,10 @@ internal sealed class ThrowOnLargePendingJsonUnitOfWork : IUnitOfWork
     public IMatchingFillTaskRepository MatchingFillTasks => _inner.MatchingFillTasks;
     public IExecutionHistoryRecordRepository ExecutionHistoryRecords => _inner.ExecutionHistoryRecords;
 
-    public Task<int> SaveChangesAsync()
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfPendingJsonTooLarge();
-        return _inner.SaveChangesAsync();
+        return _inner.SaveChangesAsync(cancellationToken);
     }
 
     public int SaveChanges()

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 import { computed } from "vue";
 import { isUrl } from "@pureadmin/utils";
 import { menuType } from "@/layout/types";

@@ -92,7 +92,7 @@ export const shouldShowFillRecommendation = (item: MatchPreviewItem) =>
   !!item.bestMatch || !item.hasMatch;
 
 export const getMatchBasisText = (
-  matchBasis?: MatchPreviewItem["bestMatch"]["matchBasis"]
+  matchBasis?: NonNullable<MatchPreviewItem["bestMatch"]>["matchBasis"]
 ) => {
   if (!matchBasis) return "";
   return matchBasis === "specification" ? "规格" : "项目+规格";

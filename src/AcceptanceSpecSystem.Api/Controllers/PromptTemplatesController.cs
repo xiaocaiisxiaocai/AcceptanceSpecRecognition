@@ -133,7 +133,7 @@ public class PromptTemplatesController : BaseApiController
         entity.UpdatedAt = DateTime.UtcNow;
         _unitOfWork.PromptTemplates.Update(entity);
 
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Success(ToDto(entity), "更新成功");
     }
 
@@ -170,7 +170,9 @@ public class PromptTemplatesController : BaseApiController
     [HttpPost("reset-system/{scene}")]
     [AuditOperation("reset-system", "prompt-template")]
     [ProducesResponseType(typeof(ApiResponse<PromptTemplateDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> ResetSystem(string scene)
+    public async Task<ActionResult<ApiResponse<PromptTemplateDto>>> ResetSystem(
+        string scene,
+        CancellationToken cancellationToken = default)
     {
         if (!PromptTemplateCatalog.TryGetByName(scene, out var definition))
             return Error<PromptTemplateDto>(400, "模板场景不存在");
@@ -185,7 +187,7 @@ public class PromptTemplatesController : BaseApiController
         entity.IsSystem = true;
         entity.Scene = ToDataPromptTemplateScene(definition.Scene);
         entity.UpdatedAt = DateTime.UtcNow;
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Success(ToDto(entity), "恢复默认成功");
     }

@@ -38,7 +38,8 @@ public class AuditLogsController : BaseApiController
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         [FromQuery] int? minStatusCode = null,
-        [FromQuery] int? maxStatusCode = null)
+        [FromQuery] int? maxStatusCode = null,
+        CancellationToken cancellationToken = default)
     {
         var (items, total) = await _unitOfWork.AuditLogs.GetPagedAsync(
             page,
@@ -51,7 +52,8 @@ public class AuditLogsController : BaseApiController
             from,
             to,
             minStatusCode,
-            maxStatusCode);
+            maxStatusCode,
+            cancellationToken);
 
         return Success(new PagedData<AuditLogListItemDto>
         {
@@ -69,9 +71,11 @@ public class AuditLogsController : BaseApiController
     [Authorize]
     [ProducesResponseType(typeof(ApiResponse<AuditLogDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AuditLogDetailDto>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<AuditLogDetailDto>>> GetDetail(int id)
+    public async Task<ActionResult<ApiResponse<AuditLogDetailDto>>> GetDetail(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AuditLogs.GetByIdAsync(id);
+        var entity = await _unitOfWork.AuditLogs.GetByIdAsync(id, cancellationToken);
         if (entity == null)
         {
             return NotFoundResult<AuditLogDetailDto>("审计日志不存在");
@@ -90,7 +94,8 @@ public class AuditLogsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteByRange(
         [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null)
+        [FromQuery] DateTime? to = null,
+        CancellationToken cancellationToken = default)
     {
         if (!from.HasValue && !to.HasValue)
         {
@@ -102,7 +107,7 @@ public class AuditLogsController : BaseApiController
             return Error<object>(400, "from 不能晚于 to");
         }
 
-        var deletedCount = await _unitOfWork.AuditLogs.DeleteByRangeAsync(from, to);
+        var deletedCount = await _unitOfWork.AuditLogs.DeleteByRangeAsync(from, to, cancellationToken);
         return Success<object>(new
         {
             deletedCount,

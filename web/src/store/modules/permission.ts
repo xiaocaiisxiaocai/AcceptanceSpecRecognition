@@ -1,6 +1,8 @@
 import { defineStore } from "pinia";
+import type { RouteRecordRaw } from "vue-router";
 import {
   type cacheType,
+  type multiType,
   store,
   ascending,
   getKeyList,
@@ -16,21 +18,20 @@ export const usePermissionStore = defineStore("pure-permission", {
     // 静态路由生成的菜单
     constantMenus,
     // 整体路由生成的菜单（静态、动态）
-    wholeMenus: [],
+    wholeMenus: [] as multiType[],
     // 整体路由（一维数组格式）
-    flatteningRoutes: [],
+    flatteningRoutes: [] as RouteRecordRaw[],
     // 缓存页面keepAlive
-    cachePageList: []
+    cachePageList: [] as cacheType["name"][]
   }),
   actions: {
     /** 组装整体路由生成的菜单 */
     handleWholeMenus(routes: any[]) {
+      const menus = this.constantMenus.concat(routes) as unknown as RouteRecordRaw[];
       this.wholeMenus = filterNoPermissionTree(
-        filterTree(ascending(this.constantMenus.concat(routes)))
-      );
-      this.flatteningRoutes = formatFlatteningRoutes(
-        this.constantMenus.concat(routes) as any
-      );
+        filterTree(ascending(menus))
+      ) as unknown as multiType[];
+      this.flatteningRoutes = formatFlatteningRoutes(menus);
     },
     /** 监听缓存页面是否存在于标签页，不存在则删除 */
     clearCache() {

@@ -33,7 +33,8 @@ public class DocumentsController : BaseApiController
     public async Task<ActionResult<ApiResponse<PagedData<WordFileDto>>>> GetFiles(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] string? keyword = null)
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -46,7 +47,7 @@ public class DocumentsController : BaseApiController
             page,
             pageSize,
             keyword,
-            HttpContext.RequestAborted);
+            cancellationToken);
         return Success(result);
     }
 
@@ -55,7 +56,9 @@ public class DocumentsController : BaseApiController
     [EnableRateLimiting("upload")]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<FileUploadResponse>>> UploadFile(IFormFile file)
+    public async Task<ActionResult<ApiResponse<FileUploadResponse>>> UploadFile(
+        IFormFile file,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -69,7 +72,7 @@ public class DocumentsController : BaseApiController
             var result = await _documentFileAppService.UploadFileAsync(
                 scope,
                 file,
-                HttpContext.RequestAborted);
+                cancellationToken);
             return Success(result, "文件上传成功");
         }
         catch (ApplicationServiceException ex)
@@ -81,7 +84,9 @@ public class DocumentsController : BaseApiController
     [HttpGet("{id}/tables")]
     [ProducesResponseType(typeof(ApiResponse<List<TableInfoDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<List<TableInfoDto>>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<List<TableInfoDto>>>> GetTables(int id)
+    public async Task<ActionResult<ApiResponse<List<TableInfoDto>>>> GetTables(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -116,7 +121,8 @@ public class DocumentsController : BaseApiController
         [FromQuery] int headerRowIndex = 0,
         [FromQuery] int headerRowCount = 1,
         [FromQuery] int dataStartRowIndex = 1,
-        [FromQuery] int? dataEndRowIndex = null)
+        [FromQuery] int? dataEndRowIndex = null,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -153,7 +159,9 @@ public class DocumentsController : BaseApiController
     [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<ImportResult>>> ImportData([FromBody] ImportDataRequest request)
+    public async Task<ActionResult<ApiResponse<ImportResult>>> ImportData(
+        [FromBody] ImportDataRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -166,7 +174,7 @@ public class DocumentsController : BaseApiController
             var importResult = await _documentImportAppService.ImportWordAsync(
                 scope,
                 request,
-                HttpContext.RequestAborted);
+                cancellationToken);
             return Success(importResult.Result, importResult.Message);
         }
         catch (ApplicationServiceException ex)
@@ -180,7 +188,9 @@ public class DocumentsController : BaseApiController
     [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ImportResult>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<ImportResult>>> ImportExcelData([FromBody] ExcelImportDataRequest request)
+    public async Task<ActionResult<ApiResponse<ImportResult>>> ImportExcelData(
+        [FromBody] ExcelImportDataRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -193,7 +203,7 @@ public class DocumentsController : BaseApiController
             var importResult = await _documentImportAppService.ImportExcelAsync(
                 scope,
                 request,
-                HttpContext.RequestAborted);
+                cancellationToken);
             return Success(importResult.Result, importResult.Message);
         }
         catch (ApplicationServiceException ex)
@@ -206,7 +216,9 @@ public class DocumentsController : BaseApiController
     [AuditOperation("delete", "document")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse>> DeleteFile(int id)
+    public async Task<ActionResult<ApiResponse>> DeleteFile(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -216,7 +228,7 @@ public class DocumentsController : BaseApiController
 
         try
         {
-            await _documentFileAppService.DeleteFileAsync(scope, id, HttpContext.RequestAborted);
+            await _documentFileAppService.DeleteFileAsync(scope, id, cancellationToken);
             return Success("删除成功");
         }
         catch (ApplicationServiceException ex) when (ex.Code == 404)

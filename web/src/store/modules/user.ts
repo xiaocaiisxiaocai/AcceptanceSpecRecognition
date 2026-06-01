@@ -7,6 +7,7 @@ import {
   routerArrays,
   storageLocal
 } from "../utils";
+import type { LoginRequestPayload, RefreshTokenPayload } from "../types";
 import {
   type UserResult,
   type RefreshTokenResult,
@@ -86,7 +87,7 @@ export const useUserStore = defineStore("pure-user", {
       this.loginDay = Number(value);
     },
     /** 登入 */
-    async loginByUsername(data) {
+    async loginByUsername(data: LoginRequestPayload) {
       return new Promise<UserResult>((resolve, reject) => {
         getLogin(data)
           .then(data => {
@@ -118,7 +119,7 @@ export const useUserStore = defineStore("pure-user", {
       router.push(loginTarget);
     },
     /** 刷新`token` */
-    async handRefreshToken(data) {
+    async handRefreshToken(data: RefreshTokenPayload) {
       return new Promise<RefreshTokenResult>((resolve, reject) => {
         refreshTokenApi(data)
           .then(data => {
@@ -140,7 +141,8 @@ export const useUserStore = defineStore("pure-user", {
                   !hasAnyPermission(this.permissions, requiredPermissions)
                 ) {
                   const fallbackPath =
-                    findFirstMenuPath(usePermissionStoreHook().wholeMenus) ?? "/dashboard";
+                    findFirstMenuPath(usePermissionStoreHook().wholeMenus) ??
+                    "/dashboard";
                   if (fallbackPath !== router.currentRoute.value.path) {
                     router.replace(fallbackPath);
                   }

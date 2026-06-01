@@ -179,7 +179,7 @@ defineExpose({ currentNodeKey });
       :prefix-icon="Search"
       class="tree-search"
     />
-    <div v-loading="loading" class="tree-body">
+    <div v-loading="loading ?? false" class="tree-body">
       <el-tree
         ref="treeRef"
         :data="treeData"

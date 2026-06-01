@@ -37,13 +37,14 @@ public class MachineModelsController : BaseApiController
     public async Task<ActionResult<ApiResponse<PagedData<MachineModelDto>>>> GetMachineModels(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] string? keyword = null)
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<PagedData<MachineModelDto>>(401, "会话缺少用户上下文");
 
-        var data = await _machineModelAppService.GetPagedAsync(scope.ToAccessContext(), page, pageSize, keyword);
+        var data = await _machineModelAppService.GetPagedAsync(scope.ToAccessContext(), page, pageSize, keyword, cancellationToken);
         return Success(new PagedData<MachineModelDto>
         {
             Items = data.Items.Select(item => item.ToDto()).ToList(),
@@ -59,13 +60,15 @@ public class MachineModelsController : BaseApiController
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<MachineModelDto>>> GetMachineModel(int id)
+    public async Task<ActionResult<ApiResponse<MachineModelDto>>> GetMachineModel(
+        int id,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<MachineModelDto>(401, "会话缺少用户上下文");
 
-        var model = await _machineModelAppService.GetByIdAsync(scope.ToAccessContext(), id);
+        var model = await _machineModelAppService.GetByIdAsync(scope.ToAccessContext(), id, cancellationToken);
         if (model == null)
             return NotFoundResult<MachineModelDto>("机型不存在");
 
@@ -79,11 +82,13 @@ public class MachineModelsController : BaseApiController
     [AuditOperation("create", "machine-model")]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<MachineModelDto>>> CreateMachineModel([FromBody] CreateMachineModelRequest request)
+    public async Task<ActionResult<ApiResponse<MachineModelDto>>> CreateMachineModel(
+        [FromBody] CreateMachineModelRequest request,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var model = await _machineModelAppService.CreateAsync(request.Name);
+            var model = await _machineModelAppService.CreateAsync(request.Name, cancellationToken);
             return Success(model.ToDto(), "创建机型成功");
         }
         catch (ApplicationServiceException ex)
@@ -100,7 +105,10 @@ public class MachineModelsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<MachineModelDto>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<MachineModelDto>>> UpdateMachineModel(int id, [FromBody] UpdateMachineModelRequest request)
+    public async Task<ActionResult<ApiResponse<MachineModelDto>>> UpdateMachineModel(
+        int id,
+        [FromBody] UpdateMachineModelRequest request,
+        CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
@@ -108,7 +116,7 @@ public class MachineModelsController : BaseApiController
 
         try
         {
-            var model = await _machineModelAppService.UpdateAsync(scope.ToAccessContext(), id, request.Name);
+            var model = await _machineModelAppService.UpdateAsync(scope.ToAccessContext(), id, request.Name, cancellationToken);
             if (model == null)
                 return NotFoundResult<MachineModelDto>("机型不存在");
 
@@ -127,9 +135,11 @@ public class MachineModelsController : BaseApiController
     [AuditOperation("delete", "machine-model")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse>> DeleteMachineModel(int id)
+    public async Task<ActionResult<ApiResponse>> DeleteMachineModel(
+        int id,
+        CancellationToken cancellationToken = default)
     {
-        var deleted = await _machineModelAppService.DeleteAsync(id);
+        var deleted = await _machineModelAppService.DeleteAsync(id, cancellationToken);
         if (!deleted)
             return NotFound(ApiResponse.Error(404, "机型不存在"));
 
