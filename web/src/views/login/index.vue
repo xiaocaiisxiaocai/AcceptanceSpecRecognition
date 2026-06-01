@@ -12,6 +12,7 @@ import { useUserStoreHook } from "@/store/modules/user";
 import { initRouter, getTopMenu } from "@/router/utils";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import { useDataThemeChange } from "@/layout/hooks/useDataThemeChange";
+import { getRequestErrorMessage } from "@/utils/error-message";
 
 import dayIcon from "@/assets/svg/day.svg?component";
 import darkIcon from "@/assets/svg/dark.svg?component";
@@ -87,9 +88,8 @@ const onLogin = async (formEl: FormInstance | undefined) => {
           await router.push(topMenu.path);
           message("登录成功", { type: "success" });
         })
-        .catch(error => {
-          const errorMessage = error?.response?.data?.message;
-          message(errorMessage || "登录成功后跳转失败，请稍后重试", {
+        .catch((error: unknown) => {
+          message(getRequestErrorMessage(error, "登录成功后跳转失败，请稍后重试"), {
             type: "error"
           });
         })

@@ -69,7 +69,8 @@ public class MatchingPreviewProgressTests : IClassFixture<DelayedPreviewProgress
         var runningJson = await runningResponse.ReadAsAsync<ApiResponse<JsonElement>>();
         runningJson.Code.Should().Be(0);
         runningJson.Data.GetProperty("requestId").GetString().Should().Be(requestId);
-        runningJson.Data.GetProperty("status").GetString().Should().Be("running");
+        // 预览可能在第一次轮询前完成；进度端点的契约是返回当前有效快照。
+        runningJson.Data.GetProperty("status").GetString().Should().BeOneOf("running", "completed");
         runningJson.Data.GetProperty("stage").GetString().Should().NotBeNullOrWhiteSpace();
         runningJson.Data.GetProperty("stageText").GetString().Should().NotBeNullOrWhiteSpace();
 

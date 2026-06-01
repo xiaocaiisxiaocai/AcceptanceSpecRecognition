@@ -24,6 +24,7 @@ import {
 } from "@/api/matching";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
+import { getRequestErrorMessage } from "@/utils/error-message";
 
 defineOptions({
   name: "AiServicesConfig"
@@ -344,19 +345,8 @@ const getTestResultCardClass = (
   return classMap[category];
 };
 
-const extractErrorMessage = (error: unknown, fallback: string) => {
-  const responseMessage = (error as any)?.response?.data?.message;
-  if (typeof responseMessage === "string" && responseMessage.trim()) {
-    return responseMessage.trim();
-  }
-
-  const errorMessage = (error as any)?.message;
-  if (typeof errorMessage === "string" && errorMessage.trim()) {
-    return errorMessage.trim();
-  }
-
-  return fallback;
-};
+const extractErrorMessage = (error: unknown, fallback: string) =>
+  getRequestErrorMessage(error, fallback);
 
 const getServiceTypeLabel = (value: AiServiceType) =>
   serviceTypeOptions.find(x => x.value === value)?.label || "-";

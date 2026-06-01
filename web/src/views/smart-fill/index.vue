@@ -25,14 +25,12 @@ import {
   downloadFillResult,
   requestMatchLlmStream,
   createMatchLlmStreamRequest,
-  getBatchPreviewProgress,
   type MatchPreviewItem,
   type MatchConfig as MatchConfigType,
   type MatchResult,
   type BatchExecuteFillRequest,
   type MatchLlmStreamEvent,
   type MatchLlmStreamEventData,
-  type BatchPreviewProgressResponse,
   type BatchTablePreviewResult,
   DEFAULT_AMBIGUITY_MARGIN,
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
@@ -47,6 +45,8 @@ import {
 import { matchWordTableColumnsByRules } from "@/views/shared/word-column-mapping-rules";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
+import { getRequestErrorMessage } from "@/utils/error-message";
+import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
 
 defineOptions({ name: "FillData" });
 
@@ -92,11 +92,16 @@ const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
 );
 const loadingUploadedFileTables = ref(false);
 const loading = ref(false);
-const previewProgress = ref<BatchPreviewProgressResponse | null>(null);
-const previewElapsedSeconds = ref(0);
-const previewProgressPollTimer = ref<number | null>(null);
-const previewElapsedTimer = ref<number | null>(null);
-const currentPreviewRequestId = ref<string | null>(null);
+const {
+  previewProgress,
+  previewElapsedSeconds,
+  currentPreviewRequestId,
+  stopPreviewProgressPolling,
+  resetPreviewProgress,
+  createPreviewRequestId,
+  startPreviewProgressPolling,
+  markPreviewProgressCompleted
+} = useSmartFillPreviewProgress();
 const llmStreaming = ref(false);
 const llmStreamController = ref<AbortController | null>(null);
 const previewAbortController = ref<AbortController | null>(null);
@@ -110,132 +115,12 @@ const stopPreviewRequest = () => {
   }
 };
 
-const clearPreviewProgressTimers = () => {
-  if (previewProgressPollTimer.value !== null && typeof window !== "undefined") {
-    window.clearInterval(previewProgressPollTimer.value);
-  }
-  if (previewElapsedTimer.value !== null && typeof window !== "undefined") {
-    window.clearInterval(previewElapsedTimer.value);
-  }
-  previewProgressPollTimer.value = null;
-  previewElapsedTimer.value = null;
-};
-
-const stopPreviewProgressPolling = () => {
-  clearPreviewProgressTimers();
-  currentPreviewRequestId.value = null;
-};
-
-const resetPreviewProgress = () => {
-  previewProgress.value = null;
-  previewElapsedSeconds.value = 0;
-};
-
 const invalidatePendingPreview = () => {
   stopPreviewRequest();
   stopPreviewProgressPolling();
   resetPreviewProgress();
   previewRequestVersion++;
   loading.value = false;
-};
-
-const createPreviewRequestId = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-
-  return `preview-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
-
-const fetchBatchPreviewProgress = async (requestId: string) => {
-  try {
-    const res = await getBatchPreviewProgress(requestId);
-    if (currentPreviewRequestId.value !== requestId || res.code !== 0) {
-      return;
-    }
-
-    previewProgress.value = res.data;
-    if (res.data.status !== "running") {
-      stopPreviewProgressPolling();
-    }
-  } catch (error: any) {
-    if (currentPreviewRequestId.value !== requestId) {
-      return;
-    }
-
-    if (!loading.value) {
-      stopPreviewProgressPolling();
-      return;
-    }
-
-    if (error?.response?.status === 404) {
-      // 后端进度快照是内存态，页面切换、服务重启或缓存过期后可能丢失。
-      // 主匹配请求仍可继续完成，因此只停止进度轮询，避免控制台持续 404。
-      stopPreviewProgressPolling();
-      return;
-    }
-  }
-};
-
-const startPreviewProgressPolling = (requestId: string) => {
-  clearPreviewProgressTimers();
-  previewProgress.value = {
-    requestId,
-    status: "running",
-    stage: "preparing",
-    stageText: "正在准备匹配任务",
-    detailText: "正在等待后端返回真实进度",
-    completedItems: 0,
-    totalItems: 0,
-    progressPercent: 1,
-    startedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    elapsedMs: 0
-  };
-  previewElapsedSeconds.value = 0;
-  currentPreviewRequestId.value = requestId;
-
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  previewElapsedTimer.value = window.setInterval(() => {
-    previewElapsedSeconds.value += 1;
-  }, 1000);
-
-  previewProgressPollTimer.value = window.setInterval(() => {
-    void fetchBatchPreviewProgress(requestId);
-  }, 900);
-};
-
-const markPreviewProgressCompleted = () => {
-  const requestId = currentPreviewRequestId.value;
-  if (!requestId) {
-    return;
-  }
-
-  const now = new Date().toISOString();
-  previewProgress.value = {
-    requestId,
-    status: "completed",
-    stage: "completed",
-    stageText: "匹配预览已完成",
-    detailText:
-      previewProgress.value?.detailText ||
-      `已完成 ${previewProgress.value?.completedItems ?? 0}/${
-        previewProgress.value?.totalItems ?? 0
-      } 行`,
-    completedItems:
-      previewProgress.value?.totalItems ?? previewProgress.value?.completedItems ?? 0,
-    totalItems:
-      previewProgress.value?.totalItems ?? previewProgress.value?.completedItems ?? 0,
-    progressPercent: 100,
-    startedAt: previewProgress.value?.startedAt ?? now,
-    updatedAt: now,
-    elapsedMs: previewElapsedSeconds.value * 1000
-  };
-
-  stopPreviewProgressPolling();
 };
 
 const getEffectiveFilterEmptySourceRows = (tableConfig: {
@@ -464,15 +349,6 @@ const resolvePreviewFailure = (message?: string) => {
   return normalizedMessage || "匹配预览失败";
 };
 
-const getRequestErrorMessage = (error: unknown) => {
-  return (
-    (error as any)?.response?.data?.message ||
-    (error as any)?.response?.data?.error?.message ||
-    (error instanceof Error ? error.message : "") ||
-    ""
-  );
-};
-
 const handleScopeChange = (
   customerId?: number,
   processId?: number,
@@ -628,7 +504,7 @@ const doPreview = async () => {
   lastDownloadFailed.value = false;
   loading.value = true;
   const previewRequestId = createPreviewRequestId();
-  startPreviewProgressPolling(previewRequestId);
+  startPreviewProgressPolling(previewRequestId, () => loading.value);
   stopPreviewRequest();
   const controller = new AbortController();
   previewAbortController.value = controller;
@@ -691,20 +567,25 @@ const doPreview = async () => {
       if (requestVersion !== previewRequestVersion) return;
       ElMessage.error(resolvePreviewFailure(res.message));
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const requestError = error as {
+      code?: string;
+      name?: string;
+      isCancelRequest?: boolean;
+    };
     if (
       requestVersion !== previewRequestVersion ||
       controller.signal.aborted ||
-      error?.code === "ERR_CANCELED" ||
-      error?.name === "CanceledError" ||
-      error?.isCancelRequest
+      requestError.code === "ERR_CANCELED" ||
+      requestError.name === "CanceledError" ||
+      requestError.isCancelRequest
     ) {
       return;
     }
     if (currentPreviewRequestId.value === previewRequestId) {
       stopPreviewProgressPolling();
     }
-    ElMessage.error(resolvePreviewFailure(getRequestErrorMessage(error)));
+    ElMessage.error(resolvePreviewFailure(getRequestErrorMessage(error, "")));
   } finally {
     if (previewAbortController.value === controller) {
       previewAbortController.value = null;
@@ -1032,7 +913,7 @@ const confirmBackfillAndExecute = async () => {
     await runExecuteFill(request);
     pendingExecuteRequest.value = null;
   } catch (error) {
-    ElMessage.error(getRequestErrorMessage(error) || "回填或填充失败");
+    ElMessage.error(getRequestErrorMessage(error, "回填或填充失败"));
   } finally {
     backfillingSpecs.value = false;
     executing.value = false;
