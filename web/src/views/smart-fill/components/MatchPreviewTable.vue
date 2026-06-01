@@ -2,7 +2,6 @@
 import { computed, ref, watch } from "vue";
 import {
   DEFAULT_AMBIGUITY_MARGIN,
-  type MatchIssue,
   type MatchPreviewItem
 } from "@/api/matching";
 import {
@@ -18,6 +17,25 @@ import {
   type SmartFillFillRecommendation,
   type SmartFillReviewStatus
 } from "./scoreDetail.formatters";
+import {
+  formatIssueComparison,
+  formatPreviewScore,
+  getAmbiguityHint as getPreviewAmbiguityHint,
+  getFillRecommendationTagType as getPreviewFillRecommendationTagType,
+  getFillRecommendationText as getPreviewFillRecommendationText,
+  getMatchPreviewDecision,
+  getPreviewConfidenceClass,
+  getPreviewConfidenceText,
+  getPrimaryIssue,
+  getReviewStatusText as getPreviewReviewStatusText,
+  getReviewTagType as getPreviewReviewTagType,
+  isExactFillable as isExactFillableByRecommendation,
+  isHighConfidenceMatchPreview,
+  isMatchPreviewAutoApply,
+  isMatchPreviewRejectDecision,
+  isNoAnswerPlaceholderRow,
+  isPartialFillable as isPartialFillableByRecommendation
+} from "./matchPreviewTable.formatters";
 
 const props = defineProps<{
   items: MatchPreviewItem[];
@@ -81,15 +99,6 @@ const editForm = ref({
   overrideRemark: ""
 });
 
-const isNoAnswerPlaceholderRow = (item: MatchPreviewItem) => {
-  const project = (item.sourceProject || "").trim();
-  const specification = (item.sourceSpecification || "").trim();
-  if (specification) return false;
-
-  const placeholderProjects = new Set(["其他", "-", "/", "无", "n/a", "na"]);
-  return placeholderProjects.has(project.toLowerCase());
-};
-
 const getTableState = (item: MatchPreviewItem) =>
   getSmartFillTableState(item, { llmStreaming: props.llmStreaming });
 
@@ -98,16 +107,13 @@ const getReviewStatus = (item: MatchPreviewItem): SmartFillReviewStatus =>
 
 const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN);
 
-const getDecision = (item: MatchPreviewItem) =>
-  item.bestMatch?.decision ?? "manualReview";
+const getDecision = getMatchPreviewDecision;
 
-const isAutoApply = (item: MatchPreviewItem) => getDecision(item) === "autoApply";
+const isAutoApply = isMatchPreviewAutoApply;
 
-const isRejectDecision = (item: MatchPreviewItem) => getDecision(item) === "reject";
+const isRejectDecision = isMatchPreviewRejectDecision;
 
-const isHighConfidence = (item: MatchPreviewItem) =>
-  isAutoApply(item) &&
-  item.confidenceLevel === "high";
+const isHighConfidence = isHighConfidenceMatchPreview;
 
 const isReviewInFlight = (item: MatchPreviewItem) =>
   getReviewStatus(item) === "streaming";
@@ -388,103 +394,24 @@ const clearSelectionByRow = (rowIndex: number) => {
   selectedSpecs.value.set(rowIndex, null);
 };
 
-const getConfidenceClass = (level: string) => {
-  switch (level) {
-    case "high":
-      return "confidence-high";
-    case "medium":
-      return "confidence-medium";
-    case "low":
-      return "confidence-low";
-    default:
-      return "confidence-none";
-  }
-};
-
-const getConfidenceText = (level: string) => {
-  switch (level) {
-    case "high":
-      return "高";
-    case "medium":
-      return "中";
-    case "low":
-      return "低";
-    default:
-      return "无";
-  }
-};
-
-const formatScore = (score: number) => `${(score * 100).toFixed(1)}%`;
-const formatOptionalPercent = (value?: number) =>
-  value === undefined || value === null ? "-" : `${(value * 100).toFixed(1)}%`;
+const getConfidenceClass = getPreviewConfidenceClass;
+const getConfidenceText = getPreviewConfidenceText;
+const formatScore = formatPreviewScore;
 
 const getAmbiguityHint = (item: MatchPreviewItem) => {
-  if (!item.bestMatch?.isAmbiguous) return "";
-
-  return `Top1/Top2分差 ${formatOptionalPercent(item.bestMatch.scoreGap)}，歧义阈值 ${formatOptionalPercent(effectiveAmbiguityMargin.value)}`;
-};
-
-const getPrimaryIssue = (item: MatchPreviewItem): MatchIssue | undefined =>
-  item.bestMatch?.issues?.[0];
-
-const formatIssueComparison = (issue?: MatchIssue) => {
-  if (!issue?.sourceValue && !issue?.candidateValue) {
-    return "";
-  }
-
-  if (issue.sourceValue && issue.candidateValue) {
-    return `源值 ${issue.sourceValue}，候选 ${issue.candidateValue}`;
-  }
-
-  if (issue.sourceValue) {
-    return `源值 ${issue.sourceValue}`;
-  }
-
-  return `候选 ${issue?.candidateValue}`;
+  return getPreviewAmbiguityHint(item, effectiveAmbiguityMargin.value);
 };
 
 const getReviewStatusText = (item: MatchPreviewItem) => {
-  const status = getReviewStatus(item);
-  switch (status) {
-    case "direct":
-      return "无需复核";
-    case "completed":
-      return isHighConfidence(item) ? "无需复核" : "AI判定可采用";
-    case "manual":
-      return item.llmReviewStage === "done" ? "复核后待确认" : "待确认";
-    case "waiting":
-      return "等待复核";
-    case "pending":
-      return "待复核";
-    case "streaming":
-      return "复核中...";
-    case "blocked":
-      return "暂不采用";
-    case "error":
-      return "已转人工确认";
-    default:
-      return "-";
-  }
+  return getPreviewReviewStatusText(
+    item,
+    getReviewStatus(item),
+    isHighConfidence(item)
+  );
 };
 
 const getReviewTagType = (item: MatchPreviewItem) => {
-  switch (getReviewStatus(item)) {
-    case "direct":
-      return "success";
-    case "completed":
-      return "success";
-    case "manual":
-    case "pending":
-    case "streaming":
-    case "error":
-      return "warning";
-    case "waiting":
-      return "info";
-    case "blocked":
-      return "danger";
-    default:
-      return "info";
-  }
+  return getPreviewReviewTagType(getReviewStatus(item));
 };
 
 const getFillRecommendation = (
@@ -495,42 +422,19 @@ const getFillRecommendation = (
 };
 
 const isExactFillable = (item: MatchPreviewItem) =>
-  getFillRecommendation(item) === "fillable" &&
-  item.bestMatch?.selectionMode === "exactShortcut";
+  isExactFillableByRecommendation(item, getFillRecommendation(item));
 
 const isPartialFillable = (item: MatchPreviewItem) =>
-  getFillRecommendation(item) === "fillable" &&
-  !!item.bestMatch &&
-  item.bestMatch.selectionMode !== "exactShortcut";
+  isPartialFillableByRecommendation(item, getFillRecommendation(item));
 
 const getFillRecommendationText = (item: MatchPreviewItem) => {
-  switch (getFillRecommendation(item)) {
-    case "fillable":
-      return "可直接填充";
-    case "blocked":
-      return "不建议填充";
-    case "unmatched":
-      return "无匹配";
-    case "review":
-    default:
-      return "需要确认";
-  }
+  return getPreviewFillRecommendationText(getFillRecommendation(item));
 };
 
 const getFillRecommendationTagType = (
   item: MatchPreviewItem
 ): "success" | "warning" | "danger" | "info" => {
-  switch (getFillRecommendation(item)) {
-    case "fillable":
-      return "success";
-    case "blocked":
-      return "danger";
-    case "unmatched":
-      return "info";
-    case "review":
-    default:
-      return "warning";
-  }
+  return getPreviewFillRecommendationTagType(getFillRecommendation(item));
 };
 
 const selectedCount = computed(() => {

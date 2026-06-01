@@ -34,6 +34,19 @@ export type TargetUploadDecision =
   | TargetUploadRejected
   | TargetUploadAccepted;
 
+export function validateBatchReplySourceFile(file: TargetFileLike) {
+  const lowerName = file.name.toLowerCase();
+  if (!lowerName.endsWith(".docx") && !lowerName.endsWith(".xlsx")) {
+    return "仅支持 .docx / .xlsx 格式";
+  }
+
+  if (file.size > 50 * 1024 * 1024) {
+    return "文件大小不能超过50MB";
+  }
+
+  return "";
+}
+
 export function createTargetFileSignature(file: TargetFileLike) {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }

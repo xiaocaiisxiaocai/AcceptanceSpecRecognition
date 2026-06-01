@@ -20,15 +20,24 @@ import {
   type BatchReplyDuplicateStrategy,
   type BatchReplyExecuteResponse,
   type BatchReplyTablePreviewResponse,
-  type BatchReplyUploadedTargetFile,
-  type BatchTableConfig as ApiBatchTableConfig
+  type BatchReplyUploadedTargetFile
 } from "@/api/matching";
 import type { TableData, TableInfo } from "@/api/document";
-import { createTargetFileSignature, decideTargetUpload } from "./target-upload";
+import {
+  createTargetFileSignature,
+  decideTargetUpload,
+  validateBatchReplySourceFile
+} from "./target-upload";
 import {
   createTargetPreviewLoaderResolver,
   prunePreviewResultsForConfigChange
 } from "./batch-reply-preview-state";
+import {
+  buildTableConfig,
+  isTargetExecutable,
+  resolveDefaultSourceTableIndex,
+  toBatchTableConfig
+} from "./batch-reply-table-config";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 
@@ -104,92 +113,6 @@ const formatFileSize = (size: number) => {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const resolveDefaultSourceTableIndex = (tableIndex: number) => {
-  const options = selectedSourceTableOptions.value;
-  if (options.length === 0) {
-    return undefined;
-  }
-
-  return options.some(option => option.value === tableIndex) ? tableIndex : options[0].value;
-};
-
-const buildExcelTableConfig = (
-  table: TableInfo,
-  selected: boolean,
-  sourceTableIndex?: number
-): BatchTableConfigItem => {
-  const usedStartRow = Math.max(1, table.usedRangeStartRow ?? 1);
-  const totalColumns = Math.max(table.columnCount, table.headers.length, 1);
-  const clampColumnIndex = (preferredIndex: number) =>
-    Math.min(preferredIndex, totalColumns - 1);
-
-  return {
-    tableIndex: table.index,
-    sourceTableIndex,
-    projectColumnIndex: clampColumnIndex(0),
-    specificationColumnIndex: clampColumnIndex(1),
-    acceptanceColumnIndex: clampColumnIndex(2),
-    remarkColumnIndex: totalColumns > 3 ? 3 : undefined,
-    headerRowStart: usedStartRow,
-    headerRowCount: 1,
-    dataStartRow: usedStartRow + 1,
-    filterEmptySourceRows: true,
-    duplicateResolutions: [],
-    selected,
-    tableInfo: table
-  };
-};
-
-const buildWordTableConfig = (
-  table: TableInfo,
-  selected: boolean,
-  sourceTableIndex?: number
-): BatchTableConfigItem => {
-  const totalColumns = Math.max(table.columnCount, table.headers.length, 1);
-  const clampColumnIndex = (preferredIndex: number) =>
-    Math.min(preferredIndex, totalColumns - 1);
-
-  return {
-    tableIndex: table.index,
-    sourceTableIndex,
-    projectColumnIndex: clampColumnIndex(0),
-    specificationColumnIndex: clampColumnIndex(1),
-    acceptanceColumnIndex: clampColumnIndex(2),
-    remarkColumnIndex: totalColumns > 3 ? 3 : undefined,
-    headerRowStart: 1,
-    headerRowCount: 1,
-    dataStartRow: 2,
-    filterEmptySourceRows: true,
-    duplicateResolutions: [],
-    selected,
-    tableInfo: table
-  };
-};
-
-const buildTableConfig = (
-  table: TableInfo,
-  isExcel: boolean,
-  selected: boolean,
-  sourceTableIndex?: number
-) =>
-  isExcel
-    ? buildExcelTableConfig(table, selected, sourceTableIndex)
-    : buildWordTableConfig(table, selected, sourceTableIndex);
-
-const toBatchTableConfig = (item: BatchTableConfigItem): ApiBatchTableConfig => ({
-  tableIndex: item.tableIndex,
-  sourceTableIndex: item.sourceTableIndex,
-  projectColumnIndex: item.projectColumnIndex,
-  specificationColumnIndex: item.specificationColumnIndex,
-  acceptanceColumnIndex: item.acceptanceColumnIndex,
-  remarkColumnIndex: item.remarkColumnIndex,
-  headerRowStart: item.headerRowStart,
-  headerRowCount: item.headerRowCount,
-  dataStartRow: item.dataStartRow,
-  filterEmptySourceRows: item.filterEmptySourceRows,
-  duplicateResolutions: item.duplicateResolutions
-});
-
 const clearTargetPreviews = () => {
   targetFiles.value = targetFiles.value.map(file => ({
     ...file,
@@ -202,7 +125,10 @@ const syncTargetSourceDefaults = () => {
   targetFiles.value = targetFiles.value.map(file => ({
     ...file,
     configs: file.configs.map(config => {
-      const defaultSourceTableIndex = resolveDefaultSourceTableIndex(config.tableIndex);
+      const defaultSourceTableIndex = resolveDefaultSourceTableIndex(
+        config.tableIndex,
+        selectedSourceTableOptions.value
+      );
       if (selectedSourceTableOptions.value.length === 0) {
         return {
           ...config,
@@ -284,14 +210,9 @@ const handleSourceUpload = async (options: UploadRequestOptions) => {
   }
 
   const file = options.file as File;
-  const lowerName = file.name.toLowerCase();
-  if (!lowerName.endsWith(".docx") && !lowerName.endsWith(".xlsx")) {
-    ElMessage.error("仅支持 .docx / .xlsx 格式");
-    return;
-  }
-
-  if (file.size > 50 * 1024 * 1024) {
-    ElMessage.error("文件大小不能超过50MB");
+  const sourceFileError = validateBatchReplySourceFile(file);
+  if (sourceFileError) {
+    ElMessage.error(sourceFileError);
     return;
   }
 
@@ -334,7 +255,12 @@ const appendUploadedTarget = async (
     signature: createTargetFileSignature(rawFile),
     tables: tablesResp.data,
     configs: tablesResp.data.map(table =>
-      buildTableConfig(table, uploadedFile.fileType === 1, true, resolveDefaultSourceTableIndex(table.index))
+      buildTableConfig(
+        table,
+        uploadedFile.fileType === 1,
+        true,
+        resolveDefaultSourceTableIndex(table.index, selectedSourceTableOptions.value)
+      )
     ),
     previewResults: {}
   };
@@ -703,15 +629,6 @@ const handleTargetTablePreview = async (targetId: string, item: BatchTableConfig
     );
   }
 };
-
-function isTargetExecutable(targetFile: BatchReplyTargetState) {
-  const selectedTables = targetFile.configs.filter(item => item.selected);
-  if (selectedTables.length === 0) {
-    return false;
-  }
-
-  return selectedTables.every(item => targetFile.previewResults[item.tableIndex]?.canApply === true);
-}
 
 const executeReadyTargets = async () => {
   if (
