@@ -75,6 +75,13 @@ export const deleteCustomer = (id: number) => {
   return http.request<ApiResponse<void>>("delete", `${baseUrl}/${id}`);
 };
 
+/** 批量删除客户 */
+export const batchDeleteCustomers = (ids: number[]) => {
+  return http.request<ApiResponse<void>>("post", `${baseUrl}/batch-delete`, {
+    data: { ids }
+  });
+};
+
 /** 获取客户的制程列表 */
 export const getCustomerProcesses = (customerId: number) => {
   // 注意：该接口语义为“该客户的验规中使用过的制程列表”，并非 Customer→Process 从属关系

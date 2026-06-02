@@ -70,6 +70,13 @@ export const deleteProcess = (id: number) => {
   return http.request<ApiResponse<void>>("delete", `${baseUrl}/${id}`);
 };
 
+/** 批量删除制程 */
+export const batchDeleteProcesses = (ids: number[]) => {
+  return http.request<ApiResponse<void>>("post", `${baseUrl}/batch-delete`, {
+    data: { ids }
+  });
+};
+
 /** 获取制程的验收规格列表 */
 export const getProcessSpecs = (
   processId: number,

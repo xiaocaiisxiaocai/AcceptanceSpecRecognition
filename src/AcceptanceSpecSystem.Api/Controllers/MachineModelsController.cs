@@ -146,6 +146,29 @@ public class MachineModelsController : BaseApiController
         return Success("删除机型成功");
     }
 
+    /// <summary>
+    /// 批量删除机型
+    /// </summary>
+    [HttpPost("batch-delete")]
+    [AuditOperation("batch-delete", "machine-model")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse>> BatchDeleteMachineModels(
+        [FromBody] BatchDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.Ids == null || request.Ids.Count == 0)
+            return Error(400, "请选择要删除的机型");
+
+        var deletedCount = 0;
+        foreach (var id in request.Ids)
+        {
+            var deleted = await _machineModelAppService.DeleteAsync(id, cancellationToken);
+            if (deleted) deletedCount++;
+        }
+
+        return Success($"成功删除 {deletedCount} 个机型");
+    }
+
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()
     {
         return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);

@@ -140,6 +140,29 @@ public class ProcessesController : BaseApiController
     }
 
     /// <summary>
+    /// 批量删除制程
+    /// </summary>
+    [HttpPost("batch-delete")]
+    [AuditOperation("batch-delete", "process")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse>> BatchDeleteProcesses(
+        [FromBody] BatchDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.Ids == null || request.Ids.Count == 0)
+            return Error(400, "请选择要删除的制程");
+
+        var deletedCount = 0;
+        foreach (var id in request.Ids)
+        {
+            var deleted = await _processAppService.DeleteAsync(id, cancellationToken);
+            if (deleted) deletedCount++;
+        }
+
+        return Success($"成功删除 {deletedCount} 个制程");
+    }
+
+    /// <summary>
     /// 获取制程的验收规格列表
     /// </summary>
     [HttpGet("{id}/specs")]

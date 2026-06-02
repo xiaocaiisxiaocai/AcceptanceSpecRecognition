@@ -140,6 +140,29 @@ public class CustomersController : BaseApiController
     }
 
     /// <summary>
+    /// 批量删除客户
+    /// </summary>
+    [HttpPost("batch-delete")]
+    [AuditOperation("batch-delete", "customer")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse>> BatchDeleteCustomers(
+        [FromBody] BatchDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.Ids == null || request.Ids.Count == 0)
+            return Error(400, "请选择要删除的客户");
+
+        var deletedCount = 0;
+        foreach (var id in request.Ids)
+        {
+            var deleted = await _customerAppService.DeleteAsync(id, cancellationToken);
+            if (deleted) deletedCount++;
+        }
+
+        return Success($"成功删除 {deletedCount} 个客户");
+    }
+
+    /// <summary>
     /// 获取客户的制程列表
     /// </summary>
     [HttpGet("{id}/processes")]

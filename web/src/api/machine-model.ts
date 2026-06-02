@@ -53,3 +53,10 @@ export const updateMachineModel = (id: number, data: UpdateMachineModelRequest) 
 export const deleteMachineModel = (id: number) => {
   return http.request<ApiResponse<void>>("delete", `${baseUrl}/${id}`);
 };
+
+/** 批量删除机型 */
+export const batchDeleteMachineModels = (ids: number[]) => {
+  return http.request<ApiResponse<void>>("post", `${baseUrl}/batch-delete`, {
+    data: { ids }
+  });
+};
