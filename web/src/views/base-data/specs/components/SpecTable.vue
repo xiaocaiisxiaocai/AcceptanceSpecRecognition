@@ -507,9 +507,7 @@ const groupLabel = () => {
           min-width="120"
         >
           <template #default="{ row }">
-            <el-tooltip :content="row.customerName" placement="top">
-              <span class="line-clamp-1">{{ row.customerName }}</span>
-            </el-tooltip>
+            <span class="line-clamp-1" :title="row.customerName">{{ row.customerName }}</span>
           </template>
         </el-table-column>
         <el-table-column
@@ -519,13 +517,7 @@ const groupLabel = () => {
           min-width="120"
         >
           <template #default="{ row }">
-            <el-tooltip
-              v-if="row.machineModelName"
-              :content="row.machineModelName"
-              placement="top"
-            >
-              <span class="line-clamp-1">{{ row.machineModelName }}</span>
-            </el-tooltip>
+            <span v-if="row.machineModelName" class="line-clamp-1" :title="row.machineModelName">{{ row.machineModelName }}</span>
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
@@ -536,51 +528,29 @@ const groupLabel = () => {
           min-width="120"
         >
           <template #default="{ row }">
-            <el-tooltip
-              v-if="row.processName"
-              :content="row.processName"
-              placement="top"
-            >
-              <span class="line-clamp-1">{{ row.processName }}</span>
-            </el-tooltip>
+            <span v-if="row.processName" class="line-clamp-1" :title="row.processName">{{ row.processName }}</span>
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
         <el-table-column prop="project" label="项目" min-width="150">
           <template #default="{ row }">
-            <el-tooltip :content="row.project" placement="top">
-              <span class="line-clamp-1">{{ row.project }}</span>
-            </el-tooltip>
+            <span class="line-clamp-1" :title="row.project">{{ row.project }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="specification" label="规格内容" min-width="200">
           <template #default="{ row }">
-            <el-tooltip :content="row.specification" placement="top">
-              <span class="line-clamp-1">{{ row.specification }}</span>
-            </el-tooltip>
+            <span class="line-clamp-1" :title="row.specification">{{ row.specification }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="acceptance" label="验收标准" min-width="150">
           <template #default="{ row }">
-            <el-tooltip
-              v-if="row.acceptance"
-              :content="row.acceptance"
-              placement="top"
-            >
-              <span class="line-clamp-1">{{ row.acceptance }}</span>
-            </el-tooltip>
+            <span v-if="row.acceptance" class="line-clamp-1" :title="row.acceptance">{{ row.acceptance }}</span>
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="150">
           <template #default="{ row }">
-            <el-tooltip
-              v-if="row.remark"
-              :content="row.remark"
-              placement="top"
-            >
-              <span class="line-clamp-1">{{ row.remark }}</span>
-            </el-tooltip>
+            <span v-if="row.remark" class="line-clamp-1" :title="row.remark">{{ row.remark }}</span>
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>

@@ -1,6 +1,7 @@
 using AcceptanceSpecSystem.Application.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace AcceptanceSpecSystem.Application.Services;
@@ -279,16 +280,27 @@ public sealed class AcceptanceSpecAppService
         if (ids.Count == 0)
             throw new ApplicationServiceException(400, "请选择要删除的规格");
 
-        var specs = await _unitOfWork.AcceptanceSpecs.FindAsync(spec => ids.Contains(spec.Id));
-        var allowedSpecs = specs.Where(scope.CanAccess).ToList();
-        if (allowedSpecs.Count == 0)
+        var idList = ids.ToList();
+        var query = _unitOfWork.AcceptanceSpecs.Query(asNoTracking: true)
+            .Where(s => idList.Contains(s.Id));
+
+        // 将 scope.CanAccess 逻辑转为 SQL 谓词，避免加载实体到内存
+        if (!scope.IsAll)
+        {
+            var orgUnitIds = scope.OrgUnitIds.ToList();
+            query = query.Where(s =>
+                (scope.IncludeSelf && s.CreatedByUserId == scope.UserId) ||
+                (s.OwnerOrgUnitId.HasValue && orgUnitIds.Contains(s.OwnerOrgUnitId.Value)));
+        }
+
+        // ExecuteDeleteAsync 生成单条 DELETE WHERE Id IN (...) SQL，避免 N 次往返
+        var deletedCount = await query.ExecuteDeleteAsync(cancellationToken);
+
+        if (deletedCount == 0)
             throw new ApplicationServiceException(403, "未找到可删除的规格或无权限");
 
-        _unitOfWork.AcceptanceSpecs.RemoveRange(allowedSpecs);
-        await _unitOfWork.SaveChangesAsync();
-
-        _logger.LogInformation("批量删除验收规格成功: {Count}条", allowedSpecs.Count);
-        return allowedSpecs.Count;
+        _logger.LogInformation("批量删除验收规格成功: {Count}条", deletedCount);
+        return deletedCount;
     }
 
     private async Task<Customer> RequireCustomerAsync(
