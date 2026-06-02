@@ -13,6 +13,7 @@ public class ColumnMappingRuleDto
 
     public string Pattern { get; set; } = string.Empty;
 
+    [Range(-10000, 10000, ErrorMessage = "优先级必须在 -10000 到 10000 之间")]
     public int Priority { get; set; }
 
     public bool Enabled { get; set; }
@@ -33,6 +34,7 @@ public class CreateColumnMappingRuleRequest
     [MaxLength(200, ErrorMessage = "匹配词不能超过200个字符")]
     public string Pattern { get; set; } = string.Empty;
 
+    [Range(-10000, 10000, ErrorMessage = "优先级必须在 -10000 到 10000 之间")]
     public int Priority { get; set; }
 
     public bool Enabled { get; set; } = true;

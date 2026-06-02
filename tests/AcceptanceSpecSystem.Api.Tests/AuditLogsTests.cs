@@ -39,7 +39,21 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
         body.Data!.Items.Should().Contain(x =>
             x.GetProperty("eventType").GetString() == "controller.create" &&
             x.GetProperty("requestMethod").GetString() == "POST" &&
-            x.GetProperty("requestPath").GetString() == "/api/customers");
+            x.GetProperty("requestPath").GetString() == "/api/customers" &&
+            x.GetProperty("clientTraceId").GetString() == "trace-test-1001");
+    }
+
+    [Fact]
+    public async Task RequestTraceId_ShouldBeReturnedInResponseHeader()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/customers?page=1&pageSize=1");
+        request.Headers.Add("X-Client-Trace-Id", "trace-response-1001");
+
+        using var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.TryGetValues("X-Trace-Id", out var values).Should().BeTrue();
+        values.Should().Contain("trace-response-1001");
     }
 
     [Fact]

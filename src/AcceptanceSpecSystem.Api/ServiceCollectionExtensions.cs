@@ -37,6 +37,10 @@ public static class ApiServiceCollectionExtensions
             configuration.GetSection(DatabaseBackupOptions.SectionName));
         services.Configure<AiServiceTestOptions>(
             configuration.GetSection(AiServiceTestOptions.SectionName));
+        services.Configure<RequestTracingOptions>(
+            configuration.GetSection(RequestTracingOptions.SectionName));
+        services.Configure<SlowQueryOptions>(
+            configuration.GetSection(SlowQueryOptions.SectionName));
         services.AddSingleton<IValidateOptions<AuthSeedOptions>, AuthSeedOptionsValidator>();
         services.AddOptions<AuthSeedOptions>()
             .Bind(configuration.GetSection(AuthSeedOptions.SectionName))

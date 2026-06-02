@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { getFileTables, type TableInfo } from "@/api/document";
+import { getRequestErrorMessage } from "@/utils/error-message";
 
 const props = defineProps<{
   fileId: number;
@@ -104,7 +105,7 @@ const loadTables = async () => {
       ElMessage.error(res.message || "加载表格列表失败");
     }
   } catch (error) {
-    ElMessage.error("加载表格列表失败");
+    ElMessage.error(getRequestErrorMessage(error, "加载表格列表失败"));
   } finally {
     loading.value = false;
   }

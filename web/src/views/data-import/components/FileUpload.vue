@@ -4,6 +4,7 @@ import { ElMessage } from "element-plus";
 import { UploadFilled } from "@element-plus/icons-vue";
 import { uploadFile, type FileUploadResponse } from "@/api/document";
 import type { UploadRequestOptions } from "element-plus";
+import { getRequestErrorMessage } from "@/utils/error-message";
 
 const props = defineProps<{
   modelValue?: FileUploadResponse | null;
@@ -69,7 +70,7 @@ const handleUpload = async (options: UploadRequestOptions) => {
       ElMessage.error(res.message || "上传失败");
     }
   } catch (error) {
-    ElMessage.error("上传失败，请重试");
+    ElMessage.error(getRequestErrorMessage(error, "上传失败，请重试"));
   } finally {
     uploading.value = false;
   }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Middleware;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc.Controllers;
@@ -116,7 +117,7 @@ public sealed class AuditOperationFilter : IAsyncActionFilter
                 DurationMs = durationMs,
                 ClientIp = httpContext.Connection.RemoteIpAddress?.ToString(),
                 UserAgent = TrimToLength(httpContext.Request.Headers.UserAgent.ToString(), 512),
-                ClientTraceId = TrimToLength(httpContext.Request.Headers["X-Client-Trace-Id"].FirstOrDefault(), 64),
+                ClientTraceId = TrimToLength(ResolveTraceId(httpContext), 64),
                 ClientId = TrimToLength(httpContext.Request.Headers["X-Client-Id"].FirstOrDefault(), 64),
                 FrontendRoute = TrimToLength(httpContext.Request.Headers["X-Frontend-Route"].FirstOrDefault(), 512),
                 Details = TrimToLength(JsonSerializer.Serialize(detailsPayload, JsonOptions), 4000),
@@ -186,5 +187,18 @@ public sealed class AuditOperationFilter : IAsyncActionFilter
         if (string.IsNullOrWhiteSpace(value))
             return value;
         return value.Length <= maxLength ? value : value[..maxLength];
+    }
+
+    private static string? ResolveTraceId(HttpContext httpContext)
+    {
+        if (httpContext.Items.TryGetValue(RequestTracingMiddleware.TraceIdItemKey, out var traceId) &&
+            traceId is string value &&
+            !string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return httpContext.Request.Headers["X-Client-Trace-Id"].FirstOrDefault()
+               ?? httpContext.TraceIdentifier;
     }
 }

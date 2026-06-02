@@ -36,4 +36,25 @@ public sealed class ApiRequestValidationTests : IClassFixture<ApiWebApplicationF
         result.Message.Should().Contain("预热间隔小时数");
         result.Data.ValueKind.Should().Be(JsonValueKind.Null);
     }
+
+    [Fact]
+    public async Task InvalidColumnMappingPriority_ShouldReturnUnifiedApiResponse()
+    {
+        var response = await _client.PostAsync(
+            "/api/column-mapping-rules",
+            ApiClientJson.ToJsonContent(new
+            {
+                targetField = 1,
+                matchMode = 0,
+                pattern = "客户",
+                priority = 100001,
+                enabled = true
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+
+        result.Code.Should().Be(400);
+        result.Message.Should().Contain("优先级");
+    }
 }

@@ -17,6 +17,14 @@ export function getRequestErrorMessage(
       if (typeof data.message === "string" && data.message) {
         return data.message;
       }
+      if (Array.isArray(data.errors)) {
+        const messages = data.errors.filter(
+          (item): item is string => typeof item === "string" && item.length > 0
+        );
+        if (messages.length > 0) {
+          return messages.join("；");
+        }
+      }
       const nested = data.error as Record<string, unknown> | undefined;
       if (nested && typeof nested.message === "string" && nested.message) {
         return nested.message;

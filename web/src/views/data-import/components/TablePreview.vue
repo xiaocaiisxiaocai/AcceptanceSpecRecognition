@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { getTablePreview, type ColumnMapping, type TableData } from "@/api/document";
+import { getRequestErrorMessage } from "@/utils/error-message";
 import {
   normalizePreviewHeaders,
   resolvePreviewColumnCount
@@ -178,7 +179,7 @@ async function loadPreview(forceRefresh = false) {
     }
   } catch (error) {
     if (requestId !== latestRequestId) return;
-    ElMessage.error("加载预览失败");
+    ElMessage.error(getRequestErrorMessage(error, "加载预览失败"));
   } finally {
     if (requestId !== latestRequestId) return;
     loading.value = false;

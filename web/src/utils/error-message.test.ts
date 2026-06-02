@@ -31,6 +31,21 @@ describe("getRequestErrorMessage", () => {
     expect(getRequestErrorMessage(error, "默认错误")).toBe("嵌套错误");
   });
 
+  it("支持后端返回 errors 数组时拼接为统一错误文案", () => {
+    const error = {
+      isAxiosError: true,
+      response: {
+        data: {
+          errors: ["名称不能为空", "优先级超出范围"]
+        }
+      }
+    };
+
+    expect(getRequestErrorMessage(error, "默认错误")).toBe(
+      "名称不能为空；优先级超出范围"
+    );
+  });
+
   it("Axios data.message 非字符串时回退到 error.message", () => {
     const error = {
       isAxiosError: true,

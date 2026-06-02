@@ -35,6 +35,7 @@ using Microsoft.OpenApi.Models;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<AuditOperationFilter>();
+builder.Services.AddHttpContextAccessor();
 
 // 添加控制器
 builder.Services.AddControllers(options =>
@@ -155,8 +156,12 @@ if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("ConnectionStrings:DefaultConnection 未配置，当前分支禁止回退到硬编码默认数据库。");
 }
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+builder.Services.AddScoped<SlowQueryLoggingInterceptor>();
+builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+{
+    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+    options.AddInterceptors(serviceProvider.GetRequiredService<SlowQueryLoggingInterceptor>());
+});
 
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database")
@@ -265,6 +270,7 @@ using (var scope = app.Services.CreateScope())
 
 // 使用异常处理中间件
 app.UseExceptionHandling();
+app.UseMiddleware<RequestTracingMiddleware>();
 
 // 配置HTTP请求管道
 if (app.Environment.IsDevelopment())

@@ -1,15 +1,19 @@
+# syntax=docker/dockerfile:1.7
+
 FROM node:20-alpine AS build
 WORKDIR /app/web
 
 COPY web/package.json web/pnpm-lock.yaml ./
-RUN corepack enable \
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+  corepack enable \
+  && corepack prepare pnpm@10.32.1 --activate \
   && pnpm config set registry https://registry.npmmirror.com \
   && pnpm config set fetch-retries 5 \
   && pnpm config set fetch-retry-factor 2 \
   && pnpm config set fetch-retry-mintimeout 10000 \
   && pnpm config set fetch-retry-maxtimeout 120000 \
   && pnpm config set network-timeout 300000 \
-  && pnpm install --frozen-lockfile
+  && pnpm install --frozen-lockfile --store-dir /root/.local/share/pnpm/store
 
 COPY web/ ./
 COPY shared/ /app/shared/

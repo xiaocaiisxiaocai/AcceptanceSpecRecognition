@@ -1,0 +1,17 @@
+**
+
+!AcceptanceSpecSystem.sln
+!Directory.Build.props
+!src/
+!src/**
+!shared/
+!shared/**
+
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.vite
+*.log
+*.tmp
+*.bak

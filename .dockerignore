@@ -1,25 +1,37 @@
 .git
 .gitignore
+.gitattributes
 .idea
 .vscode
+.vs
 
 **/bin
 **/obj
 **/node_modules
 **/dist
+**/.vite
 **/.turbo
 **/.nuxt
 **/.next
 
 .tmp*
+.DS_Store
+Thumbs.db
 publish
 outputs
 coverage
 .claude
-.codex-*.log
+.worktrees
+.codex*.log
+*.log
 *.user
 *.suo
+*.bak
+*.tmp
 
 tests
 tools
 design-system
+docs
+openspec
+README.md

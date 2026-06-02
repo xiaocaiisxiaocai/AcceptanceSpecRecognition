@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
@@ -7,11 +9,14 @@ COPY src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj src/Acceptance
 COPY src/AcceptanceSpecSystem.Application/AcceptanceSpecSystem.Application.csproj src/AcceptanceSpecSystem.Application/
 COPY src/AcceptanceSpecSystem.Core/AcceptanceSpecSystem.Core.csproj src/AcceptanceSpecSystem.Core/
 COPY src/AcceptanceSpecSystem.Data/AcceptanceSpecSystem.Data.csproj src/AcceptanceSpecSystem.Data/
+COPY shared/ shared/
 
-RUN dotnet restore src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj
+RUN --mount=type=cache,target=/root/.nuget/packages \
+    dotnet restore src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj
 
-COPY . .
-RUN dotnet publish src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj -c Release -o /app/publish --no-restore /p:UseAppHost=false
+COPY src/ src/
+RUN --mount=type=cache,target=/root/.nuget/packages \
+    dotnet publish src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj -c Release -o /app/publish --no-restore /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
@@ -24,7 +29,7 @@ RUN apt-get update \
     && mkdir -p /data/files /data/dp-keys /app/backups
 
 COPY --from=build /app/publish .
-COPY shared/ /app/shared/
+COPY --from=build /src/shared/ /app/shared/
 
 EXPOSE 8080
 
