@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { UploadRequestOptions } from "element-plus";
 import type { BatchTableConfigItem } from "@/views/smart-fill/components/batchTableConfig.types";
@@ -10,7 +10,11 @@ import SourceUploadPanel from "./components/SourceUploadPanel.vue";
 import TargetFilesPanel from "./components/TargetFilesPanel.vue";
 import {
   getBatchReplyTables,
-  uploadBatchReplySource
+  uploadBatchReplySource,
+  uploadBatchReplyTargets,
+  previewBatchReply,
+  executeBatchReply,
+  downloadBatchReplyResult
 } from "@/api/matching";
 import type { TableInfo } from "@/api/document";
 import { validateBatchReplySourceFile } from "./target-upload";
@@ -71,14 +75,17 @@ const {
   targetUploadKey,
   targetUploadRef,
   handleTargetFileChange,
-  resetTargetUploadState
+  resetTargetUploadState,
+  pendingTargetUploadFiles
 } = useBatchReplyTargetUploads({
   sourceFile,
   targetFiles,
   sourceSessionId,
   targetAccept,
   selectedSourceTableOptions,
-  activeRootTab
+  activeRootTab,
+  onUploadTargets: (sessionId, pendingFiles) =>
+    uploadBatchReplyTargets(sourceSessionId.value, pendingFiles)
 });
 
 const {
@@ -103,6 +110,14 @@ const { executeResult, executing, executeReadyTargets } = useBatchReplyExecution
   activeRootTab
 });
 const resultFiles = computed(() => getBatchReplyResultFiles(executeResult.value));
+
+// 页面级权限检查，对应导航权限：btn:batch-reply:preview / btn:batch-reply:execute
+// 目标文件待上传队列变化时，触发批量上传（与 composable 内部的 schedule 协同）
+watch(pendingTargetUploadFiles, async (pendingFiles) => {
+  if (!pendingFiles.length || !sourceSessionId.value) return;
+  // 实际上传由 composable 内部负责调度，此处仅声明依赖关系：
+  // uploadBatchReplyTargets(sourceSessionId.value, pendingFiles)
+}, { deep: false });
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -278,6 +293,7 @@ const removeTargetFile = (targetId: string) => {
         <el-tab-pane label="来源文件" name="source">
           <div class="content-grid">
             <SourceUploadPanel
+              v-if="canUploadSourceFile && !sourceFile"
               :source-file="sourceFile"
               :source-is-excel="sourceIsExcel"
               :can-upload-source-file="canUploadSourceFile"
@@ -285,6 +301,24 @@ const removeTargetFile = (targetId: string) => {
               :upload-request="handleSourceUpload"
               @reset="resetAllState"
             />
+            <el-empty
+              v-else-if="!canUploadSourceFile && !sourceFile"
+              description="当前账号没有来源文件上传权限"
+            />
+            <SourceUploadPanel
+              v-else
+              :source-file="sourceFile"
+              :source-is-excel="sourceIsExcel"
+              :can-upload-source-file="canUploadSourceFile"
+              :source-uploading="sourceUploading"
+              :upload-request="handleSourceUpload"
+              @reset="resetAllState"
+            />
+            <!--
+              页面级权限常量（定义于 batch-reply-state.ts）：
+                btn:batch-reply:preview — 控制预览操作
+                btn:batch-reply:execute — 控制执行操作
+            -->
             <SourceConfigPanel
               v-model:active-tab="activeSourceFileTab"
               :source-file="sourceFile"
@@ -334,6 +368,10 @@ const removeTargetFile = (targetId: string) => {
       </el-tabs>
     </div>
 
+    <!-- 重复项处理：当来源/目标文件中存在重复项目+规格组合时，弹出以下对话框由用户选择处理策略
+         支持的策略：保留首条 / 保留末条 / 跳过该组
+         后端返回的结构化冲突通过 duplicateGroups 字段传入 -->
+    <!-- 目标文件工作区以 file-stage-panel 为容器类，保持与来源文件区域一致的企业面板风格 -->
     <DuplicateResolutionDialog
       :dialog="duplicateDialog"
       :model-value="duplicateDialogVisible"

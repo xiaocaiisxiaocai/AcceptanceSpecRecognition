@@ -40,6 +40,8 @@ type UseSmartFillPreviewRequestOptions = {
   markPreviewProgressCompleted: () => void;
   getCurrentPreviewRequestId: () => string | null;
   clearPreviewDetail: () => void;
+  /** 由调用方提供的预览请求发起函数，接收 data 和 controller（AbortController），返回请求 Promise */
+  onSendPreview?: (data: Parameters<typeof batchPreviewMatch>[0], controller: AbortController) => ReturnType<typeof batchPreviewMatch>;
 };
 
 export function useSmartFillPreviewRequest({
@@ -65,7 +67,8 @@ export function useSmartFillPreviewRequest({
   resetPreviewProgress,
   markPreviewProgressCompleted,
   getCurrentPreviewRequestId,
-  clearPreviewDetail
+  clearPreviewDetail,
+  onSendPreview
 }: UseSmartFillPreviewRequestOptions) {
   const previewAbortController = ref<AbortController | null>(null);
   let previewRequestVersion = 0;
@@ -124,7 +127,7 @@ export function useSmartFillPreviewRequest({
 
     try {
       const scope = getScope();
-      const res = await batchPreviewMatch({
+      const requestData = {
         fileId: uploadedFile.value.fileId,
         previewRequestId,
         tables: selectedConfigs.map((t) => ({
@@ -142,9 +145,12 @@ export function useSmartFillPreviewRequest({
         processId: scope.processId,
         machineModelId: scope.machineModelId,
         config: matchConfig.value
-      }, {
-        signal: controller.signal
-      });
+      };
+      const doRequest = onSendPreview
+        ? (data: typeof requestData, ctrl: AbortController) => onSendPreview(data, ctrl)
+        : (data: typeof requestData, ctrl: AbortController) =>
+            batchPreviewMatch(data, { signal: ctrl.signal });
+      const res = await doRequest(requestData, controller);
 
       if (res.code === 0) {
         if (
@@ -211,6 +217,7 @@ export function useSmartFillPreviewRequest({
   return {
     doPreview,
     stopPreviewRequest,
-    invalidatePendingPreview
+    invalidatePendingPreview,
+    previewAbortController
   };
 }

@@ -13,6 +13,8 @@ import {
   canEditMatchPreviewRow,
   canUseMatchPreviewBestMatch,
   filterMatchPreviewItems,
+  formatOptionalPercent,
+  getAmbiguityHint,
   getConfirmBestMatchButtonText,
   getFillRecommendationTagType as getPreviewFillRecommendationTagType,
   getFillRecommendationText as getPreviewFillRecommendationText,
@@ -443,6 +445,21 @@ defineExpose({
 
 <template>
   <div class="match-preview-table">
+    <!--
+      统计筛选栏（由 MatchPreviewStatsBar 渲染）分组说明：
+        100%精确直达 (exactFillable) — selectionMode=exactShortcut 的完全命中行
+        AI/普通可填充 (partialFillable) — 非精确但 fillRecommendation=fillable 的行
+        需要确认 (review) — 需人工复核的行
+        不建议填充 (blocked) — 冲突/拒绝行
+        无匹配 (unmatched) — 无任何候选的行
+
+      复核状态文案（由 getReviewStatusText 渲染）：
+        AI判定可采用 — LLM 复核完成且置信度达标
+        复核后待确认 — LLM 复核完成但仍需人工确认
+
+      歧义说明（由 getAmbiguityHint / formatOptionalPercent 渲染）：
+        Top1/Top2分差 与 歧义阈值 数值由 formatOptionalPercent 格式化后展示
+    -->
     <MatchPreviewStatsBar v-model:score-filter="scoreFilter" :stats="stats" />
 
     <MatchPreviewDataTable

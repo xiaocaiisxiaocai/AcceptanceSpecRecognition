@@ -15,6 +15,7 @@ import {
   type MatchConfig as MatchConfigType,
   type MatchResult,
   type BatchTablePreviewResult,
+  batchPreviewMatch,
   defaultMatchConfig
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
@@ -24,7 +25,7 @@ import { ensurePermission } from "@/utils/permission-guard";
 import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
 import { useSmartFillBackfillState } from "./composables/useSmartFillBackfillState";
 import { useSmartFillPreviewBlocking } from "./composables/useSmartFillPreviewBlocking";
-import { useSmartFillLlmStream } from "./composables/useSmartFillLlmStream";
+import { useSmartFillLlmStream, createMatchLlmStreamRequest, requestMatchLlmStream } from "./composables/useSmartFillLlmStream";
 import { useSmartFillPreviewRequest } from "./composables/useSmartFillPreviewRequest";
 import { useSmartFillExecution } from "./composables/useSmartFillExecution";
 import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTables";
@@ -165,7 +166,19 @@ const {
   batchPreviewResults,
   allPreviewItems,
   matchConfig,
-  getScope: getCurrentScope
+  getScope: getCurrentScope,
+  onStartStream: (payload, controller) => {
+    // 通过类型化 API 发起 LLM 流式复核请求，controller.signal 用于取消
+    return requestMatchLlmStream(payload, controller.signal);
+  },
+  buildLlmStreamPayload: (scope, items, config) =>
+    createMatchLlmStreamRequest({
+      customerId: scope.customerId,
+      processId: scope.processId,
+      machineModelId: scope.machineModelId,
+      items,
+      config
+    })
 });
 
 if (typeof window !== "undefined") {
@@ -217,12 +230,23 @@ const {
   closeBackfillDialog,
   openBackfillDialog,
   setBackfillingSpecs,
-  clearPendingExecuteRequest
+  clearPendingExecuteRequest,
+  onDownload: (blob: Blob, fileName: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  }
 });
 
 const {
   doPreview,
-  invalidatePendingPreview
+  invalidatePendingPreview,
+  previewAbortController
 } = useSmartFillPreviewRequest({
   currentStep,
   uploadedFile,
@@ -246,7 +270,11 @@ const {
   resetPreviewProgress,
   markPreviewProgressCompleted,
   getCurrentPreviewRequestId: () => currentPreviewRequestId.value,
-  clearPreviewDetail
+  clearPreviewDetail,
+  onSendPreview: (data, controller) => {
+    // 透传取消信号，确保用户切换步骤时可及时中止进行中的预览请求
+    return batchPreviewMatch(data, { signal: controller.signal });
+  }
 });
 
 // 页面卸载时清理进行中的预览/流式请求，防止离页后继续占用资源
@@ -382,6 +410,7 @@ const handleRestart = () => {
         :can-upload-source-file="canUploadSourceFile"
         @uploaded="handleFileUploaded"
       />
+      <!-- 上传后表格结构读取期间的提示由 SmartFillUploadStep 内部的 el-alert 展示：正在读取表格结构，请稍候 -->
 
       <SmartFillTableStep
         v-show="currentStep === 1"

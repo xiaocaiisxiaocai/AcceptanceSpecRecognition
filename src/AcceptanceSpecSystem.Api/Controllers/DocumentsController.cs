@@ -68,11 +68,11 @@ public class DocumentsController : BaseApiController
 
         try
         {
-            // 请求取消令牌继续透传到应用服务内部文件拷贝流程：await file.CopyToAsync(memoryStream, cancellationToken);
+            // 使用 HttpContext.RequestAborted 作为取消令牌，确保客户端断开时终止文件上传处理
             var result = await _documentFileAppService.UploadFileAsync(
                 scope,
                 file,
-                cancellationToken);
+                HttpContext.RequestAborted);
             return Success(result, "文件上传成功");
         }
         catch (ApplicationServiceException ex)

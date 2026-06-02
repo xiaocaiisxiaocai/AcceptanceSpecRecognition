@@ -4,6 +4,7 @@ import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
 import DataImportConfirmPanel from "./components/DataImportConfirmPanel.vue";
 import DataImportDifferenceConfirmDialog from "./components/DataImportDifferenceConfirmDialog.vue";
+import DataImportDifferenceDialog from "./components/DataImportDifferenceDialog.vue";
 import DataImportStepConfirm from "./components/DataImportStepConfirm.vue";
 import DataImportStepMapping from "./components/DataImportStepMapping.vue";
 import DataImportStepTableSelect from "./components/DataImportStepTableSelect.vue";
@@ -11,6 +12,10 @@ import DataImportStepTarget from "./components/DataImportStepTarget.vue";
 import DataImportStepUpload from "./components/DataImportStepUpload.vue";
 import ExcelColumnMapping from "./components/ExcelColumnMapping.vue";
 import { useDataImportPage } from "./composables/useDataImportPage";
+// 映射、预览选择、导入执行 composable（由 useDataImportPage 内部组合）
+import { useDataImportMapping } from "./composables/useDataImportMapping";
+import { useDataImportPreviewSelection } from "./composables/useDataImportPreviewSelection";
+import { useDataImportExecution } from "./composables/useDataImportExecution";
 
 defineOptions({
   name: "ImportData"

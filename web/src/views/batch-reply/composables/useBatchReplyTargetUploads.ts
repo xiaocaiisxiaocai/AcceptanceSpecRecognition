@@ -22,10 +22,11 @@ type UseBatchReplyTargetUploadsParams = {
   targetAccept: ComputedRef<string>;
   selectedSourceTableOptions: ComputedRef<SourceTableOption[]>;
   activeRootTab: Ref<string>;
+  /** 由调用方提供的目标文件上传执行函数，接收 sourceSessionId 和待上传文件列表 */
+  onUploadTargets?: (sessionId: string, files: File[]) => Promise<Awaited<ReturnType<typeof uploadBatchReplyTargets>>>;
 };
 
-export const useBatchReplyTargetUploads = (params: UseBatchReplyTargetUploadsParams) => {
-  const targetUploading = ref(false);
+export const useBatchReplyTargetUploads = (params: UseBatchReplyTargetUploadsParams) => {  const targetUploading = ref(false);
   const targetUploadKey = ref(0);
   const targetUploadRef = ref<UploadInstance>();
   const activeTargetFileId = ref("");
@@ -92,7 +93,9 @@ export const useBatchReplyTargetUploads = (params: UseBatchReplyTargetUploadsPar
 
     targetUploading.value = true;
     try {
-      const res = await uploadBatchReplyTargets(params.sourceSessionId.value, pendingFiles);
+      const res = await (params.onUploadTargets
+        ? params.onUploadTargets(params.sourceSessionId.value, pendingFiles)
+        : uploadBatchReplyTargets(params.sourceSessionId.value, pendingFiles));
       if (res.code !== 0 || res.data.files.length === 0) {
         ElMessage.error(res.message || "目标文件上传失败");
         return;
@@ -182,6 +185,7 @@ export const useBatchReplyTargetUploads = (params: UseBatchReplyTargetUploadsPar
     targetUploadKey,
     targetUploadRef,
     handleTargetFileChange,
-    resetTargetUploadState
+    resetTargetUploadState,
+    pendingTargetUploadFiles
   };
 };

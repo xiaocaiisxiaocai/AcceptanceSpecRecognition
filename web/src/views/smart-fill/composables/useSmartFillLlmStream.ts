@@ -16,12 +16,25 @@ import {
 } from "@/api/matching";
 import type { SmartFillScope } from "../smartFillExecution.helpers";
 
+export { createMatchLlmStreamRequest, requestMatchLlmStream };
+
 type UseSmartFillLlmStreamOptions = {
   canLlmStream: ComputedRef<boolean>;
   batchPreviewResults: Ref<BatchTablePreviewResult[]>;
   allPreviewItems: ComputedRef<MatchPreviewItem[]>;
   matchConfig: Ref<MatchConfig>;
   getScope: () => SmartFillScope;
+  /** 由调用方提供的流式请求发起函数，接收 payload 和 controller，返回 Response */
+  onStartStream?: (
+    payload: ReturnType<typeof createMatchLlmStreamRequest>,
+    controller: AbortController
+  ) => Promise<Response>;
+  /** 由调用方提供的 payload 构造函数，接收 scope 和 llmItems，返回 requestMatchLlmStream 的 payload */
+  buildLlmStreamPayload?: (
+    scope: SmartFillScope,
+    llmItems: Parameters<typeof createMatchLlmStreamRequest>[0]["items"],
+    config: MatchConfig
+  ) => ReturnType<typeof createMatchLlmStreamRequest>;
 };
 
 export function useSmartFillLlmStream({
@@ -29,7 +42,9 @@ export function useSmartFillLlmStream({
   batchPreviewResults,
   allPreviewItems,
   matchConfig,
-  getScope
+  getScope,
+  onStartStream,
+  buildLlmStreamPayload
 }: UseSmartFillLlmStreamOptions) {
   const llmStreaming = ref(false);
   const llmStreamController = ref<AbortController | null>(null);
@@ -101,6 +116,14 @@ export function useSmartFillLlmStream({
     if (!allPreviewItems.value.length) return;
 
     const scope = getScope();
+    const buildPayload = buildLlmStreamPayload
+      ?? ((s, items, config) => createMatchLlmStreamRequest({
+          customerId: s.customerId,
+          processId: s.processId,
+          machineModelId: s.machineModelId,
+          items,
+          config
+        }));
     const llmItems = batchPreviewResults.value.flatMap((tableResult) =>
       tableResult.items
         .filter(item => shouldStreamMatchReview(item.bestMatch))
@@ -129,16 +152,11 @@ export function useSmartFillLlmStream({
     llmStreamController.value = controller;
     llmStreaming.value = true;
 
-    const payload = createMatchLlmStreamRequest({
-      customerId: scope.customerId,
-      processId: scope.processId,
-      machineModelId: scope.machineModelId,
-      items: llmItems,
-      config: matchConfig.value
-    });
+    const payload = buildPayload(scope, llmItems, matchConfig.value);
 
     try {
-      const response = await requestMatchLlmStream(payload, controller.signal);
+      const doRequest = onStartStream ?? ((p, c) => requestMatchLlmStream(p, c.signal));
+      const response = await doRequest(payload, controller);
 
       if (!response.ok || !response.body) {
         const message = "LLM流式输出不可用，已转为人工确认";

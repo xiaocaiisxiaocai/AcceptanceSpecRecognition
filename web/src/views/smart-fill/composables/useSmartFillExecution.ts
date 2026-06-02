@@ -50,6 +50,8 @@ type UseSmartFillExecutionOptions = {
   ) => void;
   setBackfillingSpecs: (value: boolean) => void;
   clearPendingExecuteRequest: () => void;
+  /** 由调用方提供的文件下载触发器，默认使用 triggerBrowserDownload */
+  onDownload?: (blob: Blob, fileName: string) => void;
 };
 
 export function useSmartFillExecution({
@@ -68,7 +70,8 @@ export function useSmartFillExecution({
   closeBackfillDialog,
   openBackfillDialog,
   setBackfillingSpecs,
-  clearPendingExecuteRequest
+  clearPendingExecuteRequest,
+  onDownload
 }: UseSmartFillExecutionOptions) {
   const executing = ref(false);
   const downloadingResult = ref(false);
@@ -92,7 +95,11 @@ export function useSmartFillExecution({
     try {
       const blob = await downloadFillResult(currentTaskId);
       const originalName = uploadedFile.value?.fileName || "filled.docx";
-      triggerBrowserDownload(blob, originalName);
+      if (onDownload) {
+        onDownload(blob, originalName);
+      } else {
+        triggerBrowserDownload(blob, originalName);
+      }
       lastDownloadFailed.value = false;
       return true;
     } catch {
