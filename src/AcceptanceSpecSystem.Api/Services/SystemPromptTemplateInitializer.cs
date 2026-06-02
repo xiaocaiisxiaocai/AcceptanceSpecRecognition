@@ -36,10 +36,15 @@ public sealed class SystemPromptTemplateInitializer
             definition.DisplayName,
             definition.DefaultContent);
 
-        var shouldUpgradeContent =
-            string.IsNullOrWhiteSpace(entity.Content) ||
+        var isLegacy =
             (!string.IsNullOrWhiteSpace(definition.LegacyDefaultContent) &&
-             string.Equals(entity.Content.Trim(), definition.LegacyDefaultContent.Trim(), StringComparison.Ordinal));
+             string.Equals(entity.Content.Trim(), definition.LegacyDefaultContent.Trim(), StringComparison.Ordinal)) ||
+            (definition.AdditionalLegacyContents != null &&
+             definition.AdditionalLegacyContents.Any(legacy =>
+                 string.Equals(entity.Content.Trim(), legacy.Trim(), StringComparison.Ordinal)));
+
+        var shouldUpgradeContent =
+            string.IsNullOrWhiteSpace(entity.Content) || isLegacy;
 
         var changed = false;
         if (entity.Scene != scene)
