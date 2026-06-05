@@ -19,6 +19,9 @@ const emit = defineEmits<{
 const handleToggleAll = (checked: string | number | boolean) => {
   emit("toggleAll", Boolean(checked));
 };
+
+const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
+  `${row.tableIndex}:${row.rowIndex}`;
 </script>
 
 <template>
@@ -38,7 +41,7 @@ const handleToggleAll = (checked: string | number | boolean) => {
         :data="candidates"
         border
         max-height="460"
-        row-key="rowIndex"
+        :row-key="getBackfillCandidateRowKey"
       >
         <el-table-column width="56" align="center">
           <template #header>
@@ -58,9 +61,9 @@ const handleToggleAll = (checked: string | number | boolean) => {
             <el-checkbox v-model="row.selected" />
           </template>
         </el-table-column>
-        <el-table-column label="行" width="80" align="center">
+        <el-table-column label="表格/行" width="110" align="center">
           <template #default="{ row }">
-            {{ row.rowIndex + 1 }}
+            {{ row.tableIndex + 1 }} / {{ row.rowIndex + 1 }}
           </template>
         </el-table-column>
         <el-table-column label="动作" width="120" align="center">

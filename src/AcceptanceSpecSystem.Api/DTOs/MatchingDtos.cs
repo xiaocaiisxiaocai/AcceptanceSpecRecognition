@@ -97,6 +97,16 @@ public class MatchConfigDto
     public bool EnableLlmEquivalenceAdjudication { get; set; }
 
     /// <summary>
+    /// 是否启用确定性自动通过（无硬冲突且高置信时跳过 LLM 直接采用）。
+    /// </summary>
+    public bool EnableDeterministicAutoApply { get; set; } = true;
+
+    /// <summary>
+    /// 单批次 LLM 重排/等价裁决调用次数上限。
+    /// </summary>
+    public int LlmMaxCallsPerBatch { get; set; } = 20;
+
+    /// <summary>
     /// 是否仅按项目+规格完全一致命中
     /// </summary>
     public bool ExactMatchOnly { get; set; }
@@ -267,6 +277,21 @@ public class MatchResultDto
     /// 服务端签发的预览放行令牌
     /// </summary>
     public string? ReviewApprovalToken { get; set; }
+
+    /// <summary>
+    /// AI 复核分
+    /// </summary>
+    public double? ReviewScore { get; set; }
+
+    /// <summary>
+    /// AI 复核原因
+    /// </summary>
+    public string? ReviewReason { get; set; }
+
+    /// <summary>
+    /// AI 复核说明
+    /// </summary>
+    public string? ReviewCommentary { get; set; }
 }
 
 /// <summary>

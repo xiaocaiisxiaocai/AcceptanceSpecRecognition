@@ -78,6 +78,28 @@ public static class AiEndpointNormalizer
                 throw new InvalidOperationException($"{fieldName} 不允许使用本地或内网地址");
             }
         }
+        else
+        {
+            IPAddress[] addresses;
+            try
+            {
+                addresses = Dns.GetHostAddresses(host);
+            }
+            catch (SocketException ex)
+            {
+                throw new InvalidOperationException($"{fieldName} 主机名无法解析", ex);
+            }
+
+            if (addresses.Length == 0)
+            {
+                throw new InvalidOperationException($"{fieldName} 主机名无法解析");
+            }
+
+            if (addresses.Any(IsPrivateOrLoopback))
+            {
+                throw new InvalidOperationException($"{fieldName} 不允许解析到本地或内网地址");
+            }
+        }
     }
 
     private static bool IsBlockedHostName(string host)

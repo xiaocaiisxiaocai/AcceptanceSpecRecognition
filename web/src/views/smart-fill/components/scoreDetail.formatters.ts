@@ -375,6 +375,24 @@ export const applyMatchLlmStreamEventToPreviewItem = (
       return;
     case "review.done": {
       const done = data as MatchLlmStreamDoneEventData;
+      if (done.bestMatch) {
+        item.bestMatch = {
+          ...done.bestMatch,
+          scoreDetails: { ...(done.bestMatch.scoreDetails ?? {}) },
+          evidenceSummary: [...(done.bestMatch.evidenceSummary ?? [])],
+          conflictSummary: [...(done.bestMatch.conflictSummary ?? [])],
+          issues: [...(done.bestMatch.issues ?? [])],
+          entities: [...(done.bestMatch.entities ?? [])],
+          topCandidates: (done.bestMatch.topCandidates ?? []).map(candidate => ({
+            ...candidate,
+            scoreDetails: { ...(candidate.scoreDetails ?? {}) },
+            evidenceSummary: [...(candidate.evidenceSummary ?? [])],
+            conflictSummary: [...(candidate.conflictSummary ?? [])],
+            issues: [...(candidate.issues ?? [])],
+            entities: [...(candidate.entities ?? [])]
+          }))
+        };
+      }
       if (item.bestMatch) {
         item.bestMatch.decision = done.decision || item.bestMatch.decision;
         item.bestMatch.reviewScore = done.score;
@@ -397,6 +415,21 @@ export const applyMatchLlmStreamEventToPreviewItem = (
       item.llmReviewDraft = "";
       return;
     }
+    case "stream.complete":
+      if (item.llmReviewStage === "streaming") {
+        applyMatchLlmStreamDisconnectToPreviewItem(
+          item,
+          "LLM复核未返回终态，已转为人工确认"
+        );
+        return;
+      }
+
+      if (item.llmReviewStage === undefined && shouldStreamMatchReview(item.bestMatch)) {
+        item.llmReviewStage = "done";
+        item.llmReviewDraft = "";
+        item.llmReviewError = undefined;
+      }
+      return;
     default:
       return;
   }

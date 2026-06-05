@@ -15,6 +15,7 @@ using System.Diagnostics;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using AcceptanceSpecSystem.Core.Diagnostics;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -60,8 +61,8 @@ public sealed partial class MatchingWorkflowSupportService
         var retryCount = config.LlmRetryCount;
         var circuitBreakFailures = config.LlmCircuitBreakFailures;
         var reviewTargetLookup = normalizedItems.ToDictionary(
-            GetLlmStreamItemKey,
-            RequiresReviewForStreamItem);
+            context => GetLlmStreamItemKey(context.Item),
+            context => RequiresReviewForStreamItem(context.Item));
         var reviewCount = reviewTargetLookup.Count(item => item.Value);
         var reviewTerminalLookup = new ConcurrentDictionary<LlmStreamItemKey, byte>();
         var reviewSuccess = 0;
@@ -86,10 +87,11 @@ public sealed partial class MatchingWorkflowSupportService
                     MaxDegreeOfParallelism = parallelism,
                     CancellationToken = cancellationToken
                 },
-                async (item, ct) =>
+                async (context, ct) =>
                 {
                     using var serviceScope = _scopeFactory.CreateScope();
                     var reviewService = serviceScope.ServiceProvider.GetRequiredService<ILlmReviewService>();
+                    var item = context.Item;
                     var location = FormatStreamItemLocation(item);
                     var itemKey = GetLlmStreamItemKey(item);
                     var requiresReview = reviewTargetLookup.GetValueOrDefault(itemKey);
@@ -114,6 +116,7 @@ public sealed partial class MatchingWorkflowSupportService
                             token => StreamLlmReviewAsync(
                                 response,
                                 item,
+                                context.AuthoritativeBestMatch,
                                 config,
                                 scope,
                                 request.CustomerId,
@@ -176,6 +179,9 @@ public sealed partial class MatchingWorkflowSupportService
             {
                 await WriteSseEventSafeAsync(response, "stream.complete", new
                 {
+                    completedRowKeys = normalizedItems
+                        .Select(context => FormatStreamRowKey(context.Item.TableIndex, context.Item.RowIndex))
+                        .ToArray(),
                     totalItems = normalizedItems.Count,
                     reviewTargets = reviewCount,
                     reviewSuccess,
@@ -203,6 +209,7 @@ public sealed partial class MatchingWorkflowSupportService
     private async Task<LlmStepOutcome> StreamLlmReviewAsync(
         HttpResponse response,
         MatchLlmStreamItem item,
+        MatchResultDto? authoritativeBestMatch,
         MatchingConfig config,
         DataScopeResult scope,
         int? customerId,
@@ -229,7 +236,14 @@ public sealed partial class MatchingWorkflowSupportService
                 score = 0,
                 reason = "AI 等价裁决已要求人工确认，跳过旧复核",
                 commentary = "保留 AI 等价裁决结果，不再用旧 LLM 复核反向放行",
-                decision = "manualReview"
+                decision = "manualReview",
+                bestMatch = CloneReviewedBestMatch(
+                    authoritativeBestMatch,
+                    "manualReview",
+                    0,
+                    "AI 等价裁决已要求人工确认，跳过旧复核",
+                    "保留 AI 等价裁决结果，不再用旧 LLM 复核反向放行",
+                    reviewApprovalToken: null)
             }, cancellationToken);
             reviewTerminalLookup.TryAdd(GetLlmStreamItemKey(item), 0);
             return LlmStepOutcome.Success;
@@ -320,14 +334,23 @@ public sealed partial class MatchingWorkflowSupportService
                     reason = result.Reason,
                     commentary = result.Commentary,
                     decision = passed ? "autoApply" : "manualReview",
-                    reviewApprovalToken
+                    reviewApprovalToken,
+                    bestMatch = CloneReviewedBestMatch(
+                        authoritativeBestMatch,
+                        passed ? "autoApply" : "manualReview",
+                        normalizedScore,
+                        result.Reason,
+                        result.Commentary,
+                        reviewApprovalToken)
                 }, cancellationToken);
                 reviewTerminalLookup.TryAdd(GetLlmStreamItemKey(item), 0);
                 return LlmStepOutcome.Success;
             }
             else
             {
-                _logger.LogWarning("[LLM复核] {Location}: JSON解析失败, 原始输出: {Raw}", location, buffer.ToString());
+                _logger.LogWarning("[LLM复核] {Location}: JSON解析失败, 输出摘要: {Summary}",
+                    location,
+                    SensitiveLogFormatter.DescribePayload(buffer.ToString()));
                 throw new LlmStepFailureException("LLM复核输出解析失败", "manualReview");
             }
         }
@@ -350,6 +373,105 @@ public sealed partial class MatchingWorkflowSupportService
 
             throw new LlmStepFailureException("LLM复核失败", "manualReview", ex);
         }
+    }
+
+    private static MatchResultDto? CloneReviewedBestMatch(
+        MatchResultDto? bestMatch,
+        string decision,
+        double? reviewScore,
+        string? reviewReason,
+        string? reviewCommentary,
+        string? reviewApprovalToken)
+    {
+        if (bestMatch == null)
+        {
+            return null;
+        }
+
+        return new MatchResultDto
+        {
+            SpecId = bestMatch.SpecId,
+            Project = bestMatch.Project,
+            Specification = bestMatch.Specification,
+            Acceptance = bestMatch.Acceptance,
+            Remark = bestMatch.Remark,
+            Score = bestMatch.Score,
+            EmbeddingScore = bestMatch.EmbeddingScore,
+            ScoreDetails = new Dictionary<string, double>(bestMatch.ScoreDetails),
+            Decision = decision,
+            EvidenceSummary = [.. bestMatch.EvidenceSummary],
+            ConflictSummary = [.. bestMatch.ConflictSummary],
+            Issues = bestMatch.Issues.Select(issue => new MatchIssueDto
+            {
+                Code = issue.Code,
+                Severity = issue.Severity,
+                FieldName = issue.FieldName,
+                SourceValue = issue.SourceValue,
+                CandidateValue = issue.CandidateValue,
+                Message = issue.Message,
+                SuggestedAction = issue.SuggestedAction
+            }).ToList(),
+            Entities = bestMatch.Entities.Select(entity => new MatchEntityEvidenceDto
+            {
+                EntityType = entity.EntityType,
+                SourceValue = entity.SourceValue,
+                CandidateValue = entity.CandidateValue,
+                NormalizedSourceValue = entity.NormalizedSourceValue,
+                NormalizedCandidateValue = entity.NormalizedCandidateValue,
+                Relation = entity.Relation
+            }).ToList(),
+            TopCandidates = bestMatch.TopCandidates.Select(candidate => new MatchCandidateDto
+            {
+                Rank = candidate.Rank,
+                SpecId = candidate.SpecId,
+                Project = candidate.Project,
+                Specification = candidate.Specification,
+                Acceptance = candidate.Acceptance,
+                Remark = candidate.Remark,
+                Score = candidate.Score,
+                EmbeddingScore = candidate.EmbeddingScore,
+                ScoreDetails = new Dictionary<string, double>(candidate.ScoreDetails),
+                Decision = candidate.Decision,
+                EvidenceSummary = [.. candidate.EvidenceSummary],
+                ConflictSummary = [.. candidate.ConflictSummary],
+                Issues = candidate.Issues.Select(issue => new MatchIssueDto
+                {
+                    Code = issue.Code,
+                    Severity = issue.Severity,
+                    FieldName = issue.FieldName,
+                    SourceValue = issue.SourceValue,
+                    CandidateValue = issue.CandidateValue,
+                    Message = issue.Message,
+                    SuggestedAction = issue.SuggestedAction
+                }).ToList(),
+                Entities = candidate.Entities.Select(entity => new MatchEntityEvidenceDto
+                {
+                    EntityType = entity.EntityType,
+                    SourceValue = entity.SourceValue,
+                    CandidateValue = entity.CandidateValue,
+                    NormalizedSourceValue = entity.NormalizedSourceValue,
+                    NormalizedCandidateValue = entity.NormalizedCandidateValue,
+                    Relation = entity.Relation
+                }).ToList(),
+                RerankSummary = candidate.RerankSummary,
+                SelectionMode = candidate.SelectionMode,
+                SelectionSummary = candidate.SelectionSummary,
+                MatchBasis = candidate.MatchBasis,
+                LlmEquivalence = candidate.LlmEquivalence
+            }).ToList(),
+            RecalledCandidateCount = bestMatch.RecalledCandidateCount,
+            IsAmbiguous = bestMatch.IsAmbiguous,
+            ScoreGap = bestMatch.ScoreGap,
+            RerankSummary = bestMatch.RerankSummary,
+            SelectionMode = bestMatch.SelectionMode,
+            SelectionSummary = bestMatch.SelectionSummary,
+            MatchBasis = bestMatch.MatchBasis,
+            LlmEquivalence = bestMatch.LlmEquivalence,
+            ReviewApprovalToken = reviewApprovalToken,
+            ReviewScore = reviewScore,
+            ReviewReason = reviewReason,
+            ReviewCommentary = reviewCommentary
+        };
     }
 
 

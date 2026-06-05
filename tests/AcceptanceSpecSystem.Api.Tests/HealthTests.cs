@@ -22,7 +22,7 @@ public class HealthTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Health_ShouldReportNamedDependencyEntries()
+    public async Task Health_ShouldNotExposeDependencyEntries()
     {
         var resp = await _client.GetAsync("/health");
         var raw = await resp.Content.ReadAsStringAsync();
@@ -31,10 +31,7 @@ public class HealthTests : IClassFixture<ApiWebApplicationFactory>
         var json = JsonSerializer.Deserialize<JsonElement>(raw);
 
         json.GetProperty("status").GetString().Should().Be("Healthy");
-        var entries = json.GetProperty("entries");
-        entries.TryGetProperty("database", out _).Should().BeTrue();
-        entries.TryGetProperty("fileStorage", out _).Should().BeTrue();
-        entries.TryGetProperty("aiConfig", out _).Should().BeTrue();
+        json.TryGetProperty("entries", out _).Should().BeFalse("匿名健康检查不应暴露内部依赖项明细");
     }
 }
 

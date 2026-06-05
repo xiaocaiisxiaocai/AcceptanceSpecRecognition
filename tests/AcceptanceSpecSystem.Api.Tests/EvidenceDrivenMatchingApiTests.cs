@@ -19,7 +19,7 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
-    public async Task Preview_ShouldExposeManualReviewWithoutLocalNumericEvidence()
+    public async Task Preview_ShouldExposeManualReviewWithDeterministicNumericConflict()
     {
         var (customerId, processId) = await CreateScopeAsync("EvidenceApi");
 
@@ -49,12 +49,16 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
         bestMatch.TryGetProperty("matchingStrategy", out _).Should().BeFalse();
         bestMatch.TryGetProperty("hasHardConflict", out _).Should().BeFalse();
         bestMatch.GetProperty("evidenceSummary").GetArrayLength().Should().Be(0);
-        bestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("different");
+        bestMatch.GetProperty("conflictSummary").GetArrayLength().Should().BeGreaterThan(0);
+        bestMatch.GetProperty("issues").EnumerateArray().Should().Contain(issue =>
+            issue.GetProperty("code").GetString() == "numeric_unit_conflict" &&
+            issue.GetProperty("severity").GetString() == "hard_conflict");
+        bestMatch.GetProperty("llmEquivalence").ValueKind.Should().Be(JsonValueKind.Null);
         item.GetProperty("confidenceLevel").GetString().Should().Be("medium");
     }
 
     [Fact]
-    public async Task Preview_WhenOnlyRuleConflictExists_ShouldReturnManualReviewWithoutLocalConflictSummary()
+    public async Task Preview_WhenOnlyRuleConflictExists_ShouldReturnManualReviewWithLocalConflictSummary()
     {
         var (customerId, processId) = await CreateScopeAsync("EvidenceRejectApi");
 
@@ -79,8 +83,10 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
 
         bestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
         bestMatch.TryGetProperty("hasHardConflict", out _).Should().BeFalse();
-        bestMatch.GetProperty("conflictSummary").GetArrayLength().Should().Be(0);
-        bestMatch.GetProperty("issues").GetArrayLength().Should().Be(0);
+        bestMatch.GetProperty("conflictSummary").GetArrayLength().Should().BeGreaterThan(0);
+        bestMatch.GetProperty("issues").EnumerateArray().Should().Contain(issue =>
+            issue.GetProperty("code").GetString() == "numeric_unit_conflict" &&
+            issue.GetProperty("severity").GetString() == "hard_conflict");
         item.GetProperty("confidenceLevel").GetString().Should().Be("medium");
     }
 
@@ -149,7 +155,7 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
-    public async Task Preview_ShouldNotExposeRemovedLocalNumericIssues()
+    public async Task Preview_ShouldExposeDeterministicVoltageConflictIssue()
     {
         var (customerId, processId) = await CreateScopeAsync("IssueApi");
 
@@ -172,12 +178,14 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
         var bestMatch = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0].GetProperty("bestMatch");
         var issues = bestMatch.GetProperty("issues");
 
-        issues.GetArrayLength().Should().Be(0);
-        bestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("different");
+        issues.EnumerateArray().Should().Contain(issue =>
+            issue.GetProperty("code").GetString() == "numeric_unit_conflict" &&
+            issue.GetProperty("severity").GetString() == "hard_conflict");
+        bestMatch.GetProperty("llmEquivalence").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]
-    public async Task Preview_WhenVoltageAlternativesContainTypo_ShouldRelyOnLlmInsteadOfLocalNumericIssue()
+    public async Task Preview_WhenVoltageAlternativesContainTypo_ShouldExposeLocalNumericConflictWithoutLlm()
     {
         var (customerId, processId) = await CreateScopeAsync("VoltageAlternativeIssueApi");
 
@@ -205,8 +213,10 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
         var bestMatch = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0].GetProperty("bestMatch");
         var issues = bestMatch.GetProperty("issues");
 
-        issues.GetArrayLength().Should().Be(0);
-        bestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("different");
+        issues.EnumerateArray().Should().Contain(issue =>
+            issue.GetProperty("code").GetString() == "numeric_unit_conflict" &&
+            issue.GetProperty("severity").GetString() == "hard_conflict");
+        bestMatch.GetProperty("llmEquivalence").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]
@@ -289,6 +299,8 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
         config.HighConfidenceThreshold.Should().Be(0.98);
         config.AmbiguityMargin.Should().Be(0.02);
         config.LlmParallelism.Should().Be(4);
+        config.EnableDeterministicAutoApply.Should().BeTrue();
+        config.LlmMaxCallsPerBatch.Should().Be(20);
         typeof(MatchConfigDto).GetProperty("UseLlmEntityResolution").Should().BeNull();
         typeof(MatchConfigDto).GetProperty("LlmEntityResolutionTopCandidates").Should().BeNull();
         typeof(MatchConfigDto).GetProperty("LlmEntityPositiveConfidenceThreshold").Should().BeNull();

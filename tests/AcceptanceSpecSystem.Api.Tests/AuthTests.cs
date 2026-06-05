@@ -1,9 +1,12 @@
 using System.Net;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Data.Context;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -47,6 +50,26 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
             lastResponse = await client.PostAsync(
                 "/login",
                 ApiClientJson.ToJsonContent(new { username = "admin", password = "wrong-password" }));
+        }
+
+        using (lastResponse)
+        {
+            lastResponse!.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        }
+    }
+
+    [Fact]
+    public async Task RefreshToken_WhenRateLimitExceeded_ShouldReturnTooManyRequests()
+    {
+        await using var factory = new LoginRateLimitApiWebApplicationFactory();
+        using var client = factory.CreateClient();
+        HttpResponseMessage? lastResponse = null;
+        for (var i = 0; i < 3; i++)
+        {
+            lastResponse?.Dispose();
+            lastResponse = await client.PostAsync(
+                "/refresh-token",
+                ApiClientJson.ToJsonContent(new { refreshToken = "invalid-token" }));
         }
 
         using (lastResponse)
@@ -115,6 +138,37 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task RefreshToken_WhenPermissionVersionChanged_ShouldReturnUnauthorized()
+    {
+        await using var factory = new ApiWebApplicationFactory();
+        using var client = factory.CreateClient();
+        var loginResp = await client.PostAsync(
+            "/login",
+            ApiClientJson.ToJsonContent(new { username = "admin", password = ApiWebApplicationFactory.TestAdminPassword }));
+        loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var loginJson = await loginResp.ReadAsAsync<JsonElement>();
+        var refreshToken = loginJson.GetProperty("data").GetProperty("refreshToken").GetString();
+        refreshToken.Should().NotBeNullOrWhiteSpace();
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var user = await dbContext.SystemUsers.SingleAsync(u => u.Username == "admin");
+            user.PermissionVersion += 1;
+            await dbContext.SaveChangesAsync();
+        }
+
+        var refreshResp = await client.PostAsync(
+            "/refresh-token",
+            ApiClientJson.ToJsonContent(new { refreshToken }));
+
+        refreshResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var refreshJson = await refreshResp.ReadAsAsync<JsonElement>();
+        refreshJson.GetProperty("success").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
     public async Task AsyncRoutesEndpoint_ShouldReturnNotFound()
     {
         using var resp = await _client.GetAsync("/get-async-routes");
@@ -133,7 +187,10 @@ public sealed class LoginRateLimitApiWebApplicationFactory : ApiWebApplicationFa
             {
                 ["ApiRateLimits:Login:PermitLimit"] = "2",
                 ["ApiRateLimits:Login:WindowSeconds"] = "60",
-                ["ApiRateLimits:Login:QueueLimit"] = "0"
+                ["ApiRateLimits:Login:QueueLimit"] = "0",
+                ["ApiRateLimits:RefreshToken:PermitLimit"] = "2",
+                ["ApiRateLimits:RefreshToken:WindowSeconds"] = "60",
+                ["ApiRateLimits:RefreshToken:QueueLimit"] = "0"
             });
         });
     }

@@ -10,8 +10,10 @@ import {
   requestMatchLlmStream,
   type BatchTablePreviewResult,
   type MatchConfig,
+  type MatchLlmStreamCompleteEventData,
   type MatchLlmStreamEvent,
   type MatchLlmStreamEventData,
+  type MatchLlmStreamBaseEventData,
   type MatchPreviewItem
 } from "@/api/matching";
 import type { SmartFillScope } from "../smartFillExecution.helpers";
@@ -48,41 +50,79 @@ export function useSmartFillLlmStream({
 }: UseSmartFillLlmStreamOptions) {
   const llmStreaming = ref(false);
   const llmStreamController = ref<AbortController | null>(null);
+  const activeLlmStreamPendingRowKeys = ref<Set<string>>(new Set());
+
+  const buildLlmStreamRowKey = (tableIndex: number, rowIndex: number) =>
+    `${tableIndex}:${rowIndex}`;
+
+  const finalizeInterruptedLlmStreamRows = (
+    message = "LLM流式输出中断，已转为人工确认",
+    pendingRowKeys = activeLlmStreamPendingRowKeys.value
+  ) => {
+    batchPreviewResults.value.forEach((tableResult) => {
+      tableResult.items.forEach((item) => {
+        if (!pendingRowKeys.has(buildLlmStreamRowKey(tableResult.tableIndex, item.rowIndex))) {
+          return;
+        }
+
+        applyMatchLlmStreamDisconnectToPreviewItem(item, message);
+      });
+    });
+    pendingRowKeys.clear();
+  };
 
   const stopLlmStream = () => {
     const controller = llmStreamController.value;
+    finalizeInterruptedLlmStreamRows("LLM复核已取消，已转为人工确认");
     controller?.abort();
     if (llmStreamController.value === controller) {
       llmStreamController.value = null;
     }
+    activeLlmStreamPendingRowKeys.value.clear();
     llmStreaming.value = false;
-  };
-
-  const finalizeInterruptedLlmStreamRows = (
-    message = "LLM流式输出中断，已转为人工确认"
-  ) => {
-    batchPreviewResults.value.forEach((tableResult) => {
-      tableResult.items.forEach((item) => {
-        applyMatchLlmStreamDisconnectToPreviewItem(item, message);
-      });
-    });
   };
 
   const applySseUpdate = (
     event: MatchLlmStreamEvent,
     data: MatchLlmStreamEventData
   ) => {
-    if (data.tableIndex === undefined || data.tableIndex === null) {
+    if (event === "stream.complete") {
+      const complete = data as MatchLlmStreamCompleteEventData;
+      const completedRowKeys = complete.completedRowKeys?.length
+        ? complete.completedRowKeys
+        : [...activeLlmStreamPendingRowKeys.value];
+
+      batchPreviewResults.value.forEach((tableResult) => {
+        tableResult.items.forEach((item) => {
+          const rowKey = buildLlmStreamRowKey(tableResult.tableIndex, item.rowIndex);
+          if (!completedRowKeys.includes(rowKey)) {
+            return;
+          }
+
+          applyMatchLlmStreamEventToPreviewItem(item, event, data);
+          activeLlmStreamPendingRowKeys.value.delete(rowKey);
+        });
+      });
+      return;
+    }
+
+    const rowData = data as MatchLlmStreamBaseEventData;
+    if (rowData.tableIndex === undefined || rowData.tableIndex === null) {
       return;
     }
 
     const tableResult = batchPreviewResults.value.find(
-      tableResult => tableResult.tableIndex === data.tableIndex
+      tableResult => tableResult.tableIndex === rowData.tableIndex
     );
-    const row = tableResult?.items.find((item) => item.rowIndex === data.rowIndex);
+    const row = tableResult?.items.find((item) => item.rowIndex === rowData.rowIndex);
     if (!row) return;
 
     applyMatchLlmStreamEventToPreviewItem(row, event, data);
+    if (event === "review.done" || event === "review.error") {
+      activeLlmStreamPendingRowKeys.value.delete(
+        buildLlmStreamRowKey(rowData.tableIndex, rowData.rowIndex)
+      );
+    }
   };
 
   const handleSseEvent = (raw: string) => {
@@ -151,6 +191,9 @@ export function useSmartFillLlmStream({
     const controller = new AbortController();
     llmStreamController.value = controller;
     llmStreaming.value = true;
+    activeLlmStreamPendingRowKeys.value = new Set(
+      llmItems.map(item => buildLlmStreamRowKey(item.tableIndex, item.rowIndex))
+    );
 
     const payload = buildPayload(scope, llmItems, matchConfig.value);
 

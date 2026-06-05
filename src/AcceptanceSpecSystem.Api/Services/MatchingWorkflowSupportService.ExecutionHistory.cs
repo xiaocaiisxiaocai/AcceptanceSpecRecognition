@@ -27,6 +27,7 @@ public sealed partial class MatchingWorkflowSupportService
         DateTime createdAt,
         IReadOnlyCollection<BatchTableFillMapping> tables,
         IReadOnlyCollection<ExecutionHistoryPreviewTableSnapshot> previewTables,
+        MatchingConfig executionConfig,
         IReadOnlyDictionary<int, AcceptanceSpec> specDict,
         IReadOnlyDictionary<int, HashSet<int>> adoptedRowLookup,
         IReadOnlyDictionary<int, ExecutionMatchSnapshot> currentMatchLookups,
@@ -53,7 +54,8 @@ public sealed partial class MatchingWorkflowSupportService
                 table,
                 specDict,
                 adoptedRowLookup.GetValueOrDefault(table.TableIndex),
-                currentMatchLookups.GetValueOrDefault(table.TableIndex)?.MatchLookup);
+                currentMatchLookups.GetValueOrDefault(table.TableIndex)?.MatchLookup,
+                executionConfig);
             var sheetName = tableMetaLookup.TryGetValue(table.TableIndex, out var meta) && !string.IsNullOrWhiteSpace(meta.Name)
                 ? meta.Name!
                 : $"表格 {table.TableIndex + 1}";
@@ -106,7 +108,8 @@ public sealed partial class MatchingWorkflowSupportService
         BatchTableFillMapping table,
         IReadOnlyDictionary<int, AcceptanceSpec> specDict,
         HashSet<int>? adoptedRows,
-        IReadOnlyDictionary<int, MatchResult>? currentMatchLookup)
+        IReadOnlyDictionary<int, MatchResult>? currentMatchLookup,
+        MatchingConfig executionConfig)
     {
         var mappingLookup = table.Mappings.ToDictionary(item => item.RowIndex);
         var sourceRows = new List<MatchSourceItem>();
@@ -121,7 +124,7 @@ public sealed partial class MatchingWorkflowSupportService
                 table.HeaderRowStart,
                 table.HeaderRowCount,
                 table.DataStartRow,
-                table.FilterEmptySourceRows ?? true);
+                table.FilterEmptySourceRows ?? executionConfig.FilterEmptySourceRows);
         }
 
         if (sourceRows.Count == 0)
@@ -141,18 +144,27 @@ public sealed partial class MatchingWorkflowSupportService
                 .ToList();
         }
 
-        return sourceRows
-            .OrderBy(item => item.RowIndex)
-            .Select(item => BuildExecutionHistoryRow(
-                item.RowIndex,
-                item.Project,
-                item.Specification,
-                mappingLookup.GetValueOrDefault(item.RowIndex),
-                specDict,
-                adoptedRows,
-                currentMatchLookup?.GetValueOrDefault(item.RowIndex),
-                table.AcceptanceColumnIndex,
-                table.RemarkColumnIndex))
+        var sourceRowLookup = sourceRows.ToDictionary(item => item.RowIndex);
+        var rowIndexes = sourceRowLookup.Keys
+            .Concat(mappingLookup.Keys)
+            .Distinct()
+            .OrderBy(rowIndex => rowIndex);
+
+        return rowIndexes
+            .Select(rowIndex =>
+            {
+                sourceRowLookup.TryGetValue(rowIndex, out var sourceRow);
+                return BuildExecutionHistoryRow(
+                    rowIndex,
+                    sourceRow?.Project ?? string.Empty,
+                    sourceRow?.Specification ?? string.Empty,
+                    mappingLookup.GetValueOrDefault(rowIndex),
+                    specDict,
+                    adoptedRows,
+                    currentMatchLookup?.GetValueOrDefault(rowIndex),
+                    table.AcceptanceColumnIndex,
+                    table.RemarkColumnIndex);
+            })
             .ToList();
     }
 
@@ -178,6 +190,25 @@ public sealed partial class MatchingWorkflowSupportService
 
         if (mapping == null || !hasSpec)
         {
+            if (mapping?.ManualFill == true &&
+                adoptedRows?.Contains(rowIndex) == true &&
+                (mapping.OverrideAcceptance != null || mapping.OverrideRemark != null))
+            {
+                return new ExecutionHistoryRowDto
+                {
+                    RowIndex = rowIndex,
+                    Project = project,
+                    Specification = specification,
+                    Acceptance = mapping.OverrideAcceptance,
+                    Remark = mapping.OverrideRemark,
+                    ConfidencePercent = 0,
+                    Status = ExecutionHistoryStatuses.Adopted,
+                    IsManualSelected = false,
+                    AcceptanceColumnIndex = acceptanceColumnIndex,
+                    RemarkColumnIndex = remarkColumnIndex
+                };
+            }
+
             return new ExecutionHistoryRowDto
             {
                 RowIndex = rowIndex,
@@ -324,8 +355,12 @@ public sealed partial class MatchingWorkflowSupportService
             RerankSummary = isExactMatch ? null : bestMatch.RerankSummary,
             SelectionMode = bestMatch.SelectionMode,
             SelectionSummary = bestMatch.SelectionSummary,
+            MatchBasis = bestMatch.MatchBasis,
             LlmEquivalence = isExactMatch ? null : bestMatch.LlmEquivalence,
-            ReviewApprovalToken = null
+            ReviewApprovalToken = null,
+            ReviewScore = isExactMatch ? null : bestMatch.ReviewScore,
+            ReviewReason = isExactMatch ? null : bestMatch.ReviewReason,
+            ReviewCommentary = isExactMatch ? null : bestMatch.ReviewCommentary
         };
     }
 
@@ -350,6 +385,7 @@ public sealed partial class MatchingWorkflowSupportService
             RerankSummary = candidate.RerankSummary,
             SelectionMode = candidate.SelectionMode,
             SelectionSummary = candidate.SelectionSummary,
+            MatchBasis = candidate.MatchBasis,
             LlmEquivalence = candidate.LlmEquivalence
         };
     }

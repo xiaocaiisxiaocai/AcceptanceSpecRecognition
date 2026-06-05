@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Collections.Concurrent;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.Diagnostics;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
     private readonly ConcurrentDictionary<AiServicePurpose, IReadOnlyList<AiServiceConfigModel>> _aiServiceCandidateCache = [];
     private readonly SemaphoreSlim _promptTemplateCacheLock = new(1, 1);
     private readonly SemaphoreSlim _aiServiceCandidateCacheLock = new(1, 1);
+    private readonly SemaphoreSlim _dbBackedCacheInitializationLock = new(1, 1);
 
     private sealed class ThinkContentFilter
     {
@@ -182,7 +184,9 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             return null;
         }
 
-        _logger.LogInformation("[LLM复核] LLM原始输出 ({Elapsed}ms): {Raw}", sw.ElapsedMilliseconds, raw);
+        _logger.LogInformation("[LLM复核] LLM输出摘要 ({Elapsed}ms): {Summary}",
+            sw.ElapsedMilliseconds,
+            SensitiveLogFormatter.DescribePayload(raw));
 
         if (TryParseReviewResult(raw, out var result))
         {
@@ -190,7 +194,8 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             return result;
         }
 
-        _logger.LogWarning("[LLM复核] JSON解析失败, 原始输出: {Raw}", raw);
+        _logger.LogWarning("[LLM复核] JSON解析失败, 输出摘要: {Summary}",
+            SensitiveLogFormatter.DescribePayload(raw));
         return null;
     }
 
@@ -278,7 +283,9 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             return null;
         }
 
-        _logger.LogInformation("[LLM等价裁决] LLM原始输出 ({Elapsed}ms): {Raw}", sw.ElapsedMilliseconds, raw);
+        _logger.LogInformation("[LLM等价裁决] LLM输出摘要 ({Elapsed}ms): {Summary}",
+            sw.ElapsedMilliseconds,
+            SensitiveLogFormatter.DescribePayload(raw));
 
         if (TryParseAdjudicationResult(raw, out var result))
         {
@@ -287,7 +294,8 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             return result;
         }
 
-        _logger.LogWarning("[LLM等价裁决] JSON解析失败, 原始输出: {Raw}", raw);
+        _logger.LogWarning("[LLM等价裁决] JSON解析失败, 输出摘要: {Summary}",
+            SensitiveLogFormatter.DescribePayload(raw));
         return null;
     }
 
@@ -327,7 +335,9 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             return null;
         }
 
-        _logger.LogInformation("[LLM候选重排] LLM原始输出 ({Elapsed}ms): {Raw}", sw.ElapsedMilliseconds, raw);
+        _logger.LogInformation("[LLM候选重排] LLM输出摘要 ({Elapsed}ms): {Summary}",
+            sw.ElapsedMilliseconds,
+            SensitiveLogFormatter.DescribePayload(raw));
 
         if (TryParseRerankResult(raw, out var result))
         {
@@ -338,7 +348,8 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             return result;
         }
 
-        _logger.LogWarning("[LLM候选重排] JSON解析失败, 原始输出: {Raw}", raw);
+        _logger.LogWarning("[LLM候选重排] JSON解析失败, 输出摘要: {Summary}",
+            SensitiveLogFormatter.DescribePayload(raw));
         return null;
     }
 
@@ -516,7 +527,9 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
                 }
 
                 errors.Add($"{cfg.Name}: invalid_payload");
-                _logger.LogWarning("LLM 输出未通过解析校验，尝试下一个服务: {Name}; 原始输出: {Raw}", cfg.Name, raw);
+                _logger.LogWarning("LLM 输出未通过解析校验，尝试下一个服务: {Name}; 输出摘要: {Summary}",
+                    cfg.Name,
+                    SensitiveLogFormatter.DescribePayload(raw));
             }
             catch (Exception ex)
             {
@@ -641,10 +654,31 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             return cachedTemplate;
         }
 
-        await _promptTemplateCacheLock.WaitAsync(cancellationToken);
+        await _dbBackedCacheInitializationLock.WaitAsync(cancellationToken);
         try
         {
             if (_promptTemplateCache.TryGetValue(cacheKey, out cachedTemplate))
+            {
+                return cachedTemplate;
+            }
+
+            return await GetOrCreateTemplateCoreAsync(definition, cacheKey, cancellationToken);
+        }
+        finally
+        {
+            _dbBackedCacheInitializationLock.Release();
+        }
+    }
+
+    private async Task<PromptTemplateModel> GetOrCreateTemplateCoreAsync(
+        SystemPromptTemplateDefinition definition,
+        string cacheKey,
+        CancellationToken cancellationToken)
+    {
+        await _promptTemplateCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_promptTemplateCache.TryGetValue(cacheKey, out var cachedTemplate))
             {
                 return cachedTemplate;
             }
@@ -704,22 +738,42 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
     {
         if (!_aiServiceCandidateCache.TryGetValue(purpose, out var cachedCandidates))
         {
-            await _aiServiceCandidateCacheLock.WaitAsync(cancellationToken);
+            await _dbBackedCacheInitializationLock.WaitAsync(cancellationToken);
             try
             {
                 if (!_aiServiceCandidateCache.TryGetValue(purpose, out cachedCandidates))
                 {
-                    cachedCandidates = await _selector.GetCandidatesAsync(purpose, preferredId: null, cancellationToken);
-                    _aiServiceCandidateCache[purpose] = cachedCandidates;
+                    cachedCandidates = await GetCachedCandidatesCoreAsync(purpose, cancellationToken);
                 }
             }
             finally
             {
-                _aiServiceCandidateCacheLock.Release();
+                _dbBackedCacheInitializationLock.Release();
             }
         }
 
         return FilterCandidatesForPreferredService(cachedCandidates, preferredId);
+    }
+
+    private async Task<IReadOnlyList<AiServiceConfigModel>> GetCachedCandidatesCoreAsync(
+        AiServicePurpose purpose,
+        CancellationToken cancellationToken)
+    {
+        await _aiServiceCandidateCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!_aiServiceCandidateCache.TryGetValue(purpose, out var cachedCandidates))
+            {
+                cachedCandidates = await _selector.GetCandidatesAsync(purpose, preferredId: null, cancellationToken);
+                _aiServiceCandidateCache[purpose] = cachedCandidates;
+            }
+
+            return cachedCandidates;
+        }
+        finally
+        {
+            _aiServiceCandidateCacheLock.Release();
+        }
     }
 
     private static IReadOnlyList<AiServiceConfigModel> FilterCandidatesForPreferredService(
@@ -770,7 +824,8 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "LLM 输出 JSON 解析失败，原始内容: {Raw}", raw);
+            _logger.LogWarning(ex, "LLM 输出 JSON 解析失败，输出摘要: {Summary}",
+                SensitiveLogFormatter.DescribePayload(raw));
             return false;
         }
     }

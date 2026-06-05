@@ -303,6 +303,7 @@ public class AiServicesController : BaseApiController
     /// 测试AI服务连接
     /// </summary>
     [HttpPost("{id}/test")]
+    [AuditOperation("test", "ai-service")]
     [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceTestResultDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<AiServiceTestResultDto>>> TestConnection(
@@ -744,6 +745,7 @@ public class AiServicesController : BaseApiController
     /// 获取模型列表（远程探测）
     /// </summary>
     [HttpGet("{id}/models")]
+    [AuditOperation("models", "ai-service")]
     [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceModelsResultDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<AiServiceModelsResultDto>>> GetModels(

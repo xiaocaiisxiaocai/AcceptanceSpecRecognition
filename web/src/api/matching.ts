@@ -42,6 +42,10 @@ export interface MatchConfig {
   matchingMode?: MatchingMode;
   /** 是否在同步预览/执行匹配阶段启用 AI 等价裁决 */
   enableLlmEquivalenceAdjudication?: boolean;
+  /** 是否启用确定性自动通过 */
+  enableDeterministicAutoApply?: boolean;
+  /** 单批次 LLM 重排/等价裁决调用次数上限 */
+  llmMaxCallsPerBatch?: number;
   /** 是否仅按项目+规格完全一致命中 */
   exactMatchOnly?: boolean;
   /** 是否过滤项目/规格均为空的行 */
@@ -304,6 +308,8 @@ export const defaultMatchConfig: MatchConfig = {
   llmCircuitBreakFailures: 10,
   matchingMode: "projectSpecification",
   enableLlmEquivalenceAdjudication: false,
+  enableDeterministicAutoApply: true,
+  llmMaxCallsPerBatch: 20,
   exactMatchOnly: false,
   filterEmptySourceRows: true
 };
@@ -499,7 +505,8 @@ export type MatchLlmStreamEvent =
   | "review.start"
   | "review.delta"
   | "review.done"
-  | "review.error";
+  | "review.error"
+  | "stream.complete";
 
 export interface MatchLlmStreamBaseEventData {
   tableIndex?: number;
@@ -518,6 +525,7 @@ export interface MatchLlmStreamDoneEventData extends MatchLlmStreamBaseEventData
   reason?: string;
   commentary?: string;
   reviewApprovalToken?: string;
+  bestMatch?: MatchResult;
 }
 
 export interface MatchLlmStreamErrorEventData extends MatchLlmStreamBaseEventData {
@@ -525,11 +533,26 @@ export interface MatchLlmStreamErrorEventData extends MatchLlmStreamBaseEventDat
   message?: string;
 }
 
+export interface MatchLlmStreamCompleteEventData {
+  completedRowKeys?: string[];
+  skippedRowKeys?: string[];
+  totalItems?: number;
+  reviewTargets?: number;
+  reviewSuccess?: number;
+  reviewFailed?: number;
+  reviewTimeout?: number;
+  reviewRetries?: number;
+  totalFailures?: number;
+  circuitOpened?: boolean;
+  elapsedMs?: number;
+}
+
 export type MatchLlmStreamEventData =
   | MatchLlmStreamStartEventData
   | MatchLlmStreamDeltaEventData
   | MatchLlmStreamDoneEventData
-  | MatchLlmStreamErrorEventData;
+  | MatchLlmStreamErrorEventData
+  | MatchLlmStreamCompleteEventData;
 
 /** 批量匹配预览（不设置前端固定超时，避免慢模型时浏览器先超时） */
 export const batchPreviewMatch = (

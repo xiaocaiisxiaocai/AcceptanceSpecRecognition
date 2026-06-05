@@ -56,6 +56,7 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
         // 先完成所有校验，再做写入，避免部分成功造成主数据不一致。
         var normalizedItems = request.Items.Select(NormalizeItem).ToList();
+        EnsureDistinctBackfillSpecIds(normalizedItems);
         var specIds = normalizedItems
             .Where(item => item.SpecId.HasValue)
             .Select(item => item.SpecId!.Value)
@@ -98,8 +99,15 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
             if (item.SpecId.HasValue)
             {
                 var spec = specLookup[item.SpecId.Value];
-                spec.Acceptance = item.OverrideAcceptance;
-                spec.Remark = item.OverrideRemark;
+                if (item.OverrideAcceptance != null)
+                {
+                    spec.Acceptance = item.OverrideAcceptance;
+                }
+
+                if (item.OverrideRemark != null)
+                {
+                    spec.Remark = item.OverrideRemark;
+                }
                 _unitOfWork.AcceptanceSpecs.Update(spec);
                 await RemoveEmbeddingCachesAsync(spec.Id);
                 response.UpdatedCount++;
@@ -147,7 +155,11 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
     private async Task<WordFile> GetOrCreateManualWordFileAsync(DataScopeResult scope)
     {
-        var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(wordFile => wordFile.FileName == ManualFileName);
+        var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(wordFile =>
+            wordFile.FileName == ManualFileName &&
+            wordFile.CompanyId == scope.CompanyId &&
+            wordFile.CreatedByUserId == scope.UserId &&
+            wordFile.OwnerOrgUnitId == scope.OrgUnitId);
         if (existingFile != null)
         {
             return existingFile;
@@ -180,8 +192,8 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
     private static NormalizedBackfillItem NormalizeItem(SmartFillSpecBackfillItem item)
     {
-        var acceptance = NormalizeOptionalText(item.OverrideAcceptance);
-        var remark = NormalizeOptionalText(item.OverrideRemark);
+        var acceptance = NormalizeOverrideText(item.OverrideAcceptance);
+        var remark = NormalizeOverrideText(item.OverrideRemark);
         if (acceptance == null && remark == null)
         {
             throw Failure(400, "回填项缺少编辑后的验收标准或备注");
@@ -193,6 +205,20 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
             NormalizeOptionalText(item.SourceSpecification),
             acceptance,
             remark);
+    }
+
+    private static void EnsureDistinctBackfillSpecIds(IReadOnlyCollection<NormalizedBackfillItem> items)
+    {
+        var duplicateSpecId = items
+            .Where(item => item.SpecId.HasValue)
+            .GroupBy(item => item.SpecId!.Value)
+            .FirstOrDefault(group => group.Count() > 1)
+            ?.Key;
+
+        if (duplicateSpecId.HasValue)
+        {
+            throw Failure(400, $"同一验收规格存在重复回填项：{duplicateSpecId.Value}");
+        }
     }
 
     private static string RequireText(string? value, string message)
@@ -209,6 +235,11 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
     private static string? NormalizeOptionalText(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string? NormalizeOverrideText(string? value)
+    {
+        return value == null ? null : value.Trim();
     }
 
     private static MatchingApiException Failure(int code, string message)

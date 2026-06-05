@@ -17,6 +17,7 @@ import type { BatchTableConfigItem } from "../components/batchTableConfig.types"
 import type SmartFillPreviewStep from "../components/SmartFillPreviewStep.vue";
 import {
   buildSmartFillExecuteRequest,
+  refreshBackfilledExecuteRequest,
   type SmartFillScope,
   type SmartFillSelection
 } from "../smartFillExecution.helpers";
@@ -236,7 +237,8 @@ export function useSmartFillExecution({
       }
 
       closeBackfillDialog();
-      await runExecuteFill(request);
+      const executeRequest = refreshBackfilledExecuteRequest(request, selected);
+      await runExecuteFill(executeRequest);
       clearPendingExecuteRequest();
     } catch (error) {
       ElMessage.error(getRequestErrorMessage(error, "回填或填充失败"));

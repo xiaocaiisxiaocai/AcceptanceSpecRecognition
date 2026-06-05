@@ -40,6 +40,8 @@ public sealed class MatchingConfigResolver
             LlmCircuitBreakFailures = Math.Clamp(dto?.LlmCircuitBreakFailures ?? fallbackConfig.LlmCircuitBreakFailures, 3, 200),
             MatchingMode = ParseMatchingMode(dto?.MatchingMode, fallbackConfig.MatchingMode),
             EnableLlmEquivalenceAdjudication = dto?.EnableLlmEquivalenceAdjudication ?? false,
+            EnableDeterministicAutoApply = dto?.EnableDeterministicAutoApply ?? fallbackConfig.EnableDeterministicAutoApply,
+            LlmMaxCallsPerBatch = Math.Clamp(dto?.LlmMaxCallsPerBatch ?? fallbackConfig.LlmMaxCallsPerBatch, 0, 200),
             ExactMatchOnly = dto?.ExactMatchOnly ?? fallbackConfig.ExactMatchOnly,
             FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows
         };

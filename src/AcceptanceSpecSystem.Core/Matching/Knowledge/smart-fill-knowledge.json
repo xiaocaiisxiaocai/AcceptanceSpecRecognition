@@ -1,0 +1,227 @@
+{
+  "brands": [
+    {
+      "canonical": "Mean Well",
+      "aliases": [ "Mean Well", "meanwell", "明纬" ]
+    },
+    {
+      "canonical": "Moxa",
+      "aliases": [ "Moxa", "摩莎" ]
+    },
+    {
+      "canonical": "Autonics",
+      "aliases": [ "Autonics", "奥托尼克斯" ]
+    },
+    {
+      "canonical": "Oriental Motor",
+      "aliases": [ "Oriental Motor", "orientalmotor", "东方马达" ]
+    },
+    {
+      "canonical": "Rittal",
+      "aliases": [ "Rittal", "威图" ]
+    },
+    {
+      "canonical": "Harting",
+      "aliases": [ "Harting", "浩亭" ]
+    },
+    {
+      "canonical": "Lapp",
+      "aliases": [ "Lapp", "缆普" ]
+    },
+    {
+      "canonical": "Leuze",
+      "aliases": [ "Leuze", "劳易测" ]
+    },
+    {
+      "canonical": "Baumer",
+      "aliases": [ "Baumer", "堡盟" ]
+    },
+    {
+      "canonical": "Wenglor",
+      "aliases": [ "Wenglor", "威格勒" ]
+    },
+    {
+      "canonical": "Datalogic",
+      "aliases": [ "Datalogic", "得利捷" ]
+    },
+    {
+      "canonical": "Hirschmann",
+      "aliases": [ "Hirschmann", "赫斯曼" ]
+    },
+    {
+      "canonical": "Pro-face",
+      "aliases": [ "Pro-face", "Proface", "普洛菲斯" ]
+    },
+    {
+      "canonical": "TBI",
+      "aliases": [ "TBI", "tbimotion", "TBI Motion" ]
+    },
+    {
+      "canonical": "Tsubaki",
+      "aliases": [ "Tsubaki", "椿本" ]
+    },
+    {
+      "canonical": "NSK",
+      "aliases": [ "NSK", "恩斯克" ]
+    },
+    {
+      "canonical": "IKO",
+      "aliases": [ "IKO", "艾克欧" ]
+    },
+    {
+      "canonical": "Schaeffler",
+      "aliases": [ "Schaeffler", "舍弗勒", "INA", "FAG" ]
+    },
+    {
+      "canonical": "Tunkers",
+      "aliases": [ "Tunkers", "图尔克斯" ]
+    },
+    {
+      "canonical": "Zimmer",
+      "aliases": [ "Zimmer", "吉默" ]
+    },
+    {
+      "canonical": "Schunk",
+      "aliases": [ "Schunk", "雄克", "雄克夹具" ]
+    },
+    {
+      "canonical": "Koganei",
+      "aliases": [ "Koganei", "小金井" ]
+    },
+    {
+      "canonical": "Pisco",
+      "aliases": [ "Pisco", "匹士克" ]
+    },
+    {
+      "canonical": "Kollmorgen",
+      "aliases": [ "Kollmorgen", "科尔摩根" ]
+    },
+    {
+      "canonical": "Elmo",
+      "aliases": [ "Elmo", "埃莫" ]
+    },
+    {
+      "canonical": "Harmonic Drive",
+      "aliases": [ "Harmonic Drive", "哈默纳科" ]
+    },
+    {
+      "canonical": "Nabtesco",
+      "aliases": [ "Nabtesco", "纳博特斯克" ]
+    },
+    {
+      "canonical": "Denso",
+      "aliases": [ "Denso", "电装" ]
+    },
+    {
+      "canonical": "Comau",
+      "aliases": [ "Comau", "柯马" ]
+    },
+    {
+      "canonical": "Techman",
+      "aliases": [ "Techman", "达明" ]
+    },
+    {
+      "canonical": "Elite Robots",
+      "aliases": [ "Elite Robots", "艾利特" ]
+    },
+    {
+      "canonical": "Siasun",
+      "aliases": [ "Siasun", "新松" ]
+    },
+    {
+      "canonical": "B&R",
+      "aliases": [ "B&R", "BR", "贝加莱" ]
+    },
+    {
+      "canonical": "Lenze",
+      "aliases": [ "Lenze", "伦茨" ]
+    },
+    {
+      "canonical": "Keba",
+      "aliases": [ "Keba", "科控" ]
+    }
+  ],
+  "brandDeviceWords": [
+    "开关电源",
+    "电柜",
+    "机柜",
+    "连接器",
+    "线缆",
+    "网关",
+    "交换机",
+    "读码枪",
+    "扫码枪",
+    "扫码器",
+    "测距传感器",
+    "区域传感器",
+    "轴承",
+    "减速机",
+    "丝杠",
+    "滑台",
+    "夹爪",
+    "夹具",
+    "真空发生器",
+    "步进电机",
+    "步进马达",
+    "驱动器",
+    "机械手",
+    "机器人控制器"
+  ],
+  "units": [
+    {
+      "dimension": "flow_lpm",
+      "factor": 1,
+      "tokens": [ "SLM", "slm", "NL/min", "nl/min", "LPM", "lpm" ]
+    },
+    {
+      "dimension": "flow_lpm",
+      "factor": 60,
+      "tokens": [ "L/s", "l/s" ]
+    },
+    {
+      "dimension": "flow_lpm",
+      "factor": 1000,
+      "tokens": [ "m3/min", "m³/min", "立方米/min", "立方米/分钟" ]
+    },
+    {
+      "dimension": "flow_lpm",
+      "factor": 16.6666666667,
+      "tokens": [ "m3/h", "m³/h", "立方米/h", "立方米/小时" ]
+    },
+    {
+      "dimension": "flow_lpm",
+      "factor": 0.001,
+      "tokens": [ "cc/min", "cm3/min", "cm³/min" ]
+    },
+    {
+      "dimension": "volume_l",
+      "factor": 1,
+      "tokens": [ "L", "l", "升" ]
+    },
+    {
+      "dimension": "volume_l",
+      "factor": 0.001,
+      "tokens": [ "mL", "ml", "cc", "cm3", "cm³", "毫升" ]
+    },
+    {
+      "dimension": "volume_l",
+      "factor": 1000,
+      "tokens": [ "m3", "m³", "立方米" ]
+    },
+    {
+      "dimension": "piece_rate_per_min",
+      "factor": 1,
+      "tokens": [ "件/min", "件/分钟", "个/min", "个/分钟" ]
+    },
+    {
+      "dimension": "piece_rate_per_min",
+      "factor": 0.0166666667,
+      "tokens": [ "件/h", "件/小时", "个/h", "个/小时" ]
+    },
+    {
+      "dimension": "time",
+      "factor": 86400,
+      "tokens": [ "d", "day", "天" ]
+    }
+  ]
+}

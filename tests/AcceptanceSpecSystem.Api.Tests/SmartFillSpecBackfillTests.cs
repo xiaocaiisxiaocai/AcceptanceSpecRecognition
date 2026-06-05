@@ -126,6 +126,180 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
         created.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task SpecBackfill_WithPartialOverride_ShouldKeepUneditedExistingField()
+    {
+        var setup = await SeedBackfillScopeAsync();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/spec-backfill");
+        request.Headers.Add("X-Test-Role", "common");
+        request.Headers.Add("X-Test-Permissions", "*:*:*");
+        request.Content = ApiClientJson.ToJsonContent(new
+        {
+            customerId = setup.CustomerId,
+            processId = setup.ProcessId,
+            machineModelId = setup.MachineModelId,
+            items = new BackfillRequestItem[]
+            {
+                new(
+                    SpecId: setup.SpecId,
+                    SourceProject: null,
+                    SourceSpecification: null,
+                    OverrideAcceptance: "只更新验收",
+                    OverrideRemark: null)
+            }
+        });
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var updated = await db.AcceptanceSpecs.FindAsync(setup.SpecId);
+        updated.Should().NotBeNull();
+        updated!.Acceptance.Should().Be("只更新验收");
+        updated.Remark.Should().Be("原备注");
+    }
+
+    [Fact]
+    public async Task SpecBackfill_WithEmptyOverride_ShouldClearEditedFields()
+    {
+        var setup = await SeedBackfillScopeAsync();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/spec-backfill");
+        request.Headers.Add("X-Test-Role", "common");
+        request.Headers.Add("X-Test-Permissions", "*:*:*");
+        request.Content = ApiClientJson.ToJsonContent(new
+        {
+            customerId = setup.CustomerId,
+            processId = setup.ProcessId,
+            machineModelId = setup.MachineModelId,
+            items = new BackfillRequestItem[]
+            {
+                new(
+                    SpecId: setup.SpecId,
+                    SourceProject: null,
+                    SourceSpecification: null,
+                    OverrideAcceptance: "",
+                    OverrideRemark: "")
+            }
+        });
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var updated = await db.AcceptanceSpecs.FindAsync(setup.SpecId);
+        updated.Should().NotBeNull();
+        updated!.Acceptance.Should().Be("");
+        updated.Remark.Should().Be("");
+    }
+
+    [Fact]
+    public async Task SpecBackfill_WithDuplicateSpecId_ShouldRejectWithoutPartialWrites()
+    {
+        var setup = await SeedBackfillScopeAsync();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/spec-backfill");
+        request.Headers.Add("X-Test-Role", "common");
+        request.Headers.Add("X-Test-Permissions", "*:*:*");
+        request.Content = ApiClientJson.ToJsonContent(new
+        {
+            customerId = setup.CustomerId,
+            processId = setup.ProcessId,
+            machineModelId = setup.MachineModelId,
+            items = new BackfillRequestItem[]
+            {
+                new(
+                    SpecId: setup.SpecId,
+                    SourceProject: null,
+                    SourceSpecification: null,
+                    OverrideAcceptance: "第一次更新",
+                    OverrideRemark: null),
+                new(
+                    SpecId: setup.SpecId,
+                    SourceProject: null,
+                    SourceSpecification: null,
+                    OverrideAcceptance: "第二次更新",
+                    OverrideRemark: null)
+            }
+        });
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Code.Should().Be(400);
+        json.Message.Should().Contain("重复");
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var unchanged = await db.AcceptanceSpecs.FindAsync(setup.SpecId);
+        unchanged.Should().NotBeNull();
+        unchanged!.Acceptance.Should().Be("原验收");
+        unchanged.Remark.Should().Be("原备注");
+    }
+
+    [Fact]
+    public async Task SpecBackfill_CreateManualSpec_ShouldNotReuseManualWordFileFromAnotherCompany()
+    {
+        var setup = await SeedBackfillScopeAsync();
+
+        await using (var seedScope = _factory.Services.CreateAsyncScope())
+        {
+            var db = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.WordFiles.Add(new WordFile
+            {
+                CompanyId = 999,
+                CreatedByUserId = 999,
+                OwnerOrgUnitId = null,
+                FileName = "__MANUAL_ENTRY__",
+                FileContent = [],
+                FileHash = "manual_entry_placeholder",
+                UploadedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/spec-backfill");
+        request.Headers.Add("X-Test-Role", "common");
+        request.Headers.Add("X-Test-Permissions", "*:*:*");
+        request.Content = ApiClientJson.ToJsonContent(new
+        {
+            customerId = setup.CustomerId,
+            processId = setup.ProcessId,
+            machineModelId = setup.MachineModelId,
+            items = new BackfillRequestItem[]
+            {
+                new(
+                    SpecId: null,
+                    SourceProject: "跨公司占位项目",
+                    SourceSpecification: "跨公司占位规格",
+                    OverrideAcceptance: "跨公司占位验收",
+                    OverrideRemark: null)
+            }
+        });
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        await using var assertScope = _factory.Services.CreateAsyncScope();
+        var assertDb = assertScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var created = await assertDb.AcceptanceSpecs
+            .Include(spec => spec.WordFile)
+            .SingleAsync(spec =>
+                spec.Project == "跨公司占位项目" &&
+                spec.Specification == "跨公司占位规格");
+        created.WordFile.CompanyId.Should().Be(1);
+        created.WordFile.CreatedByUserId.Should().Be(2);
+        created.WordFileId.Should().NotBe(
+            await assertDb.WordFiles
+                .Where(file => file.CompanyId == 999 && file.FileName == "__MANUAL_ENTRY__")
+                .Select(file => file.Id)
+                .SingleAsync());
+    }
+
     private async Task<BackfillSetup> SeedBackfillScopeAsync()
     {
         await using var scope = _factory.Services.CreateAsyncScope();

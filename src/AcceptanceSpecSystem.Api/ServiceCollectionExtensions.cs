@@ -114,14 +114,29 @@ public static class ApiServiceCollectionExtensions
         services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
         services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
         services.AddScoped<PromptTemplateValidationService>();
-        services.AddScoped<ILlmReviewService, LlmMatchingAssistService>();
-        services.AddScoped<ILlmEquivalenceAdjudicationService, LlmMatchingAssistService>();
-        services.AddScoped<ILlmCandidateRerankService, LlmMatchingAssistService>();
+        services.AddScoped<LlmMatchingAssistService>();
+        services.AddScoped<ILlmReviewService>(sp => sp.GetRequiredService<LlmMatchingAssistService>());
+        services.AddScoped<ILlmEquivalenceAdjudicationService>(sp => sp.GetRequiredService<LlmMatchingAssistService>());
+        services.AddScoped<ILlmCandidateRerankService>(sp => sp.GetRequiredService<LlmMatchingAssistService>());
+
+        // 规范化器与冲突扫描器：规则初始化后只读，注册为单例。
+        // 可通过 SmartFillKnowledge:RulesPath 指向外置品牌/单位 JSON。
+        services.AddSingleton<ISpecCanonicalizer>(_ =>
+        {
+            var rulesPath = configuration.GetValue<string>("SmartFillKnowledge:RulesPath");
+            return string.IsNullOrWhiteSpace(rulesPath)
+                ? new SpecCanonicalizer()
+                : new SpecCanonicalizer(rulesPath);
+        });
+        services.AddSingleton<SemanticConflictScanner>();
+
         services.AddScoped<IMatchingService>(sp => new SemanticKernelMatchingService(
             sp.GetRequiredService<IEmbeddingService>(),
             sp.GetRequiredService<ILogger<SemanticKernelMatchingService>>(),
+            evidenceBuilder: new MatchEvidenceBuilder(sp.GetRequiredService<SemanticConflictScanner>()),
             llmEquivalenceAdjudicationService: sp.GetRequiredService<ILlmEquivalenceAdjudicationService>(),
-            llmCandidateRerankService: sp.GetRequiredService<ILlmCandidateRerankService>()));
+            llmCandidateRerankService: sp.GetRequiredService<ILlmCandidateRerankService>(),
+            canonicalizer: sp.GetRequiredService<ISpecCanonicalizer>()));
 
         // ── 文本处理 ──
         services.AddScoped<ITextPreprocessingPipeline, MinimalTextPreprocessingPipeline>();

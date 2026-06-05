@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Core.Diagnostics;
 
 namespace AcceptanceSpecSystem.Api.Middleware;
 
@@ -85,10 +86,10 @@ public class ExceptionHandlingMiddleware
 
         var (statusCode, code, message) = exception switch
         {
-            ArgumentException argEx => (HttpStatusCode.BadRequest, 400, SanitizeClientMessage(argEx.Message, "请求参数错误")),
+            ArgumentException argEx => (HttpStatusCode.BadRequest, 400, SensitiveLogFormatter.SanitizeMessage(argEx.Message, "请求参数错误")),
             KeyNotFoundException => (HttpStatusCode.NotFound, 404, "请求的资源不存在"),
             UnauthorizedAccessException => (HttpStatusCode.Unauthorized, 401, "未授权访问"),
-            InvalidOperationException opEx => (HttpStatusCode.BadRequest, 400, SanitizeClientMessage(opEx.Message, "请求无效")),
+            InvalidOperationException opEx => (HttpStatusCode.BadRequest, 400, SensitiveLogFormatter.SanitizeMessage(opEx.Message, "请求无效")),
             _ => (HttpStatusCode.InternalServerError, 500, "服务器内部错误，请稍后重试")
         };
 
@@ -96,35 +97,6 @@ public class ExceptionHandlingMiddleware
 
         var apiResponse = ApiResponse.Error(code, message);
         await response.WriteAsync(JsonSerializer.Serialize(apiResponse, JsonOptions));
-    }
-
-    private static string SanitizeClientMessage(string? message, string fallback)
-    {
-        if (string.IsNullOrWhiteSpace(message))
-            return fallback;
-
-        var sanitized = message.Replace("\r", " ").Replace("\n", " ").Trim();
-        if (string.IsNullOrEmpty(sanitized))
-            return fallback;
-
-        var sensitiveMarkers = new[]
-        {
-            "password",
-            "secret",
-            "token",
-            "server=",
-            "host=",
-            "user id",
-            "data source",
-            "http://",
-            "https://",
-            "stack trace",
-            "exception"
-        };
-        if (sensitiveMarkers.Any(marker => sanitized.Contains(marker, StringComparison.OrdinalIgnoreCase)))
-            return fallback;
-
-        return sanitized.Length <= 120 ? sanitized : fallback;
     }
 
 }

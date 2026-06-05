@@ -6,7 +6,9 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 
 /// <summary>
 /// 构建源项与候选项之间的结构化证据。
-/// 当前仅保留稳定的型号/料号冲突证据，品牌/单位/方向等交由 Embedding + AI 判定。
+/// 型号/料号冲突由内置正则检测；数值/单位、比较符、温度跨温标、方向/极性反义
+/// 等"有规律的硬冲突"交由 <see cref="SemanticConflictScanner"/> 确定性检测，
+/// 不再依赖 LLM 裁决。仅极少数字典/规则覆盖不到的长尾才交由 Embedding + LLM 兜底。
 /// </summary>
 public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
 {
@@ -14,10 +16,28 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
         @"\b[A-Z]{2,}(?:-[A-Z0-9]+)+\b",
         RegexOptions.Compiled);
 
+    private readonly SemanticConflictScanner? _conflictScanner;
+
+    /// <summary>
+    /// 默认构造：仅做型号/料号证据，保持向后兼容。
+    /// </summary>
+    public MatchEvidenceBuilder()
+    {
+    }
+
+    /// <summary>
+    /// 注入语义冲突扫描器后，额外检测数值/单位、比较符、温度、方向极性硬冲突。
+    /// </summary>
+    public MatchEvidenceBuilder(SemanticConflictScanner? conflictScanner)
+    {
+        _conflictScanner = conflictScanner;
+    }
+
     public MatchEvidence Build(MatchSource source, MatchCandidate candidate)
     {
         var evidence = new MatchEvidence();
         BuildIdentifierEvidence(evidence, source, candidate);
+        _conflictScanner?.Scan(evidence, source, candidate);
         return evidence;
     }
 

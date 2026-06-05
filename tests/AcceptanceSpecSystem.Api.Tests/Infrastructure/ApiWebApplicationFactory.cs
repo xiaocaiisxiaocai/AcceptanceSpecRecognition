@@ -36,6 +36,7 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
                 ["AuthSeed:AdminPassword"] = TestAdminPassword,
                 ["AuthSeed:CommonPassword"] = TestCommonPassword,
                 ["ApiRateLimits:Login:PermitLimit"] = "10000",
+                ["ApiRateLimits:RefreshToken:PermitLimit"] = "10000",
                 ["ApiRateLimits:Upload:PermitLimit"] = "10000",
                 ["ApiRateLimits:AiHeavy:PermitLimit"] = "10000"
             });

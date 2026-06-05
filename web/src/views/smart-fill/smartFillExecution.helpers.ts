@@ -34,6 +34,15 @@ export type SmartFillExecuteTableConfig = {
   filterEmptySourceRows?: boolean;
 };
 
+export type SmartFillBackfilledItem = {
+  tableIndex: number;
+  rowIndex: number;
+  specId?: number;
+  overrideAcceptance?: string;
+  overrideRemark?: string;
+  actionType: "update" | "create";
+};
+
 const cloneMatchResultForExecutionHistory = (
   bestMatch?: MatchResult
 ): MatchResult | undefined => {
@@ -62,6 +71,9 @@ const cloneMatchResultForExecutionHistory = (
     }))
   };
 };
+
+const getBackfilledItemKey = (tableIndex: number, rowIndex: number) =>
+  `${tableIndex}:${rowIndex}`;
 
 export const buildExecutionHistoryPreviewTables = (
   previewResults: BatchTablePreviewResult[],
@@ -154,6 +166,77 @@ export const buildSmartFillExecuteRequest = ({
       previewResults,
       tables.map(table => table.tableIndex)
     ),
+    tables
+  };
+};
+
+export const refreshBackfilledExecuteRequest = (
+  request: BatchExecuteFillRequest,
+  backfilledItems: SmartFillBackfilledItem[]
+): BatchExecuteFillRequest => {
+  const updatedItemLookup = new Map(
+    backfilledItems
+      .filter(item => item.actionType === "update" && item.specId)
+      .map(item => [getBackfilledItemKey(item.tableIndex, item.rowIndex), item])
+  );
+
+  if (updatedItemLookup.size === 0) {
+    return request;
+  }
+
+  const tables = request.tables.map(table => ({
+    ...table,
+    mappings: table.mappings.map(mapping => {
+      const updatedItem = updatedItemLookup.get(
+        getBackfilledItemKey(table.tableIndex, mapping.rowIndex)
+      );
+      if (!updatedItem || updatedItem.specId !== mapping.specId) {
+        return { ...mapping };
+      }
+
+      // 回填已更新主数据，旧 token 的规格指纹会失效；改为人工确认重新走当前匹配门禁。
+      return {
+        ...mapping,
+        manualConfirmed: true,
+        reviewApprovalToken: undefined,
+        overrideAcceptance:
+          updatedItem.overrideAcceptance ?? mapping.overrideAcceptance,
+        overrideRemark: updatedItem.overrideRemark ?? mapping.overrideRemark
+      };
+    })
+  }));
+
+  const previewTables = request.previewTables?.map(table => ({
+    ...table,
+    items: table.items.map(item => {
+      const updatedItem = updatedItemLookup.get(
+        getBackfilledItemKey(table.tableIndex, item.rowIndex)
+      );
+      const clonedBestMatch = cloneMatchResultForExecutionHistory(item.bestMatch);
+      if (!updatedItem || updatedItem.specId !== item.bestMatch?.specId) {
+        return {
+          ...item,
+          bestMatch: clonedBestMatch
+        };
+      }
+
+      return {
+        ...item,
+        bestMatch: clonedBestMatch
+          ? {
+              ...clonedBestMatch,
+              acceptance: updatedItem.overrideAcceptance ?? clonedBestMatch.acceptance,
+              remark: updatedItem.overrideRemark ?? clonedBestMatch.remark,
+              reviewApprovalToken: undefined
+            }
+          : undefined
+      };
+    })
+  }));
+
+  return {
+    ...request,
+    previewTables,
     tables
   };
 };

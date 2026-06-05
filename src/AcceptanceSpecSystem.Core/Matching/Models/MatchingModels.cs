@@ -432,8 +432,24 @@ public class MatchingConfig
 
     /// <summary>
     /// 是否在同步匹配阶段启用 LLM 等价裁决。
+    /// 注意：启用后 LLM 仅作为"确定性层无法判定的灰区"兜底，且受 <see cref="LlmMaxCallsPerBatch"/> 全局上限约束，
+    /// 不再对每个非精确命中行逐一调用。
     /// </summary>
     public bool EnableLlmEquivalenceAdjudication { get; set; }
+
+    /// <summary>
+    /// 是否启用确定性自动通过路径。
+    /// 开启后：无硬冲突 + Embedding 达到高置信阈值 + 不歧义的行可直接 AutoApply，无需 LLM 裁决。
+    /// 默认开启，是将 LLM 移出匹配热路径的核心开关。
+    /// </summary>
+    public bool EnableDeterministicAutoApply { get; set; } = true;
+
+    /// <summary>
+    /// 单批次 LLM 等价裁决调用次数上限（限流兜底）。
+    /// 达到上限后，剩余需要裁决的灰区行一律转为人工确认，避免大批量时 LLM 拖垮整体耗时。
+    /// 默认 20。设为 0 表示不允许任何 LLM 裁决调用。
+    /// </summary>
+    public int LlmMaxCallsPerBatch { get; set; } = 20;
 
     /// <summary>
     /// 是否仅按项目+规格完全一致命中

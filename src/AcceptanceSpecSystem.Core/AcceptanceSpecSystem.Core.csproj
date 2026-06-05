@@ -17,4 +17,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Include="Matching\Knowledge\smart-fill-knowledge.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

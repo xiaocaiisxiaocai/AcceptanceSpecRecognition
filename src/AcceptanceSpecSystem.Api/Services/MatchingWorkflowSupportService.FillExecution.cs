@@ -28,6 +28,7 @@ public sealed partial class MatchingWorkflowSupportService
         }
 
         EnsureDistinctBatchTableIndexes(request.Tables);
+        EnsureDistinctPreviewTableIndexes(request.PreviewTables);
         foreach (var table in request.Tables)
         {
             EnsureDistinctFillMappings(
@@ -62,7 +63,22 @@ public sealed partial class MatchingWorkflowSupportService
             request.Tables.SelectMany(table =>
                 table.Mappings.Select(mapping => (TableIndex: (int?)table.TableIndex, Mapping: mapping))),
             scope.UserId);
-        var executionConfig = reviewApprovalBundle?.Config ?? await ResolveExecutionMatchingConfigAsync(request.Config);
+        var hasNonTokenSpecMappings = request.Tables.Any(table =>
+            table.Mappings.Any(mapping =>
+                mapping.SpecId.GetValueOrDefault() > 0 &&
+                reviewApprovalBundle?.Tokens.ContainsKey(
+                    new MatchingApprovalTokenService.ApprovalLookupKey(table.TableIndex, mapping.RowIndex)) != true));
+        var requestedConfig = await ResolveExecutionMatchingConfigAsync(request.Config);
+        if (hasNonTokenSpecMappings)
+        {
+            _approvalTokenService.EnsureRequestContextMatchesBundle(
+                reviewApprovalBundle,
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                requestedConfig);
+        }
+        var executionConfig = reviewApprovalBundle?.Config ?? requestedConfig;
         var effectiveCustomerId = reviewApprovalBundle?.CustomerId ?? request.CustomerId;
         var effectiveProcessId = reviewApprovalBundle?.ProcessId ?? request.ProcessId;
         var effectiveMachineModelId = reviewApprovalBundle?.MachineModelId ?? request.MachineModelId;
@@ -217,6 +233,7 @@ public sealed partial class MatchingWorkflowSupportService
                         taskResult.CreatedAt,
                         request.Tables,
                         request.PreviewTables,
+                        executionConfig,
                         specDict,
                         adoptedRowLookup,
                         currentMatchLookups,
@@ -255,6 +272,7 @@ public sealed partial class MatchingWorkflowSupportService
                     taskResult.CreatedAt,
                     request.Tables,
                     request.PreviewTables,
+                    executionConfig,
                     specDict,
                     adoptedRowLookup,
                     currentMatchLookups);
@@ -322,6 +340,24 @@ public sealed partial class MatchingWorkflowSupportService
         if (uniqueCount != mappings.Count)
         {
             throw Failure(400, message);
+        }
+    }
+
+    private static void EnsureDistinctPreviewTableIndexes(
+        IReadOnlyCollection<ExecutionHistoryPreviewTableSnapshot>? previewTables)
+    {
+        if (previewTables == null || previewTables.Count == 0)
+        {
+            return;
+        }
+
+        var uniqueCount = previewTables
+            .Select(table => table.TableIndex)
+            .Distinct()
+            .Count();
+        if (uniqueCount != previewTables.Count)
+        {
+            throw Failure(400, "执行记录预览快照存在重复的表格索引，请重新预览后再执行");
         }
     }
 

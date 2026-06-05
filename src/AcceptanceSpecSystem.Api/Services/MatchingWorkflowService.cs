@@ -50,6 +50,13 @@ public sealed partial class MatchingWorkflowSupportService
         public Dictionary<int, MatchSourceItem> SourceRowLookup { get; init; } = [];
     }
 
+    private sealed class LlmStreamItemContext
+    {
+        public required MatchLlmStreamItem Item { get; init; }
+
+        public MatchResultDto? AuthoritativeBestMatch { get; init; }
+    }
+
     private readonly record struct LlmStreamItemKey(int? TableIndex, int RowIndex);
 
     private sealed class LlmStepFailureException : Exception

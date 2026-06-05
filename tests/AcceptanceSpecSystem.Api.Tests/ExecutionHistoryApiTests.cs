@@ -34,7 +34,8 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
             new[] { "项目", "规格", "验收", "备注" },
             new[] { "P1", "S1", "", "" },
             new[] { "P2", "S2", "", "" },
-            new[] { "P3", "S3", "", "" }
+            new[] { "P3", "S3", "", "" },
+            new[] { "P4", "S4", "", "" }
         });
 
         var fileId = await UploadDocumentAsync(docxBytes, "execution-history-smart-fill.docx");
@@ -77,6 +78,7 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                                     decision = "autoApply",
                                     selectionMode = "exactShortcut",
                                     selectionSummary = "项目与规格完全一致",
+                                    matchBasis = "projectSpecification",
                                     evidenceSummary = new[] { "项目与规格完全一致" },
                                     conflictSummary = Array.Empty<string>(),
                                     issues = Array.Empty<object>(),
@@ -97,6 +99,7 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                                             decision = "autoApply",
                                             selectionMode = "exactShortcut",
                                             selectionSummary = "完全一致",
+                                            matchBasis = "projectSpecification",
                                             evidenceSummary = new[] { "项目与规格完全一致" },
                                             conflictSummary = Array.Empty<string>(),
                                             issues = Array.Empty<object>(),
@@ -126,10 +129,14 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                                     decision = "manualReview",
                                     selectionMode = "aiRerank",
                                     selectionSummary = "AI 复核后建议人工确认",
+                                    matchBasis = "specification",
                                     evidenceSummary = new[] { "项目一致" },
                                     conflictSummary = new[] { "规格表述存在轻微差异" },
                                     issues = Array.Empty<object>(),
                                     entities = Array.Empty<object>(),
+                                    reviewScore = 91.5,
+                                    reviewReason = "复核判定语义等价",
+                                    reviewCommentary = "仅格式差异，可人工确认采用",
                                     topCandidates = new object[]
                                     {
                                         new
@@ -146,6 +153,7 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                                             decision = "manualReview",
                                             selectionMode = "aiRerank",
                                             selectionSummary = "AI 复核保留此候选",
+                                            matchBasis = "specification",
                                             evidenceSummary = new[] { "项目一致" },
                                             conflictSummary = new[] { "规格表述存在轻微差异" },
                                             issues = Array.Empty<object>(),
@@ -179,6 +187,14 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                                 sourceSpecification = "S3",
                                 confidenceLevel = "none",
                                 noMatchReason = "未找到可采用候选"
+                            },
+                            new
+                            {
+                                rowIndex = 4,
+                                sourceProject = "P4",
+                                sourceSpecification = "S4",
+                                confidenceLevel = "none",
+                                noMatchReason = "手工填写"
                             }
                         }
                     }
@@ -202,6 +218,13 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                                 manualConfirmed = true,
                                 overrideAcceptance = "AC-2-人工",
                                 overrideRemark = "RM-2-人工"
+                            },
+                            new
+                            {
+                                rowIndex = 4,
+                                manualFill = true,
+                                overrideAcceptance = "AC-4-手工",
+                                overrideRemark = "RM-4-手工"
                             }
                         }
                     }
@@ -226,13 +249,13 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         record.ValueKind.Should().NotBe(JsonValueKind.Undefined);
         record.GetProperty("taskType").GetString().Should().Be("smart-fill");
         record.GetProperty("fileCount").GetInt32().Should().Be(1);
-        record.GetProperty("totalRowCount").GetInt32().Should().Be(3);
-        record.GetProperty("adoptedRowCount").GetInt32().Should().Be(2);
+        record.GetProperty("totalRowCount").GetInt32().Should().Be(4);
+        record.GetProperty("adoptedRowCount").GetInt32().Should().Be(3);
         record.GetProperty("unmatchedRowCount").GetInt32().Should().Be(1);
         record.GetProperty("smartFillSummary").GetProperty("exactMatchedRowCount").GetInt32().Should().Be(1);
         record.GetProperty("smartFillSummary").GetProperty("aiMatchedRowCount").GetInt32().Should().Be(1);
         record.GetProperty("smartFillSummary").GetProperty("manualConfirmedRowCount").GetInt32().Should().Be(1);
-        record.GetProperty("smartFillSummary").GetProperty("manualEditedRowCount").GetInt32().Should().Be(1);
+        record.GetProperty("smartFillSummary").GetProperty("manualEditedRowCount").GetInt32().Should().Be(2);
         record.GetProperty("smartFillSummary").GetProperty("notUsedRowCount").GetInt32().Should().Be(1);
         record.GetProperty("smartFillSummary").GetProperty("hasPlaybackArchive").GetBoolean().Should().BeTrue();
 
@@ -249,7 +272,7 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         files.GetArrayLength().Should().Be(1);
 
         var rows = files[0].GetProperty("sheets")[0].GetProperty("rows");
-        rows.GetArrayLength().Should().Be(3);
+        rows.GetArrayLength().Should().Be(4);
 
         rows[0].GetProperty("displayTags")[0].GetString().Should().Be("完全匹配");
         rows[0].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("exactShortcut");
@@ -259,7 +282,12 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         rows[1].GetProperty("matchOrigin").GetString().Should().Be("ai");
         rows[1].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("AI匹配", "人工确认", "人工写入");
         rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("aiRerank");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("matchBasis").GetString().Should().Be("specification");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewScore").GetDouble().Should().Be(91.5);
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewReason").GetString().Should().Be("复核判定语义等价");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewCommentary").GetString().Should().Be("仅格式差异，可人工确认采用");
         rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates").GetArrayLength().Should().Be(1, "非完全一致的归档仍需保留候选上下文");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates")[0].GetProperty("matchBasis").GetString().Should().Be("specification");
         rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("equivalent");
         rows[1].GetProperty("executionSnapshot").GetProperty("manualConfirmed").GetBoolean().Should().BeTrue();
         rows[1].GetProperty("executionSnapshot").GetProperty("manualEdited").GetBoolean().Should().BeTrue();
@@ -269,6 +297,248 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         rows[2].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("未采用/未匹配");
         rows[2].GetProperty("previewSnapshot").GetProperty("noMatchReason").GetString().Should().Be("未找到可采用候选");
         rows[2].GetProperty("executionSnapshot").GetProperty("status").GetString().Should().Be("unmatched");
+
+        rows[3].GetProperty("status").GetString().Should().Be("adopted");
+        rows[3].GetProperty("matchOrigin").GetString().Should().Be("none");
+        rows[3].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("人工写入");
+        rows[3].GetProperty("executionSnapshot").GetProperty("selectedSpecId").ValueKind.Should().Be(JsonValueKind.Null);
+        rows[3].GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be("AC-4-手工");
+        rows[3].GetProperty("executionSnapshot").GetProperty("finalRemark").GetString().Should().Be("RM-4-手工");
+        rows[3].GetProperty("executionSnapshot").GetProperty("manualEdited").GetBoolean().Should().BeTrue();
+        rows[3].GetProperty("executionSnapshot").GetProperty("status").GetString().Should().Be("adopted");
+    }
+
+    [Fact]
+    public async Task SmartFillExecute_WhenManualFillRowIsFilteredFromSourceRows_ShouldStillPersistHistoryRow()
+    {
+        var docxBytes = CreateDocxBytes(new[]
+        {
+            new[] { "项目", "规格", "验收", "备注" },
+            new[] { "P1", "S1", "", "" },
+            new[] { "", "", "", "" }
+        });
+
+        var fileId = await UploadDocumentAsync(docxBytes, "execution-history-smart-fill-filtered-manual.docx");
+        var customerId = await CreateCustomerAsync("ExecutionHistory-Filtered-C1");
+        var processId = await CreateProcessAsync("ExecutionHistory-Filtered-P1");
+        var specId = await CreateSpecAsync(customerId, processId, "P1", "S1", "AC-1", "RM-1");
+
+        var executeResp = await _client.PostAsync(
+            "/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                customerId,
+                processId,
+                config = new { highConfidenceThreshold = 0.95 },
+                previewTables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        items = new object[]
+                        {
+                            new
+                            {
+                                rowIndex = 1,
+                                sourceProject = "P1",
+                                sourceSpecification = "S1",
+                                confidenceLevel = "high",
+                                bestMatch = new
+                                {
+                                    specId,
+                                    project = "P1",
+                                    specification = "S1",
+                                    acceptance = "AC-1",
+                                    remark = "RM-1",
+                                    score = 1.0,
+                                    embeddingScore = 1.0,
+                                    scoreDetails = new { exact = 1.0 },
+                                    decision = "autoApply",
+                                    selectionMode = "exactShortcut",
+                                    selectionSummary = "项目与规格完全一致",
+                                    matchBasis = "projectSpecification",
+                                    evidenceSummary = new[] { "项目与规格完全一致" },
+                                    conflictSummary = Array.Empty<string>(),
+                                    issues = Array.Empty<object>(),
+                                    entities = Array.Empty<object>(),
+                                    recalledCandidateCount = 1,
+                                    isAmbiguous = false
+                                }
+                            },
+                            new
+                            {
+                                rowIndex = 2,
+                                sourceProject = "",
+                                sourceSpecification = "",
+                                confidenceLevel = "none",
+                                noMatchReason = "手工填写"
+                            }
+                        }
+                    }
+                },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        filterEmptySourceRows = true,
+                        mappings = new object[]
+                        {
+                            new { rowIndex = 1, specId },
+                            new
+                            {
+                                rowIndex = 2,
+                                manualFill = true,
+                                overrideAcceptance = "空源行手工验收",
+                                overrideRemark = "空源行手工备注"
+                            }
+                        }
+                    }
+                }
+            }));
+
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+
+        var listResp = await _client.GetAsync("/api/execution-history?page=1&pageSize=20");
+        listResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listJson = await listResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var record = listJson.Data.GetProperty("items").EnumerateArray()
+            .FirstOrDefault(item => item.GetProperty("taskId").GetString() == taskId);
+        record.ValueKind.Should().NotBe(JsonValueKind.Undefined);
+        record.GetProperty("totalRowCount").GetInt32().Should().Be(2);
+        record.GetProperty("adoptedRowCount").GetInt32().Should().Be(2);
+
+        var detailResp = await _client.GetAsync($"/api/execution-history/{record.GetProperty("id").GetInt32()}");
+        detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var rows = detailJson.Data.GetProperty("smartFillPlayback").GetProperty("files")[0].GetProperty("sheets")[0].GetProperty("rows");
+
+        rows.GetArrayLength().Should().Be(2);
+        var manualRow = rows.EnumerateArray()
+            .Single(row => row.GetProperty("rowIndex").GetInt32() == 2);
+        manualRow.GetProperty("status").GetString().Should().Be("adopted");
+        manualRow.GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be("空源行手工验收");
+        manualRow.GetProperty("executionSnapshot").GetProperty("finalRemark").GetString().Should().Be("空源行手工备注");
+    }
+
+    [Fact]
+    public async Task SmartFillExecute_WhenTableFilterIsMissing_ShouldUseGlobalFilterEmptySourceRowsForHistory()
+    {
+        var docxBytes = CreateDocxBytes(new[]
+        {
+            new[] { "项目", "规格", "验收", "备注" },
+            new[] { "P1", "S1", "", "" },
+            new[] { "", "", "", "" }
+        });
+
+        var fileId = await UploadDocumentAsync(docxBytes, "execution-history-smart-fill-global-filter.docx");
+        var customerId = await CreateCustomerAsync("ExecutionHistory-GlobalFilter-C1");
+        var processId = await CreateProcessAsync("ExecutionHistory-GlobalFilter-P1");
+        var specId = await CreateSpecAsync(customerId, processId, "P1", "S1", "AC-1", "RM-1");
+
+        var executeResp = await _client.PostAsync(
+            "/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                customerId,
+                processId,
+                config = new { highConfidenceThreshold = 0.95, filterEmptySourceRows = false },
+                previewTables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        items = new object[]
+                        {
+                            new
+                            {
+                                rowIndex = 1,
+                                sourceProject = "P1",
+                                sourceSpecification = "S1",
+                                confidenceLevel = "high",
+                                bestMatch = new
+                                {
+                                    specId,
+                                    project = "P1",
+                                    specification = "S1",
+                                    acceptance = "AC-1",
+                                    remark = "RM-1",
+                                    score = 1.0,
+                                    embeddingScore = 1.0,
+                                    scoreDetails = new { exact = 1.0 },
+                                    decision = "autoApply",
+                                    selectionMode = "exactShortcut",
+                                    selectionSummary = "项目与规格完全一致",
+                                    matchBasis = "projectSpecification",
+                                    evidenceSummary = new[] { "项目与规格完全一致" },
+                                    conflictSummary = Array.Empty<string>(),
+                                    issues = Array.Empty<object>(),
+                                    entities = Array.Empty<object>(),
+                                    recalledCandidateCount = 1,
+                                    isAmbiguous = false
+                                }
+                            },
+                            new
+                            {
+                                rowIndex = 2,
+                                sourceProject = "",
+                                sourceSpecification = "",
+                                confidenceLevel = "none",
+                                noMatchReason = "空源行"
+                            }
+                        }
+                    }
+                },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        mappings = new object[]
+                        {
+                            new { rowIndex = 1, specId }
+                        }
+                    }
+                }
+            }));
+
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+
+        var listResp = await _client.GetAsync("/api/execution-history?page=1&pageSize=20");
+        listResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listJson = await listResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var record = listJson.Data.GetProperty("items").EnumerateArray()
+            .FirstOrDefault(item => item.GetProperty("taskId").GetString() == taskId);
+        record.ValueKind.Should().NotBe(JsonValueKind.Undefined);
+        record.GetProperty("totalRowCount").GetInt32().Should().Be(2);
+        record.GetProperty("adoptedRowCount").GetInt32().Should().Be(1);
+        record.GetProperty("unmatchedRowCount").GetInt32().Should().Be(1);
+
+        var detailResp = await _client.GetAsync($"/api/execution-history/{record.GetProperty("id").GetInt32()}");
+        detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var rows = detailJson.Data.GetProperty("smartFillPlayback").GetProperty("files")[0].GetProperty("sheets")[0].GetProperty("rows");
+
+        rows.GetArrayLength().Should().Be(2);
+        var emptyRow = rows.EnumerateArray()
+            .Single(row => row.GetProperty("rowIndex").GetInt32() == 2);
+        emptyRow.GetProperty("sourceProject").GetString().Should().Be("");
+        emptyRow.GetProperty("sourceSpecification").GetString().Should().Be("");
+        emptyRow.GetProperty("status").GetString().Should().Be("unmatched");
     }
 
     [Fact]

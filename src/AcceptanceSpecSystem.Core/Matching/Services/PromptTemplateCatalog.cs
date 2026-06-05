@@ -210,50 +210,39 @@ public static class PromptTemplateCatalog
         【证据摘要】{{evidenceSummaryJson}}
         【冲突摘要】{{conflictSummaryJson}}
 
-        【单位等价知识】
-        以下单位表达视为等价，换算关系明确时可判 equivalent：
-        - 时间：s = 秒 = sec；ms = 毫秒；us = μs = µs = 微秒；ns = 纳秒；min = 分钟
-          换算：1s = 1000ms，1ms = 1000us，1us = 1000ns，1min = 60s
-          示例：「不超过2秒」与「不超过2000ms」等价；「响应时间1s」与「响应时间1000ms」等价
-        - 长度：m = 米；cm = 厘米；mm = 毫米；um = μm = µm = 微米；nm = 纳米
-        - 温度：℃ = °C = 摄氏度
-        - 电压：V = 伏 = Volt；mV = 毫伏；kV = 千伏
-        - 电流：A = 安 = Amp；mA = 毫安；μA = uA = 微安
-        - 功率：W = 瓦；kW = 千瓦；mW = 毫瓦
-        - 频率：Hz = 赫兹；kHz = 千赫；MHz = 兆赫；GHz = 吉赫
-        - 压力：kPa = 千帕；MPa = 兆帕
-        - 重量：kg = 千克；g = 克；mg = 毫克
-        - 阻抗：Ω = ohm = 欧姆；kΩ = kOhm = 千欧；MΩ = MOhm = 兆欧
-        注意：单位等价必须同时满足「数值换算后数量级一致」，数值不一致不能判 equivalent。
-
-        【品牌等价知识】
-        以下品牌的中英文名称视为同一品牌，出现在项目名称中时不视为冲突：
-        Panasonic = 松下；Mitsubishi = 三菱；Delta = 台达；Foxconn = 富士康；
-        Omron = 欧姆龙；Siemens = 西门子；ABB = ABB；Schneider = 施耐德；
-        Keyence = 基恩士；FANUC = 发那科；Yaskawa = 安川；SMC = SMC；Festo = 费斯托；
-        TI = Texas Instruments = 德州仪器；Infineon = 英飞凌；ST = STMicroelectronics = 意法半导体；
-        NXP = 恩智浦；OnSemi = 安森美；Renesas = 瑞萨；Microchip = Microchip；
-        ADI = Analog Devices = 亚德诺；Intel = 英特尔；AMD = AMD；NVIDIA = 英伟达；
-        Qualcomm = 高通；Micron = 美光；Samsung = 三星；TSMC = 台积电；SMIC = 中芯国际
-
-        【反义词/冲突词对知识】
-        以下词对语义相反，一旦源项与候选项各自对应不同词，必须判 different：
-        输入 ↔ 输出；投板 ↔ 收板；放板 ↔ 收板；上料 ↔ 下料；正转 ↔ 反转；
-        loading ↔ unloading；loader ↔ unloader
-
         【裁决规则】
         1. 只允许输出 equivalent、different、uncertain 三种 verdict
         2. reasonType 只允许 format_only、punctuation_only、equivalent_expression、symbol_equivalent、semantic_difference、symbol_conflict、uncertain
         3. verdict 为 equivalent 时，reasonType 只能是 format_only、punctuation_only、equivalent_expression、symbol_equivalent
         4. verdict 为 different 时，reasonType 只能是 semantic_difference、symbol_conflict
         5. verdict 为 uncertain 时，reasonType 必须是 uncertain
-        6. 只有在差异仅限于换行、空格、普通标点、稳定同义表达、等价符号替换、或上述知识库中明确等价的单位/品牌时，才可判定 equivalent
-        7. 只要区间上下限、比较符、方向、极性、单位换算后数值不一致、容差、是否包含边界、约束对象任一不同，就优先判定 different
-        8. 出现上述反义词对时，直接判定 different，不得因语义接近而放行
-        9. 品牌中英文等价不影响语义判断，不应因此降低置信度
-        10. 约等于/≈/不大于/≤ 这类表达，只有在语义和边界完全一致时才算等价；不能只看字面接近
-        11. 无法确认差异是否影响语义时，必须返回 uncertain，禁止猜测
-        12. confidence 取值 0~1
+
+        【等价判定条件】——满足以下任一情形可判 equivalent：
+        - 差异仅为换行、空格、全半角、普通标点符号
+        - 差异仅为同一语义的等价表达（如"不超过"与"≤"、"需要"与"应"）
+        - 差异仅为等价符号替换（如 ≤ 与 <=、℃ 与 °C）
+        - 差异仅为品牌中英文名称（如 Panasonic 与 松下、Omron 与 欧姆龙），且型号/参数完全一致
+        - 差异仅为单位换算，且将两边数值换算到同一单位后完全相等（如"1秒"与"1000ms"，"5mm"与"0.5cm"，"7.5kW"与"7500W"）
+          ⚠️ 单位换算必须先做数值计算验证，数值换算后不相等则判 different，不得仅凭单位相关就判 equivalent
+
+        【必须判 different 的情形】——出现以下任一情形直接判 different，不得因"看起来相近"而放行：
+        - 语义方向/极性相反：允许 ↔ 禁止，开启 ↔ 关闭，正转 ↔ 反转，上升 ↔ 下降，夹紧 ↔ 松开，升温 ↔ 降温，输入 ↔ 输出，上料 ↔ 下料，投板 ↔ 收板，左进右出 ↔ 右进左出，启动 ↔ 停止，继续 ↔ 停止，以及一切其他语义方向明确相反的表达
+        - 数值不同（单位相同时）：如"不超过1秒"与"不超过2秒"
+        - 单位换算后数值不等：如"1秒"与"500ms"（1秒=1000ms，500ms≠1000ms）
+        - 区间上下限、容差或是否包含边界不同：如"8~12mm"与"10~12mm"、"±0.1"与"±0.2"
+        - 比较符/边界方向不同：如"≥"与"≤"、"不超过"与"不低于"
+        - 约束对象不同：如"气缸上升"与"气缸下降"、"左进"与"右进"
+        - 极性词不同：如"应报警"与"不应报警"、"才允许"与"禁止"
+
+        【uncertain 使用条件】
+        - 仅当无法从上述规则判断时使用，必须在 reason 中说明具体疑点
+        - 禁止用 uncertain 规避明确的语义差异
+
+        【品牌等价补充】
+        同一品牌的中英文对照（如 Panasonic=松下、Omron=欧姆龙、Mitsubishi=三菱、Keyence=基恩士、Yaskawa=安川、Schneider=施耐德、Siemens=西门子）不视为语义冲突，型号一致时可判 equivalent
+
+        9. 约等于/≈/不大于/≤ 这类表达，只有在语义和边界完全一致时才算等价；不能只看字面接近
+        10. confidence 取值 0~1
 
         仅返回严格 JSON：
         {"verdict":"uncertain","reasonType":"uncertain","reason":"...","confidence":0.0}

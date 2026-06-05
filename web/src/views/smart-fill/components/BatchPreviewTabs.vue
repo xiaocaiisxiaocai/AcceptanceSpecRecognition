@@ -3,6 +3,11 @@ import { computed, ref, watch } from "vue";
 import MatchPreviewTable from "./MatchPreviewTable.vue";
 import type { EditedBackfillItem } from "./MatchPreviewTable.vue";
 import type { BatchTablePreviewResult, MatchPreviewItem } from "@/api/matching";
+import { isLlmEquivalenceDecisionRisk } from "./scoreDetail.llmEquivalence.ts";
+import {
+  hasManualFillOverrideValue,
+  reconcileMatchPreviewSelectionCache
+} from "./matchPreviewTable.selection";
 
 const props = defineProps<{
   /** 各表格预览结果 */
@@ -40,6 +45,7 @@ const selectionCache = new Map<
     specId?: number;
     manualConfirmed?: boolean;
     manualFill?: boolean;
+    manualCleared?: boolean;
     reviewApprovalToken?: string;
     overrideAcceptance?: string;
     overrideRemark?: string;
@@ -82,6 +88,10 @@ const canUseBestMatch = (item: MatchPreviewItem) => {
     return false;
   }
 
+  if (isLlmEquivalenceDecisionRisk(item.bestMatch.llmEquivalence)) {
+    return false;
+  }
+
   return true;
 };
 
@@ -107,6 +117,7 @@ const buildDefaultSelections = (tableResult?: BatchTablePreviewResult | null) =>
       specId: item.bestMatch?.specId,
       manualConfirmed: false,
       manualFill: false,
+      manualCleared: undefined,
       reviewApprovalToken: item.bestMatch?.reviewApprovalToken,
       overrideAcceptance: undefined,
       overrideRemark: undefined
@@ -130,6 +141,14 @@ watch(
     }
   },
   { immediate: true }
+);
+
+watch(
+  () => props.results,
+  results => {
+    reconcileMatchPreviewSelectionCache(results, selectionCache);
+  },
+  { deep: true }
 );
 
 watch(activeTab, (_newTab, oldTab) => {
@@ -194,7 +213,11 @@ const getAllSelections = () => {
     result.set(
       tableResult.tableIndex,
       getPersistedSelections(tableResult.tableIndex)
-        .filter(item => item.selected)
+        .filter(item => {
+          if (!item.selected) return false;
+          if (!item.manualFill) return true;
+          return hasManualFillOverrideValue(item);
+        })
         .map(({ selected: _selected, ...item }) => ({ ...item }))
     );
   }
@@ -213,10 +236,15 @@ const getAllEditedBackfillItems = () => {
     const items = tableResult.tableIndex === activeTableIndex
       ? activeItems
       : getPersistedSelections(tableResult.tableIndex)
-        .filter(item => item.overrideAcceptance !== undefined || item.overrideRemark !== undefined)
+        .filter(item =>
+          item.selected === true &&
+          item.manualCleared !== true &&
+          (item.overrideAcceptance !== undefined || item.overrideRemark !== undefined)
+        )
         .map((item): EditedBackfillItem | null => {
           const previewItem = tableResult.items.find(row => row.rowIndex === item.rowIndex);
           if (!previewItem) return null;
+          if (!previewItem.bestMatch && !hasManualFillOverrideValue(item)) return null;
           return {
             rowIndex: item.rowIndex,
             specId: item.specId,

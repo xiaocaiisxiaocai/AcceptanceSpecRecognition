@@ -326,6 +326,61 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task BatchExecute_WithDuplicatePreviewTableIndex_ShouldReturnBadRequest()
+    {
+        var docxBytes = CreateMultiTableDocxBytes(
+            new[] { new[] { "项目", "规格", "验收", "备注" }, new[] { "PA", "SA", "", "" } });
+
+        var fileId = await UploadDocxAsync(docxBytes, "batch-duplicate-preview-table-index.docx");
+
+        var executeResp = await _client.PostAsync("/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                config = new { minScoreThreshold = 0.0 },
+                previewTables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        items = Array.Empty<object>()
+                    },
+                    new
+                    {
+                        tableIndex = 0,
+                        items = Array.Empty<object>()
+                    }
+                },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        mappings = new[]
+                        {
+                            new
+                            {
+                                rowIndex = 1,
+                                manualFill = true,
+                                overrideAcceptance = "手工验收"
+                            }
+                        }
+                    }
+                }
+            }));
+
+        executeResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeJson.Code.Should().Be(400);
+        executeJson.Message.Should().Contain("预览快照");
+        executeJson.Message.Should().Contain("重复");
+    }
+
+    [Fact]
     public async Task BatchPreview_WhenSourceFileDoesNotExist_ShouldReturnNotFound()
     {
         var customerId = await CreateCustomerAsync("BatchPreviewMissingFile-C");

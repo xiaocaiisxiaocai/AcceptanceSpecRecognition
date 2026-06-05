@@ -139,6 +139,10 @@ builder.Services.AddRateLimiter(options =>
         httpContext,
         builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:Login").Get<RateLimitPolicyOptions>()
             ?? new ApiRateLimitOptions().Login));
+    options.AddPolicy("refresh-token", httpContext => CreateFixedWindowLimiter(
+        httpContext,
+        builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:RefreshToken").Get<RateLimitPolicyOptions>()
+            ?? new ApiRateLimitOptions().RefreshToken));
     options.AddPolicy("upload", httpContext => CreateFixedWindowLimiter(
         httpContext,
         builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:Upload").Get<RateLimitPolicyOptions>()
@@ -316,15 +320,7 @@ app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks
             var payload = new
             {
                 status = report.Status.ToString(),
-                totalDurationMs = report.TotalDuration.TotalMilliseconds,
-                entries = report.Entries.ToDictionary(
-                    item => item.Key,
-                    item => new
-                    {
-                        status = item.Value.Status.ToString(),
-                        description = item.Value.Description,
-                        durationMs = item.Value.Duration.TotalMilliseconds
-                    })
+                totalDurationMs = report.TotalDuration.TotalMilliseconds
             };
             await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
         }

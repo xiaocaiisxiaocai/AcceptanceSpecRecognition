@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Middleware;
+using AcceptanceSpecSystem.Core.Diagnostics;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc.Controllers;
@@ -97,7 +98,11 @@ public sealed class AuditOperationFilter : IAsyncActionFilter
                 controller = context.Controller.GetType().Name,
                 action = context.ActionDescriptor.DisplayName,
                 routeValues,
-                error = executedContext?.Exception?.Message
+                error = executedContext?.Exception == null
+                    ? null
+                    : SensitiveLogFormatter.SanitizeMessage(
+                        executedContext.Exception.Message,
+                        executedContext.Exception.GetType().Name)
             };
 
             var username = ResolveAuditUsername(httpContext, context.ActionArguments);

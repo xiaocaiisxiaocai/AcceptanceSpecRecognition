@@ -20,6 +20,7 @@ export type PersistedSelection = {
   specId?: number;
   manualConfirmed?: boolean;
   manualFill?: boolean;
+  manualCleared?: boolean;
   reviewApprovalToken?: string;
   overrideAcceptance?: string;
   overrideRemark?: string;

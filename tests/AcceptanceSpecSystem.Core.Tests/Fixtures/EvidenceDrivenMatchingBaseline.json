@@ -104,7 +104,7 @@
       }
     ],
     "expectedMatchedSpecId": 401,
-    "expectedDecision": "ManualReview"
+    "expectedDecision": "AutoApply"
   },
   {
     "name": "24V 不应误判为 2.4V",

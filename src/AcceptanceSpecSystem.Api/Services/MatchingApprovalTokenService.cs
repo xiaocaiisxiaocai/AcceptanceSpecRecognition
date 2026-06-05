@@ -183,6 +183,27 @@ public sealed class MatchingApprovalTokenService
         };
     }
 
+    internal void EnsureRequestContextMatchesBundle(
+        ApprovalTokenBundle? bundle,
+        int? customerId,
+        int? processId,
+        int? machineModelId,
+        MatchingConfig config)
+    {
+        if (bundle == null)
+        {
+            return;
+        }
+
+        if (bundle.CustomerId != customerId ||
+            bundle.ProcessId != processId ||
+            bundle.MachineModelId != machineModelId ||
+            !HasSameMatchingConfig(bundle.Config, config))
+        {
+            throw new MatchingApiException(400, "放行令牌与当前执行范围或配置不一致，请重新预览后再执行");
+        }
+    }
+
     internal bool MatchesToken(
         ApprovalTokenPayload token,
         int selectedSpecId,
@@ -231,6 +252,8 @@ public sealed class MatchingApprovalTokenService
                left.LlmCircuitBreakFailures == right.LlmCircuitBreakFailures &&
                left.MatchingMode == right.MatchingMode &&
                left.EnableLlmEquivalenceAdjudication == right.EnableLlmEquivalenceAdjudication &&
+               left.EnableDeterministicAutoApply == right.EnableDeterministicAutoApply &&
+               left.LlmMaxCallsPerBatch == right.LlmMaxCallsPerBatch &&
                left.ExactMatchOnly == right.ExactMatchOnly &&
                left.FilterEmptySourceRows == right.FilterEmptySourceRows;
     }
@@ -251,6 +274,8 @@ public sealed class MatchingApprovalTokenService
             LlmCircuitBreakFailures = config.LlmCircuitBreakFailures,
             MatchingMode = config.MatchingMode,
             EnableLlmEquivalenceAdjudication = config.EnableLlmEquivalenceAdjudication,
+            EnableDeterministicAutoApply = config.EnableDeterministicAutoApply,
+            LlmMaxCallsPerBatch = config.LlmMaxCallsPerBatch,
             ExactMatchOnly = config.ExactMatchOnly,
             FilterEmptySourceRows = config.FilterEmptySourceRows
         };

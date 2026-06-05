@@ -8,6 +8,8 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using System.Collections.Concurrent;
+using System.Reflection;
 
 namespace AcceptanceSpecSystem.Core.Tests;
 
@@ -317,6 +319,57 @@ public class LlmMatchingAssistFallbackTests
         selector.CallCount.Should().Be(1);
     }
 
+    [Fact]
+    public async Task ConcurrentLlmCalls_ShouldSerializeDbBackedCacheInitializationAcrossTemplateAndServiceLookup()
+    {
+        var gate = new NonConcurrentDbGate();
+        var promptProvider = new SharedGatePromptTemplateProvider(
+            gate,
+            "【业务场景】{{workflowScene}}\n源项目：{{sourceProject}}\n系统匹配结果：{{bestMatchProject}}\n当前决策：{{currentDecision}}\n仅返回严格 JSON");
+        var selector = new SharedGateAiServiceSelector(gate, CreateConfig(61, "llm-a"));
+        var factory = new RoutingSemanticKernelServiceFactory(new Dictionary<int, IChatCompletionService>
+        {
+            [61] = new FixedChatCompletionService(
+                """{"score":92,"reason":"复核通过","commentary":"已比较项目与规格"}""")
+        });
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            selector,
+            factory,
+            NullLogger<LlmMatchingAssistService>.Instance);
+
+        SeedPromptTemplateCache(
+            service,
+            PromptTemplateCatalog.GetByScene(PromptTemplateScene.MatchingEquivalenceAdjudication),
+            "源项目：{{sourceProject}}\n源规格：{{sourceSpecification}}\n候选项目：{{candidateProject}}\n候选规格：{{candidateSpecification}}\n当前决策：{{currentDecision}}");
+
+        var reviewTask = service.ReviewAsync(new LlmReviewRequest
+        {
+            SourceProject = "项目",
+            SourceSpecification = "源规格",
+            BestMatchProject = "项目",
+            BestMatchSpecification = "候选规格",
+            CurrentDecision = "manualReview"
+        });
+
+        await gate.WaitUntilEnteredAsync();
+
+        var adjudicationTask = service.AdjudicateAsync(new LlmEquivalenceAdjudicationRequest
+        {
+            SourceProject = "项目",
+            SourceSpecification = "源规格",
+            CandidateProject = "项目",
+            CandidateSpecification = "候选规格",
+            CurrentDecision = "manualReview"
+        });
+
+        var act = async () => await Task.WhenAll(reviewTask, adjudicationTask);
+
+        await act.Should().NotThrowAsync();
+        promptProvider.CallCount.Should().Be(1);
+        selector.CallCount.Should().Be(1);
+    }
+
     private static AiServiceConfigModel CreateConfig(int id, string name)
     {
         return new AiServiceConfigModel
@@ -325,6 +378,23 @@ public class LlmMatchingAssistFallbackTests
             Name = name,
             Purpose = AiServicePurpose.Llm,
             LlmModel = "gpt-test"
+        };
+    }
+
+    private static void SeedPromptTemplateCache(
+        LlmMatchingAssistService service,
+        SystemPromptTemplateDefinition definition,
+        string content)
+    {
+        var field = typeof(LlmMatchingAssistService)
+            .GetField("_promptTemplateCache", BindingFlags.Instance | BindingFlags.NonPublic);
+        field.Should().NotBeNull();
+
+        var cache = (ConcurrentDictionary<string, PromptTemplateModel>)field!.GetValue(service)!;
+        cache[$"{(int)definition.Scene}:{definition.Name}"] = new PromptTemplateModel
+        {
+            Id = (int)definition.Scene,
+            Content = content
         };
     }
 
@@ -455,6 +525,101 @@ public class LlmMatchingAssistFallbackTests
             {
                 Interlocked.Decrement(ref _activeCalls);
             }
+        }
+    }
+
+    private sealed class NonConcurrentDbGate
+    {
+        private readonly TaskCompletionSource _entered =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _activeCalls;
+
+        public Task WaitUntilEnteredAsync()
+        {
+            return _entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        public async Task<T> RunAsync<T>(string operation, Func<Task<T>> action, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _activeCalls) > 1)
+            {
+                Interlocked.Decrement(ref _activeCalls);
+                throw new InvalidOperationException($"{operation} 不允许与其他 DB 操作并发");
+            }
+
+            _entered.TrySetResult();
+            try
+            {
+                await Task.Delay(120, cancellationToken);
+                return await action();
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _activeCalls);
+            }
+        }
+    }
+
+    private sealed class SharedGatePromptTemplateProvider : IPromptTemplateProvider
+    {
+        private readonly NonConcurrentDbGate _gate;
+        private readonly string _content;
+
+        public SharedGatePromptTemplateProvider(NonConcurrentDbGate gate, string content)
+        {
+            _gate = gate;
+            _content = content;
+        }
+
+        public int CallCount { get; private set; }
+
+        public Task<PromptTemplateModel> GetOrCreateSystemAsync(
+            PromptTemplateScene scene,
+            string name,
+            string displayName,
+            string defaultContent,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return _gate.RunAsync(
+                "PromptTemplateProvider",
+                () => Task.FromResult(new PromptTemplateModel
+                {
+                    Id = (int)scene,
+                    Content = _content
+                }),
+                cancellationToken);
+        }
+
+        public Task SaveContentAsync(int id, string content, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class SharedGateAiServiceSelector : IAiServiceSelector
+    {
+        private readonly NonConcurrentDbGate _gate;
+        private readonly IReadOnlyList<AiServiceConfigModel> _configs;
+
+        public SharedGateAiServiceSelector(NonConcurrentDbGate gate, params AiServiceConfigModel[] configs)
+        {
+            _gate = gate;
+            _configs = configs;
+        }
+
+        public int CallCount { get; private set; }
+
+        public Task<IReadOnlyList<AiServiceConfigModel>> GetCandidatesAsync(
+            AiServicePurpose purpose,
+            int? preferredId = null,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return _gate.RunAsync(
+                "AiServiceSelector",
+                () => Task.FromResult(_configs),
+                cancellationToken);
         }
     }
 

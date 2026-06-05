@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   buildExecutionHistoryPreviewTables,
-  buildSmartFillExecuteRequest
+  buildSmartFillExecuteRequest,
+  refreshBackfilledExecuteRequest
 } from "../src/views/smart-fill/smartFillExecution.helpers.ts";
 import type {
   BatchTablePreviewResult,
@@ -195,4 +196,65 @@ test("执行记录预览快照应深拷贝匹配证据，避免后续编辑污�
   assert.equal(originalBestMatch?.scoreDetails.final, 0.98);
   assert.deepEqual(originalBestMatch?.evidenceSummary, ["项目一致"]);
   assert.equal(originalBestMatch?.topCandidates[0].scoreDetails.final, 0.92);
+});
+
+test("回填更新现有规格后应同步执行请求，避免继续携带失效 token 和旧预览值", () => {
+  const request = buildSmartFillExecuteRequest({
+    uploadedFileId: 88,
+    scope: { customerId: 1 },
+    selectedConfigs: [
+      {
+        tableIndex: 0,
+        acceptanceColumnIndex: 4,
+        projectColumnIndex: 1,
+        specificationColumnIndex: 2
+      }
+    ],
+    allSelections: new Map([
+      [
+        0,
+        [
+          {
+            rowIndex: 2,
+            specId: 101,
+            manualConfirmed: false,
+            reviewApprovalToken: "token-before-backfill",
+            overrideAcceptance: "覆盖验收",
+            overrideRemark: "覆盖备注"
+          }
+        ]
+      ]
+    ]),
+    matchConfig: {},
+    highConfidenceThreshold: 0.98,
+    previewResults,
+    resolveFilterEmptySourceRows: () => true
+  });
+
+  assert.ok(request);
+  const refreshed = refreshBackfilledExecuteRequest(request, [
+    {
+      tableIndex: 0,
+      rowIndex: 2,
+      specId: 101,
+      overrideAcceptance: "覆盖验收",
+      overrideRemark: "覆盖备注",
+      actionType: "update"
+    }
+  ]);
+
+  const mapping = refreshed.tables[0].mappings[0];
+  assert.equal(mapping.reviewApprovalToken, undefined);
+  assert.equal(mapping.manualConfirmed, true);
+  assert.equal(mapping.overrideAcceptance, "覆盖验收");
+  assert.equal(mapping.overrideRemark, "覆盖备注");
+  assert.equal(
+    refreshed.previewTables?.[0].items[0].bestMatch?.acceptance,
+    "覆盖验收"
+  );
+  assert.equal(refreshed.previewTables?.[0].items[0].bestMatch?.remark, "覆盖备注");
+  assert.equal(
+    refreshed.previewTables?.[0].items[0].bestMatch?.reviewApprovalToken,
+    undefined
+  );
 });

@@ -11,6 +11,13 @@ public sealed class ApiRateLimitOptions
         QueueLimit = 0
     };
 
+    public RateLimitPolicyOptions RefreshToken { get; set; } = new()
+    {
+        PermitLimit = 20,
+        WindowSeconds = 60,
+        QueueLimit = 0
+    };
+
     public RateLimitPolicyOptions Upload { get; set; } = new()
     {
         PermitLimit = 20,

@@ -20,7 +20,7 @@ namespace AcceptanceSpecSystem.Api.Services;
 
 public sealed partial class MatchingWorkflowSupportService
 {
-    private async Task<List<MatchLlmStreamItem>> BuildAuthoritativeLlmStreamItemsAsync(
+    private async Task<List<LlmStreamItemContext>> BuildAuthoritativeLlmStreamItemsAsync(
         IReadOnlyList<MatchLlmStreamItem> requestItems,
         IReadOnlyList<MatchCandidate> candidates,
         MatchingConfig config)
@@ -32,7 +32,12 @@ public sealed partial class MatchingWorkflowSupportService
 
         if (candidates.Count == 0)
         {
-            return requestItems.Select(CreateNoMatchLlmStreamItem).ToList();
+            return requestItems
+                .Select(item => new LlmStreamItemContext
+                {
+                    Item = CreateNoMatchLlmStreamItem(item)
+                })
+                .ToList();
         }
 
         var candidateList = candidates.ToList();
@@ -67,7 +72,7 @@ public sealed partial class MatchingWorkflowSupportService
             throw Failure(400, $"Embedding 服务不可用: {ex.Reason}");
         }
 
-        var normalizedItems = new List<MatchLlmStreamItem>(requestItems.Count);
+        var normalizedItems = new List<LlmStreamItemContext>(requestItems.Count);
         for (var index = 0; index < requestItems.Count; index++)
         {
             var requestItem = requestItems[index];
@@ -75,7 +80,7 @@ public sealed partial class MatchingWorkflowSupportService
                 ? batchResult.Results[index]
                 : null;
 
-            normalizedItems.Add(CreateAuthoritativeLlmStreamItem(requestItem, result));
+            normalizedItems.Add(CreateAuthoritativeLlmStreamItemContext(requestItem, result));
         }
 
         return normalizedItems;
@@ -85,6 +90,11 @@ public sealed partial class MatchingWorkflowSupportService
     private static LlmStreamItemKey GetLlmStreamItemKey(MatchLlmStreamItem item)
     {
         return new LlmStreamItemKey(item.TableIndex, item.RowIndex);
+    }
+
+    private static string FormatStreamRowKey(int? tableIndex, int rowIndex)
+    {
+        return $"{tableIndex.GetValueOrDefault()}:{rowIndex}";
     }
 
     private static bool RequiresReviewForStreamItem(MatchLlmStreamItem item)
@@ -124,16 +134,19 @@ public sealed partial class MatchingWorkflowSupportService
             .ToDictionary(spec => spec.Id);
     }
 
-    private static MatchLlmStreamItem CreateAuthoritativeLlmStreamItem(
+    private static LlmStreamItemContext CreateAuthoritativeLlmStreamItemContext(
         MatchLlmStreamItem requestItem,
         MatchResult? result)
     {
         if (result == null || !result.MatchedSpecId.HasValue)
         {
-            return CreateNoMatchLlmStreamItem(requestItem);
+            return new LlmStreamItemContext
+            {
+                Item = CreateNoMatchLlmStreamItem(requestItem)
+            };
         }
 
-        return new MatchLlmStreamItem
+        var item = new MatchLlmStreamItem
         {
             TableIndex = requestItem.TableIndex,
             RowIndex = requestItem.RowIndex,
@@ -149,6 +162,12 @@ public sealed partial class MatchingWorkflowSupportService
             IsAmbiguous = result.IsAmbiguous,
             EvidenceSummary = [.. result.Evidence.Summary],
             ConflictSummary = [.. result.Evidence.Conflicts]
+        };
+
+        return new LlmStreamItemContext
+        {
+            Item = item,
+            AuthoritativeBestMatch = MatchingResultDtoMapper.ToMatchResultDto(result)
         };
     }
 

@@ -3,6 +3,7 @@ import type {
   SmartFillFillRecommendation,
   SmartFillReviewStatus
 } from "./scoreDetail.formatters";
+import { isLlmEquivalenceDecisionRisk } from "./scoreDetail.llmEquivalence.ts";
 
 export type MatchPreviewScoreFilter =
   | "all"
@@ -66,6 +67,10 @@ export const canUseMatchPreviewBestMatch = (
   }
 
   if (isMatchPreviewReviewInFlight(reviewStatus)) {
+    return false;
+  }
+
+  if (isLlmEquivalenceDecisionRisk(item.bestMatch.llmEquivalence)) {
     return false;
   }
 

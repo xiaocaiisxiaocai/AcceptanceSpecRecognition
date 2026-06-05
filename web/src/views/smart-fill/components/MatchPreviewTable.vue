@@ -37,6 +37,7 @@ import {
   cloneMatchPreviewOverride,
   collectEditedBackfillItems,
   collectMatchPreviewSelections,
+  hasManualFillOverrideValue,
   hasMatchPreviewOverrideValue
 } from "./matchPreviewTable.selection";
 import type {
@@ -66,6 +67,7 @@ export type { EditedBackfillItem } from "./matchPreviewTable.types";
 
 const selectedSpecs = ref<Map<number, MatchPreviewSelection | null>>(new Map());
 const editedOverrides = ref<Map<number, MatchPreviewEditOverride>>(new Map());
+const manualClearedRows = ref<Set<number>>(new Set());
 const editDialogVisible = ref(false);
 const editingItem = ref<MatchPreviewItem | null>(null);
 const currentPage = ref(1);
@@ -95,6 +97,7 @@ const canEditRow = (item: MatchPreviewItem) =>
 const initSelections = () => {
   selectedSpecs.value.clear();
   editedOverrides.value.clear();
+  manualClearedRows.value.clear();
   props.items.forEach(item => {
     if (item.bestMatch && isHighConfidence(item) && !isNoAnswerPlaceholderRow(item)) {
       selectedSpecs.value.set(item.rowIndex, {
@@ -143,6 +146,14 @@ const getExistingSelection = (
   }
 
   return getPersistedSelection(rowIndex);
+};
+
+const getExistingManualCleared = (rowIndex: number) => {
+  if (selectedSpecs.value.has(rowIndex)) {
+    return manualClearedRows.value.has(rowIndex);
+  }
+
+  return getPersistedState(rowIndex)?.manualCleared === true;
 };
 
 const getOverride = (rowIndex: number) => {
@@ -212,7 +223,7 @@ const handleSaveEditedSelection = () => {
         : editForm.value.overrideRemark
   };
 
-  if (!item.bestMatch && !hasOverrideValue(nextOverride)) {
+  if (!item.bestMatch && !hasManualFillOverrideValue(nextOverride)) {
     return;
   }
 
@@ -227,6 +238,7 @@ const handleSaveEditedSelection = () => {
     manualConfirmed: item.bestMatch ? !item.bestMatch.reviewApprovalToken : true,
     reviewApprovalToken: item.bestMatch?.reviewApprovalToken
   });
+  manualClearedRows.value.delete(item.rowIndex);
   emit("select", item.rowIndex, item.bestMatch ?? null);
   closeEditDialog();
 };
@@ -236,9 +248,12 @@ const selectionSyncKey = computed(() =>
     .map(item =>
       [
         item.rowIndex,
+        item.bestMatch?.specId,
         item.bestMatch?.decision,
         item.bestMatch?.reviewApprovalToken,
-        item.llmReviewStage
+        item.llmReviewStage,
+        item.bestMatch?.acceptance,
+        item.bestMatch?.remark
       ].join(":")
     )
     .join("|")
@@ -247,9 +262,11 @@ const selectionSyncKey = computed(() =>
 const syncSelectionsWithItems = () => {
   const nextSelections = new Map<number, MatchPreviewSelection | null>();
   const nextOverrides = new Map<number, MatchPreviewEditOverride>();
+  const nextManualClearedRows = new Set<number>();
 
   props.items.forEach(item => {
     const existing = getExistingSelection(item.rowIndex);
+    const existingManualCleared = getExistingManualCleared(item.rowIndex);
     const existingOverride = getOverride(item.rowIndex);
 
     if (existingOverride) {
@@ -259,7 +276,7 @@ const syncSelectionsWithItems = () => {
     if (!item.bestMatch) {
       nextSelections.set(
         item.rowIndex,
-        existing?.type === "manual" && hasOverrideValue(existingOverride)
+        existing?.type === "manual" && hasManualFillOverrideValue(existingOverride)
           ? {
               type: "manual",
               manualConfirmed: true,
@@ -272,6 +289,15 @@ const syncSelectionsWithItems = () => {
 
     if (isNoAnswerPlaceholderRow(item) || !canUseBestMatch(item)) {
       nextSelections.set(item.rowIndex, null);
+      if (existingManualCleared) {
+        nextManualClearedRows.add(item.rowIndex);
+      }
+      return;
+    }
+
+    if (existingManualCleared) {
+      nextSelections.set(item.rowIndex, null);
+      nextManualClearedRows.add(item.rowIndex);
       return;
     }
 
@@ -307,6 +333,7 @@ const syncSelectionsWithItems = () => {
 
   selectedSpecs.value = nextSelections;
   editedOverrides.value = nextOverrides;
+  manualClearedRows.value = nextManualClearedRows;
 };
 
 watch(selectionSyncKey, () => syncSelectionsWithItems(), { immediate: true });
@@ -323,16 +350,19 @@ const handleSelectBest = (item: MatchPreviewItem) => {
     manualConfirmed: !item.bestMatch?.reviewApprovalToken,
     reviewApprovalToken: item.bestMatch?.reviewApprovalToken
   });
+  manualClearedRows.value.delete(item.rowIndex);
   emit("select", item.rowIndex, item.bestMatch ?? null);
 };
 
 const handleClearSelection = (item: MatchPreviewItem) => {
   selectedSpecs.value.set(item.rowIndex, null);
+  manualClearedRows.value.add(item.rowIndex);
   emit("select", item.rowIndex, null);
 };
 
 const clearSelectionByRow = (rowIndex: number) => {
   selectedSpecs.value.set(rowIndex, null);
+  manualClearedRows.value.add(rowIndex);
 };
 
 const getConfidenceClass = getPreviewConfidenceClass;
@@ -434,10 +464,16 @@ defineExpose({
     collectMatchPreviewSelections(
       props.items,
       selectedSpecs.value,
-      editedOverrides.value
+      editedOverrides.value,
+      manualClearedRows.value
     ),
   getEditedBackfillItems: (): EditedBackfillItem[] =>
-    collectEditedBackfillItems(props.items, editedOverrides.value),
+    collectEditedBackfillItems(
+      props.items,
+      editedOverrides.value,
+      selectedSpecs.value,
+      manualClearedRows.value
+    ),
   initSelections,
   clearSelectionByRow
 });

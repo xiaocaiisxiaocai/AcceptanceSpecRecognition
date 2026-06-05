@@ -64,6 +64,8 @@ const matchConfigSyncKeys = [
   "llmCircuitBreakFailures",
   "matchingMode",
   "enableLlmEquivalenceAdjudication",
+  "enableDeterministicAutoApply",
+  "llmMaxCallsPerBatch",
   "exactMatchOnly",
   "filterEmptySourceRows"
 ] satisfies Array<keyof MatchConfig>;
@@ -520,7 +522,7 @@ defineExpose({
                 :show-input-controls="false"
               />
               <div class="form-inline-tip">
-                高置信阈值只用于结果分层展示，不决定自动采用；默认值为
+                高置信阈值会参与确定性自动通过与结果分层；默认值为
                 {{ (DEFAULT_HIGH_CONFIDENCE_THRESHOLD * 100).toFixed(0) }}%
               </div>
             </el-form-item>
@@ -534,6 +536,18 @@ defineExpose({
               />
               <div class="form-inline-tip">
                 关闭后会保留项目列和规格列都为空的行
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="确定性自动通过">
+              <el-switch
+                v-model="config.enableDeterministicAutoApply"
+                active-text="开启"
+                inactive-text="关闭"
+              />
+              <div class="form-inline-tip">
+                无硬冲突且达到高置信阈值时直接采用，不进入同步 AI 裁决。
               </div>
             </el-form-item>
           </el-col>
@@ -573,7 +587,7 @@ defineExpose({
           type="info"
           :closable="false"
           show-icon
-          :title="`默认先完成快速预览，不在同步阶段逐行调用 AI 等价裁决；需要精度优先时可在高级选项中开启。高置信阈值 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 只用于结果分层展示，不决定自动采用。`"
+          :title="`默认先完成快速预览，不在同步阶段逐行调用 AI 等价裁决；需要精度优先时可在高级选项中开启。高置信阈值 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 会参与确定性自动通过与结果分层。`"
         />
       </el-form>
     </div>
@@ -633,6 +647,26 @@ defineExpose({
               <el-col :span="16">
                 <span class="parallelism-hint">
                   同时处理的行数，值越大速度越快但占用资源越多；本地 Ollama 建议 1-4
+                </span>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20" align="middle">
+              <el-col :span="8">
+                <el-form-item label="LLM调用上限">
+                  <el-input-number
+                    v-model="config.llmMaxCallsPerBatch"
+                    :min="0"
+                    :max="200"
+                    :step="1"
+                    :disabled="!allowLlm"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  同一批次内重排和等价裁决共享该预算；设为 0 时不调用同步 LLM。
                 </span>
               </el-col>
             </el-row>

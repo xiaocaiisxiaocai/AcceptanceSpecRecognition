@@ -113,6 +113,7 @@ public class AuthController : ControllerBase
     [HttpPost("refresh-token")]
     [AuditOperation("refresh-token", "auth")]
     [AllowAnonymous]
+    [EnableRateLimiting("refresh-token")]
     public async Task<ActionResult<FrontendAuthResponse<RefreshTokenSuccessData>>> RefreshToken(
         [FromBody] RefreshTokenRequest? request,
         CancellationToken cancellationToken = default)
@@ -153,6 +154,17 @@ public class AuthController : ControllerBase
                 Success = false,
                 Data = null,
                 Message = "用户不存在或已停用"
+            });
+        }
+
+        if (!int.TryParse(principal.FindFirstValue("permission_version"), out var tokenPermissionVersion) ||
+            tokenPermissionVersion != access.PermissionVersion)
+        {
+            return Unauthorized(new FrontendAuthResponse<RefreshTokenSuccessData>
+            {
+                Success = false,
+                Data = null,
+                Message = "当前登录状态已失效，请重新登录"
             });
         }
 

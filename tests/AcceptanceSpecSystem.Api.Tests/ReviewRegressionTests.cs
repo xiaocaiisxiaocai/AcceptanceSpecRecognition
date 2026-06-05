@@ -600,6 +600,57 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void AiServiceProbeEndpoints_ShouldDeclareAuditOperationAttributes()
+    {
+        var testMethod = typeof(AiServicesController).GetMethod(nameof(AiServicesController.TestConnection));
+        var modelsMethod = typeof(AiServicesController).GetMethod(nameof(AiServicesController.GetModels));
+
+        testMethod.Should().NotBeNull();
+        modelsMethod.Should().NotBeNull();
+
+        testMethod!
+            .GetCustomAttributes(typeof(AuditOperationAttribute), inherit: true)
+            .OfType<AuditOperationAttribute>()
+            .Should()
+            .ContainSingle(attribute => attribute.Operation == "test" && attribute.Resource == "ai-service");
+
+        modelsMethod!
+            .GetCustomAttributes(typeof(AuditOperationAttribute), inherit: true)
+            .OfType<AuditOperationAttribute>()
+            .Should()
+            .ContainSingle(attribute => attribute.Operation == "models" && attribute.Resource == "ai-service");
+    }
+
+    [Fact]
+    public void LlmAssistLogs_ShouldNotWriteRawModelOutputAtProductionLevels()
+    {
+        var coreContent = ReadFileText("src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs");
+        var streamContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowSupportService.LlmStream.cs");
+
+        coreContent.Should().NotContain("LLM原始输出", "生产级日志不应输出 LLM 原文");
+        coreContent.Should().NotContain("原始输出: {Raw}", "生产级日志不应输出 LLM 原文");
+        coreContent.Should().NotContain("原始内容: {Raw}", "生产级日志不应输出 LLM 原文");
+        streamContent.Should().NotContain("原始输出: {Raw}", "流式解析失败也不应输出 LLM 原文");
+    }
+
+    [Fact]
+    public void AuditOperationFilter_ShouldNotPersistRawExceptionMessage()
+    {
+        var content = ReadFileText("src/AcceptanceSpecSystem.Api/Controllers/AuditOperationAttribute.cs");
+
+        content.Should().NotContain("Exception?.Message", "审计详情不应直接保存未清洗的异常信息");
+        content.Should().Contain("SensitiveLogFormatter.SanitizeMessage", "审计异常详情应复用统一脱敏逻辑");
+    }
+
+    [Fact]
+    public void AiEndpointNormalizer_ShouldResolveDnsBeforeAllowingPublicEndpoints()
+    {
+        var content = ReadFileText("src/AcceptanceSpecSystem.Core/AI/SemanticKernel/AiEndpointNormalizer.cs");
+
+        content.Should().Contain("Dns.GetHostAddresses", "域名 Endpoint 也要解析最终地址，避免域名指向内网地址绕过");
+    }
+
+    [Fact]
     public void MatchingAndFileCompareControllers_ShouldDeclareAuthorizeAttributes()
     {
         typeof(MatchingApiControllerBase)
