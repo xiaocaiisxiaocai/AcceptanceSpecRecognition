@@ -1,7 +1,10 @@
 import axios from "axios";
 import type { App } from "vue";
 
-type ConfigValue = PlatformConfigs | PlatformConfigs[keyof PlatformConfigs] | null;
+type ConfigValue =
+  | PlatformConfigs
+  | PlatformConfigs[keyof PlatformConfigs]
+  | null;
 
 let config: PlatformConfigs = {};
 const { VITE_PUBLIC_PATH } = import.meta.env;

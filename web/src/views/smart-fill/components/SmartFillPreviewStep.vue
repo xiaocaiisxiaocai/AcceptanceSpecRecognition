@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { Loading } from "@element-plus/icons-vue";
 import BatchPreviewTabs from "./BatchPreviewTabs.vue";
-import type { MatchPreviewItem, BatchTablePreviewResult } from "@/api/matching";
+import type {
+  BatchPreviewProgressResponse,
+  MatchPreviewItem,
+  BatchTablePreviewResult
+} from "@/api/matching";
 
-defineProps<{
+const props = defineProps<{
   llmStreaming: boolean;
   loading: boolean;
+  previewProgress: BatchPreviewProgressResponse | null;
   previewProgressStageText: string;
   previewProgressPercent: number;
   previewProgressDetailText: string;
@@ -46,17 +51,30 @@ const emit = defineEmits<{
   (e: "restart"): void;
 }>();
 
-const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(null);
+const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
+  null
+);
 
 defineExpose<{
-  getAllSelections: NonNullable<InstanceType<typeof BatchPreviewTabs>["getAllSelections"]>;
+  getAllSelections: NonNullable<
+    InstanceType<typeof BatchPreviewTabs>["getAllSelections"]
+  >;
   getAllEditedBackfillItems: NonNullable<
     InstanceType<typeof BatchPreviewTabs>["getAllEditedBackfillItems"]
   >;
 }>({
-  getAllSelections: () => batchPreviewTabsRef.value?.getAllSelections() ?? new Map(),
+  getAllSelections: () =>
+    batchPreviewTabsRef.value?.getAllSelections() ?? new Map(),
   getAllEditedBackfillItems: () =>
     batchPreviewTabsRef.value?.getAllEditedBackfillItems() ?? []
+});
+
+const loadingHintText = computed(() => {
+  const stage = props.previewProgress?.stage;
+  if (stage === "embedding_source" || stage === "embedding_candidates") {
+    return `正在对 ${props.selectedTableCount} 个表格生成语义特征，视模型与数据量可能需要数秒`;
+  }
+  return `正在对 ${props.selectedTableCount} 个表格执行匹配与 AI 等价裁决，视数据量与 LLM 响应可能需要数分钟`;
 });
 </script>
 
@@ -76,32 +94,45 @@ defineExpose<{
       class="llm-streaming-alert"
     />
 
-    <!-- 匹配进行中遮罩 -->
-    <div v-if="loading" class="loading-overlay">
-      <el-icon class="is-loading" :size="32"><Loading /></el-icon>
-      <p class="loading-text">正在匹配中，请耐心等待...</p>
-      <div class="preview-progress-panel">
-        <div class="preview-progress-panel__header">
-          <span>{{ previewProgressStageText }}</span>
-          <span>{{ previewProgressPercent }}%</span>
+    <!-- 匹配进行中 -->
+    <div v-if="loading" class="matching-loading">
+      <div class="matching-loading__card">
+        <div class="matching-loading__header">
+          <el-icon class="is-loading matching-loading__icon" :size="20"
+            ><Loading
+          /></el-icon>
+          <span class="matching-loading__title">正在匹配中，请耐心等待...</span>
+          <span class="matching-loading__elapsed"
+            >{{ previewElapsedSeconds }}s</span
+          >
         </div>
+
+        <div class="matching-loading__stage">
+          {{ previewProgressStageText }}
+        </div>
+
         <el-progress
           :percentage="previewProgressPercent"
-          :stroke-width="10"
+          :stroke-width="8"
           :show-text="false"
+          status=""
+          class="matching-loading__bar"
         />
-        <div class="preview-progress-panel__meta">
-          <span>{{ previewProgressDetailText }}</span>
-          <span v-if="previewProgressCounterText">
+
+        <div class="matching-loading__stats">
+          <span class="matching-loading__detail">{{
+            previewProgressDetailText
+          }}</span>
+          <span
+            v-if="previewProgressCounterText"
+            class="matching-loading__counter"
+          >
             {{ previewProgressCounterText }}
           </span>
-          <span>已等待 {{ previewElapsedSeconds }} 秒</span>
         </div>
+
+        <div class="matching-loading__hint">{{ loadingHintText }}</div>
       </div>
-      <p class="loading-hint">
-        正在对 {{ selectedTableCount }} 个表格执行 Embedding
-        向量匹配，视数据量可能需要数十秒
-      </p>
     </div>
 
     <el-empty
@@ -111,7 +142,9 @@ defineExpose<{
     >
       <template #description>
         <div class="preview-empty-state__body">
-          <div class="preview-empty-state__title">{{ previewBlockingMessage }}</div>
+          <div class="preview-empty-state__title">
+            {{ previewBlockingMessage }}
+          </div>
           <div v-if="previewBlockingHint" class="preview-empty-state__hint">
             {{ previewBlockingHint }}
           </div>
@@ -144,7 +177,10 @@ defineExpose<{
       :ambiguity-margin="ambiguityMargin"
       :llm-streaming="llmStreaming"
       :table-names="previewTableNames"
-      @select="(tableIndex, rowIndex, spec) => emit('select', tableIndex, rowIndex, spec)"
+      @select="
+        (tableIndex, rowIndex, spec) =>
+          emit('select', tableIndex, rowIndex, spec)
+      "
       @show-detail="emit('showDetail', $event)"
     />
 
@@ -171,7 +207,11 @@ defineExpose<{
 
     <!-- 操作按钮 -->
     <div v-if="allPreviewItemsCount > 0" class="action-bar">
-      <el-button v-if="canPreviewMatching" @click="emit('preview')" :loading="loading">
+      <el-button
+        v-if="canPreviewMatching"
+        :loading="loading"
+        @click="emit('preview')"
+      >
         重新匹配
       </el-button>
       <el-button
@@ -196,3 +236,88 @@ defineExpose<{
     </div>
   </div>
 </template>
+
+<style scoped>
+.matching-loading {
+  display: flex;
+  justify-content: center;
+  padding: 32px 0;
+}
+
+.matching-loading__card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(560px, 100%);
+  padding: 24px;
+  background: #f8fbff;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+}
+
+.matching-loading__header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.matching-loading__icon {
+  flex-shrink: 0;
+  color: var(--el-color-primary);
+}
+
+.matching-loading__title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.matching-loading__elapsed {
+  padding: 2px 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: #9ca3af;
+  background: #f3f4f6;
+  border-radius: 20px;
+}
+
+.matching-loading__stage {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-color-primary);
+}
+
+.matching-loading__bar {
+  margin: 0;
+}
+
+.matching-loading__stats {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.matching-loading__detail {
+  flex: 1;
+}
+
+.matching-loading__counter {
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  background: #ede9fe;
+  border-radius: 10px;
+}
+
+.matching-loading__hint {
+  padding-top: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #9ca3af;
+  border-top: 1px solid #e5e7eb;
+}
+</style>

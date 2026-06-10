@@ -17,8 +17,16 @@
   align-items: center;
   padding: 0 16px;
   background:
-    radial-gradient(1200px 800px at 20% 20%, rgba(124, 58, 237, 0.16), transparent 60%),
-    radial-gradient(900px 600px at 80% 30%, rgba(167, 139, 250, 0.14), transparent 55%),
+    radial-gradient(
+      1200px 800px at 20% 20%,
+      rgba(124, 58, 237, 0.16),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 600px at 80% 30%,
+      rgba(167, 139, 250, 0.14),
+      transparent 55%
+    ),
     linear-gradient(180deg, #ffffff 0%, #f9f5ff 100%);
 }
 

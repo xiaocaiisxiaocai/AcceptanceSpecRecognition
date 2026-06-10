@@ -64,8 +64,12 @@ const riskItems = computed(() => {
   return [...llmRiskItems, ...conflicts, ...issues].slice(0, 4);
 });
 
-const recommendation = computed(() => decisionSummaryState.value.recommendation);
-const actionSuggestion = computed(() => decisionSummaryState.value.actionSuggestion);
+const recommendation = computed(
+  () => decisionSummaryState.value.recommendation
+);
+const actionSuggestion = computed(
+  () => decisionSummaryState.value.actionSuggestion
+);
 
 const focusChecklist = computed(() => {
   const checklist = [
@@ -73,9 +77,7 @@ const focusChecklist = computed(() => {
       ? ["存在格式、符号或原文差异，详情中已保留高亮供复核"]
       : []),
     ...(llmEquivalence.value
-      ? [
-          `AI 裁决提示：${getLlmEquivalenceSummaryText(llmEquivalence.value)}`
-        ]
+      ? [`AI 裁决提示：${getLlmEquivalenceSummaryText(llmEquivalence.value)}`]
       : []),
     ...riskRelevantSourceRows.value.map(row => `${row.label}与推荐项不一致`),
     ...riskItems.value.slice(0, 2).map(item => item.text)
@@ -136,7 +138,9 @@ const getComparisonHtml = (
             {{ decisionSummaryState.riskLevel.label }}
           </el-tag>
         </div>
-        <div class="hero-card__desc">{{ decisionSummaryState.riskLevel.description }}</div>
+        <div class="hero-card__desc">
+          {{ decisionSummaryState.riskLevel.description }}
+        </div>
       </div>
     </div>
 
@@ -146,16 +150,26 @@ const getComparisonHtml = (
         <div class="equivalence-card__tags">
           <el-tag
             size="small"
-            :type="getLlmEquivalenceVerdictTagType(bestMatch.llmEquivalence.verdict)"
+            :type="
+              getLlmEquivalenceVerdictTagType(bestMatch.llmEquivalence.verdict)
+            "
           >
             {{ getLlmEquivalenceVerdictText(bestMatch.llmEquivalence.verdict) }}
           </el-tag>
           <el-tag
             size="small"
             effect="plain"
-            :type="getLlmEquivalenceReasonTagType(bestMatch.llmEquivalence.reasonType)"
+            :type="
+              getLlmEquivalenceReasonTagType(
+                bestMatch.llmEquivalence.reasonType
+              )
+            "
           >
-            {{ getLlmEquivalenceReasonTypeText(bestMatch.llmEquivalence.reasonType) }}
+            {{
+              getLlmEquivalenceReasonTypeText(
+                bestMatch.llmEquivalence.reasonType
+              )
+            }}
           </el-tag>
           <el-tag
             size="small"
@@ -212,13 +226,25 @@ const getComparisonHtml = (
         <el-descriptions-item label="源规格">
           <div
             class="comparison-rich-text"
-            v-html="getComparisonHtml('specification', 'left', item.sourceSpecification)"
+            v-html="
+              getComparisonHtml(
+                'specification',
+                'left',
+                item.sourceSpecification
+              )
+            "
           />
         </el-descriptions-item>
         <el-descriptions-item label="推荐规格">
           <div
             class="comparison-rich-text"
-            v-html="getComparisonHtml('specification', 'right', bestMatch?.specification)"
+            v-html="
+              getComparisonHtml(
+                'specification',
+                'right',
+                bestMatch?.specification
+              )
+            "
           />
         </el-descriptions-item>
         <el-descriptions-item label="推荐验收标准">
@@ -247,9 +273,9 @@ const getComparisonHtml = (
 
 .hero-card {
   padding: 16px;
+  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
   border: 1px solid #e5e7eb;
   border-radius: 18px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .hero-card--primary {
@@ -284,9 +310,9 @@ const getComparisonHtml = (
 
 .panel {
   padding: 14px 16px;
+  background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 16px;
-  background: #fff;
 }
 
 .panel__title {
@@ -304,26 +330,26 @@ const getComparisonHtml = (
 
 .plain-item {
   padding: 8px 12px;
-  border-radius: 12px;
-  background: #f8fafc;
   font-size: 13px;
   line-height: 1.5;
   color: #374151;
+  background: #f8fafc;
+  border-radius: 12px;
 }
 
 .plain-item--focus {
-  background: #fff7ed;
   color: #9a3412;
+  background: #fff7ed;
 }
 
 .plain-item--hint {
-  margin-bottom: 8px;
   padding: 8px 12px;
-  border-radius: 12px;
-  background: #f0f9ff;
+  margin-bottom: 8px;
   font-size: 13px;
   line-height: 1.5;
   color: #1e40af;
+  background: #f0f9ff;
+  border-radius: 12px;
 }
 
 .comparison-rich-text {
@@ -338,9 +364,9 @@ const getComparisonHtml = (
   flex-direction: column;
   gap: 10px;
   padding: 12px;
+  background: linear-gradient(180deg, #eff6ff 0%, #f8fbff 100%);
   border: 1px solid #bfdbfe;
   border-radius: 14px;
-  background: linear-gradient(180deg, #eff6ff 0%, #f8fbff 100%);
 }
 
 .equivalence-card__tags {
@@ -367,21 +393,21 @@ const getComparisonHtml = (
 }
 
 :deep(.inline-mark-old) {
-  background: rgba(245, 108, 108, 0.18);
   color: #b42318;
+  background: rgb(245 108 108 / 18%);
 }
 
 :deep(.inline-mark-new) {
-  background: rgba(103, 194, 58, 0.18);
   color: #166534;
+  background: rgb(103 194 58 / 18%);
 }
 
 :deep(.placeholder-text) {
-  color: #9ca3af;
   font-style: italic;
+  color: #9ca3af;
 }
 
-@media (max-width: 900px) {
+@media (width <= 900px) {
   .hero-grid {
     grid-template-columns: 1fr;
   }

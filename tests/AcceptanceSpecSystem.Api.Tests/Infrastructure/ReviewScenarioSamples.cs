@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
+﻿namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
 internal static class ReviewScenarioSamples
 {

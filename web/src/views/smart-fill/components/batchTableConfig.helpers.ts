@@ -14,14 +14,22 @@ export type ExcelBatchTableRowConfig = Pick<
   };
 };
 
-export const normalizeExcelBatchTableRows = <T extends ExcelBatchTableRowConfig>(
+export const normalizeExcelBatchTableRows = <
+  T extends ExcelBatchTableRowConfig
+>(
   item: T
 ) => {
   const usedStartRow = Math.max(1, item.tableInfo.usedRangeStartRow ?? 1);
-  const headerRowStart = Math.max(usedStartRow, item.headerRowStart ?? usedStartRow);
+  const headerRowStart = Math.max(
+    usedStartRow,
+    item.headerRowStart ?? usedStartRow
+  );
   const headerRowCount = Math.max(0, item.headerRowCount ?? 1);
   const minDataStartRow = headerRowStart + headerRowCount;
-  const dataStartRow = Math.max(minDataStartRow, item.dataStartRow ?? minDataStartRow);
+  const dataStartRow = Math.max(
+    minDataStartRow,
+    item.dataStartRow ?? minDataStartRow
+  );
 
   return {
     ...item,
@@ -31,7 +39,9 @@ export const normalizeExcelBatchTableRows = <T extends ExcelBatchTableRowConfig>
   };
 };
 
-export const applyExcelBatchTableRowFieldChange = <T extends ExcelBatchTableRowConfig>(
+export const applyExcelBatchTableRowFieldChange = <
+  T extends ExcelBatchTableRowConfig
+>(
   item: T,
   field: ExcelBatchTableRowField,
   value: number
@@ -45,7 +55,8 @@ export const applyExcelBatchTableRowFieldChange = <T extends ExcelBatchTableRowC
   if (field === "headerRowStart" || field === "headerRowCount") {
     return normalizeExcelBatchTableRows({
       ...normalizedDraft,
-      dataStartRow: normalizedDraft.headerRowStart + normalizedDraft.headerRowCount
+      dataStartRow:
+        normalizedDraft.headerRowStart + normalizedDraft.headerRowCount
     });
   }
 

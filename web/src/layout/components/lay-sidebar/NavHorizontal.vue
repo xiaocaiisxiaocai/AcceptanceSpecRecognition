@@ -19,7 +19,9 @@ const showLogo = ref(
     `${responsiveStorageNameSpace()}configure`
   )?.showLogo ?? true
 );
-const wholeMenus = computed(() => usePermissionStoreHook().wholeMenus as unknown as menuType[]);
+const wholeMenus = computed(
+  () => usePermissionStoreHook().wholeMenus as unknown as menuType[]
+);
 
 const {
   route,
@@ -49,10 +51,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div
-    v-loading="wholeMenus.length === 0"
-    class="horizontal-header"
-  >
+  <div v-loading="wholeMenus.length === 0" class="horizontal-header">
     <div v-if="showLogo" class="horizontal-header-left" @click="backTopMenu">
       <img :src="getLogo()" alt="logo" />
       <span>{{ title }}</span>

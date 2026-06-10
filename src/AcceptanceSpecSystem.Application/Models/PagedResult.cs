@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Application.Models;
+﻿namespace AcceptanceSpecSystem.Application.Models;
 
 /// <summary>
 /// Application 层分页结果。

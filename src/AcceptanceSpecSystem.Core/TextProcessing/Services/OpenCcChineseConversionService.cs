@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.TextProcessing.Models;
 using OpenCCNET;

@@ -16,7 +16,10 @@ import {
   type BatchReplyDuplicateDialogState
 } from "../batch-reply-duplicates";
 import { createTargetPreviewLoaderResolver } from "../batch-reply-preview-state";
-import { toBatchTableConfig, type BatchReplyTableConfigItem } from "../batch-reply-table-config";
+import {
+  toBatchTableConfig,
+  type BatchReplyTableConfigItem
+} from "../batch-reply-table-config";
 import type { BatchReplyTargetState } from "../batch-reply-state";
 
 type PreviewLoaderOptions = {
@@ -41,7 +44,9 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
     item: BatchReplyTableConfigItem,
     groups: BatchReplyDuplicateGroup[]
   ) => {
-    const targetFile = params.targetFiles.value.find(file => file.targetId === targetId);
+    const targetFile = params.targetFiles.value.find(
+      file => file.targetId === targetId
+    );
     duplicateDialog.value = buildDuplicateDialogState({
       targetId,
       item,
@@ -66,7 +71,9 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
     );
   };
 
-  const applyDuplicateResolutions = (dialog: BatchReplyDuplicateDialogState) => {
+  const applyDuplicateResolutions = (
+    dialog: BatchReplyDuplicateDialogState
+  ) => {
     const nextState = applyDuplicateResolutionState({
       dialog,
       sourceConfigs: params.sourceConfigs.value,
@@ -84,7 +91,11 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
       throw new Error("来源会话不存在");
     }
 
-    const res = await getBatchReplyTablePreview(params.sourceSessionId.value, tableIndex, options);
+    const res = await getBatchReplyTablePreview(
+      params.sourceSessionId.value,
+      tableIndex,
+      options
+    );
     if (res.code !== 0) {
       throw new Error(res.message || "加载来源表格预览失败");
     }
@@ -93,7 +104,10 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
   };
 
   const createTargetPreviewLoader = (targetId: string) => {
-    return async (tableIndex: number, options: PreviewLoaderOptions): Promise<TableData> => {
+    return async (
+      tableIndex: number,
+      options: PreviewLoaderOptions
+    ): Promise<TableData> => {
       if (!params.sourceSessionId.value) {
         throw new Error("来源会话不存在");
       }
@@ -112,10 +126,20 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
     };
   };
 
-  const getTargetPreviewLoader = createTargetPreviewLoaderResolver(createTargetPreviewLoader);
+  const getTargetPreviewLoader = createTargetPreviewLoaderResolver(
+    createTargetPreviewLoader
+  );
 
-  const handleTargetTablePreview = async (targetId: string, item: BatchReplyTableConfigItem) => {
-    if (!ensurePermission("btn:batch-reply:preview", "权限不足，无法预览当前目标表")) {
+  const handleTargetTablePreview = async (
+    targetId: string,
+    item: BatchReplyTableConfigItem
+  ) => {
+    if (
+      !ensurePermission(
+        "btn:batch-reply:preview",
+        "权限不足，无法预览当前目标表"
+      )
+    ) {
       return;
     }
 
@@ -135,13 +159,16 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
     }
 
     params.targetFiles.value = params.targetFiles.value.map(file =>
-      file.targetId === targetId ? { ...file, previewLoadingTableIndex: item.tableIndex } : file
+      file.targetId === targetId
+        ? { ...file, previewLoadingTableIndex: item.tableIndex }
+        : file
     );
 
     try {
       const res = await previewBatchReplyTable({
         sessionId: params.sourceSessionId.value,
-        sourceTables: params.selectedSourceConfigs.value.map(toBatchTableConfig),
+        sourceTables:
+          params.selectedSourceConfigs.value.map(toBatchTableConfig),
         targetId,
         targetTable: toBatchTableConfig(item)
       });
@@ -175,7 +202,9 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
     } catch {
       ElMessage.error("目标表预览失败");
       params.targetFiles.value = params.targetFiles.value.map(file =>
-        file.targetId === targetId ? { ...file, previewLoadingTableIndex: undefined } : file
+        file.targetId === targetId
+          ? { ...file, previewLoadingTableIndex: undefined }
+          : file
       );
     }
   };
@@ -189,8 +218,12 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
     applyDuplicateResolutions(dialog);
     closeDuplicateDialog();
 
-    const targetFile = params.targetFiles.value.find(file => file.targetId === dialog.targetId);
-    const targetConfig = targetFile?.configs.find(config => config.tableIndex === dialog.tableIndex);
+    const targetFile = params.targetFiles.value.find(
+      file => file.targetId === dialog.targetId
+    );
+    const targetConfig = targetFile?.configs.find(
+      config => config.tableIndex === dialog.tableIndex
+    );
     if (!targetConfig) {
       ElMessage.error("未找到当前目标表配置，无法重新预览");
       return;

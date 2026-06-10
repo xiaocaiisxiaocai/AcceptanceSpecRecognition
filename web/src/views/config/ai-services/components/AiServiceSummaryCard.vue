@@ -33,7 +33,11 @@ const emit = defineEmits<{
       <div class="card-header">
         <span>{{ title }}</span>
         <div class="card-actions">
-          <el-button v-if="canCreate" type="primary" @click="emit('add', purpose)">
+          <el-button
+            v-if="canCreate"
+            type="primary"
+            @click="emit('add', purpose)"
+          >
             新增
           </el-button>
           <template v-if="config && hasSummaryActionButtons">

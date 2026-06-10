@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Data.Entities;
+﻿namespace AcceptanceSpecSystem.Data.Entities;
 
 /// <summary>
 /// 用户多组织裁剪策略

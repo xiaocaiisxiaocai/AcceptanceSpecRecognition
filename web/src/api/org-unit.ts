@@ -45,7 +45,9 @@ export const createOrgUnit = (data: CreateOrgUnitRequest) => {
 };
 
 export const updateOrgUnit = (id: number, data: UpdateOrgUnitRequest) => {
-  return http.request<ApiResponse<OrgUnit>>("put", `${baseUrl}/${id}`, { data });
+  return http.request<ApiResponse<OrgUnit>>("put", `${baseUrl}/${id}`, {
+    data
+  });
 };
 
 export const deleteOrgUnit = (id: number) => {

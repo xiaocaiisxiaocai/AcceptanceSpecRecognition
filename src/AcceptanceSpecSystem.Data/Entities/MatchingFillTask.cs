@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Data.Entities;
+﻿namespace AcceptanceSpecSystem.Data.Entities;
 
 /// <summary>
 /// 智能填充任务快照（用于下载与断点恢复）

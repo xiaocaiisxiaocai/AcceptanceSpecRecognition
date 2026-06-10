@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Data.Repositories;
+﻿namespace AcceptanceSpecSystem.Data.Repositories;
 
 /// <summary>
 /// 角色查询仓储，用于鉴权只读场景。

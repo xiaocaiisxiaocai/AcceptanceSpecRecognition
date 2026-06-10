@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;

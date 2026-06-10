@@ -22,7 +22,9 @@ const selectedRowIndex = ref<number | null>(null);
 const comparedCandidateRank = ref(1);
 
 const playback = computed(() => props.detail.smartFillPlayback);
-const files = computed<ExecutionHistorySmartFillFile[]>(() => playback.value?.files ?? []);
+const files = computed<ExecutionHistorySmartFillFile[]>(
+  () => playback.value?.files ?? []
+);
 
 const currentFile = computed<ExecutionHistorySmartFillFile | null>(
   () => files.value[selectedFileIndex.value] ?? null
@@ -30,14 +32,20 @@ const currentFile = computed<ExecutionHistorySmartFillFile | null>(
 
 const currentSheet = computed<ExecutionHistorySmartFillSheet | null>(() => {
   const sheets = currentFile.value?.sheets ?? [];
-  return sheets.find(sheet => sheet.sheetName === selectedSheetName.value) ?? sheets[0] ?? null;
+  return (
+    sheets.find(sheet => sheet.sheetName === selectedSheetName.value) ??
+    sheets[0] ??
+    null
+  );
 });
 
 const currentRow = computed<ExecutionHistorySmartFillRow | null>(() => {
   const rows = currentSheet.value?.rows ?? [];
   if (rows.length === 0) return null;
 
-  return rows.find(row => row.rowIndex === selectedRowIndex.value) ?? rows[0] ?? null;
+  return (
+    rows.find(row => row.rowIndex === selectedRowIndex.value) ?? rows[0] ?? null
+  );
 });
 
 const currentPreviewItem = computed<MatchPreviewItem | null>(() => {
@@ -71,14 +79,20 @@ watch(
 
 watch(currentFile, file => {
   const firstSheetName = file?.sheets[0]?.sheetName ?? "";
-  if (file && !file.sheets.some(sheet => sheet.sheetName === selectedSheetName.value)) {
+  if (
+    file &&
+    !file.sheets.some(sheet => sheet.sheetName === selectedSheetName.value)
+  ) {
     selectedSheetName.value = firstSheetName;
   }
 });
 
 watch(currentSheet, sheet => {
   const firstRowIndex = sheet?.rows[0]?.rowIndex ?? null;
-  if (sheet && !sheet.rows.some(row => row.rowIndex === selectedRowIndex.value)) {
+  if (
+    sheet &&
+    !sheet.rows.some(row => row.rowIndex === selectedRowIndex.value)
+  ) {
     selectedRowIndex.value = firstRowIndex;
   }
   comparedCandidateRank.value = 1;
@@ -148,7 +162,9 @@ const executionRows = computed(() => {
     },
     {
       label: "选定方式",
-      value: getSelectionModeText(currentPreviewItem.value?.bestMatch?.selectionMode)
+      value: getSelectionModeText(
+        currentPreviewItem.value?.bestMatch?.selectionMode
+      )
     },
     {
       label: "执行状态",
@@ -217,8 +233,18 @@ const executionRows = computed(() => {
                   {{ row.rowIndex + 1 }}
                 </template>
               </el-table-column>
-              <el-table-column prop="sourceProject" label="项目" min-width="120" show-overflow-tooltip />
-              <el-table-column prop="sourceSpecification" label="规格" min-width="180" show-overflow-tooltip />
+              <el-table-column
+                prop="sourceProject"
+                label="项目"
+                min-width="120"
+                show-overflow-tooltip
+              />
+              <el-table-column
+                prop="sourceSpecification"
+                label="规格"
+                min-width="180"
+                show-overflow-tooltip
+              />
               <el-table-column label="标签" min-width="220">
                 <template #default="{ row }">
                   <div class="tag-list">
@@ -254,7 +280,8 @@ const executionRows = computed(() => {
               第 {{ currentRow.rowIndex + 1 }} 行
             </div>
             <div class="row-head__subtitle">
-              {{ currentRow.sourceProject || "-" }} / {{ currentRow.sourceSpecification || "-" }}
+              {{ currentRow.sourceProject || "-" }} /
+              {{ currentRow.sourceSpecification || "-" }}
             </div>
           </div>
           <div class="tag-list">
@@ -285,7 +312,9 @@ const executionRows = computed(() => {
         </el-card>
 
         <el-alert
-          v-if="!currentPreviewItem.bestMatch && currentPreviewItem.noMatchReason"
+          v-if="
+            !currentPreviewItem.bestMatch && currentPreviewItem.noMatchReason
+          "
           type="warning"
           :closable="false"
           :title="currentPreviewItem.noMatchReason"
@@ -297,9 +326,7 @@ const executionRows = computed(() => {
             :source-best-rows="[]"
           />
 
-          <ScoreDetailBestMatchSection
-            :item="currentPreviewItem"
-          />
+          <ScoreDetailBestMatchSection :item="currentPreviewItem" />
 
           <el-card
             v-if="topCandidates.length > 0"
@@ -313,7 +340,9 @@ const executionRows = computed(() => {
               :top-candidates="topCandidates"
               :is-compared-candidate="isComparedCandidate"
               :is-candidate-expanded="isCandidateExpanded"
-              :handle-select-comparison-candidate="handleSelectComparisonCandidate"
+              :handle-select-comparison-candidate="
+                handleSelectComparisonCandidate
+              "
             />
           </el-card>
         </template>
@@ -355,9 +384,9 @@ const executionRows = computed(() => {
 
 .row-head {
   display: flex;
+  gap: 12px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
   margin-bottom: 12px;
 }
 
@@ -384,7 +413,7 @@ const executionRows = computed(() => {
   color: #111827;
 }
 
-@media (max-width: 1400px) {
+@media (width <= 1400px) {
   .playback-layout {
     grid-template-columns: 1fr;
   }

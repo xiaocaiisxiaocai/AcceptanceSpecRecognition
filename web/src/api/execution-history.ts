@@ -125,7 +125,9 @@ export interface ExecutionHistoryDetail extends ExecutionHistoryListItem {
 
 const baseUrl = "/api/execution-history";
 
-export const getExecutionHistoryList = (params?: ExecutionHistoryListRequest) => {
+export const getExecutionHistoryList = (
+  params?: ExecutionHistoryListRequest
+) => {
   return http.request<ApiResponse<PagedData<ExecutionHistoryListItem>>>(
     "get",
     baseUrl,

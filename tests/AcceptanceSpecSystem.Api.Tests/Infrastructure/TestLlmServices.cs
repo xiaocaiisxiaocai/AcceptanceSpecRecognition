@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
@@ -92,12 +92,12 @@ public class TestLlmEquivalenceAdjudicationService : ILlmEquivalenceAdjudication
                     ReviewScenarioSamples.ApprovedSourceSpecification,
                     ReviewScenarioSamples.ApprovedBestProject,
                     ReviewScenarioSamples.ApprovedBestSpecification) => new LlmEquivalenceAdjudicationResult
-                {
-                    Verdict = LlmEquivalenceVerdict.Equivalent,
-                    ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
-                    Confidence = 0.93,
-                    Reason = "Dock-Bay 与 Dock Bay 仅是命名格式差异，可视为同一表达"
-                },
+                    {
+                        Verdict = LlmEquivalenceVerdict.Equivalent,
+                        ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+                        Confidence = 0.93,
+                        Reason = "Dock-Bay 与 Dock Bay 仅是命名格式差异，可视为同一表达"
+                    },
                 ("安装要求", "最大不可拆部件≈3200", "安装要求", "最大不可拆部件约等于3200。") => new LlmEquivalenceAdjudicationResult
                 {
                     Verdict = LlmEquivalenceVerdict.Equivalent,
@@ -114,12 +114,12 @@ public class TestLlmEquivalenceAdjudicationService : ILlmEquivalenceAdjudication
                 },
                 _ when TextEqualsForFormatOnly(sourceProject, candidateProject) &&
                        TextEqualsForFormatOnly(sourceSpecification, candidateSpecification) => new LlmEquivalenceAdjudicationResult
-                {
-                    Verdict = LlmEquivalenceVerdict.Equivalent,
-                    ReasonType = LlmEquivalenceReasonType.FormatOnly,
-                    Confidence = 0.99,
-                    Reason = "源项与候选项在规范化后文本一致"
-                },
+                       {
+                           Verdict = LlmEquivalenceVerdict.Equivalent,
+                           ReasonType = LlmEquivalenceReasonType.FormatOnly,
+                           Confidence = 0.99,
+                           Reason = "源项与候选项在规范化后文本一致"
+                       },
                 _ => new LlmEquivalenceAdjudicationResult
                 {
                     Verdict = LlmEquivalenceVerdict.Different,

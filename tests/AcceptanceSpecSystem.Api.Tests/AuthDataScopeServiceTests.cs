@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Api.Services;
+﻿using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;

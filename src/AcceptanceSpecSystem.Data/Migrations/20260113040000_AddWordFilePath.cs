@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Data.Context;
+﻿using AcceptanceSpecSystem.Data.Context;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 

@@ -59,9 +59,13 @@ export function useSmartFillLlmStream({
     message = "LLM流式输出中断，已转为人工确认",
     pendingRowKeys = activeLlmStreamPendingRowKeys.value
   ) => {
-    batchPreviewResults.value.forEach((tableResult) => {
-      tableResult.items.forEach((item) => {
-        if (!pendingRowKeys.has(buildLlmStreamRowKey(tableResult.tableIndex, item.rowIndex))) {
+    batchPreviewResults.value.forEach(tableResult => {
+      tableResult.items.forEach(item => {
+        if (
+          !pendingRowKeys.has(
+            buildLlmStreamRowKey(tableResult.tableIndex, item.rowIndex)
+          )
+        ) {
           return;
         }
 
@@ -92,9 +96,12 @@ export function useSmartFillLlmStream({
         ? complete.completedRowKeys
         : [...activeLlmStreamPendingRowKeys.value];
 
-      batchPreviewResults.value.forEach((tableResult) => {
-        tableResult.items.forEach((item) => {
-          const rowKey = buildLlmStreamRowKey(tableResult.tableIndex, item.rowIndex);
+      batchPreviewResults.value.forEach(tableResult => {
+        tableResult.items.forEach(item => {
+          const rowKey = buildLlmStreamRowKey(
+            tableResult.tableIndex,
+            item.rowIndex
+          );
           if (!completedRowKeys.includes(rowKey)) {
             return;
           }
@@ -114,7 +121,9 @@ export function useSmartFillLlmStream({
     const tableResult = batchPreviewResults.value.find(
       tableResult => tableResult.tableIndex === rowData.tableIndex
     );
-    const row = tableResult?.items.find((item) => item.rowIndex === rowData.rowIndex);
+    const row = tableResult?.items.find(
+      item => item.rowIndex === rowData.rowIndex
+    );
     if (!row) return;
 
     applyMatchLlmStreamEventToPreviewItem(row, event, data);
@@ -126,7 +135,7 @@ export function useSmartFillLlmStream({
   };
 
   const handleSseEvent = (raw: string) => {
-    const lines = raw.split("\n").filter((line) => line.trim().length > 0);
+    const lines = raw.split("\n").filter(line => line.trim().length > 0);
     let event = "message";
     const dataLines: string[] = [];
     for (const line of lines) {
@@ -156,18 +165,20 @@ export function useSmartFillLlmStream({
     if (!allPreviewItems.value.length) return;
 
     const scope = getScope();
-    const buildPayload = buildLlmStreamPayload
-      ?? ((s, items, config) => createMatchLlmStreamRequest({
+    const buildPayload =
+      buildLlmStreamPayload ??
+      ((s, items, config) =>
+        createMatchLlmStreamRequest({
           customerId: s.customerId,
           processId: s.processId,
           machineModelId: s.machineModelId,
           items,
           config
         }));
-    const llmItems = batchPreviewResults.value.flatMap((tableResult) =>
+    const llmItems = batchPreviewResults.value.flatMap(tableResult =>
       tableResult.items
         .filter(item => shouldStreamMatchReview(item.bestMatch))
-        .map((item) => ({
+        .map(item => ({
           tableIndex: tableResult.tableIndex,
           rowIndex: item.rowIndex,
           sourceProject: item.sourceProject,
@@ -195,10 +206,27 @@ export function useSmartFillLlmStream({
       llmItems.map(item => buildLlmStreamRowKey(item.tableIndex, item.rowIndex))
     );
 
+    // 前端兜底超时：若服务端长时间不推送 stream.complete，强制终止流，
+    // 防止 llmStreaming 永久为 true 导致执行填充按钮永久禁用。
+    // 超时时长 = 行数 × 每行最长 150 秒，最少 3 分钟，最多 20 分钟。
+    const timeoutMs = Math.min(
+      Math.max(llmItems.length * 150_000, 3 * 60_000),
+      20 * 60_000
+    );
+    const timeoutId = window.setTimeout(() => {
+      if (llmStreamController.value === controller) {
+        const message = "LLM复核超时，已转为人工确认";
+        finalizeInterruptedLlmStreamRows(message);
+        stopLlmStream();
+        ElMessage.warning(message);
+      }
+    }, timeoutMs);
+
     const payload = buildPayload(scope, llmItems, matchConfig.value);
 
     try {
-      const doRequest = onStartStream ?? ((p, c) => requestMatchLlmStream(p, c.signal));
+      const doRequest =
+        onStartStream ?? ((p, c) => requestMatchLlmStream(p, c.signal));
       const response = await doRequest(payload, controller);
 
       if (!response.ok || !response.body) {
@@ -214,7 +242,10 @@ export function useSmartFillLlmStream({
       let buffer = "";
 
       while (true) {
-        if (controller.signal.aborted || llmStreamController.value !== controller) {
+        if (
+          controller.signal.aborted ||
+          llmStreamController.value !== controller
+        ) {
           break;
         }
 
@@ -240,6 +271,7 @@ export function useSmartFillLlmStream({
         ElMessage.warning("LLM流式输出中断，已降级");
       }
     } finally {
+      window.clearTimeout(timeoutId);
       if (llmStreamController.value === controller) {
         if (!controller.signal.aborted) {
           finalizeInterruptedLlmStreamRows();

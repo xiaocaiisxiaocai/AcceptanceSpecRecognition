@@ -194,9 +194,9 @@ function handleContentClose(
       />
     </template>
     <component
-      v-if="options.contentRenderer"
       v-bind="options?.props"
       :is="renderContent(options, index)"
+      v-if="options.contentRenderer"
       @close="handleContentClose(options, index, $event)"
     />
     <!-- footer -->

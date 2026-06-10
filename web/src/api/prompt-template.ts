@@ -33,7 +33,7 @@ export interface PromptTemplatePreviewResponse {
   structuredOutputError?: string | null;
 }
 
-export interface PromptTemplateListRequest extends PagedRequest {}
+export type PromptTemplateListRequest = PagedRequest;
 
 const baseUrl = "/api/prompt-templates";
 
@@ -52,9 +52,7 @@ export const updatePromptTemplate = (
   });
 };
 
-export const previewPromptTemplate = (
-  data: PromptTemplatePreviewRequest
-) => {
+export const previewPromptTemplate = (data: PromptTemplatePreviewRequest) => {
   return http.request<ApiResponse<PromptTemplatePreviewResponse>>(
     "post",
     `${baseUrl}/preview`,

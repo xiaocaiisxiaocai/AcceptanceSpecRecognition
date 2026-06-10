@@ -52,10 +52,15 @@ export const normalizeHintOnlyDiffText = (text?: string) =>
     .replaceAll("（", "(")
     .replaceAll("）", ")");
 
-export const isHintOnlyTextDifference = (leftText?: string, rightText?: string) => {
+export const isHintOnlyTextDifference = (
+  leftText?: string,
+  rightText?: string
+) => {
   const left = normalizeHintOnlyDiffText(leftText);
   const right = normalizeHintOnlyDiffText(rightText);
-  return left.length > 0 && left === right && (leftText ?? "") !== (rightText ?? "");
+  return (
+    left.length > 0 && left === right && (leftText ?? "") !== (rightText ?? "")
+  );
 };
 
 const buildInlineDiffHtml = (
@@ -149,7 +154,9 @@ export function useScoreDetailDiff({
 
   const comparisonCandidate = computed(
     () =>
-      topCandidates.value.find(candidate => candidate.rank === comparisonRank.value) ??
+      topCandidates.value.find(
+        candidate => candidate.rank === comparisonRank.value
+      ) ??
       topCandidates.value[1] ??
       null
   );
@@ -157,16 +164,21 @@ export function useScoreDetailDiff({
   watch(
     () => topCandidates.value.map(candidate => candidate.rank).join(","),
     () => {
-      const firstComparable = topCandidates.value.find(candidate => candidate.rank > 1);
+      const firstComparable = topCandidates.value.find(
+        candidate => candidate.rank > 1
+      );
       if (!firstComparable) {
         comparisonRank.value = null;
         return;
       }
 
       const exists = topCandidates.value.some(
-        candidate => candidate.rank === comparisonRank.value && candidate.rank > 1
+        candidate =>
+          candidate.rank === comparisonRank.value && candidate.rank > 1
       );
-      comparisonRank.value = exists ? comparisonRank.value : firstComparable.rank;
+      comparisonRank.value = exists
+        ? comparisonRank.value
+        : firstComparable.rank;
     },
     { immediate: true }
   );
@@ -211,7 +223,8 @@ export function useScoreDetailDiff({
           leftHtml: diff.leftHtml,
           rightHtml: diff.rightHtml,
           isSame: diff.isSame,
-          isRiskRelevant: !diff.isSame && !isHintOnlyTextDifference(row.left, row.right)
+          isRiskRelevant:
+            !diff.isSame && !isHintOnlyTextDifference(row.left, row.right)
         };
       });
   });
@@ -250,7 +263,8 @@ export function useScoreDetailDiff({
           leftHtml: diff.leftHtml,
           rightHtml: diff.rightHtml,
           isSame: diff.isSame,
-          isRiskRelevant: !diff.isSame && !isHintOnlyTextDifference(row.left, row.right)
+          isRiskRelevant:
+            !diff.isSame && !isHintOnlyTextDifference(row.left, row.right)
         };
       })
       .filter(row => !row.isSame);

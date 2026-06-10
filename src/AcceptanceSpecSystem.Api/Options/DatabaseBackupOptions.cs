@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Api.Options;
+﻿namespace AcceptanceSpecSystem.Api.Options;
 
 /// <summary>
 /// 数据库备份配置选项。

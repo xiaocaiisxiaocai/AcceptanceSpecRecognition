@@ -52,8 +52,11 @@ const selectionCache = new Map<
   }>
 >();
 
-const activeTableResult = computed(() =>
-  props.results.find(result => String(result.tableIndex) === activeTab.value) ?? null
+const activeTableResult = computed(
+  () =>
+    props.results.find(
+      result => String(result.tableIndex) === activeTab.value
+    ) ?? null
 );
 
 const getTableTabLabel = (tableResult: BatchTablePreviewResult) => {
@@ -98,7 +101,9 @@ const canUseBestMatch = (item: MatchPreviewItem) => {
 const isHighConfidence = (item: MatchPreviewItem) =>
   getDecision(item) === "autoApply" && item.confidenceLevel === "high";
 
-const buildDefaultSelections = (tableResult?: BatchTablePreviewResult | null) => {
+const buildDefaultSelections = (
+  tableResult?: BatchTablePreviewResult | null
+) => {
   if (!tableResult) {
     return [];
   }
@@ -126,7 +131,7 @@ const buildDefaultSelections = (tableResult?: BatchTablePreviewResult | null) =>
 
 watch(
   () => props.results,
-  (results) => {
+  results => {
     selectionCache.clear();
     if (results.length === 0) {
       activeTab.value = "0";
@@ -233,33 +238,41 @@ const getAllEditedBackfillItems = () => {
   const result: Array<EditedBackfillItem & { tableIndex: number }> = [];
 
   for (const tableResult of props.results) {
-    const items = tableResult.tableIndex === activeTableIndex
-      ? activeItems
-      : getPersistedSelections(tableResult.tableIndex)
-        .filter(item =>
-          item.selected === true &&
-          item.manualCleared !== true &&
-          (item.overrideAcceptance !== undefined || item.overrideRemark !== undefined)
-        )
-        .map((item): EditedBackfillItem | null => {
-          const previewItem = tableResult.items.find(row => row.rowIndex === item.rowIndex);
-          if (!previewItem) return null;
-          if (!previewItem.bestMatch && !hasManualFillOverrideValue(item)) return null;
-          return {
-            rowIndex: item.rowIndex,
-            specId: item.specId,
-            sourceProject: previewItem.sourceProject,
-            sourceSpecification: previewItem.sourceSpecification,
-            originalAcceptance: previewItem.bestMatch?.acceptance,
-            originalRemark: previewItem.bestMatch?.remark,
-            overrideAcceptance: item.overrideAcceptance,
-            overrideRemark: item.overrideRemark,
-            actionType: previewItem.bestMatch ? "update" : "create"
-          } satisfies EditedBackfillItem;
-        })
-        .filter((item): item is EditedBackfillItem => !!item);
+    const items =
+      tableResult.tableIndex === activeTableIndex
+        ? activeItems
+        : getPersistedSelections(tableResult.tableIndex)
+            .filter(
+              item =>
+                item.selected === true &&
+                item.manualCleared !== true &&
+                (item.overrideAcceptance !== undefined ||
+                  item.overrideRemark !== undefined)
+            )
+            .map((item): EditedBackfillItem | null => {
+              const previewItem = tableResult.items.find(
+                row => row.rowIndex === item.rowIndex
+              );
+              if (!previewItem) return null;
+              if (!previewItem.bestMatch && !hasManualFillOverrideValue(item))
+                return null;
+              return {
+                rowIndex: item.rowIndex,
+                specId: item.specId,
+                sourceProject: previewItem.sourceProject,
+                sourceSpecification: previewItem.sourceSpecification,
+                originalAcceptance: previewItem.bestMatch?.acceptance,
+                originalRemark: previewItem.bestMatch?.remark,
+                overrideAcceptance: item.overrideAcceptance,
+                overrideRemark: item.overrideRemark,
+                actionType: previewItem.bestMatch ? "update" : "create"
+              } satisfies EditedBackfillItem;
+            })
+            .filter((item): item is EditedBackfillItem => !!item);
 
-    result.push(...items.map(item => ({ ...item, tableIndex: tableResult.tableIndex })));
+    result.push(
+      ...items.map(item => ({ ...item, tableIndex: tableResult.tableIndex }))
+    );
   }
 
   return result;
@@ -309,9 +322,11 @@ defineExpose({ getAllSelections, getAllEditedBackfillItems });
         :high-confidence-threshold="highConfidenceThreshold"
         :ambiguity-margin="ambiguityMargin"
         :llm-streaming="llmStreaming"
-        :persisted-selections="getPersistedSelections(activeTableResult.tableIndex)"
+        :persisted-selections="
+          getPersistedSelections(activeTableResult.tableIndex)
+        "
         @select="handleSelect"
-        @show-detail="(item) => emit('showDetail', item)"
+        @show-detail="item => emit('showDetail', item)"
       />
     </div>
   </div>
@@ -323,9 +338,9 @@ defineExpose({ getAllSelections, getAllEditedBackfillItems });
 }
 
 .table-stats {
-  margin-bottom: 12px;
   display: flex;
   gap: 8px;
+  margin-bottom: 12px;
 }
 
 .active-preview-table {

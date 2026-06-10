@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Data.Entities;
+﻿namespace AcceptanceSpecSystem.Data.Entities;
 
 public enum PromptTemplateScene
 {

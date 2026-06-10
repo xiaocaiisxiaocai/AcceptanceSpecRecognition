@@ -1,6 +1,10 @@
-import { type ComputedRef, type Ref } from "vue";
+import type { ComputedRef, Ref } from "vue";
 import { ElMessage } from "element-plus";
-import { getFileTables, type FileUploadResponse, type TableInfo } from "@/api/document";
+import {
+  getFileTables,
+  type FileUploadResponse,
+  type TableInfo
+} from "@/api/document";
 import {
   getEffectiveColumnMappingRules,
   type ColumnMappingRule
@@ -35,13 +39,19 @@ export function useSmartFillUploadedTables({
       Math.min(preferredIndex, totalColumns - 1);
     const matchedWordColumns = isExcelFile.value
       ? {}
-      : matchWordTableColumnsByRules(table.headers, wordColumnMappingRules.value, {
-          fallbackToSequential: true
-        });
+      : matchWordTableColumnsByRules(
+          table.headers,
+          wordColumnMappingRules.value,
+          {
+            fallbackToSequential: true
+          }
+        );
 
     return {
       tableIndex: table.index,
-      projectColumnIndex: clampColumnIndex(matchedWordColumns.projectColumnIndex ?? 0),
+      projectColumnIndex: clampColumnIndex(
+        matchedWordColumns.projectColumnIndex ?? 0
+      ),
       specificationColumnIndex: clampColumnIndex(
         matchedWordColumns.specificationColumnIndex ?? 1
       ),
@@ -83,7 +93,9 @@ export function useSmartFillUploadedTables({
           wordColumnMappingRules.value = rulesRes.data || [];
         } else {
           wordColumnMappingRules.value = [];
-          ElMessage.warning(rulesRes.message || "加载列映射规则失败，已按默认列位初始化");
+          ElMessage.warning(
+            rulesRes.message || "加载列映射规则失败，已按默认列位初始化"
+          );
         }
       } else {
         wordColumnMappingRules.value = [];

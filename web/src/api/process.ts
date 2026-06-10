@@ -20,8 +20,7 @@ export interface UpdateProcessRequest {
 }
 
 /** 制程列表请求参数 */
-export interface ProcessListRequest extends PagedRequest {
-}
+export type ProcessListRequest = PagedRequest;
 
 /** 验收规格类型（简化版，用于制程详情） */
 export interface AcceptanceSpec {
@@ -78,10 +77,7 @@ export const batchDeleteProcesses = (ids: number[]) => {
 };
 
 /** 获取制程的验收规格列表 */
-export const getProcessSpecs = (
-  processId: number,
-  params?: PagedRequest
-) => {
+export const getProcessSpecs = (processId: number, params?: PagedRequest) => {
   return http.request<ApiResponse<PagedData<AcceptanceSpec>>>(
     "get",
     `${baseUrl}/${processId}/specs`,

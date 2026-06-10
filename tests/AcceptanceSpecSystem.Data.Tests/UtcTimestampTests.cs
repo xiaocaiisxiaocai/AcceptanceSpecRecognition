@@ -1,7 +1,7 @@
+﻿using System.Reflection;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using FluentAssertions;
-using System.Reflection;
 
 namespace AcceptanceSpecSystem.Data.Tests;
 

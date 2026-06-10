@@ -59,8 +59,9 @@ const duplicateDialogVisible = ref(false);
 const duplicateLoading = ref(false);
 const duplicateResult = ref<SpecDuplicateDetectionResult | null>(null);
 const semanticSearchDialogVisible = ref(false);
-const semanticSearchDialogRef =
-  ref<InstanceType<typeof SpecSemanticSearchDialog> | null>(null);
+const semanticSearchDialogRef = ref<InstanceType<
+  typeof SpecSemanticSearchDialog
+> | null>(null);
 
 const canCreate = computed(() => hasPerms("btn:spec:create"));
 const canUpdate = computed(() => hasPerms("btn:spec:update"));
@@ -507,7 +508,9 @@ const groupLabel = () => {
           min-width="120"
         >
           <template #default="{ row }">
-            <span class="line-clamp-1" :title="row.customerName">{{ row.customerName }}</span>
+            <span class="line-clamp-1" :title="row.customerName">{{
+              row.customerName
+            }}</span>
           </template>
         </el-table-column>
         <el-table-column
@@ -517,7 +520,12 @@ const groupLabel = () => {
           min-width="120"
         >
           <template #default="{ row }">
-            <span v-if="row.machineModelName" class="line-clamp-1" :title="row.machineModelName">{{ row.machineModelName }}</span>
+            <span
+              v-if="row.machineModelName"
+              class="line-clamp-1"
+              :title="row.machineModelName"
+              >{{ row.machineModelName }}</span
+            >
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
@@ -528,29 +536,45 @@ const groupLabel = () => {
           min-width="120"
         >
           <template #default="{ row }">
-            <span v-if="row.processName" class="line-clamp-1" :title="row.processName">{{ row.processName }}</span>
+            <span
+              v-if="row.processName"
+              class="line-clamp-1"
+              :title="row.processName"
+              >{{ row.processName }}</span
+            >
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
         <el-table-column prop="project" label="项目" min-width="150">
           <template #default="{ row }">
-            <span class="line-clamp-1" :title="row.project">{{ row.project }}</span>
+            <span class="line-clamp-1" :title="row.project">{{
+              row.project
+            }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="specification" label="规格内容" min-width="200">
           <template #default="{ row }">
-            <span class="line-clamp-1" :title="row.specification">{{ row.specification }}</span>
+            <span class="line-clamp-1" :title="row.specification">{{
+              row.specification
+            }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="acceptance" label="验收标准" min-width="150">
           <template #default="{ row }">
-            <span v-if="row.acceptance" class="line-clamp-1" :title="row.acceptance">{{ row.acceptance }}</span>
+            <span
+              v-if="row.acceptance"
+              class="line-clamp-1"
+              :title="row.acceptance"
+              >{{ row.acceptance }}</span
+            >
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="150">
           <template #default="{ row }">
-            <span v-if="row.remark" class="line-clamp-1" :title="row.remark">{{ row.remark }}</span>
+            <span v-if="row.remark" class="line-clamp-1" :title="row.remark">{{
+              row.remark
+            }}</span>
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
@@ -559,10 +583,20 @@ const groupLabel = () => {
             <el-button type="primary" link @click="handleView(row)">
               查看
             </el-button>
-            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">
+            <el-button
+              v-if="canUpdate"
+              type="primary"
+              link
+              @click="handleEdit(row)"
+            >
               编辑
             </el-button>
-            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">
+            <el-button
+              v-if="canDelete"
+              type="danger"
+              link
+              @click="handleDelete(row)"
+            >
               删除
             </el-button>
           </template>
@@ -699,17 +733,17 @@ const groupLabel = () => {
 
 .toolbar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .toolbar-left,
 .toolbar-right {
   display: flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
 }
 
 .table-main {
@@ -719,15 +753,15 @@ const groupLabel = () => {
 
 .pagination {
   display: flex;
+  flex-shrink: 0;
   justify-content: flex-end;
   margin-top: 12px;
-  flex-shrink: 0;
 }
 
 .line-clamp-1 {
   display: -webkit-box;
+  overflow: hidden;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 </style>

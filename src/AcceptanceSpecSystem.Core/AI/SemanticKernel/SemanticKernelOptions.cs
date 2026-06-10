@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
+﻿namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 
 public sealed class SemanticKernelOptions
 {

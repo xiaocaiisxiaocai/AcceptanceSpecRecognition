@@ -91,7 +91,9 @@ const getSectionStyle = computed(() => {
 
 const syncBackTopTarget = () => {
   nextTick(() => {
-    backTopTarget.value = document.querySelector(".app-main .el-scrollbar__wrap")
+    backTopTarget.value = document.querySelector(
+      ".app-main .el-scrollbar__wrap"
+    )
       ? ".app-main .el-scrollbar__wrap"
       : "";
   });
@@ -167,10 +169,7 @@ const transitionMain = defineComponent({
               </el-backtop>
               <div class="grow">
                 <transitionMain :route="route">
-                  <keep-alive
-                    v-if="isKeepAlive"
-                    :include="keepAliveIncludes"
-                  >
+                  <keep-alive v-if="isKeepAlive" :include="keepAliveIncludes">
                     <component
                       :is="Comp"
                       :key="fullPath"
@@ -191,10 +190,7 @@ const transitionMain = defineComponent({
             </el-scrollbar>
             <div v-else class="grow">
               <transitionMain :route="route">
-                <keep-alive
-                  v-if="isKeepAlive"
-                  :include="keepAliveIncludes"
-                >
+                <keep-alive v-if="isKeepAlive" :include="keepAliveIncludes">
                   <component
                     :is="Comp"
                     :key="fullPath"

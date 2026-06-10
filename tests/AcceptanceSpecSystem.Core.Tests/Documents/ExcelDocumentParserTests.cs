@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using AcceptanceSpecSystem.Core.Documents.Parsers;
 using ClosedXML.Excel;
 using FluentAssertions;

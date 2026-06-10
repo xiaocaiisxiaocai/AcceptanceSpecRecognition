@@ -32,7 +32,9 @@ const upsertDuplicateResolutions = (
   nextResolution: BatchReplyDuplicateResolution
 ) => {
   const nextList = [...(resolutions ?? [])];
-  const existingIndex = nextList.findIndex(item => item.groupId === nextResolution.groupId);
+  const existingIndex = nextList.findIndex(
+    item => item.groupId === nextResolution.groupId
+  );
   if (existingIndex >= 0) {
     nextList[existingIndex] = nextResolution;
   } else {
@@ -55,10 +57,15 @@ export const buildDuplicateDialogState = (params: {
       const config =
         group.duplicateSource === "source"
           ? sourceConfigs.find(source => source.tableIndex === group.tableIndex)
-          : targetConfigs?.find(configItem => configItem.tableIndex === group.tableIndex);
+          : targetConfigs?.find(
+              configItem => configItem.tableIndex === group.tableIndex
+            );
       return [
         group.groupId,
-        getDuplicateResolutionFromConfig(config?.duplicateResolutions, group.groupId) ?? "keepFirst"
+        getDuplicateResolutionFromConfig(
+          config?.duplicateResolutions,
+          group.groupId
+        ) ?? "keepFirst"
       ];
     })
   ) as Record<string, BatchReplyDuplicateStrategy>;
@@ -90,7 +97,9 @@ export const updateDuplicateDialogStrategyState = (
   };
 };
 
-export const applyDuplicateResolutionState = <TTarget extends TargetConfigState>(params: {
+export const applyDuplicateResolutionState = <
+  TTarget extends TargetConfigState
+>(params: {
   dialog: BatchReplyDuplicateDialogState;
   sourceConfigs: BatchReplyTableConfigItem[];
   targetFiles: TTarget[];
@@ -141,7 +150,8 @@ export const applyDuplicateResolutionState = <TTarget extends TargetConfigState>
               groupedResolutions.target[config.tableIndex]
                 ? {
                     ...config,
-                    duplicateResolutions: groupedResolutions.target[config.tableIndex]
+                    duplicateResolutions:
+                      groupedResolutions.target[config.tableIndex]
                   }
                 : config
             )

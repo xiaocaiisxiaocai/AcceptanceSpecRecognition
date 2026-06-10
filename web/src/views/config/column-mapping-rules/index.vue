@@ -21,7 +21,9 @@ defineOptions({
 const loading = ref(false);
 const rules = ref<ColumnMappingRule[]>([]);
 
-const activeTarget = ref<ColumnMappingTargetField>(ColumnMappingTargetField.Project);
+const activeTarget = ref<ColumnMappingTargetField>(
+  ColumnMappingTargetField.Project
+);
 
 const targetOptions = [
   { label: "项目", value: ColumnMappingTargetField.Project },
@@ -46,11 +48,15 @@ const tabKeywords = reactive({
 const canCreate = computed(() => hasPerms("btn:column-mapping-rule:create"));
 const canUpdate = computed(() => hasPerms("btn:column-mapping-rule:update"));
 const canDelete = computed(() => hasPerms("btn:column-mapping-rule:delete"));
-const canSubmit = computed(() => (isEdit.value ? canUpdate.value : canCreate.value));
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
 const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
 
 const getMatchModeLabel = (matchMode: ColumnMappingMatchMode) =>
-  matchModeOptions.find(option => option.value === matchMode)?.label.toLowerCase() ?? "";
+  matchModeOptions
+    .find(option => option.value === matchMode)
+    ?.label.toLowerCase() ?? "";
 
 const filteredRulesByTarget = computed(() => {
   const result = {} as Record<ColumnMappingTargetField, ColumnMappingRule[]>;
@@ -107,7 +113,12 @@ const form = reactive({
 });
 
 const openAdd = () => {
-  if (!ensurePermission("btn:column-mapping-rule:create", "权限不足，无法新增列映射规则")) {
+  if (
+    !ensurePermission(
+      "btn:column-mapping-rule:create",
+      "权限不足，无法新增列映射规则"
+    )
+  ) {
     return;
   }
 
@@ -123,7 +134,12 @@ const openAdd = () => {
 };
 
 const openEdit = (row: ColumnMappingRule) => {
-  if (!ensurePermission("btn:column-mapping-rule:update", "权限不足，无法编辑列映射规则")) {
+  if (
+    !ensurePermission(
+      "btn:column-mapping-rule:update",
+      "权限不足，无法编辑列映射规则"
+    )
+  ) {
     return;
   }
 
@@ -141,8 +157,12 @@ const openEdit = (row: ColumnMappingRule) => {
 const submit = async () => {
   if (
     !ensurePermission(
-      isEdit.value ? "btn:column-mapping-rule:update" : "btn:column-mapping-rule:create",
-      isEdit.value ? "权限不足，无法保存列映射规则" : "权限不足，无法新增列映射规则"
+      isEdit.value
+        ? "btn:column-mapping-rule:update"
+        : "btn:column-mapping-rule:create",
+      isEdit.value
+        ? "权限不足，无法保存列映射规则"
+        : "权限不足，无法新增列映射规则"
     )
   ) {
     return;
@@ -180,7 +200,12 @@ const submit = async () => {
 };
 
 const persistRow = async (row: ColumnMappingRule) => {
-  if (!ensurePermission("btn:column-mapping-rule:update", "权限不足，无法更新列映射规则")) {
+  if (
+    !ensurePermission(
+      "btn:column-mapping-rule:update",
+      "权限不足，无法更新列映射规则"
+    )
+  ) {
     await load();
     return;
   }
@@ -208,7 +233,12 @@ const toggleEnabled = async (row: ColumnMappingRule) => {
 };
 
 const remove = async (row: ColumnMappingRule) => {
-  if (!ensurePermission("btn:column-mapping-rule:delete", "权限不足，无法删除列映射规则")) {
+  if (
+    !ensurePermission(
+      "btn:column-mapping-rule:delete",
+      "权限不足，无法删除列映射规则"
+    )
+  ) {
     return;
   }
 
@@ -254,7 +284,8 @@ onMounted(load);
       </template>
 
       <div class="mb-3 text-sm text-gray-500">
-        用于 Word 导入和智能填充时自动识别表头列，例如将“工艺流程 / 项目 / 项目管理”都映射到“项目”列。
+        用于 Word 导入和智能填充时自动识别表头列，例如将“工艺流程 / 项目 /
+        项目管理”都映射到“项目”列。
       </div>
 
       <el-tabs v-model="activeTarget" type="card">
@@ -329,10 +360,20 @@ onMounted(load);
               fixed="right"
             >
               <template #default="{ row }">
-                <el-button v-if="canUpdate" type="primary" link @click="openEdit(row)">
+                <el-button
+                  v-if="canUpdate"
+                  type="primary"
+                  link
+                  @click="openEdit(row)"
+                >
                   编辑
                 </el-button>
-                <el-button v-if="canDelete" type="danger" link @click="remove(row)">
+                <el-button
+                  v-if="canDelete"
+                  type="danger"
+                  link
+                  @click="remove(row)"
+                >
                   删除
                 </el-button>
               </template>
@@ -345,7 +386,10 @@ onMounted(load);
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="520">
       <el-form label-width="90px">
         <el-form-item label="目标字段" required>
-          <el-select v-model="form.targetField" popper-class="config-select-popper">
+          <el-select
+            v-model="form.targetField"
+            popper-class="config-select-popper"
+          >
             <el-option
               v-for="target in targetOptions"
               :key="target.value"
@@ -355,7 +399,10 @@ onMounted(load);
           </el-select>
         </el-form-item>
         <el-form-item label="匹配模式">
-          <el-select v-model="form.matchMode" popper-class="config-select-popper">
+          <el-select
+            v-model="form.matchMode"
+            popper-class="config-select-popper"
+          >
             <el-option
               v-for="mode in matchModeOptions"
               :key="mode.value"

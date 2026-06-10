@@ -84,7 +84,9 @@ onMounted(loadTree);
         <div class="flex items-center justify-between">
           <div>
             <div class="page-title">组织管理</div>
-            <div class="page-subtitle">系统固定为单组织模式，仅维护根组织信息</div>
+            <div class="page-subtitle">
+              系统固定为单组织模式，仅维护根组织信息
+            </div>
           </div>
         </div>
       </template>
@@ -107,9 +109,7 @@ onMounted(loadTree);
         <el-table-column prop="name" label="组织名称" min-width="220" />
         <el-table-column prop="code" label="编码" min-width="120" />
         <el-table-column label="类型" width="120">
-          <template #default>
-            公司
-          </template>
+          <template #default> 公司 </template>
         </el-table-column>
         <el-table-column prop="sort" label="排序" width="90" />
         <el-table-column label="状态" width="90">
@@ -119,7 +119,12 @@ onMounted(loadTree);
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="canUpdate" label="操作" width="140" fixed="right">
+        <el-table-column
+          v-if="canUpdate"
+          label="操作"
+          width="140"
+          fixed="right"
+        >
           <template #default="{ row }">
             <el-button type="primary" link @click="openEditDialog(row)">
               编辑
@@ -128,7 +133,10 @@ onMounted(loadTree);
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="!loading && !rootOrgUnit" description="未找到根组织数据" />
+      <el-empty
+        v-if="!loading && !rootOrgUnit"
+        description="未找到根组织数据"
+      />
     </el-card>
 
     <el-dialog v-model="editDialogVisible" title="编辑组织" width="520">
@@ -148,7 +156,11 @@ onMounted(loadTree);
       </el-form>
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button type="primary" v-perms="'btn:org-unit:update'" @click="handleUpdate">
+        <el-button
+          v-perms="'btn:org-unit:update'"
+          type="primary"
+          @click="handleUpdate"
+        >
           保存
         </el-button>
       </template>

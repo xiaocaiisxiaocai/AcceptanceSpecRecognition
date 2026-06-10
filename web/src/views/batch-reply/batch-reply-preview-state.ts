@@ -39,8 +39,12 @@ export const prunePreviewResultsForConfigChange = <T>(
   previousConfigs: PreviewTrackedConfig[],
   nextConfigs: PreviewTrackedConfig[]
 ) => {
-  const previousMap = new Map(previousConfigs.map(config => [config.tableIndex, config]));
-  const nextMap = new Map(nextConfigs.map(config => [config.tableIndex, config]));
+  const previousMap = new Map(
+    previousConfigs.map(config => [config.tableIndex, config])
+  );
+  const nextMap = new Map(
+    nextConfigs.map(config => [config.tableIndex, config])
+  );
   const nextResults: Record<number, T> = {};
 
   Object.entries(previousResults).forEach(([tableIndexText, result]) => {

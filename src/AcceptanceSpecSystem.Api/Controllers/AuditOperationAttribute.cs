@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Middleware;

@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Data.Entities;
+﻿namespace AcceptanceSpecSystem.Data.Entities;
 
 /// <summary>
 /// AI服务配置实体

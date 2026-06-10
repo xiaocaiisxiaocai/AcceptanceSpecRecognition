@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+﻿using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Core.Tests.AI.SemanticKernel;

@@ -5,10 +5,16 @@
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.4.1" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
-    <PackageReference Include="Microsoft.SemanticKernel" Version="1.68.0" />
-    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.68.0" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.77.0" />
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.77.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="OpenCCNET" Version="1.1.0" />
+    <!-- 顶替传递依赖中的易受攻击版本 -->
+    <!-- System.Drawing.Common 4.7.0 (Critical, GHSA-rxg9-xrhp-64gj) 经 OpenCCNET→jieba.NET 链路引入 -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.10" />
+    <!-- System.Net.Http 4.3.0 (High, GHSA-7jgj-8wvc-jh57) / System.Text.RegularExpressions 4.3.0 (High, GHSA-cmhx-cq75-c4mj) -->
+    <PackageReference Include="System.Net.Http" Version="4.3.4" />
+    <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
   </ItemGroup>
 
   <PropertyGroup>

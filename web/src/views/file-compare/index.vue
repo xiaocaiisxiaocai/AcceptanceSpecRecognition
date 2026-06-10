@@ -54,7 +54,9 @@ let syncing = false;
 const isExcel = computed(() => fileType.value === 1);
 const canUploadCompare = computed(() => hasPerms("btn:file-compare:upload"));
 const canPreviewCompare = computed(() => hasPerms("btn:file-compare:preview"));
-const canDownloadCompare = computed(() => hasPerms("btn:file-compare:download"));
+const canDownloadCompare = computed(() =>
+  hasPerms("btn:file-compare:download")
+);
 const canStartCompare = computed(
   () => canUploadCompare.value && canPreviewCompare.value
 );
@@ -62,12 +64,14 @@ const canStartCompare = computed(
 const totalCount = computed(() => diffItems.value.length);
 const wordItems = computed(() => {
   if (!onlyDiff.value) return diffItems.value;
-  return diffItems.value.filter((item) => item.diffType !== "Unchanged");
+  return diffItems.value.filter(item => item.diffType !== "Unchanged");
 });
 
 const tableOptions = computed(() => {
-  const source = tableInfosA.value.length ? tableInfosA.value : tableInfosB.value;
-  return source.map((table) => ({
+  const source = tableInfosA.value.length
+    ? tableInfosA.value
+    : tableInfosB.value;
+  return source.map(table => ({
     value: table.index,
     label: isExcel.value
       ? `工作表 ${table.index + 1}${table.name ? `（${table.name}）` : ""}`
@@ -76,21 +80,30 @@ const tableOptions = computed(() => {
 });
 
 const currentTableInfoA = computed(
-  () => tableInfosA.value.find((item) => item.index === selectedTableIndex.value) ?? null
+  () =>
+    tableInfosA.value.find(item => item.index === selectedTableIndex.value) ??
+    null
 );
 
 const currentTableInfoB = computed(
-  () => tableInfosB.value.find((item) => item.index === selectedTableIndex.value) ?? null
+  () =>
+    tableInfosB.value.find(item => item.index === selectedTableIndex.value) ??
+    null
 );
 
 const diffMap = computed(() => {
   const map = new Map<string, FileCompareDiffItem>();
   if (selectedTableIndex.value === null) return map;
-  diffItems.value.forEach((item) => {
+  diffItems.value.forEach(item => {
     const tableIndex = item.location?.tableIndex;
     const rowIndex = item.location?.rowIndex;
     const columnIndex = item.location?.columnIndex;
-    if (tableIndex === undefined || rowIndex === undefined || columnIndex === undefined) return;
+    if (
+      tableIndex === undefined ||
+      rowIndex === undefined ||
+      columnIndex === undefined
+    )
+      return;
     if (tableIndex !== selectedTableIndex.value) return;
     const key = `${tableIndex}-${rowIndex}-${columnIndex}`;
     map.set(key, item);
@@ -98,7 +111,8 @@ const diffMap = computed(() => {
   return map;
 });
 
-const getExt = (name: string) => name.slice(name.lastIndexOf(".")).toLowerCase();
+const getExt = (name: string) =>
+  name.slice(name.lastIndexOf(".")).toLowerCase();
 
 const resetResult = () => {
   diffItems.value = [];
@@ -150,10 +164,14 @@ const validateFiles = () => {
 };
 
 const startCompare = async () => {
-  if (!ensurePermission("btn:file-compare:upload", "权限不足，无法上传对比文件")) {
+  if (
+    !ensurePermission("btn:file-compare:upload", "权限不足，无法上传对比文件")
+  ) {
     return;
   }
-  if (!ensurePermission("btn:file-compare:preview", "权限不足，无法执行文件对比")) {
+  if (
+    !ensurePermission("btn:file-compare:preview", "权限不足，无法执行文件对比")
+  ) {
     return;
   }
   if (!validateFiles()) return;
@@ -203,7 +221,9 @@ const startCompare = async () => {
 };
 
 const downloadResult = async () => {
-  if (!ensurePermission("btn:file-compare:download", "权限不足，无法下载对比结果")) {
+  if (
+    !ensurePermission("btn:file-compare:download", "权限不足，无法下载对比结果")
+  ) {
     return;
   }
   if (!uploadedA.value || !uploadedB.value) {
@@ -249,7 +269,7 @@ const loadTableInfos = async () => {
   tableInfosB.value = resB.code === 0 ? resB.data : [];
 
   const firstDiffIndex = diffItems.value.find(
-    (item) => item.location?.tableIndex !== undefined
+    item => item.location?.tableIndex !== undefined
   )?.location?.tableIndex;
   const fallbackIndex =
     tableInfosA.value[0]?.index ?? tableInfosB.value[0]?.index ?? null;
@@ -271,7 +291,11 @@ const loadTablePreviews = async () => {
 
   try {
     const [resA, resB] = await Promise.all([
-      getTablePreview(uploadedA.value.fileId, selectedTableIndex.value, options),
+      getTablePreview(
+        uploadedA.value.fileId,
+        selectedTableIndex.value,
+        options
+      ),
       getTablePreview(uploadedB.value.fileId, selectedTableIndex.value, options)
     ]);
 
@@ -311,32 +335,43 @@ const getWordParagraphIndex = (row: FileCompareDiffItem, idx: number) => {
 
 const getWordPaneRawText = (row: FileCompareDiffItem, side: WordPaneSide) => {
   if (row.diffType === "Added") {
-    return side === "right" ? row.currentText ?? "" : "";
+    return side === "right" ? (row.currentText ?? "") : "";
   }
   if (row.diffType === "Removed") {
-    return side === "left" ? row.originalText ?? "" : "";
+    return side === "left" ? (row.originalText ?? "") : "";
   }
   if (row.diffType === "Modified") {
-    return side === "left" ? row.originalText ?? "" : row.currentText ?? "";
+    return side === "left" ? (row.originalText ?? "") : (row.currentText ?? "");
   }
   return side === "left"
-    ? row.originalText ?? row.currentText ?? ""
-    : row.currentText ?? row.originalText ?? "";
+    ? (row.originalText ?? row.currentText ?? "")
+    : (row.currentText ?? row.originalText ?? "");
 };
 
-const getWordPaneDisplayText = (row: FileCompareDiffItem, side: WordPaneSide) => {
+const getWordPaneDisplayText = (
+  row: FileCompareDiffItem,
+  side: WordPaneSide
+) => {
   const text = getWordPaneRawText(row, side).trim();
   if (text.length > 0) return text;
-  if (row.diffType === "Added" && side === "left") return "（该段为新增，仅存在于文件 B）";
-  if (row.diffType === "Removed" && side === "right") return "（该段已删除，仅存在于文件 A）";
+  if (row.diffType === "Added" && side === "left")
+    return "（该段为新增，仅存在于文件 B）";
+  if (row.diffType === "Removed" && side === "right")
+    return "（该段已删除，仅存在于文件 A）";
   return "（空白段落）";
 };
 
-const isWordPanePlaceholder = (row: FileCompareDiffItem, side: WordPaneSide) => {
+const isWordPanePlaceholder = (
+  row: FileCompareDiffItem,
+  side: WordPaneSide
+) => {
   return getWordPaneRawText(row, side).trim().length === 0;
 };
 
-const getWordParagraphClass = (row: FileCompareDiffItem, side: WordPaneSide) => {
+const getWordParagraphClass = (
+  row: FileCompareDiffItem,
+  side: WordPaneSide
+) => {
   return {
     "paragraph-card": true,
     "is-unchanged": row.diffType === "Unchanged",
@@ -379,7 +414,7 @@ watch(
 
 watch(
   () => activeView.value,
-  (view) => {
+  view => {
     if (view === "unified" && diffItems.value.length > 0 && !onlyDiff.value) {
       onlyDiff.value = true;
     }
@@ -447,7 +482,7 @@ watch(
       </div>
     </el-card>
 
-    <el-card class="compare-card" v-if="uploadedA && uploadedB">
+    <el-card v-if="uploadedA && uploadedB" class="compare-card">
       <template #header>
         <div class="card-title">对比结果</div>
       </template>
@@ -473,11 +508,18 @@ watch(
         </el-radio-group>
       </div>
 
-      <div class="table-controls" v-if="activeView === 'document' && tableOptions.length">
+      <div
+        v-if="activeView === 'document' && tableOptions.length"
+        class="table-controls"
+      >
         <span class="control-label">
           {{ isExcel ? "选择工作表" : "选择表格" }}
         </span>
-        <el-select v-model="selectedTableIndex" placeholder="请选择" class="table-select">
+        <el-select
+          v-model="selectedTableIndex"
+          placeholder="请选择"
+          class="table-select"
+        >
           <el-option
             v-for="item in tableOptions"
             :key="item.value"
@@ -487,13 +529,13 @@ watch(
         </el-select>
       </div>
 
-      <div class="compare-grid" v-if="activeView === 'document'">
+      <div v-if="activeView === 'document'" class="compare-grid">
         <div class="compare-pane">
           <div class="pane-title">
             <span>文件 A（原文）</span>
             <span class="pane-file">{{ uploadedA?.fileName }}</span>
           </div>
-          <div class="pane-body" ref="leftPaneRef" @scroll="syncScroll('left')">
+          <div ref="leftPaneRef" class="pane-body" @scroll="syncScroll('left')">
             <template v-if="isExcel">
               <CompareTableGrid
                 :table-index="selectedTableIndex ?? 0"
@@ -515,13 +557,26 @@ watch(
                   :class="getWordParagraphClass(row, 'left')"
                 >
                   <header class="paragraph-head">
-                    <span class="paragraph-no">段落 {{ getWordParagraphIndex(row, idx) }}</span>
-                    <span class="paragraph-location">{{ buildLocationText(row) }}</span>
-                    <el-tag :type="getDiffTagType(row.diffType)" size="small" effect="plain">
+                    <span class="paragraph-no"
+                      >段落 {{ getWordParagraphIndex(row, idx) }}</span
+                    >
+                    <span class="paragraph-location">{{
+                      buildLocationText(row)
+                    }}</span>
+                    <el-tag
+                      :type="getDiffTagType(row.diffType)"
+                      size="small"
+                      effect="plain"
+                    >
                       {{ formatDiffType(row.diffType) }}
                     </el-tag>
                   </header>
-                  <p class="paragraph-text" :class="{ 'is-placeholder': isWordPanePlaceholder(row, 'left') }">
+                  <p
+                    class="paragraph-text"
+                    :class="{
+                      'is-placeholder': isWordPanePlaceholder(row, 'left')
+                    }"
+                  >
                     {{ getWordPaneDisplayText(row, "left") }}
                   </p>
                 </article>
@@ -534,7 +589,11 @@ watch(
             <span>文件 B（新文）</span>
             <span class="pane-file">{{ uploadedB?.fileName }}</span>
           </div>
-          <div class="pane-body" ref="rightPaneRef" @scroll="syncScroll('right')">
+          <div
+            ref="rightPaneRef"
+            class="pane-body"
+            @scroll="syncScroll('right')"
+          >
             <template v-if="isExcel">
               <CompareTableGrid
                 :table-index="selectedTableIndex ?? 0"
@@ -556,13 +615,26 @@ watch(
                   :class="getWordParagraphClass(row, 'right')"
                 >
                   <header class="paragraph-head">
-                    <span class="paragraph-no">段落 {{ getWordParagraphIndex(row, idx) }}</span>
-                    <span class="paragraph-location">{{ buildLocationText(row) }}</span>
-                    <el-tag :type="getDiffTagType(row.diffType)" size="small" effect="plain">
+                    <span class="paragraph-no"
+                      >段落 {{ getWordParagraphIndex(row, idx) }}</span
+                    >
+                    <span class="paragraph-location">{{
+                      buildLocationText(row)
+                    }}</span>
+                    <el-tag
+                      :type="getDiffTagType(row.diffType)"
+                      size="small"
+                      effect="plain"
+                    >
                       {{ formatDiffType(row.diffType) }}
                     </el-tag>
                   </header>
-                  <p class="paragraph-text" :class="{ 'is-placeholder': isWordPanePlaceholder(row, 'right') }">
+                  <p
+                    class="paragraph-text"
+                    :class="{
+                      'is-placeholder': isWordPanePlaceholder(row, 'right')
+                    }"
+                  >
                     {{ getWordPaneDisplayText(row, "right") }}
                   </p>
                 </article>
@@ -572,7 +644,12 @@ watch(
         </div>
       </div>
 
-      <UnifiedDiffView v-else :hunks="diffHunks" :items="diffItems" :only-diff="onlyDiff" />
+      <UnifiedDiffView
+        v-else
+        :hunks="diffHunks"
+        :items="diffItems"
+        :only-diff="onlyDiff"
+      />
     </el-card>
   </div>
 </template>
@@ -599,18 +676,18 @@ watch(
 }
 
 .actions {
-  margin-top: 16px;
   display: flex;
   gap: 12px;
+  margin-top: 16px;
 }
 
 .summary {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
+  align-items: center;
   margin-bottom: 12px;
   color: #606266;
-  align-items: center;
-  flex-wrap: wrap;
 }
 
 .diff-toggle {
@@ -623,8 +700,8 @@ watch(
 
 .table-controls {
   display: flex;
-  align-items: center;
   gap: 12px;
+  align-items: center;
   margin-bottom: 12px;
 }
 
@@ -644,30 +721,30 @@ watch(
 }
 
 .compare-pane {
-  border: 1px solid #eef0f3;
-  border-radius: 8px;
   overflow: hidden;
   background: #fff;
+  border: 1px solid #eef0f3;
+  border-radius: 8px;
 }
 
 .pane-title {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
   padding: 10px 12px;
   font-weight: 600;
   background: #f9fafb;
   border-bottom: 1px solid #eef0f3;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .pane-file {
-  font-size: 12px;
-  color: #6b7280;
-  font-weight: 400;
   max-width: 50%;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 400;
+  color: #6b7280;
   white-space: nowrap;
 }
 
@@ -682,32 +759,32 @@ watch(
 }
 
 .doc-pane {
-  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 12px;
   background: #f8fafc;
 }
 
 .paragraph-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
   padding: 10px 12px;
   background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
 }
 
 .paragraph-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
   flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
 }
 
 .paragraph-no {
   font-size: 13px;
-  color: #111827;
   font-weight: 600;
+  color: #111827;
 }
 
 .paragraph-location {
@@ -717,43 +794,43 @@ watch(
 
 .paragraph-text {
   margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
   line-height: 1.65;
   color: #1f2937;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .paragraph-text.is-placeholder {
-  color: #94a3b8;
   font-style: italic;
+  color: #94a3b8;
 }
 
 .paragraph-card.is-added {
-  border-color: #bbf7d0;
   background: #f0fdf4;
+  border-color: #bbf7d0;
 }
 
 .paragraph-card.is-removed {
-  border-color: #fecaca;
   background: #fef2f2;
+  border-color: #fecaca;
 }
 
 .paragraph-card.is-modified-old {
-  border-color: #fca5a5;
   background: #fff7f7;
+  border-color: #fca5a5;
 }
 
 .paragraph-card.is-modified-new {
-  border-color: #86efac;
   background: #f7fff8;
+  border-color: #86efac;
 }
 
 .paragraph-card.is-missing {
-  border-style: dashed;
   background: #f8fafc;
+  border-style: dashed;
 }
 
-@media (max-width: 1200px) {
+@media (width <= 1200px) {
   .compare-grid {
     grid-template-columns: 1fr;
   }

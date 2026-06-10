@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.Matching.Interfaces;
+﻿namespace AcceptanceSpecSystem.Core.Matching.Interfaces;
 
 /// <summary>
 /// 规格文本规范化器接口。

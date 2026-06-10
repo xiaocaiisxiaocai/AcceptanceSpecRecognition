@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Data.Entities;
+﻿using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;

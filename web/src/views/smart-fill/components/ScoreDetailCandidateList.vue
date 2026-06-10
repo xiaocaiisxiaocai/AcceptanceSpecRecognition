@@ -40,7 +40,10 @@ defineProps<{
         <div>
           <div class="candidate-rank">
             Top{{ candidate.rank }}
-            <span v-if="candidate.rank === 1" class="candidate-status candidate-status-top1">
+            <span
+              v-if="candidate.rank === 1"
+              class="candidate-status candidate-status-top1"
+            >
               当前最佳
             </span>
             <span
@@ -78,10 +81,7 @@ defineProps<{
             {{ formatScore(candidate.embeddingScore) }}
           </el-descriptions-item>
           <el-descriptions-item label="决策">
-            <el-tag
-              :type="getDecisionTagType(candidate.decision)"
-              size="small"
-            >
+            <el-tag :type="getDecisionTagType(candidate.decision)" size="small">
               {{ getDecisionText(candidate.decision) }}
             </el-tag>
           </el-descriptions-item>
@@ -123,12 +123,11 @@ defineProps<{
                 v-if="issue.sourceValue || issue.candidateValue"
                 class="issue-card__meta"
               >
-                源值：{{ issue.sourceValue || "-" }}；候选值：{{ issue.candidateValue || "-" }}
+                源值：{{ issue.sourceValue || "-" }}；候选值：{{
+                  issue.candidateValue || "-"
+                }}
               </div>
-              <div
-                v-if="issue.suggestedAction"
-                class="issue-card__action"
-              >
+              <div v-if="issue.suggestedAction" class="issue-card__action">
                 建议：{{ issue.suggestedAction }}
               </div>
             </div>
@@ -163,7 +162,9 @@ defineProps<{
         <div
           v-if="candidate.selectionSummary"
           class="info-block compact"
-          :class="{ 'info-block--highlight': candidate.selectionMode === 'aiRerank' }"
+          :class="{
+            'info-block--highlight': candidate.selectionMode === 'aiRerank'
+          }"
         >
           <div class="info-label">选定摘要</div>
           <div class="info-text">{{ candidate.selectionSummary }}</div>
@@ -194,7 +195,10 @@ defineProps<{
         <div
           v-if="candidate.selectionSummary"
           class="candidate-collapsed-summary"
-          :class="{ 'candidate-collapsed-summary--highlight': candidate.selectionMode === 'aiRerank' }"
+          :class="{
+            'candidate-collapsed-summary--highlight':
+              candidate.selectionMode === 'aiRerank'
+          }"
         >
           {{ candidate.selectionSummary }}
         </div>
@@ -223,13 +227,13 @@ defineProps<{
 }
 
 .candidate-card.is-top1 {
+  background: linear-gradient(180deg, #f8fbff 0%, #fff 100%);
   border-color: #409eff;
-  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
 }
 
 .candidate-card.is-compared {
+  background: linear-gradient(180deg, #fffaf2 0%, #fff 100%);
   border-color: #e6a23c;
-  background: linear-gradient(180deg, #fffaf2 0%, #ffffff 100%);
 }
 
 .candidate-card.is-clickable {
@@ -238,7 +242,7 @@ defineProps<{
 
 .candidate-card.is-clickable:hover {
   border-color: #cbd5e1;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 10px 24px rgb(15 23 42 / 6%);
   transform: translateY(-1px);
 }
 
@@ -256,23 +260,23 @@ defineProps<{
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  border-radius: 12px;
   background: #f8fafc;
+  border-radius: 12px;
 }
 
 .candidate-collapsed-meta {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 12px;
+  align-items: center;
   font-size: 12px;
   color: #4b5563;
 }
 
 .candidate-collapsed-summary {
   font-size: 13px;
-  color: #374151;
   line-height: 1.6;
+  color: #374151;
 }
 
 .candidate-collapsed-summary--highlight {
@@ -286,38 +290,38 @@ defineProps<{
 
 .candidate-top {
   display: flex;
-  justify-content: space-between;
   gap: 16px;
+  justify-content: space-between;
   margin-bottom: 12px;
 }
 
 .candidate-rank {
-  font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 6px;
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #6b7280;
 }
 
 .candidate-status {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  border-radius: 999px;
   font-size: 11px;
   line-height: 1.4;
+  border-radius: 999px;
 }
 
 .candidate-status-top1 {
-  background: rgba(64, 158, 255, 0.12);
   color: #1d4ed8;
+  background: rgb(64 158 255 / 12%);
 }
 
 .candidate-status-compare {
-  background: rgba(230, 162, 60, 0.14);
   color: #b45309;
+  background: rgb(230 162 60 / 14%);
 }
 
 .candidate-title {
@@ -347,10 +351,10 @@ defineProps<{
 }
 
 .info-block {
-  margin-top: 10px;
   padding: 12px 14px;
-  border-radius: 12px;
+  margin-top: 10px;
   background: #f8fafc;
+  border-radius: 12px;
 }
 
 .info-block--danger {
@@ -374,9 +378,9 @@ defineProps<{
 .info-text {
   margin-top: 4px;
   font-size: 13px;
+  line-height: 1.6;
   color: #374151;
   white-space: pre-wrap;
-  line-height: 1.6;
 }
 
 .issue-list {
@@ -385,20 +389,18 @@ defineProps<{
   gap: 10px;
   margin-top: 8px;
 }
+
 .issue-card__header {
   display: flex;
+  gap: 12px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
 }
 
 .issue-card__title {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.6;
-}
-
-.issue-card__title {
   color: #9a3412;
 }
 
@@ -419,9 +421,9 @@ defineProps<{
 
 .issue-card {
   padding: 12px;
+  background: rgb(255 255 255 / 78%);
   border: 1px solid #fed7aa;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.78);
 }
 
 .score-grid {
@@ -433,22 +435,22 @@ defineProps<{
 
 .score-chip {
   display: flex;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
   padding: 8px 10px;
-  border-radius: 10px;
-  background: #f8fafc;
   font-size: 12px;
   color: #6b7280;
+  background: #f8fafc;
+  border-radius: 10px;
 }
 
 .score-chip strong {
-  color: #111827;
   font-size: 13px;
+  color: #111827;
 }
 
-@media (max-width: 900px) {
+@media (width <= 900px) {
   .candidate-top,
   .issue-card__header {
     flex-direction: column;

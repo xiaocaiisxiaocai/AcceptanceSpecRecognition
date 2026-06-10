@@ -1,6 +1,6 @@
-using AcceptanceSpecSystem.Core.Documents.Writers;
+﻿using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Documents.Parsers;
-using AcceptanceSpecSystem.Core.Documents.Models;
+using AcceptanceSpecSystem.Core.Documents.Writers;
 using AcceptanceSpecSystem.Core.Tests.Helpers;
 using FluentAssertions;
 

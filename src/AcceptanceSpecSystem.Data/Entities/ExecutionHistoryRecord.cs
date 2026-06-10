@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Data.Entities;
+﻿namespace AcceptanceSpecSystem.Data.Entities;
 
 /// <summary>
 /// 执行记录实体（智能填充 / 批量回复）

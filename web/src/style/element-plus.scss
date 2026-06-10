@@ -18,10 +18,12 @@
 
 /* 卡片与表格统一风格 */
 .el-card {
-  border-radius: 12px;
   border-color: var(--el-card-border-color);
+  border-radius: 12px;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .el-card:hover {
@@ -31,8 +33,8 @@
 .el-card__header {
   font-weight: 600;
   color: var(--color-text);
-  border-bottom-color: var(--el-card-border-color);
   background: #f8f5ff;
+  border-bottom-color: var(--el-card-border-color);
 }
 
 .el-card__body {
@@ -49,6 +51,7 @@
 
 .el-table {
   --el-table-header-text-color: var(--color-text);
+
   font-size: 13px;
 }
 
@@ -74,8 +77,8 @@
 }
 
 .el-button {
-  border-radius: var(--el-border-radius-base);
   font-weight: 600;
+  border-radius: var(--el-border-radius-base);
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
@@ -92,8 +95,8 @@
 }
 
 .el-button--default:hover {
-  border-color: var(--color-primary);
   color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 .el-button.is-text,
@@ -103,7 +106,9 @@
 
 .el-input__wrapper,
 .el-textarea__inner {
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .el-empty {
@@ -117,6 +122,7 @@
 .el-pagination {
   --el-pagination-button-width: 32px;
   --el-pagination-button-height: 32px;
+
   font-size: 12px;
 }
 
@@ -149,14 +155,14 @@
 
 .config-select-popper .el-select-dropdown__item {
   height: 36px;
-  line-height: 36px;
   font-size: 14px;
+  line-height: 36px;
 }
 
 .app-select-popper .el-select-dropdown__item {
   height: 36px;
-  line-height: 36px;
   font-size: 14px;
+  line-height: 36px;
 }
 
 /* nprogress 适配 element-plus 的主题色 */

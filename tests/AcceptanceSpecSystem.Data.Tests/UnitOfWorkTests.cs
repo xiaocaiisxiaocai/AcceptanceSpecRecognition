@@ -1,11 +1,11 @@
+﻿using System.Reflection;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using FluentAssertions;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
-using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Data.Tests;
 

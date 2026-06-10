@@ -115,8 +115,16 @@ export function useDataThemeChange() {
     useAppStoreHook().setLayout(Layout ?? "vertical");
     setEpThemeColor(EpThemeColor ?? "#409eff");
     useMultiTagsStoreHook().multiTagsCacheChange(MultiTagsCache ?? false);
-    toggleClass(Grey ?? false, "html-grey", document.querySelector("html") ?? undefined);
-    toggleClass(Weak ?? false, "html-weakness", document.querySelector("html") ?? undefined);
+    toggleClass(
+      Grey ?? false,
+      "html-grey",
+      document.querySelector("html") ?? undefined
+    );
+    toggleClass(
+      Weak ?? false,
+      "html-weakness",
+      document.querySelector("html") ?? undefined
+    );
     router.push("/login");
     useMultiTagsStoreHook().handleTags("equal", [...routerArrays]);
     resetRouter();

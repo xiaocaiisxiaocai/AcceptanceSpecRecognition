@@ -16,5 +16,7 @@ export const getAuthPermissionList = (params?: {
   permissionType?: number;
   keyword?: string;
 }) => {
-  return http.request<ApiResponse<AuthPermission[]>>("get", baseUrl, { params });
+  return http.request<ApiResponse<AuthPermission[]>>("get", baseUrl, {
+    params
+  });
 };

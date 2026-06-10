@@ -62,27 +62,31 @@ export const uploadCompareFiles = (fileA: File, fileB: File) => {
   const form = new FormData();
   form.append("fileA", fileA);
   form.append("fileB", fileB);
-  return http.request<ApiResponse<FileCompareUploadResponse>>("post", `${baseUrl}/upload`, {
-    data: form,
-    headers: {
-      "Content-Type": "multipart/form-data"
+  return http.request<ApiResponse<FileCompareUploadResponse>>(
+    "post",
+    `${baseUrl}/upload`,
+    {
+      data: form,
+      headers: {
+        "Content-Type": "multipart/form-data"
+      }
     }
-  });
+  );
 };
 
 export const previewCompare = (data: FileComparePreviewRequest) => {
-  return http.request<ApiResponse<FileComparePreviewResponse>>("post", `${baseUrl}/preview`, {
-    data
-  });
+  return http.request<ApiResponse<FileComparePreviewResponse>>(
+    "post",
+    `${baseUrl}/preview`,
+    {
+      data
+    }
+  );
 };
 
 export const downloadCompare = (data: FileComparePreviewRequest) => {
-  return http.request<Blob>(
-    "post",
-    `${baseUrl}/download`,
-    {
-      data,
-      responseType: "blob"
-    }
-  );
+  return http.request<Blob>("post", `${baseUrl}/download`, {
+    data,
+    responseType: "blob"
+  });
 };

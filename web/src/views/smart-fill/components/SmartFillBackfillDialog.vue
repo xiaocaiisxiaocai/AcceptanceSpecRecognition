@@ -47,12 +47,10 @@ const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
           <template #header>
             <el-checkbox
               :model-value="
-                candidates.length > 0 &&
-                selectedCount === candidates.length
+                candidates.length > 0 && selectedCount === candidates.length
               "
               :indeterminate="
-                selectedCount > 0 &&
-                selectedCount < candidates.length
+                selectedCount > 0 && selectedCount < candidates.length
               "
               @change="handleToggleAll"
             />

@@ -67,7 +67,7 @@ const visibleRows = computed<VisibleRow[]>(() => {
     hasDiff: rowHasDiff(rowIndex)
   }));
   if (!props.onlyDiff) return mapped;
-  return mapped.filter((item) => item.hasDiff);
+  return mapped.filter(item => item.hasDiff);
 });
 
 const getCellClass = (rowIndex: number, columnIndex: number) => {
@@ -98,11 +98,17 @@ const isEmptyCell = (row: string[], columnIndex: number) => {
       <el-empty description="暂无数据" />
     </div>
 
-    <div v-else-if="rows.length === 0 || columnCount === 0" class="empty-container">
+    <div
+      v-else-if="rows.length === 0 || columnCount === 0"
+      class="empty-container"
+    >
       <el-empty description="暂无表格数据" />
     </div>
 
-    <div v-else-if="onlyDiff && visibleRows.length === 0" class="empty-container">
+    <div
+      v-else-if="onlyDiff && visibleRows.length === 0"
+      class="empty-container"
+    >
       <el-empty description="当前工作表无差异" />
     </div>
 
@@ -114,8 +120,12 @@ const isEmptyCell = (row: string[], columnIndex: number) => {
       <table class="grid-table">
         <thead v-if="isExcel">
           <tr>
-            <th class="corner"></th>
-            <th v-for="(col, idx) in columnLabels" :key="idx" class="col-header">
+            <th class="corner" />
+            <th
+              v-for="(col, idx) in columnLabels"
+              :key="idx"
+              class="col-header"
+            >
               {{ col }}
             </th>
           </tr>
@@ -136,7 +146,9 @@ const isEmptyCell = (row: string[], columnIndex: number) => {
             >
               <span
                 class="cell-text"
-                :class="{ 'cell-placeholder': isEmptyCell(item.row, colIndex - 1) }"
+                :class="{
+                  'cell-placeholder': isEmptyCell(item.row, colIndex - 1)
+                }"
               >
                 {{ getCellText(item.row, colIndex - 1) }}
               </span>
@@ -173,74 +185,74 @@ const isEmptyCell = (row: string[], columnIndex: number) => {
 }
 
 .grid-table {
-  border-collapse: collapse;
   width: 100%;
   min-width: max-content;
+  border-collapse: collapse;
   border: 1px solid #e5e7eb;
 }
 
 .grid-table th,
 .grid-table td {
-  border: 1px solid #e5e7eb;
   padding: 8px 10px;
   font-size: 13px;
   line-height: 1.5;
   vertical-align: top;
   background: #fff;
+  border: 1px solid #e5e7eb;
 }
 
 .grid-table .corner {
   position: sticky;
-  left: 0;
   top: 33px;
+  left: 0;
   z-index: 3;
-  background: #f3f4f6;
   width: 44px;
+  background: #f3f4f6;
 }
 
 .grid-table .col-header {
   position: sticky;
   top: 33px;
   z-index: 2;
-  background: #f3f4f6;
-  text-align: center;
   min-width: 120px;
+  text-align: center;
+  background: #f3f4f6;
 }
 
 .grid-table .row-header {
   position: sticky;
   left: 0;
   z-index: 1;
-  background: #f9fafb;
-  text-align: center;
   min-width: 44px;
+  text-align: center;
+  background: #f9fafb;
 }
 
 .cell-text {
   display: block;
-  white-space: pre-wrap;
-  word-break: break-word;
   min-height: 20px;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .cell-placeholder {
-  color: #9ca3af;
   font-style: italic;
+  color: #9ca3af;
 }
 
 .cell-added {
-  background: rgba(16, 185, 129, 0.12);
   color: #047857;
+  background: rgb(16 185 129 / 12%);
 }
 
 .cell-removed {
-  background: rgba(239, 68, 68, 0.12);
   color: #b91c1c;
+  background: rgb(239 68 68 / 12%);
 }
 
 .cell-modified {
-  background: rgba(245, 158, 11, 0.14);
   color: #92400e;
+  background: rgb(245 158 11 / 14%);
 }
 
 .cell-unchanged {

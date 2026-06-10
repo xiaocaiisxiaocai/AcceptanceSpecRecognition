@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Data.Tests.Infrastructure;
+﻿namespace AcceptanceSpecSystem.Data.Tests.Infrastructure;
 
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 internal sealed class MySqlSmokeFactAttribute : FactAttribute

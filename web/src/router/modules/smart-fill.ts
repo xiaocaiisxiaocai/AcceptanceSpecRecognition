@@ -1,4 +1,9 @@
-import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
+import {
+  getMenuPermission,
+  getMenuTitle,
+  getPagePermission,
+  getPageTitle
+} from "../navigation-manifest";
 const Layout = () => import("@/layout/index.vue");
 
 export default {

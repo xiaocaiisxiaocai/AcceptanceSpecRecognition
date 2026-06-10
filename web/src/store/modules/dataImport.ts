@@ -2,7 +2,10 @@ import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { store } from "../utils";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
-import type { TableImportConfig, ImportDuplicateAiConfig } from "@/views/data-import/dataImport.types";
+import type {
+  TableImportConfig,
+  ImportDuplicateAiConfig
+} from "@/views/data-import/dataImport.types";
 import { createDefaultImportDuplicateAiConfig } from "@/views/data-import/composables/useDataImportExecution";
 
 /**

@@ -1,7 +1,7 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using System.Collections.Concurrent;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Diagnostics;
@@ -635,7 +635,7 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
     {
         return new OpenAIPromptExecutionSettings
         {
-            Temperature = 0.2
+            Temperature = 0
         };
     }
 

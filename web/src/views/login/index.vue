@@ -89,9 +89,12 @@ const onLogin = async (formEl: FormInstance | undefined) => {
           message("登录成功", { type: "success" });
         })
         .catch((error: unknown) => {
-          message(getRequestErrorMessage(error, "登录成功后跳转失败，请稍后重试"), {
-            type: "error"
-          });
+          message(
+            getRequestErrorMessage(error, "登录成功后跳转失败，请稍后重试"),
+            {
+              type: "error"
+            }
+          );
         })
         .finally(() => {
           loading.value = false;
@@ -126,7 +129,9 @@ useEventListener(document, "keydown", ({ code }) => {
         inline-prompt
         :active-icon="dayIcon"
         :inactive-icon="darkIcon"
-        @change="(val: string | number | boolean) => dataThemeChange(String(val))"
+        @change="
+          (val: string | number | boolean) => dataThemeChange(String(val))
+        "
       />
     </div>
     <div class="login-container">

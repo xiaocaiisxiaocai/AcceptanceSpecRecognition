@@ -1,4 +1,4 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 using System.Diagnostics;
 using System.IO.Compression;
 using AcceptanceSpecSystem.Api.Options;

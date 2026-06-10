@@ -212,7 +212,9 @@ export const refreshBackfilledExecuteRequest = (
       const updatedItem = updatedItemLookup.get(
         getBackfilledItemKey(table.tableIndex, item.rowIndex)
       );
-      const clonedBestMatch = cloneMatchResultForExecutionHistory(item.bestMatch);
+      const clonedBestMatch = cloneMatchResultForExecutionHistory(
+        item.bestMatch
+      );
       if (!updatedItem || updatedItem.specId !== item.bestMatch?.specId) {
         return {
           ...item,
@@ -225,7 +227,8 @@ export const refreshBackfilledExecuteRequest = (
         bestMatch: clonedBestMatch
           ? {
               ...clonedBestMatch,
-              acceptance: updatedItem.overrideAcceptance ?? clonedBestMatch.acceptance,
+              acceptance:
+                updatedItem.overrideAcceptance ?? clonedBestMatch.acceptance,
               remark: updatedItem.overrideRemark ?? clonedBestMatch.remark,
               reviewApprovalToken: undefined
             }

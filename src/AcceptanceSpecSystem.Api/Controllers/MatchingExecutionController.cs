@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Api.Authorization;
+﻿using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
@@ -55,7 +55,7 @@ public class MatchingExecutionController : MatchingApiControllerBase
         [FromBody] BatchExecuteFillRequest request,
         CancellationToken cancellationToken = default)
     {
-        return HandleAsync(() => _matchingExecutionAppService.BatchExecuteFillAsync(User, request));
+        return HandleAsync(() => _matchingExecutionAppService.BatchExecuteFillAsync(User, request, cancellationToken));
     }
 
     [HttpPost("spec-backfill")]

@@ -26,12 +26,17 @@ const updatePageViewportHeight = () => {
   const host = pageRef.value;
   if (!host) return;
   const rect = host.getBoundingClientRect();
-  pageViewportHeight.value = Math.max(480, Math.floor(window.innerHeight - rect.top - 12));
+  pageViewportHeight.value = Math.max(
+    480,
+    Math.floor(window.innerHeight - rect.top - 12)
+  );
 };
 
 /** 锁定外层滚动，只允许本页内部滚动 */
 const lockOuterScroll = () => {
-  appMainWrapEl = document.querySelector(".app-main .el-scrollbar__wrap") as HTMLElement | null;
+  appMainWrapEl = document.querySelector(
+    ".app-main .el-scrollbar__wrap"
+  ) as HTMLElement | null;
   if (!appMainWrapEl) return;
   previousAppMainOverflowY = appMainWrapEl.style.overflowY;
   appMainWrapEl.style.overflowY = "hidden";
@@ -101,7 +106,9 @@ onBeforeUnmount(() => {
   <div
     ref="pageRef"
     class="page"
-    :style="pageViewportHeight > 0 ? { height: `${pageViewportHeight}px` } : undefined"
+    :style="
+      pageViewportHeight > 0 ? { height: `${pageViewportHeight}px` } : undefined
+    "
   >
     <div class="page-header">
       <div>
@@ -138,36 +145,36 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .page {
-  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-height: 0;
+  padding: 24px;
   overflow: hidden;
 }
 
 .split-layout {
   display: flex;
-  gap: 16px;
   flex: 1;
-  min-height: 0;
+  gap: 16px;
   align-items: stretch;
+  min-height: 0;
 }
 
 .left-panel {
-  width: 300px;
+  display: flex;
   flex-shrink: 0;
+  flex-direction: column;
+  width: 300px;
   height: 100%;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 .left-panel :deep(.el-card__body) {
-  flex: 1;
-  overflow: hidden;
   display: flex;
+  flex: 1;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .right-panel {
@@ -178,13 +185,13 @@ onBeforeUnmount(() => {
 }
 
 .right-panel :deep(.el-card__body) {
-  height: 100%;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
 
-@media (max-width: 992px) {
+@media (width <= 992px) {
   .split-layout {
     flex-direction: column;
     height: auto !important;
@@ -201,9 +208,9 @@ onBeforeUnmount(() => {
   }
 
   .right-panel :deep(.el-card__body) {
+    display: block;
     height: auto;
     overflow: visible;
-    display: block;
   }
 }
 </style>

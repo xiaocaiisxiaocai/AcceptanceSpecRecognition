@@ -1,4 +1,9 @@
-import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
+import {
+  getMenuPermission,
+  getMenuTitle,
+  getPagePermission,
+  getPageTitle
+} from "../navigation-manifest";
 const Layout = () => import("@/layout/index.vue");
 
 export default {
@@ -26,7 +31,8 @@ export default {
     {
       path: "/config/embedding-cache-warmup",
       name: "EmbeddingCacheWarmup",
-      component: () => import("@/views/config/embedding-cache-warmup/index.vue"),
+      component: () =>
+        import("@/views/config/embedding-cache-warmup/index.vue"),
       meta: {
         icon: "ri:database-2-line",
         title: getPageTitle("config-embedding-cache-warmup"),

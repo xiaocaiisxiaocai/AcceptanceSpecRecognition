@@ -1,4 +1,4 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 using AcceptanceSpecSystem.Api.Middleware;
 using AcceptanceSpecSystem.Api.Options;
 using Microsoft.EntityFrameworkCore.Diagnostics;

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import type { ExecutionHistoryFile, ExecutionHistorySheet } from "@/api/execution-history";
+import type {
+  ExecutionHistoryFile,
+  ExecutionHistorySheet
+} from "@/api/execution-history";
 
 const props = defineProps<{
   files: ExecutionHistoryFile[];
@@ -15,7 +18,11 @@ const currentFile = computed<ExecutionHistoryFile | null>(
 
 const currentSheet = computed<ExecutionHistorySheet | null>(() => {
   const sheets = currentFile.value?.sheets ?? [];
-  return sheets.find(sheet => sheet.sheetName === selectedSheetName.value) ?? sheets[0] ?? null;
+  return (
+    sheets.find(sheet => sheet.sheetName === selectedSheetName.value) ??
+    sheets[0] ??
+    null
+  );
 });
 
 watch(
@@ -29,7 +36,10 @@ watch(
 
 watch(currentFile, file => {
   const firstSheetName = file?.sheets[0]?.sheetName ?? "";
-  if (file && !file.sheets.some(sheet => sheet.sheetName === selectedSheetName.value)) {
+  if (
+    file &&
+    !file.sheets.some(sheet => sheet.sheetName === selectedSheetName.value)
+  ) {
     selectedSheetName.value = firstSheetName;
   }
 });
@@ -70,7 +80,9 @@ const formatConfidence = (confidencePercent: number) =>
   <div class="detail-block">
     <div class="section-head">
       <div class="section-title">写回结果</div>
-      <div class="section-tip">批量回复仅保留简化结果，不展示候选与 AI 复核链路。</div>
+      <div class="section-tip">
+        批量回复仅保留简化结果，不展示候选与 AI 复核链路。
+      </div>
     </div>
 
     <div v-if="files.length > 0" class="selector-stack">
@@ -91,16 +103,41 @@ const formatConfidence = (confidencePercent: number) =>
           :label="sheet.sheetName || `Sheet ${sheet.sheetIndex + 1}`"
           :name="sheet.sheetName"
         >
-          <el-table :data="currentSheet?.rows ?? []" stripe border max-height="560">
+          <el-table
+            :data="currentSheet?.rows ?? []"
+            stripe
+            border
+            max-height="560"
+          >
             <el-table-column label="行号" width="80">
               <template #default="{ row }">
                 {{ row.rowIndex + 1 }}
               </template>
             </el-table-column>
-            <el-table-column prop="project" label="项目" min-width="140" show-overflow-tooltip />
-            <el-table-column prop="specification" label="规格" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="acceptance" label="验收" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
+            <el-table-column
+              prop="project"
+              label="项目"
+              min-width="140"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              prop="specification"
+              label="规格"
+              min-width="180"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              prop="acceptance"
+              label="验收"
+              min-width="180"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              prop="remark"
+              label="备注"
+              min-width="160"
+              show-overflow-tooltip
+            />
             <el-table-column label="置信度" width="100">
               <template #default="{ row }">
                 {{ formatConfidence(row.confidencePercent) }}
@@ -131,9 +168,9 @@ const formatConfidence = (confidencePercent: number) =>
 
 .section-head {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
 }
 
 .section-title {

@@ -1,6 +1,12 @@
-import type { BatchReplyExecuteResponse, BatchReplyTablePreviewResponse } from "@/api/matching";
+import type {
+  BatchReplyExecuteResponse,
+  BatchReplyTablePreviewResponse
+} from "@/api/matching";
 import type { TableInfo } from "@/api/document";
-import type { BatchReplyTableConfigItem, SourceTableOption } from "./batch-reply-table-config";
+import type {
+  BatchReplyTableConfigItem,
+  SourceTableOption
+} from "./batch-reply-table-config";
 import { isTargetExecutable } from "./batch-reply-table-config";
 
 export type BatchReplySourceFileState = {
@@ -65,16 +71,23 @@ export const buildSelectedSourceTableOptions = (
     label: item.tableInfo.name || `来源表 ${item.tableIndex + 1}`
   }));
 
-export const buildBatchReplyDerivedState = <TTarget extends TargetExecutableState>(params: {
+export const buildBatchReplyDerivedState = <
+  TTarget extends TargetExecutableState
+>(params: {
   sourceFile: BatchReplySourceFileState | null;
   sourceConfigs: BatchReplyTableConfigItem[];
   targetFiles: TTarget[];
   duplicateDialogVisible: boolean;
-  permissions: Pick<BatchReplyPermissionState, "canExecuteBatchReply" | "canDownloadBatchReply">;
+  permissions: Pick<
+    BatchReplyPermissionState,
+    "canExecuteBatchReply" | "canDownloadBatchReply"
+  >;
 }): BatchReplyDerivedState<TTarget> => {
   const sourceSessionId = params.sourceFile?.sessionId ?? "";
   const sourceIsExcel = params.sourceFile?.sourceFileType === 1;
-  const selectedSourceConfigs = params.sourceConfigs.filter(item => item.selected);
+  const selectedSourceConfigs = params.sourceConfigs.filter(
+    item => item.selected
+  );
   const executableTargets = params.targetFiles.filter(isTargetExecutable);
 
   return {
@@ -82,7 +95,9 @@ export const buildBatchReplyDerivedState = <TTarget extends TargetExecutableStat
     sourceIsExcel,
     targetAccept: sourceIsExcel ? ".xlsx" : ".docx",
     selectedSourceConfigs,
-    selectedSourceTableOptions: buildSelectedSourceTableOptions(selectedSourceConfigs),
+    selectedSourceTableOptions: buildSelectedSourceTableOptions(
+      selectedSourceConfigs
+    ),
     executableTargets,
     duplicateDialogVisible: params.duplicateDialogVisible,
     executeDisabled:

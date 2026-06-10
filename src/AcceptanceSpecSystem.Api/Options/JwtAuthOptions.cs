@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Api.Options;
+﻿namespace AcceptanceSpecSystem.Api.Options;
 
 /// <summary>
 /// JWT 鉴权配置

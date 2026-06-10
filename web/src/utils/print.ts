@@ -175,8 +175,6 @@ Print.prototype = {
     create iframe
   */
   writeIframe: function (this: PrintInstance, content: string) {
-    let w: Window;
-    let doc: Document;
     const iframe: HTMLIFrameElement = document.createElement("iframe");
     const f: HTMLIFrameElement = document.body.appendChild(iframe);
     iframe.id = "myIframe";
@@ -189,9 +187,8 @@ Print.prototype = {
     const frameDocument = f.contentDocument;
     if (!frameWindow || !frameDocument) return;
 
-    // eslint-disable-next-line prefer-const
-    w = frameWindow;
-    doc = frameDocument;
+    const w = frameWindow;
+    const doc = frameDocument;
     doc.open();
     doc.write(content);
     doc.close();
@@ -246,9 +243,9 @@ Print.prototype = {
       : function (obj: unknown): obj is HTMLElement {
           return Boolean(
             obj &&
-            typeof obj === "object" &&
-            (obj as Node).nodeType === 1 &&
-            typeof (obj as Node).nodeName === "string"
+              typeof obj === "object" &&
+              (obj as Node).nodeType === 1 &&
+              typeof (obj as Node).nodeName === "string"
           );
         },
   /**

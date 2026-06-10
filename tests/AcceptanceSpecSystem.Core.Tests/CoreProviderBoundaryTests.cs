@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.AI.Models;
+﻿using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using FluentAssertions;
 

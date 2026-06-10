@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.Matching.Models;
+﻿using AcceptanceSpecSystem.Core.Matching.Models;
 
 namespace AcceptanceSpecSystem.Core.Matching.Interfaces;
 

@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Api.Authorization;
+﻿namespace AcceptanceSpecSystem.Api.Authorization;
 
 /// <summary>
 /// 权限匹配器（支持 * 通配）

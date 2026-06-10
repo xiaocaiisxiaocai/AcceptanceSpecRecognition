@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.Documents.Models;
+﻿namespace AcceptanceSpecSystem.Core.Documents.Models;
 
 /// <summary>
 /// 合并单元格信息（用于记录原始合并状态，写入时恢复）

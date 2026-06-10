@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Data.Context;
+﻿using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -157,61 +157,61 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
             switch (scope.ScopeType)
             {
                 case DataScopeType.OrgNode:
-                {
-                    var nodeIds = scope.Nodes.Count == 0
-                        ? userOrgUnitIds
-                        : scope.Nodes.Select(n => n.OrgUnitId).Distinct();
-                    foreach (var nodeId in nodeIds)
                     {
-                        collectedOrgUnitIds.Add(nodeId);
-                    }
-
-                    break;
-                }
-                case DataScopeType.OrgSubtree:
-                {
-                    // 预处理：将 allOrgUnits 转换为 id→祖先集合的映射，避免 O(N×M) Path.Contains 字符串搜索
-                    var idToAncestors = new Dictionary<int, HashSet<int>>(allOrgUnits.Count);
-                    foreach (var org in allOrgUnits)
-                    {
-                        var ancestors = new HashSet<int>();
-                        if (!string.IsNullOrWhiteSpace(org.Path))
+                        var nodeIds = scope.Nodes.Count == 0
+                            ? userOrgUnitIds
+                            : scope.Nodes.Select(n => n.OrgUnitId).Distinct();
+                        foreach (var nodeId in nodeIds)
                         {
-                            foreach (var seg in org.Path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+                            collectedOrgUnitIds.Add(nodeId);
+                        }
+
+                        break;
+                    }
+                case DataScopeType.OrgSubtree:
+                    {
+                        // 预处理：将 allOrgUnits 转换为 id→祖先集合的映射，避免 O(N×M) Path.Contains 字符串搜索
+                        var idToAncestors = new Dictionary<int, HashSet<int>>(allOrgUnits.Count);
+                        foreach (var org in allOrgUnits)
+                        {
+                            var ancestors = new HashSet<int>();
+                            if (!string.IsNullOrWhiteSpace(org.Path))
                             {
-                                if (int.TryParse(seg, out var ancestorId))
+                                foreach (var seg in org.Path.Split('/', StringSplitOptions.RemoveEmptyEntries))
                                 {
-                                    ancestors.Add(ancestorId);
+                                    if (int.TryParse(seg, out var ancestorId))
+                                    {
+                                        ancestors.Add(ancestorId);
+                                    }
                                 }
+                            }
+
+                            idToAncestors[org.Id] = ancestors;
+                        }
+
+                        var rootNodeIds = scope.Nodes.Count == 0
+                            ? userOrgUnitIds
+                            : scope.Nodes.Select(n => n.OrgUnitId).Distinct().ToHashSet();
+                        foreach (var org in allOrgUnits)
+                        {
+                            if (idToAncestors.TryGetValue(org.Id, out var ancestors) &&
+                                rootNodeIds.Overlaps(ancestors))
+                            {
+                                collectedOrgUnitIds.Add(org.Id);
                             }
                         }
 
-                        idToAncestors[org.Id] = ancestors;
+                        break;
                     }
-
-                    var rootNodeIds = scope.Nodes.Count == 0
-                        ? userOrgUnitIds
-                        : scope.Nodes.Select(n => n.OrgUnitId).Distinct().ToHashSet();
-                    foreach (var org in allOrgUnits)
-                    {
-                        if (idToAncestors.TryGetValue(org.Id, out var ancestors) &&
-                            rootNodeIds.Overlaps(ancestors))
-                        {
-                            collectedOrgUnitIds.Add(org.Id);
-                        }
-                    }
-
-                    break;
-                }
                 case DataScopeType.CustomNodes:
-                {
-                    foreach (var nodeId in scope.Nodes.Select(n => n.OrgUnitId))
                     {
-                        collectedOrgUnitIds.Add(nodeId);
-                    }
+                        foreach (var nodeId in scope.Nodes.Select(n => n.OrgUnitId))
+                        {
+                            collectedOrgUnitIds.Add(nodeId);
+                        }
 
-                    break;
-                }
+                        break;
+                    }
             }
         }
 

@@ -44,7 +44,9 @@ export type ImportDuplicateAiConfig = Required<
   llmServiceId?: number;
 };
 
-export type ImportErrorWithTable = { tableIndex: number } & ImportResult["errors"][number];
+export type ImportErrorWithTable = {
+  tableIndex: number;
+} & ImportResult["errors"][number];
 export type ImportSkippedRowWithTable = {
   tableIndex: number;
 } & NonNullable<ImportResult["skippedRows"]>[number];
@@ -96,6 +98,10 @@ export type ImportBatchExecutionResult = {
 export type DifferenceColumnDef = {
   key: "project" | "specification" | "acceptance" | "remark";
   label: string;
-  getExisting: (item: ImportPendingDifferenceWithTable) => string | null | undefined;
-  getIncoming: (item: ImportPendingDifferenceWithTable) => string | null | undefined;
+  getExisting: (
+    item: ImportPendingDifferenceWithTable
+  ) => string | null | undefined;
+  getIncoming: (
+    item: ImportPendingDifferenceWithTable
+  ) => string | null | undefined;
 };

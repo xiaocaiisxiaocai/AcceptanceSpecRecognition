@@ -48,16 +48,19 @@ watch(
 
 /* ─── hunk 构建（后端无 hunks 时的 fallback） ─── */
 
-const buildFallbackHunks = (items: FileCompareDiffItem[], contextLineCount = 2): FileCompareHunk[] => {
+const buildFallbackHunks = (
+  items: FileCompareDiffItem[],
+  contextLineCount = 2
+): FileCompareHunk[] => {
   const changedIndices = items
     .map((item, index) => ({ item, index }))
-    .filter((x) => x.item.diffType !== "Unchanged")
-    .map((x) => x.index);
+    .filter(x => x.item.diffType !== "Unchanged")
+    .map(x => x.index);
 
   if (!changedIndices.length) return [];
 
   const ranges: Array<{ start: number; end: number }> = [];
-  changedIndices.forEach((index) => {
+  changedIndices.forEach(index => {
     const start = Math.max(0, index - contextLineCount);
     const end = Math.min(items.length - 1, index + contextLineCount);
     const last = ranges[ranges.length - 1];
@@ -68,7 +71,7 @@ const buildFallbackHunks = (items: FileCompareDiffItem[], contextLineCount = 2):
     last.end = Math.max(last.end, end);
   });
 
-  return ranges.map((range) => {
+  return ranges.map(range => {
     const lines: FileCompareHunkLine[] = [];
     for (let i = range.start; i <= range.end; i += 1) {
       const item = items[i];
@@ -105,7 +108,8 @@ const buildFallbackHunks = (items: FileCompareDiffItem[], contextLineCount = 2):
       });
     }
 
-    const first = items[range.start]?.displayLocation || `第${range.start + 1}项`;
+    const first =
+      items[range.start]?.displayLocation || `第${range.start + 1}项`;
     const last = items[range.end]?.displayLocation || `第${range.end + 1}项`;
 
     return {
@@ -118,7 +122,9 @@ const buildFallbackHunks = (items: FileCompareDiffItem[], contextLineCount = 2):
 };
 
 const sourceHunks = computed(() =>
-  props.hunks && props.hunks.length ? props.hunks : buildFallbackHunks(props.items)
+  props.hunks && props.hunks.length
+    ? props.hunks
+    : buildFallbackHunks(props.items)
 );
 
 /* ─── 将 hunk lines 转换为左右对齐的 DiffRow ─── */
@@ -138,7 +144,11 @@ const linesToRows = (lines: FileCompareHunkLine[]): DiffRow[] => {
     /* 有 changeGroupId 的 Remove + Add 配对 → modified 行 */
     if (line.lineType === "Remove" && line.changeGroupId) {
       const addLine = lines[i + 1];
-      if (addLine && addLine.lineType === "Add" && addLine.changeGroupId === line.changeGroupId) {
+      if (
+        addLine &&
+        addLine.lineType === "Add" &&
+        addLine.changeGroupId === line.changeGroupId
+      ) {
         rows.push({ type: "modified", left: line, right: addLine });
         i += 2;
         continue;
@@ -170,7 +180,7 @@ const renderHunks = computed<RenderHunk[]>(() => {
   return sourceHunks.value
     .map((hunk, index) => {
       const hunkKey = `${hunk.startItemIndex}-${hunk.endItemIndex}-${index}`;
-      const filteredLines = hunk.lines.filter((line) => {
+      const filteredLines = hunk.lines.filter(line => {
         if (props.onlyDiff && line.lineType === "Context") return false;
         return true;
       });
@@ -183,7 +193,7 @@ const renderHunks = computed<RenderHunk[]>(() => {
         rows
       };
     })
-    .filter((hunk) => hunk.rows.length > 0);
+    .filter(hunk => hunk.rows.length > 0);
 });
 
 /* ─── 兼容模式（后端无 hunks 且 fallback 也无结果时） ─── */
@@ -229,7 +239,10 @@ const compatRows = computed<DiffRow[]>(() => {
 });
 
 /** 计算两个相邻 hunk 之间省略的行数 */
-const getSkippedLines = (currentHunk: RenderHunk, nextIndex: number): number => {
+const getSkippedLines = (
+  currentHunk: RenderHunk,
+  nextIndex: number
+): number => {
   if (nextIndex >= renderHunks.value.length) return 0;
   const nextHunk = renderHunks.value[nextIndex];
   const gap = nextHunk.startItemIndex - currentHunk.endItemIndex - 1;
@@ -294,7 +307,10 @@ const getTrailingGapRows = (): DiffRow[] => {
 const getGapRows = (currentHunk: RenderHunk, nextIndex: number): DiffRow[] => {
   if (nextIndex >= renderHunks.value.length) return [];
   const nextHunk = renderHunks.value[nextIndex];
-  return buildGapRows(currentHunk.endItemIndex + 1, nextHunk.startItemIndex - 1);
+  return buildGapRows(
+    currentHunk.endItemIndex + 1,
+    nextHunk.startItemIndex - 1
+  );
 };
 
 /* ─── HTML 转义 & inline diff ─── */
@@ -476,11 +492,15 @@ const getRightCellClass = (row: DiffRow) => {
               class="diff-row"
             >
               <div :class="getLeftCellClass(row)">
-                <span v-if="getLeftLocation(row)" class="cell-location">{{ getLeftLocation(row) }}</span>
+                <span v-if="getLeftLocation(row)" class="cell-location">{{
+                  getLeftLocation(row)
+                }}</span>
                 <span class="cell-content" v-html="renderLeftHtml(row)" />
               </div>
               <div :class="getRightCellClass(row)">
-                <span v-if="getRightLocation(row)" class="cell-location">{{ getRightLocation(row) }}</span>
+                <span v-if="getRightLocation(row)" class="cell-location">{{
+                  getRightLocation(row)
+                }}</span>
                 <span class="cell-content" v-html="renderRightHtml(row)" />
               </div>
             </div>
@@ -496,9 +516,7 @@ const getRightCellClass = (row: DiffRow) => {
 
         <template v-for="(hunk, hunkIdx) in renderHunks" :key="hunk.hunkKey">
           <!-- hunk header -->
-          <div class="hunk-header">
-            @@ {{ hunk.rangeText || "差异块" }} @@
-          </div>
+          <div class="hunk-header">@@ {{ hunk.rangeText || "差异块" }} @@</div>
 
           <!-- 对齐的行 -->
           <div
@@ -508,18 +526,27 @@ const getRightCellClass = (row: DiffRow) => {
           >
             <!-- 左侧（文件A） -->
             <div :class="getLeftCellClass(row)">
-              <span v-if="getLeftLocation(row)" class="cell-location">{{ getLeftLocation(row) }}</span>
+              <span v-if="getLeftLocation(row)" class="cell-location">{{
+                getLeftLocation(row)
+              }}</span>
               <span class="cell-content" v-html="renderLeftHtml(row)" />
             </div>
             <!-- 右侧（文件B） -->
             <div :class="getRightCellClass(row)">
-              <span v-if="getRightLocation(row)" class="cell-location">{{ getRightLocation(row) }}</span>
+              <span v-if="getRightLocation(row)" class="cell-location">{{
+                getRightLocation(row)
+              }}</span>
               <span class="cell-content" v-html="renderRightHtml(row)" />
             </div>
           </div>
 
           <!-- hunk 间省略分隔（可展开/折叠） -->
-          <template v-if="hunkIdx < renderHunks.length - 1 && getSkippedLines(hunk, hunkIdx + 1) > 0">
+          <template
+            v-if="
+              hunkIdx < renderHunks.length - 1 &&
+              getSkippedLines(hunk, hunkIdx + 1) > 0
+            "
+          >
             <!-- 展开后的间隙行 -->
             <template v-if="isGapExpanded(`gap-${hunkIdx}`)">
               <div
@@ -534,11 +561,15 @@ const getRightCellClass = (row: DiffRow) => {
                 class="diff-row"
               >
                 <div :class="getLeftCellClass(row)">
-                  <span v-if="getLeftLocation(row)" class="cell-location">{{ getLeftLocation(row) }}</span>
+                  <span v-if="getLeftLocation(row)" class="cell-location">{{
+                    getLeftLocation(row)
+                  }}</span>
                   <span class="cell-content" v-html="renderLeftHtml(row)" />
                 </div>
                 <div :class="getRightCellClass(row)">
-                  <span v-if="getRightLocation(row)" class="cell-location">{{ getRightLocation(row) }}</span>
+                  <span v-if="getRightLocation(row)" class="cell-location">{{
+                    getRightLocation(row)
+                  }}</span>
                   <span class="cell-content" v-html="renderRightHtml(row)" />
                 </div>
               </div>
@@ -569,11 +600,15 @@ const getRightCellClass = (row: DiffRow) => {
               class="diff-row"
             >
               <div :class="getLeftCellClass(row)">
-                <span v-if="getLeftLocation(row)" class="cell-location">{{ getLeftLocation(row) }}</span>
+                <span v-if="getLeftLocation(row)" class="cell-location">{{
+                  getLeftLocation(row)
+                }}</span>
                 <span class="cell-content" v-html="renderLeftHtml(row)" />
               </div>
               <div :class="getRightCellClass(row)">
-                <span v-if="getRightLocation(row)" class="cell-location">{{ getRightLocation(row) }}</span>
+                <span v-if="getRightLocation(row)" class="cell-location">{{
+                  getRightLocation(row)
+                }}</span>
                 <span class="cell-content" v-html="renderRightHtml(row)" />
               </div>
             </div>
@@ -604,11 +639,15 @@ const getRightCellClass = (row: DiffRow) => {
           class="diff-row"
         >
           <div :class="getLeftCellClass(row)">
-            <span v-if="getLeftLocation(row)" class="cell-location">{{ getLeftLocation(row) }}</span>
+            <span v-if="getLeftLocation(row)" class="cell-location">{{
+              getLeftLocation(row)
+            }}</span>
             <span class="cell-content" v-html="renderLeftHtml(row)" />
           </div>
           <div :class="getRightCellClass(row)">
-            <span v-if="getRightLocation(row)" class="cell-location">{{ getRightLocation(row) }}</span>
+            <span v-if="getRightLocation(row)" class="cell-location">{{
+              getRightLocation(row)
+            }}</span>
             <span class="cell-content" v-html="renderRightHtml(row)" />
           </div>
         </div>
@@ -620,23 +659,23 @@ const getRightCellClass = (row: DiffRow) => {
 <style scoped>
 /* ─── 外层容器 ─── */
 .side-by-side-diff {
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
   overflow: hidden;
-  background: #fff;
   font-size: 13px;
   line-height: 1.6;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
 }
 
 /* ─── 表头：左文件A / 右文件B ─── */
 .diff-table-header {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  border-bottom: 2px solid #d1d5db;
-  background: #f6f8fa;
   font-weight: 600;
   color: #24292e;
   user-select: none;
+  background: #f6f8fa;
+  border-bottom: 2px solid #d1d5db;
 }
 
 .header-left,
@@ -656,14 +695,14 @@ const getRightCellClass = (row: DiffRow) => {
 
 /* ─── Hunk header ─── */
 .hunk-header {
-  background: #f1f8ff;
-  border-bottom: 1px solid #d8e1e8;
-  border-top: 1px solid #d8e1e8;
-  color: #0366d6;
-  font-weight: 600;
-  font-family: Consolas, "Courier New", monospace;
   padding: 3px 12px;
+  font-family: Consolas, "Courier New", monospace;
+  font-weight: 600;
+  color: #0366d6;
   user-select: none;
+  background: #f1f8ff;
+  border-top: 1px solid #d8e1e8;
+  border-bottom: 1px solid #d8e1e8;
 }
 
 .hunk-header:first-child {
@@ -672,14 +711,14 @@ const getRightCellClass = (row: DiffRow) => {
 
 /* ─── Hunk 间省略分隔 ─── */
 .hunk-separator {
-  background: #f6f8fa;
-  border-bottom: 1px solid #d8e1e8;
-  border-top: 1px solid #d8e1e8;
-  color: #6a737d;
-  font-size: 12px;
   padding: 2px 12px;
+  font-size: 12px;
+  color: #6a737d;
   text-align: center;
   user-select: none;
+  background: #f6f8fa;
+  border-top: 1px solid #d8e1e8;
+  border-bottom: 1px solid #d8e1e8;
 }
 
 .hunk-separator-clickable {
@@ -688,8 +727,8 @@ const getRightCellClass = (row: DiffRow) => {
 }
 
 .hunk-separator-clickable:hover {
-  background: #e1e8f0;
   color: #0366d6;
+  background: #e1e8f0;
 }
 
 /* ─── 每一行：左右两栏等宽 ─── */
@@ -705,11 +744,11 @@ const getRightCellClass = (row: DiffRow) => {
 
 /* ─── 单元格基础样式 ─── */
 .cell {
-  padding: 2px 10px;
   min-height: 24px;
-  white-space: pre-wrap;
-  word-break: break-all;
+  padding: 2px 10px;
   font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 /* 左侧单元格加右边框作为中线分隔 */
@@ -719,70 +758,70 @@ const getRightCellClass = (row: DiffRow) => {
 
 /* ─── 单元格状态色 ─── */
 .cell-removed {
-  background: #ffeef0;
   color: #cb2431;
+  background: #ffeef0;
 }
 
 .cell-added {
-  background: #e6ffec;
   color: #22863a;
+  background: #e6ffec;
 }
 
 .cell-modified-old {
-  background: #ffeef0;
   color: #cb2431;
+  background: #ffeef0;
 }
 
 .cell-modified-new {
-  background: #e6ffec;
   color: #22863a;
+  background: #e6ffec;
 }
 
 .cell-empty {
-  background: #fafbfc;
   color: #959da5;
+  background: #fafbfc;
 }
 
 /* ─── 位置标签 ─── */
 .cell-location {
   display: inline-block;
-  font-size: 11px;
-  color: #6a737d;
-  background: rgba(27, 31, 35, 0.05);
-  border-radius: 3px;
   padding: 0 4px;
   margin-right: 6px;
-  vertical-align: baseline;
   font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  vertical-align: baseline;
+  color: #6a737d;
+  background: rgb(27 31 35 / 5%);
+  border-radius: 3px;
 }
 
 /* ─── 内容区 ─── */
 .cell-content {
-  white-space: pre-wrap;
   word-break: break-all;
+  white-space: pre-wrap;
 }
 
 /* ─── inline diff 字符级高亮 ─── */
 .cell-modified-old .cell-content :deep(.inline-mark) {
+  padding: 0 1px;
   background: #fdb8c0;
   border-radius: 2px;
-  padding: 0 1px;
 }
 
 .cell-modified-new .cell-content :deep(.inline-mark) {
+  padding: 0 1px;
   background: #acf2bd;
   border-radius: 2px;
-  padding: 0 1px;
 }
 
 .cell-content :deep(.inline-mark) {
-  background: rgba(245, 158, 11, 0.25);
-  border-radius: 2px;
   padding: 0 1px;
+  background: rgb(245 158 11 / 25%);
+  border-radius: 2px;
 }
 
 .cell-content :deep(.placeholder-text) {
-  color: #959da5;
   font-style: italic;
+  color: #959da5;
 }
 </style>

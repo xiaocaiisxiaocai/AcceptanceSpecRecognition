@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Api.Options;
+﻿using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Context;
 using FluentAssertions;

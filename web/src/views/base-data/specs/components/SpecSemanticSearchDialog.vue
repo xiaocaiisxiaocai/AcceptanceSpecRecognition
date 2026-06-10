@@ -38,12 +38,13 @@ const form = reactive({
   minScore: 0.5
 });
 
-const totalHits = computed(() =>
-  result.value?.groups.reduce((sum, group) => sum + group.totalHits, 0) ?? 0
+const totalHits = computed(
+  () =>
+    result.value?.groups.reduce((sum, group) => sum + group.totalHits, 0) ?? 0
 );
 
-const hasAnyHit = computed(() =>
-  result.value?.groups.some(group => group.totalHits > 0) ?? false
+const hasAnyHit = computed(
+  () => result.value?.groups.some(group => group.totalHits > 0) ?? false
 );
 
 const actionColumnWidth = computed(() => (props.allowEdit ? 140 : 80));
@@ -253,7 +254,9 @@ defineExpose({
                 <div class="group-head">
                   <div class="group-main">
                     <div class="group-title">
-                      <span class="group-index">#{{ group.queryIndex + 1 }}</span>
+                      <span class="group-index"
+                        >#{{ group.queryIndex + 1 }}</span
+                      >
                       <strong>输入内容</strong>
                       <el-tag type="info" effect="light">
                         命中 {{ group.totalHits }} 条
@@ -283,7 +286,11 @@ defineExpose({
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="project" label="项目" min-width="150" />
+                  <el-table-column
+                    prop="project"
+                    label="项目"
+                    min-width="150"
+                  />
                   <el-table-column
                     prop="specification"
                     label="规格内容"
@@ -352,9 +359,9 @@ defineExpose({
 .control-panel,
 .result-panel {
   min-height: 0;
+  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
   border: 1px solid var(--el-border-color-light);
   border-radius: 16px;
-  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
 }
 
 .control-panel {
@@ -387,8 +394,8 @@ defineExpose({
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px;
-  border-radius: 12px;
   background: #f5f7fa;
+  border-radius: 12px;
 }
 
 .control-grid {
@@ -410,8 +417,8 @@ defineExpose({
 
 .control-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .result-panel {
@@ -432,9 +439,9 @@ defineExpose({
   flex-direction: column;
   gap: 6px;
   padding: 14px 16px;
+  background: #fff;
   border: 1px solid var(--el-border-color-light);
   border-radius: 12px;
-  background: #fff;
 }
 
 .summary-label {
@@ -479,22 +486,22 @@ defineExpose({
 
 .group-title {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
   margin-bottom: 8px;
 }
 
 .group-index {
-  color: var(--el-text-color-secondary);
   font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .group-query {
   margin: 0;
-  white-space: pre-wrap;
   line-height: 1.7;
   color: var(--el-text-color-primary);
+  white-space: pre-wrap;
 }
 
 .ellipsis {
@@ -504,7 +511,7 @@ defineExpose({
   white-space: nowrap;
 }
 
-@media (max-width: 1100px) {
+@media (width <= 1100px) {
   .semantic-dialog {
     grid-template-columns: 1fr;
     height: auto;

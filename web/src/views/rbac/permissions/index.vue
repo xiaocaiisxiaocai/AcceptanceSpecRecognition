@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { getAuthPermissionList, type AuthPermission } from "@/api/auth-permission";
+import {
+  getAuthPermissionList,
+  type AuthPermission
+} from "@/api/auth-permission";
 
 defineOptions({
   name: "AuthPermissionsView"
@@ -36,13 +39,17 @@ const loadData = async () => {
   loading.value = true;
   try {
     const permissionType =
-      queryForm.permissionType === "" ? undefined : Number(queryForm.permissionType);
+      queryForm.permissionType === ""
+        ? undefined
+        : Number(queryForm.permissionType);
     const res = await getAuthPermissionList({
       keyword: queryForm.keyword.trim() || undefined,
       permissionType
     });
     if (res.code === 0) {
-      permissions.value = (res.data ?? []).sort((a, b) => a.code.localeCompare(b.code));
+      permissions.value = (res.data ?? []).sort((a, b) =>
+        a.code.localeCompare(b.code)
+      );
     } else {
       ElMessage.error(res.message || "加载权限字典失败");
     }
@@ -103,7 +110,9 @@ onMounted(loadData);
       <template #header>
         <div class="flex items-center justify-between">
           <span>权限字典</span>
-          <span class="text-[12px] text-[#909399]">共 {{ permissions.length }} 项</span>
+          <span class="text-[12px] text-[#909399]"
+            >共 {{ permissions.length }} 项</span
+          >
         </div>
       </template>
 

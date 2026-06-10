@@ -1,19 +1,19 @@
+﻿using System.Text.Json;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using AcceptanceSpecSystem.Data.Context;
-using DataAiServiceConfig = AcceptanceSpecSystem.Data.Entities.AiServiceConfig;
-using DataAiServicePurpose = AcceptanceSpecSystem.Data.Entities.AiServicePurpose;
-using DataAiServiceType = AcceptanceSpecSystem.Data.Entities.AiServiceType;
 using FluentAssertions;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Text.Json;
+using DataAiServiceConfig = AcceptanceSpecSystem.Data.Entities.AiServiceConfig;
+using DataAiServicePurpose = AcceptanceSpecSystem.Data.Entities.AiServicePurpose;
+using DataAiServiceType = AcceptanceSpecSystem.Data.Entities.AiServiceType;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 

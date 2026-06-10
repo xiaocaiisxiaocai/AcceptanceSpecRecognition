@@ -1,7 +1,7 @@
-using AcceptanceSpecSystem.Core.TextProcessing.Services;
+﻿using System.Diagnostics;
 using AcceptanceSpecSystem.Core.Matching.Services;
+using AcceptanceSpecSystem.Core.TextProcessing.Services;
 using FluentAssertions;
-using System.Diagnostics;
 
 namespace AcceptanceSpecSystem.Core.Tests;
 

@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.Documents.Interfaces;
+﻿using AcceptanceSpecSystem.Core.Documents.Interfaces;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -349,11 +349,17 @@ public class WordDocumentWriter : IDocumentWriter
         }
 
         // 添加额外的行（如果有多行文本）
+        var firstParaProps = firstParagraph.ParagraphProperties?.CloneNode(true) as ParagraphProperties;
         for (int i = 1; i < lines.Length; i++)
         {
+            // CloneNode(false) 仅拷贝段落节点本身，不含子元素；
+            // 手动补回 ParagraphProperties，否则字体/缩进/对齐等格式全部丢失。
             var newParagraph = firstParagraph.CloneNode(false) as Paragraph;
             if (newParagraph != null)
             {
+                if (firstParaProps != null)
+                    newParagraph.ParagraphProperties = firstParaProps.CloneNode(true) as ParagraphProperties;
+
                 var lineRun = new Run();
                 if (runProps != null)
                 {

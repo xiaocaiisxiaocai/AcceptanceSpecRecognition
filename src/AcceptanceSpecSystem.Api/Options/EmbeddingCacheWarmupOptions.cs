@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Api.Options;
+﻿namespace AcceptanceSpecSystem.Api.Options;
 
 /// <summary>
 /// 向量缓存预热配置选项

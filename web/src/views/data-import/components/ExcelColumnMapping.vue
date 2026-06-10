@@ -42,7 +42,10 @@ const mapping = ref<ExcelSheetMapping>({ ...defaultMapping });
 
 function getTableInfoForNormalization() {
   const usedStartRow = Math.max(1, props.usedRangeStartRow || 1);
-  const usedEndRow = Math.max(usedStartRow, props.usedRangeEndRow || usedStartRow);
+  const usedEndRow = Math.max(
+    usedStartRow,
+    props.usedRangeEndRow || usedStartRow
+  );
 
   return {
     index: 0,
@@ -58,7 +61,9 @@ function getTableInfoForNormalization() {
   };
 }
 
-function buildNormalizedMapping(source?: Partial<ExcelSheetMapping>): ExcelSheetMapping {
+function buildNormalizedMapping(
+  source?: Partial<ExcelSheetMapping>
+): ExcelSheetMapping {
   return normalizeExcelMappingByTable(getTableInfoForNormalization(), {
     ...defaultMapping,
     ...(source || {})
@@ -106,7 +111,7 @@ function handleRowFieldChange(
 
 watch(
   () => props.modelValue,
-  (val) => {
+  val => {
     const normalized = buildNormalizedMapping(val || {});
     if (!isSameMappingValue(mapping.value, normalized)) {
       mapping.value = normalized;
@@ -117,7 +122,7 @@ watch(
 
 watch(
   () => mapping.value,
-  (val) => {
+  val => {
     const normalized = buildNormalizedMapping(val || {});
     if (!isSameMappingValue(val, normalized)) {
       mapping.value = normalized;
@@ -184,7 +189,10 @@ const columnHint = computed(() => ({
               :model-value="mapping.headerRowStart"
               :min="Math.max(1, props.usedRangeStartRow || 1)"
               :step="1"
-              @update:model-value="(v: number | undefined) => handleRowFieldChange('headerRowStart', v)"
+              @update:model-value="
+                (v: number | undefined) =>
+                  handleRowFieldChange('headerRowStart', v)
+              "
             />
           </el-form-item>
           <el-form-item label="表头行数">
@@ -192,7 +200,10 @@ const columnHint = computed(() => ({
               :model-value="mapping.headerRowCount"
               :min="0"
               :step="1"
-              @update:model-value="(v: number | undefined) => handleRowFieldChange('headerRowCount', v)"
+              @update:model-value="
+                (v: number | undefined) =>
+                  handleRowFieldChange('headerRowCount', v)
+              "
             />
           </el-form-item>
           <el-form-item label="数据起始行">
@@ -200,16 +211,23 @@ const columnHint = computed(() => ({
               :model-value="mapping.dataStartRow"
               :min="Math.max(1, props.usedRangeStartRow || 1)"
               :step="1"
-              @update:model-value="(v: number | undefined) => handleRowFieldChange('dataStartRow', v)"
+              @update:model-value="
+                (v: number | undefined) =>
+                  handleRowFieldChange('dataStartRow', v)
+              "
             />
           </el-form-item>
           <el-form-item label="数据结束行">
             <el-input-number
               :model-value="mapping.dataEndRow"
-              :min="Math.max(mapping.dataStartRow, props.usedRangeStartRow || 1)"
+              :min="
+                Math.max(mapping.dataStartRow, props.usedRangeStartRow || 1)
+              "
               :max="props.usedRangeEndRow"
               :step="1"
-              @update:model-value="(v: number | undefined) => handleRowFieldChange('dataEndRow', v)"
+              @update:model-value="
+                (v: number | undefined) => handleRowFieldChange('dataEndRow', v)
+              "
             />
           </el-form-item>
         </el-form>
@@ -220,7 +238,11 @@ const columnHint = computed(() => ({
         <el-form label-width="110px">
           <el-form-item label="项目列（必填）">
             <div class="col-input">
-              <el-input-number v-model="mapping.projectColumn" :min="1" :step="1" />
+              <el-input-number
+                v-model="mapping.projectColumn"
+                :min="1"
+                :step="1"
+              />
               <span class="col-letter">{{ columnHint.project }}</span>
             </div>
           </el-form-item>
@@ -236,13 +258,21 @@ const columnHint = computed(() => ({
           </el-form-item>
           <el-form-item label="验收列（可选）">
             <div class="col-input">
-              <el-input-number v-model="mapping.acceptanceColumn" :min="1" :step="1" />
+              <el-input-number
+                v-model="mapping.acceptanceColumn"
+                :min="1"
+                :step="1"
+              />
               <span class="col-letter">{{ columnHint.acceptance }}</span>
             </div>
           </el-form-item>
           <el-form-item label="备注列（可选）">
             <div class="col-input">
-              <el-input-number v-model="mapping.remarkColumn" :min="1" :step="1" />
+              <el-input-number
+                v-model="mapping.remarkColumn"
+                :min="1"
+                :step="1"
+              />
               <span class="col-letter">{{ columnHint.remark }}</span>
             </div>
           </el-form-item>
@@ -266,32 +296,33 @@ const columnHint = computed(() => ({
 }
 
 .group {
+  padding: 12px;
+  background: #fff;
   border: 1px solid #ede7f6;
   border-radius: 12px;
-  padding: 12px;
-  background: #ffffff;
 }
 
 .group-title {
+  margin-bottom: 8px;
   font-size: 14px;
   font-weight: 600;
-  margin-bottom: 8px;
   color: var(--color-text);
 }
 
 .col-input {
   display: flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
 }
 
 .col-letter {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   color: #6b7280;
 }
 
-@media (max-width: 960px) {
+@media (width <= 960px) {
   .grid {
     grid-template-columns: 1fr;
   }

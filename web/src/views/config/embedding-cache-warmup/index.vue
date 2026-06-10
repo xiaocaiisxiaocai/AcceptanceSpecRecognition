@@ -339,7 +339,9 @@ onMounted(load);
               {{ info?.status.lastMaxItemsPerRun ?? "-" }}
             </el-descriptions-item>
             <el-descriptions-item label="错误">
-              <span class="error-text">{{ info?.status.lastError || "-" }}</span>
+              <span class="error-text">{{
+                info?.status.lastError || "-"
+              }}</span>
             </el-descriptions-item>
           </el-descriptions>
 
@@ -363,9 +365,9 @@ onMounted(load);
 
 .page-header {
   display: flex;
+  gap: 16px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
   margin-bottom: 16px;
 }
 
@@ -383,9 +385,9 @@ onMounted(load);
 .header-actions,
 .card-header {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
 }
 
 .summary-row {
@@ -398,15 +400,15 @@ onMounted(load);
 }
 
 .metric-label {
-  color: var(--el-text-color-secondary);
   font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 
 .metric-value {
-  margin-top: 10px;
-  min-height: 28px;
   display: flex;
   align-items: center;
+  min-height: 28px;
+  margin-top: 10px;
 }
 
 .text-value {
@@ -427,11 +429,11 @@ onMounted(load);
   margin-top: 16px;
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .page-header,
   .card-header {
-    align-items: stretch;
     flex-direction: column;
+    align-items: stretch;
   }
 
   .header-actions {

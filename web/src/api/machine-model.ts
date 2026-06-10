@@ -20,8 +20,7 @@ export interface UpdateMachineModelRequest {
 }
 
 /** 机型列表请求参数 */
-export interface MachineModelListRequest extends PagedRequest {
-}
+export type MachineModelListRequest = PagedRequest;
 
 const baseUrl = "/api/machine-models";
 
@@ -43,7 +42,10 @@ export const createMachineModel = (data: CreateMachineModelRequest) => {
 };
 
 /** 更新机型 */
-export const updateMachineModel = (id: number, data: UpdateMachineModelRequest) => {
+export const updateMachineModel = (
+  id: number,
+  data: UpdateMachineModelRequest
+) => {
   return http.request<ApiResponse<MachineModel>>("put", `${baseUrl}/${id}`, {
     data
   });

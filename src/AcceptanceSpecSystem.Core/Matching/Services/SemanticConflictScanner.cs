@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 
@@ -357,17 +357,25 @@ public sealed class SemanticConflictScanner
                 if (AreComparatorConflict(srcOp, candOp))
                 {
                     var msg = $"比较符方向冲突：源项 \"{srcOp}\" vs 候选 \"{candOp}\"";
+                    // = 与 ≥/≤（含边界）属于语义警告，不构成硬冲突：=100 满足 ≥100 或 ≤100。
+                    // = 与 >/< （不含边界）是真冲突：=100 不满足 >100 或 <100。
+                    var isBoundaryInclusion =
+                        (srcOp == "=" && (candOp == "≥" || candOp == "≤")) ||
+                        (candOp == "=" && (srcOp == "≥" || srcOp == "≤"));
                     evidence.Issues.Add(new MatchIssue
                     {
                         Code = "comparator_conflict",
-                        Severity = "hard_conflict",
+                        Severity = isBoundaryInclusion ? "warning" : "hard_conflict",
                         FieldName = "比较符",
                         SourceValue = srcOp,
                         CandidateValue = candOp,
                         Message = msg,
-                        SuggestedAction = "比较符方向不同，请人工确认"
+                        SuggestedAction = isBoundaryInclusion
+                            ? "精确值与不等式边界需确认是否满足"
+                            : "比较符方向不同，请人工确认"
                     });
-                    evidence.Conflicts.Add(msg);
+                    if (!isBoundaryInclusion)
+                        evidence.Conflicts.Add(msg);
                 }
             }
         }
@@ -398,11 +406,15 @@ public sealed class SemanticConflictScanner
     {
         if (a == b) return false;
 
-        // ≥ vs ≤ / > vs < 互为冲突
+        // ≥ vs ≤ / > vs < 互为冲突；> vs = / ≥ vs = 方向也冲突
         return (a == "≥" && b == "≤") || (a == "≤" && b == "≥") ||
-               (a == ">"  && b == "<")  || (a == "<"  && b == ">")  ||
-               (a == "≥" && b == "<")  || (a == ">"  && b == "≤") ||
-               (a == "≤" && b == ">")  || (a == "<"  && b == "≥");
+               (a == ">" && b == "<") || (a == "<" && b == ">") ||
+               (a == "≥" && b == "<") || (a == ">" && b == "≤") ||
+               (a == "≤" && b == ">") || (a == "<" && b == "≥") ||
+               (a == ">" && b == "=") || (a == "=" && b == ">") ||
+               (a == "≥" && b == "=") || (a == "=" && b == "≥") ||
+               (a == "<" && b == "=") || (a == "=" && b == "<") ||
+               (a == "≤" && b == "=") || (a == "=" && b == "≤");
     }
 
     // ── 极性/方向反义冲突 ─────────────────────────────────────────────────

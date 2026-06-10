@@ -36,6 +36,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
     private readonly DocumentTableAccessService _documentTableAccessService;
     private readonly ImportDuplicateDetectionService _importDuplicateDetectionService;
     private readonly SpecEmbeddingCacheService _specEmbeddingCacheService;
+    private readonly EmbeddingCacheWarmupManager _embeddingCacheWarmupManager;
     private readonly ILogger<DocumentImportAppService> _logger;
 
     public DocumentImportAppService(
@@ -44,6 +45,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         DocumentTableAccessService documentTableAccessService,
         ImportDuplicateDetectionService importDuplicateDetectionService,
         SpecEmbeddingCacheService specEmbeddingCacheService,
+        EmbeddingCacheWarmupManager embeddingCacheWarmupManager,
         ILogger<DocumentImportAppService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -51,6 +53,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         _documentTableAccessService = documentTableAccessService;
         _importDuplicateDetectionService = importDuplicateDetectionService;
         _specEmbeddingCacheService = specEmbeddingCacheService;
+        _embeddingCacheWarmupManager = embeddingCacheWarmupManager;
         _logger = logger;
     }
 

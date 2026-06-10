@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.Diagnostics;
+﻿using AcceptanceSpecSystem.Core.Diagnostics;
 using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Api.Tests;

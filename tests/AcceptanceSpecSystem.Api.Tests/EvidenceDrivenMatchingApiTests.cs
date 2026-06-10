@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
@@ -296,11 +296,11 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
         var config = new MatchConfigDto();
 
         config.MinScoreThreshold.Should().Be(0.9);
-        config.HighConfidenceThreshold.Should().Be(0.98);
+        config.HighConfidenceThreshold.Should().Be(0.95);
         config.AmbiguityMargin.Should().Be(0.02);
         config.LlmParallelism.Should().Be(4);
         config.EnableDeterministicAutoApply.Should().BeTrue();
-        config.LlmMaxCallsPerBatch.Should().Be(20);
+        config.LlmMaxCallsPerBatch.Should().Be(1000);
         typeof(MatchConfigDto).GetProperty("UseLlmEntityResolution").Should().BeNull();
         typeof(MatchConfigDto).GetProperty("LlmEntityResolutionTopCandidates").Should().BeNull();
         typeof(MatchConfigDto).GetProperty("LlmEntityPositiveConfidenceThreshold").Should().BeNull();

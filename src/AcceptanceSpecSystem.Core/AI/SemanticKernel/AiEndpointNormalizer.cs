@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 
 namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;

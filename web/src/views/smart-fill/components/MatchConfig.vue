@@ -25,7 +25,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: MatchConfig): void;
-  (e: "scopeChange", customerId?: number, processId?: number, machineModelId?: number): void;
+  (
+    e: "scopeChange",
+    customerId?: number,
+    processId?: number,
+    machineModelId?: number
+  ): void;
 }>();
 
 // 匹配配置
@@ -45,11 +50,25 @@ const loadingAiServices = ref(false);
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
 const allowLlm = computed(() => props.allowLlm !== false);
-const hasAvailableEmbeddingService = computed(() => embeddingServices.value.length > 0);
+const hasAvailableEmbeddingService = computed(
+  () => embeddingServices.value.length > 0
+);
 const hasAvailableLlmService = computed(() => llmServices.value.length > 0);
-const matchingModeOptions: Array<{ label: string; value: MatchingMode; hint: string }> = [
-  { label: "项目+规格", value: "projectSpecification", hint: "保持现有匹配方式" },
-  { label: "仅规格", value: "specificationOnly", hint: "允许项目不一致时按规格命中" }
+const matchingModeOptions: Array<{
+  label: string;
+  value: MatchingMode;
+  hint: string;
+}> = [
+  {
+    label: "项目+规格",
+    value: "projectSpecification",
+    hint: "保持现有匹配方式"
+  },
+  {
+    label: "仅规格",
+    value: "specificationOnly",
+    hint: "允许项目不一致时按规格命中"
+  }
 ];
 const matchConfigSyncKeys = [
   "embeddingServiceId",
@@ -64,10 +83,13 @@ const matchConfigSyncKeys = [
   "llmCircuitBreakFailures",
   "matchingMode",
   "enableLlmEquivalenceAdjudication",
+  "llmEquivalenceMinConfidence",
   "enableDeterministicAutoApply",
   "llmMaxCallsPerBatch",
   "exactMatchOnly",
-  "filterEmptySourceRows"
+  "filterEmptySourceRows",
+  "enableLlmSemanticPriority",
+  "llmSemanticRecallThreshold"
 ] satisfies Array<keyof MatchConfig>;
 const syncMatchConfigField = <K extends keyof MatchConfig>(
   key: K,
@@ -84,8 +106,10 @@ const hasExplicitMatchingDefaults = computed(() => {
     return false;
   }
 
-  return incoming.recallTopK !== undefined &&
-    incoming.recallTopK !== defaultMatchConfig.recallTopK;
+  return (
+    incoming.recallTopK !== undefined &&
+    incoming.recallTopK !== defaultMatchConfig.recallTopK
+  );
 });
 
 // 高级选项展开
@@ -97,7 +121,7 @@ let isInternalUpdate = false;
 // 同步 modelValue → config（仅在外部驱动时逐属性更新，避免整体替换导致 el-select 失去选中状态）
 watch(
   () => props.modelValue,
-  (val) => {
+  val => {
     if (isInternalUpdate) return;
     const source = { ...defaultMatchConfig, ...val };
     for (const key of matchConfigSyncKeys) {
@@ -120,17 +144,17 @@ const updateConfig = () => {
 watch(config, updateConfig, { deep: true });
 
 watch(
-  () => [
-    config.value.recallTopK,
-    config.value.ambiguityMargin
-  ],
+  () => [config.value.recallTopK, config.value.ambiguityMargin],
   () => {
     if (!config.value.recallTopK || config.value.recallTopK < 1) {
       config.value.recallTopK = defaultMatchConfig.recallTopK;
     } else if (config.value.recallTopK > MAX_RECALL_TOP_K) {
       config.value.recallTopK = MAX_RECALL_TOP_K;
     }
-    if (config.value.ambiguityMargin === undefined || config.value.ambiguityMargin === null) {
+    if (
+      config.value.ambiguityMargin === undefined ||
+      config.value.ambiguityMargin === null
+    ) {
       config.value.ambiguityMargin = defaultMatchConfig.ambiguityMargin;
     }
   },
@@ -192,32 +216,39 @@ const loadAiServices = async () => {
       const enabledItems = items.filter(item => !item.isDisabled);
       embeddingServices.value = sortAiServicesByPriority(
         enabledItems.filter(
-          (s) =>
-            (s.purpose & AiServicePurpose.Embedding) === AiServicePurpose.Embedding &&
-            !!s.embeddingModel
+          s =>
+            (s.purpose & AiServicePurpose.Embedding) ===
+              AiServicePurpose.Embedding && !!s.embeddingModel
         )
       );
       llmServices.value = sortAiServicesByPriority(
         enabledItems.filter(
-          (s) =>
+          s =>
             (s.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
             !!s.llmModel
         )
       );
       if (
         config.value.embeddingServiceId &&
-        !embeddingServices.value.some(service => service.id === config.value.embeddingServiceId)
+        !embeddingServices.value.some(
+          service => service.id === config.value.embeddingServiceId
+        )
       ) {
         config.value.embeddingServiceId = undefined;
       }
       if (
         config.value.llmServiceId &&
-        !llmServices.value.some(service => service.id === config.value.llmServiceId)
+        !llmServices.value.some(
+          service => service.id === config.value.llmServiceId
+        )
       ) {
         config.value.llmServiceId = undefined;
       }
       // 自动选择第一个可用服务（如果尚未选择）
-      if (!config.value.embeddingServiceId && embeddingServices.value.length > 0) {
+      if (
+        !config.value.embeddingServiceId &&
+        embeddingServices.value.length > 0
+      ) {
         config.value.embeddingServiceId = embeddingServices.value[0].id;
       }
       if (!config.value.llmServiceId && llmServices.value.length > 0) {
@@ -238,7 +269,9 @@ const loadAiServices = async () => {
 
 const applyEmbeddingServiceDefaults = (serviceId?: number) => {
   if (!serviceId) return;
-  const selectedService = embeddingServices.value.find(item => item.id === serviceId);
+  const selectedService = embeddingServices.value.find(
+    item => item.id === serviceId
+  );
   if (!selectedService) return;
 
   config.value.recallTopK = Math.min(
@@ -264,17 +297,32 @@ watch(
 
 // 监听客户变化
 watch(selectedCustomerId, () => {
-  emit("scopeChange", selectedCustomerId.value, selectedProcessId.value, selectedMachineModelId.value);
+  emit(
+    "scopeChange",
+    selectedCustomerId.value,
+    selectedProcessId.value,
+    selectedMachineModelId.value
+  );
 });
 
 // 监听制程变化
 watch(selectedProcessId, () => {
-  emit("scopeChange", selectedCustomerId.value, selectedProcessId.value, selectedMachineModelId.value);
+  emit(
+    "scopeChange",
+    selectedCustomerId.value,
+    selectedProcessId.value,
+    selectedMachineModelId.value
+  );
 });
 
 // 监听机型变化
 watch(selectedMachineModelId, () => {
-  emit("scopeChange", selectedCustomerId.value, selectedProcessId.value, selectedMachineModelId.value);
+  emit(
+    "scopeChange",
+    selectedCustomerId.value,
+    selectedProcessId.value,
+    selectedMachineModelId.value
+  );
 });
 
 // 重置配置
@@ -394,7 +442,8 @@ defineExpose({
             />
             <div class="exact-match-option__title">仅匹配项目+规格完全一致</div>
             <div class="form-inline-tip">
-              开启后无需 AI/Embedding，只采用项目+规格完全一致的规格；未命中行可手工填写验收标准和备注。
+              开启后无需
+              AI/Embedding，只采用项目+规格完全一致的规格；未命中行可手工填写验收标准和备注。
             </div>
             <el-alert
               v-if="!loadingAiServices && !hasAvailableEmbeddingService"
@@ -477,7 +526,10 @@ defineExpose({
           </el-col>
           <el-col :span="12">
             <el-form-item label="匹配方式">
-              <el-radio-group v-model="config.matchingMode" class="match-mode-group">
+              <el-radio-group
+                v-model="config.matchingMode"
+                class="match-mode-group"
+              >
                 <el-radio-button
                   v-for="option in matchingModeOptions"
                   :key="option.value"
@@ -488,8 +540,9 @@ defineExpose({
               </el-radio-group>
               <div class="form-inline-tip">
                 {{
-                  matchingModeOptions.find(item => item.value === config.matchingMode)?.hint
-                    ?? "保持现有匹配方式"
+                  matchingModeOptions.find(
+                    item => item.value === config.matchingMode
+                  )?.hint ?? "保持现有匹配方式"
                 }}
               </div>
             </el-form-item>
@@ -545,9 +598,46 @@ defineExpose({
                 v-model="config.enableDeterministicAutoApply"
                 active-text="开启"
                 inactive-text="关闭"
+                :disabled="config.exactMatchOnly"
               />
               <div class="form-inline-tip">
-                无硬冲突且达到高置信阈值时直接采用，不进入同步 AI 裁决。
+                无硬冲突且达到高置信阈值时直接采用，不进入同步 AI
+                裁决。仅精确匹配模式下无效。
+              </div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="LLM 语义优先">
+              <el-switch
+                v-model="config.enableLlmSemanticPriority"
+                active-text="开启"
+                inactive-text="关闭"
+                :disabled="
+                  config.exactMatchOnly || !allowLlm || !hasAvailableLlmService
+                "
+              />
+              <div class="form-inline-tip">
+                开启后 LLM
+                裁决具有最高权威：扩大召回范围、覆盖未知单位/品牌、忽略硬冲突拦截。速度变慢但命中率更高。
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col v-if="config.enableLlmSemanticPriority" :span="12">
+            <el-form-item label="语义召回下限">
+              <el-slider
+                v-model="config.llmSemanticRecallThreshold"
+                :min="0.1"
+                :max="0.9"
+                :step="0.05"
+                show-input
+                :show-input-controls="false"
+                style="width: 200px"
+              />
+              <div class="form-inline-tip">
+                Embedding 分 ≥ 此值的候选进入 LLM 视野（默认
+                0.5），越低召回越多但 LLM 调用越多。
               </div>
             </el-form-item>
           </el-col>
@@ -619,13 +709,48 @@ defineExpose({
                     v-model="config.enableLlmEquivalenceAdjudication"
                     active-text="开启"
                     inactive-text="关闭"
-                    :disabled="!allowLlm || !hasAvailableLlmService"
+                    :disabled="
+                      config.exactMatchOnly ||
+                      !allowLlm ||
+                      !hasAvailableLlmService
+                    "
                   />
                 </el-form-item>
               </el-col>
               <el-col :span="16">
                 <span class="parallelism-hint">
-                  默认关闭以优先保证预览速度；开启后，达到最小得分阈值的当前最佳候选会在同步匹配阶段进入 AI 等价裁决。
+                  默认关闭以优先保证预览速度；开启后，达到最小得分阈值的当前最佳候选会在同步匹配阶段进入
+                  AI 等价裁决。
+                </span>
+              </el-col>
+            </el-row>
+            <el-row
+              v-if="
+                config.enableLlmEquivalenceAdjudication ||
+                config.enableLlmSemanticPriority
+              "
+              :gutter="20"
+              align="middle"
+              class="llm-row"
+            >
+              <el-col :span="8">
+                <el-form-item label="等价置信下限">
+                  <el-input-number
+                    v-model="config.llmEquivalenceMinConfidence"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    :disabled="!allowLlm || !hasAvailableLlmService"
+                    size="default"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="16">
+                <span class="parallelism-hint">
+                  LLM 判定等价但自评置信度低于此值时转人工确认；设为 0
+                  表示不设门槛。语义优先模式下，该值是覆盖硬冲突的关键护栏。
                 </span>
               </el-col>
             </el-row>
@@ -646,7 +771,8 @@ defineExpose({
               </el-col>
               <el-col :span="16">
                 <span class="parallelism-hint">
-                  同时处理的行数，值越大速度越快但占用资源越多；本地 Ollama 建议 1-4
+                  同时处理的行数，值越大速度越快但占用资源越多；本地 Ollama 建议
+                  1-4
                 </span>
               </el-col>
             </el-row>
@@ -671,11 +797,14 @@ defineExpose({
               </el-col>
             </el-row>
             <div class="llm-hint">
-              LLM 仅负责复核“是否可直接采用现有规格”，不会生成新验收标准参与落库。
+              LLM
+              仅负责复核“是否可直接采用现有规格”，不会生成新验收标准参与落库。
             </div>
 
             <div class="reset-btn">
-              <el-button size="small" @click="resetConfig">重置为默认值</el-button>
+              <el-button size="small" @click="resetConfig"
+                >重置为默认值</el-button
+              >
             </div>
           </el-form>
         </div>
@@ -697,21 +826,21 @@ export default {
 }
 
 .config-section {
-  margin-bottom: 20px;
   padding-bottom: 16px;
+  margin-bottom: 20px;
   border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .config-section:last-child {
-  border-bottom: none;
   margin-bottom: 0;
+  border-bottom: none;
 }
 
 .section-title {
+  margin-bottom: 12px;
   font-size: 14px;
   font-weight: 600;
   color: var(--color-text);
-  margin-bottom: 12px;
 }
 
 .section-header {
@@ -736,8 +865,8 @@ export default {
 
 .scope-tip {
   display: flex;
-  align-items: center;
   gap: 4px;
+  align-items: center;
   font-size: 12px;
   color: #6b7280;
 }
@@ -775,8 +904,8 @@ export default {
 
 .parallelism-hint {
   font-size: 12px;
-  color: #9ca3af;
   line-height: 32px;
+  color: #9ca3af;
 }
 
 .form-inline-tip {
@@ -786,7 +915,7 @@ export default {
 }
 
 .reset-btn {
-  text-align: right;
   margin-top: 12px;
+  text-align: right;
 }
 </style>

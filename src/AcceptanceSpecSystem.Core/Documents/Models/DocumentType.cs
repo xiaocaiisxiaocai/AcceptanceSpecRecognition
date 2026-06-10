@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.Documents.Models;
+﻿namespace AcceptanceSpecSystem.Core.Documents.Models;
 
 /// <summary>
 /// 文档类型枚举

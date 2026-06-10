@@ -57,9 +57,13 @@ export interface DeleteAuditLogRangeRequest {
 const baseUrl = "/api/audit-logs";
 
 export const getAuditLogList = (params?: AuditLogListRequest) => {
-  return http.request<ApiResponse<PagedData<AuditLogListItem>>>("get", baseUrl, {
-    params
-  });
+  return http.request<ApiResponse<PagedData<AuditLogListItem>>>(
+    "get",
+    baseUrl,
+    {
+      params
+    }
+  );
 };
 
 export const getAuditLogDetail = (id: number) => {

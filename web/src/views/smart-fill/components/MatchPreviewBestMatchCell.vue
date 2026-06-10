@@ -23,7 +23,9 @@ const props = defineProps<{
 }>();
 
 const primaryIssue = computed(() => getPrimaryIssue(props.item));
-const issueComparison = computed(() => formatIssueComparison(primaryIssue.value));
+const issueComparison = computed(() =>
+  formatIssueComparison(primaryIssue.value)
+);
 const ambiguityHint = computed(() =>
   getAmbiguityHint(props.item, props.ambiguityMargin)
 );
@@ -71,7 +73,9 @@ const llmDifferenceTone = computed(() =>
         </el-tag>
       </div>
     </div>
-    <div class="match-score">{{ formatPreviewScore(item.bestMatch.score) }}</div>
+    <div class="match-score">
+      {{ formatPreviewScore(item.bestMatch.score) }}
+    </div>
     <div v-if="item.bestMatch.isAmbiguous" class="ambiguity-reason">
       {{ ambiguityHint }}
     </div>
@@ -82,13 +86,13 @@ const llmDifferenceTone = computed(() =>
         {{ issueComparison }}
       </div>
     </div>
-    <div
-      v-if="item.bestMatch.evidenceSummary?.length"
-      class="evidence-summary"
-    >
+    <div v-if="item.bestMatch.evidenceSummary?.length" class="evidence-summary">
       {{ item.bestMatch.evidenceSummary.slice(0, 2).join("；") }}
     </div>
-    <div v-if="shouldShowLlmEquivalence && llmEquivalence" class="equivalence-summary">
+    <div
+      v-if="shouldShowLlmEquivalence && llmEquivalence"
+      class="equivalence-summary"
+    >
       <div class="equivalence-summary__tags">
         <el-tag
           size="small"
@@ -109,10 +113,7 @@ const llmDifferenceTone = computed(() =>
         {{ getLlmEquivalenceSummaryText(llmEquivalence) }}
       </div>
     </div>
-    <div
-      v-if="item.bestMatch.conflictSummary?.length"
-      class="conflict-summary"
-    >
+    <div v-if="item.bestMatch.conflictSummary?.length" class="conflict-summary">
       {{ item.bestMatch.conflictSummary.join("；") }}
     </div>
   </div>

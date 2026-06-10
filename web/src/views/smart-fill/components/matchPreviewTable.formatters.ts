@@ -50,9 +50,8 @@ export const isMatchPreviewRejectDecision = (item: MatchPreviewItem) =>
 export const isHighConfidenceMatchPreview = (item: MatchPreviewItem) =>
   isMatchPreviewAutoApply(item) && item.confidenceLevel === "high";
 
-export const isMatchPreviewReviewInFlight = (
-  status: SmartFillReviewStatus
-) => status === "streaming";
+export const isMatchPreviewReviewInFlight = (status: SmartFillReviewStatus) =>
+  status === "streaming";
 
 export const canUseMatchPreviewBestMatch = (
   item: MatchPreviewItem,
@@ -141,7 +140,8 @@ export const getPreviewConfidenceText = (level: string) => {
   }
 };
 
-export const formatPreviewScore = (score: number) => `${(score * 100).toFixed(1)}%`;
+export const formatPreviewScore = (score: number) =>
+  `${(score * 100).toFixed(1)}%`;
 
 export const formatOptionalPercent = (value?: number) =>
   value === undefined || value === null ? "-" : `${(value * 100).toFixed(1)}%`;
@@ -155,8 +155,9 @@ export const getAmbiguityHint = (
   return `Top1/Top2分差 ${formatOptionalPercent(item.bestMatch.scoreGap)}，歧义阈值 ${formatOptionalPercent(ambiguityMargin)}`;
 };
 
-export const getPrimaryIssue = (item: MatchPreviewItem): MatchIssue | undefined =>
-  item.bestMatch?.issues?.[0];
+export const getPrimaryIssue = (
+  item: MatchPreviewItem
+): MatchIssue | undefined => item.bestMatch?.issues?.[0];
 
 export const formatIssueComparison = (issue?: MatchIssue) => {
   if (!issue?.sourceValue && !issue?.candidateValue) {
@@ -225,7 +226,9 @@ export const getReviewTagType = (
 export const isExactFillable = (
   item: MatchPreviewItem,
   recommendation: SmartFillFillRecommendation
-) => recommendation === "fillable" && item.bestMatch?.selectionMode === "exactShortcut";
+) =>
+  recommendation === "fillable" &&
+  item.bestMatch?.selectionMode === "exactShortcut";
 
 export const isPartialFillable = (
   item: MatchPreviewItem,

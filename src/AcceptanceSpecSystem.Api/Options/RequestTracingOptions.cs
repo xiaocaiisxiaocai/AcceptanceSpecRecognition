@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Api.Options;
+﻿namespace AcceptanceSpecSystem.Api.Options;
 
 /// <summary>
 /// 请求追踪配置。

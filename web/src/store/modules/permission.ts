@@ -27,7 +27,9 @@ export const usePermissionStore = defineStore("pure-permission", {
   actions: {
     /** 组装整体路由生成的菜单 */
     handleWholeMenus(routes: any[]) {
-      const menus = this.constantMenus.concat(routes) as unknown as RouteRecordRaw[];
+      const menus = this.constantMenus.concat(
+        routes
+      ) as unknown as RouteRecordRaw[];
       this.wholeMenus = filterNoPermissionTree(
         filterTree(ascending(menus))
       ) as unknown as multiType[];

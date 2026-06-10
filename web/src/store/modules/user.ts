@@ -16,12 +16,7 @@ import {
 } from "@/api/user";
 import { useMultiTagsStoreHook } from "./multiTags";
 import { usePermissionStoreHook } from "./permission";
-import {
-  type DataInfo,
-  setToken,
-  removeToken,
-  userKey
-} from "@/utils/auth";
+import { type DataInfo, setToken, removeToken, userKey } from "@/utils/auth";
 import { hasAnyPermission } from "@/utils/permission";
 
 function findFirstMenuPath(routes: Array<any>): string | null {

@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.Matching.Interfaces;
+﻿namespace AcceptanceSpecSystem.Core.Matching.Interfaces;
 
 /// <summary>
 /// Embedding服务接口

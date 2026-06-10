@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.Matching.Models;
+﻿using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;

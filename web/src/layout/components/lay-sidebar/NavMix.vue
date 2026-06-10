@@ -16,7 +16,9 @@ import Setting from "~icons/ri/settings-3-line";
 
 const menuRef = ref();
 const defaultActive = ref(null);
-const wholeMenus = computed(() => usePermissionStoreHook().wholeMenus as unknown as menuType[]);
+const wholeMenus = computed(
+  () => usePermissionStoreHook().wholeMenus as unknown as menuType[]
+);
 
 const {
   route,

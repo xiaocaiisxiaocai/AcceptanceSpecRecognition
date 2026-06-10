@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.Documents.Models;
+﻿namespace AcceptanceSpecSystem.Core.Documents.Models;
 
 /// <summary>
 /// 结构化单元格值：用于表达“文本 + 嵌套表格”等复杂内容

@@ -1,10 +1,10 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
-using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 

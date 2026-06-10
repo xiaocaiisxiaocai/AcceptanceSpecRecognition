@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Data.Entities;
+﻿using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Data.Tests;

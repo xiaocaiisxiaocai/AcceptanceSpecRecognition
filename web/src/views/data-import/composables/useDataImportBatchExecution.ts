@@ -52,7 +52,9 @@ type UseDataImportBatchExecutionOptions = {
   currentImportPermissionMessage: ComputedRef<string>;
   getExcludedRowIndexes: (tableIndex: number) => number[];
   resetPendingDifferenceState: () => void;
-  syncDifferenceDecisionMap: (items: ImportPendingDifferenceWithTable[]) => void;
+  syncDifferenceDecisionMap: (
+    items: ImportPendingDifferenceWithTable[]
+  ) => void;
 };
 
 type CompleteExcelImportMapping = Pick<
@@ -67,7 +69,9 @@ type CompleteExcelImportMapping = Pick<
   | "remarkColumn"
 >;
 
-export function useDataImportBatchExecution(options: UseDataImportBatchExecutionOptions) {
+export function useDataImportBatchExecution(
+  options: UseDataImportBatchExecutionOptions
+) {
   const buildDuplicateCheckOptions = (): ImportDuplicateCheckOptions => {
     const config = options.importDuplicateAiConfig.value;
     return {
@@ -131,7 +135,9 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
     duplicateCheckOptions: ImportDuplicateCheckOptions
   ) => {
     const sourceLabel = `${options.isExcelFile.value ? "工作表" : "表格"} ${cfg.tableIndex + 1}`;
-    const actionLabel = includeDifferenceDecisions ? "正在按确认结果继续导入" : "正在导入";
+    const actionLabel = includeDifferenceDecisions
+      ? "正在按确认结果继续导入"
+      : "正在导入";
 
     if (!duplicateCheckOptions.enableSemanticDuplicateCheck) {
       return `${actionLabel}${sourceLabel}（${currentIndex}/${total}）`;
@@ -165,7 +171,8 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
         duplicateCheckOptions
       );
 
-      const cleanupSourceFile = !hasPendingEncountered && idx === configs.length - 1;
+      const cleanupSourceFile =
+        !hasPendingEncountered && idx === configs.length - 1;
       const fileId = options.uploadedFile.value?.fileId;
       const customerId = options.selectedCustomerId.value;
       if (fileId === undefined || customerId === undefined) {
@@ -174,7 +181,11 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
 
       const { confirmed, partial, skipped } = includeDifferenceDecisions
         ? buildDifferenceKeysByTable(cfg.tableIndex)
-        : { confirmed: [] as string[], partial: [] as string[], skipped: [] as string[] };
+        : {
+            confirmed: [] as string[],
+            partial: [] as string[],
+            skipped: [] as string[]
+          };
       const excludedRowIndexes = options.getExcludedRowIndexes(cfg.tableIndex);
       const normalizedExcelMapping = normalizeExcelMappingByTable(
         cfg.tableInfo,
@@ -229,11 +240,13 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
         tableAggregates.push({
           ...buildEmptyImportAggregate(),
           failedCount: 1,
-          errors: [{
-            tableIndex: cfg.tableIndex,
-            rowIndex: 0,
-            message: res.message || "导入失败"
-          }]
+          errors: [
+            {
+              tableIndex: cfg.tableIndex,
+              rowIndex: 0,
+              message: res.message || "导入失败"
+            }
+          ]
         });
         continue;
       }
@@ -242,7 +255,9 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
         hasPendingEncountered = true;
       }
 
-      tableAggregates.push(createSingleTableAggregate(cfg.tableIndex, res.data));
+      tableAggregates.push(
+        createSingleTableAggregate(cfg.tableIndex, res.data)
+      );
     }
 
     return {
@@ -252,7 +267,8 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
   };
 
   const openDifferenceConfirmDialog = () => {
-    if (!options.pendingImportAggregate.value?.pendingDifferences.length) return;
+    if (!options.pendingImportAggregate.value?.pendingDifferences.length)
+      return;
     options.differenceConfirmDialogVisible.value = true;
   };
 
@@ -265,7 +281,9 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
     }
 
     if (options.pendingUndecidedCount.value > 0) {
-      ElMessage.warning(`请先逐条确认重复项（仍有 ${options.pendingUndecidedCount.value} 条未确认）`);
+      ElMessage.warning(
+        `请先逐条确认重复项（仍有 ${options.pendingUndecidedCount.value} 条未确认）`
+      );
       return;
     }
 
@@ -279,8 +297,7 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
       const pendingConfigs = options.tableConfigs.value.filter(cfg =>
         pendingSet.has(cfg.tableIndex)
       );
-      options.importProgressText.value =
-        `正在按确认结果继续导入 ${pendingConfigs.length} 个${options.isExcelFile.value ? "工作表" : "表格"}`;
+      options.importProgressText.value = `正在按确认结果继续导入 ${pendingConfigs.length} 个${options.isExcelFile.value ? "工作表" : "表格"}`;
 
       const batch = await executeImportBatch(pendingConfigs, true);
       const splitResult = splitBatchAggregates(batch.tableAggregates);
@@ -291,10 +308,14 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
           splitResult.completed
         );
         options.pendingImportAggregate.value = splitResult.pending;
-        options.syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
+        options.syncDifferenceDecisionMap(
+          splitResult.pending.pendingDifferences
+        );
         options.differenceConfirmDialogVisible.value = true;
         ElMessage.closeAll();
-        ElMessage.warning(`仍有 ${splitResult.pending.pendingCount || 0} 条重复项未确认`);
+        ElMessage.warning(
+          `仍有 ${splitResult.pending.pendingCount || 0} 条重复项未确认`
+        );
         return;
       }
 
@@ -311,7 +332,9 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
       );
     } catch (error) {
       options.differenceConfirmDialogVisible.value = true;
-      ElMessage.error(error instanceof Error ? error.message : "继续导入失败，请稍后重试");
+      ElMessage.error(
+        error instanceof Error ? error.message : "继续导入失败，请稍后重试"
+      );
     } finally {
       options.importing.value = false;
       clearImportProgress();
@@ -365,8 +388,7 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
       );
 
       options.importing.value = true;
-      options.importProgressText.value =
-        `正在准备导入 ${options.tableConfigs.value.length} 个${options.isExcelFile.value ? "工作表" : "表格"}`;
+      options.importProgressText.value = `正在准备导入 ${options.tableConfigs.value.length} 个${options.isExcelFile.value ? "工作表" : "表格"}`;
       const batch = await executeImportBatch(options.tableConfigs.value, false);
       const splitResult = splitBatchAggregates(batch.tableAggregates);
 
@@ -374,7 +396,9 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
         options.importResult.value = null;
         options.committedImportAggregate.value = splitResult.completed;
         options.pendingImportAggregate.value = splitResult.pending;
-        options.syncDifferenceDecisionMap(splitResult.pending.pendingDifferences);
+        options.syncDifferenceDecisionMap(
+          splitResult.pending.pendingDifferences
+        );
         options.differenceConfirmDialogVisible.value = true;
         ElMessage.closeAll();
         ElMessage.warning(
@@ -394,7 +418,9 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
         return;
       }
 
-      ElMessage.error(error instanceof Error ? error.message : "导入失败，请稍后重试");
+      ElMessage.error(
+        error instanceof Error ? error.message : "导入失败，请稍后重试"
+      );
     } finally {
       options.importing.value = false;
       clearImportProgress();
@@ -423,11 +449,15 @@ export function useDataImportBatchExecution(options: UseDataImportBatchExecution
       return options.importProgressText.value || "正在导入...";
     }
 
-    return options.hasPendingDifferenceConfirmation.value ? "继续处理重复项" : "开始导入";
+    return options.hasPendingDifferenceConfirmation.value
+      ? "继续处理重复项"
+      : "开始导入";
   });
 
   const confirmDifferenceButtonText = computed(() => {
-    return options.importing.value ? importPrimaryButtonText.value : "确认并继续导入";
+    return options.importing.value
+      ? importPrimaryButtonText.value
+      : "确认并继续导入";
   });
 
   return {

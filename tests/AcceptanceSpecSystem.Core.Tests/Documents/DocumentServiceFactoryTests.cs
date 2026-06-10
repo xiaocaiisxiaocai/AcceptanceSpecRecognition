@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.Documents;
+﻿using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using FluentAssertions;
 

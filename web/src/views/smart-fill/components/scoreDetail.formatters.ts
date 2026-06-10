@@ -260,8 +260,7 @@ export const getSmartFillTableState = (
 
   if (getDecision(bestMatch) === "autoApply") {
     return {
-      reviewStatus:
-        item.confidenceLevel === "high" ? "direct" : "completed",
+      reviewStatus: item.confidenceLevel === "high" ? "direct" : "completed",
       fillRecommendation: "fillable" as SmartFillFillRecommendation,
       hasCustomerVisibleRisk: hasCustomerVisibleRisk(item)
     };
@@ -383,14 +382,16 @@ export const applyMatchLlmStreamEventToPreviewItem = (
           conflictSummary: [...(done.bestMatch.conflictSummary ?? [])],
           issues: [...(done.bestMatch.issues ?? [])],
           entities: [...(done.bestMatch.entities ?? [])],
-          topCandidates: (done.bestMatch.topCandidates ?? []).map(candidate => ({
-            ...candidate,
-            scoreDetails: { ...(candidate.scoreDetails ?? {}) },
-            evidenceSummary: [...(candidate.evidenceSummary ?? [])],
-            conflictSummary: [...(candidate.conflictSummary ?? [])],
-            issues: [...(candidate.issues ?? [])],
-            entities: [...(candidate.entities ?? [])]
-          }))
+          topCandidates: (done.bestMatch.topCandidates ?? []).map(
+            candidate => ({
+              ...candidate,
+              scoreDetails: { ...(candidate.scoreDetails ?? {}) },
+              evidenceSummary: [...(candidate.evidenceSummary ?? [])],
+              conflictSummary: [...(candidate.conflictSummary ?? [])],
+              issues: [...(candidate.issues ?? [])],
+              entities: [...(candidate.entities ?? [])]
+            })
+          )
         };
       }
       if (item.bestMatch) {
@@ -424,7 +425,10 @@ export const applyMatchLlmStreamEventToPreviewItem = (
         return;
       }
 
-      if (item.llmReviewStage === undefined && shouldStreamMatchReview(item.bestMatch)) {
+      if (
+        item.llmReviewStage === undefined &&
+        shouldStreamMatchReview(item.bestMatch)
+      ) {
         item.llmReviewStage = "done";
         item.llmReviewDraft = "";
         item.llmReviewError = undefined;
@@ -441,10 +445,8 @@ export const applyMatchLlmStreamDisconnectToPreviewItem = (
 ) => {
   const isInterruptedStreamingRow =
     item.llmReviewStage === "streaming" ||
-    (
-      item.llmReviewStage === undefined &&
-      shouldStreamMatchReview(item.bestMatch)
-    );
+    (item.llmReviewStage === undefined &&
+      shouldStreamMatchReview(item.bestMatch));
 
   if (!isInterruptedStreamingRow) {
     return;

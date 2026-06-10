@@ -1,8 +1,8 @@
+﻿using System.Reflection;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Tests.Infrastructure;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using System.Reflection;
 
 namespace AcceptanceSpecSystem.Data.Tests;
 

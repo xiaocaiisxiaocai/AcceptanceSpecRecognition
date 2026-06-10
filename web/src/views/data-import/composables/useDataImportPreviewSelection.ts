@@ -89,7 +89,10 @@ export function useDataImportPreviewSelection(
             rowValues,
             columnIndexes.specificationColumn
           ),
-          acceptance: getPreviewCellValue(rowValues, columnIndexes.acceptanceColumn),
+          acceptance: getPreviewCellValue(
+            rowValues,
+            columnIndexes.acceptanceColumn
+          ),
           remark: getPreviewCellValue(rowValues, columnIndexes.remarkColumn)
         }))
         .filter(row => !excludedRowIndexes.has(row.rowIndex));

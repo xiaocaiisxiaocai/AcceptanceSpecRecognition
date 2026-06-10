@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.Matching.Models;
+﻿namespace AcceptanceSpecSystem.Core.Matching.Models;
 
 /// <summary>
 /// 匹配阈值约定
@@ -13,7 +13,7 @@ public static class MatchingThresholds
     /// <summary>
     /// 默认高置信结果分层阈值
     /// </summary>
-    public const double DefaultHighConfidenceScore = 0.98;
+    public const double DefaultHighConfidenceScore = 0.95;
 
     /// <summary>
     /// 默认召回候选数
@@ -39,6 +39,13 @@ public static class MatchingThresholds
     /// LLM 复核通过阈值（0~100）
     /// </summary>
     public const double LlmReviewPassScore = 90;
+
+    /// <summary>
+    /// LLM 等价裁决置信度下限（默认 0.5）。
+    /// LLM 判定 Equivalent 但置信度低于此值时，视为不确定，转人工确认。
+    /// 0 表示不设门槛（任何置信度均接受），1 表示要求 LLM 完全确定。
+    /// </summary>
+    public const double DefaultLlmEquivalenceMinConfidence = 0.5;
 
     /// <summary>
     /// 归一化高置信阈值配置。
@@ -199,12 +206,19 @@ public class MatchResult
     public double HighConfidenceThreshold { get; set; } = MatchingThresholds.DefaultHighConfidenceScore;
 
     /// <summary>
-    /// 是否为高置信度匹配
+    /// 本次匹配使用的 LLM 等价裁决置信度下限
+    /// </summary>
+    public double LlmEquivalenceMinConfidence { get; set; } = MatchingThresholds.DefaultLlmEquivalenceMinConfidence;
+
+    /// <summary>
+    /// 是否为高置信度匹配。
+    /// LLM 判定等价时，需置信度不低于 <see cref="LlmEquivalenceMinConfidence"/> 才算高置信。
     /// </summary>
     public bool IsHighConfidence =>
         Decision == MatchDecision.AutoApply &&
         (Score >= HighConfidenceThreshold ||
-         LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent);
+         (LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent &&
+          (LlmEquivalenceMinConfidence <= 0 || LlmEquivalence.Confidence >= LlmEquivalenceMinConfidence)));
 
     /// <summary>
     /// 是否为中置信度匹配
@@ -435,7 +449,14 @@ public class MatchingConfig
     /// 注意：启用后 LLM 仅作为"确定性层无法判定的灰区"兜底，且受 <see cref="LlmMaxCallsPerBatch"/> 全局上限约束，
     /// 不再对每个非精确命中行逐一调用。
     /// </summary>
-    public bool EnableLlmEquivalenceAdjudication { get; set; }
+    public bool EnableLlmEquivalenceAdjudication { get; set; } = true;
+
+    /// <summary>
+    /// LLM 等价裁决置信度下限（0~1）。
+    /// LLM 判定 Equivalent 但自评置信度低于此值时，视为 Uncertain，转人工确认。
+    /// 默认 0.5，设为 0 表示不设门槛（任何置信度均接受）。
+    /// </summary>
+    public double LlmEquivalenceMinConfidence { get; set; } = MatchingThresholds.DefaultLlmEquivalenceMinConfidence;
 
     /// <summary>
     /// 是否启用确定性自动通过路径。
@@ -447,9 +468,9 @@ public class MatchingConfig
     /// <summary>
     /// 单批次 LLM 等价裁决调用次数上限（限流兜底）。
     /// 达到上限后，剩余需要裁决的灰区行一律转为人工确认，避免大批量时 LLM 拖垮整体耗时。
-    /// 默认 20。设为 0 表示不允许任何 LLM 裁决调用。
+    /// 默认 1000（本地部署无费用限制）。设为 0 表示不允许任何 LLM 裁决调用。
     /// </summary>
-    public int LlmMaxCallsPerBatch { get; set; } = 20;
+    public int LlmMaxCallsPerBatch { get; set; } = 1000;
 
     /// <summary>
     /// 是否仅按项目+规格完全一致命中
@@ -460,6 +481,23 @@ public class MatchingConfig
     /// 是否过滤项目列与规格列都为空的源行（默认过滤）
     /// </summary>
     public bool FilterEmptySourceRows { get; set; } = true;
+
+    /// <summary>
+    /// 启用 LLM 语义优先模式。
+    /// 开启后 LLM 等价裁决具有最高权威：
+    /// 1. 召回门槛自动降低至 <see cref="LlmSemanticRecallThreshold"/>，让 Embedding 偏低的语义候选也能进入 LLM 视野；
+    /// 2. 未知单位/品牌 Warning 不再阻断 LLM Equivalent 结论；
+    /// 3. 确定性硬冲突规则降级，LLM Equivalent 可放行。
+    /// 注意：速度会明显变慢，适合对准确率要求高、可接受较长等待的场景。
+    /// </summary>
+    public bool EnableLlmSemanticPriority { get; set; }
+
+    /// <summary>
+    /// LLM 语义优先模式下的召回分数下限（默认 0.5）。
+    /// 仅在 <see cref="EnableLlmSemanticPriority"/> 开启时生效。
+    /// Embedding 分数 >= 此阈值的候选将被保留进入 LLM 裁决视野，即使低于常规 MinScoreThreshold。
+    /// </summary>
+    public double LlmSemanticRecallThreshold { get; set; } = 0.5;
 }
 
 /// <summary>
@@ -553,4 +591,19 @@ public sealed class BatchMatchProgress
     /// 总行数。
     /// </summary>
     public int TotalItems { get; set; }
+
+    /// <summary>
+    /// LLM 等价裁决已调用次数（0 表示未启用或尚未调用）。
+    /// </summary>
+    public int LlmCallsUsed { get; set; }
+
+    /// <summary>
+    /// LLM 等价裁决总预算（0 表示未启用）。
+    /// </summary>
+    public int LlmCallsBudget { get; set; }
+
+    /// <summary>
+    /// LLM 预算是否已耗尽。
+    /// </summary>
+    public bool LlmBudgetExhausted { get; set; }
 }

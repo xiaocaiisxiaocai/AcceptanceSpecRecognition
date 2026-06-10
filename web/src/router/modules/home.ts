@@ -1,4 +1,9 @@
-import { getMenuPermission, getMenuTitle, getPagePermission, getPageTitle } from "../navigation-manifest";
+import {
+  getMenuPermission,
+  getMenuTitle,
+  getPagePermission,
+  getPageTitle
+} from "../navigation-manifest";
 const { VITE_HIDE_HOME } = import.meta.env;
 const Layout = () => import("@/layout/index.vue");
 

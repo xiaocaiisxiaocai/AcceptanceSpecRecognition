@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.Documents.Models;
+﻿namespace AcceptanceSpecSystem.Core.Documents.Models;
 
 /// <summary>
 /// 列映射配置

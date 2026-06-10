@@ -60,16 +60,16 @@
   --el-table-header-bg-color: #f3e8ff;
   --el-table-row-hover-bg-color: #f5f3ff;
   --el-card-border-color: #ede7f6;
-  --el-card-bg-color: #ffffff;
-  --el-fill-color-blank: #ffffff;
+  --el-card-bg-color: #fff;
+  --el-fill-color-blank: #fff;
 }
 
 .page {
-  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-height: 100%;
+  padding: 24px;
 }
 
 .config-page .el-form-item .el-select,
@@ -96,22 +96,23 @@
 }
 
 .search-select {
+  flex: 0 0 var(--search-select-width, 240px);
   width: var(--search-select-width, 240px);
   min-width: var(--search-select-width, 240px);
-  flex: 0 0 var(--search-select-width, 240px);
   max-width: 100%;
 }
 
 .el-form--inline .el-form-item .search-select {
+  flex: 0 0 var(--search-select-width, 240px) !important;
   width: var(--search-select-width, 240px) !important;
   min-width: var(--search-select-width, 240px) !important;
-  flex: 0 0 var(--search-select-width, 240px) !important;
 }
 
 .el-form--inline .el-form-item .search-select .el-select__wrapper {
   width: 100% !important;
   min-width: 100% !important;
 }
+
 .search-select--200 {
   --search-select-width: 200px;
 }
@@ -156,9 +157,9 @@
 
 .page-header {
   display: flex;
+  gap: 16px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
 }
 
 .page-title {
@@ -168,9 +169,9 @@
 }
 
 .page-subtitle {
+  margin-top: 4px;
   font-size: 13px;
   color: #6b7280;
-  margin-top: 4px;
 }
 
 /* 灰色模式 */

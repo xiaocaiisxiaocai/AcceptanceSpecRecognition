@@ -29,11 +29,14 @@ export function useDataImportTarget(
   const processes = ref<Process[]>([]);
   const machineModels = ref<MachineModel[]>([]);
   const selectedCustomerId =
-    targetSelectionRefs?.selectedCustomerId ?? ref<number | undefined>(undefined);
+    targetSelectionRefs?.selectedCustomerId ??
+    ref<number | undefined>(undefined);
   const selectedProcessId =
-    targetSelectionRefs?.selectedProcessId ?? ref<number | undefined>(undefined);
+    targetSelectionRefs?.selectedProcessId ??
+    ref<number | undefined>(undefined);
   const selectedMachineModelId =
-    targetSelectionRefs?.selectedMachineModelId ?? ref<number | undefined>(undefined);
+    targetSelectionRefs?.selectedMachineModelId ??
+    ref<number | undefined>(undefined);
   const loadingCustomers = ref(false);
   const loadingProcesses = ref(false);
   const loadingMachineModels = ref(false);
@@ -109,8 +112,8 @@ export function useDataImportTarget(
         llmServices.value = sortAiServicesByPriority(
           enabledItems.filter(
             item =>
-              (item.purpose & AiServicePurpose.Llm) ===
-                AiServicePurpose.Llm && !!item.llmModel
+              (item.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
+              !!item.llmModel
           )
         );
 
@@ -141,8 +144,7 @@ export function useDataImportTarget(
           !importDuplicateAiConfig.value.llmServiceId &&
           llmServices.value.length > 0
         ) {
-          importDuplicateAiConfig.value.llmServiceId =
-            llmServices.value[0].id;
+          importDuplicateAiConfig.value.llmServiceId = llmServices.value[0].id;
         }
         return;
       }

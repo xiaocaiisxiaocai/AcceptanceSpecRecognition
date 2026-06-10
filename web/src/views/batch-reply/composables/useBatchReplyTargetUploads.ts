@@ -12,8 +12,14 @@ import {
   resolveDefaultSourceTableIndex,
   type SourceTableOption
 } from "../batch-reply-table-config";
-import type { BatchReplySourceFileState, BatchReplyTargetState } from "../batch-reply-state";
-import { createTargetFileSignature, decideTargetUpload } from "../target-upload";
+import type {
+  BatchReplySourceFileState,
+  BatchReplyTargetState
+} from "../batch-reply-state";
+import {
+  createTargetFileSignature,
+  decideTargetUpload
+} from "../target-upload";
 
 type UseBatchReplyTargetUploadsParams = {
   sourceFile: Ref<BatchReplySourceFileState | null>;
@@ -23,10 +29,16 @@ type UseBatchReplyTargetUploadsParams = {
   selectedSourceTableOptions: ComputedRef<SourceTableOption[]>;
   activeRootTab: Ref<string>;
   /** 由调用方提供的目标文件上传执行函数，接收 sourceSessionId 和待上传文件列表 */
-  onUploadTargets?: (sessionId: string, files: File[]) => Promise<Awaited<ReturnType<typeof uploadBatchReplyTargets>>>;
+  onUploadTargets?: (
+    sessionId: string,
+    files: File[]
+  ) => Promise<Awaited<ReturnType<typeof uploadBatchReplyTargets>>>;
 };
 
-export const useBatchReplyTargetUploads = (params: UseBatchReplyTargetUploadsParams) => {  const targetUploading = ref(false);
+export const useBatchReplyTargetUploads = (
+  params: UseBatchReplyTargetUploadsParams
+) => {
+  const targetUploading = ref(false);
   const targetUploadKey = ref(0);
   const targetUploadRef = ref<UploadInstance>();
   const activeTargetFileId = ref("");
@@ -59,7 +71,10 @@ export const useBatchReplyTargetUploads = (params: UseBatchReplyTargetUploadsPar
           table,
           uploadedFile.fileType === 1,
           true,
-          resolveDefaultSourceTableIndex(table.index, params.selectedSourceTableOptions.value)
+          resolveDefaultSourceTableIndex(
+            table.index,
+            params.selectedSourceTableOptions.value
+          )
         )
       ),
       previewResults: {}
@@ -127,7 +142,10 @@ export const useBatchReplyTargetUploads = (params: UseBatchReplyTargetUploadsPar
     }
   };
 
-  const handleTargetFileChange = (uploadFile: UploadFile, _uploadFiles: UploadFiles) => {
+  const handleTargetFileChange = (
+    uploadFile: UploadFile,
+    _uploadFiles: UploadFiles
+  ) => {
     const rawFile = uploadFile.raw;
     if (!rawFile) {
       targetUploadRef.value?.handleRemove(uploadFile);
@@ -154,12 +172,17 @@ export const useBatchReplyTargetUploads = (params: UseBatchReplyTargetUploadsPar
       return;
     }
 
-    if (!ensurePermission("api:batch-reply:upload", "权限不足，无法上传目标文件")) {
+    if (
+      !ensurePermission("api:batch-reply:upload", "权限不足，无法上传目标文件")
+    ) {
       targetUploadRef.value?.handleRemove(uploadFile);
       return;
     }
 
-    pendingTargetUploadFiles.value = [...pendingTargetUploadFiles.value, rawFile];
+    pendingTargetUploadFiles.value = [
+      ...pendingTargetUploadFiles.value,
+      rawFile
+    ];
     pendingTargetUploadSignatures.value = [
       ...pendingTargetUploadSignatures.value,
       createTargetFileSignature(rawFile)

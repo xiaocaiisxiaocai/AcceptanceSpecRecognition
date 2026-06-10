@@ -259,17 +259,17 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .page {
-  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 24px;
 }
 
 .page-header {
   display: flex;
+  gap: 16px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
 }
 
 .page-title {
@@ -286,10 +286,10 @@ onBeforeUnmount(() => {
 
 .period-tools {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .period-picker {
@@ -297,53 +297,53 @@ onBeforeUnmount(() => {
 }
 
 .stat-card {
+  background: #fff;
   border: 1px solid #e5e7eb;
-  background: #ffffff;
 }
 
 .stat-card--primary {
+  background: linear-gradient(180deg, #fff 0%, #f3faf5 100%);
   border-color: #b9d7c5;
-  background: linear-gradient(180deg, #ffffff 0%, #f3faf5 100%);
 }
 
 .stat-card--import {
+  background: linear-gradient(180deg, #fff 0%, #f6f8ff 100%);
   border-color: #c7d2fe;
-  background: linear-gradient(180deg, #ffffff 0%, #f6f8ff 100%);
 }
 
 .stat {
-  min-height: 118px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 118px;
 }
 
 .stat-title {
-  color: #5f6876;
   font-size: 14px;
+  color: #5f6876;
 }
 
 .stat-value {
-  line-height: 1.1;
   font-size: 34px;
   font-weight: 700;
+  line-height: 1.1;
   color: #1f2937;
 }
 
 .stat-note {
   margin-top: auto;
-  color: #6b7280;
   font-size: 13px;
+  color: #6b7280;
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .page-header {
     flex-direction: column;
   }
 
   .period-tools {
-    width: 100%;
     justify-content: flex-start;
+    width: 100%;
   }
 
   .period-picker {

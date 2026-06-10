@@ -1,14 +1,14 @@
-using AcceptanceSpecSystem.Core.AI.SemanticKernel;
-using AcceptanceSpecSystem.Core.AI.Models;
-using FluentAssertions;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using Microsoft.SemanticKernel.ChatCompletion;
-using System.Net;
+﻿using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using AcceptanceSpecSystem.Core.AI.Models;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace AcceptanceSpecSystem.Core.Tests;
 

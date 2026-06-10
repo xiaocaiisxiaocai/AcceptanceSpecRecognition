@@ -1,4 +1,7 @@
-import type { ColumnMapping as ColumnMappingType, TableInfo } from "@/api/document";
+import type {
+  ColumnMapping as ColumnMappingType,
+  TableInfo
+} from "@/api/document";
 import type {
   ExcelSheetMapping,
   ImportSkippedRowWithTable,
@@ -38,9 +41,15 @@ export const normalizeExcelMappingByTable = (
   );
   const current = mapping ?? defaultExcelMapping();
   const headerRowCount = Math.max(0, current.headerRowCount ?? 1);
-  const headerRowStart = Math.max(usedStartRow, current.headerRowStart || usedStartRow);
+  const headerRowStart = Math.max(
+    usedStartRow,
+    current.headerRowStart || usedStartRow
+  );
   const minDataStart = headerRowStart + headerRowCount;
-  const dataStartRow = Math.max(minDataStart, current.dataStartRow || minDataStart);
+  const dataStartRow = Math.max(
+    minDataStart,
+    current.dataStartRow || minDataStart
+  );
   const dataEndRow = Math.max(
     dataStartRow,
     Math.min(usedEndRow, current.dataEndRow || usedEndRow)
@@ -76,20 +85,24 @@ export const applyExcelMappingRowFieldChange = (
   if (field === "headerRowStart" || field === "headerRowCount") {
     return normalizeExcelMappingByTable(tableInfo, {
       ...normalizedDraft,
-      dataStartRow: normalizedDraft.headerRowStart + normalizedDraft.headerRowCount
+      dataStartRow:
+        normalizedDraft.headerRowStart + normalizedDraft.headerRowCount
     });
   }
 
   return normalizedDraft;
 };
 
-export const createDefaultExcelMapping = (tableInfo?: TableInfo): ExcelSheetMapping =>
+export const createDefaultExcelMapping = (
+  tableInfo?: TableInfo
+): ExcelSheetMapping =>
   normalizeExcelMappingByTable(tableInfo, {
     ...defaultExcelMapping(),
     headerRowStart: Math.max(1, tableInfo?.usedRangeStartRow ?? 1),
     dataEndRow: Math.max(
       1,
-      (tableInfo?.usedRangeStartRow ?? 1) + Math.max(0, (tableInfo?.rowCount ?? 0) - 1)
+      (tableInfo?.usedRangeStartRow ?? 1) +
+        Math.max(0, (tableInfo?.rowCount ?? 0) - 1)
     )
   });
 
@@ -161,7 +174,8 @@ export const buildSkippedRowsGroups = (
     .sort((a, b) => a[0] - b[0])
     .map(([tableIndex, groupRows]) => {
       const tableCfg = tableConfigs.find(cfg => cfg.tableIndex === tableIndex);
-      const headers = tableCfg?.previewData?.headers || tableCfg?.tableInfo?.headers || [];
+      const headers =
+        tableCfg?.previewData?.headers || tableCfg?.tableInfo?.headers || [];
       const maxColumnCount = groupRows.reduce(
         (max, row) => Math.max(max, row.rowValues?.length || 0),
         0

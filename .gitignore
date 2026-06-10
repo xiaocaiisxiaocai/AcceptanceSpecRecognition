@@ -93,6 +93,10 @@ secrets.json
 
 # Local scratch / generated artifacts
 .claude/plan.md
+.claude/plans/
+.claude/worktrees/
+.claude/backups/
+.claude/logs/
 .superpowers/
 .tmpbuild/
 artifacts/
@@ -108,3 +112,14 @@ tmp/
 **/data-protection-keys/
 .ace-tool/
 *.lscache
+
+# Codex / AI tool logs
+.codex-*
+
+# Large generated artifacts
+backups/
+outputs/
+*.sql
+
+# Node modules (root-level scratch / tooling installs)
+node_modules/

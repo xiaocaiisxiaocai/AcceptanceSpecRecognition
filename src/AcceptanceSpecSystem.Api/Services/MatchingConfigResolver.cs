@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Api.DTOs;
+﻿using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -29,7 +29,7 @@ public sealed class MatchingConfigResolver
         {
             EmbeddingServiceId = dto?.EmbeddingServiceId,
             LlmServiceId = dto?.LlmServiceId,
-            MinScoreThreshold = dto?.MinScoreThreshold ?? fallbackConfig.MinScoreThreshold,
+            MinScoreThreshold = Math.Clamp(dto?.MinScoreThreshold ?? fallbackConfig.MinScoreThreshold, 0, 1),
             HighConfidenceThreshold = MatchingThresholds.NormalizeHighConfidenceThreshold(
                 dto?.HighConfidenceThreshold ?? fallbackConfig.HighConfidenceThreshold),
             RecallTopK = Math.Clamp(dto?.RecallTopK ?? defaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK),
@@ -39,11 +39,16 @@ public sealed class MatchingConfigResolver
             LlmRetryCount = Math.Clamp(dto?.LlmRetryCount ?? fallbackConfig.LlmRetryCount, 0, 3),
             LlmCircuitBreakFailures = Math.Clamp(dto?.LlmCircuitBreakFailures ?? fallbackConfig.LlmCircuitBreakFailures, 3, 200),
             MatchingMode = ParseMatchingMode(dto?.MatchingMode, fallbackConfig.MatchingMode),
-            EnableLlmEquivalenceAdjudication = dto?.EnableLlmEquivalenceAdjudication ?? false,
+            EnableLlmEquivalenceAdjudication = dto?.EnableLlmEquivalenceAdjudication ?? fallbackConfig.EnableLlmEquivalenceAdjudication,
             EnableDeterministicAutoApply = dto?.EnableDeterministicAutoApply ?? fallbackConfig.EnableDeterministicAutoApply,
-            LlmMaxCallsPerBatch = Math.Clamp(dto?.LlmMaxCallsPerBatch ?? fallbackConfig.LlmMaxCallsPerBatch, 0, 200),
+            LlmEquivalenceMinConfidence = Math.Clamp(
+                dto?.LlmEquivalenceMinConfidence ?? fallbackConfig.LlmEquivalenceMinConfidence, 0, 1),
+            LlmMaxCallsPerBatch = Math.Clamp(dto?.LlmMaxCallsPerBatch ?? fallbackConfig.LlmMaxCallsPerBatch, 0, 10000),
             ExactMatchOnly = dto?.ExactMatchOnly ?? fallbackConfig.ExactMatchOnly,
-            FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows
+            FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows,
+            EnableLlmSemanticPriority = dto?.EnableLlmSemanticPriority ?? fallbackConfig.EnableLlmSemanticPriority,
+            LlmSemanticRecallThreshold = Math.Clamp(
+                dto?.LlmSemanticRecallThreshold ?? fallbackConfig.LlmSemanticRecallThreshold, 0.1, 0.9)
         };
     }
 

@@ -8,12 +8,7 @@ import {
 import { router } from "./index";
 import { isProxy, toRaw } from "vue";
 import { useTimeoutFn } from "@vueuse/core";
-import {
-  cloneDeep,
-  isAllEmpty,
-  storageLocal
-} from "@pureadmin/utils";
-import { getConfig } from "@/config";
+import { cloneDeep, isAllEmpty, storageLocal } from "@pureadmin/utils";
 import { buildHierarchyTree } from "@/utils/tree";
 import { userKey, type DataInfo } from "@/utils/auth";
 import { hasAnyPermission } from "@/utils/permission";
@@ -42,7 +37,9 @@ type MutableRouteRecord = {
   };
 };
 
-function ensureRouteMeta(route: MutableRouteRecord): NonNullable<MutableRouteRecord["meta"]> {
+function ensureRouteMeta(
+  route: MutableRouteRecord
+): NonNullable<MutableRouteRecord["meta"]> {
   route.meta ??= { title: "" };
   return route.meta as MutableRouteRecord["meta"];
 }
@@ -72,23 +69,15 @@ function ascending<T extends RouteRecordRaw>(arr: T[]): T[] {
 
 /** 过滤meta中showLink为false的菜单 */
 function filterTree<T extends RouteRecordRaw>(data: T[]): T[] {
-  const newTree = cloneDeep(data).filter(
-    v => v.meta?.showLink !== false
-  );
-  newTree.forEach(
-    v => v.children && (v.children = filterTree(v.children))
-  );
+  const newTree = cloneDeep(data).filter(v => v.meta?.showLink !== false);
+  newTree.forEach(v => v.children && (v.children = filterTree(v.children)));
   return newTree;
 }
 
 /** 过滤children长度为0的的目录，当目录下没有菜单时，会过滤此目录，目录没有赋予roles权限，当目录下只要有一个菜单有显示权限，那么此目录就会显示 */
 function filterChildrenTree<T extends RouteRecordRaw>(data: T[]): T[] {
-  const newTree = cloneDeep(data).filter(
-    v => v?.children?.length !== 0
-  );
-  newTree.forEach(
-    v => v.children && (v.children = filterTree(v.children))
-  );
+  const newTree = cloneDeep(data).filter(v => v?.children?.length !== 0);
+  newTree.forEach(v => v.children && (v.children = filterTree(v.children)));
   return newTree;
 }
 

@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
@@ -92,9 +92,15 @@ public class MatchConfigDto
     public string? MatchingMode { get; set; }
 
     /// <summary>
-    /// 是否在同步匹配阶段启用 AI 等价裁决（默认关闭，避免预览阶段逐行调用 LLM）。
+    /// 是否在同步匹配阶段启用 AI 等价裁决（默认开启，利用 LLM 语义理解能力裁决灰区行）。
     /// </summary>
-    public bool EnableLlmEquivalenceAdjudication { get; set; }
+    public bool EnableLlmEquivalenceAdjudication { get; set; } = true;
+
+    /// <summary>
+    /// LLM 等价裁决置信度下限（0~1）。
+    /// LLM 判定等价但自评置信度低于此值时，转人工确认。默认 0.5，设为 0 表示不设门槛。
+    /// </summary>
+    public double LlmEquivalenceMinConfidence { get; set; } = MatchingThresholds.DefaultLlmEquivalenceMinConfidence;
 
     /// <summary>
     /// 是否启用确定性自动通过（无硬冲突且高置信时跳过 LLM 直接采用）。
@@ -102,9 +108,9 @@ public class MatchConfigDto
     public bool EnableDeterministicAutoApply { get; set; } = true;
 
     /// <summary>
-    /// 单批次 LLM 重排/等价裁决调用次数上限。
+    /// 单批次 LLM 重排/等价裁决调用次数上限（本地部署无费用限制，默认 200）。
     /// </summary>
-    public int LlmMaxCallsPerBatch { get; set; } = 20;
+    public int LlmMaxCallsPerBatch { get; set; } = 1000;
 
     /// <summary>
     /// 是否仅按项目+规格完全一致命中
@@ -115,6 +121,18 @@ public class MatchConfigDto
     /// 是否过滤项目列与规格列都为空的源行（默认过滤）
     /// </summary>
     public bool FilterEmptySourceRows { get; set; } = true;
+
+    /// <summary>
+    /// 启用 LLM 语义优先模式（默认关闭）。
+    /// 开启后 LLM 等价裁决具有最高权威，覆盖确定性冲突规则，速度变慢但命中率更高。
+    /// </summary>
+    public bool EnableLlmSemanticPriority { get; set; }
+
+    /// <summary>
+    /// LLM 语义优先模式下的召回分数下限（默认 0.5）。
+    /// 仅在 EnableLlmSemanticPriority 开启时生效。
+    /// </summary>
+    public double LlmSemanticRecallThreshold { get; set; } = 0.5;
 }
 
 /// <summary>

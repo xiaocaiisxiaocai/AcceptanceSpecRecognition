@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AcceptanceSpecSystem.Api.Controllers;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authorization;

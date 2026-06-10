@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { MatchPreviewItem } from "@/api/matching";
 import type { MatchPreviewEditForm } from "./matchPreviewTable.types";
 
-defineProps<{
+const props = defineProps<{
   item: MatchPreviewItem | null;
   form: MatchPreviewEditForm;
 }>();
@@ -13,6 +14,10 @@ defineEmits<{
   (e: "closed"): void;
   (e: "save"): void;
 }>();
+
+// 父组件以引用方式传入编辑表单，子组件通过该代理直接编辑其字段；
+// mutation 经同一引用回传父组件，行为与直接改 prop 一致，同时规避 vue/no-mutating-props。
+const editForm = computed(() => props.form);
 </script>
 
 <template>
@@ -40,7 +45,7 @@ defineEmits<{
         </el-form-item>
         <el-form-item label="验收标准">
           <el-input
-            v-model="form.overrideAcceptance"
+            v-model="editForm.overrideAcceptance"
             type="textarea"
             :rows="3"
             placeholder="请输入本次导出的验收标准"
@@ -48,7 +53,7 @@ defineEmits<{
         </el-form-item>
         <el-form-item label="备注">
           <el-input
-            v-model="form.overrideRemark"
+            v-model="editForm.overrideRemark"
             type="textarea"
             :rows="3"
             placeholder="请输入本次导出的备注"

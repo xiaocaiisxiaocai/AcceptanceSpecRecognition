@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Application.Models;
+﻿namespace AcceptanceSpecSystem.Application.Models;
 
 public sealed class AcceptanceSpecSummary
 {

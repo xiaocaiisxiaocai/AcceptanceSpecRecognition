@@ -1,16 +1,16 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using AcceptanceSpecSystem.Api;
-using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Middleware;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
-using AcceptanceSpecSystem.Core.Documents;
+using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
@@ -26,8 +26,8 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -313,18 +313,18 @@ await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
 
 // 健康检查端点
 app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
     {
-        ResponseWriter = async (context, report) =>
+        context.Response.ContentType = "application/json";
+        var payload = new
         {
-            context.Response.ContentType = "application/json";
-            var payload = new
-            {
-                status = report.Status.ToString(),
-                totalDurationMs = report.TotalDuration.TotalMilliseconds
-            };
-            await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
-        }
-    })
+            status = report.Status.ToString(),
+            totalDurationMs = report.TotalDuration.TotalMilliseconds
+        };
+        await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
+    }
+})
     .WithName("HealthCheck")
     .WithTags("System")
     .AllowAnonymous();

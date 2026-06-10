@@ -83,7 +83,9 @@ export const sortAiServicesByPriority = (services: AiServiceConfig[]) =>
 
     const aTime = Date.parse(a.updatedAt || a.createdAt || "");
     const bTime = Date.parse(b.updatedAt || b.createdAt || "");
-    return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+    return (
+      (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime)
+    );
   });
 
 const baseUrl = "/api/ai-services";

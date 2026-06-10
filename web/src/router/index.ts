@@ -43,12 +43,10 @@ import {
  * 如何匹配所有文件请看：https://github.com/mrmlnc/fast-glob#basic-syntax
  * 如何排除文件请看：https://cn.vitejs.dev/guide/features.html#negative-patterns
  */
-const modules: Record<string, { default: RouteRecordRaw | RouteRecordRaw[] }> = import.meta.glob(
-  ["./modules/**/*.ts", "!./modules/**/remaining.ts"],
-  {
+const modules: Record<string, { default: RouteRecordRaw | RouteRecordRaw[] }> =
+  import.meta.glob(["./modules/**/*.ts", "!./modules/**/remaining.ts"], {
     eager: true
-  }
-);
+  });
 
 /** 原始静态路由（未做任何处理） */
 const routes: RouteRecordRaw[] = [];
@@ -129,8 +127,6 @@ export function resetRouter() {
 
 /** 路由白名单 */
 const whiteList = ["/login"];
-
-const { VITE_HIDE_HOME } = import.meta.env;
 
 function findFirstMenuPath(routes: Array<any>): string | null {
   for (const route of routes ?? []) {

@@ -1,5 +1,8 @@
 import { computed, ref, toValue, type MaybeRefOrGetter } from "vue";
-import { getBatchPreviewProgress, type BatchPreviewProgressResponse } from "@/api/matching";
+import {
+  getBatchPreviewProgress,
+  type BatchPreviewProgressResponse
+} from "@/api/matching";
 
 interface UseSmartFillPreviewProgressOptions {
   selectedTableCount?: MaybeRefOrGetter<number>;
@@ -25,10 +28,7 @@ export function useSmartFillPreviewProgress(
     ) {
       window.clearInterval(previewProgressPollTimer.value);
     }
-    if (
-      previewElapsedTimer.value !== null &&
-      typeof window !== "undefined"
-    ) {
+    if (previewElapsedTimer.value !== null && typeof window !== "undefined") {
       window.clearInterval(previewElapsedTimer.value);
     }
     previewProgressPollTimer.value = null;
@@ -150,9 +150,10 @@ export function useSmartFillPreviewProgress(
       return previewProgress.value.detailText;
     }
 
-    const selectedTableCount = options.selectedTableCount === undefined
-      ? 0
-      : toValue(options.selectedTableCount);
+    const selectedTableCount =
+      options.selectedTableCount === undefined
+        ? 0
+        : toValue(options.selectedTableCount);
     if (selectedTableCount > 0) {
       return `已选择 ${selectedTableCount} 个表格，正在等待真实进度`;
     }
@@ -160,7 +161,10 @@ export function useSmartFillPreviewProgress(
     return "正在等待真实进度";
   });
   const previewProgressPercent = computed(() =>
-    Math.min(Math.max(Math.round(previewProgress.value?.progressPercent ?? 0), 0), 100)
+    Math.min(
+      Math.max(Math.round(previewProgress.value?.progressPercent ?? 0), 0),
+      100
+    )
   );
   const previewProgressCounterText = computed(() => {
     if (!previewProgress.value?.totalItems) {

@@ -82,14 +82,21 @@ export function useSmartFillExecution({
   const getHighConfidenceThreshold = () =>
     Math.min(
       Math.max(
-        matchConfig.value.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
+        matchConfig.value.highConfidenceThreshold ??
+          DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
         0.5
       ),
       1
     );
 
   const getAmbiguityMargin = () =>
-    Math.min(Math.max(matchConfig.value.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN, 0), 1);
+    Math.min(
+      Math.max(
+        matchConfig.value.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN,
+        0
+      ),
+      1
+    );
 
   const downloadTaskResult = async (currentTaskId: string) => {
     downloadingResult.value = true;
@@ -113,13 +120,17 @@ export function useSmartFillExecution({
 
   const handleDownloadLastResult = async () => {
     if (!taskId.value) return;
-    if (!ensurePermission("btn:matching:download", "权限不足，无法下载填充结果")) {
+    if (
+      !ensurePermission("btn:matching:download", "权限不足，无法下载填充结果")
+    ) {
       return;
     }
 
     const downloaded = await downloadTaskResult(taskId.value);
     if (downloaded) {
-      ElMessage.success(isExcelFile.value ? "Excel 下载完成" : "结果文件下载完成");
+      ElMessage.success(
+        isExcelFile.value ? "Excel 下载完成" : "结果文件下载完成"
+      );
       return;
     }
 
@@ -250,7 +261,10 @@ export function useSmartFillExecution({
 
   const handleExecute = async () => {
     if (
-      !ensurePermission("btn:matching-fill:execute-batch", "权限不足，无法执行智能填充")
+      !ensurePermission(
+        "btn:matching-fill:execute-batch",
+        "权限不足，无法执行智能填充"
+      )
     ) {
       return;
     }
@@ -260,7 +274,7 @@ export function useSmartFillExecution({
       return;
     }
 
-    const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
+    const selectedConfigs = batchTableConfigs.value.filter(t => t.selected);
     if (selectedConfigs.length === 0) return;
 
     const allSelections = batchPreviewTabsRef.value?.getAllSelections();
@@ -279,12 +293,13 @@ export function useSmartFillExecution({
       return;
     }
 
-    const editedItems = batchPreviewTabsRef.value
-      ?.getAllEditedBackfillItems()
-      .map((item: Omit<SmartFillBackfillCandidate, "selected">) => ({
-        ...item,
-        selected: true
-      })) ?? [];
+    const editedItems =
+      batchPreviewTabsRef.value
+        ?.getAllEditedBackfillItems()
+        .map((item: Omit<SmartFillBackfillCandidate, "selected">) => ({
+          ...item,
+          selected: true
+        })) ?? [];
     if (editedItems.length > 0) {
       openBackfillDialog(executeRequest, editedItems);
       return;

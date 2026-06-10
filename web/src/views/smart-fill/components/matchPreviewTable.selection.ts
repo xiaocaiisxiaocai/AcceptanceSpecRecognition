@@ -15,7 +15,8 @@ export const hasMatchPreviewOverrideValue = (
   value?: MatchPreviewEditOverride | null
 ) =>
   !!value &&
-  (value.overrideAcceptance !== undefined || value.overrideRemark !== undefined);
+  (value.overrideAcceptance !== undefined ||
+    value.overrideRemark !== undefined);
 
 export const hasManualFillOverrideValue = (
   value?: MatchPreviewEditOverride | null
@@ -68,7 +69,8 @@ export const collectMatchPreviewSelections = (
     const selection = selectedSpecs.get(rowIndex) ?? null;
     const override = editedOverrides.get(rowIndex);
     const manualCleared = manualClearedRows.has(rowIndex);
-    if (!selection && !manualCleared && !hasMatchPreviewOverrideValue(override)) return;
+    if (!selection && !manualCleared && !hasMatchPreviewOverrideValue(override))
+      return;
 
     const item = items.find(i => i.rowIndex === rowIndex);
     if (!item) return;

@@ -278,10 +278,18 @@ onMounted(() => {
           fixed="right"
         >
           <template #default="{ row }">
-            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)"
+            <el-button
+              v-if="canUpdate"
+              type="primary"
+              link
+              @click="handleEdit(row)"
               >编辑</el-button
             >
-            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)"
+            <el-button
+              v-if="canDelete"
+              type="danger"
+              link
+              @click="handleDelete(row)"
               >删除</el-button
             >
           </template>
@@ -325,10 +333,9 @@ onMounted(() => {
 
 <style scoped>
 .page {
-  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 24px;
 }
 </style>
-

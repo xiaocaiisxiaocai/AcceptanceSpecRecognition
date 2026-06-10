@@ -1,6 +1,6 @@
+﻿using System.Reflection;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using FluentAssertions;
-using System.Reflection;
 
 namespace AcceptanceSpecSystem.Core.Tests;
 
@@ -80,7 +80,7 @@ public class EvidenceDrivenMatchingModelsTests
         config.MinScoreThreshold.Should().Be(0.9);
         config.RecallTopK.Should().Be(2);
         config.AmbiguityMargin.Should().Be(0.02);
-        config.HighConfidenceThreshold.Should().Be(0.98);
+        config.HighConfidenceThreshold.Should().Be(0.95);
         config.LlmParallelism.Should().Be(4);
         typeof(MatchingConfig).GetProperty("UseLlmEntityResolution", BindingFlags.Public | BindingFlags.Instance)
             .Should().BeNull();

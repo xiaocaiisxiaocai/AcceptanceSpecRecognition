@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Repositories;
 using AcceptanceSpecSystem.Data.Tests.Infrastructure;

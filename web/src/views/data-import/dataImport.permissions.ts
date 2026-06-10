@@ -7,10 +7,16 @@ export const useDataImportPermissions = ({
   isExcelFile: ComputedRef<boolean>;
   hasPermission: (code: string) => boolean;
 }) => {
-  const canUploadSourceFile = computed(() => hasPermission("btn:document:upload"));
+  const canUploadSourceFile = computed(() =>
+    hasPermission("btn:document:upload")
+  );
   const canImportWord = computed(() => hasPermission("btn:document:import"));
-  const canImportExcel = computed(() => hasPermission("btn:excel-document:import"));
-  const canImportAny = computed(() => canImportWord.value || canImportExcel.value);
+  const canImportExcel = computed(() =>
+    hasPermission("btn:excel-document:import")
+  );
+  const canImportAny = computed(
+    () => canImportWord.value || canImportExcel.value
+  );
   const canImportCurrentFile = computed(() =>
     isExcelFile.value ? canImportExcel.value : canImportWord.value
   );

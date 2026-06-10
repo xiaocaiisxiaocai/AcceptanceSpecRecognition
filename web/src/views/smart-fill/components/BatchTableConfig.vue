@@ -4,7 +4,10 @@ import type { TableData, TableInfo } from "@/api/document";
 import TablePreview from "@/views/data-import/components/TablePreview.vue";
 import type { TablePreviewLoader } from "@/views/data-import/components/TablePreview.vue";
 import { normalizePreviewHeaders } from "@/views/data-import/components/table-preview-columns";
-import type { BatchReplyTablePreviewResponse, BatchTableConfig } from "@/api/matching";
+import type {
+  BatchReplyTablePreviewResponse,
+  BatchTableConfig
+} from "@/api/matching";
 import {
   applyExcelBatchTableRowFieldChange,
   normalizeExcelBatchTableRows
@@ -48,7 +51,7 @@ type TablePreviewRef = {
 
 const items = computed({
   get: () => props.modelValue,
-  set: (val) => emit("update:modelValue", val)
+  set: val => emit("update:modelValue", val)
 });
 
 const activeSheetTab = ref("");
@@ -61,7 +64,9 @@ watch(
       return;
     }
 
-    const currentExists = value.some(item => String(item.tableIndex) === activeSheetTab.value);
+    const currentExists = value.some(
+      item => String(item.tableIndex) === activeSheetTab.value
+    );
     if (!currentExists) {
       activeSheetTab.value = String(value[0].tableIndex);
     }
@@ -169,7 +174,8 @@ const updateExcelRowField = (
 ) => {
   const old = items.value[index];
   if (!old) return;
-  if (value === undefined || value === null || Number.isNaN(Number(value))) return;
+  if (value === undefined || value === null || Number.isNaN(Number(value)))
+    return;
 
   markExcelTableAsCustomized(index);
 
@@ -199,7 +205,7 @@ const updateExcelRowField = (
   items.value = nextItems;
 
   const clearedHeaders: Record<number, string[]> = {};
-  nextItems.forEach((config) => {
+  nextItems.forEach(config => {
     clearedHeaders[config.tableIndex] = [];
   });
   previewHeadersMap.value = {
@@ -248,7 +254,10 @@ const getPreviewOptions = (item: BatchTableConfigItem) => {
   const usedStartRow = Math.max(1, item.tableInfo.usedRangeStartRow ?? 1);
   return {
     headerRowIndex: Math.max(0, normalized.headerRowStart - usedStartRow),
-    headerRowCount: Math.max(1, normalized.headerRowCount === 0 ? 1 : normalized.headerRowCount),
+    headerRowCount: Math.max(
+      1,
+      normalized.headerRowCount === 0 ? 1 : normalized.headerRowCount
+    ),
     dataStartRowIndex: Math.max(0, normalized.dataStartRow - usedStartRow)
   };
 };
@@ -292,7 +301,9 @@ const getHeaderOptions = (item: BatchTableConfigItem) => {
 };
 
 /** 已选中的表格数量 */
-const selectedCount = computed(() => items.value.filter((i) => i.selected).length);
+const selectedCount = computed(
+  () => items.value.filter(i => i.selected).length
+);
 
 /** 是否全选 */
 const allSelected = computed(() => {
@@ -301,13 +312,12 @@ const allSelected = computed(() => {
 
 /** 全选/取消全选 */
 const toggleSelectAll = (val: boolean) => {
-  items.value = items.value.map((item) => ({ ...item, selected: val }));
+  items.value = items.value.map(item => ({ ...item, selected: val }));
 };
 
 const getPreviewResult = (tableIndex: number) => {
   return props.mappingPreviewResults?.[tableIndex] ?? null;
 };
-
 </script>
 
 <template>
@@ -337,8 +347,14 @@ const getPreviewResult = (tableIndex: number) => {
       >
         <template #label>
           <div class="sheet-tab-label">
-            <span>{{ item.tableInfo.name || `表格 ${item.tableIndex + 1}` }}</span>
-            <el-tag size="small" :type="item.selected ? 'success' : 'info'" effect="plain">
+            <span>{{
+              item.tableInfo.name || `表格 ${item.tableIndex + 1}`
+            }}</span>
+            <el-tag
+              size="small"
+              :type="item.selected ? 'success' : 'info'"
+              effect="plain"
+            >
               {{ item.selected ? "参与" : "跳过" }}
             </el-tag>
           </div>
@@ -355,7 +371,11 @@ const getPreviewResult = (tableIndex: number) => {
               </span>
             </el-checkbox>
             <div class="card-actions">
-              <el-tag v-if="isPrimaryExcelTable(idx)" size="small" type="primary">
+              <el-tag
+                v-if="isPrimaryExcelTable(idx)"
+                size="small"
+                type="primary"
+              >
                 主配置表
               </el-tag>
               <el-tag
@@ -367,14 +387,17 @@ const getPreviewResult = (tableIndex: number) => {
                 默认参考首表
               </el-tag>
               <el-tag size="small" type="info">
-                {{ item.tableInfo.rowCount }} 行 x {{ item.tableInfo.columnCount }} 列
+                {{ item.tableInfo.rowCount }} 行 x
+                {{ item.tableInfo.columnCount }} 列
               </el-tag>
               <el-button
                 v-if="props.mappingPreviewable && item.selected"
                 type="primary"
                 link
                 size="small"
-                :loading="props.mappingPreviewLoadingTableIndex === item.tableIndex"
+                :loading="
+                  props.mappingPreviewLoadingTableIndex === item.tableIndex
+                "
                 @click="emit('mapping-preview', item)"
               >
                 预览回写
@@ -382,7 +405,10 @@ const getPreviewResult = (tableIndex: number) => {
             </div>
           </div>
 
-          <div v-if="getDisplayHeaders(item).length > 0" class="headers-preview">
+          <div
+            v-if="getDisplayHeaders(item).length > 0"
+            class="headers-preview"
+          >
             <span class="label">表头：</span>
             <el-tag
               v-for="(h, hi) in getDisplayHeaders(item).slice(0, 8)"
@@ -393,7 +419,9 @@ const getPreviewResult = (tableIndex: number) => {
             >
               [{{ hi }}] {{ h || `列${hi + 1}` }}
             </el-tag>
-            <span v-if="getDisplayHeaders(item).length > 8" class="more">...</span>
+            <span v-if="getDisplayHeaders(item).length > 8" class="more"
+              >...</span
+            >
           </div>
 
           <el-form label-width="90px" class="column-config" size="small">
@@ -402,23 +430,37 @@ const getPreviewResult = (tableIndex: number) => {
               <div v-if="!item.selected" class="row-config-hint">
                 当前 Sheet/表格已取消参与，仍可继续调整配置后重新启用。
               </div>
-              <div v-if="isSecondaryExcelTable(idx)" class="row-config-hint row-config-hint--sync">
+              <div
+                v-if="isSecondaryExcelTable(idx)"
+                class="row-config-hint row-config-hint--sync"
+              >
                 当前表格已按首表带出默认配置，可单独调整且不会影响首表。
               </div>
             </div>
 
-            <div v-if="props.fileId || props.previewLoader" class="table-preview-wrap">
+            <div
+              v-if="props.fileId || props.previewLoader"
+              class="table-preview-wrap"
+            >
               <div class="preview-title">数据预览</div>
               <TablePreview
                 :key="getPreviewKey(item)"
-                :ref="(el) => setPreviewRef(item.tableIndex, el as TablePreviewRef)"
+                :ref="
+                  el => setPreviewRef(item.tableIndex, el as TablePreviewRef)
+                "
                 :file-id="props.fileId"
                 :preview-loader="props.previewLoader"
                 :table-index="item.tableIndex"
-                :header-row-index="props.isExcel ? getPreviewOptions(item).headerRowIndex : 0"
-                :header-row-count="props.isExcel ? getPreviewOptions(item).headerRowCount : 1"
-                :data-start-row-index="props.isExcel ? getPreviewOptions(item).dataStartRowIndex : 1"
-                @loaded="(data) => handlePreviewLoaded(item.tableIndex, data)"
+                :header-row-index="
+                  props.isExcel ? getPreviewOptions(item).headerRowIndex : 0
+                "
+                :header-row-count="
+                  props.isExcel ? getPreviewOptions(item).headerRowCount : 1
+                "
+                :data-start-row-index="
+                  props.isExcel ? getPreviewOptions(item).dataStartRowIndex : 1
+                "
+                @loaded="data => handlePreviewLoaded(item.tableIndex, data)"
               />
             </div>
 
@@ -426,34 +468,45 @@ const getPreviewResult = (tableIndex: number) => {
               <div class="config-section__title">行设置</div>
               <div class="row-config-title">行配置（1-based）</div>
               <div class="row-config-hint">
-                已用区域首行：第 {{ Math.max(1, item.tableInfo.usedRangeStartRow ?? 1) }} 行
+                已用区域首行：第
+                {{ Math.max(1, item.tableInfo.usedRangeStartRow ?? 1) }} 行
               </div>
               <el-form-item label="表头起始行">
                 <el-input-number
-                  :model-value="normalizeExcelBatchTableRows(item).headerRowStart"
+                  :model-value="
+                    normalizeExcelBatchTableRows(item).headerRowStart
+                  "
                   :min="1"
-                  @update:model-value="(v: number | undefined) => updateExcelRowField(idx, 'headerRowStart', v)"
+                  @update:model-value="
+                    (v: number | undefined) =>
+                      updateExcelRowField(idx, 'headerRowStart', v)
+                  "
                 />
               </el-form-item>
               <el-form-item label="表头行数">
                 <el-input-number
-                  :model-value="normalizeExcelBatchTableRows(item).headerRowCount"
+                  :model-value="
+                    normalizeExcelBatchTableRows(item).headerRowCount
+                  "
                   :min="0"
-                  @update:model-value="(v: number | undefined) => updateExcelRowField(idx, 'headerRowCount', v)"
+                  @update:model-value="
+                    (v: number | undefined) =>
+                      updateExcelRowField(idx, 'headerRowCount', v)
+                  "
                 />
               </el-form-item>
               <el-form-item label="数据起始行">
                 <el-input-number
                   :model-value="normalizeExcelBatchTableRows(item).dataStartRow"
                   :min="1"
-                  @update:model-value="(v: number | undefined) => updateExcelRowField(idx, 'dataStartRow', v)"
+                  @update:model-value="
+                    (v: number | undefined) =>
+                      updateExcelRowField(idx, 'dataStartRow', v)
+                  "
                 />
               </el-form-item>
               <el-form-item label="表头预览">
-                <el-button
-                  size="small"
-                  @click="refreshHeaders(idx)"
-                >
+                <el-button size="small" @click="refreshHeaders(idx)">
                   按行配置刷新表头
                 </el-button>
               </el-form-item>
@@ -462,13 +515,20 @@ const getPreviewResult = (tableIndex: number) => {
             <div class="config-section config-narrow">
               <div class="config-section__title">字段映射</div>
               <el-form-item
-                v-if="props.sourceTableOptions && props.sourceTableOptions.length > 0"
+                v-if="
+                  props.sourceTableOptions &&
+                  props.sourceTableOptions.length > 0
+                "
                 :label="props.sourceTableLabel || '来源表'"
               >
                 <el-select
-                  :model-value="item.sourceTableIndex ?? props.sourceTableOptions[0]?.value"
+                  :model-value="
+                    item.sourceTableIndex ?? props.sourceTableOptions[0]?.value
+                  "
                   placeholder="请选择来源表"
-                  @change="(v: number) => updateField(idx, 'sourceTableIndex', v)"
+                  @change="
+                    (v: number) => updateField(idx, 'sourceTableIndex', v)
+                  "
                 >
                   <el-option
                     v-for="opt in props.sourceTableOptions"
@@ -483,14 +543,19 @@ const getPreviewResult = (tableIndex: number) => {
                   :model-value="item.filterEmptySourceRows ?? true"
                   active-text="开启"
                   inactive-text="关闭"
-                  @change="(v: string | number | boolean) => updateField(idx, 'filterEmptySourceRows', Boolean(v))"
+                  @change="
+                    (v: string | number | boolean) =>
+                      updateField(idx, 'filterEmptySourceRows', Boolean(v))
+                  "
                 />
               </el-form-item>
               <el-form-item label="项目列">
                 <el-select
                   :model-value="item.projectColumnIndex"
                   placeholder="请选择项目列"
-                  @change="(v: number) => updateField(idx, 'projectColumnIndex', v)"
+                  @change="
+                    (v: number) => updateField(idx, 'projectColumnIndex', v)
+                  "
                 >
                   <el-option
                     v-for="opt in getHeaderOptions(item)"
@@ -504,7 +569,10 @@ const getPreviewResult = (tableIndex: number) => {
                 <el-select
                   :model-value="item.specificationColumnIndex"
                   placeholder="请选择规格列"
-                  @change="(v: number) => updateField(idx, 'specificationColumnIndex', v)"
+                  @change="
+                    (v: number) =>
+                      updateField(idx, 'specificationColumnIndex', v)
+                  "
                 >
                   <el-option
                     v-for="opt in getHeaderOptions(item)"
@@ -518,7 +586,9 @@ const getPreviewResult = (tableIndex: number) => {
                 <el-select
                   :model-value="item.acceptanceColumnIndex"
                   placeholder="请选择验收列"
-                  @change="(v: number) => updateField(idx, 'acceptanceColumnIndex', v)"
+                  @change="
+                    (v: number) => updateField(idx, 'acceptanceColumnIndex', v)
+                  "
                 >
                   <el-option
                     v-for="opt in getHeaderOptions(item)"
@@ -533,7 +603,9 @@ const getPreviewResult = (tableIndex: number) => {
                   :model-value="item.remarkColumnIndex"
                   placeholder="请选择备注列（可选）"
                   clearable
-                  @change="(v: number) => updateField(idx, 'remarkColumnIndex', v)"
+                  @change="
+                    (v: number) => updateField(idx, 'remarkColumnIndex', v)
+                  "
                 >
                   <el-option
                     v-for="opt in getHeaderOptions(item)"
@@ -548,14 +620,24 @@ const getPreviewResult = (tableIndex: number) => {
 
           <div v-if="getPreviewResult(item.tableIndex)" class="inline-preview">
             <el-alert
-              :title="getPreviewResult(item.tableIndex)?.canApply ? '当前 Sheet/表格可直接写回' : '当前 Sheet/表格仍有问题待处理'"
-              :type="getPreviewResult(item.tableIndex)?.canApply ? 'success' : 'warning'"
+              :title="
+                getPreviewResult(item.tableIndex)?.canApply
+                  ? '当前 Sheet/表格可直接写回'
+                  : '当前 Sheet/表格仍有问题待处理'
+              "
+              :type="
+                getPreviewResult(item.tableIndex)?.canApply
+                  ? 'success'
+                  : 'warning'
+              "
               :closable="false"
               show-icon
             />
 
             <div
-              v-if="(getPreviewResult(item.tableIndex)?.errors?.length ?? 0) > 0"
+              v-if="
+                (getPreviewResult(item.tableIndex)?.errors?.length ?? 0) > 0
+              "
               class="preview-errors"
             >
               <el-tag
@@ -577,8 +659,16 @@ const getPreviewResult = (tableIndex: number) => {
             >
               <el-table-column prop="rowIndex" label="目标行号" width="100" />
               <el-table-column prop="project" label="项目" min-width="160" />
-              <el-table-column prop="specification" label="规格" min-width="180" />
-              <el-table-column prop="acceptance" label="预览验收" min-width="180" />
+              <el-table-column
+                prop="specification"
+                label="规格"
+                min-width="180"
+              />
+              <el-table-column
+                prop="acceptance"
+                label="预览验收"
+                min-width="180"
+              />
               <el-table-column prop="remark" label="预览备注" min-width="180" />
             </el-table>
           </div>
@@ -598,17 +688,17 @@ const getPreviewResult = (tableIndex: number) => {
 }
 
 .summary {
-  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
   padding: 12px 14px;
+  margin-bottom: 16px;
   font-size: 14px;
   color: #5d6d7e;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  background: #f8fafc;
   border: 1px solid #dbe3ec;
   border-radius: 12px;
-  background: #f8fafc;
 }
 
 .sync-tip {
@@ -631,8 +721,8 @@ const getPreviewResult = (tableIndex: number) => {
 }
 
 .sheet-tabs :deep(.el-tabs__item.is-active) {
-  color: #173d73;
   font-weight: 600;
+  color: #173d73;
 }
 
 .sheet-tabs :deep(.el-tabs__active-bar) {
@@ -641,35 +731,37 @@ const getPreviewResult = (tableIndex: number) => {
 
 .sheet-tab-label {
   display: inline-flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
 }
 
 .sheet-card {
+  padding: 18px;
+  background: #fff;
   border: 1px solid #d9e2eb;
   border-radius: 16px;
-  padding: 18px;
-  transition: border-color 0.2s, box-shadow 0.2s;
-  background: #fff;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 6px 18px rgb(15 23 42 / 3%);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .sheet-card.selected {
   border-color: #9fb7d6;
-  box-shadow: 0 8px 22px rgba(47, 107, 178, 0.08);
+  box-shadow: 0 8px 22px rgb(47 107 178 / 8%);
 }
 
 .card-header {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
 }
 
 .card-actions {
   display: flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
 }
 
 .table-name {
@@ -677,11 +769,11 @@ const getPreviewResult = (tableIndex: number) => {
 }
 
 .headers-preview {
-  margin-bottom: 12px;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: 4px;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 .headers-preview .label {
@@ -694,22 +786,22 @@ const getPreviewResult = (tableIndex: number) => {
 }
 
 .more {
-  color: #909399;
   font-size: 12px;
+  color: #909399;
 }
 
 .column-config {
-  margin-top: 12px;
-  width: 100%;
   display: grid;
   gap: 14px;
+  width: 100%;
+  margin-top: 12px;
 }
 
 .config-section {
   padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid #e0e7ef;
   background: #fbfcfd;
+  border: 1px solid #e0e7ef;
+  border-radius: 12px;
 }
 
 .config-section__title {
@@ -737,20 +829,20 @@ const getPreviewResult = (tableIndex: number) => {
 }
 
 .table-preview-wrap {
-  margin: 0;
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  box-sizing: border-box;
   padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid #e0e7ef;
+  margin: 0;
   background: #fbfcfd;
+  border: 1px solid #e0e7ef;
+  border-radius: 12px;
 }
 
 .inline-preview {
-  margin-top: 20px;
   padding-top: 18px;
+  margin-top: 20px;
   border-top: 1px solid #e2e8f0;
 }
 

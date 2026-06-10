@@ -30,9 +30,7 @@ type TargetUploadAccepted = {
   };
 };
 
-export type TargetUploadDecision =
-  | TargetUploadRejected
-  | TargetUploadAccepted;
+export type TargetUploadDecision = TargetUploadRejected | TargetUploadAccepted;
 
 export function validateBatchReplySourceFile(file: TargetFileLike) {
   const lowerName = file.name.toLowerCase();

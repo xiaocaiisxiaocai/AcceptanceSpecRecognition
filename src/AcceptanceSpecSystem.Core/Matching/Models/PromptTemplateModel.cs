@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.Matching.Models;
+﻿namespace AcceptanceSpecSystem.Core.Matching.Models;
 
 public enum PromptTemplateScene
 {

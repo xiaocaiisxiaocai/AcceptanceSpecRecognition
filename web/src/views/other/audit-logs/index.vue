@@ -34,7 +34,9 @@ const queryParams = reactive({
   keyword: ""
 });
 
-const sourceOptions = [{ label: "控制器操作", value: AuditLogSource.BackendRequest }];
+const sourceOptions = [
+  { label: "控制器操作", value: AuditLogSource.BackendRequest }
+];
 
 const levelOptions = [
   { label: "信息", value: AuditLogLevel.Information },
@@ -115,7 +117,12 @@ const handleReset = () => {
 };
 
 const handleDeleteByRange = async () => {
-  if (!ensurePermission("btn:audit-log:delete-range", "权限不足，无法删除审计日志")) {
+  if (
+    !ensurePermission(
+      "btn:audit-log:delete-range",
+      "权限不足，无法删除审计日志"
+    )
+  ) {
     return;
   }
   const [from, to] = deleteRange.value ?? [];
@@ -350,7 +357,9 @@ onMounted(loadData);
           </el-table-column>
           <el-table-column label="详情" width="90" fixed="right">
             <template #default="{ row }">
-              <el-button type="primary" link @click="openDetail(row)">查看</el-button>
+              <el-button type="primary" link @click="openDetail(row)"
+                >查看</el-button
+              >
             </template>
           </el-table-column>
         </el-table>
@@ -410,11 +419,11 @@ onMounted(loadData);
 
 <style scoped>
 .page {
-  padding: 24px;
-  height: calc(100vh - 104px);
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: calc(100vh - 104px);
+  padding: 24px;
   overflow: hidden;
 }
 
@@ -432,9 +441,9 @@ onMounted(loadData);
 }
 
 .audit-table-card :deep(.el-card__body) {
-  height: calc(100% - 0px);
   display: flex;
   flex-direction: column;
+  height: calc(100% - 0px);
   min-height: 0;
 }
 
@@ -444,10 +453,10 @@ onMounted(loadData);
 }
 
 .pager-wrap {
-  padding-top: 12px;
   display: flex;
-  justify-content: flex-end;
   flex-shrink: 0;
+  justify-content: flex-end;
+  padding-top: 12px;
 }
 
 .detail-content {
@@ -456,19 +465,19 @@ onMounted(loadData);
 
 .detail-title {
   margin-bottom: 8px;
-  color: var(--el-text-color-primary);
   font-weight: 600;
+  color: var(--el-text-color-primary);
 }
 
 pre {
   max-height: 320px;
-  margin: 0;
   padding: 12px;
+  margin: 0;
   overflow: auto;
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-primary);
   font-size: 12px;
   line-height: 1.5;
+  color: var(--el-text-color-primary);
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
 }
 </style>

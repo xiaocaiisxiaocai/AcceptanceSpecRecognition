@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.TextProcessing.Models;
+﻿using AcceptanceSpecSystem.Core.TextProcessing.Models;
 
 namespace AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 

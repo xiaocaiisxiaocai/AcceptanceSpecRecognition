@@ -41,7 +41,10 @@ type UseSmartFillPreviewRequestOptions = {
   getCurrentPreviewRequestId: () => string | null;
   clearPreviewDetail: () => void;
   /** 由调用方提供的预览请求发起函数，接收 data 和 controller（AbortController），返回请求 Promise */
-  onSendPreview?: (data: Parameters<typeof batchPreviewMatch>[0], controller: AbortController) => ReturnType<typeof batchPreviewMatch>;
+  onSendPreview?: (
+    data: Parameters<typeof batchPreviewMatch>[0],
+    controller: AbortController
+  ) => ReturnType<typeof batchPreviewMatch>;
 };
 
 export function useSmartFillPreviewRequest({
@@ -91,7 +94,10 @@ export function useSmartFillPreviewRequest({
 
   const doPreview = async () => {
     if (
-      !ensurePermission("btn:matching:preview-batch", "权限不足，无法执行匹配预览")
+      !ensurePermission(
+        "btn:matching:preview-batch",
+        "权限不足，无法执行匹配预览"
+      )
     ) {
       return;
     }
@@ -101,7 +107,7 @@ export function useSmartFillPreviewRequest({
     const fileId = uploadedFile.value.fileId;
     stopLlmStream();
 
-    const selectedConfigs = batchTableConfigs.value.filter((t) => t.selected);
+    const selectedConfigs = batchTableConfigs.value.filter(t => t.selected);
     if (selectedConfigs.length === 0) {
       ElMessage.warning("请至少选择一个表格");
       return;
@@ -130,7 +136,7 @@ export function useSmartFillPreviewRequest({
       const requestData = {
         fileId: uploadedFile.value.fileId,
         previewRequestId,
-        tables: selectedConfigs.map((t) => ({
+        tables: selectedConfigs.map(t => ({
           tableIndex: t.tableIndex,
           projectColumnIndex: t.projectColumnIndex,
           specificationColumnIndex: t.specificationColumnIndex,
@@ -147,7 +153,8 @@ export function useSmartFillPreviewRequest({
         config: matchConfig.value
       };
       const doRequest = onSendPreview
-        ? (data: typeof requestData, ctrl: AbortController) => onSendPreview(data, ctrl)
+        ? (data: typeof requestData, ctrl: AbortController) =>
+            onSendPreview(data, ctrl)
         : (data: typeof requestData, ctrl: AbortController) =>
             batchPreviewMatch(data, { signal: ctrl.signal });
       const res = await doRequest(requestData, controller);
@@ -164,7 +171,9 @@ export function useSmartFillPreviewRequest({
 
         markPreviewProgressCompleted();
         batchPreviewResults.value = res.data.tables;
-        const hasPreviewRows = res.data.tables.some(table => table.items.length > 0);
+        const hasPreviewRows = res.data.tables.some(
+          table => table.items.length > 0
+        );
         if (!hasPreviewRows) {
           markPreviewEmptyResults();
           ElMessage.warning("未找到可匹配的数据");

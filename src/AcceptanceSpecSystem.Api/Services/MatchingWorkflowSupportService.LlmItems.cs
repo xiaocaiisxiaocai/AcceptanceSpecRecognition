@@ -1,20 +1,20 @@
-﻿using AcceptanceSpecSystem.Api.DTOs;
-using AcceptanceSpecSystem.Api.Models;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
 using AcceptanceSpecSystem.Api.Authorization;
+using AcceptanceSpecSystem.Api.DTOs;
+using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
-using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Http;
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Security.Claims;
-using System.Text;
-using System.Text.Json;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -23,7 +23,8 @@ public sealed partial class MatchingWorkflowSupportService
     private async Task<List<LlmStreamItemContext>> BuildAuthoritativeLlmStreamItemsAsync(
         IReadOnlyList<MatchLlmStreamItem> requestItems,
         IReadOnlyList<MatchCandidate> candidates,
-        MatchingConfig config)
+        MatchingConfig config,
+        CancellationToken cancellationToken)
     {
         if (requestItems.Count == 0)
         {
@@ -62,9 +63,9 @@ public sealed partial class MatchingWorkflowSupportService
                 await _matchingCandidateProvider.HydrateCandidateEmbeddingsAsync(
                     candidateList,
                     config.EmbeddingServiceId,
-                    CancellationToken.None);
+                    cancellationToken);
                 processedCandidates = BuildProcessedCandidates(candidateList, tpSession);
-                batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config);
+                batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config, cancellationToken: cancellationToken);
             }
         }
         catch (AiServiceUnavailableException ex)

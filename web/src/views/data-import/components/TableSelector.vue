@@ -64,8 +64,11 @@ const filteredTables = computed(() => {
   });
 });
 
-const filteredSelectedCount = computed(() =>
-  filteredTables.value.filter(table => selectedIndexes.value.includes(table.index)).length
+const filteredSelectedCount = computed(
+  () =>
+    filteredTables.value.filter(table =>
+      selectedIndexes.value.includes(table.index)
+    ).length
 );
 
 const allSelected = computed(() => {
@@ -85,7 +88,9 @@ const toggleSelectAll = (val: boolean) => {
     ).sort((a, b) => a - b);
   } else {
     const filteredSet = new Set(filteredIndexes);
-    selectedIndexes.value = selectedIndexes.value.filter(index => !filteredSet.has(index));
+    selectedIndexes.value = selectedIndexes.value.filter(
+      index => !filteredSet.has(index)
+    );
   }
   emitMultipleSelection();
 };
@@ -174,15 +179,22 @@ watch(
         <el-checkbox
           :model-value="allSelected"
           :indeterminate="filteredSelectedCount > 0 && !allSelected"
-          @change="(v: string | number | boolean) => toggleSelectAll(Boolean(v))"
+          @change="
+            (v: string | number | boolean) => toggleSelectAll(Boolean(v))
+          "
         >
           全选当前列表
         </el-checkbox>
         <span class="bulk-tip">
-          已选 {{ selectedIndexes.length }} / {{ tables.length }}，当前显示 {{ filteredTables.length }}
+          已选 {{ selectedIndexes.length }} / {{ tables.length }}，当前显示
+          {{ filteredTables.length }}
         </span>
-        <el-button size="small" @click.stop="toggleSelectAll(true)">全选当前</el-button>
-        <el-button size="small" @click.stop="toggleSelectAll(false)">清空当前</el-button>
+        <el-button size="small" @click.stop="toggleSelectAll(true)"
+          >全选当前</el-button
+        >
+        <el-button size="small" @click.stop="toggleSelectAll(false)"
+          >清空当前</el-button
+        >
       </div>
 
       <el-empty
@@ -205,9 +217,13 @@ watch(
           <div class="table-title">
             <span class="table-index">
               {{ itemLabel }} {{ table.index + 1 }}
-              <span v-if="table.name" class="table-name">（{{ table.name }}）</span>
+              <span v-if="table.name" class="table-name"
+                >（{{ table.name }}）</span
+              >
             </span>
-            <span class="table-meta">（{{ table.rowCount }} 行 × {{ table.columnCount }} 列）</span>
+            <span class="table-meta"
+              >（{{ table.rowCount }} 行 × {{ table.columnCount }} 列）</span
+            >
           </div>
           <div class="table-tags">
             <el-tag v-if="table.isNested" type="warning" size="small">
@@ -259,8 +275,8 @@ watch(
 
 .table-list-actions {
   display: flex;
-  align-items: center;
   gap: 12px;
+  align-items: center;
 }
 
 .table-search {
@@ -269,37 +285,37 @@ watch(
 
 .bulk-actions {
   display: flex;
-  align-items: center;
   gap: 10px;
+  align-items: center;
   padding: 10px 12px;
+  background: #f9f5ff;
   border: 1px solid #e7dbff;
   border-radius: 8px;
-  background: #f9f5ff;
 }
 
 .bulk-tip {
+  margin-right: auto;
   font-size: 12px;
   color: #6b7280;
-  margin-right: auto;
 }
 
 .table-item {
   position: relative;
   padding: 16px;
+  cursor: pointer;
   border: 2px solid #ede7f6;
   border-radius: 12px;
-  cursor: pointer;
   transition: all 0.2s;
 }
 
 .table-item:hover {
-  border-color: #c4b5fd;
   background-color: #f8f5ff;
+  border-color: #c4b5fd;
 }
 
 .table-item.selected {
-  border-color: var(--color-primary);
   background-color: #f4efff;
+  border-color: var(--color-primary);
 }
 
 .table-list.compact .table-item {
@@ -341,15 +357,15 @@ watch(
 }
 
 .table-name {
+  margin-left: 4px;
   font-weight: 400;
   color: #6b7280;
-  margin-left: 4px;
 }
 
 .table-title {
   display: flex;
-  align-items: baseline;
   gap: 8px;
+  align-items: baseline;
   min-width: 0;
 }
 
@@ -365,11 +381,11 @@ watch(
 }
 
 .table-headers {
-  font-size: 13px;
-  color: #6b7280;
-  margin-bottom: 8px;
   display: flex;
   align-items: flex-start;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #6b7280;
 }
 
 .table-headers .label {

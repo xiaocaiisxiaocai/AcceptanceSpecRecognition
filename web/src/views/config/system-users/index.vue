@@ -103,10 +103,13 @@ const orgUnitMap = computed(() => {
   return new Map(orgUnitOptions.value.map(item => [item.id, item]));
 });
 
-const isValidUsername = (username: string) => /^[A-Za-z0-9._-]{3,64}$/.test(username);
+const isValidUsername = (username: string) =>
+  /^[A-Za-z0-9._-]{3,64}$/.test(username);
 
 const getDefaultRoleCode = () => {
-  const preferred = activeRoleOptions.value.find(item => item.code === "common");
+  const preferred = activeRoleOptions.value.find(
+    item => item.code === "common"
+  );
   if (preferred) return preferred.code;
   const first = activeRoleOptions.value[0];
   return first?.code ?? "";
@@ -125,7 +128,9 @@ const getDefaultOrgId = () => {
 const loadRoleOptions = async () => {
   const res = await getAuthRoleList();
   if (res.code === 0) {
-    roleOptions.value = (res.data ?? []).sort((a, b) => a.code.localeCompare(b.code));
+    roleOptions.value = (res.data ?? []).sort((a, b) =>
+      a.code.localeCompare(b.code)
+    );
   } else {
     ElMessage.error(res.message || "加载角色列表失败");
   }
@@ -382,7 +387,9 @@ const handleToggleStatus = async (row: SystemUser, value: boolean) => {
     ElMessage.error("状态更新失败");
     row.isActive = !value;
   } finally {
-    updatingStatusIds.value = updatingStatusIds.value.filter(id => id !== row.id);
+    updatingStatusIds.value = updatingStatusIds.value.filter(
+      id => id !== row.id
+    );
   }
 };
 
@@ -457,7 +464,11 @@ onMounted(initPage);
       <template #header>
         <div class="flex justify-between items-center">
           <span>系统用户</span>
-          <el-button type="primary" v-perms="'btn:system-user:create'" @click="openCreateDialog">
+          <el-button
+            v-perms="'btn:system-user:create'"
+            type="primary"
+            @click="openCreateDialog"
+          >
             新增用户
           </el-button>
         </div>
@@ -469,7 +480,12 @@ onMounted(initPage);
         <el-table-column prop="nickname" label="昵称" min-width="120" />
         <el-table-column label="角色" min-width="220">
           <template #default="{ row }">
-            <el-tag v-if="row.roleCode" type="success" class="mr-1 mb-1" size="small">
+            <el-tag
+              v-if="row.roleCode"
+              type="success"
+              class="mr-1 mb-1"
+              size="small"
+            >
               {{ formatRoleLabel(row.roleCode) }}
             </el-tag>
             <span v-else>-</span>
@@ -477,7 +493,12 @@ onMounted(initPage);
         </el-table-column>
         <el-table-column label="组织" min-width="240">
           <template #default="{ row }">
-            <el-tag v-if="row.orgUnitId" type="warning" class="mr-1 mb-1" size="small">
+            <el-tag
+              v-if="row.orgUnitId"
+              type="warning"
+              class="mr-1 mb-1"
+              size="small"
+            >
               {{ formatOrgLabel(row.orgUnitId) }}
             </el-tag>
             <span v-else>-</span>
@@ -488,8 +509,12 @@ onMounted(initPage);
             <el-switch
               :model-value="row.isActive"
               :loading="updatingStatusIds.includes(row.id)"
-              :disabled="!canDisable(row) || !hasPerms('btn:system-user:update-status')"
-              @update:model-value="value => handleToggleStatus(row, value === true)"
+              :disabled="
+                !canDisable(row) || !hasPerms('btn:system-user:update-status')
+              "
+              @update:model-value="
+                value => handleToggleStatus(row, value === true)
+              "
             />
           </template>
         </el-table-column>
@@ -500,16 +525,26 @@ onMounted(initPage);
         </el-table-column>
         <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link v-perms="'btn:system-user:update'" @click="openEditDialog(row)">
+            <el-button
+              v-perms="'btn:system-user:update'"
+              type="primary"
+              link
+              @click="openEditDialog(row)"
+            >
               编辑
             </el-button>
-            <el-button type="warning" link v-perms="'btn:system-user:reset-password'" @click="openResetPasswordDialog(row)">
+            <el-button
+              v-perms="'btn:system-user:reset-password'"
+              type="warning"
+              link
+              @click="openResetPasswordDialog(row)"
+            >
               重置密码
             </el-button>
             <el-button
+              v-perms="'btn:system-user:delete'"
               type="danger"
               link
-              v-perms="'btn:system-user:delete'"
               :disabled="!canDelete(row)"
               @click="handleDelete(row)"
             >
@@ -591,7 +626,12 @@ onMounted(initPage);
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" v-perms="'btn:system-user:create'" @click="handleCreate">创建</el-button>
+        <el-button
+          v-perms="'btn:system-user:create'"
+          type="primary"
+          @click="handleCreate"
+          >创建</el-button
+        >
       </template>
     </el-dialog>
 
@@ -642,11 +682,20 @@ onMounted(initPage);
       </el-form>
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button type="primary" v-perms="'btn:system-user:update'" @click="handleUpdate">保存</el-button>
+        <el-button
+          v-perms="'btn:system-user:update'"
+          type="primary"
+          @click="handleUpdate"
+          >保存</el-button
+        >
       </template>
     </el-dialog>
 
-    <el-dialog v-model="resetPasswordDialogVisible" title="重置密码" width="500">
+    <el-dialog
+      v-model="resetPasswordDialogVisible"
+      title="重置密码"
+      width="500"
+    >
       <el-form label-width="100px">
         <el-form-item label="用户名">
           <el-input :model-value="resetPasswordForm.username" disabled />
@@ -670,7 +719,11 @@ onMounted(initPage);
       </el-form>
       <template #footer>
         <el-button @click="resetPasswordDialogVisible = false">取消</el-button>
-        <el-button type="primary" v-perms="'btn:system-user:reset-password'" @click="handleResetPassword">
+        <el-button
+          v-perms="'btn:system-user:reset-password'"
+          type="primary"
+          @click="handleResetPassword"
+        >
           确认
         </el-button>
       </template>
@@ -680,9 +733,9 @@ onMounted(initPage);
 
 <style scoped>
 .page {
-  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 24px;
 }
 </style>

@@ -1,5 +1,5 @@
+﻿using System.Security.Claims;
 using AcceptanceSpecSystem.Api.DTOs;
-using System.Security.Claims;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -13,7 +13,8 @@ public interface IMatchingExecutionAppService
 
     Task<MatchingOperationResult<ExecuteFillResponse>> BatchExecuteFillAsync(
         ClaimsPrincipal user,
-        BatchExecuteFillRequest request);
+        BatchExecuteFillRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -43,8 +44,9 @@ public sealed class MatchingExecutionAppService : IMatchingExecutionAppService
 
     public Task<MatchingOperationResult<ExecuteFillResponse>> BatchExecuteFillAsync(
         ClaimsPrincipal user,
-        BatchExecuteFillRequest request)
+        BatchExecuteFillRequest request,
+        CancellationToken cancellationToken = default)
     {
-        return _matchingFillExecutionAppService.BatchExecuteFillAsync(user, request);
+        return _matchingFillExecutionAppService.BatchExecuteFillAsync(user, request, cancellationToken);
     }
 }

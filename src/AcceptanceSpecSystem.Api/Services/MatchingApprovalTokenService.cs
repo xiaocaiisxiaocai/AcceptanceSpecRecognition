@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.DTOs;
@@ -253,9 +253,12 @@ public sealed class MatchingApprovalTokenService
                left.MatchingMode == right.MatchingMode &&
                left.EnableLlmEquivalenceAdjudication == right.EnableLlmEquivalenceAdjudication &&
                left.EnableDeterministicAutoApply == right.EnableDeterministicAutoApply &&
+               left.LlmEquivalenceMinConfidence == right.LlmEquivalenceMinConfidence &&
                left.LlmMaxCallsPerBatch == right.LlmMaxCallsPerBatch &&
                left.ExactMatchOnly == right.ExactMatchOnly &&
-               left.FilterEmptySourceRows == right.FilterEmptySourceRows;
+               left.FilterEmptySourceRows == right.FilterEmptySourceRows &&
+               left.EnableLlmSemanticPriority == right.EnableLlmSemanticPriority &&
+               left.LlmSemanticRecallThreshold == right.LlmSemanticRecallThreshold;
     }
 
     private static MatchingConfig CloneMatchingConfig(MatchingConfig config)
@@ -275,9 +278,12 @@ public sealed class MatchingApprovalTokenService
             MatchingMode = config.MatchingMode,
             EnableLlmEquivalenceAdjudication = config.EnableLlmEquivalenceAdjudication,
             EnableDeterministicAutoApply = config.EnableDeterministicAutoApply,
+            LlmEquivalenceMinConfidence = config.LlmEquivalenceMinConfidence,
             LlmMaxCallsPerBatch = config.LlmMaxCallsPerBatch,
             ExactMatchOnly = config.ExactMatchOnly,
-            FilterEmptySourceRows = config.FilterEmptySourceRows
+            FilterEmptySourceRows = config.FilterEmptySourceRows,
+            EnableLlmSemanticPriority = config.EnableLlmSemanticPriority,
+            LlmSemanticRecallThreshold = config.LlmSemanticRecallThreshold
         };
     }
 

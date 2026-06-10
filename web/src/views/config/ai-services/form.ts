@@ -27,7 +27,9 @@ export const getAiServiceDialogTitle = (isEdit: boolean) =>
 
 export const getAiServiceSubmitPermission = (isEdit: boolean) => ({
   code: isEdit ? "btn:ai-service:update" : "btn:ai-service:create",
-  message: isEdit ? "权限不足，无法保存AI服务配置" : "权限不足，无法新增AI服务配置"
+  message: isEdit
+    ? "权限不足，无法保存AI服务配置"
+    : "权限不足，无法新增AI服务配置"
 });
 
 export const getAiServiceSubmitSuccessMessage = (isEdit: boolean) =>

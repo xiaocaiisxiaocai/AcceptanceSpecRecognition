@@ -35,7 +35,7 @@ const columnOptions = computed(() => {
 // 同步modelValue
 watch(
   () => props.modelValue,
-  (val) => {
+  val => {
     if (val) {
       // 合并默认值，避免缺失字段导致UI异常
       mapping.value = { ...defaultMapping, ...val };
@@ -190,8 +190,8 @@ defineExpose({
 
 .mapping-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 20px;
 }
 
@@ -215,9 +215,8 @@ defineExpose({
 }
 
 .form-tip {
+  margin-top: 4px;
   font-size: 12px;
   color: #6b7280;
-  margin-top: 4px;
 }
-
 </style>

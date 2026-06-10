@@ -63,7 +63,11 @@ defineEmits<{
         <el-tag size="small" type="primary">
           {{ sourceIsExcel ? "Excel" : "Word" }}
         </el-tag>
-        <span>检测到 {{ sourceFile.tableCount }} 个{{ sourceIsExcel ? "工作表" : "表格" }}</span>
+        <span
+          >检测到 {{ sourceFile.tableCount }} 个{{
+            sourceIsExcel ? "工作表" : "表格"
+          }}</span
+        >
         <span>默认会把每张表都带出来，你可以逐表调整或取消参与。</span>
       </div>
     </div>

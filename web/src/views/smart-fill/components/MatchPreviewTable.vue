@@ -59,7 +59,11 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "select", rowIndex: number, spec: MatchPreviewItem["bestMatch"] | null): void;
+  (
+    e: "select",
+    rowIndex: number,
+    spec: MatchPreviewItem["bestMatch"] | null
+  ): void;
   (e: "showDetail", item: MatchPreviewItem): void;
 }>();
 
@@ -84,7 +88,9 @@ const getTableState = (item: MatchPreviewItem) =>
 const getReviewStatus = (item: MatchPreviewItem): SmartFillReviewStatus =>
   getTableState(item).reviewStatus;
 
-const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN);
+const effectiveAmbiguityMargin = computed(
+  () => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN
+);
 
 const isHighConfidence = isHighConfidenceMatchPreview;
 
@@ -99,7 +105,11 @@ const initSelections = () => {
   editedOverrides.value.clear();
   manualClearedRows.value.clear();
   props.items.forEach(item => {
-    if (item.bestMatch && isHighConfidence(item) && !isNoAnswerPlaceholderRow(item)) {
+    if (
+      item.bestMatch &&
+      isHighConfidence(item) &&
+      !isNoAnswerPlaceholderRow(item)
+    ) {
       selectedSpecs.value.set(item.rowIndex, {
         type: "best",
         manualConfirmed: false,
@@ -113,8 +123,11 @@ const initSelections = () => {
 
 const hasOverrideValue = hasMatchPreviewOverrideValue;
 
-const persistedStateMap = computed(() =>
-  new Map((props.persistedSelections ?? []).map(item => [item.rowIndex, item]))
+const persistedStateMap = computed(
+  () =>
+    new Map(
+      (props.persistedSelections ?? []).map(item => [item.rowIndex, item])
+    )
 );
 
 const getPersistedState = (rowIndex: number) =>
@@ -165,7 +178,9 @@ const getOverride = (rowIndex: number) => {
 };
 
 const getRawAcceptanceText = (item: MatchPreviewItem) =>
-  getOverride(item.rowIndex)?.overrideAcceptance ?? item.bestMatch?.acceptance ?? "";
+  getOverride(item.rowIndex)?.overrideAcceptance ??
+  item.bestMatch?.acceptance ??
+  "";
 
 const getRawRemarkText = (item: MatchPreviewItem) =>
   getOverride(item.rowIndex)?.overrideRemark ?? item.bestMatch?.remark ?? "";
@@ -235,7 +250,9 @@ const handleSaveEditedSelection = () => {
 
   selectedSpecs.value.set(item.rowIndex, {
     type: item.bestMatch ? "best" : "manual",
-    manualConfirmed: item.bestMatch ? !item.bestMatch.reviewApprovalToken : true,
+    manualConfirmed: item.bestMatch
+      ? !item.bestMatch.reviewApprovalToken
+      : true,
     reviewApprovalToken: item.bestMatch?.reviewApprovalToken
   });
   manualClearedRows.value.delete(item.rowIndex);
@@ -276,7 +293,8 @@ const syncSelectionsWithItems = () => {
     if (!item.bestMatch) {
       nextSelections.set(
         item.rowIndex,
-        existing?.type === "manual" && hasManualFillOverrideValue(existingOverride)
+        existing?.type === "manual" &&
+          hasManualFillOverrideValue(existingOverride)
           ? {
               type: "manual",
               manualConfirmed: true,
@@ -432,9 +450,7 @@ const pagedFilteredItems = computed(() => {
   );
 });
 
-const hasReasonColumn = computed(() =>
-  shouldShowReasonColumn(props.items)
-);
+const hasReasonColumn = computed(() => shouldShowReasonColumn(props.items));
 
 watch(scoreFilter, () => {
   currentPage.value = 1;
@@ -447,12 +463,16 @@ watch(
   }
 );
 
-watch(filteredItems, items => {
-  const maxPage = Math.max(1, Math.ceil(items.length / pageSize.value));
-  if (currentPage.value > maxPage) {
-    currentPage.value = maxPage;
-  }
-}, { immediate: true });
+watch(
+  filteredItems,
+  items => {
+    const maxPage = Math.max(1, Math.ceil(items.length / pageSize.value));
+    if (currentPage.value > maxPage) {
+      currentPage.value = maxPage;
+    }
+  },
+  { immediate: true }
+);
 
 const handlePageSizeChange = (size: number) => {
   pageSize.value = size;

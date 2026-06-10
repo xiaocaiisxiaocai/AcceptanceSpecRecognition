@@ -98,14 +98,14 @@ html.dark {
   }
 
   .el-button--default {
+    color: rgb(235 235 235 / 85%);
     background-color: #121521;
     border-color: #2a2f3a;
-    color: rgb(235 235 235 / 85%);
   }
 
   .el-button--default:hover {
-    border-color: var(--color-primary);
     color: var(--color-primary);
+    border-color: var(--color-primary);
   }
 
   .el-table--striped .el-table__body tr.el-table__row--striped td {

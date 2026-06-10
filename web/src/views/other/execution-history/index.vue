@@ -50,17 +50,21 @@ const isLegacySmartFill = computed(
     currentDetail.value?.smartFillPlayback?.isLegacy === true
 );
 
-const currentSmartFillSummary = computed<ExecutionHistorySmartFillSummary | undefined>(
-  () => currentDetail.value?.smartFillSummary ?? currentTask.value?.smartFillSummary
+const currentSmartFillSummary = computed<
+  ExecutionHistorySmartFillSummary | undefined
+>(
+  () =>
+    currentDetail.value?.smartFillSummary ?? currentTask.value?.smartFillSummary
 );
 
 const taskTypeText = (taskType: string) =>
   taskType === "batch-reply" ? "批量回复" : "智能填充";
 
 const formatTaskOptionLabel = (item: ExecutionHistoryListItem) => {
-  const summary = item.taskType === "smart-fill" && item.smartFillSummary
-    ? `完全 ${item.smartFillSummary.exactMatchedRowCount ?? "-"} / AI ${item.smartFillSummary.aiMatchedRowCount ?? "-"} / 未采用或未匹配 ${item.smartFillSummary.notUsedRowCount ?? "-"}`
-    : `已采用 ${item.adoptedRowCount} / 未匹配 ${item.unmatchedRowCount}`;
+  const summary =
+    item.taskType === "smart-fill" && item.smartFillSummary
+      ? `完全 ${item.smartFillSummary.exactMatchedRowCount ?? "-"} / AI ${item.smartFillSummary.aiMatchedRowCount ?? "-"} / 未采用或未匹配 ${item.smartFillSummary.notUsedRowCount ?? "-"}`
+      : `已采用 ${item.adoptedRowCount} / 未匹配 ${item.unmatchedRowCount}`;
 
   return `${taskTypeText(item.taskType)}｜${item.sourceFileName}｜${formatExecutionHistoryDateTime(item.createdAt)}｜${summary}`;
 };
@@ -190,7 +194,10 @@ onMounted(() => {
     <el-card class="toolbar-card">
       <el-form :inline="true">
         <el-form-item label="任务类型">
-          <el-select v-model="queryParams.taskType" class="search-select search-select--240">
+          <el-select
+            v-model="queryParams.taskType"
+            class="search-select search-select--240"
+          >
             <el-option
               v-for="item in taskTypeOptions"
               :key="item.value"
@@ -214,7 +221,7 @@ onMounted(() => {
       </el-form>
     </el-card>
 
-    <el-card class="task-card" v-loading="loading">
+    <el-card v-loading="loading" class="task-card">
       <template #header>
         <div class="card-header">
           <span>任务下拉</span>
@@ -243,7 +250,9 @@ onMounted(() => {
           <div class="task-brief__meta">
             <span>{{ taskTypeText(currentTask.taskType) }}</span>
             <span>任务ID {{ currentTask.taskId }}</span>
-            <span>{{ formatExecutionHistoryDateTime(currentTask.createdAt) }}</span>
+            <span>{{
+              formatExecutionHistoryDateTime(currentTask.createdAt)
+            }}</span>
           </div>
         </div>
       </div>
@@ -261,12 +270,13 @@ onMounted(() => {
       </div>
     </el-card>
 
-    <el-card class="detail-card" v-loading="detailLoading">
+    <el-card v-loading="detailLoading" class="detail-card">
       <template #header>
         <div class="card-header">
           <span>任务详情</span>
           <span v-if="currentDetail" class="card-header-tip">
-            {{ taskTypeText(currentDetail.taskType) }} / {{ currentDetail.sourceFileName }}
+            {{ taskTypeText(currentDetail.taskType) }} /
+            {{ currentDetail.sourceFileName }}
           </span>
         </div>
       </template>
@@ -288,7 +298,10 @@ onMounted(() => {
           type="warning"
           :closable="false"
           class="legacy-alert"
-          :title="currentDetail.smartFillPlayback?.legacyMessage || '历史记录，缺少预览归档'"
+          :title="
+            currentDetail.smartFillPlayback?.legacyMessage ||
+            '历史记录，缺少预览归档'
+          "
         />
 
         <ExecutionHistorySmartFillPlayback
@@ -315,9 +328,9 @@ onMounted(() => {
 
 .card-header {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
 }
 
 .card-header-tip {
@@ -337,9 +350,9 @@ onMounted(() => {
 
 .task-brief {
   padding: 14px 16px;
+  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
   border: 1px solid #e5e7eb;
   border-radius: 14px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .task-brief__title {
@@ -372,9 +385,9 @@ onMounted(() => {
 
 .summary-card {
   padding: 14px 16px;
+  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
   border: 1px solid #e5e7eb;
   border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .summary-card__label {
@@ -393,13 +406,13 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 
-@media (max-width: 1200px) {
+@media (width <= 1200px) {
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .summary-grid {
     grid-template-columns: 1fr;
   }

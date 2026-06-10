@@ -36,7 +36,9 @@ const emit = defineEmits<{
           filterable
           class="dialog-select dialog-select--320"
           popper-class="app-select-popper"
-          @update:model-value="value => emit('update:selectedCustomerId', value)"
+          @update:model-value="
+            value => emit('update:selectedCustomerId', value)
+          "
         >
           <el-option
             v-for="customer in customers"
@@ -73,7 +75,9 @@ const emit = defineEmits<{
           filterable
           class="dialog-select dialog-select--320"
           popper-class="app-select-popper"
-          @update:model-value="value => emit('update:selectedMachineModelId', value)"
+          @update:model-value="
+            value => emit('update:selectedMachineModelId', value)
+          "
         >
           <el-option
             v-for="model in machineModels"

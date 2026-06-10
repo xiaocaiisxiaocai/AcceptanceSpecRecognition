@@ -66,7 +66,8 @@ const treeData = computed<TreeNode[]>(() => {
     const customer = customerMap.get(g.customerId)!;
     customer.totalCount += g.specCount;
 
-    const mmKey = g.machineModelId != null ? String(g.machineModelId) : "__null__";
+    const mmKey =
+      g.machineModelId != null ? String(g.machineModelId) : "__null__";
     if (!customer.machineModels.has(mmKey)) {
       customer.machineModels.set(mmKey, {
         id: g.machineModelId ?? undefined,
@@ -222,9 +223,9 @@ defineExpose({ currentNodeKey });
 }
 
 .tree-header {
+  padding: 0 0 12px;
   font-size: 16px;
   font-weight: 600;
-  padding: 0 0 12px;
 }
 
 .tree-search {
@@ -238,11 +239,11 @@ defineExpose({ currentNodeKey });
 
 .tree-node {
   display: flex;
+  flex: 1;
   align-items: center;
   justify-content: space-between;
-  flex: 1;
-  overflow: hidden;
   padding-right: 8px;
+  overflow: hidden;
 }
 
 .tree-node-label {
@@ -262,9 +263,9 @@ defineExpose({ currentNodeKey });
 
 /* 覆盖 el-badge 样式让它更小巧 */
 .tree-node-badge :deep(.el-badge__content) {
-  font-size: 11px;
   height: 18px;
-  line-height: 18px;
   padding: 0 5px;
+  font-size: 11px;
+  line-height: 18px;
 }
 </style>

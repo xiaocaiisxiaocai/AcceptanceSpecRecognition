@@ -20,18 +20,19 @@ export const useMultiTagsStore = defineStore("pure-multiTags", {
     multiTags: storageLocal().getItem<StorageConfigs>(
       `${responsiveStorageNameSpace()}configure`
     )?.multiTagsCache
-      ? (storageLocal().getItem<StorageConfigs>(
+      ? ((storageLocal().getItem<StorageConfigs>(
           `${responsiveStorageNameSpace()}tags`
-        ) as unknown as multiType[] | null) ?? []
+        ) as unknown as multiType[] | null) ?? [])
       : ([
           ...routerArrays,
           ...usePermissionStoreHook().flatteningRoutes.filter(
             v => v?.meta?.fixedTag
           )
         ] as unknown as multiType[]),
-    multiTagsCache: storageLocal().getItem<StorageConfigs>(
-      `${responsiveStorageNameSpace()}configure`
-    )?.multiTagsCache ?? false
+    multiTagsCache:
+      storageLocal().getItem<StorageConfigs>(
+        `${responsiveStorageNameSpace()}configure`
+      )?.multiTagsCache ?? false
   }),
   getters: {
     getMultiTagsCache(state) {

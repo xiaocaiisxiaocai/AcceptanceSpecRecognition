@@ -130,13 +130,14 @@ const emit = defineEmits<{
           >
             已选择跳过
           </el-tag>
-          <el-tag v-else type="danger" size="small">
-            待选择
-          </el-tag>
+          <el-tag v-else type="danger" size="small"> 待选择 </el-tag>
         </div>
 
         <div class="difference-card__content">
-          <div v-if="hasAiDifferenceMeta(item)" class="difference-card__ai-meta">
+          <div
+            v-if="hasAiDifferenceMeta(item)"
+            class="difference-card__ai-meta"
+          >
             <span v-if="item.embeddingScore !== undefined">
               Embedding：{{ formatScorePercent(item.embeddingScore) }}
             </span>
@@ -165,14 +166,18 @@ const emit = defineEmits<{
                   v-for="column in differenceColumnDefs"
                   :key="`existing-cell-${item.key}-${column.key}`"
                   class="difference-sheet__cell"
-                  :class="{ 'is-changed': isDifferenceColumnChanged(item, column) }"
+                  :class="{
+                    'is-changed': isDifferenceColumnChanged(item, column)
+                  }"
                 >
                   {{ formatDifferenceValue(column.getExisting(item)) }}
                 </div>
               </div>
             </div>
 
-            <div class="difference-sheet__panel difference-sheet__panel--incoming">
+            <div
+              class="difference-sheet__panel difference-sheet__panel--incoming"
+            >
               <div class="difference-sheet__panel-title">本次导入</div>
               <div class="difference-sheet__table">
                 <div
@@ -186,7 +191,9 @@ const emit = defineEmits<{
                   v-for="column in differenceColumnDefs"
                   :key="`incoming-cell-${item.key}-${column.key}`"
                   class="difference-sheet__cell"
-                  :class="{ 'is-changed': isDifferenceColumnChanged(item, column) }"
+                  :class="{
+                    'is-changed': isDifferenceColumnChanged(item, column)
+                  }"
                 >
                   {{ formatDifferenceValue(column.getIncoming(item)) }}
                 </div>
@@ -199,7 +206,10 @@ const emit = defineEmits<{
           <el-radio-group
             :model-value="differenceDecisionMap[item.key]"
             size="small"
-            @update:model-value="value => emit('updateDecision', item.key, value as DifferenceDecision)"
+            @update:model-value="
+              value =>
+                emit('updateDecision', item.key, value as DifferenceDecision)
+            "
           >
             <el-radio-button label="import">覆盖已有</el-radio-button>
             <el-radio-button label="partial">部分覆盖</el-radio-button>
@@ -209,9 +219,13 @@ const emit = defineEmits<{
       </div>
     </div>
 
-    <div v-if="pendingDifferences.length > 0" class="difference-dialog__pagination">
+    <div
+      v-if="pendingDifferences.length > 0"
+      class="difference-dialog__pagination"
+    >
       <span class="difference-dialog__pagination-summary">
-        当前显示 {{ pendingDifferenceDisplayStart }} - {{ pendingDifferenceDisplayEnd }} 条，共
+        当前显示 {{ pendingDifferenceDisplayStart }} -
+        {{ pendingDifferenceDisplayEnd }} 条，共
         {{ pendingDifferences.length }} 条
       </span>
       <el-pagination
@@ -222,8 +236,12 @@ const emit = defineEmits<{
         layout="total, sizes, prev, pager, next"
         :page-sizes="[20, 50, 100]"
         :total="pendingDifferences.length"
-        @update:current-page="value => emit('update:pendingDifferencePage', value)"
-        @update:page-size="value => emit('update:pendingDifferencePageSize', value)"
+        @update:current-page="
+          value => emit('update:pendingDifferencePage', value)
+        "
+        @update:page-size="
+          value => emit('update:pendingDifferencePageSize', value)
+        "
       />
     </div>
 
@@ -233,9 +251,7 @@ const emit = defineEmits<{
           {{ differenceDialogFooterTip }}
         </span>
         <div class="difference-dialog__footer-actions">
-          <el-button @click="visible = false">
-            稍后处理
-          </el-button>
+          <el-button @click="visible = false"> 稍后处理 </el-button>
           <el-button
             type="primary"
             :loading="importing"

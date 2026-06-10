@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.Json;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Tests.Infrastructure;
@@ -172,13 +172,13 @@ public class DatabaseConnectionConfigurationTests
             .GetProperty("ConnectionStrings")
             .GetProperty("DefaultConnection")
             .ValueKind switch
-            {
-                JsonValueKind.Null => null,
-                JsonValueKind.String => document.RootElement
-                    .GetProperty("ConnectionStrings")
-                    .GetProperty("DefaultConnection")
-                    .GetString(),
-                _ => throw new InvalidOperationException($"{path} 中的 DefaultConnection 必须是字符串或 null")
-            };
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => document.RootElement
+                .GetProperty("ConnectionStrings")
+                .GetProperty("DefaultConnection")
+                .GetString(),
+            _ => throw new InvalidOperationException($"{path} 中的 DefaultConnection 必须是字符串或 null")
+        };
     }
 }

@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.Matching.Models;
+﻿namespace AcceptanceSpecSystem.Core.Matching.Models;
 
 /// <summary>
 /// AI 等价裁决结论

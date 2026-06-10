@@ -42,7 +42,9 @@ const formData = reactive({ id: 0, name: "" });
 const canCreate = computed(() => hasPerms("btn:process:create"));
 const canUpdate = computed(() => hasPerms("btn:process:update"));
 const canDelete = computed(() => hasPerms("btn:process:delete"));
-const canSubmit = computed(() => isEdit.value ? canUpdate.value : canCreate.value);
+const canSubmit = computed(() =>
+  isEdit.value ? canUpdate.value : canCreate.value
+);
 const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
 
 const loadData = async () => {
@@ -62,55 +64,125 @@ const loadData = async () => {
   }
 };
 
-const handleSearch = () => { queryParams.page = 1; loadData(); };
-const handleReset = () => { queryParams.keyword = ""; queryParams.page = 1; loadData(); };
+const handleSearch = () => {
+  queryParams.page = 1;
+  loadData();
+};
+const handleReset = () => {
+  queryParams.keyword = "";
+  queryParams.page = 1;
+  loadData();
+};
 
 const handleAdd = () => {
-  if (!canCreate.value) { ElMessage.error("权限不足，无法新增制程"); return; }
-  dialogTitle.value = "新增制程"; isEdit.value = false; formData.id = 0; formData.name = "";
+  if (!canCreate.value) {
+    ElMessage.error("权限不足，无法新增制程");
+    return;
+  }
+  dialogTitle.value = "新增制程";
+  isEdit.value = false;
+  formData.id = 0;
+  formData.name = "";
   dialogVisible.value = true;
 };
 
 const handleEdit = (row: Process) => {
-  if (!canUpdate.value) { ElMessage.error("权限不足，无法编辑制程"); return; }
-  dialogTitle.value = "编辑制程"; isEdit.value = true; formData.id = row.id; formData.name = row.name;
+  if (!canUpdate.value) {
+    ElMessage.error("权限不足，无法编辑制程");
+    return;
+  }
+  dialogTitle.value = "编辑制程";
+  isEdit.value = true;
+  formData.id = row.id;
+  formData.name = row.name;
   dialogVisible.value = true;
 };
 
 const handleDelete = async (row: Process) => {
-  if (!canDelete.value) { ElMessage.error("权限不足，无法删除制程"); return; }
+  if (!canDelete.value) {
+    ElMessage.error("权限不足，无法删除制程");
+    return;
+  }
   try {
-    await ElMessageBox.confirm(`确定要删除制程"${row.name}"吗？`, "提示", { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" });
+    await ElMessageBox.confirm(`确定要删除制程"${row.name}"吗？`, "提示", {
+      confirmButtonText: "确定",
+      cancelButtonText: "取消",
+      type: "warning"
+    });
     const res = await deleteProcess(row.id);
-    if (res.code === 0) { ElMessage.success("删除成功"); loadData(); } else { ElMessage.error(res.message); }
+    if (res.code === 0) {
+      ElMessage.success("删除成功");
+      loadData();
+    } else {
+      ElMessage.error(res.message);
+    }
   } catch {}
 };
 
 const handleBatchDelete = async () => {
-  if (!canDelete.value) { ElMessage.error("权限不足，无法删除制程"); return; }
-  if (!hasSelected.value) { ElMessage.warning("请先选择要删除的制程"); return; }
+  if (!canDelete.value) {
+    ElMessage.error("权限不足，无法删除制程");
+    return;
+  }
+  if (!hasSelected.value) {
+    ElMessage.warning("请先选择要删除的制程");
+    return;
+  }
   try {
-    await ElMessageBox.confirm(`确定要删除选中的 ${selectedIds.value.length} 个制程吗？`, "批量删除", { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" });
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${selectedIds.value.length} 个制程吗？`,
+      "批量删除",
+      { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" }
+    );
     const res = await batchDeleteProcesses(selectedIds.value);
-    if (res.code === 0) { ElMessage.success(res.message || "批量删除成功"); selectedIds.value = []; loadData(); } else { ElMessage.error(res.message); }
+    if (res.code === 0) {
+      ElMessage.success(res.message || "批量删除成功");
+      selectedIds.value = [];
+      loadData();
+    } else {
+      ElMessage.error(res.message);
+    }
   } catch {}
 };
 
 const handleSubmit = async () => {
-  if (!canSubmit.value) { ElMessage.error("权限不足，无法提交当前操作"); return; }
-  if (!formData.name.trim()) { ElMessage.warning("请输入制程名称"); return; }
+  if (!canSubmit.value) {
+    ElMessage.error("权限不足，无法提交当前操作");
+    return;
+  }
+  if (!formData.name.trim()) {
+    ElMessage.warning("请输入制程名称");
+    return;
+  }
   try {
-    const res = isEdit.value ? await updateProcess(formData.id, { name: formData.name }) : await createProcess({ name: formData.name });
-    if (res.code === 0) { ElMessage.success(isEdit.value ? "更新成功" : "创建成功"); dialogVisible.value = false; loadData(); } else { ElMessage.error(res.message); }
+    const res = isEdit.value
+      ? await updateProcess(formData.id, { name: formData.name })
+      : await createProcess({ name: formData.name });
+    if (res.code === 0) {
+      ElMessage.success(isEdit.value ? "更新成功" : "创建成功");
+      dialogVisible.value = false;
+      loadData();
+    } else {
+      ElMessage.error(res.message);
+    }
   } catch (error) {
     ElMessage.error(getRequestErrorMessage(error, "操作失败"));
   }
 };
 
-const handlePageChange = (page: number) => { queryParams.page = page; loadData(); };
-const handleSizeChange = (size: number) => { queryParams.pageSize = size; queryParams.page = 1; loadData(); };
+const handlePageChange = (page: number) => {
+  queryParams.page = page;
+  loadData();
+};
+const handleSizeChange = (size: number) => {
+  queryParams.pageSize = size;
+  queryParams.page = 1;
+  loadData();
+};
 
-onMounted(() => { loadData(); });
+onMounted(() => {
+  loadData();
+});
 </script>
 
 <template>
@@ -124,7 +196,12 @@ onMounted(() => { loadData(); });
     <el-card class="mb-4">
       <el-form :inline="true">
         <el-form-item label="制程名称">
-          <el-input v-model="queryParams.keyword" placeholder="请输入制程名称" clearable @keyup.enter="handleSearch" />
+          <el-input
+            v-model="queryParams.keyword"
+            placeholder="请输入制程名称"
+            clearable
+            @keyup.enter="handleSearch"
+          />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">搜索</el-button>
@@ -138,25 +215,55 @@ onMounted(() => { loadData(); });
         <div class="flex justify-between items-center">
           <span>制程列表</span>
           <div class="flex gap-2">
-            <el-button v-if="canDelete && hasSelected" type="danger" @click="handleBatchDelete">
+            <el-button
+              v-if="canDelete && hasSelected"
+              type="danger"
+              @click="handleBatchDelete"
+            >
               批量删除 ({{ selectedIds.length }})
             </el-button>
-            <el-button v-if="canCreate" type="primary" @click="handleAdd">新增制程</el-button>
+            <el-button v-if="canCreate" type="primary" @click="handleAdd"
+              >新增制程</el-button
+            >
           </div>
         </div>
       </template>
 
-      <el-table v-loading="loading" :data="tableData" stripe @selection-change="handleSelectionChange">
+      <el-table
+        v-loading="loading"
+        :data="tableData"
+        stripe
+        @selection-change="handleSelectionChange"
+      >
         <el-table-column v-if="canDelete" type="selection" width="50" />
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="制程名称" min-width="200" />
         <el-table-column prop="createdAt" label="创建时间" width="180">
-          <template #default="{ row }">{{ new Date(row.createdAt).toLocaleString() }}</template>
+          <template #default="{ row }">{{
+            new Date(row.createdAt).toLocaleString()
+          }}</template>
         </el-table-column>
-        <el-table-column v-if="hasOperationActions" label="操作" width="150" fixed="right">
+        <el-table-column
+          v-if="hasOperationActions"
+          label="操作"
+          width="150"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">编辑</el-button>
-            <el-button v-if="canDelete" type="danger" link @click="handleDelete(row)">删除</el-button>
+            <el-button
+              v-if="canUpdate"
+              type="primary"
+              link
+              @click="handleEdit(row)"
+              >编辑</el-button
+            >
+            <el-button
+              v-if="canDelete"
+              type="danger"
+              link
+              @click="handleDelete(row)"
+              >删除</el-button
+            >
           </template>
         </el-table-column>
       </el-table>
@@ -177,12 +284,18 @@ onMounted(() => { loadData(); });
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="500">
       <el-form label-width="80px">
         <el-form-item label="制程名称" required>
-          <el-input v-model="formData.name" placeholder="请输入制程名称" maxlength="100" />
+          <el-input
+            v-model="formData.name"
+            placeholder="请输入制程名称"
+            maxlength="100"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button v-if="canSubmit" type="primary" @click="handleSubmit">确定</el-button>
+        <el-button v-if="canSubmit" type="primary" @click="handleSubmit"
+          >确定</el-button
+        >
       </template>
     </el-dialog>
   </div>
@@ -190,9 +303,9 @@ onMounted(() => { loadData(); });
 
 <style scoped>
 .page {
-  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 24px;
 }
 </style>

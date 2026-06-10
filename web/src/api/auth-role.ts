@@ -50,7 +50,9 @@ export const createAuthRole = (data: CreateAuthRoleRequest) => {
 };
 
 export const updateAuthRole = (id: number, data: UpdateAuthRoleRequest) => {
-  return http.request<ApiResponse<AuthRole>>("put", `${baseUrl}/${id}`, { data });
+  return http.request<ApiResponse<AuthRole>>("put", `${baseUrl}/${id}`, {
+    data
+  });
 };
 
 export const deleteAuthRole = (id: number) => {

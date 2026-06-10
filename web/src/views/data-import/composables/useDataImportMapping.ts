@@ -45,15 +45,25 @@ export function useDataImportMapping(options: UseDataImportMappingOptions) {
 
   const getExcelPreviewOptions = (cfg: TableImportConfig) => {
     const usedStartRow = cfg.tableInfo?.usedRangeStartRow ?? 1;
-    const mapping = normalizeExcelMappingByTable(cfg.tableInfo, cfg.excelMapping);
+    const mapping = normalizeExcelMappingByTable(
+      cfg.tableInfo,
+      cfg.excelMapping
+    );
 
     return {
-      headerRowIndex: Math.max(0, (mapping.headerRowStart || usedStartRow) - usedStartRow),
+      headerRowIndex: Math.max(
+        0,
+        (mapping.headerRowStart || usedStartRow) - usedStartRow
+      ),
       headerRowCount: Math.max(1, mapping.headerRowCount ?? 1),
-      dataStartRowIndex: Math.max(0, (mapping.dataStartRow || usedStartRow) - usedStartRow),
+      dataStartRowIndex: Math.max(
+        0,
+        (mapping.dataStartRow || usedStartRow) - usedStartRow
+      ),
       dataEndRowIndex: Math.max(
         0,
-        ((mapping.dataEndRow || mapping.dataStartRow || usedStartRow) - usedStartRow)
+        (mapping.dataEndRow || mapping.dataStartRow || usedStartRow) -
+          usedStartRow
       )
     };
   };

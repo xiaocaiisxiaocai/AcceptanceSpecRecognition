@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
@@ -163,9 +163,22 @@ public class SemanticKernelMatchingService : IMatchingService
             };
         }
 
+        var shortcutMatchedCount = exactMatchedCount + canonicalShortcutCount;
+
         List<float[]> sourceEmbeddings;
         try
         {
+            progress?.Report(new BatchMatchProgress
+            {
+                Stage = "embedding_source",
+                StageText = "正在生成源文本语义特征",
+                DetailText = shortcutMatchedCount > 0
+                    ? $"共 {pendingSourceIndices.Count} 行待生成，精确命中已跳过 {shortcutMatchedCount} 行"
+                    : $"共 {pendingSourceIndices.Count} 行待生成",
+                CompletedItems = shortcutMatchedCount,
+                TotalItems = sourceList.Count
+            });
+
             sourceEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(
                 pendingSourceIndices.Select(index => GetSourceEmbeddingText(sourceList[index], config)),
                 config.EmbeddingServiceId,
@@ -190,9 +203,16 @@ public class SemanticKernelMatchingService : IMatchingService
             throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
         }
 
-        await EnsureCandidateEmbeddingsAsync(candidateList, config, cancellationToken);
+        progress?.Report(new BatchMatchProgress
+        {
+            Stage = "embedding_candidates",
+            StageText = "正在加载候选语义特征",
+            DetailText = "正在补全缺失的候选项 Embedding 向量",
+            CompletedItems = shortcutMatchedCount,
+            TotalItems = sourceList.Count
+        });
 
-        var shortcutMatchedCount = exactMatchedCount + canonicalShortcutCount;
+        await EnsureCandidateEmbeddingsAsync(candidateList, config, cancellationToken);
         var completedItems = shortcutMatchedCount;
         var maxParallelism = Math.Clamp(config.LlmParallelism, 1, 10);
 
@@ -384,6 +404,7 @@ public class SemanticKernelMatchingService : IMatchingService
             scoreGap: null,
             config.MinScoreThreshold,
             config.HighConfidenceThreshold,
+            config,
             orderedCandidates);
         return true;
     }
@@ -506,6 +527,7 @@ public class SemanticKernelMatchingService : IMatchingService
             scoreGap: null,
             config.MinScoreThreshold,
             config.HighConfidenceThreshold,
+            config,
             orderedCandidates);
         return true;
     }
@@ -517,12 +539,10 @@ public class SemanticKernelMatchingService : IMatchingService
         out MatchResult result)
     {
         result = null!;
-        if (config.MatchingMode == MatchingMode.SpecificationOnly)
-            return false;
 
-        var sourceProject = _canonicalizer.Canonicalize(source.Project);
-        if (string.IsNullOrWhiteSpace(sourceProject))
-            return false;
+        var sourceProject = config.MatchingMode == MatchingMode.SpecificationOnly
+            ? null
+            : _canonicalizer.Canonicalize(source.Project);
 
         var sourceValues = _canonicalizer.ExtractNormalizedValues(source.Specification);
         if (sourceValues.Count == 0)
@@ -530,7 +550,8 @@ public class SemanticKernelMatchingService : IMatchingService
 
         var candidatesForKey = candidateList
             .Where(candidate =>
-                string.Equals(_canonicalizer.Canonicalize(candidate.Project), sourceProject, StringComparison.Ordinal) &&
+                (sourceProject == null ||
+                 string.Equals(_canonicalizer.Canonicalize(candidate.Project), sourceProject, StringComparison.Ordinal)) &&
                 CanonicalSpecificationSkeletonEqual(source.Specification, candidate.Specification) &&
                 NormalizedValueSetsEqual(sourceValues, _canonicalizer.ExtractNormalizedValues(candidate.Specification)))
             .ToList();
@@ -540,12 +561,13 @@ public class SemanticKernelMatchingService : IMatchingService
 
         SortShortcutCandidatesByList(candidatesForKey);
         var candidate = candidatesForKey[0];
+        var isSpecificationOnly = config.MatchingMode == MatchingMode.SpecificationOnly;
         var approximateCandidate = new EvaluatedCandidate
         {
             Source = source,
             Candidate = candidate,
             EmbeddingScore = 1.0,
-            ProjectScore = 1.0,
+            ProjectScore = isSpecificationOnly ? 0 : 1.0,
             SpecificationTextScore = 1.0,
             NumericScore = 1.0,
             FinalScore = 1.0
@@ -553,7 +575,9 @@ public class SemanticKernelMatchingService : IMatchingService
 
         approximateCandidate.Evidence = _evidenceBuilder.Build(source, candidate);
         approximateCandidate.Issues = BuildCandidateIssues(source, approximateCandidate);
-        if (HasHardConflict(approximateCandidate.Issues) || HasAutoApplyBlockingWarning(approximateCandidate.Issues))
+        // 语义优先模式下，AutoApplyBlocking warning 不再拦截（与 DetermineDecision 的处理保持一致）
+        if (HasHardConflict(approximateCandidate.Issues) ||
+            (!config.EnableLlmSemanticPriority && HasAutoApplyBlockingWarning(approximateCandidate.Issues)))
             return false;
 
         approximateCandidate.LlmEquivalence = new LlmEquivalenceAdjudicationResult
@@ -564,8 +588,12 @@ public class SemanticKernelMatchingService : IMatchingService
             Reason = "规范化数值在工程容差内等价，已确定性命中"
         };
         approximateCandidate.SelectionMode = MatchSelectionMode.ExactShortcut;
-        approximateCandidate.SelectionSummary = "规范化数值在工程容差内等价，确定性直接命中";
-        approximateCandidate.MatchBasis = MatchBasis.ProjectSpecification;
+        approximateCandidate.SelectionSummary = isSpecificationOnly
+            ? "规范化数值在工程容差内等价，已按仅规格模式确定性命中"
+            : "规范化数值在工程容差内等价，确定性直接命中";
+        approximateCandidate.MatchBasis = isSpecificationOnly
+            ? MatchBasis.Specification
+            : MatchBasis.ProjectSpecification;
         approximateCandidate.RerankSummary = AppendEquivalenceSummary(
             BuildRerankSummary(approximateCandidate),
             approximateCandidate.LlmEquivalence);
@@ -577,6 +605,7 @@ public class SemanticKernelMatchingService : IMatchingService
             scoreGap: null,
             config.MinScoreThreshold,
             config.HighConfidenceThreshold,
+            config,
             [approximateCandidate]);
         return true;
     }
@@ -698,7 +727,8 @@ public class SemanticKernelMatchingService : IMatchingService
                     embeddingScore,
                     projectScore,
                     specificationTextScore,
-                    config.MinScoreThreshold))
+                    config.MinScoreThreshold,
+                    config))
             {
                 continue;
             }
@@ -762,22 +792,26 @@ public class SemanticKernelMatchingService : IMatchingService
         var isAmbiguous = ShouldMarkAsAmbiguous(best, second, scoreGap, config.AmbiguityMargin);
 
         // 决策优先级（确定性优先，LLM 仅作灰区兜底）：
-        // 1. 有 hard_conflict（数值/单位/比较符/温度/反义）→ 强制人工，无视 Embedding 高分，不调 LLM
+        // 1. 有 hard_conflict → 标准模式强制人工；语义优先模式仍调 LLM，由 DetermineDecision 决定放行
         // 2. 无冲突 + Embedding≥高置信阈值 + 不歧义 → 确定性 AutoApply，不调 LLM
         // 3. 其余灰区且预算未耗尽 → LLM 等价裁决兜底
         // 4. 灰区但预算耗尽 → 维持人工
         var hasHardConflict = HasHardConflict(best.Issues);
-        if (hasHardConflict)
+        if (hasHardConflict && !config.EnableLlmSemanticPriority)
         {
             best.SelectionSummary = AppendReason(best.SelectionSummary, "检测到硬冲突（数值/单位/比较符/温度/方向），强制人工确认");
         }
-        else if (CanDeterministicAutoApply(best, config, isAmbiguous))
+        else if (!hasHardConflict && CanDeterministicAutoApply(best, config, isAmbiguous))
         {
             best.LlmEquivalence ??= CreateDeterministicAutoApplyEquivalence(best, config);
             best.SelectionSummary = AppendReason(best.SelectionSummary, "无结构化冲突且 Embedding 达到高置信，确定性自动通过");
         }
         else
         {
+            if (hasHardConflict && config.EnableLlmSemanticPriority)
+            {
+                best.SelectionSummary = AppendReason(best.SelectionSummary, "检测到硬冲突，语义优先模式下交由 LLM 裁决");
+            }
             await ApplyLlmEquivalenceAdjudicationAsync(
                 source,
                 best,
@@ -794,6 +828,7 @@ public class SemanticKernelMatchingService : IMatchingService
             scoreGap,
             config.MinScoreThreshold,
             config.HighConfidenceThreshold,
+            config,
             orderedCandidates: ordered);
     }
 
@@ -849,19 +884,19 @@ public class SemanticKernelMatchingService : IMatchingService
         var retryCount = Math.Clamp(config.LlmRetryCount, 0, 3);
         var timeoutSeconds = Math.Clamp(config.LlmRowTimeoutSeconds, 5, 300);
 
+        // 整行（含所有重试）只扣一次全局预算，重试属于同一次调用的容错而非新调用。
+        if (!llmBudget.TryConsume())
+        {
+            _logger.LogWarning("{StepName} 调用已达批次上限，跳过 LLM 调用: {Location}", stepName, location);
+            return new LlmCallExecution<T>(default, Failed: true, BudgetExhausted: true);
+        }
+
         for (var attempt = 0; attempt <= retryCount; attempt++)
         {
             if (circuitBreaker.IsOpen)
             {
                 _logger.LogWarning("{StepName} 已熔断，跳过 LLM 调用: {Location}", stepName, location);
                 return new LlmCallExecution<T>(default, Failed: true, BudgetExhausted: false);
-            }
-
-            // 每一次真实 LLM 尝试都扣减批次预算，重试不能绕过全局限流。
-            if (!llmBudget.TryConsume())
-            {
-                _logger.LogWarning("{StepName} 调用已达批次上限，跳过 LLM 调用: {Location}", stepName, location);
-                return new LlmCallExecution<T>(default, Failed: true, BudgetExhausted: true);
             }
 
             using var callCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -1199,6 +1234,7 @@ public class SemanticKernelMatchingService : IMatchingService
         double? scoreGap,
         double minScoreThreshold,
         double highConfidenceThreshold,
+        MatchingConfig config,
         IReadOnlyList<EvaluatedCandidate> orderedCandidates)
     {
         var scoreDetails = CreateScoreDetails(candidate);
@@ -1224,9 +1260,10 @@ public class SemanticKernelMatchingService : IMatchingService
             SelectionMode = candidate.SelectionMode,
             SelectionSummary = candidate.SelectionSummary,
             MatchBasis = candidate.MatchBasis,
-            Decision = DetermineDecision(candidate, isAmbiguous),
+            Decision = DetermineDecision(candidate, isAmbiguous, config),
             MinScoreThreshold = minScoreThreshold,
             HighConfidenceThreshold = MatchingThresholds.NormalizeHighConfidenceThreshold(highConfidenceThreshold),
+            LlmEquivalenceMinConfidence = config.LlmEquivalenceMinConfidence,
             TopCandidates = BuildTopCandidates(orderedCandidates),
             LlmEquivalence = candidate.LlmEquivalence
         };
@@ -1409,9 +1446,17 @@ public class SemanticKernelMatchingService : IMatchingService
         }
     }
 
-    private static MatchDecision DetermineDecision(EvaluatedCandidate candidate, bool isAmbiguous)
+    private static MatchDecision DetermineDecision(EvaluatedCandidate candidate, bool isAmbiguous, MatchingConfig config)
     {
-        // 最高优先级安全网：扫到硬冲突（数值/单位/比较符/温度/方向）一律人工，
+        // 语义优先模式：LLM Equivalent 具有最高权威，硬冲突规则降级。
+        // 但置信度不足时不应盲目自动通过，转人工确认。
+        if (config.EnableLlmSemanticPriority &&
+            candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent &&
+            (candidate.LlmEquivalence.Confidence >= config.LlmEquivalenceMinConfidence ||
+             config.LlmEquivalenceMinConfidence <= 0))
+            return MatchDecision.AutoApply;
+
+        // 标准模式：硬冲突绝对门禁（数值/单位/比较符/温度/方向）一律人工，
         // 即使 LLM 误判等价或 Embedding 高分也不放行。
         if (HasHardConflict(candidate.Issues))
             return MatchDecision.ManualReview;
@@ -1422,13 +1467,19 @@ public class SemanticKernelMatchingService : IMatchingService
         if (isAmbiguous)
             return MatchDecision.ManualReview;
 
-        // 真实 LLM 对未覆盖单位/品牌会偶发误判等价；这类证据 warning 是自动放行门禁，
-        // 必须在 LLM equivalent 之前拦住，确保长尾规则未覆盖时不会直接写入。
-        if (HasAutoApplyBlockingWarning(candidate.Issues))
+        // 标准模式：未知单位/品牌 warning 是自动放行门禁，
+        // 语义优先模式下信任 LLM，跳过此拦截。
+        if (!config.EnableLlmSemanticPriority && HasAutoApplyBlockingWarning(candidate.Issues))
             return MatchDecision.ManualReview;
 
+        // 标准模式：LLM 判定等价，但置信度不足时转人工
         if (candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent)
+        {
+            if (config.LlmEquivalenceMinConfidence > 0 &&
+                candidate.LlmEquivalence.Confidence < config.LlmEquivalenceMinConfidence)
+                return MatchDecision.ManualReview;
             return MatchDecision.AutoApply;
+        }
 
         if (RequiresManualReview(candidate.Evidence))
             return MatchDecision.ManualReview;
@@ -1440,8 +1491,16 @@ public class SemanticKernelMatchingService : IMatchingService
         EvaluatedCandidate candidate,
         MatchingConfig config)
     {
-        if (!config.EnableLlmEquivalenceAdjudication)
+        // 语义优先模式隐含需要 LLM：即使 EnableLlmEquivalenceAdjudication 被手动关闭，
+        // 语义优先模式也必须调用 LLM，否则扩大的召回候选没有判决依据，全部转人工，
+        // 与语义优先的目的（提高覆盖率）完全矛盾。
+        if (!config.EnableLlmEquivalenceAdjudication && !config.EnableLlmSemanticPriority)
             return false;
+
+        // 语义优先模式：召回层已降低门槛保留了该候选，LLM 门禁也跟随降低
+        if (config.EnableLlmSemanticPriority &&
+            candidate.EmbeddingScore >= config.LlmSemanticRecallThreshold)
+            return true;
 
         var llmGateThreshold = Math.Clamp(config.MinScoreThreshold, 0, 1);
         var shouldRunByFinalScore = candidate.FinalScore >= llmGateThreshold;
@@ -1542,12 +1601,15 @@ public class SemanticKernelMatchingService : IMatchingService
         double embeddingScore,
         double projectScore,
         double specificationTextScore,
-        double minScoreThreshold)
+        double minScoreThreshold,
+        MatchingConfig config)
     {
         return embeddingScore >= minScoreThreshold ||
                IsExactProjectRescueCandidate(embeddingScore, projectScore, minScoreThreshold) ||
                IsExactTextRescueCandidate(projectScore, specificationTextScore) ||
-               IsSemanticEquivalenceRescueCandidate(embeddingScore, projectScore);
+               IsSemanticEquivalenceRescueCandidate(embeddingScore, projectScore) ||
+               // 语义优先模式：降低召回门槛，让更多候选进入 LLM 视野
+               (config.EnableLlmSemanticPriority && embeddingScore >= config.LlmSemanticRecallThreshold);
     }
 
     /// <summary>

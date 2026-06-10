@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 
 namespace AcceptanceSpecSystem.Core.TextProcessing.Services;

@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.AI.Models;
+﻿namespace AcceptanceSpecSystem.Core.AI.Models;
 
 public enum AiServiceType
 {

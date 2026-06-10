@@ -10,7 +10,10 @@ import {
   type CreateAuthRoleRequest,
   type UpdateAuthRoleRequest
 } from "@/api/auth-role";
-import { getAuthPermissionList, type AuthPermission } from "@/api/auth-permission";
+import {
+  getAuthPermissionList,
+  type AuthPermission
+} from "@/api/auth-permission";
 import { getOrgUnitFlat, type OrgUnit } from "@/api/org-unit";
 
 defineOptions({
@@ -139,7 +142,10 @@ const ensureScopeNodeSelection = (form: RoleFormModel) => {
     return;
   }
 
-  if ((form.scopeType === 1 || form.scopeType === 2) && form.scopeOrgUnitIds.length > 1) {
+  if (
+    (form.scopeType === 1 || form.scopeType === 2) &&
+    form.scopeOrgUnitIds.length > 1
+  ) {
     form.scopeOrgUnitIds = [form.scopeOrgUnitIds[0]];
   }
 };
@@ -159,7 +165,9 @@ const normalizeStringList = (values: string[]) => {
 };
 
 const normalizeNumberList = (values: number[]) => {
-  return [...new Set(values.filter(item => Number.isInteger(item) && item > 0))];
+  return [
+    ...new Set(values.filter(item => Number.isInteger(item) && item > 0))
+  ];
 };
 
 const getPermissionCodesByType = (permissionType: number) => {
@@ -168,17 +176,30 @@ const getPermissionCodesByType = (permissionType: number) => {
     .map(item => item.code);
 };
 
-const mergePermissionCodes = (form: RoleFormModel, permissionCodes: string[]) => {
-  form.permissionCodes = normalizeStringList([...form.permissionCodes, ...permissionCodes]);
+const mergePermissionCodes = (
+  form: RoleFormModel,
+  permissionCodes: string[]
+) => {
+  form.permissionCodes = normalizeStringList([
+    ...form.permissionCodes,
+    ...permissionCodes
+  ]);
 };
 
-const removePermissionCodes = (form: RoleFormModel, permissionCodes: string[]) => {
+const removePermissionCodes = (
+  form: RoleFormModel,
+  permissionCodes: string[]
+) => {
   const removeSet = new Set(permissionCodes);
-  form.permissionCodes = form.permissionCodes.filter(code => !removeSet.has(code));
+  form.permissionCodes = form.permissionCodes.filter(
+    code => !removeSet.has(code)
+  );
 };
 
 const selectAllPermissions = (form: RoleFormModel) => {
-  form.permissionCodes = normalizeStringList(permissions.value.map(item => item.code));
+  form.permissionCodes = normalizeStringList(
+    permissions.value.map(item => item.code)
+  );
 };
 
 const clearAllPermissions = (form: RoleFormModel) => {
@@ -199,8 +220,12 @@ const getSelectedPermissionItems = (form: RoleFormModel) => {
     .filter(item => !!item) as AuthPermission[];
 };
 
-const createSelectedPermissionItems = computed(() => getSelectedPermissionItems(createForm));
-const editSelectedPermissionItems = computed(() => getSelectedPermissionItems(editForm));
+const createSelectedPermissionItems = computed(() =>
+  getSelectedPermissionItems(createForm)
+);
+const editSelectedPermissionItems = computed(() =>
+  getSelectedPermissionItems(editForm)
+);
 
 const permissionTagType = (permissionType: number) => {
   if (permissionType === 0) return "success";
@@ -210,14 +235,19 @@ const permissionTagType = (permissionType: number) => {
 };
 
 const getDefaultScopeOrgId = () => {
-  const root = orgUnits.value.find(item => item.unitType === 0 && item.parentId == null && item.isActive);
+  const root = orgUnits.value.find(
+    item => item.unitType === 0 && item.parentId == null && item.isActive
+  );
   if (root) return root.id;
 
   const firstActive = orgUnits.value.find(item => item.isActive);
   return firstActive?.id;
 };
 
-const normalizeScopeOrgUnitIds = (scopeType: ScopeType, orgUnitIds?: number[]) => {
+const normalizeScopeOrgUnitIds = (
+  scopeType: ScopeType,
+  orgUnitIds?: number[]
+) => {
   const normalized = normalizeNumberList(orgUnitIds ?? []);
   if ((scopeType === 1 || scopeType === 2) && normalized.length === 0) {
     const defaultOrgId = getDefaultScopeOrgId();
@@ -237,7 +267,10 @@ const normalizeScopeOrgUnitIds = (scopeType: ScopeType, orgUnitIds?: number[]) =
 
 const normalizeScopeType = (scopeType?: number) => {
   const normalized = scopeType ?? 2;
-  return normalized === 0 || normalized === 1 || normalized === 2 || normalized === 4
+  return normalized === 0 ||
+    normalized === 1 ||
+    normalized === 2 ||
+    normalized === 4
     ? (normalized as ScopeType)
     : (2 as ScopeType);
 };
@@ -361,7 +394,13 @@ const validateRoleForm = (form: RoleFormModel, isCreate: boolean) => {
 const buildDataScopes = (form: RoleFormModel) => {
   const orgUnitIds = normalizeNumberList(form.scopeOrgUnitIds);
   if (form.scopeType === 1 || form.scopeType === 2) {
-    return [{ resource: "spec", scopeType: form.scopeType, orgUnitIds: orgUnitIds.slice(0, 1) }];
+    return [
+      {
+        resource: "spec",
+        scopeType: form.scopeType,
+        orgUnitIds: orgUnitIds.slice(0, 1)
+      }
+    ];
   }
   return [{ resource: "spec", scopeType: form.scopeType, orgUnitIds: [] }];
 };
@@ -456,7 +495,9 @@ const handleDelete = async (role: AuthRole) => {
 };
 
 const scopeTypeLabel = (scopeType: number) => {
-  return scopeTypeOptions.find(item => item.value === scopeType)?.label ?? "未配置";
+  return (
+    scopeTypeOptions.find(item => item.value === scopeType)?.label ?? "未配置"
+  );
 };
 
 const formatScopeSummary = (role: AuthRole) => {
@@ -470,13 +511,16 @@ const formatScopeSummary = (role: AuthRole) => {
       normalizedScopeType,
       scope.orgUnitIds
     );
-    const org = scopeOrgIds[0] ? orgUnitMap.value.get(scopeOrgIds[0]) : undefined;
+    const org = scopeOrgIds[0]
+      ? orgUnitMap.value.get(scopeOrgIds[0])
+      : undefined;
     return `${label}${org ? `：${org.name}` : ""}`;
   }
   return label;
 };
 
-const needsSingleOrg = (scopeType: ScopeType) => scopeType === 1 || scopeType === 2;
+const needsSingleOrg = (scopeType: ScopeType) =>
+  scopeType === 1 || scopeType === 2;
 
 const handleSearch = () => {
   loadRoles();
@@ -513,7 +557,11 @@ onMounted(initPage);
       <template #header>
         <div class="flex items-center justify-between">
           <span>角色管理</span>
-          <el-button type="primary" v-perms="'btn:auth-role:create'" @click="openCreateDialog">
+          <el-button
+            v-perms="'btn:auth-role:create'"
+            type="primary"
+            @click="openCreateDialog"
+          >
             新增角色
           </el-button>
         </div>
@@ -547,21 +595,26 @@ onMounted(initPage);
             {{ formatScopeSummary(row) }}
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
+        <el-table-column
+          prop="description"
+          label="描述"
+          min-width="220"
+          show-overflow-tooltip
+        />
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button
+              v-perms="'btn:auth-role:update'"
               type="primary"
               link
-              v-perms="'btn:auth-role:update'"
               @click="openEditDialog(row)"
             >
               编辑
             </el-button>
             <el-button
+              v-perms="'btn:auth-role:delete'"
               type="danger"
               link
-              v-perms="'btn:auth-role:delete'"
               :disabled="row.isBuiltIn"
               @click="handleDelete(row)"
             >
@@ -575,7 +628,11 @@ onMounted(initPage);
     <el-dialog v-model="createDialogVisible" title="新增角色" width="760">
       <el-form label-width="110px">
         <el-form-item label="角色编码" required>
-          <el-input v-model="createForm.code" maxlength="64" placeholder="例：qa_leader" />
+          <el-input
+            v-model="createForm.code"
+            maxlength="64"
+            placeholder="例：qa_leader"
+          />
         </el-form-item>
         <el-form-item label="角色名称" required>
           <el-input v-model="createForm.name" maxlength="100" />
@@ -595,20 +652,69 @@ onMounted(initPage);
         <el-form-item>
           <template #label>
             权限配置
-            <span class="permission-count">({{ createForm.permissionCodes.length }})</span>
+            <span class="permission-count"
+              >({{ createForm.permissionCodes.length }})</span
+            >
           </template>
           <div class="permission-panel w-full">
             <div class="permission-actions">
-              <el-button text type="primary" @click="selectPermissionType(createForm, 3)">全选菜单</el-button>
-              <el-button text type="primary" @click="selectPermissionType(createForm, 0)">全选页面</el-button>
-              <el-button text type="primary" @click="selectPermissionType(createForm, 1)">全选按钮</el-button>
-              <el-button text type="primary" @click="selectPermissionType(createForm, 2)">全选接口</el-button>
-              <el-button text type="warning" @click="clearPermissionType(createForm, 3)">清空菜单</el-button>
-              <el-button text type="warning" @click="clearPermissionType(createForm, 0)">清空页面</el-button>
-              <el-button text type="warning" @click="clearPermissionType(createForm, 1)">清空按钮</el-button>
-              <el-button text type="warning" @click="clearPermissionType(createForm, 2)">清空接口</el-button>
-              <el-button text @click="selectAllPermissions(createForm)">全选全部</el-button>
-              <el-button text type="danger" @click="clearAllPermissions(createForm)">清空全部</el-button>
+              <el-button
+                text
+                type="primary"
+                @click="selectPermissionType(createForm, 3)"
+                >全选菜单</el-button
+              >
+              <el-button
+                text
+                type="primary"
+                @click="selectPermissionType(createForm, 0)"
+                >全选页面</el-button
+              >
+              <el-button
+                text
+                type="primary"
+                @click="selectPermissionType(createForm, 1)"
+                >全选按钮</el-button
+              >
+              <el-button
+                text
+                type="primary"
+                @click="selectPermissionType(createForm, 2)"
+                >全选接口</el-button
+              >
+              <el-button
+                text
+                type="warning"
+                @click="clearPermissionType(createForm, 3)"
+                >清空菜单</el-button
+              >
+              <el-button
+                text
+                type="warning"
+                @click="clearPermissionType(createForm, 0)"
+                >清空页面</el-button
+              >
+              <el-button
+                text
+                type="warning"
+                @click="clearPermissionType(createForm, 1)"
+                >清空按钮</el-button
+              >
+              <el-button
+                text
+                type="warning"
+                @click="clearPermissionType(createForm, 2)"
+                >清空接口</el-button
+              >
+              <el-button text @click="selectAllPermissions(createForm)"
+                >全选全部</el-button
+              >
+              <el-button
+                text
+                type="danger"
+                @click="clearAllPermissions(createForm)"
+                >清空全部</el-button
+              >
             </div>
             <el-select
               v-model="createForm.permissionCodes"
@@ -631,7 +737,10 @@ onMounted(initPage);
                 />
               </el-option-group>
             </el-select>
-            <div v-if="createSelectedPermissionItems.length > 0" class="selected-permission-list">
+            <div
+              v-if="createSelectedPermissionItems.length > 0"
+              class="selected-permission-list"
+            >
               <el-tag
                 v-for="permission in createSelectedPermissionItems"
                 :key="`create-selected-${permission.code}`"
@@ -655,8 +764,17 @@ onMounted(initPage);
             />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="needsSingleOrg(createForm.scopeType)" label="组织节点" required>
-          <el-select v-model="createSingleScopeOrgId" clearable filterable class="w-full">
+        <el-form-item
+          v-if="needsSingleOrg(createForm.scopeType)"
+          label="组织节点"
+          required
+        >
+          <el-select
+            v-model="createSingleScopeOrgId"
+            clearable
+            filterable
+            class="w-full"
+          >
             <el-option
               v-for="option in orgUnitOptions"
               :key="`create-scope-org-${option.value}`"
@@ -669,7 +787,12 @@ onMounted(initPage);
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" v-perms="'btn:auth-role:create'" @click="handleCreate">
+        <el-button
+          v-perms="'btn:auth-role:create'"
+          type="primary"
+          :loading="submitLoading"
+          @click="handleCreate"
+        >
           创建
         </el-button>
       </template>
@@ -689,7 +812,11 @@ onMounted(initPage);
           <el-input :model-value="editForm.code" disabled />
         </el-form-item>
         <el-form-item label="角色名称" required>
-          <el-input v-model="editForm.name" maxlength="100" :disabled="editForm.isBuiltIn" />
+          <el-input
+            v-model="editForm.name"
+            maxlength="100"
+            :disabled="editForm.isBuiltIn"
+          />
         </el-form-item>
         <el-form-item label="角色描述">
           <el-input
@@ -702,25 +829,89 @@ onMounted(initPage);
           />
         </el-form-item>
         <el-form-item label="状态">
-          <el-switch v-model="editForm.isActive" :disabled="editForm.isBuiltIn" />
+          <el-switch
+            v-model="editForm.isActive"
+            :disabled="editForm.isBuiltIn"
+          />
         </el-form-item>
         <el-form-item>
           <template #label>
             权限配置
-            <span class="permission-count">({{ editForm.permissionCodes.length }})</span>
+            <span class="permission-count"
+              >({{ editForm.permissionCodes.length }})</span
+            >
           </template>
           <div class="permission-panel w-full">
             <div class="permission-actions">
-              <el-button text type="primary" :disabled="editForm.isBuiltIn" @click="selectPermissionType(editForm, 3)">全选菜单</el-button>
-              <el-button text type="primary" :disabled="editForm.isBuiltIn" @click="selectPermissionType(editForm, 0)">全选页面</el-button>
-              <el-button text type="primary" :disabled="editForm.isBuiltIn" @click="selectPermissionType(editForm, 1)">全选按钮</el-button>
-              <el-button text type="primary" :disabled="editForm.isBuiltIn" @click="selectPermissionType(editForm, 2)">全选接口</el-button>
-              <el-button text type="warning" :disabled="editForm.isBuiltIn" @click="clearPermissionType(editForm, 3)">清空菜单</el-button>
-              <el-button text type="warning" :disabled="editForm.isBuiltIn" @click="clearPermissionType(editForm, 0)">清空页面</el-button>
-              <el-button text type="warning" :disabled="editForm.isBuiltIn" @click="clearPermissionType(editForm, 1)">清空按钮</el-button>
-              <el-button text type="warning" :disabled="editForm.isBuiltIn" @click="clearPermissionType(editForm, 2)">清空接口</el-button>
-              <el-button text :disabled="editForm.isBuiltIn" @click="selectAllPermissions(editForm)">全选全部</el-button>
-              <el-button text type="danger" :disabled="editForm.isBuiltIn" @click="clearAllPermissions(editForm)">清空全部</el-button>
+              <el-button
+                text
+                type="primary"
+                :disabled="editForm.isBuiltIn"
+                @click="selectPermissionType(editForm, 3)"
+                >全选菜单</el-button
+              >
+              <el-button
+                text
+                type="primary"
+                :disabled="editForm.isBuiltIn"
+                @click="selectPermissionType(editForm, 0)"
+                >全选页面</el-button
+              >
+              <el-button
+                text
+                type="primary"
+                :disabled="editForm.isBuiltIn"
+                @click="selectPermissionType(editForm, 1)"
+                >全选按钮</el-button
+              >
+              <el-button
+                text
+                type="primary"
+                :disabled="editForm.isBuiltIn"
+                @click="selectPermissionType(editForm, 2)"
+                >全选接口</el-button
+              >
+              <el-button
+                text
+                type="warning"
+                :disabled="editForm.isBuiltIn"
+                @click="clearPermissionType(editForm, 3)"
+                >清空菜单</el-button
+              >
+              <el-button
+                text
+                type="warning"
+                :disabled="editForm.isBuiltIn"
+                @click="clearPermissionType(editForm, 0)"
+                >清空页面</el-button
+              >
+              <el-button
+                text
+                type="warning"
+                :disabled="editForm.isBuiltIn"
+                @click="clearPermissionType(editForm, 1)"
+                >清空按钮</el-button
+              >
+              <el-button
+                text
+                type="warning"
+                :disabled="editForm.isBuiltIn"
+                @click="clearPermissionType(editForm, 2)"
+                >清空接口</el-button
+              >
+              <el-button
+                text
+                :disabled="editForm.isBuiltIn"
+                @click="selectAllPermissions(editForm)"
+                >全选全部</el-button
+              >
+              <el-button
+                text
+                type="danger"
+                :disabled="editForm.isBuiltIn"
+                @click="clearAllPermissions(editForm)"
+                >清空全部</el-button
+              >
             </div>
             <el-select
               v-model="editForm.permissionCodes"
@@ -744,7 +935,10 @@ onMounted(initPage);
                 />
               </el-option-group>
             </el-select>
-            <div v-if="editSelectedPermissionItems.length > 0" class="selected-permission-list">
+            <div
+              v-if="editSelectedPermissionItems.length > 0"
+              class="selected-permission-list"
+            >
               <el-tag
                 v-for="permission in editSelectedPermissionItems"
                 :key="`edit-selected-${permission.code}`"
@@ -759,7 +953,11 @@ onMounted(initPage);
           </div>
         </el-form-item>
         <el-form-item label="验收规格范围" required>
-          <el-select v-model="editForm.scopeType" class="w-full" :disabled="editForm.isBuiltIn">
+          <el-select
+            v-model="editForm.scopeType"
+            class="w-full"
+            :disabled="editForm.isBuiltIn"
+          >
             <el-option
               v-for="option in scopeTypeOptions"
               :key="`edit-scope-type-${option.value}`"
@@ -768,8 +966,18 @@ onMounted(initPage);
             />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="needsSingleOrg(editForm.scopeType)" label="组织节点" required>
-          <el-select v-model="editSingleScopeOrgId" clearable filterable class="w-full" :disabled="editForm.isBuiltIn">
+        <el-form-item
+          v-if="needsSingleOrg(editForm.scopeType)"
+          label="组织节点"
+          required
+        >
+          <el-select
+            v-model="editSingleScopeOrgId"
+            clearable
+            filterable
+            class="w-full"
+            :disabled="editForm.isBuiltIn"
+          >
             <el-option
               v-for="option in orgUnitOptions"
               :key="`edit-scope-org-${option.value}`"
@@ -783,10 +991,10 @@ onMounted(initPage);
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>
         <el-button
+          v-perms="'btn:auth-role:update'"
           type="primary"
           :loading="submitLoading"
           :disabled="editForm.isBuiltIn"
-          v-perms="'btn:auth-role:update'"
           @click="handleUpdate"
         >
           {{ editForm.isBuiltIn ? "不可保存" : "保存" }}
@@ -803,8 +1011,8 @@ onMounted(initPage);
 
 .permission-count {
   margin-left: 4px;
-  color: #909399;
   font-size: 12px;
+  color: #909399;
 }
 
 .permission-panel {
@@ -821,10 +1029,10 @@ onMounted(initPage);
 
 .selected-permission-list {
   max-height: 100px;
+  padding: 8px;
   overflow-y: auto;
   border: 1px solid var(--el-border-color-light);
   border-radius: 4px;
-  padding: 8px;
 }
 
 .selected-permission-empty {

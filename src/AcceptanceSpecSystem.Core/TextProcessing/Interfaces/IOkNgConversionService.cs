@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
+﻿namespace AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 
 public interface IOkNgConversionService
 {

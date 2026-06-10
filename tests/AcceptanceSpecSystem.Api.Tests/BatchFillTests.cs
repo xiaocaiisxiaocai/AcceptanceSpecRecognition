@@ -1,6 +1,7 @@
+﻿using System.IO.Compression;
 using System.Net;
-using System.IO.Compression;
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Documents.Writers;
 using AcceptanceSpecSystem.Data.Context;
@@ -10,7 +11,6 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 using FluentAssertions.Execution;
-using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
@@ -457,7 +457,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
     /// <summary>
     /// 创建包含多个表格的 docx
     /// </summary>
-    private static byte[] CreateMultiTableDocxBytes(params string[][] [] tables)
+    private static byte[] CreateMultiTableDocxBytes(params string[][][] tables)
     {
         using var ms = new MemoryStream();
         using (var doc = WordprocessingDocument.Create(ms, WordprocessingDocumentType.Document, true))

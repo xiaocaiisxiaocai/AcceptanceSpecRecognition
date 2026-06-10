@@ -46,7 +46,9 @@ function isSameStringArray(left?: Array<string>, right?: Array<string>) {
     return false;
   }
 
-  return normalizedLeft.every((value, index) => value === normalizedRight[index]);
+  return normalizedLeft.every(
+    (value, index) => value === normalizedRight[index]
+  );
 }
 
 function normalizeStringValue(value?: string) {
@@ -150,7 +152,8 @@ export function setToken(data: DataInfo<Date>) {
 
   return {
     authorizationChanged:
-      normalizeStringValue(previousUserInfo?.roleCode) !== normalizeStringValue(roleCode) ||
+      normalizeStringValue(previousUserInfo?.roleCode) !==
+        normalizeStringValue(roleCode) ||
       !isSameStringArray(previousUserInfo?.permissions, permissions)
   };
 }

@@ -187,6 +187,25 @@ public sealed partial class DocumentImportAppService
             result.FailedCount,
             result.SkippedCount);
 
+        // 导入成功后后台触发 Embedding 预热，不阻塞当前请求
+        if (result.SuccessCount > 0)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // 刻意使用 CancellationToken.None：这是脱离当前请求的 fire-and-forget 预热，
+                    // 不应随请求结束/客户端断开而取消，否则预热会被立即中断失去意义。
+                    await _embeddingCacheWarmupManager.RunOnceAsync(CancellationToken.None);
+                    _logger.LogInformation("导入后自动触发 Embedding 预热完成");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "导入后自动触发 Embedding 预热失败");
+                }
+            });
+        }
+
         return new DocumentImportAppResult(
             result,
             $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条");

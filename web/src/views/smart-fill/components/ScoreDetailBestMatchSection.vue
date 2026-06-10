@@ -27,7 +27,9 @@ const props = defineProps<{
 
 const bestMatch = computed(() => props.item.bestMatch);
 const bestMatchIssues = computed(() => bestMatch.value?.issues ?? []);
-const effectiveAmbiguityMargin = computed(() => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN);
+const effectiveAmbiguityMargin = computed(
+  () => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN
+);
 const effectiveHighConfidenceThreshold = computed(
   () => props.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD
 );
@@ -186,7 +188,9 @@ const summaryRows = computed(() => {
       <div class="overview-card">
         <div class="overview-head">
           <div class="overview-main">
-            <div class="overview-caption">最佳匹配 · 规格 {{ bestMatch.specId }}</div>
+            <div class="overview-caption">
+              最佳匹配 · 规格 {{ bestMatch.specId }}
+            </div>
             <div class="overview-title">{{ bestMatch.project }}</div>
             <div class="overview-spec">{{ bestMatch.specification }}</div>
           </div>
@@ -231,10 +235,7 @@ const summaryRows = computed(() => {
         </div>
       </div>
 
-      <div
-        v-if="explanationRows.length > 0"
-        class="info-block"
-      >
+      <div v-if="explanationRows.length > 0" class="info-block">
         <div class="info-label">判定解释</div>
         <div class="summary-list">
           <div
@@ -269,7 +270,9 @@ const summaryRows = computed(() => {
                 {{ getIssueSeverityText(issue.severity) }}
               </el-tag>
             </div>
-            <div class="compact-row__meta">字段：{{ getIssueFieldText(issue) }}</div>
+            <div class="compact-row__meta">
+              字段：{{ getIssueFieldText(issue) }}
+            </div>
             <div v-if="issue.suggestedAction" class="compact-row__meta">
               建议：{{ issue.suggestedAction }}
             </div>
@@ -312,16 +315,16 @@ const summaryRows = computed(() => {
 
 .overview-card {
   padding: 16px;
+  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
   border: 1px solid #e5e7eb;
   border-radius: 14px;
-  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
 }
 
 .overview-head {
   display: flex;
+  gap: 16px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
 }
 
 .overview-main {
@@ -337,15 +340,15 @@ const summaryRows = computed(() => {
   margin-top: 4px;
   font-size: 15px;
   font-weight: 700;
-  color: #111827;
   line-height: 1.6;
+  color: #111827;
 }
 
 .overview-spec {
   margin-top: 6px;
   font-size: 13px;
-  color: #374151;
   line-height: 1.7;
+  color: #374151;
   word-break: break-word;
 }
 
@@ -382,13 +385,13 @@ const summaryRows = computed(() => {
 }
 
 .metric-card {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
 }
 
 .metric-card span {
@@ -409,13 +412,13 @@ const summaryRows = computed(() => {
 }
 
 .reference-row {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid #eef2f7;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 10px 12px;
+  background: rgb(255 255 255 / 86%);
+  border: 1px solid #eef2f7;
+  border-radius: 12px;
 }
 
 .reference-row span,
@@ -426,15 +429,15 @@ const summaryRows = computed(() => {
 
 .reference-row strong {
   font-size: 13px;
-  color: #374151;
   line-height: 1.6;
+  color: #374151;
   word-break: break-word;
 }
 
 .info-block {
   padding: 12px 14px;
-  border-radius: 12px;
   background: #f8fafc;
+  border-radius: 12px;
 }
 
 .info-block--issue {
@@ -451,30 +454,30 @@ const summaryRows = computed(() => {
 
 .compact-row {
   padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgb(255 255 255 / 92%);
   border: 1px solid #eef2f7;
+  border-radius: 10px;
 }
 
 .compact-row__head {
   display: flex;
+  gap: 12px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
 }
 
 .compact-row__title {
   font-size: 13px;
   font-weight: 600;
-  color: #111827;
   line-height: 1.6;
+  color: #111827;
 }
 
 .compact-row__meta {
   margin-top: 6px;
   font-size: 12px;
-  color: #6b7280;
   line-height: 1.6;
+  color: #6b7280;
 }
 
 .summary-panel {
@@ -486,8 +489,8 @@ const summaryRows = computed(() => {
   grid-template-columns: 84px minmax(0, 1fr);
   gap: 12px;
   padding: 8px 10px;
+  background: rgb(255 255 255 / 90%);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.9);
 }
 
 .summary-row--danger {
@@ -513,11 +516,11 @@ const summaryRows = computed(() => {
   font-size: 13px;
   line-height: 1.6;
   color: #374151;
-  white-space: pre-wrap;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
-@media (max-width: 900px) {
+@media (width <= 900px) {
   .overview-head,
   .compact-row__head {
     flex-direction: column;

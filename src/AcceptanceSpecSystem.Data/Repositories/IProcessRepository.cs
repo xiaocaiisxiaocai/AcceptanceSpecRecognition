@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Data.Entities;
+﻿using AcceptanceSpecSystem.Data.Entities;
 
 namespace AcceptanceSpecSystem.Data.Repositories;
 

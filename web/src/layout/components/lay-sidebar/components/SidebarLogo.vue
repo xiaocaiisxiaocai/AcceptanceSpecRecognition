@@ -46,21 +46,23 @@ const { title, getLogo } = useNav();
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
+    width: 100%;
     height: 100%;
     padding-left: 10px;
-    width: 100%;
     overflow: hidden;
 
     img {
       display: inline-block;
-      height: 32px;
-      width: 32px;
       flex: 0 0 32px;
+      width: 32px;
+      height: 32px;
       object-fit: contain;
     }
 
     .sidebar-title {
       display: inline-block;
+      flex: 1 1 auto;
+      min-width: 0;
       height: 32px;
       margin: 2px 0 0 12px;
       overflow: hidden;
@@ -70,8 +72,6 @@ const { title, getLogo } = useNav();
       line-height: 32px;
       color: var(--pure-theme-sub-menu-active-text);
       white-space: nowrap;
-      flex: 1 1 auto;
-      min-width: 0;
     }
   }
 }

@@ -1,7 +1,7 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
-using FluentAssertions;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 

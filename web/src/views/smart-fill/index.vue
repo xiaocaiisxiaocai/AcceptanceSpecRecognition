@@ -25,7 +25,11 @@ import { ensurePermission } from "@/utils/permission-guard";
 import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
 import { useSmartFillBackfillState } from "./composables/useSmartFillBackfillState";
 import { useSmartFillPreviewBlocking } from "./composables/useSmartFillPreviewBlocking";
-import { useSmartFillLlmStream, createMatchLlmStreamRequest, requestMatchLlmStream } from "./composables/useSmartFillLlmStream";
+import {
+  useSmartFillLlmStream,
+  createMatchLlmStreamRequest,
+  requestMatchLlmStream
+} from "./composables/useSmartFillLlmStream";
 import { useSmartFillPreviewRequest } from "./composables/useSmartFillPreviewRequest";
 import { useSmartFillExecution } from "./composables/useSmartFillExecution";
 import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTables";
@@ -45,9 +49,13 @@ const steps = [
 const uploadedFile = ref<FileUploadResponse | null>(null);
 const isExcelFile = computed(() => uploadedFile.value?.fileType === 1);
 const canUploadSourceFile = computed(() => hasPerms("btn:document:upload"));
-const canPreviewMatching = computed(() => hasPerms("btn:matching:preview-batch"));
+const canPreviewMatching = computed(() =>
+  hasPerms("btn:matching:preview-batch")
+);
 const canLlmStream = computed(() => hasPerms("btn:matching-fill:llm-stream"));
-const canExecuteFill = computed(() => hasPerms("btn:matching-fill:execute-batch"));
+const canExecuteFill = computed(() =>
+  hasPerms("btn:matching-fill:execute-batch")
+);
 const canDownloadFillResult = computed(() => hasPerms("btn:matching:download"));
 
 // 所有表格信息
@@ -65,21 +73,24 @@ const wordColumnMappingRules = ref<ColumnMappingRule[]>([]);
 
 // 匹配配置
 const matchConfig = ref<MatchConfigType>({ ...defaultMatchConfig });
-const matchConfigRef = ref<InstanceType<typeof SmartFillMatchStep> | null>(null);
+const matchConfigRef = ref<InstanceType<typeof SmartFillMatchStep> | null>(
+  null
+);
 
 // 批量预览结果
 const batchPreviewResults = ref<BatchTablePreviewResult[]>([]);
-const batchPreviewTabsRef = ref<InstanceType<typeof SmartFillPreviewStep> | null>(
-  null
-);
+const batchPreviewTabsRef = ref<InstanceType<
+  typeof SmartFillPreviewStep
+> | null>(null);
 const loadingUploadedFileTables = ref(false);
 const loading = ref(false);
 // 选中的表格数量
 const selectedTableCount = computed(
-  () => batchTableConfigs.value.filter((t) => t.selected).length
+  () => batchTableConfigs.value.filter(t => t.selected).length
 );
 const {
   previewElapsedSeconds,
+  previewProgress,
   previewProgressStageText,
   previewProgressDetailText,
   previewProgressPercent,
@@ -94,7 +105,10 @@ const {
 
 const getEffectiveFilterEmptySourceRows = (tableConfig: {
   filterEmptySourceRows?: boolean;
-}) => tableConfig.filterEmptySourceRows ?? matchConfig.value.filterEmptySourceRows ?? true;
+}) =>
+  tableConfig.filterEmptySourceRows ??
+  matchConfig.value.filterEmptySourceRows ??
+  true;
 
 // 详情弹窗
 const detailVisible = ref(false);
@@ -120,10 +134,11 @@ const resetMatchScope = () => {
 
 // 所有预览项（扁平化）
 const allPreviewItems = computed(() =>
-  batchPreviewResults.value.flatMap((t) => t.items)
+  batchPreviewResults.value.flatMap(t => t.items)
 );
 
-const getCurrentScope = () => matchConfigRef.value?.getScope?.() ?? matchScope.value;
+const getCurrentScope = () =>
+  matchConfigRef.value?.getScope?.() ?? matchScope.value;
 
 const getMatchConfigServiceStatus = () =>
   matchConfigRef.value?.getServiceStatus?.() ?? {
@@ -156,30 +171,26 @@ const {
   getMatchConfigServiceStatus
 });
 
-const {
-  llmStreaming,
-  startLlmStream,
-  stopLlmStream,
-  handleWindowOffline
-} = useSmartFillLlmStream({
-  canLlmStream,
-  batchPreviewResults,
-  allPreviewItems,
-  matchConfig,
-  getScope: getCurrentScope,
-  onStartStream: (payload, controller) => {
-    // 通过类型化 API 发起 LLM 流式复核请求，controller.signal 用于取消
-    return requestMatchLlmStream(payload, controller.signal);
-  },
-  buildLlmStreamPayload: (scope, items, config) =>
-    createMatchLlmStreamRequest({
-      customerId: scope.customerId,
-      processId: scope.processId,
-      machineModelId: scope.machineModelId,
-      items,
-      config
-    })
-});
+const { llmStreaming, startLlmStream, stopLlmStream, handleWindowOffline } =
+  useSmartFillLlmStream({
+    canLlmStream,
+    batchPreviewResults,
+    allPreviewItems,
+    matchConfig,
+    getScope: getCurrentScope,
+    onStartStream: (payload, controller) => {
+      // 通过类型化 API 发起 LLM 流式复核请求，controller.signal 用于取消
+      return requestMatchLlmStream(payload, controller.signal);
+    },
+    buildLlmStreamPayload: (scope, items, config) =>
+      createMatchLlmStreamRequest({
+        customerId: scope.customerId,
+        processId: scope.processId,
+        machineModelId: scope.machineModelId,
+        items,
+        config
+      })
+  });
 
 if (typeof window !== "undefined") {
   useEventListener(window, "offline", handleWindowOffline);
@@ -243,39 +254,36 @@ const {
   }
 });
 
-const {
-  doPreview,
-  invalidatePendingPreview,
-  previewAbortController
-} = useSmartFillPreviewRequest({
-  currentStep,
-  uploadedFile,
-  batchTableConfigs,
-  batchPreviewResults,
-  matchConfig,
-  loading,
-  taskId,
-  lastDownloadFailed,
-  getScope: getCurrentScope,
-  stopLlmStream,
-  startLlmStream,
-  getEffectiveFilterEmptySourceRows,
-  getPrePreviewBlockingMessage,
-  resetPreviewState,
-  markPreviewEmptyResults,
-  resolvePreviewFailure,
-  createPreviewRequestId,
-  startPreviewProgressPolling,
-  stopPreviewProgressPolling,
-  resetPreviewProgress,
-  markPreviewProgressCompleted,
-  getCurrentPreviewRequestId: () => currentPreviewRequestId.value,
-  clearPreviewDetail,
-  onSendPreview: (data, controller) => {
-    // 透传取消信号，确保用户切换步骤时可及时中止进行中的预览请求
-    return batchPreviewMatch(data, { signal: controller.signal });
-  }
-});
+const { doPreview, invalidatePendingPreview, previewAbortController } =
+  useSmartFillPreviewRequest({
+    currentStep,
+    uploadedFile,
+    batchTableConfigs,
+    batchPreviewResults,
+    matchConfig,
+    loading,
+    taskId,
+    lastDownloadFailed,
+    getScope: getCurrentScope,
+    stopLlmStream,
+    startLlmStream,
+    getEffectiveFilterEmptySourceRows,
+    getPrePreviewBlockingMessage,
+    resetPreviewState,
+    markPreviewEmptyResults,
+    resolvePreviewFailure,
+    createPreviewRequestId,
+    startPreviewProgressPolling,
+    stopPreviewProgressPolling,
+    resetPreviewProgress,
+    markPreviewProgressCompleted,
+    getCurrentPreviewRequestId: () => currentPreviewRequestId.value,
+    clearPreviewDetail,
+    onSendPreview: (data, controller) => {
+      // 透传取消信号，确保用户切换步骤时可及时中止进行中的预览请求
+      return batchPreviewMatch(data, { signal: controller.signal });
+    }
+  });
 
 // 页面卸载时清理进行中的预览/流式请求，防止离页后继续占用资源
 onBeforeUnmount(() => {
@@ -283,7 +291,7 @@ onBeforeUnmount(() => {
   stopLlmStream();
 });
 
-watch(currentStep, (step) => {
+watch(currentStep, step => {
   if (step !== 3) {
     invalidatePendingPreview();
     stopLlmStream();
@@ -353,7 +361,12 @@ const toggleBackfillCandidates = (checked: boolean) => {
 // 步骤切换
 const goNext = () => {
   if (currentStep.value === 2) {
-    if (!ensurePermission("btn:matching:preview-batch", "权限不足，无法执行匹配预览")) {
+    if (
+      !ensurePermission(
+        "btn:matching:preview-batch",
+        "权限不足，无法执行匹配预览"
+      )
+    ) {
       return;
     }
     const prePreviewBlockingMessage = getPrePreviewBlockingMessage();
@@ -436,6 +449,7 @@ const handleRestart = () => {
         ref="batchPreviewTabsRef"
         :llm-streaming="llmStreaming"
         :loading="loading"
+        :preview-progress="previewProgress"
         :preview-progress-stage-text="previewProgressStageText"
         :preview-progress-percent="previewProgressPercent"
         :preview-progress-detail-text="previewProgressDetailText"

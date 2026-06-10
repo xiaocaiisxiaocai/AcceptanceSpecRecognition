@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.Documents.Models;
+﻿using AcceptanceSpecSystem.Core.Documents.Models;
 
 namespace AcceptanceSpecSystem.Core.Documents.Interfaces;
 

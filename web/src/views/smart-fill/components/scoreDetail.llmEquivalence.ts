@@ -7,7 +7,10 @@ import type {
 export type LlmEquivalenceDifferenceTone = "neutral" | "hint" | "decision";
 
 type EquivalenceLike =
-  | Pick<LlmEquivalenceResult, "verdict" | "reasonType" | "reason" | "confidence">
+  | Pick<
+      LlmEquivalenceResult,
+      "verdict" | "reasonType" | "reason" | "confidence"
+    >
   | null
   | undefined;
 

@@ -67,7 +67,9 @@ export function useSmartFillPreviewBlocking({
       case "noScopeCandidates":
         return "请调整客户、制程、机型范围，或先补充对应验收规格。";
       case "embeddingUnavailable":
-        return previewFailureDetail.value || "当前未检测到可用的 Embedding 服务。";
+        return (
+          previewFailureDetail.value || "当前未检测到可用的 Embedding 服务。"
+        );
       case "emptyResults":
         return "当前表格没有命中可匹配结果，请检查源项目/规格列是否选择正确。";
       default:

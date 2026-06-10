@@ -17,7 +17,7 @@ import { ensurePermission } from "@/utils/permission-guard";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import {
   buildAiServiceConfigSummary,
-  getDefaultPriority,
+  getDefaultPriority
 } from "./config-selection";
 import AiServiceConfigsTable from "./components/AiServiceConfigsTable.vue";
 import AiServiceEditDialog from "./components/AiServiceEditDialog.vue";
@@ -40,11 +40,7 @@ import {
   buildInlineTestResultCard,
   type InlineTestResultCard
 } from "./test-result";
-import {
-  hasPurpose,
-  isRowLoading,
-  setRowLoading
-} from "./utils";
+import { hasPurpose, isRowLoading, setRowLoading } from "./utils";
 
 defineOptions({
   name: "AiServicesConfig"
@@ -325,9 +321,7 @@ const handleTest = async (row: AiServiceConfig) => {
 
 const handleSubmit = async () => {
   const submitPermission = getAiServiceSubmitPermission(isEdit.value);
-  if (
-    !ensurePermission(submitPermission.code, submitPermission.message)
-  ) {
+  if (!ensurePermission(submitPermission.code, submitPermission.message)) {
     return;
   }
   const validateMessage = validateAiServiceFormData(formData);
@@ -371,7 +365,10 @@ onMounted(loadData);
         <div class="page-subtitle">管理 LLM 与 Embedding 服务连接</div>
         <!-- 当前匹配模式采用证据裁决，LLM 服务用于等价裁决与候选重排，Embedding 服务用于向量相似度检索 -->
       </div>
-      <el-button v-if="tableData.length" @click="showAllConfigs = !showAllConfigs">
+      <el-button
+        v-if="tableData.length"
+        @click="showAllConfigs = !showAllConfigs"
+      >
         {{ showAllConfigs ? "收起全部" : "查看全部" }}
       </el-button>
     </div>

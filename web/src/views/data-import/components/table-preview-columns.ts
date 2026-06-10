@@ -14,7 +14,10 @@ export const resolvePreviewColumnCount = ({
   columnCount
 }: PreviewColumnSource): number => {
   const headerCount = headers?.length ?? 0;
-  const rowCount = (rows ?? []).reduce((max, row) => Math.max(max, row?.length ?? 0), 0);
+  const rowCount = (rows ?? []).reduce(
+    (max, row) => Math.max(max, row?.length ?? 0),
+    0
+  );
 
   return Math.max(columnCount ?? 0, headerCount, rowCount);
 };
@@ -23,9 +26,14 @@ export const resolvePreviewColumnCount = ({
  * 把表头补齐到真实列数。
  * 对于空表头列保留空字符串，由调用方决定显示成“列N”等占位文案。
  */
-export const normalizePreviewHeaders = (source: PreviewColumnSource): string[] => {
+export const normalizePreviewHeaders = (
+  source: PreviewColumnSource
+): string[] => {
   const totalColumns = resolvePreviewColumnCount(source);
   const headers = source.headers ?? [];
 
-  return Array.from({ length: totalColumns }, (_, index) => headers[index] ?? "");
+  return Array.from(
+    { length: totalColumns },
+    (_, index) => headers[index] ?? ""
+  );
 };

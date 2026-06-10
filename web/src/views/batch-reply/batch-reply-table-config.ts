@@ -47,7 +47,9 @@ export const buildTableConfig = (
   };
 };
 
-export const toBatchTableConfig = (item: BatchReplyTableConfigItem): ApiBatchTableConfig => ({
+export const toBatchTableConfig = (
+  item: BatchReplyTableConfigItem
+): ApiBatchTableConfig => ({
   tableIndex: item.tableIndex,
   sourceTableIndex: item.sourceTableIndex,
   projectColumnIndex: item.projectColumnIndex,
@@ -69,7 +71,9 @@ export const resolveDefaultSourceTableIndex = (
     return undefined;
   }
 
-  return options.some(option => option.value === tableIndex) ? tableIndex : options[0].value;
+  return options.some(option => option.value === tableIndex)
+    ? tableIndex
+    : options[0].value;
 };
 
 export function isTargetExecutable(targetFile: TargetPreviewState) {
@@ -78,5 +82,7 @@ export function isTargetExecutable(targetFile: TargetPreviewState) {
     return false;
   }
 
-  return selectedTables.every(item => targetFile.previewResults[item.tableIndex]?.canApply === true);
+  return selectedTables.every(
+    item => targetFile.previewResults[item.tableIndex]?.canApply === true
+  );
 }

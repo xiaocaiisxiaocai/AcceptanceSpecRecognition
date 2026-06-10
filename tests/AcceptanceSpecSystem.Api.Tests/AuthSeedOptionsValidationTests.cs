@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Api.Options;
+﻿using AcceptanceSpecSystem.Api.Options;
 using FluentAssertions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;

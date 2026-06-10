@@ -85,8 +85,9 @@ export const batchDeleteCustomers = (ids: number[]) => {
 /** 获取客户的制程列表 */
 export const getCustomerProcesses = (customerId: number) => {
   // 注意：该接口语义为“该客户的验规中使用过的制程列表”，并非 Customer→Process 从属关系
-  return http.request<ApiResponse<{ id: number; name: string; createdAt: string; specCount: number }[]>>(
-    "get",
-    `${baseUrl}/${customerId}/processes`
-  );
+  return http.request<
+    ApiResponse<
+      { id: number; name: string; createdAt: string; specCount: number }[]
+    >
+  >("get", `${baseUrl}/${customerId}/processes`);
 };

@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Api.Options;
+﻿using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
 using FluentAssertions;
 
@@ -36,9 +36,9 @@ public sealed class SlowQueryLoggingInterceptorTests
     public void GetThresholdMilliseconds_ShouldClampToAtLeastOne()
     {
         SlowQueryLoggingInterceptor.GetThresholdMilliseconds(new SlowQueryOptions
-            {
-                ThresholdMilliseconds = 0
-            })
+        {
+            ThresholdMilliseconds = 0
+        })
             .Should().Be(1);
     }
 }

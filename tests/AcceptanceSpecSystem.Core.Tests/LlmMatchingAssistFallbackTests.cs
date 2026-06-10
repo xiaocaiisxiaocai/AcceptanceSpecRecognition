@@ -1,3 +1,5 @@
+﻿using System.Collections.Concurrent;
+using System.Reflection;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
@@ -8,8 +10,6 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
-using System.Collections.Concurrent;
-using System.Reflection;
 
 namespace AcceptanceSpecSystem.Core.Tests;
 
@@ -189,12 +189,12 @@ public class LlmMatchingAssistFallbackTests
 
         var chunks = new List<string>();
         await foreach (var chunk in service.ReviewStreamAsync(new LlmReviewRequest
-                       {
-                           SourceProject = ApprovedSourceProject,
-                           SourceSpecification = ApprovedSourceSpecification,
-                           BestMatchProject = ApprovedBestProject,
-                           BestMatchSpecification = ApprovedBestSpecification
-                       }))
+        {
+            SourceProject = ApprovedSourceProject,
+            SourceSpecification = ApprovedSourceSpecification,
+            BestMatchProject = ApprovedBestProject,
+            BestMatchSpecification = ApprovedBestSpecification
+        }))
         {
             chunks.Add(chunk);
         }
@@ -228,13 +228,13 @@ public class LlmMatchingAssistFallbackTests
         var act = async () =>
         {
             await foreach (var _ in service.ReviewStreamAsync(new LlmReviewRequest
-                           {
-                               SourceProject = ApprovedSourceProject,
-                               SourceSpecification = ApprovedSourceSpecification,
-                               BestMatchProject = ApprovedBestProject,
-                               BestMatchSpecification = ApprovedBestSpecification,
-                               LlmServiceId = 41
-                           }))
+            {
+                SourceProject = ApprovedSourceProject,
+                SourceSpecification = ApprovedSourceSpecification,
+                BestMatchProject = ApprovedBestProject,
+                BestMatchSpecification = ApprovedBestSpecification,
+                LlmServiceId = 41
+            }))
             {
             }
         };

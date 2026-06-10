@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Api.Services;
+﻿namespace AcceptanceSpecSystem.Api.Services;
 
 /// <summary>
 /// 向量缓存用途，避免不同业务文本互相命中旧向量。

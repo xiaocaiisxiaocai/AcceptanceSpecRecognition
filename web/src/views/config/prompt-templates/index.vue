@@ -94,7 +94,10 @@ const openEditDialog = (row: PromptTemplate) => {
 
 const handleEdit = (row: PromptTemplate) => {
   if (
-    !ensurePermission("btn:prompt-template:update", "权限不足，无法编辑Prompt模板")
+    !ensurePermission(
+      "btn:prompt-template:update",
+      "权限不足，无法编辑Prompt模板"
+    )
   ) {
     return;
   }
@@ -104,7 +107,10 @@ const handleEdit = (row: PromptTemplate) => {
 
 const handlePreview = async () => {
   if (
-    !ensurePermission("btn:prompt-template:preview", "权限不足，无法预览Prompt模板")
+    !ensurePermission(
+      "btn:prompt-template:preview",
+      "权限不足，无法预览Prompt模板"
+    )
   ) {
     return;
   }
@@ -134,7 +140,10 @@ const handlePreview = async () => {
 
 const handleSubmit = async () => {
   if (
-    !ensurePermission("btn:prompt-template:update", "权限不足，无法保存Prompt模板")
+    !ensurePermission(
+      "btn:prompt-template:update",
+      "权限不足，无法保存Prompt模板"
+    )
   ) {
     return;
   }
@@ -280,7 +289,9 @@ onMounted(loadData);
         <el-table-column prop="updatedAt" label="更新时间" width="180">
           <template #default="{ row }">
             {{
-              new Date((row.updatedAt ?? row.createdAt) as string).toLocaleString()
+              new Date(
+                (row.updatedAt ?? row.createdAt) as string
+              ).toLocaleString()
             }}
           </template>
         </el-table-column>
@@ -291,7 +302,12 @@ onMounted(loadData);
           fixed="right"
         >
           <template #default="{ row }">
-            <el-button v-if="canUpdate" type="primary" link @click="handleEdit(row)">
+            <el-button
+              v-if="canUpdate"
+              type="primary"
+              link
+              @click="handleEdit(row)"
+            >
               编辑
             </el-button>
             <el-button
@@ -370,7 +386,9 @@ onMounted(loadData);
         <div v-if="previewResult.errors.length" class="mb-4">
           <div class="preview-title">校验问题</div>
           <ul class="preview-errors">
-            <li v-for="error in previewResult.errors" :key="error">{{ error }}</li>
+            <li v-for="error in previewResult.errors" :key="error">
+              {{ error }}
+            </li>
           </ul>
         </div>
 
@@ -391,9 +409,7 @@ onMounted(loadData);
           <el-tag
             :type="previewResult.structuredOutputIsValid ? 'success' : 'danger'"
           >
-            {{
-              previewResult.structuredOutputIsValid ? "通过" : "失败"
-            }}
+            {{ previewResult.structuredOutputIsValid ? "通过" : "失败" }}
           </el-tag>
           <div
             v-if="previewResult.structuredOutputError"
@@ -416,10 +432,10 @@ onMounted(loadData);
 
 <style scoped>
 .page {
-  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 24px;
 }
 
 .tag-list {
@@ -440,20 +456,20 @@ onMounted(loadData);
 }
 
 .preview-block {
-  margin: 0;
   padding: 12px;
-  background: #111827;
-  color: #f9fafb;
-  border-radius: 8px;
-  white-space: pre-wrap;
-  word-break: break-word;
+  margin: 0;
   font-size: 12px;
   line-height: 1.6;
+  color: #f9fafb;
+  word-break: break-word;
+  white-space: pre-wrap;
+  background: #111827;
+  border-radius: 8px;
 }
 
 .preview-errors {
-  margin: 0;
   padding-left: 18px;
+  margin: 0;
   color: #dc2626;
 }
 </style>

@@ -21,14 +21,22 @@ type UseBatchReplyExecutionParams = {
   activeRootTab: Ref<string>;
 };
 
-export const useBatchReplyExecution = (params: UseBatchReplyExecutionParams) => {
+export const useBatchReplyExecution = (
+  params: UseBatchReplyExecutionParams
+) => {
   const executeResult = ref<BatchReplyExecuteResponse | null>(null);
   const executing = ref(false);
 
   const executeReadyTargets = async () => {
     if (
-      !ensurePermission("btn:batch-reply:execute", "权限不足，无法执行批量回复") ||
-      !ensurePermission("api:batch-reply:download", "权限不足，无法下载批量回复结果")
+      !ensurePermission(
+        "btn:batch-reply:execute",
+        "权限不足，无法执行批量回复"
+      ) ||
+      !ensurePermission(
+        "api:batch-reply:download",
+        "权限不足，无法下载批量回复结果"
+      )
     ) {
       return;
     }

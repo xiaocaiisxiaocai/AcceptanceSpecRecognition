@@ -19,14 +19,16 @@ const emit = defineEmits<{
 const uploading = ref(false);
 const uploadedFile = computed({
   get: () => props.modelValue ?? null,
-  set: (val) => emit("update:modelValue", val)
+  set: val => emit("update:modelValue", val)
 });
 
 const isExcel = computed(() => uploadedFile.value?.fileType === 1);
 const isTableCountPending = computed(
   () => uploadedFile.value?.tableCountReady === false
 );
-const resolvedAccept = computed(() => (props.accept?.trim() || ".docx,.xlsx").toLowerCase());
+const resolvedAccept = computed(() =>
+  (props.accept?.trim() || ".docx,.xlsx").toLowerCase()
+);
 const allowedExtensions = computed(() =>
   resolvedAccept.value
     .split(",")
@@ -127,11 +129,11 @@ const clearFile = () => {
               正在读取{{ isExcel ? "工作表" : "表格" }}结构...
             </span>
             <span v-else-if="uploadedFile.tableCount > 0">
-              包含 {{ uploadedFile.tableCount }} 个{{ isExcel ? "工作表" : "表格" }}
+              包含 {{ uploadedFile.tableCount }} 个{{
+                isExcel ? "工作表" : "表格"
+              }}
             </span>
-            <span v-else>
-              未检测到{{ isExcel ? "工作表" : "表格" }}
-            </span>
+            <span v-else> 未检测到{{ isExcel ? "工作表" : "表格" }} </span>
           </div>
         </div>
         <div class="file-actions">
@@ -152,15 +154,15 @@ const clearFile = () => {
 }
 
 .upload-area :deep(.el-upload-dragger) {
-  width: 100%;
-  min-height: 200px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
-  border-radius: 12px;
+  justify-content: center;
+  width: 100%;
+  min-height: 200px;
+  background: #fff;
   border-color: #e4d7fb;
-  background: #ffffff;
+  border-radius: 12px;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
@@ -177,8 +179,8 @@ const clearFile = () => {
 
 .file-info {
   display: flex;
-  align-items: center;
   gap: 16px;
+  align-items: center;
 }
 
 .file-icon {
@@ -196,12 +198,12 @@ const clearFile = () => {
 }
 
 .file-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   margin-top: 4px;
   font-size: 14px;
   color: #6b7280;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .file-actions {

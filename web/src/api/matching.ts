@@ -8,7 +8,7 @@ import type { ApiResponse } from "./customer";
 import type { TableData, TableInfo } from "./document";
 
 export const DEFAULT_MIN_SCORE_THRESHOLD = 0.9;
-export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.98;
+export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.95;
 export const DEFAULT_RECALL_TOP_K = 2;
 export const MAX_RECALL_TOP_K = 3;
 export const DEFAULT_AMBIGUITY_MARGIN = 0.02;
@@ -42,6 +42,8 @@ export interface MatchConfig {
   matchingMode?: MatchingMode;
   /** 是否在同步预览/执行匹配阶段启用 AI 等价裁决 */
   enableLlmEquivalenceAdjudication?: boolean;
+  /** LLM 等价裁决置信度下限（0~1，默认 0.5，设为 0 表示不设门槛）。LLM 判等价但自评置信度低于此值时转人工确认 */
+  llmEquivalenceMinConfidence?: number;
   /** 是否启用确定性自动通过 */
   enableDeterministicAutoApply?: boolean;
   /** 单批次 LLM 重排/等价裁决调用次数上限 */
@@ -50,6 +52,10 @@ export interface MatchConfig {
   exactMatchOnly?: boolean;
   /** 是否过滤项目/规格均为空的行 */
   filterEmptySourceRows?: boolean;
+  /** 启用 LLM 语义优先模式（速度慢但覆盖更多情况，LLM 裁决具有最高权威） */
+  enableLlmSemanticPriority?: boolean;
+  /** LLM 语义优先模式下的召回分数下限（默认 0.5，仅 enableLlmSemanticPriority 开启时生效） */
+  llmSemanticRecallThreshold?: number;
 }
 
 /** 待匹配的源项 */
@@ -105,10 +111,7 @@ export interface MatchEntityEvidence {
 }
 
 export type LlmEquivalenceVerdict = "equivalent" | "different" | "uncertain";
-export type MatchSelectionMode =
-  | "exactShortcut"
-  | "embeddingTop1"
-  | "aiRerank";
+export type MatchSelectionMode = "exactShortcut" | "embeddingTop1" | "aiRerank";
 
 export type LlmEquivalenceReasonType =
   | "format_only"
@@ -307,11 +310,14 @@ export const defaultMatchConfig: MatchConfig = {
   llmRetryCount: 1,
   llmCircuitBreakFailures: 10,
   matchingMode: "projectSpecification",
-  enableLlmEquivalenceAdjudication: false,
+  enableLlmEquivalenceAdjudication: true,
+  llmEquivalenceMinConfidence: 0.5,
   enableDeterministicAutoApply: true,
-  llmMaxCallsPerBatch: 20,
+  llmMaxCallsPerBatch: 1000,
   exactMatchOnly: false,
-  filterEmptySourceRows: true
+  filterEmptySourceRows: true,
+  enableLlmSemanticPriority: false,
+  llmSemanticRecallThreshold: 0.5
 };
 
 // ===== 批量填充 =====
@@ -513,13 +519,15 @@ export interface MatchLlmStreamBaseEventData {
   rowIndex: number;
 }
 
-export interface MatchLlmStreamStartEventData extends MatchLlmStreamBaseEventData {}
+export type MatchLlmStreamStartEventData = MatchLlmStreamBaseEventData;
 
-export interface MatchLlmStreamDeltaEventData extends MatchLlmStreamBaseEventData {
+export interface MatchLlmStreamDeltaEventData
+  extends MatchLlmStreamBaseEventData {
   chunk?: string;
 }
 
-export interface MatchLlmStreamDoneEventData extends MatchLlmStreamBaseEventData {
+export interface MatchLlmStreamDoneEventData
+  extends MatchLlmStreamBaseEventData {
   decision?: MatchResult["decision"];
   score?: number;
   reason?: string;
@@ -528,7 +536,8 @@ export interface MatchLlmStreamDoneEventData extends MatchLlmStreamBaseEventData
   bestMatch?: MatchResult;
 }
 
-export interface MatchLlmStreamErrorEventData extends MatchLlmStreamBaseEventData {
+export interface MatchLlmStreamErrorEventData
+  extends MatchLlmStreamBaseEventData {
   decision?: MatchResult["decision"];
   message?: string;
 }
@@ -794,7 +803,10 @@ export const uploadBatchReplyTargets = (sessionId: string, files: File[]) => {
   );
 };
 
-export const getBatchReplyTargetTables = (sessionId: string, targetId: string) => {
+export const getBatchReplyTargetTables = (
+  sessionId: string,
+  targetId: string
+) => {
   return http.request<ApiResponse<TableInfo[]>>(
     "get",
     `${batchReplyBaseUrl}/sessions/${sessionId}/targets/${targetId}/tables`

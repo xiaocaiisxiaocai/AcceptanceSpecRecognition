@@ -55,18 +55,18 @@
     "@vueuse/core": "^14.0.0",
     "@vueuse/motion": "^3.0.3",
     "animate.css": "^4.1.1",
-    "axios": "^1.12.2",
+    "axios": "^1.17.0",
     "dayjs": "^1.11.18",
     "echarts": "^6.0.0",
     "element-plus": "^2.11.5",
-    "js-cookie": "^3.0.5",
+    "js-cookie": "^3.0.8",
     "localforage": "^1.10.0",
     "mitt": "^3.0.1",
     "nprogress": "^0.2.0",
     "path-browserify": "^1.0.1",
     "pinia": "^3.0.3",
     "pinyin-pro": "^3.27.0",
-    "qs": "^6.14.0",
+    "qs": "^6.15.2",
     "responsive-storage": "^2.2.0",
     "sortablejs": "^1.15.6",
     "tippy.js": "^6.3.7",
@@ -138,6 +138,14 @@
     "pnpm": ">=9"
   },
   "pnpm": {
+    "overrides": {
+      "lodash": "^4.18.1",
+      "lodash-es": "^4.18.1",
+      "defu": "^6.1.7",
+      "picomatch": "^4.0.4",
+      "follow-redirects": "^1.16.0",
+      "postcss": "^8.5.15"
+    },
     "allowedDeprecatedVersions": {
       "are-we-there-yet": "*",
       "sourcemap-codec": "*",

@@ -47,7 +47,9 @@ const sourceConfigs = ref<BatchTableConfigItem[]>([]);
 const targetFiles = ref<BatchReplyTargetState[]>([]);
 const sourceUploading = ref(false);
 
-const permissionState = computed(() => buildBatchReplyPermissionState(hasPerms));
+const permissionState = computed(() =>
+  buildBatchReplyPermissionState(hasPerms)
+);
 const batchReplyState = computed(() =>
   buildBatchReplyDerivedState({
     sourceFile: sourceFile.value,
@@ -60,13 +62,27 @@ const batchReplyState = computed(() =>
 const sourceSessionId = computed(() => batchReplyState.value.sourceSessionId);
 const sourceIsExcel = computed(() => batchReplyState.value.sourceIsExcel);
 const targetAccept = computed(() => batchReplyState.value.targetAccept);
-const canUploadSourceFile = computed(() => permissionState.value.canUploadSourceFile);
-const canUploadTargetFile = computed(() => permissionState.value.canUploadTargetFile);
-const canPreviewBatchReply = computed(() => permissionState.value.canPreviewBatchReply);
-const selectedSourceConfigs = computed(() => batchReplyState.value.selectedSourceConfigs);
-const selectedSourceTableOptions = computed(() => batchReplyState.value.selectedSourceTableOptions);
-const executableTargets = computed(() => batchReplyState.value.executableTargets);
-const duplicateDialogVisible = computed(() => batchReplyState.value.duplicateDialogVisible);
+const canUploadSourceFile = computed(
+  () => permissionState.value.canUploadSourceFile
+);
+const canUploadTargetFile = computed(
+  () => permissionState.value.canUploadTargetFile
+);
+const canPreviewBatchReply = computed(
+  () => permissionState.value.canPreviewBatchReply
+);
+const selectedSourceConfigs = computed(
+  () => batchReplyState.value.selectedSourceConfigs
+);
+const selectedSourceTableOptions = computed(
+  () => batchReplyState.value.selectedSourceTableOptions
+);
+const executableTargets = computed(
+  () => batchReplyState.value.executableTargets
+);
+const duplicateDialogVisible = computed(
+  () => batchReplyState.value.duplicateDialogVisible
+);
 const executeDisabled = computed(() => batchReplyState.value.executeDisabled);
 
 const {
@@ -103,21 +119,28 @@ const {
   targetFiles
 });
 
-const { executeResult, executing, executeReadyTargets } = useBatchReplyExecution({
-  sourceSessionId,
-  selectedSourceConfigs,
-  executableTargets,
-  activeRootTab
-});
-const resultFiles = computed(() => getBatchReplyResultFiles(executeResult.value));
+const { executeResult, executing, executeReadyTargets } =
+  useBatchReplyExecution({
+    sourceSessionId,
+    selectedSourceConfigs,
+    executableTargets,
+    activeRootTab
+  });
+const resultFiles = computed(() =>
+  getBatchReplyResultFiles(executeResult.value)
+);
 
 // 页面级权限检查，对应导航权限：btn:batch-reply:preview / btn:batch-reply:execute
 // 目标文件待上传队列变化时，触发批量上传（与 composable 内部的 schedule 协同）
-watch(pendingTargetUploadFiles, async (pendingFiles) => {
-  if (!pendingFiles.length || !sourceSessionId.value) return;
-  // 实际上传由 composable 内部负责调度，此处仅声明依赖关系：
-  // uploadBatchReplyTargets(sourceSessionId.value, pendingFiles)
-}, { deep: false });
+watch(
+  pendingTargetUploadFiles,
+  async pendingFiles => {
+    if (!pendingFiles.length || !sourceSessionId.value) return;
+    // 实际上传由 composable 内部负责调度，此处仅声明依赖关系：
+    // uploadBatchReplyTargets(sourceSessionId.value, pendingFiles)
+  },
+  { deep: false }
+);
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -150,7 +173,9 @@ const syncTargetSourceDefaults = () => {
 
       if (
         config.sourceTableIndex !== undefined &&
-        selectedSourceTableOptions.value.some(option => option.value === config.sourceTableIndex)
+        selectedSourceTableOptions.value.some(
+          option => option.value === config.sourceTableIndex
+        )
       ) {
         return config;
       }
@@ -160,7 +185,7 @@ const syncTargetSourceDefaults = () => {
         sourceTableIndex: defaultSourceTableIndex
       };
     }),
-    previewResults: {},
+    previewResults: {}
   }));
 };
 
@@ -184,7 +209,9 @@ const loadSourceTables = async (sessionId: string, fileType: number) => {
   }
 
   sourceTables.value = res.data;
-  sourceConfigs.value = res.data.map(table => buildTableConfig(table, fileType === 1, true));
+  sourceConfigs.value = res.data.map(table =>
+    buildTableConfig(table, fileType === 1, true)
+  );
 };
 
 const handleSourceConfigChange = (value: BatchTableConfigItem[]) => {
@@ -193,24 +220,32 @@ const handleSourceConfigChange = (value: BatchTableConfigItem[]) => {
   syncTargetSourceDefaults();
 };
 
-const handleTargetConfigChange = (targetId: string, value: BatchTableConfigItem[]) => {
+const handleTargetConfigChange = (
+  targetId: string,
+  value: BatchTableConfigItem[]
+) => {
   targetFiles.value = targetFiles.value.map(file =>
     file.targetId === targetId
-        ? {
-            ...file,
-            configs: value,
-            previewResults: prunePreviewResultsForConfigChange(
-              file.previewResults,
-              file.configs,
-              value
-            )
-          }
+      ? {
+          ...file,
+          configs: value,
+          previewResults: prunePreviewResultsForConfigChange(
+            file.previewResults,
+            file.configs,
+            value
+          )
+        }
       : file
   );
 };
 
 const handleSourceUpload = async (options: UploadRequestOptions) => {
-  if (!ensurePermission("api:batch-reply:upload-source", "权限不足，无法上传来源文件")) {
+  if (
+    !ensurePermission(
+      "api:batch-reply:upload-source",
+      "权限不足，无法上传来源文件"
+    )
+  ) {
     return;
   }
 
@@ -243,7 +278,9 @@ const handleSourceUpload = async (options: UploadRequestOptions) => {
 };
 
 const removeTargetFile = (targetId: string) => {
-  targetFiles.value = targetFiles.value.filter(item => item.targetId !== targetId);
+  targetFiles.value = targetFiles.value.filter(
+    item => item.targetId !== targetId
+  );
   if (activeTargetFileId.value === targetId) {
     activeTargetFileId.value = targetFiles.value[0]?.targetId ?? "";
   }
@@ -261,7 +298,8 @@ const removeTargetFile = (targetId: string) => {
         <div class="page-header__eyebrow">批量工作台</div>
         <h1>批量回复</h1>
         <p>
-          以来源文件为基准，按文件和 Sheet/表格配置映射关系，统一完成同模板文档的回复回写。
+          以来源文件为基准，按文件和
+          Sheet/表格配置映射关系，统一完成同模板文档的回复回写。
         </p>
       </div>
       <div class="page-header__stats">
@@ -283,8 +321,9 @@ const removeTargetFile = (targetId: string) => {
     <div class="rule-strip">
       <div class="rule-strip__title">执行规则</div>
       <div class="rule-strip__content">
-        仅支持 <strong>docx -&gt; docx</strong> 与 <strong>xlsx -&gt; xlsx</strong>；
-        匹配键为项目 + 规格；允许行顺序不同；写回仅更新验收列和备注列。
+        仅支持 <strong>docx -&gt; docx</strong> 与
+        <strong>xlsx -&gt; xlsx</strong>； 匹配键为项目 +
+        规格；允许行顺序不同；写回仅更新验收列和备注列。
       </div>
     </div>
 

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { SpecDuplicateDetectionResult, SpecDuplicateGroup } from "@/api/spec";
+import type {
+  SpecDuplicateDetectionResult,
+  SpecDuplicateGroup
+} from "@/api/spec";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -59,11 +62,15 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
         </div>
         <div class="summary-card danger">
           <span class="summary-label">完全重复</span>
-          <strong class="summary-value">{{ result?.exactGroupCount ?? 0 }}</strong>
+          <strong class="summary-value">{{
+            result?.exactGroupCount ?? 0
+          }}</strong>
         </div>
         <div class="summary-card warning">
           <span class="summary-label">近重复</span>
-          <strong class="summary-value">{{ result?.similarGroupCount ?? 0 }}</strong>
+          <strong class="summary-value">{{
+            result?.similarGroupCount ?? 0
+          }}</strong>
         </div>
       </div>
 
@@ -100,7 +107,9 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                           {{ group.itemCount }} 条
                         </el-tag>
                       </div>
-                      <p class="group-preview">{{ group.specificationPreview }}</p>
+                      <p class="group-preview">
+                        {{ group.specificationPreview }}
+                      </p>
                       <p class="group-reason">{{ group.reason }}</p>
                     </div>
                     <div class="group-score">
@@ -109,12 +118,36 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                     </div>
                   </div>
 
-                  <el-table :data="group.items" border size="small" max-height="280">
+                  <el-table
+                    :data="group.items"
+                    border
+                    size="small"
+                    max-height="280"
+                  >
                     <el-table-column prop="id" label="ID" width="80" />
-                    <el-table-column prop="project" label="项目" min-width="140" />
-                    <el-table-column prop="specification" label="规格内容" min-width="280" show-overflow-tooltip />
-                    <el-table-column prop="acceptance" label="验收标准" min-width="180" show-overflow-tooltip />
-                    <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
+                    <el-table-column
+                      prop="project"
+                      label="项目"
+                      min-width="140"
+                    />
+                    <el-table-column
+                      prop="specification"
+                      label="规格内容"
+                      min-width="280"
+                      show-overflow-tooltip
+                    />
+                    <el-table-column
+                      prop="acceptance"
+                      label="验收标准"
+                      min-width="180"
+                      show-overflow-tooltip
+                    />
+                    <el-table-column
+                      prop="remark"
+                      label="备注"
+                      min-width="160"
+                      show-overflow-tooltip
+                    />
                     <el-table-column label="导入时间" width="180">
                       <template #default="{ row }">
                         {{ formatImportedAt(row.importedAt) }}
@@ -150,7 +183,9 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                           {{ group.itemCount }} 条
                         </el-tag>
                       </div>
-                      <p class="group-preview">{{ group.specificationPreview }}</p>
+                      <p class="group-preview">
+                        {{ group.specificationPreview }}
+                      </p>
                       <p class="group-reason">{{ group.reason }}</p>
                     </div>
                     <div class="group-score">
@@ -159,12 +194,36 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                     </div>
                   </div>
 
-                  <el-table :data="group.items" border size="small" max-height="280">
+                  <el-table
+                    :data="group.items"
+                    border
+                    size="small"
+                    max-height="280"
+                  >
                     <el-table-column prop="id" label="ID" width="80" />
-                    <el-table-column prop="project" label="项目" min-width="140" />
-                    <el-table-column prop="specification" label="规格内容" min-width="280" show-overflow-tooltip />
-                    <el-table-column prop="acceptance" label="验收标准" min-width="180" show-overflow-tooltip />
-                    <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
+                    <el-table-column
+                      prop="project"
+                      label="项目"
+                      min-width="140"
+                    />
+                    <el-table-column
+                      prop="specification"
+                      label="规格内容"
+                      min-width="280"
+                      show-overflow-tooltip
+                    />
+                    <el-table-column
+                      prop="acceptance"
+                      label="验收标准"
+                      min-width="180"
+                      show-overflow-tooltip
+                    />
+                    <el-table-column
+                      prop="remark"
+                      label="备注"
+                      min-width="160"
+                      show-overflow-tooltip
+                    />
                     <el-table-column label="导入时间" width="180">
                       <template #default="{ row }">
                         {{ formatImportedAt(row.importedAt) }}
@@ -203,9 +262,9 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
   flex-direction: column;
   gap: 6px;
   padding: 14px 16px;
+  background: linear-gradient(180deg, #fff 0%, #f7f9fc 100%);
   border: 1px solid var(--el-border-color-light);
   border-radius: 12px;
-  background: linear-gradient(180deg, #fff 0%, #f7f9fc 100%);
 }
 
 .summary-card.danger {
@@ -223,8 +282,8 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
 
 .summary-value {
   font-size: 18px;
-  color: var(--el-text-color-primary);
   line-height: 1.4;
+  color: var(--el-text-color-primary);
 }
 
 .content-scroll {
@@ -247,9 +306,9 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
 
 .section-header {
   display: flex;
+  gap: 12px;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
 }
 
 .section-header h3 {
@@ -275,8 +334,8 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
 
 .group-head {
   display: flex;
-  justify-content: space-between;
   gap: 16px;
+  justify-content: space-between;
   margin-bottom: 12px;
 }
 
@@ -287,15 +346,15 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
 
 .group-title {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
   margin-bottom: 6px;
 }
 
 .group-index {
-  color: var(--el-text-color-secondary);
   font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .group-preview,
@@ -309,8 +368,8 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
 }
 
 .group-reason {
-  color: var(--el-text-color-secondary);
   font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 
 .group-score {
@@ -319,8 +378,8 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
   align-items: flex-end;
   justify-content: center;
   min-width: 96px;
-  color: var(--el-text-color-secondary);
   font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .group-score strong {
@@ -328,7 +387,7 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
   color: var(--el-text-color-primary);
 }
 
-@media (max-width: 960px) {
+@media (width <= 960px) {
   .summary-panel {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

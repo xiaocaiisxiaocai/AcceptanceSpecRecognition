@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using AcceptanceSpecSystem.Api.Options;
 using Microsoft.Extensions.Options;
 
@@ -38,10 +38,10 @@ public sealed class RequestTracingMiddleware
         });
 
         using (_logger.BeginScope(new Dictionary<string, object>
-               {
-                   ["traceId"] = traceId,
-                   ["requestPath"] = context.Request.Path.Value ?? string.Empty
-               }))
+        {
+            ["traceId"] = traceId,
+            ["requestPath"] = context.Request.Path.Value ?? string.Empty
+        }))
         {
             await _next(context);
         }

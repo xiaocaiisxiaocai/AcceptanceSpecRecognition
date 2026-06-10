@@ -53,16 +53,22 @@ export const getEffectiveColumnMappingRules = () => {
 export const createColumnMappingRule = (
   data: CreateColumnMappingRuleRequest
 ) => {
-  return http.request<ApiResponse<ColumnMappingRule>>("post", baseUrl, { data });
+  return http.request<ApiResponse<ColumnMappingRule>>("post", baseUrl, {
+    data
+  });
 };
 
 export const updateColumnMappingRule = (
   id: number,
   data: UpdateColumnMappingRuleRequest
 ) => {
-  return http.request<ApiResponse<ColumnMappingRule>>("put", `${baseUrl}/${id}`, {
-    data
-  });
+  return http.request<ApiResponse<ColumnMappingRule>>(
+    "put",
+    `${baseUrl}/${id}`,
+    {
+      data
+    }
+  );
 };
 
 export const deleteColumnMappingRule = (id: number) => {

@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Data.Entities;

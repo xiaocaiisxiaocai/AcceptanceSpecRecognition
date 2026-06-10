@@ -62,6 +62,10 @@ const previewSkippedRowsModel = computed({
   get: () => props.previewSkippedRows,
   set: value => emit("update:previewSkippedRows", value)
 });
+
+// 父组件以引用方式传入配置对象，子组件通过该代理直接编辑其字段；
+// mutation 经同一引用回传父组件，行为与直接改 prop 一致，同时规避 vue/no-mutating-props。
+const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 </script>
 
 <template>
@@ -154,7 +158,9 @@ const previewSkippedRowsModel = computed({
               min-width="140"
             >
               <template #default="{ row }">
-                <div class="skipped-cell-value">{{ row.rowValues?.[col.index] || "" }}</div>
+                <div class="skipped-cell-value">
+                  {{ row.rowValues?.[col.index] || "" }}
+                </div>
               </template>
             </el-table-column>
           </el-table>
@@ -174,7 +180,10 @@ const previewSkippedRowsModel = computed({
         description="左侧为数据库已有数据，右侧为本次待导入数据。未命中的数据已按当前流程处理。"
       />
       <div class="difference-entry__actions">
-        <span v-if="hasCommittedImportProgress" class="difference-entry__summary">
+        <span
+          v-if="hasCommittedImportProgress"
+          class="difference-entry__summary"
+        >
           已完成无重复数据处理：成功 {{ committedSuccessCount }} 条，跳过
           {{ committedSkippedCount }} 条，失败 {{ committedFailedCount }} 条
         </span>
@@ -192,7 +201,12 @@ const previewSkippedRowsModel = computed({
       :title="currentImportPermissionMessage"
       class="mb-4"
     />
-    <el-descriptions class="import-confirm-desc" :column="3" border size="small">
+    <el-descriptions
+      class="import-confirm-desc"
+      :column="3"
+      border
+      size="small"
+    >
       <el-descriptions-item label="源文件" :span="2">
         {{ uploadedFileName }}
       </el-descriptions-item>
@@ -202,10 +216,10 @@ const previewSkippedRowsModel = computed({
         }}）
       </el-descriptions-item>
       <el-descriptions-item label="目标客户">
-        {{ customers.find((c) => c.id === selectedCustomerId)?.name }}
+        {{ customers.find(c => c.id === selectedCustomerId)?.name }}
       </el-descriptions-item>
       <el-descriptions-item label="目标制程">
-        {{ processes.find((p) => p.id === selectedProcessId)?.name || "-" }}
+        {{ processes.find(p => p.id === selectedProcessId)?.name || "-" }}
       </el-descriptions-item>
       <el-descriptions-item label="目标机型">
         {{ selectedMachineModelName }}
@@ -224,7 +238,7 @@ const previewSkippedRowsModel = computed({
           </div>
         </div>
         <el-switch
-          v-model="importDuplicateAiConfig.enableSemanticDuplicateCheck"
+          v-model="duplicateAiConfig.enableSemanticDuplicateCheck"
           active-text="开启"
           inactive-text="关闭"
         />
@@ -234,9 +248,9 @@ const previewSkippedRowsModel = computed({
           <el-col :span="12">
             <el-form-item label="Embedding 服务">
               <el-select
-                v-model="importDuplicateAiConfig.embeddingServiceId"
+                v-model="duplicateAiConfig.embeddingServiceId"
                 placeholder="请选择 Embedding 服务"
-                :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
                 :loading="loadingAiServices"
                 style="width: 100%"
                 filterable
@@ -256,21 +270,21 @@ const previewSkippedRowsModel = computed({
           <el-col :span="12">
             <el-form-item label="候选数量 TopK">
               <el-input-number
-                v-model="importDuplicateAiConfig.semanticTopK"
+                v-model="duplicateAiConfig.semanticTopK"
                 :min="1"
                 :max="10"
-                :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
               />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="召回阈值">
               <el-slider
-                v-model="importDuplicateAiConfig.semanticMinScore"
+                v-model="duplicateAiConfig.semanticMinScore"
                 :min="0"
                 :max="1"
                 :step="0.01"
-                :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
                 :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
                 show-input
                 :show-input-controls="false"
@@ -280,11 +294,11 @@ const previewSkippedRowsModel = computed({
           <el-col :span="12">
             <el-form-item label="高置信阈值">
               <el-slider
-                v-model="importDuplicateAiConfig.highConfidenceThreshold"
+                v-model="duplicateAiConfig.highConfidenceThreshold"
                 :min="0.5"
                 :max="1"
                 :step="0.01"
-                :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+                :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
                 :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
                 show-input
                 :show-input-controls="false"
@@ -296,19 +310,19 @@ const previewSkippedRowsModel = computed({
           <div class="llm-toggle">
             <span>启用 LLM 复核</span>
             <el-switch
-              v-model="importDuplicateAiConfig.enableLlmDuplicateReview"
-              :disabled="!importDuplicateAiConfig.enableSemanticDuplicateCheck"
+              v-model="duplicateAiConfig.enableLlmDuplicateReview"
+              :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
             />
           </div>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="LLM 服务">
                 <el-select
-                  v-model="importDuplicateAiConfig.llmServiceId"
+                  v-model="duplicateAiConfig.llmServiceId"
                   placeholder="请选择 LLM 服务"
                   :disabled="
-                    !importDuplicateAiConfig.enableSemanticDuplicateCheck ||
-                    !importDuplicateAiConfig.enableLlmDuplicateReview
+                    !duplicateAiConfig.enableSemanticDuplicateCheck ||
+                    !duplicateAiConfig.enableLlmDuplicateReview
                   "
                   :loading="loadingAiServices"
                   style="width: 100%"
@@ -329,15 +343,17 @@ const previewSkippedRowsModel = computed({
             <el-col :span="12">
               <el-form-item label="LLM 通过阈值">
                 <el-slider
-                  v-model="importDuplicateAiConfig.llmPassScore"
+                  v-model="duplicateAiConfig.llmPassScore"
                   :min="0"
                   :max="1"
                   :step="0.01"
                   :disabled="
-                    !importDuplicateAiConfig.enableSemanticDuplicateCheck ||
-                    !importDuplicateAiConfig.enableLlmDuplicateReview
+                    !duplicateAiConfig.enableSemanticDuplicateCheck ||
+                    !duplicateAiConfig.enableLlmDuplicateReview
                   "
-                  :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
+                  :format-tooltip="
+                    (val: number) => `${(val * 100).toFixed(0)}%`
+                  "
                   show-input
                   :show-input-controls="false"
                 />
@@ -362,14 +378,19 @@ const previewSkippedRowsModel = computed({
             size="small"
             type="danger"
             plain
-            :disabled="hasPendingDifferenceConfirmation || selectedImportPreviewRowsCount === 0"
+            :disabled="
+              hasPendingDifferenceConfirmation ||
+              selectedImportPreviewRowsCount === 0
+            "
             @click="emit('removeSelectedPreviewRows')"
           >
             批量删除（{{ selectedImportPreviewRowsCount }}）
           </el-button>
           <el-button
             size="small"
-            :disabled="hasPendingDifferenceConfirmation || removedPreviewRowCount === 0"
+            :disabled="
+              hasPendingDifferenceConfirmation || removedPreviewRowCount === 0
+            "
             @click="emit('restoreRemovedPreviewRows')"
           >
             恢复已删除
@@ -401,11 +422,19 @@ const previewSkippedRowsModel = computed({
             max-height="280"
             row-key="key"
             reserve-selection
-            @selection-change="rows => emit('importPreviewSelectionChange', group.tableIndex, rows)"
+            @selection-change="
+              rows =>
+                emit('importPreviewSelectionChange', group.tableIndex, rows)
+            "
           >
             <el-table-column type="selection" width="48" />
             <el-table-column prop="displayRowNumber" label="行号" width="80" />
-            <el-table-column prop="project" label="项目" min-width="140" show-overflow-tooltip>
+            <el-table-column
+              prop="project"
+              label="项目"
+              min-width="140"
+              show-overflow-tooltip
+            >
               <template #default="{ row }">
                 {{ row.project || "-" }}
               </template>
@@ -430,7 +459,12 @@ const previewSkippedRowsModel = computed({
                 {{ row.acceptance || "-" }}
               </template>
             </el-table-column>
-            <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip>
+            <el-table-column
+              prop="remark"
+              label="备注"
+              min-width="160"
+              show-overflow-tooltip
+            >
               <template #default="{ row }">
                 {{ row.remark || "-" }}
               </template>
@@ -468,7 +502,9 @@ const previewSkippedRowsModel = computed({
       </div>
       <div v-if="importing" class="import-progress-panel">
         <div class="import-progress-panel__title">{{ importProgressText }}</div>
-        <div class="import-progress-panel__desc">{{ importProgressDescription }}</div>
+        <div class="import-progress-panel__desc">
+          {{ importProgressDescription }}
+        </div>
       </div>
       <el-button
         v-if="canImportCurrentFile"

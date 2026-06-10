@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -152,26 +152,27 @@ public class SmartFillLegacyCleanupTests : IClassFixture<ApiWebApplicationFactor
     }
 
     [Fact]
-    public void MatchConfigDto_ShouldExposeSynchronousAiEquivalenceSwitch_DefaultOff()
+    public void MatchConfigDto_ShouldExposeSynchronousAiEquivalenceSwitch_DefaultOn()
     {
         typeof(MatchConfigDto).GetProperty("EnableLlmEquivalenceAdjudication", BindingFlags.Public | BindingFlags.Instance)
-            .Should().NotBeNull("同步 AI 等价裁决需要显式开关，避免智能填充预览默认逐行调用 LLM");
+            .Should().NotBeNull("同步 AI 等价裁决需要显式开关");
 
+        // 默认开启，让 LLM 等价裁决在未显式配置时自动生效
         var defaultConfig = JsonSerializer.Deserialize<MatchConfigDto>(
             "{}",
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         defaultConfig.Should().NotBeNull();
-        defaultConfig!.EnableLlmEquivalenceAdjudication.Should().BeFalse();
+        defaultConfig!.EnableLlmEquivalenceAdjudication.Should().BeTrue();
 
-        var enabledConfig = JsonSerializer.Deserialize<MatchConfigDto>(
+        var disabledConfig = JsonSerializer.Deserialize<MatchConfigDto>(
             """
             {
-              "enableLlmEquivalenceAdjudication": true
+              "enableLlmEquivalenceAdjudication": false
             }
             """,
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        enabledConfig.Should().NotBeNull();
-        enabledConfig!.EnableLlmEquivalenceAdjudication.Should().BeTrue();
+        disabledConfig.Should().NotBeNull();
+        disabledConfig!.EnableLlmEquivalenceAdjudication.Should().BeFalse();
     }
 
     [Fact]

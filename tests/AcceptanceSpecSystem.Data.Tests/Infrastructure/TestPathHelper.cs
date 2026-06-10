@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Data.Tests.Infrastructure;
+﻿namespace AcceptanceSpecSystem.Data.Tests.Infrastructure;
 
 internal static class TestPathHelper
 {

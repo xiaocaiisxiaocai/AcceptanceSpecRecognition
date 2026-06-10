@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+﻿using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
@@ -1129,7 +1129,8 @@ public class EvidenceDrivenSemanticMatchingTests
             {
                 MinScoreThreshold = 0.90,
                 RecallTopK = 1,
-                HighConfidenceThreshold = 0.98
+                HighConfidenceThreshold = 0.98,
+                EnableLlmEquivalenceAdjudication = false
             });
 
         result.Results.Should().HaveCount(1);
@@ -3013,5 +3014,121 @@ public class EvidenceDrivenSemanticMatchingTests
 
             return vector;
         }
+    }
+
+    // ── LLM 语义优先模式测试 ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task BatchMatch_WhenLlmSemanticPriority_AndHardConflict_LlmEquivalentShouldAutoApply()
+    {
+        // 语义优先模式下，LLM 裁决 Equivalent 应覆盖确定性硬冲突规则 → AutoApply
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "电压 ≥100V"
+        };
+        var candidate = new MatchCandidate
+        {
+            SpecId = 9901,
+            Project = "安装要求",
+            Specification = "电压 ≥220V",
+            Embedding = [1f]
+        };
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.92,
+            Reason = "客户环境100V可满足≥220V的上位规格"
+        });
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            [candidate],
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 1,
+                EnableDeterministicAutoApply = false,
+                EnableLlmEquivalenceAdjudication = true,
+                EnableLlmSemanticPriority = true
+            });
+
+        result.Results.Should().ContainSingle();
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply,
+            "语义优先模式下 LLM Equivalent 应覆盖硬冲突规则");
+        result.Results[0].LlmEquivalence?.Verdict.Should().Be(LlmEquivalenceVerdict.Equivalent);
+        equivalenceService.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenLlmSemanticPriority_LowEmbeddingCandidateShouldEnterLlm()
+    {
+        // 语义优先模式下，Embedding 分 0.55（低于默认 0.9 阈值）的候选应被召回并进入 LLM 裁决
+        var source = new MatchSource
+        {
+            Project = "安装要求",
+            Specification = "设备重量"
+        };
+        var candidate = new MatchCandidate
+        {
+            SpecId = 9902,
+            Project = "安装要求",
+            Specification = "设备质量",   // 语义相近但 Embedding 偏低
+            Embedding = [1f]
+        };
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 0.88,
+            Reason = "质量与重量在工程语境中等价"
+        });
+        // sourceEmbedding=[0.55f], candidateEmbedding=[1f] → 点积 = 0.55，低于默认 0.9 阈值
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [0.55f], defaultCandidateEmbedding: [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        // 标准模式：分数 0.55 < minScoreThreshold 0.9 → 候选被丢弃，LLM 不被调用
+        var standardResult = await service.BatchMatchAsync(
+            [source],
+            [candidate],
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.9,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95,
+                EnableDeterministicAutoApply = false,
+                EnableLlmEquivalenceAdjudication = true,
+                EnableLlmSemanticPriority = false
+            });
+        standardResult.Results[0].MatchedSpecId.Should().BeNull("标准模式下 0.55 分候选应被过滤");
+        equivalenceService.Requests.Should().BeEmpty("标准模式下候选被过滤，LLM 不应被调用");
+
+        // 语义优先模式：LlmSemanticRecallThreshold=0.5 → 0.55 >= 0.5，候选被保留，LLM 被调用
+        var semanticResult = await service.BatchMatchAsync(
+            [source],
+            [candidate],
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.9,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95,
+                EnableDeterministicAutoApply = false,
+                EnableLlmEquivalenceAdjudication = true,
+                EnableLlmSemanticPriority = true,
+                LlmSemanticRecallThreshold = 0.5
+            });
+        semanticResult.Results[0].MatchedSpecId.Should().Be(9902,
+            "语义优先模式下 0.55 分候选应被保留并命中");
+        semanticResult.Results[0].Decision.Should().Be(MatchDecision.AutoApply,
+            "LLM 裁决 Equivalent 应 AutoApply");
+        equivalenceService.Requests.Should().ContainSingle("语义优先模式下 LLM 应被调用一次");
     }
 }

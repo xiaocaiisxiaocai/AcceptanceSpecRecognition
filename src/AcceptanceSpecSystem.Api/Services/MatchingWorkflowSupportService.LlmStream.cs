@@ -1,21 +1,21 @@
-﻿using AcceptanceSpecSystem.Api.DTOs;
-using AcceptanceSpecSystem.Api.Models;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
 using AcceptanceSpecSystem.Api.Authorization;
+using AcceptanceSpecSystem.Api.DTOs;
+using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
-using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.Diagnostics;
+using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Http;
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Security.Claims;
-using System.Text;
-using System.Text.Json;
-using AcceptanceSpecSystem.Core.Diagnostics;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -46,7 +46,7 @@ public sealed partial class MatchingWorkflowSupportService
             hydrateEmbeddings: false,
             cancellationToken);
         var accessibleSpecLookup = candidates.ToDictionary(candidate => candidate.SpecId);
-        var normalizedItems = await BuildAuthoritativeLlmStreamItemsAsync(request.Items, candidates, config);
+        var normalizedItems = await BuildAuthoritativeLlmStreamItemsAsync(request.Items, candidates, config, cancellationToken);
 
         response.Headers.CacheControl = "no-cache";
         response.Headers.TryAdd("X-Accel-Buffering", "no");

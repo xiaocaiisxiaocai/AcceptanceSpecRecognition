@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using AcceptanceSpecSystem.Data.Context;
 using Microsoft.EntityFrameworkCore;
 using MySqlConnector;

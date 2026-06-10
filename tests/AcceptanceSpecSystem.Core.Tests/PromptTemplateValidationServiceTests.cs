@@ -1,7 +1,7 @@
-using AcceptanceSpecSystem.Core.Matching.Services;
+﻿using System.Reflection;
 using AcceptanceSpecSystem.Core.Matching.Models;
+using AcceptanceSpecSystem.Core.Matching.Services;
 using FluentAssertions;
-using System.Reflection;
 
 namespace AcceptanceSpecSystem.Core.Tests;
 

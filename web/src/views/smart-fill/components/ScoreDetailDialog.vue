@@ -36,7 +36,9 @@ const technicalTags = [
   { key: "candidateList", label: "候选列表" }
 ] as const;
 
-const topCandidates = computed(() => props.item?.bestMatch?.topCandidates ?? []);
+const topCandidates = computed(
+  () => props.item?.bestMatch?.topCandidates ?? []
+);
 const inlineDiffCache = new Map<
   string,
   { leftHtml: string; rightHtml: string; isSame: boolean }
@@ -113,9 +115,14 @@ const {
                 <div class="source-brief-head">
                   <div>
                     <div class="source-brief-label">源数据</div>
-                    <div class="source-brief-project">{{ item.sourceProject || "-" }}</div>
+                    <div class="source-brief-project">
+                      {{ item.sourceProject || "-" }}
+                    </div>
                   </div>
-                  <el-tag :type="getConfidenceClass(item.confidenceLevel)" size="small">
+                  <el-tag
+                    :type="getConfidenceClass(item.confidenceLevel)"
+                    size="small"
+                  >
                     置信度 {{ getConfidenceText(item.confidenceLevel) }}
                   </el-tag>
                 </div>
@@ -123,8 +130,15 @@ const {
                   {{ item.sourceSpecification || "-" }}
                 </div>
                 <div class="source-brief-meta">
-                  <span>最佳得分 {{ item.bestMatch ? formatScore(item.bestMatch.score) : "-" }}</span>
-                  <span v-if="item.bestMatch">规格 {{ item.bestMatch.specId }}</span>
+                  <span
+                    >最佳得分
+                    {{
+                      item.bestMatch ? formatScore(item.bestMatch.score) : "-"
+                    }}</span
+                  >
+                  <span v-if="item.bestMatch"
+                    >规格 {{ item.bestMatch.specId }}</span
+                  >
                 </div>
               </div>
 
@@ -190,7 +204,9 @@ const {
                 :top-candidates="topCandidates"
                 :is-compared-candidate="isComparedCandidate"
                 :is-candidate-expanded="isCandidateExpanded"
-                :handle-select-comparison-candidate="handleSelectComparisonCandidate"
+                :handle-select-comparison-candidate="
+                  handleSelectComparisonCandidate
+                "
               />
             </div>
           </el-tab-pane>
@@ -252,19 +268,19 @@ const {
 
 .source-brief-card {
   padding: 14px 16px;
+  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
   border: 1px solid #e5e7eb;
   border-radius: 14px;
-  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
 }
 
 .source-brief-head,
 .source-brief-meta,
 .technical-tag-bar {
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 .source-brief-label,
@@ -283,24 +299,24 @@ const {
 .source-brief-spec {
   margin-top: 8px;
   font-size: 13px;
-  color: #374151;
   line-height: 1.7;
+  color: #374151;
   word-break: break-word;
 }
 
 .source-brief-meta {
-  margin-top: 10px;
   justify-content: flex-start;
+  margin-top: 10px;
 }
 
 .technical-tag {
   padding: 6px 12px;
-  border-radius: 999px;
   font-size: 12px;
   line-height: 1.5;
+  border-radius: 999px;
 }
 
-@media (max-width: 900px) {
+@media (width <= 900px) {
   .source-brief-head {
     flex-direction: column;
   }

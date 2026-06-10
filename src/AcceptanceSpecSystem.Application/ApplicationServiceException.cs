@@ -1,4 +1,4 @@
-namespace AcceptanceSpecSystem.Application;
+﻿namespace AcceptanceSpecSystem.Application;
 
 /// <summary>
 /// Application 层显式业务异常。

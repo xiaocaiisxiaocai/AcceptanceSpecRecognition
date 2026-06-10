@@ -57,17 +57,16 @@ const shouldShowSourceDiff = computed(() => props.showSourceDiff !== false);
 const shouldShowCandidateCompare = computed(
   () => props.showCandidateCompare !== false
 );
-const sourceDiffEquivalence = computed(() => props.item.bestMatch?.llmEquivalence);
+const sourceDiffEquivalence = computed(
+  () => props.item.bestMatch?.llmEquivalence
+);
 const sourceDiffTone = computed(() =>
   getLlmEquivalenceDifferenceTone(sourceDiffEquivalence.value)
 );
 </script>
 
 <template>
-  <div
-    v-if="shouldShowSourceDiff"
-    class="best-section"
-  >
+  <div v-if="shouldShowSourceDiff" class="best-section">
     <h4>源项与最佳匹配差异</h4>
     <div
       v-if="item.bestMatch?.llmEquivalence"
@@ -79,16 +78,32 @@ const sourceDiffTone = computed(() =>
         <div class="source-diff-callout__tags">
           <el-tag
             size="small"
-            :type="getLlmEquivalenceVerdictTagType(item.bestMatch.llmEquivalence.verdict)"
+            :type="
+              getLlmEquivalenceVerdictTagType(
+                item.bestMatch.llmEquivalence.verdict
+              )
+            "
           >
-            {{ getLlmEquivalenceVerdictText(item.bestMatch.llmEquivalence.verdict) }}
+            {{
+              getLlmEquivalenceVerdictText(
+                item.bestMatch.llmEquivalence.verdict
+              )
+            }}
           </el-tag>
           <el-tag
             size="small"
             effect="plain"
-            :type="getLlmEquivalenceReasonTagType(item.bestMatch.llmEquivalence.reasonType)"
+            :type="
+              getLlmEquivalenceReasonTagType(
+                item.bestMatch.llmEquivalence.reasonType
+              )
+            "
           >
-            {{ getLlmEquivalenceReasonTypeText(item.bestMatch.llmEquivalence.reasonType) }}
+            {{
+              getLlmEquivalenceReasonTypeText(
+                item.bestMatch.llmEquivalence.reasonType
+              )
+            }}
           </el-tag>
           <el-tag
             size="small"
@@ -106,7 +121,10 @@ const sourceDiffTone = computed(() =>
         {{ getLlmEquivalenceDifferenceToneDescription(sourceDiffTone) }}
       </div>
     </div>
-    <div v-if="item.bestMatch && sourceBestRows.length > 0" class="diff-section">
+    <div
+      v-if="item.bestMatch && sourceBestRows.length > 0"
+      class="diff-section"
+    >
       <div class="diff-columns">
         <div class="diff-column">
           <div class="diff-column-title">差异字段</div>
@@ -162,7 +180,10 @@ const sourceDiffTone = computed(() =>
       <span>Top1 对 Top2/Top3</span>
     </div>
 
-    <div v-if="topCandidates.length === 0" class="diff-section diff-section--empty">
+    <div
+      v-if="topCandidates.length === 0"
+      class="diff-section diff-section--empty"
+    >
       <el-empty description="当前没有候选可对比" :image-size="60" />
     </div>
     <div v-else-if="comparisonCandidate" class="diff-section">
@@ -195,14 +216,9 @@ const sourceDiffTone = computed(() =>
         </div>
       </div>
 
-      <div
-        v-if="diffViewMode === 'raw'"
-        class="raw-diff-shell"
-      >
+      <div v-if="diffViewMode === 'raw'" class="raw-diff-shell">
         <div class="raw-diff-meta">
-          <div class="raw-diff-desc">
-            红=Top1独有，绿=候选新增
-          </div>
+          <div class="raw-diff-desc">红=Top1独有，绿=候选新增</div>
           <el-switch
             v-model="rawOnlyDiffModel"
             inline-prompt
@@ -217,14 +233,12 @@ const sourceDiffTone = computed(() =>
             Top1 · 规格 {{ topCandidates[0]?.specId }}
           </div>
           <div class="raw-diff-header-title">
-            Top{{ comparisonCandidate.rank }} · 规格 {{ comparisonCandidate.specId }}
+            Top{{ comparisonCandidate.rank }} · 规格
+            {{ comparisonCandidate.specId }}
           </div>
         </div>
 
-        <div
-          v-if="rawComparisonRows.length > 0"
-          class="raw-diff-rows"
-        >
+        <div v-if="rawComparisonRows.length > 0" class="raw-diff-rows">
           <div
             v-for="(row, index) in rawComparisonRows"
             :key="`raw-${row.key}`"
@@ -264,7 +278,8 @@ const sourceDiffTone = computed(() =>
         </div>
         <div class="diff-column">
           <div class="diff-column-title">
-            Top{{ comparisonCandidate.rank }} · 规格 {{ comparisonCandidate.specId }}
+            Top{{ comparisonCandidate.rank }} · 规格
+            {{ comparisonCandidate.specId }}
           </div>
         </div>
       </div>
@@ -310,9 +325,9 @@ const sourceDiffTone = computed(() =>
 
 .candidate-header {
   display: flex;
+  gap: 12px;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
 }
 
 .candidate-header span {
@@ -322,9 +337,9 @@ const sourceDiffTone = computed(() =>
 
 .diff-section {
   padding: 14px;
+  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
   border: 1px solid #e5e7eb;
   border-radius: 14px;
-  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
 }
 
 .diff-section--empty {
@@ -336,9 +351,9 @@ const sourceDiffTone = computed(() =>
 
 .diff-header {
   display: flex;
+  gap: 12px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
   margin-bottom: 12px;
 }
 
@@ -357,9 +372,9 @@ const sourceDiffTone = computed(() =>
 .diff-toolbar,
 .raw-diff-meta {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+  align-items: center;
 }
 
 .diff-columns {
@@ -376,11 +391,11 @@ const sourceDiffTone = computed(() =>
 .diff-column-title,
 .raw-diff-header-title {
   padding: 8px 10px;
-  border-radius: 10px;
-  background: #eef4ff;
-  color: #1f2937;
   font-size: 12px;
   font-weight: 600;
+  color: #1f2937;
+  background: #eef4ff;
+  border-radius: 10px;
 }
 
 .diff-rows,
@@ -419,15 +434,15 @@ const sourceDiffTone = computed(() =>
 .diff-cell {
   min-width: 0;
   padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
   background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
 }
 
 .diff-content {
   font-size: 13px;
-  color: #111827;
   line-height: 1.7;
+  color: #111827;
   word-break: break-word;
 }
 
@@ -453,8 +468,8 @@ const sourceDiffTone = computed(() =>
   gap: 4px;
   align-items: flex-start;
   padding: 10px 8px;
-  border-radius: 12px;
   background: #f3f4f6;
+  border-radius: 12px;
 }
 
 .raw-line-no {
@@ -471,10 +486,10 @@ const sourceDiffTone = computed(() =>
 
 .raw-pane-cell {
   min-width: 0;
+  overflow: hidden;
+  background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 12px;
-  background: #fff;
-  overflow: hidden;
 }
 
 .raw-pane-inner {
@@ -485,18 +500,18 @@ const sourceDiffTone = computed(() =>
 
 .raw-pane-label {
   padding: 8px 10px;
-  border-bottom: 1px solid #eef2f7;
   background: #f8fafc;
+  border-bottom: 1px solid #eef2f7;
 }
 
 .raw-pane-content {
   padding: 12px;
   font-family: Consolas, "Courier New", monospace;
   font-size: 13px;
-  color: #111827;
   line-height: 1.75;
-  white-space: normal;
+  color: #111827;
   word-break: break-word;
+  white-space: normal;
 }
 
 .source-diff-callout {
@@ -504,23 +519,23 @@ const sourceDiffTone = computed(() =>
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid #dbeafe;
   background: #f8fbff;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
 }
 
 .source-diff-callout--decision {
-  border-color: #fed7aa;
   background: #fff7ed;
+  border-color: #fed7aa;
 }
 
 .source-diff-callout__head,
 .source-diff-callout__tags {
   display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
 .source-diff-callout__head {
@@ -551,21 +566,21 @@ const sourceDiffTone = computed(() =>
 }
 
 :deep(.inline-mark-old) {
-  background: rgba(245, 108, 108, 0.18);
   color: #b42318;
+  background: rgb(245 108 108 / 18%);
 }
 
 :deep(.inline-mark-new) {
-  background: rgba(103, 194, 58, 0.18);
   color: #166534;
+  background: rgb(103 194 58 / 18%);
 }
 
 :deep(.placeholder-text) {
-  color: #9ca3af;
   font-style: italic;
+  color: #9ca3af;
 }
 
-@media (max-width: 900px) {
+@media (width <= 900px) {
   .candidate-header,
   .diff-header,
   .raw-diff-meta {

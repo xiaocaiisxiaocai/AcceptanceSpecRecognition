@@ -50,8 +50,8 @@ defineEmits<{
 
 <template>
   <el-table
-    :data="items"
     v-loading="loading ?? false"
+    :data="items"
     stripe
     border
     max-height="500"
@@ -179,7 +179,11 @@ defineEmits<{
             编辑
           </el-button>
           <el-button
-            v-if="row.bestMatch && canUseBestMatch(row) && getSelection(row.rowIndex)?.type !== 'best'"
+            v-if="
+              row.bestMatch &&
+              canUseBestMatch(row) &&
+              getSelection(row.rowIndex)?.type !== 'best'
+            "
             size="small"
             @click="$emit('selectBest', row)"
           >

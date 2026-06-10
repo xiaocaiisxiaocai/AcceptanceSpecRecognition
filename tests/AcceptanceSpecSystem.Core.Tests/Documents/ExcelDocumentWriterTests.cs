@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.Documents.Models;
+﻿using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Documents.Writers;
 using ClosedXML.Excel;
 using FluentAssertions;

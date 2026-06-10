@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import type { BatchReplyExecuteFileResult, BatchReplyExecuteResponse } from "@/api/matching";
+import type {
+  BatchReplyExecuteFileResult,
+  BatchReplyExecuteResponse
+} from "@/api/matching";
 
 defineProps<{
   executeDisabled: boolean;
@@ -20,7 +23,9 @@ defineEmits<{
     <template #header>
       <div class="section-header">
         <span>执行结果</span>
-        <span class="section-subtitle">确认可执行文件后，在这里统一执行并查看结果</span>
+        <span class="section-subtitle"
+          >确认可执行文件后，在这里统一执行并查看结果</span
+        >
       </div>
     </template>
 
@@ -34,7 +39,8 @@ defineEmits<{
         执行已完成目标文件
       </el-button>
       <span class="action-tip">
-        当前可执行 {{ executableTargetCount }} / {{ targetFileCount }} 份目标文件
+        当前可执行 {{ executableTargetCount }} /
+        {{ targetFileCount }} 份目标文件
       </span>
     </div>
 

@@ -45,6 +45,9 @@ dotnet test AcceptanceSpecSystem.sln -c Debug
 # 运行单个测试项目
 dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.csproj
 
+# 运行单个测试（按名称过滤）
+dotnet test AcceptanceSpecSystem.sln -c Debug --filter "FullyQualifiedName~TestClassName"
+
 # EF Core 迁移（需同时指定数据项目和启动项目）
 dotnet ef migrations add <MigrationName> -p src/AcceptanceSpecSystem.Data -s src/AcceptanceSpecSystem.Api
 dotnet ef database update -p src/AcceptanceSpecSystem.Data -s src/AcceptanceSpecSystem.Api
@@ -88,14 +91,17 @@ dotnet run --project tools/E2ETest/E2ETest.csproj -c Debug -- \
 ### 后端项目依赖
 
 ```
-AcceptanceSpecSystem.Api          ← HTTP 入口、DI 注册、Program.cs
+AcceptanceSpecSystem.Api          ← HTTP 入口、DI 注册、Program.cs、JWT/RBAC 中间件
+  ├── AcceptanceSpecSystem.Application  ← 应用服务（AppService）、DI 扩展、跨层编排
   ├── AcceptanceSpecSystem.Core   ← AI、Matching、TextProcessing、Documents 核心业务
   └── AcceptanceSpecSystem.Data   ← EF Core DbContext、Entities、Migrations、Repository
 ```
 
-- **Core** 不依赖 API 层，可独立单元测试。
+- **Core** 不依赖 API/Application 层，可独立单元测试。
+- **Application** 层封装跨实体的应用逻辑（如 `AcceptanceSpecAppService`、`CustomerAppService`），控制器调用 AppService 而非直接操作 Repository。
 - **Data** 通过 `IUnitOfWork` + 泛型 `IRepository<T>` 抽象持久化，控制器不直接操作 DbContext。
 - 启动时 `DatabaseInitializer.InitializeAsync()` 自动应用待执行迁移（`Testing` 环境跳过）。
+- 启动时 `SystemPromptTemplateInitializer.EnsureAsync()` 确保默认 Prompt 模板存在。
 
 ### Core 核心模块
 
@@ -121,14 +127,36 @@ API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。
 ### 关键 API 端点
 
 ```
-POST /api/documents/upload           上传 docx
+POST /api/auth/login                 登录，返回 accessToken + refreshToken
+POST /api/auth/refresh-token         刷新 token
+POST /api/documents/upload           上传 docx/xlsx
 POST /api/documents/import           解析并导入表格（需 customerId + processId）
 POST /api/matching/preview           匹配预览（fileId / tableIndex + 列索引）
 POST /api/matching/execute           执行填充，返回 taskId
 GET  /api/matching/download/{taskId} 下载填充结果
+POST /api/batch-reply/preview        批量回填预览
+POST /api/batch-reply/execute        批量回填执行
+GET  /api/execution-history          执行历史记录
 GET  /swagger                        Swagger UI
 GET  /health                         健康检查
 ```
+
+### 认证与权限
+
+系统采用 **JWT + RBAC** 双层控制：
+- `JwtAuth` 配置节提供 SigningKey / Issuer / Audience；SigningKey 最短 32 字符，启动时强制检查。
+- 权限通过 `ApiPermissionMiddleware` 拦截，细粒度到控制器 Action 级别。
+- 前端 `http` 实例（`web/src/utils/http/index.ts`）自动在请求过期时静默刷新 token，并注入审计 header（`X-Client-Trace-Id` / `X-Client-Id` / `X-Frontend-Route`）。
+- 组织架构 (`OrgUnit`) 控制数据可见范围（`OwnerOrgUnitId`），每个验收规格归属一个组织节点。
+
+### AI 匹配流水线
+
+`SemanticKernelMatchingService` 执行三阶段匹配：
+1. **精确命中快速路径**：Project + Specification 完全一致 → `ExactShortcut`，直接 AutoApply。
+2. **Embedding 召回 + 重排**：取 Top-K（默认 2）候选，高置信阈值默认 `0.95`；Embedding 分达到阈值且无硬冲突 → `AutoApply`（`EnableDeterministicAutoApply` 开关控制）。
+3. **LLM 等价裁决**（`EnableLlmEquivalenceAdjudication`，默认**开启**）：灰区行（分 < 高置信或有歧义）经 LLM 裁决；单批次调用上限 `LlmMaxCallsPerBatch`（默认 **1000**，本地部署无费用限制）防止超时；LLM 置信度下限 `LlmEquivalenceMinConfidence`（默认 **0.5**），低于此值时即使 LLM 判 Equivalent 也转人工。
+
+`MatchDecision` 枚举决定最终行为：`AutoApply`（自动填充）/ `ManualReview`（人工确认）。`IsHighConfidence` 依赖 `Score >= HighConfidenceThreshold` 或（LLM 裁定为 `Equivalent` 且置信度 ≥ `LlmEquivalenceMinConfidence`）。
 
 ---
 

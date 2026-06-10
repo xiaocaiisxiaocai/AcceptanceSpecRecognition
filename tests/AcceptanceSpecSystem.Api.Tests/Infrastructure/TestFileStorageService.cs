@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Api.Services;
+﻿using AcceptanceSpecSystem.Api.Services;
 
 namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
 

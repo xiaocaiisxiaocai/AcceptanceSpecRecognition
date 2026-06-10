@@ -1,4 +1,4 @@
-using System.ClientModel;
+﻿using System.ClientModel;
 using AcceptanceSpecSystem.Core.AI.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.Memory;

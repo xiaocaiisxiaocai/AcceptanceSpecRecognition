@@ -1,7 +1,4 @@
-import type {
-  AiServiceConfig,
-  AiServiceTestResult
-} from "@/api/ai-service";
+import type { AiServiceConfig, AiServiceTestResult } from "@/api/ai-service";
 import { TEST_ACTION_LABEL } from "./constants";
 
 export type TestResultTagType = "success" | "danger" | "warning" | "info";

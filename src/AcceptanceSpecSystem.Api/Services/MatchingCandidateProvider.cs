@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+﻿using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
@@ -13,7 +13,7 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// </summary>
 public sealed class MatchingCandidateProvider
 {
-    private const int MaxScopedCandidateCount = 3000;
+    private const int MaxScopedCandidateCount = 5000;
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAiServiceSelector _aiServiceSelector;

@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
@@ -230,16 +230,20 @@ public class SemanticKernelMatchingBatchParallelismTests
     [Fact]
     public async Task BatchMatchAsync_ShouldCountRetriesAgainstLlmBudget()
     {
-        var source = new MatchSource
-        {
-            Project = "安装要求",
-            Specification = "设备需要固定到底座"
-        };
-        var candidate = new MatchCandidate
+        var source1 = new MatchSource { Project = "安装要求", Specification = "设备需要固定到底座" };
+        var source2 = new MatchSource { Project = "安装要求", Specification = "设备需要固定到支架" };
+        var candidate1 = new MatchCandidate
         {
             SpecId = 33,
             Project = "安装要求",
             Specification = "设备应固定于底座附近",
+            Embedding = [1f]
+        };
+        var candidate2 = new MatchCandidate
+        {
+            SpecId = 34,
+            Project = "安装要求",
+            Specification = "设备应固定于支架附近",
             Embedding = [1f]
         };
         var equivalenceService = new AlwaysFailingLlmEquivalenceService();
@@ -249,8 +253,8 @@ public class SemanticKernelMatchingBatchParallelismTests
             llmEquivalenceAdjudicationService: equivalenceService);
 
         var result = await service.BatchMatchAsync(
-            [source],
-            [candidate],
+            [source1, source2],
+            [candidate1, candidate2],
             new MatchingConfig
             {
                 MinScoreThreshold = 0,
@@ -263,10 +267,13 @@ public class SemanticKernelMatchingBatchParallelismTests
                 LlmMaxCallsPerBatch = 1
             });
 
-        result.Results.Should().ContainSingle();
+        result.Results.Should().HaveCount(2);
+        // 第 1 行消耗掉预算（LLM 调用失败+重试共 2 次），转人工
         result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
-        result.Results[0].SelectionSummary.Should().Contain("LLM 调用已达批次上限");
-        equivalenceService.CallCount.Should().Be(1);
+        // 第 2 行预算耗尽，跳过 LLM，转人工并附上说明
+        result.Results[1].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[1].SelectionSummary.Should().Contain("LLM 调用已达批次上限");
+        equivalenceService.CallCount.Should().Be(2);
     }
 
     [Fact]
@@ -315,16 +322,20 @@ public class SemanticKernelMatchingBatchParallelismTests
     [Fact]
     public async Task BatchMatchAsync_ShouldCountLlmRetryAttemptsAgainstBatchBudget()
     {
-        var source = new MatchSource
-        {
-            Project = "安装要求",
-            Specification = "设备需要固定到底座"
-        };
-        var candidate = new MatchCandidate
+        var source1 = new MatchSource { Project = "安装要求", Specification = "设备需要固定到底座" };
+        var source2 = new MatchSource { Project = "安装要求", Specification = "设备需要固定到支架" };
+        var candidate1 = new MatchCandidate
         {
             SpecId = 42,
             Project = "安装要求",
             Specification = "设备应固定于底座附近",
+            Embedding = [1f]
+        };
+        var candidate2 = new MatchCandidate
+        {
+            SpecId = 43,
+            Project = "安装要求",
+            Specification = "设备应固定于支架附近",
             Embedding = [1f]
         };
         var equivalenceService = new TimeoutThenEquivalentLlmEquivalenceService();
@@ -334,8 +345,8 @@ public class SemanticKernelMatchingBatchParallelismTests
             llmEquivalenceAdjudicationService: equivalenceService);
 
         var result = await service.BatchMatchAsync(
-            [source],
-            [candidate],
+            [source1, source2],
+            [candidate1, candidate2],
             new MatchingConfig
             {
                 MinScoreThreshold = 0,
@@ -349,10 +360,15 @@ public class SemanticKernelMatchingBatchParallelismTests
                 LlmMaxCallsPerBatch = 1
             });
 
-        result.Results.Should().ContainSingle();
-        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
-        result.Results[0].SelectionSummary.Should().Contain("LLM 调用已达批次上限");
-        equivalenceService.CallCount.Should().Be(1);
+        result.Results.Should().HaveCount(2);
+        // 第 1 行消耗掉预算（第 1 次超时，第 2 次重试成功返回 Equivalent），AutoApply
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
+        result.Results[0].LlmEquivalence?.Verdict.Should().Be(LlmEquivalenceVerdict.Equivalent);
+        // 第 2 行预算耗尽，跳过 LLM，转人工并附上说明
+        result.Results[1].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[1].SelectionSummary.Should().Contain("LLM 调用已达批次上限");
+        // 第 1 次超时 + 第 2 次重试成功，共 2 次调用
+        equivalenceService.CallCount.Should().Be(2);
     }
 
     [Fact]
