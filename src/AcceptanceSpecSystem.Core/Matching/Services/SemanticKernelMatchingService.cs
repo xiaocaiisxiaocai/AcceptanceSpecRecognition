@@ -21,6 +21,9 @@ public class SemanticKernelMatchingService : IMatchingService
     private const double ProjectCodeConflictPenaltyScore = 0.20;
     // 语义等价救援：项目精确匹配时允许 Embedding 低至此阈值，交由 LLM 裁决（单位换算/品牌中英文等场景）
     private const double SemanticEquivalenceRescueEmbeddingThreshold = 0.70;
+    // 骨架相似救援：数值不同但规格"骨架"（去数值后的结构）一致时，允许 Embedding 低至此阈值进入 LLM 视野，
+    // 覆盖"3000rpm vs 50r/s"这类单位换算后等价、Embedding 却偏低被召回层丢弃的候选。
+    private const double SkeletonRescueEmbeddingThreshold = 0.50;
     private readonly IEmbeddingService _embeddingService;
     private readonly IMatchEvidenceBuilder _evidenceBuilder;
     private readonly ISpecCanonicalizer _canonicalizer;
@@ -102,6 +105,10 @@ public class SemanticKernelMatchingService : IMatchingService
         // 规范化精确层：单位归一/品牌统一/同义表达/格式差异在此变成"精确命中"，
         // 无需 Embedding、无需 LLM。这是把语义等价判断从 LLM 下沉为确定性代码的核心。
         var canonicalMatchLookup = BuildCanonicalMatchLookup(candidateList, config);
+        // 近似规范化层的候选侧数据（Canonicalize/骨架/数值提取均为正则重活）整批只算一次，
+        // 避免每个源行对全量候选重复规范化造成 O(源×候选) 开销；全部命中前两层时完全不算。
+        var canonicalSnapshots = new Lazy<List<CandidateCanonicalSnapshot>>(
+            () => BuildCandidateCanonicalSnapshots(candidateList));
         var pendingSourceIndices = new List<int>(sourceList.Count);
         var canonicalShortcutCount = 0;
 
@@ -121,7 +128,7 @@ public class SemanticKernelMatchingService : IMatchingService
                 continue;
             }
 
-            if (TryBuildApproximateCanonicalMatchResult(source, candidateList, config, out var approximateCanonicalResult))
+            if (TryBuildApproximateCanonicalMatchResult(source, canonicalSnapshots.Value, config, out var approximateCanonicalResult))
             {
                 orderedResults[index] = approximateCanonicalResult;
                 canonicalShortcutCount++;
@@ -532,9 +539,34 @@ public class SemanticKernelMatchingService : IMatchingService
         return true;
     }
 
+    /// <summary>
+    /// 候选项的近似规范化快照：规范化项目、规格骨架与可归一数值集合，整批预计算一次。
+    /// </summary>
+    private sealed record CandidateCanonicalSnapshot(
+        MatchCandidate Candidate,
+        string CanonicalProject,
+        string SpecificationSkeleton,
+        IReadOnlyList<(double BaseValue, string Dimension, string OriginalExpression)> NormalizedValues);
+
+    private List<CandidateCanonicalSnapshot> BuildCandidateCanonicalSnapshots(
+        IReadOnlyList<MatchCandidate> candidateList)
+    {
+        var snapshots = new List<CandidateCanonicalSnapshot>(candidateList.Count);
+        foreach (var candidate in candidateList)
+        {
+            snapshots.Add(new CandidateCanonicalSnapshot(
+                candidate,
+                _canonicalizer.Canonicalize(candidate.Project),
+                BuildCanonicalSpecificationSkeleton(candidate.Specification),
+                _canonicalizer.ExtractNormalizedValues(candidate.Specification)));
+        }
+
+        return snapshots;
+    }
+
     private bool TryBuildApproximateCanonicalMatchResult(
         MatchSource source,
-        IReadOnlyList<MatchCandidate> candidateList,
+        IReadOnlyList<CandidateCanonicalSnapshot> candidateSnapshots,
         MatchingConfig config,
         out MatchResult result)
     {
@@ -548,12 +580,17 @@ public class SemanticKernelMatchingService : IMatchingService
         if (sourceValues.Count == 0)
             return false;
 
-        var candidatesForKey = candidateList
-            .Where(candidate =>
+        var sourceSkeleton = BuildCanonicalSpecificationSkeleton(source.Specification);
+        if (string.IsNullOrWhiteSpace(sourceSkeleton))
+            return false;
+
+        var candidatesForKey = candidateSnapshots
+            .Where(snapshot =>
                 (sourceProject == null ||
-                 string.Equals(_canonicalizer.Canonicalize(candidate.Project), sourceProject, StringComparison.Ordinal)) &&
-                CanonicalSpecificationSkeletonEqual(source.Specification, candidate.Specification) &&
-                NormalizedValueSetsEqual(sourceValues, _canonicalizer.ExtractNormalizedValues(candidate.Specification)))
+                 string.Equals(snapshot.CanonicalProject, sourceProject, StringComparison.Ordinal)) &&
+                string.Equals(sourceSkeleton, snapshot.SpecificationSkeleton, StringComparison.Ordinal) &&
+                NormalizedValueSetsEqual(sourceValues, snapshot.NormalizedValues))
+            .Select(snapshot => snapshot.Candidate)
             .ToList();
 
         if (candidatesForKey.Count == 0)
@@ -723,14 +760,20 @@ public class SemanticKernelMatchingService : IMatchingService
                     source.Project,
                     candidate.Project);
 
-            if (!ShouldKeepCandidate(
-                    embeddingScore,
-                    projectScore,
-                    specificationTextScore,
-                    config.MinScoreThreshold,
-                    config))
+            var shouldKeep = ShouldKeepCandidate(
+                embeddingScore,
+                projectScore,
+                specificationTextScore,
+                config.MinScoreThreshold,
+                config);
+            var isSkeletonRescue = false;
+            if (!shouldKeep)
             {
-                continue;
+                isSkeletonRescue = IsSkeletonRescueCandidate(source, candidate, embeddingScore, projectScore, config);
+                if (!isSkeletonRescue)
+                {
+                    continue;
+                }
             }
 
             evaluations.Add(new EvaluatedCandidate
@@ -741,6 +784,7 @@ public class SemanticKernelMatchingService : IMatchingService
                 ProjectScore = projectScore,
                 SpecificationTextScore = specificationTextScore,
                 ProjectCodeConflictPenalty = projectCodeConflictPenalty,
+                IsSkeletonRescue = isSkeletonRescue,
                 MatchBasis = config.MatchingMode == MatchingMode.SpecificationOnly
                     ? MatchBasis.Specification
                     : MatchBasis.ProjectSpecification,
@@ -907,11 +951,13 @@ public class SemanticKernelMatchingService : IMatchingService
                 var result = await executeAsync(callCts.Token);
                 if (result != null)
                 {
+                    circuitBreaker.RecordSuccess();
                     return new LlmCallExecution<T>(result, Failed: false, BudgetExhausted: false);
                 }
 
                 if (attempt >= retryCount)
                 {
+                    // 调用成功但输出不可解析：计入熔断（服务质量问题），Failed=false 以区分网络/超时失败
                     circuitBreaker.RecordFailure();
                     return new LlmCallExecution<T>(default, Failed: false, BudgetExhausted: false);
                 }
@@ -959,6 +1005,7 @@ public class SemanticKernelMatchingService : IMatchingService
             }
         }
 
+        // 循环内所有终止路径均已 return，此处仅为编译器可达性兜底
         circuitBreaker.RecordFailure();
         return new LlmCallExecution<T>(default, Failed: true, BudgetExhausted: false);
     }
@@ -1150,6 +1197,8 @@ public class SemanticKernelMatchingService : IMatchingService
                 SourceSpecification = source.Specification,
                 CandidateProject = best.Candidate.Project,
                 CandidateSpecification = best.Candidate.Specification,
+                CandidateAcceptance = best.Candidate.Acceptance,
+                CandidateRemark = best.Candidate.Remark,
                 CurrentDecision = "manualReview",
                 ScoreDetails = CreateScoreDetails(best),
                 EvidenceSummary = [.. (best.Evidence?.Summary ?? [])],
@@ -1375,7 +1424,13 @@ public class SemanticKernelMatchingService : IMatchingService
         return 0;
     }
 
-    private static double ComputeNumericScore(MatchSource source, EvaluatedCandidate candidate)
+    /// <summary>
+    /// 数值/单位维度得分（展示为 NumberUnit）：
+    /// 1.0 —— 规格文本一致，或双侧可归一数值集合在工程容差内等价，或双侧均无任何数字；
+    /// 0.0 —— 双侧均有可归一数值但集合不等价（数值/量纲冲突）；
+    /// 0.5 —— 数字无法归一比较（裸数字/未知单位等），保持中性。
+    /// </summary>
+    private double ComputeNumericScore(MatchSource source, EvaluatedCandidate candidate)
     {
         var sourceText = NormalizeComparableText(source.Specification);
         var candidateText = NormalizeComparableText(candidate.Candidate.Specification);
@@ -1386,7 +1441,27 @@ public class SemanticKernelMatchingService : IMatchingService
         if (!string.IsNullOrWhiteSpace(sourceText) && sourceText == candidateText)
             return 1.0;
 
+        var sourceValues = _canonicalizer.ExtractNormalizedValues(source.Specification);
+        var candidateValues = _canonicalizer.ExtractNormalizedValues(candidate.Candidate.Specification);
+        if (sourceValues.Count > 0 && candidateValues.Count > 0)
+            return NormalizedValueSetsEqual(sourceValues, candidateValues) ? 1.0 : 0.0;
+
+        // 双侧文本均不含数字：数值维度无差异可言，不应拖累综合分
+        if (!ContainsDigit(sourceText) && !ContainsDigit(candidateText))
+            return 1.0;
+
         return 0.5;
+    }
+
+    private static bool ContainsDigit(string text)
+    {
+        foreach (var ch in text)
+        {
+            if (char.IsDigit(ch))
+                return true;
+        }
+
+        return false;
     }
 
     private static double ComputeSpecificationTextScore(string sourceSpecification, string candidateSpecification)
@@ -1436,24 +1511,14 @@ public class SemanticKernelMatchingService : IMatchingService
         return string.Join("；", reasons);
     }
 
-    private static void RefreshCandidateScores(MatchSource source, IReadOnlyList<EvaluatedCandidate> candidates)
-    {
-        foreach (var candidate in candidates)
-        {
-            candidate.Issues = BuildCandidateIssues(source, candidate);
-            candidate.FinalScore = ComputeFinalScore(candidate);
-            candidate.RerankSummary = BuildRerankSummary(candidate);
-        }
-    }
-
     private static MatchDecision DetermineDecision(EvaluatedCandidate candidate, bool isAmbiguous, MatchingConfig config)
     {
         // 语义优先模式：LLM Equivalent 具有最高权威，硬冲突规则降级。
-        // 但置信度不足时不应盲目自动通过，转人工确认。
+        // 但置信度不足时不应盲目自动通过，转人工确认；
+        // 型号/料号冲突按更高置信度门槛把关（错填物料是验收场景最危险错误）。
         if (config.EnableLlmSemanticPriority &&
             candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent &&
-            (candidate.LlmEquivalence.Confidence >= config.LlmEquivalenceMinConfidence ||
-             config.LlmEquivalenceMinConfidence <= 0))
+            MeetsEquivalenceConfidenceFloor(candidate, config))
             return MatchDecision.AutoApply;
 
         // 标准模式：硬冲突绝对门禁（数值/单位/比较符/温度/方向）一律人工，
@@ -1467,24 +1532,37 @@ public class SemanticKernelMatchingService : IMatchingService
         if (isAmbiguous)
             return MatchDecision.ManualReview;
 
-        // 标准模式：未知单位/品牌 warning 是自动放行门禁，
-        // 语义优先模式下信任 LLM，跳过此拦截。
-        if (!config.EnableLlmSemanticPriority && HasAutoApplyBlockingWarning(candidate.Issues))
-            return MatchDecision.ManualReview;
-
-        // 标准模式：LLM 判定等价，但置信度不足时转人工
+        // 标准模式：LLM 判定等价且置信度达标即可放行。
+        // 未知单位/品牌/格式 warning 不再先于 LLM 结论拦截——这类行本就是 LLM 擅长的灰区，
+        // LLM 已结合上下文确认等价时无需再转人工；型号冲突行要求更高置信度。
         if (candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent)
         {
-            if (config.LlmEquivalenceMinConfidence > 0 &&
-                candidate.LlmEquivalence.Confidence < config.LlmEquivalenceMinConfidence)
-                return MatchDecision.ManualReview;
-            return MatchDecision.AutoApply;
+            return MeetsEquivalenceConfidenceFloor(candidate, config)
+                ? MatchDecision.AutoApply
+                : MatchDecision.ManualReview;
         }
 
-        if (RequiresManualReview(candidate.Evidence))
-            return MatchDecision.ManualReview;
-
+        // 无 LLM 结论（预算耗尽/熔断/未启用）：一律人工确认
         return MatchDecision.ManualReview;
+    }
+
+    /// <summary>
+    /// LLM Equivalent 结论的置信度门槛：
+    /// 常规行按 <see cref="MatchingConfig.LlmEquivalenceMinConfidence"/>；
+    /// 存在型号/料号冲突的行按 <see cref="MatchingThresholds.IdentifierConflictEquivalenceMinConfidence"/> 更高门槛。
+    /// </summary>
+    private static bool MeetsEquivalenceConfidenceFloor(EvaluatedCandidate candidate, MatchingConfig config)
+    {
+        var confidence = candidate.LlmEquivalence?.Confidence ?? 0;
+
+        if (HasIdentifierConflict(candidate.Issues) &&
+            confidence < MatchingThresholds.IdentifierConflictEquivalenceMinConfidence)
+        {
+            return false;
+        }
+
+        return config.LlmEquivalenceMinConfidence <= 0 ||
+               confidence >= config.LlmEquivalenceMinConfidence;
     }
 
     private static bool ShouldRunLlmEquivalenceAdjudication(
@@ -1509,7 +1587,12 @@ public class SemanticKernelMatchingService : IMatchingService
         // 语义等价救援候选（单位换算/品牌中英文）：项目精确命中但 Embedding 偏低，必须进入 LLM 裁决
         var shouldRunBySemanticEquivalenceRescue = IsSemanticEquivalenceRescueCandidate(
             candidate.EmbeddingScore, candidate.ProjectScore);
-        if (!shouldRunByFinalScore && !shouldRunByEmbedding && !shouldRunByCodedProjectRescue && !shouldRunBySemanticEquivalenceRescue)
+        // 未知单位/品牌/格式 warning 或型号冲突：决策依赖 LLM 结论（见 DetermineDecision），强制进入裁决
+        var shouldRunByBlockingSignal = HasAutoApplyBlockingWarning(candidate.Issues) ||
+                                        HasIdentifierConflict(candidate.Issues);
+        // 骨架相似救援候选（数值不同但结构一致，如 3000rpm vs 50r/s）：Embedding 偏低被特别保留，必须进 LLM 裁决
+        if (!shouldRunByFinalScore && !shouldRunByEmbedding && !shouldRunByCodedProjectRescue &&
+            !shouldRunBySemanticEquivalenceRescue && !shouldRunByBlockingSignal && !candidate.IsSkeletonRescue)
             return false;
 
         // LLM 等价裁决门槛跟随当前匹配配置的最小得分阈值，
@@ -1586,12 +1669,13 @@ public class SemanticKernelMatchingService : IMatchingService
         if (evidence.Warnings.Count > 0)
             return true;
 
+        // Conflict 关系（型号/料号冲突）必须阻断确定性自动通过，只能经 LLM 高置信裁决放行
         if (evidence.Identifiers.Any(item =>
-                item.Relation is EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
+                item.Relation is EvidenceRelation.Conflict or EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
             return true;
 
         if (evidence.Entities.Any(item =>
-                item.Relation is EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
+                item.Relation is EvidenceRelation.Conflict or EvidenceRelation.Overlap or EvidenceRelation.ParentChild or EvidenceRelation.PossiblyRelated))
             return true;
 
         return false;
@@ -1620,6 +1704,35 @@ public class SemanticKernelMatchingService : IMatchingService
     {
         return projectScore >= ExactTextMatchThreshold &&
                embeddingScore >= SemanticEquivalenceRescueEmbeddingThreshold;
+    }
+
+    /// <summary>
+    /// 骨架相似救援：规格去数值后的"骨架"完全一致，但 Embedding 落在 [0.50, 召回阈值) 灰带时，
+    /// 仍保留候选交由后续裁决。典型场景"电机转速 3000rpm" vs "电机转速 50r/s"——
+    /// 单位换算后等价但 Embedding 偏低。仅规格模式下只比骨架；项目+规格模式额外要求项目精确命中，
+    /// 避免不同项目间共享通用数值骨架（如"电压#V"）导致召回泛滥。
+    /// 骨架计算（Canonicalize+正则）有成本，故仅在常规召回未命中且 Embedding 达到下限时才计算。
+    /// </summary>
+    private bool IsSkeletonRescueCandidate(
+        MatchSource source,
+        MatchCandidate candidate,
+        double embeddingScore,
+        double projectScore,
+        MatchingConfig config)
+    {
+        if (embeddingScore < SkeletonRescueEmbeddingThreshold)
+            return false;
+
+        if (config.MatchingMode != MatchingMode.SpecificationOnly &&
+            projectScore < ExactTextMatchThreshold)
+            return false;
+
+        var sourceSkeleton = BuildCanonicalSpecificationSkeleton(source.Specification);
+        if (string.IsNullOrWhiteSpace(sourceSkeleton))
+            return false;
+
+        var candidateSkeleton = BuildCanonicalSpecificationSkeleton(candidate.Specification);
+        return string.Equals(sourceSkeleton, candidateSkeleton, StringComparison.Ordinal);
     }
 
     private static bool IsExactProjectRescueCandidate(
@@ -1720,14 +1833,6 @@ public class SemanticKernelMatchingService : IMatchingService
         }
 
         return true;
-    }
-
-    private bool CanonicalSpecificationSkeletonEqual(string sourceSpecification, string candidateSpecification)
-    {
-        var source = BuildCanonicalSpecificationSkeleton(sourceSpecification);
-        var candidate = BuildCanonicalSpecificationSkeleton(candidateSpecification);
-        return !string.IsNullOrWhiteSpace(source) &&
-               string.Equals(source, candidate, StringComparison.Ordinal);
     }
 
     private string BuildCanonicalSpecificationSkeleton(string specification)
@@ -1848,6 +1953,16 @@ public class SemanticKernelMatchingService : IMatchingService
     }
 
     /// <summary>
+    /// 判断候选的问题列表中是否存在型号/料号冲突。
+    /// 此类行的 LLM Equivalent 结论需满足更高置信度门槛才可自动通过。
+    /// </summary>
+    private static bool HasIdentifierConflict(IReadOnlyList<MatchIssue>? issues)
+    {
+        return issues != null && issues.Any(issue =>
+            string.Equals(issue.Code, "identifier_conflict", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// 单批次 LLM 调用预算（线程安全）。
     /// 各并行行共享同一实例，通过原子递减实现全局限流；预算耗尽后灰区行一律转人工。
     /// </summary>
@@ -1882,10 +1997,14 @@ public class SemanticKernelMatchingService : IMatchingService
         }
     }
 
+    /// <summary>
+    /// LLM 熔断器：按"连续失败"计数，任意一次成功即复位。
+    /// 避免大批量低失败率场景下累计失败误触发永久熔断。
+    /// </summary>
     private sealed class LlmCircuitBreaker
     {
         private readonly int _failureThreshold;
-        private int _failureCount;
+        private int _consecutiveFailureCount;
         private int _isOpen;
 
         public LlmCircuitBreaker(int failureThreshold)
@@ -1897,10 +2016,15 @@ public class SemanticKernelMatchingService : IMatchingService
 
         public void RecordFailure()
         {
-            if (Interlocked.Increment(ref _failureCount) >= _failureThreshold)
+            if (Interlocked.Increment(ref _consecutiveFailureCount) >= _failureThreshold)
             {
                 Volatile.Write(ref _isOpen, 1);
             }
+        }
+
+        public void RecordSuccess()
+        {
+            Interlocked.Exchange(ref _consecutiveFailureCount, 0);
         }
     }
 
@@ -1916,6 +2040,7 @@ public class SemanticKernelMatchingService : IMatchingService
         public double SpecificationTextScore { get; set; }
         public double NumericScore { get; set; }
         public double ProjectCodeConflictPenalty { get; set; }
+        public bool IsSkeletonRescue { get; init; }
         public string? RerankSummary { get; set; }
         public MatchSelectionMode SelectionMode { get; set; } = MatchSelectionMode.EmbeddingTop1;
         public string? SelectionSummary { get; set; }

@@ -125,6 +125,7 @@ public class MatchingKnowledgeDrivenNormalizationTests
     [InlineData("冷却水流量为0.06m³/h", "冷却水流量为1L/min")]
     [InlineData("点胶量为2cc/min", "点胶量为2mL/min")]
     [InlineData("气耗为100L/s", "气耗为6000L/min")]
+    [InlineData("主轴转速为50r/s", "主轴转速为3000rpm")]
     public void SpecCanonicalizer_ShouldLoadDefaultExternalUnitRules(string left, string right)
     {
         var canonicalizer = new SpecCanonicalizer();

@@ -125,11 +125,35 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
         if (embedding1.Length != embedding2.Length) return 0;
 
         double dot = 0, norm1 = 0, norm2 = 0;
-        for (var i = 0; i < embedding1.Length; i++)
+        var index = 0;
+
+        // SIMD 主循环：批量匹配对全量候选做暴力余弦计算，向量化后吞吐提升数倍
+        if (System.Numerics.Vector.IsHardwareAccelerated && embedding1.Length >= System.Numerics.Vector<float>.Count)
         {
-            dot += embedding1[i] * embedding2[i];
-            norm1 += embedding1[i] * embedding1[i];
-            norm2 += embedding2[i] * embedding2[i];
+            var dotSum = System.Numerics.Vector<float>.Zero;
+            var norm1Sum = System.Numerics.Vector<float>.Zero;
+            var norm2Sum = System.Numerics.Vector<float>.Zero;
+            var lastBlockStart = embedding1.Length - System.Numerics.Vector<float>.Count;
+
+            for (; index <= lastBlockStart; index += System.Numerics.Vector<float>.Count)
+            {
+                var left = new System.Numerics.Vector<float>(embedding1, index);
+                var right = new System.Numerics.Vector<float>(embedding2, index);
+                dotSum += left * right;
+                norm1Sum += left * left;
+                norm2Sum += right * right;
+            }
+
+            dot = System.Numerics.Vector.Dot(dotSum, System.Numerics.Vector<float>.One);
+            norm1 = System.Numerics.Vector.Dot(norm1Sum, System.Numerics.Vector<float>.One);
+            norm2 = System.Numerics.Vector.Dot(norm2Sum, System.Numerics.Vector<float>.One);
+        }
+
+        for (; index < embedding1.Length; index++)
+        {
+            dot += embedding1[index] * embedding2[index];
+            norm1 += embedding1[index] * embedding1[index];
+            norm2 += embedding2[index] * embedding2[index];
         }
 
         if (norm1 == 0 || norm2 == 0) return 0;

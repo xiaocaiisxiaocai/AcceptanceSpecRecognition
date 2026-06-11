@@ -13,8 +13,20 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
 {
     private static readonly Regex IdentifierRegex = new(
-        @"\b[A-Z]{2,}(?:-[A-Z0-9]+)+\b",
-        RegexOptions.Compiled);
+        @"\b(?:[A-Z]{2,}(?:-[A-Z0-9]+)+|(?=[A-Z0-9]*[A-Z])(?=[A-Z0-9]*\d)[A-Z0-9]{4,})\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly IReadOnlySet<string> UnitLikeIdentifierSuffixes =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "rpm", "rps", "hz", "khz", "mhz", "ghz",
+            "v", "kv", "mv", "a", "ma", "ka", "w", "kw", "mw",
+            "vdc", "vac", "vrms", "va", "kva", "wh", "kwh", "ah", "mah",
+            "mm", "cm", "m", "um", "μm", "nm",
+            "g", "kg", "mg", "s", "ms", "min", "h",
+            "pa", "kpa", "mpa", "bar", "psi",
+            "pcs", "pc", "upm", "uph", "ppm", "kppm"
+        };
 
     private readonly SemanticConflictScanner? _conflictScanner;
 
@@ -125,8 +137,19 @@ public sealed class MatchEvidenceBuilder : IMatchEvidenceBuilder
     {
         return IdentifierRegex.Matches(text ?? string.Empty)
             .Select(match => match.Value)
+            .Where(IsLikelyIdentifier)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static bool IsLikelyIdentifier(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        // 3000rpm、24V 这类“数字+单位”不是型号，避免被扩展后的紧凑型号规则误抓。
+        var unitLike = Regex.Match(value, @"^\d+(?<unit>[A-Za-zμ]+)$");
+        return !unitLike.Success || !UnitLikeIdentifierSuffixes.Contains(unitLike.Groups["unit"].Value);
     }
 
     private static bool BelongsToSameIdentifierFamily(string sourceIdentifier, string candidateIdentifier)

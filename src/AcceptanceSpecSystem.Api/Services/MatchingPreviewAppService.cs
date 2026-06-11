@@ -127,7 +127,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                 scope,
                 config.EmbeddingServiceId,
                 hydrateEmbeddings: false,
-                cancellationToken);
+                cancellationToken: cancellationToken);
             var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
 
             _batchPreviewProgressTracker.Update(
@@ -222,6 +222,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                         await _matchingCandidateProvider.HydrateCandidateEmbeddingsAsync(
                             candidates,
                             config.EmbeddingServiceId,
+                            config.MatchingMode,
                             cancellationToken);
                         processedCandidates = BuildProcessedCandidates(candidates, tpSession);
                         batchResult = await _matchingService.BatchMatchAsync(
@@ -655,10 +656,17 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
             return result.Score >= minScoreThreshold ? "medium" : "low";
         }
 
-        if (result.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent ||
-            result.Score >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
+        if (result.Score >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
         {
             return "high";
+        }
+
+        // LLM 判等价的自动通过：高置信归 high，中置信（含低于阈值）归 medium 供审核员优先复查
+        if (result.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent)
+        {
+            return result.LlmEquivalence.Confidence >= MatchingThresholds.HighConfidenceLlmEquivalenceMinConfidence
+                ? "high"
+                : "medium";
         }
 
         if (result.Score >= minScoreThreshold)

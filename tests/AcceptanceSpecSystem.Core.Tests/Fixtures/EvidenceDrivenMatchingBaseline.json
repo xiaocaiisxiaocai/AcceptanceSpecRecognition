@@ -88,6 +88,29 @@
     "expectedSuggestedActionContains": "人工确认型号"
   },
   {
+    "name": "紧凑型号 MK2530 不应匹配 6204ZZ",
+    "source": {
+      "project": "轴承型号要求",
+      "specification": "使用轴承 MK2530"
+    },
+    "candidates": [
+      {
+        "specId": 302,
+        "project": "轴承型号要求",
+        "specification": "使用轴承 6204ZZ",
+        "acceptance": "NG",
+        "remark": "型号错误",
+        "embeddingScore": 0.99
+      }
+    ],
+    "expectedMatchedSpecId": 302,
+    "expectedDecision": "ManualReview",
+    "expectedConflictContains": "型号冲突",
+    "expectedIssueCode": "identifier_conflict",
+    "expectedIssueMessageContains": "MK2530",
+    "expectedSuggestedActionContains": "人工确认型号"
+  },
+  {
     "name": "Panasonic 应识别为 松下",
     "source": {
       "project": "Panasonic 设备",
@@ -162,5 +185,27 @@
     ],
     "expectedMatchedSpecId": 404,
     "expectedDecision": "ManualReview"
+  },
+  {
+    "name": "包含测试 不应匹配 非测试",
+    "source": {
+      "project": "测试要求",
+      "specification": "包含测试"
+    },
+    "candidates": [
+      {
+        "specId": 405,
+        "project": "测试要求",
+        "specification": "非测试",
+        "acceptance": "NG",
+        "remark": "否定语义相反",
+        "embeddingScore": 0.99
+      }
+    ],
+    "expectedMatchedSpecId": 405,
+    "expectedDecision": "ManualReview",
+    "expectedConflictContains": "否定前缀冲突",
+    "expectedIssueCode": "negative_prefix_conflict",
+    "expectedIssueMessageContains": "否定前缀"
   }
 ]

@@ -63,6 +63,7 @@ public sealed partial class MatchingWorkflowSupportService
                 await _matchingCandidateProvider.HydrateCandidateEmbeddingsAsync(
                     candidateList,
                     config.EmbeddingServiceId,
+                    config.MatchingMode,
                     cancellationToken);
                 processedCandidates = BuildProcessedCandidates(candidateList, tpSession);
                 batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config, cancellationToken: cancellationToken);

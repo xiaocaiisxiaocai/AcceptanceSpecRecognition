@@ -124,10 +124,17 @@ public sealed partial class MatchingWorkflowSupportService
             return result.Score >= minScoreThreshold ? "medium" : "low";
         }
 
-        if (result.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent ||
-            result.Score >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
+        if (result.Score >= NormalizeHighConfidenceThreshold(highConfidenceThreshold))
         {
             return "high";
+        }
+
+        // LLM 判等价的自动通过：高置信归 high，中置信（含低于阈值）归 medium 供审核员优先复查
+        if (result.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent)
+        {
+            return result.LlmEquivalence.Confidence >= MatchingThresholds.HighConfidenceLlmEquivalenceMinConfidence
+                ? "high"
+                : "medium";
         }
 
         if (result.Score >= minScoreThreshold)
@@ -152,6 +159,17 @@ public sealed partial class MatchingWorkflowSupportService
         }
 
         return Math.Clamp(normalized, 0, 100);
+    }
+
+    private static MatchResult CreateNoMatchResult(MatchSource source, MatchingConfig config)
+    {
+        return new MatchResult
+        {
+            SourceText = source.CombinedText,
+            MinScoreThreshold = config.MinScoreThreshold,
+            HighConfidenceThreshold = config.HighConfidenceThreshold,
+            Decision = MatchDecision.ManualReview
+        };
     }
 
 }

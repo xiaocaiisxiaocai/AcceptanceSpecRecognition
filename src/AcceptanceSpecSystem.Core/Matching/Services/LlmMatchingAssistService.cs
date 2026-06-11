@@ -459,6 +459,8 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             ["sourceSpecification"] = request.SourceSpecification,
             ["candidateProject"] = request.CandidateProject,
             ["candidateSpecification"] = request.CandidateSpecification,
+            ["candidateAcceptance"] = string.IsNullOrWhiteSpace(request.CandidateAcceptance) ? "(无)" : request.CandidateAcceptance,
+            ["candidateRemark"] = string.IsNullOrWhiteSpace(request.CandidateRemark) ? "(无)" : request.CandidateRemark,
             ["currentDecision"] = request.CurrentDecision,
             ["scoreDetailsJson"] = JsonSerializer.Serialize(request.ScoreDetails),
             ["evidenceSummaryJson"] = JsonSerializer.Serialize(request.EvidenceSummary),
@@ -707,8 +709,16 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
         var content = template.Content;
         var changed = false;
 
-        if (definition.LegacyDefaultContent != null &&
-            string.Equals(content.Trim(), definition.LegacyDefaultContent.Trim(), StringComparison.Ordinal))
+        // 与 SystemPromptTemplateInitializer 保持一致：历任旧版默认内容（LegacyDefaultContent
+        // 与 AdditionalLegacyContents）都视为可自动升级，避免两条升级链行为不一致。
+        var isLegacyContent =
+            (definition.LegacyDefaultContent != null &&
+             string.Equals(content.Trim(), definition.LegacyDefaultContent.Trim(), StringComparison.Ordinal)) ||
+            (definition.AdditionalLegacyContents != null &&
+             definition.AdditionalLegacyContents.Any(legacy =>
+                 string.Equals(content.Trim(), legacy.Trim(), StringComparison.Ordinal)));
+
+        if (isLegacyContent)
         {
             _logger.LogInformation("自动升级 LLM Prompt 模板 [{Name}]：检测到旧版默认内容，更新为新版", definition.Name);
             content = definition.DefaultContent;

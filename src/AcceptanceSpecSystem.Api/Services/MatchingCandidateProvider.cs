@@ -52,6 +52,7 @@ public sealed class MatchingCandidateProvider
         DataScopeResult scope,
         int? embeddingServiceId,
         bool hydrateEmbeddings = true,
+        MatchingMode matchingMode = MatchingMode.ProjectSpecification,
         CancellationToken cancellationToken = default)
     {
         var baseQuery = BuildCandidateSpecQuery(customerId, processId, machineModelId);
@@ -103,7 +104,7 @@ public sealed class MatchingCandidateProvider
 
         if (hydrateEmbeddings)
         {
-            await HydrateCandidateEmbeddingsAsync(candidates, embeddingServiceId, cancellationToken);
+            await HydrateCandidateEmbeddingsAsync(candidates, embeddingServiceId, matchingMode, cancellationToken);
         }
 
         return candidates;
@@ -144,6 +145,7 @@ public sealed class MatchingCandidateProvider
     public async Task HydrateCandidateEmbeddingsAsync(
         List<MatchCandidate> candidates,
         int? embeddingServiceId,
+        MatchingMode matchingMode,
         CancellationToken cancellationToken)
     {
         try
@@ -151,6 +153,7 @@ public sealed class MatchingCandidateProvider
             await _specEmbeddingCacheService.HydrateMatchingCandidatesAsync(
                 candidates,
                 embeddingServiceId,
+                matchingMode,
                 cancellationToken);
         }
         catch (AiServiceUnavailableException ex)

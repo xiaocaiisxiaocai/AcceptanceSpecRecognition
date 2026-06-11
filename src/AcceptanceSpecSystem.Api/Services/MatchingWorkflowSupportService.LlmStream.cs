@@ -44,7 +44,7 @@ public sealed partial class MatchingWorkflowSupportService
             scope,
             config.EmbeddingServiceId,
             hydrateEmbeddings: false,
-            cancellationToken);
+            cancellationToken: cancellationToken);
         var accessibleSpecLookup = candidates.ToDictionary(candidate => candidate.SpecId);
         var normalizedItems = await BuildAuthoritativeLlmStreamItemsAsync(request.Items, candidates, config, cancellationToken);
 

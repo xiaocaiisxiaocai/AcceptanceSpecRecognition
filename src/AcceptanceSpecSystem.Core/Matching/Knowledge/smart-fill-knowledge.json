@@ -229,6 +229,11 @@
       "tokens": [ "米/min", "米/分钟" ]
     },
     {
+      "dimension": "speed_rot",
+      "factor": 60,
+      "tokens": [ "r/s", "rev/s", "转/秒" ]
+    },
+    {
       "dimension": "time",
       "factor": 86400,
       "tokens": [ "d", "day", "天" ]

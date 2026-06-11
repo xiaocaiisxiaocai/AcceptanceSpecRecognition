@@ -48,20 +48,24 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor
     public async Task HydrateMatchingCandidatesAsync(
         IReadOnlyCollection<MatchCandidate> candidates,
         int? embeddingServiceId,
+        MatchingMode matchingMode = MatchingMode.ProjectSpecification,
         CancellationToken cancellationToken = default)
     {
+        // 仅规格模式下源向量只用规格文本，候选缓存必须使用同一语料并独立隔离，
+        // 否则会拿"项目+规格"向量与"纯规格"源向量比相似度，得分系统性失真。
+        var specificationOnly = matchingMode == MatchingMode.SpecificationOnly;
         var targets = candidates
             .Where(candidate => candidate.SpecId > 0)
             .Select(candidate => new CacheTarget(
                 candidate.SpecId,
-                candidate.CombinedText,
+                specificationOnly ? candidate.Specification : candidate.CombinedText,
                 embedding => candidate.Embedding = embedding))
             .Where(target => !string.IsNullOrWhiteSpace(target.Text))
             .ToList();
 
         await HydrateTargetsAsync(
             targets,
-            EmbeddingCacheUsages.Matching,
+            specificationOnly ? EmbeddingCacheUsages.MatchingSpecificationOnly : EmbeddingCacheUsages.Matching,
             embeddingServiceId,
             cancellationToken);
     }
@@ -362,6 +366,7 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor
         {
             EmbeddingCacheUsages.SemanticSearch => BuildSemanticSearchText(spec),
             EmbeddingCacheUsages.ImportDuplicateDetection => BuildImportDuplicateText(spec.Project, spec.Specification),
+            EmbeddingCacheUsages.MatchingSpecificationOnly => spec.Specification?.Trim() ?? string.Empty,
             _ => BuildMatchingText(spec.Project, spec.Specification)
         };
     }

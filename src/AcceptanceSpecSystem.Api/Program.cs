@@ -161,9 +161,12 @@ if (string.IsNullOrWhiteSpace(connectionString))
 }
 
 builder.Services.AddScoped<SlowQueryLoggingInterceptor>();
+// ServerVersion.AutoDetect 每次调用都会额外建立一次 MySQL 连接探测版本，
+// 用 Lazy 保证整个进程只探测一次；保持惰性以便 Testing 环境（SQLite 替换 DbContext）不触发连接。
+var mysqlServerVersion = new Lazy<ServerVersion>(() => ServerVersion.AutoDetect(connectionString));
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+    options.UseMySql(connectionString, mysqlServerVersion.Value);
     options.AddInterceptors(serviceProvider.GetRequiredService<SlowQueryLoggingInterceptor>());
 });
 

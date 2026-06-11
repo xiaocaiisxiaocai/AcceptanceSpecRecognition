@@ -308,6 +308,7 @@ public sealed partial class MatchingWorkflowSupportService
                 await _matchingCandidateProvider.HydrateCandidateEmbeddingsAsync(
                     candidates,
                     config.EmbeddingServiceId,
+                    config.MatchingMode,
                     cancellationToken);
                 processedCandidates = BuildProcessedCandidates(candidates, tpSession);
                 batchResult = await _matchingService.BatchMatchAsync(sourceItems, processedCandidates, config, progress: null, cancellationToken);
@@ -381,17 +382,6 @@ public sealed partial class MatchingWorkflowSupportService
         return config.MatchingMode == MatchingMode.SpecificationOnly
             ? MatchingCandidateProvider.BuildCandidateDedupKey(null, specification)
             : MatchingCandidateProvider.BuildCandidateDedupKey(project, specification);
-    }
-
-    private static MatchResult CreateNoMatchResult(MatchSource source, MatchingConfig config)
-    {
-        return new MatchResult
-        {
-            SourceText = source.CombinedText,
-            MinScoreThreshold = config.MinScoreThreshold,
-            HighConfidenceThreshold = config.HighConfidenceThreshold,
-            Decision = MatchDecision.ManualReview
-        };
     }
 
     private static bool RequiresSemanticMatching(

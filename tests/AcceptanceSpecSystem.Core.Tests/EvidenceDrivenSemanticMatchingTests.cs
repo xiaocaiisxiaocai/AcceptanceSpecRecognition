@@ -1615,6 +1615,188 @@ public class EvidenceDrivenSemanticMatchingTests
     }
 
     [Fact]
+    public async Task BatchMatch_WhenCompactModelIdentifiersDiffer_ShouldDetectIdentifierConflict()
+    {
+        var source = new MatchSource
+        {
+            Project = "轴承型号要求",
+            Specification = "使用轴承 MK2530"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 294,
+                Project = "轴承型号要求",
+                Specification = "使用轴承 6204ZZ",
+                Embedding = [0.99f]
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].Issues.Should().Contain(issue =>
+            issue.Code == "identifier_conflict" &&
+            issue.SourceValue == "MK2530" &&
+            issue.CandidateValue == "6204ZZ");
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenSkeletonEqualButEmbeddingLow_ShouldRescueCandidateIntoView()
+    {
+        // 项目精确一致、规格"骨架"相同（去数值后结构一致），但 Embedding 仅 0.6（低于 0.90 召回阈值，
+        // 也低于 0.70 语义等价救援阈值）。改动前该候选会被召回层直接丢弃 → 显示"无匹配"；
+        // 骨架相似救援应把它救回视野，让审核员看到最接近的候选及其数值冲突。
+        var source = new MatchSource
+        {
+            Project = "电机要求",
+            Specification = "电机额定转速3000rpm"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 295,
+                Project = "电机要求",
+                Specification = "电机额定转速3500rpm",
+                Embedding = [0.6f]
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f], defaultCandidateEmbedding: [0.6f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.90,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95,
+                EnableLlmEquivalenceAdjudication = false
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().Be(295, "骨架相同的候选不应被召回层静默丢弃");
+        // 数值不同（3000 vs 3500 rpm）构成硬冲突，仍转人工——救援只负责"召回进视野"，不放宽冲突门禁
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].Issues.Should().Contain(issue => issue.Code == "numeric_unit_conflict");
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenSkeletonDiffersAndEmbeddingLow_ShouldStillDrop()
+    {
+        // 骨架不同（结构不一致）且 Embedding 低：救援不应生效，维持"无匹配"，避免召回泛滥。
+        var source = new MatchSource
+        {
+            Project = "电机要求",
+            Specification = "电机额定转速3000rpm"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 296,
+                Project = "电机要求",
+                Specification = "防护等级IP65",
+                Embedding = [0.6f]
+            }
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f], defaultCandidateEmbedding: [0.6f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.90,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95,
+                EnableLlmEquivalenceAdjudication = false
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].MatchedSpecId.Should().BeNull("骨架不同的低分候选不应被救援");
+    }
+
+    [Theory]
+    [InlineData(0.7, MatchDecision.ManualReview)]
+    [InlineData(0.9, MatchDecision.AutoApply)]
+    public async Task BatchMatch_WhenIdentifierConflictAndLlmSaysEquivalent_ShouldRequireHigherConfidenceFloor(
+        double llmConfidence,
+        MatchDecision expectedDecision)
+    {
+        var source = new MatchSource
+        {
+            Project = "轴承型号要求",
+            Specification = "使用轴承 SKF-6204-2Z"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 293,
+                Project = "轴承型号要求",
+                Specification = "使用轴承 SKF-6204-ZZ",
+                Acceptance = "按轴承型号验收",
+                Embedding = [0.99f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.FormatOnly,
+            Confidence = llmConfidence,
+            Reason = "2Z 与 ZZ 同为双面防尘盖标记，型号实质一致"
+        });
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.0,
+                RecallTopK = 1,
+                EnableLlmEquivalenceAdjudication = true
+            });
+
+        // 型号/料号冲突行的 LLM Equivalent 结论必须满足更高置信度门槛（0.85）才能自动通过，
+        // 防止单次 LLM 误判直接造成错填物料号。
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Issues.Should().Contain(issue => issue.Code == "identifier_conflict");
+        result.Results[0].Decision.Should().Be(expectedDecision);
+    }
+
+    [Fact]
     public async Task BatchMatch_WhenNumericFragmentsDifferWithoutStructuredConstraint_ShouldNotEmitLocalNumericIssue()
     {
         var source = new MatchSource
@@ -2531,7 +2713,7 @@ public class EvidenceDrivenSemanticMatchingTests
     }
 
     [Fact]
-    public async Task BatchMatch_WhenUnknownUnitExistsOnlyOnOneSideAndLlmSaysEquivalent_ShouldStillRequireManualReview()
+    public async Task BatchMatch_WhenUnknownUnitExistsOnlyOnOneSideAndLlmSaysEquivalent_ShouldAutoApply()
     {
         var source = new MatchSource
         {
@@ -2576,9 +2758,11 @@ public class EvidenceDrivenSemanticMatchingTests
                 LlmMaxCallsPerBatch = 3
             });
 
+        // 未知单位 warning 行本就是 LLM 擅长的灰区：LLM 已高置信判定等价时直接采纳，
+        // 不再先于 LLM 结论转人工（warning 仍然阻断"确定性自动通过"路径）。
         result.Results.Should().ContainSingle();
         result.Results[0].MatchedSpecId.Should().Be(916);
-        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
         result.Results[0].Issues.Should().Contain(issue =>
             issue.Code == "unknown_unit_token" &&
             issue.Severity == "warning");
@@ -2586,12 +2770,62 @@ public class EvidenceDrivenSemanticMatchingTests
         equivalenceService.Requests.Should().ContainSingle();
     }
 
+    [Fact]
+    public async Task BatchMatch_WhenUnknownUnitExistsAndLlmEquivalentConfidenceIsLow_ShouldRequireManualReview()
+    {
+        var source = new MatchSource
+        {
+            Project = "单位单侧未知B 用例169",
+            Specification = "扫码时间不超过0.5sec/次"
+        };
+
+        var candidates = new List<MatchCandidate>
+        {
+            new()
+            {
+                SpecId = 916,
+                Project = "单位单侧未知B 用例169",
+                Specification = "扫码时间不超过500ms",
+                Acceptance = "按扫码时间验收",
+                Embedding = [1f]
+            }
+        };
+
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.SymbolEquivalent,
+            Confidence = 0.3,
+            Reason = "倾向等价但不确定"
+        });
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f], defaultCandidateEmbedding: [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            candidates,
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.98,
+                EnableDeterministicAutoApply = true,
+                EnableLlmEquivalenceAdjudication = true,
+                LlmMaxCallsPerBatch = 3
+            });
+
+        result.Results.Should().ContainSingle();
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+    }
+
     [Theory]
     [InlineData("复合范围未覆盖E", "工件间距≤20mm", "工件间距不多于二十毫米")]
     [InlineData("自然语言范围", "升降行程≈0.5m", "升降行程约半米")]
     [InlineData("复合范围未覆盖F", "扫码成功率≥99.9%", "扫码成功率99.9%以上")]
     [InlineData("复合范围未覆盖B", "电源波动范围上下浮动10%", "电源波动范围±10%")]
-    public async Task BatchMatch_WhenUnsupportedFormatExistsAndLlmSaysEquivalent_ShouldStillRequireManualReview(
+    public async Task BatchMatch_WhenUnsupportedFormatExistsAndLlmSaysEquivalent_ShouldAutoApply(
         string project,
         string sourceSpecification,
         string candidateSpecification)
@@ -2639,8 +2873,10 @@ public class EvidenceDrivenSemanticMatchingTests
                 LlmMaxCallsPerBatch = 3
             });
 
+        // 规则未覆盖的自然语言/中文数字格式正是 LLM 的判读强项：
+        // LLM 已高置信判定等价时直接采纳（warning 仍然阻断"确定性自动通过"路径）。
         result.Results.Should().ContainSingle();
-        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
         result.Results[0].Issues.Should().Contain(issue =>
             issue.Code == "unsupported_format_token" &&
             issue.Severity == "warning");
@@ -3130,5 +3366,43 @@ public class EvidenceDrivenSemanticMatchingTests
         semanticResult.Results[0].Decision.Should().Be(MatchDecision.AutoApply,
             "LLM 裁决 Equivalent 应 AutoApply");
         equivalenceService.Requests.Should().ContainSingle("语义优先模式下 LLM 应被调用一次");
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenCandidateAddsNegativePrefix_ShouldBlockAutoApply()
+    {
+        var source = new MatchSource
+        {
+            Project = "测试要求",
+            Specification = "包含测试"
+        };
+
+        var candidate = new MatchCandidate
+        {
+            SpecId = 9903,
+            Project = "测试要求",
+            Specification = "非测试",
+            Embedding = [1f]
+        };
+
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            [candidate],
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95
+            });
+
+        result.Results.Should().ContainSingle();
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].Issues.Should().Contain(issue =>
+            issue.Code == "negative_prefix_conflict" &&
+            issue.Severity == "hard_conflict");
     }
 }

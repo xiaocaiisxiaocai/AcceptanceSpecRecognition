@@ -48,6 +48,19 @@ public static class MatchingThresholds
     public const double DefaultLlmEquivalenceMinConfidence = 0.5;
 
     /// <summary>
+    /// 存在型号/料号冲突时，LLM Equivalent 结论放行所需的最低置信度。
+    /// 错填物料号是验收场景最危险的错误，任何模式（含语义优先）下都按此更高门槛把关。
+    /// </summary>
+    public const double IdentifierConflictEquivalenceMinConfidence = 0.85;
+
+    /// <summary>
+    /// LLM 判定等价且已自动通过时，展示为"高置信"所需的 LLM 自评置信度下限。
+    /// 低于此值的等价自动通过仍会填充，但前端标注为"中置信"，供审核员优先快速复查。
+    /// 仅影响展示分级（high/medium），不改变是否自动填充。
+    /// </summary>
+    public const double HighConfidenceLlmEquivalenceMinConfidence = 0.85;
+
+    /// <summary>
     /// 归一化高置信阈值配置。
     /// </summary>
     public static double NormalizeHighConfidenceThreshold(double? threshold)
@@ -191,9 +204,9 @@ public class MatchResult
     public LlmEquivalenceAdjudicationResult? LlmEquivalence { get; set; }
 
     /// <summary>
-    /// 最终决策
+    /// 最终决策。默认人工确认（fail-safe），由各匹配路径显式升级为 AutoApply。
     /// </summary>
-    public MatchDecision Decision { get; set; } = MatchDecision.AutoApply;
+    public MatchDecision Decision { get; set; } = MatchDecision.ManualReview;
 
     /// <summary>
     /// 本次匹配使用的最小得分阈值

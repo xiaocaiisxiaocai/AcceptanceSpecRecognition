@@ -37,6 +37,12 @@ public sealed class LlmEquivalenceAdjudicationRequest
 
     public string CandidateSpecification { get; set; } = string.Empty;
 
+    /// <summary>候选的验收标准内容，帮助 LLM 结合验收上下文判断等价性。</summary>
+    public string? CandidateAcceptance { get; set; }
+
+    /// <summary>候选的备注内容，帮助 LLM 结合验收上下文判断等价性。</summary>
+    public string? CandidateRemark { get; set; }
+
     public string CurrentDecision { get; set; } = "manualReview";
 
     public Dictionary<string, double> ScoreDetails { get; set; } = [];

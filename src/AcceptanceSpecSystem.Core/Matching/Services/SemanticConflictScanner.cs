@@ -76,6 +76,16 @@ public sealed class SemanticConflictScanner
         ("加压", "泄压"), ("增大", "减小"), ("提高", "降低"),
     ];
 
+    private static readonly IReadOnlyList<string> PositivePrefixTerms =
+    [
+        "包含", "含有", "带有", "需要", "要求", "允许", "启用", "使用", "具备", "支持"
+    ];
+
+    private static readonly IReadOnlyList<string> NegativePrefixTerms =
+    [
+        "不包含", "不含", "无", "无需", "免", "非", "不带", "禁止", "禁用", "不得", "不可", "不允许"
+    ];
+
     // ── 量纲组合：温度特殊处理（跨温标不自动比较） ──────────────────────
     private const double NumericCompareToleranceRatio = 1e-3;
 
@@ -107,6 +117,7 @@ public sealed class SemanticConflictScanner
         ScanDimensionTupleConflicts(evidence, srcText, candText);
         ScanComparatorConflicts(evidence, srcText, candText);
         ScanPolarityConflicts(evidence, srcText, candText);
+        ScanNegativePrefixConflicts(evidence, srcText, candText);
         ScanUnknownUnitWarnings(evidence, srcText, candText);
         ScanUnknownBrandWarnings(evidence, srcText, candText);
         ScanUnsupportedFormatWarnings(evidence, srcText, candText);
@@ -458,6 +469,93 @@ public sealed class SemanticConflictScanner
     private static bool ContainsTerm(string text, string term)
     {
         return text.Contains(term, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void ScanNegativePrefixConflicts(MatchEvidence evidence, string srcText, string candText)
+    {
+        var srcStatements = ExtractPolarityStatements(srcText);
+        var candStatements = ExtractPolarityStatements(candText);
+        if (srcStatements.Count == 0 || candStatements.Count == 0)
+            return;
+
+        foreach (var src in srcStatements)
+        {
+            foreach (var cand in candStatements)
+            {
+                if (src.IsNegative == cand.IsNegative ||
+                    !string.Equals(src.Subject, cand.Subject, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var msg = $"否定前缀冲突：源项 \"{src.Text}\" vs 候选 \"{cand.Text}\"";
+                evidence.Issues.Add(new MatchIssue
+                {
+                    Code = "negative_prefix_conflict",
+                    Severity = "hard_conflict",
+                    FieldName = "否定语义",
+                    SourceValue = src.Text,
+                    CandidateValue = cand.Text,
+                    Message = msg,
+                    SuggestedAction = "一侧为肯定要求、一侧为否定要求，请人工确认"
+                });
+                evidence.Conflicts.Add(msg);
+            }
+        }
+    }
+
+    private static List<(bool IsNegative, string Subject, string Text)> ExtractPolarityStatements(string text)
+    {
+        var normalized = Regex.Replace(text ?? string.Empty, @"\s+", string.Empty);
+        var result = new List<(bool, string, string)>();
+
+        foreach (var prefix in NegativePrefixTerms.OrderByDescending(item => item.Length))
+        {
+            foreach (Match match in Regex.Matches(
+                         normalized,
+                         $"{Regex.Escape(prefix)}(?<subject>[A-Za-z0-9\\u4e00-\\u9fff]{{1,20}})",
+                         RegexOptions.IgnoreCase))
+            {
+                AddPolarityStatement(result, isNegative: true, prefix, match.Groups["subject"].Value);
+            }
+        }
+
+        foreach (var prefix in PositivePrefixTerms.OrderByDescending(item => item.Length))
+        {
+            foreach (Match match in Regex.Matches(
+                         normalized,
+                         $"{Regex.Escape(prefix)}(?<subject>[A-Za-z0-9\\u4e00-\\u9fff]{{1,20}})",
+                         RegexOptions.IgnoreCase))
+            {
+                var subject = match.Groups["subject"].Value;
+                if (NegativePrefixTerms.Any(negative => subject.StartsWith(negative, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                AddPolarityStatement(result, isNegative: false, prefix, subject);
+            }
+        }
+
+        return result;
+    }
+
+    private static void AddPolarityStatement(
+        List<(bool IsNegative, string Subject, string Text)> result,
+        bool isNegative,
+        string prefix,
+        string rawSubject)
+    {
+        var subject = NormalizePolaritySubject(rawSubject);
+        if (string.IsNullOrWhiteSpace(subject))
+            return;
+
+        result.Add((isNegative, subject, $"{prefix}{subject}"));
+    }
+
+    private static string NormalizePolaritySubject(string value)
+    {
+        var subject = Regex.Replace(value ?? string.Empty, @"[，,。；;：:\(\)（）\[\]【】].*$", string.Empty).Trim();
+        subject = Regex.Replace(subject, @"(?:功能|要求|项目|项|内容)$", string.Empty).Trim();
+        return subject;
     }
 
     private void ScanUnknownUnitWarnings(MatchEvidence evidence, string srcText, string candText)
