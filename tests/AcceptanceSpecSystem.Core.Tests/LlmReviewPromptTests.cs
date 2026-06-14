@@ -54,6 +54,22 @@ public class LlmReviewPromptTests
     }
 
     [Fact]
+    public void MatchingEquivalencePromptTemplate_ShouldIncludeFewShotExamples_AndPreservePreviousDefaultAsLegacy()
+    {
+        var definition = PromptTemplateCatalog
+            .GetSystemTemplates()
+            .Single(template => template.Scene == PromptTemplateScene.MatchingEquivalenceAdjudication);
+
+        // 新默认内容含 few-shot 示例段
+        definition.DefaultContent.Should().Contain("【判定示例】");
+
+        // 升级链保留历次旧默认（含本次之前的默认），且旧内容都不含 few-shot 段
+        definition.AdditionalLegacyContents.Should().NotBeNull();
+        definition.AdditionalLegacyContents!.Should().HaveCountGreaterThanOrEqualTo(3);
+        definition.AdditionalLegacyContents!.Should().OnlyContain(content => !content.Contains("【判定示例】"));
+    }
+
+    [Fact]
     public async Task ReviewAsync_WhenUserContentContainsPlaceholderToken_ShouldPreserveLiteralTextInPrompt()
     {
         var promptProvider = new RecordingPromptTemplateProvider(

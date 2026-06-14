@@ -105,43 +105,54 @@ public sealed class PromptTemplateValidationService
             return false;
         }
 
-        string? lastParsedJson = null;
-        string? lastError = null;
+        // 校验“所有”符合输出格式（含全部必需键）的 JSON 示例：任一不合法即判模板无效。
+        // 含 few-shot 示例的模板会有多个输出格式 JSON，单个坏示例不能被其他合法示例遮蔽。
+        // 缺少必需键的 JSON（如上下文里的 scoreDetailsJson）视为非输出示例，跳过。
+        var sawValidExample = false;
 
         foreach (var candidate in candidates)
         {
+            JsonDocument document;
             try
             {
-                using var document = JsonDocument.Parse(candidate);
-                lastParsedJson = candidate;
+                document = JsonDocument.Parse(candidate);
+            }
+            catch (JsonException)
+            {
+                // 文本里偶发的非 JSON 花括号片段，跳过
+                continue;
+            }
 
+            using (document)
+            {
                 var missingKey = definition.RequiredJsonKeys
                     .FirstOrDefault(key => !document.RootElement.TryGetProperty(key, out _));
-                if (missingKey == null)
+                if (missingKey != null)
                 {
-                    if (TryValidateStructuredOutputPayload(
-                            definition.Scene,
-                            document.RootElement,
-                            out var payloadError))
-                    {
-                        exampleJson = candidate;
-                        return true;
-                    }
-
-                    lastError = payloadError;
                     continue;
                 }
 
-                lastError = $"JSON 示例缺少字段: {missingKey}";
-            }
-            catch (JsonException ex)
-            {
-                lastError = $"JSON 示例无效: {ex.Message}";
+                if (!TryValidateStructuredOutputPayload(
+                        definition.Scene,
+                        document.RootElement,
+                        out var payloadError))
+                {
+                    exampleJson = candidate;
+                    error = payloadError;
+                    return false;
+                }
+
+                exampleJson ??= candidate;
+                sawValidExample = true;
             }
         }
 
-        exampleJson = lastParsedJson ?? candidates[^1];
-        error = lastError ?? "未找到满足场景要求的 JSON 示例";
+        if (sawValidExample)
+        {
+            return true;
+        }
+
+        error = "未找到满足场景要求的 JSON 示例";
         return false;
     }
 
