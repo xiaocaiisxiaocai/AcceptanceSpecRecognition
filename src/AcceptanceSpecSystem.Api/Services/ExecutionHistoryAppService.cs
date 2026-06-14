@@ -55,35 +55,51 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         var detail = BuildDetailDto(draft);
         var detailJson = JsonSerializer.Serialize(detail, JsonOptions);
         var detailBytes = Encoding.UTF8.GetByteCount(detailJson);
-        if (ShouldCompressSmartFillDetail(draft, detailBytes))
+        if (detailBytes > MaxPersistedDetailBytes)
         {
-            // 优先“精简”而非整段丢弃：剥离重负载（原文/候选明细/证据/裁决理由），
-            // 保留逐行分析信号（命中来源/决策/置信度/AI 裁决结论/问题码）。
-            // 仅当精简后仍超限（极端体量）才降级为纯汇总归档，避免大批量任务成为行级分析盲区。
-            ExecutionHistorySmartFillSlimmer.SlimInPlace(detail);
-            var slimmedJson = JsonSerializer.Serialize(detail, JsonOptions);
-            var slimmedBytes = Encoding.UTF8.GetByteCount(slimmedJson);
-
-            if (slimmedBytes <= MaxPersistedDetailBytes)
+            if (string.Equals(draft.TaskType, ExecutionHistoryTaskTypes.SmartFill, StringComparison.Ordinal))
             {
-                detailJson = slimmedJson;
-                _logger.LogInformation(
-                    "智能填充执行记录过大，已精简归档（保留逐行分析信号）: taskId={TaskId}, originalBytes={OriginalBytes}, slimmedBytes={SlimmedBytes}",
-                    draft.TaskId,
-                    detailBytes,
-                    slimmedBytes);
+                // 智能填充：优先“精简”而非整段丢弃，剥离重负载但保留逐行分析信号
+                // （命中来源/决策/置信度/AI 裁决结论/问题码）；仅当精简后仍超限才降级为汇总归档。
+                ExecutionHistorySmartFillSlimmer.SlimInPlace(detail);
+                var slimmedJson = JsonSerializer.Serialize(detail, JsonOptions);
+                var slimmedBytes = Encoding.UTF8.GetByteCount(slimmedJson);
+
+                if (slimmedBytes <= MaxPersistedDetailBytes)
+                {
+                    detailJson = slimmedJson;
+                    _logger.LogInformation(
+                        "智能填充执行记录过大，已精简归档（保留逐行分析信号）: taskId={TaskId}, originalBytes={OriginalBytes}, slimmedBytes={SlimmedBytes}",
+                        draft.TaskId,
+                        detailBytes,
+                        slimmedBytes);
+                }
+                else
+                {
+                    detail = BuildCompressedSmartFillDetail(detail);
+                    detailJson = JsonSerializer.Serialize(detail, JsonOptions);
+
+                    _logger.LogWarning(
+                        "智能填充执行记录过大，精简后仍超限，已降级为汇总归档: taskId={TaskId}, sourceFileId={SourceFileId}, originalBytes={OriginalBytes}, slimmedBytes={SlimmedBytes}, compressedBytes={CompressedBytes}",
+                        draft.TaskId,
+                        draft.SourceFileId,
+                        detailBytes,
+                        slimmedBytes,
+                        Encoding.UTF8.GetByteCount(detailJson));
+                }
             }
             else
             {
-                detail = BuildCompressedSmartFillDetail(detail);
+                // 其它任务类型（如批量回复）：精简掉逐行明细，保留文件头与记录级计数，
+                // 避免大批量执行记录撑爆持久化（DB packet 上限）与历史列表查询（逐条反序列化整段 DetailJson）。
+                CompactGenericDetailInPlace(detail);
                 detailJson = JsonSerializer.Serialize(detail, JsonOptions);
 
                 _logger.LogWarning(
-                    "智能填充执行记录过大，精简后仍超限，已降级为汇总归档: taskId={TaskId}, sourceFileId={SourceFileId}, originalBytes={OriginalBytes}, slimmedBytes={SlimmedBytes}, compressedBytes={CompressedBytes}",
+                    "{TaskType} 执行记录过大，已精简逐行明细归档: taskId={TaskId}, originalBytes={OriginalBytes}, compactedBytes={CompactedBytes}",
+                    draft.TaskType,
                     draft.TaskId,
-                    draft.SourceFileId,
                     detailBytes,
-                    slimmedBytes,
                     Encoding.UTF8.GetByteCount(detailJson));
             }
         }
@@ -201,10 +217,28 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         };
     }
 
-    private static bool ShouldCompressSmartFillDetail(ExecutionHistoryDraft draft, int detailBytes)
+    /// <summary>
+    /// 通用精简：清空 Files / BatchReplyDetail 的逐行明细（保留文件头与表头），
+    /// 用于智能填充以外的任务类型（如批量回复）超限时压缩；记录级计数另存于实体列，不受影响。
+    /// </summary>
+    private static void CompactGenericDetailInPlace(ExecutionHistoryDetailDto detail)
     {
-        return string.Equals(draft.TaskType, ExecutionHistoryTaskTypes.SmartFill, StringComparison.Ordinal) &&
-               detailBytes > MaxPersistedDetailBytes;
+        EmptyRows(detail.Files);
+        if (detail.BatchReplyDetail != null)
+        {
+            EmptyRows(detail.BatchReplyDetail.Files);
+        }
+    }
+
+    private static void EmptyRows(List<ExecutionHistoryFileDto>? files)
+    {
+        foreach (var file in files ?? [])
+        {
+            foreach (var sheet in file.Sheets ?? [])
+            {
+                sheet.Rows = [];
+            }
+        }
     }
 
     private static ExecutionHistoryDetailDto BuildCompressedSmartFillDetail(ExecutionHistoryDetailDto detail)

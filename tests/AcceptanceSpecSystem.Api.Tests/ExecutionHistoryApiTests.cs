@@ -609,6 +609,77 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task BatchReplyExecute_WithLargeArchive_ShouldCompactRowDetailButKeepCounts()
+    {
+        const int rowCount = 80;
+        var longAcceptance = new string('验', 2000);
+        var longRemark = new string('备', 2000);
+
+        var sourceRows = new List<string[]> { new[] { "项目", "规格", "验收", "备注" } };
+        for (var i = 1; i <= rowCount; i++)
+        {
+            sourceRows.Add(new[] { $"P{i}", $"S{i}", longAcceptance, longRemark });
+        }
+
+        var sessionId = await UploadBatchReplySourceAsync(
+            CreateDocxBytes(sourceRows.ToArray()),
+            "large-batch-reply-source.docx");
+
+        var targetRows = new List<string[]> { new[] { "项目", "规格", "验收", "备注" } };
+        for (var i = 1; i <= rowCount; i++)
+        {
+            targetRows.Add(new[] { $"P{i}", $"S{i}", "", "" });
+        }
+
+        using (var previewContent = new MultipartFormDataContent
+        {
+            { new StringContent(sessionId), "sessionId" },
+            { new StringContent("""[{"tableIndex":0,"projectColumnIndex":0,"specificationColumnIndex":1,"acceptanceColumnIndex":2,"remarkColumnIndex":3,"filterEmptySourceRows":true}]"""), "tableConfigsJson" }
+        })
+        {
+            previewContent.Add(
+                CreateTargetFileContent(CreateDocxBytes(targetRows.ToArray()), "large-batch-reply-target.docx"),
+                "targetFiles",
+                "large-batch-reply-target.docx");
+
+            var previewResp = await _client.PostAsync("/api/batch-reply/preview", previewContent);
+            previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var executeResp = await _client.PostAsync(
+            "/api/batch-reply/execute",
+            ApiClientJson.ToJsonContent(new { sessionId }));
+        var executeBody = await executeResp.Content.ReadAsStringAsync();
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK, executeBody);
+
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeJson.Code.Should().Be(0);
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+        taskId.Should().NotBeNullOrWhiteSpace();
+
+        var listResp = await _client.GetAsync("/api/execution-history?page=1&pageSize=20");
+        listResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listJson = await listResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var record = listJson.Data.GetProperty("items").EnumerateArray()
+            .FirstOrDefault(item => item.GetProperty("taskId").GetString() == taskId);
+        record.ValueKind.Should().NotBe(JsonValueKind.Undefined);
+        record.GetProperty("taskType").GetString().Should().Be("batch-reply");
+        // 记录级计数从实体列读出，不受逐行明细精简影响
+        record.GetProperty("adoptedRowCount").GetInt32().Should().Be(rowCount);
+
+        var detailResp = await _client.GetAsync($"/api/execution-history/{record.GetProperty("id").GetInt32()}");
+        detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        detailJson.Code.Should().Be(0);
+
+        // 过大批量回复：保留文件头，但逐行明细被精简掉（避免撑爆持久化与历史查询）
+        var compactedFiles = detailJson.Data.GetProperty("batchReplyDetail").GetProperty("files");
+        compactedFiles.GetArrayLength().Should().Be(1);
+        compactedFiles[0].GetProperty("sheets")[0].GetProperty("rows").GetArrayLength()
+            .Should().Be(0, "过大批量回复执行记录应精简掉逐行明细");
+    }
+
+    [Fact]
     public async Task BatchReplyExecute_WhenTargetRowsReordered_ShouldPersistExecutionHistoryInTargetRowOrder()
     {
         var sessionId = await UploadBatchReplySourceAsync(
