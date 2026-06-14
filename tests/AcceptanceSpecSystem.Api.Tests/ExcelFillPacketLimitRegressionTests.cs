@@ -112,15 +112,39 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
             .FirstOrDefault(item => item.GetProperty("taskId").GetString() == taskId);
         record.ValueKind.Should().NotBe(JsonValueKind.Undefined);
         record.GetProperty("totalRowCount").GetInt32().Should().Be(rowCount);
-        record.GetProperty("smartFillSummary").GetProperty("hasPlaybackArchive").GetBoolean().Should().BeFalse();
+        // 大批量归档改为“精简保留”而非整段丢弃：仍提供回放（降级）且保留逐行分析信号
+        record.GetProperty("smartFillSummary").GetProperty("hasPlaybackArchive").GetBoolean().Should().BeTrue();
 
         var detailResp = await _client.GetAsync($"/api/execution-history/{record.GetProperty("id").GetInt32()}");
         detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
         detailJson.Code.Should().Be(0);
-        detailJson.Data.GetProperty("files").GetArrayLength().Should().Be(0, "大批量执行记录应降级为汇总归档");
-        detailJson.Data.GetProperty("smartFillPlayback").GetProperty("isLegacy").GetBoolean().Should().BeTrue();
-        detailJson.Data.GetProperty("smartFillPlayback").GetProperty("legacyMessage").GetString().Should().Contain("自动压缩");
+
+        // 通用明细仍丢弃（smart-fill 走 SmartFillPlayback）
+        detailJson.Data.GetProperty("files").GetArrayLength().Should().Be(0);
+
+        var playback = detailJson.Data.GetProperty("smartFillPlayback");
+        playback.GetProperty("isLegacy").GetBoolean().Should().BeFalse("精简归档不是 legacy 丢弃");
+        playback.GetProperty("isSlimmed").GetBoolean().Should().BeTrue("大批量应精简保留而非丢弃");
+
+        var slimRows = playback.GetProperty("files")[0].GetProperty("sheets")[0].GetProperty("rows");
+        slimRows.GetArrayLength().Should().Be(rowCount, "精简归档应逐行保留分析信号");
+
+        var firstRow = slimRows[0];
+        // 逐行分析信号保留
+        firstRow.GetProperty("matchOrigin").GetString().Should().Be("exact");
+        firstRow.GetProperty("previewSnapshot").GetProperty("confidenceLevel").GetString().Should().Be("high");
+        var slimBest = firstRow.GetProperty("previewSnapshot").GetProperty("bestMatch");
+        slimBest.GetProperty("decision").GetString().Should().Be("autoApply");
+        slimBest.GetProperty("selectionMode").GetString().Should().Be("exactShortcut");
+        // 重负载（候选明细）已剥离
+        slimBest.GetProperty("topCandidates").GetArrayLength().Should().Be(0);
+        // 行内执行快照文本已剥离，但保留选中规格ID
+        firstRow.GetProperty("executionSnapshot").GetProperty("selectedSpecId").GetInt32().Should().Be(specId);
+        if (firstRow.GetProperty("executionSnapshot").TryGetProperty("finalAcceptance", out var slimFinalAcceptance))
+        {
+            slimFinalAcceptance.ValueKind.Should().Be(JsonValueKind.Null, "精简后行内验收文本应被剥离");
+        }
     }
 
     private static string[][] BuildExcelRows(int rowCount)

@@ -57,15 +57,35 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         var detailBytes = Encoding.UTF8.GetByteCount(detailJson);
         if (ShouldCompressSmartFillDetail(draft, detailBytes))
         {
-            detail = BuildCompressedSmartFillDetail(detail);
-            detailJson = JsonSerializer.Serialize(detail, JsonOptions);
+            // 优先“精简”而非整段丢弃：剥离重负载（原文/候选明细/证据/裁决理由），
+            // 保留逐行分析信号（命中来源/决策/置信度/AI 裁决结论/问题码）。
+            // 仅当精简后仍超限（极端体量）才降级为纯汇总归档，避免大批量任务成为行级分析盲区。
+            ExecutionHistorySmartFillSlimmer.SlimInPlace(detail);
+            var slimmedJson = JsonSerializer.Serialize(detail, JsonOptions);
+            var slimmedBytes = Encoding.UTF8.GetByteCount(slimmedJson);
 
-            _logger.LogWarning(
-                "智能填充执行记录过大，已自动压缩归档: taskId={TaskId}, sourceFileId={SourceFileId}, originalBytes={OriginalBytes}, compressedBytes={CompressedBytes}",
-                draft.TaskId,
-                draft.SourceFileId,
-                detailBytes,
-                Encoding.UTF8.GetByteCount(detailJson));
+            if (slimmedBytes <= MaxPersistedDetailBytes)
+            {
+                detailJson = slimmedJson;
+                _logger.LogInformation(
+                    "智能填充执行记录过大，已精简归档（保留逐行分析信号）: taskId={TaskId}, originalBytes={OriginalBytes}, slimmedBytes={SlimmedBytes}",
+                    draft.TaskId,
+                    detailBytes,
+                    slimmedBytes);
+            }
+            else
+            {
+                detail = BuildCompressedSmartFillDetail(detail);
+                detailJson = JsonSerializer.Serialize(detail, JsonOptions);
+
+                _logger.LogWarning(
+                    "智能填充执行记录过大，精简后仍超限，已降级为汇总归档: taskId={TaskId}, sourceFileId={SourceFileId}, originalBytes={OriginalBytes}, slimmedBytes={SlimmedBytes}, compressedBytes={CompressedBytes}",
+                    draft.TaskId,
+                    draft.SourceFileId,
+                    detailBytes,
+                    slimmedBytes,
+                    Encoding.UTF8.GetByteCount(detailJson));
+            }
         }
 
         var entity = await _unitOfWork.ExecutionHistoryRecords.GetOwnedByTaskIdAsync(

@@ -105,6 +105,12 @@ public class ExecutionHistorySmartFillPlaybackDto
 
     public bool IsLegacy { get; set; }
 
+    /// <summary>
+    /// 是否为精简归档：大批量任务超出持久化上限时，剥离重负载（原文/候选明细/证据等），
+    /// 但保留逐行分析信号（命中来源/决策/置信度/AI 裁决结论/问题码）。回放据此降级展示。
+    /// </summary>
+    public bool IsSlimmed { get; set; }
+
     public string? LegacyMessage { get; set; }
 
     public List<ExecutionHistorySmartFillFileDto> Files { get; set; } = [];
