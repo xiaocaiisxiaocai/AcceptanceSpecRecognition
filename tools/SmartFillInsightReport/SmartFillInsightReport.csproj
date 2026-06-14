@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    复用 Data 项目的 AppDbContext(string) 构造 + Pomelo MySQL 映射，
+    无需在工具内重复声明表名/列名/驱动版本。仅做只读查询。
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AcceptanceSpecSystem.Data\AcceptanceSpecSystem.Data.csproj" />
+  </ItemGroup>
+
+</Project>
