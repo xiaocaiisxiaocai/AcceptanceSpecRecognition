@@ -60,13 +60,15 @@ public class LlmReviewPromptTests
             .GetSystemTemplates()
             .Single(template => template.Scene == PromptTemplateScene.MatchingEquivalenceAdjudication);
 
-        // 新默认内容含 few-shot 示例段
+        // 新默认内容含 few-shot 示例段，且含"整句同义复述"长文本改写引导
         definition.DefaultContent.Should().Contain("【判定示例】");
+        definition.DefaultContent.Should().Contain("整句同义复述");
 
-        // 升级链保留历次旧默认（含本次之前的默认），且旧内容都不含 few-shot 段
+        // 升级链保留历次旧默认，且旧内容都不含"整句同义复述"段
+        // （V4 已含 few-shot 但缺整句同义复述引导，故不再以 few-shot 作为新旧分界）
         definition.AdditionalLegacyContents.Should().NotBeNull();
-        definition.AdditionalLegacyContents!.Should().HaveCountGreaterThanOrEqualTo(3);
-        definition.AdditionalLegacyContents!.Should().OnlyContain(content => !content.Contains("【判定示例】"));
+        definition.AdditionalLegacyContents!.Should().HaveCountGreaterThanOrEqualTo(4);
+        definition.AdditionalLegacyContents!.Should().OnlyContain(content => !content.Contains("整句同义复述"));
     }
 
     [Fact]
