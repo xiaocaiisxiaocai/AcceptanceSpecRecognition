@@ -3487,4 +3487,58 @@ public class EvidenceDrivenSemanticMatchingTests
         var r = await service.BatchMatchAsync([source], [cand], EmbAutoApplyConfig(0.90));
         r.Results[0].Decision.Should().Be(MatchDecision.ManualReview, "Emb 0.80 < 阈值0.90 → 不自动通过");
     }
+
+    [Fact]
+    public async Task NumericConflict_WhenCandidateHasBilingualDuplicateOfSameValue_ShouldNotFlagConflict()
+    {
+        // 回归：候选为中英对照（同一数值出现两份，如"30天 / 30 day"），
+        // 源仅含中文一份。折叠重复值前会被判"数量 1 vs 2 → numeric_unit_conflict 硬冲突"，
+        // 这是误判。折叠后两侧均为 1 份且数值相等，不应产生数值冲突。
+        var source = new MatchSource
+        {
+            Project = "机构设计配接",
+            Specification = "封闭式设备内部须设有摄像头监控，录像可保存30天以上"
+        };
+        var cand = new MatchCandidate
+        {
+            SpecId = 8262,
+            Project = "机构设计配接",
+            Specification = "8.封闭式设备内部带有摄像头监控，且可保存30天以上\n"
+                + "8.The enclosed device has a camera monitoring inside, and it can be saved for more than 30 day",
+            Embedding = [1f]
+        };
+
+        var service = BuildEmbAutoApplyService(source, 0.93, LlmEquivalenceVerdict.Uncertain);
+        var r = await service.BatchMatchAsync([source], [cand], EmbAutoApplyConfig(0.90));
+
+        r.Results[0].Issues.Should().NotContain(
+            issue => issue.Code == "numeric_unit_conflict",
+            "同一数值的中英两份表达应被折叠，不应误判为数值数量不等");
+    }
+
+    [Fact]
+    public async Task NumericConflict_WhenValuesGenuinelyDiffer_ShouldStillFlagConflict()
+    {
+        // 反向保护：折叠重复不能掩盖真实的数值差异。
+        // 源"保存30天" vs 候选"保存60天" 仍须产出 numeric_unit_conflict。
+        var source = new MatchSource
+        {
+            Project = "机构设计配接",
+            Specification = "录像可保存30天以上"
+        };
+        var cand = new MatchCandidate
+        {
+            SpecId = 8263,
+            Project = "机构设计配接",
+            Specification = "录像可保存60天以上",
+            Embedding = [1f]
+        };
+
+        var service = BuildEmbAutoApplyService(source, 0.93, LlmEquivalenceVerdict.Uncertain);
+        var r = await service.BatchMatchAsync([source], [cand], EmbAutoApplyConfig(0.90));
+
+        r.Results[0].Issues.Should().Contain(
+            issue => issue.Code == "numeric_unit_conflict",
+            "30天 与 60天 是真实数值差异，折叠重复后仍须检出冲突");
+    }
 }
