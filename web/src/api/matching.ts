@@ -56,6 +56,8 @@ export interface MatchConfig {
   enableLlmSemanticPriority?: boolean;
   /** LLM 语义优先模式下的召回分数下限（默认 0.5，仅 enableLlmSemanticPriority 开启时生效） */
   llmSemanticRecallThreshold?: number;
+  /** 高 Embedding 语义自动通过阈值（0~1，0=关闭） */
+  embeddingSemanticAutoApplyThreshold?: number;
 }
 
 /** 待匹配的源项 */
@@ -316,8 +318,9 @@ export const defaultMatchConfig: MatchConfig = {
   llmMaxCallsPerBatch: 1000,
   exactMatchOnly: false,
   filterEmptySourceRows: true,
-  enableLlmSemanticPriority: false,
-  llmSemanticRecallThreshold: 0.5
+  enableLlmSemanticPriority: true,
+  llmSemanticRecallThreshold: 0.5,
+  embeddingSemanticAutoApplyThreshold: 0.9
 };
 
 // ===== 批量填充 =====

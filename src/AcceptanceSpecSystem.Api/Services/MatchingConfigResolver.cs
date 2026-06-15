@@ -48,7 +48,9 @@ public sealed class MatchingConfigResolver
             FilterEmptySourceRows = dto?.FilterEmptySourceRows ?? fallbackConfig.FilterEmptySourceRows,
             EnableLlmSemanticPriority = dto?.EnableLlmSemanticPriority ?? fallbackConfig.EnableLlmSemanticPriority,
             LlmSemanticRecallThreshold = Math.Clamp(
-                dto?.LlmSemanticRecallThreshold ?? fallbackConfig.LlmSemanticRecallThreshold, 0.1, 0.9)
+                dto?.LlmSemanticRecallThreshold ?? fallbackConfig.LlmSemanticRecallThreshold, 0.1, 0.9),
+            EmbeddingSemanticAutoApplyThreshold = Math.Clamp(
+                dto?.EmbeddingSemanticAutoApplyThreshold ?? fallbackConfig.EmbeddingSemanticAutoApplyThreshold, 0, 1)
         };
     }
 

@@ -3405,4 +3405,86 @@ public class EvidenceDrivenSemanticMatchingTests
             issue.Code == "negative_prefix_conflict" &&
             issue.Severity == "hard_conflict");
     }
+
+    // ── 高 Embedding 语义自动通过测试 ──────────────────────────────
+    private static SemanticKernelMatchingService BuildEmbAutoApplyService(
+        MatchSource source, double srcEmb, LlmEquivalenceVerdict verdict)
+    {
+        var equ = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = verdict,
+            ReasonType = verdict == LlmEquivalenceVerdict.Different
+                ? LlmEquivalenceReasonType.SemanticDifference
+                : LlmEquivalenceReasonType.Uncertain,
+            Confidence = 0,
+            Reason = "测试裁决"
+        });
+        return new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [(float)srcEmb], defaultCandidateEmbedding: [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equ);
+    }
+
+    private static MatchingConfig EmbAutoApplyConfig(double threshold) => new()
+    {
+        MinScoreThreshold = 0,
+        RecallTopK = 1,
+        HighConfidenceThreshold = 0.95,
+        AmbiguityMargin = 0.01,
+        EnableDeterministicAutoApply = false,
+        EnableLlmEquivalenceAdjudication = true,
+        EnableLlmSemanticPriority = false,
+        EmbeddingSemanticAutoApplyThreshold = threshold
+    };
+
+    [Fact]
+    public async Task EmbAutoApply_WhenHighEmbeddingAndUncertain_ShouldAutoApply()
+    {
+        var source = new MatchSource { Project = "下料", Specification = "机械手臂运行不应产生碎屑" };
+        var cand = new MatchCandidate { SpecId = 7001, Project = "下料", Specification = "机械手臂各机构不得摩擦产生磨屑", Embedding = [1f] };
+        var service = BuildEmbAutoApplyService(source, 0.93, LlmEquivalenceVerdict.Uncertain);
+        var r = await service.BatchMatchAsync([source], [cand], EmbAutoApplyConfig(0.90));
+        r.Results[0].MatchedSpecId.Should().Be(7001);
+        r.Results[0].Decision.Should().Be(MatchDecision.AutoApply, "高 Emb + 无冲突 + LLM uncertain + 阈值0.90 → 自动通过");
+    }
+
+    [Fact]
+    public async Task EmbAutoApply_WhenThresholdZero_ShouldStayManual()
+    {
+        var source = new MatchSource { Project = "下料", Specification = "机械手臂运行不应产生碎屑" };
+        var cand = new MatchCandidate { SpecId = 7001, Project = "下料", Specification = "机械手臂各机构不得摩擦产生磨屑", Embedding = [1f] };
+        var service = BuildEmbAutoApplyService(source, 0.93, LlmEquivalenceVerdict.Uncertain);
+        var r = await service.BatchMatchAsync([source], [cand], EmbAutoApplyConfig(0)); // 默认关闭
+        r.Results[0].Decision.Should().Be(MatchDecision.ManualReview, "阈值0(默认)→ 行为不变,uncertain 仍转人工");
+    }
+
+    [Fact]
+    public async Task EmbAutoApply_WhenHardNumericConflict_ShouldStayManual()
+    {
+        var source = new MatchSource { Project = "安装", Specification = "电压 ≥100V" };
+        var cand = new MatchCandidate { SpecId = 7002, Project = "安装", Specification = "电压 ≥220V", Embedding = [1f] };
+        var service = BuildEmbAutoApplyService(source, 0.93, LlmEquivalenceVerdict.Uncertain);
+        var r = await service.BatchMatchAsync([source], [cand], EmbAutoApplyConfig(0.90));
+        r.Results[0].Decision.Should().Be(MatchDecision.ManualReview, "硬冲突(数值)不被高 Emb 自动通过覆盖");
+    }
+
+    [Fact]
+    public async Task EmbAutoApply_WhenLlmDifferent_ShouldStayManual()
+    {
+        var source = new MatchSource { Project = "下料", Specification = "机械手臂运行不应产生碎屑" };
+        var cand = new MatchCandidate { SpecId = 7003, Project = "下料", Specification = "机械手臂各机构不得摩擦产生磨屑", Embedding = [1f] };
+        var service = BuildEmbAutoApplyService(source, 0.93, LlmEquivalenceVerdict.Different);
+        var r = await service.BatchMatchAsync([source], [cand], EmbAutoApplyConfig(0.90));
+        r.Results[0].Decision.Should().Be(MatchDecision.ManualReview, "LLM 明确判 Different 不被覆盖");
+    }
+
+    [Fact]
+    public async Task EmbAutoApply_WhenEmbeddingBelowThreshold_ShouldStayManual()
+    {
+        var source = new MatchSource { Project = "下料", Specification = "机械手臂运行不应产生碎屑" };
+        var cand = new MatchCandidate { SpecId = 7004, Project = "下料", Specification = "机械手臂各机构不得摩擦产生磨屑", Embedding = [1f] };
+        var service = BuildEmbAutoApplyService(source, 0.80, LlmEquivalenceVerdict.Uncertain);
+        var r = await service.BatchMatchAsync([source], [cand], EmbAutoApplyConfig(0.90));
+        r.Results[0].Decision.Should().Be(MatchDecision.ManualReview, "Emb 0.80 < 阈值0.90 → 不自动通过");
+    }
 }

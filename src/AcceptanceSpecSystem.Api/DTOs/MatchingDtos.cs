@@ -133,6 +133,11 @@ public class MatchConfigDto
     /// 仅在 EnableLlmSemanticPriority 开启时生效。
     /// </summary>
     public double LlmSemanticRecallThreshold { get; set; } = 0.5;
+
+    /// <summary>
+    /// 高 Embedding 语义自动通过阈值（0~1，默认 0=关闭）。
+    /// </summary>
+    public double EmbeddingSemanticAutoApplyThreshold { get; set; }
 }
 
 /// <summary>

@@ -43,6 +43,20 @@ const llmDifferenceTone = computed(() =>
     ? getLlmEquivalenceDifferenceTone(llmEquivalence.value)
     : "neutral"
 );
+const basisLabel = computed(() => {
+  const m = props.item.bestMatch;
+  if (!m) return "";
+  if (m.selectionMode === "exactShortcut") return "精确直达";
+  if (m.decision === "autoApply") return "AI语义命中";
+  return "需人工确认";
+});
+const basisTagType = computed(() =>
+  basisLabel.value === "精确直达"
+    ? "success"
+    : basisLabel.value === "AI语义命中"
+      ? "primary"
+      : "warning"
+);
 </script>
 
 <template>
@@ -52,6 +66,12 @@ const llmDifferenceTone = computed(() =>
         {{ item.bestMatch.project }} - {{ item.bestMatch.specification }}
       </div>
       <div class="match-meta">
+        <el-tag size="small" :type="basisTagType" effect="dark">
+          {{ basisLabel }}
+        </el-tag>
+        <el-tag size="small" type="info" effect="plain">
+          Emb {{ formatPreviewScore(item.bestMatch.embeddingScore) }}
+        </el-tag>
         <el-tag size="small" type="info" effect="plain">
           召回 {{ item.bestMatch.recalledCandidateCount }}
         </el-tag>

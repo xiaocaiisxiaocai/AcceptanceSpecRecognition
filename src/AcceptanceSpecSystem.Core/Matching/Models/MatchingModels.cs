@@ -511,6 +511,14 @@ public class MatchingConfig
     /// Embedding 分数 >= 此阈值的候选将被保留进入 LLM 裁决视野，即使低于常规 MinScoreThreshold。
     /// </summary>
     public double LlmSemanticRecallThreshold { get; set; } = 0.5;
+
+    /// <summary>
+    /// 高 Embedding 语义自动通过阈值。取值 (0,1] 时启用：候选 Embedding 分 ≥ 此值，
+    /// 且无硬冲突/型号料号冲突/未识别警告、不歧义、且 LLM 未判 Different 时，
+    /// 即使 LLM 判 uncertain 也自动通过（把强 Embedding 作为足够的语义证据）。
+    /// 默认 0（关闭，行为零变化）。智能填充前端默认 0.90。
+    /// </summary>
+    public double EmbeddingSemanticAutoApplyThreshold { get; set; }
 }
 
 /// <summary>

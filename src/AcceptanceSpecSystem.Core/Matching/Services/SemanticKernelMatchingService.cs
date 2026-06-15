@@ -1526,6 +1526,22 @@ public class SemanticKernelMatchingService : IMatchingService
         if (HasHardConflict(candidate.Issues))
             return MatchDecision.ManualReview;
 
+        // 高 Embedding 自动通过：强语义相似 + 无结构化冲突 + 不歧义 + LLM 未判不同 → 自动通过（即使 uncertain）。
+        // 硬冲突已在上方拦截；此处再排除型号/料号冲突与未识别(单位/品牌/格式)警告，作为精度闸门。
+        if (config.EmbeddingSemanticAutoApplyThreshold > 0 &&
+            config.EmbeddingSemanticAutoApplyThreshold <= 1 &&
+            candidate.EmbeddingScore >= config.EmbeddingSemanticAutoApplyThreshold - ScoreTieEpsilon &&
+            !isAmbiguous &&
+            !HasIdentifierConflict(candidate.Issues) &&
+            !HasAutoApplyBlockingWarning(candidate.Issues) &&
+            candidate.LlmEquivalence?.Verdict != LlmEquivalenceVerdict.Different)
+        {
+            candidate.SelectionSummary = AppendReason(
+                candidate.SelectionSummary,
+                $"高 Embedding 语义相似（{candidate.EmbeddingScore:P0}）且无结构化冲突，LLM 未确认，凭语义相似度自动通过，建议优先复查");
+            return MatchDecision.AutoApply;
+        }
+
         if (candidate.LlmEquivalence?.Verdict is LlmEquivalenceVerdict.Different or LlmEquivalenceVerdict.Uncertain)
             return MatchDecision.ManualReview;
 

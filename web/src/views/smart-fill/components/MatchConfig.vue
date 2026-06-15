@@ -89,7 +89,8 @@ const matchConfigSyncKeys = [
   "exactMatchOnly",
   "filterEmptySourceRows",
   "enableLlmSemanticPriority",
-  "llmSemanticRecallThreshold"
+  "llmSemanticRecallThreshold",
+  "embeddingSemanticAutoApplyThreshold"
 ] satisfies Array<keyof MatchConfig>;
 const syncMatchConfigField = <K extends keyof MatchConfig>(
   key: K,
@@ -638,6 +639,22 @@ defineExpose({
               <div class="form-inline-tip">
                 Embedding 分 ≥ 此值的候选进入 LLM 视野（默认
                 0.5），越低召回越多但 LLM 调用越多。
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="高Emb自动通过">
+              <el-input-number
+                v-model="config.embeddingSemanticAutoApplyThreshold"
+                :min="0"
+                :max="1"
+                :step="0.01"
+                :precision="2"
+                controls-position="right"
+              />
+              <div class="form-inline-tip">
+                候选 Embedding≥此值且无硬冲突时直接自动通过（即使 AI
+                不确定）；0=关闭。越高越严。
               </div>
             </el-form-item>
           </el-col>
