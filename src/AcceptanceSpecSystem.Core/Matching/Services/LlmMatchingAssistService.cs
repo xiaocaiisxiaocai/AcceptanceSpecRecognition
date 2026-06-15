@@ -635,9 +635,12 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
 
     private static OpenAIPromptExecutionSettings CreatePromptExecutionSettings(AiServiceConfigModel config)
     {
+        // temperature=0 贪心解码 + 固定 seed，最大化裁决结果可复现性。
+        // 注意：Ollama 原生路径仅在请求体显式带上 options.temperature/seed 时才生效。
         return new OpenAIPromptExecutionSettings
         {
-            Temperature = 0
+            Temperature = 0,
+            Seed = 42
         };
     }
 

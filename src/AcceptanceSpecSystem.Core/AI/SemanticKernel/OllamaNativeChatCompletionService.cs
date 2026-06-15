@@ -18,6 +18,13 @@ namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 internal sealed class OllamaNativeChatCompletionService : IChatCompletionService, IDisposable
 {
     private const string KeepAlive = "30m";
+
+    /// <summary>
+    /// 默认随机种子。temperature=0 仍可能因 GPU 浮点累加顺序在临界样本上摆动，
+    /// 固定 seed 进一步锁定采样起点以提升裁决结果的可复现性。
+    /// </summary>
+    private const int DefaultSeed = 42;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -61,7 +68,7 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
         Kernel? kernel = null,
         CancellationToken cancellationToken = default)
     {
-        var request = BuildRequest(chatHistory, stream: false);
+        var request = BuildRequest(chatHistory, stream: false, executionSettings);
         using var httpRequest = CreateHttpRequestMessage(request);
         using var requestCts = CreateRequestCancellationTokenSource(cancellationToken);
         var stopwatch = Stopwatch.StartNew();
@@ -93,7 +100,7 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
         Kernel? kernel = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var request = BuildRequest(chatHistory, stream: true);
+        var request = BuildRequest(chatHistory, stream: true, executionSettings);
         using var httpRequest = CreateHttpRequestMessage(request);
         using var requestCts = CreateRequestCancellationTokenSource(cancellationToken);
         var stopwatch = Stopwatch.StartNew();
@@ -148,7 +155,7 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
         };
     }
 
-    private OllamaChatRequest BuildRequest(ChatHistory chatHistory, bool stream)
+    private OllamaChatRequest BuildRequest(ChatHistory chatHistory, bool stream, PromptExecutionSettings? executionSettings)
     {
         var messages = chatHistory
             .Select(ToOllamaMessage)
@@ -164,7 +171,37 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
             Stream = stream,
             KeepAlive = KeepAlive,
             Think = _disableThinking ? false : null,
-            Messages = messages
+            Messages = messages,
+            Options = BuildOptions(executionSettings)
+        };
+    }
+
+    /// <summary>
+    /// 构造 Ollama 采样选项。默认走确定性配置（temperature=0 + 固定 seed），
+    /// 保证同一输入在同一模型上的裁决结果可复现；上层可通过 PromptExecutionSettings 覆盖。
+    /// </summary>
+    private static OllamaOptions BuildOptions(PromptExecutionSettings? executionSettings)
+    {
+        // 默认：贪心解码 + 固定随机种子，最大化可复现性
+        var temperature = 0d;
+        var seed = DefaultSeed;
+        double? topP = null;
+
+        if (executionSettings is Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIPromptExecutionSettings openAi)
+        {
+            if (openAi.Temperature.HasValue)
+                temperature = openAi.Temperature.Value;
+            if (openAi.Seed.HasValue)
+                seed = (int)openAi.Seed.Value;
+            if (openAi.TopP.HasValue)
+                topP = openAi.TopP.Value;
+        }
+
+        return new OllamaOptions
+        {
+            Temperature = temperature,
+            Seed = seed,
+            TopP = topP
         };
     }
 
@@ -278,6 +315,24 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
 
         [JsonPropertyName("keep_alive")]
         public string KeepAlive { get; init; } = string.Empty;
+
+        [JsonPropertyName("options")]
+        public OllamaOptions? Options { get; init; }
+    }
+
+    /// <summary>
+    /// Ollama /api/chat 的采样选项。对应 Ollama API 的 options 对象。
+    /// </summary>
+    private sealed class OllamaOptions
+    {
+        [JsonPropertyName("temperature")]
+        public double Temperature { get; init; }
+
+        [JsonPropertyName("seed")]
+        public int Seed { get; init; }
+
+        [JsonPropertyName("top_p")]
+        public double? TopP { get; init; }
     }
 
     private sealed class OllamaMessage

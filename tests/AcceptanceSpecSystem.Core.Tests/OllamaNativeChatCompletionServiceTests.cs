@@ -171,6 +171,12 @@ public class OllamaNativeChatCompletionServiceTests
         json.RootElement.GetProperty("messages").GetArrayLength().Should().Be(1);
         json.RootElement.GetProperty("messages")[0].GetProperty("role").GetString().Should().Be("user");
         json.RootElement.GetProperty("messages")[0].GetProperty("content").GetString().Should().Be("你好");
+
+        // 未显式传 executionSettings 时，应默认带上确定性采样选项（temperature=0 + 固定 seed），
+        // 保证同输入裁决结果可复现；缺失任一项都会回到 Ollama 默认随机采样。
+        json.RootElement.TryGetProperty("options", out var options).Should().BeTrue("请求体必须携带 options 采样选项");
+        options.GetProperty("temperature").GetDouble().Should().Be(0);
+        options.GetProperty("seed").GetInt32().Should().Be(42);
     }
 
     private static IChatCompletionService CreateOllamaNativeService(AiServiceConfigModel config)
