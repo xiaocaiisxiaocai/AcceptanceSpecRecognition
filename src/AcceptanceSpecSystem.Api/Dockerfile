@@ -23,8 +23,12 @@ WORKDIR /app
 
 ENV ASPNETCORE_URLS=http://+:8080
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends default-mysql-client gzip curl \
+RUN sed -i 's/deb.debian.org/mirrors.tencent.com/g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && for i in 1 2 3 4 5; do \
+         apt-get install -y --no-install-recommends default-mysql-client gzip curl && break \
+         || echo "Retry $i..." && sleep 10; \
+       done \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /data/files /data/dp-keys /app/backups
 
