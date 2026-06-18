@@ -180,6 +180,8 @@ OLLAMA_NUM_PARALLEL=4 ollama serve
 
 ## 参考
 
+- **下一阶段路线图**：[deep-optimization-review.md](./deep-optimization-review.md)（2026-06-12 深度评审：Structured Outputs、prefix caching 模板重排、Embedding 指令前缀、标注回路、案例检索、决策漏斗看板等，含执行顺序）
+
 - 当前匹配流水线：精确命中 → 规范化命中 → 近似规范化 → Embedding召回+重排 → LLM灰区裁决
 - LLM 裁决限流：`LlmCallBudget` + `LlmCircuitBreaker`（代码在 `SemanticKernelMatchingService.cs`）
 - Prompt 模板存储：数据库 `PromptTemplate` 表，可在 `/config/` 页面编辑

@@ -1,0 +1,201 @@
+﻿"Project","Spec1","Spec2","Acceptance1","Acceptance2","Remark1","Remark2","JaccardSim"
+"主要部件品牌
+The main components brands","35.机械手臂：爱普生/发那科/珞石手臂/埃斯顿/海康/汇川/阿童木 /川崎
+36.Robotic Arms: EPSON/Fanuc/Techman Robot/Estun/Hikvision/ Inovance/Atomrobot/Kawasaki","34.滑台／滑轨／螺杆／线马：HIWIN / THK / PI /凯宝
+34.Linear Slide/Linear Guide/Ball Screw/Linear Motor: HIWIN/THK/PI/凯宝","YES","YES",,,"0.308"
+"主要部件品牌
+The main components brands","35.机械手臂：爱普生/发那科/珞石手臂/埃斯顿/海康/汇川/阿童木 /川崎
+36.Robotic Arms: EPSON/Fanuc/Techman Robot/Estun/Hikvision/ Inovance/Atomrobot/Kawasaki","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","YES","YES",,,"0.311"
+"主要部件品牌
+The main components brands","35.机械手臂：爱普生/发那科/珞石手臂/埃斯顿/海康/汇川/阿童木 /川崎
+36.Robotic Arms: EPSON/Fanuc/Techman Robot/Estun/Hikvision/ Inovance/Atomrobot/Kawasaki","25. 伺服马达:三菱/松下/汇川
+25. Servo motor: Mitsubishi / Panasonic/Inovance","YES","YES",,"三菱/台达","0.357"
+"主要部件品牌
+The main components brands","34.滑台／滑轨／螺杆／线马：HIWIN / THK / PI /凯宝
+34.Linear Slide/Linear Guide/Ball Screw/Linear Motor: HIWIN/THK/PI/凯宝","33.吸嘴（SMA厂要求）：SMC/龙之凯
+33.Nozzle (SMA Plant Requirements): SMC/龙之凯","YES","YES",,,"0.35"
+"主要部件品牌
+The main components brands","34.滑台／滑轨／螺杆／线马：HIWIN / THK / PI /凯宝
+34.Linear Slide/Linear Guide/Ball Screw/Linear Motor: HIWIN/THK/PI/凯宝","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","YES","YES",,,"0.386"
+"主要部件品牌
+The main components brands","34.滑台／滑轨／螺杆／线马：HIWIN / THK / PI /凯宝
+34.Linear Slide/Linear Guide/Ball Screw/Linear Motor: HIWIN/THK/PI/凯宝","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","YES",,,,"0.31"
+"主要部件品牌
+The main components brands","34.滑台／滑轨／螺杆／线马：HIWIN / THK / PI /凯宝
+34.Linear Slide/Linear Guide/Ball Screw/Linear Motor: HIWIN/THK/PI/凯宝","25. 伺服马达:三菱/松下/汇川
+25. Servo motor: Mitsubishi / Panasonic/Inovance","YES","YES",,"三菱/台达","0.328"
+"主要部件品牌
+The main components brands","34.滑台／滑轨／螺杆／线马：HIWIN / THK / PI /凯宝
+34.Linear Slide/Linear Guide/Ball Screw/Linear Motor: HIWIN/THK/PI/凯宝","24. 汽缸:SMC /CKD/亚德克
+24. Cylinder: SMC / CKD/AirTAC","YES","YES",,,"0.308"
+"主要部件品牌
+The main components brands","34.滑台／滑轨／螺杆／线马：HIWIN / THK / PI /凯宝
+34.Linear Slide/Linear Guide/Ball Screw/Linear Motor: HIWIN/THK/PI/凯宝","23. 自动加药泵:IWAKI
+23. Automatic dosing pump: IWAKI","YES","YES",,"不涉及","0.302"
+"主要部件品牌
+The main components brands","34.滑台／滑轨／螺杆／线马：HIWIN / THK / PI /凯宝
+34.Linear Slide/Linear Guide/Ball Screw/Linear Motor: HIWIN/THK/PI/凯宝","22. 过滤机:Pan world/IWAKI
+22. Filter: Pan world / IWAKI","YES","YES",,"不涉及","0.396"
+"主要部件品牌
+The main components brands","34.滑台／滑轨／螺杆／线马：HIWIN / THK / PI /凯宝
+34.Linear Slide/Linear Guide/Ball Screw/Linear Motor: HIWIN/THK/PI/凯宝","10. 指示灯:Fuji/idec
+10. Indicator: Fuji / idec","YES","YES",,"和泉","0.327"
+"主要部件品牌
+The main components brands","33.吸嘴（SMA厂要求）：SMC/龙之凯
+33.Nozzle (SMA Plant Requirements): SMC/龙之凯","32.步进/调速马达：雷塞（新厂房且有成本考虑时可选用替代品）
+32.Stepper/Variable Speed Motor: Leadshine","YES","YES",,,"0.304"
+"主要部件品牌
+The main components brands","33.吸嘴（SMA厂要求）：SMC/龙之凯
+33.Nozzle (SMA Plant Requirements): SMC/龙之凯","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","YES","YES",,,"0.31"
+"主要部件品牌
+The main components brands","33.吸嘴（SMA厂要求）：SMC/龙之凯
+33.Nozzle (SMA Plant Requirements): SMC/龙之凯","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","YES",,,,"0.377"
+"主要部件品牌
+The main components brands","33.吸嘴（SMA厂要求）：SMC/龙之凯
+33.Nozzle (SMA Plant Requirements): SMC/龙之凯","27.静电消除器:kenyence/omron
+27. Static eliminator: kenyence / omron","YES",,,,"0.306"
+"主要部件品牌
+The main components brands","33.吸嘴（SMA厂要求）：SMC/龙之凯
+33.Nozzle (SMA Plant Requirements): SMC/龙之凯","25. 伺服马达:三菱/松下/汇川
+25. Servo motor: Mitsubishi / Panasonic/Inovance","YES","YES",,"三菱/台达","0.321"
+"主要部件品牌
+The main components brands","33.吸嘴（SMA厂要求）：SMC/龙之凯
+33.Nozzle (SMA Plant Requirements): SMC/龙之凯","22. 过滤机:Pan world/IWAKI
+22. Filter: Pan world / IWAKI","YES","YES",,"不涉及","0.306"
+"主要部件品牌
+The main components brands","33.吸嘴（SMA厂要求）：SMC/龙之凯
+33.Nozzle (SMA Plant Requirements): SMC/龙之凯","4. 接触器:Fuji/三菱
+4. Contactor: Fuji / Mitsubishi","YES",,,"施耐德品牌","0.3"
+"主要部件品牌
+The main components brands","32.步进/调速马达：雷塞（新厂房且有成本考虑时可选用替代品）
+32.Stepper/Variable Speed Motor: Leadshine","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","YES","YES",,,"0.313"
+"主要部件品牌
+The main components brands","32.步进/调速马达：雷塞（新厂房且有成本考虑时可选用替代品）
+32.Stepper/Variable Speed Motor: Leadshine","25. 伺服马达:三菱/松下/汇川
+25. Servo motor: Mitsubishi / Panasonic/Inovance","YES","YES",,"三菱/台达","0.303"
+"主要部件品牌
+The main components brands","32.步进/调速马达：雷塞（新厂房且有成本考虑时可选用替代品）
+32.Stepper/Variable Speed Motor: Leadshine","21. 减速马达:东方/利茗/精石
+21. Deceleration motor: East / Lee Ming/精石","YES","YES",,"东方/凯福","0.312"
+"主要部件品牌
+The main components brands","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","27.静电消除器:kenyence/omron
+27. Static eliminator: kenyence / omron","YES",,,,"0.319"
+"主要部件品牌
+The main components brands","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","25. 伺服马达:三菱/松下/汇川
+25. Servo motor: Mitsubishi / Panasonic/Inovance","YES","YES",,"三菱/台达","0.333"
+"主要部件品牌
+The main components brands","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","21. 减速马达:东方/利茗/精石
+21. Deceleration motor: East / Lee Ming/精石","YES","YES",,"东方/凯福","0.346"
+"主要部件品牌
+The main components brands","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","12. 四色灯:天德 LED型
+12.  Four-color lights: Tend LED","YES",,,"MACK","0.333"
+"主要部件品牌
+The main components brands","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","5. 热继电器:Fuji/三菱
+5. Thermal relay: Fuji / Mitsubishi","YES",,,"施耐德品牌","0.3"
+"主要部件品牌
+The main components brands","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","4. 接触器:Fuji/三菱
+4. Contactor: Fuji / Mitsubishi","YES",,,"施耐德品牌","0.312"
+"主要部件品牌
+The main components brands","31.线马：雅克贝斯/SATA /泰科贝尔
+31.Linear Motor：Yakobesi/SATA/Tech-Bell","3. 空气开关:Fuji/三菱
+3. Leakage switch: Fuji / Mitsubishi","YES",,,"施耐德品牌","0.327"
+"主要部件品牌
+The main components brands","30.散热风扇:米思米/卡固
+30.Coolling Fan: MiSUMi/KAKU","24. 汽缸:SMC /CKD/亚德克
+24. Cylinder: SMC / CKD/AirTAC",,"YES","怡合达品牌",,"0.317"
+"主要部件品牌
+The main components brands","30.散热风扇:米思米/卡固
+30.Coolling Fan: MiSUMi/KAKU","22. 过滤机:Pan world/IWAKI
+22. Filter: Pan world / IWAKI",,"YES","怡合达品牌","不涉及","0.325"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","28.气动阀:burkert
+28. Pneumatic valve: burkert",,,,,"0.39"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","27.静电消除器:kenyence/omron
+27. Static eliminator: kenyence / omron",,,,,"0.372"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","25. 伺服马达:三菱/松下/汇川
+25. Servo motor: Mitsubishi / Panasonic/Inovance",,"YES",,"三菱/台达","0.353"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","24. 汽缸:SMC /CKD/亚德克
+24. Cylinder: SMC / CKD/AirTAC",,"YES",,,"0.304"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","23. 自动加药泵:IWAKI
+23. Automatic dosing pump: IWAKI",,"YES",,"不涉及","0.326"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","22. 过滤机:Pan world/IWAKI
+22. Filter: Pan world / IWAKI",,"YES",,"不涉及","0.311"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","21. 减速马达:东方/利茗/精石
+21. Deceleration motor: East / Lee Ming/精石",,"YES",,"东方/凯福","0.314"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","14.操作开关指示灯:富士;
+14. Operation switch indicator: Fuji;",,,,"和泉","0.314"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","12. 四色灯:天德 LED型
+12.  Four-color lights: Tend LED",,,,"MACK","0.327"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","10. 指示灯:Fuji/idec
+10. Indicator: Fuji / idec",,"YES",,"和泉","0.326"
+"主要部件品牌
+The main components brands","29.电磁阀：SMC(控制空压的)
+29. Solenoid valve: SMC (control air pressure)","4. 接触器:Fuji/三菱
+4. Contactor: Fuji / Mitsubishi",,,,"施耐德品牌","0.333"
+"主要部件品牌
+The main components brands","28.气动阀:burkert
+28. Pneumatic valve: burkert","27.静电消除器:kenyence/omron
+27. Static eliminator: kenyence / omron",,,,,"0.455"
+"主要部件品牌
+The main components brands","28.气动阀:burkert
+28. Pneumatic valve: burkert","25. 伺服马达:三菱/松下/汇川
+25. Servo motor: Mitsubishi / Panasonic/Inovance",,"YES",,"三菱/台达","0.415"
+"主要部件品牌
+The main components brands","28.气动阀:burkert
+28. Pneumatic valve: burkert","23. 自动加药泵:IWAKI
+23. Automatic dosing pump: IWAKI",,"YES",,"不涉及","0.351"
+"主要部件品牌
+The main components brands","28.气动阀:burkert
+28. Pneumatic valve: burkert","22. 过滤机:Pan world/IWAKI
+22. Filter: Pan world / IWAKI",,"YES",,"不涉及","0.371"
+"主要部件品牌
+The main components brands","28.气动阀:burkert
+28. Pneumatic valve: burkert","21. 减速马达:东方/利茗/精石
+21. Deceleration motor: East / Lee Ming/精石",,"YES",,"东方/凯福","0.333"
+"主要部件品牌
+The main components brands","28.气动阀:burkert
+28. Pneumatic valve: burkert","20. 整流器:三社/台强
+20. Rectifier: three clubs / TC-POWER",,,,"不涉及","0.333"
+"主要部件品牌
+The main components brands","28.气动阀:burkert
+28. Pneumatic valve: burkert","16.变频器:三菱  /FUJI
+16. Inverter: Mitsubishi / FUJI",,,,"台达","0.316"
+"主要部件品牌
+The main components brands","28.气动阀:burkert
+28. Pneumatic valve: burkert","12. 四色灯:天德 LED型
+12.  Four-color lights: Tend LED",,,,"MACK","0.317"
+"主要部件品牌
+The main components brands","28.气动阀:burkert
+28. Pneumatic valve: burkert","11. 计数器:omron
+11. Counter: omron",,,,"和泉","0.345"

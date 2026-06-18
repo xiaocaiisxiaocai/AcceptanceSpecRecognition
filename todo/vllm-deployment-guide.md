@@ -27,7 +27,75 @@
 
 ---
 
+## Docker 部署方式（Windows 11 推荐，2026-06-11 实测记录）
+
+Windows 原生跑 vLLM 易踩 CUDA 编译坑，**推荐用官方镜像 `vllm/vllm-openai` 走 Docker**。用了 Docker 就**跳过下面的「第一/二/三步」原生安装**，直接用本节命令。
+
+### 前提：Docker 能用 GPU
+
+1. 装 **Docker Desktop**（WSL2 后端）；Windows 装好 **NVIDIA 驱动**（支持 WSL2 GPU，无需在 WSL 内单独装驱动）。
+2. GPU 直通自检（一整行）：
+
+```
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+```
+
+能打印出 4090 即正常；这条若报错，先修 Docker Desktop 的 GPU 支持再继续。
+
+### ⚠️ 命令必须写成一整行
+
+`docker run` 命令里的反斜杠 `\` 是 Linux/bash 续行符，**Windows CMD/PowerShell 不认**，分行粘贴会逐行报"不是内部或外部命令"。**务必整行粘贴运行。**
+
+### 起 LLM 容器（宿主端口 11434）
+
+```
+docker run -d --name vllm-llm --restart unless-stopped --gpus all --ipc=host -p 11434:8000 -v vllm-cache:/root/.cache/huggingface -e HF_ENDPOINT=https://hf-mirror.com vllm/vllm-openai:latest --model Qwen/Qwen2.5-14B-Instruct-AWQ --quantization awq --served-model-name qwen2.5-14b --max-model-len 8192 --max-num-seqs 16 --gpu-memory-utilization 0.65
+```
+
+### 起 Embedding 容器（宿主端口 11435）
+
+```
+docker run -d --name vllm-embed --restart unless-stopped --gpus all --ipc=host -p 11435:8000 -v vllm-cache:/root/.cache/huggingface -e HF_ENDPOINT=https://hf-mirror.com vllm/vllm-openai:latest --model Qwen/Qwen3-Embedding-4B --task embed --served-model-name qwen3-embedding-4b --gpu-memory-utilization 0.25
+```
+
+### Docker 专属要点（容易踩）
+
+- **`--ipc=host` 必须加**：vLLM 用共享内存做张量通信，不加会报 SHM 错误。
+- **`-p 11434:8000`**：镜像内部默认监听 8000，映射到宿主 11434/11435，所以命令里**不写 `--port`**。
+- **两个容器都加 `--gpus all`**：共用同一张 4090，靠各自 `--gpu-memory-utilization`（0.65 + 0.25，相加 ≤0.95）切分显存。
+- **`-v vllm-cache:...` 共享命名卷**：两容器复用同一份模型，重启/重建不重下；除非显式 `docker volume rm vllm-cache`。
+- **`HF_ENDPOINT=https://hf-mirror.com`**：国内走镜像拉模型。仍慢可改用 ModelScope 下到本地目录后 `-v 本地目录:/models --model /models/xxx` 挂载。
+- **`--restart unless-stopped`**：开机随 Docker Desktop 自动拉起、崩溃自动重启；手动 `docker stop` 后则保持停止。
+
+### 生命周期（装一次，之后免敲命令）
+
+- `docker run` 只跑**一次**（再跑会同名报错）。之后让 **Docker Desktop 开机自启**（Settings → General → Start when you log in），容器即随之自动起。
+- 日常命令：
+
+```
+docker ps                              # 看是否 Up
+docker logs -f vllm-llm                # 看模型加载 / OOM
+docker stop vllm-llm vllm-embed        # 临时释放显卡
+docker start vllm-llm vllm-embed       # 重新拉起
+docker rm -f vllm-llm                  # 改参数前先删旧容器再重新 run
+```
+
+### 验证
+
+```
+docker ps
+curl http://localhost:11434/v1/models
+curl http://localhost:11435/v1/models
+```
+
+> 接本系统：API 跑在 Windows 宿主/IIS 时用 `http://localhost:11434/v1`（Docker Desktop 转发端口到 Windows localhost）。
+> 若 .NET API 也在 Docker 内，则改用 `http://host.docker.internal:11434/v1` 或同一 Docker 网络。服务类型仍选 **LM Studio**（见第五步）。
+
+---
+
 ## 第一步：环境准备
+
+> 📌 **若用上面的 Docker 方式部署，第一/二/三步（原生安装）整段跳过，直接到第四步验证。** 本段仅适用于不走 Docker 的原生安装。
 
 ```bash
 # 建议独立虚拟环境，Python 3.9-3.12
@@ -107,13 +175,32 @@ curl http://localhost:11435/v1/embeddings \
 
 在 `/config/` 页面 → AI 服务配置：
 
-| 服务用途 | BaseUrl | 模型名 |
-|---------|---------|--------|
-| LLM（裁决/重排） | `http://localhost:11434/v1` | `qwen2.5-14b` |
-| Embedding（召回） | `http://localhost:11435/v1` | `qwen3-embedding-4b` |
+| 服务用途 | 服务类型 | BaseUrl | 模型名 |
+|---------|---------|---------|--------|
+| LLM（裁决/重排） | **LM Studio** | `http://localhost:11434/v1` | `qwen2.5-14b` |
+| Embedding（召回） | **LM Studio** | `http://localhost:11435/v1` | `qwen3-embedding-4b` |
 
-> 系统通过 Semantic Kernel 的 OpenAI 兼容连接器调用，只改 BaseUrl + 模型名即可，
+> ⚠️ **服务类型必须选 "LM Studio"，不能选 "Ollama" 或 "OpenAI/自定义兼容"**（源码核对结论）：
+> - 系统对 `Ollama` 类型走**原生 Ollama 协议**（`OllamaNativeChatCompletionService`），vLLM 只暴露 OpenAI 兼容接口，选 Ollama 会调不通。
+> - `OpenAI` / `CustomOpenAICompatible` 类型在 `AiEndpointNormalizer` 里**禁止 localhost/内网地址**（保存和"测试连接"都会报"不允许使用本地或内网地址"）。
+> - 只有 `LMStudio` 类型同时满足：① 允许 localhost；② 走标准 OpenAI 兼容连接器（`AddOpenAIChatCompletion`）。这正是 vLLM 需要的。
+>
+> 系统通过 Semantic Kernel 的 OpenAI 兼容连接器调用，只改服务类型 + BaseUrl + 模型名即可，
 > `SemanticKernelMatchingService` / `LlmMatchingAssistService` 代码无需改动。
+
+---
+
+## 第五步补充：卸载 Ollama 的正确顺序（务必先验证再卸载）
+
+若计划彻底卸载 Ollama，则 LLM 和 Embedding **都必须**迁到 vLLM（不能再用"Embedding 留 Ollama"的过渡方案），单卡双模型显存约束变成硬性前提。推荐顺序：
+
+1. **保留 Ollama 不动**，先把 vLLM 两个服务起在新端口（11434/11435），用第四步的 curl 验证能正常返回。
+2. 在 `/config/` **新增**两条 LM Studio 类型的 AI 服务配置（指向 vLLM），**先不要删旧的 Ollama 配置**。
+3. 在智能填充页面跑一次真实文档预览，确认匹配/裁决走 vLLM 正常、显存不 OOM。
+4. 确认无误后，再把旧的 Ollama AI 服务配置停用/删除，最后 `ollama rm <model>` + 卸载 Ollama 本体。
+5. **切勿先卸载 Ollama**：一旦先卸载，若 vLLM 显存起不来或配置有误，系统将完全没有可用 AI 服务，智能填充直接不可用。
+
+> 显存提醒：卸载 Ollama 后显卡完全空出，4090 跑 14B-AWQ + 4B-Embedding 更宽裕；但仍须在卸载前实测两个 vLLM 进程能同时常驻。
 
 ---
 

@@ -1,0 +1,18 @@
+- generic [active] [ref=e1]:
+  - img
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - switch
+      - img [ref=e9] [cursor=pointer]
+    - generic [ref=e15]:
+      - img "SAA" [ref=e16]
+      - heading "验收规格管理系统" [level=2] [ref=e18]
+      - generic [ref=e19]:
+        - generic [ref=e24]:
+          - img [ref=e27]
+          - textbox "账号" [ref=e29]
+        - generic [ref=e34]:
+          - img [ref=e37]
+          - textbox "密码" [ref=e39]
+        - button "登录" [ref=e41] [cursor=pointer]:
+          - generic [ref=e42]: 登录

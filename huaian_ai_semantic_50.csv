@@ -1,0 +1,150 @@
+﻿项目,规格,验收,备注
+智能化要求,机台需配备条码扫描装置（含固定式和手持式两种类型），通过读取流程卡上的条码信息，系统能够自动调用对应的生产工艺参数，同时支持参数的增删操作，历史记录保存容量不少于20条；必须100%达到要求,,
+8、售后服务、备件及校准鉴定成本（含使用成本）,8、售后服务、备件及校准鉴定成本（含使用成本）,,
+设备控制系统、软件设计要求（含密码限制）,对于PLC可编程逻辑控制器及相关计算机程序，供应商需长期无偿提供编程工具及技术支持，并承诺程序版本终身免费更新维护,,
+自动化,机器应预先设计AGV自动导引车的对接端口，确保软硬件配置能够满足自动化物流系统的接入需求,,
+翻板功能,系统通过识别基板上的二维码标识，智能判断是否需要对板件进行180度翻转操作,,
+"主要部件品牌
+The main components brands","25. 伺服马达:三菱/松下/汇川
+25. Servo motor: Mitsubishi / Panasonic/Inovance",,
+"主要部件品牌
+The main components brands","23. 自动加药泵:IWAKI
+23. Automatic dosing pump: IWAKI",,
+"主要部件品牌
+The main components brands","22. 过滤机:Pan world/IWAKI
+22. Filter: Pan world / IWAKI",,
+"主要部件品牌
+The main components brands","21. 减速马达:东方/利茗/精石
+21. Deceleration motor: East / Lee Ming/精石",,
+"主要部件品牌
+The main components brands","10. 指示灯:Fuji/idec
+10. Indicator: Fuji / idec",,
+"主要部件品牌
+The main components brands","7. 传感器:omron/kenyence/sick /京东方
+7. Sensor: omron / keyence/sick /BOE",,
+"维护保养
+maintenance","3.机台运行时零件须有分类分段统计特性（类似汽车的公里数）：比如海绵轮有实际使用时间，设定时间及密码清零等，包含蚀刻1槽叶片滚轮，蚀刻2槽叶片滚轮，隔离段滚轮；插销、轴套等，并且可以上传到厂内的信息后台
+3.Equipment running parts must have classification subsection statistical function (similar to the number of kilometers of the car): such as sponge wheel has the actual use of time, set time and password reset, including etching 1 slot blade wheel, etching 2 slot blade wheel, isolation segment wheel; Plugs, bushings, etc., and can be uploaded to the information background of the factory",,
+"维护保养
+maintenance","2.常维修/拆卸处，螺丝要方便拆卸（拆卸后螺丝不可掉落）！
+M4及以上螺丝需打螺丝胶，螺丝胶强度为低强度；M4以下螺丝杆使用前需涂厌氧胶固化24H后使用；注意拆卸应的空间（不可用特殊工具才能拆：一般工具转不动或太长干涉无法拆卸）
+2.Frequent maintenance / disassembly place, screw should be easy to disassemble (screw can not fall after disassembly)!
+M4 and above screws need screw glue, screw glue strength is low strength; Screw rod below M4 should be coated with anaerobic adhesive before use, after 24 H curing; Pay attention to the space required for disassembly (not available with special tools to remove: general tools can not move or too long interference can not be removed)",,
+"机构设计配接
+Organization design","8.封闭式机台内部带有摄像头监控，位置角度可调整，且可保存30天以上，方便机故查找真因
+8.The enclosed device has a camera monitoring inside, the position angle can be adjusted, and it can be saved for more than 30 days, which is convenient for the machine to find the true cause.",,
+"机构设计配接
+Organization design","7.所有吸嘴组合件应当有积尘盒，上下滑动需使用UPE耐磨套，不可使用金属与金属摩擦
+7.All nozzle assemblies must have dust collector boxes .UPE wear sleeves are required for slideing up and down .Metal on metal friction is not allowed .",,
+"操作人性化
+User-friendly operation","14.有对接无尘室的机台，无尘室封口需使用透明板的制作防止产品被正压吹起造成卡板
+14. There is equipment for docking the cleanroom. The sealing of cleanroom needs to be made of transparent board to prevent the product from being blown up by positive pressure and causing jam (as shown below)",,
+"操作人性化
+User-friendly operation","12.管道标示：
+12.1机台管路需标示流向,流体种类(中英文)为耐酸碱材质,黏贴时需对称及呈90度角,每1M标示ㄧ次
+12.1 The equipment pipeline should be marked with flow direction, the type of fluid (Chinese and English) is acid and alkali resistant material, and it should be symmetrical and at a 90-degree angle when sticking, and every 1M should be marked ㄧ times
+12.2其他相关标准参照鹏鼎内部《管道标示作业规范SI-3B0-040》执行
+12.2 Other relevant standards refer to Avary Holding《Pipe Marking Operation Specification SI-3B0-040》Implementation",,
+"操作人性化
+User-friendly operation","11.阀门标示：
+11. Valve marking:
+a.机台阀门及阀门吊牌色号：常闭（红色 PANTONE 185C）、调整（蓝色 PANTONE Blue 072C）、常开（绿色 PANTONE 3415C）吊牌为耐酸碱塑料材质厚度3mm，在标示上端左右居中打孔且两面均需印文字（中英文及数字均为微软正黑粗体简体字，文字颜色为白色）
+a. Equipment valves and valve tags color number: normally open (red PANTONE 185C), adjustment (blue PANTONE Blue 072C), normal opening (green PANTONE 3415C) hangtag for acid and alkali resistant plastic material thickness of 3mm, in the upper end of the sign left and right center punching holes and both sides need to print text (Chinese and English and numbers are Microsoft black bold simplified characters, text color is white)
+b.吊牌长度L=70mm,宽度W=30mm，圆孔直径Ø5mm,孔上端距上边距离5mm,字体大小:中文50英文18
+b. Tag length L=70mm, width W=30mm, round hole diameter Ø5mm, hole upper end distance 5mm, font size: Chinese 50 English 18
+c.吊牌固定方式：干制程采用不锈钢珠链，湿制程采用耐酸碱塑料珠链
+c. Hang tag fixing method: the dry process adopts stainless steel bead chain, and the wet process adopts acid-resistant plastic bead chain",,
+"操作人性化
+User-friendly operation","10.传动滚轮须有编号，防止安装错误，经常拆卸保养部分须有不同颜色区分，目视管理
+10.Transmission rollers must be numbered to prevent installation errors. Frequently disassembled maintenance parts must be distinguished by different colors for visual management .",,
+"安全保护功能
+Security functions","10.上下料需日常开关门板感应器使用插销式感应器
+10. Loading and unloading require daily use of door panel sensors; a pin-type sensor is recommended.",,
+"安全保护功能
+Security functions","1.安全警示标识:
+a.投、收板机防护门上要张贴“当心压手”图文标识
+b.链条、滚轮等防护罩/挡板上张贴“当心卷入”图文标识
+c.高温槽体、管道上张贴“当心烫伤”图文标识
+d.电箱、电器部件上张贴“当心触电”图文标识
+e.如设备噪声超过80dB需在设备明显部位张贴”噪声有害“”戴护耳器“图文警示标示,标识要明显清晰、中文简体
+f.安全报警标识:指设备生产厂家依照危险部位可能产生的伤害类别,需随机配有符合法规、国标的报警标识,有文字的应当应当配有中文简体字样,标识要明显清晰
+1.Safety warning signs:  
+a. ""Caution: Hands at Risk"" graphic label must be posted on the protective doors of the feeding and receiving machines.  
+b. ""Caution: Entanglement Hazard"" graphic label should be affixed to protective covers or guards covering chains, rollers, and other moving parts.  
+c. ""Caution: Burns Risk"" graphic label must be placed on high-temperature tanks and pipelines.  
+d. ""Caution: Electric Shock Hazard"" graphic label should be displayed on electrical boxes and components.  
+e. If equipment noise exceeds 80 dB, ""Noise Hazard"" and ""Wear Ear Protection"" graphic warnings—clearly visible and in simplified Chinese—must be prominently affixed to the equipment.  
+f. Safety alarm labels: These are provided by the equipment manufacturer based on the types of potential injuries associated with hazardous areas. They must comply with relevant regulations and national standards, and any text-based labels must include clear, concise instructions in simplified Chinese.",,
+"安全保护功能
+Security functions","1.安装位置规范：
+a.湿制程主线体之出入料与传动马达处80cm内（手可触及）需设置紧急停止钮，其余槽段每隔200cm设置一个（已药槽为优先），线体如有中检段无法常态以门检保护时，亦需设置紧急停止钮。
+b.周边配置如有马达传动（摇摆/旋转轴…等）亦需80cm内设置一处。
+c.紧急停止钮应当独立安装，不准直接镶嵌在槽内，避免进入药水腐蚀造成异常。
+1.Installation position specification :
+a.An emergency stop button should be set within 80cm (accessible by hand) of the inlet and outlet of the main body of wet manufacturing process and the transmission motor, and one should be set every 200cm for the other slot segments (the medicine slot is preferred). If the middle inspection segment of the line body cannot be protected by normal door inspection, the emergency stop button should also be set.
+b.Peripheral configuration, such as motor drive (swing/rotation shaft, etc.), also need to set a place within 80cm .
+c.The emergency stop button must be installed independently and cannot be directly embedded in the groove to avoid entering the solution and causing abnormalities due to corrosion.",,
+"安全保护功能
+Security functions","8.冲压裁剪覆盖等机构需有防护设施及安全sensor;裁刀处之护罩开口须小于10mm或者与台面间距10mm以下,避免手指不慎伸入,裁切部位到防护的安全距离
+8.Stamping, cutting, and covering mechanisms must be equipped with protective devices and safety sensors; the guard openings at the cutting blade area should be less than 10 mm or positioned within 10 mm of the workbench surface to prevent accidental insertion of fingers. Additionally, ensure that the cutting area maintains a safe distance from any potential hazards.",,
+"安全保护功能
+Security functions","4.双列移动机构设计内部不可有空间联通
+4.The dual-row moving mechanism design must ensure there is no internal spatial connection.",,
+"安全保护功能
+Security functions","2.冲压裁剪覆盖等机构需有防护设施及安全sensor；裁刀处之护罩开口须小于10mm或者与台面间距10mm以下，避免手指不慎伸入
+2. Punching machine cutting and covering machine should be equipped with protective devices and safety sensor ;The opening of the protective cover at the cutting knife shall be less than 10mm or distance between the cover and the table shall be less than 10mm to avoid inadvertent finger extension.",,
+"安全保护功能
+Security functions","1.移动式台车需有防撞设施,运动机构等危险处需有防护盖板并有开盖防呆联动停止特性
+1. Mobile trolleys need to have anti-collision equipment and dangerous places such as operating machines need to have anti-cover and cover opening Sluggish stop function;Mechanical manual installation must have collision protection and anti-protection signal number lock stop Function.",,
+"安全保护功能
+Security functions","1.应设有温度,压力,电流过载等异常自动报警机制及异常履历记录.
+1.Equipment should be provided with temperature, pressure, current overload alarm system and abnormal history recording.",,
+"注：设备共享通性验收规范除设备本体不具备填写不适用外，其他都要按照规范填写，不可选NO
+Note: equipment common acceptance acceptance in addition to the device body does not have to fill in does not apply, the other should be completed in accordance with the norms, not optional NO","注：机台共享通性验收规范除设备本体不配有填写不适用外，其他都要按照规范填写，不可选NO
+Note: equipment common acceptance acceptance in addition to the device body does not have to fill in does not apply, the other should be completed in accordance with the norms, not optional NO",,
+"安全保护功能
+Security functions
+Security functions","18.调试维修机台应配有低速低能模式（20mm/s）,防止撞伤
+18. Debugging and maintenance equipment must be equipped with a low-speed, low-energy mode (20 mm/s) to prevent injuries from collisions.",,
+一，电器安全设计,"14,水平线所有槽体盖板/门窗要和输送联动（水洗侧门板需加连锁,停输送）",,
+"验收附带
+设备资料",备品清单（附使用寿命）、机台BOM（标准件：名称、品牌、型号、数量；加工件：名称、图号、尺寸图、数量等，发货前配置）,,
+"验收附带
+设备资料",主要零部件（标准件）／易损件（轴承、同步带、联轴器等）／耗材（皮带、吸嘴等）尺寸图及清单（含品牌／型号规格）；料号专属零配件设计规范（仿型吸嘴、PIN板等）,,
+"验收附带
+设备资料",机械结构图（含三视图、分解图，并附有个零件名称、品牌、规格或图号、尺寸图）、管路图（水，电，气）、CT分布图,,
+"标准件
+品牌要求",气动元件，新厂房且有成本考量时可选用替代品：亚德克,,
+"标准件
+品牌要求","（SMA厂应当配有）坦克链品牌要求：（超出要求者须提出确认后，始可使用）
+1.易格斯（igus）；2.米斯米（Misumi）；3.THK；4.金福隆（JFLO）",,
+"标准件
+品牌要求",10.空气开关：Fuji／三菱（禁止使用三菱BV-D系列漏电保护开关）,,
+"标准件
+品牌要求","（SMA厂应当配有）BOM2（低阶规格）：
+1.滑台／滑轨／丝杆：凯宝、PI科健",,
+"标准件
+品牌要求",9.空气开关：Fuji／三菱（禁止使用三菱BV-D系列漏电保护开关）,,
+"标准件
+品牌要求","（SMA厂应当配有）BOM1（标准规格）：
+1.滑台／滑轨／丝杆／线马：HIWIN、THK",,
+"标准件
+品牌要求",新厂房且有成本考量时可选用替代品：珞石手臂。,,
+"标准件
+品牌要求",六轴，45~165KG，发那科(Fanuc)，R2000iC/165F,,
+"标准件
+品牌要求",触摸屏：Proface（替代品：威纶）、汇川（新厂房且有成本考量时可选用替代）,,
+"标准件
+品牌要求",感应器：omron／keyence／sick,,
+"标准件
+品牌要求",滑台／滑轨／螺杆／线码：HIWIN、THK,,
+出厂点检,出机前配置设计点检checklist、组装点检checklist、ORT验证清单、验收规格点检表、噪音测试视频、轴精度测试视频、静电测试视频，若有NG项目不予出机（点检项目需提前与自动化确认）。,,
+出厂点检,（SMA厂应当配有）气缸sensor安装好后打热熔胶再次加固,,
+出厂点检,"运动部位螺丝需加装弹簧垫片或使用防松动螺母
+（所有移动件／振动件，有锁附螺丝处，须有防松措拖）",,
+"智能化
+防呆",5. 可识别Dummy ID并记录相关生产数据。（使用次数／时间／线体别／其它讯息等）,,
+"智能化
+防呆",2. 可监控板子数量，不足时须提示，无板子时须报警提示,,
+维护保养,"常维修／拆卸处，螺丝要方便拆卸（拆卸后螺丝不可掉落）；
+注意拆卸应的空间（不可用特殊工具才能拆：一般工具转不动或太长干涉无法拆卸）",,

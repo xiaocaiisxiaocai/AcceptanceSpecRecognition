@@ -1,0 +1,352 @@
+[
+  {
+    "id": 1,
+    "project": "智能化要求",
+    "specification": "1.设备上要求有扫码枪（固定扫码头和手动扫码枪），实现对应设备生产参数根据扫流程单上的码自动带出，并可新增及删除功能，储存至少20笔以上；\n2.必须100%满足我司<设备智能要求验收规范表>需求和<SECS功能厂商确认清单>，配合智能化测试\n3.需厂外验机的设备，厂商须提供secs自测报告后方可申请验机\n4.不需厂外验机的设备，厂商须于打包出机前提供SECS自测报告",
+    "acceptance": "□OK   □NG",
+    "remark": "不涉及PC"
+  },
+  {
+    "id": 2,
+    "project": "8、售后服务、备件及校准鉴定成本（含使用成本）",
+    "specification": "8、售后服务、备件及校准鉴定成本（含使用成本）",
+    "acceptance": "8、售后服务、备件及校准鉴定成本（含使用成本）",
+    "remark": "8、售后服务、备件及校准鉴定成本（含使用成本）"
+  },
+  {
+    "id": 3,
+    "project": "设备控制系统、软件设计要求（含密码限制）",
+    "specification": "计算机软件、可编程控制器（PLC）永久提供PLC编程软件服务，软件需终身免费升级。",
+    "acceptance": "█OK   □NG",
+    "remark": "不涉及PC"
+  },
+  {
+    "id": 4,
+    "project": "自动化",
+    "specification": "设备需预留AGV接口，软件硬件均需满足使用要求",
+    "acceptance": "□OK   ▇NG",
+    "remark": "非投收板机，不适用"
+  },
+  {
+    "id": 5,
+    "project": "翻板功能",
+    "specification": "扫描芯板二维码，根据读码内容将板子翻面或不翻面",
+    "acceptance": "█OK   □NG",
+    "remark": "以實際方案為準"
+  },
+  {
+    "id": 6,
+    "project": "主要部件品牌\nThe main components brands",
+    "specification": "25. 伺服马达:三菱/松下/汇川\n25. Servo motor: Mitsubishi / Panasonic/Inovance",
+    "acceptance": "YES",
+    "remark": "三菱/台达"
+  },
+  {
+    "id": 7,
+    "project": "主要部件品牌\nThe main components brands",
+    "specification": "23. 自动加药泵:IWAKI\n23. Automatic dosing pump: IWAKI",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 8,
+    "project": "主要部件品牌\nThe main components brands",
+    "specification": "22. 过滤机:Pan world/IWAKI\n22. Filter: Pan world / IWAKI",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 9,
+    "project": "主要部件品牌\nThe main components brands",
+    "specification": "21. 减速马达:东方/利茗/精石\n21. Deceleration motor: East / Lee Ming/精石",
+    "acceptance": "YES",
+    "remark": "东方/凯福"
+  },
+  {
+    "id": 10,
+    "project": "主要部件品牌\nThe main components brands",
+    "specification": "10. 指示灯:Fuji/idec\n10. Indicator: Fuji / idec",
+    "acceptance": "YES",
+    "remark": "和泉"
+  },
+  {
+    "id": 11,
+    "project": "主要部件品牌\nThe main components brands",
+    "specification": "7. 传感器:omron/kenyence/sick /京东方\n7. Sensor: omron / keyence/sick /BOE",
+    "acceptance": "YES",
+    "remark": "或同等级品牌"
+  },
+  {
+    "id": 12,
+    "project": "维护保养\nmaintenance",
+    "specification": "3.设备运行时零件须有分类分段统计功能（类似汽车的公里数）：比如海绵轮有实际使用时间，设定时间及密码清零等，包含蚀刻1槽叶片滚轮，蚀刻2槽叶片滚轮，隔离段滚轮；插销、轴套等，并且可以上传到厂内的信息后台\n3.Equipment running parts must have classification subsection statistical function (similar to the number of kilometers of the car): such as sponge wheel has the actual use of time, set time and password reset, including etching 1 slot blade wheel, etching 2 slot blade wheel, isolation segment wheel; Plugs, bushings, etc., and can be uploaded to the information background of the factory",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 13,
+    "project": "维护保养\nmaintenance",
+    "specification": "2.常维修/拆卸处，螺丝要方便拆卸（拆卸后螺丝不可掉落）！\nM4及以上螺丝需打螺丝胶，螺丝胶强度为低强度；M4以下螺丝杆使用前需涂厌氧胶固化24H后使用；注意拆卸需要的空间（不可用特殊工具才能拆：一般工具转不动或太长干涉无法拆卸）\n2.Frequent maintenance / disassembly place, screw should be easy to disassemble (screw can not fall after disassembly)!\nM4 and above screws need screw glue, screw glue strength is low strength; Screw rod below M4 should be coated with anaerobic adhesive before use, after 24 H curing; Pay attention to the space required for disassembly (not available with special tools to remove: general tools can not move or too long interference can not be removed)",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 14,
+    "project": "机构设计配接\nOrganization design",
+    "specification": "8.封闭式设备内部带有摄像头监控，位置角度可调整，且可保存30天以上，方便机故查找真因\n8.The enclosed device has a camera monitoring inside, the position angle can be adjusted, and it can be saved for more than 30 days, which is convenient for the machine to find the true cause.",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 15,
+    "project": "机构设计配接\nOrganization design",
+    "specification": "7.所有吸嘴组合件必须有积尘盒，上下滑动需使用UPE耐磨套，不可使用金属与金属摩擦\n7.All nozzle assemblies must have dust collector boxes .UPE wear sleeves are required for slideing up and down .Metal on metal friction is not allowed .",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 16,
+    "project": "操作人性化\nUser-friendly operation",
+    "specification": "14.有对接无尘室的设备，无尘室封口需使用透明板的制作防止产品被正压吹起造成卡板\n14. There is equipment for docking the cleanroom. The sealing of cleanroom needs to be made of transparent board to prevent the product from being blown up by positive pressure and causing jam (as shown below)",
+    "acceptance": "YES",
+    "remark": "不适用"
+  },
+  {
+    "id": 17,
+    "project": "操作人性化\nUser-friendly operation",
+    "specification": "12.管道标示：\n12.1设备管路需标示流向,流体种类(中英文)为耐酸碱材质,黏贴时需对称及呈90度角,每1M标示ㄧ次\n12.1 The equipment pipeline should be marked with flow direction, the type of fluid (Chinese and English) is acid and alkali resistant material, and it should be symmetrical and at a 90-degree angle when sticking, and every 1M should be marked ㄧ times\n12.2其他相关标准参照鹏鼎内部《管道标示作业规范SI-3B0-040》执行\n12.2 Other relevant standards refer to Avary Holding《Pipe Marking Operation Specification SI-3B0-040》Implementation",
+    "acceptance": "YES",
+    "remark": "不适用"
+  },
+  {
+    "id": 18,
+    "project": "操作人性化\nUser-friendly operation",
+    "specification": "11.阀门标示：\n11. Valve marking:\na.设备阀门及阀门吊牌色号：常闭（红色 PANTONE 185C）、调整（蓝色 PANTONE Blue 072C）、常开（绿色 PANTONE 3415C）吊牌为耐酸碱塑料材质厚度3mm，在标示上端左右居中打孔且两面均需印文字（中英文及数字均为微软正黑粗体简体字，文字颜色为白色）\na. Equipment valves and valve tags color number: normally open (red PANTONE 185C), adjustment (blue PANTONE Blue 072C), normal opening (green PANTONE 3415C) hangtag for acid and alkali resistant plastic material thickness of 3mm, in the upper end of the sign left and right center punching holes and both sides need to print text (Chinese and English and numbers are Microsoft black bold simplified characters, text color is white)\nb.吊牌长度L=70mm,宽度W=30mm，圆孔直径Ø5mm,孔上端距上边距离5mm,字体大小:中文50英文18\nb. Tag length L=70mm, width W=30mm, round hole diameter Ø5mm, hole upper end distance 5mm, font size: Chinese 50 English 18\nc.吊牌固定方式：干制程采用不锈钢珠链，湿制程采用耐酸碱塑料珠链\nc. Hang tag fixing method: the dry process adopts stainless steel bead chain, and the wet process adopts acid-resistant plastic bead chain",
+    "acceptance": "YES",
+    "remark": "不适用"
+  },
+  {
+    "id": 19,
+    "project": "操作人性化\nUser-friendly operation",
+    "specification": "10.传动滚轮须有编号，防止安装错误，经常拆卸保养部分须有不同颜色区分，目视管理\n10.Transmission rollers must be numbered to prevent installation errors. Frequently disassembled maintenance parts must be distinguished by different colors for visual management .",
+    "acceptance": "YES",
+    "remark": "不适用"
+  },
+  {
+    "id": 20,
+    "project": "安全保护功能\nSecurity functions",
+    "specification": "10.上下料需日常开关门板感应器使用插销式感应器\n10. Loading and unloading require daily use of door panel sensors; a pin-type sensor is recommended.",
+    "acceptance": "YES",
+    "remark": "无"
+  },
+  {
+    "id": 21,
+    "project": "安全保护功能\nSecurity functions",
+    "specification": "1.安全警示标识:\na.投、收板机防护门上要张贴“当心压手”图文标识\nb.链条、滚轮等防护罩/挡板上张贴“当心卷入”图文标识\nc.高温槽体、管道上张贴“当心烫伤”图文标识\nd.电箱、电器部件上张贴“当心触电”图文标识\ne.如设备噪声超过80dB需在设备明显部位张贴”噪声有害“”戴护耳器“图文警示标示,标识要明显清晰、中文简体\nf.安全报警标识:指设备生产厂家依照危险部位可能产生的伤害类别,需随机配有符合法规、国标的报警标识,有文字的必须要求中文简体字样,标识要明显清晰\n1.Safety warning signs:  \na. \"Caution: Hands at Risk\" graphic label must be posted on the protective doors of the feeding and receiving machines.  \nb. \"Caution: Entanglement Hazard\" graphic label should be affixed to protective covers or guards covering chains, rollers, and other moving parts.  \nc. \"Caution: Burns Risk\" graphic label must be placed on high-temperature tanks and pipelines.  \nd. \"Caution: Electric Shock Hazard\" graphic label should be displayed on electrical boxes and components.  \ne. If equipment noise exceeds 80 dB, \"Noise Hazard\" and \"Wear Ear Protection\" graphic warnings—clearly visible and in simplified Chinese—must be prominently affixed to the equipment.  \nf. Safety alarm labels: These are provided by the equipment manufacturer based on the types of potential injuries associated with hazardous areas. They must comply with relevant regulations and national standards, and any text-based labels must include clear, concise instructions in simplified Chinese.",
+    "acceptance": "YES",
+    "remark": "不涉及温度相关"
+  },
+  {
+    "id": 22,
+    "project": "安全保护功能\nSecurity functions",
+    "specification": "1.安装位置规范：\na.湿制程主线体之出入料与传动马达处80cm内（手可触及）需设置紧急停止钮，其余槽段每隔200cm设置一个（已药槽为优先），线体如有中检段无法常态以门检保护时，亦需设置紧急停止钮。\nb.周边配置如有马达传动（摇摆/旋转轴…等）亦需80cm内设置一处。\nc.紧急停止钮必须独立安装，不准直接镶嵌在槽内，避免进入药水腐蚀造成异常。\n1.Installation position specification :\na.An emergency stop button should be set within 80cm (accessible by hand) of the inlet and outlet of the main body of wet manufacturing process and the transmission motor, and one should be set every 200cm for the other slot segments (the medicine slot is preferred). If the middle inspection segment of the line body cannot be protected by normal door inspection, the emergency stop button should also be set.\nb.Peripheral configuration, such as motor drive (swing/rotation shaft, etc.), also need to set a place within 80cm .\nc.The emergency stop button must be installed independently and cannot be directly embedded in the groove to avoid entering the solution and causing abnormalities due to corrosion.",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 23,
+    "project": "安全保护功能\nSecurity functions",
+    "specification": "8.冲压裁剪覆盖等机构需有防护装置及安全sensor;裁刀处之护罩开口须小于10mm或者与台面间距10mm以下,避免手指不慎伸入,裁切部位到防护的安全距离\n8.Stamping, cutting, and covering mechanisms must be equipped with protective devices and safety sensors; the guard openings at the cutting blade area should be less than 10 mm or positioned within 10 mm of the workbench surface to prevent accidental insertion of fingers. Additionally, ensure that the cutting area maintains a safe distance from any potential hazards.",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 24,
+    "project": "安全保护功能\nSecurity functions",
+    "specification": "4.双列移动机构设计内部不可有空间联通\n4.The dual-row moving mechanism design must ensure there is no internal spatial connection.",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 25,
+    "project": "安全保护功能\nSecurity functions",
+    "specification": "2.冲压裁剪覆盖等机构需有防护装置及安全sensor；裁刀处之护罩开口须小于10mm或者与台面间距10mm以下，避免手指不慎伸入\n2. Punching machine cutting and covering machine should be equipped with protective devices and safety sensor ;The opening of the protective cover at the cutting knife shall be less than 10mm or distance between the cover and the table shall be less than 10mm to avoid inadvertent finger extension.",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 26,
+    "project": "安全保护功能\nSecurity functions",
+    "specification": "1.移动式台车需有防撞装置,运动机构等危险处需有防护盖板并有开盖防呆联动停止功能\n1. Mobile trolleys need to have anti-collision equipment and dangerous places such as operating machines need to have anti-cover and cover opening Sluggish stop function;Mechanical manual installation must have collision protection and anti-protection signal number lock stop Function.",
+    "acceptance": "YES",
+    "remark": "不涉及"
+  },
+  {
+    "id": 27,
+    "project": "安全保护功能\nSecurity functions",
+    "specification": "1.应设有温度,压力,电流过载等异常自动报警系统及异常履历记录.\n1.Equipment should be provided with temperature, pressure, current overload alarm system and abnormal history recording.",
+    "acceptance": "YES",
+    "remark": "不涉及温度相关"
+  },
+  {
+    "id": 28,
+    "project": "注：设备共享通性验收规范除设备本体不具备填写不适用外，其他都要按照规范填写，不可选NO\nNote: equipment common acceptance acceptance in addition to the device body does not have to fill in does not apply, the other should be completed in accordance with the norms, not optional NO",
+    "specification": "注：设备共享通性验收规范除设备本体不具备填写不适用外，其他都要按照规范填写，不可选NO\nNote: equipment common acceptance acceptance in addition to the device body does not have to fill in does not apply, the other should be completed in accordance with the norms, not optional NO",
+    "acceptance": "注：设备共享通性验收规范除设备本体不具备填写不适用外，其他都要按照规范填写，不可选NO\nNote: equipment common acceptance acceptance in addition to the device body does not have to fill in does not apply, the other should be completed in accordance with the norms, not optional NO",
+    "remark": "注：设备共享通性验收规范除设备本体不具备填写不适用外，其他都要按照规范填写，不可选NO\nNote: equipment common acceptance acceptance in addition to the device body does not have to fill in does not apply, the other should be completed in accordance with the norms, not optional NO"
+  },
+  {
+    "id": 29,
+    "project": "安全保护功能\nSecurity functions\nSecurity functions",
+    "specification": "18.调试维修设备需要具备低速低能模式（20mm/s）,防止撞伤\n18. Debugging and maintenance equipment must be equipped with a low-speed, low-energy mode (20 mm/s) to prevent injuries from collisions.",
+    "acceptance": "YES",
+    "remark": "气缸类除外"
+  },
+  {
+    "id": 30,
+    "project": "一，电器安全设计",
+    "specification": "14,水平线所有槽体盖板/门窗要和输送联动（水洗侧门板需加连锁,停输送）",
+    "acceptance": "YES",
+    "remark": "主传动链条处硬防护就OK"
+  },
+  {
+    "id": 31,
+    "project": "验收附带\n设备资料",
+    "specification": "备品清单（附使用寿命）、机台BOM（标准件：名称、品牌、型号、数量；加工件：名称、图号、尺寸图、数量等，发货前提供）",
+    "acceptance": "NG",
+    "remark": "提供備品清單"
+  },
+  {
+    "id": 32,
+    "project": "验收附带\n设备资料",
+    "specification": "主要零部件（标准件）／易损件（轴承、同步带、联轴器等）／耗材（皮带、吸嘴等）尺寸图及清单（含品牌／型号规格）；料号专属零配件设计规范（仿型吸嘴、PIN板等）",
+    "acceptance": "NG",
+    "remark": "提供易損件清單"
+  },
+  {
+    "id": 33,
+    "project": "验收附带\n设备资料",
+    "specification": "机械结构图（含三视图、分解图，并附有个零件名称、品牌、规格或图号、尺寸图）、管路图（水，电，气）、CT分布图",
+    "acceptance": "NG",
+    "remark": "機械機構圖（提供設備三視圖）"
+  },
+  {
+    "id": 34,
+    "project": "标准件\n品牌要求",
+    "specification": "气动元件，新厂房且有成本考量时可选用替代品：亚德克",
+    "acceptance": "OK",
+    "remark": "SMC，亞德客，氣立可"
+  },
+  {
+    "id": 35,
+    "project": "标准件\n品牌要求",
+    "specification": "（SMA厂要求）坦克链品牌要求：（超出要求者须提出确认后，始可使用）\n1.易格斯（igus）；2.米斯米（Misumi）；3.THK；4.金福隆（JFLO）",
+    "acceptance": "OK",
+    "remark": "易格斯，沃德"
+  },
+  {
+    "id": 36,
+    "project": "标准件\n品牌要求",
+    "specification": "10.空气开关：Fuji／三菱（禁止使用三菱BV-D系列漏电保护开关）",
+    "acceptance": "NG",
+    "remark": "标配施耐德品牌"
+  },
+  {
+    "id": 37,
+    "project": "标准件\n品牌要求",
+    "specification": "（SMA厂要求）BOM2（低阶规格）：\n1.滑台／滑轨／丝杆：凯宝、PI科健",
+    "acceptance": "NG",
+    "remark": "滑台，導軌：亞德客\n絲桿：上銀"
+  },
+  {
+    "id": 38,
+    "project": "标准件\n品牌要求",
+    "specification": "9.空气开关：Fuji／三菱（禁止使用三菱BV-D系列漏电保护开关）",
+    "acceptance": "NG",
+    "remark": "标配施耐德品牌"
+  },
+  {
+    "id": 39,
+    "project": "标准件\n品牌要求",
+    "specification": "（SMA厂要求）BOM1（标准规格）：\n1.滑台／滑轨／丝杆／线马：HIWIN、THK",
+    "acceptance": "NG",
+    "remark": "滑台，導軌：亞德客\n絲桿：上銀"
+  },
+  {
+    "id": 40,
+    "project": "标准件\n品牌要求",
+    "specification": "新厂房且有成本考量时可选用替代品：珞石手臂。",
+    "acceptance": "NG",
+    "remark": "keyence／sick或同级别品牌"
+  },
+  {
+    "id": 41,
+    "project": "标准件\n品牌要求",
+    "specification": "六轴，45~165KG，发那科(Fanuc)，R2000iC/165F",
+    "acceptance": "OK",
+    "remark": "可用同等級品牌：HIWIN/SATA/亞德客"
+  },
+  {
+    "id": 42,
+    "project": "标准件\n品牌要求",
+    "specification": "触摸屏：Proface（替代品：威纶）、汇川（新厂房且有成本考量时可选用替代）",
+    "acceptance": "NG",
+    "remark": "施耐德品牌"
+  },
+  {
+    "id": 43,
+    "project": "标准件\n品牌要求",
+    "specification": "感应器：omron／keyence／sick",
+    "acceptance": "NG",
+    "remark": "非SMA厂"
+  },
+  {
+    "id": 44,
+    "project": "标准件\n品牌要求",
+    "specification": "滑台／滑轨／螺杆／线码：HIWIN、THK",
+    "acceptance": "OK",
+    "remark": "可用同等級品牌：SMC/施邁茨/柏卡/龍之凱/加耐力/阿爾貝斯/氣立可等"
+  },
+  {
+    "id": 45,
+    "project": "出厂点检",
+    "specification": "出机前提供设计点检checklist、组装点检checklist、ORT验证清单、验收规格点检表、噪音测试视频、轴精度测试视频、静电测试视频，若有NG项目不予出机（点检项目需提前与自动化确认）。",
+    "acceptance": "NG",
+    "remark": "keyence／sick或同级别品牌"
+  },
+  {
+    "id": 46,
+    "project": "出厂点检",
+    "specification": "（SMA厂要求）气缸sensor安装好后打热熔胶再次加固",
+    "acceptance": "OK",
+    "remark": "可用同等級品牌：HIWIN/SATA/亞德客"
+  },
+  {
+    "id": 47,
+    "project": "出厂点检",
+    "specification": "运动部位螺丝需加装弹簧垫片或使用防松动螺母\n（所有移动件／振动件，有锁附螺丝处，须有防松措拖）",
+    "acceptance": "NG",
+    "remark": "非SMA厂"
+  },
+  {
+    "id": 48,
+    "project": "智能化\n防呆",
+    "specification": "5. 可识别Dummy ID并记录相关生产数据。（使用次数／时间／线体别／其它讯息等）",
+    "acceptance": "NG",
+    "remark": "读码识别+光纤防呆检测"
+  },
+  {
+    "id": 49,
+    "project": "智能化\n防呆",
+    "specification": "2. 可监控板子数量，不足时须提示，无板子时须报警提示",
+    "acceptance": "NG",
+    "remark": "依人机设定数量做预警，无检测"
+  },
+  {
+    "id": 50,
+    "project": "维护保养",
+    "specification": "常维修／拆卸处，螺丝要方便拆卸（拆卸后螺丝不可掉落）；\n注意拆卸需要的空间（不可用特殊工具才能拆：一般工具转不动或太长干涉无法拆卸）",
+    "acceptance": "NG",
+    "remark": "常規內六角螺絲"
+  }
+]

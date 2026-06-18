@@ -63,6 +63,8 @@ pnpm dev           # 开发服务器，http://localhost:8849
 pnpm build         # 生产构建
 pnpm typecheck     # TypeScript + Vue 类型检查
 pnpm lint          # ESLint + Prettier + Stylelint 全量检查
+pnpm test          # 仅跑单个冒烟用例（src/utils/error-message.test.ts）
+pnpm exec vitest run   # 运行全部前端单测（web/tests/ 下 30+ 用例）
 ```
 
 ### E2E 控制台测试工具
@@ -74,6 +76,20 @@ dotnet run --project tools/E2ETest/E2ETest.csproj -c Debug -- \
   --tableIndex 0 \
   --projectColumnIndex 0 --specificationColumnIndex 1 \
   --acceptanceColumnIndex 2 --remarkColumnIndex 3
+```
+
+### 分析与回归工具
+
+```bash
+# 匹配回归报告：回放基线样本，对比匹配决策，防止匹配质量回退
+dotnet run --project tools/MatchingRegressionReport -- \
+  --input tests/AcceptanceSpecSystem.Core.Tests/Fixtures/EvidenceDrivenMatchingBaseline.json \
+  --high-confidence 0.95 [--output report.csv]
+
+# 智能填充实情统计（只读连库，分析"确定性直达 vs AI 语义 vs 人工"占比、未识别品牌/单位 Top）
+dotnet run --project tools/SmartFillInsightReport -- \
+  --connection "Server=localhost;Database=acceptance_spec_db;User=root;Password=***;CharSet=utf8mb4;" \
+  [--top 20] [--from yyyy-MM-dd] [--to yyyy-MM-dd] [--output report.json]
 ```
 
 ---
@@ -88,18 +104,22 @@ dotnet run --project tools/E2ETest/E2ETest.csproj -c Debug -- \
 
 开发时 Vite 代理 `/api/*` → `http://localhost:5291`，无需手动切换地址。
 
-### 后端项目依赖
+### 后端项目依赖（严格分层）
+
+API 仅引用 Application；Application 再引用 Core 与 Data。Core/Data 无项目引用，Data 不引用 Core。
 
 ```
-AcceptanceSpecSystem.Api          ← HTTP 入口、DI 注册、Program.cs、JWT/RBAC 中间件
-  ├── AcceptanceSpecSystem.Application  ← 应用服务（AppService）、DI 扩展、跨层编排
-  ├── AcceptanceSpecSystem.Core   ← AI、Matching、TextProcessing、Documents 核心业务
-  └── AcceptanceSpecSystem.Data   ← EF Core DbContext、Entities、Migrations、Repository
+AcceptanceSpecSystem.Api          ← HTTP 入口、Controllers、Api/Services 编排型 AppService、DI、JWT/RBAC 中间件
+  └── AcceptanceSpecSystem.Application   ← 用例/查询服务、统一 DI 扩展 AddAcceptanceApplicationLayer()
+        ├── AcceptanceSpecSystem.Core    ← AI、Matching、TextProcessing、Documents 核心业务（可独立单测）
+        └── AcceptanceSpecSystem.Data    ← EF Core DbContext、Entities、Migrations、Repository
 ```
 
-- **Core** 不依赖 API/Application 层，可独立单元测试。
-- **Application** 层封装跨实体的应用逻辑（如 `AcceptanceSpecAppService`、`CustomerAppService`），控制器调用 AppService 而非直接操作 Repository。
-- **Data** 通过 `IUnitOfWork` + 泛型 `IRepository<T>` 抽象持久化，控制器不直接操作 DbContext。
+- **应用服务分布在两处**：
+  - `Application/Services/`：基础数据与规格用例（`CustomerAppService`、`ProcessAppService`、`MachineModelAppService`、`AcceptanceSpecAppService`）+ 复杂只读查询 `AcceptanceSpecQueryService`。
+  - `Api/Services/`：贴近 HTTP 的编排型用例（`Matching*`、`Document*`、`Dashboard`、`BatchReply`、`Auth*`、`OrgUnit`、`SystemUser`、`ExecutionHistory` 等），均以 `IXxxAppService` 接口注入控制器。
+- **Core** 不依赖上层，可独立单元测试。控制器只依赖 AppService/接口，不直接操作 `DbContext` / `IUnitOfWork`。
+- **Data** 通过 `IUnitOfWork` + 泛型 `IRepository<T>` 抽象持久化。
 - 启动时 `DatabaseInitializer.InitializeAsync()` 自动应用待执行迁移（`Testing` 环境跳过）。
 - 启动时 `SystemPromptTemplateInitializer.EnsureAsync()` 确保默认 Prompt 模板存在。
 
@@ -111,6 +131,7 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、DI 注册、Program.cs、JWT
 | 匹配引擎 | `Core/Matching/` | 相似度、Embedding 向量、LLM 混合匹配；阈值过滤 |
 | 文本预处理 | `Core/TextProcessing/` | 简繁转换、同义词替换、OK/NG 标准化、关键词提取管道 |
 | 文档处理 | `Core/Documents/` | Word/Excel 解析与 Word 填充写入 |
+| 诊断/脱敏 | `Core/Diagnostics/` | 敏感信息日志脱敏（`SensitiveLogFormatter`）|
 
 ### 前端模块
 
@@ -120,6 +141,9 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、DI 注册、Program.cs、JWT
 | `/data-import/` | Word/Excel 导入验收规格 |
 | `/smart-fill/` | 匹配预览 → 执行填充 → 下载结果文档 |
 | `/file-compare/` | 填充前后文件对比 |
+| `/batch-reply/` | 批量回填预览与执行 |
+| `/dashboard/` | 仪表板 / 统计概览 |
+| `/rbac/` | 用户、角色、权限、组织架构管理 |
 | `/config/` | AI 服务配置、提示词模板、列映射规则 |
 
 API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。
@@ -166,6 +190,18 @@ GET  /health                         健康检查
 - `tests/AcceptanceSpecSystem.Core.Tests`：匹配算法、文本处理纯单元测试。
 - `tests/AcceptanceSpecSystem.Data.Tests`：Repository + EF Core 数据层测试。
 - 测试环境通过 `ASPNETCORE_ENVIRONMENT=Testing` 标识，绕过迁移自动化。
+
+### 架构边界测试（强约束，改动前必读）
+
+`ArchitectureBoundaryTests` / `CoreProviderBoundaryTests` / `FrontendViewBoundaryRefactorTests` 会在违反约定时直接失败，提交前务必本地通过：
+
+- **分层引用**：API 项目只能引用 Application；Data 不得引用 Core。
+- **控制器瘦身**：RBAC/基础数据控制器必须委派对应 AppService，禁止出现 `AppDbContext` / `IUnitOfWork`。
+- **接口化 DI**：`Api/Services` 用例服务须 `public interface IXxxAppService` + `public sealed class XxxAppService : IXxxAppService`，按 `AddScoped<IXxx, Xxx>()` 注册，控制器注入接口。
+- **取消令牌**：控制器内 EF 异步查询禁止裸写 `.ToListAsync();` / `.CountAsync();`，必须透传 `CancellationToken`。
+- **文件体量**：`Api/Services` 下 `MatchingWorkflow*`、`BatchReplyAppService*`、`DocumentImportAppService*` 每个文件须 < 500 行（巨型服务已按职责拆分，勿回灌）。
+- **前端视图拆分**：`ScoreDetailDialog`、`data-import` 等大页面须保持 壳 + 区块组件 + composable 的拆分结构。
+- **导航/权限单一来源**：页面/菜单/权限码统一来自 `shared/navigation/navigation-manifest.json`，前后端共同消费（不再使用运行时 async-routes）。
 
 ---
 
