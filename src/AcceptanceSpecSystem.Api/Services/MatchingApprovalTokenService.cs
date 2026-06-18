@@ -84,6 +84,8 @@ public sealed class MatchingApprovalTokenService
         MatchingConfig config)
     {
         var now = DateTimeOffset.UtcNow;
+        // token 同时绑定用户、行、规格指纹、匹配配置和有效期；
+        // 执行阶段据此校验预览结果仍可被信任。
         var payload = new ApprovalTokenPayload
         {
             UserId = userId,
@@ -105,6 +107,9 @@ public sealed class MatchingApprovalTokenService
         return _protector.Protect(json);
     }
 
+    /// <summary>
+    /// 解析并校验人工放行令牌集合；同一批执行只允许来自同一用户、范围和匹配配置的预览上下文。
+    /// </summary>
     internal ApprovalTokenBundle? ResolveBundle(
         IEnumerable<(int? TableIndex, FillMapping Mapping)> mappings,
         int executingUserId)

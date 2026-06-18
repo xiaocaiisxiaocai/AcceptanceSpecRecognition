@@ -112,6 +112,7 @@ public sealed class AuthAccessService : IAuthAccessService
     private static AuthAccessContext BuildContext(SystemUser user)
     {
         var now = DateTime.UtcNow;
+        // 同时收敛角色和组织的当前有效链接，再按单角色/单组织策略各取一个保留项。
         var activeRoleLinks = user.UserRoles
             .Where(ur => IsActive(now, ur.StartAt, ur.EndAt) && ur.Role.IsActive)
             .ToList();

@@ -26,6 +26,7 @@ public sealed partial class BatchReplyAppService
         var owner = ResolveOwnerForMatching(user);
         var session = GetSourceSessionForMatching(owner, request.SessionId);
         var targetFile = GetTargetFileForMatching(session, request.TargetId);
+        // 预检阶段只使用临时文件对象，不直接污染会话里的原始上传记录。
         var sourceFile = CreateTemporaryWordFile(session.SourceFileName, session.SourceFileType, session.SourceFileRelativePath);
         var normalizedSourceConfigs = NormalizeTableConfigs(request.SourceTables);
         var sourceTableMetas = await _documentTableAccessService.GetTablesAsync(sourceFile);
@@ -109,6 +110,7 @@ public sealed partial class BatchReplyAppService
             previewFiles.Add(await BuildPreviewTargetAsync(targetFile, session.SourceFileType, sourceTables, cancellationToken));
         }
 
+        // 预检只判断“当前配置能否应用”，真正写回仍在执行阶段完成。
         await _batchReplySessionService.ReplacePreviewAsync(
             owner.UserId,
             owner.CompanyId,

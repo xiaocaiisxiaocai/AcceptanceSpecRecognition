@@ -205,6 +205,9 @@ public sealed partial class MatchingWorkflowSupportService
         };
     }
 
+    /// <summary>
+    /// 执行前重建服务端匹配快照；只有带审批 token 的行可复用预览结果，其余行必须重新匹配。
+    /// </summary>
     private async Task<ExecutionMatchSnapshot> BuildCurrentMatchLookupAsync(
         WordFile wordFile,
         int tableIndex,

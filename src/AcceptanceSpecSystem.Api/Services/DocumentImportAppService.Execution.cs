@@ -76,6 +76,8 @@ public sealed partial class DocumentImportAppService
             machineModelId,
             scope,
             cancellationToken);
+        // 先按当前数据范围建立重复检测会话；后续逐行只消费同一套确认/跳过规则，
+        // 避免同批导入中重复判断口径前后不一致。
         var duplicateSession = await CreateDuplicateDetectionSessionAsync(
             existingSpecsInScope,
             confirmedDifferenceKeys,
@@ -134,6 +136,8 @@ public sealed partial class DocumentImportAppService
 
         if (executionContext.SpecsToInsert.Count > 0 || executionContext.OverwriteCount > 0)
         {
+            // 行级校验和重复判断先在内存中累计；只有确认无待处理项后，
+            // 才开启事务提交最终插入/覆盖，避免半批次写入。
             await _unitOfWork.BeginTransactionAsync();
             try
             {

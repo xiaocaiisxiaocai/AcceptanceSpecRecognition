@@ -133,6 +133,8 @@ public sealed class MatchingResultWriteBackService
         var requestedCells = 0;
         var writtenCells = 0;
 
+        // 批量模式按表格分组写回，单表模式写入 SourceTableIndex；
+        // 两条路径共用单元格构造逻辑，确保验收/备注列处理口径一致。
         if (taskResult.IsBatchMode)
         {
             var tableOperations = new Dictionary<int, List<CellWriteOperation>>();

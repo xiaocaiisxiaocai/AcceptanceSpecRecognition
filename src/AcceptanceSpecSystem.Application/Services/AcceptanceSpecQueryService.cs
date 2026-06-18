@@ -95,6 +95,7 @@ public sealed class AcceptanceSpecQueryService
         var countByProcessId = processCounts.ToDictionary(item => item.ProcessId, item => item.SpecCount);
         var processIds = countByProcessId.Keys.ToArray();
 
+        // 先拿到有规格的制程 ID，再回查制程基础信息，避免把无关制程带进客户维度列表。
         var processes = await _unitOfWork.Processes.Query()
             .Where(process => processIds.Contains(process.Id))
             .OrderByDescending(process => process.CreatedAt)
@@ -227,6 +228,7 @@ public sealed class AcceptanceSpecQueryService
 
         var scopedOrgUnitIds = scope.OrgUnitIds.Distinct().ToArray();
 
+        // 所有聚合查询都先按“本人 + 组织”规则收窄范围，保证统计口径和列表数据一致。
         if (scope.IncludeSelf && scopedOrgUnitIds.Length > 0)
         {
             return query.Where(spec =>

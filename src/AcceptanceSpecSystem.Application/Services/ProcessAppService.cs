@@ -42,6 +42,7 @@ public sealed class ProcessAppService
             query = query.Where(process => process.Name.Contains(normalizedKeyword));
         }
 
+        // 先分页取制程，再回填关联规格数量；这样列表查询只做当前页的轻量聚合。
         var total = await query.CountAsync(cancellationToken);
         var rows = await query
             .OrderByDescending(process => process.CreatedAt)
@@ -83,6 +84,7 @@ public sealed class ProcessAppService
         if (process == null)
             return null;
 
+        // 详情页复用同一套按数据范围统计规格数的逻辑，避免列表/详情口径不一致。
         var specCountByProcess = await _acceptanceSpecQueryService.GetSpecCountByProcessAsync(
             scope,
             [id],

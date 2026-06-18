@@ -215,6 +215,9 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor
         _logger.LogInformation("向量缓存预热处理完成：候选 {Count} 条", candidates.Count);
     }
 
+    /// <summary>
+    /// 按 usage、模型名和文本哈希加载规格向量；缓存缺失或文本变化时实时生成并回写缓存。
+    /// </summary>
     private async Task HydrateTargetsAsync(
         IReadOnlyCollection<CacheTarget> targets,
         string usage,

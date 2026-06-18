@@ -138,6 +138,9 @@ public sealed class DocumentTableAccessService
         };
     }
 
+    /// <summary>
+    /// 提取匹配来源行，并将解析器内部行号换算为后续写回使用的表格行号。
+    /// </summary>
     public async Task<List<MatchSourceItem>> ExtractMatchSourceItemsAsync(
         WordFile wordFile,
         int tableIndex,
@@ -155,6 +158,8 @@ public sealed class DocumentTableAccessService
         }
 
         using var stream = _documentFileAccessService.OpenReadStream(wordFile);
+        // Excel 与 Word 的表格坐标口径不同：Excel 需要先按已用区域换算相对行号，
+        // 后续写回才能继续使用解析器返回的行索引。
         TableData tableData;
         var excelDataStartRowIndexForWriteBack = 1;
         try
@@ -194,6 +199,7 @@ public sealed class DocumentTableAccessService
                     normalizedHeaderRowCount = 0;
                 }
 
+                // Excel 的数据起始行来自工作表绝对行号，这里转换成相对已用区域的偏移。
                 var minDataStartRow = normalizedHeaderRowStart + normalizedHeaderRowCount;
                 var normalizedDataStartRow = dataStartRow.GetValueOrDefault(minDataStartRow);
                 if (normalizedDataStartRow < minDataStartRow)
@@ -254,6 +260,9 @@ public sealed class DocumentTableAccessService
         return items;
     }
 
+    /// <summary>
+    /// 按批量回复表配置提取来源回复数据；返回的 RowIndex 必须与目标写回坐标一致。
+    /// </summary>
     internal async Task<List<ReplySourceItem>> ExtractReplySourceItemsAsync(
         WordFile wordFile,
         BatchTableConfig config)

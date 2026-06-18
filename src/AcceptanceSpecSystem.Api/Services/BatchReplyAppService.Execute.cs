@@ -13,6 +13,7 @@ public sealed partial class BatchReplyAppService
         BatchReplyExecuteRequest request,
         CancellationToken cancellationToken = default)
     {
+        // 兼容旧版仅传 SessionId 的执行请求，同时保留新式显式表格配置入口。
         if (request.SourceTables.Count > 0 || request.Targets.Count > 0)
         {
             return await ExecuteConfiguredAsync(user, request, cancellationToken);
@@ -36,6 +37,7 @@ public sealed partial class BatchReplyAppService
         var generatedFiles = new List<GeneratedArtifactFile>();
         var executeResults = new List<BatchReplyExecuteFileResult>();
         var executionHistoryRows = new Dictionary<string, IReadOnlyCollection<BatchReplyWriteTable>>(StringComparer.Ordinal);
+        // 旧模式按会话内已预检过的目标文件逐个执行，失败项不影响其它文件。
         foreach (var target in session.TargetFiles)
         {
             if (string.IsNullOrWhiteSpace(target.RelativePath) || !target.FileType.HasValue)
@@ -156,6 +158,7 @@ public sealed partial class BatchReplyAppService
         var executionHistoryRows = new Dictionary<string, IReadOnlyCollection<BatchReplyWriteTable>>(StringComparer.Ordinal);
         var selectedTargetFiles = new List<BatchReplyTargetFile>();
 
+        // 新模式以请求内显式指定的目标文件为准，便于前端按文件粒度控制表格参与范围。
         foreach (var targetRequest in request.Targets)
         {
             var target = session.TargetFiles.FirstOrDefault(file => string.Equals(file.TargetId, targetRequest.TargetId, StringComparison.Ordinal));

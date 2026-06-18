@@ -80,6 +80,9 @@ public sealed class EmbeddingCacheWarmupManager
         }
     }
 
+    /// <summary>
+    /// 触发一次向量缓存预热；同一进程内只允许一个任务运行，执行器未注册时视为跳过成功。
+    /// </summary>
     public async Task<EmbeddingCacheWarmupRunResult> RunOnceAsync(CancellationToken cancellationToken)
     {
         EnsurePersistedOptionsLoaded();

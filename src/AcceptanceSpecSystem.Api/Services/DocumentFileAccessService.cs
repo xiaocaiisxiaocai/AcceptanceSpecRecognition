@@ -32,6 +32,8 @@ public sealed class DocumentFileAccessService
             return ownershipQuery;
         }
 
+        // 导入/历史文件列表需要包含“文件归属不可见但其中规格可见”的场景，
+        // 因此在文件归属范围外额外并入当前数据范围内的规格来源文件。
         var scopedSpecFileIds = SpecDataScopeHelper.ApplyScopeToQuery(
                 _unitOfWork.AcceptanceSpecs.Query(),
                 scope)

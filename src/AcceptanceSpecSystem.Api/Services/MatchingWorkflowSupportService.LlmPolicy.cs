@@ -42,6 +42,9 @@ public sealed partial class MatchingWorkflowSupportService
         }
     }
 
+    /// <summary>
+    /// 按统一策略执行单个 LLM 步骤：请求取消直接上抛，步骤超时/失败按配置重试，最终失败时写入终态 SSE。
+    /// </summary>
     private async Task<LlmStepExecutionResult> ExecuteLlmStepWithPolicyAsync(
         HttpResponse response,
         string stepName,

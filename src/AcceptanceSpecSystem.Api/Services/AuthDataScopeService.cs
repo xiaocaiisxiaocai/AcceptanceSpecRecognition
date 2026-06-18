@@ -28,6 +28,9 @@ public sealed class DataScopeResult
 /// </summary>
 public interface IAuthDataScopeService
 {
+    /// <summary>
+    /// 解析用户在指定资源下的数据范围；无角色或无授权范围时返回空范围，避免默认放大权限。
+    /// </summary>
     Task<DataScopeResult?> GetScopeAsync(int userId, int companyId, string resource);
 }
 
@@ -47,6 +50,9 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
         _memoryCache = memoryCache;
     }
 
+    /// <summary>
+    /// 解析用户在指定资源下的数据范围；无角色或无授权范围时返回空范围，避免默认放大权限。
+    /// </summary>
     public async Task<DataScopeResult?> GetScopeAsync(int userId, int companyId, string resource)
     {
         var normalizedResource = string.IsNullOrWhiteSpace(resource)
@@ -228,6 +234,8 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
 
     private async Task<IReadOnlyList<CachedOrgUnitNode>> GetCompanyOrgUnitsAsync(int companyId)
     {
+        // 组织树缓存按公司维度缓存，并用数量与最后更新时间组成版本戳，
+        // 避免每次数据范围计算都扫描组织表。
         var stamp = await _dbContext.OrgUnits
             .AsNoTracking()
             .Where(org => org.CompanyId == companyId)

@@ -6,6 +6,9 @@ using AcceptanceSpecSystem.Data.Entities;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+/// <summary>
+/// 批量回复应用服务入口，负责源表上传、目标文件预检、执行写回与下载产物管理。
+/// </summary>
 public interface IBatchReplyAppService
 {
     Task<BatchReplySourceUploadResponse> UploadSourceAsync(

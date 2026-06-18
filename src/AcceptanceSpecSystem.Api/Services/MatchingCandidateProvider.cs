@@ -45,6 +45,9 @@ public sealed class MatchingCandidateProvider
         _logger = logger;
     }
 
+    /// <summary>
+    /// 加载当前权限范围内的候选规格，并按项目+规格去重；可按调用场景选择是否立即补齐 Embedding。
+    /// </summary>
     public async Task<List<MatchCandidate>> GetCandidatesAsync(
         int? customerId,
         int? processId,

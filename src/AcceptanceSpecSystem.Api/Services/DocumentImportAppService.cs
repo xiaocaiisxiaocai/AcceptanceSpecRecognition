@@ -9,6 +9,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
+/// <summary>
+/// 文档导入服务入口，按文件类型解析表格并写入验收规格主数据。
+/// </summary>
 public interface IDocumentImportAppService
 {
     Task<DocumentImportAppResult> ImportWordAsync(
