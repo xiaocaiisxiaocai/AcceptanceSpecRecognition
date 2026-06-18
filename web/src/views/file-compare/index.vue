@@ -49,6 +49,8 @@ const tableDataA = ref<TableData | null>(null);
 const tableDataB = ref<TableData | null>(null);
 const leftPaneRef = ref<HTMLElement | null>(null);
 const rightPaneRef = ref<HTMLElement | null>(null);
+const leftTableRef = ref<InstanceType<typeof CompareTableGrid> | null>(null);
+const rightTableRef = ref<InstanceType<typeof CompareTableGrid> | null>(null);
 let syncing = false;
 
 const isExcel = computed(() => fileType.value === 1);
@@ -403,6 +405,22 @@ const syncScroll = (source: "left" | "right") => {
   });
 };
 
+const syncTableScroll = (
+  source: "left" | "right",
+  payload: { scrollLeft: number }
+) => {
+  if (syncing || !isExcel.value) return;
+  syncing = true;
+
+  const targetTable =
+    source === "left" ? rightTableRef.value : leftTableRef.value;
+  targetTable?.setScrollLeft(payload.scrollLeft);
+
+  requestAnimationFrame(() => {
+    syncing = false;
+  });
+};
+
 watch(
   () => selectedTableIndex.value,
   () => {
@@ -538,12 +556,14 @@ watch(
           <div ref="leftPaneRef" class="pane-body" @scroll="syncScroll('left')">
             <template v-if="isExcel">
               <CompareTableGrid
+                ref="leftTableRef"
                 :table-index="selectedTableIndex ?? 0"
                 :file-type="fileType"
                 :table-data="tableDataA"
                 :table-info="currentTableInfoA"
                 :diff-map="diffMap"
                 :only-diff="onlyDiff"
+                @scroll="syncTableScroll('left', $event)"
               />
             </template>
             <template v-else>
@@ -596,12 +616,14 @@ watch(
           >
             <template v-if="isExcel">
               <CompareTableGrid
+                ref="rightTableRef"
                 :table-index="selectedTableIndex ?? 0"
                 :file-type="fileType"
                 :table-data="tableDataB"
                 :table-info="currentTableInfoB"
                 :diff-map="diffMap"
                 :only-diff="onlyDiff"
+                @scroll="syncTableScroll('right', $event)"
               />
             </template>
             <template v-else>

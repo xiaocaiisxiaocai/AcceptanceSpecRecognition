@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { TableData, TableInfo } from "@/api/document";
 import type { FileCompareDiffItem } from "@/api/file-compare";
 
@@ -12,6 +12,11 @@ const props = defineProps<{
   onlyDiff: boolean;
 }>();
 
+const emit = defineEmits<{
+  scroll: [payload: { scrollLeft: number; scrollTop: number }];
+}>();
+
+const tableScrollRef = ref<HTMLElement | null>(null);
 const isExcel = computed(() => props.fileType === 1);
 
 const startRow = computed(() => props.tableInfo?.usedRangeStartRow ?? 1);
@@ -90,6 +95,25 @@ const isEmptyCell = (row: string[], columnIndex: number) => {
   const raw = row?.[columnIndex] ?? "";
   return raw.trim().length === 0;
 };
+
+const handleScroll = () => {
+  const scrollEl = tableScrollRef.value;
+  if (!scrollEl) return;
+
+  emit("scroll", {
+    scrollLeft: scrollEl.scrollLeft,
+    scrollTop: scrollEl.scrollTop
+  });
+};
+
+const setScrollLeft = (scrollLeft: number) => {
+  if (!tableScrollRef.value) return;
+  tableScrollRef.value.scrollLeft = scrollLeft;
+};
+
+defineExpose({
+  setScrollLeft
+});
 </script>
 
 <template>
@@ -112,7 +136,12 @@ const isEmptyCell = (row: string[], columnIndex: number) => {
       <el-empty description="当前工作表无差异" />
     </div>
 
-    <div v-else class="table-scroll">
+    <div
+      v-else
+      ref="tableScrollRef"
+      class="table-scroll"
+      @scroll="handleScroll"
+    >
       <div class="table-toolbar">
         <span>总行数：{{ rows.length }}</span>
         <span v-if="onlyDiff">差异行：{{ visibleRows.length }}</span>
