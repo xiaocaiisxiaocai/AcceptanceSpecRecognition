@@ -20,6 +20,18 @@ public sealed class TestFileStorageService : IFileStorageService
     public Task<string> SaveFilledWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
         => SaveAsync("uploads/filled-files", originalFileName, content, cancellationToken);
 
+    public Task<string> SaveSmartFillPlaybackArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
+        => SaveAsync("uploads/execution-history/smart-fill", originalFileName, content, cancellationToken);
+
+    public Task<byte[]> ReadSmartFillPlaybackArchiveAsync(string relativePath, CancellationToken cancellationToken = default)
+    {
+        var normalized = relativePath.Replace('\\', '/');
+        if (!normalized.StartsWith("uploads/execution-history/smart-fill/", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("智能填充回放归档路径非法");
+
+        return File.ReadAllBytesAsync(GetAbsolutePath(relativePath), cancellationToken);
+    }
+
     public Task<string> WriteHealthCheckFileAsync(CancellationToken cancellationToken = default)
         => SaveAsync("health", "health.txt", Array.Empty<byte>(), cancellationToken);
 

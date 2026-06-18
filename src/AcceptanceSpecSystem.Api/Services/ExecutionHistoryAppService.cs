@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using System.IO.Compression;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
@@ -23,6 +24,14 @@ public interface IExecutionHistoryAppService
         ClaimsPrincipal user,
         int id,
         CancellationToken cancellationToken = default);
+
+    Task<ExecutionHistorySmartFillRowDto?> GetSmartFillRowAsync(
+        ClaimsPrincipal user,
+        int id,
+        int fileIndex,
+        int sheetIndex,
+        int rowIndex,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -35,11 +44,16 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IFileStorageService _fileStorage;
     private readonly ILogger<ExecutionHistoryAppService> _logger;
 
-    public ExecutionHistoryAppService(IUnitOfWork unitOfWork, ILogger<ExecutionHistoryAppService> logger)
+    public ExecutionHistoryAppService(
+        IUnitOfWork unitOfWork,
+        IFileStorageService fileStorage,
+        ILogger<ExecutionHistoryAppService> logger)
     {
         _unitOfWork = unitOfWork;
+        _fileStorage = fileStorage;
         _logger = logger;
     }
 
@@ -55,13 +69,19 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         var detail = BuildDetailDto(draft);
         var detailJson = JsonSerializer.Serialize(detail, JsonOptions);
         var detailBytes = Encoding.UTF8.GetByteCount(detailJson);
+        string? fullArchiveRelativePath = null;
         if (detailBytes > MaxPersistedDetailBytes)
         {
             if (string.Equals(draft.TaskType, ExecutionHistoryTaskTypes.SmartFill, StringComparison.Ordinal))
             {
+                fullArchiveRelativePath = await SaveFullSmartFillArchiveAsync(
+                    draft.TaskId,
+                    detailJson,
+                    cancellationToken);
                 // 智能填充：优先“精简”而非整段丢弃，剥离重负载但保留逐行分析信号
                 // （命中来源/决策/置信度/AI 裁决结论/问题码）；仅当精简后仍超限才降级为汇总归档。
                 ExecutionHistorySmartFillSlimmer.SlimInPlace(detail);
+                MarkFullArchive(detail, fullArchiveRelativePath);
                 var slimmedJson = JsonSerializer.Serialize(detail, JsonOptions);
                 var slimmedBytes = Encoding.UTF8.GetByteCount(slimmedJson);
 
@@ -76,16 +96,36 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
                 }
                 else
                 {
-                    detail = BuildCompressedSmartFillDetail(detail);
-                    detailJson = JsonSerializer.Serialize(detail, JsonOptions);
+                    ExecutionHistorySmartFillSlimmer.SlimToPlaybackOutlineInPlace(detail);
+                    MarkFullArchive(detail, fullArchiveRelativePath);
+                    var outlineJson = JsonSerializer.Serialize(detail, JsonOptions);
+                    var outlineBytes = Encoding.UTF8.GetByteCount(outlineJson);
 
-                    _logger.LogWarning(
-                        "智能填充执行记录过大，精简后仍超限，已降级为汇总归档: taskId={TaskId}, sourceFileId={SourceFileId}, originalBytes={OriginalBytes}, slimmedBytes={SlimmedBytes}, compressedBytes={CompressedBytes}",
-                        draft.TaskId,
-                        draft.SourceFileId,
-                        detailBytes,
-                        slimmedBytes,
-                        Encoding.UTF8.GetByteCount(detailJson));
+                    if (outlineBytes <= MaxPersistedDetailBytes)
+                    {
+                        detailJson = outlineJson;
+                        _logger.LogInformation(
+                            "智能填充执行记录过大，已二级精简归档（保留逐行回放骨架）: taskId={TaskId}, originalBytes={OriginalBytes}, slimmedBytes={SlimmedBytes}, outlineBytes={OutlineBytes}",
+                            draft.TaskId,
+                            detailBytes,
+                            slimmedBytes,
+                            outlineBytes);
+                    }
+                    else
+                    {
+                        detail = BuildCompressedSmartFillDetail(detail);
+                        MarkFullArchive(detail, fullArchiveRelativePath);
+                        detailJson = JsonSerializer.Serialize(detail, JsonOptions);
+
+                        _logger.LogWarning(
+                            "智能填充执行记录过大，二级精简后仍超限，已降级为汇总归档: taskId={TaskId}, sourceFileId={SourceFileId}, originalBytes={OriginalBytes}, slimmedBytes={SlimmedBytes}, outlineBytes={OutlineBytes}, compressedBytes={CompressedBytes}",
+                            draft.TaskId,
+                            draft.SourceFileId,
+                            detailBytes,
+                            slimmedBytes,
+                            outlineBytes,
+                            Encoding.UTF8.GetByteCount(detailJson));
+                    }
                 }
             }
             else
@@ -181,13 +221,132 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
 
         try
         {
-            return NormalizeDetail(entity, TryDeserializeDetail(entity));
+            var detail = NormalizeDetail(entity, TryDeserializeDetail(entity));
+            HideArchivePath(detail);
+            return detail;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "执行记录详情反序列化失败: {Id}", id);
             throw;
         }
+    }
+
+    public async Task<ExecutionHistorySmartFillRowDto?> GetSmartFillRowAsync(
+        ClaimsPrincipal user,
+        int id,
+        int fileIndex,
+        int sheetIndex,
+        int rowIndex,
+        CancellationToken cancellationToken = default)
+    {
+        var owner = ResolveOwner(user);
+        var entity = await _unitOfWork.ExecutionHistoryRecords.GetOwnedByIdAsync(id, owner.CompanyId, owner.UserId);
+        if (entity == null ||
+            !string.Equals(entity.TaskType, ExecutionHistoryTaskTypes.SmartFill, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var lightDetail = NormalizeDetail(entity, TryDeserializeDetail(entity));
+        var archivePath = lightDetail.SmartFillPlayback?.FullArchiveRelativePath;
+        if (string.IsNullOrWhiteSpace(archivePath))
+        {
+            if (lightDetail.SmartFillPlayback is { IsSlimmed: true } or { IsLegacy: true })
+            {
+                return null;
+            }
+
+            return FindSmartFillRow(lightDetail.SmartFillPlayback, fileIndex, sheetIndex, rowIndex);
+        }
+
+        var fullDetail = await ReadFullSmartFillArchiveAsync(archivePath, cancellationToken);
+        return FindSmartFillRow(fullDetail?.SmartFillPlayback, fileIndex, sheetIndex, rowIndex);
+    }
+
+    private async Task<string> SaveFullSmartFillArchiveAsync(
+        string taskId,
+        string detailJson,
+        CancellationToken cancellationToken)
+    {
+        var archiveBytes = CompressUtf8(detailJson);
+        var safeTaskId = string.Concat(taskId.Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-'));
+        return await _fileStorage.SaveSmartFillPlaybackArchiveAsync(
+            $"{safeTaskId}-smart-fill-playback.json.gz",
+            archiveBytes,
+            cancellationToken);
+    }
+
+    private async Task<ExecutionHistoryDetailDto?> ReadFullSmartFillArchiveAsync(
+        string relativePath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var archiveBytes = await _fileStorage.ReadSmartFillPlaybackArchiveAsync(relativePath, cancellationToken);
+            var detailJson = DecompressUtf8(archiveBytes);
+            return JsonSerializer.Deserialize<ExecutionHistoryDetailDto>(detailJson, JsonOptions);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or JsonException or InvalidDataException)
+        {
+            _logger.LogWarning(ex, "智能填充完整回放归档读取失败: {RelativePath}", relativePath);
+            return null;
+        }
+    }
+
+    private static byte[] CompressUtf8(string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            gzip.Write(bytes, 0, bytes.Length);
+        }
+
+        return output.ToArray();
+    }
+
+    private static string DecompressUtf8(byte[] bytes)
+    {
+        using var input = new MemoryStream(bytes);
+        using var gzip = new GZipStream(input, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        gzip.CopyTo(output);
+        return Encoding.UTF8.GetString(output.ToArray());
+    }
+
+    private static void MarkFullArchive(ExecutionHistoryDetailDto detail, string? archivePath)
+    {
+        if (string.IsNullOrWhiteSpace(archivePath) || detail.SmartFillPlayback == null)
+        {
+            return;
+        }
+
+        detail.SmartFillPlayback.HasFullArchive = true;
+        detail.SmartFillPlayback.FullArchiveRelativePath = archivePath;
+        if (detail.SmartFillSummary != null)
+        {
+            detail.SmartFillSummary.HasPlaybackArchive = true;
+        }
+    }
+
+    private static void HideArchivePath(ExecutionHistoryDetailDto detail)
+    {
+        if (detail.SmartFillPlayback != null)
+        {
+            detail.SmartFillPlayback.FullArchiveRelativePath = null;
+        }
+    }
+
+    private static ExecutionHistorySmartFillRowDto? FindSmartFillRow(
+        ExecutionHistorySmartFillPlaybackDto? playback,
+        int fileIndex,
+        int sheetIndex,
+        int rowIndex)
+    {
+        var file = playback?.Files.ElementAtOrDefault(fileIndex);
+        var sheet = file?.Sheets.ElementAtOrDefault(sheetIndex);
+        return sheet?.Rows.FirstOrDefault(row => row.RowIndex == rowIndex);
     }
 
     private static ExecutionHistoryDetailDto BuildDetailDto(ExecutionHistoryDraft draft)
@@ -375,7 +534,7 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         if (detail.SmartFillSummary != null)
         {
             detail.SmartFillSummary.HasPlaybackArchive =
-                detail.SmartFillPlayback is { IsLegacy: false };
+                detail.SmartFillPlayback is { IsLegacy: false } or { HasFullArchive: true };
             return detail.SmartFillSummary;
         }
 

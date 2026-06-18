@@ -47,6 +47,23 @@ public class FileStorageService : IFileStorageService
         return await SaveAsync("uploads/filled-files", originalFileName, content, cancellationToken);
     }
 
+    public async Task<string> SaveSmartFillPlaybackArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
+    {
+        return await SaveAsync("uploads/execution-history/smart-fill", originalFileName, content, cancellationToken);
+    }
+
+    public async Task<byte[]> ReadSmartFillPlaybackArchiveAsync(string relativePath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) ||
+            !relativePath.Replace('\\', '/').StartsWith("uploads/execution-history/smart-fill/", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("智能填充回放归档路径非法");
+        }
+
+        var fullPath = GetAbsolutePath(relativePath);
+        return await File.ReadAllBytesAsync(fullPath, cancellationToken);
+    }
+
     public async Task<string> WriteHealthCheckFileAsync(CancellationToken cancellationToken = default)
     {
         return await SaveAsync("health", "health.txt", Array.Empty<byte>(), cancellationToken, allowEmptyContent: true);

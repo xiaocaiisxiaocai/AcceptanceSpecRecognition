@@ -788,6 +788,7 @@ public sealed class ExecutionHistoryFailureExcelApiWebApplicationFactory : ApiWe
             services.RemoveAll(typeof(ExecutionHistoryAppService));
             services.AddScoped(sp => new ExecutionHistoryAppService(
                 new ThrowOnSaveChangesUnitOfWork(sp.GetRequiredService<IUnitOfWork>(), "模拟执行历史保存失败"),
+                sp.GetRequiredService<IFileStorageService>(),
                 sp.GetRequiredService<ILogger<ExecutionHistoryAppService>>()));
         });
     }

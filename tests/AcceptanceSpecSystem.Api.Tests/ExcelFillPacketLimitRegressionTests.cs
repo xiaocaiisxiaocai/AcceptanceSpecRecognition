@@ -147,7 +147,214 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         }
     }
 
+    [Fact]
+    public async Task Execute_ForExcel_WithVeryLargeSourceText_ShouldKeepSlimPlaybackRows()
+    {
+        const int rowCount = 760;
+        var longSpecification = BuildLongText("超长规格", 90);
+        var excelBytes = ExcelFillFlowTests.CreateExcelBytes(BuildExcelRows(rowCount, specification: longSpecification));
+
+        using var uploadContent = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(excelBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        uploadContent.Add(fileContent, "file", "packet-limit-slim-playback.xlsx");
+
+        var uploadResp = await _client.PostAsync("/api/documents/upload", uploadContent);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
+
+        var customerId = (await (await _client.PostAsync("/api/customers", ApiClientJson.ToJsonContent(new { name = "PacketLimit-Slim-C" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+        var processId = (await (await _client.PostAsync("/api/processes", ApiClientJson.ToJsonContent(new { name = "PacketLimit-Slim-P" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            processId,
+            project = "P1",
+            specification = longSpecification,
+            acceptance = "OK",
+            remark = "通过"
+        }));
+        specResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var specId = (await specResp.ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var executeResp = await _client.PostAsync("/api/matching/batch-execute", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId,
+            processId,
+            config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.95 },
+            previewTables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    items = Enumerable.Range(1, rowCount)
+                        .Select(rowIndex => BuildHeavyExactPreviewItem(rowIndex, specId, "OK", "通过", specification: longSpecification))
+                        .ToArray()
+                }
+            },
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3,
+                    mappings = Enumerable.Range(1, rowCount)
+                        .Select(rowIndex => new
+                        {
+                            rowIndex,
+                            specId
+                        })
+                        .ToArray()
+                }
+            }
+        }));
+
+        var executeBody = await executeResp.Content.ReadAsStringAsync();
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK, executeBody);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+
+        var listResp = await _client.GetAsync("/api/execution-history?page=1&pageSize=20");
+        listResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listJson = await listResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var record = listJson.Data.GetProperty("items").EnumerateArray()
+            .First(item => item.GetProperty("taskId").GetString() == taskId);
+
+        var detailResp = await _client.GetAsync($"/api/execution-history/{record.GetProperty("id").GetInt32()}");
+        detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
+
+        var playback = detailJson.Data.GetProperty("smartFillPlayback");
+        playback.GetProperty("isLegacy").GetBoolean().Should().BeFalse("超大记录仍应进入可回放的精简明细视图");
+        playback.GetProperty("isSlimmed").GetBoolean().Should().BeTrue();
+        playback.GetProperty("files")[0].GetProperty("sheets")[0].GetProperty("rows")
+            .GetArrayLength()
+            .Should().Be(rowCount);
+    }
+
+    [Fact]
+    public async Task Execute_ForExcel_WithLargePreviewArchive_ShouldLoadFullPlaybackRowDetail()
+    {
+        const int rowCount = 180;
+        var excelBytes = ExcelFillFlowTests.CreateExcelBytes(BuildExcelRows(rowCount));
+
+        using var uploadContent = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(excelBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        uploadContent.Add(fileContent, "file", "packet-limit-full-playback.xlsx");
+
+        var uploadResp = await _client.PostAsync("/api/documents/upload", uploadContent);
+        var uploadBody = await uploadResp.Content.ReadAsStringAsync();
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK, uploadBody);
+        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
+
+        var customerId = (await (await _client.PostAsync("/api/customers", ApiClientJson.ToJsonContent(new { name = "PacketLimit-Full-C" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+        var processId = (await (await _client.PostAsync("/api/processes", ApiClientJson.ToJsonContent(new { name = "PacketLimit-Full-P" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var longAcceptance = BuildLongText("完整验收标准", 280);
+        var longRemark = BuildLongText("完整备注信息", 280);
+        var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            processId,
+            project = "P1",
+            specification = "S1",
+            acceptance = longAcceptance,
+            remark = longRemark
+        }));
+        specResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var specId = (await specResp.ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var executeResp = await _client.PostAsync("/api/matching/batch-execute", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId,
+            processId,
+            config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.95 },
+            previewTables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    items = Enumerable.Range(1, rowCount)
+                        .Select(rowIndex => BuildHeavyExactPreviewItem(rowIndex, specId, longAcceptance, longRemark))
+                        .ToArray()
+                }
+            },
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3,
+                    mappings = Enumerable.Range(1, rowCount)
+                        .Select(rowIndex => new
+                        {
+                            rowIndex,
+                            specId
+                        })
+                        .ToArray()
+                }
+            }
+        }));
+
+        var executeBody = await executeResp.Content.ReadAsStringAsync();
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK, executeBody);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+
+        var listResp = await _client.GetAsync("/api/execution-history?page=1&pageSize=20");
+        listResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listJson = await listResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var record = listJson.Data.GetProperty("items").EnumerateArray()
+            .First(item => item.GetProperty("taskId").GetString() == taskId);
+        var recordId = record.GetProperty("id").GetInt32();
+
+        var detailResp = await _client.GetAsync($"/api/execution-history/{recordId}");
+        detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var lightBest = detailJson.Data.GetProperty("smartFillPlayback")
+            .GetProperty("files")[0]
+            .GetProperty("sheets")[0]
+            .GetProperty("rows")[0]
+            .GetProperty("previewSnapshot")
+            .GetProperty("bestMatch");
+        lightBest.GetProperty("topCandidates").GetArrayLength().Should().Be(0, "初始详情仍应保持轻量");
+
+        var rowResp = await _client.GetAsync($"/api/execution-history/{recordId}/smart-fill/rows?fileIndex=0&sheetIndex=0&rowIndex=1");
+        rowResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rowJson = await rowResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        rowJson.Code.Should().Be(0);
+
+        var fullRow = rowJson.Data;
+        fullRow.GetProperty("rowIndex").GetInt32().Should().Be(1);
+        fullRow.GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be(longAcceptance);
+        var fullBest = fullRow.GetProperty("previewSnapshot").GetProperty("bestMatch");
+        fullBest.GetProperty("topCandidates").GetArrayLength().Should().Be(1, "完整归档行详情必须保留候选明细");
+        fullBest.GetProperty("evidenceSummary")[0].GetString().Should().Contain("证据1");
+        fullBest.GetProperty("issues")[0].GetProperty("message").GetString().Should().Contain("问题1");
+    }
+
     private static string[][] BuildExcelRows(int rowCount)
+    {
+        return BuildExcelRows(rowCount, specification: "S1");
+    }
+
+    private static string[][] BuildExcelRows(int rowCount, string specification)
     {
         var rows = new List<string[]>
         {
@@ -155,11 +362,16 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         };
 
         rows.AddRange(Enumerable.Range(1, rowCount)
-            .Select(_ => new[] { "P1", "S1", string.Empty, string.Empty }));
+            .Select(_ => new[] { "P1", specification, string.Empty, string.Empty }));
         return rows.ToArray();
     }
 
-    private static object BuildHeavyExactPreviewItem(int rowIndex, int specId, string acceptance, string remark)
+    private static object BuildHeavyExactPreviewItem(
+        int rowIndex,
+        int specId,
+        string acceptance,
+        string remark,
+        string specification = "S1")
     {
         var longEvidence = BuildLongText($"证据{rowIndex}", 220);
         var longIssueMessage = BuildLongText($"问题{rowIndex}", 160);
@@ -169,13 +381,13 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         {
             rowIndex,
             sourceProject = "P1",
-            sourceSpecification = "S1",
+            sourceSpecification = specification,
             confidenceLevel = "high",
             bestMatch = new
             {
                 specId,
                 project = "P1",
-                specification = "S1",
+                specification,
                 acceptance,
                 remark,
                 score = 1.0,
@@ -193,8 +405,8 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
                         code = "exact-hit",
                         severity = "info",
                         fieldName = "specification",
-                        sourceValue = "S1",
-                        candidateValue = "S1",
+                        sourceValue = specification,
+                        candidateValue = specification,
                         message = longIssueMessage,
                         suggestedAction = "无需处理"
                     }
@@ -218,7 +430,7 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
                         rank = 1,
                         specId,
                         project = "P1",
-                        specification = "S1",
+                        specification,
                         acceptance,
                         remark,
                         score = 1.0,
@@ -236,8 +448,8 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
                                 code = "exact-hit",
                                 severity = "info",
                                 fieldName = "specification",
-                                sourceValue = "S1",
-                                candidateValue = "S1",
+                                sourceValue = specification,
+                                candidateValue = specification,
                                 message = longIssueMessage,
                                 suggestedAction = "无需处理"
                             }

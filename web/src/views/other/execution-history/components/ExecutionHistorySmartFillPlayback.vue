@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { getExecutionHistorySmartFillRow } from "@/api/execution-history";
 import type {
   ExecutionHistoryDetail,
   ExecutionHistorySmartFillFile,
@@ -20,11 +21,16 @@ const selectedFileIndex = ref(0);
 const selectedSheetName = ref("");
 const selectedRowIndex = ref<number | null>(null);
 const comparedCandidateRank = ref(1);
+const fullRow = ref<ExecutionHistorySmartFillRow | null>(null);
+const fullRowLoading = ref(false);
+const fullRowError = ref("");
+const fullRowRequestId = ref(0);
 
 const playback = computed(() => props.detail.smartFillPlayback);
 const files = computed<ExecutionHistorySmartFillFile[]>(
   () => playback.value?.files ?? []
 );
+const isSlimmedPlayback = computed(() => playback.value?.isSlimmed === true);
 
 const currentFile = computed<ExecutionHistorySmartFillFile | null>(
   () => files.value[selectedFileIndex.value] ?? null
@@ -48,17 +54,21 @@ const currentRow = computed<ExecutionHistorySmartFillRow | null>(() => {
   );
 });
 
+const displayRow = computed<ExecutionHistorySmartFillRow | null>(
+  () => fullRow.value ?? currentRow.value
+);
+
 const currentPreviewItem = computed<MatchPreviewItem | null>(() => {
-  if (!currentRow.value) return null;
+  if (!displayRow.value) return null;
 
   return {
-    rowIndex: currentRow.value.rowIndex,
-    sourceProject: currentRow.value.sourceProject,
-    sourceSpecification: currentRow.value.sourceSpecification,
-    bestMatch: currentRow.value.previewSnapshot.bestMatch,
-    noMatchReason: currentRow.value.previewSnapshot.noMatchReason,
-    hasMatch: !!currentRow.value.previewSnapshot.bestMatch,
-    confidenceLevel: currentRow.value.previewSnapshot.confidenceLevel
+    rowIndex: displayRow.value.rowIndex,
+    sourceProject: displayRow.value.sourceProject,
+    sourceSpecification: displayRow.value.sourceSpecification,
+    bestMatch: displayRow.value.previewSnapshot.bestMatch,
+    noMatchReason: displayRow.value.previewSnapshot.noMatchReason,
+    hasMatch: !!displayRow.value.previewSnapshot.bestMatch,
+    confidenceLevel: displayRow.value.previewSnapshot.confidenceLevel
   };
 });
 
@@ -73,6 +83,8 @@ watch(
     selectedSheetName.value = nextFiles[0]?.sheets[0]?.sheetName ?? "";
     selectedRowIndex.value = nextFiles[0]?.sheets[0]?.rows[0]?.rowIndex ?? null;
     comparedCandidateRank.value = 1;
+    fullRow.value = null;
+    fullRowError.value = "";
   },
   { immediate: true }
 );
@@ -85,6 +97,8 @@ watch(currentFile, file => {
   ) {
     selectedSheetName.value = firstSheetName;
   }
+  fullRow.value = null;
+  fullRowError.value = "";
 });
 
 watch(currentSheet, sheet => {
@@ -96,11 +110,67 @@ watch(currentSheet, sheet => {
     selectedRowIndex.value = firstRowIndex;
   }
   comparedCandidateRank.value = 1;
+  fullRow.value = null;
+  fullRowError.value = "";
 });
+
+const loadFullRow = async (row: ExecutionHistorySmartFillRow) => {
+  if (!playback.value?.hasFullArchive) return;
+
+  const requestId = fullRowRequestId.value + 1;
+  fullRowRequestId.value = requestId;
+  const sheetIndex = currentFile.value?.sheets.findIndex(
+    sheet => sheet.sheetName === currentSheet.value?.sheetName
+  );
+  if (sheetIndex == null || sheetIndex < 0) return;
+
+  const fileIndex = selectedFileIndex.value;
+  const sheetName = currentSheet.value?.sheetName;
+  const rowIndex = row.rowIndex;
+  fullRowLoading.value = true;
+  fullRowError.value = "";
+  try {
+    const response = await getExecutionHistorySmartFillRow(props.detail.id, {
+      fileIndex,
+      sheetIndex,
+      rowIndex
+    });
+    if (
+      requestId !== fullRowRequestId.value ||
+      selectedFileIndex.value !== fileIndex ||
+      currentSheet.value?.sheetName !== sheetName ||
+      selectedRowIndex.value !== rowIndex
+    ) {
+      return;
+    }
+    fullRow.value = response.data;
+  } catch (error) {
+    if (requestId !== fullRowRequestId.value) return;
+    fullRow.value = null;
+    fullRowError.value = "完整匹配明细加载失败，当前显示轻量归档信息。";
+  } finally {
+    if (requestId === fullRowRequestId.value) {
+      fullRowLoading.value = false;
+    }
+  }
+};
+
+watch(
+  currentRow,
+  row => {
+    fullRow.value = null;
+    fullRowError.value = "";
+    if (row) {
+      void loadFullRow(row);
+    }
+  },
+  { immediate: true }
+);
 
 const handleRowClick = (row: ExecutionHistorySmartFillRow) => {
   selectedRowIndex.value = row.rowIndex;
   comparedCandidateRank.value = 1;
+  fullRow.value = null;
 };
 
 const getStatusText = (status: string) => {
@@ -153,12 +223,12 @@ const handleSelectComparisonCandidate = (candidate: MatchCandidateOption) => {
 };
 
 const executionRows = computed(() => {
-  if (!currentRow.value) return [];
+  if (!displayRow.value) return [];
 
   return [
     {
       label: "匹配来源",
-      value: getMatchOriginText(currentRow.value.matchOrigin)
+      value: getMatchOriginText(displayRow.value.matchOrigin)
     },
     {
       label: "选定方式",
@@ -168,31 +238,31 @@ const executionRows = computed(() => {
     },
     {
       label: "执行状态",
-      value: getStatusText(currentRow.value.executionSnapshot.status)
+      value: getStatusText(displayRow.value.executionSnapshot.status)
     },
     {
       label: "人工确认",
-      value: currentRow.value.executionSnapshot.manualConfirmed ? "是" : "否"
+      value: displayRow.value.executionSnapshot.manualConfirmed ? "是" : "否"
     },
     {
       label: "人工写入",
-      value: currentRow.value.executionSnapshot.manualEdited ? "是" : "否"
+      value: displayRow.value.executionSnapshot.manualEdited ? "是" : "否"
     },
     {
       label: "最终验收",
-      value: currentRow.value.executionSnapshot.finalAcceptance || "-"
+      value: displayRow.value.executionSnapshot.finalAcceptance || "-"
     },
     {
       label: "最终备注",
-      value: currentRow.value.executionSnapshot.finalRemark || "-"
+      value: displayRow.value.executionSnapshot.finalRemark || "-"
     },
     {
       label: "验收覆盖值",
-      value: currentRow.value.executionSnapshot.overrideAcceptance || "-"
+      value: displayRow.value.executionSnapshot.overrideAcceptance || "-"
     },
     {
       label: "备注覆盖值",
-      value: currentRow.value.executionSnapshot.overrideRemark || "-"
+      value: displayRow.value.executionSnapshot.overrideRemark || "-"
     }
   ];
 });
@@ -273,21 +343,44 @@ const executionRows = computed(() => {
     </div>
 
     <div class="playback-detail">
-      <template v-if="currentRow && currentPreviewItem">
+      <el-alert
+        v-if="isSlimmedPlayback"
+        class="slimmed-alert"
+        type="warning"
+        :closable="false"
+        title="该执行记录初始加载为轻量视图，展开行详情时会按需读取完整匹配明细。"
+      />
+
+      <template v-if="displayRow && currentPreviewItem">
+        <el-alert
+          v-if="fullRowLoading"
+          class="slimmed-alert"
+          type="info"
+          :closable="false"
+          title="正在加载完整匹配明细..."
+        />
+        <el-alert
+          v-if="fullRowError"
+          class="slimmed-alert"
+          type="warning"
+          :closable="false"
+          :title="fullRowError"
+        />
+
         <div class="row-head">
           <div>
             <div class="row-head__title">
-              第 {{ currentRow.rowIndex + 1 }} 行
+              第 {{ displayRow.rowIndex + 1 }} 行
             </div>
             <div class="row-head__subtitle">
-              {{ currentRow.sourceProject || "-" }} /
-              {{ currentRow.sourceSpecification || "-" }}
+              {{ displayRow.sourceProject || "-" }} /
+              {{ displayRow.sourceSpecification || "-" }}
             </div>
           </div>
           <div class="tag-list">
             <el-tag
-              v-for="tag in currentRow.displayTags"
-              :key="`active-${currentRow.rowIndex}-${tag}`"
+              v-for="tag in displayRow.displayTags"
+              :key="`active-${displayRow.rowIndex}-${tag}`"
               size="small"
               effect="plain"
             >
@@ -405,6 +498,10 @@ const executionRows = computed(() => {
 .execution-card,
 .candidate-card-wrap {
   margin-bottom: 14px;
+}
+
+.slimmed-alert {
+  margin-bottom: 12px;
 }
 
 .card-title {

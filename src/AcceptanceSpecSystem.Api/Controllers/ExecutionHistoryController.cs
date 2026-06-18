@@ -48,4 +48,29 @@ public class ExecutionHistoryController : BaseApiController
 
         return Success(result);
     }
+
+    [HttpGet("{id:int}/smart-fill/rows")]
+    [ProducesResponseType(typeof(ApiResponse<ExecutionHistorySmartFillRowDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ExecutionHistorySmartFillRowDto>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ExecutionHistorySmartFillRowDto>>> GetSmartFillRow(
+        int id,
+        [FromQuery] int fileIndex,
+        [FromQuery] int sheetIndex,
+        [FromQuery] int rowIndex,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _executionHistoryAppService.GetSmartFillRowAsync(
+            User,
+            id,
+            fileIndex,
+            sheetIndex,
+            rowIndex,
+            cancellationToken);
+        if (result == null)
+        {
+            return NotFoundResult<ExecutionHistorySmartFillRowDto>("完整回放归档不存在");
+        }
+
+        return Success(result);
+    }
 }

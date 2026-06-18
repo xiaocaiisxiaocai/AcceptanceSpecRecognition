@@ -109,6 +109,9 @@ export interface ExecutionHistorySmartFillFile {
 export interface ExecutionHistorySmartFillPlayback {
   payloadVersion: number;
   isLegacy: boolean;
+  isSlimmed?: boolean;
+  hasFullArchive?: boolean;
+  fullArchiveRelativePath?: string;
   legacyMessage?: string;
   files: ExecutionHistorySmartFillFile[];
 }
@@ -139,5 +142,20 @@ export const getExecutionHistoryDetail = (id: number) => {
   return http.request<ApiResponse<ExecutionHistoryDetail>>(
     "get",
     `${baseUrl}/${id}`
+  );
+};
+
+export const getExecutionHistorySmartFillRow = (
+  id: number,
+  params: {
+    fileIndex: number;
+    sheetIndex: number;
+    rowIndex: number;
+  }
+) => {
+  return http.request<ApiResponse<ExecutionHistorySmartFillRow>>(
+    "get",
+    `${baseUrl}/${id}/smart-fill/rows`,
+    { params }
   );
 };

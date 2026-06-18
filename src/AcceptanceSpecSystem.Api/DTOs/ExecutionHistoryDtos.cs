@@ -111,6 +111,10 @@ public class ExecutionHistorySmartFillPlaybackDto
     /// </summary>
     public bool IsSlimmed { get; set; }
 
+    public bool HasFullArchive { get; set; }
+
+    public string? FullArchiveRelativePath { get; set; }
+
     public string? LegacyMessage { get; set; }
 
     public List<ExecutionHistorySmartFillFileDto> Files { get; set; } = [];

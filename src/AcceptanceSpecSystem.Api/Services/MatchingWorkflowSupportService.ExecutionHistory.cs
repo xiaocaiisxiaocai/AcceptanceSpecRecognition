@@ -314,53 +314,46 @@ public sealed partial class MatchingWorkflowSupportService
         MatchPreviewItem? previewItem,
         string matchOrigin)
     {
-        var isExactMatch = string.Equals(matchOrigin, ExecutionHistoryMatchOrigins.Exact, StringComparison.Ordinal);
         return new ExecutionHistorySmartFillPreviewSnapshotDto
         {
             ConfidenceLevel = previewItem?.ConfidenceLevel ?? "none",
             NoMatchReason = previewItem?.NoMatchReason,
             BestMatch = previewItem?.BestMatch == null
                 ? null
-                : BuildPersistedBestMatchSnapshot(previewItem.BestMatch, isExactMatch)
+                : BuildPersistedBestMatchSnapshot(previewItem.BestMatch)
         };
     }
 
-    private static MatchResultDto BuildPersistedBestMatchSnapshot(MatchResultDto bestMatch, bool isExactMatch)
+    private static MatchResultDto BuildPersistedBestMatchSnapshot(MatchResultDto bestMatch)
     {
         return new MatchResultDto
         {
             SpecId = bestMatch.SpecId,
             Project = bestMatch.Project,
             Specification = bestMatch.Specification,
-            Acceptance = isExactMatch ? null : bestMatch.Acceptance,
-            Remark = isExactMatch ? null : bestMatch.Remark,
+            Acceptance = bestMatch.Acceptance,
+            Remark = bestMatch.Remark,
             Score = bestMatch.Score,
             EmbeddingScore = bestMatch.EmbeddingScore,
-            ScoreDetails = isExactMatch
-                ? []
-                : new Dictionary<string, double>(bestMatch.ScoreDetails),
+            ScoreDetails = new Dictionary<string, double>(bestMatch.ScoreDetails),
             Decision = bestMatch.Decision,
-            EvidenceSummary = isExactMatch ? [] : [.. bestMatch.EvidenceSummary],
-            ConflictSummary = isExactMatch ? [] : [.. bestMatch.ConflictSummary],
-            Issues = isExactMatch ? [] : [.. bestMatch.Issues.Select(CloneIssueDto)],
-            Entities = [],
-            TopCandidates = isExactMatch
-                ? []
-                : [.. bestMatch.TopCandidates.Select(CloneCandidateDto)],
-            RecalledCandidateCount = isExactMatch
-                ? Math.Min(bestMatch.RecalledCandidateCount, 1)
-                : bestMatch.RecalledCandidateCount,
+            EvidenceSummary = [.. bestMatch.EvidenceSummary],
+            ConflictSummary = [.. bestMatch.ConflictSummary],
+            Issues = [.. bestMatch.Issues.Select(CloneIssueDto)],
+            Entities = [.. bestMatch.Entities.Select(CloneEntityDto)],
+            TopCandidates = [.. bestMatch.TopCandidates.Select(CloneCandidateDto)],
+            RecalledCandidateCount = bestMatch.RecalledCandidateCount,
             IsAmbiguous = bestMatch.IsAmbiguous,
-            ScoreGap = isExactMatch ? null : bestMatch.ScoreGap,
-            RerankSummary = isExactMatch ? null : bestMatch.RerankSummary,
+            ScoreGap = bestMatch.ScoreGap,
+            RerankSummary = bestMatch.RerankSummary,
             SelectionMode = bestMatch.SelectionMode,
             SelectionSummary = bestMatch.SelectionSummary,
             MatchBasis = bestMatch.MatchBasis,
-            LlmEquivalence = isExactMatch ? null : bestMatch.LlmEquivalence,
+            LlmEquivalence = bestMatch.LlmEquivalence,
             ReviewApprovalToken = null,
-            ReviewScore = isExactMatch ? null : bestMatch.ReviewScore,
-            ReviewReason = isExactMatch ? null : bestMatch.ReviewReason,
-            ReviewCommentary = isExactMatch ? null : bestMatch.ReviewCommentary
+            ReviewScore = bestMatch.ReviewScore,
+            ReviewReason = bestMatch.ReviewReason,
+            ReviewCommentary = bestMatch.ReviewCommentary
         };
     }
 
@@ -381,7 +374,7 @@ public sealed partial class MatchingWorkflowSupportService
             EvidenceSummary = [.. candidate.EvidenceSummary],
             ConflictSummary = [.. candidate.ConflictSummary],
             Issues = [.. candidate.Issues.Select(CloneIssueDto)],
-            Entities = [],
+            Entities = [.. candidate.Entities.Select(CloneEntityDto)],
             RerankSummary = candidate.RerankSummary,
             SelectionMode = candidate.SelectionMode,
             SelectionSummary = candidate.SelectionSummary,
@@ -401,6 +394,19 @@ public sealed partial class MatchingWorkflowSupportService
             CandidateValue = issue.CandidateValue,
             Message = issue.Message,
             SuggestedAction = issue.SuggestedAction
+        };
+    }
+
+    private static MatchEntityEvidenceDto CloneEntityDto(MatchEntityEvidenceDto entity)
+    {
+        return new MatchEntityEvidenceDto
+        {
+            EntityType = entity.EntityType,
+            SourceValue = entity.SourceValue,
+            CandidateValue = entity.CandidateValue,
+            NormalizedSourceValue = entity.NormalizedSourceValue,
+            NormalizedCandidateValue = entity.NormalizedCandidateValue,
+            Relation = entity.Relation
         };
     }
 

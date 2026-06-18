@@ -21,6 +21,16 @@ public interface IFileStorageService
     Task<string> SaveFilledWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 保存智能填充执行历史完整回放归档，返回相对路径
+    /// </summary>
+    Task<string> SaveSmartFillPlaybackArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 读取智能填充执行历史完整回放归档
+    /// </summary>
+    Task<byte[]> ReadSmartFillPlaybackArchiveAsync(string relativePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 写入健康检查临时文件，返回相对路径
     /// </summary>
     Task<string> WriteHealthCheckFileAsync(CancellationToken cancellationToken = default);
