@@ -76,6 +76,21 @@ export const canUseMatchPreviewBestMatch = (
   return true;
 };
 
+export const canManuallyAcceptMatchPreviewBestMatch = (
+  item: MatchPreviewItem,
+  reviewStatus: SmartFillReviewStatus
+) => {
+  if (!item.bestMatch || isNoAnswerPlaceholderRow(item)) {
+    return false;
+  }
+
+  if (isMatchPreviewRejectDecision(item)) {
+    return false;
+  }
+
+  return !isMatchPreviewReviewInFlight(reviewStatus);
+};
+
 export const canEditMatchPreviewRow = (
   item: MatchPreviewItem,
   reviewStatus: SmartFillReviewStatus
@@ -87,9 +102,7 @@ export const canEditMatchPreviewRow = (
     return false;
   }
 
-  return item.bestMatch
-    ? canUseMatchPreviewBestMatch(item, reviewStatus)
-    : true;
+  return item.bestMatch ? !isMatchPreviewReviewInFlight(reviewStatus) : true;
 };
 
 export const shouldShowFillRecommendation = (item: MatchPreviewItem) =>

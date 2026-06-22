@@ -19,7 +19,11 @@ import {
   applyMatchLlmStreamDisconnectToPreviewItem,
   shouldStreamMatchReview
 } from "../src/views/smart-fill/components/scoreDetail.formatters.ts";
-import { canUseMatchPreviewBestMatch as canUsePreviewBestMatch } from "../src/views/smart-fill/components/matchPreviewTable.formatters.ts";
+import {
+  canEditMatchPreviewRow,
+  canManuallyAcceptMatchPreviewBestMatch,
+  canUseMatchPreviewBestMatch as canUsePreviewBestMatch
+} from "../src/views/smart-fill/components/matchPreviewTable.formatters.ts";
 import {
   collectEditedBackfillItems,
   reconcileMatchPreviewSelectionCache
@@ -282,6 +286,36 @@ test("AI 判定不同或不确定时不应允许前端确认采用", () => {
 
   assert.equal(canUsePreviewBestMatch(different, "manual"), false);
   assert.equal(canUsePreviewBestMatch(uncertain, "manual"), false);
+});
+
+test("需要确认和不建议填充行应支持人工编辑，需要确认行可人工确认采用", () => {
+  const review = createPreviewItem({
+    bestMatch: {
+      ...createPreviewItem().bestMatch!,
+      decision: "manualReview",
+      llmEquivalence: {
+        verdict: "different",
+        reasonType: "semantic_difference",
+        confidence: 0.9
+      }
+    }
+  });
+  const blocked = createPreviewItem({
+    bestMatch: {
+      ...createPreviewItem().bestMatch!,
+      decision: "reject"
+    }
+  });
+  const dataTableSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchPreviewDataTable.vue"
+  );
+
+  assert.equal(canUsePreviewBestMatch(review, "manual"), false);
+  assert.equal(canManuallyAcceptMatchPreviewBestMatch(review, "manual"), true);
+  assert.equal(canEditMatchPreviewRow(review, "manual"), true);
+  assert.equal(canEditMatchPreviewRow(blocked, "blocked"), true);
+  assert.match(dataTableSource, /can-manually-accept-best-match/);
+  assert.match(dataTableSource, /can-show-clear-selection/);
 });
 
 test("llm-stream 收口只应处理本次仍待完成的复核行", () => {

@@ -33,7 +33,8 @@ defineProps<{
   hasRemarkOverride: (item: MatchPreviewItem) => boolean;
   getSelection: (rowIndex: number) => MatchPreviewSelection | null | undefined;
   canEditRow: (item: MatchPreviewItem) => boolean;
-  canUseBestMatch: (item: MatchPreviewItem) => boolean;
+  canManuallyAcceptBestMatch: (item: MatchPreviewItem) => boolean;
+  canShowClearSelection: (item: MatchPreviewItem) => boolean;
   getConfirmBestMatchButtonText: (item: MatchPreviewItem) => string;
 }>();
 
@@ -181,7 +182,7 @@ defineEmits<{
           <el-button
             v-if="
               row.bestMatch &&
-              canUseBestMatch(row) &&
+              canManuallyAcceptBestMatch(row) &&
               getSelection(row.rowIndex)?.type !== 'best'
             "
             size="small"
@@ -190,7 +191,7 @@ defineEmits<{
             {{ getConfirmBestMatchButtonText(row) }}
           </el-button>
           <el-button
-            v-if="getSelection(row.rowIndex)"
+            v-if="canShowClearSelection(row)"
             link
             size="small"
             @click="$emit('clearSelection', row)"

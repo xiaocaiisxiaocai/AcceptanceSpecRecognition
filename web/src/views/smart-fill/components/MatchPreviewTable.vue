@@ -11,6 +11,7 @@ import {
 } from "./scoreDetail.formatters";
 import {
   canEditMatchPreviewRow,
+  canManuallyAcceptMatchPreviewBestMatch,
   canUseMatchPreviewBestMatch,
   filterMatchPreviewItems,
   formatOptionalPercent,
@@ -97,8 +98,14 @@ const isHighConfidence = isHighConfidenceMatchPreview;
 const canUseBestMatch = (item: MatchPreviewItem) =>
   canUseMatchPreviewBestMatch(item, getReviewStatus(item));
 
+const canManuallyAcceptBestMatch = (item: MatchPreviewItem) =>
+  canManuallyAcceptMatchPreviewBestMatch(item, getReviewStatus(item));
+
 const canEditRow = (item: MatchPreviewItem) =>
   canEditMatchPreviewRow(item, getReviewStatus(item));
+
+const canShowClearSelection = (item: MatchPreviewItem) =>
+  !!getSelection(item.rowIndex) || canManuallyAcceptBestMatch(item);
 
 const initSelections = () => {
   selectedSpecs.value.clear();
@@ -359,7 +366,7 @@ watch(selectionSyncKey, () => syncSelectionsWithItems(), { immediate: true });
 const getSelection = (rowIndex: number) => selectedSpecs.value.get(rowIndex);
 
 const handleSelectBest = (item: MatchPreviewItem) => {
-  if (!canUseBestMatch(item)) {
+  if (!canManuallyAcceptBestMatch(item)) {
     return;
   }
 
@@ -542,6 +549,8 @@ defineExpose({
       :get-selection="getSelection"
       :can-edit-row="canEditRow"
       :can-use-best-match="canUseBestMatch"
+      :can-manually-accept-best-match="canManuallyAcceptBestMatch"
+      :can-show-clear-selection="canShowClearSelection"
       :get-confirm-best-match-button-text="getConfirmBestMatchButtonText"
       @page-size-change="handlePageSizeChange"
       @show-detail="emit('showDetail', $event)"
