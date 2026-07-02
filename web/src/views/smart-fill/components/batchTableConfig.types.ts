@@ -7,4 +7,6 @@ export interface BatchTableConfigItem extends BatchTableConfig {
   selected: boolean;
   /** 表格信息（用于展示） */
   tableInfo: TableInfo;
+  /** 字段映射是否仍由规则自动推导；用户手动改列后不再自动覆盖 */
+  mappingAutoDetected?: boolean;
 }

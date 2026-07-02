@@ -14,6 +14,12 @@ export enum ColumnMappingMatchMode {
   Regex = 3
 }
 
+export enum ColumnMappingRuleSource {
+  Builtin = 1,
+  Manual = 2,
+  Learned = 3
+}
+
 export interface ColumnMappingRule {
   id: number;
   targetField: ColumnMappingTargetField;
@@ -21,6 +27,8 @@ export interface ColumnMappingRule {
   pattern: string;
   priority: number;
   enabled: boolean;
+  source: ColumnMappingRuleSource;
+  customerId?: number;
   createdAt: string;
   updatedAt?: string;
 }
@@ -31,6 +39,8 @@ export interface CreateColumnMappingRuleRequest {
   pattern: string;
   priority: number;
   enabled: boolean;
+  source?: ColumnMappingRuleSource;
+  customerId?: number;
 }
 
 export type UpdateColumnMappingRuleRequest = CreateColumnMappingRuleRequest;
@@ -43,10 +53,13 @@ export const getColumnMappingRules = (enabled?: boolean) => {
   });
 };
 
-export const getEffectiveColumnMappingRules = () => {
+export const getEffectiveColumnMappingRules = (customerId?: number) => {
   return http.request<ApiResponse<ColumnMappingRule[]>>(
     "get",
-    `${baseUrl}/effective`
+    `${baseUrl}/effective`,
+    {
+      params: customerId === undefined ? undefined : { customerId }
+    }
   );
 };
 

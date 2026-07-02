@@ -48,14 +48,10 @@ public class ColumnMappingRulesController : BaseApiController
     [HttpGet("effective")]
     [ProducesResponseType(typeof(ApiResponse<List<ColumnMappingRuleDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<ColumnMappingRuleDto>>>> GetEffective(
+        [FromQuery] int? customerId = null,
         CancellationToken cancellationToken = default)
     {
-        var rules = await _unitOfWork.ColumnMappingRules.Query()
-            .Where(rule => rule.Enabled)
-            .OrderBy(rule => rule.TargetField)
-            .ThenByDescending(rule => rule.Priority)
-            .ThenBy(rule => rule.Id)
-            .ToListAsync(cancellationToken);
+        var rules = await _unitOfWork.ColumnMappingRules.GetEffectiveForCustomerAsync(customerId);
         return Success(rules.Select(ToDto).ToList());
     }
 
@@ -85,6 +81,8 @@ public class ColumnMappingRulesController : BaseApiController
             Pattern = pattern,
             Priority = request.Priority,
             Enabled = request.Enabled,
+            Source = request.Source,
+            CustomerId = request.CustomerId,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -125,6 +123,8 @@ public class ColumnMappingRulesController : BaseApiController
         entity.Pattern = pattern;
         entity.Priority = request.Priority;
         entity.Enabled = request.Enabled;
+        entity.Source = request.Source;
+        entity.CustomerId = request.CustomerId;
         entity.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.ColumnMappingRules.Update(entity);
@@ -177,6 +177,8 @@ public class ColumnMappingRulesController : BaseApiController
         Pattern = entity.Pattern,
         Priority = entity.Priority,
         Enabled = entity.Enabled,
+        Source = entity.Source,
+        CustomerId = entity.CustomerId,
         CreatedAt = entity.CreatedAt,
         UpdatedAt = entity.UpdatedAt
     };

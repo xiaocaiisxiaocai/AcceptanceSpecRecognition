@@ -1,6 +1,6 @@
 ## 1. Specification Gate
-- [ ] 1.1 校验本 change：`openspec validate add-smart-recognition-simplification --strict`。
-- [ ] 1.2 获得方案批准后再开始业务源码实现。
+- [x] 1.1 校验本 change：`openspec validate add-smart-recognition-simplification --strict`。
+- [x] 1.2 获得方案批准后再开始业务源码实现。
 
 ## 2. Backend Recognition
 - [ ] 2.1 新增 Core 文档结构识别模型、规则融合、确定性体检和 LLM 结构裁决。
@@ -9,8 +9,8 @@
 - [ ] 2.4 接入 Prompt 模板场景、权限、DI 与架构边界测试。
 
 ## 3. Data Learning
-- [ ] 3.1 新增客户级 `DocumentTemplate` 存储与仓储。
-- [ ] 3.2 扩展 `ColumnMappingRule` 的来源和客户域。
+- [x] 3.1 新增客户级 `DocumentTemplate` 存储与仓储。
+- [x] 3.2 扩展 `ColumnMappingRule` 的来源和客户域。
 - [ ] 3.3 实现确认后模板 upsert、学习词写入和全局升级。
 
 ## 4. Frontend Flow

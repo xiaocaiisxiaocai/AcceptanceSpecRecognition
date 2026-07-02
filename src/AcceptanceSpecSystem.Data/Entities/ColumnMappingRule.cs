@@ -18,6 +18,16 @@ public class ColumnMappingRule
 
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// 规则来源。
+    /// </summary>
+    public ColumnMappingRuleSource Source { get; set; } = ColumnMappingRuleSource.Manual;
+
+    /// <summary>
+    /// 关联客户；null 表示全局规则。
+    /// </summary>
+    public int? CustomerId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }
@@ -42,4 +52,14 @@ public enum ColumnMappingMatchMode
     Contains = 1,
     Equals = 2,
     Regex = 3
+}
+
+/// <summary>
+/// 列映射规则来源。
+/// </summary>
+public enum ColumnMappingRuleSource
+{
+    Builtin = 1,
+    Manual = 2,
+    Learned = 3
 }

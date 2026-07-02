@@ -123,6 +123,7 @@ const matchScope = ref<{
   processId: undefined,
   machineModelId: undefined
 });
+const selectedCustomerIdForRules = ref<number | undefined>(undefined);
 
 const resetMatchScope = () => {
   matchScope.value = {
@@ -130,6 +131,7 @@ const resetMatchScope = () => {
     processId: undefined,
     machineModelId: undefined
   };
+  selectedCustomerIdForRules.value = undefined;
 };
 
 // 所有预览项（扁平化）
@@ -201,11 +203,17 @@ const handleScopeChange = (
   processId?: number,
   machineModelId?: number
 ) => {
+  const customerChanged = matchScope.value.customerId !== customerId;
   matchScope.value = {
     customerId,
     processId,
     machineModelId
   };
+  selectedCustomerIdForRules.value = customerId;
+
+  if (customerChanged) {
+    void reloadWordColumnMappingRulesForCustomer();
+  }
 };
 
 const clearPreviewDetail = () => {
@@ -314,13 +322,17 @@ const canGoNext = computed(() => {
   }
 });
 
-const { loadUploadedFileTables } = useSmartFillUploadedTables({
+const {
+  loadUploadedFileTables,
+  reloadWordColumnMappingRulesForCustomer
+} = useSmartFillUploadedTables({
   uploadedFile,
   isExcelFile,
   allTables,
   batchTableConfigs,
   wordColumnMappingRules,
-  loadingUploadedFileTables
+  loadingUploadedFileTables,
+  selectedCustomerId: selectedCustomerIdForRules
 });
 
 // 文件上传完成

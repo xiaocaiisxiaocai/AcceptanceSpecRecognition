@@ -325,7 +325,9 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Pattern).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Source).HasDefaultValue(ColumnMappingRuleSource.Manual);
             entity.HasIndex(e => new { e.TargetField, e.Pattern });
+            entity.HasIndex(e => new { e.CustomerId, e.TargetField, e.Pattern });
             entity.HasIndex(e => new { e.TargetField, e.Priority });
         });
 

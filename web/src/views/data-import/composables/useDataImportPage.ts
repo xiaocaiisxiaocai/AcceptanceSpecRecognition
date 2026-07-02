@@ -318,7 +318,9 @@ export function useDataImportPage() {
 
     loadingMappingRules.value = true;
     try {
-      const res = await getEffectiveColumnMappingRules();
+      const res = await getEffectiveColumnMappingRules(
+        selectedCustomerId.value
+      );
       if (res.code === 0) {
         mappingRules.value = res.data || [];
         applyRulesToAll(false);
@@ -636,6 +638,16 @@ export function useDataImportPage() {
     }
     if (step === 3 && machineModels.value.length === 0) {
       loadMachineModels();
+    }
+  });
+
+  watch(selectedCustomerId, () => {
+    if (
+      currentStep.value === 2 &&
+      !isExcelFile.value &&
+      !loadingMappingRules.value
+    ) {
+      loadMappingRules();
     }
   });
 

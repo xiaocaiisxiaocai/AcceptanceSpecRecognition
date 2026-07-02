@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   ColumnMappingMatchMode,
+  ColumnMappingRuleSource,
   ColumnMappingTargetField,
   createColumnMappingRule,
   deleteColumnMappingRule,
@@ -38,6 +39,12 @@ const matchModeOptions = [
   { label: "正则", value: ColumnMappingMatchMode.Regex }
 ];
 
+const sourceOptions = [
+  { label: "内置", value: ColumnMappingRuleSource.Builtin, type: "info" },
+  { label: "手动", value: ColumnMappingRuleSource.Manual, type: "primary" },
+  { label: "学习", value: ColumnMappingRuleSource.Learned, type: "success" }
+] as const;
+
 const tabKeywords = reactive({
   [ColumnMappingTargetField.Project]: "",
   [ColumnMappingTargetField.Specification]: "",
@@ -58,6 +65,9 @@ const getMatchModeLabel = (matchMode: ColumnMappingMatchMode) =>
     .find(option => option.value === matchMode)
     ?.label.toLowerCase() ?? "";
 
+const getSourceOption = (source?: ColumnMappingRuleSource) =>
+  sourceOptions.find(option => option.value === source) ?? sourceOptions[1];
+
 const filteredRulesByTarget = computed(() => {
   const result = {} as Record<ColumnMappingTargetField, ColumnMappingRule[]>;
 
@@ -72,9 +82,12 @@ const filteredRulesByTarget = computed(() => {
         }
 
         const matchModeLabel = getMatchModeLabel(rule.matchMode);
+        const sourceLabel = getSourceOption(rule.source).label.toLowerCase();
         return (
           rule.pattern.toLowerCase().includes(keyword) ||
-          matchModeLabel.includes(keyword)
+          matchModeLabel.includes(keyword) ||
+          sourceLabel.includes(keyword) ||
+          String(rule.customerId ?? "全局").includes(keyword)
         );
       })
       .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id);
@@ -109,7 +122,9 @@ const form = reactive({
   matchMode: ColumnMappingMatchMode.Equals,
   pattern: "",
   priority: 0,
-  enabled: true
+  enabled: true,
+  source: ColumnMappingRuleSource.Manual,
+  customerId: undefined as number | undefined
 });
 
 const openAdd = () => {
@@ -130,6 +145,8 @@ const openAdd = () => {
   form.pattern = "";
   form.priority = 0;
   form.enabled = true;
+  form.source = ColumnMappingRuleSource.Manual;
+  form.customerId = undefined;
   dialogVisible.value = true;
 };
 
@@ -151,6 +168,8 @@ const openEdit = (row: ColumnMappingRule) => {
   form.pattern = row.pattern;
   form.priority = row.priority ?? 0;
   form.enabled = row.enabled;
+  form.source = row.source ?? ColumnMappingRuleSource.Manual;
+  form.customerId = row.customerId;
   dialogVisible.value = true;
 };
 
@@ -180,7 +199,9 @@ const submit = async () => {
       matchMode: form.matchMode,
       pattern,
       priority: Number(form.priority) || 0,
-      enabled: form.enabled
+      enabled: form.enabled,
+      source: form.source,
+      customerId: form.customerId
     };
 
     const res = isEdit.value
@@ -216,7 +237,9 @@ const persistRow = async (row: ColumnMappingRule) => {
       matchMode: row.matchMode,
       pattern: row.pattern,
       priority: row.priority ?? 0,
-      enabled: row.enabled
+      enabled: row.enabled,
+      source: row.source ?? ColumnMappingRuleSource.Manual,
+      customerId: row.customerId
     });
     if (res.code !== 0) {
       ElMessage.error(res.message || "更新失败");
@@ -299,7 +322,7 @@ onMounted(load);
             <el-input
               v-model="tabKeywords[target.value]"
               class="rule-search-input"
-              placeholder="搜索当前字段的匹配词 / 匹配模式"
+              placeholder="搜索当前字段的匹配词 / 匹配模式 / 来源 / 客户"
               clearable
             />
           </div>
@@ -328,6 +351,28 @@ onMounted(load);
                     :value="mode.value"
                   />
                 </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="来源" width="110">
+              <template #default="{ row }">
+                <el-tag
+                  :type="getSourceOption(row.source).type"
+                  effect="plain"
+                  size="small"
+                >
+                  {{ getSourceOption(row.source).label }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="客户域" width="120">
+              <template #default="{ row }">
+                <el-tag
+                  :type="row.customerId ? 'success' : 'info'"
+                  effect="plain"
+                  size="small"
+                >
+                  {{ row.customerId ? `客户 ${row.customerId}` : "全局" }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column label="优先级" width="140">
@@ -416,6 +461,25 @@ onMounted(load);
         </el-form-item>
         <el-form-item label="优先级">
           <el-input-number v-model="form.priority" :min="-999" :max="999" />
+        </el-form-item>
+        <el-form-item label="来源">
+          <el-select v-model="form.source" popper-class="config-select-popper">
+            <el-option
+              v-for="source in sourceOptions"
+              :key="source.value"
+              :label="source.label"
+              :value="source.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="客户域">
+          <el-input-number
+            v-model="form.customerId"
+            :min="1"
+            :controls="false"
+            placeholder="留空为全局规则"
+            clearable
+          />
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="form.enabled" />

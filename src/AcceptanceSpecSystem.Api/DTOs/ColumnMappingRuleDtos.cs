@@ -18,6 +18,10 @@ public class ColumnMappingRuleDto
 
     public bool Enabled { get; set; }
 
+    public ColumnMappingRuleSource Source { get; set; }
+
+    public int? CustomerId { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
@@ -38,6 +42,10 @@ public class CreateColumnMappingRuleRequest
     public int Priority { get; set; }
 
     public bool Enabled { get; set; } = true;
+
+    public ColumnMappingRuleSource Source { get; set; } = ColumnMappingRuleSource.Manual;
+
+    public int? CustomerId { get; set; }
 }
 
 public class UpdateColumnMappingRuleRequest
@@ -54,4 +62,8 @@ public class UpdateColumnMappingRuleRequest
     public int Priority { get; set; }
 
     public bool Enabled { get; set; } = true;
+
+    public ColumnMappingRuleSource Source { get; set; } = ColumnMappingRuleSource.Manual;
+
+    public int? CustomerId { get; set; }
 }

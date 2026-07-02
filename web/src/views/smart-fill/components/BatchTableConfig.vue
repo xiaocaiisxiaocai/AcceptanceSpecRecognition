@@ -156,7 +156,17 @@ const updateField = (
   markExcelTableAsCustomized(index);
 
   const updated = [...items.value];
-  updated[index] = { ...updated[index], [field]: value };
+  const mappingFields: Array<keyof BatchTableConfig> = [
+    "projectColumnIndex",
+    "specificationColumnIndex",
+    "acceptanceColumnIndex",
+    "remarkColumnIndex"
+  ];
+  updated[index] = {
+    ...updated[index],
+    [field]: value,
+    ...(mappingFields.includes(field) ? { mappingAutoDetected: false } : {})
+  };
 
   if (props.isExcel && index === 0) {
     items.value = applyPrimaryExcelConfigToOthers(updated);
