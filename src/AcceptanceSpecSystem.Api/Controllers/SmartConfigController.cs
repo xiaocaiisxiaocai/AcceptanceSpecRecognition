@@ -1,4 +1,5 @@
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -52,6 +53,51 @@ public class SmartConfigController : BaseApiController
         catch (Exception ex)
         {
             return Error<AutoConfigResult>(500, $"识别失败：{ex.Message}");
+        }
+    }
+
+    [HttpPost("confirm")]
+    [ProducesResponseType(typeof(ApiResponse<SmartConfigurationConfirmResult>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SmartConfigurationConfirmResult>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<SmartConfigurationConfirmResult>>> Confirm(
+        [FromBody] SmartConfigConfirmRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await _smartConfigService.ConfirmAsync(
+                new SmartConfigurationConfirmCommand
+                {
+                    CustomerId = request.CustomerId,
+                    TemplateName = request.TemplateName,
+                    Headers = request.Headers,
+                    ProjectColumnIndex = request.ProjectColumnIndex,
+                    SpecificationColumnIndex = request.SpecificationColumnIndex,
+                    AcceptanceColumnIndex = request.AcceptanceColumnIndex,
+                    RemarkColumnIndex = request.RemarkColumnIndex,
+                    HeaderRowIndex = request.HeaderRowIndex,
+                    HeaderRowCount = request.HeaderRowCount,
+                    DataStartRowIndex = request.DataStartRowIndex,
+                    DataEndRowIndex = request.DataEndRowIndex,
+                    IsSpecificationOnly = request.IsSpecificationOnly,
+                    LearnedColumns = request.LearnedColumns.Select(item =>
+                        new SmartConfigurationLearnedColumn
+                        {
+                            Header = item.Header,
+                            TargetField = item.TargetField
+                        }).ToList()
+                },
+                cancellationToken);
+
+            return Success(result, "确认成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<SmartConfigurationConfirmResult>(ex.Code, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return Error<SmartConfigurationConfirmResult>(500, $"确认失败：{ex.Message}");
         }
     }
 }

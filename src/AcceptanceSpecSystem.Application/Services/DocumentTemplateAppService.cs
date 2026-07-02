@@ -90,6 +90,8 @@ public sealed class DocumentTemplateAppService
         string templateName,
         IReadOnlyList<string> headers,
         ColumnMapping columnMapping,
+        int? dataEndRowIndex = null,
+        bool isSpecificationOnly = false,
         CancellationToken cancellationToken = default)
     {
         var fingerprint = GenerateHeadersFingerprint(headers);
@@ -97,7 +99,7 @@ public sealed class DocumentTemplateAppService
 
         // 检查是否已存在相同指纹的模板
         var existing = await _unitOfWork.DocumentTemplates
-            .Query()
+            .Query(asNoTracking: false)
             .FirstOrDefaultAsync(t =>
                 t.CustomerId == customerId &&
                 t.HeadersFingerprint == fingerprint,
@@ -114,6 +116,8 @@ public sealed class DocumentTemplateAppService
             existing.HeaderRowIndex = columnMapping.HeaderRowIndex;
             existing.HeaderRowCount = columnMapping.HeaderRowCount;
             existing.DataStartRowIndex = columnMapping.DataStartRowIndex;
+            existing.DataEndRowIndex = dataEndRowIndex;
+            existing.IsSpecificationOnly = isSpecificationOnly;
             existing.UpdatedAt = DateTime.UtcNow;
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -140,6 +144,8 @@ public sealed class DocumentTemplateAppService
             HeaderRowIndex = columnMapping.HeaderRowIndex,
             HeaderRowCount = columnMapping.HeaderRowCount,
             DataStartRowIndex = columnMapping.DataStartRowIndex,
+            DataEndRowIndex = dataEndRowIndex,
+            IsSpecificationOnly = isSpecificationOnly,
             UsageCount = 0,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow

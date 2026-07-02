@@ -11,7 +11,7 @@
 ## 3. Data Learning
 - [x] 3.1 新增客户级 `DocumentTemplate` 存储与仓储。
 - [x] 3.2 扩展 `ColumnMappingRule` 的来源和客户域。
-- [ ] 3.3 实现确认后模板 upsert、学习词写入和全局升级。
+- [x] 3.3 实现确认后模板 upsert、学习词写入和全局升级。
 
 ## 4. Frontend Flow
 - [ ] 4.1 新增智能识别 API 封装、composable、摘要横幅和确认卡。

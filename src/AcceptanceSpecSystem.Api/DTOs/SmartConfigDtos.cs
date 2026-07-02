@@ -1,0 +1,39 @@
+using AcceptanceSpecSystem.Data.Entities;
+
+namespace AcceptanceSpecSystem.Api.DTOs;
+
+public sealed class SmartConfigConfirmRequest
+{
+    public int CustomerId { get; set; }
+
+    public string? TemplateName { get; set; }
+
+    public List<string> Headers { get; set; } = [];
+
+    public int? ProjectColumnIndex { get; set; }
+
+    public int SpecificationColumnIndex { get; set; }
+
+    public int? AcceptanceColumnIndex { get; set; }
+
+    public int? RemarkColumnIndex { get; set; }
+
+    public int HeaderRowIndex { get; set; }
+
+    public int HeaderRowCount { get; set; } = 1;
+
+    public int DataStartRowIndex { get; set; } = 1;
+
+    public int? DataEndRowIndex { get; set; }
+
+    public bool IsSpecificationOnly { get; set; }
+
+    public List<SmartConfigLearnedColumnRequest> LearnedColumns { get; set; } = [];
+}
+
+public sealed class SmartConfigLearnedColumnRequest
+{
+    public string Header { get; set; } = string.Empty;
+
+    public ColumnMappingTargetField TargetField { get; set; }
+}
