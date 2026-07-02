@@ -160,10 +160,27 @@ public sealed class SmartConfigurationAppService
             var tableInfo = tablesInfo.FirstOrDefault(table => table.Index == tableData.TableIndex)
                 ?? tablesInfo.ElementAtOrDefault(i);
 
+            var headerRowIndex = _intelligenceService.DetectHeaderRowIndex(
+                BuildHeaderDetectionTableData(tableData));
+            if (headerRowIndex > 0)
+            {
+                await using var tableStream = File.OpenRead(absolutePath);
+                tableData = await parser.ExtractTableDataAsync(
+                    tableStream,
+                    tableData.TableIndex,
+                    new ColumnMapping
+                    {
+                        HeaderRowIndex = headerRowIndex,
+                        HeaderRowCount = 1,
+                        DataStartRowIndex = headerRowIndex + 1
+                    });
+            }
+
             tables.Add(await RecognizeTableAsync(
                 command.CustomerId,
                 tableInfo,
                 tableData,
+                headerRowIndex,
                 cancellationToken));
         }
 
@@ -171,6 +188,52 @@ public sealed class SmartConfigurationAppService
         {
             FileId = command.FileId,
             Tables = tables
+        };
+    }
+
+    private static TableData BuildHeaderDetectionTableData(TableData tableData)
+    {
+        var rows = new List<RowData>();
+        if (tableData.Headers.Count > 0)
+        {
+            rows.Add(new RowData
+            {
+                Index = 0,
+                Cells = tableData.Headers
+                    .Select((value, columnIndex) => new CellData
+                    {
+                        RowIndex = 0,
+                        ColumnIndex = columnIndex,
+                        Value = value
+                    })
+                    .ToList()
+            });
+        }
+
+        var offset = rows.Count;
+        rows.AddRange(tableData.Rows.Select((row, index) =>
+        {
+            var rowIndex = offset + index;
+            return new RowData
+            {
+                Index = rowIndex,
+                Cells = row.Cells
+                    .Select(cell => new CellData
+                    {
+                        RowIndex = rowIndex,
+                        ColumnIndex = cell.ColumnIndex,
+                        Value = cell.Value
+                    })
+                    .ToList()
+            };
+        }));
+
+        return new TableData
+        {
+            TableIndex = tableData.TableIndex,
+            Headers = tableData.Headers,
+            Rows = rows,
+            TotalDataRowCount = tableData.TotalDataRowCount
         };
     }
 
@@ -293,6 +356,7 @@ public sealed class SmartConfigurationAppService
         int? customerId,
         TableInfo? tableInfo,
         TableData tableData,
+        int headerRowIndex,
         CancellationToken cancellationToken)
     {
         var headers = tableData.Headers.ToList();
@@ -314,6 +378,12 @@ public sealed class SmartConfigurationAppService
             var mapping = await _intelligenceService.IdentifyColumnMappingAsync(
                 tableData,
                 cancellationToken);
+            if (headerRowIndex > 0)
+            {
+                mapping.Mapping.HeaderRowIndex = headerRowIndex;
+                mapping.Mapping.DataStartRowIndex = headerRowIndex + mapping.Mapping.HeaderRowCount;
+            }
+
             return await BuildRecognizedTableFromMappingAsync(
                 tableInfo,
                 tableData,

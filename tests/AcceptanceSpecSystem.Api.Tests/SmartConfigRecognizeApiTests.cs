@@ -56,6 +56,36 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     }
 
     [Fact]
+    public async Task Recognize_WithExcelTitleBeforeTraditionalHeaders_ShouldDetectHeaderRowAndColumns()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-繁体表头客户");
+        var fileId = await UploadExcelAsync(
+            CreateExcelWithTraditionalHeadersAfterTitleBytes(),
+            "smart-recognize-traditional-title.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(0);
+
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+        table.GetProperty("headers").EnumerateArray().Select(item => item.GetString())
+            .Should().Contain(new[] { "驗收項目", "驗收規格", "驗收方法", "設備商確認", "備註" });
+        table.GetProperty("headerRowIndex").GetInt32().Should().Be(1);
+        table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(2);
+        table.GetProperty("projectColumnIndex").GetInt32().Should().Be(1);
+        table.GetProperty("specificationColumnIndex").GetInt32().Should().Be(3);
+        table.GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(5);
+        table.GetProperty("remarkColumnIndex").GetInt32().Should().Be(6);
+    }
+
+    [Fact]
     public async Task Recognize_WhenCustomerTemplateExists_ShouldUseTemplate()
     {
         var customerId = await CreateCustomerAsync("智能识别-客户B");
@@ -127,6 +157,30 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         worksheet.Cell(2, 2).Value = "无划伤";
         worksheet.Cell(2, 3).Value = "目视 OK";
         worksheet.Cell(2, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateExcelWithTraditionalHeadersAfterTitleBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("Tray盤式投收板機驗收規格");
+        worksheet.Cell(1, 1).Value = "Tray盤式投收板機驗收規格 單位：MSAP";
+        worksheet.Range(1, 1, 1, 7).Merge();
+        worksheet.Cell(2, 1).Value = "項次";
+        worksheet.Cell(2, 2).Value = "驗收項目";
+        worksheet.Cell(2, 4).Value = "驗收規格";
+        worksheet.Cell(2, 5).Value = "驗收方法";
+        worksheet.Cell(2, 6).Value = "設備商確認";
+        worksheet.Cell(2, 7).Value = "備註";
+        worksheet.Cell(3, 1).Value = "1";
+        worksheet.Cell(3, 2).Value = "投收板機設備制程能力";
+        worksheet.Cell(3, 3).Value = "設備流向";
+        worksheet.Cell(3, 4).Value = "依主設備流向";
+        worksheet.Cell(3, 5).Value = "裝機時檢查";
+        worksheet.Cell(3, 6).Value = "■OK   □NG";
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

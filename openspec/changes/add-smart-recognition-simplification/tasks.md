@@ -21,4 +21,4 @@
 ## 5. Verification
 - [x] 5.1 后端运行 `dotnet test AcceptanceSpecSystem.sln -c Debug`。
 - [x] 5.2 前端运行 `cd web && pnpm typecheck && pnpm test && pnpm build`。
-- [ ] 5.3 使用真实 Word/Excel 样本验证直达、确认卡和高级模式兜底。
+- [x] 5.3 使用真实 Word/Excel 样本验证直达、确认卡和高级模式兜底。

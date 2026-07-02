@@ -276,6 +276,7 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             // 1. 检查是否包含关键词
             int keywordCount = 0;
             int nonEmptyCount = 0;
+            var distinctNonEmptyValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var cell in row.Cells)
             {
@@ -283,6 +284,7 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
                 if (!string.IsNullOrWhiteSpace(value))
                 {
                     nonEmptyCount++;
+                    distinctNonEmptyValues.Add(value.Trim());
 
                     // 检查是否包含关键词
                     if (keywords.Any(k => value.Contains(k, StringComparison.OrdinalIgnoreCase)))
@@ -305,9 +307,12 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             }
 
             // 3. 检查单元格长度（表头通常较短）
-            var avgLength = row.Cells
+            var nonEmptyCells = row.Cells
                 .Where(c => !string.IsNullOrWhiteSpace(c.Value))
-                .Average(c => c.Value?.Length ?? 0);
+                .ToList();
+            var avgLength = nonEmptyCells.Count == 0
+                ? 0
+                : nonEmptyCells.Average(c => c.Value?.Length ?? 0);
 
             if (avgLength > 2 && avgLength < 15)
             {
@@ -321,7 +326,8 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             }
 
             // 4. 检查非空单元格数量（表头通常填满）
-            double fillRate = (double)nonEmptyCount / row.Cells.Count;
+            var effectiveNonEmptyCount = Math.Min(nonEmptyCount, distinctNonEmptyValues.Count);
+            double fillRate = (double)effectiveNonEmptyCount / row.Cells.Count;
             if (fillRate > 0.5)
             {
                 score += 0.2;
