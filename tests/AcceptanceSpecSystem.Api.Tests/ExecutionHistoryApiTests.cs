@@ -276,7 +276,7 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
 
         rows[0].GetProperty("displayTags")[0].GetString().Should().Be("完全匹配");
         rows[0].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("exactShortcut");
-        rows[0].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates").GetArrayLength().Should().Be(0, "完全一致的归档无需重复保存候选列表");
+        rows[0].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates").GetArrayLength().Should().Be(1, "完整回放归档保留完全一致行的候选上下文，超大记录才由 Slimmer 精简");
         rows[0].GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be("AC-1");
 
         rows[1].GetProperty("matchOrigin").GetString().Should().Be("ai");
