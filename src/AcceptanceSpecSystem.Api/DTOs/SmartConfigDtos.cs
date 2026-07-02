@@ -31,6 +31,13 @@ public sealed class SmartConfigConfirmRequest
     public List<SmartConfigLearnedColumnRequest> LearnedColumns { get; set; } = [];
 }
 
+public sealed class SmartConfigRecognizeRequest
+{
+    public int FileId { get; set; }
+
+    public int? CustomerId { get; set; }
+}
+
 public sealed class SmartConfigLearnedColumnRequest
 {
     public string Header { get; set; } = string.Empty;

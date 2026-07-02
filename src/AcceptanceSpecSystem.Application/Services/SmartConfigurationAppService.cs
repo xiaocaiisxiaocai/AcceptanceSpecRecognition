@@ -18,6 +18,7 @@ public sealed class SmartConfigurationAppService
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IDocumentIntelligenceService _intelligenceService;
     private readonly DocumentTemplateAppService _templateService;
+    private readonly IUploadedDocumentPathResolver _documentPathResolver;
     private readonly ILogger<SmartConfigurationAppService> _logger;
 
     public SmartConfigurationAppService(
@@ -25,12 +26,14 @@ public sealed class SmartConfigurationAppService
         DocumentServiceFactory documentServiceFactory,
         IDocumentIntelligenceService intelligenceService,
         DocumentTemplateAppService templateService,
+        IUploadedDocumentPathResolver documentPathResolver,
         ILogger<SmartConfigurationAppService> logger)
     {
         _unitOfWork = unitOfWork;
         _documentServiceFactory = documentServiceFactory;
         _intelligenceService = intelligenceService;
         _templateService = templateService;
+        _documentPathResolver = documentPathResolver;
         _logger = logger;
     }
 
@@ -64,13 +67,14 @@ public sealed class SmartConfigurationAppService
             throw new ApplicationServiceException(400, "文件路径为空");
         }
 
-        var tablesInfo = await parser.GetTablesAsync(file.FilePath);
+        var absolutePath = _documentPathResolver.ResolveAbsolutePath(file.FilePath);
+        var tablesInfo = await parser.GetTablesAsync(absolutePath);
         if (tablesInfo.Count == 0)
         {
             throw new ApplicationServiceException(400, "文档中没有找到表格");
         }
 
-        await using var stream = File.OpenRead(file.FilePath);
+        await using var stream = File.OpenRead(absolutePath);
         var tablesData = await parser.ExtractAllTablesDataAsync(stream);
 
         if (customerId.HasValue && tablesData.Count > 0)
@@ -109,6 +113,61 @@ public sealed class SmartConfigurationAppService
             tablesInfo,
             tablesData,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// 识别已上传文件的全文档表格结构，返回扁平表格列表。
+    /// </summary>
+    public async Task<SmartConfigurationRecognizeResult> RecognizeAsync(
+        SmartConfigurationRecognizeCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.FileId <= 0)
+        {
+            throw new ApplicationServiceException(400, "FileId 不能为空");
+        }
+
+        var file = await _unitOfWork.WordFiles.GetByIdAsync(command.FileId, cancellationToken);
+        if (file == null)
+        {
+            throw new ApplicationServiceException(404, $"文件不存在：{command.FileId}");
+        }
+
+        if (string.IsNullOrWhiteSpace(file.FilePath))
+        {
+            throw new ApplicationServiceException(400, "文件路径为空");
+        }
+
+        var documentType = file.FileType == UploadedFileType.ExcelXlsx
+            ? DocumentType.Excel
+            : DocumentType.Word;
+        var parser = _documentServiceFactory.GetParser(documentType)
+            ?? throw new ApplicationServiceException(400, "文档解析器不可用");
+
+        var absolutePath = _documentPathResolver.ResolveAbsolutePath(file.FilePath);
+        var tablesInfo = await parser.GetTablesAsync(absolutePath);
+        await using var stream = File.OpenRead(absolutePath);
+        var tablesData = await parser.ExtractAllTablesDataAsync(stream);
+
+        var tables = new List<SmartConfigurationRecognizedTable>();
+        for (var i = 0; i < tablesData.Count; i++)
+        {
+            var tableData = tablesData[i];
+            var tableInfo = tablesInfo.FirstOrDefault(table => table.Index == tableData.TableIndex)
+                ?? tablesInfo.ElementAtOrDefault(i);
+
+            tables.Add(await RecognizeTableAsync(
+                command.CustomerId,
+                tableInfo,
+                tableData,
+                cancellationToken));
+        }
+
+        return new SmartConfigurationRecognizeResult
+        {
+            FileId = command.FileId,
+            Tables = tables
+        };
     }
 
     /// <summary>
@@ -224,6 +283,163 @@ public sealed class SmartConfigurationAppService
             CreatedAt = DateTime.UtcNow
         }, cancellationToken);
         return true;
+    }
+
+    private async Task<SmartConfigurationRecognizedTable> RecognizeTableAsync(
+        int? customerId,
+        TableInfo? tableInfo,
+        TableData tableData,
+        CancellationToken cancellationToken)
+    {
+        var headers = tableData.Headers.ToList();
+        if (customerId.HasValue && headers.Count > 0)
+        {
+            var template = await _templateService.FindMatchingTemplateAsync(
+                customerId.Value,
+                headers,
+                cancellationToken);
+            if (template != null)
+            {
+                await _templateService.IncrementUsageAsync(template.Id, cancellationToken);
+                return BuildRecognizedTableFromTemplate(tableInfo, tableData, template, headers);
+            }
+        }
+
+        try
+        {
+            var mapping = await _intelligenceService.IdentifyColumnMappingAsync(
+                tableData,
+                cancellationToken);
+            return BuildRecognizedTableFromMapping(tableInfo, tableData, mapping);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "表格 {TableIndex} 结构识别失败，返回待确认状态",
+                tableData.TableIndex);
+            return new SmartConfigurationRecognizedTable
+            {
+                TableIndex = tableData.TableIndex,
+                TableName = tableInfo?.Name,
+                Headers = headers,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1,
+                DataEndRowIndex = tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null,
+                Confidence = 0,
+                Source = "Failed",
+                Decision = "NeedConfirm"
+            };
+        }
+    }
+
+    private static SmartConfigurationRecognizedTable BuildRecognizedTableFromTemplate(
+        TableInfo? tableInfo,
+        TableData tableData,
+        DocumentTemplate template,
+        List<string> headers)
+    {
+        return new SmartConfigurationRecognizedTable
+        {
+            TableIndex = tableData.TableIndex,
+            TableName = tableInfo?.Name,
+            Headers = headers,
+            HeaderRowIndex = template.HeaderRowIndex,
+            HeaderRowCount = template.HeaderRowCount,
+            DataStartRowIndex = template.DataStartRowIndex,
+            DataEndRowIndex = template.DataEndRowIndex,
+            ProjectColumnIndex = template.ProjectColumnIndex,
+            SpecificationColumnIndex = template.SpecificationColumnIndex,
+            AcceptanceColumnIndex = template.AcceptanceColumnIndex,
+            RemarkColumnIndex = template.RemarkColumnIndex,
+            IsSpecificationOnly = template.IsSpecificationOnly,
+            Confidence = 1.0,
+            Source = "Template",
+            Decision = "AutoApply",
+            Fields = BuildFields(
+                headers,
+                template.ProjectColumnIndex,
+                template.SpecificationColumnIndex,
+                template.AcceptanceColumnIndex,
+                template.RemarkColumnIndex,
+                1.0,
+                "Template")
+        };
+    }
+
+    private static SmartConfigurationRecognizedTable BuildRecognizedTableFromMapping(
+        TableInfo? tableInfo,
+        TableData tableData,
+        ColumnMappingResult mapping)
+    {
+        var headers = tableData.Headers.ToList();
+        var columnMapping = mapping.Mapping;
+        return new SmartConfigurationRecognizedTable
+        {
+            TableIndex = tableData.TableIndex,
+            TableName = tableInfo?.Name,
+            Headers = headers,
+            HeaderRowIndex = columnMapping.HeaderRowIndex,
+            HeaderRowCount = columnMapping.HeaderRowCount,
+            DataStartRowIndex = columnMapping.DataStartRowIndex,
+            DataEndRowIndex = tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null,
+            ProjectColumnIndex = columnMapping.ProjectColumn,
+            SpecificationColumnIndex = columnMapping.SpecificationColumn,
+            AcceptanceColumnIndex = columnMapping.AcceptanceColumn,
+            RemarkColumnIndex = columnMapping.RemarkColumn,
+            IsSpecificationOnly = !columnMapping.ProjectColumn.HasValue,
+            Confidence = mapping.Confidence,
+            Source = "RuleBased",
+            Decision = mapping.Confidence >= 0.85 ? "AutoApply" : "NeedConfirm",
+            Fields = BuildFields(
+                headers,
+                columnMapping.ProjectColumn,
+                columnMapping.SpecificationColumn,
+                columnMapping.AcceptanceColumn,
+                columnMapping.RemarkColumn,
+                mapping.Confidence,
+                "RuleBased")
+        };
+    }
+
+    private static List<SmartConfigurationRecognizedField> BuildFields(
+        IReadOnlyList<string> headers,
+        int? projectColumn,
+        int? specificationColumn,
+        int? acceptanceColumn,
+        int? remarkColumn,
+        double confidence,
+        string source)
+    {
+        return
+        [
+            BuildField("Project", projectColumn, headers, confidence, source),
+            BuildField("Specification", specificationColumn, headers, confidence, source),
+            BuildField("Acceptance", acceptanceColumn, headers, confidence, source),
+            BuildField("Remark", remarkColumn, headers, confidence, source)
+        ];
+    }
+
+    private static SmartConfigurationRecognizedField BuildField(
+        string field,
+        int? columnIndex,
+        IReadOnlyList<string> headers,
+        double confidence,
+        string source)
+    {
+        return new SmartConfigurationRecognizedField
+        {
+            Field = field,
+            ColumnIndex = columnIndex,
+            Header = columnIndex.HasValue &&
+                     columnIndex.Value >= 0 &&
+                     columnIndex.Value < headers.Count
+                ? headers[columnIndex.Value]
+                : null,
+            Confidence = columnIndex.HasValue ? confidence : 0,
+            Source = source
+        };
     }
 
     private async Task<bool> PromoteGlobalRuleIfReadyAsync(

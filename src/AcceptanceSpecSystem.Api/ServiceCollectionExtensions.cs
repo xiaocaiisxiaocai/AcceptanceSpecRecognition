@@ -1,6 +1,7 @@
 ﻿using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Intelligence;
@@ -63,6 +64,7 @@ public static class ApiServiceCollectionExtensions
 
         // ── 文件存储与文档处理 ──
         services.AddSingleton<IFileStorageService, FileStorageService>();
+        services.AddSingleton<IUploadedDocumentPathResolver, UploadedDocumentPathResolver>();
         services.AddSingleton<DocumentServiceFactory>();
         services.AddScoped<IFileCompareService, FileCompareService>();
         services.AddScoped<DocumentFileAccessService>();

@@ -56,6 +56,35 @@ public class SmartConfigController : BaseApiController
         }
     }
 
+    [HttpPost("recognize")]
+    [ProducesResponseType(typeof(ApiResponse<SmartConfigurationRecognizeResult>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SmartConfigurationRecognizeResult>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<SmartConfigurationRecognizeResult>>> Recognize(
+        [FromBody] SmartConfigRecognizeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await _smartConfigService.RecognizeAsync(
+                new SmartConfigurationRecognizeCommand
+                {
+                    FileId = request.FileId,
+                    CustomerId = request.CustomerId
+                },
+                cancellationToken);
+
+            return Success(result, "识别完成");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<SmartConfigurationRecognizeResult>(ex.Code, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return Error<SmartConfigurationRecognizeResult>(500, $"识别失败：{ex.Message}");
+        }
+    }
+
     [HttpPost("confirm")]
     [ProducesResponseType(typeof(ApiResponse<SmartConfigurationConfirmResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<SmartConfigurationConfirmResult>), StatusCodes.Status400BadRequest)]
