@@ -4,7 +4,7 @@
 
 **Goal:** 上传文档后自动识别全部结构配置（表/表头/数据范围/四列映射），高置信直达、低置信行内确认卡、确认自动沉淀模板与字典，数据导入与智能填充共用。
 
-**Architecture:** 三层识别流水线（L0 客户模板 → L1 规则字典 → L3 LLM 裁决，不设 Embedding 层）+ AutoApply 前的确定性结果体检，落在 `Core/Documents/Intelligence`；编排/模板/学习在 `Api/Services/SmartConfigurationAppService`；前端两条链路收敛为「上传 → 结果页」两步流。归档分支 `origin/feat/smart-auto-configuration` 的后端骨架捡回复用，前端改动不捡。
+**Architecture:** 三层识别流水线（L0 客户模板 → L1 规则字典 → L3 LLM 裁决，不设 Embedding 层）+ AutoApply 前的确定性结果体检，落在 `Core/Documents/Intelligence`；跨资源编排、模板命中和学习写回放在 `Application/Services/SmartConfigurationAppService`，`Api` 控制器只做 HTTP 适配；前端两条链路收敛为「上传 → 结果页」两步流。归档分支 `origin/feat/smart-auto-configuration` 的后端骨架捡回复用，前端改动不捡。
 
 **Tech Stack:** .NET 8 / EF Core (MySQL, 测试 SQLite) / Semantic Kernel（复用 LLM 服务族 DI 模式）/ Vue 3 + Element Plus。
 
@@ -14,12 +14,67 @@
 
 ---
 
+## Phase 0：OpenSpec 变更门禁
+
+### Task 0: 补 OpenSpec change 并严格校验
+
+**Files:**
+- Create: `openspec/changes/add-smart-recognition-simplification/proposal.md`
+- Create: `openspec/changes/add-smart-recognition-simplification/tasks.md`
+- Create/Modify delta specs under:
+  - `openspec/changes/add-smart-recognition-simplification/specs/api/spec.md`
+  - `openspec/changes/add-smart-recognition-simplification/specs/user-interface/spec.md`
+  - `openspec/changes/add-smart-recognition-simplification/specs/data-storage/spec.md`
+  - `openspec/changes/add-smart-recognition-simplification/specs/matching-engine/spec.md`（仅覆盖智能填充识别接入与仅规格模式约束）
+
+- [ ] **Step 1: 读取当前 specs**
+
+```bash
+openspec list
+openspec list --specs
+openspec show api --type spec
+openspec show user-interface --type spec
+openspec show data-storage --type spec
+openspec show matching-engine --type spec
+openspec show architecture --type spec
+```
+
+- [ ] **Step 2: 创建 change 文件**
+
+按 `openspec/AGENTS.md` 要求写 proposal/tasks/delta specs。要求至少覆盖：
+- `POST /api/smart-config/recognize` 和 `confirm`；
+- 扁平 `tables` 响应、`fileId` 为数字、索引口径；
+- 客户模板、学习词、`ColumnMappingRule.Source/CustomerId`；
+- 前端两步流、确认卡、高级模式兜底；
+- 现有数据导入 5 步状态机重排：`DataImportStepTarget` 目标选择前移到上传/归属区，`useDataImportPage`、`useDataImportStore`、`dataImport.types.ts` 与批量导入构造逻辑同步调整；
+- 数据导入仅在满足现有导入接口必填列时直达；
+- 智能填充混合 `matchingMode` 必须拆请求或改后端支持表级模式。
+
+- [ ] **Step 3: 严格校验**
+
+```bash
+openspec validate add-smart-recognition-simplification --strict
+```
+
+Expected: validation passed。
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add openspec/changes/add-smart-recognition-simplification
+git commit -m "docs: 补智能结构识别 OpenSpec 变更"
+```
+
+---
+
 ## 全局约束（每个任务都要遵守）
 
 - 架构边界测试是硬门禁：Core 不引用上层；`Api/Services` 服务必须 `public interface IXxxAppService` + `public sealed class XxxAppService : IXxxAppService`，`AddScoped<IXxx, Xxx>()` 注册；控制器注入接口、透传 `CancellationToken`；单文件 < 500 行。
 - Schema 变更只走 EF Core 迁移：`dotnet ef migrations add <Name> -p src/AcceptanceSpecSystem.Data -s src/AcceptanceSpecSystem.Api`。
 - 提交信息 `类型: 中文描述`。
 - 每个任务完成后跑 `dotnet test AcceptanceSpecSystem.sln -c Debug`（前端任务另加 `cd web && pnpm typecheck`），全绿才提交。
+- 含新增文件的任务必须显式 `git add <new-files>`，不得只用 `git commit -am`。
+- 数据导入直达必须满足现有导入接口：Word 当前要求项目/规格/验收/备注四列齐全；Excel 当前要求项目/规格列齐全。仅规格或缺验收/备注时进入确认/高级模式，除非本计划另增后端导入接口改造任务。
 
 ---
 
@@ -33,8 +88,8 @@
   - `src/AcceptanceSpecSystem.Data/Entities/DocumentTemplate.cs`
   - `src/AcceptanceSpecSystem.Data/Repositories/IDocumentTemplateRepository.cs`
   - `src/AcceptanceSpecSystem.Data/Repositories/DocumentTemplateRepository.cs`
-  - `src/AcceptanceSpecSystem.Api/Services/DocumentTemplateAppService.cs`
-  - `src/AcceptanceSpecSystem.Api/Services/SmartConfigurationAppService.cs`
+  - `src/AcceptanceSpecSystem.Application/Services/DocumentTemplateAppService.cs`
+  - `src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService.cs`
   - `src/AcceptanceSpecSystem.Api/Controllers/SmartConfigController.cs`
 
 - [ ] **Step 1: 检出归档文件（不检出归档迁移，迁移本地重新生成）**
@@ -45,8 +100,8 @@ git checkout origin/feat/smart-auto-configuration -- \
   src/AcceptanceSpecSystem.Data/Entities/DocumentTemplate.cs \
   src/AcceptanceSpecSystem.Data/Repositories/IDocumentTemplateRepository.cs \
   src/AcceptanceSpecSystem.Data/Repositories/DocumentTemplateRepository.cs \
-  src/AcceptanceSpecSystem.Api/Services/DocumentTemplateAppService.cs \
-  src/AcceptanceSpecSystem.Api/Services/SmartConfigurationAppService.cs \
+  src/AcceptanceSpecSystem.Application/Services/DocumentTemplateAppService.cs \
+  src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService.cs \
   src/AcceptanceSpecSystem.Api/Controllers/SmartConfigController.cs
 ```
 
@@ -56,11 +111,13 @@ git checkout origin/feat/smart-auto-configuration -- \
 
 ```bash
 git show origin/feat/smart-auto-configuration:src/AcceptanceSpecSystem.Data/Context/AppDbContext.cs | grep -n "DocumentTemplate"
-git show origin/feat/smart-auto-configuration:src/AcceptanceSpecSystem.Application/DependencyInjection/ServiceCollectionExtensions.cs | grep -n -B2 -A2 "DocumentTemplate\|Intelligence"
+git show origin/feat/smart-auto-configuration:src/AcceptanceSpecSystem.Application/ServiceCollectionExtensions.cs | grep -n -B2 -A2 "DocumentTemplate\|Intelligence"
 git show origin/feat/smart-auto-configuration:src/AcceptanceSpecSystem.Api/Program.cs | grep -n -B2 -A2 "SmartConfig\|DocumentTemplate\|Intelligence"
 ```
 
-按 grep 结果把 `DbSet<DocumentTemplate>`、实体配置、`IDocumentTemplateRepository`/`IDocumentIntelligenceService`/`IRuleBasedMappingStrategy`/`ISmartConfigurationAppService` 等注册加到当前分支对应文件。
+按 grep 结果把 `DbSet<DocumentTemplate>`、实体配置、`IDocumentTemplateRepository`/`IDocumentIntelligenceService`/`IRuleBasedMappingStrategy`/`SmartConfigurationAppService` 等注册加到当前分支对应文件。注意：当前架构规格要求跨资源工作流放入 Application 层，不要在 `Api/Services` 新增智能结构识别编排服务。
+
+注意：归档 `DocumentIntelligenceService` 仍是旧骨架，只支持 `IdentifyTargetTableAsync` + `AutoConfigureAsync` 单目标表流程；Task 8 必须新增/重构 `RecognizeTableAsync`，不能把归档服务当作全文档逐表识别实现。
 
 - [ ] **Step 3: 本地重新生成迁移**
 
@@ -76,7 +133,7 @@ Expected: 生成的 Up() 只含 CreateTable "DocumentTemplates"。
 dotnet build AcceptanceSpecSystem.sln -c Debug && dotnet test AcceptanceSpecSystem.sln -c Debug
 ```
 
-Expected: 全绿（归档代码在同一基线上开发过，预期干净落地；若架构边界测试报 `SmartConfigurationAppService` 未接口化等问题，按报错修正后再跑）。
+Expected: 可能因架构边界、接口注册或旧 `SmartConfigurationAppService` 签名报错；按当前 Application 编排边界修到编译与测试通过。不要假设归档代码可无修改落地。
 
 - [ ] **Step 5: Commit**
 
@@ -100,7 +157,7 @@ using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Data.Tests;
 
-public class DocumentTemplateRepositoryTests : RepositoryTestBase // 沿用本项目现有测试基类；若类名不同，参照同目录其他 *RepositoryTests 的基类写法
+public class DocumentTemplateRepositoryTests : TestBase
 {
     [Fact]
     public async Task Upsert_ThenQueryByCustomerAndFingerprint_ShouldRoundTripNewFields()
@@ -120,18 +177,18 @@ public class DocumentTemplateRepositoryTests : RepositoryTestBase // 沿用本�
             DataStartRowIndex = 1,              // 新增
             DataEndRowIndex = null,             // 新增
             IsSpecificationOnly = true,         // 新增
-            UseCount = 1,                       // 新增
+            UsageCount = 1,                     // 归档字段名，沿用而不是新增 UseCount
             LastUsedAt = DateTime.UtcNow        // 新增
         };
-        DbContext.Set<DocumentTemplate>().Add(template);
-        await DbContext.SaveChangesAsync();
+        Context.Set<DocumentTemplate>().Add(template);
+        await Context.SaveChangesAsync();
 
-        var found = DbContext.Set<DocumentTemplate>()
+        var found = Context.Set<DocumentTemplate>()
             .Single(t => t.CustomerId == 1 && t.HeadersFingerprint == "fp-001");
         found.IsSpecificationOnly.Should().BeTrue();
         found.ProjectColumnIndex.Should().BeNull();
         found.DataStartRowIndex.Should().Be(1);
-        found.UseCount.Should().Be(1);
+        found.UsageCount.Should().Be(1);
     }
 }
 ```
@@ -154,8 +211,8 @@ dotnet test tests/AcceptanceSpecSystem.Data.Tests -c Debug --filter "FullyQualif
     /// <summary>是否仅规格模式（无项目列）</summary>
     public bool IsSpecificationOnly { get; set; }
 
-    /// <summary>命中/确认次数</summary>
-    public int UseCount { get; set; }
+    /// <summary>命中/确认次数（归档实体已有字段，沿用命名）</summary>
+    public int UsageCount { get; set; }
 
     /// <summary>最近使用时间</summary>
     public DateTime? LastUsedAt { get; set; }
@@ -168,7 +225,12 @@ dotnet ef migrations add ExtendDocumentTemplateForStructure -p src/AcceptanceSpe
 dotnet test AcceptanceSpecSystem.sln -c Debug
 ```
 
-- [ ] **Step 5: Commit** `git commit -am "feat: 扩展文档模板实体支撑完整结构与仅规格模式"`
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/AcceptanceSpecSystem.Data/Entities/DocumentTemplate.cs src/AcceptanceSpecSystem.Data/Migrations tests/AcceptanceSpecSystem.Data.Tests/DocumentTemplateRepositoryTests.cs
+git commit -m "feat: 扩展文档模板实体支撑完整结构与仅规格模式"
+```
 
 ---
 
@@ -176,7 +238,14 @@ dotnet test AcceptanceSpecSystem.sln -c Debug
 
 **Files:**
 - Modify: `src/AcceptanceSpecSystem.Data/Entities/ColumnMappingRule.cs`
+- Modify: `src/AcceptanceSpecSystem.Data/Repositories/IColumnMappingRuleRepository.cs`、`ColumnMappingRuleRepository.cs`（当前 `GetEnabledOrderedAsync()` 无客户参数）
+- Modify: `src/AcceptanceSpecSystem.Api/DTOs/ColumnMappingRuleDtos.cs`（若 DTO 位于其他文件，以 `rg "ColumnMappingRuleDto"` 结果为准）
+- Modify: `src/AcceptanceSpecSystem.Api/Controllers/ColumnMappingRulesController.cs`
+- Modify: `web/src/api/column-mapping-rules.ts`
+- Modify: `web/src/views/data-import/composables/useDataImportPage.ts`、`web/src/views/smart-fill/composables/useSmartFillUploadedTables.ts`（当前都调用无参 `getEffectiveColumnMappingRules()`）
+- Modify: 列映射规则配置页组件（以 `rg "getColumnMappingRules|ColumnMappingRule"` 定位）
 - Test: `tests/AcceptanceSpecSystem.Data.Tests/ColumnMappingRuleLearnedFieldsTests.cs`（新建，写法同 Task 2 Step 1，断言 `Source`/`CustomerId` 往返存取）
+- Test: `tests/AcceptanceSpecSystem.Api.Tests/ColumnMappingRuleLearningApiTests.cs`
 
 - [ ] **Step 1: 写失败测试**（存一条 `Source=Learned, CustomerId=1` 的规则并读回）
 - [ ] **Step 2: 跑测试确认编译失败**
@@ -204,12 +273,25 @@ public enum ColumnMappingRuleSource
 
 - [ ] **Step 4: 迁移 + 全量测试**
 
+同时补齐：
+- `ColumnMappingRuleDto` 输出 `source/customerId`；
+- Create/Update 请求允许维护 `source/customerId`，人工配置默认 `Manual`；
+- `GET /api/column-mapping-rules/effective?customerId=` 返回 `Enabled && (CustomerId == customerId || CustomerId == null)`，排序为客户规则优先、Priority 降序；
+- 前端 API 类型增加 `ColumnMappingRuleSource`、`source`、`customerId`，`getEffectiveColumnMappingRules(customerId?: number)` 透传查询参数；
+- 数据导入和智能填充加载 Word 列映射规则时传当前 `selectedCustomerId`；客户未选时只加载全局规则，不得把客户学习词当全局规则使用；
+- 配置页显示来源标签（内置/学习/人工）和客户域。
+
 ```bash
 dotnet ef migrations add AddColumnMappingRuleLearning -p src/AcceptanceSpecSystem.Data -s src/AcceptanceSpecSystem.Api
 dotnet test AcceptanceSpecSystem.sln -c Debug
 ```
 
-- [ ] **Step 5: Commit** `git commit -am "feat: 列映射规则支持学习来源与客户域"`
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/AcceptanceSpecSystem.Data/Entities/ColumnMappingRule.cs src/AcceptanceSpecSystem.Data/Repositories/IColumnMappingRuleRepository.cs src/AcceptanceSpecSystem.Data/Repositories/ColumnMappingRuleRepository.cs src/AcceptanceSpecSystem.Data/Migrations src/AcceptanceSpecSystem.Api web/src tests/AcceptanceSpecSystem.Data.Tests/ColumnMappingRuleLearnedFieldsTests.cs tests/AcceptanceSpecSystem.Api.Tests/ColumnMappingRuleLearningApiTests.cs
+git commit -m "feat: 列映射规则支持学习来源与客户域"
+```
 
 ---
 
@@ -273,7 +355,7 @@ public static class StructureFingerprint
 }
 ```
 
-- [ ] **Step 4: 测试通过后 Commit** `git commit -am "feat: 新增文档结构指纹计算"`
+- [ ] **Step 4: 测试通过后 Commit** `git add src/AcceptanceSpecSystem.Core/Documents/Intelligence/StructureFingerprint.cs tests/AcceptanceSpecSystem.Core.Tests/Documents/Intelligence/StructureFingerprintTests.cs && git commit -m "feat: 新增文档结构指纹计算"`
 
 ---
 
@@ -296,7 +378,7 @@ Task<ColumnMappingResult> IdentifyAsync(
 - [ ] **Step 1: 写失败测试**——内置词典认不出的表头“管控要点”，通过 extraSynonyms 传入后应识别为 Project 列且来源依据含该词（构造 `ITextPreprocessingPipeline` 用现有 Core.Tests 中已存在的替身/真实实现，参照同项目其他用到该管道的测试）。
 - [ ] **Step 2: 跑测试失败**
 - [ ] **Step 3: 实现**——`IdentifyColumn` 匹配循环前把 extraSynonyms 对应类型的词并到候选词首（`extra.Concat(builtin)`），命中即返回。
-- [ ] **Step 4: 全量 Core 测试通过，Commit** `git commit -am "feat: 规则映射策略支持外部词典融合"`
+- [ ] **Step 4: 全量 Core 测试通过，Commit** `git add src/AcceptanceSpecSystem.Core/Documents/Intelligence/Strategies/IRuleBasedMappingStrategy.cs src/AcceptanceSpecSystem.Core/Documents/Intelligence/Strategies/RuleBasedMappingStrategy.cs tests/AcceptanceSpecSystem.Core.Tests/Documents/Intelligence/RuleBasedMappingStrategyTests.cs && git commit -m "feat: 规则映射策略支持外部词典融合"`
 
 ---
 
@@ -391,14 +473,16 @@ public static class StructureSanityValidator
 - [ ] **Step 1: 写失败测试**——至少 5 个用例：① 正常四列数据 → Passed；② 规格列整列空 → 拦截且 Failures 含“非空率”；③ 项目列与规格列同索引 → 拦截“重复”；④ 数据区全空行 → 拦截；⑤ 项目/规格判反（项目列全长文本、规格列全 2 字短词）→ 拦截“疑似列判反”。
 - [ ] **Step 2: 跑测试失败** `dotnet test tests/AcceptanceSpecSystem.Core.Tests -c Debug --filter "FullyQualifiedName~StructureSanityValidatorTests"`
 - [ ] **Step 3: 按上述代码实现**
-- [ ] **Step 4: 测试通过，Commit** `git commit -am "feat: 新增结构识别结果确定性体检"`
+- [ ] **Step 4: 测试通过，Commit** `git add src/AcceptanceSpecSystem.Core/Documents/Intelligence/StructureSanityValidator.cs tests/AcceptanceSpecSystem.Core.Tests/Documents/Intelligence/StructureSanityValidatorTests.cs && git commit -m "feat: 新增结构识别结果确定性体检"`
 
 ---
 
 ### Task 7: L3 LLM 结构裁决服务
 
 **Files:**
-- Create: `src/AcceptanceSpecSystem.Core/Documents/Intelligence/Strategies/ILlmStructureRecognitionService.cs`、`LlmStructureRecognitionService.cs`、`Models/LlmStructureResult.cs`
+- Create: `src/AcceptanceSpecSystem.Core/Documents/Intelligence/Strategies/ILlmStructureRecognitionService.cs`、`LlmStructureRecognitionService.cs`
+- Create: `src/AcceptanceSpecSystem.Core/Documents/Intelligence/Models/LlmStructureResult.cs`
+- Modify: `src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs`（注册 `ILlmStructureRecognitionService`）
 - Test: `tests/AcceptanceSpecSystem.Core.Tests/Documents/Intelligence/LlmStructureParseTests.cs`
 
 **模型与接口**：
@@ -434,12 +518,12 @@ public interface ILlmStructureRecognitionService
 }
 ```
 
-实现方式：**镜像现有 `ILlmEquivalenceAdjudicationService` 实现类的全部管线写法**（同目录 `Core/Matching/Services/` 下找到其实现文件：chat 服务获取、超时、重试一次、JSON 容错剥离 ```json 围栏）；Prompt 模板走 `IPromptTemplateProvider` 新增键 `SmartConfigStructureRecognition`，模板正文（含 few-shot 一例标准表 + 一例仅规格表）注册进 `SystemPromptTemplateInitializer` 的默认模板集合（该初始化器现有写法照抄一条）。超时上限 15 秒。
+实现方式：**镜像现有 `ILlmEquivalenceAdjudicationService` 实现类的全部管线写法**（同目录 `Core/Matching/Services/` 下找到其实现文件：chat 服务获取、超时、重试一次、JSON 容错剥离 ```json 围栏）；Prompt 模板走 `IPromptTemplateProvider` 新增 `PromptTemplateScene.SmartConfigStructureRecognition`。必须同步补齐 Core/Data 两套 `PromptTemplateScene` 枚举、`CoreProviderAdapters.ToDataScene`、`SystemPromptTemplateInitializer.ToDataPromptTemplateScene`、`PromptTemplatesController.ToDataPromptTemplateScene`、`PromptTemplateValidationService` 场景校验、`PromptTemplateCatalog` 默认模板与相关单测。模板正文含 few-shot 一例标准表 + 一例仅规格表。超时上限 15 秒。
 
 - [ ] **Step 1: 写失败测试（只测 TryParseResult，不依赖真实 LLM）**——三个用例：合法 JSON 解析成功；带 ```json 围栏的解析成功；非法文本返回 false。
 - [ ] **Step 2: 跑测试失败**
 - [ ] **Step 3: 实现 TryParseResult 与服务骨架**（RecognizeAsync 按镜像文件实现）
-- [ ] **Step 4: 测试通过，注册 DI（与镜像服务同处注册），Commit** `git commit -am "feat: 新增 LLM 文档结构裁决服务"`
+- [ ] **Step 4: 测试通过，注册 DI（与镜像服务同处注册），Commit** `git add src/AcceptanceSpecSystem.Core/Documents/Intelligence/Strategies/ILlmStructureRecognitionService.cs src/AcceptanceSpecSystem.Core/Documents/Intelligence/Strategies/LlmStructureRecognitionService.cs src/AcceptanceSpecSystem.Core/Documents/Intelligence/Models/LlmStructureResult.cs src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs tests/AcceptanceSpecSystem.Core.Tests/Documents/Intelligence/LlmStructureParseTests.cs && git commit -m "feat: 新增 LLM 文档结构裁决服务"`
 
 ---
 
@@ -511,7 +595,7 @@ Task<TableStructureResult> RecognizeTableAsync(
 - [ ] **Step 1: 写失败测试**（L3 用测试内假实现注入；至少 6 个用例）：① 标准四列表 → AutoApply、无 Pending；② 规格列置信度 0.7 → NeedsConfirmation 且 Pending 含 "specification"；③ 无任何项目语义列（maxP<0.4）→ AutoApply + IsSpecificationOnly；④ 疑似项目列（maxP=0.6）→ NeedsConfirmation + Pending 含 "project"；⑤ 尾部含“合计/审核”行 → DataEndRowIndex 截到数据末行；⑥ 各字段高置信但规格列数据全空（体检不过）→ 强制 NeedsConfirmation。
 - [ ] **Step 2: 跑测试失败**
 - [ ] **Step 3: 实现编排**（注意文件 < 500 行；决策与数据范围检测可拆 `StructureDecisionEvaluator.cs` 私有静态类文件）
-- [ ] **Step 4: 全量测试，Commit** `git commit -am "feat: 识别编排器实现三层流水线与体检决策"`
+- [ ] **Step 4: 全量测试，Commit** `git add src/AcceptanceSpecSystem.Core/Documents/Intelligence/Models/TableStructureResult.cs src/AcceptanceSpecSystem.Core/Documents/Intelligence/Models/FieldRecognition.cs src/AcceptanceSpecSystem.Core/Documents/Intelligence/Models/StructureDecision.cs src/AcceptanceSpecSystem.Core/Documents/Intelligence/DocumentIntelligenceService.cs src/AcceptanceSpecSystem.Core/Documents/Intelligence/IDocumentIntelligenceService.cs tests/AcceptanceSpecSystem.Core.Tests/Documents/Intelligence/StructureDecisionTests.cs && git commit -m "feat: 识别编排器实现三层流水线与体检决策"`
 
 ---
 
@@ -520,7 +604,9 @@ Task<TableStructureResult> RecognizeTableAsync(
 ### Task 9: recognize 端点（全文档识别）
 
 **Files:**
-- Modify: `src/AcceptanceSpecSystem.Api/Services/SmartConfigurationAppService.cs`（重写为 recognize 编排；归档 auto-detect 逻辑删除）
+- Modify/Create: `src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService.cs`（重写为 recognize/confirm 编排；归档 auto-detect 逻辑删除）
+- Modify: `src/AcceptanceSpecSystem.Application/ServiceCollectionExtensions.cs`（注册 `SmartConfigurationAppService`、智能识别相关 Application 依赖）
+- Modify: `src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs`（注册智能识别相关 Core 服务、`ILlmStructureRecognitionService`，如当前 DI 归属在 API 层）
 - Modify: `src/AcceptanceSpecSystem.Api/Controllers/SmartConfigController.cs`
 - Create: `src/AcceptanceSpecSystem.Api/DTOs/SmartConfigDtos.cs`
 - Test: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeApiTests.cs`
@@ -532,36 +618,34 @@ namespace AcceptanceSpecSystem.Api.DTOs;
 
 public class SmartRecognizeRequest
 {
-    public string FileId { get; set; } = string.Empty;
+    public int FileId { get; set; }
     public int? CustomerId { get; set; }
 }
 
 public class SmartRecognizeResponse
 {
-    public string FileId { get; set; } = string.Empty;
+    public int FileId { get; set; }
     /// <summary>"autoApply" | "needsConfirmation"（任一表需确认即为后者）</summary>
     public string OverallDecision { get; set; } = "needsConfirmation";
     public SmartTemplateHitDto? TemplateHit { get; set; }
-    public List<SmartSheetResultDto> Sheets { get; set; } = new();
+    /// <summary>扁平表格列表：沿用现有 TableInfo(Index + Name)，Excel 的 Name 为工作表名，Word 的 Name 通常为空。</summary>
+    public List<SmartTableResultDto> Tables { get; set; } = new();
 }
 
 public class SmartTemplateHitDto
 {
     public int TemplateId { get; set; }
     public string TemplateName { get; set; } = string.Empty;
-    public int UseCount { get; set; }
-}
-
-public class SmartSheetResultDto
-{
-    public int SheetIndex { get; set; }
-    public string SheetName { get; set; } = string.Empty;
-    public List<SmartTableResultDto> Tables { get; set; } = new();
+    public int UsageCount { get; set; }
 }
 
 public class SmartTableResultDto
 {
     public int TableIndex { get; set; }
+    /// <summary>Excel：工作表名称；Word：通常为空。</summary>
+    public string TableName { get; set; } = string.Empty;
+    /// <summary>识别所用表头文本，前端用于确认卡列选项、headersJson 与修正词。</summary>
+    public List<string> Headers { get; set; } = new();
     public bool IsRelevant { get; set; }
     public string Decision { get; set; } = "needsConfirmation";
     public int HeaderRowIndex { get; set; }
@@ -588,27 +672,38 @@ public class SmartFieldDto
 }
 ```
 
+**索引口径硬约束**：
+- 识别核心与 DTO 的 `ColumnIndex`、`HeaderRowIndex`、`DataStartRowIndex`、`DataEndRowIndex` 统一使用解析后 `TableData` 的 0-based 相对索引。
+- 接 Word 导入/预览时可直接映射到 `ColumnMappingDto`。
+- 接 Excel 导入时必须转换为现有 `ExcelImportDataRequest` 口径：列号/行号均为 1-based 工作表绝对坐标。列号 = `ColumnIndex + TableInfo.UsedRangeStartColumn`；`HeaderRowStart/DataStartRow/DataEndRow` = 相对行索引 + `TableInfo.UsedRangeStartRow`。不得把 0-based 识别结果直接传给 Excel 接口。
+
 **AppService 编排**（`RecognizeAsync(SmartRecognizeRequest, CancellationToken)`）：
 
-1. 用现有文档解析服务（`DocumentServiceFactory` → parser，取法照抄归档 `SmartConfigurationAppService.AutoConfigureAsync` 里加载 tables 的写法）拿全部 Sheet/表。
-2. L0：customerId 非空时，逐表在**前 5 个候选表头行**上分别试算指纹查 `IDocumentTemplateRepository`（客户+指纹），任一命中即中（容错表头行漂移）；命中 → 该表直接由模板组装 `SmartTableResultDto`（Source=template，Confidence=1.0，Decision=autoApply），并回写 `UseCount++ / LastUsedAt`。
+1. 用现有文档解析服务（`DocumentServiceFactory` → parser，取法照抄归档 `SmartConfigurationAppService.AutoConfigureAsync` 里加载 tables 的写法）拿扁平 `TableInfo` 列表。不得新造 `Sheet -> Tables` 二级结构：Excel 的一个工作表就是一个 `TableInfo(Index + Name)`，Word 是顶层表格序列。
+2. L0：customerId 非空时，逐表在**前 5 个候选表头行**上分别试算指纹查 `IDocumentTemplateRepository`（客户+指纹），任一命中即中（容错表头行漂移）；命中 → 该表直接由模板组装 `SmartTableResultDto`（Source=template，Confidence=1.0，Decision=autoApply），并回写 `UsageCount++ / LastUsedAt`。
 3. 未命中表：组装 extraSynonyms（查 `ColumnMappingRule`：`Enabled && (CustomerId == customerId || CustomerId == null)`，按 客户>全局 排序，映射 TargetField→ColumnType）→ 调 `IDocumentIntelligenceService.RecognizeTableAsync`。
 4. **整体 LLM 预算**：用 `Stopwatch` 累计，L3 累计耗时超过 20 秒后，剩余未处理表**不再进 L3**，直接以 L1 结果组装并置 Decision=needsConfirmation（依据说明写“LLM 预算耗尽，请人工确认”）——接口整体永远有界返回。
-5. 映射 Core 结果 → DTO；OverallDecision 汇总。
+5. 映射 Core 结果 → DTO；`FileId` 保持 `int`；`TableIndex` 沿用 `TableInfo.Index`；`TableName` 使用 `TableInfo.Name`；`Headers` 使用识别时的拼接表头；OverallDecision 汇总。
 6. 控制器：`[HttpPost("recognize")]`，归档的 `auto-detect` action 与 `AutoDetectRequest` 删除。
-7. **权限码检查**：查 `src/AcceptanceSpecSystem.Api/Authorization/PermissionConventions.cs` 中控制器→权限组的映射约定，确认 `SmartConfigController` 已归入文档上传/导入同组权限；若无则按该文件现有条目格式补一条。
+7. **权限码检查**：不要假定 `PermissionConventions` 有控制器分组映射。当前普通 POST 会落到 `api:smart-config:create`；若业务要沿用导入权限，应在 action 上显式加 `[AuditOperation("import", "document")]` 或在权限种子中给角色补 `api:smart-config:create` / 独立识别权限，并补授权测试。
+8. DI 注册：`SmartConfigurationAppService` 注册在 `src/AcceptanceSpecSystem.Application/ServiceCollectionExtensions.cs`；当前 `ILlmEquivalenceAdjudicationService` 在 `src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs` 里通过 `LlmMatchingAssistService` 暴露，`ILlmStructureRecognitionService` 也必须在实际承载 LLM 依赖的 DI 文件中显式注册，避免 API 集成测试运行时解析失败。
 
-- [ ] **Step 1: 写失败集成测试**——上传标准四列 docx（用测试项目现有 `CreateDocxBytes`/上传辅助方法，参照 `ExecutionHistoryApiTests`），调 `/api/smart-config/recognize`，断言 200、OverallDecision=autoApply、四字段列索引正确、Source=rule。
+- [ ] **Step 1: 写失败集成测试**——上传标准四列 docx（用测试项目现有 `CreateDocxBytes`/上传辅助方法，参照 `ExecutionHistoryApiTests`），调 `/api/smart-config/recognize`，断言 200、OverallDecision=autoApply、Tables 扁平返回、四字段列索引正确、Source=rule、FileId 为数字。
 - [ ] **Step 2: 跑测试失败**
 - [ ] **Step 3: 实现编排 + 控制器**
-- [ ] **Step 4: 全量测试，Commit** `git commit -am "feat: 智能识别 recognize 端点输出全文档结构"`
+- [ ] **Step 4: 全量测试，Commit**
+
+```bash
+git add src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService*.cs src/AcceptanceSpecSystem.Application/ServiceCollectionExtensions.cs src/AcceptanceSpecSystem.Api/Controllers/SmartConfigController.cs src/AcceptanceSpecSystem.Api/DTOs/SmartConfigDtos.cs src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeApiTests.cs
+git commit -m "feat: 智能识别 recognize 端点输出全文档结构"
+```
 
 ---
 
 ### Task 10: confirm 端点（模板沉淀 + 字典学习）
 
 **Files:**
-- Modify: `src/AcceptanceSpecSystem.Api/Services/SmartConfigurationAppService.cs`（若超 500 行拆 `SmartConfigurationAppService.Learning.cs` partial）
+- Modify: `src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService.cs`（若超 500 行拆 `SmartConfigurationAppService.Learning.cs` partial）
 - Modify: `src/AcceptanceSpecSystem.Api/DTOs/SmartConfigDtos.cs`、`SmartConfigController.cs`
 - Test: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigConfirmApiTests.cs`
 
@@ -617,15 +712,16 @@ public class SmartFieldDto
 ```csharp
 public class SmartConfirmRequest
 {
-    public string FileId { get; set; } = string.Empty;
+    public int FileId { get; set; }
     public int CustomerId { get; set; }
     public List<SmartConfirmTableDto> Tables { get; set; } = new();
 }
 
 public class SmartConfirmTableDto
 {
-    public int SheetIndex { get; set; }
+    /// <summary>扁平表格索引；Excel 表示工作表索引，Word 表示顶层表格索引。</summary>
     public int TableIndex { get; set; }
+    public string TableName { get; set; } = string.Empty;
     public string Fingerprint { get; set; } = string.Empty;
     public string HeadersJson { get; set; } = "[]";
     public int HeaderRowIndex { get; set; }
@@ -653,7 +749,7 @@ public class SmartCorrectionDto
 
 **学习逻辑（照此实现）**：
 
-- 模板：按 `(CustomerId, Fingerprint)` upsert `DocumentTemplate`（存在→整套字段覆盖 + `UseCount++`；不存在→新建，`TemplateName` = 客户名+日期，`UseCount=1`），`LastUsedAt=UtcNow`。
+- 模板：按 `(CustomerId, Fingerprint)` upsert `DocumentTemplate`（存在→整套字段覆盖 + `UsageCount++`；不存在→新建，`TemplateName` = 客户名+日期，`UsageCount=1`），`LastUsedAt=UtcNow`。
 - 字典：每条 Correction 且 `HeaderText` 非空白 → 查 `ColumnMappingRule` 是否已存在 `(Pattern=HeaderText, TargetField=对应枚举, CustomerId=本客户)`；无则插入 `{ MatchMode=Equals, Source=Learned, CustomerId, Priority=100, Enabled=true }`。
 - 全局升级：插入后统计 `Source=Learned && Pattern && TargetField` 相同、`CustomerId` 互异的条数 ≥ 2 且不存在同 Pattern 的全局行（CustomerId==null）→ 追加一条 `CustomerId=null` 的全局 Learned 规则。
 - 全过程 try/catch：沉淀失败记日志返回 `learned=false`，**不抛给调用方**。
@@ -662,7 +758,12 @@ public class SmartCorrectionDto
 - [ ] **Step 1: 写失败集成测试**——① confirm 后同文件再 recognize，对应表 Decision=autoApply 且 Source=template（L0 命中）；② 带 Correction("project","管控要点",0) 的 confirm 后，DB 中存在 Learned 规则；③ 两个不同 customer 各 confirm 同词 → 出现全局行。
 - [ ] **Step 2: 跑测试失败**
 - [ ] **Step 3: 实现**
-- [ ] **Step 4: 全量测试，Commit** `git commit -am "feat: confirm 端点沉淀客户模板与自学习字典"`
+- [ ] **Step 4: 全量测试，Commit**
+
+```bash
+git add src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService*.cs src/AcceptanceSpecSystem.Api/Controllers/SmartConfigController.cs src/AcceptanceSpecSystem.Api/DTOs/SmartConfigDtos.cs tests/AcceptanceSpecSystem.Api.Tests/SmartConfigConfirmApiTests.cs
+git commit -m "feat: confirm 端点沉淀客户模板与自学习字典"
+```
 
 ---
 
@@ -675,9 +776,14 @@ public class SmartCorrectionDto
   1. 怪表头 xlsx（“管控要点/判定基准/OK?NG/说明”）→ 200 且 needsConfirmation（无学习词、Fake LLM 返回 null 时的预期路径），PendingFields 非空；
   2. 多 Sheet xlsx（Sheet1 标准 → autoApply；Sheet2 怪表头 → needsConfirmation）→ 按表独立决策；
   3. 仅规格 docx（表头只有“规格/验收/备注”）→ MatchingMode=specificationOnly 且 autoApply；
-  4. 空文档/无表格 → 200 + Sheets 空 + OverallDecision=needsConfirmation（前端据此落高级模式），**不是 500**。
+  4. 空文档/无表格 → 200 + Tables 空 + OverallDecision=needsConfirmation（前端据此落高级模式），**不是 500**。
 - [ ] **Step 2: 跑测试，修复实现直到全绿**
-- [ ] **Step 3: 全量测试 + 架构边界测试确认，Commit** `git commit -am "test: 智能识别四类文档夹具矩阵与降级护栏"`
+- [ ] **Step 3: 全量测试 + 架构边界测试确认，Commit**
+
+```bash
+git add tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeMatrixTests.cs
+git commit -m "test: 智能识别四类文档夹具矩阵与降级护栏"
+```
 
 ---
 
@@ -702,6 +808,8 @@ export interface SmartFieldResult {
 
 export interface SmartTableResult {
   tableIndex: number;
+  tableName: string;
+  headers: string[];
   isRelevant: boolean;
   decision: "autoApply" | "needsConfirmation";
   headerRowIndex: number;
@@ -717,17 +825,11 @@ export interface SmartTableResult {
   fingerprint: string;
 }
 
-export interface SmartSheetResult {
-  sheetIndex: number;
-  sheetName: string;
-  tables: SmartTableResult[];
-}
-
 export interface SmartRecognizeResponse {
-  fileId: string;
+  fileId: number;
   overallDecision: "autoApply" | "needsConfirmation";
-  templateHit: { templateId: number; templateName: string; useCount: number } | null;
-  sheets: SmartSheetResult[];
+  templateHit: { templateId: number; templateName: string; usageCount: number } | null;
+  tables: SmartTableResult[];
 }
 
 export interface SmartCorrection {
@@ -737,8 +839,8 @@ export interface SmartCorrection {
 }
 
 export interface SmartConfirmTable {
-  sheetIndex: number;
   tableIndex: number;
+  tableName: string;
   fingerprint: string;
   headersJson: string;
   headerRowIndex: number;
@@ -753,7 +855,7 @@ export interface SmartConfirmTable {
   corrections: SmartCorrection[];
 }
 
-export const recognizeDocument = (fileId: string, customerId?: number) =>
+export const recognizeDocument = (fileId: number, customerId?: number) =>
   http.request<{ code: number; data: SmartRecognizeResponse; message?: string }>(
     "post",
     "/api/smart-config/recognize",
@@ -761,7 +863,7 @@ export const recognizeDocument = (fileId: string, customerId?: number) =>
   );
 
 export const confirmRecognition = (
-  fileId: string,
+  fileId: number,
   customerId: number,
   tables: SmartConfirmTable[]
 ) =>
@@ -772,11 +874,16 @@ export const confirmRecognition = (
   );
 ```
 
-composable `useSmartRecognition`：状态机 `idle | recognizing | done | failed`，暴露 `recognize(fileId, customerId)`、`confirm(...)`、`result`、`failed`（失败仅置状态供页面落高级模式，内部 catch 不上抛）。代码 ≤ 80 行，`http.request` 写法与 `web/src/api/document.ts` 现有函数保持一致（先读该文件对齐真实封装签名，若 `http.request` 泛型形参不同以现文件为准）。
+composable `useSmartRecognition`：状态机 `idle | recognizing | done | failed`，暴露 `recognize(fileId: number, customerId?: number)`、`confirm(...)`、`result`、`failed`（失败仅置状态供页面落高级模式，内部 catch 不上抛）。代码 ≤ 80 行，`http.request` 写法与 `web/src/api/document.ts` 现有函数保持一致（先读该文件对齐真实封装签名，若 `http.request` 泛型形参不同以现文件为准）。
 
 - [ ] **Step 1: 写 API 封装与 composable**
 - [ ] **Step 2: `cd web && pnpm typecheck` 通过**
-- [ ] **Step 3: Commit** `git commit -am "feat: 前端智能识别 API 封装与共享 composable"`
+- [ ] **Step 3: Commit**
+
+```bash
+git add web/src/api/smart-config.ts web/src/composables/useSmartRecognition.ts
+git commit -m "feat: 前端智能识别 API 封装与共享 composable"
+```
 
 ---
 
@@ -786,35 +893,49 @@ composable `useSmartRecognition`：状态机 `idle | recognizing | done | failed
 - Create: `web/src/components/SmartRecognition/RecognitionSummaryBanner.vue`
 - Create: `web/src/components/SmartRecognition/RecognitionConfirmCard.vue`
 
-**Banner**（≤ 60 行）：props `result: SmartRecognizeResponse`；el-alert 样式一行摘要：“已自动识别 N 张表 · 来源：{模板名 | AI 识别}”，可展开列出每表映射 chips。
+**Banner**（≤ 60 行）：props `result: SmartRecognizeResponse`；el-alert 样式一行摘要：“已自动识别 N 张表 · 来源：{模板名 | AI 识别}”，可展开列出每表映射 chips。表名显示取 `tableName || 表格 {tableIndex + 1}`。
 
-**ConfirmCard**：props `sheets`（仅含 needsConfirmation 表）、`fileId`；el-tabs 按表分签；每签内：
+**ConfirmCard**：props `tables`（仅含 needsConfirmation 表）、`fileId`；el-tabs 按表分签；每签内：
 - 顶部若 `pendingFields.includes('project')` 或 `matchingMode==='specificationOnly'` 显示黄色提示条：“未识别到项目列，将按仅规格匹配——确认，或在下方指定项目列”。
-- 主体复用 `TablePreview`（`web/src/views/data-import/components/TablePreview.vue`，传 `headerRowIndex/headerRowCount/dataStartRowIndex`）展示前 10 行；上方四个 el-select（项目/规格/验收/备注），选项为该表各列（`列N：表头文本`），初值取识别结果，`pendingFields` 对应的 select 加 `warning` 样式类；
+- 主体复用 `TablePreview`（`web/src/views/data-import/components/TablePreview.vue`，传 `headerRowIndex/headerRowCount/dataStartRowIndex`）展示前 10 行；上方四个 el-select（项目/规格/验收/备注），选项优先来自 `SmartTableResult.headers`，若为空则监听 `TablePreview` 的 `loaded` 事件并用 `TableData.headers` 回填；选项格式为 `列N：表头文本`，初值取识别结果，`pendingFields` 对应的 select 加 `warning` 样式类；
 - 底部主按钮「确认，继续」→ emit `confirm(tables: SmartConfirmTable[])`（含用户改动对应的 corrections：与初值不同的字段生成 `{field, headerText, columnIndex}`）；
 - 右上角「手动配置」→ emit `manual`。
 
-- [ ] **Step 1: 实现两组件**（选项/初值/corrections 逻辑放组件内 `computed`+`ref`，勿引入新全局状态）
+- [ ] **Step 1: 实现两组件**（选项/初值/corrections/headersJson 逻辑放组件内 `computed`+`ref`，勿引入新全局状态；`headersJson = JSON.stringify(headers)`）
 - [ ] **Step 2: `pnpm typecheck` + `pnpm lint:eslint` 通过**
-- [ ] **Step 3: Commit** `git commit -am "feat: 识别摘要横幅与确认卡组件"`
+- [ ] **Step 3: Commit**
+
+```bash
+git add web/src/components/SmartRecognition/RecognitionSummaryBanner.vue web/src/components/SmartRecognition/RecognitionConfirmCard.vue
+git commit -m "feat: 识别摘要横幅与确认卡组件"
+```
 
 ---
 
 ### Task 14: 数据导入链路接入
 
 **Files:**
-- Modify: `web/src/views/data-import/index.vue` 及其步骤编排 composable（以文件内实际步骤数组为准）
-- Modify: `web/src/views/data-import/components/DataImportStepUpload.vue`（上传完成回调后触发识别）
+- Modify: `web/src/views/data-import/index.vue`
+- Modify: `web/src/views/data-import/composables/useDataImportPage.ts`（当前 5 步 `steps`、`canGoNext`、`goNext`、`watch(currentStep)` 都按索引写死，必须同步重排）
+- Modify: `web/src/store/modules/dataImport.ts`（`currentStep` 与目标选择状态保留/重置规则）
+- Modify: `web/src/views/data-import/dataImport.types.ts`、`dataImport.helpers.ts`、`composables/useDataImportBatchExecution.ts`（把识别结果转换为 `TableImportConfig`，并保留 Excel 1-based 绝对坐标）
+- Modify: `web/src/views/data-import/components/DataImportStepUpload.vue`（承载上传 + 客户/制程/机型选择，或组合 `DataImportStepTarget.vue`）
 
 **改造内容**：
-1. 步骤数组由 5 步收敛为 3 步：上传（含客户/制程）→ 确认/预览 → 完成；「选表」「列映射」两步的组件（`DataImportStepTableSelect.vue`、`DataImportStepMapping.vue`）不删文件，移入确认页「手动配置」抽屉（el-drawer）作为高级模式。
-2. 上传完成 → `useSmartRecognition.recognize(fileId, customerId)`；加载态文案按 `source` 分层显示（“命中客户模板…”/“AI 分析表头中…”用 el-loading 文本）。
-3. `overallDecision==='autoApply'` → 直接以识别结果填充既有导入预览参数（表索引/行范围/列索引），渲染 Banner + 预览；`needsConfirmation` → 渲染 ConfirmCard，`confirm` 事件回调里调 `confirmRecognition` 后进预览；`failed` 或 Sheets 为空 → ElMessage 提示并直接打开高级模式抽屉。
-4. 「确认导入」沿用既有 `POST /api/documents/import` 调用，参数来源换成识别/确认结果。
+1. 步骤数组由 5 步收敛为 3 步：上传/目标（同时选择客户/制程/机型）→ 确认/预览 → 完成。当前目标选择由 `DataImportStepTarget.vue` 在第 4 步加载，`useDataImportPage` 的 `watch(currentStep)` 也只在 step=3 加载客户/制程/机型；实施时必须改为页面初始化或上传/目标区加载，避免客户未加载导致无法识别。
+2. 「选表」「列映射」两步的组件（`DataImportStepTableSelect.vue`、`DataImportStepMapping.vue`）不删文件，移入确认页「手动配置」抽屉（el-drawer）作为高级模式。现有 `FrontendViewBoundaryRefactorTests` 要求 `index.vue` 组合这些组件，若组件下沉到抽屉仍保留引用；若删除独立步骤引用，必须同步更新该边界测试。
+3. 上传完成且已有客户 ID 后 → `useSmartRecognition.recognize(file.fileId, customerId)`；若用户还未选客户，先停在上传/目标选择合并区，不调用 recognize。加载态文案按 `source` 分层显示（“命中客户模板…”/“AI 分析表头中…”用 el-loading 文本）。
+4. `overallDecision==='autoApply'` → 直接以识别结果填充既有导入预览参数（表索引/行范围/列索引），渲染 Banner + 预览；`needsConfirmation` → 渲染 ConfirmCard，`confirm` 事件回调里调 `confirmRecognition` 后进预览；`failed` 或 `tables` 为空 → ElMessage 提示并直接打开高级模式抽屉。
+5. 「确认导入」沿用既有 `POST /api/documents/import` / `POST /api/documents/excel/import` 调用，参数来源换成识别/确认结果。Excel 必须执行上述 0-based 相对索引到 1-based 绝对坐标转换；Word 当前导入接口要求项目/规格/验收/备注四列齐全，Excel 当前导入接口要求项目/规格列齐全。识别结果不满足这些必填列时，不能直达导入，应转确认/高级模式或另行完成后端导入接口改造后再支持。
 
 - [ ] **Step 1: 实现改造**
 - [ ] **Step 2: `pnpm typecheck` 通过；启动前后端手工走一遍标准 xlsx 导入（上传→自动识别→预览→导入成功）**
-- [ ] **Step 3: Commit** `git commit -am "feat: 数据导入收敛为智能识别两步流"`
+- [ ] **Step 3: Commit**
+
+```bash
+git add web/src/views/data-import web/src/components/SmartRecognition web/src/composables/useSmartRecognition.ts web/src/api/smart-config.ts
+git commit -m "feat: 数据导入收敛为智能识别两步流"
+```
 
 ---
 
@@ -824,14 +945,21 @@ composable `useSmartRecognition`：状态机 `idle | recognizing | done | failed
 - Modify: `web/src/views/smart-fill/index.vue`、`SmartFillUploadStep.vue`、`SmartFillTableStep.vue`
 
 **改造内容**：
-1. 上传步完成 → `recognize`；AutoApply 表自动组装既有 `previewTables` 配置项（`BatchTableConfigItem`，字段对应：tableIndex/行范围/四列索引；`matchingMode==='specificationOnly'` 时项目列传 null 并设置既有仅规格开关字段——以 `batchTableConfig.types.ts` 内实际字段名为准），**直接触发既有“开始匹配”动作**；
-2. 存在 needsConfirmation 表 → 表配置步只显示 ConfirmCard（AutoApply 表折叠进 Banner），确认后并入配置并开跑；
-3. `BatchTableConfig.vue` 保留为「手动配置」抽屉（高级模式）；
-4. 识别失败 → 落回现有 `SmartFillTableStep` 手动流程。
+1. 先处理 scope：当前客户/制程/机型选择在 `SmartFillMatchStep/MatchConfig`，上传完成时还拿不到 `customerId`。实施时必须把 scope 选择前置到上传/归属区，或上传后停在归属确认区，等 `customerId` 可用后再调用 `recognize(file.fileId, customerId)`；不得无客户直接识别后再声称 L0 客户模板生效。
+2. recognize 完成后，AutoApply 表自动组装既有 `previewTables` 配置项（`BatchTableConfigItem`，字段对应：tableIndex/行范围/四列索引），**直接触发既有“开始匹配”动作**。
+3. 仅规格模式注意：当前 `matchingMode` 在 `MatchConfigDto` / 前端 `MatchConfig` 上是请求级配置，`BatchTableConfig` 没有表级字段。若同一文档混合 `projectSpecification` 与 `specificationOnly`，必须拆成两次预览/执行请求，或先改造后端支持表级 MatchingMode；不得把“仅规格”伪塞进 `BatchTableConfigItem`。
+4. 存在 needsConfirmation 表 → 表配置步只显示 ConfirmCard（AutoApply 表折叠进 Banner），确认后并入配置并开跑；
+5. `BatchTableConfig.vue` 保留为「手动配置」抽屉（高级模式）；
+6. 识别失败 → 落回现有 `SmartFillTableStep` 手动流程。
 
 - [ ] **Step 1: 实现改造**
 - [ ] **Step 2: `pnpm typecheck`；手工走一遍：标准文档上传→自动识别→自动开跑匹配→预览出结果；仅规格文档→匹配模式为仅规格**
-- [ ] **Step 3: Commit** `git commit -am "feat: 智能填充收敛为智能识别两步流"`
+- [ ] **Step 3: Commit**
+
+```bash
+git add web/src/views/smart-fill web/src/components/SmartRecognition web/src/composables/useSmartRecognition.ts web/src/api/smart-config.ts
+git commit -m "feat: 智能填充收敛为智能识别两步流"
+```
 
 ---
 
@@ -840,7 +968,12 @@ composable `useSmartRecognition`：状态机 `idle | recognizing | done | failed
 - [ ] **Step 1: 后端全量** `dotnet test AcceptanceSpecSystem.sln -c Debug` 全绿（含架构边界测试）。
 - [ ] **Step 2: 前端** `cd web && pnpm typecheck && pnpm test && pnpm build` 全绿。
 - [ ] **Step 3: 真实样本手工验收**——用仓库根 `淮安庆鼎.xlsx`、`提供测试的文档/` 内样本各走一遍导入与填充：记录每份文档 直达/确认卡/高级模式 的落点与识别正确性；同客户第二次上传同结构文档必须直达（L0）。
-- [ ] **Step 4: 结果达标**（老客户重复结构 100% 直达；新结构 ≥70% 免修正）**后 Commit 收尾** `git commit -am "test: 智能识别真实样本回归验收"`（如有夹具/文档产出一并提交）。
+- [ ] **Step 4: 结果达标**（老客户重复结构 100% 直达；新结构 ≥70% 免修正）**后 Commit 收尾**
+
+```bash
+git add docs tests web/src src
+git commit -m "test: 智能识别真实样本回归验收"
+```
 
 ---
 

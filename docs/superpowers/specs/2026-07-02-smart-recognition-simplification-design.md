@@ -1,7 +1,7 @@
 # 智能结构识别·导入与填充流程极简化 设计文档
 
 **日期**：2026-07-02
-**状态**：设计已确认，待实现
+**状态**：设计已确认，待补 OpenSpec 变更后实现
 **前置背景**：`feat/smart-auto-configuration` 归档分支（`origin` 保留）已实现纯规则版识别引擎骨架，因「只自动填参数、未减少向导步骤」的方向问题废除。本设计复用其后端骨架，重做交互与 AI 增强。
 
 ---
@@ -14,7 +14,7 @@
 
 ### 目标体验
 
-- **上传即出结果**：用户只上传文件 + 选客户/制程，系统自动完成全部结构识别；高置信度直达结果页（数据导入 → 映射预览；智能填充 → 自动开跑匹配）。
+- **上传即出结果**：用户上传文件并选客户/制程/机型后，系统自动完成全部结构识别；高置信度直达结果页（数据导入 → 映射预览；智能填充 → 自动开跑匹配）。
 - **低置信行内确认**：识别拿不准的表在结果页顶部出确认卡，每表一次点击确认；拿不准的字段单独标黄。
 - **越用越快**：用户确认/修正自动沉淀为客户模板与同义词字典，老客户重复结构秒识别。
 
@@ -30,13 +30,13 @@
 
 ### 入口与产物
 
-新识别服务（演进自归档分支 `DocumentIntelligenceService`），输入 `fileId + customerId`，对文档内**所有** Sheet/表格输出：
+新识别服务（演进自归档分支 `DocumentIntelligenceService`），输入 `fileId(int) + customerId`，对文档内**所有**表格输出。输出结构沿用现有解析模型的扁平 `TableInfo(Index + Name)`：Excel 的一个工作表就是一个表格，`Name` 为工作表名；Word 是顶层表格序列，`Name` 通常为空。不得新造 `Sheet -> Tables` 二级 DTO。
 
 - 表相关性判定（是否验收规格表，过滤封面/签核表）
 - 表头行位置、表头行数、数据起始行、数据结束行
 - 四列映射（项目/规格/验收/备注）
 
-每个字段独立携带：**置信度、识别来源（模板/规则/LLM）、依据说明**。
+每个字段独立携带：**置信度、识别来源（模板/规则/LLM）、依据说明**。每个表还要携带当前表头文本列表，供确认卡生成列选项、`headersJson` 与修正词 `headerText`；不得只返回列索引。
 
 ### 三层流水线（逐层短路）
 
@@ -47,6 +47,8 @@
 | L3 LLM 裁决 | 仍有未决字段或表头行不确定时，候选表头+样本行发本地 LLM，按 JSON 模板输出完整结构。Prompt 走 `SystemPromptTemplate`（可配、few-shot），单次超时 15 秒，超时降级为带 L1 结果的确认卡 | 3~10 秒 |
 
 > **设计取舍：不设 Embedding 层。** 结构识别是每文档一次（非匹配引擎的每行一次），本地 LLM 免费且延迟已被接受，Embedding 对短语表头噪声大、需调参（阈值/边距），且自学习字典会逐步吸收不规范表头使其命中窗口趋零——LLM 直接覆盖其全部职责且更准。
+
+Prompt 场景必须接入现有模板体系：新增 Core/Data 两套 `PromptTemplateScene` 值，并同步 `PromptTemplateCatalog`、`PromptTemplateValidationService`、`CoreProviderAdapters`、`SystemPromptTemplateInitializer`、`PromptTemplatesController` 的场景映射和单测。
 
 ### AutoApply 前的确定性体检（结果验证器）
 
@@ -62,19 +64,20 @@
 ### 决策规则
 
 - **规格列为唯一必需列**；项目、验收、备注列均允许缺失（待填文档常为空列，且存在只有规格没有项目的文档）。
-- **项目列缺失的双向判定**：无任何列命中项目语义且数据样本亦不支持 → 输出「仅规格模式」结论（携带独立置信度），识别结果的匹配模式置为 `SpecificationOnly`（匹配引擎现成支持）；存在疑似项目列但置信度不足 → NeedsConfirmation，确认卡提示“未识别到项目列，将按仅规格匹配——确认，或手动指定项目列”。
+- **项目列缺失的双向判定**：无任何列命中项目语义且数据样本亦不支持 → 输出「仅规格模式」结论（携带独立置信度），识别结果的匹配模式置为 `SpecificationOnly`；存在疑似项目列但置信度不足 → NeedsConfirmation，确认卡提示“未识别到项目列，将按仅规格匹配——确认，或手动指定项目列”。注意：现有智能填充 `MatchingMode` 是请求级配置，不是表级配置；同一文档混合仅规格表和项目+规格表时，需要拆分请求或先改造后端支持表级模式。
 - 所有必需字段置信度 ≥ 阈值（默认 0.85，可配）且无歧义 → **AutoApply**；否则 → **NeedsConfirmation**（仅拿不准字段标黄，其余预填）。
 - 按表独立决策，同文档可混合 AutoApply / NeedsConfirmation。
 
 ### 模块位置
 
 - 识别流水线：`Core/Documents/Intelligence/`（Core 无上层依赖，可独立单测）。
-- 编排、模板存取、学习写回：`Api/Services/SmartConfigurationAppService`（接口化 DI，遵守架构边界测试约束）。
+- 编排、模板存取、学习写回：`Application/Services/SmartConfigurationAppService`（跨资源工作流放在 Application 层，Api 控制器只做 HTTP 适配，遵守架构边界测试约束）。
 
 ### 已确认取舍
 
 - 同义词字典与现有 `ColumnMappingRule` **合并为一张表**，不另起炉灶。
-- 项目/验收/备注列缺失**不阻挡**自动直达；仅规格文档自动走 `SpecificationOnly` 匹配模式（引擎已支持，`ProjectColumnIndex` 本就可空，`AcceptanceSpec.Project` 允许空串入库）。
+- 项目/验收/备注列缺失**不阻挡**结构识别自动直达；仅规格文档在智能填充可走 `SpecificationOnly` 匹配模式。数据导入仍受现有导入接口约束：Word 导入当前要求项目/规格/验收/备注四列全必填，Excel 导入当前要求项目列和规格列必填。识别结果不满足当前导入接口必填列时，必须进入确认/高级模式，或先完成导入接口改造后再直达。
+- 识别结果内部统一使用解析后 `TableData` 的 0-based 相对行列索引；接 Word 导入可直接映射，接 Excel 导入必须转换为现有 1-based 工作表绝对行列坐标（加 `UsedRangeStartRow/Column`）。
 
 ---
 
@@ -82,7 +85,7 @@
 
 ### 统一两步流（两条链路同构）
 
-**第 1 步 上传**：上传文件 + 选客户/制程（业务归属保留手选）。进入识别加载态，进度按层报文案（“命中客户模板”/“AI 分析表头中…”）。
+**第 1 步 上传/归属**：上传文件 + 选客户/制程/机型（业务归属保留手选）。客户未选定前不调用 recognize；进入识别加载态后，进度按层报文案（“命中客户模板”/“AI 分析表头中…”）。智能填充当前客户选择位于匹配配置步骤，实施时必须前置 scope 选择，或在上传后等待用户选定客户再识别，避免 L0 客户模板与客户学习词失效。
 
 **第 2 步 结果页**：
 
@@ -92,9 +95,9 @@
 
 ### 旧界面去向
 
-- 数据导入 5 步向导收敛为「上传 → 确认/预览 → 完成」；「选表」「列映射」独立步骤页取消，组件下沉高级模式。
+- 数据导入 5 步向导收敛为「上传/目标 → 确认/预览 → 完成」；「选表」「列映射」独立步骤页取消，组件下沉高级模式。当前 `useDataImportPage`、`useDataImportStore`、批量导入构造逻辑都按 5 步索引组织，且客户/制程/机型只在原第 4 步加载；实施必须同步重排状态机、目标加载时机和识别结果到 `TableImportConfig` 的转换。现有前端边界测试要求页面壳组合 `DataImportStepTableSelect`、`DataImportStepMapping`、`DataImportStepTarget` 等组件，实施时要么保留这些组件在高级抽屉中的引用，要么同步更新边界测试。
 - 智能填充 `BatchTableConfig` 逐表手工配置同样降级进高级模式。
-- **导航清单（navigation-manifest）不新增页面、不动权限码**，改动全部在现有路由内部。
+- **导航清单（navigation-manifest）不新增页面**，改动全部在现有路由内部。API 权限仍需显式处理：普通 POST 会按约定落到 `api:smart-config:create`，若要沿用导入权限，应通过 action 特性或权限种子明确授权。
 
 ### 新组件（守「壳+区块组件+composable」拆分）
 
@@ -108,7 +111,7 @@
 
 ### ① 模板沉淀（客户级）
 
-以 `customerId + 结构指纹` upsert `DocumentTemplate`：整套配置 + `UseCount` + `LastUsedAt`。指纹相同但配置被改 → 以最新确认覆盖。模板只增不删，`UseCount` 供后续清理。
+以 `customerId + 结构指纹` upsert `DocumentTemplate`：整套配置 + `UsageCount` + `LastUsedAt`。指纹相同但配置被改 → 以最新确认覆盖。模板只增不删，`UsageCount` 供后续清理。归档分支的模板服务位于 `src/AcceptanceSpecSystem.Application/Services/DocumentTemplateAppService.cs`，不是 `Api/Services`。
 
 ### ② 字典自增长（表头词级）
 
@@ -127,8 +130,8 @@
 ### 端点（`SmartConfigController`，前缀 `api/smart-config`）
 
 ```
-POST /api/smart-config/recognize   fileId + customerId → 全文档结构识别结果
-POST /api/smart-config/confirm     fileId + 最终配置 + 修正明细 → 模板沉淀 + 字典学习
+POST /api/smart-config/recognize   fileId(int) + customerId → 全文档结构识别结果
+POST /api/smart-config/confirm     fileId(int) + 最终配置 + 修正明细 → 模板沉淀 + 字典学习
 ```
 
 - 归档分支 `auto-detect`（单表、仅列映射）被 `recognize` 取代，不留两套。
@@ -136,8 +139,8 @@ POST /api/smart-config/confirm     fileId + 最终配置 + 修正明细 → 模�
 
 ### 链路接入（既有业务接口零改动）
 
-- **数据导入**：`recognize` → AutoApply 直接以识别配置调既有预览与 `POST /api/documents/import`；确认后调 `confirm`。
-- **智能填充**：`recognize` → AutoApply 表自动组装 `previewTables` 配置开跑既有 `matching/batch` 链路，识别为仅规格的表自动下发 `SpecificationOnly` 匹配模式；NeedsConfirmation 表确认后并入。匹配/预览/执行/回放全链路不动。
+- **数据导入**：`recognize` → 仅当识别结果满足当前导入接口必填列时，才以识别配置调既有预览与 `POST /api/documents/import` / `POST /api/documents/excel/import`；确认后调 `confirm`。不满足必填列时进入确认/高级模式。
+- **智能填充**：`recognize` → AutoApply 表自动组装 `previewTables` 配置开跑既有 `matching/batch` 链路；识别为仅规格的表使用 `SpecificationOnly` 匹配模式。若同一批表混合匹配模式，先拆分为多次预览/执行请求，或改造后端支持表级 `MatchingMode` 后再合并。NeedsConfirmation 表确认后并入。
 
 ### 降级路径（永不变砖）
 
@@ -148,7 +151,7 @@ POST /api/smart-config/confirm     fileId + 最终配置 + 修正明细 → 模�
 ### 数据库变更（EF Core 迁移）
 
 - 新增 `DocumentTemplate` 表（捡回归档分支实体与迁移）。
-- `ColumnMappingRule` 增列：来源、关联客户、目标列类型。
+- `ColumnMappingRule` 增列：来源、关联客户，并同步 DTO、控制器、前端 API 与配置页展示；目标列类型沿用现有 `TargetField`。
 
 ---
 
@@ -166,18 +169,18 @@ POST /api/smart-config/confirm     fileId + 最终配置 + 修正明细 → 模�
 ## 7. 测试策略
 
 - **Core 单测**：结构指纹稳定性；L1 对典型/变体/干扰表头判定；结果验证器各体检项的通过/拦截边界；决策规则（必需列缺失、低置信、歧义、体检失败 → NeedsConfirmation）。LLM 用现有 Fake 替身。
-- **API 集成测试**（WebApplicationFactory + SQLite）：`recognize` 对标准 docx/xlsx、怪表头 xlsx、多 Sheet 混合置信度、**仅规格列（无项目列）**四类夹具端到端断言；`confirm` 后模板命中（二次识别走 L0）与字典学习生效；降级路径。
-- **回归护栏**：现有导入/填充 E2E 测试原样通过（验证「零改动」承诺）；架构边界测试通过（Core 无上层引用、AppService 接口化、文件 <500 行、前端壳+组件拆分）。
+- **API 集成测试**（WebApplicationFactory + SQLite）：`recognize` 对标准 docx/xlsx、怪表头 xlsx、多 Excel 工作表混合置信度、**仅规格列（无项目列）**四类夹具端到端断言；`confirm` 后模板命中（二次识别走 L0）与字典学习生效；降级路径。断言 `fileId` 为数字、`tables` 为扁平数组。
+- **回归护栏**：现有导入/填充 E2E 测试原样通过（验证「零改动」承诺）；架构边界测试通过（Core 无上层引用、AppService 接口化、文件 <500 行、前端壳+组件拆分）；新增 OpenSpec change 必须 `openspec validate <change-id> --strict` 通过。
 - **真实效果验收**：以仓库内淮安庆鼎等真实样本手工过两条链路，验证确认卡触发率与识别正确性（老客户重复结构 100% 直达；新结构 ≥70% 免修正）。
 
 ---
 
 ## 8. 实施要点
 
-- 从 `origin/feat/smart-auto-configuration` 选择性捡回：`Core/Documents/Intelligence` 模块、`DocumentTemplate` 实体/仓储/迁移、`SmartConfigController` 骨架；**丢弃**其前端改动（往旧向导塞识别按钮的方向已否决）。
+- 从 `origin/feat/smart-auto-configuration` 选择性捡回：`Core/Documents/Intelligence` 模块、`DocumentTemplate` 实体/仓储、`SmartConfigController` 骨架；不捡归档迁移，本地重新生成。归档 `DocumentIntelligenceService` 是“选单个目标表 + 列映射”的旧骨架，不是全文档逐表结构识别，实施时只能复用规则策略和表头检测代码，Task 8/9 必须重构为逐表 `RecognizeTableAsync` 与全文档 `recognize`。
 - L3、结果验证器、自学习写回、两步流前端为全新增量。
 
 ## 9. 可观测性与权限
 
 - `confirm` 时输出一行结构化日志：每表的决策（AutoApply/NeedsConfirmation）、各字段识别来源（template/rule/llm）、用户是否修正及修正字段——为后续用 InsightReport 套路做识别效果分析留数据钩子，不引入更重的存储。
-- 新端点 `recognize`/`confirm` 需确认 `ApiPermissionMiddleware` 权限码映射（沿用文档上传/导入的权限组归属）。
+- 新端点 `recognize`/`confirm` 需确认 `ApiPermissionMiddleware` 权限码映射。当前默认 POST 会产生 `api:smart-config:create`；若沿用文档导入权限，应在 action 上显式覆盖为导入资源/动作，或在权限种子中补新权限，并加授权回归测试。
