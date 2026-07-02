@@ -34,6 +34,26 @@
   margin-top: 16px;
 }
 
+.smart-fill-scope-panel {
+  padding: 16px;
+  margin-top: 18px;
+  background: #fbfcfd;
+  border: 1px solid #e5ebf2;
+  border-radius: 8px;
+}
+
+.smart-fill-scope-form :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.smart-fill-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
 .preview-blocking-alert {
   margin-top: 16px;
 }

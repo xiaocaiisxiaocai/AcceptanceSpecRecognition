@@ -8,6 +8,7 @@ defineProps<{
   canLlmStream: boolean;
   previewBlockingMessage: string;
   previewBlockingHint: string;
+  scopeSummary?: string;
 }>();
 
 const emit = defineEmits<{
@@ -61,6 +62,14 @@ const handleScopeChange = (
   <div class="step-panel">
     <h3 class="step-title">配置匹配参数</h3>
     <p class="step-desc">设置匹配范围和算法参数</p>
+    <el-alert
+      v-if="scopeSummary"
+      type="info"
+      :closable="false"
+      show-icon
+      :title="scopeSummary"
+      class="scope-summary-alert"
+    />
     <MatchConfig
       ref="matchConfigRef"
       :model-value="matchConfig"
@@ -75,7 +84,13 @@ const handleScopeChange = (
       show-icon
       :title="previewBlockingMessage"
       :description="previewBlockingHint"
-      class="preview-blocking-alert"
+    class="preview-blocking-alert"
     />
   </div>
 </template>
+
+<style scoped>
+.scope-summary-alert {
+  margin-bottom: 12px;
+}
+</style>

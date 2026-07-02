@@ -9,6 +9,7 @@ import SmartFillPreviewStep from "./components/SmartFillPreviewStep.vue";
 import SmartFillSteps from "./components/SmartFillSteps.vue";
 import SmartFillTableStep from "./components/SmartFillTableStep.vue";
 import SmartFillUploadStep from "./components/SmartFillUploadStep.vue";
+import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
 import type { BatchTableConfigItem } from "./components/batchTableConfig.types";
 import {
   type MatchPreviewItem,
@@ -20,6 +21,12 @@ import {
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
 import type { ColumnMappingRule } from "@/api/column-mapping-rules";
+import { getCustomerList, type Customer } from "@/api/customer";
+import { getProcessList, type Process } from "@/api/process";
+import {
+  getMachineModelList,
+  type MachineModel
+} from "@/api/machine-model";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
@@ -33,17 +40,26 @@ import {
 import { useSmartFillPreviewRequest } from "./composables/useSmartFillPreviewRequest";
 import { useSmartFillExecution } from "./composables/useSmartFillExecution";
 import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTables";
+import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
+import {
+  buildSmartFillConfigsFromRecognizedTables,
+  createSmartFillSmartSteps
+} from "./smartFill.smartRecognition";
 
 defineOptions({ name: "FillData" });
 
 // 步骤
 const currentStep = ref(0);
-const steps = [
+const advancedMode = ref(false);
+const legacySteps = [
   { title: "上传文件", description: "选择目标文档" },
   { title: "选择表格", description: "选择要填充的表格并配置列索引" },
   { title: "配置匹配", description: "设置匹配参数" },
   { title: "预览确认", description: "确认匹配结果" }
 ];
+const steps = computed(() =>
+  advancedMode.value ? legacySteps : createSmartFillSmartSteps()
+);
 
 // 文件上传
 const uploadedFile = ref<FileUploadResponse | null>(null);
@@ -124,6 +140,17 @@ const matchScope = ref<{
   machineModelId: undefined
 });
 const selectedCustomerIdForRules = ref<number | undefined>(undefined);
+const customers = ref<Customer[]>([]);
+const processes = ref<Process[]>([]);
+const machineModels = ref<MachineModel[]>([]);
+const loadingScopeOptions = ref(false);
+
+const {
+  recognizing: smartRecognizing,
+  recognizedTables,
+  recognize: recognizeSmartStructure,
+  reset: resetSmartStructure
+} = useSmartStructureRecognition();
 
 const resetMatchScope = () => {
   matchScope.value = {
@@ -134,13 +161,54 @@ const resetMatchScope = () => {
   selectedCustomerIdForRules.value = undefined;
 };
 
+const selectedScopeSummary = computed(() => {
+  const customer = customers.value.find(
+    item => item.id === matchScope.value.customerId
+  )?.name;
+  if (!customer) return "";
+
+  const process = processes.value.find(
+    item => item.id === matchScope.value.processId
+  )?.name;
+  const model = machineModels.value.find(
+    item => item.id === matchScope.value.machineModelId
+  )?.name;
+
+  return `当前匹配范围：${[customer, process, model].filter(Boolean).join(" / ")}`;
+});
+
+const loadScopeOptions = async () => {
+  loadingScopeOptions.value = true;
+  try {
+    const [customerRes, processRes, machineModelRes] = await Promise.all([
+      getCustomerList({ page: 1, pageSize: 1000 }),
+      getProcessList({ page: 1, pageSize: 1000 }),
+      getMachineModelList({ page: 1, pageSize: 1000 })
+    ]);
+
+    if (customerRes.code === 0) customers.value = customerRes.data.items;
+    if (processRes.code === 0) processes.value = processRes.data.items;
+    if (machineModelRes.code === 0) {
+      machineModels.value = machineModelRes.data.items;
+    }
+  } finally {
+    loadingScopeOptions.value = false;
+  }
+};
+
+void loadScopeOptions();
+
 // 所有预览项（扁平化）
 const allPreviewItems = computed(() =>
   batchPreviewResults.value.flatMap(t => t.items)
 );
 
 const getCurrentScope = () =>
-  matchConfigRef.value?.getScope?.() ?? matchScope.value;
+  matchScope.value.customerId ||
+  matchScope.value.processId ||
+  matchScope.value.machineModelId
+    ? matchScope.value
+    : (matchConfigRef.value?.getScope?.() ?? matchScope.value);
 
 const getMatchConfigServiceStatus = () =>
   matchConfigRef.value?.getServiceStatus?.() ?? {
@@ -286,6 +354,8 @@ const { doPreview, invalidatePendingPreview, previewAbortController } =
     resetPreviewProgress,
     markPreviewProgressCompleted,
     getCurrentPreviewRequestId: () => currentPreviewRequestId.value,
+    isPreviewStep: () =>
+      currentStep.value === (advancedMode.value ? 3 : 2),
     clearPreviewDetail,
     onSendPreview: (data, controller) => {
       // 透传取消信号，确保用户切换步骤时可及时中止进行中的预览请求
@@ -300,7 +370,8 @@ onBeforeUnmount(() => {
 });
 
 watch(currentStep, step => {
-  if (step !== 3) {
+  const previewStep = advancedMode.value ? 3 : 2;
+  if (step !== previewStep) {
     invalidatePendingPreview();
     stopLlmStream();
   }
@@ -308,6 +379,23 @@ watch(currentStep, step => {
 
 // 计算属性
 const canGoNext = computed(() => {
+  if (!advancedMode.value) {
+    switch (currentStep.value) {
+      case 0:
+        return (
+          uploadedFile.value !== null &&
+          !!matchScope.value.customerId &&
+          !loadingUploadedFileTables.value
+        );
+      case 1:
+        return selectedTableCount.value > 0;
+      case 2:
+        return allPreviewItems.value.length > 0;
+      default:
+        return false;
+    }
+  }
+
   switch (currentStep.value) {
     case 0:
       return uploadedFile.value !== null && !loadingUploadedFileTables.value;
@@ -346,7 +434,44 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   uploadedFile.value = file;
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
+  resetSmartStructure();
+  advancedMode.value = false;
   await loadUploadedFileTables(file);
+};
+
+const runSmartStructureRecognition = async () => {
+  if (!uploadedFile.value) {
+    ElMessage.warning("请先上传目标文档");
+    return;
+  }
+  if (!matchScope.value.customerId) {
+    ElMessage.warning("请先选择客户");
+    return;
+  }
+
+  const result = await recognizeSmartStructure(
+    uploadedFile.value.fileId,
+    matchScope.value.customerId
+  );
+  if (!result) return;
+
+  const configs = buildSmartFillConfigsFromRecognizedTables({
+    isExcelFile: isExcelFile.value,
+    tables: result.tables,
+    tableInfos: allTables.value
+  });
+  if (configs.length === 0) {
+    ElMessage.warning("未识别到可填充表格，请进入高级手动配置");
+    return;
+  }
+
+  batchTableConfigs.value = configs;
+  currentStep.value = 1;
+};
+
+const enterAdvancedMode = () => {
+  advancedMode.value = true;
+  currentStep.value = 1;
 };
 
 // 显示详情
@@ -372,7 +497,15 @@ const toggleBackfillCandidates = (checked: boolean) => {
 
 // 步骤切换
 const goNext = () => {
-  if (currentStep.value === 2) {
+  if (!advancedMode.value && currentStep.value === 0) {
+    void runSmartStructureRecognition();
+    return;
+  }
+
+  const configStep = advancedMode.value ? 2 : 1;
+  const previewStep = advancedMode.value ? 3 : 2;
+
+  if (currentStep.value === configStep) {
     if (
       !ensurePermission(
         "btn:matching:preview-batch",
@@ -387,9 +520,9 @@ const goNext = () => {
       return;
     }
   }
-  if (!canGoNext.value || currentStep.value >= steps.length - 1) return;
+  if (!canGoNext.value || currentStep.value >= steps.value.length - 1) return;
   currentStep.value++;
-  if (currentStep.value === 3) {
+  if (currentStep.value === previewStep) {
     doPreview();
   }
 };
@@ -408,11 +541,13 @@ const handleRestart = () => {
   resetExecutionState();
   loadingUploadedFileTables.value = false;
   currentStep.value = 0;
+  advancedMode.value = false;
   uploadedFile.value = null;
   allTables.value = [];
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
   matchConfig.value = { ...defaultMatchConfig };
+  resetSmartStructure();
 };
 </script>
 
@@ -434,11 +569,124 @@ const handleRestart = () => {
         :loading-uploaded-file-tables="loadingUploadedFileTables"
         :can-upload-source-file="canUploadSourceFile"
         @uploaded="handleFileUploaded"
-      />
+      >
+        <template #extra>
+          <div class="smart-fill-scope-panel">
+            <el-form label-width="96px" class="smart-fill-scope-form">
+              <el-row :gutter="16">
+                <el-col :xs="24" :sm="8">
+                  <el-form-item label="客户" required>
+                    <el-select
+                      v-model="matchScope.customerId"
+                      :loading="loadingScopeOptions"
+                      filterable
+                      clearable
+                      placeholder="请选择客户"
+                      style="width: 100%"
+                      @change="
+                        value =>
+                          handleScopeChange(
+                            value,
+                            matchScope.processId,
+                            matchScope.machineModelId
+                          )
+                      "
+                    >
+                      <el-option
+                        v-for="customer in customers"
+                        :key="customer.id"
+                        :label="customer.name"
+                        :value="customer.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="8">
+                  <el-form-item label="制程">
+                    <el-select
+                      v-model="matchScope.processId"
+                      :loading="loadingScopeOptions"
+                      filterable
+                      clearable
+                      placeholder="可选"
+                      style="width: 100%"
+                      @change="
+                        value =>
+                          handleScopeChange(
+                            matchScope.customerId,
+                            value,
+                            matchScope.machineModelId
+                          )
+                      "
+                    >
+                      <el-option
+                        v-for="process in processes"
+                        :key="process.id"
+                        :label="process.name"
+                        :value="process.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="8">
+                  <el-form-item label="机型">
+                    <el-select
+                      v-model="matchScope.machineModelId"
+                      :loading="loadingScopeOptions"
+                      filterable
+                      clearable
+                      placeholder="可选"
+                      style="width: 100%"
+                      @change="
+                        value =>
+                          handleScopeChange(
+                            matchScope.customerId,
+                            matchScope.processId,
+                            value
+                          )
+                      "
+                    >
+                      <el-option
+                        v-for="model in machineModels"
+                        :key="model.id"
+                        :label="model.name"
+                        :value="model.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </el-form>
+            <SmartStructureSummaryBanner
+              v-if="recognizedTables.length > 0"
+              :tables="recognizedTables"
+              :loading="smartRecognizing"
+              @retry="runSmartStructureRecognition"
+            />
+            <div class="smart-fill-entry-actions">
+              <el-button
+                type="primary"
+                :disabled="
+                  !uploadedFile ||
+                  !matchScope.customerId ||
+                  loadingUploadedFileTables
+                "
+                :loading="smartRecognizing"
+                @click="runSmartStructureRecognition"
+              >
+                智能识别并配置
+              </el-button>
+              <el-button :disabled="!uploadedFile" @click="enterAdvancedMode">
+                高级手动配置
+              </el-button>
+            </div>
+          </div>
+        </template>
+      </SmartFillUploadStep>
       <!-- 上传后表格结构读取期间的提示由 SmartFillUploadStep 内部的 el-alert 展示：正在读取表格结构，请稍候 -->
 
       <SmartFillTableStep
-        v-show="currentStep === 1"
+        v-show="advancedMode && currentStep === 1"
         v-model:batch-table-configs="batchTableConfigs"
         :uploaded-file-id="uploadedFile?.fileId"
         :is-excel-file="isExcelFile"
@@ -447,17 +695,24 @@ const handleRestart = () => {
       />
 
       <SmartFillMatchStep
-        v-show="currentStep === 2"
+        v-show="
+          (!advancedMode && currentStep === 1) ||
+          (advancedMode && currentStep === 2)
+        "
         ref="matchConfigRef"
         v-model:match-config="matchConfig"
         :can-llm-stream="canLlmStream"
         :preview-blocking-message="previewBlockingMessage"
         :preview-blocking-hint="previewBlockingHint"
+        :scope-summary="selectedScopeSummary"
         @scope-change="handleScopeChange"
       />
 
       <SmartFillPreviewStep
-        v-show="currentStep === 3"
+        v-show="
+          (!advancedMode && currentStep === 2) ||
+          (advancedMode && currentStep === 3)
+        "
         ref="batchPreviewTabsRef"
         :llm-streaming="llmStreaming"
         :loading="loading"
@@ -501,10 +756,15 @@ const handleRestart = () => {
         <el-button
           v-if="currentStep < steps.length - 1"
           type="primary"
-          :disabled="!canGoNext || (currentStep === 2 && !canPreviewMatching)"
+          :disabled="
+            !canGoNext ||
+            ((advancedMode ? currentStep === 2 : currentStep === 1) &&
+              !canPreviewMatching)
+          "
+          :loading="!advancedMode && currentStep === 0 && smartRecognizing"
           @click="goNext"
         >
-          下一步
+          {{ !advancedMode && currentStep === 0 ? "识别并配置" : "下一步" }}
         </el-button>
       </div>
     </el-card>

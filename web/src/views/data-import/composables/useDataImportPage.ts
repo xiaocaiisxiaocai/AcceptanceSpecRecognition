@@ -47,6 +47,19 @@ import {
   type TableData
 } from "@/api/document";
 import { hasPerms } from "@/utils/auth";
+import type {
+  SmartConfigConfirmRequest,
+  SmartConfigRecognizedTable
+} from "@/api/smart-config";
+import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
+import {
+  buildDataImportConfigsFromRecognizedTables,
+  createDataImportSmartSteps,
+  getDataImportAdvancedStep,
+  SMART_STEP_COMPLETE,
+  SMART_STEP_CONFIRM_PREVIEW,
+  SMART_STEP_UPLOAD_TARGET
+} from "../dataImport.smartRecognition";
 
 const MAPPING_PREVIEW_ROWS = 50;
 
@@ -66,7 +79,8 @@ export function useDataImportPage() {
     importDuplicateAiConfig
   } = storeToRefs(dataImportStore);
 
-  const steps = computed(() => [
+  const advancedMode = ref(false);
+  const legacySteps = computed(() => [
     {
       title: "上传文件",
       description: isExcelFile.value
@@ -84,6 +98,9 @@ export function useDataImportPage() {
     { title: "选择目标", description: "选择导入目标" },
     { title: "确认导入", description: "预览并确认" }
   ]);
+  const steps = computed(() =>
+    advancedMode.value ? legacySteps.value : createDataImportSmartSteps()
+  );
 
   const {
     canUploadSourceFile,
@@ -133,6 +150,15 @@ export function useDataImportPage() {
     selectedProcessId,
     selectedMachineModelId
   });
+  const {
+    recognizing: smartRecognizing,
+    confirmingTableIndex: smartConfirmingTableIndex,
+    recognizedTables,
+    summary: smartStructureSummary,
+    recognize: recognizeSmartStructure,
+    confirm: confirmSmartStructure,
+    reset: resetSmartStructure
+  } = useSmartStructureRecognition();
 
   // 让步骤条吸顶到实际滚动容器（pure-admin 使用 el-scrollbar）
   const affixTarget = ref<string>("");
@@ -177,12 +203,15 @@ export function useDataImportPage() {
     setTimeout(refreshAffix, 50);
     setTimeout(refreshAffix, 200);
     loadAiServices();
+    loadCustomers();
+    loadProcesses();
+    loadMachineModels();
   });
 
   onActivated(() => {
     // keep-alive 返回页面时，重新绑定一次
     refreshAffix();
-    if (currentStep.value === 2 && !isExcelFile.value) {
+    if (advancedMode.value && currentStep.value === 2 && !isExcelFile.value) {
       loadMappingRules();
     }
   });
@@ -194,6 +223,21 @@ export function useDataImportPage() {
 
   // 计算属性
   const canGoNext = computed(() => {
+    if (!advancedMode.value) {
+      switch (currentStep.value) {
+        case SMART_STEP_UPLOAD_TARGET:
+          return (
+            uploadedFile.value !== null && selectedCustomerId.value !== undefined
+          );
+        case SMART_STEP_CONFIRM_PREVIEW:
+          return tableConfigs.value.length > 0;
+        case SMART_STEP_COMPLETE:
+          return true;
+        default:
+          return false;
+      }
+    }
+
     switch (currentStep.value) {
       case 0:
         return uploadedFile.value !== null;
@@ -241,6 +285,10 @@ export function useDataImportPage() {
     });
 
   const nextDisabled = computed(() => {
+    if (!advancedMode.value) {
+      return !canGoNext.value || smartRecognizing.value;
+    }
+
     // 步骤1（选择工作表）不置灰，点击后在 goNext 内做兜底同步，避免被状态不同步卡住
     if (currentStep.value === 1) return false;
     // 步骤2（配置映射）永不置灰：允许点击后提示缺失项
@@ -270,6 +318,8 @@ export function useDataImportPage() {
     pendingDifferencePageSize.value = 20;
     importProgressText.value = "";
     resetPendingDifferenceState();
+    resetSmartStructure();
+    advancedMode.value = false;
 
     if (!preserveTargetSelection) {
       resetTargetSelection();
@@ -280,6 +330,15 @@ export function useDataImportPage() {
   const handleFileUploaded = (file: FileUploadResponse) => {
     resetImportFlowState({ preserveTargetSelection: true });
     uploadedFile.value = file;
+  };
+
+  const loadTablesForSmartRecognition = async (file: FileUploadResponse) => {
+    const res = await getFileTables(file.fileId);
+    if (res.code !== 0 || !res.data?.length) {
+      throw new Error(res.message || "获取表格列表失败");
+    }
+
+    return res.data;
   };
 
   const applyRulesToConfig = (cfg: TableImportConfig, overwrite: boolean) => {
@@ -520,6 +579,112 @@ export function useDataImportPage() {
     }
   };
 
+  const applySmartRecognizedTables = async (
+    tables: SmartConfigRecognizedTable[]
+  ) => {
+    if (!uploadedFile.value) {
+      ElMessage.warning("请先上传文件");
+      return false;
+    }
+
+    try {
+      const tableInfos = await loadTablesForSmartRecognition(uploadedFile.value);
+      const configs = buildDataImportConfigsFromRecognizedTables({
+        isExcelFile: isExcelFile.value,
+        tables,
+        tableInfos
+      });
+
+      if (configs.length === 0) {
+        tableConfigs.value = [];
+        selectedTableIndexes.value = [];
+        selectedTables.value = [];
+        activeTableIndex.value = null;
+        ElMessage.warning("未识别到可导入表格，请进入高级手动配置");
+        return false;
+      }
+
+      tableConfigs.value = configs;
+      selectedTableIndexes.value = configs.map(item => item.tableIndex);
+      selectedTables.value = tableInfos.filter(item =>
+        selectedTableIndexes.value.includes(item.index)
+      );
+      activeTableIndex.value = configs[0]?.tableIndex ?? null;
+      importPreviewSelectionKeys.value = [];
+      excludedRowIndexMap.value = {};
+      await ensureFullPreviewDataLoaded();
+      return true;
+    } catch (error) {
+      ElMessage.error(
+        error instanceof Error ? error.message : "应用智能识别结果失败"
+      );
+      return false;
+    }
+  };
+
+  const runSmartStructureRecognition = async () => {
+    if (!uploadedFile.value) {
+      ElMessage.warning("请先上传文件");
+      return false;
+    }
+
+    const result = await recognizeSmartStructure(
+      uploadedFile.value.fileId,
+      selectedCustomerId.value
+    );
+    if (!result) {
+      return false;
+    }
+
+    return applySmartRecognizedTables(result.tables);
+  };
+
+  const replaceRecognizedTableWithConfirmRequest = (
+    table: SmartConfigRecognizedTable,
+    request: SmartConfigConfirmRequest
+  ): SmartConfigRecognizedTable => ({
+    ...table,
+    tableName: request.templateName || table.tableName,
+    headers: request.headers,
+    projectColumnIndex: request.projectColumnIndex,
+    specificationColumnIndex: request.specificationColumnIndex,
+    acceptanceColumnIndex: request.acceptanceColumnIndex,
+    remarkColumnIndex: request.remarkColumnIndex,
+    headerRowIndex: request.headerRowIndex,
+    headerRowCount: request.headerRowCount,
+    dataStartRowIndex: request.dataStartRowIndex,
+    dataEndRowIndex: request.dataEndRowIndex,
+    isSpecificationOnly: request.isSpecificationOnly,
+    decision: "AutoApply"
+  });
+
+  const handleSmartStructureConfirm = async (
+    table: SmartConfigRecognizedTable,
+    request: SmartConfigConfirmRequest
+  ) => {
+    const result = await confirmSmartStructure(request);
+    if (result) {
+      const nextTables = recognizedTables.value.map(item =>
+        item.tableIndex === table.tableIndex
+          ? replaceRecognizedTableWithConfirmRequest(item, request)
+          : item
+      );
+      await applySmartRecognizedTables(nextTables);
+    }
+  };
+
+  const enterAdvancedMode = (
+    target: "tableSelect" | "mapping" = "tableSelect"
+  ) => {
+    advancedMode.value = true;
+    currentStep.value = getDataImportAdvancedStep(target);
+  };
+
+  const exitAdvancedMode = () => {
+    advancedMode.value = false;
+    currentStep.value = SMART_STEP_CONFIRM_PREVIEW;
+  };
+
   const updateExcelMapping = (tableIndex: number, value: ExcelSheetMapping) => {
     const cfg = tableConfigs.value.find(c => c.tableIndex === tableIndex);
     if (!cfg) return;
@@ -622,6 +787,15 @@ export function useDataImportPage() {
 
   // 监听步骤变化
   watch(currentStep, step => {
+    if (!advancedMode.value) {
+      if (step === SMART_STEP_UPLOAD_TARGET) {
+        if (customers.value.length === 0) loadCustomers();
+        if (processes.value.length === 0) loadProcesses();
+        if (machineModels.value.length === 0) loadMachineModels();
+      }
+      return;
+    }
+
     if (
       step === 2 &&
       !isExcelFile.value &&
@@ -643,6 +817,7 @@ export function useDataImportPage() {
 
   watch(selectedCustomerId, () => {
     if (
+      advancedMode.value &&
       currentStep.value === 2 &&
       !isExcelFile.value &&
       !loadingMappingRules.value
@@ -683,6 +858,29 @@ export function useDataImportPage() {
   };
 
   const goNext = async () => {
+    if (!advancedMode.value) {
+      if (currentStep.value === SMART_STEP_UPLOAD_TARGET) {
+        if (!selectedCustomerId.value) {
+          ElMessage.warning("请先选择客户");
+          return;
+        }
+
+        const ok = await runSmartStructureRecognition();
+        if (!ok) return;
+        currentStep.value = SMART_STEP_CONFIRM_PREVIEW;
+        return;
+      }
+
+      if (currentStep.value === SMART_STEP_CONFIRM_PREVIEW) {
+        const loaded = await ensureFullPreviewDataLoaded();
+        if (!loaded) return;
+        currentStep.value = SMART_STEP_COMPLETE;
+        return;
+      }
+
+      return;
+    }
+
     // 步骤1（选择工作表）：不依赖 canGoNext，统一走兜底同步
     if (currentStep.value === 1) {
       if (selectedTableIndexes.value.length === 0) {
@@ -735,6 +933,13 @@ export function useDataImportPage() {
 
   // 上一步
   const goPrev = () => {
+    if (!advancedMode.value) {
+      if (currentStep.value > SMART_STEP_UPLOAD_TARGET) {
+        currentStep.value--;
+      }
+      return;
+    }
+
     if (currentStep.value > 0) {
       currentStep.value--;
     }
@@ -851,7 +1056,7 @@ export function useDataImportPage() {
   const {
     openDifferenceConfirmDialog,
     handleConfirmPendingDifferences,
-    handleImport,
+    handleImport: executeImport,
     importProgressDescription,
     importPrimaryButtonText,
     confirmDifferenceButtonText
@@ -882,6 +1087,13 @@ export function useDataImportPage() {
     resetPendingDifferenceState,
     syncDifferenceDecisionMap
   });
+
+  const handleImport = async () => {
+    await executeImport();
+    if (!advancedMode.value && importResult.value) {
+      currentStep.value = SMART_STEP_COMPLETE;
+    }
+  };
 
   const pendingDifferenceDisplayStart = computed(() => {
     if (pendingDifferences.value.length === 0) return 0;
@@ -937,6 +1149,7 @@ export function useDataImportPage() {
   return {
     MAPPING_PREVIEW_ROWS,
     currentStep,
+    advancedMode,
     uploadedFile,
     isExcelFile,
     selectedTableIndexes,
@@ -947,6 +1160,10 @@ export function useDataImportPage() {
     selectedMachineModelId,
     importDuplicateAiConfig,
     steps,
+    smartRecognizing,
+    smartConfirmingTableIndex,
+    recognizedTables,
+    smartStructureSummary,
     canUploadSourceFile,
     canImportAny,
     canImportCurrentFile,
@@ -987,6 +1204,10 @@ export function useDataImportPage() {
     getExcelPreviewOptions,
     nextDisabled,
     handleFileUploaded,
+    runSmartStructureRecognition,
+    handleSmartStructureConfirm,
+    enterAdvancedMode,
+    exitAdvancedMode,
     applyRulesToAll,
     loadMappingRules,
     handleTablesSelected,

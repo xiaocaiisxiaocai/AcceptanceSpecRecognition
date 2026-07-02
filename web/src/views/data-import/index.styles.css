@@ -65,6 +65,39 @@
   margin-top: 24px;
 }
 
+.upload-target-panel {
+  padding: 16px;
+  margin-top: 18px;
+  background: #fbfcfd;
+  border: 1px solid #e5ebf2;
+  border-radius: 8px;
+}
+
+.step-panel--compact {
+  padding: 0;
+}
+
+.smart-entry-actions,
+.advanced-mode-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.smart-confirm-step {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.smart-confirm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .mapping-quick-actions {
   display: flex;
   align-items: center;

@@ -39,6 +39,7 @@ type UseSmartFillPreviewRequestOptions = {
   resetPreviewProgress: () => void;
   markPreviewProgressCompleted: () => void;
   getCurrentPreviewRequestId: () => string | null;
+  isPreviewStep?: () => boolean;
   clearPreviewDetail: () => void;
   /** 由调用方提供的预览请求发起函数，接收 data 和 controller（AbortController），返回请求 Promise */
   onSendPreview?: (
@@ -70,6 +71,7 @@ export function useSmartFillPreviewRequest({
   resetPreviewProgress,
   markPreviewProgressCompleted,
   getCurrentPreviewRequestId,
+  isPreviewStep,
   clearPreviewDetail,
   onSendPreview
 }: UseSmartFillPreviewRequestOptions) {
@@ -162,7 +164,7 @@ export function useSmartFillPreviewRequest({
       if (res.code === 0) {
         if (
           requestVersion !== previewRequestVersion ||
-          currentStep.value !== 3 ||
+          (isPreviewStep ? !isPreviewStep() : currentStep.value !== 3) ||
           uploadedFile.value?.fileId !== fileId ||
           previewAbortController.value !== controller
         ) {

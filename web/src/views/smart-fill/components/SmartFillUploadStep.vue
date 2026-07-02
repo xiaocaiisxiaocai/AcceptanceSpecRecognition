@@ -39,5 +39,6 @@ const emit = defineEmits<{
       show-icon
       title="当前账号没有文档上传权限"
     />
+    <slot name="extra" />
   </div>
 </template>

@@ -36,5 +36,6 @@ const emit = defineEmits<{
       show-icon
       :title="uploadBlockedMessage"
     />
+    <slot name="extra" />
   </div>
 </template>

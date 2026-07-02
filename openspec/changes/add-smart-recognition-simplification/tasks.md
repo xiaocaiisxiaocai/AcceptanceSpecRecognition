@@ -14,11 +14,11 @@
 - [x] 3.3 实现确认后模板 upsert、学习词写入和全局升级。
 
 ## 4. Frontend Flow
-- [ ] 4.1 新增智能识别 API 封装、composable、摘要横幅和确认卡。
-- [ ] 4.2 重排数据导入 5 步状态机为上传/目标、确认/预览、完成，并保留高级手动配置。
-- [ ] 4.3 重排智能填充上传与归属选择，识别后自动组装预览配置。
+- [x] 4.1 新增智能识别 API 封装、composable、摘要横幅和确认卡。
+- [x] 4.2 重排数据导入 5 步状态机为上传/目标、确认/预览、完成，并保留高级手动配置。
+- [x] 4.3 重排智能填充上传与归属选择，识别后自动组装预览配置。
 
 ## 5. Verification
-- [ ] 5.1 后端运行 `dotnet test AcceptanceSpecSystem.sln -c Debug`。
-- [ ] 5.2 前端运行 `cd web && pnpm typecheck && pnpm test && pnpm build`。
+- [x] 5.1 后端运行 `dotnet test AcceptanceSpecSystem.sln -c Debug`。
+- [x] 5.2 前端运行 `cd web && pnpm typecheck && pnpm test && pnpm build`。
 - [ ] 5.3 使用真实 Word/Excel 样本验证直达、确认卡和高级模式兜底。

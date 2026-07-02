@@ -4,7 +4,6 @@ import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
 import DataImportConfirmPanel from "./components/DataImportConfirmPanel.vue";
 import DataImportDifferenceConfirmDialog from "./components/DataImportDifferenceConfirmDialog.vue";
-import DataImportDifferenceDialog from "./components/DataImportDifferenceDialog.vue";
 import DataImportStepConfirm from "./components/DataImportStepConfirm.vue";
 import DataImportStepMapping from "./components/DataImportStepMapping.vue";
 import DataImportStepTableSelect from "./components/DataImportStepTableSelect.vue";
@@ -12,10 +11,11 @@ import DataImportStepTarget from "./components/DataImportStepTarget.vue";
 import DataImportStepUpload from "./components/DataImportStepUpload.vue";
 import ExcelColumnMapping from "./components/ExcelColumnMapping.vue";
 import { useDataImportPage } from "./composables/useDataImportPage";
-// 映射、预览选择、导入执行 composable（由 useDataImportPage 内部组合）
-import { useDataImportMapping } from "./composables/useDataImportMapping";
-import { useDataImportPreviewSelection } from "./composables/useDataImportPreviewSelection";
-import { useDataImportExecution } from "./composables/useDataImportExecution";
+import SmartStructureConfirmCard from "@/views/shared/SmartStructureConfirmCard.vue";
+import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
+// 边界说明：useDataImportPage 内部组合 useDataImportMapping、
+// useDataImportPreviewSelection、useDataImportExecution；差异弹窗由
+// DataImportDifferenceConfirmDialog 继续组合 DataImportDifferenceDialog。
 
 defineOptions({
   name: "ImportData"
@@ -24,6 +24,7 @@ defineOptions({
 const {
   MAPPING_PREVIEW_ROWS,
   currentStep,
+  advancedMode,
   uploadedFile,
   isExcelFile,
   selectedTableIndexes,
@@ -34,6 +35,9 @@ const {
   selectedMachineModelId,
   importDuplicateAiConfig,
   steps,
+  smartRecognizing,
+  smartConfirmingTableIndex,
+  recognizedTables,
   canUploadSourceFile,
   canImportAny,
   canImportCurrentFile,
@@ -74,6 +78,10 @@ const {
   getExcelPreviewOptions,
   nextDisabled,
   handleFileUploaded,
+  runSmartStructureRecognition,
+  handleSmartStructureConfirm,
+  enterAdvancedMode,
+  exitAdvancedMode,
   applyRulesToAll,
   loadMappingRules,
   handleTablesSelected,
@@ -157,29 +165,68 @@ const activeTableTabModel = computed({
     <div class="data-import-body">
       <!-- 步骤内容 -->
       <el-card class="step-content">
-        <!-- 步骤1: 上传文件 -->
+        <!-- 智能流程步骤1: 上传文件与选择目标 -->
         <DataImportStepUpload
-          v-show="currentStep === 0"
+          v-show="!advancedMode && currentStep === 0"
           v-model="uploadedFile"
           :can-upload-source-file="canUploadSourceFile"
           :can-import-any="canImportAny"
           :upload-accept="uploadAccept"
           :upload-blocked-message="uploadBlockedMessage"
           @uploaded="handleFileUploaded"
-        />
+        >
+          <template #extra>
+            <div class="upload-target-panel">
+              <DataImportStepTarget
+                :customers="customers"
+                :processes="processes"
+                :machine-models="machineModels"
+                :selected-customer-id="selectedCustomerId"
+                :selected-process-id="selectedProcessId"
+                :selected-machine-model-id="selectedMachineModelId"
+                :loading-customers="loadingCustomers"
+                :loading-processes="loadingProcesses"
+                :loading-machine-models="loadingMachineModels"
+                compact
+                @update:selected-customer-id="
+                  value => (selectedCustomerId = value)
+                "
+                @update:selected-process-id="
+                  value => (selectedProcessId = value)
+                "
+                @update:selected-machine-model-id="
+                  value => (selectedMachineModelId = value)
+                "
+              />
+              <div class="smart-entry-actions">
+                <el-button
+                  type="primary"
+                  :disabled="!uploadedFile || !selectedCustomerId"
+                  :loading="smartRecognizing"
+                  @click="runSmartStructureRecognition"
+                >
+                  智能识别结构
+                </el-button>
+                <el-button @click="enterAdvancedMode('tableSelect')">
+                  高级手动配置
+                </el-button>
+              </div>
+            </div>
+          </template>
+        </DataImportStepUpload>
 
-        <!-- 步骤2: 选择表格 -->
+        <!-- 高级模式步骤2: 选择表格 -->
         <DataImportStepTableSelect
-          v-show="currentStep === 1"
+          v-show="advancedMode && currentStep === 1"
           v-model="selectedTableIndexes"
           :uploaded-file="uploadedFile"
           :is-excel-file="isExcelFile"
           @selected-multiple="handleTablesSelected"
         />
 
-        <!-- 步骤3: 配置映射 -->
+        <!-- 高级模式步骤3: 配置映射 -->
         <DataImportStepMapping
-          v-show="currentStep === 2"
+          v-show="advancedMode && currentStep === 2"
           :is-excel-file="isExcelFile"
           :uploaded-file="uploadedFile"
           :table-configs="tableConfigs"
@@ -198,6 +245,11 @@ const activeTableTabModel = computed({
           @restore-tables="restoreSelectedTablesForMapping"
           @go-prev="goPrev"
         >
+          <div class="advanced-mode-toolbar">
+            <el-button type="primary" plain @click="exitAdvancedMode">
+              返回智能确认
+            </el-button>
+          </div>
           <el-tabs
             v-if="uploadedFile && tableConfigs.length > 0"
             v-model="activeTableTabModel"
@@ -270,9 +322,9 @@ const activeTableTabModel = computed({
           </el-tabs>
         </DataImportStepMapping>
 
-        <!-- 步骤4: 选择目标 -->
+        <!-- 高级模式步骤4: 选择目标 -->
         <DataImportStepTarget
-          v-show="currentStep === 3"
+          v-show="advancedMode && currentStep === 3"
           :customers="customers"
           :processes="processes"
           :machine-models="machineModels"
@@ -289,9 +341,90 @@ const activeTableTabModel = computed({
           "
         />
 
-        <!-- 步骤5: 确认导入 -->
+        <!-- 智能流程步骤2: 确认结构与预览 -->
+        <div
+          v-show="!advancedMode && currentStep === 1"
+          class="step-panel smart-confirm-step"
+        >
+          <h3 class="step-title">确认结构与导入预览</h3>
+          <p class="step-desc">
+            高置信表格已组装为导入预览；待确认表格可修正字段后保存为客户模板。
+          </p>
+          <SmartStructureSummaryBanner
+            :tables="recognizedTables"
+            :loading="smartRecognizing"
+            @retry="runSmartStructureRecognition"
+          />
+          <div v-if="recognizedTables.length > 0" class="smart-confirm-list">
+            <SmartStructureConfirmCard
+              v-for="table in recognizedTables"
+              :key="table.tableIndex"
+              :table="table"
+              :customer-id="selectedCustomerId"
+              :confirming="smartConfirmingTableIndex === table.tableIndex"
+              @confirm="
+                request => handleSmartStructureConfirm(table, request)
+              "
+              @advanced="() => enterAdvancedMode('mapping')"
+            />
+          </div>
+          <DataImportConfirmPanel
+            v-model:preview-skipped-rows="previewSkippedRows"
+            :import-result="importResult"
+            :can-upload-source-file="canUploadSourceFile"
+            :can-import-any="canImportAny"
+            :can-import-current-file="canImportCurrentFile"
+            :current-import-permission-message="currentImportPermissionMessage"
+            :has-pending-difference-confirmation="
+              hasPendingDifferenceConfirmation
+            "
+            :pending-differences-count="pendingDifferences.length"
+            :has-committed-import-progress="hasCommittedImportProgress"
+            :committed-success-count="
+              committedImportAggregate?.successCount || 0
+            "
+            :committed-skipped-count="
+              committedImportAggregate?.skippedCount || 0
+            "
+            :committed-failed-count="committedImportAggregate?.failedCount || 0"
+            :uploaded-file-name="uploadedFile?.fileName"
+            :table-configs="tableConfigs"
+            :customers="customers"
+            :processes="processes"
+            :selected-customer-id="selectedCustomerId"
+            :selected-process-id="selectedProcessId"
+            :selected-machine-model-name="selectedMachineModelName"
+            :preview-data-count="previewDataCount"
+            :import-duplicate-ai-config="importDuplicateAiConfig"
+            :loading-ai-services="loadingAiServices"
+            :embedding-services="embeddingServices"
+            :llm-services="llmServices"
+            :removed-preview-row-count="removedPreviewRowCount"
+            :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
+            :import-preview-groups="importPreviewGroups"
+            :importing="importing"
+            :import-progress-text="importProgressText"
+            :import-progress-description="importProgressDescription"
+            :import-primary-button-text="importPrimaryButtonText"
+            :skipped-rows-groups="skippedRowsGroups"
+            @restart="handleRestart"
+            @open-difference-confirm-dialog="openDifferenceConfirmDialog"
+            @remove-selected-preview-rows="handleRemoveSelectedPreviewRows"
+            @restore-removed-preview-rows="handleRestoreRemovedPreviewRows"
+            @import-preview-selection-change="
+              handleImportPreviewSelectionChange
+            "
+            @remove-single-preview-row="handleRemoveSinglePreviewRow"
+            @import="handleImport"
+          />
+        </div>
+
+        <!-- 智能流程步骤3 / 高级模式步骤5: 完成 -->
         <DataImportStepConfirm
-          v-show="currentStep === 4"
+          v-show="
+            (!advancedMode && currentStep === 2) ||
+            (advancedMode && currentStep === 4)
+          "
           :import-result="importResult"
         >
           <DataImportConfirmPanel
@@ -358,7 +491,16 @@ const activeTableTabModel = computed({
             上一步
           </el-button>
           <el-button
-            v-if="currentStep < steps.length - 1"
+            v-if="!advancedMode && currentStep === 0"
+            type="primary"
+            :disabled="nextDisabled"
+            :loading="smartRecognizing"
+            @click="goNext"
+          >
+            识别并进入确认
+          </el-button>
+          <el-button
+            v-else-if="advancedMode && currentStep < steps.length - 1"
             type="primary"
             :disabled="nextDisabled"
             @click="goNext"
