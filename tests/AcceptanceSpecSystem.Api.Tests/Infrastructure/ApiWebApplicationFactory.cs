@@ -2,6 +2,7 @@
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Services;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.Authentication;
@@ -66,10 +67,12 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll(typeof(ILlmReviewService));
             services.RemoveAll(typeof(ILlmEquivalenceAdjudicationService));
             services.RemoveAll(typeof(ILlmCandidateRerankService));
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
             services.RemoveAll(typeof(IEmbeddingService));
             services.AddScoped<ILlmReviewService, TestLlmReviewService>();
             services.AddScoped<ILlmEquivalenceAdjudicationService, TestLlmEquivalenceAdjudicationService>();
             services.AddScoped<ILlmCandidateRerankService, TestLlmCandidateRerankService>();
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, TestLlmDocumentStructureAdjudicationService>();
             services.AddScoped<IEmbeddingService, TestEmbeddingService>();
 
             // 使用测试鉴权（默认 admin），避免真实 JWT 依赖影响集成测试
@@ -249,4 +252,3 @@ public sealed class RealJwtApiWebApplicationFactory : ApiWebApplicationFactory
 {
     protected override bool UseTestAuthentication => false;
 }
-

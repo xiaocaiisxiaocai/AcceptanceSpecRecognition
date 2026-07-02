@@ -1,6 +1,7 @@
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Intelligence;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -17,6 +18,7 @@ public sealed class SmartConfigurationAppService
     private readonly IUnitOfWork _unitOfWork;
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IDocumentIntelligenceService _intelligenceService;
+    private readonly ILlmDocumentStructureAdjudicationService _structureAdjudicationService;
     private readonly DocumentTemplateAppService _templateService;
     private readonly IUploadedDocumentPathResolver _documentPathResolver;
     private readonly ILogger<SmartConfigurationAppService> _logger;
@@ -25,6 +27,7 @@ public sealed class SmartConfigurationAppService
         IUnitOfWork unitOfWork,
         DocumentServiceFactory documentServiceFactory,
         IDocumentIntelligenceService intelligenceService,
+        ILlmDocumentStructureAdjudicationService structureAdjudicationService,
         DocumentTemplateAppService templateService,
         IUploadedDocumentPathResolver documentPathResolver,
         ILogger<SmartConfigurationAppService> logger)
@@ -32,6 +35,7 @@ public sealed class SmartConfigurationAppService
         _unitOfWork = unitOfWork;
         _documentServiceFactory = documentServiceFactory;
         _intelligenceService = intelligenceService;
+        _structureAdjudicationService = structureAdjudicationService;
         _templateService = templateService;
         _documentPathResolver = documentPathResolver;
         _logger = logger;
@@ -310,7 +314,11 @@ public sealed class SmartConfigurationAppService
             var mapping = await _intelligenceService.IdentifyColumnMappingAsync(
                 tableData,
                 cancellationToken);
-            return BuildRecognizedTableFromMapping(tableInfo, tableData, mapping);
+            return await BuildRecognizedTableFromMappingAsync(
+                tableInfo,
+                tableData,
+                mapping,
+                cancellationToken);
         }
         catch (Exception ex)
         {
@@ -368,10 +376,67 @@ public sealed class SmartConfigurationAppService
         };
     }
 
+    private async Task<SmartConfigurationRecognizedTable> BuildRecognizedTableFromMappingAsync(
+        TableInfo? tableInfo,
+        TableData tableData,
+        ColumnMappingResult mapping,
+        CancellationToken cancellationToken)
+    {
+        var healthCheck = DocumentStructureHealthCheck.Evaluate(tableData, mapping);
+        if (!healthCheck.CanAutoApply)
+        {
+            var fused = await TryFuseWithLlmStructureAsync(tableInfo, tableData, mapping, cancellationToken);
+            if (fused != null)
+            {
+                return BuildRecognizedTableFromCandidate(tableInfo, tableData, fused);
+            }
+        }
+
+        return BuildRecognizedTableFromMapping(tableInfo, tableData, mapping, healthCheck);
+    }
+
+    private async Task<DocumentStructureCandidate?> TryFuseWithLlmStructureAsync(
+        TableInfo? tableInfo,
+        TableData tableData,
+        ColumnMappingResult mapping,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var ruleCandidate = ToStructureCandidate(tableInfo, tableData, mapping);
+            var adjudication = await _structureAdjudicationService.AdjudicateAsync(
+                new LlmDocumentStructureAdjudicationRequest
+                {
+                    RuleCandidates = [ruleCandidate],
+                    DocumentTablesJson = SerializeTableForStructureAdjudication(tableInfo, tableData)
+                },
+                cancellationToken);
+            var llmCandidate = adjudication?.Tables.FirstOrDefault(table => table.TableIndex == tableData.TableIndex);
+            var fused = DocumentStructureFusion.Merge(ruleCandidate, llmCandidate);
+            if (fused.Source != DocumentStructureCandidateSource.Fused)
+            {
+                return null;
+            }
+
+            var fusedMapping = ToColumnMappingResult(fused);
+            var fusedHealthCheck = DocumentStructureHealthCheck.Evaluate(tableData, fusedMapping);
+            return fusedHealthCheck.CanAutoApply ? fused : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "表格 {TableIndex} LLM 结构裁决失败，保留规则识别待确认状态",
+                tableData.TableIndex);
+            return null;
+        }
+    }
+
     private static SmartConfigurationRecognizedTable BuildRecognizedTableFromMapping(
         TableInfo? tableInfo,
         TableData tableData,
-        ColumnMappingResult mapping)
+        ColumnMappingResult mapping,
+        DocumentStructureHealthCheckResult healthCheck)
     {
         var headers = tableData.Headers.ToList();
         var columnMapping = mapping.Mapping;
@@ -391,7 +456,7 @@ public sealed class SmartConfigurationAppService
             IsSpecificationOnly = !columnMapping.ProjectColumn.HasValue,
             Confidence = mapping.Confidence,
             Source = "RuleBased",
-            Decision = mapping.Confidence >= 0.85 ? "AutoApply" : "NeedConfirm",
+            Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm",
             Fields = BuildFields(
                 headers,
                 columnMapping.ProjectColumn,
@@ -401,6 +466,103 @@ public sealed class SmartConfigurationAppService
                 mapping.Confidence,
                 "RuleBased")
         };
+    }
+
+    private static SmartConfigurationRecognizedTable BuildRecognizedTableFromCandidate(
+        TableInfo? tableInfo,
+        TableData tableData,
+        DocumentStructureCandidate candidate)
+    {
+        var headers = tableData.Headers.ToList();
+        return new SmartConfigurationRecognizedTable
+        {
+            TableIndex = tableData.TableIndex,
+            TableName = tableInfo?.Name,
+            Headers = headers,
+            HeaderRowIndex = candidate.HeaderRowIndex,
+            HeaderRowCount = candidate.HeaderRowCount,
+            DataStartRowIndex = candidate.DataStartRowIndex,
+            DataEndRowIndex = candidate.DataEndRowIndex ?? (tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null),
+            ProjectColumnIndex = candidate.ProjectColumnIndex,
+            SpecificationColumnIndex = candidate.SpecificationColumnIndex,
+            AcceptanceColumnIndex = candidate.AcceptanceColumnIndex,
+            RemarkColumnIndex = candidate.RemarkColumnIndex,
+            IsSpecificationOnly = candidate.IsSpecificationOnly,
+            Confidence = candidate.Confidence,
+            Source = "Fused",
+            Decision = "AutoApply",
+            Fields = BuildFields(
+                headers,
+                candidate.ProjectColumnIndex,
+                candidate.SpecificationColumnIndex,
+                candidate.AcceptanceColumnIndex,
+                candidate.RemarkColumnIndex,
+                candidate.Confidence,
+                "Fused")
+        };
+    }
+
+    private static DocumentStructureCandidate ToStructureCandidate(
+        TableInfo? tableInfo,
+        TableData tableData,
+        ColumnMappingResult mapping)
+    {
+        var columnMapping = mapping.Mapping;
+        return new DocumentStructureCandidate
+        {
+            TableIndex = tableData.TableIndex,
+            TableName = tableInfo?.Name,
+            HeaderRowIndex = columnMapping.HeaderRowIndex,
+            HeaderRowCount = columnMapping.HeaderRowCount,
+            DataStartRowIndex = columnMapping.DataStartRowIndex,
+            DataEndRowIndex = tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null,
+            ProjectColumnIndex = columnMapping.ProjectColumn,
+            SpecificationColumnIndex = columnMapping.SpecificationColumn,
+            AcceptanceColumnIndex = columnMapping.AcceptanceColumn,
+            RemarkColumnIndex = columnMapping.RemarkColumn,
+            IsSpecificationOnly = !columnMapping.ProjectColumn.HasValue,
+            Confidence = mapping.Confidence,
+            Source = DocumentStructureCandidateSource.Rule
+        };
+    }
+
+    private static ColumnMappingResult ToColumnMappingResult(DocumentStructureCandidate candidate)
+    {
+        return new ColumnMappingResult
+        {
+            Confidence = candidate.Confidence,
+            Mapping = new ColumnMapping
+            {
+                ProjectColumn = candidate.ProjectColumnIndex,
+                SpecificationColumn = candidate.SpecificationColumnIndex,
+                AcceptanceColumn = candidate.AcceptanceColumnIndex,
+                RemarkColumn = candidate.RemarkColumnIndex,
+                HeaderRowIndex = candidate.HeaderRowIndex,
+                HeaderRowCount = candidate.HeaderRowCount,
+                DataStartRowIndex = candidate.DataStartRowIndex
+            }
+        };
+    }
+
+    private static string SerializeTableForStructureAdjudication(TableInfo? tableInfo, TableData tableData)
+    {
+        var payload = new[]
+        {
+            new
+            {
+                tableIndex = tableData.TableIndex,
+                tableName = tableInfo?.Name,
+                headers = tableData.Headers,
+                rows = tableData.Rows
+                    .Take(5)
+                    .Select(row => row.Cells
+                        .OrderBy(cell => cell.ColumnIndex)
+                        .Select(cell => cell.Value)
+                        .ToArray())
+                    .ToArray()
+            }
+        };
+        return System.Text.Json.JsonSerializer.Serialize(payload);
     }
 
     private static List<SmartConfigurationRecognizedField> BuildFields(

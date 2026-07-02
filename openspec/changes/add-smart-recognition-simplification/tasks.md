@@ -3,7 +3,7 @@
 - [x] 1.2 获得方案批准后再开始业务源码实现。
 
 ## 2. Backend Recognition
-- [ ] 2.1 新增 Core 文档结构识别模型、规则融合、确定性体检和 LLM 结构裁决。
+- [x] 2.1 新增 Core 文档结构识别模型、规则融合、确定性体检和 LLM 结构裁决。
 - [x] 2.2 在 Application 层实现智能结构识别用例服务。
 - [x] 2.3 新增 `SmartConfigController` 的 `recognize` 和 `confirm` 动作。
 - [x] 2.4 接入 Prompt 模板场景、权限、DI 与架构边界测试。

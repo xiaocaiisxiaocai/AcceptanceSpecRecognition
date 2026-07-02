@@ -1,5 +1,6 @@
 ﻿using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
@@ -99,6 +100,44 @@ public class LlmReviewPromptTests
         chatService.LastPrompt.Should().NotContain("源项目：导入manualReview");
     }
 
+    [Fact]
+    public async Task AdjudicateStructureAsync_ShouldUseDedicatedSmartConfigTemplate()
+    {
+        var promptProvider = new RecordingPromptTemplateProvider(
+            "【文档表格摘要 JSON】{{documentTablesJson}}\n【规则识别结果 JSON】{{ruleCandidatesJson}}\n仅返回严格 JSON：\n{\"tables\":[{\"tableIndex\":0,\"specificationColumnIndex\":1,\"confidence\":0.86}],\"confidence\":0.86,\"decision\":\"needConfirm\",\"reason\":\"已补规格列\"}");
+        var selector = new StubAiServiceSelector();
+        var chatService = new RecordingChatCompletionService(
+            "{\"tables\":[{\"tableIndex\":0,\"specificationColumnIndex\":1,\"confidence\":0.86}],\"confidence\":0.86,\"decision\":\"needConfirm\",\"reason\":\"已补规格列\"}");
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            selector,
+            new StubSemanticKernelServiceFactory(chatService),
+            NullLogger<LlmMatchingAssistService>.Instance);
+
+        var result = await service.AdjudicateAsync(new LlmDocumentStructureAdjudicationRequest
+        {
+            DocumentTablesJson = "[{\"tableIndex\":0}]",
+            RuleCandidates =
+            [
+                new DocumentStructureCandidate
+                {
+                    TableIndex = 0,
+                    ProjectColumnIndex = 0,
+                    SpecificationColumnIndex = null,
+                    Confidence = 0.7,
+                    Source = DocumentStructureCandidateSource.Rule
+                }
+            ]
+        });
+
+        result.Should().NotBeNull();
+        result!.Tables.Should().ContainSingle();
+        result.Tables[0].SpecificationColumnIndex.Should().Be(1);
+        promptProvider.LastScene.Should().Be(PromptTemplateScene.SmartConfigStructureRecognition);
+        chatService.LastPrompt.Should().Contain("【文档表格摘要 JSON】[{\"tableIndex\":0}]");
+        chatService.LastPrompt.Should().Contain("\"ProjectColumnIndex\":0");
+    }
+
     private sealed class RecordingPromptTemplateProvider : IPromptTemplateProvider
     {
         private readonly string _content;
@@ -168,6 +207,13 @@ public class LlmReviewPromptTests
 
     private sealed class RecordingChatCompletionService : IChatCompletionService
     {
+        private readonly string _response;
+
+        public RecordingChatCompletionService(string? response = null)
+        {
+            _response = response ?? "{\"score\":88,\"reason\":\"复核通过\",\"commentary\":\"已比较\"}";
+        }
+
         public IReadOnlyDictionary<string, object?> Attributes => new Dictionary<string, object?>();
 
         public string LastPrompt { get; private set; } = string.Empty;
@@ -181,7 +227,7 @@ public class LlmReviewPromptTests
             LastPrompt = chatHistory.Last().Content ?? string.Empty;
             IReadOnlyList<ChatMessageContent> result =
             [
-                new ChatMessageContent(AuthorRole.Assistant, "{\"score\":88,\"reason\":\"复核通过\",\"commentary\":\"已比较\"}")
+                new ChatMessageContent(AuthorRole.Assistant, _response)
             ];
             return Task.FromResult(result);
         }
@@ -193,7 +239,7 @@ public class LlmReviewPromptTests
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             LastPrompt = chatHistory.Last().Content ?? string.Empty;
-            yield return new StreamingChatMessageContent(AuthorRole.Assistant, "{\"score\":88,\"reason\":\"复核通过\",\"commentary\":\"已比较\"}");
+            yield return new StreamingChatMessageContent(AuthorRole.Assistant, _response);
             await Task.CompletedTask;
         }
     }

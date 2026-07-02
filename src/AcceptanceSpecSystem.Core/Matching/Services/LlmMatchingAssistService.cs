@@ -5,6 +5,7 @@ using System.Text.Json;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Diagnostics;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using Microsoft.Extensions.Logging;
@@ -16,7 +17,11 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 /// <summary>
 /// LLM 匹配辅助服务（复核 + 等价裁决）
 /// </summary>
-public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudicationService, ILlmCandidateRerankService
+public class LlmMatchingAssistService :
+    ILlmReviewService,
+    ILlmEquivalenceAdjudicationService,
+    ILlmCandidateRerankService,
+    ILlmDocumentStructureAdjudicationService
 {
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IAiServiceSelector _selector;
@@ -353,6 +358,32 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
         return null;
     }
 
+    public async Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var template = await GetOrCreateTemplateAsync(
+            PromptTemplateCatalog.GetByScene(PromptTemplateScene.SmartConfigStructureRecognition),
+            cancellationToken);
+        var prompt = BuildDocumentStructurePrompt(template.Content, request);
+
+        var raw = await GenerateWithFallbackAsync(
+            prompt,
+            request.LlmServiceId,
+            "LLM 结构裁决失败",
+            static (service, payload) => service.TryParseDocumentStructureResult(payload, out _),
+            cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        return TryParseDocumentStructureResult(raw, out var result)
+            ? result
+            : null;
+    }
+
     public bool TryParseAdjudicationResult(string raw, out LlmEquivalenceAdjudicationResult result)
     {
         result = null!;
@@ -405,6 +436,59 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             SelectedSpecId = selectedSpecId,
             Confidence = Math.Clamp(confidence, 0, 1),
             Reason = TryGetString(doc.RootElement, "reason")
+        };
+        return true;
+    }
+
+    public bool TryParseDocumentStructureResult(
+        string raw,
+        out LlmDocumentStructureAdjudicationResult result)
+    {
+        result = null!;
+        if (!TryParseJson(raw, out var doc))
+            return false;
+
+        if (!doc.RootElement.TryGetProperty("tables", out var tablesElement) ||
+            tablesElement.ValueKind != JsonValueKind.Array ||
+            !TryGetDouble(doc.RootElement, "confidence", out var confidence))
+        {
+            return false;
+        }
+
+        var tables = new List<DocumentStructureCandidate>();
+        foreach (var item in tablesElement.EnumerateArray())
+        {
+            if (!TryGetInt32(item, "tableIndex", out var tableIndex))
+            {
+                return false;
+            }
+
+            tables.Add(new DocumentStructureCandidate
+            {
+                TableIndex = tableIndex,
+                TableName = TryGetString(item, "tableName"),
+                HeaderRowIndex = TryGetInt32(item, "headerRowIndex", out var headerRowIndex) ? headerRowIndex : 0,
+                HeaderRowCount = TryGetInt32(item, "headerRowCount", out var headerRowCount) ? Math.Max(1, headerRowCount) : 1,
+                DataStartRowIndex = TryGetInt32(item, "dataStartRowIndex", out var dataStartRowIndex) ? dataStartRowIndex : 1,
+                DataEndRowIndex = TryGetNullableInt32(item, "dataEndRowIndex"),
+                ProjectColumnIndex = TryGetNullableInt32(item, "projectColumnIndex"),
+                SpecificationColumnIndex = TryGetNullableInt32(item, "specificationColumnIndex"),
+                AcceptanceColumnIndex = TryGetNullableInt32(item, "acceptanceColumnIndex"),
+                RemarkColumnIndex = TryGetNullableInt32(item, "remarkColumnIndex"),
+                IsSpecificationOnly = TryGetBool(item, "isSpecificationOnly", out var isSpecificationOnly) && isSpecificationOnly,
+                Confidence = TryGetDouble(item, "confidence", out var tableConfidence)
+                    ? Math.Clamp(tableConfidence, 0, 1)
+                    : Math.Clamp(confidence, 0, 1),
+                Source = DocumentStructureCandidateSource.Llm
+            });
+        }
+
+        result = new LlmDocumentStructureAdjudicationResult
+        {
+            Tables = tables,
+            Confidence = Math.Clamp(confidence, 0, 1),
+            Decision = TryGetString(doc.RootElement, "decision") ?? "needConfirm",
+            Reason = TryGetString(doc.RootElement, "reason") ?? string.Empty
         };
         return true;
     }
@@ -491,6 +575,18 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             ["sourceSpecification"] = request.SourceSpecification,
             ["currentTopCandidateSpecId"] = request.CurrentTopCandidateSpecId.ToString(),
             ["candidatesJson"] = JsonSerializer.Serialize(candidatePayload)
+        });
+    }
+
+    private static string BuildDocumentStructurePrompt(
+        string template,
+        LlmDocumentStructureAdjudicationRequest request)
+    {
+        return ApplyTemplate(template, new Dictionary<string, string>
+        {
+            ["workflowScene"] = "智能结构识别",
+            ["documentTablesJson"] = request.DocumentTablesJson,
+            ["ruleCandidatesJson"] = JsonSerializer.Serialize(request.RuleCandidates)
         });
     }
 
@@ -958,6 +1054,35 @@ public class LlmMatchingAssistService : ILlmReviewService, ILlmEquivalenceAdjudi
             return true;
 
         return false;
+    }
+
+    private static int? TryGetNullableInt32(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var prop) || prop.ValueKind == JsonValueKind.Null)
+            return null;
+
+        if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var number))
+            return number;
+
+        if (prop.ValueKind == JsonValueKind.String && int.TryParse(prop.GetString(), out number))
+            return number;
+
+        return null;
+    }
+
+    private static bool TryGetBool(JsonElement element, string name, out bool value)
+    {
+        value = false;
+        if (!element.TryGetProperty(name, out var prop))
+            return false;
+
+        if (prop.ValueKind == JsonValueKind.True || prop.ValueKind == JsonValueKind.False)
+        {
+            value = prop.GetBoolean();
+            return true;
+        }
+
+        return prop.ValueKind == JsonValueKind.String && bool.TryParse(prop.GetString(), out value);
     }
 
     private static string? TryGetString(JsonElement element, string name)
