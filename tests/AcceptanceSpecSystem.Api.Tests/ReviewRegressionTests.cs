@@ -651,7 +651,7 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void MatchingAndFileCompareControllers_ShouldDeclareAuthorizeAttributes()
+    public void SensitiveWorkflowControllers_ShouldDeclareAuthorizeAttributes()
     {
         typeof(MatchingApiControllerBase)
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
@@ -662,6 +662,11 @@ public class ReviewRegressionTests
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
             .Should()
             .NotBeEmpty("文件对比控制器应显式声明鉴权，避免后续调整中间件时意外裸露");
+
+        typeof(SmartConfigController)
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
+            .Should()
+            .NotBeEmpty("智能结构识别会读取上传文档并沉淀客户模板，必须显式声明鉴权");
     }
 
     [Fact]

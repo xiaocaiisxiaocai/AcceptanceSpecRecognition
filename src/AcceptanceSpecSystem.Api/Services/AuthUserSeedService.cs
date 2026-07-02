@@ -573,6 +573,8 @@ public static class AuthUserSeedService
             "api:document:upload",
             "api:document:import",
             "api:excel-document:import",
+            "api:smart-config:create",
+            "btn:smart-config:create",
             "btn:document:upload",
             "btn:document:import",
             "btn:excel-document:import",

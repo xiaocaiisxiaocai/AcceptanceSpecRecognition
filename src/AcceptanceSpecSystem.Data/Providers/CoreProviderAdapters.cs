@@ -131,6 +131,7 @@ internal static class PromptTemplateMapper
             PromptTemplateScene.ImportDuplicateReview => Entities.PromptTemplateScene.ImportDuplicateReview,
             PromptTemplateScene.MatchingEquivalenceAdjudication => Entities.PromptTemplateScene.MatchingEquivalenceAdjudication,
             PromptTemplateScene.MatchingCandidateRerank => Entities.PromptTemplateScene.MatchingCandidateRerank,
+            PromptTemplateScene.SmartConfigStructureRecognition => Entities.PromptTemplateScene.SmartConfigStructureRecognition,
             _ => Entities.PromptTemplateScene.Unknown
         };
     }

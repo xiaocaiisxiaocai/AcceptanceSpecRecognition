@@ -86,6 +86,7 @@ public sealed class SystemPromptTemplateInitializer
             CorePromptTemplateScene.ImportDuplicateReview => PromptTemplateScene.ImportDuplicateReview,
             CorePromptTemplateScene.MatchingEquivalenceAdjudication => PromptTemplateScene.MatchingEquivalenceAdjudication,
             CorePromptTemplateScene.MatchingCandidateRerank => PromptTemplateScene.MatchingCandidateRerank,
+            CorePromptTemplateScene.SmartConfigStructureRecognition => PromptTemplateScene.SmartConfigStructureRecognition,
             _ => PromptTemplateScene.Unknown
         };
     }

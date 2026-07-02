@@ -43,16 +43,17 @@ public class PromptTemplateValidationServiceTests
     }
 
     [Fact]
-    public void PromptTemplateCatalog_ShouldExposeFourSystemTemplates_WithoutEntityResolutionTemplate()
+    public void PromptTemplateCatalog_ShouldExposeSystemTemplates_WithoutEntityResolutionTemplate()
     {
         var definitions = PromptTemplateCatalog.GetSystemTemplates();
 
-        definitions.Should().HaveCount(4);
+        definitions.Should().HaveCount(5);
         definitions.Select(item => item.Name).Should().BeEquivalentTo([
             "matching-review",
             "import-duplicate-review",
             "matching-equivalence-adjudication",
-            "matching-candidate-rerank"
+            "matching-candidate-rerank",
+            "smart-config-structure-recognition"
         ]);
 
         var review = definitions.Single(item => item.Name == "matching-review");
@@ -73,6 +74,13 @@ public class PromptTemplateValidationServiceTests
         var rerank = definitions.Single(item => item.Name == "matching-candidate-rerank");
         rerank.DefaultContent.Should().Contain("selectedSpecId");
         rerank.AvailableVariables.Should().Contain("candidatesJson");
+
+        var structureRecognition = definitions.Single(item => item.Name == "smart-config-structure-recognition");
+        structureRecognition.DefaultContent.Should().Contain("documentTablesJson");
+        structureRecognition.AvailableVariables.Should().Contain("documentTablesJson");
+        structureRecognition.RequiredJsonKeys.Should().Contain(["tables", "confidence", "decision"]);
+        PromptTemplateCatalog.GetByScene(PromptTemplateScene.SmartConfigStructureRecognition).Name
+            .Should().Be("smart-config-structure-recognition");
     }
 
     [Fact]

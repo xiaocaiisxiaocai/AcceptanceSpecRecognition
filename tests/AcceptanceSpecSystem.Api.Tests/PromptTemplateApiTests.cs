@@ -30,7 +30,7 @@ public class PromptTemplateApiTests : IClassFixture<ApiWebApplicationFactory>
         json.Code.Should().Be(0);
 
         var items = json.Data.GetProperty("items");
-        items.GetArrayLength().Should().Be(4);
+        items.GetArrayLength().Should().Be(5);
 
         var names = items.EnumerateArray()
             .Select(item => item.GetProperty("name").GetString())
@@ -40,6 +40,7 @@ public class PromptTemplateApiTests : IClassFixture<ApiWebApplicationFactory>
         names.Should().Contain("import-duplicate-review");
         names.Should().Contain("matching-equivalence-adjudication");
         names.Should().Contain("matching-candidate-rerank");
+        names.Should().Contain("smart-config-structure-recognition");
         names.Should().NotContain("matching-entity-resolution");
         names.Should().NotContain("matching-generate");
 

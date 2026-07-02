@@ -6,7 +6,7 @@
 - [ ] 2.1 新增 Core 文档结构识别模型、规则融合、确定性体检和 LLM 结构裁决。
 - [x] 2.2 在 Application 层实现智能结构识别用例服务。
 - [x] 2.3 新增 `SmartConfigController` 的 `recognize` 和 `confirm` 动作。
-- [ ] 2.4 接入 Prompt 模板场景、权限、DI 与架构边界测试。
+- [x] 2.4 接入 Prompt 模板场景、权限、DI 与架构边界测试。
 
 ## 3. Data Learning
 - [x] 3.1 新增客户级 `DocumentTemplate` 存储与仓储。

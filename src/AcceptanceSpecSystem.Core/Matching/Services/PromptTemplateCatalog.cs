@@ -529,6 +529,31 @@ public static class PromptTemplateCatalog
         {"selectedSpecId":1,"reason":"候选 1 更符合源项语义","confidence":0.0}
         """;
 
+    private const string SmartConfigStructureRecognitionDefaultContent =
+        """
+        你是验收规格文档结构识别助手。系统已先做表头扫描、客户模板匹配和列名规则匹配，你只允许基于给定表格摘要裁决结构，不得补充未出现的列或行。
+
+        【业务场景】{{workflowScene}}
+
+        【文档表格摘要 JSON】
+        {{documentTablesJson}}
+
+        【规则识别结果 JSON】
+        {{ruleCandidatesJson}}
+
+        【裁决要求】
+        1. tables 只能引用输入中存在的 tableIndex 和列索引
+        2. 规格列 specificationColumnIndex 是必需列；无法确定时 decision 必须为 needConfirm
+        3. 项目列、验收标准列、备注列可以为 null，但不得臆造
+        4. headerRowIndex、headerRowCount、dataStartRowIndex、dataEndRowIndex 必须与表格实际行范围一致
+        5. confidence 取值 0~1；只有结构完整且冲突很少时才可高于 0.85
+        6. decision 只允许 autoApply、needConfirm、reject
+        7. reason 用一句话说明关键依据或需要人工确认的原因
+
+        仅返回严格 JSON：
+        {"tables":[{"tableIndex":0,"tableName":"表1","headerRowIndex":0,"headerRowCount":1,"dataStartRowIndex":1,"dataEndRowIndex":10,"projectColumnIndex":0,"specificationColumnIndex":1,"acceptanceColumnIndex":2,"remarkColumnIndex":3,"isSpecificationOnly":false,"confidence":0.0,"decision":"needConfirm","reason":"..."}],"confidence":0.0,"decision":"needConfirm","reason":"..."}
+        """;
+
     private static readonly SystemPromptTemplateDefinition[] Definitions =
     [
         new(
@@ -605,7 +630,17 @@ public static class PromptTemplateCatalog
             null,
             ["sourceProject", "sourceSpecification", "currentTopCandidateSpecId", "candidatesJson"],
             ["sourceProject", "sourceSpecification", "currentTopCandidateSpecId", "candidatesJson"],
-            ["selectedSpecId", "reason", "confidence"])
+            ["selectedSpecId", "reason", "confidence"]),
+        new(
+            PromptTemplateScene.SmartConfigStructureRecognition,
+            "smart-config-structure-recognition",
+            "智能结构识别裁决",
+            "用于上传文档结构识别流程中的表格、表头和字段映射裁决。",
+            SmartConfigStructureRecognitionDefaultContent,
+            null,
+            ["workflowScene", "documentTablesJson", "ruleCandidatesJson"],
+            ["workflowScene", "documentTablesJson", "ruleCandidatesJson"],
+            ["tables", "confidence", "decision"])
     ];
 
     public static IReadOnlyList<SystemPromptTemplateDefinition> GetSystemTemplates() => Definitions;

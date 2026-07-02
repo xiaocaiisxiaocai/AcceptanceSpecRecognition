@@ -2,6 +2,7 @@ using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -10,6 +11,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 /// 智能配置控制器
 /// </summary>
 [Route("api/smart-config")]
+[Authorize]
 public class SmartConfigController : BaseApiController
 {
     private readonly SmartConfigurationAppService _smartConfigService;
