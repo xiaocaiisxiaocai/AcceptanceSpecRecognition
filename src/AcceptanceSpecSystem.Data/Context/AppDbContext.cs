@@ -71,6 +71,11 @@ public class AppDbContext : DbContext
     public DbSet<ColumnMappingRule> ColumnMappingRules => Set<ColumnMappingRule>();
 
     /// <summary>
+    /// 文档结构模板表
+    /// </summary>
+    public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
+
+    /// <summary>
     /// 系统用户表
     /// </summary>
     public DbSet<SystemUser> SystemUsers => Set<SystemUser>();
@@ -322,6 +327,20 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Pattern).IsRequired().HasMaxLength(200);
             entity.HasIndex(e => new { e.TargetField, e.Pattern });
             entity.HasIndex(e => new { e.TargetField, e.Priority });
+        });
+
+        // DocumentTemplate 配置
+        modelBuilder.Entity<DocumentTemplate>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TemplateName).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.HeadersFingerprint).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.HeadersJson).IsRequired();
+            entity.HasIndex(e => new { e.CustomerId, e.HeadersFingerprint }).IsUnique();
+            entity.HasOne(e => e.Customer)
+                .WithMany()
+                .HasForeignKey(e => e.CustomerId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // OrgCompany配置

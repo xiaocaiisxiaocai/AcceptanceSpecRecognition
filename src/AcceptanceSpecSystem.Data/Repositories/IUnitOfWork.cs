@@ -51,6 +51,11 @@ public interface IUnitOfWork : IDisposable
     IColumnMappingRuleRepository ColumnMappingRules { get; }
 
     /// <summary>
+    /// 文档结构模板 Repository
+    /// </summary>
+    IDocumentTemplateRepository DocumentTemplates { get; }
+
+    /// <summary>
     /// 系统用户Repository
     /// </summary>
     ISystemUserRepository SystemUsers { get; }

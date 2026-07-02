@@ -3,6 +3,8 @@ using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Documents;
+using AcceptanceSpecSystem.Core.Documents.Intelligence;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
@@ -85,6 +87,8 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<IDocumentFileAppService, DocumentFileAppService>();
         services.AddScoped<IDocumentImportAppService, DocumentImportAppService>();
         services.AddScoped<ImportDuplicateDetectionService>();
+        services.AddScoped<IRuleBasedMappingStrategy, RuleBasedMappingStrategy>();
+        services.AddScoped<IDocumentIntelligenceService, DocumentIntelligenceService>();
 
         // ── 批量回复 ──
         services.AddSingleton<BatchReplySessionService>();
@@ -164,6 +168,7 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<IAiServiceConfigRepository, AiServiceConfigRepository>();
         services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
         services.AddScoped<IColumnMappingRuleRepository, ColumnMappingRuleRepository>();
+        services.AddScoped<IDocumentTemplateRepository, DocumentTemplateRepository>();
         services.AddScoped<ISystemUserRepository, SystemUserRepository>();
         services.AddScoped<IAuthRoleLookupRepository, AuthRoleLookupRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();

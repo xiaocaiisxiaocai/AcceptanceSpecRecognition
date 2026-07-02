@@ -17,6 +17,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ProcessAppService>();
         services.AddScoped<MachineModelAppService>();
         services.AddScoped<AcceptanceSpecAppService>();
+        services.AddScoped<DocumentTemplateAppService>();
+        services.AddScoped<SmartConfigurationAppService>();
         return services;
     }
 }
