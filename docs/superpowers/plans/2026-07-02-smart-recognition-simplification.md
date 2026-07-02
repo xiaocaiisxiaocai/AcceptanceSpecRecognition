@@ -4,9 +4,9 @@
 
 **Goal:** 上传文档后自动识别全部结构配置（表/表头/数据范围/四列映射），高置信直达、低置信行内确认卡、确认自动沉淀模板与字典，数据导入与智能填充共用。
 
-**Architecture:** 四层识别流水线（L0 客户模板 → L1 规则字典 → L2 Embedding 锚点 → L3 LLM 裁决）落在 `Core/Documents/Intelligence`；编排/模板/学习在 `Api/Services/SmartConfigurationAppService`；前端两条链路收敛为「上传 → 结果页」两步流。归档分支 `origin/feat/smart-auto-configuration` 的后端骨架捡回复用，前端改动不捡。
+**Architecture:** 三层识别流水线（L0 客户模板 → L1 规则字典 → L3 LLM 裁决，不设 Embedding 层）+ AutoApply 前的确定性结果体检，落在 `Core/Documents/Intelligence`；编排/模板/学习在 `Api/Services/SmartConfigurationAppService`；前端两条链路收敛为「上传 → 结果页」两步流。归档分支 `origin/feat/smart-auto-configuration` 的后端骨架捡回复用，前端改动不捡。
 
-**Tech Stack:** .NET 8 / EF Core (MySQL, 测试 SQLite) / Semantic Kernel（复用 `IEmbeddingService`、LLM 服务族 DI 模式）/ Vue 3 + Element Plus。
+**Tech Stack:** .NET 8 / EF Core (MySQL, 测试 SQLite) / Semantic Kernel（复用 LLM 服务族 DI 模式）/ Vue 3 + Element Plus。
 
 **设计文档:** `docs/superpowers/specs/2026-07-02-smart-recognition-simplification-design.md`
 
@@ -213,7 +213,7 @@ dotnet test AcceptanceSpecSystem.sln -c Debug
 
 ---
 
-## Phase B：识别引擎四层（Core，纯单测）
+## Phase B：识别引擎三层 + 结果体检（Core，纯单测）
 
 ### Task 4: 结构指纹
 
@@ -300,40 +300,98 @@ Task<ColumnMappingResult> IdentifyAsync(
 
 ---
 
-### Task 6: L2 Embedding 锚点列匹配器
+### Task 6: 结果验证器（AutoApply 前的确定性体检）
 
 **Files:**
-- Create: `src/AcceptanceSpecSystem.Core/Documents/Intelligence/Strategies/EmbeddingColumnMatcher.cs`、`IEmbeddingColumnMatcher.cs`
-- Test: `tests/AcceptanceSpecSystem.Core.Tests/Documents/Intelligence/EmbeddingColumnMatcherTests.cs`
+- Create: `src/AcceptanceSpecSystem.Core/Documents/Intelligence/StructureSanityValidator.cs`
+- Test: `tests/AcceptanceSpecSystem.Core.Tests/Documents/Intelligence/StructureSanityValidatorTests.cs`
 
-**接口与行为**：
+**背景**：LLM 自报置信度不可信，最坏失败模式是“自信地识别错 → 静默填错列”。任何层的输出在 AutoApply 前必须通过纯规则体检；体检失败强制降为 NeedsConfirmation。
+
+**接口与实现（完整代码，输入用原始类型，不依赖 Task 8 的模型）**：
 
 ```csharp
-using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
+namespace AcceptanceSpecSystem.Core.Documents.Intelligence;
 
-namespace AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
-
-/// <summary>L2：未决表头用 Embedding 与四类语义锚点比对。</summary>
-public interface IEmbeddingColumnMatcher
+/// <summary>体检输入：候选结构 + 表格原始行。</summary>
+public sealed class SanityCheckInput
 {
-    /// <returns>每个输入表头的 (类型, 置信度, 依据)；不达标返回 ColumnType.Unknown。</returns>
-    Task<IReadOnlyList<(ColumnType Type, double Confidence, string Reason)>> MatchAsync(
-        IReadOnlyList<string> unresolvedHeaders,
-        CancellationToken cancellationToken = default);
+    public IReadOnlyList<IReadOnlyList<string>> Rows { get; init; } = Array.Empty<IReadOnlyList<string>>();
+    public int ColumnCount { get; init; }
+    public int DataStartRowIndex { get; init; }
+    public int? DataEndRowIndex { get; init; }
+    public int? ProjectColumnIndex { get; init; }
+    public int? SpecificationColumnIndex { get; init; }
+    public int? AcceptanceColumnIndex { get; init; }
+    public int? RemarkColumnIndex { get; init; }
+}
+
+public sealed class SanityCheckResult
+{
+    public bool Passed { get; init; }
+    public List<string> Failures { get; init; } = new();
+}
+
+/// <summary>AutoApply 前的确定性体检：拦截“自信但错误”的识别结果。</summary>
+public static class StructureSanityValidator
+{
+    private const double MinSpecificationNonEmptyRate = 0.6;
+
+    public static SanityCheckResult Validate(SanityCheckInput input)
+    {
+        var failures = new List<string>();
+
+        // 1) 规格列必须存在且索引合法
+        if (input.SpecificationColumnIndex is not int specCol || specCol < 0 || specCol >= input.ColumnCount)
+        {
+            failures.Add("规格列缺失或索引越界");
+            return new SanityCheckResult { Passed = false, Failures = failures };
+        }
+
+        // 2) 列索引不越界、互不重复
+        var indexes = new[] { input.ProjectColumnIndex, input.SpecificationColumnIndex, input.AcceptanceColumnIndex, input.RemarkColumnIndex }
+            .Where(i => i.HasValue).Select(i => i!.Value).ToList();
+        if (indexes.Any(i => i < 0 || i >= input.ColumnCount)) failures.Add("存在越界列索引");
+        if (indexes.Count != indexes.Distinct().Count()) failures.Add("列索引重复");
+
+        // 3) 数据区必须存在非空行
+        var end = input.DataEndRowIndex ?? input.Rows.Count - 1;
+        var dataRows = input.Rows
+            .Skip(input.DataStartRowIndex)
+            .Take(Math.Max(0, end - input.DataStartRowIndex + 1))
+            .ToList();
+        if (dataRows.Count == 0 || dataRows.All(r => r.All(string.IsNullOrWhiteSpace)))
+        {
+            failures.Add("数据区无有效数据行");
+        }
+        else
+        {
+            // 4) 规格列非空率
+            var nonEmpty = dataRows.Count(r => specCol < r.Count && !string.IsNullOrWhiteSpace(r[specCol]));
+            if ((double)nonEmpty / dataRows.Count < MinSpecificationNonEmptyRate)
+                failures.Add($"规格列非空率不足（{nonEmpty}/{dataRows.Count}）");
+
+            // 5) 识别出项目列时，规格列平均长度应不小于项目列（规格通常是长文本）
+            if (input.ProjectColumnIndex is int projCol && projCol >= 0 && projCol < input.ColumnCount)
+            {
+                double AvgLen(int col) => dataRows
+                    .Where(r => col < r.Count && !string.IsNullOrWhiteSpace(r[col]))
+                    .Select(r => (double)r[col].Trim().Length)
+                    .DefaultIfEmpty(0).Average();
+                if (AvgLen(specCol) > 0 && AvgLen(specCol) < AvgLen(projCol) * 0.5)
+                    failures.Add("规格列平均文本长度显著小于项目列，疑似列判反");
+            }
+        }
+
+        return new SanityCheckResult { Passed = failures.Count == 0, Failures = failures };
+    }
 }
 ```
 
-实现要点（完整逻辑，供直接照写）：
-- 依赖 `IEmbeddingService`（`Core/Matching/Interfaces/IEmbeddingService.cs`，已注册 DI）。
-- 锚点种子（常量）：Project=`["检验项目","测试内容","管控项目","检查要点"]`；Specification=`["规格要求","技术标准","判定基准","参数指标"]`；Acceptance=`["验收结果","判定结果","实测值","合格判定"]`；Remark=`["备注说明","补充说明","附注"]`。
-- 一次 `GenerateEmbeddingsAsync(种子全集 + 未决表头)` 批量取向量；每个表头对每类取「与该类各种子余弦的最大值」为类得分。
-- 采纳条件：最高类得分 ≥ **0.80** 且比次高类高 ≥ **0.05**；置信度 = 最高类得分；否则 Unknown。
-- 余弦函数实现为类内私有静态方法（两 float[] 点积/模长，长度不一致抛 `ArgumentException`）。
-
-- [ ] **Step 1: 写失败测试**——用假 `IEmbeddingService`（测试内实现接口：固定词→固定向量的字典，例如 Project 种子与“管控要点”返回同向向量，Specification 种子返回正交向量），断言：①“管控要点”→ Project 且置信度≥0.8；②与两类锚点等距的词 → Unknown（歧义拦截）。
-- [ ] **Step 2: 跑测试失败**
-- [ ] **Step 3: 按上述要点实现**
-- [ ] **Step 4: 测试通过，Commit** `git commit -am "feat: 新增 Embedding 锚点列匹配器"`
+- [ ] **Step 1: 写失败测试**——至少 5 个用例：① 正常四列数据 → Passed；② 规格列整列空 → 拦截且 Failures 含“非空率”；③ 项目列与规格列同索引 → 拦截“重复”；④ 数据区全空行 → 拦截；⑤ 项目/规格判反（项目列全长文本、规格列全 2 字短词）→ 拦截“疑似列判反”。
+- [ ] **Step 2: 跑测试失败** `dotnet test tests/AcceptanceSpecSystem.Core.Tests -c Debug --filter "FullyQualifiedName~StructureSanityValidatorTests"`
+- [ ] **Step 3: 按上述代码实现**
+- [ ] **Step 4: 测试通过，Commit** `git commit -am "feat: 新增结构识别结果确定性体检"`
 
 ---
 
@@ -385,7 +443,7 @@ public interface ILlmStructureRecognitionService
 
 ---
 
-### Task 8: 识别编排器（四层流水线 + 决策规则）
+### Task 8: 识别编排器（三层流水线 + 体检 + 决策规则）
 
 **Files:**
 - Create: `src/AcceptanceSpecSystem.Core/Documents/Intelligence/Models/TableStructureResult.cs`、`FieldRecognition.cs`、`StructureDecision.cs`
@@ -443,17 +501,17 @@ Task<TableStructureResult> RecognizeTableAsync(
 
 1. 表头行检测（归档已有）→ 得 headerRowIndex/headerRowCount，headers = 拼接表头行文本。
 2. L1 `RuleBasedMappingStrategy.IdentifyAsync(headers, sampleRows, extraSynonyms)`。
-3. 未决列表头集合 → L2 `IEmbeddingColumnMatcher.MatchAsync`，采纳非 Unknown 结果。
-4. 仍未决字段中含 Specification，或表头行检测置信度 < 0.6 → L3 `ILlmStructureRecognitionService.RecognizeAsync(前10行)`；LLM 结果只用于填补空缺字段，不覆盖 L1/L2 已决字段；LLM 返回 null（超时/非法）→ 跳过。
-5. 数据范围：DataStartRowIndex = headerRowIndex + headerRowCount；DataEndRowIndex：从表尾向上跳过「整行空 或 项目列为空且任意单元格含 合计/审核/批准/核准/确认 」的行，得最后数据行；若截掉行数 > 表行数 30% 则视为不可靠，DataEndRowIndex 置 null 并把 `"dataRange"` 加入 PendingFields。
-6. **仅规格双向判定**：Project 未决时，取全表各列的 Project 类最高得分 maxP（来自 L1 关键词分与 L2 类得分的最大者）：maxP < 0.4 → `IsSpecificationOnly=true, SpecificationOnlyConfidence = 1 - maxP`；0.4 ≤ maxP < 阈值 → PendingFields 加 `"project"`（疑似有但没认出）。
-7. **决策**：Specification.Confidence ≥ 0.85 且 (Project 已决 或 IsSpecificationOnly 且 SpecificationOnlyConfidence ≥ 0.85) 且 PendingFields 为空 → AutoApply；否则 NeedsConfirmation。
+3. 仍未决字段中含 Specification，或表头行检测置信度 < 0.6 → L3 `ILlmStructureRecognitionService.RecognizeAsync(前10行)`；LLM 结果只用于填补空缺字段，不覆盖 L1 已决字段；LLM 返回 null（超时/非法）→ 跳过。
+4. 数据范围：DataStartRowIndex = headerRowIndex + headerRowCount；DataEndRowIndex：从表尾向上跳过「整行空 或 项目列为空且任意单元格含 合计/审核/批准/核准/确认 」的行，得最后数据行；若截掉行数 > 表行数 30% 则视为不可靠，DataEndRowIndex 置 null 并把 `"dataRange"` 加入 PendingFields。
+5. **仅规格双向判定**：Project 未决时，取全表各列的 Project 类最高得分 maxP（来自 L1 关键词得分；L3 参与且返回 projectColumn=null 视为“确无项目列”的佐证，maxP 取 L1 值）：maxP < 0.4 → `IsSpecificationOnly=true, SpecificationOnlyConfidence = 1 - maxP`；0.4 ≤ maxP < 阈值 → PendingFields 加 `"project"`（疑似有但没认出）。
+6. **体检前置**：组装 `SanityCheckInput` 过 `StructureSanityValidator.Validate`（Task 6）；不通过 → 强制 NeedsConfirmation，Failures 并入对应字段 Reasoning 与 PendingFields。
+7. **决策**：体检通过且 Specification.Confidence ≥ 0.85 且 (Project 已决 或 IsSpecificationOnly 且 SpecificationOnlyConfidence ≥ 0.85) 且 PendingFields 为空 → AutoApply；否则 NeedsConfirmation。
 8. Fingerprint = `StructureFingerprint.Compute(headers, 列数)`。
 
-- [ ] **Step 1: 写失败测试**（L2/L3 用测试内假实现注入；至少 5 个用例）：① 标准四列表 → AutoApply、无 Pending；② 规格列置信度 0.7 → NeedsConfirmation 且 Pending 含 "specification"；③ 无任何项目语义列（maxP<0.4）→ AutoApply + IsSpecificationOnly；④ 疑似项目列（maxP=0.6）→ NeedsConfirmation + Pending 含 "project"；⑤ 尾部含“合计/审核”行 → DataEndRowIndex 截到数据末行。
+- [ ] **Step 1: 写失败测试**（L3 用测试内假实现注入；至少 6 个用例）：① 标准四列表 → AutoApply、无 Pending；② 规格列置信度 0.7 → NeedsConfirmation 且 Pending 含 "specification"；③ 无任何项目语义列（maxP<0.4）→ AutoApply + IsSpecificationOnly；④ 疑似项目列（maxP=0.6）→ NeedsConfirmation + Pending 含 "project"；⑤ 尾部含“合计/审核”行 → DataEndRowIndex 截到数据末行；⑥ 各字段高置信但规格列数据全空（体检不过）→ 强制 NeedsConfirmation。
 - [ ] **Step 2: 跑测试失败**
 - [ ] **Step 3: 实现编排**（注意文件 < 500 行；决策与数据范围检测可拆 `StructureDecisionEvaluator.cs` 私有静态类文件）
-- [ ] **Step 4: 全量测试，Commit** `git commit -am "feat: 识别编排器实现四层流水线与结构决策"`
+- [ ] **Step 4: 全量测试，Commit** `git commit -am "feat: 识别编排器实现三层流水线与体检决策"`
 
 ---
 
@@ -524,7 +582,7 @@ public class SmartFieldDto
 {
     public int? ColumnIndex { get; set; }
     public double Confidence { get; set; }
-    /// <summary>"template" | "rule" | "embedding" | "llm"</summary>
+    /// <summary>"template" | "rule" | "llm"</summary>
     public string Source { get; set; } = "rule";
     public string Reasoning { get; set; } = string.Empty;
 }
@@ -533,10 +591,12 @@ public class SmartFieldDto
 **AppService 编排**（`RecognizeAsync(SmartRecognizeRequest, CancellationToken)`）：
 
 1. 用现有文档解析服务（`DocumentServiceFactory` → parser，取法照抄归档 `SmartConfigurationAppService.AutoConfigureAsync` 里加载 tables 的写法）拿全部 Sheet/表。
-2. L0：customerId 非空时，逐表算指纹查 `IDocumentTemplateRepository`（客户+指纹）；命中 → 该表直接由模板组装 `SmartTableResultDto`（Source=template，Confidence=1.0，Decision=autoApply），并回写 `UseCount++ / LastUsedAt`。
+2. L0：customerId 非空时，逐表在**前 5 个候选表头行**上分别试算指纹查 `IDocumentTemplateRepository`（客户+指纹），任一命中即中（容错表头行漂移）；命中 → 该表直接由模板组装 `SmartTableResultDto`（Source=template，Confidence=1.0，Decision=autoApply），并回写 `UseCount++ / LastUsedAt`。
 3. 未命中表：组装 extraSynonyms（查 `ColumnMappingRule`：`Enabled && (CustomerId == customerId || CustomerId == null)`，按 客户>全局 排序，映射 TargetField→ColumnType）→ 调 `IDocumentIntelligenceService.RecognizeTableAsync`。
-4. 映射 Core 结果 → DTO；OverallDecision 汇总。
-5. 控制器：`[HttpPost("recognize")]`，归档的 `auto-detect` action 与 `AutoDetectRequest` 删除。
+4. **整体 LLM 预算**：用 `Stopwatch` 累计，L3 累计耗时超过 20 秒后，剩余未处理表**不再进 L3**，直接以 L1 结果组装并置 Decision=needsConfirmation（依据说明写“LLM 预算耗尽，请人工确认”）——接口整体永远有界返回。
+5. 映射 Core 结果 → DTO；OverallDecision 汇总。
+6. 控制器：`[HttpPost("recognize")]`，归档的 `auto-detect` action 与 `AutoDetectRequest` 删除。
+7. **权限码检查**：查 `src/AcceptanceSpecSystem.Api/Authorization/PermissionConventions.cs` 中控制器→权限组的映射约定，确认 `SmartConfigController` 已归入文档上传/导入同组权限；若无则按该文件现有条目格式补一条。
 
 - [ ] **Step 1: 写失败集成测试**——上传标准四列 docx（用测试项目现有 `CreateDocxBytes`/上传辅助方法，参照 `ExecutionHistoryApiTests`），调 `/api/smart-config/recognize`，断言 200、OverallDecision=autoApply、四字段列索引正确、Source=rule。
 - [ ] **Step 2: 跑测试失败**
@@ -597,6 +657,7 @@ public class SmartCorrectionDto
 - 字典：每条 Correction 且 `HeaderText` 非空白 → 查 `ColumnMappingRule` 是否已存在 `(Pattern=HeaderText, TargetField=对应枚举, CustomerId=本客户)`；无则插入 `{ MatchMode=Equals, Source=Learned, CustomerId, Priority=100, Enabled=true }`。
 - 全局升级：插入后统计 `Source=Learned && Pattern && TargetField` 相同、`CustomerId` 互异的条数 ≥ 2 且不存在同 Pattern 的全局行（CustomerId==null）→ 追加一条 `CustomerId=null` 的全局 Learned 规则。
 - 全过程 try/catch：沉淀失败记日志返回 `learned=false`，**不抛给调用方**。
+- **观测日志**：confirm 成功后输出一行结构化日志（`LogInformation` + 命名占位符）：客户ID、每表决策（autoApply/needsConfirmation）、各字段来源（template/rule/llm）、修正字段列表——为后续识别效果分析留数据钩子，不建新表。
 
 - [ ] **Step 1: 写失败集成测试**——① confirm 后同文件再 recognize，对应表 Decision=autoApply 且 Source=template（L0 命中）；② 带 Correction("project","管控要点",0) 的 confirm 后，DB 中存在 Learned 规则；③ 两个不同 customer 各 confirm 同词 → 出现全局行。
 - [ ] **Step 2: 跑测试失败**
@@ -611,7 +672,7 @@ public class SmartCorrectionDto
 - Test: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeMatrixTests.cs`
 
 - [ ] **Step 1: 写四类夹具测试**（全部用测试内构造字节，xlsx 用 ClosedXML，docx 用 OpenXml，构造法参照 `ExecutionHistoryApiTests.CreateDocxBytes` 与 Excel 导入测试）：
-  1. 怪表头 xlsx（“管控要点/判定基准/OK?NG/说明”）→ 200 且 needsConfirmation（无学习词、Fake Embedding 不达标时的预期路径），PendingFields 非空；
+  1. 怪表头 xlsx（“管控要点/判定基准/OK?NG/说明”）→ 200 且 needsConfirmation（无学习词、Fake LLM 返回 null 时的预期路径），PendingFields 非空；
   2. 多 Sheet xlsx（Sheet1 标准 → autoApply；Sheet2 怪表头 → needsConfirmation）→ 按表独立决策；
   3. 仅规格 docx（表头只有“规格/验收/备注”）→ MatchingMode=specificationOnly 且 autoApply；
   4. 空文档/无表格 → 200 + Sheets 空 + OverallDecision=needsConfirmation（前端据此落高级模式），**不是 500**。
@@ -635,7 +696,7 @@ import { http } from "@/utils/http";
 export interface SmartFieldResult {
   columnIndex: number | null;
   confidence: number;
-  source: "template" | "rule" | "embedding" | "llm";
+  source: "template" | "rule" | "llm";
   reasoning: string;
 }
 
@@ -785,6 +846,6 @@ composable `useSmartRecognition`：状态机 `idle | recognizing | done | failed
 
 ## Self-Review 记录
 
-- 规格覆盖：设计文档 §2 引擎四层 → Task 4-8；§3 前端 → Task 12-15；§4 自学习 → Task 10；§5 API/降级/迁移 → Task 1-3, 9-11；§6 边界 → Task 8(数据范围/无表头走 L3)、Task 11(空文档)；§7 测试 → 各任务 TDD + Task 11/16。仅规格场景 → Task 2(可空列)/8(双向判定)/11(夹具3)/15(模式下发)。无遗漏。
+- 规格覆盖：设计文档 §2 引擎三层+体检 → Task 4-8；§3 前端 → Task 12-15；§4 自学习 → Task 10；§5 API/降级/迁移/LLM预算 → Task 1-3, 9-11；§6 边界 → Task 8(数据范围/无表头走 L3)、Task 11(空文档)；§7 测试 → 各任务 TDD + Task 11/16；§9 观测/权限 → Task 9(权限)/10(日志)。仅规格场景 → Task 2(可空列)/8(双向判定)/11(夹具3)/15(模式下发)。无遗漏。
 - 占位符：无 TBD/TODO；引用「镜像现有实现」处均给出确切镜像文件位置与差异点。
 - 类型一致性：`SmartTableResultDto` ↔ `SmartTableResult`(TS) 字段一一对应；`RecognizeTableAsync` 签名在 Task 8 定义、Task 9 使用一致；`ColumnMappingRuleSource` 在 Task 3 定义、Task 9/10 使用一致。
