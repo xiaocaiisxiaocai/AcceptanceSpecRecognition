@@ -2,6 +2,7 @@
 using AcceptanceSpecSystem.Application;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using System.IO.Compression;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -32,5 +33,84 @@ public class UploadValidationTests
         action.Should().Throw<ApplicationServiceException>()
             .Where(ex => ex.Code == 400)
             .WithMessage("文件内容与扩展名不匹配或文件已损坏");
+    }
+
+    [Fact]
+    public void ValidateOfficeDocument_WhenOfficeZipHasTooManyEntries_ShouldThrowFriendlyError()
+    {
+        var payload = CreateOfficeZip(entryCount: 1_501);
+        using var stream = new MemoryStream(payload);
+        IFormFile file = new FormFile(stream, 0, payload.Length, "file", "large-structure.docx");
+
+        var action = () => UploadFileValidation.ValidateOfficeDocument(file, allowExcel: true, allowWord: true);
+
+        action.Should().Throw<ApplicationServiceException>()
+            .Where(ex => ex.Code == 400)
+            .WithMessage("文件结构过大，请拆分后重新上传");
+    }
+
+    [Fact]
+    public void ValidateOfficeDocument_WhenOfficeZipEntryIsTooLarge_ShouldThrowFriendlyError()
+    {
+        var payload = CreateOfficeZip(extraEntries: new[]
+        {
+            ("word/media/oversized.bin", UploadFileValidation.MaxAllowedEntrySizeBytes + 1)
+        });
+        using var stream = new MemoryStream(payload);
+        IFormFile file = new FormFile(stream, 0, payload.Length, "file", "large-entry.docx");
+
+        var action = () => UploadFileValidation.ValidateOfficeDocument(file, allowExcel: true, allowWord: true);
+
+        action.Should().Throw<ApplicationServiceException>()
+            .Where(ex => ex.Code == 400)
+            .WithMessage("文件结构过大，请拆分后重新上传");
+    }
+
+    private static byte[] CreateOfficeZip(
+        int entryCount = 2,
+        IReadOnlyCollection<(string Name, long Length)>? extraEntries = null)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            WriteEntry(archive, "[Content_Types].xml", "<Types />"u8.ToArray());
+            WriteEntry(archive, "word/document.xml", "<document />"u8.ToArray());
+
+            for (var i = 0; i < entryCount - 2; i++)
+            {
+                WriteEntry(archive, $"word/extra-{i}.xml", "<x />"u8.ToArray());
+            }
+
+            if (extraEntries != null)
+            {
+                foreach (var (name, length) in extraEntries)
+                {
+                    WriteEntry(archive, name, length);
+                }
+            }
+        }
+
+        return stream.ToArray();
+    }
+
+    private static void WriteEntry(ZipArchive archive, string name, byte[] content)
+    {
+        var entry = archive.CreateEntry(name);
+        using var entryStream = entry.Open();
+        entryStream.Write(content);
+    }
+
+    private static void WriteEntry(ZipArchive archive, string name, long length)
+    {
+        var entry = archive.CreateEntry(name);
+        using var entryStream = entry.Open();
+        var buffer = new byte[8192];
+        var remaining = length;
+        while (remaining > 0)
+        {
+            var writeLength = (int)Math.Min(buffer.Length, remaining);
+            entryStream.Write(buffer.AsSpan(0, writeLength));
+            remaining -= writeLength;
+        }
     }
 }

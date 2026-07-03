@@ -40,6 +40,29 @@ public class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void Program_ShouldAuthenticateBeforeRateLimiter_WhenLimiterUsesUserClaims()
+    {
+        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/Program.cs");
+
+        programContent.Should().Contain("CreateFixedWindowLimiter", "限流分区会读取 HttpContext.User");
+        programContent.IndexOf("app.UseAuthentication();", StringComparison.Ordinal)
+            .Should().BeLessThan(
+                programContent.IndexOf("app.UseRateLimiter();", StringComparison.Ordinal),
+                "限流按用户分区前必须先完成认证，否则会退化为按 IP 分区");
+    }
+
+    [Fact]
+    public void ViteProxyFallback_ShouldMatchApiLaunchPort()
+    {
+        var viteConfigContent = ReadFile("web/vite.config.ts");
+
+        viteConfigContent.Should().Contain("http://localhost:5291");
+        viteConfigContent.Should().NotContain(
+            "http://localhost:5843",
+            "Vite 代理兜底端口应和 API launchSettings 保持一致，避免未配置环境变量时代理漂移");
+    }
+
+    [Fact]
     public void DataProject_ShouldNotReferenceCoreProject()
     {
         var dataProjectContent = ReadFile("src/AcceptanceSpecSystem.Data/AcceptanceSpecSystem.Data.csproj");

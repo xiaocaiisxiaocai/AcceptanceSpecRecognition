@@ -337,7 +337,11 @@ public sealed class AcceptanceSpecAppService
         SpecAccessContext scope,
         CancellationToken cancellationToken = default)
     {
-        var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(wordFile => wordFile.FileName == ManualFileName);
+        var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(wordFile =>
+            wordFile.FileName == ManualFileName &&
+            wordFile.CompanyId == scope.CompanyId &&
+            wordFile.CreatedByUserId == scope.UserId &&
+            wordFile.OwnerOrgUnitId == scope.OrgUnitId);
         if (existingFile != null)
             return existingFile;
 

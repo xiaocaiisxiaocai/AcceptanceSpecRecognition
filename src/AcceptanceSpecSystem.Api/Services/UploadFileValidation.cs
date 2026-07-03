@@ -10,6 +10,9 @@ public static class UploadFileValidation
 {
     public const int MaxAllowedFileSizeMegabytes = 50;
     public const long MaxAllowedFileSizeBytes = MaxAllowedFileSizeMegabytes * 1024L * 1024L;
+    public const int MaxAllowedZipEntryCount = 1_500;
+    public const long MaxAllowedUncompressedSizeBytes = 200L * 1024L * 1024L;
+    public const long MaxAllowedEntrySizeBytes = 100L * 1024L * 1024L;
 
     public static UploadedFileType ValidateOfficeDocument(
         IFormFile file,
@@ -48,6 +51,7 @@ public static class UploadFileValidation
         {
             using var stream = file.OpenReadStream();
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+            EnsureOfficeZipStructureWithinLimits(archive);
             var entries = archive.Entries
                 .Select(entry => entry.FullName.Replace('\\', '/'))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -74,5 +78,39 @@ public static class UploadFileValidation
         }
 
         return fileType.Value;
+    }
+
+    private static void EnsureOfficeZipStructureWithinLimits(ZipArchive archive)
+    {
+        if (archive.Entries.Count > MaxAllowedZipEntryCount)
+        {
+            throw OfficeZipTooLarge();
+        }
+
+        var totalUncompressedSize = 0L;
+        foreach (var entry in archive.Entries)
+        {
+            if (entry.Length > MaxAllowedEntrySizeBytes)
+            {
+                throw OfficeZipTooLarge();
+            }
+
+            if (totalUncompressedSize > MaxAllowedUncompressedSizeBytes - entry.Length)
+            {
+                throw OfficeZipTooLarge();
+            }
+
+            totalUncompressedSize += entry.Length;
+            if (totalUncompressedSize > MaxAllowedUncompressedSizeBytes)
+            {
+                throw OfficeZipTooLarge();
+            }
+
+        }
+    }
+
+    private static ApplicationServiceException OfficeZipTooLarge()
+    {
+        return new ApplicationServiceException(400, "文件结构过大，请拆分后重新上传");
     }
 }

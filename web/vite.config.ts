@@ -37,18 +37,18 @@ export default async ({ mode, command }: ConfigEnv): Promise<UserConfigExport> =
       // 本地跨域代理 https://cn.vitejs.dev/config/server-options.html#server-proxy
       proxy: {
         "/api": {
-          target: VITE_API_PROXY_TARGET || "http://localhost:5843",
+          target: VITE_API_PROXY_TARGET || "http://localhost:5291",
           changeOrigin: true,
           rewrite: path => path,
           // SSE 长连接需要禁用代理超时，否则 LLM 流式输出会被提前断开
           timeout: 0
         },
         "/login": {
-          target: VITE_API_PROXY_TARGET || "http://localhost:5843",
+          target: VITE_API_PROXY_TARGET || "http://localhost:5291",
           changeOrigin: true
         },
         "/refresh-token": {
-          target: VITE_API_PROXY_TARGET || "http://localhost:5843",
+          target: VITE_API_PROXY_TARGET || "http://localhost:5291",
           changeOrigin: true
         }
       },

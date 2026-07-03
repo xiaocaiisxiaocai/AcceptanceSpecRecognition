@@ -306,8 +306,8 @@ app.UseRouting();
 app.UseCors("AllowVueFrontend");
 
 // 使用路由和控制器
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseMiddleware<ApiPermissionMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
