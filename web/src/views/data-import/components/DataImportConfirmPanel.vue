@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { AiServiceConfig } from "@/api/ai-service";
 import type { Customer } from "@/api/customer";
 import type { Process } from "@/api/process";
@@ -39,6 +39,11 @@ const props = defineProps<{
   removedPreviewRowCount: number;
   selectedImportPreviewRowsCount: number;
   importPreviewGroups: ImportPreviewGroup[];
+  previewLoadState: {
+    loadedRows: number;
+    totalRows: number;
+    hasPartialPreview: boolean;
+  };
   previewSkippedRows: boolean;
   importing: boolean;
   importProgressText: string;
@@ -66,6 +71,7 @@ const previewSkippedRowsModel = computed({
 // 父组件以引用方式传入配置对象，子组件通过该代理直接编辑其字段；
 // mutation 经同一引用回传父组件，行为与直接改 prop 一致，同时规避 vue/no-mutating-props。
 const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
+const activeCollapseNames = ref<string[]>([]);
 </script>
 
 <template>
@@ -201,294 +207,348 @@ const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
       :title="currentImportPermissionMessage"
       class="mb-4"
     />
-    <el-descriptions
-      class="import-confirm-desc"
-      :column="3"
-      border
-      size="small"
-    >
-      <el-descriptions-item label="源文件" :span="2">
-        {{ uploadedFileName }}
-      </el-descriptions-item>
-      <el-descriptions-item label="表格">
-        共 {{ tableConfigs.length }} 个（{{
-          tableConfigs.map(t => t.tableIndex + 1).join("、")
-        }}）
-      </el-descriptions-item>
-      <el-descriptions-item label="目标客户">
-        {{ customers.find(c => c.id === selectedCustomerId)?.name }}
-      </el-descriptions-item>
-      <el-descriptions-item label="目标制程">
-        {{ processes.find(p => p.id === selectedProcessId)?.name || "-" }}
-      </el-descriptions-item>
-      <el-descriptions-item label="目标机型">
-        {{ selectedMachineModelName }}
-      </el-descriptions-item>
-      <el-descriptions-item label="预计导入">
-        {{ previewDataCount }} 条数据
-      </el-descriptions-item>
-    </el-descriptions>
-
-    <div class="duplicate-ai-panel">
-      <div class="duplicate-ai-panel__header">
-        <div>
-          <div class="duplicate-ai-panel__title">AI 疑似重复识别</div>
-          <div class="duplicate-ai-panel__desc">
-            规则命中优先；未命中时再用 Embedding 召回候选，并可选用 LLM 复核。
-          </div>
-        </div>
-        <el-switch
-          v-model="duplicateAiConfig.enableSemanticDuplicateCheck"
-          active-text="开启"
-          inactive-text="关闭"
-        />
+    <div class="import-confirm-overview">
+      <div class="overview-item overview-item--wide">
+        <span class="overview-label">源文件</span>
+        <span class="overview-value" :title="uploadedFileName">
+          {{ uploadedFileName || "-" }}
+        </span>
       </div>
-      <el-form label-width="132px" class="duplicate-ai-form">
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="Embedding 服务">
-              <el-select
-                v-model="duplicateAiConfig.embeddingServiceId"
-                placeholder="请选择 Embedding 服务"
-                :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
-                :loading="loadingAiServices"
-                style="width: 100%"
-                filterable
-                clearable
-                :teleported="true"
-                popper-class="app-select-popper"
-              >
-                <el-option
-                  v-for="service in embeddingServices"
-                  :key="service.id"
-                  :label="`${service.name}（${service.embeddingModel || '-'}）`"
-                  :value="service.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="候选数量 TopK">
-              <el-input-number
-                v-model="duplicateAiConfig.semanticTopK"
-                :min="1"
-                :max="10"
-                :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="召回阈值">
-              <el-slider
-                v-model="duplicateAiConfig.semanticMinScore"
-                :min="0"
-                :max="1"
-                :step="0.01"
-                :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
-                :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
-                show-input
-                :show-input-controls="false"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="高置信阈值">
-              <el-slider
-                v-model="duplicateAiConfig.highConfidenceThreshold"
-                :min="0.5"
-                :max="1"
-                :step="0.01"
-                :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
-                :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
-                show-input
-                :show-input-controls="false"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <div class="duplicate-ai-panel__llm">
-          <div class="llm-toggle">
-            <span>启用 LLM 复核</span>
+      <div class="overview-item">
+        <span class="overview-label">目标客户</span>
+        <span class="overview-value">
+          {{ customers.find(c => c.id === selectedCustomerId)?.name || "-" }}
+        </span>
+      </div>
+      <div class="overview-item">
+        <span class="overview-label">目标制程</span>
+        <span class="overview-value">
+          {{ processes.find(p => p.id === selectedProcessId)?.name || "-" }}
+        </span>
+      </div>
+      <div class="overview-item">
+        <span class="overview-label">目标机型</span>
+        <span class="overview-value">{{
+          selectedMachineModelName || "-"
+        }}</span>
+      </div>
+      <div class="overview-item">
+        <span class="overview-label">表格</span>
+        <span class="overview-value">{{ tableConfigs.length }} 个</span>
+      </div>
+      <div class="overview-item">
+        <span class="overview-label">预计导入</span>
+        <span class="overview-value strong">{{ previewDataCount }} 条</span>
+      </div>
+    </div>
+
+    <el-collapse v-model="activeCollapseNames" class="confirm-panel-collapse">
+      <el-collapse-item name="duplicate-ai">
+        <template #title>
+          <div class="collapse-title">
+            <span>导入设置</span>
+            <span class="collapse-subtitle">
+              AI 疑似重复识别：{{
+                duplicateAiConfig.enableSemanticDuplicateCheck ? "开启" : "关闭"
+              }}
+            </span>
+          </div>
+        </template>
+        <div class="duplicate-ai-panel">
+          <div class="duplicate-ai-panel__header">
+            <div>
+              <div class="duplicate-ai-panel__title">AI 疑似重复识别</div>
+              <div class="duplicate-ai-panel__desc">
+                规则命中优先；未命中时再用 Embedding 召回候选，并可选用 LLM
+                复核。
+              </div>
+            </div>
             <el-switch
-              v-model="duplicateAiConfig.enableLlmDuplicateReview"
-              :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
+              v-model="duplicateAiConfig.enableSemanticDuplicateCheck"
+              active-text="开启"
+              inactive-text="关闭"
             />
           </div>
-          <el-row :gutter="16">
-            <el-col :span="12">
-              <el-form-item label="LLM 服务">
-                <el-select
-                  v-model="duplicateAiConfig.llmServiceId"
-                  placeholder="请选择 LLM 服务"
-                  :disabled="
-                    !duplicateAiConfig.enableSemanticDuplicateCheck ||
-                    !duplicateAiConfig.enableLlmDuplicateReview
-                  "
-                  :loading="loadingAiServices"
-                  style="width: 100%"
-                  filterable
-                  clearable
-                  :teleported="true"
-                  popper-class="app-select-popper"
-                >
-                  <el-option
-                    v-for="service in llmServices"
-                    :key="service.id"
-                    :label="`${service.name}（${service.llmModel || '-'}）`"
-                    :value="service.id"
+          <el-form label-width="132px" class="duplicate-ai-form">
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-form-item label="Embedding 服务">
+                  <el-select
+                    v-model="duplicateAiConfig.embeddingServiceId"
+                    placeholder="请选择 Embedding 服务"
+                    :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
+                    :loading="loadingAiServices"
+                    style="width: 100%"
+                    filterable
+                    clearable
+                    :teleported="true"
+                    popper-class="app-select-popper"
+                  >
+                    <el-option
+                      v-for="service in embeddingServices"
+                      :key="service.id"
+                      :label="`${service.name}（${service.embeddingModel || '-'}）`"
+                      :value="service.id"
+                    />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="候选数量 TopK">
+                  <el-input-number
+                    v-model="duplicateAiConfig.semanticTopK"
+                    :min="1"
+                    :max="10"
+                    :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
                   />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="LLM 通过阈值">
-                <el-slider
-                  v-model="duplicateAiConfig.llmPassScore"
-                  :min="0"
-                  :max="1"
-                  :step="0.01"
-                  :disabled="
-                    !duplicateAiConfig.enableSemanticDuplicateCheck ||
-                    !duplicateAiConfig.enableLlmDuplicateReview
-                  "
-                  :format-tooltip="
-                    (val: number) => `${(val * 100).toFixed(0)}%`
-                  "
-                  show-input
-                  :show-input-controls="false"
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="召回阈值">
+                  <el-slider
+                    v-model="duplicateAiConfig.semanticMinScore"
+                    :min="0"
+                    :max="1"
+                    :step="0.01"
+                    :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
+                    :format-tooltip="
+                      (val: number) => `${(val * 100).toFixed(0)}%`
+                    "
+                    show-input
+                    :show-input-controls="false"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="高置信阈值">
+                  <el-slider
+                    v-model="duplicateAiConfig.highConfidenceThreshold"
+                    :min="0.5"
+                    :max="1"
+                    :step="0.01"
+                    :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
+                    :format-tooltip="
+                      (val: number) => `${(val * 100).toFixed(0)}%`
+                    "
+                    show-input
+                    :show-input-controls="false"
+                  />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <div class="duplicate-ai-panel__llm">
+              <div class="llm-toggle">
+                <span>启用 LLM 复核</span>
+                <el-switch
+                  v-model="duplicateAiConfig.enableLlmDuplicateReview"
+                  :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
                 />
-              </el-form-item>
-            </el-col>
-          </el-row>
+              </div>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="LLM 服务">
+                    <el-select
+                      v-model="duplicateAiConfig.llmServiceId"
+                      placeholder="请选择 LLM 服务"
+                      :disabled="
+                        !duplicateAiConfig.enableSemanticDuplicateCheck ||
+                        !duplicateAiConfig.enableLlmDuplicateReview
+                      "
+                      :loading="loadingAiServices"
+                      style="width: 100%"
+                      filterable
+                      clearable
+                      :teleported="true"
+                      popper-class="app-select-popper"
+                    >
+                      <el-option
+                        v-for="service in llmServices"
+                        :key="service.id"
+                        :label="`${service.name}（${service.llmModel || '-'}）`"
+                        :value="service.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="LLM 通过阈值">
+                    <el-slider
+                      v-model="duplicateAiConfig.llmPassScore"
+                      :min="0"
+                      :max="1"
+                      :step="0.01"
+                      :disabled="
+                        !duplicateAiConfig.enableSemanticDuplicateCheck ||
+                        !duplicateAiConfig.enableLlmDuplicateReview
+                      "
+                      :format-tooltip="
+                        (val: number) => `${(val * 100).toFixed(0)}%`
+                      "
+                      show-input
+                      :show-input-controls="false"
+                    />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </div>
+          </el-form>
         </div>
-      </el-form>
-    </div>
+      </el-collapse-item>
 
-    <div class="import-preview-panel">
-      <div class="import-preview-toolbar">
-        <div class="import-preview-summary">
-          <span class="summary-title">待导入数据清单</span>
-          <span class="summary-meta">当前保留 {{ previewDataCount }} 条</span>
-          <span v-if="removedPreviewRowCount > 0" class="summary-meta warning">
-            已剔除 {{ removedPreviewRowCount }} 条
-          </span>
-        </div>
-        <div class="import-preview-actions">
-          <el-button
-            size="small"
-            type="danger"
-            plain
-            :disabled="
-              hasPendingDifferenceConfirmation ||
-              selectedImportPreviewRowsCount === 0
-            "
-            @click="emit('removeSelectedPreviewRows')"
-          >
-            批量删除（{{ selectedImportPreviewRowsCount }}）
-          </el-button>
-          <el-button
-            size="small"
-            :disabled="
-              hasPendingDifferenceConfirmation || removedPreviewRowCount === 0
-            "
-            @click="emit('restoreRemovedPreviewRows')"
-          >
-            恢复已删除
-          </el-button>
-        </div>
-      </div>
-
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        title="这里删除的是本次待导入清单，删除后只是不参与本次导入，不会修改原文件。"
-      />
-
-      <div v-if="previewDataCount > 0" class="import-preview-groups">
-        <div
-          v-for="group in importPreviewGroups"
-          :key="`import-preview-${group.tableIndex}`"
-          class="import-preview-group"
-        >
-          <div class="import-preview-group__header">
-            <span>{{ group.label }}</span>
-            <span class="group-count">保留 {{ group.rows.length }} 条</span>
+      <el-collapse-item name="preview-list">
+        <template #title>
+          <div class="collapse-title">
+            <span>待导入清单</span>
+            <span class="collapse-subtitle">
+              当前保留 {{ previewDataCount }} 条
+              <template v-if="removedPreviewRowCount > 0">
+                ，已剔除 {{ removedPreviewRowCount }} 条
+              </template>
+            </span>
           </div>
-          <el-table
-            :data="group.rows"
-            border
-            size="small"
-            max-height="280"
-            row-key="key"
-            reserve-selection
-            @selection-change="
-              rows =>
-                emit('importPreviewSelectionChange', group.tableIndex, rows)
-            "
-          >
-            <el-table-column type="selection" width="48" />
-            <el-table-column prop="displayRowNumber" label="行号" width="80" />
-            <el-table-column
-              prop="project"
-              label="项目"
-              min-width="140"
-              show-overflow-tooltip
+        </template>
+        <div class="import-preview-panel">
+          <div class="import-preview-toolbar">
+            <div class="import-preview-summary">
+              <span class="summary-title">待导入数据清单</span>
+              <span class="summary-meta"
+                >当前保留 {{ previewDataCount }} 条</span
+              >
+              <span
+                v-if="removedPreviewRowCount > 0"
+                class="summary-meta warning"
+              >
+                已剔除 {{ removedPreviewRowCount }} 条
+              </span>
+              <span
+                v-if="previewLoadState.hasPartialPreview"
+                class="summary-meta"
+              >
+                当前先显示前 {{ previewLoadState.loadedRows }} 条，导入前会自动补齐完整数据
+              </span>
+            </div>
+            <div class="import-preview-actions">
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                :disabled="
+                  hasPendingDifferenceConfirmation ||
+                  selectedImportPreviewRowsCount === 0
+                "
+                @click="emit('removeSelectedPreviewRows')"
+              >
+                批量删除（{{ selectedImportPreviewRowsCount }}）
+              </el-button>
+              <el-button
+                size="small"
+                :disabled="
+                  hasPendingDifferenceConfirmation ||
+                  removedPreviewRowCount === 0
+                "
+                @click="emit('restoreRemovedPreviewRows')"
+              >
+                恢复已删除
+              </el-button>
+            </div>
+          </div>
+
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="这里删除的是本次待导入清单，删除后只是不参与本次导入，不会修改原文件。"
+          />
+
+          <div v-if="previewDataCount > 0" class="import-preview-groups">
+            <div
+              v-for="group in importPreviewGroups"
+              :key="`import-preview-${group.tableIndex}`"
+              class="import-preview-group"
             >
-              <template #default="{ row }">
-                {{ row.project || "-" }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              prop="specification"
-              label="规格"
-              min-width="260"
-              show-overflow-tooltip
-            >
-              <template #default="{ row }">
-                {{ row.specification || "-" }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              prop="acceptance"
-              label="验收"
-              min-width="160"
-              show-overflow-tooltip
-            >
-              <template #default="{ row }">
-                {{ row.acceptance || "-" }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              prop="remark"
-              label="备注"
-              min-width="160"
-              show-overflow-tooltip
-            >
-              <template #default="{ row }">
-                {{ row.remark || "-" }}
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="100" fixed="right">
-              <template #default="{ row }">
-                <el-button
-                  type="danger"
-                  link
-                  :disabled="hasPendingDifferenceConfirmation"
-                  @click="emit('removeSinglePreviewRow', row)"
+              <div class="import-preview-group__header">
+                <span>{{ group.label }}</span>
+                <span class="group-count">保留 {{ group.rows.length }} 条</span>
+              </div>
+              <el-table
+                :data="group.rows"
+                border
+                size="small"
+                row-key="key"
+                reserve-selection
+                @selection-change="
+                  rows =>
+                    emit('importPreviewSelectionChange', group.tableIndex, rows)
+                "
+              >
+                <el-table-column type="selection" width="48" />
+                <el-table-column
+                  prop="displayRowNumber"
+                  label="行号"
+                  width="80"
+                />
+                <el-table-column
+                  prop="project"
+                  label="项目"
+                  min-width="140"
+                  show-overflow-tooltip
                 >
-                  删除
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+                  <template #default="{ row }">
+                    {{ row.project || "-" }}
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  prop="specification"
+                  label="规格"
+                  min-width="260"
+                  show-overflow-tooltip
+                >
+                  <template #default="{ row }">
+                    {{ row.specification || "-" }}
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  prop="acceptance"
+                  label="验收"
+                  min-width="160"
+                  show-overflow-tooltip
+                >
+                  <template #default="{ row }">
+                    {{ row.acceptance || "-" }}
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  prop="remark"
+                  label="备注"
+                  min-width="160"
+                  show-overflow-tooltip
+                >
+                  <template #default="{ row }">
+                    {{ row.remark || "-" }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="100" fixed="right">
+                  <template #default="{ row }">
+                    <el-button
+                      type="danger"
+                      link
+                      :disabled="hasPendingDifferenceConfirmation"
+                      @click="emit('removeSinglePreviewRow', row)"
+                    >
+                      删除
+                    </el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </div>
+          <el-empty
+            v-else
+            description="当前没有待导入数据，可恢复已删除数据或返回上一步调整配置。"
+          />
         </div>
-      </div>
-      <el-empty
-        v-else
-        description="当前没有待导入数据，可恢复已删除数据或返回上一步调整配置。"
-      />
-    </div>
+      </el-collapse-item>
+    </el-collapse>
 
     <div class="import-actions">
       <div class="skip-preview-switch">

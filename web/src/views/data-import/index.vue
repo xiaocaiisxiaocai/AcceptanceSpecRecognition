@@ -36,6 +36,8 @@ const {
   importDuplicateAiConfig,
   steps,
   smartRecognizing,
+  smartStageText,
+  selectedSmartTableIndexes,
   smartConfirmingTableIndex,
   recognizedTables,
   canUploadSourceFile,
@@ -80,6 +82,7 @@ const {
   handleFileUploaded,
   runSmartStructureRecognition,
   handleSmartStructureConfirm,
+  handleSmartTableImportSelectionChange,
   enterAdvancedMode,
   exitAdvancedMode,
   applyRulesToAll,
@@ -95,6 +98,7 @@ const {
   goPrev,
   handleRestart,
   previewDataCount,
+  previewLoadState,
   pendingDifferences,
   pagedPendingDifferences,
   pendingUndecidedCount,
@@ -124,6 +128,12 @@ const activeTableTabModel = computed({
     activeTableIndex.value = typeof value === "number" ? value : Number(value);
   }
 });
+
+const firstNeedConfirmTableIndex = computed(
+  () =>
+    recognizedTables.value.find(table => table.decision !== "AutoApply")
+      ?.tableIndex
+);
 </script>
 
 <template>
@@ -205,7 +215,7 @@ const activeTableTabModel = computed({
                   :loading="smartRecognizing"
                   @click="runSmartStructureRecognition"
                 >
-                  智能识别结构
+                  {{ smartStageText || "智能识别结构" }}
                 </el-button>
                 <el-button @click="enterAdvancedMode('tableSelect')">
                   高级手动配置
@@ -348,7 +358,7 @@ const activeTableTabModel = computed({
         >
           <h3 class="step-title">确认结构与导入预览</h3>
           <p class="step-desc">
-            高置信表格已组装为导入预览；待确认表格可修正字段后保存为客户模板。
+            勾选需要导入的 Sheet；未勾选的 Sheet 不会生成预览，也不会参与导入。
           </p>
           <SmartStructureSummaryBanner
             :tables="recognizedTables"
@@ -362,10 +372,24 @@ const activeTableTabModel = computed({
               :table="table"
               :customer-id="selectedCustomerId"
               :confirming="smartConfirmingTableIndex === table.tableIndex"
-              @confirm="
-                request => handleSmartStructureConfirm(table, request)
+              :import-selected="
+                selectedSmartTableIndexes.includes(table.tableIndex)
               "
+              :import-selectable="
+                table.decision !== 'Reject' &&
+                table.projectColumnIndex !== undefined &&
+                table.specificationColumnIndex !== undefined &&
+                table.acceptanceColumnIndex !== undefined &&
+                table.remarkColumnIndex !== undefined
+              "
+              :default-expanded="
+                table.tableIndex === firstNeedConfirmTableIndex
+              "
+              @confirm="request => handleSmartStructureConfirm(table, request)"
               @advanced="() => enterAdvancedMode('mapping')"
+              @update:import-selected="
+                value => handleSmartTableImportSelectionChange(table, value)
+              "
             />
           </div>
           <DataImportConfirmPanel
@@ -395,6 +419,7 @@ const activeTableTabModel = computed({
             :selected-process-id="selectedProcessId"
             :selected-machine-model-name="selectedMachineModelName"
             :preview-data-count="previewDataCount"
+            :preview-load-state="previewLoadState"
             :import-duplicate-ai-config="importDuplicateAiConfig"
             :loading-ai-services="loadingAiServices"
             :embedding-services="embeddingServices"
@@ -454,6 +479,7 @@ const activeTableTabModel = computed({
             :selected-process-id="selectedProcessId"
             :selected-machine-model-name="selectedMachineModelName"
             :preview-data-count="previewDataCount"
+            :preview-load-state="previewLoadState"
             :import-duplicate-ai-config="importDuplicateAiConfig"
             :loading-ai-services="loadingAiServices"
             :embedding-services="embeddingServices"
@@ -497,7 +523,7 @@ const activeTableTabModel = computed({
             :loading="smartRecognizing"
             @click="goNext"
           >
-            识别并进入确认
+            {{ smartStageText || "识别并进入确认" }}
           </el-button>
           <el-button
             v-else-if="advancedMode && currentStep < steps.length - 1"

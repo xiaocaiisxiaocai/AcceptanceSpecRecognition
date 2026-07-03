@@ -7,6 +7,13 @@ const dataImportSource = readFileSync(
   resolve(process.cwd(), "web/src/views/data-import/index.vue"),
   "utf8"
 );
+const dataImportPageSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/data-import/composables/useDataImportPage.ts"
+  ),
+  "utf8"
+);
 
 test("导入映射步骤的工作表页签应启用懒渲染，避免一次性挂载所有重组件", () => {
   assert.match(
@@ -21,7 +28,7 @@ test("导入映射步骤的工作表页签应显示 Sheet 名，降低多 Sheet 
     /getTableConfigTabLabel\(cfg\)/
   );
   assert.match(
-    dataImportSource,
+    `${dataImportSource}\n${dataImportPageSource}`,
     /cfg\.tableInfo\?\.name\?\.trim\(\)/
   );
 });

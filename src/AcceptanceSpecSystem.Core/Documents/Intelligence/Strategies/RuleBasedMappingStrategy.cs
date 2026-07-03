@@ -1,4 +1,5 @@
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Scoring;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -98,9 +99,18 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         // 尝试匹配每种列类型
         var candidates = new List<(ColumnType type, double confidence, string reason)>();
 
+        if (LooksLikeAcceptanceStandardColumn(normalizedHeader))
+        {
+            candidates.Add((ColumnType.Acceptance, 0.98, "表头表示验收标准"));
+        }
+
         foreach (var (type, keywords) in DefaultSynonyms)
         {
             if (type == ColumnType.Acceptance && LooksLikeAcceptanceMethodColumn(normalizedHeader))
+            {
+                continue;
+            }
+            if (type == ColumnType.Specification && LooksLikeAcceptanceStandardColumn(normalizedHeader))
             {
                 continue;
             }
@@ -155,6 +165,13 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
                !normalizedHeader.Contains("结果") &&
                !normalizedHeader.Contains("結果") &&
                !normalizedHeader.Contains("判定");
+    }
+
+    private static bool LooksLikeAcceptanceStandardColumn(string normalizedHeader)
+    {
+        return (normalizedHeader.Contains("验收") || normalizedHeader.Contains("驗收")) &&
+               (normalizedHeader.Contains("标准") || normalizedHeader.Contains("標準")) &&
+               !LooksLikeAcceptanceMethodColumn(normalizedHeader);
     }
 
     private (bool matched, double confidence, string matchedKeyword) MatchKeywords(
@@ -214,10 +231,7 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         }
 
         // 检查是否为规格列（包含技术参数格式）
-        var specPatternCount = samples.Count(s =>
-            s.Contains("±") || s.Contains("≥") || s.Contains("≤") ||
-            s.Contains("mm") || s.Contains("kg") || s.Contains("%") ||
-            System.Text.RegularExpressions.Regex.IsMatch(s, @"\d+[~\-]\d+"));
+        var specPatternCount = SpecificationLikelihoodScorer.CountTechnicalPatternValues(samples);
 
         if (specPatternCount >= samples.Count * 0.5)
         {

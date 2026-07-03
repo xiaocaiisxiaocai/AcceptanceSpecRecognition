@@ -41,7 +41,7 @@ test("列映射规则页应为每个 Tab 保留独立搜索词且不再使用固
   assert.match(source, /v-model="tabKeywords\[target\.value\]"/);
   assert.match(source, /rule\.pattern\.toLowerCase\(\)\.includes\(keyword\)/);
   assert.match(source, /matchModeLabel\.includes\(keyword\)/);
-  assert.match(source, /placeholder="搜索当前字段的匹配词 \/ 匹配模式"/);
+  assert.match(source, /placeholder="搜索当前字段的匹配词 \/ 匹配模式 \/ 来源 \/ 客户"/);
   assert.match(source, /class="table-select"/);
 });
 

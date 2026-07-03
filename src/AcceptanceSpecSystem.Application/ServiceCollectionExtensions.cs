@@ -10,6 +10,7 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddAcceptanceApplicationLayer(this IServiceCollection services)
     {
+        services.AddOptions<SmartConfigurationOptions>();
         services.AddScoped<IAiServiceConfigProvider, AiServiceConfigProvider>();
         services.AddScoped<IPromptTemplateProvider, PromptTemplateProvider>();
         services.AddScoped<AcceptanceSpecQueryService>();
@@ -18,7 +19,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MachineModelAppService>();
         services.AddScoped<AcceptanceSpecAppService>();
         services.AddScoped<DocumentTemplateAppService>();
-        services.AddScoped<SmartConfigurationAppService>();
+        services.AddScoped<SmartConfigurationLearningService>();
+        services.AddScoped<ISmartConfigurationAppService, SmartConfigurationAppService>();
         return services;
     }
 }

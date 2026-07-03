@@ -1,10 +1,23 @@
 import type { TableInfo } from "@/api/document";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
 import type { BatchTableConfigItem } from "./components/batchTableConfig.types";
+import {
+  getRecognizedTableInfo,
+  toActualColumnNumber,
+  toActualRowNumber
+} from "@/views/shared/smart-structure-recognition";
 
 export type SmartFillSmartStep = {
   title: string;
   description: string;
+};
+
+export const SMART_FILL_STEP_UPLOAD_SCOPE = 0;
+export const SMART_FILL_ADVANCED_STEP_TABLE_CONFIG = 1;
+
+export type SmartFillStepState = {
+  advancedMode: boolean;
+  currentStep: number;
 };
 
 export const createSmartFillSmartSteps = (): SmartFillSmartStep[] => [
@@ -13,21 +26,29 @@ export const createSmartFillSmartSteps = (): SmartFillSmartStep[] => [
   { title: "预览确认", description: "确认匹配结果" }
 ];
 
-const getTableInfo = (
-  tableInfos: TableInfo[],
-  table: SmartConfigRecognizedTable
-) => tableInfos.find(item => item.index === table.tableIndex);
+export const getSmartFillPrevStepState = ({
+  advancedMode,
+  currentStep
+}: SmartFillStepState): SmartFillStepState => {
+  if (!advancedMode) {
+    return {
+      advancedMode,
+      currentStep:
+        currentStep > SMART_FILL_STEP_UPLOAD_SCOPE
+          ? currentStep - 1
+          : currentStep
+    };
+  }
 
-const toActualRowNumber = (tableInfo: TableInfo | undefined, rowIndex: number) =>
-  Math.max(1, (tableInfo?.usedRangeStartRow ?? 1) + rowIndex);
-
-const toActualColumnNumber = (
-  tableInfo: TableInfo | undefined,
-  columnIndex?: number
-) =>
-  columnIndex === undefined
-    ? undefined
-    : Math.max(1, (tableInfo?.usedRangeStartColumn ?? 1) + columnIndex);
+  return {
+    // 高级模式没有上传步骤；从高级第一步返回时切回智能上传流程。
+    advancedMode: currentStep > SMART_FILL_ADVANCED_STEP_TABLE_CONFIG,
+    currentStep:
+      currentStep > SMART_FILL_ADVANCED_STEP_TABLE_CONFIG
+        ? currentStep - 1
+        : SMART_FILL_STEP_UPLOAD_SCOPE
+  };
+};
 
 const getFallbackProjectColumn = (table: SmartConfigRecognizedTable) =>
   table.projectColumnIndex ?? 0;
@@ -49,7 +70,7 @@ export const buildSmartFillConfigsFromRecognizedTables = ({
     )
     .sort((a, b) => a.tableIndex - b.tableIndex)
     .map(table => {
-      const tableInfo = getTableInfo(tableInfos, table);
+      const tableInfo = getRecognizedTableInfo(tableInfos, table);
       const projectColumnIndex = isExcelFile
         ? (toActualColumnNumber(tableInfo, table.projectColumnIndex) ??
           Math.max(1, tableInfo?.usedRangeStartColumn ?? 1))

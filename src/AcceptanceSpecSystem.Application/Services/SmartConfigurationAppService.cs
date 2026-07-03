@@ -7,21 +7,38 @@ using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
 /// <summary>
 /// 智能结构配置应用服务。
 /// </summary>
-public sealed class SmartConfigurationAppService
+public interface ISmartConfigurationAppService
+{
+    Task<SmartConfigurationRecognizeResult> RecognizeAsync(
+        SmartConfigurationRecognizeCommand command,
+        CancellationToken cancellationToken = default);
+
+    Task<SmartConfigurationConfirmResult> ConfirmAsync(
+        SmartConfigurationConfirmCommand command,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// 智能结构配置应用服务。
+/// </summary>
+public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IDocumentIntelligenceService _intelligenceService;
     private readonly ILlmDocumentStructureAdjudicationService _structureAdjudicationService;
     private readonly DocumentTemplateAppService _templateService;
+    private readonly SmartConfigurationLearningService _learningService;
     private readonly IUploadedDocumentPathResolver _documentPathResolver;
     private readonly ILogger<SmartConfigurationAppService> _logger;
+    private readonly SmartConfigurationOptions _options;
 
     public SmartConfigurationAppService(
         IUnitOfWork unitOfWork,
@@ -29,94 +46,20 @@ public sealed class SmartConfigurationAppService
         IDocumentIntelligenceService intelligenceService,
         ILlmDocumentStructureAdjudicationService structureAdjudicationService,
         DocumentTemplateAppService templateService,
+        SmartConfigurationLearningService learningService,
         IUploadedDocumentPathResolver documentPathResolver,
-        ILogger<SmartConfigurationAppService> logger)
+        ILogger<SmartConfigurationAppService> logger,
+        IOptions<SmartConfigurationOptions> options)
     {
         _unitOfWork = unitOfWork;
         _documentServiceFactory = documentServiceFactory;
         _intelligenceService = intelligenceService;
         _structureAdjudicationService = structureAdjudicationService;
         _templateService = templateService;
+        _learningService = learningService;
         _documentPathResolver = documentPathResolver;
         _logger = logger;
-    }
-
-    /// <summary>
-    /// 归档自动配置兼容入口；后续 recognize 任务会替换为全文档识别。
-    /// </summary>
-    public async Task<AutoConfigResult> AutoConfigureAsync(
-        int fileId,
-        int? customerId,
-        CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation(
-            "开始自动识别配置：FileId={FileId}, CustomerId={CustomerId}",
-            fileId,
-            customerId);
-
-        var file = await _unitOfWork.WordFiles.GetByIdAsync(fileId);
-        if (file == null)
-        {
-            throw new ApplicationServiceException(404, $"文件不存在：{fileId}");
-        }
-
-        var documentType = file.FileType == UploadedFileType.ExcelXlsx
-            ? DocumentType.Excel
-            : DocumentType.Word;
-        var parser = _documentServiceFactory.GetParser(documentType)
-            ?? throw new ApplicationServiceException(400, "文档解析器不可用");
-
-        if (string.IsNullOrWhiteSpace(file.FilePath))
-        {
-            throw new ApplicationServiceException(400, "文件路径为空");
-        }
-
-        var absolutePath = _documentPathResolver.ResolveAbsolutePath(file.FilePath);
-        var tablesInfo = await parser.GetTablesAsync(absolutePath);
-        if (tablesInfo.Count == 0)
-        {
-            throw new ApplicationServiceException(400, "文档中没有找到表格");
-        }
-
-        await using var stream = File.OpenRead(absolutePath);
-        var tablesData = await parser.ExtractAllTablesDataAsync(stream);
-
-        if (customerId.HasValue && tablesData.Count > 0)
-        {
-            var firstTable = tablesData[0];
-            var template = await _templateService.FindMatchingTemplateAsync(
-                customerId.Value,
-                firstTable.Headers.ToList(),
-                cancellationToken);
-
-            if (template != null)
-            {
-                await _templateService.IncrementUsageAsync(template.Id, cancellationToken);
-                return new AutoConfigResult
-                {
-                    TableIndex = 0,
-                    ColumnMapping = new ColumnMapping
-                    {
-                        ProjectColumn = template.ProjectColumnIndex,
-                        SpecificationColumn = template.SpecificationColumnIndex,
-                        AcceptanceColumn = template.AcceptanceColumnIndex,
-                        RemarkColumn = template.RemarkColumnIndex,
-                        HeaderRowIndex = template.HeaderRowIndex,
-                        HeaderRowCount = template.HeaderRowCount,
-                        DataStartRowIndex = template.DataStartRowIndex
-                    },
-                    Confidence = 1.0,
-                    Source = IdentificationSource.SavedTemplate,
-                    NeedsManualReview = false,
-                    Reasoning = $"套用历史模板：{template.TemplateName}（已使用 {template.UsageCount} 次）"
-                };
-            }
-        }
-
-        return await _intelligenceService.AutoConfigureAsync(
-            tablesInfo,
-            tablesData,
-            cancellationToken);
+        _options = options.Value;
     }
 
     /// <summary>
@@ -274,82 +217,19 @@ public sealed class SmartConfigurationAppService
             command.IsSpecificationOnly,
             cancellationToken);
 
-        var learnedRuleCount = 0;
-        var promotedGlobalRuleCount = 0;
-        foreach (var learnedColumn in command.LearnedColumns)
-        {
-            var pattern = learnedColumn.Header.Trim();
-            if (string.IsNullOrWhiteSpace(pattern))
-            {
-                continue;
-            }
-
-            var added = await UpsertCustomerLearnedRuleAsync(
-                command.CustomerId,
-                pattern,
-                learnedColumn.TargetField,
-                cancellationToken);
-            if (added)
-            {
-                learnedRuleCount++;
-            }
-
-            if (await PromoteGlobalRuleIfReadyAsync(
-                pattern,
-                learnedColumn.TargetField,
-                cancellationToken))
-            {
-                promotedGlobalRuleCount++;
-            }
-        }
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        var learningResult = await _learningService.ApplyLearningAsync(
+            command.CustomerId,
+            command.LearnedColumns,
+            cancellationToken);
 
         return new SmartConfigurationConfirmResult
         {
             TemplateSaved = true,
             TemplateId = template.Id,
-            LearnedRuleCount = learnedRuleCount,
-            PromotedGlobalRuleCount = promotedGlobalRuleCount,
+            LearnedRuleCount = learningResult.LearnedRuleCount,
+            PromotedGlobalRuleCount = learningResult.PromotedGlobalRuleCount,
             LearningSucceeded = true
         };
-    }
-
-    private async Task<bool> UpsertCustomerLearnedRuleAsync(
-        int customerId,
-        string pattern,
-        ColumnMappingTargetField targetField,
-        CancellationToken cancellationToken)
-    {
-        var existing = await _unitOfWork.ColumnMappingRules.Query(asNoTracking: false)
-            .FirstOrDefaultAsync(rule =>
-                rule.CustomerId == customerId &&
-                rule.TargetField == targetField &&
-                rule.Pattern == pattern,
-                cancellationToken);
-
-        if (existing != null)
-        {
-            existing.Source = ColumnMappingRuleSource.Learned;
-            existing.MatchMode = ColumnMappingMatchMode.Equals;
-            existing.Enabled = true;
-            existing.Priority = Math.Max(existing.Priority, 100);
-            existing.UpdatedAt = DateTime.UtcNow;
-            return false;
-        }
-
-        await _unitOfWork.ColumnMappingRules.AddAsync(new ColumnMappingRule
-        {
-            CustomerId = customerId,
-            TargetField = targetField,
-            MatchMode = ColumnMappingMatchMode.Equals,
-            Pattern = pattern,
-            Priority = 100,
-            Enabled = true,
-            Source = ColumnMappingRuleSource.Learned,
-            CreatedAt = DateTime.UtcNow
-        }, cancellationToken);
-        return true;
     }
 
     private async Task<SmartConfigurationRecognizedTable> RecognizeTableAsync(
@@ -369,7 +249,7 @@ public sealed class SmartConfigurationAppService
             if (template != null)
             {
                 await _templateService.IncrementUsageAsync(template.Id, cancellationToken);
-                return BuildRecognizedTableFromTemplate(tableInfo, tableData, template, headers);
+                return SmartConfigurationRecognizedTableFactory.FromTemplate(tableInfo, tableData, template, headers);
             }
         }
 
@@ -412,57 +292,28 @@ public sealed class SmartConfigurationAppService
         }
     }
 
-    private static SmartConfigurationRecognizedTable BuildRecognizedTableFromTemplate(
-        TableInfo? tableInfo,
-        TableData tableData,
-        DocumentTemplate template,
-        List<string> headers)
-    {
-        return new SmartConfigurationRecognizedTable
-        {
-            TableIndex = tableData.TableIndex,
-            TableName = tableInfo?.Name,
-            Headers = headers,
-            HeaderRowIndex = template.HeaderRowIndex,
-            HeaderRowCount = template.HeaderRowCount,
-            DataStartRowIndex = template.DataStartRowIndex,
-            DataEndRowIndex = template.DataEndRowIndex,
-            ProjectColumnIndex = template.ProjectColumnIndex,
-            SpecificationColumnIndex = template.SpecificationColumnIndex,
-            AcceptanceColumnIndex = template.AcceptanceColumnIndex,
-            RemarkColumnIndex = template.RemarkColumnIndex,
-            IsSpecificationOnly = template.IsSpecificationOnly,
-            Confidence = 1.0,
-            Source = "Template",
-            Decision = "AutoApply",
-            Fields = BuildFields(
-                headers,
-                template.ProjectColumnIndex,
-                template.SpecificationColumnIndex,
-                template.AcceptanceColumnIndex,
-                template.RemarkColumnIndex,
-                1.0,
-                "Template")
-        };
-    }
-
     private async Task<SmartConfigurationRecognizedTable> BuildRecognizedTableFromMappingAsync(
         TableInfo? tableInfo,
         TableData tableData,
         ColumnMappingResult mapping,
         CancellationToken cancellationToken)
     {
-        var healthCheck = DocumentStructureHealthCheck.Evaluate(tableData, mapping);
+        var healthCheck = DocumentStructureHealthCheck.Evaluate(
+            tableData,
+            mapping,
+            allowMissingProjectColumn: !mapping.Mapping.ProjectColumn.HasValue,
+            autoApplyConfidenceThreshold: GetAutoApplyConfidenceThreshold(),
+            minimumSpecificationNonEmptyRate: GetMinimumSpecificationNonEmptyRate());
         if (!healthCheck.CanAutoApply)
         {
             var fused = await TryFuseWithLlmStructureAsync(tableInfo, tableData, mapping, cancellationToken);
             if (fused != null)
             {
-                return BuildRecognizedTableFromCandidate(tableInfo, tableData, fused);
+                return BuildFusedRecognizedTable(tableInfo, tableData, fused);
             }
         }
 
-        return BuildRecognizedTableFromMapping(tableInfo, tableData, mapping, healthCheck);
+        return SmartConfigurationRecognizedTableFactory.FromMapping(tableInfo, tableData, mapping, healthCheck);
     }
 
     private async Task<DocumentStructureCandidate?> TryFuseWithLlmStructureAsync(
@@ -473,24 +324,26 @@ public sealed class SmartConfigurationAppService
     {
         try
         {
-            var ruleCandidate = ToStructureCandidate(tableInfo, tableData, mapping);
+            var ruleCandidate = SmartConfigurationRecognizedTableFactory.ToStructureCandidate(
+                tableInfo,
+                tableData,
+                mapping);
+            using var timeoutCts = CreateStructureAdjudicationTimeout(cancellationToken);
             var adjudication = await _structureAdjudicationService.AdjudicateAsync(
                 new LlmDocumentStructureAdjudicationRequest
                 {
                     RuleCandidates = [ruleCandidate],
                     DocumentTablesJson = SerializeTableForStructureAdjudication(tableInfo, tableData)
                 },
-                cancellationToken);
+                timeoutCts.Token);
             var llmCandidate = adjudication?.Tables.FirstOrDefault(table => table.TableIndex == tableData.TableIndex);
-            var fused = DocumentStructureFusion.Merge(ruleCandidate, llmCandidate);
+            var fused = DocumentStructureFusion.Merge(ruleCandidate, llmCandidate, allowLlmOverride: true);
             if (fused.Source != DocumentStructureCandidateSource.Fused)
             {
                 return null;
             }
 
-            var fusedMapping = ToColumnMappingResult(fused);
-            var fusedHealthCheck = DocumentStructureHealthCheck.Evaluate(tableData, fusedMapping);
-            return fusedHealthCheck.CanAutoApply ? fused : null;
+            return fused;
         }
         catch (Exception ex)
         {
@@ -502,116 +355,40 @@ public sealed class SmartConfigurationAppService
         }
     }
 
-    private static SmartConfigurationRecognizedTable BuildRecognizedTableFromMapping(
-        TableInfo? tableInfo,
-        TableData tableData,
-        ColumnMappingResult mapping,
-        DocumentStructureHealthCheckResult healthCheck)
+    private CancellationTokenSource CreateStructureAdjudicationTimeout(CancellationToken cancellationToken)
     {
-        var headers = tableData.Headers.ToList();
-        var columnMapping = mapping.Mapping;
-        return new SmartConfigurationRecognizedTable
-        {
-            TableIndex = tableData.TableIndex,
-            TableName = tableInfo?.Name,
-            Headers = headers,
-            HeaderRowIndex = columnMapping.HeaderRowIndex,
-            HeaderRowCount = columnMapping.HeaderRowCount,
-            DataStartRowIndex = columnMapping.DataStartRowIndex,
-            DataEndRowIndex = tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null,
-            ProjectColumnIndex = columnMapping.ProjectColumn,
-            SpecificationColumnIndex = columnMapping.SpecificationColumn,
-            AcceptanceColumnIndex = columnMapping.AcceptanceColumn,
-            RemarkColumnIndex = columnMapping.RemarkColumn,
-            IsSpecificationOnly = !columnMapping.ProjectColumn.HasValue,
-            Confidence = mapping.Confidence,
-            Source = "RuleBased",
-            Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm",
-            Fields = BuildFields(
-                headers,
-                columnMapping.ProjectColumn,
-                columnMapping.SpecificationColumn,
-                columnMapping.AcceptanceColumn,
-                columnMapping.RemarkColumn,
-                mapping.Confidence,
-                "RuleBased")
-        };
+        var timeoutSeconds = Math.Clamp(_options.StructureAdjudicationTimeoutSeconds, 1, 300);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        return cts;
     }
 
-    private static SmartConfigurationRecognizedTable BuildRecognizedTableFromCandidate(
+    private double GetAutoApplyConfidenceThreshold()
+    {
+        return Math.Clamp(_options.AutoApplyConfidenceThreshold, 0, 1);
+    }
+
+    private double GetMinimumSpecificationNonEmptyRate()
+    {
+        return Math.Clamp(_options.MinimumSpecificationNonEmptyRate, 0, 1);
+    }
+
+    private SmartConfigurationRecognizedTable BuildFusedRecognizedTable(
         TableInfo? tableInfo,
         TableData tableData,
         DocumentStructureCandidate candidate)
     {
-        var headers = tableData.Headers.ToList();
-        return new SmartConfigurationRecognizedTable
-        {
-            TableIndex = tableData.TableIndex,
-            TableName = tableInfo?.Name,
-            Headers = headers,
-            HeaderRowIndex = candidate.HeaderRowIndex,
-            HeaderRowCount = candidate.HeaderRowCount,
-            DataStartRowIndex = candidate.DataStartRowIndex,
-            DataEndRowIndex = candidate.DataEndRowIndex ?? (tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null),
-            ProjectColumnIndex = candidate.ProjectColumnIndex,
-            SpecificationColumnIndex = candidate.SpecificationColumnIndex,
-            AcceptanceColumnIndex = candidate.AcceptanceColumnIndex,
-            RemarkColumnIndex = candidate.RemarkColumnIndex,
-            IsSpecificationOnly = candidate.IsSpecificationOnly,
-            Confidence = candidate.Confidence,
-            Source = "Fused",
-            Decision = "AutoApply",
-            Fields = BuildFields(
-                headers,
-                candidate.ProjectColumnIndex,
-                candidate.SpecificationColumnIndex,
-                candidate.AcceptanceColumnIndex,
-                candidate.RemarkColumnIndex,
-                candidate.Confidence,
-                "Fused")
-        };
-    }
-
-    private static DocumentStructureCandidate ToStructureCandidate(
-        TableInfo? tableInfo,
-        TableData tableData,
-        ColumnMappingResult mapping)
-    {
-        var columnMapping = mapping.Mapping;
-        return new DocumentStructureCandidate
-        {
-            TableIndex = tableData.TableIndex,
-            TableName = tableInfo?.Name,
-            HeaderRowIndex = columnMapping.HeaderRowIndex,
-            HeaderRowCount = columnMapping.HeaderRowCount,
-            DataStartRowIndex = columnMapping.DataStartRowIndex,
-            DataEndRowIndex = tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null,
-            ProjectColumnIndex = columnMapping.ProjectColumn,
-            SpecificationColumnIndex = columnMapping.SpecificationColumn,
-            AcceptanceColumnIndex = columnMapping.AcceptanceColumn,
-            RemarkColumnIndex = columnMapping.RemarkColumn,
-            IsSpecificationOnly = !columnMapping.ProjectColumn.HasValue,
-            Confidence = mapping.Confidence,
-            Source = DocumentStructureCandidateSource.Rule
-        };
-    }
-
-    private static ColumnMappingResult ToColumnMappingResult(DocumentStructureCandidate candidate)
-    {
-        return new ColumnMappingResult
-        {
-            Confidence = candidate.Confidence,
-            Mapping = new ColumnMapping
-            {
-                ProjectColumn = candidate.ProjectColumnIndex,
-                SpecificationColumn = candidate.SpecificationColumnIndex,
-                AcceptanceColumn = candidate.AcceptanceColumnIndex,
-                RemarkColumn = candidate.RemarkColumnIndex,
-                HeaderRowIndex = candidate.HeaderRowIndex,
-                HeaderRowCount = candidate.HeaderRowCount,
-                DataStartRowIndex = candidate.DataStartRowIndex
-            }
-        };
+        var healthCheck = DocumentStructureHealthCheck.Evaluate(
+            tableData,
+            SmartConfigurationRecognizedTableFactory.ToColumnMappingResult(candidate),
+            allowMissingProjectColumn: candidate.IsSpecificationOnly,
+            autoApplyConfidenceThreshold: GetAutoApplyConfidenceThreshold(),
+            minimumSpecificationNonEmptyRate: GetMinimumSpecificationNonEmptyRate());
+        return SmartConfigurationRecognizedTableFactory.FromCandidate(
+            tableInfo,
+            tableData,
+            candidate,
+            healthCheck);
     }
 
     private static string SerializeTableForStructureAdjudication(TableInfo? tableInfo, TableData tableData)
@@ -635,88 +412,4 @@ public sealed class SmartConfigurationAppService
         return System.Text.Json.JsonSerializer.Serialize(payload);
     }
 
-    private static List<SmartConfigurationRecognizedField> BuildFields(
-        IReadOnlyList<string> headers,
-        int? projectColumn,
-        int? specificationColumn,
-        int? acceptanceColumn,
-        int? remarkColumn,
-        double confidence,
-        string source)
-    {
-        return
-        [
-            BuildField("Project", projectColumn, headers, confidence, source),
-            BuildField("Specification", specificationColumn, headers, confidence, source),
-            BuildField("Acceptance", acceptanceColumn, headers, confidence, source),
-            BuildField("Remark", remarkColumn, headers, confidence, source)
-        ];
-    }
-
-    private static SmartConfigurationRecognizedField BuildField(
-        string field,
-        int? columnIndex,
-        IReadOnlyList<string> headers,
-        double confidence,
-        string source)
-    {
-        return new SmartConfigurationRecognizedField
-        {
-            Field = field,
-            ColumnIndex = columnIndex,
-            Header = columnIndex.HasValue &&
-                     columnIndex.Value >= 0 &&
-                     columnIndex.Value < headers.Count
-                ? headers[columnIndex.Value]
-                : null,
-            Confidence = columnIndex.HasValue ? confidence : 0,
-            Source = source
-        };
-    }
-
-    private async Task<bool> PromoteGlobalRuleIfReadyAsync(
-        string pattern,
-        ColumnMappingTargetField targetField,
-        CancellationToken cancellationToken)
-    {
-        var hasGlobal = await _unitOfWork.ColumnMappingRules.Query()
-            .AnyAsync(rule =>
-                rule.CustomerId == null &&
-                rule.TargetField == targetField &&
-                rule.Pattern == pattern &&
-                rule.Enabled,
-                cancellationToken);
-        if (hasGlobal)
-        {
-            return false;
-        }
-
-        var learnedCustomerCount = await _unitOfWork.ColumnMappingRules.Query()
-            .Where(rule =>
-                rule.CustomerId != null &&
-                rule.Source == ColumnMappingRuleSource.Learned &&
-                rule.TargetField == targetField &&
-                rule.Pattern == pattern &&
-                rule.Enabled)
-            .Select(rule => rule.CustomerId!.Value)
-            .Distinct()
-            .CountAsync(cancellationToken);
-        if (learnedCustomerCount < 2)
-        {
-            return false;
-        }
-
-        await _unitOfWork.ColumnMappingRules.AddAsync(new ColumnMappingRule
-        {
-            CustomerId = null,
-            TargetField = targetField,
-            MatchMode = ColumnMappingMatchMode.Equals,
-            Pattern = pattern,
-            Priority = 80,
-            Enabled = true,
-            Source = ColumnMappingRuleSource.Learned,
-            CreatedAt = DateTime.UtcNow
-        }, cancellationToken);
-        return true;
-    }
 }

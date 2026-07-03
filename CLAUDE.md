@@ -23,11 +23,19 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 ---
 
+## 分支合并保护
+
+- `feat/smart-recognition-simplification` 合并、推送或以任何方式提交到远端 `main` 前，必须先向用户二次确认并取得明确同意。
+
+---
+
 ## 项目概述
 
 **验收规格管理系统**（Acceptance Specification System）——帮助企业验收工程师从 Word/Excel 文档提取历史验收规格数据，并通过 AI 智能匹配（相似度 / Embedding / LLM）自动填充到新文档中。
 
 核心数据模型：按 **客户 (Customer) → 制程 (Process)** 层级组织验收规格（项目 + 规格 → 验收 + 备注）。
+
+项目约定的权威说明（技术栈、架构模式、领域上下文、重要约束）见 `openspec/project.md`；本地联调步骤见 `docs/DEV.md`。
 
 ---
 
@@ -59,12 +67,12 @@ dotnet ef migrations remove -p src/AcceptanceSpecSystem.Data -s src/AcceptanceSp
 ```bash
 cd web
 pnpm install
-pnpm dev           # 开发服务器，http://localhost:8849
-pnpm build         # 生产构建
+pnpm dev           # 开发服务器，http://localhost:8849（端口来自 web/.env 的 VITE_PORT）
+pnpm build         # 生产构建（内含 typecheck）
 pnpm typecheck     # TypeScript + Vue 类型检查
 pnpm lint          # ESLint + Prettier + Stylelint 全量检查
-pnpm test          # 仅跑单个冒烟用例（src/utils/error-message.test.ts）
-pnpm exec vitest run   # 运行全部前端单测（web/tests/ 下 30+ 用例）
+pnpm test          # 运行 src/ 下内联单测（vitest run src/**/*.test.ts）
+pnpm exec vitest run   # 运行全部前端单测（src/ 内联用例 + web/tests/ 下 30+ 用例）
 ```
 
 ### E2E 控制台测试工具
@@ -99,10 +107,10 @@ dotnet run --project tools/SmartFillInsightReport -- \
 ### 整体分层
 
 ```
-前端 SPA (Vue 3)  →  IIS 站点/子应用  →  ASP.NET Core API (IIS)  →  MySQL (3306)
+前端 SPA (Vue 3)  →  IIS 站点/子应用 或 Docker Compose  →  ASP.NET Core API  →  MySQL (3306)
 ```
 
-开发时 Vite 代理 `/api/*` → `http://localhost:5291`，无需手动切换地址。
+生产部署两种形态：IIS（`docs/DEPLOY-IIS.md`）或 Docker Compose 三容器 web + api + mysql（`docker-compose.yml`、`docs/DEPLOY-DOCKER.md`）。开发时 Vite 代理 `/api/*` → `http://localhost:5291`，无需手动切换地址。
 
 ### 后端项目依赖（严格分层）
 
@@ -116,7 +124,7 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、Controllers、Api/Services �
 ```
 
 - **应用服务分布在两处**：
-  - `Application/Services/`：基础数据与规格用例（`CustomerAppService`、`ProcessAppService`、`MachineModelAppService`、`AcceptanceSpecAppService`）+ 复杂只读查询 `AcceptanceSpecQueryService`。
+  - `Application/Services/`：基础数据与规格用例（`CustomerAppService`、`ProcessAppService`、`MachineModelAppService`、`AcceptanceSpecAppService`）、复杂只读查询 `AcceptanceSpecQueryService`、智能结构识别用例 `SmartConfigurationAppService`（选项类 `SmartConfigurationOptions`）。
   - `Api/Services/`：贴近 HTTP 的编排型用例（`Matching*`、`Document*`、`Dashboard`、`BatchReply`、`Auth*`、`OrgUnit`、`SystemUser`、`ExecutionHistory` 等），均以 `IXxxAppService` 接口注入控制器。
 - **Core** 不依赖上层，可独立单元测试。控制器只依赖 AppService/接口，不直接操作 `DbContext` / `IUnitOfWork`。
 - **Data** 通过 `IUnitOfWork` + 泛型 `IRepository<T>` 抽象持久化。
@@ -131,6 +139,7 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、Controllers、Api/Services �
 | 匹配引擎 | `Core/Matching/` | 相似度、Embedding 向量、LLM 混合匹配；阈值过滤 |
 | 文本预处理 | `Core/TextProcessing/` | 简繁转换、同义词替换、OK/NG 标准化、关键词提取管道 |
 | 文档处理 | `Core/Documents/` | Word/Excel 解析与 Word 填充写入 |
+| 智能结构识别 | `Core/Documents/Intelligence/` | `RuleBasedMappingStrategy` 规则列映射、`DocumentStructureFusion`/`HealthCheck` 结构融合与体检、LLM 结构裁决模型 |
 | 诊断/脱敏 | `Core/Diagnostics/` | 敏感信息日志脱敏（`SensitiveLogFormatter`）|
 
 ### 前端模块
@@ -146,23 +155,27 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、Controllers、Api/Services �
 | `/rbac/` | 用户、角色、权限、组织架构管理 |
 | `/config/` | AI 服务配置、提示词模板、列映射规则 |
 
-API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。
+API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。智能结构识别的确认卡片与工具函数在 `web/src/views/shared/`（`SmartStructureConfirmCard.vue` + `smart-structure-recognition.ts`），由 data-import 与 smart-fill 两页复用，各页流程逻辑在自己的 `*.smartRecognition.ts` 中。
 
 ### 关键 API 端点
 
 ```
-POST /api/auth/login                 登录，返回 accessToken + refreshToken
-POST /api/auth/refresh-token         刷新 token
-POST /api/documents/upload           上传 docx/xlsx
-POST /api/documents/import           解析并导入表格（需 customerId + processId）
-POST /api/matching/preview           匹配预览（fileId / tableIndex + 列索引）
-POST /api/matching/execute           执行填充，返回 taskId
-GET  /api/matching/download/{taskId} 下载填充结果
-POST /api/batch-reply/preview        批量回填预览
-POST /api/batch-reply/execute        批量回填执行
-GET  /api/execution-history          执行历史记录
-GET  /swagger                        Swagger UI
-GET  /health                         健康检查
+POST /api/auth/login                     登录，返回 accessToken + refreshToken
+POST /api/auth/refresh-token             刷新 token
+POST /api/documents/upload               上传 docx/xlsx
+POST /api/documents/import               解析并导入 Word 表格（需 customerId + processId）
+POST /api/documents/excel/import         导入 Excel 表格
+POST /api/smart-config/recognize         智能结构识别（表头/列映射/行范围识别 + 裁决）
+POST /api/smart-config/confirm           确认识别结果，沉淀客户模板与学习列映射
+POST /api/matching/batch-preview         批量匹配预览（进度轮询 GET batch-preview-progress/{requestId}）
+POST /api/matching/llm-stream            高歧义行流式 LLM 复核（SSE）
+POST /api/matching/batch-execute         执行填充，返回 taskId
+GET  /api/matching/download/{taskId}     下载填充结果
+POST /api/batch-reply/preview            批量回填预览
+POST /api/batch-reply/execute            批量回填执行
+GET  /api/execution-history              执行历史记录
+GET  /swagger                            Swagger UI
+GET  /health                             健康检查
 ```
 
 ### 认证与权限
@@ -182,14 +195,23 @@ GET  /health                         健康检查
 
 `MatchDecision` 枚举决定最终行为：`AutoApply`（自动填充）/ `ManualReview`（人工确认）。`IsHighConfidence` 依赖 `Score >= HighConfidenceThreshold` 或（LLM 裁定为 `Equivalent` 且置信度 ≥ `LlmEquivalenceMinConfidence`）。
 
+### 智能结构识别流水线
+
+`SmartConfigurationAppService.RecognizeAsync`（`POST /api/smart-config/recognize`）在导入/填充前识别文档结构，Word/Excel 统一为扁平表格后：
+1. `RuleBasedMappingStrategy` 按列映射规则与表头关键词给出各列字段候选（项目/规格/验收/备注）。
+2. `DocumentStructureFusion` + `DocumentStructureHealthCheck` 融合并体检结构（表头行、表头行数、数据行范围）。
+3. 灰区结果交 LLM 结构裁决；超时由 `SmartConfiguration:StructureAdjudicationTimeoutSeconds` 控制（默认 20 秒，Clamp 1–300）；裁决失败/超时保留规则识别的"待确认"状态，不阻断流程。
+4. 每张表输出字段级裁决（自动采用 / 需确认 / 拒绝），前端 `SmartStructureConfirmCard` 呈现供人工修正；确认后经 `/api/smart-config/confirm` 沉淀客户模板与学习到的列映射。
+
 ---
 
 ## 测试策略
 
-- `tests/AcceptanceSpecSystem.Api.Tests`：`WebApplicationFactory` + SQLite In-Memory 跑 API 集成测试，覆盖 E2E 填充流程、LLM 辅助匹配、Excel 导入等。
+- `tests/AcceptanceSpecSystem.Api.Tests`：`WebApplicationFactory` + SQLite In-Memory 跑 API 集成测试，覆盖 E2E 填充流程、LLM 辅助匹配、Excel 导入、智能结构识别等。
 - `tests/AcceptanceSpecSystem.Core.Tests`：匹配算法、文本处理纯单元测试。
 - `tests/AcceptanceSpecSystem.Data.Tests`：Repository + EF Core 数据层测试。
 - 测试环境通过 `ASPNETCORE_ENVIRONMENT=Testing` 标识，绕过迁移自动化。
+- 前端单测分两处：`web/tests/`（跨页面行为用例）与 `web/src/**` 内联用例（工具函数、智能识别流程等）；无独立 vitest 配置文件，使用默认 include。
 
 ### 架构边界测试（强约束，改动前必读）
 
@@ -217,6 +239,10 @@ GET  /health                         健康检查
 
 - **Schema 变更必须通过 EF Core 迁移**，禁止直接修改数据库。
 - **匹配查找键**：`项目 + 规格` 组合；**填充目标**：`验收 + 备注` 列。
+- **Word 与 Excel 双端同改**：文档解析与回写要同时考虑两种格式，不要只修一端；Excel 支持"直接写回源文件"，Word 为"生成结果文件供下载"。
+- **不静默降级**：匹配主流程以 Embedding 为准，Embedding 服务不可用时直接报错。
+- **SSE 流式输出**：LLM 流式复核基于 SSE，相关改动需同步考虑代理超时与客户端中断处理。
 - AI 服务 Key 等敏感配置加密存储，禁止硬编码。
 - 支持文件格式：仅 `.docx`（Word）和 `.xlsx`（Excel）。
+- 涉及 API、数据库、架构、匹配行为的实质变更，优先通过 OpenSpec 变更提案管理（见 `openspec/AGENTS.md`）。
 - Git 提交信息格式：`类型: 中文描述`（如 `feat: 添加 Embedding 匹配功能`）。

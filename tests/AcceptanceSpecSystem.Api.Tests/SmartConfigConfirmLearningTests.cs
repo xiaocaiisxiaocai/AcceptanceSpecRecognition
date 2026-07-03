@@ -4,6 +4,8 @@ using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -164,5 +166,83 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
 
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         return json.Data.GetProperty("id").GetInt32();
+    }
+}
+
+public class SmartConfigConfirmLearningConfiguredThresholdTests : IClassFixture<GlobalRulePromotionThresholdApiFactory>
+{
+    private readonly ApiWebApplicationFactory _factory;
+    private readonly HttpClient _client;
+
+    public SmartConfigConfirmLearningConfiguredThresholdTests(GlobalRulePromotionThresholdApiFactory factory)
+    {
+        _factory = factory;
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Confirm_WhenPromotionThresholdIsThree_ShouldNotPromoteAfterTwoCustomers()
+    {
+        var firstCustomerId = await CreateCustomerAsync("确认学习-阈值客户A");
+        var secondCustomerId = await CreateCustomerAsync("确认学习-阈值客户B");
+        await ConfirmHeaderAsync(customerId: firstCustomerId, header: "管控项目", targetField: 1);
+        await ConfirmHeaderAsync(customerId: secondCustomerId, header: "管控项目", targetField: 1);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var globalRuleExists = await db.ColumnMappingRules.AnyAsync(rule =>
+            rule.CustomerId == null &&
+            rule.Source == ColumnMappingRuleSource.Learned &&
+            rule.TargetField == ColumnMappingTargetField.Project &&
+            rule.Pattern == "管控项目");
+
+        globalRuleExists.Should().BeFalse();
+    }
+
+    private async Task ConfirmHeaderAsync(int customerId, string header, int targetField)
+    {
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            templateName = $"客户{customerId}-模板",
+            headers = new[] { header, "规格" },
+            projectColumnIndex = 0,
+            specificationColumnIndex = 1,
+            headerRowIndex = 0,
+            headerRowCount = 1,
+            dataStartRowIndex = 1,
+            isSpecificationOnly = false,
+            learnedColumns = new[]
+            {
+                new { header, targetField }
+            }
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private async Task<int> CreateCustomerAsync(string name)
+    {
+        var response = await _client.PostAsync("/api/customers", ApiClientJson.ToJsonContent(new { name }));
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("id").GetInt32();
+    }
+}
+
+public sealed class GlobalRulePromotionThresholdApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SmartConfiguration:GlobalRulePromotionCustomerThreshold"] = "3"
+            });
+        });
     }
 }

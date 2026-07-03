@@ -47,19 +47,18 @@ import {
   type TableData
 } from "@/api/document";
 import { hasPerms } from "@/utils/auth";
-import type {
-  SmartConfigConfirmRequest,
-  SmartConfigRecognizedTable
-} from "@/api/smart-config";
-import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
 import {
-  buildDataImportConfigsFromRecognizedTables,
+  buildDataImportPreviewStageText,
   createDataImportSmartSteps,
+  getDataImportPreviewLoadState,
+  getDataImportPreviewTotalCount,
+  getDataImportPrevStepState,
   getDataImportAdvancedStep,
   SMART_STEP_COMPLETE,
   SMART_STEP_CONFIRM_PREVIEW,
   SMART_STEP_UPLOAD_TARGET
 } from "../dataImport.smartRecognition";
+import { useDataImportSmartStructureRecognition } from "./useDataImportSmartStructureRecognition";
 
 const MAPPING_PREVIEW_ROWS = 50;
 
@@ -116,6 +115,8 @@ export function useDataImportPage() {
   const mappingClipboardSourceIndex = ref<number | null>(null);
   const mappingRules = ref<ColumnMappingRule[]>([]);
   const loadingMappingRules = ref(false);
+  const smartStageText = ref("");
+  const selectedSmartTableIndexes = ref<number[]>([]);
 
   const {
     importing,
@@ -150,16 +151,6 @@ export function useDataImportPage() {
     selectedProcessId,
     selectedMachineModelId
   });
-  const {
-    recognizing: smartRecognizing,
-    confirmingTableIndex: smartConfirmingTableIndex,
-    recognizedTables,
-    summary: smartStructureSummary,
-    recognize: recognizeSmartStructure,
-    confirm: confirmSmartStructure,
-    reset: resetSmartStructure
-  } = useSmartStructureRecognition();
-
   // 让步骤条吸顶到实际滚动容器（pure-admin 使用 el-scrollbar）
   const affixTarget = ref<string>("");
   const affixOffset = ref<number>(0);
@@ -227,7 +218,8 @@ export function useDataImportPage() {
       switch (currentStep.value) {
         case SMART_STEP_UPLOAD_TARGET:
           return (
-            uploadedFile.value !== null && selectedCustomerId.value !== undefined
+            uploadedFile.value !== null &&
+            selectedCustomerId.value !== undefined
           );
         case SMART_STEP_CONFIRM_PREVIEW:
           return tableConfigs.value.length > 0;
@@ -318,7 +310,7 @@ export function useDataImportPage() {
     pendingDifferencePageSize.value = 20;
     importProgressText.value = "";
     resetPendingDifferenceState();
-    resetSmartStructure();
+    resetSmartStructureState();
     advancedMode.value = false;
 
     if (!preserveTargetSelection) {
@@ -330,15 +322,6 @@ export function useDataImportPage() {
   const handleFileUploaded = (file: FileUploadResponse) => {
     resetImportFlowState({ preserveTargetSelection: true });
     uploadedFile.value = file;
-  };
-
-  const loadTablesForSmartRecognition = async (file: FileUploadResponse) => {
-    const res = await getFileTables(file.fileId);
-    if (res.code !== 0 || !res.data?.length) {
-      throw new Error(res.message || "获取表格列表失败");
-    }
-
-    return res.data;
   };
 
   const applyRulesToConfig = (cfg: TableImportConfig, overwrite: boolean) => {
@@ -548,6 +531,57 @@ export function useDataImportPage() {
     return res.data;
   };
 
+  const ensurePreviewDataLoaded = async ({
+    previewRows,
+    initialText,
+    completeText
+  }: {
+    previewRows: number;
+    initialText: string;
+    completeText?: string;
+  }) => {
+    const pendingConfigs = tableConfigs.value.filter(cfg => {
+      if (!cfg.previewData) {
+        return true;
+      }
+
+      if (previewRows <= 0) {
+        return cfg.previewData.rows.length < cfg.previewData.totalRows;
+      }
+
+      return (
+        cfg.previewData.rows.length <
+        Math.min(previewRows, cfg.previewData.totalRows)
+      );
+    });
+
+    if (pendingConfigs.length === 0) {
+      return true;
+    }
+
+    smartStageText.value = initialText;
+
+    try {
+      for (const [index, cfg] of pendingConfigs.entries()) {
+        smartStageText.value = buildDataImportPreviewStageText(
+          index + 1,
+          pendingConfigs.length,
+          cfg.tableInfo?.name
+        );
+        cfg.previewData = await loadPreviewData(cfg, previewRows);
+      }
+      if (completeText) {
+        smartStageText.value = completeText;
+      }
+      return true;
+    } catch (error) {
+      ElMessage.error(
+        error instanceof Error ? error.message : "加载导入预览失败"
+      );
+      return false;
+    }
+  };
+
   const ensureFullPreviewDataLoaded = async () => {
     const pendingConfigs = tableConfigs.value.filter(
       cfg =>
@@ -565,7 +599,12 @@ export function useDataImportPage() {
     });
 
     try {
-      for (const cfg of pendingConfigs) {
+      for (const [index, cfg] of pendingConfigs.entries()) {
+        smartStageText.value = buildDataImportPreviewStageText(
+          index + 1,
+          pendingConfigs.length,
+          cfg.tableInfo?.name
+        );
         cfg.previewData = await loadPreviewData(cfg, 0);
       }
       return true;
@@ -579,99 +618,30 @@ export function useDataImportPage() {
     }
   };
 
-  const applySmartRecognizedTables = async (
-    tables: SmartConfigRecognizedTable[]
-  ) => {
-    if (!uploadedFile.value) {
-      ElMessage.warning("请先上传文件");
-      return false;
-    }
-
-    try {
-      const tableInfos = await loadTablesForSmartRecognition(uploadedFile.value);
-      const configs = buildDataImportConfigsFromRecognizedTables({
-        isExcelFile: isExcelFile.value,
-        tables,
-        tableInfos
-      });
-
-      if (configs.length === 0) {
-        tableConfigs.value = [];
-        selectedTableIndexes.value = [];
-        selectedTables.value = [];
-        activeTableIndex.value = null;
-        ElMessage.warning("未识别到可导入表格，请进入高级手动配置");
-        return false;
-      }
-
-      tableConfigs.value = configs;
-      selectedTableIndexes.value = configs.map(item => item.tableIndex);
-      selectedTables.value = tableInfos.filter(item =>
-        selectedTableIndexes.value.includes(item.index)
-      );
-      activeTableIndex.value = configs[0]?.tableIndex ?? null;
-      importPreviewSelectionKeys.value = [];
-      excludedRowIndexMap.value = {};
-      await ensureFullPreviewDataLoaded();
-      return true;
-    } catch (error) {
-      ElMessage.error(
-        error instanceof Error ? error.message : "应用智能识别结果失败"
-      );
-      return false;
-    }
-  };
-
-  const runSmartStructureRecognition = async () => {
-    if (!uploadedFile.value) {
-      ElMessage.warning("请先上传文件");
-      return false;
-    }
-
-    const result = await recognizeSmartStructure(
-      uploadedFile.value.fileId,
-      selectedCustomerId.value
-    );
-    if (!result) {
-      return false;
-    }
-
-    return applySmartRecognizedTables(result.tables);
-  };
-
-  const replaceRecognizedTableWithConfirmRequest = (
-    table: SmartConfigRecognizedTable,
-    request: SmartConfigConfirmRequest
-  ): SmartConfigRecognizedTable => ({
-    ...table,
-    tableName: request.templateName || table.tableName,
-    headers: request.headers,
-    projectColumnIndex: request.projectColumnIndex,
-    specificationColumnIndex: request.specificationColumnIndex,
-    acceptanceColumnIndex: request.acceptanceColumnIndex,
-    remarkColumnIndex: request.remarkColumnIndex,
-    headerRowIndex: request.headerRowIndex,
-    headerRowCount: request.headerRowCount,
-    dataStartRowIndex: request.dataStartRowIndex,
-    dataEndRowIndex: request.dataEndRowIndex,
-    isSpecificationOnly: request.isSpecificationOnly,
-    decision: "AutoApply"
+  const {
+    smartRecognizing,
+    smartConfirmingTableIndex,
+    recognizedTables,
+    smartStructureSummary,
+    runSmartStructureRecognition,
+    handleSmartStructureConfirm,
+    handleSmartTableImportSelectionChange,
+    resetSmartStructureState
+  } = useDataImportSmartStructureRecognition({
+    uploadedFile,
+    selectedCustomerId,
+    isExcelFile,
+    currentStep,
+    tableConfigs,
+    selectedTableIndexes,
+    selectedTables,
+    activeTableIndex,
+    importPreviewSelectionKeys,
+    excludedRowIndexMap,
+    smartStageText,
+    selectedSmartTableIndexes,
+    ensurePreviewDataLoaded
   });
-
-  const handleSmartStructureConfirm = async (
-    table: SmartConfigRecognizedTable,
-    request: SmartConfigConfirmRequest
-  ) => {
-    const result = await confirmSmartStructure(request);
-    if (result) {
-      const nextTables = recognizedTables.value.map(item =>
-        item.tableIndex === table.tableIndex
-          ? replaceRecognizedTableWithConfirmRequest(item, request)
-          : item
-      );
-      await applySmartRecognizedTables(nextTables);
-    }
-  };
 
   const enterAdvancedMode = (
     target: "tableSelect" | "mapping" = "tableSelect"
@@ -933,16 +903,12 @@ export function useDataImportPage() {
 
   // 上一步
   const goPrev = () => {
-    if (!advancedMode.value) {
-      if (currentStep.value > SMART_STEP_UPLOAD_TARGET) {
-        currentStep.value--;
-      }
-      return;
-    }
-
-    if (currentStep.value > 0) {
-      currentStep.value--;
-    }
+    const prevState = getDataImportPrevStepState({
+      advancedMode: advancedMode.value,
+      currentStep: currentStep.value
+    });
+    advancedMode.value = prevState.advancedMode;
+    currentStep.value = prevState.currentStep;
   };
 
   const syncDifferenceDecisionMap = (
@@ -986,11 +952,15 @@ export function useDataImportPage() {
 
   // 预览数据条数（totalRows 已是纯数据行数，无需再减表头）
   const previewDataCount = computed(() => {
-    return importPreviewGroups.value.reduce(
-      (sum, group) => sum + group.rows.length,
-      0
+    return getDataImportPreviewTotalCount(
+      tableConfigs.value,
+      excludedRowIndexMap.value
     );
   });
+
+  const previewLoadState = computed(() =>
+    getDataImportPreviewLoadState(tableConfigs.value)
+  );
 
   const pendingDifferences = computed<ImportPendingDifferenceWithTable[]>(
     () => {
@@ -1089,6 +1059,11 @@ export function useDataImportPage() {
   });
 
   const handleImport = async () => {
+    smartStageText.value = "正在准备完整导入数据...";
+    const loaded = await ensureFullPreviewDataLoaded();
+    smartStageText.value = "";
+    if (!loaded) return;
+
     await executeImport();
     if (!advancedMode.value && importResult.value) {
       currentStep.value = SMART_STEP_COMPLETE;
@@ -1161,6 +1136,8 @@ export function useDataImportPage() {
     importDuplicateAiConfig,
     steps,
     smartRecognizing,
+    smartStageText,
+    selectedSmartTableIndexes,
     smartConfirmingTableIndex,
     recognizedTables,
     smartStructureSummary,
@@ -1206,6 +1183,7 @@ export function useDataImportPage() {
     handleFileUploaded,
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
+    handleSmartTableImportSelectionChange,
     enterAdvancedMode,
     exitAdvancedMode,
     applyRulesToAll,
@@ -1221,6 +1199,7 @@ export function useDataImportPage() {
     goPrev,
     handleRestart,
     previewDataCount,
+    previewLoadState,
     pendingDifferences,
     pagedPendingDifferences,
     pendingUndecidedCount,

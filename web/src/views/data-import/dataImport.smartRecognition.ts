@@ -2,6 +2,11 @@ import type { TableInfo } from "@/api/document";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
 import type { TableImportConfig } from "./dataImport.types";
 import { normalizeExcelMappingByTable } from "./dataImport.helpers";
+import {
+  getRecognizedTableInfo,
+  toActualColumnNumber,
+  toActualRowNumber
+} from "@/views/shared/smart-structure-recognition";
 
 export type DataImportSmartStep = {
   title: string;
@@ -15,31 +20,123 @@ export const SMART_STEP_COMPLETE = 2;
 export const ADVANCED_STEP_TABLE_SELECT = 1;
 export const ADVANCED_STEP_MAPPING = 2;
 
+export type DataImportStepState = {
+  advancedMode: boolean;
+  currentStep: number;
+};
+
 export const createDataImportSmartSteps = (): DataImportSmartStep[] => [
   { title: "上传/目标", description: "上传文件并选择业务归属" },
   { title: "确认/预览", description: "确认识别结构并预览待导入数据" },
   { title: "完成", description: "执行导入并查看结果" }
 ];
 
-export const getDataImportAdvancedStep = (
-  target: "tableSelect" | "mapping"
-) => (target === "tableSelect" ? ADVANCED_STEP_TABLE_SELECT : ADVANCED_STEP_MAPPING);
+export const getDataImportAdvancedStep = (target: "tableSelect" | "mapping") =>
+  target === "tableSelect" ? ADVANCED_STEP_TABLE_SELECT : ADVANCED_STEP_MAPPING;
 
-const toActualRowNumber = (tableInfo: TableInfo | undefined, rowIndex: number) =>
-  Math.max(1, (tableInfo?.usedRangeStartRow ?? 1) + rowIndex);
+export const buildDataImportPreviewStageText = (
+  current: number,
+  total: number,
+  tableName?: string | null
+) => {
+  const normalizedCurrent = Math.max(1, current);
+  const normalizedTotal = Math.max(normalizedCurrent, total);
+  const name = tableName?.trim();
+  return name
+    ? `正在生成导入预览：第 ${normalizedCurrent}/${normalizedTotal} 张（${name}）`
+    : `正在生成导入预览：第 ${normalizedCurrent}/${normalizedTotal} 张`;
+};
 
-const toActualColumnNumber = (
-  tableInfo: TableInfo | undefined,
-  columnIndex?: number
+export const getDataImportPrevStepState = ({
+  advancedMode,
+  currentStep
+}: DataImportStepState): DataImportStepState => {
+  if (!advancedMode) {
+    return {
+      advancedMode,
+      currentStep:
+        currentStep > SMART_STEP_UPLOAD_TARGET ? currentStep - 1 : currentStep
+    };
+  }
+
+  return {
+    // 高级模式没有第 0 步页面；从表格选择页返回时切回智能上传页。
+    advancedMode: currentStep > ADVANCED_STEP_TABLE_SELECT,
+    currentStep:
+      currentStep > ADVANCED_STEP_TABLE_SELECT
+        ? currentStep - 1
+        : SMART_STEP_UPLOAD_TARGET
+  };
+};
+
+export const getDataImportPreviewLoadState = (
+  configs: TableImportConfig[]
+) => {
+  return configs.reduce(
+    (state, cfg) => {
+      const previewData = cfg.previewData;
+      if (!previewData) {
+        return {
+          loadedRows: state.loadedRows,
+          totalRows: state.totalRows,
+          hasPartialPreview: true
+        };
+      }
+
+      const loadedRows = state.loadedRows + previewData.rows.length;
+      const totalRows = state.totalRows + previewData.totalRows;
+      return {
+        loadedRows,
+        totalRows,
+        hasPartialPreview:
+          state.hasPartialPreview ||
+          previewData.rows.length < previewData.totalRows
+      };
+    },
+    {
+      loadedRows: 0,
+      totalRows: 0,
+      hasPartialPreview: false
+    }
+  );
+};
+
+export const getDataImportPreviewTotalCount = (
+  configs: TableImportConfig[],
+  excludedRowIndexMap: Record<number, number[]>
+) => {
+  return configs.reduce((sum, cfg) => {
+    const totalRows = cfg.previewData?.totalRows ?? 0;
+    const excludedCount = excludedRowIndexMap[cfg.tableIndex]?.length ?? 0;
+    return sum + Math.max(0, totalRows - excludedCount);
+  }, 0);
+};
+
+export const canSmartTableBeImported = (table: SmartConfigRecognizedTable) =>
+  table.decision !== "Reject" &&
+  table.projectColumnIndex !== undefined &&
+  table.specificationColumnIndex !== undefined &&
+  table.acceptanceColumnIndex !== undefined &&
+  table.remarkColumnIndex !== undefined &&
+  table.confidence > 0;
+
+export const createDefaultSelectedSmartTableIndexes = (
+  tables: SmartConfigRecognizedTable[]
 ) =>
-  columnIndex === undefined
-    ? undefined
-    : Math.max(1, (tableInfo?.usedRangeStartColumn ?? 1) + columnIndex);
+  tables
+    .filter(canSmartTableBeImported)
+    .map(table => table.tableIndex)
+    .sort((a, b) => a - b);
 
-const getTableInfo = (
-  tableInfos: TableInfo[],
-  table: SmartConfigRecognizedTable
-) => tableInfos.find(item => item.index === table.tableIndex);
+export const filterSelectedSmartTables = (
+  tables: SmartConfigRecognizedTable[],
+  selectedTableIndexes: number[]
+) => {
+  const selectedSet = new Set(selectedTableIndexes);
+  return tables
+    .filter(table => selectedSet.has(table.tableIndex))
+    .sort((a, b) => a.tableIndex - b.tableIndex);
+};
 
 export const buildDataImportConfigsFromRecognizedTables = ({
   isExcelFile,
@@ -51,14 +148,10 @@ export const buildDataImportConfigsFromRecognizedTables = ({
   tableInfos: TableInfo[];
 }): TableImportConfig[] => {
   return tables
-    .filter(
-      table =>
-        table.decision !== "Reject" &&
-        table.specificationColumnIndex !== undefined
-    )
+    .filter(canSmartTableBeImported)
     .sort((a, b) => a.tableIndex - b.tableIndex)
     .map(table => {
-      const tableInfo = getTableInfo(tableInfos, table);
+      const tableInfo = getRecognizedTableInfo(tableInfos, table);
       const base: TableImportConfig = {
         tableIndex: table.tableIndex,
         tableInfo,
@@ -94,7 +187,10 @@ export const buildDataImportConfigsFromRecognizedTables = ({
             tableInfo,
             table.acceptanceColumnIndex
           ),
-          remarkColumn: toActualColumnNumber(tableInfo, table.remarkColumnIndex),
+          remarkColumn: toActualColumnNumber(
+            tableInfo,
+            table.remarkColumnIndex
+          ),
           headerRowStart: toActualRowNumber(tableInfo, table.headerRowIndex),
           headerRowCount: Math.max(1, table.headerRowCount),
           dataStartRow: toActualRowNumber(tableInfo, table.dataStartRowIndex),

@@ -23,8 +23,11 @@ test("MatchPreviewTable 在大结果集场景下应使用分页后的数据源�
   assert.match(source, /const currentPage = ref\(1\);/);
   assert.match(source, /const pageSize = ref\(100\);/);
   assert.match(source, /const pagedFilteredItems = computed\(\(\) =>/);
-  assert.match(source, /:data="pagedFilteredItems"/);
-  assert.match(source, /<el-pagination/);
+  assert.match(source, /:items="pagedFilteredItems"/);
+  const dataTableSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchPreviewDataTable.vue"
+  );
+  assert.match(dataTableSource, /<el-pagination/);
   assert.ok(
     !/:data="filteredItems"/.test(source),
     "大数据场景下不应再把整批 filteredItems 直接绑定给 el-table"
@@ -36,7 +39,7 @@ test("MatchPreviewTable 应将 persistedSelections 预处理为 Map，避免大�
     "web/src/views/smart-fill/components/MatchPreviewTable.vue"
   );
 
-  assert.match(source, /const persistedStateMap = computed\(\(\) =>/);
+  assert.match(source, /const persistedStateMap = computed\(/);
   assert.match(source, /persistedStateMap\.value\.get\(rowIndex\)/);
   assert.ok(
     !/props\.persistedSelections\?\.find\(item => item\.rowIndex === rowIndex\)/.test(

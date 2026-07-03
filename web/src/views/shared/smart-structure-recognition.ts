@@ -5,6 +5,7 @@ import type {
   SmartConfigRecognizedField,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
+import type { TableInfo } from "@/api/document";
 
 export type SmartStructureSummary = {
   total: number;
@@ -77,6 +78,45 @@ export const formatSmartStructurePercent = (value: number | undefined) => {
   return `${(Math.max(0, Math.min(1, value)) * 100).toFixed(0)}%`;
 };
 
+export const formatDisplayIndexFromZeroBased = (
+  value: number | undefined
+): number | "-" => (value === undefined ? "-" : value + 1);
+
+export const toDisplayIndexFromZeroBased = (value: number | undefined) =>
+  value === undefined ? undefined : value + 1;
+
+export const toZeroBasedIndexFromDisplay = (
+  value: number | undefined,
+  min = 0
+) => Math.max(min, (value ?? min + 1) - 1);
+
+export const formatDisplayRowRange = ({
+  headerRowIndex,
+  dataStartRowIndex
+}: {
+  headerRowIndex: number;
+  dataStartRowIndex: number;
+}) =>
+  `表头 ${formatDisplayIndexFromZeroBased(headerRowIndex)} / 数据 ${formatDisplayIndexFromZeroBased(dataStartRowIndex)}`;
+
+export const toActualRowNumber = (
+  tableInfo: TableInfo | undefined,
+  rowIndex: number
+) => Math.max(1, (tableInfo?.usedRangeStartRow ?? 1) + rowIndex);
+
+export const toActualColumnNumber = (
+  tableInfo: TableInfo | undefined,
+  columnIndex?: number
+) =>
+  columnIndex === undefined
+    ? undefined
+    : Math.max(1, (tableInfo?.usedRangeStartColumn ?? 1) + columnIndex);
+
+export const getRecognizedTableInfo = (
+  tableInfos: TableInfo[],
+  table: SmartConfigRecognizedTable
+) => tableInfos.find(item => item.index === table.tableIndex);
+
 export const createSmartStructureSummary = (
   tables: SmartConfigRecognizedTable[]
 ): SmartStructureSummary => {
@@ -141,6 +181,12 @@ export const buildSmartConfigConfirmRequest = (
 ): SmartConfigConfirmRequest => {
   if (table.specificationColumnIndex === undefined) {
     throw new Error("规格列不能为空");
+  }
+  if (table.acceptanceColumnIndex === undefined) {
+    throw new Error("验收列不能为空");
+  }
+  if (table.remarkColumnIndex === undefined) {
+    throw new Error("备注列不能为空");
   }
 
   return {

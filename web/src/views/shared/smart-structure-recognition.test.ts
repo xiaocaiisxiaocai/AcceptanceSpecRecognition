@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   buildSmartConfigConfirmRequest,
   createSmartStructureSummary,
+  formatDisplayIndexFromZeroBased,
+  formatDisplayRowRange,
+  getRecognizedTableInfo,
   getSmartStructureDecisionTag,
-  getSmartStructureFieldLabel
+  getSmartStructureFieldLabel,
+  toActualColumnNumber,
+  toActualRowNumber
 } from "./smart-structure-recognition";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
+import type { TableInfo } from "@/api/document";
 
 const table = (
   overrides: Partial<SmartConfigRecognizedTable>
@@ -26,6 +32,19 @@ const table = (
   source: "Rule",
   decision: "AutoApply",
   fields: [],
+  ...overrides
+});
+
+const tableInfo = (overrides: Partial<TableInfo> = {}): TableInfo => ({
+  index: 0,
+  name: "验收表",
+  rowCount: 10,
+  columnCount: 6,
+  isNested: false,
+  headers: ["规格", "验收", "备注"],
+  hasMergedCells: false,
+  usedRangeStartRow: 3,
+  usedRangeStartColumn: 2,
   ...overrides
 });
 
@@ -70,7 +89,7 @@ describe("smart-structure-recognition", () => {
         projectColumnIndex: 0,
         specificationColumnIndex: 1,
         acceptanceColumnIndex: 2,
-        remarkColumnIndex: undefined,
+        remarkColumnIndex: 3,
         fields: [
           {
             field: "Project",
@@ -104,7 +123,7 @@ describe("smart-structure-recognition", () => {
       projectColumnIndex: 0,
       specificationColumnIndex: 1,
       acceptanceColumnIndex: 2,
-      remarkColumnIndex: undefined,
+      remarkColumnIndex: 3,
       headerRowIndex: 0,
       headerRowCount: 1,
       dataStartRowIndex: 1,
@@ -127,6 +146,19 @@ describe("smart-structure-recognition", () => {
     ).toThrow("规格列不能为空");
   });
 
+  it("缺少验收列或备注列时拒绝构建确认请求", () => {
+    expect(() =>
+      buildSmartConfigConfirmRequest(
+        12,
+        table({ acceptanceColumnIndex: undefined })
+      )
+    ).toThrow("验收列不能为空");
+
+    expect(() =>
+      buildSmartConfigConfirmRequest(12, table({ remarkColumnIndex: undefined }))
+    ).toThrow("备注列不能为空");
+  });
+
   it("转换字段和决策展示标签", () => {
     expect(getSmartStructureFieldLabel("Project")).toBe("项目");
     expect(getSmartStructureFieldLabel("Specification")).toBe("规格");
@@ -142,5 +174,41 @@ describe("smart-structure-recognition", () => {
       text: "不可用",
       type: "danger"
     });
+  });
+
+  it("行列索引展示给用户时从 1 开始", () => {
+    expect(formatDisplayIndexFromZeroBased(0)).toBe(1);
+    expect(formatDisplayIndexFromZeroBased(3)).toBe(4);
+    expect(formatDisplayIndexFromZeroBased(undefined)).toBe("-");
+    expect(
+      formatDisplayRowRange({
+        headerRowIndex: 0,
+        dataStartRowIndex: 1
+      })
+    ).toBe("表头 1 / 数据 2");
+  });
+
+  it("按表格实际使用区域换算识别出的行列位置", () => {
+    const info = tableInfo();
+
+    expect(toActualRowNumber(info, 0)).toBe(3);
+    expect(toActualRowNumber(info, 2)).toBe(5);
+    expect(toActualColumnNumber(info, 0)).toBe(2);
+    expect(toActualColumnNumber(info, 3)).toBe(5);
+    expect(toActualColumnNumber(info, undefined)).toBeUndefined();
+  });
+
+  it("缺少表格区域信息时按 1 起始换算行列位置", () => {
+    expect(toActualRowNumber(undefined, 0)).toBe(1);
+    expect(toActualColumnNumber(undefined, 0)).toBe(1);
+  });
+
+  it("按识别表索引查找对应表格信息", () => {
+    expect(
+      getRecognizedTableInfo(
+        [tableInfo({ index: 2, name: "第二张表" })],
+        table({ tableIndex: 2 })
+      )?.name
+    ).toBe("第二张表");
   });
 });

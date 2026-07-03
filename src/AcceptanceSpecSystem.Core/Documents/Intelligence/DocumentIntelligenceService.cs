@@ -1,4 +1,5 @@
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Scoring;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using Microsoft.Extensions.Logging;
@@ -104,73 +105,6 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         return result;
     }
 
-    public async Task<AutoConfigResult> AutoConfigureAsync(
-        IReadOnlyList<TableInfo> tables,
-        IReadOnlyList<TableData> tablesData,
-        CancellationToken cancellationToken = default)
-    {
-        if (tables.Count == 0 || tablesData.Count == 0)
-        {
-            throw new ArgumentException("表格列表不能为空");
-        }
-
-        if (tables.Count != tablesData.Count)
-        {
-            throw new ArgumentException("表格信息和表格数据数量不匹配");
-        }
-
-        // 1. 识别目标表格
-        var tableResult = await IdentifyTargetTableAsync(tables, cancellationToken);
-
-        // 2. 检测表头行位置
-        var targetTableData = tablesData[tableResult.TableIndex];
-        var headerRowIndex = DetectHeaderRowIndex(targetTableData);
-
-        // 3. 提取表头和数据样本（从检测到的表头行开始）
-        var headers = targetTableData.Rows
-            .Skip(headerRowIndex)
-            .Take(1)
-            .SelectMany(row => row.Cells.Select(c => c.Value ?? string.Empty))
-            .ToList();
-
-        var sampleRows = targetTableData.Rows
-            .Skip(headerRowIndex + 1)
-            .Take(3)
-            .Select(row => (IReadOnlyList<string>)row.Cells.Select(c => c.Value ?? string.Empty).ToList())
-            .ToList();
-
-        // 4. 识别列映射（使用检测到的表头）
-        var mappingResult = await _ruleStrategy.IdentifyAsync(
-            headers,
-            sampleRows,
-            cancellationToken);
-
-        // 5. 更新 ColumnMapping 的行位置信息
-        mappingResult.Mapping.HeaderRowIndex = headerRowIndex;
-        mappingResult.Mapping.HeaderRowCount = 1;
-        mappingResult.Mapping.DataStartRowIndex = headerRowIndex + 1;
-
-        // 6. 计算综合置信度
-        var overallConfidence = Math.Min(tableResult.Confidence, mappingResult.Confidence);
-
-        // 7. 构建推理说明
-        var reasoning = $"表格识别：{tableResult.Reasoning}；" +
-                       $"表头检测：第 {headerRowIndex + 1} 行；" +
-                       $"列映射识别：{mappingResult.Reasoning}";
-
-        return new AutoConfigResult
-        {
-            TableIndex = tableResult.TableIndex,
-            ColumnMapping = mappingResult.Mapping,
-            Confidence = overallConfidence,
-            Source = IdentificationSource.RuleBased,
-            NeedsManualReview = overallConfidence < 0.85,
-            Reasoning = reasoning,
-            TableIdentification = tableResult,
-            ColumnMappingDetails = mappingResult
-        };
-    }
-
     private double ScoreTableRelevance(TableInfo table)
     {
         double score = 0.0;
@@ -181,51 +115,14 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             return 0.0;
         }
 
-        // 检查表头关键词
         if (table.Headers != null && table.Headers.Count > 0)
         {
-            var keywords = new[]
-            {
-                ("项目", 0.25),
-                ("规格", 0.25),
-                ("验收", 0.25),
-                ("备注", 0.10),
-                ("标准", 0.15),
-                ("结果", 0.15),
-                ("判定", 0.15)
-            };
-
-            foreach (var (keyword, weight) in keywords)
-            {
-                var matchCount = table.Headers.Count(h =>
-                    h.Contains(keyword, StringComparison.OrdinalIgnoreCase));
-
-                if (matchCount > 0)
-                {
-                    score += weight;
-                }
-            }
+            score += SpecificationLikelihoodScorer.ScoreStructureHeaders(table.Headers);
         }
 
-        // 检查表格名称（Excel 工作表名）
-        if (!string.IsNullOrEmpty(table.Name))
-        {
-            var nameKeywords = new[] { "验收", "检验", "规格", "acceptance", "inspection", "spec" };
-            if (nameKeywords.Any(k => table.Name.Contains(k, StringComparison.OrdinalIgnoreCase)))
-            {
-                score += 0.15;
-            }
-        }
+        score += SpecificationLikelihoodScorer.ScoreDocumentTableName(table.Name);
 
-        // 检查表格预览文本
-        if (!string.IsNullOrEmpty(table.PreviewText))
-        {
-            var previewKeywords = new[] { "验收", "检验", "规格" };
-            if (previewKeywords.Any(k => table.PreviewText.Contains(k, StringComparison.OrdinalIgnoreCase)))
-            {
-                score += 0.10;
-            }
-        }
+        score += SpecificationLikelihoodScorer.ScoreDocumentPreviewText(table.PreviewText);
 
         // 加分项：数据行数合理（3-1000 行）
         if (table.RowCount >= 3 && table.RowCount <= 1000)
@@ -254,14 +151,6 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             return 0;
         }
 
-        // 关键词列表
-        var keywords = new[]
-        {
-            "项目", "规格", "验收", "备注", "标准", "结果", "判定", "测试",
-            "检验", "检测", "实测", "序号", "编号", "次", "名称", "说明",
-            "project", "specification", "acceptance", "remark", "result", "test"
-        };
-
         var scores = new List<(int rowIndex, double score, string reason)>();
 
         // 分析前 10 行（或全部行，取较小值）
@@ -270,76 +159,34 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         for (int i = 0; i < rowsToAnalyze; i++)
         {
             var row = tableData.Rows[i];
-            double score = 0.0;
             var reasons = new List<string>();
-
-            // 1. 检查是否包含关键词
-            int keywordCount = 0;
-            int nonEmptyCount = 0;
-            var distinctNonEmptyValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var cell in row.Cells)
+            var rowScore = SpecificationLikelihoodScorer.ScoreHeaderRow(
+                row.Cells.Select(cell => cell.Value));
+            if (rowScore.KeywordCount > 0)
             {
-                var value = cell.Value ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    nonEmptyCount++;
-                    distinctNonEmptyValues.Add(value.Trim());
-
-                    // 检查是否包含关键词
-                    if (keywords.Any(k => value.Contains(k, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        keywordCount++;
-                    }
-                }
+                reasons.Add($"{rowScore.KeywordCount} 个关键词");
             }
 
-            // 2. 计算关键词密度
-            if (nonEmptyCount > 0)
+            if (rowScore.AverageLength > 2 && rowScore.AverageLength < 15)
             {
-                double keywordDensity = (double)keywordCount / nonEmptyCount;
-                score += keywordDensity * 0.6; // 最高 0.6 分
-
-                if (keywordCount > 0)
-                {
-                    reasons.Add($"{keywordCount} 个关键词");
-                }
-            }
-
-            // 3. 检查单元格长度（表头通常较短）
-            var nonEmptyCells = row.Cells
-                .Where(c => !string.IsNullOrWhiteSpace(c.Value))
-                .ToList();
-            var avgLength = nonEmptyCells.Count == 0
-                ? 0
-                : nonEmptyCells.Average(c => c.Value?.Length ?? 0);
-
-            if (avgLength > 2 && avgLength < 15)
-            {
-                score += 0.2;
                 reasons.Add("长度适中");
             }
-            else if (avgLength >= 15 && avgLength < 50)
+            else if (rowScore.AverageLength >= 15 && rowScore.AverageLength < 50)
             {
-                score += 0.1;
                 reasons.Add("长度偏长");
             }
 
-            // 4. 检查非空单元格数量（表头通常填满）
-            var effectiveNonEmptyCount = Math.Min(nonEmptyCount, distinctNonEmptyValues.Count);
-            double fillRate = (double)effectiveNonEmptyCount / row.Cells.Count;
-            if (fillRate > 0.5)
+            if (rowScore.FillRate > 0.5)
             {
-                score += 0.2;
-                reasons.Add($"填充率 {fillRate:P0}");
+                reasons.Add($"填充率 {rowScore.FillRate:P0}");
             }
 
-            scores.Add((i, score, string.Join(", ", reasons)));
+            scores.Add((i, rowScore.Score, string.Join(", ", reasons)));
 
             _logger.LogDebug(
                 "行 {RowIndex} 表头分数: {Score:F2} ({Reasons})",
                 i,
-                score,
+                rowScore.Score,
                 string.Join(", ", reasons));
         }
 

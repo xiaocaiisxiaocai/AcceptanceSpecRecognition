@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSmartFillConfigsFromRecognizedTables,
-  createSmartFillSmartSteps
+  createSmartFillSmartSteps,
+  getSmartFillPrevStepState
 } from "./smartFill.smartRecognition";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
 import type { TableInfo } from "@/api/document";
@@ -110,6 +111,18 @@ describe("smartFill.smartRecognition", () => {
       tableIndex: 1,
       projectColumnIndex: 0,
       specificationColumnIndex: 1
+    });
+  });
+
+  it("高级模式从表格配置页返回时应回到智能上传页，避免高级步骤条与上传内容错位", () => {
+    expect(
+      getSmartFillPrevStepState({
+        advancedMode: true,
+        currentStep: 1
+      })
+    ).toEqual({
+      advancedMode: false,
+      currentStep: 0
     });
   });
 });

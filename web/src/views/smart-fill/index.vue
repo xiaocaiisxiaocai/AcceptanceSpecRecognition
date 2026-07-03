@@ -9,6 +9,7 @@ import SmartFillPreviewStep from "./components/SmartFillPreviewStep.vue";
 import SmartFillSteps from "./components/SmartFillSteps.vue";
 import SmartFillTableStep from "./components/SmartFillTableStep.vue";
 import SmartFillUploadStep from "./components/SmartFillUploadStep.vue";
+import SmartStructureConfirmCard from "@/views/shared/SmartStructureConfirmCard.vue";
 import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
 import type { BatchTableConfigItem } from "./components/batchTableConfig.types";
 import {
@@ -21,12 +22,13 @@ import {
 } from "@/api/matching";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
 import type { ColumnMappingRule } from "@/api/column-mapping-rules";
+import type {
+  SmartConfigConfirmRequest,
+  SmartConfigRecognizedTable
+} from "@/api/smart-config";
 import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
-import {
-  getMachineModelList,
-  type MachineModel
-} from "@/api/machine-model";
+import { getMachineModelList, type MachineModel } from "@/api/machine-model";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
@@ -43,7 +45,8 @@ import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTa
 import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
 import {
   buildSmartFillConfigsFromRecognizedTables,
-  createSmartFillSmartSteps
+  createSmartFillSmartSteps,
+  getSmartFillPrevStepState
 } from "./smartFill.smartRecognition";
 
 defineOptions({ name: "FillData" });
@@ -147,8 +150,10 @@ const loadingScopeOptions = ref(false);
 
 const {
   recognizing: smartRecognizing,
+  confirmingTableIndex: smartConfirmingTableIndex,
   recognizedTables,
   recognize: recognizeSmartStructure,
+  confirm: confirmSmartStructure,
   reset: resetSmartStructure
 } = useSmartStructureRecognition();
 
@@ -354,8 +359,7 @@ const { doPreview, invalidatePendingPreview, previewAbortController } =
     resetPreviewProgress,
     markPreviewProgressCompleted,
     getCurrentPreviewRequestId: () => currentPreviewRequestId.value,
-    isPreviewStep: () =>
-      currentStep.value === (advancedMode.value ? 3 : 2),
+    isPreviewStep: () => currentStep.value === (advancedMode.value ? 3 : 2),
     clearPreviewDetail,
     onSendPreview: (data, controller) => {
       // 透传取消信号，确保用户切换步骤时可及时中止进行中的预览请求
@@ -410,18 +414,16 @@ const canGoNext = computed(() => {
   }
 });
 
-const {
-  loadUploadedFileTables,
-  reloadWordColumnMappingRulesForCustomer
-} = useSmartFillUploadedTables({
-  uploadedFile,
-  isExcelFile,
-  allTables,
-  batchTableConfigs,
-  wordColumnMappingRules,
-  loadingUploadedFileTables,
-  selectedCustomerId: selectedCustomerIdForRules
-});
+const { loadUploadedFileTables, reloadWordColumnMappingRulesForCustomer } =
+  useSmartFillUploadedTables({
+    uploadedFile,
+    isExcelFile,
+    allTables,
+    batchTableConfigs,
+    wordColumnMappingRules,
+    loadingUploadedFileTables,
+    selectedCustomerId: selectedCustomerIdForRules
+  });
 
 // 文件上传完成
 const handleFileUploaded = async (file: FileUploadResponse) => {
@@ -467,6 +469,50 @@ const runSmartStructureRecognition = async () => {
 
   batchTableConfigs.value = configs;
   currentStep.value = 1;
+};
+
+const firstNeedConfirmTableIndex = computed(
+  () =>
+    recognizedTables.value.find(table => table.decision !== "AutoApply")
+      ?.tableIndex ?? null
+);
+
+const replaceRecognizedTableWithConfirmRequest = (
+  table: SmartConfigRecognizedTable,
+  request: SmartConfigConfirmRequest
+): SmartConfigRecognizedTable => ({
+  ...table,
+  tableName: request.templateName || table.tableName,
+  headers: request.headers,
+  projectColumnIndex: request.projectColumnIndex,
+  specificationColumnIndex: request.specificationColumnIndex,
+  acceptanceColumnIndex: request.acceptanceColumnIndex,
+  remarkColumnIndex: request.remarkColumnIndex,
+  headerRowIndex: request.headerRowIndex,
+  headerRowCount: request.headerRowCount,
+  dataStartRowIndex: request.dataStartRowIndex,
+  dataEndRowIndex: request.dataEndRowIndex,
+  isSpecificationOnly: request.isSpecificationOnly,
+  decision: "AutoApply"
+});
+
+const handleSmartStructureConfirm = async (
+  table: SmartConfigRecognizedTable,
+  request: SmartConfigConfirmRequest
+) => {
+  const result = await confirmSmartStructure(request);
+  if (!result) return;
+
+  const nextTables = recognizedTables.value.map(item =>
+    item.tableIndex === table.tableIndex
+      ? replaceRecognizedTableWithConfirmRequest(item, request)
+      : item
+  );
+  batchTableConfigs.value = buildSmartFillConfigsFromRecognizedTables({
+    isExcelFile: isExcelFile.value,
+    tables: nextTables,
+    tableInfos: allTables.value
+  });
 };
 
 const enterAdvancedMode = () => {
@@ -528,7 +574,12 @@ const goNext = () => {
 };
 
 const goPrev = () => {
-  if (currentStep.value > 0) currentStep.value--;
+  const prevState = getSmartFillPrevStepState({
+    advancedMode: advancedMode.value,
+    currentStep: currentStep.value
+  });
+  advancedMode.value = prevState.advancedMode;
+  currentStep.value = prevState.currentStep;
 };
 
 // 重新开始
@@ -663,6 +714,20 @@ const handleRestart = () => {
               :loading="smartRecognizing"
               @retry="runSmartStructureRecognition"
             />
+            <div v-if="recognizedTables.length > 0" class="smart-fill-confirm-list">
+              <SmartStructureConfirmCard
+                v-for="table in recognizedTables"
+                :key="table.tableIndex"
+                :table="table"
+                :customer-id="matchScope.customerId"
+                :confirming="smartConfirmingTableIndex === table.tableIndex"
+                :import-selected="true"
+                :import-selectable="false"
+                :default-expanded="table.tableIndex === firstNeedConfirmTableIndex"
+                @confirm="request => handleSmartStructureConfirm(table, request)"
+                @advanced="enterAdvancedMode"
+              />
+            </div>
             <div class="smart-fill-entry-actions">
               <el-button
                 type="primary"

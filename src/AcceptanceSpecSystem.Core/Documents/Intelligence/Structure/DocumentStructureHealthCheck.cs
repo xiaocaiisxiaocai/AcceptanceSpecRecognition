@@ -1,4 +1,5 @@
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Scoring;
 using AcceptanceSpecSystem.Core.Documents.Models;
 
 namespace AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
@@ -18,7 +19,10 @@ public enum DocumentStructureHealthIssueCode
     ProjectSpecificationLikelyReversed = 4,
     ColumnIndexOutOfRange = 5,
     InvalidRowRange = 6,
-    LowConfidence = 7
+    LowConfidence = 7,
+    MissingProjectColumn = 8,
+    MissingAcceptanceColumn = 9,
+    MissingRemarkColumn = 10
 }
 
 public sealed record DocumentStructureHealthIssue(
@@ -42,13 +46,19 @@ public static class DocumentStructureHealthCheck
     public static DocumentStructureHealthCheckResult Evaluate(
         TableData tableData,
         ColumnMappingResult mappingResult,
-        double? confidence = null)
+        double? confidence = null,
+        bool allowMissingProjectColumn = false,
+        double? autoApplyConfidenceThreshold = null,
+        double? minimumSpecificationNonEmptyRate = null)
     {
         var mapping = mappingResult.Mapping;
         var effectiveConfidence = confidence ?? mappingResult.Confidence;
+        var effectiveAutoApplyThreshold = autoApplyConfidenceThreshold ?? AutoApplyConfidenceThreshold;
+        var effectiveMinimumSpecificationNonEmptyRate =
+            minimumSpecificationNonEmptyRate ?? MinimumSpecificationNonEmptyRate;
         var issues = new List<DocumentStructureHealthIssue>();
 
-        if (effectiveConfidence < AutoApplyConfidenceThreshold)
+        if (effectiveConfidence < effectiveAutoApplyThreshold)
         {
             issues.Add(new DocumentStructureHealthIssue(
                 DocumentStructureHealthIssueCode.LowConfidence,
@@ -62,13 +72,34 @@ public static class DocumentStructureHealthCheck
                 "缺少规格列，不能自动采用"));
         }
 
+        if (!mapping.ProjectColumn.HasValue && !allowMissingProjectColumn)
+        {
+            issues.Add(new DocumentStructureHealthIssue(
+                DocumentStructureHealthIssueCode.MissingProjectColumn,
+                "缺少项目列，不能自动采用"));
+        }
+
+        if (!mapping.AcceptanceColumn.HasValue)
+        {
+            issues.Add(new DocumentStructureHealthIssue(
+                DocumentStructureHealthIssueCode.MissingAcceptanceColumn,
+                "缺少验收列，不能自动采用"));
+        }
+
+        if (!mapping.RemarkColumn.HasValue)
+        {
+            issues.Add(new DocumentStructureHealthIssue(
+                DocumentStructureHealthIssueCode.MissingRemarkColumn,
+                "缺少备注列，不能自动采用"));
+        }
+
         AddColumnRangeIssues(tableData, mapping, issues);
         AddDuplicateColumnIssues(mapping, issues);
         AddRowRangeIssues(tableData, mapping, issues);
 
         if (mapping.SpecificationColumn.HasValue &&
             IsColumnInRange(tableData, mapping.SpecificationColumn.Value) &&
-            CalculateNonEmptyRate(tableData, mapping.SpecificationColumn.Value) < MinimumSpecificationNonEmptyRate)
+            CalculateNonEmptyRate(tableData, mapping.SpecificationColumn.Value) < effectiveMinimumSpecificationNonEmptyRate)
         {
             issues.Add(new DocumentStructureHealthIssue(
                 DocumentStructureHealthIssueCode.EmptySpecificationDataArea,
@@ -176,43 +207,7 @@ public static class DocumentStructureHealthCheck
     {
         var values = tableData.Rows
             .Select(row => row.GetValue(columnIndex)?.Trim() ?? string.Empty)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
             .ToList();
-        if (values.Count == 0)
-        {
-            return 0;
-        }
-
-        return values.Average(CalculateSpecificationLikeScore);
-    }
-
-    private static double CalculateSpecificationLikeScore(string value)
-    {
-        var score = 0.0;
-        if (value.Length >= 8)
-        {
-            score += 0.25;
-        }
-
-        if (value.Any(char.IsDigit))
-        {
-            score += 0.25;
-        }
-
-        var specificationKeywords = new[]
-        {
-            "无", "不", "应", "需", "必须", "不得", "以内", "以上", "以下", "公差", "误差", "mm", "cm", "v", "kw", "±", "≤", "≥"
-        };
-        if (specificationKeywords.Any(keyword => value.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
-        {
-            score += 0.35;
-        }
-
-        if (value.Contains('，') || value.Contains(',') || value.Contains('；') || value.Contains(';'))
-        {
-            score += 0.15;
-        }
-
-        return Math.Min(score, 1.0);
+        return SpecificationLikelihoodScorer.Average(values);
     }
 }

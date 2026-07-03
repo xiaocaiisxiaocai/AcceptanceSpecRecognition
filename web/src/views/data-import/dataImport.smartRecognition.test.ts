@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDataImportPreviewStageText,
   buildDataImportConfigsFromRecognizedTables,
   createDataImportSmartSteps,
+  createDefaultSelectedSmartTableIndexes,
+  filterSelectedSmartTables,
+  getDataImportPreviewLoadState,
+  getDataImportPreviewTotalCount,
+  getDataImportPrevStepState,
   getDataImportAdvancedStep
 } from "./dataImport.smartRecognition";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
@@ -42,6 +48,15 @@ const recognizedTable = (
 });
 
 describe("dataImport.smartRecognition", () => {
+  it("生成智能导入阶段提示文案", () => {
+    expect(buildDataImportPreviewStageText(2, 5, "Sheet2")).toBe(
+      "正在生成导入预览：第 2/5 张（Sheet2）"
+    );
+    expect(buildDataImportPreviewStageText(1, 1)).toBe(
+      "正在生成导入预览：第 1/1 张"
+    );
+  });
+
   it("创建三步式智能导入步骤", () => {
     expect(createDataImportSmartSteps()).toEqual([
       { title: "上传/目标", description: "上传文件并选择业务归属" },
@@ -91,7 +106,7 @@ describe("dataImport.smartRecognition", () => {
     });
   });
 
-  it("跳过 Reject 和缺少规格列的表", () => {
+  it("跳过 Reject 和缺少任一必填导入列的表", () => {
     const configs = buildDataImportConfigsFromRecognizedTables({
       isExcelFile: false,
       tables: [
@@ -101,16 +116,134 @@ describe("dataImport.smartRecognition", () => {
           decision: "NeedConfirm",
           specificationColumnIndex: undefined
         }),
+        recognizedTable({
+          tableIndex: 3,
+          decision: "NeedConfirm",
+          acceptanceColumnIndex: undefined
+        }),
+        recognizedTable({
+          tableIndex: 4,
+          decision: "NeedConfirm",
+          remarkColumnIndex: undefined
+        }),
         recognizedTable({ tableIndex: 2, decision: "NeedConfirm" })
       ],
-      tableInfos: [tableInfo(0), tableInfo(1), tableInfo(2)]
+      tableInfos: [
+        tableInfo(0),
+        tableInfo(1),
+        tableInfo(2),
+        tableInfo(3),
+        tableInfo(4)
+      ]
     });
 
     expect(configs.map(item => item.tableIndex)).toEqual([2]);
   });
 
+  it("默认仅选中可导入的识别表", () => {
+    expect(
+      createDefaultSelectedSmartTableIndexes([
+        recognizedTable({ tableIndex: 0, decision: "AutoApply" }),
+        recognizedTable({
+          tableIndex: 4,
+          decision: "NeedConfirm",
+          confidence: 0,
+          fields: [
+            {
+              field: "Specification",
+              columnIndex: 1,
+              header: "规格",
+              confidence: 0,
+              source: "Rule"
+            }
+          ]
+        }),
+        recognizedTable({
+          tableIndex: 1,
+          decision: "NeedConfirm",
+          specificationColumnIndex: undefined
+        }),
+        recognizedTable({
+          tableIndex: 5,
+          decision: "NeedConfirm",
+          acceptanceColumnIndex: undefined
+        }),
+        recognizedTable({
+          tableIndex: 6,
+          decision: "NeedConfirm",
+          remarkColumnIndex: undefined
+        }),
+        recognizedTable({ tableIndex: 2, decision: "Reject" }),
+        recognizedTable({ tableIndex: 3, decision: "NeedConfirm" })
+      ])
+    ).toEqual([0, 3]);
+  });
+
+  it("按用户勾选过滤需要导入的识别表", () => {
+    const tables = [
+      recognizedTable({ tableIndex: 0 }),
+      recognizedTable({ tableIndex: 1 }),
+      recognizedTable({ tableIndex: 2 })
+    ];
+
+    expect(filterSelectedSmartTables(tables, [2, 0]).map(t => t.tableIndex)).toEqual([
+      0,
+      2
+    ]);
+  });
+
   it("高级步骤仅允许进入旧表格选择或映射步骤", () => {
     expect(getDataImportAdvancedStep("tableSelect")).toBe(1);
     expect(getDataImportAdvancedStep("mapping")).toBe(2);
+  });
+
+  it("高级模式从表格选择页返回时应回到智能上传页，避免出现高级模式第 0 步空白页", () => {
+    expect(
+      getDataImportPrevStepState({
+        advancedMode: true,
+        currentStep: 1
+      })
+    ).toEqual({
+      advancedMode: false,
+      currentStep: 0
+    });
+  });
+
+  it("部分预览时预计导入数量应按总行数统计，并扣除已移除行", () => {
+    const configs = buildDataImportConfigsFromRecognizedTables({
+      isExcelFile: false,
+      tables: [recognizedTable({})],
+      tableInfos: [tableInfo(0)]
+    });
+    configs[0].previewData = {
+      tableIndex: 0,
+      headers: ["项目", "规格"],
+      rows: [["A", "B"]],
+      totalRows: 8,
+      columnCount: 2
+    };
+
+    expect(getDataImportPreviewTotalCount(configs, { 0: [0, 3] })).toBe(6);
+  });
+
+  it("可判断当前是否仍只有部分导入预览", () => {
+    const configs = buildDataImportConfigsFromRecognizedTables({
+      isExcelFile: false,
+      tables: [recognizedTable({})],
+      tableInfos: [tableInfo(0)]
+    });
+    configs[0].previewData = {
+      tableIndex: 0,
+      headers: ["项目", "规格"],
+      rows: [["A", "B"]],
+      totalRows: 8,
+      columnCount: 2
+    };
+
+    expect(getDataImportPreviewLoadState(configs)).toEqual({
+      loadedRows: 1,
+      totalRows: 8,
+      hasPartialPreview: true
+    });
   });
 });

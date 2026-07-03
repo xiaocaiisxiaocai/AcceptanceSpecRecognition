@@ -68,26 +68,42 @@ public static class DocumentStructureFusion
 {
     public static DocumentStructureCandidate Merge(
         DocumentStructureCandidate ruleCandidate,
-        DocumentStructureCandidate? llmCandidate)
+        DocumentStructureCandidate? llmCandidate,
+        bool allowLlmOverride = false)
     {
         if (llmCandidate == null || llmCandidate.TableIndex != ruleCandidate.TableIndex)
         {
             return ruleCandidate;
         }
 
+        var projectColumn = allowLlmOverride
+            ? llmCandidate.ProjectColumnIndex ?? ruleCandidate.ProjectColumnIndex
+            : ruleCandidate.ProjectColumnIndex ?? llmCandidate.ProjectColumnIndex;
+        var specificationColumn = allowLlmOverride
+            ? llmCandidate.SpecificationColumnIndex ?? ruleCandidate.SpecificationColumnIndex
+            : ruleCandidate.SpecificationColumnIndex ?? llmCandidate.SpecificationColumnIndex;
+        var acceptanceColumn = allowLlmOverride
+            ? llmCandidate.AcceptanceColumnIndex ?? ruleCandidate.AcceptanceColumnIndex
+            : ruleCandidate.AcceptanceColumnIndex ?? llmCandidate.AcceptanceColumnIndex;
+        var remarkColumn = allowLlmOverride
+            ? llmCandidate.RemarkColumnIndex ?? ruleCandidate.RemarkColumnIndex
+            : ruleCandidate.RemarkColumnIndex ?? llmCandidate.RemarkColumnIndex;
+
         return new DocumentStructureCandidate
         {
             TableIndex = ruleCandidate.TableIndex,
             TableName = ruleCandidate.TableName ?? llmCandidate.TableName,
-            HeaderRowIndex = ruleCandidate.HeaderRowIndex,
-            HeaderRowCount = ruleCandidate.HeaderRowCount,
-            DataStartRowIndex = ruleCandidate.DataStartRowIndex,
-            DataEndRowIndex = ruleCandidate.DataEndRowIndex ?? llmCandidate.DataEndRowIndex,
-            ProjectColumnIndex = ruleCandidate.ProjectColumnIndex ?? llmCandidate.ProjectColumnIndex,
-            SpecificationColumnIndex = ruleCandidate.SpecificationColumnIndex ?? llmCandidate.SpecificationColumnIndex,
-            AcceptanceColumnIndex = ruleCandidate.AcceptanceColumnIndex ?? llmCandidate.AcceptanceColumnIndex,
-            RemarkColumnIndex = ruleCandidate.RemarkColumnIndex ?? llmCandidate.RemarkColumnIndex,
-            IsSpecificationOnly = ruleCandidate.IsSpecificationOnly && !llmCandidate.ProjectColumnIndex.HasValue,
+            HeaderRowIndex = allowLlmOverride ? llmCandidate.HeaderRowIndex : ruleCandidate.HeaderRowIndex,
+            HeaderRowCount = allowLlmOverride ? llmCandidate.HeaderRowCount : ruleCandidate.HeaderRowCount,
+            DataStartRowIndex = allowLlmOverride ? llmCandidate.DataStartRowIndex : ruleCandidate.DataStartRowIndex,
+            DataEndRowIndex = allowLlmOverride
+                ? llmCandidate.DataEndRowIndex ?? ruleCandidate.DataEndRowIndex
+                : ruleCandidate.DataEndRowIndex ?? llmCandidate.DataEndRowIndex,
+            ProjectColumnIndex = projectColumn,
+            SpecificationColumnIndex = specificationColumn,
+            AcceptanceColumnIndex = acceptanceColumn,
+            RemarkColumnIndex = remarkColumn,
+            IsSpecificationOnly = !projectColumn.HasValue,
             Confidence = Math.Max(ruleCandidate.Confidence, llmCandidate.Confidence),
             Source = DocumentStructureCandidateSource.Fused
         };

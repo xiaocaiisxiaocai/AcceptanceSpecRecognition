@@ -17,7 +17,8 @@ import { ensurePermission } from "@/utils/permission-guard";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import {
   buildAiServiceConfigSummary,
-  getDefaultPriority
+  getDefaultPriority,
+  shouldShowAllConfigsByDefault
 } from "./config-selection";
 import AiServiceConfigsTable from "./components/AiServiceConfigsTable.vue";
 import AiServiceEditDialog from "./components/AiServiceEditDialog.vue";
@@ -77,6 +78,9 @@ const loadData = async () => {
     const res = await getAiServiceList({ page: 1, pageSize: 100 });
     if (res.code === 0) {
       tableData.value = res.data.items;
+      if (shouldShowAllConfigsByDefault(res.data.items)) {
+        showAllConfigs.value = true;
+      }
       if (
         activeTestResult.value &&
         !res.data.items.some(item => item.id === activeTestResult.value?.rowId)

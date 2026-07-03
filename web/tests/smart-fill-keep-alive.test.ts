@@ -9,23 +9,23 @@ const readProjectFile = (relativePath: string) =>
 const statefulWorkflowPages = [
   {
     name: "ImportData",
-    route: "src/router/modules/data-import.ts",
-    page: "src/views/data-import/index.vue"
+    route: "web/src/router/modules/data-import.ts",
+    page: "web/src/views/data-import/index.vue"
   },
   {
     name: "FillData",
-    route: "src/router/modules/smart-fill.ts",
-    page: "src/views/smart-fill/index.vue"
+    route: "web/src/router/modules/smart-fill.ts",
+    page: "web/src/views/smart-fill/index.vue"
   },
   {
     name: "BatchReplyPage",
-    route: "src/router/modules/batch-reply.ts",
-    page: "src/views/batch-reply/index.vue"
+    route: "web/src/router/modules/batch-reply.ts",
+    page: "web/src/views/batch-reply/index.vue"
   },
   {
     name: "FileComparePage",
-    route: "src/router/modules/file-compare.ts",
-    page: "src/views/file-compare/index.vue"
+    route: "web/src/router/modules/file-compare.ts",
+    page: "web/src/views/file-compare/index.vue"
   }
 ];
 
@@ -41,12 +41,14 @@ test("强状态流程页应启用 keep-alive 并让组件名匹配子路由名",
 });
 
 test("智能填充进度快照 404 时应停止轮询但不取消主匹配", () => {
-  const pageSource = readProjectFile("src/views/smart-fill/index.vue");
+  const progressSource = readProjectFile(
+    "web/src/views/smart-fill/composables/useSmartFillPreviewProgress.ts"
+  );
 
-  assert.match(pageSource, /error\?\.response\?\.status === 404/);
-  assert.match(pageSource, /stopPreviewProgressPolling\(\);\s*return;/);
+  assert.match(progressSource, /axiosError\?\.response\?\.status === 404/);
+  assert.match(progressSource, /stopPreviewProgressPolling\(\);/);
   assert.doesNotMatch(
-    pageSource,
-    /error\?\.response\?\.status === 404[\s\S]{0,120}stopPreviewRequest\(\)/
+    progressSource,
+    /axiosError\?\.response\?\.status === 404[\s\S]{0,120}stopPreviewRequest\(\)/
   );
 });

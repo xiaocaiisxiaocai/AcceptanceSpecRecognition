@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import type {
   SmartConfigConfirmRequest,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import {
   buildSmartConfigConfirmRequest,
+  formatDisplayIndexFromZeroBased,
+  formatDisplayRowRange,
   formatSmartStructurePercent,
   getSmartStructureDecisionTag,
-  getSmartStructureFieldLabel
+  getSmartStructureFieldLabel,
+  toDisplayIndexFromZeroBased,
+  toZeroBasedIndexFromDisplay
 } from "./smart-structure-recognition";
 
 const props = defineProps<{
@@ -16,11 +20,15 @@ const props = defineProps<{
   customerId?: number;
   confirming?: boolean;
   readonly?: boolean;
+  defaultExpanded?: boolean;
+  importSelected?: boolean;
+  importSelectable?: boolean;
 }>();
 
 const emit = defineEmits<{
   confirm: [request: SmartConfigConfirmRequest];
   advanced: [table: SmartConfigRecognizedTable];
+  "update:importSelected": [value: boolean];
 }>();
 
 type EditableState = {
@@ -48,6 +56,7 @@ const state = reactive<EditableState>({
   dataEndRowIndex: undefined,
   isSpecificationOnly: false
 });
+const detailVisible = ref(false);
 
 const resetState = () => {
   state.templateName =
@@ -61,9 +70,20 @@ const resetState = () => {
   state.dataStartRowIndex = props.table.dataStartRowIndex;
   state.dataEndRowIndex = props.table.dataEndRowIndex;
   state.isSpecificationOnly = props.table.isSpecificationOnly;
+  detailVisible.value =
+    props.defaultExpanded ?? props.table.decision !== "AutoApply";
 };
 
 watch(() => props.table, resetState, { immediate: true });
+
+watch(
+  () => state.isSpecificationOnly,
+  isSpecificationOnly => {
+    if (isSpecificationOnly) {
+      state.projectColumnIndex = undefined;
+    }
+  }
+);
 
 const decisionTag = computed(() =>
   getSmartStructureDecisionTag(props.table.decision)
@@ -76,20 +96,70 @@ const tableTitle = computed(
 const columnOptions = computed(() =>
   props.table.headers.map((header, index) => ({
     value: index,
-    label: `[${index}] ${header || `列${index + 1}`}`
+    label: `[${formatDisplayIndexFromZeroBased(index)}] ${
+      header || `列${index + 1}`
+    }`
   }))
+);
+
+const getHeaderText = (index?: number) =>
+  index === undefined ? "-" : props.table.headers[index] || `列${index + 1}`;
+
+const summaryFields = computed(() => [
+  { label: "项目", value: getHeaderText(props.table.projectColumnIndex) },
+  { label: "规格", value: getHeaderText(props.table.specificationColumnIndex) },
+  { label: "验收", value: getHeaderText(props.table.acceptanceColumnIndex) },
+  { label: "备注", value: getHeaderText(props.table.remarkColumnIndex) }
+]);
+
+const hasRequiredProjectColumn = computed(
+  () => state.isSpecificationOnly || state.projectColumnIndex !== undefined
 );
 
 const canConfirm = computed(
   () =>
     !props.readonly &&
     !!props.customerId &&
+    hasRequiredProjectColumn.value &&
     state.specificationColumnIndex !== undefined &&
+    state.acceptanceColumnIndex !== undefined &&
+    state.remarkColumnIndex !== undefined &&
     props.table.decision !== "Reject"
 );
 
+const importSwitchText = computed(() =>
+  props.importSelected ? "参与导入" : "不导入"
+);
+
+const displayHeaderRowIndex = computed({
+  get: () => toDisplayIndexFromZeroBased(state.headerRowIndex),
+  set: value => {
+    state.headerRowIndex = toZeroBasedIndexFromDisplay(value);
+  }
+});
+
+const displayDataStartRowIndex = computed({
+  get: () => toDisplayIndexFromZeroBased(state.dataStartRowIndex),
+  set: value => {
+    state.dataStartRowIndex = toZeroBasedIndexFromDisplay(value);
+  }
+});
+
+const displayRowRangeText = computed(() =>
+  formatDisplayRowRange({
+    headerRowIndex: state.headerRowIndex,
+    dataStartRowIndex: state.dataStartRowIndex
+  })
+);
+
 const emitConfirm = () => {
-  if (!props.customerId || state.specificationColumnIndex === undefined) {
+  if (
+    !props.customerId ||
+    !hasRequiredProjectColumn.value ||
+    state.specificationColumnIndex === undefined ||
+    state.acceptanceColumnIndex === undefined ||
+    state.remarkColumnIndex === undefined
+  ) {
     return;
   }
 
@@ -116,6 +186,15 @@ const emitConfirm = () => {
   <section class="smart-structure-card">
     <div class="card-header">
       <div class="card-title">
+        <el-checkbox
+          :model-value="importSelected"
+          :disabled="readonly || importSelectable === false"
+          @update:model-value="
+            value => emit('update:importSelected', Boolean(value))
+          "
+        >
+          {{ importSwitchText }}
+        </el-checkbox>
         <span>{{ tableTitle }}</span>
         <el-tag size="small" :type="decisionTag.type" effect="plain">
           {{ decisionTag.text }}
@@ -127,7 +206,20 @@ const emitConfirm = () => {
       </div>
     </div>
 
-    <div class="headers-preview">
+    <div class="card-summary-strip">
+      <el-tag
+        v-for="field in summaryFields"
+        :key="field.label"
+        size="small"
+        effect="plain"
+        :type="field.value === '-' ? 'info' : 'primary'"
+      >
+        {{ field.label }}: {{ field.value }}
+      </el-tag>
+      <span class="row-range">{{ displayRowRangeText }}</span>
+    </div>
+
+    <div v-show="detailVisible" class="headers-preview">
       <span class="headers-label">表头</span>
       <el-tag
         v-for="(header, index) in table.headers.slice(0, 10)"
@@ -136,12 +228,18 @@ const emitConfirm = () => {
         type="info"
         effect="plain"
       >
-        [{{ index }}] {{ header || `列${index + 1}` }}
+        [{{ formatDisplayIndexFromZeroBased(index) }}]
+        {{ header || `列${index + 1}` }}
       </el-tag>
       <span v-if="table.headers.length > 10" class="more">...</span>
     </div>
 
-    <el-form label-width="96px" size="small" class="confirm-form">
+    <el-form
+      v-show="detailVisible"
+      label-width="96px"
+      size="small"
+      class="confirm-form"
+    >
       <el-row :gutter="14">
         <el-col :xs="24" :sm="12" :lg="8">
           <el-form-item label="模板名">
@@ -171,11 +269,11 @@ const emitConfirm = () => {
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="项目列">
+          <el-form-item label="项目列" :required="!state.isSpecificationOnly">
             <el-select
               v-model="state.projectColumnIndex"
               :disabled="readonly || state.isSpecificationOnly"
-              placeholder="可选"
+              placeholder="请选择项目列"
               clearable
               style="width: 100%"
             >
@@ -189,11 +287,11 @@ const emitConfirm = () => {
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="验收列">
+          <el-form-item label="验收列" required>
             <el-select
               v-model="state.acceptanceColumnIndex"
               :disabled="readonly"
-              placeholder="可选"
+              placeholder="请选择验收列"
               clearable
               style="width: 100%"
             >
@@ -207,11 +305,11 @@ const emitConfirm = () => {
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="备注列">
+          <el-form-item label="备注列" required>
             <el-select
               v-model="state.remarkColumnIndex"
               :disabled="readonly"
-              placeholder="可选"
+              placeholder="请选择备注列"
               clearable
               style="width: 100%"
             >
@@ -237,9 +335,9 @@ const emitConfirm = () => {
         <el-col :xs="24" :sm="8">
           <el-form-item label="表头行">
             <el-input-number
-              v-model="state.headerRowIndex"
+              v-model="displayHeaderRowIndex"
               :disabled="readonly"
-              :min="0"
+              :min="1"
             />
           </el-form-item>
         </el-col>
@@ -255,16 +353,20 @@ const emitConfirm = () => {
         <el-col :xs="24" :sm="8">
           <el-form-item label="数据起始">
             <el-input-number
-              v-model="state.dataStartRowIndex"
+              v-model="displayDataStartRowIndex"
               :disabled="readonly"
-              :min="0"
+              :min="1"
             />
           </el-form-item>
         </el-col>
       </el-row>
     </el-form>
 
-    <div v-if="table.fields.length > 0" class="field-list">
+    <div
+      v-show="detailVisible"
+      v-if="table.fields.length > 0"
+      class="field-list"
+    >
       <el-tag
         v-for="field in table.fields"
         :key="`${field.field}-${field.columnIndex}`"
@@ -278,6 +380,9 @@ const emitConfirm = () => {
     </div>
 
     <div class="card-actions">
+      <el-button type="primary" link @click="detailVisible = !detailVisible">
+        {{ detailVisible ? "收起配置" : "展开配置" }}
+      </el-button>
       <el-button type="primary" link @click="emit('advanced', table)">
         高级手动配置
       </el-button>
@@ -295,7 +400,7 @@ const emitConfirm = () => {
 
 <style scoped>
 .smart-structure-card {
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: #fff;
   border: 1px solid #dce4ee;
   border-radius: 8px;
@@ -306,7 +411,7 @@ const emitConfirm = () => {
   gap: 12px;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .card-title {
@@ -328,13 +433,27 @@ const emitConfirm = () => {
   color: #6b7785;
 }
 
+.card-summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 26px;
+}
+
+.row-range {
+  font-size: 12px;
+  color: #7b8794;
+}
+
 .headers-preview,
 .field-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  margin-bottom: 12px;
+  margin-top: 10px;
+  margin-bottom: 10px;
 }
 
 .headers-label,
@@ -345,7 +464,8 @@ const emitConfirm = () => {
 
 .confirm-form {
   padding: 10px 12px 0;
-  margin-bottom: 12px;
+  margin-top: 10px;
+  margin-bottom: 10px;
   background: #fbfcfd;
   border: 1px solid #e5ebf2;
   border-radius: 8px;

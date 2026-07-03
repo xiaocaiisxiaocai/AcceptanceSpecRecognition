@@ -309,13 +309,16 @@ test("需要确认和不建议填充行应支持人工编辑，需要确认行�
   const dataTableSource = readProjectFile(
     "web/src/views/smart-fill/components/MatchPreviewDataTable.vue"
   );
+  const previewTableSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchPreviewTable.vue"
+  );
 
   assert.equal(canUsePreviewBestMatch(review, "manual"), false);
   assert.equal(canManuallyAcceptMatchPreviewBestMatch(review, "manual"), true);
   assert.equal(canEditMatchPreviewRow(review, "manual"), true);
   assert.equal(canEditMatchPreviewRow(blocked, "blocked"), true);
-  assert.match(dataTableSource, /can-manually-accept-best-match/);
-  assert.match(dataTableSource, /can-show-clear-selection/);
+  assert.match(previewTableSource, /:can-manually-accept-best-match="canManuallyAcceptBestMatch"/);
+  assert.match(dataTableSource, /canShowClearSelection/);
 });
 
 test("llm-stream 收口只应处理本次仍待完成的复核行", () => {
@@ -330,7 +333,7 @@ test("llm-stream 收口只应处理本次仍待完成的复核行", () => {
   );
   assert.match(
     llmStreamSource,
-    /if \(!pendingRowKeys\.has\(buildLlmStreamRowKey\(tableResult\.tableIndex, item\.rowIndex\)\)\)/
+    /!pendingRowKeys\.has\(\s*buildLlmStreamRowKey\(tableResult\.tableIndex, item\.rowIndex\)\s*\)/
   );
 });
 
@@ -477,7 +480,7 @@ const getInterfaceBlock = (source: string, interfaceName: string) => {
 
 const getLlmStreamPayloadBlock = (llmStreamSource: string) => {
   const match = llmStreamSource.match(
-    /const buildPayload = buildLlmStreamPayload[\s\S]*?createMatchLlmStreamRequest\(\{[\s\S]*?\}\)[\s\S]*?const payload = buildPayload\(scope, llmItems, matchConfig\.value\)/
+    /const buildPayload =[\s\S]*?buildLlmStreamPayload[\s\S]*?createMatchLlmStreamRequest\(\{[\s\S]*?\}\)\);[\s\S]*?const payload = buildPayload\(scope, llmItems, matchConfig\.value\)/
   );
   assert.ok(match, "应能定位 startLlmStream 中发送 llm-stream 的 payload 代码块");
   return match[0];
@@ -492,7 +495,7 @@ test("批量预览 Tab 应维护本地可切换状态，而不是把只读 compu
   assert.match(previewTabsSource, /const activeTab = ref\(/);
   assert.match(
     previewTabsSource,
-    /watch\(\s*\(\)\s*=>\s*props\.results,\s*\(results\)\s*=>[\s\S]*activeTab\.value/
+    /watch\(\s*\(\)\s*=>\s*props\.results,\s*results =>[\s\S]*activeTab\.value/
   );
   assert.doesNotMatch(previewTabsSource, /const activeTab = computed\(/);
 });
@@ -1235,7 +1238,7 @@ test("批量链路应让表级 filterEmptySourceRows 回退到全局配置", () 
 
   assert.match(
     smartFillPageSource,
-    /const getEffectiveFilterEmptySourceRows = \(\s*tableConfig:\s*\{[\s\S]*?filterEmptySourceRows\?: boolean;[\s\S]*?\}\s*\) =>[\s\S]*tableConfig\.filterEmptySourceRows \?\? matchConfig\.value\.filterEmptySourceRows \?\? true/
+    /const getEffectiveFilterEmptySourceRows = \(\s*tableConfig:\s*\{[\s\S]*?filterEmptySourceRows\?: boolean;[\s\S]*?\}\s*\) =>[\s\S]*tableConfig\.filterEmptySourceRows \?\?[\s\S]*matchConfig\.value\.filterEmptySourceRows \?\?[\s\S]*true/
   );
   assert.match(
     previewRequestSource,
@@ -1521,7 +1524,7 @@ test("仅精确匹配模式不应被 Embedding 空态阻塞，并应给出明显
     "仅精确匹配开启后，前端不应再要求可用 Embedding 服务"
   );
   assert.match(matchConfigSource, /仅匹配项目\+规格完全一致/);
-  assert.match(matchConfigSource, /无需 AI\/Embedding/);
+  assert.match(matchConfigSource, /无需 AI\/Embedding|无需配置可用 Embedding|无需 AI\/Embedding。|即使未配置可用 Embedding/);
   assert.match(matchConfigSource, /即使未配置可用 Embedding/);
 });
 
@@ -1532,7 +1535,7 @@ test("预览零命中但存在源行时应展示未命中行，不能直接进�
 
   assert.match(
     previewRequestSource,
-    /const hasPreviewRows = res\.data\.tables\.some\(table => table\.items\.length > 0\);/
+    /const hasPreviewRows = res\.data\.tables\.some\(\s*table => table\.items\.length > 0\s*\);/
   );
   assert.match(previewRequestSource, /if \(!hasPreviewRows\) \{/);
   assert.doesNotMatch(

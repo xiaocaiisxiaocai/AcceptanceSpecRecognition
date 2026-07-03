@@ -1,3 +1,5 @@
+/// <reference types="vitest/config" />
+
 import { getPluginsList } from "./build/plugins";
 import { include, exclude } from "./build/optimize";
 import { type UserConfigExport, type ConfigEnv, loadEnv } from "vite";
@@ -75,6 +77,10 @@ export default async ({ mode, command }: ConfigEnv): Promise<UserConfigExport> =
     optimizeDeps: {
       include,
       exclude
+    },
+    test: {
+      include: ["src/**/*.test.ts"],
+      exclude: ["node_modules/**", "dist/**"]
     },
     build: {
       // https://cn.vitejs.dev/guide/build.html#browser-compatibility

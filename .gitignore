@@ -24,6 +24,8 @@ bld/
 .tmp-req*-response.json
 .tmp*.log
 .tmp*.json
+tmp-*.log
+tmp-*.out
 
 # Visual Studio files
 .vs/

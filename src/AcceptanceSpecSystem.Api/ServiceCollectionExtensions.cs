@@ -41,6 +41,8 @@ public static class ApiServiceCollectionExtensions
             configuration.GetSection(DatabaseBackupOptions.SectionName));
         services.Configure<AiServiceTestOptions>(
             configuration.GetSection(AiServiceTestOptions.SectionName));
+        services.Configure<SmartConfigurationOptions>(
+            configuration.GetSection(SmartConfigurationOptions.SectionName));
         services.Configure<RequestTracingOptions>(
             configuration.GetSection(RequestTracingOptions.SectionName));
         services.Configure<SlowQueryOptions>(

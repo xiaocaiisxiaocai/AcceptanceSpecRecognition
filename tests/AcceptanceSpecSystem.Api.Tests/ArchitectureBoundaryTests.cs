@@ -411,6 +411,76 @@ public class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void SmartConfigurationAppService_ShouldExposeInterface_AndControllerShouldDependOnInterface()
+    {
+        var serviceContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService.cs");
+        var serviceCollectionContent = ReadFile("src/AcceptanceSpecSystem.Application/ServiceCollectionExtensions.cs");
+        var controllerContent = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/SmartConfigController.cs");
+
+        serviceContent.Should().Contain("public interface ISmartConfigurationAppService",
+            "智能结构识别用例也应暴露接口，避免控制器依赖具体实现");
+        serviceContent.Should().MatchRegex(
+            @"public\s+sealed\s+class\s+SmartConfigurationAppService\s*:\s*ISmartConfigurationAppService",
+            "SmartConfigurationAppService 应显式实现自身接口");
+        serviceCollectionContent.Should().Contain("AddScoped<ISmartConfigurationAppService, SmartConfigurationAppService>()",
+            "SmartConfigurationAppService 应按接口注册到 Application DI");
+        controllerContent.Should().Contain("private readonly ISmartConfigurationAppService",
+            "SmartConfigController 字段应依赖接口");
+        controllerContent.Should().MatchRegex(
+            @"public\s+SmartConfigController\s*\([^)]*\bISmartConfigurationAppService\s+\w+",
+            "SmartConfigController 构造函数应注入接口");
+    }
+
+    [Fact]
+    public void SmartConfiguration_ShouldNotKeepArchivedAutoDetectEndpoint()
+    {
+        var controllerContent = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/SmartConfigController.cs");
+        var appServiceContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService.cs");
+        var intelligenceServiceContent = ReadFile("src/AcceptanceSpecSystem.Core/Documents/Intelligence/IDocumentIntelligenceService.cs");
+
+        controllerContent.Should().NotContain("auto-detect", "智能结构识别公开入口已统一为 recognize");
+        controllerContent.Should().NotContain("AutoDetect", "控制器不应保留归档自动配置 Action");
+        controllerContent.Should().NotContain("AutoDetectRequest", "归档请求 DTO 应随旧入口删除");
+        appServiceContent.Should().NotContain("AutoConfigureAsync", "应用服务不应保留归档单表自动配置入口");
+        intelligenceServiceContent.Should().NotContain("AutoConfigureAsync", "Core 智能识别接口不应保留归档单表自动配置入口");
+    }
+
+    [Fact]
+    public void SmartConfigurationRecognizedTableDtoMapping_ShouldBeCentralizedInFactory()
+    {
+        var repositoryRoot = GetRepositoryRoot();
+        var factoryPath = Path.Combine(
+            repositoryRoot,
+            "src/AcceptanceSpecSystem.Application/Services/SmartConfigurationRecognizedTableFactory.cs".Replace('/', Path.DirectorySeparatorChar));
+
+        File.Exists(factoryPath).Should().BeTrue("智能结构识别 DTO 构造边界应集中在专用工厂");
+
+        var factoryContent = File.ReadAllText(factoryPath);
+        factoryContent.Should().Contain("SmartConfigurationRecognizedTableFactory");
+        factoryContent.Should().Contain("SmartConfigurationTableStructure",
+            "智能结构识别内部列映射应先收敛到统一结构，再转换为 API DTO");
+        factoryContent.Should().Contain("FromTemplate");
+        factoryContent.Should().Contain("FromMapping");
+        factoryContent.Should().Contain("FromCandidate");
+        factoryContent.Should().Contain("ToStructureCandidate");
+        factoryContent.Should().Contain("ToColumnMappingResult");
+        factoryContent.Should().Contain("ToRecognizedTable");
+
+        var appServiceContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService.cs");
+        appServiceContent.Should().Contain("SmartConfigurationRecognizedTableFactory");
+        appServiceContent.Should().NotContain("BuildRecognizedTableFromTemplate(",
+            "AppService 应只负责编排，不应继续散落模板识别 DTO 构造");
+        appServiceContent.Should().NotContain("BuildRecognizedTableFromMapping(",
+            "AppService 应只负责编排，不应继续散落规则识别 DTO 构造");
+        appServiceContent.Should().NotContain("BuildRecognizedTableFromCandidate(",
+            "AppService 应只负责编排，不应继续散落融合识别 DTO 构造");
+        appServiceContent.Should().NotContain("private static DocumentStructureCandidate ToStructureCandidate",
+            "规则结果到结构候选的转换应收敛到工厂");
+        appServiceContent.Should().NotContain("private static ColumnMappingResult ToColumnMappingResult",
+            "结构候选到列映射结果的转换应收敛到工厂");
+    }
+
+    [Fact]
     public void PermissionAndNavigationMetadata_ShouldUseSharedManifest_AndNotDependOnAsyncRoutesRuntime()
     {
         var repositoryRoot = GetRepositoryRoot();
@@ -586,6 +656,23 @@ public class ArchitectureBoundaryTests
         {
             var lineCount = File.ReadLines(serviceFile).Count();
             lineCount.Should().BeLessThan(500, $"{Path.GetFileName(serviceFile)} 应保持单一职责，避免重新膨胀为巨型文件");
+        }
+    }
+
+    [Fact]
+    public void CoreMatchingServiceFiles_ShouldNotGrowBeyondCurrentLargeFileBaseline()
+    {
+        var serviceDirectory = Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Core", "Matching", "Services");
+        var serviceFiles = Directory.GetFiles(serviceDirectory, "*.cs");
+        serviceFiles.Should().NotBeEmpty("Core Matching 服务目录应存在可治理文件");
+
+        foreach (var serviceFile in serviceFiles)
+        {
+            var fileName = Path.GetFileName(serviceFile);
+            var lineCount = File.ReadLines(serviceFile).Count();
+            lineCount.Should().BeLessThan(
+                500,
+                $"{fileName} 应保持单一职责，避免形成 Core Matching 巨型文件");
         }
     }
 

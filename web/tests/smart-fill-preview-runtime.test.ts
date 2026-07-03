@@ -21,18 +21,20 @@ test("MatchPreviewTable 应先声明 getReviewStatus，再在其他计算逻辑�
   );
 
   const reviewStatusIndex = source.indexOf("const getReviewStatus =");
-  const reviewInFlightIndex = source.indexOf("const isReviewInFlight =");
+  const canUseBestMatchIndex = source.indexOf("const canUseBestMatch =");
 
   assert.notEqual(reviewStatusIndex, -1, "应存在 getReviewStatus 定义");
-  assert.notEqual(reviewInFlightIndex, -1, "应存在 isReviewInFlight 定义");
+  assert.notEqual(canUseBestMatchIndex, -1, "应存在 canUseBestMatch 定义");
   assert.ok(
-    reviewStatusIndex < reviewInFlightIndex,
-    "getReviewStatus 必须先于 isReviewInFlight 定义，避免 setup 阶段触发暂时性死区"
+    reviewStatusIndex < canUseBestMatchIndex,
+    "getReviewStatus 必须先于依赖复核状态的计算函数定义，避免 setup 阶段触发暂时性死区"
   );
 });
 
 test("smart-fill 第四步在没有预览结果时应显示明确空状态，避免出现空白页", () => {
-  const source = readProjectFile("web/src/views/smart-fill/index.vue");
+  const source = readProjectFile(
+    "web/src/views/smart-fill/components/SmartFillPreviewStep.vue"
+  );
 
   assert.match(source, /v-else-if="!loading && batchPreviewResults\.length === 0"/);
   assert.match(source, /当前没有预览结果/);

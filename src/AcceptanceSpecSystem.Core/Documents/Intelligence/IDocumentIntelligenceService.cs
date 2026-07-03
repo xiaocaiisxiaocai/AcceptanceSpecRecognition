@@ -29,18 +29,6 @@ public interface IDocumentIntelligenceService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 自动配置（一站式：表格识别 + 列映射识别）
-    /// </summary>
-    /// <param name="tables">所有表格信息</param>
-    /// <param name="tablesData">所有表格数据</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>自动配置结果</returns>
-    Task<AutoConfigResult> AutoConfigureAsync(
-        IReadOnlyList<TableInfo> tables,
-        IReadOnlyList<TableData> tablesData,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// 检测表头行位置
     /// </summary>
     /// <param name="tableData">表格数据</param>

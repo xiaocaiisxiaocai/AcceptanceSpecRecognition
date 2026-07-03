@@ -46,6 +46,13 @@
   margin-bottom: 14px;
 }
 
+.smart-fill-confirm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
 .smart-fill-entry-actions {
   display: flex;
   flex-wrap: wrap;

@@ -9,6 +9,7 @@ using AcceptanceSpecSystem.Core.Documents.Models;
 using ClosedXML.Excel;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -139,9 +140,12 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         content.Add(fileContent, "file", fileName);
 
         var response = await _client.PostAsync("/api/documents/upload", content);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
 
-        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var json = JsonSerializer.Deserialize<ApiResponse<JsonElement>>(
+            responseText,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return json.Data.GetProperty("fileId").GetInt32();
     }
 
@@ -296,9 +300,261 @@ public class SmartConfigRecognizeLlmFusionApiTests : IClassFixture<LlmFillsMissi
         worksheet.Cell(1, 1).Value = "项目";
         worksheet.Cell(1, 2).Value = "规格";
         worksheet.Cell(1, 3).Value = "验收结果";
+        worksheet.Cell(1, 4).Value = "备注";
         worksheet.Cell(2, 1).Value = "外观";
         worksheet.Cell(2, 2).Value = "无划伤";
         worksheet.Cell(2, 3).Value = "目视 OK";
+        worksheet.Cell(2, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
+public class SmartConfigRecognizeSpecificationOnlyApiTests : IClassFixture<SpecificationOnlyIntelligenceApiFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeSpecificationOnlyApiTests(SpecificationOnlyIntelligenceApiFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenHighConfidenceResultIsSpecificationOnly_ShouldReturnAutoApply()
+    {
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-specification-only.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("projectColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("specificationColumnIndex").GetInt32().Should().Be(0);
+        table.GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(1);
+        table.GetProperty("remarkColumnIndex").GetInt32().Should().Be(2);
+        table.GetProperty("isSpecificationOnly").GetBoolean().Should().BeTrue();
+        table.GetProperty("decision").GetString().Should().Be("AutoApply");
+    }
+
+    private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await _client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "规格";
+        worksheet.Cell(1, 2).Value = "验收标准";
+        worksheet.Cell(1, 3).Value = "备注";
+        worksheet.Cell(2, 1).Value = "无划伤";
+        worksheet.Cell(2, 2).Value = "目视 OK";
+        worksheet.Cell(2, 3).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
+public class SmartConfigRecognizeLlmRequiredColumnsApiTests : IClassFixture<LlmFillsMissingRequiredColumnsApiFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeLlmRequiredColumnsApiTests(LlmFillsMissingRequiredColumnsApiFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenRuleMissesAcceptanceAndRemarkAndLlmFillsThem_ShouldReturnFusedAutoApply()
+    {
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-llm-required-columns.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("source").GetString().Should().Be("Fused");
+        table.GetProperty("projectColumnIndex").GetInt32().Should().Be(0);
+        table.GetProperty("specificationColumnIndex").GetInt32().Should().Be(1);
+        table.GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(2);
+        table.GetProperty("remarkColumnIndex").GetInt32().Should().Be(3);
+        table.GetProperty("decision").GetString().Should().Be("AutoApply");
+    }
+
+    private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await _client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "验收标准";
+        worksheet.Cell(1, 4).Value = "备注";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "目视 OK";
+        worksheet.Cell(2, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
+public class SmartConfigRecognizeLlmIncompleteApiTests : IClassFixture<LlmIncompleteRequiredColumnsApiFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeLlmIncompleteApiTests(LlmIncompleteRequiredColumnsApiFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenLlmStillMissesRequiredColumns_ShouldReturnFusedNeedConfirm()
+    {
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-llm-incomplete.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("source").GetString().Should().Be("Fused");
+        table.GetProperty("acceptanceColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("remarkColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+    }
+
+    private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await _client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "验收标准";
+        worksheet.Cell(1, 4).Value = "备注";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "目视 OK";
+        worksheet.Cell(2, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
+public class SmartConfigRecognizeLlmTimeoutApiTests : IClassFixture<LlmStructureTimeoutApiFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeLlmTimeoutApiTests(LlmStructureTimeoutApiFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenLlmStructureAdjudicationHangs_ShouldReturnRuleResultAfterBusinessTimeout()
+    {
+        BlockingStructureAdjudicationService.Reset();
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-llm-timeout.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("source").GetString().Should().Be("RuleBased");
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        BlockingStructureAdjudicationService.WasCancelled.Should().BeTrue("业务超时应取消挂起的 LLM 调用");
+    }
+
+    private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await _client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "验收结果";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "目视 OK";
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -319,6 +575,28 @@ public sealed class MissingSpecificationColumnIntelligenceApiFactory : ApiWebApp
     }
 }
 
+public sealed class LlmStructureTimeoutApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SmartConfiguration:StructureAdjudicationTimeoutSeconds"] = "1"
+            });
+        });
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.AddScoped<IDocumentIntelligenceService, MissingSpecificationColumnIntelligenceService>();
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, BlockingStructureAdjudicationService>();
+        });
+    }
+}
+
 public sealed class LlmFillsMissingSpecificationApiFactory : ApiWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -332,6 +610,113 @@ public sealed class LlmFillsMissingSpecificationApiFactory : ApiWebApplicationFa
             services.AddScoped<ILlmDocumentStructureAdjudicationService, FillSpecificationColumnStructureAdjudicationService>();
         });
     }
+}
+
+public sealed class SpecificationOnlyIntelligenceApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.AddScoped<IDocumentIntelligenceService, SpecificationOnlyIntelligenceService>();
+        });
+    }
+}
+
+public sealed class LlmFillsMissingRequiredColumnsApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.AddScoped<IDocumentIntelligenceService, MissingAcceptanceAndRemarkColumnIntelligenceService>();
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, FillRequiredColumnsStructureAdjudicationService>();
+        });
+    }
+}
+
+public sealed class LlmIncompleteRequiredColumnsApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.AddScoped<IDocumentIntelligenceService, MissingAcceptanceAndRemarkColumnIntelligenceService>();
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, IncompleteRequiredColumnsStructureAdjudicationService>();
+        });
+    }
+}
+
+public sealed class BlockingStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    public static bool WasCancelled { get; private set; }
+
+    public static void Reset()
+    {
+        WasCancelled = false;
+    }
+
+    public async Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(5), cancellationToken);
+            return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            WasCancelled = true;
+            throw;
+        }
+    }
+}
+
+public sealed class MissingAcceptanceAndRemarkColumnIntelligenceService : IDocumentIntelligenceService
+{
+    public Task<TableIdentificationResult> IdentifyTargetTableAsync(
+        IReadOnlyList<TableInfo> tables,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new TableIdentificationResult
+        {
+            TableIndex = 0,
+            Confidence = 1,
+            Reasoning = "测试替身"
+        });
+    }
+
+    public Task<ColumnMappingResult> IdentifyColumnMappingAsync(
+        TableData tableData,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new ColumnMappingResult
+        {
+            Confidence = 0.96,
+            Reasoning = "高置信但缺验收列和备注列",
+            Mapping = new ColumnMapping
+            {
+                ProjectColumn = 0,
+                SpecificationColumn = 1,
+                AcceptanceColumn = null,
+                RemarkColumn = null,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1
+            }
+        });
+    }
+
+    public int DetectHeaderRowIndex(TableData tableData) => 0;
 }
 
 public sealed class MissingSpecificationColumnIntelligenceService : IDocumentIntelligenceService
@@ -368,14 +753,6 @@ public sealed class MissingSpecificationColumnIntelligenceService : IDocumentInt
         });
     }
 
-    public Task<AutoConfigResult> AutoConfigureAsync(
-        IReadOnlyList<TableInfo> tables,
-        IReadOnlyList<TableData> tablesData,
-        CancellationToken cancellationToken = default)
-    {
-        throw new NotSupportedException();
-    }
-
     public int DetectHeaderRowIndex(TableData tableData) => 0;
 }
 
@@ -406,6 +783,7 @@ public sealed class FusableMissingSpecificationColumnIntelligenceService : IDocu
                 ProjectColumn = 0,
                 SpecificationColumn = null,
                 AcceptanceColumn = 2,
+                RemarkColumn = 3,
                 HeaderRowIndex = 0,
                 HeaderRowCount = 1,
                 DataStartRowIndex = 1
@@ -413,12 +791,42 @@ public sealed class FusableMissingSpecificationColumnIntelligenceService : IDocu
         });
     }
 
-    public Task<AutoConfigResult> AutoConfigureAsync(
+    public int DetectHeaderRowIndex(TableData tableData) => 0;
+}
+
+public sealed class SpecificationOnlyIntelligenceService : IDocumentIntelligenceService
+{
+    public Task<TableIdentificationResult> IdentifyTargetTableAsync(
         IReadOnlyList<TableInfo> tables,
-        IReadOnlyList<TableData> tablesData,
         CancellationToken cancellationToken = default)
     {
-        throw new NotSupportedException();
+        return Task.FromResult(new TableIdentificationResult
+        {
+            TableIndex = 0,
+            Confidence = 1,
+            Reasoning = "测试替身"
+        });
+    }
+
+    public Task<ColumnMappingResult> IdentifyColumnMappingAsync(
+        TableData tableData,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new ColumnMappingResult
+        {
+            Confidence = 0.96,
+            Reasoning = "高置信仅规格结构",
+            Mapping = new ColumnMapping
+            {
+                ProjectColumn = null,
+                SpecificationColumn = 0,
+                AcceptanceColumn = 1,
+                RemarkColumn = 2,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1
+            }
+        });
     }
 
     public int DetectHeaderRowIndex(TableData tableData) => 0;
@@ -442,6 +850,60 @@ public sealed class FillSpecificationColumnStructureAdjudicationService : ILlmDo
                     TableIndex = 0,
                     SpecificationColumnIndex = 1,
                     Confidence = 0.92,
+                    Source = DocumentStructureCandidateSource.Llm
+                }
+            ]
+        });
+    }
+}
+
+public sealed class FillRequiredColumnsStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    public Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(new LlmDocumentStructureAdjudicationResult
+        {
+            Confidence = 0.93,
+            Decision = "autoApply",
+            Reason = "测试替身补齐导入必填列",
+            Tables =
+            [
+                new DocumentStructureCandidate
+                {
+                    TableIndex = 0,
+                    ProjectColumnIndex = 0,
+                    SpecificationColumnIndex = 1,
+                    AcceptanceColumnIndex = 2,
+                    RemarkColumnIndex = 3,
+                    Confidence = 0.93,
+                    Source = DocumentStructureCandidateSource.Llm
+                }
+            ]
+        });
+    }
+}
+
+public sealed class IncompleteRequiredColumnsStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    public Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(new LlmDocumentStructureAdjudicationResult
+        {
+            Confidence = 0.91,
+            Decision = "needConfirm",
+            Reason = "测试替身仍无法确认验收列和备注列",
+            Tables =
+            [
+                new DocumentStructureCandidate
+                {
+                    TableIndex = 0,
+                    ProjectColumnIndex = 0,
+                    SpecificationColumnIndex = 1,
+                    Confidence = 0.91,
                     Source = DocumentStructureCandidateSource.Llm
                 }
             ]
