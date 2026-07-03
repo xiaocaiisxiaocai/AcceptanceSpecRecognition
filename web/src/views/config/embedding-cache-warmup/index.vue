@@ -360,7 +360,7 @@ onMounted(load);
 
 <style scoped>
 .embedding-warmup-page {
-  padding: 24px;
+  padding: 0;
 }
 
 .page-header {

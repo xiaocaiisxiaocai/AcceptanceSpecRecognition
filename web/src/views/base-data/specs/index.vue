@@ -147,9 +147,9 @@ onBeforeUnmount(() => {
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-height: 0;
-  padding: 24px;
+  padding: 0;
   overflow: hidden;
 }
 

@@ -170,7 +170,7 @@ onMounted(loadTree);
 
 <style scoped>
 .page {
-  padding: 24px;
+  padding: 0;
 }
 
 .mb-4 {

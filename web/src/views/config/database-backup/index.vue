@@ -362,7 +362,7 @@ onMounted(load);
 
 <style scoped>
 .database-backup-page {
-  padding: 24px;
+  padding: 0;
 }
 
 .page-header {

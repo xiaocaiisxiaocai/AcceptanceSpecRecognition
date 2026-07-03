@@ -1006,7 +1006,7 @@ onMounted(initPage);
 
 <style scoped>
 .page {
-  padding: 24px;
+  padding: 0;
 }
 
 .permission-count {

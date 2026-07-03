@@ -434,8 +434,8 @@ onMounted(loadData);
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 24px;
+  gap: 12px;
+  padding: 0;
 }
 
 .tag-list {

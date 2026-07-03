@@ -423,7 +423,7 @@ onMounted(loadData);
   flex-direction: column;
   gap: 12px;
   height: calc(100vh - 104px);
-  padding: 24px;
+  padding: 0;
   overflow: hidden;
 }
 

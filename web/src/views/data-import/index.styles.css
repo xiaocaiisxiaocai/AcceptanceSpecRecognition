@@ -1,15 +1,15 @@
 .data-import {
-  padding: 24px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .steps-affix {
   width: 100%;
   background: var(--el-bg-color);
   /* 不要顶部 padding，否则 Affix 需要先滚动一段才会触发“固定” */
-  padding: 0 0 16px;
+  padding: 0 0 8px;
   /* 让固定时更有层次感，避免和内容“糊在一起” */
   border-bottom: 1px solid var(--el-border-color-lighter);
   /* 防止底下内容滚动时“透出来” */
@@ -21,7 +21,7 @@
   padding: 0;
   /* 给固定底部操作栏预留空间，避免遮挡内容 */
   padding-bottom: 84px;
-  padding-top: 4px;
+  padding-top: 0;
 }
 
 .steps-card {
@@ -33,7 +33,7 @@
 }
 
 .step-panel {
-  padding: 20px 0;
+  padding: 12px 0;
 }
 
 .step-title {
@@ -46,11 +46,11 @@
 .step-desc {
   font-size: 14px;
   color: #6b7280;
-  margin-bottom: 24px;
+  margin-bottom: 12px;
 }
 
 .preview-section {
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .preview-section h4,
@@ -62,7 +62,7 @@
 }
 
 .mapping-section {
-  margin-top: 24px;
+  margin-top: 16px;
 }
 
 .upload-target-panel {
