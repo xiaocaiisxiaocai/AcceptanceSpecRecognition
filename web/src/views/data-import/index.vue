@@ -13,6 +13,7 @@ import ExcelColumnMapping from "./components/ExcelColumnMapping.vue";
 import { useDataImportPage } from "./composables/useDataImportPage";
 import SmartStructureConfirmCard from "@/views/shared/SmartStructureConfirmCard.vue";
 import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
+import { createSmartStructureDisplayGroups } from "@/views/shared/smart-structure-recognition";
 // 边界说明：useDataImportPage 内部组合 useDataImportMapping、
 // useDataImportPreviewSelection、useDataImportExecution；差异弹窗由
 // DataImportDifferenceConfirmDialog 继续组合 DataImportDifferenceDialog。
@@ -129,8 +130,15 @@ const activeTableTabModel = computed({
 
 const firstNeedConfirmTableIndex = computed(
   () =>
-    recognizedTables.value.find(table => table.decision !== "AutoApply")
+    recognizedTables.value.find(
+      table =>
+        table.recommendation !== "Recommended" &&
+        table.recommendation !== "Skip"
+    )
       ?.tableIndex
+);
+const smartStructureDisplayGroups = computed(() =>
+  createSmartStructureDisplayGroups(recognizedTables.value)
 );
 </script>
 
@@ -343,31 +351,43 @@ const firstNeedConfirmTableIndex = computed(
             @retry="runSmartStructureRecognition"
           />
           <div v-if="recognizedTables.length > 0" class="smart-confirm-list">
-            <SmartStructureConfirmCard
-              v-for="table in recognizedTables"
-              :key="table.tableIndex"
-              :table="table"
-              :customer-id="selectedCustomerId"
-              :confirming="smartConfirmingTableIndex === table.tableIndex"
-              :import-selected="
-                selectedSmartTableIndexes.includes(table.tableIndex)
-              "
-              :import-selectable="
-                table.decision !== 'Reject' &&
-                table.projectColumnIndex !== undefined &&
-                table.specificationColumnIndex !== undefined &&
-                table.acceptanceColumnIndex !== undefined &&
-                table.remarkColumnIndex !== undefined
-              "
-              :default-expanded="
-                table.tableIndex === firstNeedConfirmTableIndex
-              "
-              @confirm="request => handleSmartStructureConfirm(table, request)"
-              @advanced="() => enterAdvancedMode('mapping')"
-              @update:import-selected="
-                value => handleSmartTableImportSelectionChange(table, value)
-              "
-            />
+            <section
+              v-for="group in smartStructureDisplayGroups"
+              :key="group.key"
+              class="smart-confirm-group"
+            >
+              <div class="smart-confirm-group-title">
+                <el-tag size="small" :type="group.tagType" effect="plain">
+                  {{ group.title }}
+                </el-tag>
+                <span>{{ group.tables.length }} 张</span>
+              </div>
+              <SmartStructureConfirmCard
+                v-for="table in group.tables"
+                :key="table.tableIndex"
+                :table="table"
+                :customer-id="selectedCustomerId"
+                :confirming="smartConfirmingTableIndex === table.tableIndex"
+                :import-selected="
+                  selectedSmartTableIndexes.includes(table.tableIndex)
+                "
+                :import-selectable="
+                  table.decision !== 'Reject' &&
+                  table.projectColumnIndex !== undefined &&
+                  table.specificationColumnIndex !== undefined &&
+                  table.acceptanceColumnIndex !== undefined &&
+                  table.remarkColumnIndex !== undefined
+                "
+                :default-expanded="
+                  table.tableIndex === firstNeedConfirmTableIndex
+                "
+                @confirm="request => handleSmartStructureConfirm(table, request)"
+                @advanced="() => enterAdvancedMode('mapping')"
+                @update:import-selected="
+                  value => handleSmartTableImportSelectionChange(table, value)
+                "
+              />
+            </section>
           </div>
           <DataImportConfirmPanel
             v-model:preview-skipped-rows="previewSkippedRows"

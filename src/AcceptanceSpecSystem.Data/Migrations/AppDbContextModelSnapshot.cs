@@ -624,6 +624,9 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<int>("CustomerId")
                         .HasColumnType("int");
 
@@ -660,8 +663,18 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<int?>("RemarkColumnIndex")
                         .HasColumnType("int");
 
+                    b.Property<string>("Recommendation")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
                     b.Property<int>("SpecificationColumnIndex")
                         .HasColumnType("int");
+
+                    b.Property<string>("TableKind")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("TemplateName")
                         .IsRequired()
@@ -673,6 +686,9 @@ namespace AcceptanceSpecSystem.Data.Migrations
 
                     b.Property<int>("UsageCount")
                         .HasColumnType("int");
+
+                    b.Property<bool>("UserModifiedStructure")
+                        .HasColumnType("tinyint(1)");
 
                     b.HasKey("Id");
 

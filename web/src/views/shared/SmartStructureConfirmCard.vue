@@ -11,6 +11,9 @@ import {
   formatSmartStructurePercent,
   getSmartStructureDecisionTag,
   getSmartStructureFieldLabel,
+  getSmartStructureIssueTagType,
+  getSmartStructureRecommendationTag,
+  getSmartStructureTableKindLabel,
   toDisplayIndexFromZeroBased,
   toZeroBasedIndexFromDisplay
 } from "./smart-structure-recognition";
@@ -71,7 +74,9 @@ const resetState = () => {
   state.dataEndRowIndex = props.table.dataEndRowIndex;
   state.isSpecificationOnly = props.table.isSpecificationOnly;
   detailVisible.value =
-    props.defaultExpanded ?? props.table.decision !== "AutoApply";
+    props.defaultExpanded ??
+    (props.table.recommendation !== "Skip" &&
+      props.table.decision !== "AutoApply");
 };
 
 watch(() => props.table, resetState, { immediate: true });
@@ -87,6 +92,12 @@ watch(
 
 const decisionTag = computed(() =>
   getSmartStructureDecisionTag(props.table.decision)
+);
+const recommendationTag = computed(() =>
+  getSmartStructureRecommendationTag(props.table.recommendation)
+);
+const tableKindLabel = computed(() =>
+  getSmartStructureTableKindLabel(props.table.tableKind)
 );
 
 const tableTitle = computed(
@@ -129,6 +140,21 @@ const canConfirm = computed(
 
 const importSwitchText = computed(() =>
   props.importSelected ? "参与导入" : "不导入"
+);
+
+const visibleIssues = computed(() => props.table.issues?.slice(0, 4) ?? []);
+
+const hasStructureChanges = computed(
+  () =>
+    state.projectColumnIndex !== props.table.projectColumnIndex ||
+    state.specificationColumnIndex !== props.table.specificationColumnIndex ||
+    state.acceptanceColumnIndex !== props.table.acceptanceColumnIndex ||
+    state.remarkColumnIndex !== props.table.remarkColumnIndex ||
+    state.headerRowIndex !== props.table.headerRowIndex ||
+    state.headerRowCount !== props.table.headerRowCount ||
+    state.dataStartRowIndex !== props.table.dataStartRowIndex ||
+    state.dataEndRowIndex !== props.table.dataEndRowIndex ||
+    state.isSpecificationOnly !== props.table.isSpecificationOnly
 );
 
 const displayHeaderRowIndex = computed({
@@ -177,6 +203,9 @@ const emitConfirm = () => {
       dataStartRowIndex: state.dataStartRowIndex,
       dataEndRowIndex: state.dataEndRowIndex,
       isSpecificationOnly: state.isSpecificationOnly
+    },
+    {
+      userModifiedStructure: hasStructureChanges.value
     })
   );
 };
@@ -199,10 +228,19 @@ const emitConfirm = () => {
         <el-tag size="small" :type="decisionTag.type" effect="plain">
           {{ decisionTag.text }}
         </el-tag>
+        <el-tag size="small" :type="recommendationTag.type" effect="plain">
+          {{ recommendationTag.text }}
+        </el-tag>
+        <el-tag size="small" type="info" effect="plain">
+          {{ tableKindLabel }}
+        </el-tag>
       </div>
       <div class="card-meta">
         <span>{{ table.source || "-" }}</span>
         <span>置信度 {{ formatSmartStructurePercent(table.confidence) }}</span>
+        <span>
+          排序分 {{ formatSmartStructurePercent(table.rankingScore) }}
+        </span>
       </div>
     </div>
 
@@ -217,6 +255,26 @@ const emitConfirm = () => {
         {{ field.label }}: {{ field.value }}
       </el-tag>
       <span class="row-range">{{ displayRowRangeText }}</span>
+    </div>
+
+    <div v-if="table.skipReason || visibleIssues.length > 0" class="issue-list">
+      <el-tag
+        v-for="issue in visibleIssues"
+        :key="`${issue.code}-${issue.field || ''}-${issue.message}`"
+        size="small"
+        effect="plain"
+        :type="getSmartStructureIssueTagType(issue.severity)"
+      >
+        {{ issue.message }}
+      </el-tag>
+      <el-tag
+        v-if="table.skipReason && visibleIssues.length === 0"
+        size="small"
+        type="info"
+        effect="plain"
+      >
+        {{ table.skipReason }}
+      </el-tag>
     </div>
 
     <div v-show="detailVisible" class="headers-preview">
@@ -364,7 +422,7 @@ const emitConfirm = () => {
 
     <div
       v-show="detailVisible"
-      v-if="table.fields.length > 0"
+      v-if="table.fields?.length > 0"
       class="field-list"
     >
       <el-tag
@@ -447,7 +505,8 @@ const emitConfirm = () => {
 }
 
 .headers-preview,
-.field-list {
+.field-list,
+.issue-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;

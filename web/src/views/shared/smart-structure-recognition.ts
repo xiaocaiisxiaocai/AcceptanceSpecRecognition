@@ -2,6 +2,7 @@ import type { ColumnMappingTargetField } from "@/api/column-mapping-rules";
 import type {
   SmartConfigConfirmRequest,
   SmartConfigDecision,
+  SmartConfigRecommendation,
   SmartConfigRecognizedField,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
@@ -12,6 +13,9 @@ export type SmartStructureSummary = {
   autoApply: number;
   needConfirm: number;
   reject: number;
+  recommended: number;
+  optional: number;
+  skip: number;
   averageConfidence: number;
   canAutoApplyAll: boolean;
   hasNeedConfirm: boolean;
@@ -19,6 +23,13 @@ export type SmartStructureSummary = {
 };
 
 type ElementPlusTagType = "success" | "warning" | "danger" | "info";
+
+export type SmartStructureDisplayGroup = {
+  key: "recommended" | "needConfirm" | "skip";
+  title: string;
+  tagType: ElementPlusTagType;
+  tables: SmartConfigRecognizedTable[];
+};
 
 export const getSmartStructureFieldLabel = (field: string) => {
   switch (field) {
@@ -67,6 +78,68 @@ export const getSmartStructureDecisionTag = (
       return { text: "不可用", type: "danger" };
     default:
       return { text: decision || "-", type: "info" };
+  }
+};
+
+export const getSmartStructureRecommendationTag = (
+  recommendation: SmartConfigRecommendation | undefined
+): {
+  text: string;
+  type: ElementPlusTagType;
+} => {
+  switch (recommendation) {
+    case "Recommended":
+      return { text: "推荐导入", type: "success" };
+    case "NeedConfirm":
+      return { text: "需要确认", type: "warning" };
+    case "Optional":
+      return { text: "可选", type: "info" };
+    case "Skip":
+      return { text: "建议跳过", type: "info" };
+    default:
+      return { text: "待判断", type: "info" };
+  }
+};
+
+export const getSmartStructureTableKindLabel = (
+  tableKind: string | undefined
+) => {
+  switch (tableKind) {
+    case "AcceptanceSpec":
+      return "验收规格";
+    case "SafetySpec":
+      return "安全规格";
+    case "EnvironmentalSpec":
+      return "环保规格";
+    case "SecsSpec":
+      return "SECS/GEM";
+    case "Utility":
+      return "Utility";
+    case "Quotation":
+      return "报价单";
+    case "Layout":
+      return "Layout";
+    case "BomOrSpareParts":
+      return "备品清单";
+    case "SignatureOrCover":
+      return "签核/封面";
+    case "Unknown":
+      return "未知类型";
+    default:
+      return tableKind || "未知类型";
+  }
+};
+
+export const getSmartStructureIssueTagType = (
+  severity: string | undefined
+): ElementPlusTagType => {
+  switch (severity) {
+    case "Error":
+      return "danger";
+    case "Warning":
+      return "warning";
+    default:
+      return "info";
   }
 };
 
@@ -125,6 +198,9 @@ export const createSmartStructureSummary = (
       if (table.decision === "AutoApply") acc.autoApply += 1;
       if (table.decision === "NeedConfirm") acc.needConfirm += 1;
       if (table.decision === "Reject") acc.reject += 1;
+      if (table.recommendation === "Recommended") acc.recommended += 1;
+      if (table.recommendation === "Optional") acc.optional += 1;
+      if (table.recommendation === "Skip") acc.skip += 1;
       acc.confidenceSum += table.confidence || 0;
       return acc;
     },
@@ -132,6 +208,9 @@ export const createSmartStructureSummary = (
       autoApply: 0,
       needConfirm: 0,
       reject: 0,
+      recommended: 0,
+      optional: 0,
+      skip: 0,
       confidenceSum: 0
     }
   );
@@ -145,11 +224,58 @@ export const createSmartStructureSummary = (
     autoApply: summary.autoApply,
     needConfirm: summary.needConfirm,
     reject: summary.reject,
+    recommended: summary.recommended,
+    optional: summary.optional,
+    skip: summary.skip,
     averageConfidence,
     canAutoApplyAll: total > 0 && summary.autoApply === total,
     hasNeedConfirm: summary.needConfirm > 0,
     hasReject: summary.reject > 0
   };
+};
+
+export const createSmartStructureDisplayGroups = (
+  tables: SmartConfigRecognizedTable[]
+): SmartStructureDisplayGroup[] => {
+  const sortByRank = (
+    a: SmartConfigRecognizedTable,
+    b: SmartConfigRecognizedTable
+  ) =>
+    (b.rankingScore ?? 0) - (a.rankingScore ?? 0) ||
+    a.tableIndex - b.tableIndex;
+
+  const groups: SmartStructureDisplayGroup[] = [
+    {
+      key: "recommended",
+      title: "推荐导入",
+      tagType: "success",
+      tables: tables
+        .filter(table => table.recommendation === "Recommended")
+        .sort(sortByRank)
+    },
+    {
+      key: "needConfirm",
+      title: "需要确认",
+      tagType: "warning",
+      tables: tables
+        .filter(
+          table =>
+            table.recommendation !== "Recommended" &&
+            table.recommendation !== "Skip"
+        )
+        .sort(sortByRank)
+    },
+    {
+      key: "skip",
+      title: "建议跳过",
+      tagType: "info",
+      tables: tables
+        .filter(table => table.recommendation === "Skip")
+        .sort(sortByRank)
+    }
+  ];
+
+  return groups.filter(group => group.tables.length > 0);
 };
 
 const buildLearnedColumns = (fields: SmartConfigRecognizedField[]) => {
@@ -176,7 +302,10 @@ export const buildSmartConfigConfirmRequest = (
   customerId: number,
   table: SmartConfigRecognizedTable,
   overrides: Partial<
-    Pick<SmartConfigConfirmRequest, "templateName" | "learnedColumns">
+    Pick<
+      SmartConfigConfirmRequest,
+      "templateName" | "learnedColumns" | "userModifiedStructure"
+    >
   > = {}
 ): SmartConfigConfirmRequest => {
   if (table.specificationColumnIndex === undefined) {
@@ -205,6 +334,9 @@ export const buildSmartConfigConfirmRequest = (
     dataStartRowIndex: table.dataStartRowIndex,
     dataEndRowIndex: table.dataEndRowIndex,
     isSpecificationOnly: table.isSpecificationOnly,
+    tableKind: table.tableKind,
+    recommendation: table.recommendation,
+    userModifiedStructure: overrides.userModifiedStructure ?? false,
     learnedColumns:
       overrides.learnedColumns ?? buildLearnedColumns(table.fields ?? [])
   };

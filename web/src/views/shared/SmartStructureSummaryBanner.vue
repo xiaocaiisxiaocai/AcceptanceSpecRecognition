@@ -54,6 +54,8 @@ const title = computed(() => {
           <span>可直达 {{ summary.autoApply }}</span>
           <span>待确认 {{ summary.needConfirm }}</span>
           <span>不可用 {{ summary.reject }}</span>
+          <span>推荐 {{ summary.recommended }}</span>
+          <span>跳过 {{ summary.skip }}</span>
           <span>
             平均置信度
             {{ formatSmartStructurePercent(summary.averageConfidence) }}

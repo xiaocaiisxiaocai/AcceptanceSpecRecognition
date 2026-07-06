@@ -28,6 +28,12 @@ public sealed class SmartConfigConfirmRequest
 
     public bool IsSpecificationOnly { get; set; }
 
+    public string? TableKind { get; set; }
+
+    public string? Recommendation { get; set; }
+
+    public bool UserModifiedStructure { get; set; }
+
     public List<SmartConfigLearnedColumnRequest> LearnedColumns { get; set; } = [];
 }
 

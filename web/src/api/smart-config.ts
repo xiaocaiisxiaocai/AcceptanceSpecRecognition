@@ -4,6 +4,25 @@ import type { ColumnMappingTargetField } from "./column-mapping-rules";
 
 export type SmartConfigDecision = "AutoApply" | "NeedConfirm" | "Reject";
 
+export type SmartConfigRecommendation =
+  | "Recommended"
+  | "Optional"
+  | "NeedConfirm"
+  | "Skip";
+
+export type SmartConfigTableKind =
+  | "AcceptanceSpec"
+  | "SafetySpec"
+  | "EnvironmentalSpec"
+  | "SecsSpec"
+  | "Utility"
+  | "Quotation"
+  | "Layout"
+  | "BomOrSpareParts"
+  | "SignatureOrCover"
+  | "Unknown"
+  | string;
+
 export type SmartConfigSource =
   | "Template"
   | "Rule"
@@ -31,6 +50,13 @@ export interface SmartConfigRecognizedField {
   source: SmartConfigSource;
 }
 
+export interface SmartConfigRecognitionIssue {
+  code: string;
+  severity: "Info" | "Warning" | "Error" | string;
+  field?: string | null;
+  message: string;
+}
+
 export interface SmartConfigRecognizedTable {
   tableIndex: number;
   tableName?: string | null;
@@ -47,6 +73,11 @@ export interface SmartConfigRecognizedTable {
   confidence: number;
   source: SmartConfigSource;
   decision: SmartConfigDecision;
+  tableKind?: SmartConfigTableKind;
+  recommendation?: SmartConfigRecommendation;
+  rankingScore?: number;
+  skipReason?: string | null;
+  issues?: SmartConfigRecognitionIssue[];
   fields: SmartConfigRecognizedField[];
 }
 
@@ -73,6 +104,9 @@ export interface SmartConfigConfirmRequest {
   dataStartRowIndex: number;
   dataEndRowIndex?: number;
   isSpecificationOnly: boolean;
+  tableKind?: SmartConfigTableKind;
+  recommendation?: SmartConfigRecommendation;
+  userModifiedStructure?: boolean;
   learnedColumns: SmartConfigLearnedColumn[];
 }
 

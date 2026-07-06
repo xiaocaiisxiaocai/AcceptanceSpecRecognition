@@ -338,6 +338,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.TemplateName).IsRequired().HasMaxLength(100);
             entity.Property(e => e.HeadersFingerprint).IsRequired().HasMaxLength(128);
             entity.Property(e => e.HeadersJson).IsRequired();
+            entity.Property(e => e.TableKind).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Recommendation).IsRequired().HasMaxLength(50);
             entity.HasIndex(e => new { e.CustomerId, e.HeadersFingerprint }).IsUnique();
             entity.HasOne(e => e.Customer)
                 .WithMany()

@@ -76,6 +76,26 @@ public class DocumentTemplate
     public bool IsSpecificationOnly { get; set; }
 
     /// <summary>
+    /// 最近一次确认时的表格类型
+    /// </summary>
+    public string TableKind { get; set; } = "Unknown";
+
+    /// <summary>
+    /// 最近一次确认时的推荐级别
+    /// </summary>
+    public string Recommendation { get; set; } = "NeedConfirm";
+
+    /// <summary>
+    /// 最近一次结构确认时间
+    /// </summary>
+    public DateTime? ConfirmedAt { get; set; }
+
+    /// <summary>
+    /// 最近一次确认前用户是否手动修正过结构
+    /// </summary>
+    public bool UserModifiedStructure { get; set; }
+
+    /// <summary>
     /// 使用次数
     /// </summary>
     public int UsageCount { get; set; } = 0;

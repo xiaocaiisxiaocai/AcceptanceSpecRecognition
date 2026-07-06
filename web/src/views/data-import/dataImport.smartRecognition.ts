@@ -114,6 +114,7 @@ export const getDataImportPreviewTotalCount = (
 
 export const canSmartTableBeImported = (table: SmartConfigRecognizedTable) =>
   table.decision !== "Reject" &&
+  table.recommendation !== "Skip" &&
   table.projectColumnIndex !== undefined &&
   table.specificationColumnIndex !== undefined &&
   table.acceptanceColumnIndex !== undefined &&

@@ -31,6 +31,12 @@ public sealed class SmartConfigurationConfirmCommand
 
     public bool IsSpecificationOnly { get; init; }
 
+    public string? TableKind { get; init; }
+
+    public string? Recommendation { get; init; }
+
+    public bool UserModifiedStructure { get; init; }
+
     public IReadOnlyList<SmartConfigurationLearnedColumn> LearnedColumns { get; init; } = [];
 }
 

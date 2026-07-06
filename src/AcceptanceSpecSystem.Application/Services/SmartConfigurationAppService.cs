@@ -339,6 +339,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             },
             command.DataEndRowIndex,
             command.IsSpecificationOnly,
+            command.TableKind,
+            command.Recommendation,
+            command.UserModifiedStructure,
             cancellationToken);
 
         var learningResult = await _learningService.ApplyLearningAsync(
@@ -377,7 +380,12 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             if (template != null)
             {
                 await _templateService.IncrementUsageAsync(template.Id, cancellationToken);
-                return SmartConfigurationRecognizedTableFactory.FromTemplate(tableInfo, tableData, template, headers);
+                return SmartConfigurationTableRoutingService.Enrich(
+                    tableInfo,
+                    tableData,
+                    SmartConfigurationRecognizedTableFactory.FromTemplate(tableInfo, tableData, template, headers),
+                    healthCheck: null,
+                    referenceCaseScore: 1);
             }
         }
 
@@ -408,7 +416,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 ex,
                 "表格 {TableIndex} 结构识别失败，返回待确认状态",
                 tableData.TableIndex);
-            return new SmartConfigurationRecognizedTable
+            var failed = new SmartConfigurationRecognizedTable
             {
                 TableIndex = tableData.TableIndex,
                 TableName = tableInfo?.Name,
@@ -421,6 +429,11 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 Source = "Failed",
                 Decision = "NeedConfirm"
             };
+            return SmartConfigurationTableRoutingService.Enrich(
+                tableInfo,
+                tableData,
+                failed,
+                healthCheck: null);
         }
     }
 
@@ -442,7 +455,19 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             allowMissingProjectColumn: isSpecificationOnly,
             autoApplyConfidenceThreshold: GetAutoApplyConfidenceThreshold(),
             minimumSpecificationNonEmptyRate: GetMinimumSpecificationNonEmptyRate());
-        if (!healthCheck.CanAutoApply)
+        var referenceCaseScore = await CalculateReferenceCaseScoreAsync(
+            customerId,
+            tableInfo?.Name,
+            tableData.Headers.ToList(),
+            cancellationToken);
+        var ruleRecognized = SmartConfigurationRecognizedTableFactory.FromMapping(
+            tableInfo,
+            tableData,
+            mapping,
+            healthCheck,
+            isSpecificationOnly);
+        if (!healthCheck.CanAutoApply &&
+            !SmartConfigurationTableRoutingService.ShouldSkipStructureAdjudication(tableInfo, tableData, ruleRecognized))
         {
             var fused = tryConsumeStructureAdjudicationBudget()
                 ? await TryFuseWithLlmStructureAsync(customerId, tableInfo, tableData, mapping, cancellationToken)
@@ -474,19 +499,19 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                         reextractedRuleCandidate,
                         fused,
                         allowLlmOverride: true);
-                    return BuildFusedRecognizedTable(tableInfo, reextracted, remerged);
+                    return BuildFusedRecognizedTable(tableInfo, reextracted, remerged, referenceCaseScore);
                 }
 
-                return BuildFusedRecognizedTable(tableInfo, tableData, fused);
+                return BuildFusedRecognizedTable(tableInfo, tableData, fused, referenceCaseScore);
             }
         }
 
-        return SmartConfigurationRecognizedTableFactory.FromMapping(
+        return SmartConfigurationTableRoutingService.Enrich(
             tableInfo,
             tableData,
-            mapping,
+            ruleRecognized,
             healthCheck,
-            isSpecificationOnly);
+            referenceCaseScore);
     }
 
     private async Task<DocumentStructureCandidate?> TryFuseWithLlmStructureAsync(
@@ -508,7 +533,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 {
                     RuleCandidates = [ruleCandidate],
                     DocumentTablesJson = SerializeTableForStructureAdjudication(tableInfo, tableData),
-                    ReferenceCases = await BuildReferenceCasesAsync(customerId, tableData.Headers.ToList(), cancellationToken)
+                    ReferenceCases = await BuildReferenceCasesAsync(customerId, tableInfo?.Name, tableData.Headers.ToList(), cancellationToken)
                 },
                 timeoutCts.Token);
             var llmCandidate = adjudication?.Tables.FirstOrDefault(table => table.TableIndex == tableData.TableIndex);
@@ -610,7 +635,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     private SmartConfigurationRecognizedTable BuildFusedRecognizedTable(
         TableInfo? tableInfo,
         TableData tableData,
-        DocumentStructureCandidate candidate)
+        DocumentStructureCandidate candidate,
+        double referenceCaseScore)
     {
         var healthCheck = DocumentStructureHealthCheck.Evaluate(
             tableData,
@@ -618,11 +644,38 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             allowMissingProjectColumn: candidate.IsSpecificationOnly,
             autoApplyConfidenceThreshold: GetAutoApplyConfidenceThreshold(),
             minimumSpecificationNonEmptyRate: GetMinimumSpecificationNonEmptyRate());
-        return SmartConfigurationRecognizedTableFactory.FromCandidate(
+        return SmartConfigurationTableRoutingService.Enrich(
             tableInfo,
             tableData,
-            candidate,
-            healthCheck);
+            SmartConfigurationRecognizedTableFactory.FromCandidate(
+                tableInfo,
+                tableData,
+                candidate,
+                healthCheck),
+            healthCheck,
+            referenceCaseScore);
+    }
+
+    private async Task<double> CalculateReferenceCaseScoreAsync(
+        int? customerId,
+        string? tableName,
+        IReadOnlyList<string> headers,
+        CancellationToken cancellationToken)
+    {
+        if (!customerId.HasValue || headers.Count == 0)
+        {
+            return 0;
+        }
+
+        var referenceCases = await _templateService.FindReferenceCasesAsync(
+            customerId.Value,
+            headers,
+            maxCount: 1,
+            cancellationToken,
+            tableName);
+        return referenceCases.Count == 0
+            ? 0
+            : Math.Clamp(referenceCases[0].Similarity, 0, 1);
     }
 
     private static string SerializeTableForStructureAdjudication(TableInfo? tableInfo, TableData tableData)
@@ -648,6 +701,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private async Task<IReadOnlyList<DocumentStructureReferenceCase>> BuildReferenceCasesAsync(
         int? customerId,
+        string? tableName,
         IReadOnlyList<string> headers,
         CancellationToken cancellationToken)
     {
@@ -660,7 +714,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             customerId.Value,
             headers,
             maxCount: 3,
-            cancellationToken);
+            cancellationToken,
+            tableName);
     }
 
     private async Task<IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>> BuildExtraSynonymsAsync(

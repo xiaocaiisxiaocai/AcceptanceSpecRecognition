@@ -43,6 +43,7 @@ import { useSmartFillPreviewRequest } from "./composables/useSmartFillPreviewReq
 import { useSmartFillExecution } from "./composables/useSmartFillExecution";
 import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTables";
 import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
+import { createSmartStructureDisplayGroups } from "@/views/shared/smart-structure-recognition";
 import {
   buildSmartFillConfigsFromRecognizedTables,
   createSmartFillSmartSteps,
@@ -473,8 +474,15 @@ const runSmartStructureRecognition = async () => {
 
 const firstNeedConfirmTableIndex = computed(
   () =>
-    recognizedTables.value.find(table => table.decision !== "AutoApply")
+    recognizedTables.value.find(
+      table =>
+        table.recommendation !== "Recommended" &&
+        table.recommendation !== "Skip"
+    )
       ?.tableIndex ?? null
+);
+const smartStructureDisplayGroups = computed(() =>
+  createSmartStructureDisplayGroups(recognizedTables.value)
 );
 
 const replaceRecognizedTableWithConfirmRequest = (
@@ -715,18 +723,30 @@ const handleRestart = () => {
               @retry="runSmartStructureRecognition"
             />
             <div v-if="recognizedTables.length > 0" class="smart-fill-confirm-list">
-              <SmartStructureConfirmCard
-                v-for="table in recognizedTables"
-                :key="table.tableIndex"
-                :table="table"
-                :customer-id="matchScope.customerId"
-                :confirming="smartConfirmingTableIndex === table.tableIndex"
-                :import-selected="true"
-                :import-selectable="false"
-                :default-expanded="table.tableIndex === firstNeedConfirmTableIndex"
-                @confirm="request => handleSmartStructureConfirm(table, request)"
-                @advanced="enterAdvancedMode"
-              />
+              <section
+                v-for="group in smartStructureDisplayGroups"
+                :key="group.key"
+                class="smart-fill-confirm-group"
+              >
+                <div class="smart-fill-confirm-group-title">
+                  <el-tag size="small" :type="group.tagType" effect="plain">
+                    {{ group.title }}
+                  </el-tag>
+                  <span>{{ group.tables.length }} 张</span>
+                </div>
+                <SmartStructureConfirmCard
+                  v-for="table in group.tables"
+                  :key="table.tableIndex"
+                  :table="table"
+                  :customer-id="matchScope.customerId"
+                  :confirming="smartConfirmingTableIndex === table.tableIndex"
+                  :import-selected="table.recommendation !== 'Skip'"
+                  :import-selectable="false"
+                  :default-expanded="table.tableIndex === firstNeedConfirmTableIndex"
+                  @confirm="request => handleSmartStructureConfirm(table, request)"
+                  @advanced="enterAdvancedMode"
+                />
+              </section>
             </div>
             <div class="smart-fill-entry-actions">
               <el-button

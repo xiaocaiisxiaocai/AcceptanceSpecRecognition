@@ -46,7 +46,28 @@ public sealed class SmartConfigurationRecognizedTable
 
     public string Decision { get; init; } = string.Empty;
 
+    public string TableKind { get; init; } = "Unknown";
+
+    public string Recommendation { get; init; } = "NeedConfirm";
+
+    public double RankingScore { get; init; }
+
+    public string? SkipReason { get; init; }
+
+    public List<SmartConfigurationRecognitionIssue> Issues { get; init; } = [];
+
     public List<SmartConfigurationRecognizedField> Fields { get; init; } = [];
+}
+
+public sealed class SmartConfigurationRecognitionIssue
+{
+    public string Code { get; init; } = string.Empty;
+
+    public string Severity { get; init; } = "Info";
+
+    public string? Field { get; init; }
+
+    public string Message { get; init; } = string.Empty;
 }
 
 public sealed class SmartConfigurationRecognizedField

@@ -57,6 +57,20 @@
   margin-top: 12px;
 }
 
+.smart-fill-confirm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.smart-fill-confirm-group-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
 .smart-fill-entry-actions {
   display: flex;
   flex-wrap: wrap;

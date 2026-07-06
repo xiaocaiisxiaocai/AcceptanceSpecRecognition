@@ -87,7 +87,8 @@ public sealed class DocumentTemplateAppService
         int customerId,
         IReadOnlyList<string> headers,
         int maxCount = 3,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? tableName = null)
     {
         if (maxCount <= 0 || headers.Count == 0)
         {
@@ -100,12 +101,11 @@ public sealed class DocumentTemplateAppService
             .ToListAsync(cancellationToken);
 
         return templates
-            .Select(template => ToReferenceCase(template, headers))
+            .Select(template => ToReferenceCase(template, headers, tableName))
             .Where(item => item != null)
             .Select(item => item!)
             .Where(item => item.Similarity > 0)
             .OrderByDescending(item => item.Similarity)
-            .ThenByDescending(item => item.UsageCount)
             .ThenByDescending(item => item.UpdatedAt)
             .Take(maxCount)
             .ToList();
@@ -121,10 +121,16 @@ public sealed class DocumentTemplateAppService
         ColumnMapping columnMapping,
         int? dataEndRowIndex = null,
         bool isSpecificationOnly = false,
+        string? tableKind = null,
+        string? recommendation = null,
+        bool userModifiedStructure = false,
         CancellationToken cancellationToken = default)
     {
         var fingerprint = GenerateHeadersFingerprint(headers);
         var headersJson = JsonSerializer.Serialize(headers);
+        var now = DateTime.UtcNow;
+        var normalizedTableKind = NormalizeMetadata(tableKind, "Unknown");
+        var normalizedRecommendation = NormalizeMetadata(recommendation, "NeedConfirm");
 
         // 检查是否已存在相同指纹的模板
         var existing = await _unitOfWork.DocumentTemplates
@@ -147,7 +153,11 @@ public sealed class DocumentTemplateAppService
             existing.DataStartRowIndex = columnMapping.DataStartRowIndex;
             existing.DataEndRowIndex = dataEndRowIndex;
             existing.IsSpecificationOnly = isSpecificationOnly;
-            existing.UpdatedAt = DateTime.UtcNow;
+            existing.TableKind = normalizedTableKind;
+            existing.Recommendation = normalizedRecommendation;
+            existing.ConfirmedAt = now;
+            existing.UserModifiedStructure = userModifiedStructure;
+            existing.UpdatedAt = now;
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -175,9 +185,13 @@ public sealed class DocumentTemplateAppService
             DataStartRowIndex = columnMapping.DataStartRowIndex,
             DataEndRowIndex = dataEndRowIndex,
             IsSpecificationOnly = isSpecificationOnly,
+            TableKind = normalizedTableKind,
+            Recommendation = normalizedRecommendation,
+            ConfirmedAt = now,
+            UserModifiedStructure = userModifiedStructure,
             UsageCount = 0,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            CreatedAt = now,
+            UpdatedAt = now
         };
 
         await _unitOfWork.DocumentTemplates.AddAsync(template);
@@ -231,6 +245,16 @@ public sealed class DocumentTemplateAppService
         return string.Join("|", normalized);
     }
 
+    private static string NormalizeMetadata(string? value, string fallback)
+    {
+        var normalized = value?.Trim();
+        return string.IsNullOrWhiteSpace(normalized)
+            ? fallback
+            : normalized.Length > 50
+                ? normalized[..50]
+                : normalized;
+    }
+
     /// <summary>
     /// 计算两个表头列表的相似度（基于编辑距离）
     /// </summary>
@@ -272,10 +296,12 @@ public sealed class DocumentTemplateAppService
 
     private DocumentStructureReferenceCase? ToReferenceCase(
         DocumentTemplate template,
-        IReadOnlyList<string> currentHeaders)
+        IReadOnlyList<string> currentHeaders,
+        string? currentTableName)
     {
         var templateHeaders = JsonSerializer.Deserialize<List<string>>(template.HeadersJson) ?? [];
-        var similarity = CalculateHeadersSimilarity(currentHeaders, templateHeaders);
+        var headerSimilarity = CalculateHeadersSimilarity(currentHeaders, templateHeaders);
+        var similarity = CalculateCaseWeight(template, currentTableName, headerSimilarity);
         if (similarity <= 0)
         {
             return null;
@@ -310,6 +336,56 @@ public sealed class DocumentTemplateAppService
                 Source = DocumentStructureCandidateSource.Template
             }
         };
+    }
+
+    private double CalculateCaseWeight(
+        DocumentTemplate template,
+        string? currentTableName,
+        double headerSimilarity)
+    {
+        if (string.IsNullOrWhiteSpace(currentTableName))
+        {
+            return headerSimilarity;
+        }
+
+        var tableNameSimilarity = CalculateTextSimilarity(currentTableName, template.TemplateName);
+        var usageScore = Math.Clamp(Math.Log10(template.UsageCount + 1) / 2, 0, 1);
+        var recencyScore = CalculateRecencyScore(template.ConfirmedAt ?? template.UpdatedAt);
+        var correctionPenalty = template.UserModifiedStructure ? 0.1 : 0;
+
+        return Math.Clamp(
+            headerSimilarity * 0.70 +
+            tableNameSimilarity * 0.15 +
+            recencyScore * 0.10 +
+            usageScore * 0.05 -
+            correctionPenalty,
+            0,
+            1);
+    }
+
+    private static double CalculateRecencyScore(DateTime timestamp)
+    {
+        var ageDays = Math.Max(0, (DateTime.UtcNow - timestamp).TotalDays);
+        return Math.Clamp(1 - ageDays / 180, 0, 1);
+    }
+
+    private double CalculateTextSimilarity(string? left, string? right)
+    {
+        var l = left?.Trim().ToLowerInvariant() ?? string.Empty;
+        var r = right?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (l.Length == 0 || r.Length == 0)
+        {
+            return 0;
+        }
+
+        if (l == r || l.Contains(r) || r.Contains(l))
+        {
+            return 1;
+        }
+
+        var distance = CalculateLevenshteinDistance(l, r);
+        var maxLength = Math.Max(l.Length, r.Length);
+        return maxLength == 0 ? 0 : Math.Clamp(1.0 - (double)distance / maxLength, 0, 1);
     }
 
     /// <summary>

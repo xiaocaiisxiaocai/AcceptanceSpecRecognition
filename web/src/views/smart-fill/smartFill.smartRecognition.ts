@@ -66,6 +66,7 @@ export const buildSmartFillConfigsFromRecognizedTables = ({
     .filter(
       table =>
         table.decision !== "Reject" &&
+        table.recommendation !== "Skip" &&
         table.specificationColumnIndex !== undefined
     )
     .sort((a, b) => a.tableIndex - b.tableIndex)

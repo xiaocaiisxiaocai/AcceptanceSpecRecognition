@@ -73,6 +73,9 @@ public class SmartConfigController : BaseApiController
                     DataStartRowIndex = request.DataStartRowIndex,
                     DataEndRowIndex = request.DataEndRowIndex,
                     IsSpecificationOnly = request.IsSpecificationOnly,
+                    TableKind = request.TableKind,
+                    Recommendation = request.Recommendation,
+                    UserModifiedStructure = request.UserModifiedStructure,
                     LearnedColumns = request.LearnedColumns.Select(item =>
                         new SmartConfigurationLearnedColumn
                         {

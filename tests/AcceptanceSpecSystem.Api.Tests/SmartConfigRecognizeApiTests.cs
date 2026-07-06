@@ -128,6 +128,45 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         table.GetProperty("confidence").GetDouble().Should().Be(1.0);
     }
 
+    [Fact]
+    public async Task Recognize_WithMixedExcelSheets_ShouldReturnAdaptiveRoutingMetadata()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-混合工作簿客户");
+        var fileId = await UploadExcelAsync(
+            CreateMixedWorkbookBytes(),
+            "smart-recognize-mixed-routing.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+        var responseText = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var tables = body.Data.GetProperty("tables").EnumerateArray().ToList();
+        tables.Should().HaveCount(5);
+
+        var acceptance = tables.Single(table => table.GetProperty("tableName").GetString() == "验收表");
+        acceptance.GetProperty("tableKind").GetString().Should().Be("AcceptanceSpec");
+        acceptance.GetProperty("recommendation").GetString().Should().BeOneOf("Recommended", "NeedConfirm");
+        acceptance.GetProperty("rankingScore").GetDouble().Should().BeGreaterThan(0.7);
+        acceptance.GetProperty("issues").ValueKind.Should().Be(JsonValueKind.Array);
+
+        foreach (var tableName in new[] { "報價單", "Layout", "Utility", "备品清单" })
+        {
+            var table = tables.Single(item => item.GetProperty("tableName").GetString() == tableName);
+            table.GetProperty("recommendation").GetString().Should().Be("Skip", tableName);
+            table.GetProperty("rankingScore").GetDouble().Should().BeLessThan(0.5, tableName);
+            table.GetProperty("skipReason").GetString().Should().NotBeNullOrWhiteSpace(tableName);
+            table.GetProperty("issues").EnumerateArray()
+                .Select(item => item.GetProperty("message").GetString())
+                .Should()
+                .Contain(message => !string.IsNullOrWhiteSpace(message), tableName);
+        }
+    }
+
     private async Task<int> CreateCustomerAsync(string name)
     {
         var response = await _client.PostAsync("/api/customers", ApiClientJson.ToJsonContent(new { name }));
@@ -191,6 +230,67 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         worksheet.Cell(3, 4).Value = "依主設備流向";
         worksheet.Cell(3, 5).Value = "裝機時檢查";
         worksheet.Cell(3, 6).Value = "■OK   □NG";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateMixedWorkbookBytes()
+    {
+        using var workbook = new XLWorkbook();
+
+        var acceptance = workbook.AddWorksheet("验收表");
+        acceptance.Cell(1, 1).Value = "序号";
+        acceptance.Cell(1, 2).Value = "项目";
+        acceptance.Cell(1, 3).Value = "技术要求";
+        acceptance.Cell(1, 4).Value = "供方能力";
+        acceptance.Cell(1, 5).Value = "备注";
+        acceptance.Cell(2, 1).Value = "1";
+        acceptance.Cell(2, 2).Value = "外观";
+        acceptance.Cell(2, 3).Value = "表面不得有明显划伤";
+        acceptance.Cell(2, 4).Value = "OK";
+        acceptance.Cell(2, 5).Value = "抽检";
+
+        var quotation = workbook.AddWorksheet("報價單");
+        quotation.Cell(1, 1).Value = "品名";
+        quotation.Cell(1, 2).Value = "单价";
+        quotation.Cell(1, 3).Value = "数量";
+        quotation.Cell(1, 4).Value = "金额";
+        quotation.Cell(2, 1).Value = "投收板机";
+        quotation.Cell(2, 2).Value = "100";
+        quotation.Cell(2, 3).Value = "1";
+        quotation.Cell(2, 4).Value = "100";
+
+        var layout = workbook.AddWorksheet("Layout");
+        layout.Cell(1, 1).Value = "X";
+        layout.Cell(1, 2).Value = "Y";
+        layout.Cell(1, 3).Value = "设备位置";
+        layout.Cell(2, 1).Value = "100";
+        layout.Cell(2, 2).Value = "200";
+        layout.Cell(2, 3).Value = "上料区";
+
+        var utility = workbook.AddWorksheet("Utility");
+        utility.Cell(1, 1).Value = "设备名称";
+        utility.Cell(1, 2).Value = "电力需求";
+        utility.Cell(1, 3).Value = "空压";
+        utility.Cell(1, 4).Value = "排废";
+        utility.Cell(2, 1).Value = "投收板机";
+        utility.Cell(2, 2).Value = "220V";
+        utility.Cell(2, 3).Value = "0.5MPa";
+        utility.Cell(2, 4).Value = "无";
+
+        var spareParts = workbook.AddWorksheet("备品清单");
+        spareParts.Cell(1, 1).Value = "配件名称";
+        spareParts.Cell(1, 2).Value = "品牌";
+        spareParts.Cell(1, 3).Value = "规格型号";
+        spareParts.Cell(1, 4).Value = "数量";
+        spareParts.Cell(1, 5).Value = "备注";
+        spareParts.Cell(2, 1).Value = "皮带";
+        spareParts.Cell(2, 2).Value = "厂商A";
+        spareParts.Cell(2, 3).Value = "B-100";
+        spareParts.Cell(2, 4).Value = "2";
+        spareParts.Cell(2, 5).Value = "随机";
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -723,6 +823,86 @@ public class SmartConfigRecognizeHistoryFewShotApiTests : IClassFixture<LlmRecor
         cases.Should().ContainSingle();
         cases[0].TemplateName.Should().Be("低频高相似模板");
         cases[0].Similarity.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task FindReferenceCases_WhenTableNameProvided_ShouldApplyRecentUsageAndCorrectionWeight()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var templateService = scope.ServiceProvider.GetRequiredService<DocumentTemplateAppService>();
+        var customerId = 90308;
+
+        db.Customers.Add(new Customer
+        {
+            Id = customerId,
+            Name = "历史案例权重客户",
+            CreatedAt = DateTime.UtcNow
+        });
+        var oldModifiedTemplate = CreateTemplate(
+            customerId,
+            "无关旧模板",
+            ["项目", "规格", "验收结果", "备注"],
+            usageCount: 200,
+            updatedAt: DateTime.UtcNow.AddDays(-365));
+        oldModifiedTemplate.ConfirmedAt = DateTime.UtcNow.AddDays(-365);
+        oldModifiedTemplate.UserModifiedStructure = true;
+        db.DocumentTemplates.Add(oldModifiedTemplate);
+        db.DocumentTemplates.Add(CreateTemplate(
+            customerId,
+            "验收表",
+            ["项目", "规格", "验收", "备注"],
+            usageCount: 1,
+            updatedAt: DateTime.UtcNow));
+        await db.SaveChangesAsync();
+
+        var cases = await templateService.FindReferenceCasesAsync(
+            customerId,
+            ["项目", "规格", "验收", "备注"],
+            maxCount: 1,
+            tableName: "验收表");
+
+        cases.Should().ContainSingle();
+        cases[0].TemplateName.Should().Be("验收表");
+        cases[0].Similarity.Should().BeGreaterThan(0.9);
+    }
+
+
+    [Fact]
+    public async Task Confirm_WhenRoutingMetadataProvided_ShouldPersistStructureCaseMetadata()
+    {
+        var customerId = await CreateCustomerAsync("历史案例元数据客户");
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            templateName = "带路由元数据模板",
+            headers = new[] { "项目", "规格", "验收", "备注" },
+            projectColumnIndex = 0,
+            specificationColumnIndex = 1,
+            acceptanceColumnIndex = 2,
+            remarkColumnIndex = 3,
+            headerRowIndex = 0,
+            headerRowCount = 1,
+            dataStartRowIndex = 1,
+            isSpecificationOnly = false,
+            tableKind = "AcceptanceSpec",
+            recommendation = "Recommended",
+            userModifiedStructure = true,
+            learnedColumns = Array.Empty<object>()
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var template = db.DocumentTemplates
+            .Where(item => item.CustomerId == customerId && item.TemplateName == "带路由元数据模板")
+            .Single();
+
+        template.TableKind.Should().Be("AcceptanceSpec");
+        template.Recommendation.Should().Be("Recommended");
+        template.UserModifiedStructure.Should().BeTrue();
+        template.ConfirmedAt.Should().NotBeNull();
     }
 
     private async Task<int> CreateCustomerAsync(string name)
@@ -1713,6 +1893,76 @@ public class SmartConfigRecognizeLlmBudgetApiTests : IClassFixture<LlmStructureB
     }
 }
 
+public class SmartConfigRecognizeLlmRoutingBudgetApiTests : IClassFixture<LlmRoutingBudgetApiFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeLlmRoutingBudgetApiTests(LlmRoutingBudgetApiFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenFirstSheetIsQuotation_ShouldSpendLlmBudgetOnAcceptanceSheet()
+    {
+        RoutingBudgetRecordingStructureAdjudicationService.Reset();
+        var fileId = await UploadExcelAsync(
+            CreateQuotationThenAcceptanceExcelBytes(),
+            "smart-recognize-llm-routing-budget.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        RoutingBudgetRecordingStructureAdjudicationService.LastRequest.Should().NotBeNull();
+        var llmTables = JsonDocument.Parse(RoutingBudgetRecordingStructureAdjudicationService.LastRequest!.DocumentTablesJson)
+            .RootElement
+            .EnumerateArray()
+            .ToList();
+        llmTables.Should().ContainSingle();
+        llmTables[0].GetProperty("tableName").GetString().Should().Be("验收表");
+    }
+
+    private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await _client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateQuotationThenAcceptanceExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var quotation = workbook.AddWorksheet("報價單");
+        quotation.Cell(1, 1).Value = "品名";
+        quotation.Cell(1, 2).Value = "单价";
+        quotation.Cell(1, 3).Value = "数量";
+        quotation.Cell(2, 1).Value = "投收板机";
+        quotation.Cell(2, 2).Value = "100";
+        quotation.Cell(2, 3).Value = "1";
+
+        var acceptance = workbook.AddWorksheet("验收表");
+        acceptance.Cell(1, 1).Value = "项目";
+        acceptance.Cell(1, 2).Value = "验收标准";
+        acceptance.Cell(2, 1).Value = "外观";
+        acceptance.Cell(2, 2).Value = "目视 OK";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
 public sealed class MissingSpecificationColumnIntelligenceApiFactory : ApiWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -1788,6 +2038,28 @@ public sealed class LlmStructureBudgetApiFactory : ApiWebApplicationFactory
             services.AddScoped<IDocumentIntelligenceService, MissingSpecificationColumnIntelligenceService>();
             services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
             services.AddScoped<ILlmDocumentStructureAdjudicationService, CountingStructureAdjudicationService>();
+        });
+    }
+}
+
+public sealed class LlmRoutingBudgetApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SmartConfiguration:MaxStructureAdjudicationCallsPerDocument"] = "1"
+            });
+        });
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.AddScoped<IDocumentIntelligenceService, MissingSpecificationColumnIntelligenceService>();
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, RoutingBudgetRecordingStructureAdjudicationService>();
         });
     }
 }
@@ -2089,6 +2361,24 @@ public sealed class RecordingStructureAdjudicationService : ILlmDocumentStructur
                 }
             ]
         });
+    }
+}
+
+public sealed class RoutingBudgetRecordingStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    public static LlmDocumentStructureAdjudicationRequest? LastRequest { get; private set; }
+
+    public static void Reset()
+    {
+        LastRequest = null;
+    }
+
+    public Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        LastRequest = request;
+        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(null);
     }
 }
 
