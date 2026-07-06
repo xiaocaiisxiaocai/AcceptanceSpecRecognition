@@ -333,8 +333,8 @@ onMounted(load);
             stripe
             border
           >
-            <el-table-column prop="pattern" label="匹配词" min-width="200" />
-            <el-table-column label="匹配模式" min-width="160">
+            <el-table-column prop="pattern" label="匹配词" min-width="min(200px, calc(100vw - 32px))" />
+            <el-table-column label="匹配模式" min-width="min(160px, calc(100vw - 32px))">
               <template #default="{ row }">
                 <el-select
                   v-model="row.matchMode"
@@ -353,7 +353,7 @@ onMounted(load);
                 </el-select>
               </template>
             </el-table-column>
-            <el-table-column label="来源" width="110">
+            <el-table-column label="来源" width="min(110px, calc(100vw - 32px))">
               <template #default="{ row }">
                 <el-tag
                   :type="getSourceOption(row.source).type"
@@ -364,7 +364,7 @@ onMounted(load);
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="客户域" width="120">
+            <el-table-column label="客户域" width="min(120px, calc(100vw - 32px))">
               <template #default="{ row }">
                 <el-tag
                   :type="row.customerId ? 'success' : 'info'"
@@ -375,7 +375,7 @@ onMounted(load);
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="优先级" width="140">
+            <el-table-column label="优先级" width="min(140px, calc(100vw - 32px))">
               <template #default="{ row }">
                 <el-input-number
                   v-model="row.priority"
@@ -401,7 +401,7 @@ onMounted(load);
             <el-table-column
               v-if="hasOperationActions"
               label="操作"
-              width="150"
+              width="min(150px, calc(100vw - 32px))"
               fixed="right"
             >
               <template #default="{ row }">
@@ -428,7 +428,7 @@ onMounted(load);
       </el-tabs>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="520">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(480px, calc(100vw - 32px))">
       <el-form label-width="90px">
         <el-form-item label="目标字段" required>
           <el-select

@@ -150,18 +150,18 @@ const activeCollapseNames = ref<string[]>([]);
                 {{ row.tableIndex + 1 }}
               </template>
             </el-table-column>
-            <el-table-column prop="rowIndex" label="行号" width="100" />
+            <el-table-column prop="rowIndex" label="行号" width="min(100px, calc(100vw - 32px))" />
             <el-table-column
               prop="message"
               label="跳过原因"
-              min-width="220"
+              min-width="min(220px, calc(100vw - 32px))"
               show-overflow-tooltip
             />
             <el-table-column
               v-for="col in group.columns"
               :key="`skip-col-${group.tableIndex}-${col.index}`"
               :label="col.label"
-              min-width="140"
+              min-width="min(140px, calc(100vw - 32px))"
             >
               <template #default="{ row }">
                 <div class="skipped-cell-value">
@@ -490,7 +490,7 @@ const activeCollapseNames = ref<string[]>([]);
                 <el-table-column
                   prop="project"
                   label="项目"
-                  min-width="140"
+                  min-width="min(140px, calc(100vw - 32px))"
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
@@ -500,7 +500,7 @@ const activeCollapseNames = ref<string[]>([]);
                 <el-table-column
                   prop="specification"
                   label="规格"
-                  min-width="260"
+                  min-width="min(260px, calc(100vw - 32px))"
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
@@ -510,7 +510,7 @@ const activeCollapseNames = ref<string[]>([]);
                 <el-table-column
                   prop="acceptance"
                   label="验收"
-                  min-width="160"
+                  min-width="min(160px, calc(100vw - 32px))"
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
@@ -520,14 +520,14 @@ const activeCollapseNames = ref<string[]>([]);
                 <el-table-column
                   prop="remark"
                   label="备注"
-                  min-width="160"
+                  min-width="min(160px, calc(100vw - 32px))"
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
                     {{ row.remark || "-" }}
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="100" fixed="right">
+                <el-table-column label="操作" width="min(100px, calc(100vw - 32px))" fixed="right">
                   <template #default="{ row }">
                     <el-button
                       type="danger"

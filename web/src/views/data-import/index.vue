@@ -68,8 +68,6 @@ const {
   loadingAiServices,
   embeddingServices,
   llmServices,
-  affixTarget,
-  affixOffset,
   importPreviewGroups,
   removedPreviewRowCount,
   selectedImportPreviewRowsCount,
@@ -143,24 +141,7 @@ const firstNeedConfirmTableIndex = computed(
         <div class="page-title">数据导入</div>
         <div class="page-subtitle">导入验收规格数据，支持 Word/Excel</div>
       </div>
-    </div>
-    <!-- 步骤条 -->
-    <el-affix v-if="affixTarget" :offset="affixOffset" :target="affixTarget">
-      <div class="steps-affix">
-        <el-card class="steps-card">
-          <el-steps :active="currentStep" finish-status="success">
-            <el-step
-              v-for="(step, index) in steps"
-              :key="index"
-              :title="step.title"
-              :description="step.description"
-            />
-          </el-steps>
-        </el-card>
-      </div>
-    </el-affix>
-    <div v-else class="steps-affix">
-      <el-card class="steps-card">
+      <div class="wizard-steps">
         <el-steps :active="currentStep" finish-status="success">
           <el-step
             v-for="(step, index) in steps"
@@ -169,7 +150,7 @@ const firstNeedConfirmTableIndex = computed(
             :description="step.description"
           />
         </el-steps>
-      </el-card>
+      </div>
     </div>
 
     <div class="data-import-body">
@@ -356,10 +337,6 @@ const firstNeedConfirmTableIndex = computed(
           v-show="!advancedMode && currentStep === 1"
           class="step-panel smart-confirm-step"
         >
-          <h3 class="step-title">确认结构与导入预览</h3>
-          <p class="step-desc">
-            勾选需要导入的 Sheet；未勾选的 Sheet 不会生成预览，也不会参与导入。
-          </p>
           <SmartStructureSummaryBanner
             :tables="recognizedTables"
             :loading="smartRecognizing"

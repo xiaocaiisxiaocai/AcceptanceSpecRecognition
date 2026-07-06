@@ -441,7 +441,7 @@ watch(
 </script>
 
 <template>
-  <div class="compare-page">
+  <div class="page page--fill file-compare-page">
     <el-card class="compare-card">
       <template #header>
         <div class="card-title">文件对比</div>
@@ -677,14 +677,28 @@ watch(
 </template>
 
 <style scoped>
-.compare-page {
+.file-compare-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  min-height: 0;
 }
 
 .compare-card {
   width: 100%;
+}
+
+.compare-card:last-child {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.compare-card:last-child :deep(.el-card__body) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .card-title {
@@ -694,7 +708,7 @@ watch(
 
 .upload-text {
   font-size: 14px;
-  color: #606266;
+  color: var(--app-text-secondary);
 }
 
 .actions {
@@ -709,7 +723,7 @@ watch(
   gap: 16px;
   align-items: center;
   margin-bottom: 12px;
-  color: #606266;
+  color: var(--app-text-secondary);
 }
 
 .diff-toggle {
@@ -729,7 +743,7 @@ watch(
 
 .control-label {
   font-size: 14px;
-  color: #4b5563;
+  color: var(--app-text-secondary);
 }
 
 .table-select {
@@ -738,15 +752,20 @@ watch(
 
 .compare-grid {
   display: grid;
+  flex: 1;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  min-height: 0;
 }
 
 .compare-pane {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
   overflow: hidden;
-  background: #fff;
-  border: 1px solid #eef0f3;
-  border-radius: 8px;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
 }
 
 .pane-title {
@@ -756,8 +775,8 @@ watch(
   justify-content: space-between;
   padding: 10px 12px;
   font-weight: 600;
-  background: #f9fafb;
-  border-bottom: 1px solid #eef0f3;
+  background: var(--app-info-bg);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .pane-file {
@@ -766,14 +785,16 @@ watch(
   text-overflow: ellipsis;
   font-size: 12px;
   font-weight: 400;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   white-space: nowrap;
 }
 
 .pane-body {
-  height: min(62vh, 640px);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   overflow: auto;
-  background: #fff;
+  background: var(--app-bg-card);
 }
 
 .pane-empty {
@@ -785,14 +806,14 @@ watch(
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  background: #f8fafc;
+  background: var(--app-info-bg);
 }
 
 .paragraph-card {
   padding: 10px 12px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
 }
 
 .paragraph-head {
@@ -806,59 +827,55 @@ watch(
 .paragraph-no {
   font-size: 13px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .paragraph-location {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .paragraph-text {
   margin: 0;
   line-height: 1.65;
-  color: #1f2937;
+  color: var(--app-text-primary);
   word-break: break-word;
   white-space: pre-wrap;
 }
 
 .paragraph-text.is-placeholder {
   font-style: italic;
-  color: #94a3b8;
+  color: var(--app-text-disabled);
 }
 
 .paragraph-card.is-added {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
+  background: var(--app-diff-add-bg);
+  border-color: var(--app-diff-add-emphasis);
 }
 
 .paragraph-card.is-removed {
-  background: #fef2f2;
-  border-color: #fecaca;
+  background: var(--app-diff-del-bg);
+  border-color: var(--app-diff-del-emphasis);
 }
 
 .paragraph-card.is-modified-old {
-  background: #fff7f7;
-  border-color: #fca5a5;
+  background: var(--app-diff-del-bg);
+  border-color: var(--app-diff-del-emphasis);
 }
 
 .paragraph-card.is-modified-new {
-  background: #f7fff8;
-  border-color: #86efac;
+  background: var(--app-diff-add-bg);
+  border-color: var(--app-diff-add-emphasis);
 }
 
 .paragraph-card.is-missing {
-  background: #f8fafc;
+  background: var(--app-info-bg);
   border-style: dashed;
 }
 
 @media (width <= 1200px) {
   .compare-grid {
     grid-template-columns: 1fr;
-  }
-
-  .pane-body {
-    height: 520px;
   }
 }
 </style>

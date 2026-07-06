@@ -217,6 +217,6 @@ defineExpose({
 .form-tip {
   margin-top: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 </style>

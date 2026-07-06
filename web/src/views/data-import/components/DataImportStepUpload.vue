@@ -18,10 +18,6 @@ const emit = defineEmits<{
 
 <template>
   <div class="step-panel">
-    <h3 class="step-title">上传文件</h3>
-    <p class="step-desc">
-      请选择包含验收规格数据的 Word（.docx）或 Excel（.xlsx）文件
-    </p>
     <FileUpload
       v-if="canUploadSourceFile && canImportAny"
       :model-value="modelValue"

@@ -46,7 +46,7 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
   <el-dialog
     v-model="visible"
     title="重复规格排查"
-    width="1100"
+    width="min(1200px, calc(100vw - 32px))"
     top="5vh"
     destroy-on-close
   >
@@ -128,27 +128,27 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                     <el-table-column
                       prop="project"
                       label="项目"
-                      min-width="140"
+                      min-width="min(140px, calc(100vw - 32px))"
                     />
                     <el-table-column
                       prop="specification"
                       label="规格内容"
-                      min-width="280"
+                      min-width="min(280px, calc(100vw - 32px))"
                       show-overflow-tooltip
                     />
                     <el-table-column
                       prop="acceptance"
                       label="验收标准"
-                      min-width="180"
+                      min-width="min(180px, calc(100vw - 32px))"
                       show-overflow-tooltip
                     />
                     <el-table-column
                       prop="remark"
                       label="备注"
-                      min-width="160"
+                      min-width="min(160px, calc(100vw - 32px))"
                       show-overflow-tooltip
                     />
-                    <el-table-column label="导入时间" width="180">
+                    <el-table-column label="导入时间" width="min(180px, calc(100vw - 32px))">
                       <template #default="{ row }">
                         {{ formatImportedAt(row.importedAt) }}
                       </template>
@@ -204,27 +204,27 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                     <el-table-column
                       prop="project"
                       label="项目"
-                      min-width="140"
+                      min-width="min(140px, calc(100vw - 32px))"
                     />
                     <el-table-column
                       prop="specification"
                       label="规格内容"
-                      min-width="280"
+                      min-width="min(280px, calc(100vw - 32px))"
                       show-overflow-tooltip
                     />
                     <el-table-column
                       prop="acceptance"
                       label="验收标准"
-                      min-width="180"
+                      min-width="min(180px, calc(100vw - 32px))"
                       show-overflow-tooltip
                     />
                     <el-table-column
                       prop="remark"
                       label="备注"
-                      min-width="160"
+                      min-width="min(160px, calc(100vw - 32px))"
                       show-overflow-tooltip
                     />
-                    <el-table-column label="导入时间" width="180">
+                    <el-table-column label="导入时间" width="min(180px, calc(100vw - 32px))">
                       <template #default="{ row }">
                         {{ formatImportedAt(row.importedAt) }}
                       </template>
@@ -262,13 +262,13 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
   flex-direction: column;
   gap: 6px;
   padding: 14px 16px;
-  background: linear-gradient(180deg, #fff 0%, #f7f9fc 100%);
+  background: linear-gradient(180deg, #fff 0%, var(--app-info-bg) 100%);
   border: 1px solid var(--el-border-color-light);
   border-radius: 12px;
 }
 
 .summary-card.danger {
-  background: linear-gradient(180deg, #fff7f7 0%, #fff0f0 100%);
+  background: linear-gradient(180deg, var(--app-danger-bg) 0%, #fff0f0 100%);
 }
 
 .summary-card.warning {

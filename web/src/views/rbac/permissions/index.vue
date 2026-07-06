@@ -80,8 +80,8 @@ onMounted(loadData);
         <el-form-item label="权限类型">
           <el-select
             v-model="queryForm.permissionType"
-            class="w-[180px]"
-            popper-class="config-select-popper"
+            class="search-select search-select--200"
+            popper-class="app-select-popper"
           >
             <el-option
               v-for="option in permissionTypeOptions"
@@ -110,16 +110,16 @@ onMounted(loadData);
       <template #header>
         <div class="flex items-center justify-between">
           <span>权限字典</span>
-          <span class="text-[12px] text-[#909399]"
+          <span class="text-[12px] text-[var(--app-text-disabled)]"
             >共 {{ permissions.length }} 项</span
           >
         </div>
       </template>
 
       <el-table v-loading="loading" :data="permissions" stripe max-height="580">
-        <el-table-column prop="code" label="权限编码" min-width="320" />
-        <el-table-column prop="name" label="权限名称" min-width="220" />
-        <el-table-column label="类型" width="120">
+        <el-table-column prop="code" label="权限编码" min-width="min(320px, calc(100vw - 32px))" />
+        <el-table-column prop="name" label="权限名称" min-width="min(220px, calc(100vw - 32px))" />
+        <el-table-column label="类型" width="min(120px, calc(100vw - 32px))">
           <template #default="{ row }">
             <el-tag
               :type="
@@ -137,8 +137,8 @@ onMounted(loadData);
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="resource" label="资源" min-width="140" />
-        <el-table-column prop="action" label="动作" min-width="140" />
+        <el-table-column prop="resource" label="资源" min-width="min(140px, calc(100vw - 32px))" />
+        <el-table-column prop="action" label="动作" min-width="min(140px, calc(100vw - 32px))" />
       </el-table>
     </el-card>
   </div>

@@ -38,13 +38,6 @@ const emit = defineEmits<{
 
 <template>
   <div class="step-panel">
-    <h3 class="step-title">{{ isExcelFile ? "配置列序号" : "配置列映射" }}</h3>
-    <p class="step-desc m-0">
-      <span v-if="!isExcelFile">
-        系统会按列映射规则对 Word 表头自动预填，命中后仍可逐表手工调整。
-      </span>
-      <span v-else>按列序号指定字段（列号 1-based：第 1 列为 A）。</span>
-    </p>
     <div v-if="!isExcelFile" class="mapping-rule-actions">
       <el-tag size="small" type="info"
         >列映射规则：{{ mappingRulesCount }} 条</el-tag

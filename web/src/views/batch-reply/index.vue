@@ -292,15 +292,13 @@ const removeTargetFile = (targetId: string) => {
 </script>
 
 <template>
-  <div class="batch-reply-page page-shell">
+  <div class="page page--fill batch-reply-page">
     <div class="page-header">
       <div class="page-header__main">
-        <div class="page-header__eyebrow">批量工作台</div>
-        <h1>批量回复</h1>
-        <p>
-          以来源文件为基准，按文件和
-          Sheet/表格配置映射关系，统一完成同模板文档的回复回写。
-        </p>
+        <div class="page-title">批量回复</div>
+        <div class="page-subtitle">
+          按来源文件配置映射关系，批量完成同模板文档回写
+        </div>
       </div>
       <div class="page-header__stats">
         <div class="header-stat">

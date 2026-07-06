@@ -23,7 +23,7 @@ const total = ref(0);
 
 const queryParams = reactive<ProcessListRequest>({
   page: 1,
-  pageSize: 20,
+  pageSize: 50,
   keyword: ""
 });
 
@@ -186,35 +186,33 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page page--fill simple-crud-page">
     <div class="page-header">
       <div>
         <div class="page-title">制程管理</div>
         <div class="page-subtitle">维护制程信息，支持搜索与编辑</div>
       </div>
     </div>
-    <el-card class="mb-4">
-      <el-form :inline="true">
-        <el-form-item label="制程名称">
-          <el-input
-            v-model="queryParams.keyword"
-            placeholder="请输入制程名称"
-            clearable
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
 
-    <el-card>
+    <el-card class="table-card" shadow="never">
       <template #header>
-        <div class="flex justify-between items-center">
-          <span>制程列表</span>
-          <div class="flex gap-2">
+        <div class="simple-crud-toolbar">
+          <span class="simple-crud-toolbar__title">制程列表</span>
+          <el-form class="simple-crud-search" :inline="true">
+            <el-form-item label="制程名称">
+              <el-input
+                v-model="queryParams.keyword"
+                placeholder="请输入制程名称"
+                clearable
+                @keyup.enter="handleSearch"
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="handleSearch">搜索</el-button>
+              <el-button @click="handleReset">重置</el-button>
+            </el-form-item>
+          </el-form>
+          <div class="simple-crud-actions">
             <el-button
               v-if="canDelete && hasSelected"
               type="danger"
@@ -229,50 +227,53 @@ onMounted(() => {
         </div>
       </template>
 
-      <el-table
-        v-loading="loading"
-        :data="tableData"
-        stripe
-        @selection-change="handleSelectionChange"
-      >
-        <el-table-column v-if="canDelete" type="selection" width="50" />
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="制程名称" min-width="200" />
-        <el-table-column prop="createdAt" label="创建时间" width="180">
-          <template #default="{ row }">{{
-            new Date(row.createdAt).toLocaleString()
-          }}</template>
-        </el-table-column>
-        <el-table-column
-          v-if="hasOperationActions"
-          label="操作"
-          width="150"
-          fixed="right"
+      <div class="table-region">
+        <el-table
+          v-loading="loading"
+          :data="tableData"
+          height="100%"
+          stripe
+          @selection-change="handleSelectionChange"
         >
-          <template #default="{ row }">
-            <el-button
-              v-if="canUpdate"
-              type="primary"
-              link
-              @click="handleEdit(row)"
-              >编辑</el-button
-            >
-            <el-button
-              v-if="canDelete"
-              type="danger"
-              link
-              @click="handleDelete(row)"
-              >删除</el-button
-            >
-          </template>
-        </el-table-column>
-      </el-table>
+          <el-table-column v-if="canDelete" type="selection" width="50" />
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="name" label="制程名称" min-width="min(200px, calc(100vw - 32px))" />
+          <el-table-column prop="createdAt" label="创建时间" width="min(180px, calc(100vw - 32px))">
+            <template #default="{ row }">{{
+              new Date(row.createdAt).toLocaleString()
+            }}</template>
+          </el-table-column>
+          <el-table-column
+            v-if="hasOperationActions"
+            label="操作"
+            width="min(150px, calc(100vw - 32px))"
+            fixed="right"
+          >
+            <template #default="{ row }">
+              <el-button
+                v-if="canUpdate"
+                type="primary"
+                link
+                @click="handleEdit(row)"
+                >编辑</el-button
+              >
+              <el-button
+                v-if="canDelete"
+                type="danger"
+                link
+                @click="handleDelete(row)"
+                >删除</el-button
+              >
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
 
-      <div class="mt-4 flex justify-end">
+      <div class="pagination-bar">
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
+          :page-sizes="[20, 50, 100, 200]"
           :total="total"
           layout="total, sizes, prev, pager, next, jumper"
           @size-change="handleSizeChange"
@@ -281,7 +282,7 @@ onMounted(() => {
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="500">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(480px, calc(100vw - 32px))">
       <el-form label-width="80px">
         <el-form-item label="制程名称" required>
           <el-input
@@ -301,11 +302,4 @@ onMounted(() => {
   </div>
 </template>
 
-<style scoped>
-.page {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 0;
-}
-</style>
+<style scoped></style>

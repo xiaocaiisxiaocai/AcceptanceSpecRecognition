@@ -505,7 +505,7 @@ const groupLabel = () => {
           v-if="queryParams.globalSearch"
           prop="customerName"
           label="客户"
-          min-width="120"
+          min-width="min(120px, calc(100vw - 32px))"
         >
           <template #default="{ row }">
             <span class="line-clamp-1" :title="row.customerName">{{
@@ -517,7 +517,7 @@ const groupLabel = () => {
           v-if="queryParams.globalSearch"
           prop="machineModelName"
           label="机型"
-          min-width="120"
+          min-width="min(120px, calc(100vw - 32px))"
         >
           <template #default="{ row }">
             <span
@@ -533,7 +533,7 @@ const groupLabel = () => {
           v-if="queryParams.globalSearch"
           prop="processName"
           label="制程"
-          min-width="120"
+          min-width="min(120px, calc(100vw - 32px))"
         >
           <template #default="{ row }">
             <span
@@ -545,21 +545,21 @@ const groupLabel = () => {
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="project" label="项目" min-width="150">
+        <el-table-column prop="project" label="项目" min-width="min(150px, calc(100vw - 32px))">
           <template #default="{ row }">
             <span class="line-clamp-1" :title="row.project">{{
               row.project
             }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="specification" label="规格内容" min-width="200">
+        <el-table-column prop="specification" label="规格内容" min-width="min(200px, calc(100vw - 32px))">
           <template #default="{ row }">
             <span class="line-clamp-1" :title="row.specification">{{
               row.specification
             }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="acceptance" label="验收标准" min-width="150">
+        <el-table-column prop="acceptance" label="验收标准" min-width="min(150px, calc(100vw - 32px))">
           <template #default="{ row }">
             <span
               v-if="row.acceptance"
@@ -570,7 +570,7 @@ const groupLabel = () => {
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="150">
+        <el-table-column prop="remark" label="备注" min-width="min(150px, calc(100vw - 32px))">
           <template #default="{ row }">
             <span v-if="row.remark" class="line-clamp-1" :title="row.remark">{{
               row.remark
@@ -616,7 +616,7 @@ const groupLabel = () => {
       />
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="600">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(640px, calc(100vw - 32px))">
       <el-form label-width="100px">
         <el-form-item label="项目名称" required>
           <el-input
@@ -658,7 +658,7 @@ const groupLabel = () => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="detailDialogVisible" title="规格详情" width="600">
+    <el-dialog v-model="detailDialogVisible" title="规格详情" width="min(640px, calc(100vw - 32px))">
       <el-descriptions v-if="detailData" :column="1" border>
         <el-descriptions-item label="ID">{{
           detailData.id

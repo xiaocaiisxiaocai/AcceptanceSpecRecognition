@@ -16,8 +16,6 @@ const emit = defineEmits<{
 
 <template>
   <div class="step-panel">
-    <h3 class="step-title">上传目标文档</h3>
-    <p class="step-desc">请选择需要填充验收标准的 Word/Excel 文档</p>
     <FileUpload
       v-if="canUploadSourceFile"
       :model-value="uploadedFile"

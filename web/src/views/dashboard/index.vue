@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Refresh } from "@element-plus/icons-vue";
 import {
@@ -8,6 +8,13 @@ import {
   type DashboardSummary,
   type DashboardSummaryRequest
 } from "@/api/dashboard";
+import {
+  getExecutionHistoryList,
+  type ExecutionHistoryListItem
+} from "@/api/execution-history";
+import echarts from "@/plugins/echarts";
+import { formatExecutionHistoryDateTime } from "@/views/other/execution-history/executionHistory.formatters";
+import type { ECharts, EChartsCoreOption } from "echarts/core";
 
 defineOptions({
   name: "Dashboard"
@@ -30,9 +37,15 @@ const emptySummary: DashboardSummary = {
 };
 
 const loading = ref(false);
+const recentLoading = ref(false);
 const periodPreset = ref<DashboardPeriodPreset>("last7");
 const customRange = ref<[Date, Date] | null>(null);
 const summary = ref<DashboardSummary | null>(null);
+const recentTasks = ref<ExecutionHistoryListItem[]>([]);
+const matchChartRef = ref<HTMLDivElement | null>(null);
+const volumeChartRef = ref<HTMLDivElement | null>(null);
+let matchChart: ECharts | undefined;
+let volumeChart: ECharts | undefined;
 const datePickerDefaultTime: [Date, Date] = [
   new Date(2000, 0, 1, 0, 0, 0),
   new Date(2000, 0, 1, 23, 59, 59)
@@ -54,6 +67,24 @@ const idleScheduler = globalThis as typeof globalThis & {
 };
 let idleCallbackId: number | undefined;
 let loadTimerId: ReturnType<typeof setTimeout> | undefined;
+
+const matchedRows = computed(() => currentSummary.value.smartFillMatchedRows);
+const unmatchedRows = computed(() =>
+  Math.max(
+    currentSummary.value.smartFillTotalRows -
+      currentSummary.value.smartFillMatchedRows,
+    0
+  )
+);
+
+const adoptedRows = computed(() => currentSummary.value.smartFillAdoptedRows);
+const unadoptedRows = computed(() =>
+  Math.max(
+    currentSummary.value.smartFillMatchedRows -
+      currentSummary.value.smartFillAdoptedRows,
+    0
+  )
+);
 
 const buildRequest = (): DashboardSummaryRequest => {
   if (periodPreset.value !== "custom") {
@@ -87,11 +118,29 @@ const load = async () => {
   }
 };
 
+const loadRecentTasks = async () => {
+  recentLoading.value = true;
+  try {
+    const response = await getExecutionHistoryList({ page: 1, pageSize: 5 });
+    if (response.code === 0) {
+      recentTasks.value = response.data.items;
+      return;
+    }
+
+    ElMessage.error(response.message || "加载最近执行记录失败");
+  } catch {
+    ElMessage.error("加载最近执行记录失败");
+  } finally {
+    recentLoading.value = false;
+  }
+};
+
 const scheduleLoad = () => {
   if (typeof idleScheduler.requestIdleCallback === "function") {
     idleCallbackId = idleScheduler.requestIdleCallback(
       () => {
         void load();
+        void loadRecentTasks();
       },
       { timeout: 800 }
     );
@@ -100,6 +149,7 @@ const scheduleLoad = () => {
 
   loadTimerId = globalThis.setTimeout(() => {
     void load();
+    void loadRecentTasks();
   }, 120);
 };
 
@@ -136,6 +186,9 @@ const formatPercent = (value: number | undefined) => {
   return `${Math.round((value ?? 0) * 100)}%`;
 };
 
+const taskTypeText = (taskType: string) =>
+  taskType === "batch-reply" ? "批量回复" : "智能填充";
+
 const formatDateTime = (value: string | undefined) => {
   if (!value) return "-";
 
@@ -151,7 +204,90 @@ const formatDateTime = (value: string | undefined) => {
   });
 };
 
-onMounted(scheduleLoad);
+const buildMatchChartOption = (): EChartsCoreOption => ({
+  color: ["var(--app-primary)", "var(--app-success)", "var(--app-border)"],
+  tooltip: { trigger: "item" },
+  legend: {
+    bottom: 0,
+    itemWidth: 10,
+    itemHeight: 10,
+    textStyle: { color: "var(--app-text-secondary)" }
+  },
+  series: [
+    {
+      name: "匹配采用",
+      type: "pie",
+      radius: ["54%", "72%"],
+      center: ["50%", "42%"],
+      avoidLabelOverlap: true,
+      label: {
+        formatter: "{b}\n{d}%",
+        color: "var(--app-text-primary)"
+      },
+      data: [
+        { name: "已采用", value: adoptedRows.value },
+        { name: "已匹配未采用", value: unadoptedRows.value },
+        { name: "未匹配", value: unmatchedRows.value }
+      ]
+    }
+  ]
+});
+
+const buildVolumeChartOption = (): EChartsCoreOption => ({
+  color: ["var(--app-primary)", "var(--app-success)", "var(--app-text-secondary)"],
+  tooltip: { trigger: "axis" },
+  grid: { left: 32, right: 16, top: 24, bottom: 28, containLabel: true },
+  xAxis: {
+    type: "category",
+    data: ["规格总量", "周期导入", "填充任务", "匹配行", "采用行"],
+    axisLabel: { color: "var(--app-text-secondary)" },
+    axisLine: { lineStyle: { color: "var(--app-border)" } }
+  },
+  yAxis: {
+    type: "value",
+    axisLabel: { color: "var(--app-text-secondary)" },
+    splitLine: { lineStyle: { color: "var(--app-border-light)" } }
+  },
+  series: [
+    {
+      name: "数量",
+      type: "bar",
+      barMaxWidth: 34,
+      itemStyle: { borderRadius: [6, 6, 0, 0] },
+      data: [
+        currentSummary.value.specTotal,
+        currentSummary.value.importedSpecCount,
+        currentSummary.value.smartFillTaskCount,
+        currentSummary.value.smartFillMatchedRows,
+        currentSummary.value.smartFillAdoptedRows
+      ]
+    }
+  ]
+});
+
+const renderCharts = () => {
+  if (!matchChartRef.value || !volumeChartRef.value) return;
+
+  matchChart ??= echarts.init(matchChartRef.value, null, { renderer: "svg" });
+  volumeChart ??= echarts.init(volumeChartRef.value, null, { renderer: "svg" });
+  matchChart.setOption(buildMatchChartOption(), true);
+  volumeChart.setOption(buildVolumeChartOption(), true);
+};
+
+const resizeCharts = () => {
+  matchChart?.resize();
+  volumeChart?.resize();
+};
+
+watch(currentSummary, () => {
+  void nextTick(renderCharts);
+});
+
+onMounted(() => {
+  scheduleLoad();
+  void nextTick(renderCharts);
+  globalThis.addEventListener("resize", resizeCharts);
+});
 
 onBeforeUnmount(() => {
   if (
@@ -164,6 +300,10 @@ onBeforeUnmount(() => {
   if (loadTimerId !== undefined) {
     globalThis.clearTimeout(loadTimerId);
   }
+
+  globalThis.removeEventListener("resize", resizeCharts);
+  matchChart?.dispose();
+  volumeChart?.dispose();
 });
 </script>
 
@@ -254,6 +394,67 @@ onBeforeUnmount(() => {
         </el-card>
       </el-col>
     </el-row>
+
+    <div class="dashboard-chart-grid">
+      <el-card class="chart-card">
+        <template #header>
+          <div class="card-header">
+            <span>匹配采用分布</span>
+            <span class="card-header-tip">
+              总行数 {{ formatNumber(currentSummary.smartFillTotalRows) }}
+            </span>
+          </div>
+        </template>
+        <div ref="matchChartRef" class="chart-panel" />
+      </el-card>
+
+      <el-card class="chart-card">
+        <template #header>
+          <div class="card-header">
+            <span>周期业务量</span>
+            <span class="card-header-tip">
+              导入 {{ formatNumber(currentSummary.importedSpecCount) }} 条
+            </span>
+          </div>
+        </template>
+        <div ref="volumeChartRef" class="chart-panel" />
+      </el-card>
+
+      <el-card v-loading="recentLoading" class="chart-card recent-card">
+        <template #header>
+          <div class="card-header">
+            <span>最近执行</span>
+            <span class="card-header-tip">最新 5 条</span>
+          </div>
+        </template>
+        <el-table :data="recentTasks" height="100%" empty-text="暂无执行记录">
+          <el-table-column label="类型" width="92">
+            <template #default="{ row }">
+              <el-tag size="small" effect="plain">
+                {{ taskTypeText(row.taskType) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="sourceFileName"
+            label="来源文件"
+            min-width="min(220px, calc(100vw - 32px))"
+            show-overflow-tooltip
+          />
+          <el-table-column label="采用/总行" width="min(110px, calc(100vw - 32px))">
+            <template #default="{ row }">
+              {{ formatNumber(row.adoptedRowCount) }} /
+              {{ formatNumber(row.totalRowCount) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="时间" width="min(160px, calc(100vw - 32px))">
+            <template #default="{ row }">
+              {{ formatExecutionHistoryDateTime(row.createdAt) }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+    </div>
   </div>
 </template>
 
@@ -273,15 +474,15 @@ onBeforeUnmount(() => {
 }
 
 .page-title {
-  font-size: 22px;
+  font-size: var(--app-font-xl);
   font-weight: 650;
-  color: var(--color-text);
+  color: var(--app-text-primary);
 }
 
 .page-subtitle {
   margin-top: 6px;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .period-tools {
@@ -297,18 +498,18 @@ onBeforeUnmount(() => {
 }
 
 .stat-card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
 }
 
 .stat-card--primary {
-  background: linear-gradient(180deg, #fff 0%, #f3faf5 100%);
-  border-color: #b9d7c5;
+  background: var(--app-bg-card);
+  border-color: color-mix(in srgb, var(--app-primary) 24%, var(--app-border));
 }
 
 .stat-card--import {
-  background: linear-gradient(180deg, #fff 0%, #f6f8ff 100%);
-  border-color: #c7d2fe;
+  background: var(--app-bg-card);
+  border-color: color-mix(in srgb, var(--app-success) 24%, var(--app-border));
 }
 
 .stat {
@@ -320,20 +521,60 @@ onBeforeUnmount(() => {
 
 .stat-title {
   font-size: 14px;
-  color: #5f6876;
+  color: var(--app-text-secondary);
 }
 
 .stat-value {
   font-size: 34px;
   font-weight: 700;
   line-height: 1.1;
-  color: #1f2937;
+  color: var(--app-text-primary);
 }
 
 .stat-note {
   margin-top: auto;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
+}
+
+.dashboard-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-height: 0;
+}
+
+.chart-card {
+  min-width: 0;
+}
+
+.chart-card :deep(.el-card__body) {
+  height: 300px;
+}
+
+.recent-card {
+  grid-column: 1 / -1;
+}
+
+.recent-card :deep(.el-card__body) {
+  height: 260px;
+}
+
+.card-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-header-tip {
+  font-size: var(--app-font-xs);
+  color: var(--app-text-secondary);
+}
+
+.chart-panel {
+  width: 100%;
+  height: 100%;
 }
 
 @media (width <= 768px) {
@@ -348,6 +589,10 @@ onBeforeUnmount(() => {
 
   .period-picker {
     width: 100%;
+  }
+
+  .dashboard-chart-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

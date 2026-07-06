@@ -33,7 +33,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 **验收规格管理系统**（Acceptance Specification System）——帮助企业验收工程师从 Word/Excel 文档提取历史验收规格数据，并通过 AI 智能匹配（相似度 / Embedding / LLM）自动填充到新文档中。
 
-核心数据模型：按 **客户 (Customer) → 制程 (Process)** 层级组织验收规格（项目 + 规格 → 验收 + 备注）。
+核心数据模型：按 **客户 (Customer) → 制程 (Process)** 层级组织验收规格（项目 + 规格 → 验收 + 备注）；**机型 (MachineModel)** 为可选筛选维度（业务筛选以 customerId + processId + 可选 machineModelId 为主）。
 
 项目约定的权威说明（技术栈、架构模式、领域上下文、重要约束）见 `openspec/project.md`；本地联调步骤见 `docs/DEV.md`。
 
@@ -71,8 +71,13 @@ pnpm dev           # 开发服务器，http://localhost:8849（端口来自 web/
 pnpm build         # 生产构建（内含 typecheck）
 pnpm typecheck     # TypeScript + Vue 类型检查
 pnpm lint          # ESLint + Prettier + Stylelint 全量检查
-pnpm test          # 运行 src/ 下内联单测（vitest run src/**/*.test.ts）
-pnpm exec vitest run   # 运行全部前端单测（src/ 内联用例 + web/tests/ 下 30+ 用例）
+pnpm test          # 全部前端单测 = test:vitest + test:node
+pnpm test:vitest   # vitest 跑 src/**/*.test.ts 内联用例（include 配置在 vite.config.ts 的 test 段）
+pnpm test:node     # Node 原生 test runner 跑 web/tests/*.test.ts
+
+# 运行单个前端测试文件（两轨命令不同）
+pnpm exec vitest run src/views/shared/smart-structure-recognition.test.ts
+node --experimental-strip-types --import ./tests/setup-node-test-cwd.mjs --test ./tests/top-menu.test.ts
 ```
 
 ### E2E 控制台测试工具
@@ -98,6 +103,8 @@ dotnet run --project tools/MatchingRegressionReport -- \
 dotnet run --project tools/SmartFillInsightReport -- \
   --connection "Server=localhost;Database=acceptance_spec_db;User=root;Password=***;CharSet=utf8mb4;" \
   [--top 20] [--from yyyy-MM-dd] [--to yyyy-MM-dd] [--output report.json]
+
+# 语义测试数据生成：tools/ParaphraseGenerator（LLM 改写）与 tools/*.ps1（灰区样本提取、改写 Excel 生成等）
 ```
 
 ---
@@ -155,7 +162,7 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、Controllers、Api/Services �
 | `/rbac/` | 用户、角色、权限、组织架构管理 |
 | `/config/` | AI 服务配置、提示词模板、列映射规则 |
 
-API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。智能结构识别的确认卡片与工具函数在 `web/src/views/shared/`（`SmartStructureConfirmCard.vue` + `smart-structure-recognition.ts`），由 data-import 与 smart-fill 两页复用，各页流程逻辑在自己的 `*.smartRecognition.ts` 中。
+API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。智能结构识别的共享 UI 与逻辑在 `web/src/views/shared/`（`SmartStructureConfirmCard.vue`、`SmartStructureSummaryBanner.vue`、`smart-structure-recognition.ts`、composable `useSmartStructureRecognition.ts`），由 data-import 与 smart-fill 两页复用，各页流程逻辑在自己的 `*.smartRecognition.ts` 中。
 
 ### 关键 API 端点
 
@@ -211,7 +218,8 @@ GET  /health                             健康检查
 - `tests/AcceptanceSpecSystem.Core.Tests`：匹配算法、文本处理纯单元测试。
 - `tests/AcceptanceSpecSystem.Data.Tests`：Repository + EF Core 数据层测试。
 - 测试环境通过 `ASPNETCORE_ENVIRONMENT=Testing` 标识，绕过迁移自动化。
-- 前端单测分两处：`web/tests/`（跨页面行为用例）与 `web/src/**` 内联用例（工具函数、智能识别流程等）；无独立 vitest 配置文件，使用默认 include。
+- 前端单测双轨：`web/src/**` 内联用例（工具函数、智能识别流程等）由 **vitest** 执行，include 限定为 `src/**/*.test.ts`（配置在 `web/vite.config.ts` 的 `test` 段）；`web/tests/`（30+ 跨页面行为用例）由 **Node 原生 test runner** 执行（`node:test` + `--experimental-strip-types`，`setup-node-test-cwd.mjs` 会把 cwd 切到仓库根）。`pnpm test` 依次跑两轨。
+- CI（`.github/workflows/ci.yml`）：后端 `dotnet test AcceptanceSpecSystem.sln --no-restore -m:1`；前端 `pnpm typecheck` + `pnpm test` + `pnpm build`（pnpm 10 / Node 22）；并验证 api 与 web 两个 Docker 镜像可构建。
 
 ### 架构边界测试（强约束，改动前必读）
 
@@ -245,4 +253,5 @@ GET  /health                             健康检查
 - AI 服务 Key 等敏感配置加密存储，禁止硬编码。
 - 支持文件格式：仅 `.docx`（Word）和 `.xlsx`（Excel）。
 - 涉及 API、数据库、架构、匹配行为的实质变更，优先通过 OpenSpec 变更提案管理（见 `openspec/AGENTS.md`）。
-- Git 提交信息格式：`类型: 中文描述`（如 `feat: 添加 Embedding 匹配功能`）。
+- 全仓库启用 **Nullable 引用类型**与 .NET Analyzers（`Directory.Build.props`），新增 C# 代码需通过可空性检查。
+- Git 提交信息格式：`类型: 中文描述`（如 `feat: 添加 Embedding 匹配功能`）；husky + commitlint 强制校验，类型限定 feat/fix/perf/style/docs/test/refactor/build/ci/chore/revert/wip/workflow/types/release，标题 ≤ 108 字符。

@@ -1,11 +1,11 @@
 .login-page {
   /* 仅对登录页覆盖 element-plus 主色，避免影响系统其它页面 */
-  --el-color-primary: #7c3aed;
+  --el-color-primary: var(--app-primary);
   --el-color-primary-light-3: #8b5cf6;
   --el-color-primary-light-5: #a78bfa;
   --el-color-primary-light-7: #c4b5fd;
   --el-color-primary-light-9: #ede9fe;
-  --el-color-primary-dark-2: #6d28d9;
+  --el-color-primary-dark-2: var(--app-primary);
 }
 
 .login-container {
@@ -27,7 +27,7 @@
       rgba(167, 139, 250, 0.14),
       transparent 55%
     ),
-    linear-gradient(180deg, #ffffff 0%, #f9f5ff 100%);
+    linear-gradient(180deg, var(--app-bg-card) 0%, var(--app-bg-page) 100%);
 }
 
 .login-box {
@@ -54,7 +54,7 @@
 
 .login-form h2 {
   margin: 10px 0 18px;
-  color: #4c1d95;
+  color: var(--app-text-primary);
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 1px;

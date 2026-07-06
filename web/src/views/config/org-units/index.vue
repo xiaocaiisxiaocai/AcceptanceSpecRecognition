@@ -106,9 +106,9 @@ onMounted(loadTree);
         row-key="id"
         stripe
       >
-        <el-table-column prop="name" label="组织名称" min-width="220" />
-        <el-table-column prop="code" label="编码" min-width="120" />
-        <el-table-column label="类型" width="120">
+        <el-table-column prop="name" label="组织名称" min-width="min(220px, calc(100vw - 32px))" />
+        <el-table-column prop="code" label="编码" min-width="min(120px, calc(100vw - 32px))" />
+        <el-table-column label="类型" width="min(120px, calc(100vw - 32px))">
           <template #default> 公司 </template>
         </el-table-column>
         <el-table-column prop="sort" label="排序" width="90" />
@@ -122,7 +122,7 @@ onMounted(loadTree);
         <el-table-column
           v-if="canUpdate"
           label="操作"
-          width="140"
+          width="min(140px, calc(100vw - 32px))"
           fixed="right"
         >
           <template #default="{ row }">
@@ -139,7 +139,7 @@ onMounted(loadTree);
       />
     </el-card>
 
-    <el-dialog v-model="editDialogVisible" title="编辑组织" width="520">
+    <el-dialog v-model="editDialogVisible" title="编辑组织" width="min(480px, calc(100vw - 32px))">
       <el-form label-width="90px">
         <el-form-item label="组织编码" required>
           <el-input v-model="editForm.code" maxlength="64" />

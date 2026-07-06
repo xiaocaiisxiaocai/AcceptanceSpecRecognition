@@ -326,31 +326,31 @@ onMounted(loadData);
       <div class="table-wrap">
         <el-table v-loading="loading" :data="tableData" stripe height="100%">
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column label="级别" width="100">
+          <el-table-column label="级别" width="min(100px, calc(100vw - 32px))">
             <template #default="{ row }">
               <el-tag :type="getLevelType(row.level)">
                 {{ getLevelLabel(row.level) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="eventType" label="事件" width="150" />
-          <el-table-column prop="username" label="用户" width="120" />
+          <el-table-column prop="eventType" label="事件" width="min(150px, calc(100vw - 32px))" />
+          <el-table-column prop="username" label="用户" width="min(120px, calc(100vw - 32px))" />
           <el-table-column prop="requestMethod" label="方法" width="90" />
           <el-table-column
             prop="requestPath"
             label="请求路径"
-            min-width="220"
+            min-width="min(220px, calc(100vw - 32px))"
             show-overflow-tooltip
           />
           <el-table-column
             prop="frontendRoute"
             label="前端路由"
-            min-width="180"
+            min-width="min(180px, calc(100vw - 32px))"
             show-overflow-tooltip
           />
           <el-table-column prop="statusCode" label="状态" width="90" />
-          <el-table-column prop="durationMs" label="耗时(ms)" width="100" />
-          <el-table-column prop="createdAt" label="时间" width="180">
+          <el-table-column prop="durationMs" label="耗时(ms)" width="min(100px, calc(100vw - 32px))" />
+          <el-table-column prop="createdAt" label="时间" width="min(180px, calc(100vw - 32px))">
             <template #default="{ row }">
               {{ new Date(row.createdAt).toLocaleString() }}
             </template>

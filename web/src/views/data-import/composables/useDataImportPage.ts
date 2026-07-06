@@ -4,8 +4,7 @@ import {
   watch,
   onActivated,
   onMounted,
-  onUnmounted,
-  nextTick
+  onUnmounted
 } from "vue";
 import { storeToRefs } from "pinia";
 import { ElLoading, ElMessage } from "element-plus";
@@ -151,48 +150,7 @@ export function useDataImportPage() {
     selectedProcessId,
     selectedMachineModelId
   });
-  // 让步骤条吸顶到实际滚动容器（pure-admin 使用 el-scrollbar）
-  const affixTarget = ref<string>("");
-  const affixOffset = ref<number>(0);
-
-  const refreshAffix = async () => {
-    await nextTick();
-
-    // fixedHeader=true 时：LayContent 内部有 .app-main .el-scrollbar__wrap
-    const appMainWrap = document.querySelector(".app-main .el-scrollbar__wrap");
-    if (appMainWrap) {
-      affixTarget.value = ".app-main .el-scrollbar__wrap";
-      // 关键：读取 app-main 的 padding-top（tabs/header 高度），让 affix 从一开始就“贴住”并且不盖住顶部栏
-      const appMain = document.querySelector(".app-main") as HTMLElement | null;
-      const pt = appMain
-        ? parseInt(getComputedStyle(appMain).paddingTop || "0", 10)
-        : 0;
-      affixOffset.value = Number.isFinite(pt) && pt > 0 ? pt : 86;
-      return;
-    }
-
-    // fixedHeader=false 时：Layout 外层有 .main-container .el-scrollbar__wrap
-    const mainWrap = document.querySelector(
-      ".main-container .el-scrollbar__wrap"
-    );
-    if (mainWrap) {
-      affixTarget.value = ".main-container .el-scrollbar__wrap";
-      // header 不固定时，Affix 贴在容器顶部即可
-      affixOffset.value = 0;
-      return;
-    }
-
-    // fallback：不设置 target，则 Affix 会绑定 window（但本项目通常不会走到这里）
-    affixTarget.value = "";
-    affixOffset.value = 0;
-  };
-
   onMounted(() => {
-    // 首次进入
-    refreshAffix();
-    // 某些情况下 layout/scroll 容器渲染更晚，做一次轻量重试
-    setTimeout(refreshAffix, 50);
-    setTimeout(refreshAffix, 200);
     loadAiServices();
     loadCustomers();
     loadProcesses();
@@ -200,8 +158,6 @@ export function useDataImportPage() {
   });
 
   onActivated(() => {
-    // keep-alive 返回页面时，重新绑定一次
-    refreshAffix();
     if (advancedMode.value && currentStep.value === 2 && !isExcelFile.value) {
       loadMappingRules();
     }
@@ -1169,8 +1125,6 @@ export function useDataImportPage() {
     loadingAiServices,
     embeddingServices,
     llmServices,
-    affixTarget,
-    affixOffset,
     importPreviewGroups,
     removedPreviewRowCount,
     selectedImportPreviewRowsCount,

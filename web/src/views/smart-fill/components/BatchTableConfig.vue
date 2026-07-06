@@ -667,19 +667,19 @@ const getPreviewResult = (tableIndex: number) => {
               class="preview-table"
               max-height="420"
             >
-              <el-table-column prop="rowIndex" label="目标行号" width="100" />
-              <el-table-column prop="project" label="项目" min-width="160" />
+              <el-table-column prop="rowIndex" label="目标行号" width="min(100px, calc(100vw - 32px))" />
+              <el-table-column prop="project" label="项目" min-width="min(160px, calc(100vw - 32px))" />
               <el-table-column
                 prop="specification"
                 label="规格"
-                min-width="180"
+                min-width="min(180px, calc(100vw - 32px))"
               />
               <el-table-column
                 prop="acceptance"
                 label="预览验收"
-                min-width="180"
+                min-width="min(180px, calc(100vw - 32px))"
               />
-              <el-table-column prop="remark" label="预览备注" min-width="180" />
+              <el-table-column prop="remark" label="预览备注" min-width="min(180px, calc(100vw - 32px))" />
             </el-table>
           </div>
         </div>
@@ -706,7 +706,7 @@ const getPreviewResult = (tableIndex: number) => {
   margin-bottom: 16px;
   font-size: 14px;
   color: #5d6d7e;
-  background: #f8fafc;
+  background: var(--app-info-bg);
   border: 1px solid #dbe3ec;
   border-radius: 12px;
 }
@@ -732,11 +732,11 @@ const getPreviewResult = (tableIndex: number) => {
 
 .sheet-tabs :deep(.el-tabs__item.is-active) {
   font-weight: 600;
-  color: #173d73;
+  color: var(--app-primary);
 }
 
 .sheet-tabs :deep(.el-tabs__active-bar) {
-  background: #2f6bb2;
+  background: var(--app-primary);
 }
 
 .sheet-tab-label {
@@ -788,7 +788,7 @@ const getPreviewResult = (tableIndex: number) => {
 
 .headers-preview .label {
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-disabled);
 }
 
 .header-tag {
@@ -797,7 +797,7 @@ const getPreviewResult = (tableIndex: number) => {
 
 .more {
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-disabled);
 }
 
 .column-config {
@@ -809,8 +809,8 @@ const getPreviewResult = (tableIndex: number) => {
 
 .config-section {
   padding: 14px 16px;
-  background: #fbfcfd;
-  border: 1px solid #e0e7ef;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-bg);
   border-radius: 12px;
 }
 
@@ -824,18 +824,18 @@ const getPreviewResult = (tableIndex: number) => {
 .row-config-title {
   margin-bottom: 8px;
   font-size: 12px;
-  color: #606266;
+  color: var(--app-text-secondary);
 }
 
 .row-config-hint {
   margin-bottom: 10px;
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-disabled);
 }
 
 .row-config-hint--sync {
   margin-bottom: 12px;
-  color: #b45309;
+  color: var(--app-warning);
 }
 
 .table-preview-wrap {
@@ -845,8 +845,8 @@ const getPreviewResult = (tableIndex: number) => {
   max-width: 100%;
   padding: 14px 16px;
   margin: 0;
-  background: #fbfcfd;
-  border: 1px solid #e0e7ef;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-bg);
   border-radius: 12px;
 }
 
@@ -870,7 +870,7 @@ const getPreviewResult = (tableIndex: number) => {
 .preview-title {
   margin-bottom: 8px;
   font-size: 13px;
-  color: #606266;
+  color: var(--app-text-secondary);
 }
 
 .config-narrow {

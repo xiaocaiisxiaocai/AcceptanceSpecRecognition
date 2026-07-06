@@ -21,7 +21,8 @@ test("MatchPreviewTable 在大结果集场景下应使用分页后的数据源�
   );
 
   assert.match(source, /const currentPage = ref\(1\);/);
-  assert.match(source, /const pageSize = ref\(100\);/);
+  assert.match(source, /const pageSize = ref\(50\);/);
+  assert.match(source, /const pageSizeOptions = \[20, 50, 100, 200\];/);
   assert.match(source, /const pagedFilteredItems = computed\(\(\) =>/);
   assert.match(source, /:items="pagedFilteredItems"/);
   const dataTableSource = readProjectFile(

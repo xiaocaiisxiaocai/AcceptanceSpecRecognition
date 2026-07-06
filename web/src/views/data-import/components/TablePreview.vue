@@ -256,7 +256,7 @@ defineExpose({
           border
           stripe
           :fit="false"
-          max-height="400"
+          height="100%"
           size="small"
         >
           <el-table-column
@@ -280,8 +280,12 @@ defineExpose({
 
 <style scoped>
 .table-preview {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   min-width: 0;
+  min-height: 480px;
+  height: min(620px, calc(100vh - 360px));
 }
 
 .loading-container,
@@ -291,14 +295,16 @@ defineExpose({
 
 .preview-content {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
   min-width: 0;
 }
 
 .preview-info {
   font-size: 14px;
-  color: #4b5563;
+  color: var(--app-text-secondary);
 }
 
 .preview-tip {
@@ -311,7 +317,9 @@ defineExpose({
 }
 
 .table-container {
+  flex: 1;
   width: 100%;
+  min-height: 360px;
   min-width: 0;
   padding-bottom: 8px;
   overflow: auto hidden;

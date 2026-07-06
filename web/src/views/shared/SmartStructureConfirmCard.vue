@@ -401,8 +401,8 @@ const emitConfirm = () => {
 <style scoped>
 .smart-structure-card {
   padding: 12px 14px;
-  background: #fff;
-  border: 1px solid #dce4ee;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
 }
 
@@ -421,7 +421,7 @@ const emitConfirm = () => {
   align-items: center;
   min-width: 0;
   font-weight: 700;
-  color: #1f3349;
+  color: var(--app-text-primary);
 }
 
 .card-meta {
@@ -430,7 +430,7 @@ const emitConfirm = () => {
   gap: 8px 12px;
   justify-content: flex-end;
   font-size: 12px;
-  color: #6b7785;
+  color: var(--app-text-secondary);
 }
 
 .card-summary-strip {
@@ -443,7 +443,7 @@ const emitConfirm = () => {
 
 .row-range {
   font-size: 12px;
-  color: #7b8794;
+  color: var(--app-text-secondary);
 }
 
 .headers-preview,
@@ -459,15 +459,15 @@ const emitConfirm = () => {
 .headers-label,
 .more {
   font-size: 12px;
-  color: #808b98;
+  color: var(--app-text-disabled);
 }
 
 .confirm-form {
   padding: 10px 12px 0;
   margin-top: 10px;
   margin-bottom: 10px;
-  background: #fbfcfd;
-  border: 1px solid #e5ebf2;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
 }
 

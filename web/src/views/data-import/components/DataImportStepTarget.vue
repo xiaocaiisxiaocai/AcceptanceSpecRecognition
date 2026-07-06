@@ -25,11 +25,6 @@ const emit = defineEmits<{
 
 <template>
   <div :class="['step-panel', { 'step-panel--compact': compact }]">
-    <h3 v-if="!compact" class="step-title">选择导入目标</h3>
-    <p v-if="!compact" class="step-desc">
-      请选择数据要导入的客户、制程与机型（制程/机型可选）
-    </p>
-
     <el-form label-width="100px" class="target-form">
       <el-form-item label="选择客户" required>
         <el-select

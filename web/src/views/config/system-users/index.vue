@@ -31,7 +31,7 @@ const orgUnitOptions = ref<OrgUnit[]>([]);
 
 const queryParams = reactive({
   page: 1,
-  pageSize: 20,
+  pageSize: 50,
   keyword: "",
   status: "all" as StatusFilter
 });
@@ -182,7 +182,7 @@ const handleSearch = () => {
 
 const handleReset = () => {
   queryParams.page = 1;
-  queryParams.pageSize = 20;
+  queryParams.pageSize = 50;
   queryParams.keyword = "";
   queryParams.status = "all";
   loadData();
@@ -445,7 +445,7 @@ onMounted(initPage);
         <el-form-item label="状态">
           <el-select
             v-model="queryParams.status"
-            class="w-[180px]"
+            class="search-select search-select--200"
             popper-class="config-select-popper"
           >
             <el-option label="全部" value="all" />
@@ -476,9 +476,9 @@ onMounted(initPage);
 
       <el-table v-loading="loading" :data="tableData" stripe>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="username" label="用户名" min-width="140" />
-        <el-table-column prop="nickname" label="昵称" min-width="120" />
-        <el-table-column label="角色" min-width="220">
+        <el-table-column prop="username" label="用户名" min-width="min(140px, calc(100vw - 32px))" />
+        <el-table-column prop="nickname" label="昵称" min-width="min(120px, calc(100vw - 32px))" />
+        <el-table-column label="角色" min-width="min(220px, calc(100vw - 32px))">
           <template #default="{ row }">
             <el-tag
               v-if="row.roleCode"
@@ -491,7 +491,7 @@ onMounted(initPage);
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="组织" min-width="240">
+        <el-table-column label="组织" min-width="min(240px, calc(100vw - 32px))">
           <template #default="{ row }">
             <el-tag
               v-if="row.orgUnitId"
@@ -504,7 +504,7 @@ onMounted(initPage);
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="120">
+        <el-table-column label="状态" width="min(120px, calc(100vw - 32px))">
           <template #default="{ row }">
             <el-switch
               :model-value="row.isActive"
@@ -518,12 +518,12 @@ onMounted(initPage);
             />
           </template>
         </el-table-column>
-        <el-table-column label="更新时间" width="180">
+        <el-table-column label="更新时间" width="min(180px, calc(100vw - 32px))">
           <template #default="{ row }">
             {{ formatDateTime(row.updatedAt ?? row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="min(300px, calc(100vw - 32px))" fixed="right">
           <template #default="{ row }">
             <el-button
               v-perms="'btn:system-user:update'"
@@ -567,7 +567,11 @@ onMounted(initPage);
       </div>
     </el-card>
 
-    <el-dialog v-model="createDialogVisible" title="新增用户" width="660">
+    <el-dialog
+      v-model="createDialogVisible"
+      title="新增用户"
+      width="min(640px, calc(100vw - 32px))"
+    >
       <el-form label-width="110px">
         <el-form-item label="用户名" required>
           <el-input
@@ -635,7 +639,11 @@ onMounted(initPage);
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editDialogVisible" title="编辑用户" width="660">
+    <el-dialog
+      v-model="editDialogVisible"
+      title="编辑用户"
+      width="min(640px, calc(100vw - 32px))"
+    >
       <el-form label-width="110px">
         <el-form-item label="用户名">
           <el-input :model-value="editForm.username" disabled />
@@ -694,7 +702,7 @@ onMounted(initPage);
     <el-dialog
       v-model="resetPasswordDialogVisible"
       title="重置密码"
-      width="500"
+      width="min(480px, calc(100vw - 32px))"
     >
       <el-form label-width="100px">
         <el-form-item label="用户名">

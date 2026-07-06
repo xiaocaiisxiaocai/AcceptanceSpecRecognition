@@ -80,9 +80,6 @@ const loadingHintText = computed(() => {
 
 <template>
   <div class="step-panel">
-    <h3 class="step-title">匹配预览</h3>
-    <p class="step-desc">确认匹配结果，可手动调整选择</p>
-
     <!-- LLM 流式处理提示 -->
     <el-alert
       v-if="llmStreaming"
@@ -250,8 +247,8 @@ const loadingHintText = computed(() => {
   gap: 14px;
   width: min(560px, 100%);
   padding: 24px;
-  background: #f8fbff;
-  border: 1px solid #dbeafe;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-bg);
   border-radius: 12px;
 }
 
@@ -277,8 +274,8 @@ const loadingHintText = computed(() => {
   padding: 2px 8px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
-  color: #9ca3af;
-  background: #f3f4f6;
+  color: var(--app-text-disabled);
+  background: var(--app-border-light);
   border-radius: 20px;
 }
 
@@ -297,7 +294,7 @@ const loadingHintText = computed(() => {
   gap: 8px;
   justify-content: space-between;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .matching-loading__detail {
@@ -308,7 +305,7 @@ const loadingHintText = computed(() => {
   padding: 1px 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: var(--app-text-secondary);
   background: #ede9fe;
   border-radius: 10px;
 }
@@ -317,7 +314,7 @@ const loadingHintText = computed(() => {
   padding-top: 10px;
   font-size: 12px;
   line-height: 1.6;
-  color: #9ca3af;
-  border-top: 1px solid #e5e7eb;
+  color: var(--app-text-disabled);
+  border-top: 1px solid var(--app-border);
 }
 </style>

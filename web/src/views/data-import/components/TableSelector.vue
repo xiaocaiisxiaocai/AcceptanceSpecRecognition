@@ -288,33 +288,33 @@ watch(
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
-  background: #f9f5ff;
-  border: 1px solid #e7dbff;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
 }
 
 .bulk-tip {
   margin-right: auto;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .table-item {
   position: relative;
   padding: 16px;
   cursor: pointer;
-  border: 2px solid #ede7f6;
+  border: 2px solid var(--app-border);
   border-radius: 12px;
   transition: all 0.2s;
 }
 
 .table-item:hover {
-  background-color: #f8f5ff;
-  border-color: #c4b5fd;
+  background-color: var(--app-fill-hover);
+  border-color: var(--app-primary);
 }
 
 .table-item.selected {
-  background-color: #f4efff;
+  background-color: var(--app-primary-light);
   border-color: var(--color-primary);
 }
 
@@ -359,7 +359,7 @@ watch(
 .table-name {
   margin-left: 4px;
   font-weight: 400;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .table-title {
@@ -371,7 +371,7 @@ watch(
 
 .table-meta {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   white-space: nowrap;
 }
 
@@ -385,7 +385,7 @@ watch(
   align-items: flex-start;
   margin-bottom: 8px;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .table-headers .label {

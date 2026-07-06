@@ -659,23 +659,27 @@ const getRightCellClass = (row: DiffRow) => {
 <style scoped>
 /* ─── 外层容器 ─── */
 .side-by-side-diff {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
   overflow: hidden;
   font-size: 13px;
   line-height: 1.6;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
 }
 
 /* ─── 表头：左文件A / 右文件B ─── */
 .diff-table-header {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  flex: 0 0 auto;
   font-weight: 600;
-  color: #24292e;
+  color: var(--app-text-primary);
   user-select: none;
-  background: #f6f8fa;
-  border-bottom: 2px solid #d1d5db;
+  background: var(--app-info-bg);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .header-left,
@@ -684,12 +688,14 @@ const getRightCellClass = (row: DiffRow) => {
 }
 
 .header-left {
-  border-right: 1px solid #d1d5db;
+  border-right: 1px solid var(--app-border);
 }
 
 /* ─── 滚动区域 ─── */
 .diff-scroll-body {
-  max-height: 560px;
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 320px);
   overflow: auto;
 }
 
@@ -698,11 +704,11 @@ const getRightCellClass = (row: DiffRow) => {
   padding: 3px 12px;
   font-family: Consolas, "Courier New", monospace;
   font-weight: 600;
-  color: #0366d6;
+  color: var(--app-primary);
   user-select: none;
-  background: #f1f8ff;
-  border-top: 1px solid #d8e1e8;
-  border-bottom: 1px solid #d8e1e8;
+  background: var(--app-primary-light);
+  border-top: 1px solid var(--app-border);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .hunk-header:first-child {
@@ -713,12 +719,12 @@ const getRightCellClass = (row: DiffRow) => {
 .hunk-separator {
   padding: 2px 12px;
   font-size: 12px;
-  color: #6a737d;
+  color: var(--app-text-secondary);
   text-align: center;
   user-select: none;
-  background: #f6f8fa;
-  border-top: 1px solid #d8e1e8;
-  border-bottom: 1px solid #d8e1e8;
+  background: var(--app-info-bg);
+  border-top: 1px solid var(--app-border);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .hunk-separator-clickable {
@@ -727,15 +733,15 @@ const getRightCellClass = (row: DiffRow) => {
 }
 
 .hunk-separator-clickable:hover {
-  color: #0366d6;
-  background: #e1e8f0;
+  color: var(--app-primary);
+  background: var(--app-primary-light);
 }
 
 /* ─── 每一行：左右两栏等宽 ─── */
 .diff-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  border-bottom: 1px solid #eaecef;
+  border-bottom: 1px solid var(--app-border-light);
 }
 
 .diff-row:last-child {
@@ -753,33 +759,33 @@ const getRightCellClass = (row: DiffRow) => {
 
 /* 左侧单元格加右边框作为中线分隔 */
 .diff-row > .cell:first-child {
-  border-right: 1px solid #d1d5db;
+  border-right: 1px solid var(--app-border);
 }
 
 /* ─── 单元格状态色 ─── */
 .cell-removed {
-  color: #cb2431;
-  background: #ffeef0;
+  color: var(--app-diff-del-text);
+  background: var(--app-diff-del-bg);
 }
 
 .cell-added {
-  color: #22863a;
-  background: #e6ffec;
+  color: var(--app-diff-add-text);
+  background: var(--app-diff-add-bg);
 }
 
 .cell-modified-old {
-  color: #cb2431;
-  background: #ffeef0;
+  color: var(--app-diff-del-text);
+  background: var(--app-diff-del-bg);
 }
 
 .cell-modified-new {
-  color: #22863a;
-  background: #e6ffec;
+  color: var(--app-diff-add-text);
+  background: var(--app-diff-add-bg);
 }
 
 .cell-empty {
-  color: #959da5;
-  background: #fafbfc;
+  color: var(--app-text-disabled);
+  background: var(--app-info-bg);
 }
 
 /* ─── 位置标签 ─── */
@@ -790,8 +796,8 @@ const getRightCellClass = (row: DiffRow) => {
   font-family: Consolas, "Courier New", monospace;
   font-size: 11px;
   vertical-align: baseline;
-  color: #6a737d;
-  background: rgb(27 31 35 / 5%);
+  color: var(--app-text-secondary);
+  background: var(--app-fill-hover);
   border-radius: 3px;
 }
 
@@ -804,13 +810,13 @@ const getRightCellClass = (row: DiffRow) => {
 /* ─── inline diff 字符级高亮 ─── */
 .cell-modified-old .cell-content :deep(.inline-mark) {
   padding: 0 1px;
-  background: #fdb8c0;
+  background: var(--app-diff-del-emphasis);
   border-radius: 2px;
 }
 
 .cell-modified-new .cell-content :deep(.inline-mark) {
   padding: 0 1px;
-  background: #acf2bd;
+  background: var(--app-diff-add-emphasis);
   border-radius: 2px;
 }
 
@@ -822,6 +828,6 @@ const getRightCellClass = (row: DiffRow) => {
 
 .cell-content :deep(.placeholder-text) {
   font-style: italic;
-  color: #959da5;
+  color: var(--app-text-disabled);
 }
 </style>

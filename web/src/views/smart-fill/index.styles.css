@@ -5,29 +5,33 @@
   gap: 12px;
 }
 
-.mb-4 {
-  margin-bottom: 16px;
+.smart-fill .page-header {
+  align-items: center;
+}
+
+.wizard-steps {
+  flex: 1;
+  max-width: 720px;
+  min-width: 420px;
+}
+
+.wizard-steps :deep(.el-step__title) {
+  font-size: 13px;
+  line-height: 24px;
+}
+
+.wizard-steps :deep(.el-step__description) {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
 }
 
 .step-content {
-  min-height: 500px;
+  min-height: 0;
 }
 
 .step-panel {
   padding: 12px 0;
-}
-
-.step-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 8px;
-}
-
-.step-desc {
-  font-size: 14px;
-  color: #6b7280;
-  margin-bottom: 12px;
 }
 
 .upload-meta-alert {
@@ -37,8 +41,8 @@
 .smart-fill-scope-panel {
   padding: 16px;
   margin-top: 18px;
-  background: #fbfcfd;
-  border: 1px solid #e5ebf2;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
 }
 
@@ -84,7 +88,7 @@
 .backfill-summary {
   display: flex;
   gap: 16px;
-  color: #4b5563;
+  color: var(--app-text-regular);
   font-size: 13px;
 }
 
@@ -101,7 +105,7 @@
 }
 
 .backfill-source > div:last-child {
-  color: #6b7280;
+  color: var(--app-text-secondary);
   font-size: 12px;
 }
 
@@ -113,12 +117,12 @@
 }
 
 .backfill-change__old {
-  color: #9ca3af;
+  color: var(--app-text-muted);
   text-decoration: line-through;
 }
 
 .backfill-change__new {
-  color: #111827;
+  color: var(--app-text-primary);
   font-weight: 500;
 }
 
@@ -150,15 +154,28 @@
 
 .preview-empty-state__hint {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   line-height: 1.6;
 }
 
 .step-actions {
-  margin-top: 32px;
-  padding-top: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--el-border-color-lighter);
   display: flex;
   justify-content: center;
   gap: 16px;
+}
+
+@media (width <= 1100px) {
+  .smart-fill .page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wizard-steps {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
 }

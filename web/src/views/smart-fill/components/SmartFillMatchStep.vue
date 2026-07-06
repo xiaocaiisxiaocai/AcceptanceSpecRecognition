@@ -60,8 +60,6 @@ const handleScopeChange = (
 
 <template>
   <div class="step-panel">
-    <h3 class="step-title">配置匹配参数</h3>
-    <p class="step-desc">设置匹配范围和算法参数</p>
     <el-alert
       v-if="scopeSummary"
       type="info"
@@ -84,7 +82,7 @@ const handleScopeChange = (
       show-icon
       :title="previewBlockingMessage"
       :description="previewBlockingHint"
-    class="preview-blocking-alert"
+      class="preview-blocking-alert"
     />
   </div>
 </template>

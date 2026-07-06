@@ -107,7 +107,7 @@ const formatConfidence = (confidencePercent: number) =>
             :data="currentSheet?.rows ?? []"
             stripe
             border
-            max-height="560"
+            max-height="calc(100vh - 320px)"
           >
             <el-table-column label="行号" width="80">
               <template #default="{ row }">
@@ -117,33 +117,33 @@ const formatConfidence = (confidencePercent: number) =>
             <el-table-column
               prop="project"
               label="项目"
-              min-width="140"
+              min-width="min(140px, calc(100vw - 32px))"
               show-overflow-tooltip
             />
             <el-table-column
               prop="specification"
               label="规格"
-              min-width="180"
+              min-width="min(180px, calc(100vw - 32px))"
               show-overflow-tooltip
             />
             <el-table-column
               prop="acceptance"
               label="验收"
-              min-width="180"
+              min-width="min(180px, calc(100vw - 32px))"
               show-overflow-tooltip
             />
             <el-table-column
               prop="remark"
               label="备注"
-              min-width="160"
+              min-width="min(160px, calc(100vw - 32px))"
               show-overflow-tooltip
             />
-            <el-table-column label="置信度" width="100">
+            <el-table-column label="置信度" width="min(100px, calc(100vw - 32px))">
               <template #default="{ row }">
                 {{ formatConfidence(row.confidencePercent) }}
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="100">
+            <el-table-column label="状态" width="min(100px, calc(100vw - 32px))">
               <template #default="{ row }">
                 <el-tag :type="getStatusType(row.status)">
                   {{ getStatusText(row.status) }}
@@ -176,12 +176,12 @@ const formatConfidence = (confidencePercent: number) =>
 .section-title {
   font-size: 15px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .section-tip {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .selector-stack {

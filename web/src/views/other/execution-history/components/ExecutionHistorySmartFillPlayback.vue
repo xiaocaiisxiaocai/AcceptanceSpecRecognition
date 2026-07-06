@@ -295,7 +295,7 @@ const executionRows = computed(() => {
               border
               highlight-current-row
               row-key="rowIndex"
-              max-height="620"
+              max-height="calc(100vh - 320px)"
               @row-click="handleRowClick"
             >
               <el-table-column label="行号" width="72">
@@ -306,16 +306,16 @@ const executionRows = computed(() => {
               <el-table-column
                 prop="sourceProject"
                 label="项目"
-                min-width="120"
+                min-width="min(120px, calc(100vw - 32px))"
                 show-overflow-tooltip
               />
               <el-table-column
                 prop="sourceSpecification"
                 label="规格"
-                min-width="180"
+                min-width="min(180px, calc(100vw - 32px))"
                 show-overflow-tooltip
               />
-              <el-table-column label="标签" min-width="220">
+              <el-table-column label="标签" min-width="min(220px, calc(100vw - 32px))">
                 <template #default="{ row }">
                   <div class="tag-list">
                     <el-tag
@@ -448,15 +448,23 @@ const executionRows = computed(() => {
 
 <style scoped>
 .playback-layout {
-  display: grid;
-  grid-template-columns: minmax(420px, 0.95fr) minmax(520px, 1.15fr);
-  gap: 16px;
-  align-items: start;
+  display: flex;
+  height: calc(100vh - 110px);
+  gap: 12px;
+  min-height: 0;
 }
 
-.playback-list,
-.playback-detail {
+.playback-list {
+  width: 400px;
+  flex-shrink: 0;
+  overflow: auto;
   min-width: 0;
+}
+
+.playback-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
 }
 
 .selector-stack {
@@ -486,13 +494,13 @@ const executionRows = computed(() => {
 .row-head__title {
   font-size: 18px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .row-head__subtitle {
   margin-top: 4px;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .execution-card,
@@ -507,7 +515,7 @@ const executionRows = computed(() => {
 .card-title {
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 @media (width <= 1400px) {

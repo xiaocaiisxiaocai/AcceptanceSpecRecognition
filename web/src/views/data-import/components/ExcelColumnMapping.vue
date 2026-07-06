@@ -297,8 +297,8 @@ const columnHint = computed(() => ({
 
 .group {
   padding: 12px;
-  background: #fff;
-  border: 1px solid #ede7f6;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
   border-radius: 12px;
 }
 
@@ -319,7 +319,7 @@ const columnHint = computed(() => ({
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 @media (width <= 960px) {

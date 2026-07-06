@@ -76,8 +76,8 @@ const manualClearedRows = ref<Set<number>>(new Set());
 const editDialogVisible = ref(false);
 const editingItem = ref<MatchPreviewItem | null>(null);
 const currentPage = ref(1);
-const pageSize = ref(100);
-const pageSizeOptions = [50, 100, 200, 500];
+const pageSize = ref(50);
+const pageSizeOptions = [20, 50, 100, 200];
 const editForm = ref({
   overrideAcceptance: "",
   overrideRemark: ""

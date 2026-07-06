@@ -1,0 +1,47 @@
+:root {
+  /* 中性基底：企业数据工具优先可读性，紫色只保留为交互强调。 */
+  --app-bg-page: #f5f6f8;
+  --app-bg-card: #ffffff;
+  --app-text-primary: #111827;
+  --app-text-secondary: #6b7280;
+  --app-text-disabled: #9ca3af;
+  --app-border: #e5e7eb;
+  --app-border-light: #f3f4f6;
+  --app-fill-hover: #f5f7fa;
+
+  --app-primary: #7c3aed;
+  --app-primary-light: #f3effd;
+  --app-success: #16a34a;
+  --app-success-bg: #f0fdf4;
+  --app-warning: #d97706;
+  --app-warning-bg: #fffbeb;
+  --app-danger: #dc2626;
+  --app-danger-bg: #fef2f2;
+  --app-info: #6b7280;
+  --app-info-bg: #f9fafb;
+
+  --app-decision-auto: var(--app-success);
+  --app-decision-review: var(--app-warning);
+  --app-decision-reject: var(--app-danger);
+  --app-decision-ai: var(--app-primary);
+
+  --app-diff-add-bg: #e6ffec;
+  --app-diff-add-emphasis: #acf2bd;
+  --app-diff-add-text: #22863a;
+  --app-diff-del-bg: #ffeef0;
+  --app-diff-del-emphasis: #fdb8c0;
+  --app-diff-del-text: #cb2431;
+
+  --app-font-xs: 12px;
+  --app-font-sm: 13px;
+  --app-font-md: 14px;
+  --app-font-lg: 16px;
+  --app-font-xl: 20px;
+
+  --app-radius-sm: 6px;
+  --app-radius-md: 10px;
+  --app-radius-lg: 12px;
+
+  --app-shadow-card: 0 1px 2px rgb(0 0 0 / 5%);
+  --app-shadow-overlay: 0 10px 15px rgb(0 0 0 / 10%);
+}

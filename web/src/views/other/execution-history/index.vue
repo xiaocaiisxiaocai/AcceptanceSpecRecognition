@@ -25,7 +25,7 @@ const currentDetail = ref<ExecutionHistoryDetail | null>(null);
 
 const queryParams = reactive({
   page: 1,
-  pageSize: 20,
+  pageSize: 50,
   keyword: "",
   taskType: ""
 });
@@ -153,7 +153,7 @@ const handleSearch = () => {
 
 const handleReset = () => {
   queryParams.page = 1;
-  queryParams.pageSize = 20;
+  queryParams.pageSize = 50;
   queryParams.keyword = "";
   queryParams.taskType = "";
   void loadList();
@@ -181,7 +181,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page page--fill execution-history-page">
     <div class="page-header">
       <div>
         <div class="page-title">执行记录</div>
@@ -261,6 +261,7 @@ onMounted(() => {
         <el-pagination
           background
           layout="total, sizes, prev, pager, next"
+          :page-sizes="[20, 50, 100, 200]"
           :total="total"
           :page-size="queryParams.pageSize"
           :current-page="queryParams.page"
@@ -323,7 +324,7 @@ onMounted(() => {
 <style scoped>
 .task-card,
 .detail-card {
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 .card-header {
@@ -335,7 +336,7 @@ onMounted(() => {
 
 .card-header-tip {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .task-select-block {
@@ -350,15 +351,15 @@ onMounted(() => {
 
 .task-brief {
   padding: 14px 16px;
-  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
 }
 
 .task-brief__title {
   font-size: 15px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .task-brief__meta {
@@ -367,7 +368,7 @@ onMounted(() => {
   gap: 12px;
   margin-top: 6px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .pager-wrap {
@@ -385,21 +386,21 @@ onMounted(() => {
 
 .summary-card {
   padding: 14px 16px;
-  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
 }
 
 .summary-card__label {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .summary-card__value {
   margin-top: 8px;
   font-size: 24px;
   font-weight: 700;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .legacy-alert {

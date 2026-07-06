@@ -158,7 +158,7 @@ defineExpose({
   <el-dialog
     v-model="visible"
     title="AI搜索"
-    width="1280"
+    width="min(1200px, calc(100vw - 32px))"
     top="4vh"
     append-to-body
     :close-on-click-modal="false"
@@ -279,7 +279,7 @@ defineExpose({
                   size="small"
                   max-height="280"
                 >
-                  <el-table-column label="相似度" width="110">
+                  <el-table-column label="相似度" width="min(110px, calc(100vw - 32px))">
                     <template #default="{ row }">
                       <el-tag :type="scoreTagType(row.score)" effect="light">
                         {{ formatScore(row.score) }}
@@ -289,27 +289,27 @@ defineExpose({
                   <el-table-column
                     prop="project"
                     label="项目"
-                    min-width="150"
+                    min-width="min(150px, calc(100vw - 32px))"
                   />
                   <el-table-column
                     prop="specification"
                     label="规格内容"
-                    min-width="260"
+                    min-width="min(260px, calc(100vw - 32px))"
                     show-overflow-tooltip
                   />
                   <el-table-column
                     prop="acceptance"
                     label="验收标准"
-                    min-width="200"
+                    min-width="min(200px, calc(100vw - 32px))"
                     show-overflow-tooltip
                   />
                   <el-table-column
                     prop="remark"
                     label="备注"
-                    min-width="160"
+                    min-width="min(160px, calc(100vw - 32px))"
                     show-overflow-tooltip
                   />
-                  <el-table-column label="导入时间" width="180">
+                  <el-table-column label="导入时间" width="min(180px, calc(100vw - 32px))">
                     <template #default="{ row }">
                       {{ formatImportedAt(row.importedAt) }}
                     </template>
@@ -359,7 +359,7 @@ defineExpose({
 .control-panel,
 .result-panel {
   min-height: 0;
-  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+  background: linear-gradient(180deg, #fff 0%, var(--app-info-bg) 100%);
   border: 1px solid var(--el-border-color-light);
   border-radius: 16px;
 }

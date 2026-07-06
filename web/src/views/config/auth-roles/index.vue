@@ -569,28 +569,28 @@ onMounted(initPage);
 
       <el-table v-loading="loading" :data="roles" stripe>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="code" label="角色编码" min-width="160" />
-        <el-table-column prop="name" label="角色名称" min-width="140" />
-        <el-table-column label="内置角色" width="110">
+        <el-table-column prop="code" label="角色编码" min-width="min(160px, calc(100vw - 32px))" />
+        <el-table-column prop="name" label="角色名称" min-width="min(140px, calc(100vw - 32px))" />
+        <el-table-column label="内置角色" width="min(110px, calc(100vw - 32px))">
           <template #default="{ row }">
             <el-tag :type="row.isBuiltIn ? 'warning' : 'info'">
               {{ row.isBuiltIn ? "是" : "否" }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column label="状态" width="min(100px, calc(100vw - 32px))">
           <template #default="{ row }">
             <el-tag :type="row.isActive ? 'success' : 'info'">
               {{ row.isActive ? "启用" : "停用" }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="权限数" width="100">
+        <el-table-column label="权限数" width="min(100px, calc(100vw - 32px))">
           <template #default="{ row }">
             {{ row.permissionCodes?.length ?? 0 }}
           </template>
         </el-table-column>
-        <el-table-column label="验收规格数据范围" min-width="280">
+        <el-table-column label="验收规格数据范围" min-width="min(280px, calc(100vw - 32px))">
           <template #default="{ row }">
             {{ formatScopeSummary(row) }}
           </template>
@@ -598,10 +598,10 @@ onMounted(initPage);
         <el-table-column
           prop="description"
           label="描述"
-          min-width="220"
+          min-width="min(220px, calc(100vw - 32px))"
           show-overflow-tooltip
         />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="min(220px, calc(100vw - 32px))" fixed="right">
           <template #default="{ row }">
             <el-button
               v-perms="'btn:auth-role:update'"
@@ -625,7 +625,7 @@ onMounted(initPage);
       </el-table>
     </el-card>
 
-    <el-dialog v-model="createDialogVisible" title="新增角色" width="760">
+    <el-dialog v-model="createDialogVisible" title="新增角色" width="min(960px, calc(100vw - 32px))">
       <el-form label-width="110px">
         <el-form-item label="角色编码" required>
           <el-input
@@ -798,7 +798,7 @@ onMounted(initPage);
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editDialogVisible" title="编辑角色" width="760">
+    <el-dialog v-model="editDialogVisible" title="编辑角色" width="min(960px, calc(100vw - 32px))">
       <el-form label-width="110px">
         <el-alert
           v-if="editForm.isBuiltIn"
@@ -1012,7 +1012,7 @@ onMounted(initPage);
 .permission-count {
   margin-left: 4px;
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-disabled);
 }
 
 .permission-panel {
@@ -1037,6 +1037,6 @@ onMounted(initPage);
 
 .selected-permission-empty {
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-disabled);
 }
 </style>

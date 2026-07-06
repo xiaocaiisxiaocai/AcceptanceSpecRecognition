@@ -310,13 +310,13 @@ const summaryRows = computed(() => {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .overview-card {
   padding: 16px;
-  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
-  border: 1px solid #e5e7eb;
+  background: linear-gradient(180deg, var(--app-info-bg) 0%, var(--app-info-bg) 100%);
+  border: 1px solid var(--app-border);
   border-radius: 14px;
 }
 
@@ -333,7 +333,7 @@ const summaryRows = computed(() => {
 
 .overview-caption {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .overview-title {
@@ -341,14 +341,14 @@ const summaryRows = computed(() => {
   font-size: 15px;
   font-weight: 700;
   line-height: 1.6;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .overview-spec {
   margin-top: 6px;
   font-size: 13px;
   line-height: 1.7;
-  color: #374151;
+  color: var(--app-text-secondary);
   word-break: break-word;
 }
 
@@ -361,13 +361,13 @@ const summaryRows = computed(() => {
 
 .overview-score strong {
   font-size: 24px;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .overview-score span {
   margin-top: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .meta-tag-list {
@@ -390,18 +390,18 @@ const summaryRows = computed(() => {
   gap: 6px;
   padding: 10px 12px;
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-border);
   border-radius: 12px;
 }
 
 .metric-card span {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .metric-card strong {
   font-size: 15px;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .reference-grid {
@@ -417,31 +417,31 @@ const summaryRows = computed(() => {
   gap: 6px;
   padding: 10px 12px;
   background: rgb(255 255 255 / 86%);
-  border: 1px solid #eef2f7;
+  border: 1px solid var(--app-info-bg);
   border-radius: 12px;
 }
 
 .reference-row span,
 .info-label {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .reference-row strong {
   font-size: 13px;
   line-height: 1.6;
-  color: #374151;
+  color: var(--app-text-secondary);
   word-break: break-word;
 }
 
 .info-block {
   padding: 12px 14px;
-  background: #f8fafc;
+  background: var(--app-info-bg);
   border-radius: 12px;
 }
 
 .info-block--issue {
-  background: #fff9f5;
+  background: var(--app-info-bg);
 }
 
 .compact-list,
@@ -455,7 +455,7 @@ const summaryRows = computed(() => {
 .compact-row {
   padding: 10px 12px;
   background: rgb(255 255 255 / 92%);
-  border: 1px solid #eef2f7;
+  border: 1px solid var(--app-info-bg);
   border-radius: 10px;
 }
 
@@ -470,18 +470,18 @@ const summaryRows = computed(() => {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.6;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .compact-row__meta {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.6;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .summary-panel {
-  background: #f8fafc;
+  background: var(--app-info-bg);
 }
 
 .summary-row {
@@ -494,28 +494,28 @@ const summaryRows = computed(() => {
 }
 
 .summary-row--danger {
-  background: #fff4f4;
+  background: var(--app-danger-bg);
 }
 
 .summary-row--warning {
-  background: #fff8eb;
+  background: var(--app-warning-bg);
 }
 
 .summary-row--muted {
-  background: #f3f4f6;
+  background: var(--app-border-light);
 }
 
 .summary-row__label {
   font-size: 12px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .summary-row__value {
   min-width: 0;
   font-size: 13px;
   line-height: 1.6;
-  color: #374151;
+  color: var(--app-text-secondary);
   word-break: break-word;
   white-space: pre-wrap;
 }

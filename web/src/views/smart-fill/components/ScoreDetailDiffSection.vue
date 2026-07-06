@@ -320,7 +320,7 @@ const sourceDiffTone = computed(() =>
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .candidate-header {
@@ -332,13 +332,13 @@ const sourceDiffTone = computed(() =>
 
 .candidate-header span {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .diff-section {
   padding: 14px;
-  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
-  border: 1px solid #e5e7eb;
+  background: linear-gradient(180deg, var(--app-info-bg) 0%, var(--app-info-bg) 100%);
+  border: 1px solid var(--app-border);
   border-radius: 14px;
 }
 
@@ -360,13 +360,13 @@ const sourceDiffTone = computed(() =>
 .diff-header h5 {
   margin: 0;
   font-size: 14px;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .diff-header p {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .diff-toolbar,
@@ -414,7 +414,7 @@ const sourceDiffTone = computed(() =>
 }
 
 .diff-row-same .diff-cell {
-  background: #f9fafb;
+  background: var(--app-info-bg);
 }
 
 .diff-label {
@@ -422,7 +422,7 @@ const sourceDiffTone = computed(() =>
   align-items: flex-start;
   padding-top: 10px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .diff-label__content {
@@ -435,20 +435,20 @@ const sourceDiffTone = computed(() =>
   min-width: 0;
   padding: 10px 12px;
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-border);
   border-radius: 12px;
 }
 
 .diff-content {
   font-size: 13px;
   line-height: 1.7;
-  color: #111827;
+  color: var(--app-text-primary);
   word-break: break-word;
 }
 
 .raw-diff-desc {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .raw-diff-header,
@@ -468,27 +468,27 @@ const sourceDiffTone = computed(() =>
   gap: 4px;
   align-items: flex-start;
   padding: 10px 8px;
-  background: #f3f4f6;
+  background: var(--app-border-light);
   border-radius: 12px;
 }
 
 .raw-line-no {
   font-size: 12px;
   font-weight: 700;
-  color: #374151;
+  color: var(--app-text-secondary);
 }
 
 .raw-line-label,
 .raw-pane-label {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .raw-pane-cell {
   min-width: 0;
   overflow: hidden;
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-border);
   border-radius: 12px;
 }
 
@@ -500,8 +500,8 @@ const sourceDiffTone = computed(() =>
 
 .raw-pane-label {
   padding: 8px 10px;
-  background: #f8fafc;
-  border-bottom: 1px solid #eef2f7;
+  background: var(--app-info-bg);
+  border-bottom: 1px solid var(--app-info-bg);
 }
 
 .raw-pane-content {
@@ -509,7 +509,7 @@ const sourceDiffTone = computed(() =>
   font-family: Consolas, "Courier New", monospace;
   font-size: 13px;
   line-height: 1.75;
-  color: #111827;
+  color: var(--app-text-primary);
   word-break: break-word;
   white-space: normal;
 }
@@ -519,14 +519,14 @@ const sourceDiffTone = computed(() =>
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  background: #f8fbff;
-  border: 1px solid #dbeafe;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-bg);
   border-radius: 14px;
 }
 
 .source-diff-callout--decision {
-  background: #fff7ed;
-  border-color: #fed7aa;
+  background: var(--app-warning-bg);
+  border-color: var(--app-warning-bg);
 }
 
 .source-diff-callout__head,
@@ -541,23 +541,23 @@ const sourceDiffTone = computed(() =>
 .source-diff-callout__head {
   font-size: 13px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--app-text-primary);
 }
 
 .source-diff-callout__text {
   font-size: 13px;
   line-height: 1.6;
-  color: #1e3a8a;
+  color: var(--app-primary);
 }
 
 .source-diff-callout--decision .source-diff-callout__text {
-  color: #9a3412;
+  color: var(--app-danger);
 }
 
 .source-diff-callout__hint {
   font-size: 12px;
   line-height: 1.6;
-  color: #475569;
+  color: var(--app-text-secondary);
 }
 
 :deep(.inline-mark) {
@@ -566,18 +566,18 @@ const sourceDiffTone = computed(() =>
 }
 
 :deep(.inline-mark-old) {
-  color: #b42318;
+  color: var(--app-danger);
   background: rgb(245 108 108 / 18%);
 }
 
 :deep(.inline-mark-new) {
-  color: #166534;
+  color: var(--app-success);
   background: rgb(103 194 58 / 18%);
 }
 
 :deep(.placeholder-text) {
   font-style: italic;
-  color: #9ca3af;
+  color: var(--app-text-disabled);
 }
 
 @media (width <= 900px) {
