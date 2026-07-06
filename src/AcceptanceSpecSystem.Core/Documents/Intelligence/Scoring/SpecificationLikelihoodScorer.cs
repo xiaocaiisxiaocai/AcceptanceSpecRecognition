@@ -27,6 +27,8 @@ public static partial class SpecificationLikelihoodScorer
     [
         "项目", "规格", "验收", "备注", "标准", "结果", "判定", "测试",
         "检验", "检测", "实测", "序号", "编号", "次", "名称", "说明",
+        "检查", "管制", "条件", "对象", "供应商", "确认", "回复", "补充",
+        "依据", "方式", "分类",
         "project", "specification", "acceptance", "remark", "result", "test"
     ];
 

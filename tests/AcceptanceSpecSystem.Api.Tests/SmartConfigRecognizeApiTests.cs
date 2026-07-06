@@ -1029,6 +1029,57 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
         table.GetProperty("specificationColumnIndex").GetInt32().Should().Be(1);
     }
 
+    [Fact]
+    public async Task Recognize_WhenShortBusinessDescriptionPrecedesHeader_ShouldNotIncludeDescriptionAsHeader()
+    {
+        var fileId = await UploadExcelAsync(
+            CreateShortBusinessDescriptionExcelBytes(),
+            "smart-recognize-short-description-before-header.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("headerRowIndex").GetInt32().Should().Be(1);
+        table.GetProperty("headerRowCount").GetInt32().Should().Be(1);
+        table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(2);
+        table.GetProperty("headers").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should()
+            .NotContain(header => header != null && header.Contains("客户A"));
+    }
+
+    [Fact]
+    public async Task Recognize_WhenAdditionalHeaderUsesCustomerDomainWords_ShouldIncludeItAsHeader()
+    {
+        var fileId = await UploadExcelAsync(
+            CreateCustomerDomainMultiHeaderExcelBytes(),
+            "smart-recognize-customer-domain-multi-header.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("headerRowIndex").GetInt32().Should().Be(0);
+        table.GetProperty("headerRowCount").GetInt32().Should().Be(2);
+        table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(2);
+        table.GetProperty("headers").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should()
+            .Contain(header => header == "基本信息 / 检查对象")
+            .And.Contain(header => header == "判定依据 / 管制条件");
+    }
+
     private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
     {
         using var content = new MultipartFormDataContent();
@@ -1059,6 +1110,50 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
         worksheet.Cell(3, 1).Value = "外观";
         worksheet.Cell(3, 2).Value = "无划伤";
         worksheet.Cell(3, 3).Value = "目视 OK";
+        worksheet.Cell(3, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateShortBusinessDescriptionExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "客户A";
+        worksheet.Cell(1, 2).Value = "机种X";
+        worksheet.Cell(1, 3).Value = "版本B";
+        worksheet.Cell(1, 4).Value = "量产";
+        worksheet.Cell(2, 1).Value = "项目";
+        worksheet.Cell(2, 2).Value = "规格";
+        worksheet.Cell(2, 3).Value = "验收标准";
+        worksheet.Cell(2, 4).Value = "备注";
+        worksheet.Cell(3, 1).Value = "外观";
+        worksheet.Cell(3, 2).Value = "无划伤";
+        worksheet.Cell(3, 3).Value = "目视 OK";
+        worksheet.Cell(3, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateCustomerDomainMultiHeaderExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "基本信息";
+        worksheet.Cell(1, 2).Value = "判定依据";
+        worksheet.Cell(1, 3).Value = "回复信息";
+        worksheet.Cell(1, 4).Value = "回复信息";
+        worksheet.Cell(2, 1).Value = "检查对象";
+        worksheet.Cell(2, 2).Value = "管制条件";
+        worksheet.Cell(2, 3).Value = "供应商确认";
+        worksheet.Cell(2, 4).Value = "补充说明";
+        worksheet.Cell(3, 1).Value = "外观";
+        worksheet.Cell(3, 2).Value = "表面不得有明显划伤";
+        worksheet.Cell(3, 3).Value = "OK";
         worksheet.Cell(3, 4).Value = "抽检";
 
         using var stream = new MemoryStream();

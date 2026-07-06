@@ -241,25 +241,19 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             return false;
         }
 
-        var keywordCount = values.Count(value =>
-            value.Contains("项目", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("规格", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("验收", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("备注", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("标准", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("结果", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("判定", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("project", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("spec", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("acceptance", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("remark", StringComparison.OrdinalIgnoreCase));
+        var keywordCount = values.Count(ContainsHeaderKeyword);
         if (keywordCount == 0)
         {
             return false;
         }
 
         var averageLength = values.Average(value => value.Length);
-        return averageLength <= 20;
+        if (averageLength > 20)
+        {
+            return false;
+        }
+
+        return keywordCount >= 2 || (keywordCount == 1 && values.Count <= 2);
     }
 
     private static bool LooksLikeLeadingHeaderGroupRow(RowData row)
@@ -274,7 +268,50 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
 
         var averageLength = values.Average(value => value.Length);
-        return averageLength <= 12;
+        if (averageLength > 12)
+        {
+            return false;
+        }
+
+        var keywordCount = values.Count(ContainsHeaderKeyword);
+        if (keywordCount >= 2)
+        {
+            return true;
+        }
+
+        // 分组表头常见重复文本来自横向合并单元格展开，例如“验收信息/验收信息”。
+        // 只有短文本不足以证明是表头，避免把客户、机种、版本等说明行并入表头。
+        var duplicateCount = values
+            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Sum(group => group.Count());
+        return duplicateCount >= 2 && keywordCount > 0;
+    }
+
+    private static bool ContainsHeaderKeyword(string value)
+    {
+        return value.Contains("项目", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("规格", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("验收", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("备注", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("标准", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("结果", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("判定", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("检查", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("管制", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("条件", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("对象", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("供应商", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("确认", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("回复", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("补充", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("依据", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("方式", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("分类", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("project", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("spec", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("acceptance", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("remark", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

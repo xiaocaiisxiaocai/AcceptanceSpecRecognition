@@ -54,6 +54,23 @@ public class DocumentIntelligenceServiceTests
         service.DetectHeaderRowIndex(table).Should().Be(1);
     }
 
+    [Fact]
+    public void DetectHeaderRowIndex_ShouldRecognizeCustomerDomainHeaderWords()
+    {
+        var service = CreateService();
+        var table = new TableData
+        {
+            Rows =
+            {
+                CreateRow(0, "客户A", "机种X", "版本B", "量产"),
+                CreateRow(1, "检查对象", "管制条件", "供应商确认", "补充说明"),
+                CreateRow(2, "外观", "表面不得有明显划伤", "OK", "抽检")
+            }
+        };
+
+        service.DetectHeaderRowIndex(table).Should().Be(1);
+    }
+
     private static DocumentIntelligenceService CreateService()
     {
         return new DocumentIntelligenceService(
