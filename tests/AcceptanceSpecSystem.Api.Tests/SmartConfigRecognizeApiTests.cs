@@ -232,9 +232,12 @@ public class SmartConfigRecognizeHealthCheckApiTests : IClassFixture<MissingSpec
         content.Add(fileContent, "file", fileName);
 
         var response = await _client.PostAsync("/api/documents/upload", content);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
 
-        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var json = JsonSerializer.Deserialize<ApiResponse<JsonElement>>(
+            responseText,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return json.Data.GetProperty("fileId").GetInt32();
     }
 
@@ -246,6 +249,72 @@ public class SmartConfigRecognizeHealthCheckApiTests : IClassFixture<MissingSpec
         worksheet.Cell(1, 2).Value = "验收结果";
         worksheet.Cell(2, 1).Value = "外观";
         worksheet.Cell(2, 2).Value = "目视 OK";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
+public class SmartConfigRecognizeLowConfidenceApiTests : IClassFixture<LowConfidenceCompleteMappingApiFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeLowConfidenceApiTests(LowConfidenceCompleteMappingApiFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenCompleteMappingHasLowConfidenceAndLlmBudgetIsZero_ShouldNeedConfirm()
+    {
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-low-confidence.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("source").GetString().Should().Be("RuleBased");
+        table.GetProperty("confidence").GetDouble().Should().Be(0.6);
+        table.GetProperty("projectColumnIndex").GetInt32().Should().Be(0);
+        table.GetProperty("specificationColumnIndex").GetInt32().Should().Be(1);
+        table.GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(2);
+        table.GetProperty("remarkColumnIndex").GetInt32().Should().Be(3);
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+    }
+
+    private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await _client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "验收结果";
+        worksheet.Cell(1, 4).Value = "备注";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(2, 4).Value = "抽检";
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -1100,6 +1169,26 @@ public sealed class MissingSpecificationColumnIntelligenceApiFactory : ApiWebApp
     }
 }
 
+public sealed class LowConfidenceCompleteMappingApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SmartConfiguration:MaxStructureAdjudicationCallsPerDocument"] = "0"
+            });
+        });
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.AddScoped<IDocumentIntelligenceService, LowConfidenceCompleteMappingIntelligenceService>();
+        });
+    }
+}
+
 public sealed class LlmStructureTimeoutApiFactory : ApiWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -1341,6 +1430,37 @@ public sealed class MissingAcceptanceAndRemarkColumnIntelligenceService : IDocum
                 SpecificationColumn = 1,
                 AcceptanceColumn = null,
                 RemarkColumn = null,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1
+            }
+        });
+    }
+
+    public int DetectHeaderRowIndex(TableData tableData, int? scanRowLimit = null) => 0;
+}
+
+public sealed class LowConfidenceCompleteMappingIntelligenceService : IDocumentIntelligenceService
+{
+    public Task<TableIdentificationResult> IdentifyTargetTableAsync(
+        IReadOnlyList<TableInfo> tables,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new TableIdentificationResult { TableIndex = 0, Confidence = 1 });
+
+    public Task<ColumnMappingResult> IdentifyColumnMappingAsync(
+        TableData tableData,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new ColumnMappingResult
+        {
+            Confidence = 0.6,
+            Mapping = new ColumnMapping
+            {
+                ProjectColumn = 0,
+                SpecificationColumn = 1,
+                AcceptanceColumn = 2,
+                RemarkColumn = 3,
                 HeaderRowIndex = 0,
                 HeaderRowCount = 1,
                 DataStartRowIndex = 1

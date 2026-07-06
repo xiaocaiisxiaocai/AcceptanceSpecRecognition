@@ -82,6 +82,7 @@ public class DocumentIntelligenceServiceTests
         public Task<ColumnMappingResult> IdentifyAsync(
             IReadOnlyList<string> headers,
             IReadOnlyList<IReadOnlyList<string>> sampleRows,
+            IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new ColumnMappingResult());

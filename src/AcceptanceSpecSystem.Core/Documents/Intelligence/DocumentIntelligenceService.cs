@@ -83,6 +83,7 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
 
     public async Task<ColumnMappingResult> IdentifyColumnMappingAsync(
         TableData tableData,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
         CancellationToken cancellationToken = default)
     {
         if (tableData.Headers.Count == 0)
@@ -100,6 +101,7 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         var result = await _ruleStrategy.IdentifyAsync(
             (IReadOnlyList<string>)tableData.Headers.ToList(),
             sampleRows,
+            extraSynonyms,
             cancellationToken);
 
         return result;
@@ -143,8 +145,9 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
     /// 检测表头行位置
     /// </summary>
     /// <param name="tableData">表格数据（包含前 N 行原始数据）</param>
+    /// <param name="scanRowLimit">最多扫描的前置行数。</param>
     /// <returns>表头行索引（0-based）</returns>
-    public int DetectHeaderRowIndex(TableData tableData)
+    public int DetectHeaderRowIndex(TableData tableData, int? scanRowLimit = null)
     {
         if (tableData.Rows.Count == 0)
         {
@@ -153,8 +156,9 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
 
         var scores = new List<(int rowIndex, double score, string reason)>();
 
-        // 分析前 10 行（或全部行，取较小值）
-        var rowsToAnalyze = Math.Min(10, tableData.Rows.Count);
+        // 默认分析前 10 行；调用方可按业务配置放宽窗口。
+        var effectiveScanRowLimit = Math.Clamp(scanRowLimit ?? 10, 1, Math.Max(1, tableData.Rows.Count));
+        var rowsToAnalyze = Math.Min(effectiveScanRowLimit, tableData.Rows.Count);
 
         for (int i = 0; i < rowsToAnalyze; i++)
         {

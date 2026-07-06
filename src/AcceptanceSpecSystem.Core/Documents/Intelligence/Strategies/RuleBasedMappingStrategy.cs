@@ -60,16 +60,18 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
     public async Task<ColumnMappingResult> IdentifyAsync(
         IReadOnlyList<string> headers,
         IReadOnlyList<IReadOnlyList<string>> sampleRows,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
         CancellationToken cancellationToken = default)
     {
         var session = await _textPipeline.CreateSessionAsync(cancellationToken);
         var details = new List<ColumnIdentificationResult>();
+        var synonyms = BuildEffectiveSynonyms(extraSynonyms);
 
         // 识别每一列
         for (int i = 0; i < headers.Count; i++)
         {
             var header = headers[i];
-            var result = IdentifyColumn(header, i, sampleRows, session);
+            var result = IdentifyColumn(header, i, sampleRows, session, synonyms);
             details.Add(result);
         }
 
@@ -91,7 +93,8 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         string header,
         int columnIndex,
         IReadOnlyList<IReadOnlyList<string>> sampleRows,
-        TextProcessingSession session)
+        TextProcessingSession session,
+        IReadOnlyDictionary<ColumnType, string[]> synonyms)
     {
         // 文本标准化
         var normalizedHeader = session.Process(header).ToLowerInvariant();
@@ -104,7 +107,7 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
             candidates.Add((ColumnType.Acceptance, 0.98, "表头表示验收标准"));
         }
 
-        foreach (var (type, keywords) in DefaultSynonyms)
+        foreach (var (type, keywords) in synonyms)
         {
             if (type == ColumnType.Acceptance && LooksLikeAcceptanceMethodColumn(normalizedHeader))
             {
@@ -198,6 +201,38 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         }
 
         return (false, 0.0, string.Empty);
+    }
+
+    private static Dictionary<ColumnType, string[]> BuildEffectiveSynonyms(
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms)
+    {
+        var merged = DefaultSynonyms.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value.ToList());
+
+        if (extraSynonyms != null)
+        {
+            foreach (var (type, terms) in extraSynonyms)
+            {
+                if (!merged.TryGetValue(type, out var values))
+                {
+                    values = [];
+                    merged[type] = values;
+                }
+
+                foreach (var term in terms)
+                {
+                    var normalized = term.Trim();
+                    if (normalized.Length > 0 &&
+                        !values.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+                    {
+                        values.Insert(0, normalized);
+                    }
+                }
+            }
+        }
+
+        return merged.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray());
     }
 
     private (ColumnType type, double confidence, string reason) GuessColumnTypeByData(
@@ -296,28 +331,31 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         List<ColumnIdentificationResult> details,
         ColumnMapping mapping)
     {
-        // 至少需要项目列和规格列
+        // 项目列和规格列是结构识别的核心，缺任一项不能给出可自动采用的总置信度。
         if (!mapping.ProjectColumn.HasValue || !mapping.SpecificationColumn.HasValue)
         {
             return 0.0;
         }
 
-        // 计算已识别列的平均置信度
-        var identifiedColumns = details.Where(d => d.ColumnType != ColumnType.Unknown).ToList();
-        if (identifiedColumns.Count == 0)
+        var confidence =
+            GetMappedColumnConfidence(details, mapping.ProjectColumn) * 0.30 +
+            GetMappedColumnConfidence(details, mapping.SpecificationColumn) * 0.35 +
+            GetMappedColumnConfidence(details, mapping.AcceptanceColumn) * 0.25 +
+            GetMappedColumnConfidence(details, mapping.RemarkColumn) * 0.10;
+
+        return Math.Round(confidence, 2);
+    }
+
+    private static double GetMappedColumnConfidence(
+        IReadOnlyList<ColumnIdentificationResult> details,
+        int? columnIndex)
+    {
+        if (!columnIndex.HasValue)
         {
             return 0.0;
         }
 
-        var avgConfidence = identifiedColumns.Average(d => d.Confidence);
-
-        // 如果缺少验收列，降低整体置信度
-        if (!mapping.AcceptanceColumn.HasValue)
-        {
-            avgConfidence *= 0.8;
-        }
-
-        return Math.Round(avgConfidence, 2);
+        return details.FirstOrDefault(detail => detail.ColumnIndex == columnIndex.Value)?.Confidence ?? 0.0;
     }
 
     private string BuildReasoning(List<ColumnIdentificationResult> details)

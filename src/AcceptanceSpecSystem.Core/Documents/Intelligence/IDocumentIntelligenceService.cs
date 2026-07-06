@@ -22,16 +22,19 @@ public interface IDocumentIntelligenceService
     /// 识别列映射
     /// </summary>
     /// <param name="tableData">表格数据</param>
+    /// <param name="extraSynonyms">外部列名词典，例如客户学习词。</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>列映射识别结果</returns>
     Task<ColumnMappingResult> IdentifyColumnMappingAsync(
         TableData tableData,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 检测表头行位置
     /// </summary>
     /// <param name="tableData">表格数据</param>
+    /// <param name="scanRowLimit">最多扫描的前置行数。</param>
     /// <returns>表头行索引（0-based）</returns>
-    int DetectHeaderRowIndex(TableData tableData);
+    int DetectHeaderRowIndex(TableData tableData, int? scanRowLimit = null);
 }

@@ -12,10 +12,12 @@ public interface IRuleBasedMappingStrategy
     /// </summary>
     /// <param name="headers">表头列表</param>
     /// <param name="sampleRows">样本数据行（用于辅助判断）</param>
+    /// <param name="extraSynonyms">外部列名词典，例如客户学习词。</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>列映射识别结果</returns>
     Task<ColumnMappingResult> IdentifyAsync(
         IReadOnlyList<string> headers,
         IReadOnlyList<IReadOnlyList<string>> sampleRows,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
         CancellationToken cancellationToken = default);
 }

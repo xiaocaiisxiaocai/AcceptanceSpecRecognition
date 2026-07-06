@@ -37,10 +37,11 @@ internal static class SmartConfigurationRecognizedTableFactory
         TableInfo? tableInfo,
         TableData tableData,
         ColumnMappingResult mapping,
-        DocumentStructureHealthCheckResult healthCheck)
+        DocumentStructureHealthCheckResult healthCheck,
+        bool isSpecificationOnly)
     {
         var headers = tableData.Headers.ToList();
-        var structure = FromColumnMapping(tableInfo, tableData, mapping);
+        var structure = FromColumnMapping(tableInfo, tableData, mapping, isSpecificationOnly);
         return ToRecognizedTable(structure with
         {
             Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm"
@@ -50,7 +51,8 @@ internal static class SmartConfigurationRecognizedTableFactory
     public static SmartConfigurationTableStructure FromColumnMapping(
         TableInfo? tableInfo,
         TableData tableData,
-        ColumnMappingResult mapping)
+        ColumnMappingResult mapping,
+        bool? isSpecificationOnly = null)
     {
         var columnMapping = mapping.Mapping;
         return new SmartConfigurationTableStructure
@@ -66,7 +68,7 @@ internal static class SmartConfigurationRecognizedTableFactory
             SpecificationColumnIndex = columnMapping.SpecificationColumn,
             AcceptanceColumnIndex = columnMapping.AcceptanceColumn,
             RemarkColumnIndex = columnMapping.RemarkColumn,
-            IsSpecificationOnly = !columnMapping.ProjectColumn.HasValue,
+            IsSpecificationOnly = isSpecificationOnly ?? !columnMapping.ProjectColumn.HasValue,
             Confidence = mapping.Confidence,
             Source = "RuleBased",
             Decision = "NeedConfirm"

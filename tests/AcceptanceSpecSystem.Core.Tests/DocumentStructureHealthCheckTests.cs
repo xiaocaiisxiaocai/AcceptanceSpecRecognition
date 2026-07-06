@@ -151,6 +151,47 @@ public class DocumentStructureHealthCheckTests
         result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.ProjectSpecificationLikelyReversed);
     }
 
+    [Fact]
+    public void Evaluate_WhenCompleteMappingHasLowConfidence_ShouldDowngradeToNeedConfirm()
+    {
+        var table = CreateTable(
+            ["项目", "规格", "验收标准", "备注"],
+            ["外观", "无划伤", "目视 OK", "抽检"]);
+        var mapping = CreateMapping(projectColumn: 0, specificationColumn: 1, acceptanceColumn: 2, remarkColumn: 3);
+
+        var result = DocumentStructureHealthCheck.Evaluate(table, mapping, confidence: 0.6);
+
+        result.Decision.Should().Be(DocumentStructureDecision.NeedConfirm);
+        result.CanAutoApply.Should().BeFalse();
+        result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.LowConfidence);
+    }
+
+    [Fact]
+    public void Evaluate_WhenTableHasOnlyHeaders_ShouldDowngradeToNeedConfirm()
+    {
+        var table = CreateTable(["项目", "规格", "验收标准", "备注"]);
+        var mapping = CreateMapping(projectColumn: 0, specificationColumn: 1, acceptanceColumn: 2, remarkColumn: 3);
+
+        var result = DocumentStructureHealthCheck.Evaluate(table, mapping, confidence: 0.96);
+
+        result.Decision.Should().Be(DocumentStructureDecision.NeedConfirm);
+        result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.InvalidRowRange);
+        result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.EmptySpecificationDataArea);
+    }
+
+    [Fact]
+    public void Evaluate_WhenTableIsEmpty_ShouldDowngradeToNeedConfirm()
+    {
+        var table = CreateTable([]);
+        var mapping = CreateMapping(projectColumn: 0, specificationColumn: 1, acceptanceColumn: 2, remarkColumn: 3);
+
+        var result = DocumentStructureHealthCheck.Evaluate(table, mapping, confidence: 0.96);
+
+        result.Decision.Should().Be(DocumentStructureDecision.NeedConfirm);
+        result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.ColumnIndexOutOfRange);
+        result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.InvalidRowRange);
+    }
+
     private static ColumnMappingResult CreateMapping(
         int? projectColumn,
         int? specificationColumn,
