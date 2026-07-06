@@ -125,3 +125,7 @@ outputs/
 
 # Node modules (root-level scratch / tooling installs)
 node_modules/
+
+# Puppeteer check scripts output
+web/smart-fill-check.png
+smart-fill-check.png
