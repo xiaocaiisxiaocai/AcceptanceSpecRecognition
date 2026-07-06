@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, reactive } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { PureTableBar } from "@/components/RePureTableBar";
 import {
   getProcessList,
   createProcess,
@@ -20,6 +21,7 @@ defineOptions({
 const tableData = ref<Process[]>([]);
 const loading = ref(false);
 const total = ref(0);
+const tableRef = ref();
 
 const queryParams = reactive<ProcessListRequest>({
   page: 1,
@@ -46,6 +48,33 @@ const canSubmit = computed(() =>
   isEdit.value ? canUpdate.value : canCreate.value
 );
 const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
+
+// 表格列配置（P3-2: PureTableBar 集成）
+const tableColumns = computed(() => [
+  {
+    label: "ID",
+    prop: "id",
+    width: 80,
+    hide: !canDelete.value
+  },
+  {
+    label: "制程名称",
+    prop: "name",
+    minWidth: "min(200px, calc(100vw - 32px))"
+  },
+  {
+    label: "创建时间",
+    prop: "createdAt",
+    width: "min(180px, calc(100vw - 32px))"
+  },
+  {
+    label: "操作",
+    prop: "operation",
+    width: "min(150px, calc(100vw - 32px))",
+    fixed: "right",
+    hide: !hasOperationActions.value
+  }
+]);
 
 const loadData = async () => {
   loading.value = true;
@@ -197,7 +226,12 @@ onMounted(() => {
     <el-card class="table-card" shadow="never">
       <template #header>
         <div class="simple-crud-toolbar">
-          <span class="simple-crud-toolbar__title">制程列表</span>
+          <PureTableBar
+            title="制程列表"
+            :columns="tableColumns as any"
+            :table-ref="tableRef"
+            @refresh="loadData"
+          />
           <el-form class="simple-crud-search" :inline="true">
             <el-form-item label="制程名称">
               <el-input
@@ -229,6 +263,7 @@ onMounted(() => {
 
       <div class="table-region">
         <el-table
+          ref="tableRef"
           v-loading="loading"
           :data="tableData"
           height="100%"
