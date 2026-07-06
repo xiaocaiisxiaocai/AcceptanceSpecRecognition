@@ -13,7 +13,7 @@ internal static class SmartConfigurationRecognizedTableFactory
         DocumentTemplate template,
         List<string> headers)
     {
-        return ToRecognizedTable(new SmartConfigurationTableStructure
+        var structure = new SmartConfigurationTableStructure
         {
             TableIndex = tableData.TableIndex,
             TableName = tableInfo?.Name,
@@ -30,7 +30,8 @@ internal static class SmartConfigurationRecognizedTableFactory
             Confidence = 1.0,
             Source = "Template",
             Decision = "AutoApply"
-        });
+        };
+        return ToRecognizedTable(NormalizeRowRange(tableData, structure));
     }
 
     public static SmartConfigurationRecognizedTable FromMapping(
@@ -42,7 +43,7 @@ internal static class SmartConfigurationRecognizedTableFactory
     {
         var headers = tableData.Headers.ToList();
         var structure = FromColumnMapping(tableInfo, tableData, mapping, isSpecificationOnly);
-        return ToRecognizedTable(structure with
+        return ToRecognizedTable(NormalizeRowRange(tableData, structure) with
         {
             Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm"
         });
@@ -82,7 +83,7 @@ internal static class SmartConfigurationRecognizedTableFactory
         DocumentStructureHealthCheckResult healthCheck)
     {
         var structure = FromCandidate(tableInfo, tableData, candidate);
-        return ToRecognizedTable(structure with
+        return ToRecognizedTable(NormalizeRowRange(tableData, structure) with
         {
             Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm"
         });
@@ -210,6 +211,26 @@ internal static class SmartConfigurationRecognizedTableFactory
                 structure.RemarkColumnIndex,
                 structure.Confidence,
                 structure.Source)
+        };
+    }
+
+    private static SmartConfigurationTableStructure NormalizeRowRange(
+        TableData tableData,
+        SmartConfigurationTableStructure structure)
+    {
+        var fallbackEndRowIndex = tableData.TotalRowCount > 0
+            ? tableData.TotalRowCount - 1
+            : (int?)null;
+        var dataEndRowIndex = structure.DataEndRowIndex ?? fallbackEndRowIndex;
+        if (dataEndRowIndex.HasValue && dataEndRowIndex.Value < structure.DataStartRowIndex)
+        {
+            // 多行表头占满已用区域时没有数据行，结束行应为空，不能返回反向范围。
+            dataEndRowIndex = null;
+        }
+
+        return structure with
+        {
+            DataEndRowIndex = dataEndRowIndex
         };
     }
 
