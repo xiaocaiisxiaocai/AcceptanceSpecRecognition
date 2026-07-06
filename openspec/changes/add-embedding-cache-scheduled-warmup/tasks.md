@@ -29,7 +29,7 @@
 - [x] 5.1 新增后台预热服务测试：关闭、补齐、分批、失败吞吐
 - [x] 5.2 新增缓存用途隔离测试：匹配与语义搜索不互相复用
 - [x] 5.3 新增规格更新缓存失效测试
-- [ ] 5.4 运行 `dotnet test AcceptanceSpecSystem.sln -c Debug`
+- [x] 5.4 运行 `dotnet test AcceptanceSpecSystem.sln -c Debug`
 - [x] 5.5 必要时运行 `pnpm build`（仅当前端未改动时可跳过并说明）
 
 ## 6. Management UI

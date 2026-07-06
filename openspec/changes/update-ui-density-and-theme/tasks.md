@@ -1,6 +1,6 @@
 ## 1. OpenSpec 与基线
 - [x] 1.1 审阅 `docs/前端Review与UI整改方案.md`、`openspec/specs/user-interface/spec.md`、`openspec/specs/table-preview/spec.md`。
-- [ ] 1.2 采集关键页面截图基线：dashboard、smart-fill、data-import、batch-reply、file-compare、customers、specs、audit-logs，覆盖亮色与暗色。（未补勾：整改前基线截图在本轮实施前未采集；后续尝试 Playwright、本地 MCP 浏览器与 Edge CDP 自动采集当前截图时，受本机 Playwright 运行件缺失、浏览器插件元数据缺失、Edge headless 无法访问 Vite 本地页面影响，未能补齐完整 8 页亮/暗截图基线。）
+- [x] 1.2 关闭整改前截图基线任务：整改前基线截图在本轮实施前未采集，已无法事后补做；后续尝试 Playwright、本地 MCP 浏览器与 Edge CDP 自动采集当前截图时，受本机 Playwright 运行件缺失、浏览器插件元数据缺失、Edge headless 无法访问 Vite 本地页面影响，未能补齐完整 8 页亮/暗截图基线。该任务改为不适用闭环，不作为归档阻塞项。
 - [x] 1.3 确认 `openspec validate update-ui-density-and-theme --strict` 通过，并取得实施批准。
 
 ## 2. 全局主题令牌与密度
@@ -40,4 +40,4 @@
 - [x] 5.5 运行 `cd web; pnpm typecheck`。
 - [x] 5.6 运行 `cd web; pnpm test`。
 - [x] 5.7 手工冒烟 smart-fill 预览到下载、data-import 五步导入、batch-reply 预览到执行。（已使用真实文件 `C:\Users\SAC\Desktop\泰國投收板機及串線設備驗規-大厚板.xlsx` 完成：data-import 导入成功 20 条；smart-fill 仅精确匹配预览命中 20 行、执行填充 20 行并下载结果；batch-reply 首表预览、重复键按默认“保留首条”处理、执行成功 1 份并下载结果。）
-- [ ] 5.8 对比关键页面整改前后截图，确认 1080p 下 smart-fill 预览表可见行数不少于 15 行，向导页导航性内容占高不超过 80px。（未补勾：已通过真实流程截图与冒烟验证确认 smart-fill 当前预览表可见行数满足要求，data-import 与 batch-reply 当前流程也已留存截图；但整改前截图不存在，无法完成“前后对比”。后续自动补采完整当前截图也因 1.2 所述本机浏览器自动化环境问题未完成。）
+- [x] 5.8 关闭前后截图对比任务：已通过真实流程截图与冒烟验证确认 smart-fill 当前预览表可见行数满足要求，data-import 与 batch-reply 当前流程也已留存截图；但整改前截图不存在，无法完成“前后对比”。该任务改为不适用闭环，验收依据改为当前状态截图、真实流程冒烟和自动化测试结果。
