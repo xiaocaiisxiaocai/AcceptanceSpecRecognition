@@ -96,6 +96,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         await using var stream = File.OpenRead(absolutePath);
         var tablesData = await parser.ExtractAllTablesDataAsync(stream);
 
+        var extraSynonyms = await BuildExtraSynonymsAsync(command.CustomerId, cancellationToken);
+        var headerKeywordMatcher = HeaderKeywordMatcher.FromExtraSynonyms(extraSynonyms);
         var tables = new List<SmartConfigurationRecognizedTable>();
         var structureAdjudicationBudget = Math.Max(0, _options.MaxStructureAdjudicationCallsPerDocument);
         for (var i = 0; i < tablesData.Count; i++)
@@ -104,7 +106,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             var tableInfo = tablesInfo.FirstOrDefault(table => table.Index == tableData.TableIndex)
                 ?? tablesInfo.ElementAtOrDefault(i);
 
-            var headerProfile = DetectHeaderProfile(tableData);
+            var headerProfile = DetectHeaderProfile(tableData, headerKeywordMatcher);
             if (headerProfile.HeaderRowIndex > 0 || headerProfile.HeaderRowCount > 1)
             {
                 await using var tableStream = File.OpenRead(absolutePath);
@@ -124,6 +126,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableInfo,
                 tableData,
                 headerProfile,
+                extraSynonyms,
                 () => TryConsumeStructureAdjudicationBudget(ref structureAdjudicationBudget),
                 cancellationToken));
         }
@@ -135,7 +138,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         };
     }
 
-    private HeaderProfile DetectHeaderProfile(TableData tableData)
+    private HeaderProfile DetectHeaderProfile(
+        TableData tableData,
+        HeaderKeywordMatcher headerKeywordMatcher)
     {
         var detectionTable = BuildHeaderDetectionTableData(tableData);
         var scanRowLimit = Math.Clamp(
@@ -144,8 +149,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             Math.Max(1, detectionTable.Rows.Count));
         var maxHeaderRowCount = Math.Clamp(_options.MaxHeaderRowCount, 1, 20);
         var anchorRowIndex = _intelligenceService.DetectHeaderRowIndex(detectionTable, scanRowLimit);
-        var headerRowIndex = ExpandHeaderStart(detectionTable, anchorRowIndex, maxHeaderRowCount);
-        var headerRowCount = DetectHeaderRowCount(detectionTable, headerRowIndex, maxHeaderRowCount);
+        var headerRowIndex = ExpandHeaderStart(detectionTable, anchorRowIndex, maxHeaderRowCount, headerKeywordMatcher);
+        var headerRowCount = DetectHeaderRowCount(detectionTable, headerRowIndex, maxHeaderRowCount, headerKeywordMatcher);
         return new HeaderProfile(headerRowIndex, headerRowCount);
     }
 
@@ -195,12 +200,16 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         };
     }
 
-    private static int ExpandHeaderStart(TableData tableData, int anchorRowIndex, int maxHeaderRowCount)
+    private static int ExpandHeaderStart(
+        TableData tableData,
+        int anchorRowIndex,
+        int maxHeaderRowCount,
+        HeaderKeywordMatcher headerKeywordMatcher)
     {
         var headerRowIndex = anchorRowIndex;
         while (headerRowIndex > 0 &&
                anchorRowIndex - headerRowIndex + 1 < maxHeaderRowCount &&
-               LooksLikeLeadingHeaderGroupRow(tableData.Rows[headerRowIndex - 1]))
+               LooksLikeLeadingHeaderGroupRow(tableData.Rows[headerRowIndex - 1], headerKeywordMatcher))
         {
             headerRowIndex--;
         }
@@ -208,7 +217,11 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         return headerRowIndex;
     }
 
-    private static int DetectHeaderRowCount(TableData tableData, int headerRowIndex, int maxHeaderRowCount)
+    private static int DetectHeaderRowCount(
+        TableData tableData,
+        int headerRowIndex,
+        int maxHeaderRowCount,
+        HeaderKeywordMatcher headerKeywordMatcher)
     {
         if (headerRowIndex < 0 || headerRowIndex >= tableData.Rows.Count)
         {
@@ -219,7 +232,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var maxHeaderRows = Math.Min(tableData.Rows.Count, headerRowIndex + maxHeaderRowCount);
         for (var rowIndex = headerRowIndex + 1; rowIndex < maxHeaderRows; rowIndex++)
         {
-            if (!LooksLikeAdditionalHeaderRow(tableData.Rows[rowIndex]))
+            if (!LooksLikeAdditionalHeaderRow(tableData.Rows[rowIndex], headerKeywordMatcher))
             {
                 break;
             }
@@ -230,7 +243,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         return count;
     }
 
-    private static bool LooksLikeAdditionalHeaderRow(RowData row)
+    private static bool LooksLikeAdditionalHeaderRow(RowData row, HeaderKeywordMatcher headerKeywordMatcher)
     {
         var values = row.Cells
             .Select(cell => cell.Value?.Trim() ?? string.Empty)
@@ -241,7 +254,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             return false;
         }
 
-        var keywordCount = values.Count(ContainsHeaderKeyword);
+        var keywordCount = values.Count(headerKeywordMatcher.Contains);
         if (keywordCount == 0)
         {
             return false;
@@ -256,7 +269,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         return keywordCount >= 2 || (keywordCount == 1 && values.Count <= 2);
     }
 
-    private static bool LooksLikeLeadingHeaderGroupRow(RowData row)
+    private static bool LooksLikeLeadingHeaderGroupRow(RowData row, HeaderKeywordMatcher headerKeywordMatcher)
     {
         var values = row.Cells
             .Select(cell => cell.Value?.Trim() ?? string.Empty)
@@ -273,7 +286,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             return false;
         }
 
-        var keywordCount = values.Count(ContainsHeaderKeyword);
+        var keywordCount = values.Count(headerKeywordMatcher.Contains);
         if (keywordCount >= 2)
         {
             return true;
@@ -286,32 +299,6 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             .Where(group => group.Count() > 1)
             .Sum(group => group.Count());
         return duplicateCount >= 2 && keywordCount > 0;
-    }
-
-    private static bool ContainsHeaderKeyword(string value)
-    {
-        return value.Contains("项目", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("规格", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("验收", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("备注", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("标准", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("结果", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("判定", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("检查", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("管制", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("条件", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("对象", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("供应商", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("确认", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("回复", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("补充", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("依据", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("方式", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("分类", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("project", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("spec", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("acceptance", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("remark", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -371,6 +358,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableInfo? tableInfo,
         TableData tableData,
         HeaderProfile headerProfile,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         CancellationToken cancellationToken)
     {
@@ -392,7 +380,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         {
             var mapping = await _intelligenceService.IdentifyColumnMappingAsync(
                 tableData,
-                await BuildExtraSynonymsAsync(customerId, cancellationToken),
+                extraSynonyms,
                 cancellationToken);
             mapping.Mapping.HeaderRowIndex = headerProfile.HeaderRowIndex;
             mapping.Mapping.HeaderRowCount = headerProfile.HeaderRowCount;
@@ -633,3 +621,38 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 }
 
 internal readonly record struct HeaderProfile(int HeaderRowIndex, int HeaderRowCount);
+
+internal sealed class HeaderKeywordMatcher
+{
+    private static readonly string[] BuiltInKeywords =
+    [
+        "项目", "规格", "验收", "备注", "标准", "结果", "判定",
+        "检查", "管制", "条件", "对象", "供应商", "确认", "回复", "补充",
+        "依据", "方式", "分类", "project", "spec", "acceptance", "remark"
+    ];
+
+    private readonly IReadOnlyList<string> _keywords;
+
+    private HeaderKeywordMatcher(IReadOnlyList<string> keywords)
+    {
+        _keywords = keywords;
+    }
+
+    public static HeaderKeywordMatcher FromExtraSynonyms(
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms)
+    {
+        var keywords = BuiltInKeywords
+            .Concat(extraSynonyms.Values.SelectMany(words => words))
+            .Select(keyword => keyword.Trim())
+            .Where(keyword => keyword.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new HeaderKeywordMatcher(keywords);
+    }
+
+    public bool Contains(string value)
+    {
+        return _keywords.Any(keyword => value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    }
+}

@@ -154,12 +154,13 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             return 0;
         }
 
-        var scores = new List<(int rowIndex, double score, string reason)>();
+        var scores = new List<(int rowIndex, double score, double adjustedScore, int keywordCount, string reason)>();
 
         // 默认分析前 10 行；调用方可按业务配置放宽窗口。
         var effectiveScanRowLimit = Math.Clamp(scanRowLimit ?? 10, 1, Math.Max(1, tableData.Rows.Count));
         var rowsToAnalyze = Math.Min(effectiveScanRowLimit, tableData.Rows.Count);
 
+        var hasSeenSpecificationDataRow = false;
         for (int i = 0; i < rowsToAnalyze; i++)
         {
             var row = tableData.Rows[i];
@@ -185,7 +186,21 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
                 reasons.Add($"填充率 {rowScore.FillRate:P0}");
             }
 
-            scores.Add((i, rowScore.Score, string.Join(", ", reasons)));
+            var adjustedScore = rowScore.Score;
+            if (i > 0 && LooksLikeSpecificationDataRow(row))
+            {
+                adjustedScore *= 0.65;
+                reasons.Add("疑似数据行降权");
+            }
+
+            if (hasSeenSpecificationDataRow && rowScore.KeywordCount > 0)
+            {
+                adjustedScore *= 0.5;
+                reasons.Add("位于数据区后降权");
+            }
+
+            scores.Add((i, rowScore.Score, adjustedScore, rowScore.KeywordCount, string.Join(", ", reasons)));
+            hasSeenSpecificationDataRow |= LooksLikeSpecificationDataRow(row);
 
             _logger.LogDebug(
                 "行 {RowIndex} 表头分数: {Score:F2} ({Reasons})",
@@ -194,15 +209,53 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
                 string.Join(", ", reasons));
         }
 
-        // 选择得分最高的行
-        var best = scores.OrderByDescending(s => s.score).First();
+        // 候选排序先看降权后的分数；分差不大时优先更早的表头候选，避免数据行抢锚点。
+        var orderedScores = scores
+            .OrderByDescending(s => s.adjustedScore)
+            .ThenBy(s => s.rowIndex)
+            .ToList();
+        var best = orderedScores.First();
+        var earlyComparable = orderedScores
+            .Where(score => score.rowIndex < best.rowIndex &&
+                            score.keywordCount > 0 &&
+                            best.adjustedScore - score.adjustedScore <= 0.25)
+            .OrderBy(score => score.rowIndex)
+            .FirstOrDefault();
+        if (earlyComparable != default)
+        {
+            best = earlyComparable;
+        }
 
         _logger.LogInformation(
             "检测到表头行: 第 {RowIndex} 行，得分 {Score:F2} ({Reasons})",
             best.rowIndex,
-            best.score,
+            best.adjustedScore,
             best.reason);
 
         return best.rowIndex;
+    }
+
+    private static bool LooksLikeSpecificationDataRow(RowData row)
+    {
+        var values = row.Cells
+            .Select(cell => cell.Value?.Trim() ?? string.Empty)
+            .Where(value => value.Length > 0)
+            .ToList();
+        if (values.Count == 0)
+        {
+            return false;
+        }
+
+        var technicalPatternCount = SpecificationLikelihoodScorer.CountTechnicalPatternValues(values);
+        if (technicalPatternCount == 0)
+        {
+            return false;
+        }
+
+        return values.Any(value =>
+            value.Length >= 8 ||
+            value.Contains("不得", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("必须", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("应", StringComparison.OrdinalIgnoreCase));
     }
 }

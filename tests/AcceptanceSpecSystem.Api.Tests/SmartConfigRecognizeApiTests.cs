@@ -1086,6 +1086,38 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
             .And.Contain(header => header == "判定依据 / 管制条件");
     }
 
+    [Fact]
+    public async Task Recognize_WhenAdditionalHeaderOnlyMatchesCustomerLearningWords_ShouldIncludeItAsHeader()
+    {
+        var customerId = await CreateCustomerAsync("表头学习词客户");
+        await CreateColumnRuleAsync(customerId, "验货范围", targetField: 1);
+        await CreateColumnRuleAsync(customerId, "承认条件", targetField: 2);
+        await CreateColumnRuleAsync(customerId, "厂商回覆", targetField: 3);
+        await CreateColumnRuleAsync(customerId, "附注", targetField: 4);
+        var fileId = await UploadExcelAsync(
+            CreateLearnedWordsMultiHeaderExcelBytes(),
+            "smart-recognize-learned-words-multi-header.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("headerRowIndex").GetInt32().Should().Be(0);
+        table.GetProperty("headerRowCount").GetInt32().Should().Be(2);
+        table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(2);
+        table.GetProperty("headers").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should()
+            .Contain(header => header == "基本信息 / 验货范围")
+            .And.Contain(header => header == "判定依据 / 承认条件");
+    }
+
     private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
     {
         using var content = new MultipartFormDataContent();
@@ -1099,6 +1131,31 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
 
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private async Task<int> CreateCustomerAsync(string name)
+    {
+        var response = await _client.PostAsync("/api/customers", ApiClientJson.ToJsonContent(new { name }));
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private async Task CreateColumnRuleAsync(int customerId, string pattern, int targetField)
+    {
+        var response = await _client.PostAsync("/api/column-mapping-rules", ApiClientJson.ToJsonContent(new
+        {
+            pattern,
+            targetField,
+            matchMode = 2,
+            priority = 100,
+            enabled = true,
+            source = 3,
+            customerId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     private static byte[] CreateExcelBytes()
@@ -1157,6 +1214,28 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
         worksheet.Cell(2, 2).Value = "管制条件";
         worksheet.Cell(2, 3).Value = "供应商确认";
         worksheet.Cell(2, 4).Value = "补充说明";
+        worksheet.Cell(3, 1).Value = "外观";
+        worksheet.Cell(3, 2).Value = "表面不得有明显划伤";
+        worksheet.Cell(3, 3).Value = "OK";
+        worksheet.Cell(3, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateLearnedWordsMultiHeaderExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "基本信息";
+        worksheet.Cell(1, 2).Value = "判定依据";
+        worksheet.Cell(1, 3).Value = "回复信息";
+        worksheet.Cell(1, 4).Value = "回复信息";
+        worksheet.Cell(2, 1).Value = "验货范围";
+        worksheet.Cell(2, 2).Value = "承认条件";
+        worksheet.Cell(2, 3).Value = "厂商回覆";
+        worksheet.Cell(2, 4).Value = "附注";
         worksheet.Cell(3, 1).Value = "外观";
         worksheet.Cell(3, 2).Value = "表面不得有明显划伤";
         worksheet.Cell(3, 3).Value = "OK";

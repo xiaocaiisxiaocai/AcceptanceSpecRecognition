@@ -71,6 +71,23 @@ public class DocumentIntelligenceServiceTests
         service.DetectHeaderRowIndex(table).Should().Be(1);
     }
 
+    [Fact]
+    public void DetectHeaderRowIndex_WhenLaterDataRowHasDenseKeywords_ShouldKeepEarlierHeaderCandidate()
+    {
+        var service = CreateService();
+        var table = new TableData
+        {
+            Rows =
+            {
+                CreateRow(0, "项目", "规格", "", ""),
+                CreateRow(1, "外观", "表面不得有明显划伤", "目视 OK", "抽检"),
+                CreateRow(2, "规格项目", "规格标准", "验收判定", "备注结果")
+            }
+        };
+
+        service.DetectHeaderRowIndex(table).Should().Be(0);
+    }
+
     private static DocumentIntelligenceService CreateService()
     {
         return new DocumentIntelligenceService(
