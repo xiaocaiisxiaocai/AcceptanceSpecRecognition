@@ -292,7 +292,7 @@ const removeTargetFile = (targetId: string) => {
 </script>
 
 <template>
-  <div class="page page--fill batch-reply-page">
+  <div class="page page--fill page-shell batch-reply-page">
     <div class="page-header">
       <div class="page-header__main">
         <div class="page-title">批量回复</div>
