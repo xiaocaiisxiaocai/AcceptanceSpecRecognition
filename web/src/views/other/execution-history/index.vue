@@ -191,41 +191,40 @@ onMounted(() => {
       </div>
     </div>
 
-    <el-card class="toolbar-card">
-      <el-form :inline="true">
-        <el-form-item label="任务类型">
-          <el-select
-            v-model="queryParams.taskType"
-            class="search-select search-select--240"
-          >
-            <el-option
-              v-for="item in taskTypeOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="关键词">
-          <el-input
-            v-model="queryParams.keyword"
-            clearable
-            placeholder="任务ID / 来源文件"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
     <el-card v-loading="loading" class="task-card">
       <template #header>
-        <div class="card-header">
+        <div class="list-card-toolbar">
           <span>任务下拉</span>
-          <span class="card-header-tip">当前页共 {{ total }} 条记录</span>
+          <div class="list-card-toolbar__right">
+            <span class="card-header-tip">当前页共 {{ total }} 条记录</span>
+            <el-form :inline="true" class="filter-form">
+              <el-form-item label="任务类型">
+                <el-select
+                  v-model="queryParams.taskType"
+                  class="search-select search-select--240"
+                >
+                  <el-option
+                    v-for="item in taskTypeOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="关键词">
+                <el-input
+                  v-model="queryParams.keyword"
+                  clearable
+                  placeholder="任务ID / 来源文件"
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
         </div>
       </template>
 

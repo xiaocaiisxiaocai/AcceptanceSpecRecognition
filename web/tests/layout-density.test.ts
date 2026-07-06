@@ -106,6 +106,21 @@ const processPageSource = readSource(
 const machineModelPageSource = readSource(
   "web/src/views/base-data/machine-models/index.vue"
 );
+const systemUsersSource = readSource(
+  "web/src/views/config/system-users/index.vue"
+);
+const promptTemplatesSource = readSource(
+  "web/src/views/config/prompt-templates/index.vue"
+);
+const authRolesSource = readSource("web/src/views/config/auth-roles/index.vue");
+const permissionsSource = readSource("web/src/views/rbac/permissions/index.vue");
+const auditLogsSource = readSource("web/src/views/other/audit-logs/index.vue");
+const smartFillMatchConfigSource = readSource(
+  "web/src/views/smart-fill/components/MatchConfig.vue"
+);
+const promptTemplatesPageSource = promptTemplatesSource;
+const authRolesPageSource = authRolesSource;
+const permissionsPageSource = permissionsSource;
 const loginStyleSource = readSource("web/src/style/login.css");
 const welcomeSource = readSource("web/src/views/welcome/index.vue");
 const smartStructureConfirmCardSource = readSource(
@@ -119,6 +134,23 @@ const simpleCrudPages = [
   customerPageSource,
   processPageSource,
   machineModelPageSource
+];
+const filterFormPages = [
+  systemUsersSource,
+  promptTemplatesSource,
+  authRolesSource,
+  permissionsSource,
+  executionHistorySource,
+  auditLogsSource,
+  smartFillMatchConfigSource
+];
+const headerFilterPages = [
+  systemUsersSource,
+  promptTemplatesPageSource,
+  authRolesPageSource,
+  permissionsPageSource,
+  executionHistorySource,
+  auditLogsSource
 ];
 const smartFillStepSources = [
   smartFillUploadStepSource,
@@ -249,9 +281,81 @@ test("简单 CRUD 页应使用全高骨架与单行工具栏", () => {
     assert.match(source, /<div class="page page--fill simple-crud-page">/);
     assert.doesNotMatch(source, /<el-card class="mb-4">/);
     assert.match(source, /<div class="simple-crud-toolbar">/);
+    assert.match(source, /class="simple-crud-toolbar__title"/);
+    assert.match(source, /class="simple-crud-toolbar__right"/);
     assert.match(source, /<el-card class="table-card" shadow="never">/);
     assert.match(source, /<div class="table-region">/);
     assert.match(source, /height="100%"/);
+  }
+});
+
+test("简单 CRUD 页不应显示 PureTableBar 工具按钮", () => {
+  for (const source of simpleCrudPages) {
+    assert.doesNotMatch(source, /PureTableBar/);
+    assert.doesNotMatch(source, /tableColumns/);
+    assert.doesNotMatch(source, /@refresh="loadData"/);
+  }
+});
+
+test("简单 CRUD 工具栏换行时不应拆散搜索表单和操作按钮", () => {
+  assert.match(
+    globalStyleSource,
+    /\.simple-crud-toolbar\s*\{[^}]*flex-wrap:\s*wrap/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.simple-crud-search\s*\{[^}]*flex-wrap:\s*wrap/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.simple-crud-search\.el-form--inline\s+\.el-form-item\s*\{[^}]*flex-shrink:\s*0/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.simple-crud-search\.el-form--inline\s+\.el-form-item\s*\{[^}]*margin-bottom:\s*0/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.simple-crud-search\.el-form--inline\s+\.el-form-item:last-child\s*\{[^}]*display:\s*flex/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.simple-crud-actions\s*\{[^}]*flex-wrap:\s*wrap/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.simple-crud-toolbar__right\s*\{[^}]*justify-content:\s*flex-end/s
+  );
+});
+
+test("所有筛选表单换行时不应拆散搜索重置按钮", () => {
+  assert.match(
+    globalStyleSource,
+    /\.filter-form\s*\{[^}]*flex-wrap:\s*wrap/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.filter-form\.el-form--inline\s+\.el-form-item\s*\{[^}]*flex-shrink:\s*0/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.filter-form\.el-form--inline\s+\.el-form-item:last-child\s*\{[^}]*flex-wrap:\s*nowrap/s
+  );
+
+  for (const source of filterFormPages) {
+    assert.match(source, /class="[^"]*\bfilter-form\b[^"]*"/);
+  }
+});
+
+test("列表页筛选栏应放在表格卡头右侧，不再单独占用筛选卡", () => {
+  for (const source of headerFilterPages) {
+    assert.doesNotMatch(source, /<el-card class="mb-4">\s*<el-form/s);
+    assert.match(source, /<template #header>/);
+    assert.match(source, /class="[^"]*\bfilter-form\b[^"]*"/);
+  }
+
+  for (const source of [executionHistorySource, auditLogsSource]) {
+    assert.doesNotMatch(source, /<el-card class="toolbar-card">\s*<el-form/s);
   }
 });
 
@@ -362,9 +466,6 @@ test("批量回复重复处理弹窗应使用响应式规格宽度", () => {
 });
 
 test("配置页和权限页下拉应使用规范宽度档位与正确 popper", () => {
-  const systemUsersSource = readSource("web/src/views/config/system-users/index.vue");
-  const permissionsSource = readSource("web/src/views/rbac/permissions/index.vue");
-
   assert.doesNotMatch(systemUsersSource, /class="w-\[180px\]"/);
   assert.match(systemUsersSource, /class="search-select search-select--200"/);
   assert.match(systemUsersSource, /popper-class="config-select-popper"/);

@@ -88,15 +88,15 @@
 .table-card {
   display: flex;
   flex: 1;
-  min-height: 0;
   flex-direction: column;
+  min-height: 0;
 }
 
 .table-card > .el-card__body {
   display: flex;
   flex: 1;
-  min-height: 0;
   flex-direction: column;
+  min-height: 0;
 }
 
 .table-region {
@@ -113,6 +113,7 @@
 
 .simple-crud-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
@@ -124,28 +125,99 @@
   color: var(--app-text-primary);
 }
 
-.simple-crud-search {
+.simple-crud-toolbar__right {
   display: flex;
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 520px;
+  flex-wrap: wrap;
+  gap: 12px;
   align-items: center;
   justify-content: flex-end;
+  min-width: 0;
+}
+
+.simple-crud-search {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .simple-crud-search.el-form--inline .el-form-item {
-  margin-right: 8px;
+  flex-shrink: 0;
+  margin-right: 0;
   margin-bottom: 0;
+}
+
+.simple-crud-search.el-form--inline .el-form-item:last-child {
+  display: flex;
+  flex-wrap: nowrap;
 }
 
 .simple-crud-search .el-input {
   width: 220px;
+  max-width: 100%;
+}
+
+.simple-crud-search .el-button + .el-button {
+  margin-left: 0;
+}
+
+.filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-form.el-form--inline .el-form-item {
+  flex-shrink: 0;
+  margin-right: 0;
+  margin-bottom: 0;
+}
+
+.filter-form.el-form--inline .el-form-item:last-child {
+  display: flex;
+  flex-wrap: nowrap;
+}
+
+.filter-form .el-button + .el-button {
+  margin-left: 0;
+}
+
+.list-card-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.list-card-toolbar > span:first-child {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.list-card-toolbar__right {
+  display: flex;
+  flex: 1 1 520px;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .simple-crud-actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .config-page .el-form-item .el-select,

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, reactive } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { PureTableBar } from "@/components/RePureTableBar";
 import {
   getMachineModelList,
   createMachineModel,
@@ -48,33 +47,6 @@ const canSubmit = computed(() =>
   isEdit.value ? canUpdate.value : canCreate.value
 );
 const hasOperationActions = computed(() => canUpdate.value || canDelete.value);
-
-// 表格列配置（P3-2: PureTableBar 集成）
-const tableColumns = computed(() => [
-  {
-    label: "ID",
-    prop: "id",
-    width: 80,
-    hide: !canDelete.value
-  },
-  {
-    label: "机型名称",
-    prop: "name",
-    minWidth: "min(200px, calc(100vw - 32px))"
-  },
-  {
-    label: "创建时间",
-    prop: "createdAt",
-    width: "min(180px, calc(100vw - 32px))"
-  },
-  {
-    label: "操作",
-    prop: "operation",
-    width: "min(150px, calc(100vw - 32px))",
-    fixed: "right",
-    hide: !hasOperationActions.value
-  }
-]);
 
 const loadData = async () => {
   loading.value = true;
@@ -226,37 +198,34 @@ onMounted(() => {
     <el-card class="table-card" shadow="never">
       <template #header>
         <div class="simple-crud-toolbar">
-          <PureTableBar
-            title="机型列表"
-            :columns="tableColumns as any"
-            :table-ref="tableRef"
-            @refresh="loadData"
-          />
-          <el-form class="simple-crud-search" :inline="true">
-            <el-form-item label="机型名称">
-              <el-input
-                v-model="queryParams.keyword"
-                placeholder="请输入机型名称"
-                clearable
-                @keyup.enter="handleSearch"
-              />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" @click="handleSearch">搜索</el-button>
-              <el-button @click="handleReset">重置</el-button>
-            </el-form-item>
-          </el-form>
-          <div class="simple-crud-actions">
-            <el-button
-              v-if="canDelete && hasSelected"
-              type="danger"
-              @click="handleBatchDelete"
-            >
-              批量删除 ({{ selectedIds.length }})
-            </el-button>
-            <el-button v-if="canCreate" type="primary" @click="handleAdd"
-              >新增机型</el-button
-            >
+          <div class="simple-crud-toolbar__title">机型列表</div>
+          <div class="simple-crud-toolbar__right">
+            <el-form class="simple-crud-search" :inline="true">
+              <el-form-item label="机型名称">
+                <el-input
+                  v-model="queryParams.keyword"
+                  placeholder="请输入机型名称"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+            <div class="simple-crud-actions">
+              <el-button
+                v-if="canDelete && hasSelected"
+                type="danger"
+                @click="handleBatchDelete"
+              >
+                批量删除 ({{ selectedIds.length }})
+              </el-button>
+              <el-button v-if="canCreate" type="primary" @click="handleAdd"
+                >新增机型</el-button
+              >
+            </div>
           </div>
         </div>
       </template>

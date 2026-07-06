@@ -536,34 +536,33 @@ onMounted(initPage);
 
 <template>
   <div class="page">
-    <el-card class="mb-4">
-      <el-form :inline="true">
-        <el-form-item label="关键词">
-          <el-input
-            v-model="keyword"
-            placeholder="角色编码/角色名称"
-            clearable
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
     <el-card>
       <template #header>
-        <div class="flex items-center justify-between">
+        <div class="list-card-toolbar">
           <span>角色管理</span>
-          <el-button
-            v-perms="'btn:auth-role:create'"
-            type="primary"
-            @click="openCreateDialog"
-          >
-            新增角色
-          </el-button>
+          <div class="list-card-toolbar__right">
+            <el-form :inline="true" class="filter-form">
+              <el-form-item label="关键词">
+                <el-input
+                  v-model="keyword"
+                  placeholder="角色编码/角色名称"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+            <el-button
+              v-perms="'btn:auth-role:create'"
+              type="primary"
+              @click="openCreateDialog"
+            >
+              新增角色
+            </el-button>
+          </div>
         </div>
       </template>
 

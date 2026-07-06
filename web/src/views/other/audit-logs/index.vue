@@ -203,95 +203,103 @@ onMounted(loadData);
       </div>
     </div>
 
-    <el-card class="toolbar-card">
-      <el-form :inline="true">
-        <el-form-item label="来源">
-          <el-select
-            v-model="queryParams.source"
-            clearable
-            placeholder="全部"
-            class="search-select search-select--300"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="opt in sourceOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </el-form-item>
+    <el-card class="audit-table-card">
+      <template #header>
+        <div class="list-card-toolbar">
+          <span>审计日志</span>
+          <div class="list-card-toolbar__right">
+            <span class="text-sm text-gray-500">详情可点击“查看”展开</span>
+            <el-form :inline="true" class="filter-form audit-filter-form">
+              <el-form-item label="来源">
+                <el-select
+                  v-model="queryParams.source"
+                  clearable
+                  placeholder="全部"
+                  class="search-select search-select--300"
+                  popper-class="app-select-popper"
+                >
+                  <el-option
+                    v-for="opt in sourceOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+              </el-form-item>
 
-        <el-form-item label="级别">
-          <el-select
-            v-model="queryParams.level"
-            clearable
-            placeholder="全部"
-            class="search-select search-select--300"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="opt in levelOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </el-form-item>
+              <el-form-item label="级别">
+                <el-select
+                  v-model="queryParams.level"
+                  clearable
+                  placeholder="全部"
+                  class="search-select search-select--300"
+                  popper-class="app-select-popper"
+                >
+                  <el-option
+                    v-for="opt in levelOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+              </el-form-item>
 
-        <el-form-item label="用户">
-          <el-input
-            v-model="queryParams.username"
-            clearable
-            placeholder="用户名"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
+              <el-form-item label="用户">
+                <el-input
+                  v-model="queryParams.username"
+                  clearable
+                  placeholder="用户名"
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
 
-        <el-form-item label="方法">
-          <el-select
-            v-model="queryParams.requestMethod"
-            clearable
-            placeholder="全部"
-            class="search-select search-select--300"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="method in methodOptions"
-              :key="method"
-              :label="method"
-              :value="method"
-            />
-          </el-select>
-        </el-form-item>
+              <el-form-item label="方法">
+                <el-select
+                  v-model="queryParams.requestMethod"
+                  clearable
+                  placeholder="全部"
+                  class="search-select search-select--300"
+                  popper-class="app-select-popper"
+                >
+                  <el-option
+                    v-for="method in methodOptions"
+                    :key="method"
+                    :label="method"
+                    :value="method"
+                  />
+                </el-select>
+              </el-form-item>
 
-        <el-form-item label="查询时间">
-          <el-date-picker
-            v-model="queryRange"
-            type="datetimerange"
-            unlink-panels
-            value-format="YYYY-MM-DDTHH:mm:ss"
-            start-placeholder="开始时间"
-            end-placeholder="结束时间"
-          />
-        </el-form-item>
+              <el-form-item label="查询时间">
+                <el-date-picker
+                  v-model="queryRange"
+                  type="datetimerange"
+                  unlink-panels
+                  value-format="YYYY-MM-DDTHH:mm:ss"
+                  start-placeholder="开始时间"
+                  end-placeholder="结束时间"
+                />
+              </el-form-item>
 
-        <el-form-item label="关键词">
-          <el-input
-            v-model="queryParams.keyword"
-            clearable
-            placeholder="路径 / 事件 / 详情"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
+              <el-form-item label="关键词">
+                <el-input
+                  v-model="queryParams.keyword"
+                  clearable
+                  placeholder="路径 / 事件 / 详情"
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
 
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+        </div>
+      </template>
 
-      <el-form v-if="canDeleteRange" :inline="true" class="delete-row">
+      <el-form v-if="canDeleteRange" :inline="true" class="delete-row filter-form">
         <el-form-item label="删除时间">
           <el-date-picker
             v-model="deleteRange"
@@ -313,15 +321,6 @@ onMounted(loadData);
           </el-button>
         </el-form-item>
       </el-form>
-    </el-card>
-
-    <el-card class="audit-table-card">
-      <template #header>
-        <div class="flex justify-between items-center">
-          <span>审计日志</span>
-          <span class="text-sm text-gray-500">详情可点击“查看”展开</span>
-        </div>
-      </template>
 
       <div class="table-wrap">
         <el-table v-loading="loading" :data="tableData" stripe height="100%">
@@ -425,10 +424,6 @@ onMounted(loadData);
   height: calc(100vh - 104px);
   padding: 0;
   overflow: hidden;
-}
-
-.toolbar-card {
-  flex-shrink: 0;
 }
 
 .delete-row {

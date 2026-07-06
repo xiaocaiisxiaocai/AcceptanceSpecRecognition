@@ -432,45 +432,44 @@ onMounted(initPage);
       </div>
     </div>
 
-    <el-card class="mb-4">
-      <el-form :inline="true">
-        <el-form-item label="关键词">
-          <el-input
-            v-model="queryParams.keyword"
-            placeholder="用户名/昵称"
-            clearable
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select
-            v-model="queryParams.status"
-            class="search-select search-select--200"
-            popper-class="config-select-popper"
-          >
-            <el-option label="全部" value="all" />
-            <el-option label="启用" value="active" />
-            <el-option label="禁用" value="inactive" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
     <el-card>
       <template #header>
-        <div class="flex justify-between items-center">
+        <div class="list-card-toolbar">
           <span>系统用户</span>
-          <el-button
-            v-perms="'btn:system-user:create'"
-            type="primary"
-            @click="openCreateDialog"
-          >
-            新增用户
-          </el-button>
+          <div class="list-card-toolbar__right">
+            <el-form :inline="true" class="filter-form">
+              <el-form-item label="关键词">
+                <el-input
+                  v-model="queryParams.keyword"
+                  placeholder="用户名/昵称"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+              <el-form-item label="状态">
+                <el-select
+                  v-model="queryParams.status"
+                  class="search-select search-select--200"
+                  popper-class="config-select-popper"
+                >
+                  <el-option label="全部" value="all" />
+                  <el-option label="启用" value="active" />
+                  <el-option label="禁用" value="inactive" />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+            <el-button
+              v-perms="'btn:system-user:create'"
+              type="primary"
+              @click="openCreateDialog"
+            >
+              新增用户
+            </el-button>
+          </div>
         </div>
       </template>
 

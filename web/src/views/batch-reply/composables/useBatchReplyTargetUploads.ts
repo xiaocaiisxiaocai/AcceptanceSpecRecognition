@@ -1,6 +1,6 @@
 import { ref, type ComputedRef, type Ref } from "vue";
 import { ElMessage } from "element-plus";
-import type { UploadFile, UploadFiles, UploadInstance } from "element-plus";
+import type { UploadInstance, UploadRequestOptions } from "element-plus";
 import {
   getBatchReplyTargetTables,
   uploadBatchReplyTargets,
@@ -142,13 +142,9 @@ export const useBatchReplyTargetUploads = (
     }
   };
 
-  const handleTargetFileChange = (
-    uploadFile: UploadFile,
-    _uploadFiles: UploadFiles
-  ) => {
-    const rawFile = uploadFile.raw;
+  const handleTargetFileChange = (options: UploadRequestOptions) => {
+    const rawFile = options.file;
     if (!rawFile) {
-      targetUploadRef.value?.handleRemove(uploadFile);
       return;
     }
 
@@ -168,14 +164,12 @@ export const useBatchReplyTargetUploads = (
       } else {
         ElMessage.error(decision.message);
       }
-      targetUploadRef.value?.handleRemove(uploadFile);
       return;
     }
 
     if (
       !ensurePermission("api:batch-reply:upload", "权限不足，无法上传目标文件")
     ) {
-      targetUploadRef.value?.handleRemove(uploadFile);
       return;
     }
 
@@ -188,7 +182,6 @@ export const useBatchReplyTargetUploads = (
       createTargetFileSignature(rawFile)
     ];
     schedulePendingTargetUploadFlush();
-    targetUploadRef.value?.handleRemove(uploadFile);
   };
 
   const resetTargetUploadState = () => {

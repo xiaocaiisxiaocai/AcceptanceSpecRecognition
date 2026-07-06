@@ -235,30 +235,29 @@ onMounted(loadData);
       </div>
     </div>
 
-    <el-card class="mb-4">
-      <el-form :inline="true">
-        <el-form-item label="关键词">
-          <el-input
-            v-model="queryParams.keyword"
-            placeholder="系统键 / 显示名称 / 内容"
-            clearable
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
     <el-card>
       <template #header>
-        <div class="flex justify-between items-center">
+        <div class="list-card-toolbar">
           <span>系统模板</span>
-          <span class="text-sm text-gray-500">
-            页面只维护运行时实际使用的系统模板，不再提供设默认和任意新增。
-          </span>
+          <div class="list-card-toolbar__right">
+            <span class="text-sm text-gray-500">
+              页面只维护运行时实际使用的系统模板，不再提供设默认和任意新增。
+            </span>
+            <el-form :inline="true" class="filter-form">
+              <el-form-item label="关键词">
+                <el-input
+                  v-model="queryParams.keyword"
+                  placeholder="系统键 / 显示名称 / 内容"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
         </div>
       </template>
 

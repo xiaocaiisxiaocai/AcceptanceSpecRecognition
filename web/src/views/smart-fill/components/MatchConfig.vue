@@ -365,7 +365,7 @@ defineExpose({
     <!-- 匹配范围 -->
     <div class="config-section">
       <div class="section-title">匹配范围</div>
-      <el-form :inline="true" class="scope-form">
+      <el-form :inline="true" class="scope-form filter-form">
         <el-form-item label="客户">
           <el-select
             v-model="selectedCustomerId"

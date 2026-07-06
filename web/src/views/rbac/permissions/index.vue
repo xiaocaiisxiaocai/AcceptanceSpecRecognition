@@ -75,44 +75,43 @@ onMounted(loadData);
 
 <template>
   <div class="page">
-    <el-card class="mb-4">
-      <el-form :inline="true">
-        <el-form-item label="权限类型">
-          <el-select
-            v-model="queryForm.permissionType"
-            class="search-select search-select--200"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="option in permissionTypeOptions"
-              :key="`permission-type-${option.value}`"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="关键词">
-          <el-input
-            v-model="queryForm.keyword"
-            placeholder="权限编码/名称/资源/动作"
-            clearable
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
     <el-card>
       <template #header>
-        <div class="flex items-center justify-between">
+        <div class="list-card-toolbar">
           <span>权限字典</span>
-          <span class="text-[12px] text-[var(--app-text-disabled)]"
-            >共 {{ permissions.length }} 项</span
-          >
+          <div class="list-card-toolbar__right">
+            <span class="text-[12px] text-[var(--app-text-disabled)]"
+              >共 {{ permissions.length }} 项</span
+            >
+            <el-form :inline="true" class="filter-form">
+              <el-form-item label="权限类型">
+                <el-select
+                  v-model="queryForm.permissionType"
+                  class="search-select search-select--200"
+                  popper-class="app-select-popper"
+                >
+                  <el-option
+                    v-for="option in permissionTypeOptions"
+                    :key="`permission-type-${option.value}`"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="关键词">
+                <el-input
+                  v-model="queryForm.keyword"
+                  placeholder="权限编码/名称/资源/动作"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
         </div>
       </template>
 
