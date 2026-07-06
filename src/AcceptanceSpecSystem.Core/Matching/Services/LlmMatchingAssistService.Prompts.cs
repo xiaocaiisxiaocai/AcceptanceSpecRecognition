@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
@@ -17,6 +18,11 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 
 public partial class LlmMatchingAssistService
 {
+    private static readonly JsonSerializerOptions PromptJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
     private static string BuildReviewPrompt(string template, LlmReviewRequest request)
     {
         return ApplyTemplate(template, new Dictionary<string, string>
@@ -108,7 +114,8 @@ public partial class LlmMatchingAssistService
         {
             ["workflowScene"] = "智能结构识别",
             ["documentTablesJson"] = request.DocumentTablesJson,
-            ["ruleCandidatesJson"] = JsonSerializer.Serialize(request.RuleCandidates)
+            ["ruleCandidatesJson"] = JsonSerializer.Serialize(request.RuleCandidates, PromptJsonOptions),
+            ["referenceCasesJson"] = JsonSerializer.Serialize(request.ReferenceCases, PromptJsonOptions)
         });
     }
 

@@ -97,15 +97,15 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var tablesData = await parser.ExtractAllTablesDataAsync(stream);
 
         var tables = new List<SmartConfigurationRecognizedTable>();
+        var structureAdjudicationBudget = Math.Max(0, _options.MaxStructureAdjudicationCallsPerDocument);
         for (var i = 0; i < tablesData.Count; i++)
         {
             var tableData = tablesData[i];
             var tableInfo = tablesInfo.FirstOrDefault(table => table.Index == tableData.TableIndex)
                 ?? tablesInfo.ElementAtOrDefault(i);
 
-            var headerRowIndex = _intelligenceService.DetectHeaderRowIndex(
-                BuildHeaderDetectionTableData(tableData));
-            if (headerRowIndex > 0)
+            var headerProfile = DetectHeaderProfile(tableData);
+            if (headerProfile.HeaderRowIndex > 0 || headerProfile.HeaderRowCount > 1)
             {
                 await using var tableStream = File.OpenRead(absolutePath);
                 tableData = await parser.ExtractTableDataAsync(
@@ -113,9 +113,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     tableData.TableIndex,
                     new ColumnMapping
                     {
-                        HeaderRowIndex = headerRowIndex,
-                        HeaderRowCount = 1,
-                        DataStartRowIndex = headerRowIndex + 1
+                        HeaderRowIndex = headerProfile.HeaderRowIndex,
+                        HeaderRowCount = headerProfile.HeaderRowCount,
+                        DataStartRowIndex = headerProfile.HeaderRowIndex + headerProfile.HeaderRowCount
                     });
             }
 
@@ -123,7 +123,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 command.CustomerId,
                 tableInfo,
                 tableData,
-                headerRowIndex,
+                headerProfile,
+                () => TryConsumeStructureAdjudicationBudget(ref structureAdjudicationBudget),
                 cancellationToken));
         }
 
@@ -132,6 +133,20 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             FileId = command.FileId,
             Tables = tables
         };
+    }
+
+    private HeaderProfile DetectHeaderProfile(TableData tableData)
+    {
+        var detectionTable = BuildHeaderDetectionTableData(tableData);
+        var scanRowLimit = Math.Clamp(
+            _options.HeaderDetectionScanRowLimit,
+            1,
+            Math.Max(1, detectionTable.Rows.Count));
+        var maxHeaderRowCount = Math.Clamp(_options.MaxHeaderRowCount, 1, 20);
+        var anchorRowIndex = _intelligenceService.DetectHeaderRowIndex(detectionTable, scanRowLimit);
+        var headerRowIndex = ExpandHeaderStart(detectionTable, anchorRowIndex, maxHeaderRowCount);
+        var headerRowCount = DetectHeaderRowCount(detectionTable, headerRowIndex, maxHeaderRowCount);
+        return new HeaderProfile(headerRowIndex, headerRowCount);
     }
 
     private static TableData BuildHeaderDetectionTableData(TableData tableData)
@@ -178,6 +193,88 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             Rows = rows,
             TotalDataRowCount = tableData.TotalDataRowCount
         };
+    }
+
+    private static int ExpandHeaderStart(TableData tableData, int anchorRowIndex, int maxHeaderRowCount)
+    {
+        var headerRowIndex = anchorRowIndex;
+        while (headerRowIndex > 0 &&
+               anchorRowIndex - headerRowIndex + 1 < maxHeaderRowCount &&
+               LooksLikeLeadingHeaderGroupRow(tableData.Rows[headerRowIndex - 1]))
+        {
+            headerRowIndex--;
+        }
+
+        return headerRowIndex;
+    }
+
+    private static int DetectHeaderRowCount(TableData tableData, int headerRowIndex, int maxHeaderRowCount)
+    {
+        if (headerRowIndex < 0 || headerRowIndex >= tableData.Rows.Count)
+        {
+            return 1;
+        }
+
+        var count = 1;
+        var maxHeaderRows = Math.Min(tableData.Rows.Count, headerRowIndex + maxHeaderRowCount);
+        for (var rowIndex = headerRowIndex + 1; rowIndex < maxHeaderRows; rowIndex++)
+        {
+            if (!LooksLikeAdditionalHeaderRow(tableData.Rows[rowIndex]))
+            {
+                break;
+            }
+
+            count++;
+        }
+
+        return count;
+    }
+
+    private static bool LooksLikeAdditionalHeaderRow(RowData row)
+    {
+        var values = row.Cells
+            .Select(cell => cell.Value?.Trim() ?? string.Empty)
+            .Where(value => value.Length > 0)
+            .ToList();
+        if (values.Count == 0)
+        {
+            return false;
+        }
+
+        var keywordCount = values.Count(value =>
+            value.Contains("项目", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("规格", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("验收", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("备注", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("标准", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("结果", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("判定", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("project", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("spec", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("acceptance", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("remark", StringComparison.OrdinalIgnoreCase));
+        if (keywordCount == 0)
+        {
+            return false;
+        }
+
+        var averageLength = values.Average(value => value.Length);
+        return averageLength <= 20;
+    }
+
+    private static bool LooksLikeLeadingHeaderGroupRow(RowData row)
+    {
+        var values = row.Cells
+            .Select(cell => cell.Value?.Trim() ?? string.Empty)
+            .Where(value => value.Length > 0)
+            .ToList();
+        if (values.Count < 2)
+        {
+            return false;
+        }
+
+        var averageLength = values.Average(value => value.Length);
+        return averageLength <= 12;
     }
 
     /// <summary>
@@ -236,7 +333,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         int? customerId,
         TableInfo? tableInfo,
         TableData tableData,
-        int headerRowIndex,
+        HeaderProfile headerProfile,
+        Func<bool> tryConsumeStructureAdjudicationBudget,
         CancellationToken cancellationToken)
     {
         var headers = tableData.Headers.ToList();
@@ -257,17 +355,18 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         {
             var mapping = await _intelligenceService.IdentifyColumnMappingAsync(
                 tableData,
+                await BuildExtraSynonymsAsync(customerId, cancellationToken),
                 cancellationToken);
-            if (headerRowIndex > 0)
-            {
-                mapping.Mapping.HeaderRowIndex = headerRowIndex;
-                mapping.Mapping.DataStartRowIndex = headerRowIndex + mapping.Mapping.HeaderRowCount;
-            }
+            mapping.Mapping.HeaderRowIndex = headerProfile.HeaderRowIndex;
+            mapping.Mapping.HeaderRowCount = headerProfile.HeaderRowCount;
+            mapping.Mapping.DataStartRowIndex = headerProfile.HeaderRowIndex + headerProfile.HeaderRowCount;
 
             return await BuildRecognizedTableFromMappingAsync(
+                customerId,
                 tableInfo,
                 tableData,
                 mapping,
+                tryConsumeStructureAdjudicationBudget,
                 cancellationToken);
         }
         catch (Exception ex)
@@ -293,30 +392,41 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     }
 
     private async Task<SmartConfigurationRecognizedTable> BuildRecognizedTableFromMappingAsync(
+        int? customerId,
         TableInfo? tableInfo,
         TableData tableData,
         ColumnMappingResult mapping,
+        Func<bool> tryConsumeStructureAdjudicationBudget,
         CancellationToken cancellationToken)
     {
+        var isSpecificationOnly = IsSpecificationOnlyCandidate(tableData, mapping);
         var healthCheck = DocumentStructureHealthCheck.Evaluate(
             tableData,
             mapping,
-            allowMissingProjectColumn: !mapping.Mapping.ProjectColumn.HasValue,
+            allowMissingProjectColumn: isSpecificationOnly,
             autoApplyConfidenceThreshold: GetAutoApplyConfidenceThreshold(),
             minimumSpecificationNonEmptyRate: GetMinimumSpecificationNonEmptyRate());
         if (!healthCheck.CanAutoApply)
         {
-            var fused = await TryFuseWithLlmStructureAsync(tableInfo, tableData, mapping, cancellationToken);
+            var fused = tryConsumeStructureAdjudicationBudget()
+                ? await TryFuseWithLlmStructureAsync(customerId, tableInfo, tableData, mapping, cancellationToken)
+                : null;
             if (fused != null)
             {
                 return BuildFusedRecognizedTable(tableInfo, tableData, fused);
             }
         }
 
-        return SmartConfigurationRecognizedTableFactory.FromMapping(tableInfo, tableData, mapping, healthCheck);
+        return SmartConfigurationRecognizedTableFactory.FromMapping(
+            tableInfo,
+            tableData,
+            mapping,
+            healthCheck,
+            isSpecificationOnly);
     }
 
     private async Task<DocumentStructureCandidate?> TryFuseWithLlmStructureAsync(
+        int? customerId,
         TableInfo? tableInfo,
         TableData tableData,
         ColumnMappingResult mapping,
@@ -333,7 +443,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 new LlmDocumentStructureAdjudicationRequest
                 {
                     RuleCandidates = [ruleCandidate],
-                    DocumentTablesJson = SerializeTableForStructureAdjudication(tableInfo, tableData)
+                    DocumentTablesJson = SerializeTableForStructureAdjudication(tableInfo, tableData),
+                    ReferenceCases = await BuildReferenceCasesAsync(customerId, tableData.Headers.ToList(), cancellationToken)
                 },
                 timeoutCts.Token);
             var llmCandidate = adjudication?.Tables.FirstOrDefault(table => table.TableIndex == tableData.TableIndex);
@@ -412,4 +523,76 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         return System.Text.Json.JsonSerializer.Serialize(payload);
     }
 
+    private async Task<IReadOnlyList<DocumentStructureReferenceCase>> BuildReferenceCasesAsync(
+        int? customerId,
+        IReadOnlyList<string> headers,
+        CancellationToken cancellationToken)
+    {
+        if (!customerId.HasValue || headers.Count == 0)
+        {
+            return [];
+        }
+
+        return await _templateService.FindReferenceCasesAsync(
+            customerId.Value,
+            headers,
+            maxCount: 3,
+            cancellationToken);
+    }
+
+    private async Task<IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>> BuildExtraSynonymsAsync(
+        int? customerId,
+        CancellationToken cancellationToken)
+    {
+        var rules = await _unitOfWork.ColumnMappingRules.GetEffectiveForCustomerAsync(customerId);
+        return rules
+            .GroupBy(rule => ToColumnType(rule.TargetField))
+            .Where(group => group.Key != ColumnType.Unknown)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<string>)group
+                    .OrderByDescending(rule => customerId.HasValue && rule.CustomerId == customerId.Value)
+                    .ThenByDescending(rule => rule.Priority)
+                    .Select(rule => rule.Pattern)
+                    .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList());
+    }
+
+    private static ColumnType ToColumnType(ColumnMappingTargetField targetField) => targetField switch
+    {
+        ColumnMappingTargetField.Project => ColumnType.Project,
+        ColumnMappingTargetField.Specification => ColumnType.Specification,
+        ColumnMappingTargetField.Acceptance => ColumnType.Acceptance,
+        ColumnMappingTargetField.Remark => ColumnType.Remark,
+        _ => ColumnType.Unknown
+    };
+
+    private static bool TryConsumeStructureAdjudicationBudget(ref int remainingBudget)
+    {
+        if (remainingBudget <= 0)
+        {
+            return false;
+        }
+
+        remainingBudget--;
+        return true;
+    }
+
+    private static bool IsSpecificationOnlyCandidate(TableData tableData, ColumnMappingResult mapping)
+    {
+        if (mapping.Mapping.ProjectColumn.HasValue || !mapping.Mapping.SpecificationColumn.HasValue)
+        {
+            return false;
+        }
+
+        return !tableData.Headers.Any(header =>
+            header.Contains("项目", StringComparison.OrdinalIgnoreCase) ||
+            header.Contains("項目", StringComparison.OrdinalIgnoreCase) ||
+            header.Contains("item", StringComparison.OrdinalIgnoreCase) ||
+            header.Contains("project", StringComparison.OrdinalIgnoreCase));
+    }
+
 }
+
+internal readonly record struct HeaderProfile(int HeaderRowIndex, int HeaderRowCount);

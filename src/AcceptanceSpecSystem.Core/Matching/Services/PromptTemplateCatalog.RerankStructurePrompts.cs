@@ -41,6 +41,9 @@ public static partial class PromptTemplateCatalog
         【规则识别结果 JSON】
         {{ruleCandidatesJson}}
 
+        【同客户历史结构案例 JSON】
+        {{referenceCasesJson}}
+
         【裁决要求】
         1. tables 只能引用输入中存在的 tableIndex 和列索引
         2. 规格列 specificationColumnIndex 是必需列；无法确定时 decision 必须为 needConfirm
@@ -49,6 +52,7 @@ public static partial class PromptTemplateCatalog
         5. confidence 取值 0~1；只有结构完整且冲突很少时才可高于 0.85
         6. decision 只允许 autoApply、needConfirm、reject
         7. reason 用一句话说明关键依据或需要人工确认的原因
+        8. 历史结构案例只能作为参考，不得直接复制；当前表格摘要与实际列索引永远优先
 
         仅返回严格 JSON：
         {"tables":[{"tableIndex":0,"tableName":"表1","headerRowIndex":0,"headerRowCount":1,"dataStartRowIndex":1,"dataEndRowIndex":10,"projectColumnIndex":0,"specificationColumnIndex":1,"acceptanceColumnIndex":2,"remarkColumnIndex":3,"isSpecificationOnly":false,"confidence":0.0,"decision":"needConfirm","reason":"..."}],"confidence":0.0,"decision":"needConfirm","reason":"..."}

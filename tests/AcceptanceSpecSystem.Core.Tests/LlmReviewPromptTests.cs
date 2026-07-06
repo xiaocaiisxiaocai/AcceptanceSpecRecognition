@@ -138,6 +138,66 @@ public class LlmReviewPromptTests
         chatService.LastPrompt.Should().Contain("\"ProjectColumnIndex\":0");
     }
 
+    [Fact]
+    public async Task AdjudicateStructureAsync_ShouldRenderReferenceCasesIntoPrompt()
+    {
+        var promptProvider = new RecordingPromptTemplateProvider(
+            "【历史结构案例 JSON】{{referenceCasesJson}}\n【文档表格摘要 JSON】{{documentTablesJson}}\n【规则识别结果 JSON】{{ruleCandidatesJson}}\n仅返回严格 JSON：\n{\"tables\":[{\"tableIndex\":0,\"specificationColumnIndex\":1,\"confidence\":0.86}],\"confidence\":0.86,\"decision\":\"needConfirm\",\"reason\":\"参考历史案例\"}");
+        var selector = new StubAiServiceSelector();
+        var chatService = new RecordingChatCompletionService(
+            "{\"tables\":[{\"tableIndex\":0,\"specificationColumnIndex\":1,\"confidence\":0.86}],\"confidence\":0.86,\"decision\":\"needConfirm\",\"reason\":\"参考历史案例\"}");
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            selector,
+            new StubSemanticKernelServiceFactory(chatService),
+            NullLogger<LlmMatchingAssistService>.Instance);
+
+        await service.AdjudicateAsync(new LlmDocumentStructureAdjudicationRequest
+        {
+            DocumentTablesJson = "[{\"tableIndex\":0}]",
+            RuleCandidates =
+            [
+                new DocumentStructureCandidate
+                {
+                    TableIndex = 0,
+                    ProjectColumnIndex = 0,
+                    Confidence = 0.7,
+                    Source = DocumentStructureCandidateSource.Rule
+                }
+            ],
+            ReferenceCases =
+            [
+                new DocumentStructureReferenceCase
+                {
+                    TemplateName = "历史模板",
+                    Headers = ["检查对象", "管制条件", "供应商回复", "补充说明"],
+                    UsageCount = 7,
+                    Similarity = 0.92,
+                    Mapping = new DocumentStructureCandidate
+                    {
+                        TableIndex = 0,
+                        ProjectColumnIndex = 0,
+                        SpecificationColumnIndex = 1,
+                        AcceptanceColumnIndex = 2,
+                        RemarkColumnIndex = 3,
+                        HeaderRowIndex = 0,
+                        HeaderRowCount = 1,
+                        DataStartRowIndex = 1,
+                        IsSpecificationOnly = false,
+                        Confidence = 1,
+                        Source = DocumentStructureCandidateSource.Template
+                    }
+                }
+            ]
+        });
+
+        chatService.LastPrompt.Should().Contain("【历史结构案例 JSON】");
+        chatService.LastPrompt.Should().Contain("历史模板");
+        chatService.LastPrompt.Should().Contain("检查对象");
+        chatService.LastPrompt.Should().Contain("\"SpecificationColumnIndex\":1");
+        chatService.LastPrompt.Should().NotContain("{{referenceCasesJson}}");
+    }
+
     private sealed class RecordingPromptTemplateProvider : IPromptTemplateProvider
     {
         private readonly string _content;

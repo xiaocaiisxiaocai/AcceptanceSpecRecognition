@@ -43,7 +43,24 @@ public sealed class LlmDocumentStructureAdjudicationRequest
 
     public string DocumentTablesJson { get; init; } = string.Empty;
 
+    public IReadOnlyList<DocumentStructureReferenceCase> ReferenceCases { get; init; } = [];
+
     public int? LlmServiceId { get; init; }
+}
+
+public sealed class DocumentStructureReferenceCase
+{
+    public string TemplateName { get; init; } = string.Empty;
+
+    public IReadOnlyList<string> Headers { get; init; } = [];
+
+    public DocumentStructureCandidate Mapping { get; init; } = new();
+
+    public int UsageCount { get; init; }
+
+    public DateTime UpdatedAt { get; init; }
+
+    public double Similarity { get; init; }
 }
 
 public sealed class LlmDocumentStructureAdjudicationResult

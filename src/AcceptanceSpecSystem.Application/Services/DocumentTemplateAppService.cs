@@ -1,4 +1,5 @@
 using AcceptanceSpecSystem.Core.Documents.Models;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -80,6 +81,34 @@ public sealed class DocumentTemplateAppService
 
         _logger.LogInformation("客户 {CustomerId} 没有找到匹配的模板", customerId);
         return null;
+    }
+
+    public async Task<IReadOnlyList<DocumentStructureReferenceCase>> FindReferenceCasesAsync(
+        int customerId,
+        IReadOnlyList<string> headers,
+        int maxCount = 3,
+        CancellationToken cancellationToken = default)
+    {
+        if (maxCount <= 0 || headers.Count == 0)
+        {
+            return [];
+        }
+
+        var templates = await _unitOfWork.DocumentTemplates
+            .Query()
+            .Where(t => t.CustomerId == customerId)
+            .ToListAsync(cancellationToken);
+
+        return templates
+            .Select(template => ToReferenceCase(template, headers))
+            .Where(item => item != null)
+            .Select(item => item!)
+            .Where(item => item.Similarity > 0)
+            .OrderByDescending(item => item.Similarity)
+            .ThenByDescending(item => item.UsageCount)
+            .ThenByDescending(item => item.UpdatedAt)
+            .Take(maxCount)
+            .ToList();
     }
 
     /// <summary>
@@ -239,6 +268,48 @@ public sealed class DocumentTemplateAppService
         }
 
         return totalSimilarity / headers1.Count;
+    }
+
+    private DocumentStructureReferenceCase? ToReferenceCase(
+        DocumentTemplate template,
+        IReadOnlyList<string> currentHeaders)
+    {
+        var templateHeaders = JsonSerializer.Deserialize<List<string>>(template.HeadersJson) ?? [];
+        var similarity = CalculateHeadersSimilarity(currentHeaders, templateHeaders);
+        if (similarity <= 0)
+        {
+            return null;
+        }
+
+        return new DocumentStructureReferenceCase
+        {
+            TemplateName = template.TemplateName,
+            Headers = templateHeaders,
+            UsageCount = template.UsageCount,
+            UpdatedAt = template.UpdatedAt,
+            Similarity = Math.Round(similarity, 2),
+            Mapping = new DocumentStructureCandidate
+            {
+                TableIndex = 0,
+                HeaderRowIndex = template.HeaderRowIndex,
+                HeaderRowCount = template.HeaderRowCount,
+                DataStartRowIndex = template.DataStartRowIndex,
+                DataEndRowIndex = template.DataEndRowIndex,
+                ProjectColumnIndex = template.IsSpecificationOnly || template.ProjectColumnIndex < 0
+                    ? null
+                    : template.ProjectColumnIndex,
+                SpecificationColumnIndex = template.SpecificationColumnIndex < 0
+                    ? null
+                    : template.SpecificationColumnIndex,
+                AcceptanceColumnIndex = template.AcceptanceColumnIndex < 0
+                    ? null
+                    : template.AcceptanceColumnIndex,
+                RemarkColumnIndex = template.RemarkColumnIndex,
+                IsSpecificationOnly = template.IsSpecificationOnly,
+                Confidence = 1,
+                Source = DocumentStructureCandidateSource.Template
+            }
+        };
     }
 
     /// <summary>
