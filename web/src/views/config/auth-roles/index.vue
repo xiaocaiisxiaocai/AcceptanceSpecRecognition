@@ -755,7 +755,7 @@ onMounted(initPage);
           </div>
         </el-form-item>
         <el-form-item label="验收规格范围" required>
-          <el-select v-model="createForm.scopeType" class="w-full">
+          <el-select v-model="createForm.scopeType" class="w-full" popper-class="config-select-popper">
             <el-option
               v-for="option in scopeTypeOptions"
               :key="`create-scope-type-${option.value}`"

@@ -87,7 +87,7 @@
 
 .backfill-summary {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   color: var(--app-text-regular);
   font-size: 13px;
 }
