@@ -937,31 +937,32 @@ export default {
 }
 
 /* P1-1: 优化表单密度 */
-.match-config :deep(.el-form-item) {
-  margin-bottom: 16px;
+.match-config .el-form-item {
+  margin-bottom: 12px !important;
 }
 
-.match-config :deep(.el-row) {
-  row-gap: 12px;
+.match-config .el-row {
+  row-gap: 8px !important;
 }
 
-.match-config :deep(.el-col) {
+.match-config .el-col {
   display: flex;
   flex-direction: column;
 }
 
 /* 减少alert与相邻元素的间距 */
-.service-status-alert {
-  margin-top: 8px !important;
-  margin-bottom: 0;
+.match-config .service-status-alert {
+  margin-top: 4px !important;
+  margin-bottom: 0 !important;
 }
 
-.exact-match-option__title {
-  margin-bottom: 4px !important;
+.match-config .exact-match-option__title {
+  margin-bottom: 2px !important;
 }
 
 /* 减少form-inline-tip的上方间距 */
-.form-inline-tip {
-  margin-top: 2px !important;
+.match-config .form-inline-tip {
+  margin-top: 0px !important;
+  margin-bottom: 0px !important;
 }
 </style>
