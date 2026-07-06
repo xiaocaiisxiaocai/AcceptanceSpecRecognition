@@ -10,6 +10,9 @@ using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using ClosedXML.Excel;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -40,7 +43,7 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         }));
 
         var responseText = await response.Content.ReadAsStringAsync();
-        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, responseText);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         body.Code.Should().Be(0);
         body.Data.GetProperty("fileId").GetInt32().Should().Be(fileId);
@@ -213,8 +216,9 @@ public class SmartConfigRecognizeHealthCheckApiTests : IClassFixture<MissingSpec
         {
             fileId
         }));
+        var responseText = await response.Content.ReadAsStringAsync();
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         var table = body.Data.GetProperty("tables").EnumerateArray().Single();
 
@@ -274,8 +278,9 @@ public class SmartConfigRecognizeLowConfidenceApiTests : IClassFixture<LowConfid
         {
             fileId
         }));
+        var responseText = await response.Content.ReadAsStringAsync();
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         var table = body.Data.GetProperty("tables").EnumerateArray().Single();
 
@@ -340,8 +345,9 @@ public class SmartConfigRecognizeLlmFusionApiTests : IClassFixture<LlmFillsMissi
         {
             fileId
         }));
+        var responseText = await response.Content.ReadAsStringAsync();
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, responseText);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         var table = body.Data.GetProperty("tables").EnumerateArray().Single();
 
@@ -1188,6 +1194,98 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
+public class SmartConfigRecognizeWordHeaderApiTests : IClassFixture<ApiWebApplicationFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeWordHeaderApiTests(ApiWebApplicationFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenWordHasCustomerDomainMultiHeader_ShouldReturnJoinedHeaders()
+    {
+        var fileId = await UploadWordAsync(
+            CreateWordBytes([
+                ["基本信息", "判定依据", "回复信息", "回复信息"],
+                ["检查对象", "管制条件", "供应商确认", "补充说明"],
+                ["外观", "表面不得有明显划伤", "OK", "抽检"]
+            ]),
+            "smart-recognize-word-customer-domain-multi-header.docx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+        var responseText = await response.Content.ReadAsStringAsync();
+
+        Assert.True(response.StatusCode == HttpStatusCode.OK, responseText);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("headerRowIndex").GetInt32().Should().Be(0);
+        table.GetProperty("headerRowCount").GetInt32().Should().Be(2);
+        table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(2);
+        table.GetProperty("headers").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should()
+            .Contain(header => header == "基本信息 / 检查对象")
+            .And.Contain(header => header == "判定依据 / 管制条件");
+    }
+
+    private async Task<int> UploadWordAsync(byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await _client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateWordBytes(string[][] rows)
+    {
+        using var stream = new MemoryStream();
+        using (var document = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document, true))
+        {
+            var main = document.AddMainDocumentPart();
+            main.Document = new Document(new Body());
+
+            var table = new Table();
+            table.AppendChild(new TableProperties(new TableBorders(
+                new TopBorder { Val = BorderValues.Single, Size = 4 },
+                new BottomBorder { Val = BorderValues.Single, Size = 4 },
+                new LeftBorder { Val = BorderValues.Single, Size = 4 },
+                new RightBorder { Val = BorderValues.Single, Size = 4 },
+                new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
+                new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 })));
+
+            foreach (var row in rows)
+            {
+                var tableRow = new TableRow();
+                foreach (var cell in row)
+                {
+                    tableRow.AppendChild(new TableCell(
+                        new Paragraph(new Run(new Text(cell ?? string.Empty)))));
+                }
+
+                table.AppendChild(tableRow);
+            }
+
+            main.Document.Body!.Append(table);
+            main.Document.Save();
+        }
+
         return stream.ToArray();
     }
 }

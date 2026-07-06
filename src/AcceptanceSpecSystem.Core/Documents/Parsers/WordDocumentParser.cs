@@ -56,10 +56,10 @@ public class WordDocumentParser : IDocumentParser
     /// </summary>
     /// <param name="filePath">文件路径</param>
     /// <returns>表格信息列表</returns>
-    public Task<IReadOnlyList<TableInfo>> GetTablesAsync(string filePath)
+    public async Task<IReadOnlyList<TableInfo>> GetTablesAsync(string filePath)
     {
         using var stream = File.OpenRead(filePath);
-        return GetTablesAsync(stream);
+        return await GetTablesAsync(stream);
     }
 
     /// <summary>
@@ -99,14 +99,14 @@ public class WordDocumentParser : IDocumentParser
     /// <param name="mapping">列映射（可选）</param>
     /// <param name="maxDataRowCount">最大数据行数（可选，仅用于预览限流）</param>
     /// <returns>表格数据</returns>
-    public Task<TableData> ExtractTableDataAsync(
+    public async Task<TableData> ExtractTableDataAsync(
         string filePath,
         int tableIndex,
         ColumnMapping? mapping = null,
         int? maxDataRowCount = null)
     {
         using var stream = File.OpenRead(filePath);
-        return ExtractTableDataAsync(stream, tableIndex, mapping, maxDataRowCount);
+        return await ExtractTableDataAsync(stream, tableIndex, mapping, maxDataRowCount);
     }
 
     /// <summary>
@@ -298,22 +298,49 @@ public class WordDocumentParser : IDocumentParser
         // 提取表头
         if (headerRowIndex < rows.Count)
         {
-            var headerRow = rows[headerRowIndex];
-            var headerCells = headerRow.Elements<TableCell>().ToList();
-            int colIndex = 0;
+            var headerRowCount = Math.Max(1, mapping?.HeaderRowCount ?? 1);
+            var headerPartsByColumn = new SortedDictionary<int, List<string>>();
+            var maxColumnIndex = -1;
 
-            foreach (var cell in headerCells)
+            for (var currentHeaderRowIndex = headerRowIndex;
+                 currentHeaderRowIndex < Math.Min(rows.Count, headerRowIndex + headerRowCount);
+                 currentHeaderRowIndex++)
             {
-                var text = GetCellText(cell);
-                tableData.Headers.Add(text);
+                var headerRow = rows[currentHeaderRowIndex];
+                var headerCells = headerRow.Elements<TableCell>().ToList();
+                var colIndex = 0;
 
-                var gridSpan = cell.TableCellProperties?.GridSpan?.Val?.Value ?? 1;
-                // 为水平合并的表头添加占位（保持列数一致）
-                for (int i = 1; i < gridSpan; i++)
+                foreach (var cell in headerCells)
                 {
-                    tableData.Headers.Add(text);
+                    var text = GetCellText(cell);
+                    var gridSpan = cell.TableCellProperties?.GridSpan?.Val?.Value ?? 1;
+                    for (var i = 0; i < gridSpan; i++)
+                    {
+                        var targetColumnIndex = colIndex + i;
+                        if (!headerPartsByColumn.TryGetValue(targetColumnIndex, out var parts))
+                        {
+                            parts = [];
+                            headerPartsByColumn[targetColumnIndex] = parts;
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            parts.Add(text.Trim());
+                        }
+
+                        maxColumnIndex = Math.Max(maxColumnIndex, targetColumnIndex);
+                    }
+
+                    colIndex += gridSpan;
                 }
-                colIndex += gridSpan;
+            }
+
+            for (var colIndex = 0; colIndex <= maxColumnIndex; colIndex++)
+            {
+                tableData.Headers.Add(
+                    headerPartsByColumn.TryGetValue(colIndex, out var parts) && parts.Count > 0
+                        ? string.Join(" / ", parts)
+                        : string.Empty);
             }
         }
 
