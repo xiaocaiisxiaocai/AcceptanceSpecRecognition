@@ -532,6 +532,74 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("ColumnMappingRules");
                 });
 
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SmartStructureRoutingRule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("CustomerId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int>("MatchMode")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MatchScope")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("Pattern")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Recommendation")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int>("Source")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(2);
+
+                    b.Property<string>("TableKind")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<double>("Weight")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("double")
+                        .HasDefaultValue(1.0);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId", "MatchScope", "Pattern");
+
+                    b.HasIndex("TableKind", "Priority");
+
+                    b.ToTable("SmartStructureRoutingRules");
+                });
+
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.Customer", b =>
                 {
                     b.Property<int>("Id")

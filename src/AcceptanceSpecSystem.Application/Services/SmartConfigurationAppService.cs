@@ -98,6 +98,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var tablesData = await parser.ExtractAllTablesDataAsync(stream);
 
         var extraSynonyms = await BuildExtraSynonymsAsync(command.CustomerId, cancellationToken);
+        var routingRules = await _unitOfWork.SmartStructureRoutingRules.GetEffectiveForCustomerAsync(
+            command.CustomerId,
+            cancellationToken);
         var headerKeywordMatcher = HeaderKeywordMatcher.FromExtraSynonyms(extraSynonyms);
         var tables = new List<SmartConfigurationRecognizedTable>();
         var structureAdjudicationBudget = Math.Max(0, _options.MaxStructureAdjudicationCallsPerDocument);
@@ -130,6 +133,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableData,
                 headerProfile,
                 extraSynonyms,
+                routingRules,
                 () => TryConsumeStructureAdjudicationBudget(ref structureAdjudicationBudget),
                 cancellationToken));
         }
@@ -346,6 +350,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
         var learningResult = await _learningService.ApplyLearningAsync(
             command.CustomerId,
+            command.TemplateName,
+            command.TableKind,
+            command.Recommendation,
             command.LearnedColumns,
             cancellationToken);
 
@@ -354,6 +361,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             TemplateSaved = true,
             TemplateId = template.Id,
             LearnedRuleCount = learningResult.LearnedRuleCount,
+            LearnedRoutingRuleCount = learningResult.LearnedRoutingRuleCount,
             PromotedGlobalRuleCount = learningResult.PromotedGlobalRuleCount,
             LearningSucceeded = true
         };
@@ -367,6 +375,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableData tableData,
         HeaderProfile headerProfile,
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
+        IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         CancellationToken cancellationToken)
     {
@@ -384,7 +393,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     tableInfo,
                     tableData,
                     SmartConfigurationRecognizedTableFactory.FromTemplate(tableInfo, tableData, template, headers),
-                    healthCheck: null,
+                    null,
+                    routingRules,
                     referenceCaseScore: 1);
             }
         }
@@ -407,6 +417,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableData,
                 mapping,
                 extraSynonyms,
+                routingRules,
                 tryConsumeStructureAdjudicationBudget,
                 cancellationToken);
         }
@@ -433,7 +444,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableInfo,
                 tableData,
                 failed,
-                healthCheck: null);
+                null,
+                routingRules);
         }
     }
 
@@ -445,6 +457,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableData tableData,
         ColumnMappingResult mapping,
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
+        IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         CancellationToken cancellationToken)
     {
@@ -467,7 +480,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             healthCheck,
             isSpecificationOnly);
         if (!healthCheck.CanAutoApply &&
-            !SmartConfigurationTableRoutingService.ShouldSkipStructureAdjudication(tableInfo, tableData, ruleRecognized))
+            !SmartConfigurationTableRoutingService.ShouldSkipStructureAdjudication(tableInfo, tableData, ruleRecognized, routingRules))
         {
             var fused = tryConsumeStructureAdjudicationBudget()
                 ? await TryFuseWithLlmStructureAsync(customerId, tableInfo, tableData, mapping, cancellationToken)
@@ -499,10 +512,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                         reextractedRuleCandidate,
                         fused,
                         allowLlmOverride: true);
-                    return BuildFusedRecognizedTable(tableInfo, reextracted, remerged, referenceCaseScore);
+                    return BuildFusedRecognizedTable(tableInfo, reextracted, remerged, routingRules, referenceCaseScore);
                 }
 
-                return BuildFusedRecognizedTable(tableInfo, tableData, fused, referenceCaseScore);
+                return BuildFusedRecognizedTable(tableInfo, tableData, fused, routingRules, referenceCaseScore);
             }
         }
 
@@ -511,6 +524,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             tableData,
             ruleRecognized,
             healthCheck,
+            routingRules,
             referenceCaseScore);
     }
 
@@ -636,6 +650,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableInfo? tableInfo,
         TableData tableData,
         DocumentStructureCandidate candidate,
+        IReadOnlyList<SmartStructureRoutingRule> routingRules,
         double referenceCaseScore)
     {
         var healthCheck = DocumentStructureHealthCheck.Evaluate(
@@ -653,6 +668,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 candidate,
                 healthCheck),
             healthCheck,
+            routingRules,
             referenceCaseScore);
     }
 

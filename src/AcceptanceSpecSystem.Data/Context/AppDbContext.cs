@@ -70,6 +70,8 @@ public class AppDbContext : DbContext
     /// </summary>
     public DbSet<ColumnMappingRule> ColumnMappingRules => Set<ColumnMappingRule>();
 
+    public DbSet<SmartStructureRoutingRule> SmartStructureRoutingRules => Set<SmartStructureRoutingRule>();
+
     /// <summary>
     /// 文档结构模板表
     /// </summary>
@@ -329,6 +331,20 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.TargetField, e.Pattern });
             entity.HasIndex(e => new { e.CustomerId, e.TargetField, e.Pattern });
             entity.HasIndex(e => new { e.TargetField, e.Priority });
+        });
+
+        // SmartStructureRoutingRule 配置
+        modelBuilder.Entity<SmartStructureRoutingRule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.TableKind).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Recommendation).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Pattern).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.Source).HasDefaultValue(SmartStructureRoutingRuleSource.Manual);
+            entity.Property(e => e.Weight).HasDefaultValue(1.0);
+            entity.HasIndex(e => new { e.CustomerId, e.MatchScope, e.Pattern });
+            entity.HasIndex(e => new { e.TableKind, e.Priority });
         });
 
         // DocumentTemplate 配置

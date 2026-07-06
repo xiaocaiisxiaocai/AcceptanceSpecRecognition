@@ -829,6 +829,7 @@ internal sealed class ThrowOnSaveChangesUnitOfWork : IUnitOfWork
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;
     public IPromptTemplateRepository PromptTemplates => _inner.PromptTemplates;
     public IColumnMappingRuleRepository ColumnMappingRules => _inner.ColumnMappingRules;
+    public ISmartStructureRoutingRuleRepository SmartStructureRoutingRules => _inner.SmartStructureRoutingRules;
     public IDocumentTemplateRepository DocumentTemplates => _inner.DocumentTemplates;
     public ISystemUserRepository SystemUsers => _inner.SystemUsers;
     public IAuditLogRepository AuditLogs => _inner.AuditLogs;
@@ -871,6 +872,7 @@ internal sealed class ThrowOnWorkflowFinalSaveUnitOfWork : IUnitOfWork
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;
     public IPromptTemplateRepository PromptTemplates => _inner.PromptTemplates;
     public IColumnMappingRuleRepository ColumnMappingRules => _inner.ColumnMappingRules;
+    public ISmartStructureRoutingRuleRepository SmartStructureRoutingRules => _inner.SmartStructureRoutingRules;
     public IDocumentTemplateRepository DocumentTemplates => _inner.DocumentTemplates;
     public ISystemUserRepository SystemUsers => _inner.SystemUsers;
     public IAuditLogRepository AuditLogs => _inner.AuditLogs;

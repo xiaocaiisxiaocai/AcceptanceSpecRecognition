@@ -61,6 +61,8 @@ public sealed class SmartConfigurationConfirmResult
 
     public int LearnedRuleCount { get; init; }
 
+    public int LearnedRoutingRuleCount { get; init; }
+
     public int PromotedGlobalRuleCount { get; init; }
 
     public bool LearningSucceeded { get; init; } = true;

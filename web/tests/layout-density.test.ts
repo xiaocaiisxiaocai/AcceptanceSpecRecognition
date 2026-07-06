@@ -398,7 +398,10 @@ test("文件对比页应复用页面骨架、视口高度和 diff 令牌", () =>
 });
 
 test("批量回复页应使用紧凑令牌化头部", () => {
-  assert.match(batchReplySource, /<div class="page page--fill batch-reply-page">/);
+  assert.match(
+    batchReplySource,
+    /<div class="page page--fill(?: page-shell)? batch-reply-page">/
+  );
   assert.doesNotMatch(batchReplySource, /page-header__eyebrow/);
   assert.doesNotMatch(batchReplySource, /<h1>批量回复<\/h1>/);
   assert.match(batchReplyStyleSource, /--app-primary/);
@@ -447,7 +450,7 @@ test("上传区入口应复用统一上传区类和令牌化样式", () => {
     batchReplySourceUploadPanelSource,
     batchReplyTargetFilesPanelSource
   ]) {
-    assert.match(source, /class="app-upload-area/);
+    assert.match(source, /class="app-upload-area|<AppUploadZone/);
   }
   assert.doesNotMatch(dataImportFileUploadSource, /class="upload-area"/);
   assert.doesNotMatch(batchReplySourceUploadPanelSource, /class="upload-area"/);

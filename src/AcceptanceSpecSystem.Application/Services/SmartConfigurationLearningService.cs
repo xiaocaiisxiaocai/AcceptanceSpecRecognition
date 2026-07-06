@@ -20,10 +20,21 @@ public sealed class SmartConfigurationLearningService
 
     internal async Task<SmartConfigurationLearningResult> ApplyLearningAsync(
         int customerId,
+        string? tableName,
+        string? tableKind,
+        string? recommendation,
         IReadOnlyList<SmartConfigurationLearnedColumn> learnedColumns,
         CancellationToken cancellationToken)
     {
         var learnedRuleCount = 0;
+        var learnedRoutingRuleCount = await UpsertCustomerLearnedRoutingRuleAsync(
+            customerId,
+            tableName,
+            tableKind,
+            recommendation,
+            cancellationToken)
+            ? 1
+            : 0;
         var promotedGlobalRuleCount = 0;
         foreach (var learnedColumn in learnedColumns)
         {
@@ -53,7 +64,80 @@ public sealed class SmartConfigurationLearningService
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return new SmartConfigurationLearningResult(learnedRuleCount, promotedGlobalRuleCount);
+        return new SmartConfigurationLearningResult(
+            learnedRuleCount,
+            learnedRoutingRuleCount,
+            promotedGlobalRuleCount);
+    }
+
+    private async Task<bool> UpsertCustomerLearnedRoutingRuleAsync(
+        int customerId,
+        string? tableName,
+        string? tableKind,
+        string? recommendation,
+        CancellationToken cancellationToken)
+    {
+        var pattern = tableName?.Trim();
+        var normalizedKind = tableKind?.Trim();
+        var normalizedRecommendation = recommendation?.Trim();
+        if (string.IsNullOrWhiteSpace(pattern) ||
+            string.IsNullOrWhiteSpace(normalizedKind) ||
+            string.IsNullOrWhiteSpace(normalizedRecommendation) ||
+            string.Equals(normalizedKind, "Unknown", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalizedRecommendation, "Skip", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var existingManual = await _unitOfWork.SmartStructureRoutingRules.Query()
+            .AnyAsync(rule =>
+                rule.CustomerId == customerId &&
+                rule.MatchScope == SmartStructureRoutingMatchScope.TableName &&
+                rule.MatchMode == SmartStructureRoutingMatchMode.Equals &&
+                rule.Pattern == pattern &&
+                rule.Source == SmartStructureRoutingRuleSource.Manual,
+                cancellationToken);
+        if (existingManual)
+        {
+            return false;
+        }
+
+        var existing = await _unitOfWork.SmartStructureRoutingRules.Query(asNoTracking: false)
+            .FirstOrDefaultAsync(rule =>
+                rule.CustomerId == customerId &&
+                rule.MatchScope == SmartStructureRoutingMatchScope.TableName &&
+                rule.MatchMode == SmartStructureRoutingMatchMode.Equals &&
+                rule.Pattern == pattern &&
+                rule.Source == SmartStructureRoutingRuleSource.Learned,
+                cancellationToken);
+        if (existing != null)
+        {
+            existing.Name = $"学习规则-{pattern}";
+            existing.TableKind = normalizedKind;
+            existing.Recommendation = normalizedRecommendation;
+            existing.Weight = Math.Max(existing.Weight, 1);
+            existing.Priority = Math.Max(existing.Priority, 100);
+            existing.Enabled = true;
+            existing.UpdatedAt = DateTime.UtcNow;
+            return false;
+        }
+
+        await _unitOfWork.SmartStructureRoutingRules.AddAsync(new SmartStructureRoutingRule
+        {
+            CustomerId = customerId,
+            Name = $"学习规则-{pattern}",
+            TableKind = normalizedKind,
+            Recommendation = normalizedRecommendation,
+            MatchScope = SmartStructureRoutingMatchScope.TableName,
+            MatchMode = SmartStructureRoutingMatchMode.Equals,
+            Pattern = pattern,
+            Weight = 1,
+            Priority = 100,
+            Enabled = true,
+            Source = SmartStructureRoutingRuleSource.Learned,
+            CreatedAt = DateTime.UtcNow
+        }, cancellationToken);
+        return true;
     }
 
     private async Task<bool> UpsertCustomerLearnedRuleAsync(
@@ -143,4 +227,5 @@ public sealed class SmartConfigurationLearningService
 
 internal sealed record SmartConfigurationLearningResult(
     int LearnedRuleCount,
+    int LearnedRoutingRuleCount,
     int PromotedGlobalRuleCount);

@@ -1,65 +1,21 @@
-using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
+using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Documents.Models;
+using AcceptanceSpecSystem.Data.Entities;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
 internal static class SmartConfigurationTableRoutingService
 {
-    private static readonly string[] AcceptanceSignals =
-    [
-        "验收", "驗收", "规格", "規格", "技术要求", "技術要求", "验收标准", "驗收標準",
-        "供方能力", "厂商确认", "廠商確認", "acceptance", "spec"
-    ];
-
-    private static readonly string[] SafetySignals =
-    [
-        "安全", "工安", "安全规范", "安全規範", "safety"
-    ];
-
-    private static readonly string[] EnvironmentalSignals =
-    [
-        "环保", "環保", "排废", "排廢", "废气", "廢氣", "environment"
-    ];
-
-    private static readonly string[] SecsSignals =
-    [
-        "secs", "gem", "通讯", "通訊"
-    ];
-
-    private static readonly string[] UtilitySignals =
-    [
-        "utility", "水电", "水電", "电力需求", "電力需求", "冰水", "空压", "空壓", "排气", "排氣"
-    ];
-
-    private static readonly string[] QuotationSignals =
-    [
-        "报价", "報價", "quotation", "quote", "单价", "單價", "金额", "金額"
-    ];
-
-    private static readonly string[] LayoutSignals =
-    [
-        "layout", "布局", "平面图", "平面圖", "设备位置", "設備位置", "x", "y"
-    ];
-
-    private static readonly string[] BomSignals =
-    [
-        "备品", "備品", "赠品", "贈品", "bom", "配件名称", "配件名稱", "品牌", "规格型号", "規格型號", "数量", "數量"
-    ];
-
-    private static readonly string[] SignatureSignals =
-    [
-        "签核", "簽核", "会签", "會簽", "封面", "技术小组", "技術小組", "核准", "批准"
-    ];
-
     public static SmartConfigurationRecognizedTable Enrich(
         TableInfo? tableInfo,
         TableData tableData,
         SmartConfigurationRecognizedTable table,
         DocumentStructureHealthCheckResult? healthCheck,
+        IReadOnlyList<SmartStructureRoutingRule> routingRules,
         double referenceCaseScore = 0)
     {
-        var route = Route(tableInfo, tableData, table, healthCheck, referenceCaseScore);
+        var route = Route(tableInfo, tableData, table, healthCheck, routingRules, referenceCaseScore);
         return CopyWithRouting(table, route);
     }
 
@@ -68,15 +24,16 @@ internal static class SmartConfigurationTableRoutingService
         TableData tableData,
         SmartConfigurationRecognizedTable table,
         DocumentStructureHealthCheckResult? healthCheck,
+        IReadOnlyList<SmartStructureRoutingRule> routingRules,
         double referenceCaseScore = 0)
     {
-        var text = BuildSearchText(tableInfo, tableData, table);
-        var kind = InferTableKind(text);
+        var matchedRule = FindBestRule(tableInfo, tableData, table, routingRules);
         var mappedFieldScore = CalculateMappedFieldScore(table);
         var healthIssues = BuildHealthIssues(healthCheck);
         var issues = new List<SmartConfigurationRecognitionIssue>(healthIssues);
 
-        var kindScore = GetKindScore(kind);
+        var kind = matchedRule?.TableKind ?? InferStructuralTableKind(table, mappedFieldScore);
+        var kindScore = GetKindScore(kind, matchedRule);
         var clampedReferenceScore = Math.Clamp(referenceCaseScore, 0, 1);
         var rankingScore = Math.Clamp(
             table.Confidence * 0.35 +
@@ -86,32 +43,29 @@ internal static class SmartConfigurationTableRoutingService
             0,
             1);
 
-        var skipReason = GetSkipReason(kind);
-        if (skipReason != null)
+        var recommendation = matchedRule?.Recommendation ?? GetDefaultRecommendation(table, healthCheck, mappedFieldScore, kindScore);
+        string? skipReason = null;
+        if (string.Equals(recommendation, "Skip", StringComparison.OrdinalIgnoreCase))
         {
             rankingScore = Math.Min(rankingScore, 0.35);
-            issues.Insert(0, new SmartConfigurationRecognitionIssue
-            {
-                Code = $"TableKind.{kind}",
-                Severity = "Info",
-                Message = skipReason
-            });
-
-            return new SmartConfigurationTableRoutingDecision(
-                kind,
-                "Skip",
-                Math.Round(rankingScore, 2),
-                skipReason,
-                issues);
+            skipReason = matchedRule == null
+                ? "该表被建议跳过。"
+                : $"命中路由规则“{matchedRule.Name}”，建议跳过。";
         }
 
-        var recommendation = table.Decision == "AutoApply" && (healthCheck == null || healthCheck.CanAutoApply)
-            ? "Recommended"
-            : mappedFieldScore >= 0.75 && kindScore >= 0.65
-                ? "NeedConfirm"
-                : "Optional";
+        if (matchedRule != null)
+        {
+            issues.Insert(0, new SmartConfigurationRecognitionIssue
+            {
+                Code = $"RoutingRule.{matchedRule.Id}",
+                Severity = "Info",
+                Message = string.Equals(recommendation, "Skip", StringComparison.OrdinalIgnoreCase)
+                    ? skipReason!
+                    : $"命中路由规则“{matchedRule.Name}”。"
+            });
+        }
 
-        if (healthIssues.Count > 0 && recommendation == "Recommended")
+        if (healthIssues.Count > 0 && string.Equals(recommendation, "Recommended", StringComparison.OrdinalIgnoreCase))
         {
             recommendation = "NeedConfirm";
         }
@@ -120,17 +74,108 @@ internal static class SmartConfigurationTableRoutingService
             kind,
             recommendation,
             Math.Round(rankingScore, 2),
-            null,
+            skipReason,
             issues);
     }
 
     public static bool ShouldSkipStructureAdjudication(
         TableInfo? tableInfo,
         TableData tableData,
+        SmartConfigurationRecognizedTable table,
+        IReadOnlyList<SmartStructureRoutingRule> routingRules)
+    {
+        var route = Route(tableInfo, tableData, table, healthCheck: null, routingRules);
+        return route.Recommendation == "Skip";
+    }
+
+    private static SmartStructureRoutingRule? FindBestRule(
+        TableInfo? tableInfo,
+        TableData tableData,
+        SmartConfigurationRecognizedTable table,
+        IReadOnlyList<SmartStructureRoutingRule> routingRules)
+    {
+        return routingRules
+            .Where(rule => MatchesRule(rule, tableInfo, tableData, table))
+            .OrderByDescending(rule => rule.Priority)
+            .ThenByDescending(rule => rule.Weight)
+            .ThenBy(rule => rule.Id)
+            .FirstOrDefault();
+    }
+
+    private static bool MatchesRule(
+        SmartStructureRoutingRule rule,
+        TableInfo? tableInfo,
+        TableData tableData,
         SmartConfigurationRecognizedTable table)
     {
-        var route = Route(tableInfo, tableData, table, healthCheck: null);
-        return route.Recommendation == "Skip";
+        var values = GetScopeValues(rule.MatchScope, tableInfo, tableData, table);
+        return values.Any(value => MatchesPattern(value, rule.MatchMode, rule.Pattern));
+    }
+
+    private static IReadOnlyList<string> GetScopeValues(
+        SmartStructureRoutingMatchScope scope,
+        TableInfo? tableInfo,
+        TableData tableData,
+        SmartConfigurationRecognizedTable table)
+    {
+        var tableNames = new[] { tableInfo?.Name, table.TableName }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .ToList();
+        var headers = table.Headers.Where(value => !string.IsNullOrWhiteSpace(value)).ToList();
+        var rowValues = tableData.Rows
+            .Take(3)
+            .SelectMany(row => row.Cells)
+            .Select(cell => cell.Value)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .ToList();
+
+        return scope switch
+        {
+            SmartStructureRoutingMatchScope.TableName => tableNames,
+            SmartStructureRoutingMatchScope.Headers => headers,
+            SmartStructureRoutingMatchScope.SampleRows => rowValues,
+            _ => tableNames.Concat(headers).Concat(rowValues).ToList()
+        };
+    }
+
+    private static bool MatchesPattern(
+        string value,
+        SmartStructureRoutingMatchMode matchMode,
+        string pattern)
+    {
+        return matchMode switch
+        {
+            SmartStructureRoutingMatchMode.Equals => string.Equals(value.Trim(), pattern.Trim(), StringComparison.OrdinalIgnoreCase),
+            SmartStructureRoutingMatchMode.Regex => Regex.IsMatch(value, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+            _ => value.Contains(pattern, StringComparison.OrdinalIgnoreCase)
+        };
+    }
+
+    private static string InferStructuralTableKind(
+        SmartConfigurationRecognizedTable table,
+        double mappedFieldScore)
+    {
+        return table.SpecificationColumnIndex.HasValue && mappedFieldScore >= 0.75
+            ? "AcceptanceSpec"
+            : "Unknown";
+    }
+
+    private static string GetDefaultRecommendation(
+        SmartConfigurationRecognizedTable table,
+        DocumentStructureHealthCheckResult? healthCheck,
+        double mappedFieldScore,
+        double kindScore)
+    {
+        if (table.Decision == "AutoApply" && (healthCheck == null || healthCheck.CanAutoApply))
+        {
+            return "Recommended";
+        }
+
+        return mappedFieldScore >= 0.75 && kindScore >= 0.65
+            ? "NeedConfirm"
+            : "Optional";
     }
 
     private static SmartConfigurationRecognizedTable CopyWithRouting(
@@ -163,53 +208,6 @@ internal static class SmartConfigurationTableRoutingService
         };
     }
 
-    private static string InferTableKind(string text)
-    {
-        if (ContainsAny(text, QuotationSignals))
-        {
-            return "Quotation";
-        }
-
-        if (ContainsAny(text, LayoutSignals) && !ContainsAny(text, AcceptanceSignals))
-        {
-            return "Layout";
-        }
-
-        if (ContainsAny(text, UtilitySignals))
-        {
-            return "Utility";
-        }
-
-        if (ContainsAny(text, BomSignals))
-        {
-            return "BomOrSpareParts";
-        }
-
-        if (ContainsAny(text, SignatureSignals) && !ContainsAny(text, AcceptanceSignals))
-        {
-            return "SignatureOrCover";
-        }
-
-        if (ContainsAny(text, SecsSignals) && ContainsAny(text, AcceptanceSignals))
-        {
-            return "SecsSpec";
-        }
-
-        if (ContainsAny(text, SafetySignals) && ContainsAny(text, AcceptanceSignals))
-        {
-            return "SafetySpec";
-        }
-
-        if (ContainsAny(text, EnvironmentalSignals) && ContainsAny(text, AcceptanceSignals))
-        {
-            return "EnvironmentalSpec";
-        }
-
-        return ContainsAny(text, AcceptanceSignals)
-            ? "AcceptanceSpec"
-            : "Unknown";
-    }
-
     private static double CalculateMappedFieldScore(SmartConfigurationRecognizedTable table)
     {
         var requiredCount = table.IsSpecificationOnly ? 3 : 4;
@@ -237,23 +235,20 @@ internal static class SmartConfigurationTableRoutingService
         return (double)mappedCount / requiredCount;
     }
 
-    private static double GetKindScore(string kind) => kind switch
+    private static double GetKindScore(string kind, SmartStructureRoutingRule? matchedRule)
     {
-        "AcceptanceSpec" => 1.0,
-        "SafetySpec" or "EnvironmentalSpec" or "SecsSpec" => 0.85,
-        "Unknown" => 0.45,
-        _ => 0.05
-    };
+        if (matchedRule != null)
+        {
+            return Math.Clamp(matchedRule.Weight, 0, 1);
+        }
 
-    private static string? GetSkipReason(string kind) => kind switch
-    {
-        "Quotation" => "该表疑似报价单，不属于验收规格主表，建议跳过。",
-        "Layout" => "该表疑似 Layout 或设备布局信息，不属于验收规格主表，建议跳过。",
-        "Utility" => "该表疑似水电气等 Utility 需求，不属于验收规格主表，建议跳过。",
-        "BomOrSpareParts" => "该表疑似备品、赠品或配件清单，不属于验收规格主表，建议跳过。",
-        "SignatureOrCover" => "该表疑似封面、签核或会签信息，不属于验收规格主表，建议跳过。",
-        _ => null
-    };
+        return kind switch
+        {
+            "AcceptanceSpec" => 1.0,
+            "Unknown" => 0.45,
+            _ => 0.65
+        };
+    }
 
     private static List<SmartConfigurationRecognitionIssue> BuildHealthIssues(
         DocumentStructureHealthCheckResult? healthCheck)
@@ -285,30 +280,6 @@ internal static class SmartConfigurationTableRoutingService
         DocumentStructureHealthIssueCode.MissingRemarkColumn => "Remark",
         _ => null
     };
-
-    private static string BuildSearchText(
-        TableInfo? tableInfo,
-        TableData tableData,
-        SmartConfigurationRecognizedTable table)
-    {
-        var rowValues = tableData.Rows
-            .Take(3)
-            .SelectMany(row => row.Cells)
-            .Select(cell => cell.Value)
-            .Where(value => !string.IsNullOrWhiteSpace(value));
-
-        return string.Join(
-            " ",
-            new[] { tableInfo?.Name, table.TableName }
-                .Concat(table.Headers)
-                .Concat(rowValues)
-                .Where(value => !string.IsNullOrWhiteSpace(value)));
-    }
-
-    private static bool ContainsAny(string text, IReadOnlyList<string> signals)
-    {
-        return signals.Any(signal => text.Contains(signal, StringComparison.OrdinalIgnoreCase));
-    }
 }
 
 internal sealed record SmartConfigurationTableRoutingDecision(

@@ -23,6 +23,7 @@ public class UnitOfWork : IUnitOfWork
     private IAiServiceConfigRepository? _aiServiceConfigs;
     private IPromptTemplateRepository? _promptTemplates;
     private IColumnMappingRuleRepository? _columnMappingRules;
+    private ISmartStructureRoutingRuleRepository? _smartStructureRoutingRules;
     private IDocumentTemplateRepository? _documentTemplates;
     private ISystemUserRepository? _systemUsers;
     private IAuditLogRepository? _auditLogs;
@@ -91,6 +92,11 @@ public class UnitOfWork : IUnitOfWork
     /// Word 列映射规则仓储。
     /// </summary>
     public IColumnMappingRuleRepository ColumnMappingRules => GetOrCreate(ref _columnMappingRules);
+
+    /// <summary>
+    /// 智能结构识别表格路由规则仓储。
+    /// </summary>
+    public ISmartStructureRoutingRuleRepository SmartStructureRoutingRules => GetOrCreate(ref _smartStructureRoutingRules);
 
     /// <summary>
     /// 文档结构模板仓储。

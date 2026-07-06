@@ -132,6 +132,10 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     public async Task Recognize_WithMixedExcelSheets_ShouldReturnAdaptiveRoutingMetadata()
     {
         var customerId = await CreateCustomerAsync("智能识别-混合工作簿客户");
+        await CreateRoutingRuleAsync("报价规则", "Quotation", "Skip", "TableName", "Contains", "報價", 100);
+        await CreateRoutingRuleAsync("Layout规则", "Layout", "Skip", "TableName", "Contains", "Layout", 100);
+        await CreateRoutingRuleAsync("Utility规则", "Utility", "Skip", "TableName", "Contains", "Utility", 100);
+        await CreateRoutingRuleAsync("备品规则", "BomOrSpareParts", "Skip", "TableName", "Contains", "备品", 100);
         var fileId = await UploadExcelAsync(
             CreateMixedWorkbookBytes(),
             "smart-recognize-mixed-routing.xlsx");
@@ -167,6 +171,75 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         }
     }
 
+    [Fact]
+    public async Task Recognize_WithoutRoutingRules_ShouldNotSkipByHardcodedBusinessWords()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-无路由规则客户");
+        var fileId = await UploadExcelAsync(
+            CreateQuotationOnlyWorkbookBytes(),
+            "smart-recognize-no-routing-rules.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+        var responseText = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("tableName").GetString().Should().Be("報價單");
+        table.GetProperty("recommendation").GetString().Should().NotBe("Skip");
+        table.GetProperty("tableKind").GetString().Should().Be("Unknown");
+    }
+
+    [Fact]
+    public async Task Confirm_ShouldCreateCustomerScopedLearnedRoutingRule()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-路由学习客户");
+        var otherCustomerId = await CreateCustomerAsync("智能识别-路由学习隔离客户");
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            templateName = "客户专用验收主表",
+            headers = new[] { "项目", "规格内容", "验收结果", "备注" },
+            projectColumnIndex = 0,
+            specificationColumnIndex = 1,
+            acceptanceColumnIndex = 2,
+            remarkColumnIndex = 3,
+            headerRowIndex = 0,
+            headerRowCount = 1,
+            dataStartRowIndex = 1,
+            isSpecificationOnly = false,
+            tableKind = "AcceptanceSpec",
+            recommendation = "Recommended",
+            learnedColumns = Array.Empty<object>()
+        }));
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+
+        var currentRulesResponse = await _client.GetAsync($"/api/smart-structure-routing-rules/effective?customerId={customerId}");
+        var currentRules = await currentRulesResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        var learnedRule = currentRules.Data.EnumerateArray()
+            .Single(rule => rule.GetProperty("pattern").GetString() == "客户专用验收主表");
+
+        learnedRule.GetProperty("customerId").GetInt32().Should().Be(customerId);
+        learnedRule.GetProperty("source").GetString().Should().Be("Learned");
+        learnedRule.GetProperty("matchScope").GetString().Should().Be("TableName");
+        learnedRule.GetProperty("matchMode").GetString().Should().Be("Equals");
+        learnedRule.GetProperty("tableKind").GetString().Should().Be("AcceptanceSpec");
+        learnedRule.GetProperty("recommendation").GetString().Should().Be("Recommended");
+
+        var otherRulesResponse = await _client.GetAsync($"/api/smart-structure-routing-rules/effective?customerId={otherCustomerId}");
+        var otherRules = await otherRulesResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        otherRules.Data.EnumerateArray()
+            .Should()
+            .NotContain(rule => rule.GetProperty("pattern").GetString() == "客户专用验收主表");
+    }
+
     private async Task<int> CreateCustomerAsync(string name)
     {
         var response = await _client.PostAsync("/api/customers", ApiClientJson.ToJsonContent(new { name }));
@@ -192,6 +265,32 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
             responseText,
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private async Task CreateRoutingRuleAsync(
+        string name,
+        string tableKind,
+        string recommendation,
+        string matchScope,
+        string matchMode,
+        string pattern,
+        int priority)
+    {
+        var response = await _client.PostAsync("/api/smart-structure-routing-rules", ApiClientJson.ToJsonContent(new
+        {
+            name,
+            tableKind,
+            recommendation,
+            matchScope,
+            matchMode,
+            pattern,
+            priority,
+            weight = 1.0,
+            enabled = true,
+            source = "Manual"
+        }));
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
     }
 
     private static byte[] CreateExcelBytes()
@@ -291,6 +390,24 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         spareParts.Cell(2, 3).Value = "B-100";
         spareParts.Cell(2, 4).Value = "2";
         spareParts.Cell(2, 5).Value = "随机";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateQuotationOnlyWorkbookBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var quotation = workbook.AddWorksheet("報價單");
+        quotation.Cell(1, 1).Value = "品名";
+        quotation.Cell(1, 2).Value = "单价";
+        quotation.Cell(1, 3).Value = "数量";
+        quotation.Cell(1, 4).Value = "金额";
+        quotation.Cell(2, 1).Value = "投收板机";
+        quotation.Cell(2, 2).Value = "100";
+        quotation.Cell(2, 3).Value = "1";
+        quotation.Cell(2, 4).Value = "100";
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -1906,6 +2023,7 @@ public class SmartConfigRecognizeLlmRoutingBudgetApiTests : IClassFixture<LlmRou
     public async Task Recognize_WhenFirstSheetIsQuotation_ShouldSpendLlmBudgetOnAcceptanceSheet()
     {
         RoutingBudgetRecordingStructureAdjudicationService.Reset();
+        await CreateRoutingRuleAsync("报价预算测试规则", "Quotation", "Skip", "TableName", "Contains", "報價", 100);
         var fileId = await UploadExcelAsync(
             CreateQuotationThenAcceptanceExcelBytes(),
             "smart-recognize-llm-routing-budget.xlsx");
@@ -1923,6 +2041,32 @@ public class SmartConfigRecognizeLlmRoutingBudgetApiTests : IClassFixture<LlmRou
             .ToList();
         llmTables.Should().ContainSingle();
         llmTables[0].GetProperty("tableName").GetString().Should().Be("验收表");
+    }
+
+    private async Task CreateRoutingRuleAsync(
+        string name,
+        string tableKind,
+        string recommendation,
+        string matchScope,
+        string matchMode,
+        string pattern,
+        int priority)
+    {
+        var response = await _client.PostAsync("/api/smart-structure-routing-rules", ApiClientJson.ToJsonContent(new
+        {
+            name,
+            tableKind,
+            recommendation,
+            matchScope,
+            matchMode,
+            pattern,
+            priority,
+            weight = 1.0,
+            enabled = true,
+            source = "Manual"
+        }));
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
     }
 
     private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)

@@ -48,7 +48,10 @@ test("列映射规则页应为每个 Tab 保留独立搜索词且不再使用固
 test("列映射规则页优先级输入框应与列宽匹配，避免被挤压", () => {
   const source = readProjectFile("web/src/views/config/column-mapping-rules/index.vue");
 
-  assert.match(source, /<el-table-column label="优先级" width="140">/);
+  assert.match(
+    source,
+    /<el-table-column label="优先级" (?:width="140"|width="min\(140px, calc\(100vw - 32px\)\)")>/
+  );
   assert.match(source, /<el-input-number[\s\S]*class="table-number-input"/);
   assert.match(source, /\.table-number-input\s*\{/);
   assert.match(source, /width:\s*100%;/);

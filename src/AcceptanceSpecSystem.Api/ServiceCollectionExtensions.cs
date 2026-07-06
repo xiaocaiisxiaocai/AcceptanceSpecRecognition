@@ -174,6 +174,7 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<IAiServiceConfigRepository, AiServiceConfigRepository>();
         services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
         services.AddScoped<IColumnMappingRuleRepository, ColumnMappingRuleRepository>();
+        services.AddScoped<ISmartStructureRoutingRuleRepository, SmartStructureRoutingRuleRepository>();
         services.AddScoped<IDocumentTemplateRepository, DocumentTemplateRepository>();
         services.AddScoped<ISystemUserRepository, SystemUserRepository>();
         services.AddScoped<IAuthRoleLookupRepository, AuthRoleLookupRepository>();
