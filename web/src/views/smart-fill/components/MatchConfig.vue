@@ -935,4 +935,33 @@ export default {
   margin-top: 12px;
   text-align: right;
 }
+
+/* P1-1: 优化表单密度 */
+.match-config :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
+
+.match-config :deep(.el-row) {
+  row-gap: 12px;
+}
+
+.match-config :deep(.el-col) {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 减少alert与相邻元素的间距 */
+.service-status-alert {
+  margin-top: 8px !important;
+  margin-bottom: 0;
+}
+
+.exact-match-option__title {
+  margin-bottom: 4px !important;
+}
+
+/* 减少form-inline-tip的上方间距 */
+.form-inline-tip {
+  margin-top: 2px !important;
+}
 </style>
