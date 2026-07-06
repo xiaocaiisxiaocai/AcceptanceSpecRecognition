@@ -2,6 +2,7 @@ using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Intelligence;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
+using AcceptanceSpecSystem.Core.Documents.Interfaces;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -123,6 +124,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
             tables.Add(await RecognizeTableAsync(
                 command.CustomerId,
+                parser,
+                absolutePath,
                 tableInfo,
                 tableData,
                 headerProfile,
@@ -355,6 +358,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private async Task<SmartConfigurationRecognizedTable> RecognizeTableAsync(
         int? customerId,
+        IDocumentParser parser,
+        string absolutePath,
         TableInfo? tableInfo,
         TableData tableData,
         HeaderProfile headerProfile,
@@ -388,9 +393,12 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
             return await BuildRecognizedTableFromMappingAsync(
                 customerId,
+                parser,
+                absolutePath,
                 tableInfo,
                 tableData,
                 mapping,
+                extraSynonyms,
                 tryConsumeStructureAdjudicationBudget,
                 cancellationToken);
         }
@@ -418,9 +426,12 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private async Task<SmartConfigurationRecognizedTable> BuildRecognizedTableFromMappingAsync(
         int? customerId,
+        IDocumentParser parser,
+        string absolutePath,
         TableInfo? tableInfo,
         TableData tableData,
         ColumnMappingResult mapping,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         CancellationToken cancellationToken)
     {
@@ -438,6 +449,34 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 : null;
             if (fused != null)
             {
+                var totalRowCount = GetTotalRowCount(tableInfo, tableData);
+                var reextracted = await TryReextractWithStructureAsync(
+                    parser,
+                    absolutePath,
+                    tableData.TableIndex,
+                    fused,
+                    totalRowCount,
+                    cancellationToken);
+                if (reextracted != null)
+                {
+                    var remapped = await _intelligenceService.IdentifyColumnMappingAsync(
+                        reextracted,
+                        extraSynonyms,
+                        cancellationToken);
+                    remapped.Mapping.HeaderRowIndex = fused.HeaderRowIndex;
+                    remapped.Mapping.HeaderRowCount = fused.HeaderRowCount;
+                    remapped.Mapping.DataStartRowIndex = fused.DataStartRowIndex;
+                    var reextractedRuleCandidate = SmartConfigurationRecognizedTableFactory.ToStructureCandidate(
+                        tableInfo,
+                        reextracted,
+                        remapped);
+                    var remerged = DocumentStructureFusion.Merge(
+                        reextractedRuleCandidate,
+                        fused,
+                        allowLlmOverride: true);
+                    return BuildFusedRecognizedTable(tableInfo, reextracted, remerged);
+                }
+
                 return BuildFusedRecognizedTable(tableInfo, tableData, fused);
             }
         }
@@ -473,6 +512,11 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 },
                 timeoutCts.Token);
             var llmCandidate = adjudication?.Tables.FirstOrDefault(table => table.TableIndex == tableData.TableIndex);
+            if (llmCandidate != null && !IsValidHeaderStructure(llmCandidate, GetTotalRowCount(tableInfo, tableData)))
+            {
+                return null;
+            }
+
             var fused = DocumentStructureFusion.Merge(ruleCandidate, llmCandidate, allowLlmOverride: true);
             if (fused.Source != DocumentStructureCandidateSource.Fused)
             {
@@ -489,6 +533,60 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableData.TableIndex);
             return null;
         }
+    }
+
+    private async Task<TableData?> TryReextractWithStructureAsync(
+        IDocumentParser parser,
+        string absolutePath,
+        int tableIndex,
+        DocumentStructureCandidate candidate,
+        int totalRowCount,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidHeaderStructure(candidate, totalRowCount))
+        {
+            return null;
+        }
+
+        try
+        {
+            await using var stream = File.OpenRead(absolutePath);
+            return await parser.ExtractTableDataAsync(
+                stream,
+                tableIndex,
+                new ColumnMapping
+                {
+                    HeaderRowIndex = candidate.HeaderRowIndex,
+                    HeaderRowCount = candidate.HeaderRowCount,
+                    DataStartRowIndex = candidate.DataStartRowIndex
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "表格 {TableIndex} 按 LLM 表头结构重新提取失败，保留规则识别结果",
+                tableIndex);
+            return null;
+        }
+    }
+
+    private static bool IsValidHeaderStructure(DocumentStructureCandidate candidate, int totalRowCount)
+    {
+        return totalRowCount > 0 &&
+               candidate.HeaderRowIndex >= 0 &&
+               candidate.HeaderRowCount > 0 &&
+               candidate.HeaderRowIndex < totalRowCount &&
+               candidate.HeaderRowIndex + candidate.HeaderRowCount <= totalRowCount &&
+               candidate.DataStartRowIndex >= candidate.HeaderRowIndex + candidate.HeaderRowCount &&
+               candidate.DataStartRowIndex < totalRowCount;
+    }
+
+    private static int GetTotalRowCount(TableInfo? tableInfo, TableData tableData)
+    {
+        return tableInfo?.RowCount > 0
+            ? tableInfo.RowCount
+            : tableData.TotalRowCount;
     }
 
     private CancellationTokenSource CreateStructureAdjudicationTimeout(CancellationToken cancellationToken)
