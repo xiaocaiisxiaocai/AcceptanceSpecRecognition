@@ -1,4 +1,6 @@
 using System;
+using AcceptanceSpecSystem.Data.Context;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -7,6 +9,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace AcceptanceSpecSystem.Data.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260706093000_AddSmartStructureRoutingRules")]
     public partial class AddSmartStructureRoutingRules : Migration
     {
         /// <inheritdoc />

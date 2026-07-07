@@ -1,4 +1,6 @@
 using System;
+using AcceptanceSpecSystem.Data.Context;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,6 +8,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace AcceptanceSpecSystem.Data.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260706090000_AddDocumentTemplateRoutingMetadata")]
     public partial class AddDocumentTemplateRoutingMetadata : Migration
     {
         /// <inheritdoc />
