@@ -19,6 +19,8 @@ public class SmartStructureRoutingRuleRepository : Repository<SmartStructureRout
     {
         return await _dbSet
             .Where(rule => rule.Enabled)
+            // 历史确认曾写入 Learned 表格路由规则；这类规则来自单次文件命名，不能再参与结构识别。
+            .Where(rule => rule.Source != SmartStructureRoutingRuleSource.Learned)
             .Where(rule => rule.CustomerId == null || rule.CustomerId == customerId)
             .OrderByDescending(rule => customerId.HasValue && rule.CustomerId == customerId.Value)
             .ThenByDescending(rule => rule.Priority)

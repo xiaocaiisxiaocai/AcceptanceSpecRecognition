@@ -37,13 +37,13 @@ test("前端应开放智能结构路由规则配置入口", () => {
   assert.match(navigationManifestSource, /page:config:smart-structure-routing-rules/);
 });
 
-test("智能结构路由规则页应支持人工规则与学习规则维护", () => {
+test("智能结构路由规则页应支持人工辅助规则维护", () => {
   const source = readProjectFile(
     "web/src/views/config/smart-structure-routing-rules/index.vue"
   );
 
   assert.match(source, /value:\s*"Manual"/);
-  assert.match(source, /value:\s*"Learned"/);
+  assert.doesNotMatch(source, /value:\s*"Learned"/);
   assert.match(source, /TableName/);
   assert.match(source, /Headers/);
   assert.match(source, /SampleRows/);
@@ -61,7 +61,19 @@ test("智能结构路由规则页应弱化表名并默认表头匹配", () => {
   assert.match(source, /Sheet 名\/表名（仅 Excel 兜底）/);
   assert.match(source, /matchScope:\s*"Headers"\s+as SmartStructureRoutingMatchScope/);
   assert.match(source, /form\.matchScope\s*=\s*"Headers"/);
-  assert.match(source, /label:\s*"验收规格"/);
-  assert.match(source, /value:\s*"AcceptanceSpec"/);
-  assert.match(source, /getTableKindLabel\(row\.tableKind\)/);
+});
+
+test("智能结构路由规则页不应让用户维护固定表格类型枚举", () => {
+  const source = readProjectFile(
+    "web/src/views/config/smart-structure-routing-rules/index.vue"
+  );
+
+  assert.doesNotMatch(source, /tableKindOptions/);
+  assert.doesNotMatch(source, /label="表格类型"/);
+  assert.doesNotMatch(source, /v-model="form\.tableKind"/);
+  assert.doesNotMatch(source, /验收规格/);
+  assert.doesNotMatch(source, /安全规格/);
+  assert.doesNotMatch(source, /环保规格/);
+  assert.doesNotMatch(source, /SECS 规格/);
+  assert.match(source, /MANUAL_ROUTING_TABLE_KIND\s*=\s*"ManualAuxiliary"/);
 });

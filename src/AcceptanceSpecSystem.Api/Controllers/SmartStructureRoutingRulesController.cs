@@ -31,7 +31,8 @@ public sealed class SmartStructureRoutingRulesController : BaseApiController
         [FromQuery] bool? enabled = null,
         CancellationToken cancellationToken = default)
     {
-        var query = _unitOfWork.SmartStructureRoutingRules.Query();
+        var query = _unitOfWork.SmartStructureRoutingRules.Query()
+            .Where(rule => rule.Source != SmartStructureRoutingRuleSource.Learned);
         if (enabled.HasValue)
         {
             query = query.Where(rule => rule.Enabled == enabled.Value);

@@ -44,23 +44,11 @@ const recommendationOptions = [
   { label: "建议跳过", value: "Skip", type: "danger" }
 ] as const;
 
-const tableKindOptions = [
-  { label: "验收规格", value: "AcceptanceSpec" },
-  { label: "安全规格", value: "SafetySpec" },
-  { label: "环保规格", value: "EnvironmentalSpec" },
-  { label: "SECS 规格", value: "SecsSpec" },
-  { label: "Utility / 公用工程", value: "Utility" },
-  { label: "报价资料", value: "Quotation" },
-  { label: "Layout 布局", value: "Layout" },
-  { label: "BOM / 备品", value: "BomOrSpareParts" },
-  { label: "封面 / 签核", value: "SignatureOrCover" },
-  { label: "未知", value: "Unknown" }
-] as const;
+const MANUAL_ROUTING_TABLE_KIND = "ManualAuxiliary";
 
 const sourceOptions = [
   { label: "内置种子", value: "BuiltinSeed", type: "info" },
   { label: "手动", value: "Manual", type: "primary" },
-  { label: "学习", value: "Learned", type: "success" },
   { label: "AI 建议", value: "AiSuggested", type: "warning" }
 ] as const;
 
@@ -84,9 +72,6 @@ const getMatchScopeLabel = (value: SmartStructureRoutingMatchScope) =>
 const getMatchModeLabel = (value: SmartStructureRoutingMatchMode) =>
   matchModeOptions.find(option => option.value === value)?.label ?? value;
 
-const getTableKindLabel = (value: string) =>
-  tableKindOptions.find(option => option.value === value)?.label ?? value;
-
 const getRecommendationOption = (
   value?: SmartStructureRoutingRecommendation
 ) =>
@@ -106,8 +91,6 @@ const filteredRules = computed(() => {
 
       return [
         rule.name,
-        rule.tableKind,
-        getTableKindLabel(rule.tableKind),
         rule.recommendation,
         rule.pattern,
         getMatchScopeLabel(rule.matchScope),
@@ -150,7 +133,7 @@ const isEdit = ref(false);
 const form = reactive({
   id: 0,
   name: "",
-  tableKind: "AcceptanceSpec",
+  tableKind: MANUAL_ROUTING_TABLE_KIND,
   recommendation: "NeedConfirm" as SmartStructureRoutingRecommendation,
   matchScope: "Headers" as SmartStructureRoutingMatchScope,
   matchMode: "Contains" as SmartStructureRoutingMatchMode,
@@ -165,7 +148,7 @@ const form = reactive({
 const resetForm = () => {
   form.id = 0;
   form.name = "";
-  form.tableKind = "AcceptanceSpec";
+  form.tableKind = MANUAL_ROUTING_TABLE_KIND;
   form.recommendation = "NeedConfirm";
   form.matchScope = "Headers";
   form.matchMode = "Contains";
@@ -222,9 +205,9 @@ const openEdit = (row: SmartStructureRoutingRule) => {
 
 const buildPayload = () => {
   const name = form.name.trim();
-  const tableKind = form.tableKind.trim();
+  const tableKind = form.tableKind.trim() || MANUAL_ROUTING_TABLE_KIND;
   const pattern = form.pattern.trim();
-  if (!name || !tableKind || !pattern) {
+  if (!name || !pattern) {
     return null;
   }
 
@@ -257,7 +240,7 @@ const submit = async () => {
 
   const payload = buildPayload();
   if (!payload) {
-    ElMessage.warning("请填写规则名称、表格类型和匹配词");
+    ElMessage.warning("请填写规则名称和匹配词");
     return;
   }
 
@@ -372,18 +355,13 @@ onMounted(load);
         <el-input
           v-model="keyword"
           class="rule-search-input"
-          placeholder="搜索名称 / 类型 / 推荐结果 / 匹配词 / 客户"
+          placeholder="搜索名称 / 推荐结果 / 匹配词 / 客户"
           clearable
         />
       </div>
 
       <el-table v-loading="loading" :data="filteredRules" stripe border>
         <el-table-column prop="name" label="规则名称" min-width="180" />
-        <el-table-column label="表格类型" min-width="150">
-          <template #default="{ row }">
-            {{ getTableKindLabel(row.tableKind) }}
-          </template>
-        </el-table-column>
         <el-table-column label="推荐结果" width="120">
           <template #default="{ row }">
             <el-tag
@@ -499,26 +477,10 @@ onMounted(load);
       :title="dialogTitle"
       width="min(560px, calc(100vw - 32px))"
     >
-      <el-form label-width="96px">
-        <el-form-item label="规则名称" required>
-          <el-input v-model="form.name" placeholder="例如：报价单跳过" />
-        </el-form-item>
-        <el-form-item label="表格类型" required>
-          <el-select
-            v-model="form.tableKind"
-            filterable
-            allow-create
-            default-first-option
-            popper-class="config-select-popper"
-          >
-            <el-option
-              v-for="kind in tableKindOptions"
-              :key="kind.value"
-              :label="kind.label"
-              :value="kind.value"
-            />
-          </el-select>
-        </el-form-item>
+        <el-form label-width="96px">
+          <el-form-item label="规则名称" required>
+            <el-input v-model="form.name" placeholder="例如：报价单跳过" />
+          </el-form-item>
         <el-form-item label="推荐结果">
           <el-select
             v-model="form.recommendation"
