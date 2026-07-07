@@ -115,9 +115,13 @@ const promptTemplatesSource = readSource(
   "web/src/views/config/prompt-templates/index.vue"
 );
 const authRolesSource = readSource("web/src/views/config/auth-roles/index.vue");
-const permissionsSource = readSource("web/src/views/rbac/permissions/index.vue");
+const permissionsSource = readSource(
+  "web/src/views/rbac/permissions/index.vue"
+);
 const auditLogsSource = readSource("web/src/views/other/audit-logs/index.vue");
-const aiServicesSource = readSource("web/src/views/config/ai-services/index.vue");
+const aiServicesSource = readSource(
+  "web/src/views/config/ai-services/index.vue"
+);
 const orgUnitsSource = readSource("web/src/views/config/org-units/index.vue");
 const columnMappingRulesSource = readSource(
   "web/src/views/config/column-mapping-rules/index.vue"
@@ -216,12 +220,18 @@ test("全局设计令牌文件必须存在并定义中性主题变量", () => {
 });
 
 test("主内容容器不应使用 24px 外边距挤占业务首屏", () => {
-  assert.doesNotMatch(contentLayoutSource, /\.main-content\s*\{[^}]*margin:\s*24px/s);
+  assert.doesNotMatch(
+    contentLayoutSource,
+    /\.main-content\s*\{[^}]*margin:\s*24px/s
+  );
 });
 
 test("主内容容器外边距不应超过 12px", () => {
   assert.match(contentLayoutSource, /\.main-content\s*\{[^}]*margin:\s*12px/s);
-  assert.doesNotMatch(contentLayoutSource, /\.main-content\s*\{[^}]*margin:\s*16px/s);
+  assert.doesNotMatch(
+    contentLayoutSource,
+    /\.main-content\s*\{[^}]*margin:\s*16px/s
+  );
 });
 
 test("全局页面容器应使用紧凑间距", () => {
@@ -233,19 +243,43 @@ test("全局页面容器应使用紧凑间距", () => {
 test("Element Plus 全局主题应使用中性令牌与 32px 控件密度", () => {
   assert.match(globalStyleSource, /@use\s+"tokens"/);
   assert.match(globalStyleSource, /--el-component-size:\s*32px/);
-  assert.match(globalStyleSource, /--el-text-color-primary:\s*var\(--app-text-primary\)/);
+  assert.match(
+    globalStyleSource,
+    /--el-text-color-primary:\s*var\(--app-text-primary\)/
+  );
   assert.match(globalStyleSource, /--el-table-header-bg-color:\s*#f9fafb/i);
   assert.doesNotMatch(globalStyleSource, /--el-component-size:\s*36px/);
-  assert.doesNotMatch(globalStyleSource, /--el-text-color-primary:\s*var\(--color-text\)/);
-  assert.doesNotMatch(globalStyleSource, /--el-table-header-bg-color:\s*#f3e8ff/i);
+  assert.doesNotMatch(
+    globalStyleSource,
+    /--el-text-color-primary:\s*var\(--color-text\)/
+  );
+  assert.doesNotMatch(
+    globalStyleSource,
+    /--el-table-header-bg-color:\s*#f3e8ff/i
+  );
 });
 
 test("卡片与表格应采用紧凑密度且不使用 hover 抬升", () => {
-  assert.match(elementPlusStyleSource, /\.el-card__body\s*\{[^}]*padding:\s*12px/s);
-  assert.match(elementPlusStyleSource, /\.el-table \.el-table__cell\s*\{[^}]*padding:\s*6px 0/s);
-  assert.doesNotMatch(elementPlusStyleSource, /\.el-card:hover\s*\{[^}]*box-shadow/s);
-  assert.doesNotMatch(elementPlusStyleSource, /\.el-card__body\s*\{[^}]*padding:\s*16px/s);
-  assert.doesNotMatch(elementPlusStyleSource, /\.el-table \.el-table__cell\s*\{[^}]*padding:\s*8px 0/s);
+  assert.match(
+    elementPlusStyleSource,
+    /\.el-card__body\s*\{[^}]*padding:\s*12px/s
+  );
+  assert.match(
+    elementPlusStyleSource,
+    /\.el-table \.el-table__cell\s*\{[^}]*padding:\s*6px 0/s
+  );
+  assert.doesNotMatch(
+    elementPlusStyleSource,
+    /\.el-card:hover\s*\{[^}]*box-shadow/s
+  );
+  assert.doesNotMatch(
+    elementPlusStyleSource,
+    /\.el-card__body\s*\{[^}]*padding:\s*16px/s
+  );
+  assert.doesNotMatch(
+    elementPlusStyleSource,
+    /\.el-table \.el-table__cell\s*\{[^}]*padding:\s*8px 0/s
+  );
 });
 
 test("页脚默认应隐藏以释放首屏内容空间", () => {
@@ -270,11 +304,26 @@ test("向导页内容区不应通过固定 500px 最小高度空撑", () => {
 });
 
 test("向导页操作区应采用紧凑间距", () => {
-  assert.doesNotMatch(smartFillStyleSource, /\.step-actions\s*\{[^}]*margin-top:\s*32px/s);
-  assert.doesNotMatch(smartFillStyleSource, /\.step-actions\s*\{[^}]*padding-top:\s*16px/s);
-  assert.match(smartFillStyleSource, /\.step-actions\s*\{[^}]*margin-top:\s*12px/s);
-  assert.match(smartFillStyleSource, /\.step-actions\s*\{[^}]*padding-top:\s*12px/s);
-  assert.doesNotMatch(dataImportStyleSource, /\.data-import-body\s*\{[^}]*padding-bottom:\s*84px/s);
+  assert.doesNotMatch(
+    smartFillStyleSource,
+    /\.step-actions\s*\{[^}]*margin-top:\s*32px/s
+  );
+  assert.doesNotMatch(
+    smartFillStyleSource,
+    /\.step-actions\s*\{[^}]*padding-top:\s*16px/s
+  );
+  assert.match(
+    smartFillStyleSource,
+    /\.step-actions\s*\{[^}]*margin-top:\s*12px/s
+  );
+  assert.match(
+    smartFillStyleSource,
+    /\.step-actions\s*\{[^}]*padding-top:\s*12px/s
+  );
+  assert.doesNotMatch(
+    dataImportStyleSource,
+    /\.data-import-body\s*\{[^}]*padding-bottom:\s*84px/s
+  );
 });
 
 test("核心预览表不应使用固定 400/500px max-height", () => {
@@ -376,10 +425,7 @@ test("简单 CRUD 工具栏换行时不应拆散搜索表单和操作按钮", ()
 });
 
 test("所有筛选表单换行时不应拆散搜索重置按钮", () => {
-  assert.match(
-    globalStyleSource,
-    /\.filter-form\s*\{[^}]*flex-wrap:\s*wrap/s
-  );
+  assert.match(globalStyleSource, /\.filter-form\s*\{[^}]*flex-wrap:\s*wrap/s);
   assert.match(
     globalStyleSource,
     /\.filter-form\.el-form--inline\s+\.el-form-item\s*\{[^}]*flex-shrink:\s*0/s
@@ -408,7 +454,9 @@ test("列表页筛选栏应放在表格卡头同一行左侧，不再单独占�
     /\.list-card-toolbar__right\s*\{[^}]*justify-content:\s*flex-start/s
   );
 
-  for (const source of headerFilterPages) {
+  for (const source of headerFilterPages.filter(
+    source => source !== executionHistorySource
+  )) {
     assert.doesNotMatch(source, /<el-card class="mb-4">\s*<el-form/s);
     assert.match(source, /<template #header>/);
     assert.doesNotMatch(source, /<div class="list-card-toolbar">\s*<span>/);
@@ -421,7 +469,10 @@ test("列表页筛选栏应放在表格卡头同一行左侧，不再单独占�
 });
 
 test("权限中心用户与角色页面应显示页面标题", () => {
-  assert.match(systemUsersSource, /<div class="page-title">系统用户管理<\/div>/);
+  assert.match(
+    systemUsersSource,
+    /<div class="page-title">系统用户管理<\/div>/
+  );
   assert.match(authRolesSource, /<div class="page-title">角色管理<\/div>/);
 });
 
@@ -437,8 +488,14 @@ test("管理与配置列表页不应保留重复说明和卡头区域名", () =>
     assert.doesNotMatch(source, /<div class="list-card-toolbar">\s*<span>/);
   }
 
-  assert.doesNotMatch(smartStructureRoutingRulesSource, /<span>路由规则<\/span>/);
-  assert.doesNotMatch(columnMappingRulesSource, /<span>列映射规则（全局）<\/span>/);
+  assert.doesNotMatch(
+    smartStructureRoutingRulesSource,
+    /<span>路由规则<\/span>/
+  );
+  assert.doesNotMatch(
+    columnMappingRulesSource,
+    /<span>列映射规则（全局）<\/span>/
+  );
 });
 
 test("简单 CRUD 页分页默认应使用 50 并收敛选项", () => {
@@ -451,21 +508,42 @@ test("简单 CRUD 页分页默认应使用 50 并收敛选项", () => {
 });
 
 test("执行记录页应使用全高骨架并移除固定详情表高度", () => {
-  assert.match(executionHistorySource, /<div class="page page--fill execution-history-page">/);
-  assert.match(executionHistorySource, /pageSize:\s*50/);
-  assert.doesNotMatch(executionHistorySource, /pageSize:\s*20/);
+  assert.match(
+    executionHistorySource,
+    /<div class="page page--fill execution-history-page">/
+  );
+  assert.doesNotMatch(executionHistorySource, /task-control-pagination/);
+  assert.doesNotMatch(executionHistorySource, /handlePageChange/);
+  assert.doesNotMatch(executionHistorySource, /handleSizeChange/);
+  assert.doesNotMatch(executionHistorySource, />任务详情</);
+  assert.doesNotMatch(executionHistorySource, /summary-grid/);
+  assert.match(executionHistorySource, /class="task-control-row"/);
+  assert.doesNotMatch(executionHistorySource, /class="task-select-block"/);
+  assert.doesNotMatch(
+    executionHistorySmartFillPlaybackSource,
+    /playback-detail/
+  );
+  assert.doesNotMatch(executionHistorySmartFillPlaybackSource, /ScoreDetail/);
 
   for (const source of [
     executionHistorySmartFillPlaybackSource,
     executionHistoryBatchReplyDetailSource
   ]) {
     assert.doesNotMatch(source, /max-height="(560|620)"/);
-    assert.match(source, /max-height="calc\(100vh - 320px\)"/);
+    assert.match(source, /statusFilter/);
+    assert.match(source, /pagedRows/);
+    assert.match(source, /const pageSize = ref\(50\)/);
+    assert.match(source, /<el-pagination/);
+    assert.match(source, /class="result-pagination"/);
+    assert.match(source, /height="100%"/);
   }
 });
 
 test("文件对比页应复用页面骨架、视口高度和 diff 令牌", () => {
-  assert.match(fileCompareSource, /<div class="page page--fill file-compare-page">/);
+  assert.match(
+    fileCompareSource,
+    /<div class="page page--fill file-compare-page">/
+  );
   assert.doesNotMatch(fileCompareSource, /<div class="compare-page">/);
   assert.doesNotMatch(fileCompareSource, /height:\s*min\(62vh,\s*640px\)/);
   assert.doesNotMatch(fileCompareSource, /height:\s*520px/);
@@ -539,7 +617,10 @@ test("上传区入口应复用统一上传区类和令牌化样式", () => {
   assert.doesNotMatch(batchReplyTargetFilesPanelSource, /class="upload-area"/);
   assert.doesNotMatch(dataImportFileUploadSource, /#e4d7fb|#409EFF/i);
   assert.match(dataImportFileUploadSource, /--app-primary|--el-color-primary/);
-  assert.match(batchReplyStyleSource, /\.app-upload-area :deep\(\.el-upload-dragger\)/);
+  assert.match(
+    batchReplyStyleSource,
+    /\.app-upload-area :deep\(\.el-upload-dragger\)/
+  );
 });
 
 test("批量回复重复处理弹窗应使用响应式规格宽度", () => {
