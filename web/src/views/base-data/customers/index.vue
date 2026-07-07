@@ -217,7 +217,6 @@ onMounted(() => {
     <div class="page-header">
       <div>
         <div class="page-title">客户管理</div>
-        <div class="page-subtitle">维护客户信息，支持搜索与编辑</div>
       </div>
     </div>
 
@@ -225,7 +224,6 @@ onMounted(() => {
     <el-card class="table-card" shadow="never">
       <template #header>
         <div class="simple-crud-toolbar">
-          <div class="simple-crud-toolbar__title">客户列表</div>
           <div class="simple-crud-toolbar__right">
             <el-form class="simple-crud-search" :inline="true">
               <el-form-item label="客户名称">

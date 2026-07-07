@@ -113,7 +113,6 @@ onBeforeUnmount(() => {
     <div class="page-header">
       <div>
         <div class="page-title">验收规格</div>
-        <div class="page-subtitle">管理验收规格条目与详情</div>
       </div>
     </div>
 

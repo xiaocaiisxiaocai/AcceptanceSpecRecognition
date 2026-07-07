@@ -296,9 +296,6 @@ const removeTargetFile = (targetId: string) => {
     <div class="page-header">
       <div class="page-header__main">
         <div class="page-title">批量回复</div>
-        <div class="page-subtitle">
-          按来源文件配置映射关系，批量完成同模板文档回写
-        </div>
       </div>
       <div class="page-header__stats">
         <div class="header-stat">

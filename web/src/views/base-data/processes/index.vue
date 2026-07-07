@@ -191,14 +191,12 @@ onMounted(() => {
     <div class="page-header">
       <div>
         <div class="page-title">制程管理</div>
-        <div class="page-subtitle">维护制程信息，支持搜索与编辑</div>
       </div>
     </div>
 
     <el-card class="table-card" shadow="never">
       <template #header>
         <div class="simple-crud-toolbar">
-          <div class="simple-crud-toolbar__title">制程列表</div>
           <div class="simple-crud-toolbar__right">
             <el-form class="simple-crud-search" :inline="true">
               <el-form-item label="制程名称">

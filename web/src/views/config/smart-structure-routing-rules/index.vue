@@ -345,14 +345,12 @@ onMounted(load);
     <div class="page-header">
       <div>
         <div class="page-title">智能结构路由规则</div>
-        <div class="page-subtitle">表名、表头与样例行的表格类型和推荐策略配置</div>
       </div>
     </div>
 
     <el-card>
       <template #header>
         <div class="flex justify-between items-center">
-          <span>路由规则</span>
           <el-button v-if="canCreate" type="primary" @click="openAdd">
             新增规则
           </el-button>

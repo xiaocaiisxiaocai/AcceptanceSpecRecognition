@@ -84,9 +84,6 @@ onMounted(loadTree);
         <div class="flex items-center justify-between">
           <div>
             <div class="page-title">组织管理</div>
-            <div class="page-subtitle">
-              系统固定为单组织模式，仅维护根组织信息
-            </div>
           </div>
         </div>
       </template>

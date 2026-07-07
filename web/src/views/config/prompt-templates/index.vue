@@ -231,14 +231,12 @@ onMounted(loadData);
     <div class="page-header">
       <div>
         <div class="page-title">Prompt 模板</div>
-        <div class="page-subtitle">按系统场景维护 LLM 提示词模板</div>
       </div>
     </div>
 
     <el-card>
       <template #header>
         <div class="list-card-toolbar">
-          <span>系统模板</span>
           <div class="list-card-toolbar__right">
             <span class="text-sm text-gray-500">
               页面只维护运行时实际使用的系统模板，不再提供设默认和任意新增。

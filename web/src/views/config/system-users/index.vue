@@ -428,14 +428,12 @@ onMounted(initPage);
     <div class="page-header">
       <div>
         <div class="page-title">系统用户管理</div>
-        <div class="page-subtitle">管理登录账号、角色、所属组织与启用状态</div>
       </div>
     </div>
 
     <el-card>
       <template #header>
         <div class="list-card-toolbar">
-          <span>系统用户</span>
           <div class="list-card-toolbar__right">
             <el-form :inline="true" class="filter-form">
               <el-form-item label="关键词">

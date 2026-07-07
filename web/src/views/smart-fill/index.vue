@@ -615,7 +615,6 @@ const handleRestart = () => {
     <div class="page-header">
       <div>
         <div class="page-title">智能填充</div>
-        <div class="page-subtitle">匹配验收规格并批量回写文档</div>
       </div>
       <SmartFillSteps :steps="steps" :current-step="currentStep" />
     </div>

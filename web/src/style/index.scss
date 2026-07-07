@@ -116,13 +116,7 @@
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-  justify-content: space-between;
-}
-
-.simple-crud-toolbar__title {
-  flex: 0 0 auto;
-  font-weight: 600;
-  color: var(--app-text-primary);
+  justify-content: flex-start;
 }
 
 .simple-crud-toolbar__right {
@@ -131,7 +125,7 @@
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   min-width: 0;
 }
 
@@ -141,7 +135,7 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   min-width: 0;
 }
 
@@ -154,6 +148,13 @@
 .simple-crud-search.el-form--inline .el-form-item:last-child {
   display: flex;
   flex-wrap: nowrap;
+}
+
+.simple-crud-search.el-form--inline .el-form-item:last-child .el-form-item__content {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .simple-crud-search .el-input {
@@ -183,6 +184,13 @@
   flex-wrap: nowrap;
 }
 
+.filter-form.el-form--inline .el-form-item:last-child .el-form-item__content {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .filter-form .el-button + .el-button {
   margin-left: 0;
 }
@@ -192,13 +200,7 @@
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-  justify-content: space-between;
-}
-
-.list-card-toolbar > span:first-child {
-  flex: 0 0 auto;
-  font-weight: 600;
-  color: var(--app-text-primary);
+  justify-content: flex-start;
 }
 
 .list-card-toolbar__right {
@@ -207,7 +209,7 @@
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   min-width: 0;
 }
 
@@ -217,7 +219,7 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .config-page .el-form-item .el-select,
@@ -314,12 +316,6 @@
   font-size: 20px;
   font-weight: 600;
   color: var(--app-text-primary);
-}
-
-.page-subtitle {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--app-text-secondary);
 }
 
 /* 灰色模式 */

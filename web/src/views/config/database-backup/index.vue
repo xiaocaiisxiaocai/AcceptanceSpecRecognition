@@ -196,9 +196,6 @@ onMounted(load);
     <div class="page-header">
       <div>
         <div class="page-title">数据库备份</div>
-        <div class="page-subtitle">
-          配置 MySQL 自动备份计划，并将备份文件保存到服务器挂载目录。
-        </div>
       </div>
       <div class="header-actions">
         <el-button :loading="loading" @click="load">刷新</el-button>
@@ -377,11 +374,6 @@ onMounted(load);
   margin: 0;
   font-size: 22px;
   font-weight: 650;
-}
-
-.page-subtitle {
-  margin: 6px 0 0;
-  color: var(--el-text-color-secondary);
 }
 
 .header-actions,

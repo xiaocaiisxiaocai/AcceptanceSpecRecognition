@@ -205,9 +205,6 @@ onMounted(load);
     <div class="page-header">
       <div>
         <div class="page-title">Embedding 缓存预热</div>
-        <div class="page-subtitle">
-          管理后台向量预热计划，减少历史规格首次参与智能填充时的等待。
-        </div>
       </div>
       <div class="header-actions">
         <el-button :loading="loading" @click="load">刷新</el-button>
@@ -375,11 +372,6 @@ onMounted(load);
   margin: 0;
   font-size: 22px;
   font-weight: 650;
-}
-
-.page-subtitle {
-  margin: 6px 0 0;
-  color: var(--el-text-color-secondary);
 }
 
 .header-actions,

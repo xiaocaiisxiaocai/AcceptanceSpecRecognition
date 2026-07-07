@@ -191,14 +191,12 @@ onMounted(() => {
     <div class="page-header">
       <div>
         <div class="page-title">机型管理</div>
-        <div class="page-subtitle">维护机型信息，支持搜索与编辑</div>
       </div>
     </div>
 
     <el-card class="table-card" shadow="never">
       <template #header>
         <div class="simple-crud-toolbar">
-          <div class="simple-crud-toolbar__title">机型列表</div>
           <div class="simple-crud-toolbar__right">
             <el-form class="simple-crud-search" :inline="true">
               <el-form-item label="机型名称">

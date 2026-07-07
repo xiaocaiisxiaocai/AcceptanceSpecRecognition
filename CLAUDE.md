@@ -160,7 +160,7 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、Controllers、Api/Services �
 | `/batch-reply/` | 批量回填预览与执行 |
 | `/dashboard/` | 仪表板 / 统计概览 |
 | `/rbac/` | 用户、角色、权限、组织架构管理 |
-| `/config/` | AI 服务配置、提示词模板、列映射规则 |
+| `/config/` | AI 服务配置、提示词模板、列映射规则、智能结构路由规则 |
 
 API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。智能结构识别的共享 UI 与逻辑在 `web/src/views/shared/`（`SmartStructureConfirmCard.vue`、`SmartStructureSummaryBanner.vue`、`smart-structure-recognition.ts`、composable `useSmartStructureRecognition.ts`），由 data-import 与 smart-fill 两页复用，各页流程逻辑在自己的 `*.smartRecognition.ts` 中。
 
@@ -174,6 +174,7 @@ POST /api/documents/import               解析并导入 Word 表格（需 custo
 POST /api/documents/excel/import         导入 Excel 表格
 POST /api/smart-config/recognize         智能结构识别（表头/列映射/行范围识别 + 裁决）
 POST /api/smart-config/confirm           确认识别结果，沉淀客户模板与学习列映射
+CRUD /api/smart-structure-routing-rules  智能结构路由规则管理（Manual 优先于 Learned）
 POST /api/matching/batch-preview         批量匹配预览（进度轮询 GET batch-preview-progress/{requestId}）
 POST /api/matching/llm-stream            高歧义行流式 LLM 复核（SSE）
 POST /api/matching/batch-execute         执行填充，返回 taskId
@@ -208,7 +209,8 @@ GET  /health                             健康检查
 1. `RuleBasedMappingStrategy` 按列映射规则与表头关键词给出各列字段候选（项目/规格/验收/备注）。
 2. `DocumentStructureFusion` + `DocumentStructureHealthCheck` 融合并体检结构（表头行、表头行数、数据行范围）。
 3. 灰区结果交 LLM 结构裁决；超时由 `SmartConfiguration:StructureAdjudicationTimeoutSeconds` 控制（默认 20 秒，Clamp 1–300）；裁决失败/超时保留规则识别的"待确认"状态，不阻断流程。
-4. 每张表输出字段级裁决（自动采用 / 需确认 / 拒绝），前端 `SmartStructureConfirmCard` 呈现供人工修正；确认后经 `/api/smart-config/confirm` 沉淀客户模板与学习到的列映射。
+4. **多表自适应路由**：`SmartConfigurationTableRoutingService` 为每张表给出路由决策（表类型、综合排序分、建议 Process/Confirm/Skip）。路由规则外置为数据库实体 `SmartStructureRoutingRule`（Manual 手工规则优先于 Learned 学习规则），经 `/api/smart-structure-routing-rules` CRUD，前端管理页在 `/config/smart-structure-routing-rules`。
+5. 每张表输出字段级裁决（自动采用 / 需确认 / 拒绝），前端 `SmartStructureConfirmCard` 呈现供人工修正；确认后经 `/api/smart-config/confirm` 沉淀客户模板、学习到的列映射与学习型路由规则。
 
 ---
 

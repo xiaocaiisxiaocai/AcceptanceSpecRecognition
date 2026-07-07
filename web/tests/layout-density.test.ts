@@ -62,6 +62,7 @@ const unifiedDiffViewSource = readSource(
 const compareTableGridSource = readSource(
   "web/src/views/file-compare/components/CompareTableGrid.vue"
 );
+const dashboardPageSource = readSource("web/src/views/dashboard/index.vue");
 const batchReplySource = readSource("web/src/views/batch-reply/index.vue");
 const batchReplyStyleSource = readSource(
   "web/src/views/batch-reply/index.styles.css"
@@ -106,6 +107,7 @@ const processPageSource = readSource(
 const machineModelPageSource = readSource(
   "web/src/views/base-data/machine-models/index.vue"
 );
+const specsPageSource = readSource("web/src/views/base-data/specs/index.vue");
 const systemUsersSource = readSource(
   "web/src/views/config/system-users/index.vue"
 );
@@ -115,6 +117,20 @@ const promptTemplatesSource = readSource(
 const authRolesSource = readSource("web/src/views/config/auth-roles/index.vue");
 const permissionsSource = readSource("web/src/views/rbac/permissions/index.vue");
 const auditLogsSource = readSource("web/src/views/other/audit-logs/index.vue");
+const aiServicesSource = readSource("web/src/views/config/ai-services/index.vue");
+const orgUnitsSource = readSource("web/src/views/config/org-units/index.vue");
+const columnMappingRulesSource = readSource(
+  "web/src/views/config/column-mapping-rules/index.vue"
+);
+const smartStructureRoutingRulesSource = readSource(
+  "web/src/views/config/smart-structure-routing-rules/index.vue"
+);
+const databaseBackupSource = readSource(
+  "web/src/views/config/database-backup/index.vue"
+);
+const embeddingCacheWarmupSource = readSource(
+  "web/src/views/config/embedding-cache-warmup/index.vue"
+);
 const smartFillMatchConfigSource = readSource(
   "web/src/views/smart-fill/components/MatchConfig.vue"
 );
@@ -151,6 +167,24 @@ const headerFilterPages = [
   permissionsPageSource,
   executionHistorySource,
   auditLogsSource
+];
+const managementSummaryPages = [
+  dashboardPageSource,
+  dataImportSource,
+  smartFillSource,
+  batchReplySource,
+  ...simpleCrudPages,
+  specsPageSource,
+  systemUsersSource,
+  promptTemplatesPageSource,
+  executionHistorySource,
+  auditLogsSource,
+  aiServicesSource,
+  orgUnitsSource,
+  columnMappingRulesSource,
+  smartStructureRoutingRulesSource,
+  databaseBackupSource,
+  embeddingCacheWarmupSource
 ];
 const smartFillStepSources = [
   smartFillUploadStepSource,
@@ -279,9 +313,10 @@ test("已触达核心流程样式不得继续使用 Element Plus 旧状态色", 
 test("简单 CRUD 页应使用全高骨架与单行工具栏", () => {
   for (const source of simpleCrudPages) {
     assert.match(source, /<div class="page page--fill simple-crud-page">/);
+    assert.doesNotMatch(source, /class="page-subtitle"/);
     assert.doesNotMatch(source, /<el-card class="mb-4">/);
     assert.match(source, /<div class="simple-crud-toolbar">/);
-    assert.match(source, /class="simple-crud-toolbar__title"/);
+    assert.doesNotMatch(source, /class="simple-crud-toolbar__title"/);
     assert.match(source, /class="simple-crud-toolbar__right"/);
     assert.match(source, /<el-card class="table-card" shadow="never">/);
     assert.match(source, /<div class="table-region">/);
@@ -304,7 +339,15 @@ test("简单 CRUD 工具栏换行时不应拆散搜索表单和操作按钮", ()
   );
   assert.match(
     globalStyleSource,
+    /\.simple-crud-toolbar\s*\{[^}]*justify-content:\s*flex-start/s
+  );
+  assert.match(
+    globalStyleSource,
     /\.simple-crud-search\s*\{[^}]*flex-wrap:\s*wrap/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.simple-crud-search\s*\{[^}]*justify-content:\s*flex-start/s
   );
   assert.match(
     globalStyleSource,
@@ -320,11 +363,15 @@ test("简单 CRUD 工具栏换行时不应拆散搜索表单和操作按钮", ()
   );
   assert.match(
     globalStyleSource,
+    /\.simple-crud-search\.el-form--inline\s+\.el-form-item:last-child\s+\.el-form-item__content\s*\{[^}]*gap:\s*8px/s
+  );
+  assert.match(
+    globalStyleSource,
     /\.simple-crud-actions\s*\{[^}]*flex-wrap:\s*wrap/s
   );
   assert.match(
     globalStyleSource,
-    /\.simple-crud-toolbar__right\s*\{[^}]*justify-content:\s*flex-end/s
+    /\.simple-crud-toolbar__right\s*\{[^}]*justify-content:\s*flex-start/s
   );
 });
 
@@ -341,22 +388,57 @@ test("所有筛选表单换行时不应拆散搜索重置按钮", () => {
     globalStyleSource,
     /\.filter-form\.el-form--inline\s+\.el-form-item:last-child\s*\{[^}]*flex-wrap:\s*nowrap/s
   );
+  assert.match(
+    globalStyleSource,
+    /\.filter-form\.el-form--inline\s+\.el-form-item:last-child\s+\.el-form-item__content\s*\{[^}]*gap:\s*8px/s
+  );
 
   for (const source of filterFormPages) {
     assert.match(source, /class="[^"]*\bfilter-form\b[^"]*"/);
   }
 });
 
-test("列表页筛选栏应放在表格卡头右侧，不再单独占用筛选卡", () => {
+test("列表页筛选栏应放在表格卡头同一行左侧，不再单独占用筛选卡", () => {
+  assert.match(
+    globalStyleSource,
+    /\.list-card-toolbar\s*\{[^}]*justify-content:\s*flex-start/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.list-card-toolbar__right\s*\{[^}]*justify-content:\s*flex-start/s
+  );
+
   for (const source of headerFilterPages) {
     assert.doesNotMatch(source, /<el-card class="mb-4">\s*<el-form/s);
     assert.match(source, /<template #header>/);
+    assert.doesNotMatch(source, /<div class="list-card-toolbar">\s*<span>/);
     assert.match(source, /class="[^"]*\bfilter-form\b[^"]*"/);
   }
 
   for (const source of [executionHistorySource, auditLogsSource]) {
     assert.doesNotMatch(source, /<el-card class="toolbar-card">\s*<el-form/s);
   }
+});
+
+test("权限中心用户与角色页面应显示页面标题", () => {
+  assert.match(systemUsersSource, /<div class="page-title">系统用户管理<\/div>/);
+  assert.match(authRolesSource, /<div class="page-title">角色管理<\/div>/);
+});
+
+test("管理与配置列表页不应保留重复说明和卡头区域名", () => {
+  assert.doesNotMatch(globalStyleSource, /\.page-subtitle\s*\{/);
+
+  for (const source of managementSummaryPages) {
+    assert.doesNotMatch(source, /class="page-subtitle"/);
+  }
+
+  for (const source of [...simpleCrudPages, ...headerFilterPages]) {
+    assert.doesNotMatch(source, /simple-crud-toolbar__title/);
+    assert.doesNotMatch(source, /<div class="list-card-toolbar">\s*<span>/);
+  }
+
+  assert.doesNotMatch(smartStructureRoutingRulesSource, /<span>路由规则<\/span>/);
+  assert.doesNotMatch(columnMappingRulesSource, /<span>列映射规则（全局）<\/span>/);
 });
 
 test("简单 CRUD 页分页默认应使用 50 并收敛选项", () => {

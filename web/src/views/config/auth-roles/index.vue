@@ -536,10 +536,15 @@ onMounted(initPage);
 
 <template>
   <div class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">角色管理</div>
+      </div>
+    </div>
+
     <el-card>
       <template #header>
         <div class="list-card-toolbar">
-          <span>角色管理</span>
           <div class="list-card-toolbar__right">
             <el-form :inline="true" class="filter-form">
               <el-form-item label="关键词">

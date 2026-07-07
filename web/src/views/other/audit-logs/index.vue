@@ -199,14 +199,12 @@ onMounted(loadData);
     <div class="page-header">
       <div>
         <div class="page-title">审计日志</div>
-        <div class="page-subtitle">仅记录控制器增删改动作，不记录查询请求</div>
       </div>
     </div>
 
     <el-card class="audit-table-card">
       <template #header>
         <div class="list-card-toolbar">
-          <span>审计日志</span>
           <div class="list-card-toolbar__right">
             <span class="text-sm text-gray-500">详情可点击“查看”展开</span>
             <el-form :inline="true" class="filter-form audit-filter-form">

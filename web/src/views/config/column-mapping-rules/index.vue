@@ -291,13 +291,11 @@ onMounted(load);
     <div class="page-header">
       <div>
         <div class="page-title">列映射规则</div>
-        <div class="page-subtitle">Word 表头关键字映射与优先级配置</div>
       </div>
     </div>
     <el-card>
       <template #header>
         <div class="flex justify-between items-center">
-          <span>列映射规则（全局）</span>
           <div>
             <el-button v-if="canCreate" type="primary" @click="openAdd">
               新增规则

@@ -147,7 +147,6 @@ const smartStructureDisplayGroups = computed(() =>
     <div class="page-header">
       <div>
         <div class="page-title">数据导入</div>
-        <div class="page-subtitle">导入验收规格数据，支持 Word/Excel</div>
       </div>
       <div class="wizard-steps">
         <el-steps :active="currentStep" finish-status="success">

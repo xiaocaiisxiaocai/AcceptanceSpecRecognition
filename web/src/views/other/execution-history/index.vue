@@ -185,16 +185,12 @@ onMounted(() => {
     <div class="page-header">
       <div>
         <div class="page-title">执行记录</div>
-        <div class="page-subtitle">
-          按任务回看智能填充与批量回复结果，智能填充支持完整回放，批量回复保持简化详情
-        </div>
       </div>
     </div>
 
     <el-card v-loading="loading" class="task-card">
       <template #header>
         <div class="list-card-toolbar">
-          <span>任务下拉</span>
           <div class="list-card-toolbar__right">
             <span class="card-header-tip">当前页共 {{ total }} 条记录</span>
             <el-form :inline="true" class="filter-form">

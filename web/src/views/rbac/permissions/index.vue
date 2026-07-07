@@ -78,7 +78,6 @@ onMounted(loadData);
     <el-card>
       <template #header>
         <div class="list-card-toolbar">
-          <span>权限字典</span>
           <div class="list-card-toolbar__right">
             <span class="text-[12px] text-[var(--app-text-disabled)]"
               >共 {{ permissions.length }} 项</span

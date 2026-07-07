@@ -366,7 +366,6 @@ onMounted(loadData);
     <div class="page-header">
       <div>
         <div class="page-title">AI 服务配置</div>
-        <div class="page-subtitle">管理 LLM 与 Embedding 服务连接</div>
         <!-- 当前匹配模式采用证据裁决，LLM 服务用于等价裁决与候选重排，Embedding 服务用于向量相似度检索 -->
       </div>
       <el-button
