@@ -22,7 +22,8 @@ public enum DocumentStructureHealthIssueCode
     LowConfidence = 7,
     MissingProjectColumn = 8,
     MissingAcceptanceColumn = 9,
-    MissingRemarkColumn = 10
+    MissingRemarkColumn = 10,
+    AmbiguousColumnMapping = 11
 }
 
 public sealed record DocumentStructureHealthIssue(
@@ -86,15 +87,9 @@ public static class DocumentStructureHealthCheck
                 "缺少验收列，不能自动采用"));
         }
 
-        if (!mapping.RemarkColumn.HasValue)
-        {
-            issues.Add(new DocumentStructureHealthIssue(
-                DocumentStructureHealthIssueCode.MissingRemarkColumn,
-                "缺少备注列，不能自动采用"));
-        }
-
         AddColumnRangeIssues(tableData, mapping, issues);
         AddDuplicateColumnIssues(mapping, issues);
+        AddAmbiguousColumnIssues(mappingResult, issues);
         AddRowRangeIssues(tableData, mapping, issues);
 
         if (mapping.SpecificationColumn.HasValue &&
@@ -160,6 +155,25 @@ public static class DocumentStructureHealthCheck
         }
     }
 
+    private static void AddAmbiguousColumnIssues(
+        ColumnMappingResult mappingResult,
+        List<DocumentStructureHealthIssue> issues)
+    {
+        var ambiguousTypes = mappingResult.Details
+            .Where(detail => detail.ColumnType != ColumnType.Unknown && detail.Confidence >= 0.8)
+            .GroupBy(detail => detail.ColumnType)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToList();
+
+        foreach (var columnType in ambiguousTypes)
+        {
+            issues.Add(new DocumentStructureHealthIssue(
+                DocumentStructureHealthIssueCode.AmbiguousColumnMapping,
+                $"{GetColumnTypeName(columnType)}存在多个高置信候选列，需人工确认"));
+        }
+    }
+
     private static void AddRowRangeIssues(
         TableData tableData,
         ColumnMapping mapping,
@@ -181,6 +195,15 @@ public static class DocumentStructureHealthCheck
     {
         return columnIndex >= 0 && columnIndex < tableData.ColumnCount;
     }
+
+    private static string GetColumnTypeName(ColumnType type) => type switch
+    {
+        ColumnType.Project => "项目列",
+        ColumnType.Specification => "规格列",
+        ColumnType.Acceptance => "验收列",
+        ColumnType.Remark => "备注列",
+        _ => "字段"
+    };
 
     private static double CalculateNonEmptyRate(TableData tableData, int columnIndex)
     {

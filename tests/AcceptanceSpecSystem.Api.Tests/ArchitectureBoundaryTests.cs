@@ -659,6 +659,18 @@ public class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void SmartStructureRoutingRegex_ShouldUseExplicitTimeout()
+    {
+        var routingContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/SmartConfigurationTableRoutingService.cs");
+        var controllerContent = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/SmartStructureRoutingRulesController.cs");
+
+        routingContent.Should().Contain("RegexMatchTimeoutException");
+        routingContent.Should().Contain("Regex.IsMatch(");
+        routingContent.Should().Contain("RegexMatchTimeout");
+        controllerContent.Should().Contain("RegexMatchTimeout");
+    }
+
+    [Fact]
     public void BackendUseCaseServiceFiles_ShouldStayBelowLargeFileThreshold()
     {
         var serviceFiles = Directory.GetFiles(

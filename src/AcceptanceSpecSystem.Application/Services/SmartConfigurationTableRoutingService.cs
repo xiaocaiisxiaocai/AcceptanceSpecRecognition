@@ -7,6 +7,8 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 internal static class SmartConfigurationTableRoutingService
 {
+    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(200);
+
     public static SmartConfigurationRecognizedTable Enrich(
         TableInfo? tableInfo,
         TableData tableData,
@@ -88,6 +90,28 @@ internal static class SmartConfigurationTableRoutingService
         return route.Recommendation == "Skip";
     }
 
+    public static bool ShouldUseStructureAdjudication(
+        TableInfo? tableInfo,
+        TableData tableData,
+        SmartConfigurationRecognizedTable table,
+        DocumentStructureHealthCheckResult healthCheck,
+        IReadOnlyList<SmartStructureRoutingRule> routingRules)
+    {
+        var route = Route(tableInfo, tableData, table, healthCheck, routingRules);
+        if (route.Recommendation == "Skip")
+        {
+            return false;
+        }
+
+        if (!HasStructureHeaderSignal(table))
+        {
+            return false;
+        }
+
+        return table.AcceptanceColumnIndex.HasValue ||
+               (table.ProjectColumnIndex.HasValue && table.SpecificationColumnIndex.HasValue);
+    }
+
     private static SmartStructureRoutingRule? FindBestRule(
         TableInfo? tableInfo,
         TableData tableData,
@@ -145,12 +169,23 @@ internal static class SmartConfigurationTableRoutingService
         SmartStructureRoutingMatchMode matchMode,
         string pattern)
     {
-        return matchMode switch
+        try
         {
-            SmartStructureRoutingMatchMode.Equals => string.Equals(value.Trim(), pattern.Trim(), StringComparison.OrdinalIgnoreCase),
-            SmartStructureRoutingMatchMode.Regex => Regex.IsMatch(value, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
-            _ => value.Contains(pattern, StringComparison.OrdinalIgnoreCase)
-        };
+            return matchMode switch
+            {
+                SmartStructureRoutingMatchMode.Equals => string.Equals(value.Trim(), pattern.Trim(), StringComparison.OrdinalIgnoreCase),
+                SmartStructureRoutingMatchMode.Regex => Regex.IsMatch(
+                    value,
+                    pattern,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                    RegexMatchTimeout),
+                _ => value.Contains(pattern, StringComparison.OrdinalIgnoreCase)
+            };
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
     }
 
     private static string InferStructuralTableKind(
@@ -160,6 +195,34 @@ internal static class SmartConfigurationTableRoutingService
         return table.SpecificationColumnIndex.HasValue && mappedFieldScore >= 0.75
             ? "AcceptanceSpec"
             : "Unknown";
+    }
+
+    private static bool HasStructureHeaderSignal(SmartConfigurationRecognizedTable table)
+    {
+        return table.Headers.Any(header =>
+        {
+            var normalized = header.Trim().ToLowerInvariant();
+            return normalized.Contains("项目") ||
+                   normalized.Contains("項目") ||
+                   normalized.Contains("规格") ||
+                   normalized.Contains("規格") ||
+                   normalized.Contains("标准") ||
+                   normalized.Contains("標準") ||
+                   normalized.Contains("要求") ||
+                   normalized.Contains("验收") ||
+                   normalized.Contains("驗收") ||
+                   normalized.Contains("判定") ||
+                   normalized.Contains("检查") ||
+                   normalized.Contains("檢查") ||
+                   normalized.Contains("检验") ||
+                   normalized.Contains("檢驗") ||
+                   normalized.Contains("测试") ||
+                   normalized.Contains("測試") ||
+                   normalized.Contains("spec") ||
+                   normalized.Contains("standard") ||
+                   normalized.Contains("acceptance") ||
+                   normalized.Contains("inspection");
+        });
     }
 
     private static string GetDefaultRecommendation(
@@ -278,6 +341,7 @@ internal static class SmartConfigurationTableRoutingService
         DocumentStructureHealthIssueCode.MissingProjectColumn => "Project",
         DocumentStructureHealthIssueCode.MissingAcceptanceColumn => "Acceptance",
         DocumentStructureHealthIssueCode.MissingRemarkColumn => "Remark",
+        DocumentStructureHealthIssueCode.AmbiguousColumnMapping => null,
         _ => null
     };
 }

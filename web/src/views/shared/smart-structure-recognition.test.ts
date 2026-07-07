@@ -155,17 +155,22 @@ describe("smart-structure-recognition", () => {
     ).toThrow("规格列不能为空");
   });
 
-  it("缺少验收列或备注列时拒绝构建确认请求", () => {
+  it("缺少验收列时拒绝构建确认请求", () => {
     expect(() =>
       buildSmartConfigConfirmRequest(
         12,
         table({ acceptanceColumnIndex: undefined })
       )
     ).toThrow("验收列不能为空");
+  });
 
-    expect(() =>
-      buildSmartConfigConfirmRequest(12, table({ remarkColumnIndex: undefined }))
-    ).toThrow("备注列不能为空");
+  it("缺少备注列时仍允许构建确认请求", () => {
+    const request = buildSmartConfigConfirmRequest(
+      12,
+      table({ remarkColumnIndex: undefined })
+    );
+
+    expect(request.remarkColumnIndex).toBeUndefined();
   });
 
   it("转换字段和决策展示标签", () => {

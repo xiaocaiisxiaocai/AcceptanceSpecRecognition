@@ -83,6 +83,7 @@ public sealed class SmartConfigurationLearningService
         if (string.IsNullOrWhiteSpace(pattern) ||
             string.IsNullOrWhiteSpace(normalizedKind) ||
             string.IsNullOrWhiteSpace(normalizedRecommendation) ||
+            IsGenericTableName(pattern) ||
             string.Equals(normalizedKind, "Unknown", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(normalizedRecommendation, "Skip", StringComparison.OrdinalIgnoreCase))
         {
@@ -138,6 +139,29 @@ public sealed class SmartConfigurationLearningService
             CreatedAt = DateTime.UtcNow
         }, cancellationToken);
         return true;
+    }
+
+    private static bool IsGenericTableName(string tableName)
+    {
+        var normalized = new string(tableName
+            .Where(ch => !char.IsWhiteSpace(ch) && ch != '_' && ch != '-')
+            .Select(char.ToLowerInvariant)
+            .ToArray());
+        return IsPrefixFollowedByOptionalDigits(normalized, "sheet") ||
+               IsPrefixFollowedByOptionalDigits(normalized, "worksheet") ||
+               IsPrefixFollowedByOptionalDigits(normalized, "工作表") ||
+               IsPrefixFollowedByOptionalDigits(normalized, "表");
+    }
+
+    private static bool IsPrefixFollowedByOptionalDigits(string value, string prefix)
+    {
+        if (!value.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return value.Length == prefix.Length ||
+               value[prefix.Length..].All(char.IsDigit);
     }
 
     private async Task<bool> UpsertCustomerLearnedRuleAsync(

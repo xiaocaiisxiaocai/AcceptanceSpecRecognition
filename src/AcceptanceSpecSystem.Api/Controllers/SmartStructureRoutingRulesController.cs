@@ -16,6 +16,8 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public sealed class SmartStructureRoutingRulesController : BaseApiController
 {
+    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(200);
+
     private readonly IUnitOfWork _unitOfWork;
 
     public SmartStructureRoutingRulesController(IUnitOfWork unitOfWork)
@@ -190,7 +192,7 @@ public sealed class SmartStructureRoutingRulesController : BaseApiController
         {
             try
             {
-                _ = new Regex(pattern);
+                _ = new Regex(pattern, RegexOptions.None, RegexMatchTimeout);
             }
             catch (Exception ex)
             {

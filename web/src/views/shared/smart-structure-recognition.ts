@@ -314,9 +314,6 @@ export const buildSmartConfigConfirmRequest = (
   if (table.acceptanceColumnIndex === undefined) {
     throw new Error("验收列不能为空");
   }
-  if (table.remarkColumnIndex === undefined) {
-    throw new Error("备注列不能为空");
-  }
 
   return {
     customerId,

@@ -134,7 +134,6 @@ const canConfirm = computed(
     hasRequiredProjectColumn.value &&
     state.specificationColumnIndex !== undefined &&
     state.acceptanceColumnIndex !== undefined &&
-    state.remarkColumnIndex !== undefined &&
     props.table.decision !== "Reject"
 );
 
@@ -183,8 +182,7 @@ const emitConfirm = () => {
     !props.customerId ||
     !hasRequiredProjectColumn.value ||
     state.specificationColumnIndex === undefined ||
-    state.acceptanceColumnIndex === undefined ||
-    state.remarkColumnIndex === undefined
+    state.acceptanceColumnIndex === undefined
   ) {
     return;
   }
@@ -363,11 +361,11 @@ const emitConfirm = () => {
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="备注列" required>
+          <el-form-item label="备注列">
             <el-select
               v-model="state.remarkColumnIndex"
               :disabled="readonly"
-              placeholder="请选择备注列"
+              placeholder="请选择备注列（可选）"
               clearable
               style="width: 100%"
             >

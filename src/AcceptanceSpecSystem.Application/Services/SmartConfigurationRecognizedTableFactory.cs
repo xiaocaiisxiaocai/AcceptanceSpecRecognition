@@ -11,7 +11,8 @@ internal static class SmartConfigurationRecognizedTableFactory
         TableInfo? tableInfo,
         TableData tableData,
         DocumentTemplate template,
-        List<string> headers)
+        List<string> headers,
+        DocumentStructureHealthCheckResult healthCheck)
     {
         var structure = new SmartConfigurationTableStructure
         {
@@ -22,14 +23,14 @@ internal static class SmartConfigurationRecognizedTableFactory
             HeaderRowCount = template.HeaderRowCount,
             DataStartRowIndex = template.DataStartRowIndex,
             DataEndRowIndex = template.DataEndRowIndex,
-            ProjectColumnIndex = template.ProjectColumnIndex,
-            SpecificationColumnIndex = template.SpecificationColumnIndex,
-            AcceptanceColumnIndex = template.AcceptanceColumnIndex,
-            RemarkColumnIndex = template.RemarkColumnIndex,
+            ProjectColumnIndex = NormalizeTemplateColumn(template.ProjectColumnIndex),
+            SpecificationColumnIndex = NormalizeTemplateColumn(template.SpecificationColumnIndex),
+            AcceptanceColumnIndex = NormalizeTemplateColumn(template.AcceptanceColumnIndex),
+            RemarkColumnIndex = NormalizeTemplateColumn(template.RemarkColumnIndex),
             IsSpecificationOnly = template.IsSpecificationOnly,
             Confidence = 1.0,
             Source = "Template",
-            Decision = "AutoApply"
+            Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm"
         };
         return ToRecognizedTable(NormalizeRowRange(tableData, structure));
     }
@@ -45,7 +46,8 @@ internal static class SmartConfigurationRecognizedTableFactory
         var structure = FromColumnMapping(tableInfo, tableData, mapping, isSpecificationOnly);
         return ToRecognizedTable(NormalizeRowRange(tableData, structure) with
         {
-            Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm"
+            Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm",
+            FieldConfidences = BuildFieldConfidences(mapping)
         });
     }
 
@@ -74,6 +76,28 @@ internal static class SmartConfigurationRecognizedTableFactory
             Source = "RuleBased",
             Decision = "NeedConfirm"
         };
+    }
+
+    private static IReadOnlyDictionary<string, double> BuildFieldConfidences(ColumnMappingResult mapping)
+    {
+        return new Dictionary<string, double>
+        {
+            ["Project"] = GetMappedColumnConfidence(mapping, mapping.Mapping.ProjectColumn),
+            ["Specification"] = GetMappedColumnConfidence(mapping, mapping.Mapping.SpecificationColumn),
+            ["Acceptance"] = GetMappedColumnConfidence(mapping, mapping.Mapping.AcceptanceColumn),
+            ["Remark"] = GetMappedColumnConfidence(mapping, mapping.Mapping.RemarkColumn)
+        };
+    }
+
+    private static double GetMappedColumnConfidence(ColumnMappingResult mapping, int? columnIndex)
+    {
+        if (!columnIndex.HasValue)
+        {
+            return 0;
+        }
+
+        return mapping.Details.FirstOrDefault(detail => detail.ColumnIndex == columnIndex.Value)?.Confidence ??
+               mapping.Confidence;
     }
 
     public static SmartConfigurationRecognizedTable FromCandidate(
@@ -166,6 +190,24 @@ internal static class SmartConfigurationRecognizedTableFactory
         });
     }
 
+    public static ColumnMappingResult ToColumnMappingResult(DocumentTemplate template)
+    {
+        return new ColumnMappingResult
+        {
+            Confidence = 1.0,
+            Mapping = new ColumnMapping
+            {
+                ProjectColumn = NormalizeTemplateColumn(template.ProjectColumnIndex),
+                SpecificationColumn = NormalizeTemplateColumn(template.SpecificationColumnIndex),
+                AcceptanceColumn = NormalizeTemplateColumn(template.AcceptanceColumnIndex),
+                RemarkColumn = NormalizeTemplateColumn(template.RemarkColumnIndex),
+                HeaderRowIndex = template.HeaderRowIndex,
+                HeaderRowCount = template.HeaderRowCount,
+                DataStartRowIndex = template.DataStartRowIndex
+            }
+        };
+    }
+
     public static ColumnMappingResult ToColumnMappingResult(SmartConfigurationTableStructure structure)
     {
         return new ColumnMappingResult
@@ -210,7 +252,8 @@ internal static class SmartConfigurationRecognizedTableFactory
                 structure.AcceptanceColumnIndex,
                 structure.RemarkColumnIndex,
                 structure.Confidence,
-                structure.Source)
+                structure.Source,
+                structure.FieldConfidences)
         };
     }
 
@@ -222,6 +265,11 @@ internal static class SmartConfigurationRecognizedTableFactory
             ? tableData.TotalRowCount - 1
             : (int?)null;
         var dataEndRowIndex = structure.DataEndRowIndex ?? fallbackEndRowIndex;
+        if (dataEndRowIndex.HasValue && fallbackEndRowIndex.HasValue)
+        {
+            dataEndRowIndex = Math.Min(dataEndRowIndex.Value, fallbackEndRowIndex.Value);
+        }
+
         if (dataEndRowIndex.HasValue && dataEndRowIndex.Value < structure.DataStartRowIndex)
         {
             // 多行表头占满已用区域时没有数据行，结束行应为空，不能返回反向范围。
@@ -234,6 +282,13 @@ internal static class SmartConfigurationRecognizedTableFactory
         };
     }
 
+    private static int? NormalizeTemplateColumn(int? columnIndex)
+    {
+        return columnIndex.HasValue && columnIndex.Value >= 0
+            ? columnIndex.Value
+            : null;
+    }
+
     private static List<SmartConfigurationRecognizedField> BuildFields(
         IReadOnlyList<string> headers,
         int? projectColumn,
@@ -241,14 +296,15 @@ internal static class SmartConfigurationRecognizedTableFactory
         int? acceptanceColumn,
         int? remarkColumn,
         double confidence,
-        string source)
+        string source,
+        IReadOnlyDictionary<string, double>? fieldConfidences = null)
     {
         return
         [
-            BuildField("Project", projectColumn, headers, confidence, source),
-            BuildField("Specification", specificationColumn, headers, confidence, source),
-            BuildField("Acceptance", acceptanceColumn, headers, confidence, source),
-            BuildField("Remark", remarkColumn, headers, confidence, source)
+            BuildField("Project", projectColumn, headers, confidence, source, fieldConfidences),
+            BuildField("Specification", specificationColumn, headers, confidence, source, fieldConfidences),
+            BuildField("Acceptance", acceptanceColumn, headers, confidence, source, fieldConfidences),
+            BuildField("Remark", remarkColumn, headers, confidence, source, fieldConfidences)
         ];
     }
 
@@ -257,7 +313,8 @@ internal static class SmartConfigurationRecognizedTableFactory
         int? columnIndex,
         IReadOnlyList<string> headers,
         double confidence,
-        string source)
+        string source,
+        IReadOnlyDictionary<string, double>? fieldConfidences)
     {
         return new SmartConfigurationRecognizedField
         {
@@ -268,7 +325,9 @@ internal static class SmartConfigurationRecognizedTableFactory
                      columnIndex.Value < headers.Count
                 ? headers[columnIndex.Value]
                 : null,
-            Confidence = columnIndex.HasValue ? confidence : 0,
+            Confidence = columnIndex.HasValue
+                ? fieldConfidences?.GetValueOrDefault(field, confidence) ?? confidence
+                : 0,
             Source = source
         };
     }
@@ -305,4 +364,6 @@ internal sealed record SmartConfigurationTableStructure
     public required string Source { get; init; }
 
     public required string Decision { get; init; }
+
+    public IReadOnlyDictionary<string, double>? FieldConfidences { get; init; }
 }

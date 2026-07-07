@@ -48,7 +48,7 @@ public static partial class PromptTemplateCatalog
         1. tables 只能引用输入中存在的 tableIndex 和列索引
         2. 规格列 specificationColumnIndex 是必需列；无法确定时 decision 必须为 needConfirm
         3. 项目列、验收标准列、备注列可以为 null，但不得臆造
-        4. headerRowIndex、headerRowCount、dataStartRowIndex、dataEndRowIndex 必须与表格实际行范围一致
+        4. headerRowIndex、headerRowCount、dataStartRowIndex、dataEndRowIndex 必须使用 documentTablesJson.rowCoordinateSystem 指定的 0 基原始表格行号，并与 headerRows/sampleRows 的 rowIndex 对齐
         5. confidence 取值 0~1；只有结构完整且冲突很少时才可高于 0.85
         6. decision 只允许 autoApply、needConfirm、reject
         7. reason 用一句话说明关键依据或需要人工确认的原因

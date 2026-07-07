@@ -129,6 +129,67 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     }
 
     [Fact]
+    public async Task Recognize_WhenCustomerTemplateMissesRequiredColumns_ShouldNeedConfirmAndClampRowRange()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-模板健康检查客户");
+        await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            templateName = "缺列模板",
+            headers = new[] { "项目", "规格内容", "验收结果", "备注" },
+            projectColumnIndex = 0,
+            specificationColumnIndex = 1,
+            acceptanceColumnIndex = (int?)null,
+            remarkColumnIndex = (int?)null,
+            headerRowIndex = 0,
+            headerRowCount = 1,
+            dataStartRowIndex = 1,
+            dataEndRowIndex = 999,
+            isSpecificationOnly = false,
+            learnedColumns = Array.Empty<object>()
+        }));
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-template-health.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("source").GetString().Should().Be("Template");
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        table.GetProperty("dataEndRowIndex").GetInt32().Should().Be(1);
+        table.GetProperty("acceptanceColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("remarkColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Recognize_WhenColumnIsInferredFromSamples_ShouldExposePerFieldConfidence()
+    {
+        var fileId = await UploadExcelAsync(CreateExcelWithSampleInferredAcceptanceBytes(), "smart-recognize-field-confidence.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+        var fields = table.GetProperty("fields").EnumerateArray().ToDictionary(
+            field => field.GetProperty("field").GetString()!,
+            field => field);
+
+        fields["Project"].GetProperty("confidence").GetDouble().Should().BeApproximately(0.95, 0.001);
+        fields["Specification"].GetProperty("confidence").GetDouble().Should().BeApproximately(0.95, 0.001);
+        fields["Acceptance"].GetProperty("confidence").GetDouble().Should().BeApproximately(0.75, 0.001);
+    }
+
+    [Fact]
     public async Task Recognize_WithMixedExcelSheets_ShouldReturnAdaptiveRoutingMetadata()
     {
         var customerId = await CreateCustomerAsync("智能识别-混合工作簿客户");
@@ -329,6 +390,22 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         worksheet.Cell(3, 4).Value = "依主設備流向";
         worksheet.Cell(3, 5).Value = "裝機時檢查";
         worksheet.Cell(3, 6).Value = "■OK   □NG";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateExcelWithSampleInferredAcceptanceBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "回复栏";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "OK";
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -897,6 +974,36 @@ public class SmartConfigRecognizeHistoryFewShotApiTests : IClassFixture<LlmRecor
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         RecordingStructureAdjudicationService.LastRequest.Should().NotBeNull();
         RecordingStructureAdjudicationService.LastRequest!.ReferenceCases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenLlmAdjudicates_ShouldPassExplicitOriginalRowCoordinates()
+    {
+        RecordingStructureAdjudicationService.Reset();
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-llm-row-coordinates.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        RecordingStructureAdjudicationService.LastRequest.Should().NotBeNull();
+
+        using var document = JsonDocument.Parse(RecordingStructureAdjudicationService.LastRequest!.DocumentTablesJson);
+        var table = document.RootElement.EnumerateArray().Single();
+        table.GetProperty("rowCoordinateSystem").GetString().Should().Be("zeroBasedOriginalTableRowIndex");
+        table.GetProperty("totalRowCount").GetInt32().Should().Be(2);
+
+        var headerRow = table.GetProperty("headerRows").EnumerateArray().Single();
+        headerRow.GetProperty("rowIndex").GetInt32().Should().Be(0);
+        headerRow.GetProperty("cells").EnumerateArray().Select(cell => cell.GetString())
+            .Should().Equal("检查对象", "管制条件", "供应商确认", "补充说明");
+
+        var sampleRow = table.GetProperty("sampleRows").EnumerateArray().Single();
+        sampleRow.GetProperty("rowIndex").GetInt32().Should().Be(1);
+        sampleRow.GetProperty("cells").EnumerateArray().Select(cell => cell.GetString())
+            .Should().Equal("外观", "无划伤", "OK", "抽检");
     }
 
     [Fact]
@@ -2043,6 +2150,29 @@ public class SmartConfigRecognizeLlmRoutingBudgetApiTests : IClassFixture<LlmRou
         llmTables[0].GetProperty("tableName").GetString().Should().Be("验收表");
     }
 
+    [Fact]
+    public async Task Recognize_WhenFirstSheetIsLowValueUnknown_ShouldSpendLlmBudgetOnRecoverableAcceptanceSheet()
+    {
+        RoutingBudgetRecordingStructureAdjudicationService.Reset();
+        var fileId = await UploadExcelAsync(
+            CreateLowValueUnknownThenAcceptanceExcelBytes(),
+            "smart-recognize-llm-low-value-budget.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        RoutingBudgetRecordingStructureAdjudicationService.LastRequest.Should().NotBeNull();
+        var llmTables = JsonDocument.Parse(RoutingBudgetRecordingStructureAdjudicationService.LastRequest!.DocumentTablesJson)
+            .RootElement
+            .EnumerateArray()
+            .ToList();
+        llmTables.Should().ContainSingle();
+        llmTables[0].GetProperty("tableName").GetString().Should().Be("验收表");
+    }
+
     private async Task CreateRoutingRuleAsync(
         string name,
         string tableKind,
@@ -2094,6 +2224,26 @@ public class SmartConfigRecognizeLlmRoutingBudgetApiTests : IClassFixture<LlmRou
         quotation.Cell(2, 1).Value = "投收板机";
         quotation.Cell(2, 2).Value = "100";
         quotation.Cell(2, 3).Value = "1";
+
+        var acceptance = workbook.AddWorksheet("验收表");
+        acceptance.Cell(1, 1).Value = "项目";
+        acceptance.Cell(1, 2).Value = "验收标准";
+        acceptance.Cell(2, 1).Value = "外观";
+        acceptance.Cell(2, 2).Value = "目视 OK";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateLowValueUnknownThenAcceptanceExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var description = workbook.AddWorksheet("说明页");
+        description.Cell(1, 1).Value = "版本";
+        description.Cell(1, 2).Value = "负责人";
+        description.Cell(2, 1).Value = "A";
+        description.Cell(2, 2).Value = "张三";
 
         var acceptance = workbook.AddWorksheet("验收表");
         acceptance.Cell(1, 1).Value = "项目";

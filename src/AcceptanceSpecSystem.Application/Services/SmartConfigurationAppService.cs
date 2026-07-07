@@ -388,12 +388,23 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 cancellationToken);
             if (template != null)
             {
+                var templateHealthCheck = DocumentStructureHealthCheck.Evaluate(
+                    tableData,
+                    SmartConfigurationRecognizedTableFactory.ToColumnMappingResult(template),
+                    allowMissingProjectColumn: template.IsSpecificationOnly,
+                    autoApplyConfidenceThreshold: GetAutoApplyConfidenceThreshold(),
+                    minimumSpecificationNonEmptyRate: GetMinimumSpecificationNonEmptyRate());
                 await _templateService.IncrementUsageAsync(template.Id, cancellationToken);
                 return SmartConfigurationTableRoutingService.Enrich(
                     tableInfo,
                     tableData,
-                    SmartConfigurationRecognizedTableFactory.FromTemplate(tableInfo, tableData, template, headers),
-                    null,
+                    SmartConfigurationRecognizedTableFactory.FromTemplate(
+                        tableInfo,
+                        tableData,
+                        template,
+                        headers,
+                        templateHealthCheck),
+                    templateHealthCheck,
                     routingRules,
                     referenceCaseScore: 1);
             }
@@ -480,7 +491,12 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             healthCheck,
             isSpecificationOnly);
         if (!healthCheck.CanAutoApply &&
-            !SmartConfigurationTableRoutingService.ShouldSkipStructureAdjudication(tableInfo, tableData, ruleRecognized, routingRules))
+            SmartConfigurationTableRoutingService.ShouldUseStructureAdjudication(
+                tableInfo,
+                tableData,
+                ruleRecognized,
+                healthCheck,
+                routingRules))
         {
             var fused = tryConsumeStructureAdjudicationBudget()
                 ? await TryFuseWithLlmStructureAsync(customerId, tableInfo, tableData, mapping, cancellationToken)
@@ -546,7 +562,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 new LlmDocumentStructureAdjudicationRequest
                 {
                     RuleCandidates = [ruleCandidate],
-                    DocumentTablesJson = SerializeTableForStructureAdjudication(tableInfo, tableData),
+                    DocumentTablesJson = SerializeTableForStructureAdjudication(tableInfo, tableData, ruleCandidate),
                     ReferenceCases = await BuildReferenceCasesAsync(customerId, tableInfo?.Name, tableData.Headers.ToList(), cancellationToken)
                 },
                 timeoutCts.Token);
@@ -694,7 +710,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             : Math.Clamp(referenceCases[0].Similarity, 0, 1);
     }
 
-    private static string SerializeTableForStructureAdjudication(TableInfo? tableInfo, TableData tableData)
+    private static string SerializeTableForStructureAdjudication(
+        TableInfo? tableInfo,
+        TableData tableData,
+        DocumentStructureCandidate ruleCandidate)
     {
         var payload = new[]
         {
@@ -702,6 +721,28 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             {
                 tableIndex = tableData.TableIndex,
                 tableName = tableInfo?.Name,
+                rowCoordinateSystem = "zeroBasedOriginalTableRowIndex",
+                totalRowCount = GetTotalRowCount(tableInfo, tableData),
+                headerRows = new[]
+                {
+                    new
+                    {
+                        rowIndex = ruleCandidate.HeaderRowIndex,
+                        rowSpan = ruleCandidate.HeaderRowCount,
+                        cells = tableData.Headers
+                    }
+                },
+                sampleRows = tableData.Rows
+                    .Take(5)
+                    .Select((row, index) => new
+                    {
+                        rowIndex = ruleCandidate.DataStartRowIndex + index,
+                        cells = row.Cells
+                            .OrderBy(cell => cell.ColumnIndex)
+                            .Select(cell => cell.Value)
+                            .ToArray()
+                    })
+                    .ToArray(),
                 headers = tableData.Headers,
                 rows = tableData.Rows
                     .Take(5)

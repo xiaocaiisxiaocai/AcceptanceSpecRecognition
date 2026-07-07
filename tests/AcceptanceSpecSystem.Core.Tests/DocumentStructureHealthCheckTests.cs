@@ -48,7 +48,40 @@ public class DocumentStructureHealthCheckTests
         result.CanAutoApply.Should().BeFalse();
         result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.MissingProjectColumn);
         result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.MissingAcceptanceColumn);
-        result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.MissingRemarkColumn);
+        result.Issues.Should().NotContain(issue => issue.Code == DocumentStructureHealthIssueCode.MissingRemarkColumn);
+    }
+
+    [Fact]
+    public void Evaluate_WhenOnlyRemarkColumnMissing_ShouldAllowAutoApply()
+    {
+        var table = CreateTable(["项目", "规格", "验收标准"], ["外观", "无划伤", "目视 OK"]);
+        var mapping = CreateMapping(projectColumn: 0, specificationColumn: 1, acceptanceColumn: 2, remarkColumn: null);
+
+        var result = DocumentStructureHealthCheck.Evaluate(table, mapping, confidence: 0.96);
+
+        result.Decision.Should().Be(DocumentStructureDecision.AutoApply);
+        result.CanAutoApply.Should().BeTrue();
+        result.Issues.Should().NotContain(issue => issue.Code == DocumentStructureHealthIssueCode.MissingRemarkColumn);
+    }
+
+    [Fact]
+    public void Evaluate_WhenMultipleHighConfidenceColumnsCompeteForSameField_ShouldNeedConfirm()
+    {
+        var table = CreateTable(
+            ["项目", "规格", "规格要求", "验收标准"],
+            ["外观", "无划伤", "无明显划伤", "目视 OK"]);
+        var mapping = CreateMapping(projectColumn: 0, specificationColumn: 1, acceptanceColumn: 3, remarkColumn: null);
+        mapping.Details.AddRange([
+            new ColumnIdentificationResult { ColumnIndex = 0, HeaderText = "项目", ColumnType = ColumnType.Project, Confidence = 0.95 },
+            new ColumnIdentificationResult { ColumnIndex = 1, HeaderText = "规格", ColumnType = ColumnType.Specification, Confidence = 0.95 },
+            new ColumnIdentificationResult { ColumnIndex = 2, HeaderText = "规格要求", ColumnType = ColumnType.Specification, Confidence = 0.93 },
+            new ColumnIdentificationResult { ColumnIndex = 3, HeaderText = "验收标准", ColumnType = ColumnType.Acceptance, Confidence = 0.95 }
+        ]);
+
+        var result = DocumentStructureHealthCheck.Evaluate(table, mapping, confidence: 0.96);
+
+        result.Decision.Should().Be(DocumentStructureDecision.NeedConfirm);
+        result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.AmbiguousColumnMapping);
     }
 
     [Fact]

@@ -113,6 +113,39 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
         templates[0].AcceptanceColumnIndex.Should().Be(3);
     }
 
+    [Fact]
+    public async Task Confirm_WhenTemplateNameIsGenericSheetName_ShouldNotCreateLearnedRoutingRule()
+    {
+        var customerId = await CreateCustomerAsync("确认学习-通用表名客户");
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            templateName = "Sheet1",
+            headers = new[] { "项目", "规格", "验收" },
+            projectColumnIndex = 0,
+            specificationColumnIndex = 1,
+            acceptanceColumnIndex = 2,
+            headerRowIndex = 0,
+            headerRowCount = 1,
+            dataStartRowIndex = 1,
+            tableKind = "AcceptanceSpec",
+            recommendation = "Recommended",
+            isSpecificationOnly = false,
+            learnedColumns = Array.Empty<object>()
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var learnedRoutingRule = await db.SmartStructureRoutingRules.SingleOrDefaultAsync(rule =>
+            rule.CustomerId == customerId &&
+            rule.Source == SmartStructureRoutingRuleSource.Learned);
+
+        learnedRoutingRule.Should().BeNull();
+    }
+
     private async Task ConfirmHeaderAsync(int customerId, string header, int targetField)
     {
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
