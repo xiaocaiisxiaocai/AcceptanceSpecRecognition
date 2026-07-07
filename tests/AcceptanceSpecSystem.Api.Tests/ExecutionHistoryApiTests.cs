@@ -1,6 +1,9 @@
 ﻿using System.Net;
 using System.Net.Http.Headers;
+using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
@@ -767,6 +770,27 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         legacyFiles[0].GetProperty("sheets")[0].GetProperty("rows")[0].GetProperty("status").GetString().Should().Be("adopted");
     }
 
+    [Fact]
+    public async Task LegacySmartFillExecutionHistory_WithFullArchive_ShouldReturnArchivedPlaybackRows()
+    {
+        var recordId = await InsertLegacySmartFillExecutionHistoryWithFullArchiveAsync();
+
+        var detailResp = await _client.GetAsync($"/api/execution-history/{recordId}");
+        detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        detailJson.Code.Should().Be(0);
+
+        var playback = detailJson.Data.GetProperty("smartFillPlayback");
+        playback.GetProperty("isLegacy").GetBoolean().Should().BeFalse("已有完整归档时应恢复为可展示回放");
+
+        var rows = playback.GetProperty("files")[0].GetProperty("sheets")[0].GetProperty("rows");
+        rows.GetArrayLength().Should().Be(2);
+        rows[0].GetProperty("rowIndex").GetInt32().Should().Be(1);
+        rows[0].GetProperty("status").GetString().Should().Be("adopted");
+        rows[1].GetProperty("rowIndex").GetInt32().Should().Be(2);
+        rows[1].GetProperty("status").GetString().Should().Be("unmatched");
+    }
+
     private async Task<int> UploadDocumentAsync(byte[] bytes, string fileName)
     {
         using var content = new MultipartFormDataContent();
@@ -903,6 +927,137 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         db.ExecutionHistoryRecords.Add(entity);
         await db.SaveChangesAsync();
         return entity.Id;
+    }
+
+    private async Task<int> InsertLegacySmartFillExecutionHistoryWithFullArchiveAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var taskId = Guid.NewGuid().ToString("N");
+        var fullDetailJson = JsonSerializer.Serialize(new
+        {
+            taskId,
+            taskType = "smart-fill",
+            sourceFileName = "legacy-archive-smart-fill.xlsx",
+            fileCount = 1,
+            totalRowCount = 2,
+            matchedRowCount = 1,
+            adoptedRowCount = 1,
+            unmatchedRowCount = 1,
+            skippedRowCount = 0,
+            notAdoptedRowCount = 1,
+            manualSelectedRowCount = 0,
+            smartFillPlayback = new
+            {
+                payloadVersion = 1,
+                isLegacy = false,
+                files = new[]
+                {
+                    new
+                    {
+                        fileName = "legacy-archive-smart-fill.xlsx",
+                        sheets = new[]
+                        {
+                            new
+                            {
+                                sheetIndex = 0,
+                                sheetName = "Sheet1",
+                                rows = new object[]
+                                {
+                                    new
+                                    {
+                                        rowIndex = 1,
+                                        sourceProject = "P1",
+                                        sourceSpecification = "S1",
+                                        status = "adopted",
+                                        matchOrigin = "exact",
+                                        isManualConfirmed = false,
+                                        isManualEdited = false,
+                                        displayTags = new[] { "完全匹配" },
+                                        previewSnapshot = new { confidenceLevel = "high" },
+                                        executionSnapshot = new { selectedSpecId = 1, manualConfirmed = false, manualEdited = false, status = "adopted" }
+                                    },
+                                    new
+                                    {
+                                        rowIndex = 2,
+                                        sourceProject = "P2",
+                                        sourceSpecification = "S2",
+                                        status = "unmatched",
+                                        matchOrigin = "none",
+                                        isManualConfirmed = false,
+                                        isManualEdited = false,
+                                        displayTags = new[] { "未采用/未匹配" },
+                                        previewSnapshot = new { confidenceLevel = "none", noMatchReason = "未匹配" },
+                                        executionSnapshot = new { manualConfirmed = false, manualEdited = false, status = "unmatched" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        var archivePath = await storage.SaveSmartFillPlaybackArchiveAsync(
+            $"{taskId}-smart-fill-playback.json.gz",
+            CompressUtf8(fullDetailJson));
+
+        var entity = new ExecutionHistoryRecord
+        {
+            TaskId = taskId,
+            TaskType = "smart-fill",
+            SourceFileId = null,
+            SourceFileName = "legacy-archive-smart-fill.xlsx",
+            SourceFileType = UploadedFileType.ExcelXlsx,
+            FileCount = 1,
+            TotalRowCount = 2,
+            MatchedRowCount = 1,
+            AdoptedRowCount = 1,
+            UnmatchedRowCount = 1,
+            SkippedRowCount = 0,
+            NotAdoptedRowCount = 1,
+            ManualSelectedRowCount = 0,
+            CreatedByUserId = 1,
+            CompanyId = 1,
+            CreatedAt = DateTime.UtcNow,
+            DetailJson = JsonSerializer.Serialize(new
+            {
+                taskId,
+                taskType = "smart-fill",
+                sourceFileName = "legacy-archive-smart-fill.xlsx",
+                fileCount = 1,
+                totalRowCount = 2,
+                matchedRowCount = 1,
+                adoptedRowCount = 1,
+                unmatchedRowCount = 1,
+                notAdoptedRowCount = 1,
+                smartFillPlayback = new
+                {
+                    payloadVersion = 1,
+                    isLegacy = true,
+                    hasFullArchive = true,
+                    fullArchiveRelativePath = archivePath,
+                    legacyMessage = "执行记录过大，已自动压缩，仅保留汇总信息。",
+                    files = Array.Empty<object>()
+                }
+            })
+        };
+
+        db.ExecutionHistoryRecords.Add(entity);
+        await db.SaveChangesAsync();
+        return entity.Id;
+    }
+
+    private static byte[] CompressUtf8(string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            gzip.Write(bytes, 0, bytes.Length);
+        }
+
+        return output.ToArray();
     }
 
     private static byte[] CreateDocxBytes(params string[][] rows)

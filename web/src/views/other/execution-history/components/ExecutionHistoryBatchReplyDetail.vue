@@ -10,8 +10,7 @@ const props = defineProps<{
   files: ExecutionHistoryFile[];
 }>();
 
-const selectedFileIndex = ref(0);
-const selectedSheetName = ref("");
+const selectedTabKey = ref("");
 const statusFilter = ref("");
 const keyword = ref("");
 const page = ref(1);
@@ -25,18 +24,29 @@ const statusOptions = [
   { label: "已跳过", value: "skipped" }
 ];
 
-const currentFile = computed<ExecutionHistoryFile | null>(
-  () => props.files[selectedFileIndex.value] ?? null
+const tabItems = computed(() =>
+  props.files.flatMap((file, fileIndex) =>
+    file.sheets.map(sheet => {
+      const sheetLabel = sheet.sheetName || `Sheet ${sheet.sheetIndex + 1}`;
+
+      return {
+        key: `${fileIndex}:${sheet.sheetIndex}`,
+        label:
+          props.files.length > 1
+            ? `${file.fileName} / ${sheetLabel}`
+            : sheetLabel,
+        sheet
+      };
+    })
+  )
 );
 
-const currentSheet = computed<ExecutionHistorySheet | null>(() => {
-  const sheets = currentFile.value?.sheets ?? [];
-  return (
-    sheets.find(sheet => sheet.sheetName === selectedSheetName.value) ??
-    sheets[0] ??
+const currentSheet = computed<ExecutionHistorySheet | null>(
+  () =>
+    tabItems.value.find(item => item.key === selectedTabKey.value)?.sheet ??
+    tabItems.value[0]?.sheet ??
     null
-  );
-});
+);
 
 const filteredRows = computed<ExecutionHistoryRow[]>(() => {
   const rows = currentSheet.value?.rows ?? [];
@@ -72,22 +82,17 @@ const resetResultPage = () => {
 
 watch(
   () => props.files,
-  files => {
-    selectedFileIndex.value = 0;
-    selectedSheetName.value = files[0]?.sheets[0]?.sheetName ?? "";
+  () => {
+    selectedTabKey.value = tabItems.value[0]?.key ?? "";
+    resetResultPage();
   },
   { immediate: true }
 );
 
-watch(currentFile, file => {
-  const firstSheetName = file?.sheets[0]?.sheetName ?? "";
-  if (
-    file &&
-    !file.sheets.some(sheet => sheet.sheetName === selectedSheetName.value)
-  ) {
-    selectedSheetName.value = firstSheetName;
+watch(tabItems, items => {
+  if (!items.some(item => item.key === selectedTabKey.value)) {
+    selectedTabKey.value = items[0]?.key ?? "";
   }
-  resetResultPage();
 });
 
 watch([currentSheet, statusFilter, keyword, pageSize], () => {
@@ -129,34 +134,17 @@ const formatConfidence = (confidencePercent: number) =>
 <template>
   <div class="result-table">
     <template v-if="files.length > 0">
+      <el-tabs v-model="selectedTabKey" class="result-tabs">
+        <el-tab-pane
+          v-for="item in tabItems"
+          :key="item.key"
+          :label="item.label"
+          :name="item.key"
+        />
+      </el-tabs>
+
       <div class="result-toolbar">
         <el-form :inline="true" class="filter-form">
-          <el-form-item label="文件">
-            <el-select
-              v-model="selectedFileIndex"
-              class="search-select search-select--300"
-            >
-              <el-option
-                v-for="(file, index) in files"
-                :key="`${file.fileName}-${index}`"
-                :label="file.fileName"
-                :value="index"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="表格">
-            <el-select
-              v-model="selectedSheetName"
-              class="search-select search-select--220"
-            >
-              <el-option
-                v-for="sheet in currentFile?.sheets ?? []"
-                :key="sheet.sheetName || `sheet-${sheet.sheetIndex}`"
-                :label="sheet.sheetName || `Sheet ${sheet.sheetIndex + 1}`"
-                :value="sheet.sheetName"
-              />
-            </el-select>
-          </el-form-item>
           <el-form-item label="状态">
             <el-select
               v-model="statusFilter"
@@ -258,6 +246,18 @@ const formatConfidence = (confidencePercent: number) =>
 .result-toolbar {
   display: flex;
   flex-shrink: 0;
+}
+
+.result-tabs {
+  flex-shrink: 0;
+}
+
+.result-tabs :deep(.el-tabs__header) {
+  margin: 0;
+}
+
+.result-tabs :deep(.el-tabs__content) {
+  display: none;
 }
 
 .result-table__body {

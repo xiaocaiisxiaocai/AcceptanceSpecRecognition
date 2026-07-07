@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.IO.Compression;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
@@ -41,7 +42,10 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
 {
     private const int MaxPersistedDetailBytes = 512 * 1024;
     private const string CompressedSmartFillLegacyMessage = "执行记录过大，已自动压缩，仅保留汇总信息。";
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _fileStorage;
@@ -222,6 +226,7 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         try
         {
             var detail = NormalizeDetail(entity, TryDeserializeDetail(entity));
+            detail = await RestoreArchivedSmartFillPlaybackAsync(entity, detail, cancellationToken);
             HideArchivePath(detail);
             return detail;
         }
@@ -292,6 +297,41 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
             _logger.LogWarning(ex, "智能填充完整回放归档读取失败: {RelativePath}", relativePath);
             return null;
         }
+    }
+
+    private async Task<ExecutionHistoryDetailDto> RestoreArchivedSmartFillPlaybackAsync(
+        ExecutionHistoryRecord entity,
+        ExecutionHistoryDetailDto detail,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(entity.TaskType, ExecutionHistoryTaskTypes.SmartFill, StringComparison.Ordinal))
+        {
+            return detail;
+        }
+
+        var playback = detail.SmartFillPlayback;
+        if (playback == null || string.IsNullOrWhiteSpace(playback.FullArchiveRelativePath))
+        {
+            return detail;
+        }
+
+        var hasRows = playback.Files.Any(file =>
+            file.Sheets.Any(sheet => sheet.Rows.Count > 0));
+        if (!playback.IsLegacy && hasRows)
+        {
+            return detail;
+        }
+
+        var archivedDetail = await ReadFullSmartFillArchiveAsync(playback.FullArchiveRelativePath, cancellationToken);
+        if (archivedDetail?.SmartFillPlayback?.Files.Count > 0 != true)
+        {
+            return detail;
+        }
+
+        ExecutionHistorySmartFillSlimmer.SlimToPlaybackOutlineInPlace(archivedDetail);
+        archivedDetail.SmartFillPlayback.IsLegacy = false;
+        MarkFullArchive(archivedDetail, playback.FullArchiveRelativePath);
+        return NormalizeDetail(entity, archivedDetail);
     }
 
     private static byte[] CompressUtf8(string value)

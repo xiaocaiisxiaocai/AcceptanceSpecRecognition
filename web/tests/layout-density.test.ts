@@ -533,9 +533,12 @@ test("执行记录页应使用全高骨架并移除固定详情表高度", () =>
     assert.match(source, /statusFilter/);
     assert.match(source, /pagedRows/);
     assert.match(source, /const pageSize = ref\(50\)/);
+    assert.match(source, /<el-tabs/);
     assert.match(source, /<el-pagination/);
     assert.match(source, /class="result-pagination"/);
     assert.match(source, /height="100%"/);
+    assert.doesNotMatch(source, /<el-form-item label="文件">/);
+    assert.doesNotMatch(source, /<el-form-item label="表格">/);
   }
 });
 

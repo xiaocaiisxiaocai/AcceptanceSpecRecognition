@@ -11,8 +11,7 @@ const props = defineProps<{
   detail: ExecutionHistoryDetail;
 }>();
 
-const selectedFileIndex = ref(0);
-const selectedSheetName = ref("");
+const selectedTabKey = ref("");
 const statusFilter = ref("");
 const keyword = ref("");
 const page = ref(1);
@@ -31,18 +30,29 @@ const files = computed<ExecutionHistorySmartFillFile[]>(
   () => playback.value?.files ?? []
 );
 
-const currentFile = computed<ExecutionHistorySmartFillFile | null>(
-  () => files.value[selectedFileIndex.value] ?? null
+const tabItems = computed(() =>
+  files.value.flatMap((file, fileIndex) =>
+    file.sheets.map(sheet => {
+      const sheetLabel = sheet.sheetName || `Sheet ${sheet.sheetIndex + 1}`;
+
+      return {
+        key: `${fileIndex}:${sheet.sheetIndex}`,
+        label:
+          files.value.length > 1
+            ? `${file.fileName} / ${sheetLabel}`
+            : sheetLabel,
+        sheet
+      };
+    })
+  )
 );
 
-const currentSheet = computed<ExecutionHistorySmartFillSheet | null>(() => {
-  const sheets = currentFile.value?.sheets ?? [];
-  return (
-    sheets.find(sheet => sheet.sheetName === selectedSheetName.value) ??
-    sheets[0] ??
+const currentSheet = computed<ExecutionHistorySmartFillSheet | null>(
+  () =>
+    tabItems.value.find(item => item.key === selectedTabKey.value)?.sheet ??
+    tabItems.value[0]?.sheet ??
     null
-  );
-});
+);
 
 const filteredRows = computed<ExecutionHistorySmartFillRow[]>(() => {
   const rows = currentSheet.value?.rows ?? [];
@@ -79,23 +89,17 @@ const resetResultPage = () => {
 
 watch(
   files,
-  nextFiles => {
-    selectedFileIndex.value = 0;
-    selectedSheetName.value = nextFiles[0]?.sheets[0]?.sheetName ?? "";
+  () => {
+    selectedTabKey.value = tabItems.value[0]?.key ?? "";
     resetResultPage();
   },
   { immediate: true }
 );
 
-watch(currentFile, file => {
-  const firstSheetName = file?.sheets[0]?.sheetName ?? "";
-  if (
-    file &&
-    !file.sheets.some(sheet => sheet.sheetName === selectedSheetName.value)
-  ) {
-    selectedSheetName.value = firstSheetName;
+watch(tabItems, items => {
+  if (!items.some(item => item.key === selectedTabKey.value)) {
+    selectedTabKey.value = items[0]?.key ?? "";
   }
-  resetResultPage();
 });
 
 watch([currentSheet, statusFilter, keyword, pageSize], () => {
@@ -145,34 +149,17 @@ const getMatchOriginText = (matchOrigin: string) => {
 <template>
   <div class="result-table">
     <template v-if="files.length > 0">
+      <el-tabs v-model="selectedTabKey" class="result-tabs">
+        <el-tab-pane
+          v-for="item in tabItems"
+          :key="item.key"
+          :label="item.label"
+          :name="item.key"
+        />
+      </el-tabs>
+
       <div class="result-toolbar">
         <el-form :inline="true" class="filter-form">
-          <el-form-item label="文件">
-            <el-select
-              v-model="selectedFileIndex"
-              class="search-select search-select--300"
-            >
-              <el-option
-                v-for="(file, index) in files"
-                :key="`${file.fileName}-${index}`"
-                :label="file.fileName"
-                :value="index"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="表格">
-            <el-select
-              v-model="selectedSheetName"
-              class="search-select search-select--220"
-            >
-              <el-option
-                v-for="sheet in currentFile?.sheets ?? []"
-                :key="sheet.sheetName || `sheet-${sheet.sheetIndex}`"
-                :label="sheet.sheetName || `Sheet ${sheet.sheetIndex + 1}`"
-                :value="sheet.sheetName"
-              />
-            </el-select>
-          </el-form-item>
           <el-form-item label="状态">
             <el-select
               v-model="statusFilter"
@@ -291,6 +278,18 @@ const getMatchOriginText = (matchOrigin: string) => {
 .result-toolbar {
   display: flex;
   flex-shrink: 0;
+}
+
+.result-tabs {
+  flex-shrink: 0;
+}
+
+.result-tabs :deep(.el-tabs__header) {
+  margin: 0;
+}
+
+.result-tabs :deep(.el-tabs__content) {
+  display: none;
 }
 
 .result-table__body {
