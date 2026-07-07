@@ -15,6 +15,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -23,10 +24,12 @@ namespace AcceptanceSpecSystem.Api.Tests;
 
 public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFactory>
 {
+    private readonly ApiWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
     public SmartConfigRecognizeApiTests(ApiWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -263,10 +266,9 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     }
 
     [Fact]
-    public async Task Confirm_ShouldCreateCustomerScopedLearnedRoutingRule()
+    public async Task Confirm_WhenExcelSheetNameIsSpecific_ShouldNotCreateCustomerScopedLearnedRoutingRule()
     {
-        var customerId = await CreateCustomerAsync("智能识别-路由学习客户");
-        var otherCustomerId = await CreateCustomerAsync("智能识别-路由学习隔离客户");
+        var customerId = await CreateCustomerAsync("智能识别-路由学习收敛客户");
 
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
@@ -288,23 +290,55 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         var responseText = await response.Content.ReadAsStringAsync();
         response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
 
-        var currentRulesResponse = await _client.GetAsync($"/api/smart-structure-routing-rules/effective?customerId={customerId}");
-        var currentRules = await currentRulesResponse.ReadAsAsync<ApiResponse<JsonElement>>();
-        var learnedRule = currentRules.Data.EnumerateArray()
-            .Single(rule => rule.GetProperty("pattern").GetString() == "客户专用验收主表");
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var learnedRuleExists = await db.SmartStructureRoutingRules.AnyAsync(rule =>
+            rule.CustomerId == customerId &&
+            rule.Source == SmartStructureRoutingRuleSource.Learned &&
+            rule.MatchScope == SmartStructureRoutingMatchScope.TableName &&
+            rule.Pattern == "客户专用验收主表");
 
-        learnedRule.GetProperty("customerId").GetInt32().Should().Be(customerId);
-        learnedRule.GetProperty("source").GetString().Should().Be("Learned");
-        learnedRule.GetProperty("matchScope").GetString().Should().Be("TableName");
-        learnedRule.GetProperty("matchMode").GetString().Should().Be("Equals");
-        learnedRule.GetProperty("tableKind").GetString().Should().Be("AcceptanceSpec");
-        learnedRule.GetProperty("recommendation").GetString().Should().Be("Recommended");
+        learnedRuleExists.Should().BeFalse();
+        (await db.DocumentTemplates.AnyAsync(template =>
+            template.CustomerId == customerId &&
+            template.TemplateName == "客户专用验收主表")).Should().BeTrue();
+    }
 
-        var otherRulesResponse = await _client.GetAsync($"/api/smart-structure-routing-rules/effective?customerId={otherCustomerId}");
-        var otherRules = await otherRulesResponse.ReadAsAsync<ApiResponse<JsonElement>>();
-        otherRules.Data.EnumerateArray()
-            .Should()
-            .NotContain(rule => rule.GetProperty("pattern").GetString() == "客户专用验收主表");
+    [Fact]
+    public async Task Confirm_WhenWordTableTitleLooksSpecific_ShouldNotCreateTableNameRoutingRule()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-Word结构学习客户");
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            templateName = "第3表 安全验收项目",
+            headers = new[] { "检查项目", "规格要求", "判定标准" },
+            projectColumnIndex = 0,
+            specificationColumnIndex = 1,
+            acceptanceColumnIndex = 2,
+            headerRowIndex = 0,
+            headerRowCount = 1,
+            dataStartRowIndex = 1,
+            isSpecificationOnly = false,
+            tableKind = "SafetySpec",
+            recommendation = "NeedConfirm",
+            learnedColumns = Array.Empty<object>()
+        }));
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var learnedTableNameRuleExists = await db.SmartStructureRoutingRules.AnyAsync(rule =>
+            rule.CustomerId == customerId &&
+            rule.Source == SmartStructureRoutingRuleSource.Learned &&
+            rule.MatchScope == SmartStructureRoutingMatchScope.TableName);
+
+        learnedTableNameRuleExists.Should().BeFalse();
+        (await db.DocumentTemplates.AnyAsync(template =>
+            template.CustomerId == customerId &&
+            template.TemplateName == "第3表 安全验收项目")).Should().BeTrue();
     }
 
     private async Task<int> CreateCustomerAsync(string name)

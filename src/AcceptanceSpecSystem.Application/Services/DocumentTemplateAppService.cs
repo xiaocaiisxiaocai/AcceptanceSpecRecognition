@@ -348,16 +348,21 @@ public sealed class DocumentTemplateAppService
             return headerSimilarity;
         }
 
+        if (headerSimilarity <= 0)
+        {
+            return 0;
+        }
+
         var tableNameSimilarity = CalculateTextSimilarity(currentTableName, template.TemplateName);
         var usageScore = Math.Clamp(Math.Log10(template.UsageCount + 1) / 2, 0, 1);
         var recencyScore = CalculateRecencyScore(template.ConfirmedAt ?? template.UpdatedAt);
         var correctionPenalty = template.UserModifiedStructure ? 0.1 : 0;
 
         return Math.Clamp(
-            headerSimilarity * 0.70 +
-            tableNameSimilarity * 0.15 +
-            recencyScore * 0.10 +
-            usageScore * 0.05 -
+            headerSimilarity * 0.85 +
+            tableNameSimilarity * 0.03 +
+            recencyScore * 0.08 +
+            usageScore * 0.04 -
             correctionPenalty,
             0,
             1);

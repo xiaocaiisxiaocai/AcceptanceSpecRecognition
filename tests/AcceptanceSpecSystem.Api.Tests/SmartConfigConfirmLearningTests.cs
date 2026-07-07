@@ -114,14 +114,14 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
     }
 
     [Fact]
-    public async Task Confirm_WhenTemplateNameIsGenericSheetName_ShouldNotCreateLearnedRoutingRule()
+    public async Task Confirm_ShouldNotCreateLearnedRoutingRuleFromTemplateName()
     {
-        var customerId = await CreateCustomerAsync("确认学习-通用表名客户");
+        var customerId = await CreateCustomerAsync("确认学习-表名规则收敛客户");
 
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
             customerId,
-            templateName = "Sheet1",
+            templateName = "客户专用验收主表",
             headers = new[] { "项目", "规格", "验收" },
             projectColumnIndex = 0,
             specificationColumnIndex = 1,

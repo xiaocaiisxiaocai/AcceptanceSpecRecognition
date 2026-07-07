@@ -50,3 +50,18 @@ test("智能结构路由规则页应支持人工规则与学习规则维护", ()
   assert.match(source, /Recommendation/);
   assert.match(source, /Skip/);
 });
+
+test("智能结构路由规则页应弱化表名并默认表头匹配", () => {
+  const source = readProjectFile(
+    "web/src/views/config/smart-structure-routing-rules/index.vue"
+  );
+
+  assert.match(source, /辅助规则/);
+  assert.match(source, /默认按表头结构和列映射识别/);
+  assert.match(source, /Sheet 名\/表名（仅 Excel 兜底）/);
+  assert.match(source, /matchScope:\s*"Headers"\s+as SmartStructureRoutingMatchScope/);
+  assert.match(source, /form\.matchScope\s*=\s*"Headers"/);
+  assert.match(source, /label:\s*"验收规格"/);
+  assert.match(source, /value:\s*"AcceptanceSpec"/);
+  assert.match(source, /getTableKindLabel\(row\.tableKind\)/);
+});

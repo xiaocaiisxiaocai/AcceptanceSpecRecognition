@@ -26,7 +26,7 @@ const keyword = ref("");
 
 const matchScopeOptions = [
   { label: "任意位置", value: "Any" },
-  { label: "表名", value: "TableName" },
+  { label: "Sheet 名/表名（仅 Excel 兜底）", value: "TableName" },
   { label: "表头", value: "Headers" },
   { label: "样例行", value: "SampleRows" }
 ] as const;
@@ -45,17 +45,17 @@ const recommendationOptions = [
 ] as const;
 
 const tableKindOptions = [
-  "AcceptanceSpec",
-  "SafetySpec",
-  "EnvironmentalSpec",
-  "SecsSpec",
-  "Utility",
-  "Quotation",
-  "Layout",
-  "BomOrSpareParts",
-  "SignatureOrCover",
-  "Unknown"
-];
+  { label: "验收规格", value: "AcceptanceSpec" },
+  { label: "安全规格", value: "SafetySpec" },
+  { label: "环保规格", value: "EnvironmentalSpec" },
+  { label: "SECS 规格", value: "SecsSpec" },
+  { label: "Utility / 公用工程", value: "Utility" },
+  { label: "报价资料", value: "Quotation" },
+  { label: "Layout 布局", value: "Layout" },
+  { label: "BOM / 备品", value: "BomOrSpareParts" },
+  { label: "封面 / 签核", value: "SignatureOrCover" },
+  { label: "未知", value: "Unknown" }
+] as const;
 
 const sourceOptions = [
   { label: "内置种子", value: "BuiltinSeed", type: "info" },
@@ -84,6 +84,9 @@ const getMatchScopeLabel = (value: SmartStructureRoutingMatchScope) =>
 const getMatchModeLabel = (value: SmartStructureRoutingMatchMode) =>
   matchModeOptions.find(option => option.value === value)?.label ?? value;
 
+const getTableKindLabel = (value: string) =>
+  tableKindOptions.find(option => option.value === value)?.label ?? value;
+
 const getRecommendationOption = (
   value?: SmartStructureRoutingRecommendation
 ) =>
@@ -104,6 +107,7 @@ const filteredRules = computed(() => {
       return [
         rule.name,
         rule.tableKind,
+        getTableKindLabel(rule.tableKind),
         rule.recommendation,
         rule.pattern,
         getMatchScopeLabel(rule.matchScope),
@@ -148,7 +152,7 @@ const form = reactive({
   name: "",
   tableKind: "AcceptanceSpec",
   recommendation: "NeedConfirm" as SmartStructureRoutingRecommendation,
-  matchScope: "TableName" as SmartStructureRoutingMatchScope,
+  matchScope: "Headers" as SmartStructureRoutingMatchScope,
   matchMode: "Contains" as SmartStructureRoutingMatchMode,
   pattern: "",
   weight: 1,
@@ -163,7 +167,7 @@ const resetForm = () => {
   form.name = "";
   form.tableKind = "AcceptanceSpec";
   form.recommendation = "NeedConfirm";
-  form.matchScope = "TableName";
+  form.matchScope = "Headers";
   form.matchMode = "Contains";
   form.pattern = "";
   form.weight = 1;
@@ -344,7 +348,7 @@ onMounted(load);
   <div class="page routing-rules config-page">
     <div class="page-header">
       <div>
-        <div class="page-title">智能结构路由规则</div>
+        <div class="page-title">智能结构辅助规则</div>
       </div>
     </div>
 
@@ -358,6 +362,13 @@ onMounted(load);
       </template>
 
       <div class="rule-toolbar">
+        <el-alert
+          class="rule-note"
+          type="info"
+          show-icon
+          :closable="false"
+          title="系统默认按表头结构和列映射识别；本页只用于少数强制跳过、推荐覆盖或人工兜底场景。"
+        />
         <el-input
           v-model="keyword"
           class="rule-search-input"
@@ -368,7 +379,11 @@ onMounted(load);
 
       <el-table v-loading="loading" :data="filteredRules" stripe border>
         <el-table-column prop="name" label="规则名称" min-width="180" />
-        <el-table-column prop="tableKind" label="表格类型" min-width="150" />
+        <el-table-column label="表格类型" min-width="150">
+          <template #default="{ row }">
+            {{ getTableKindLabel(row.tableKind) }}
+          </template>
+        </el-table-column>
         <el-table-column label="推荐结果" width="120">
           <template #default="{ row }">
             <el-tag
@@ -498,9 +513,9 @@ onMounted(load);
           >
             <el-option
               v-for="kind in tableKindOptions"
-              :key="kind"
-              :label="kind"
-              :value="kind"
+              :key="kind.value"
+              :label="kind.label"
+              :value="kind.value"
             />
           </el-select>
         </el-form-item>
@@ -595,7 +610,16 @@ onMounted(load);
 
 <style scoped>
 .rule-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
   margin-bottom: 16px;
+}
+
+.rule-note {
+  flex: 1;
+  min-width: 0;
 }
 
 .rule-search-input {
