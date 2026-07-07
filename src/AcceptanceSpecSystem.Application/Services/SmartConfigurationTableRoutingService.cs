@@ -72,22 +72,25 @@ internal static class SmartConfigurationTableRoutingService
             recommendation = "NeedConfirm";
         }
 
+        if (!string.Equals(recommendation, "Skip", StringComparison.OrdinalIgnoreCase) &&
+            !table.RemarkColumnIndex.HasValue &&
+            issues.All(issue => issue.Code != DocumentStructureHealthIssueCode.MissingRemarkColumn.ToString()))
+        {
+            issues.Add(new SmartConfigurationRecognitionIssue
+            {
+                Code = DocumentStructureHealthIssueCode.MissingRemarkColumn.ToString(),
+                Severity = "Info",
+                Field = "Remark",
+                Message = "未识别备注列，确认后将不写入备注列"
+            });
+        }
+
         return new SmartConfigurationTableRoutingDecision(
             kind,
             recommendation,
             Math.Round(rankingScore, 2),
             skipReason,
             issues);
-    }
-
-    public static bool ShouldSkipStructureAdjudication(
-        TableInfo? tableInfo,
-        TableData tableData,
-        SmartConfigurationRecognizedTable table,
-        IReadOnlyList<SmartStructureRoutingRule> routingRules)
-    {
-        var route = Route(tableInfo, tableData, table, healthCheck: null, routingRules);
-        return route.Recommendation == "Skip";
     }
 
     public static bool ShouldUseStructureAdjudication(

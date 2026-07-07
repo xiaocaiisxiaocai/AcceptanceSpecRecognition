@@ -165,6 +165,12 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         table.GetProperty("dataEndRowIndex").GetInt32().Should().Be(1);
         table.GetProperty("acceptanceColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
         table.GetProperty("remarkColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("issues").EnumerateArray()
+            .Should()
+            .Contain(issue =>
+                issue.GetProperty("code").GetString() == "MissingRemarkColumn" &&
+                issue.GetProperty("severity").GetString() == "Info" &&
+                issue.GetProperty("field").GetString() == "Remark");
     }
 
     [Fact]
@@ -1216,6 +1222,85 @@ public class SmartConfigRecognizeHistoryFewShotApiTests : IClassFixture<LlmRecor
             CreatedAt = updatedAt,
             UpdatedAt = updatedAt
         };
+    }
+}
+
+public class SmartConfigRecognizeOffsetRowCoordinateApiTests : IClassFixture<LlmOffsetHeaderRecordingApiFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeOffsetRowCoordinateApiTests(LlmOffsetHeaderRecordingApiFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenLlmAdjudicatesAfterLeadingRows_ShouldPassOriginalRowCoordinates()
+    {
+        OffsetHeaderRecordingStructureAdjudicationService.Reset();
+        var fileId = await UploadExcelAsync(
+            CreateExcelWithLeadingDescriptionBytes(),
+            "smart-recognize-llm-offset-row-coordinates.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        OffsetHeaderRecordingStructureAdjudicationService.LastRequest.Should().NotBeNull();
+
+        using var document = JsonDocument.Parse(OffsetHeaderRecordingStructureAdjudicationService.LastRequest!.DocumentTablesJson);
+        var table = document.RootElement.EnumerateArray().Single();
+        table.GetProperty("rowCoordinateSystem").GetString().Should().Be("zeroBasedOriginalTableRowIndex");
+        table.GetProperty("totalRowCount").GetInt32().Should().Be(3);
+
+        var headerRow = table.GetProperty("headerRows").EnumerateArray().Single();
+        headerRow.GetProperty("rowIndex").GetInt32().Should().Be(1);
+        headerRow.GetProperty("cells").EnumerateArray().Select(cell => cell.GetString())
+            .Should().Equal("检查对象", "管制条件", "供应商确认", "补充说明");
+
+        var sampleRow = table.GetProperty("sampleRows").EnumerateArray().Single();
+        sampleRow.GetProperty("rowIndex").GetInt32().Should().Be(2);
+        sampleRow.GetProperty("cells").EnumerateArray().Select(cell => cell.GetString())
+            .Should().Equal("外观", "无划伤", "OK", "抽检");
+    }
+
+    private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await _client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateExcelWithLeadingDescriptionBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "客户A";
+        worksheet.Cell(1, 2).Value = "机种X";
+        worksheet.Cell(1, 3).Value = "版本B";
+        worksheet.Cell(1, 4).Value = "量产";
+        worksheet.Cell(2, 1).Value = "检查对象";
+        worksheet.Cell(2, 2).Value = "管制条件";
+        worksheet.Cell(2, 3).Value = "供应商确认";
+        worksheet.Cell(2, 4).Value = "补充说明";
+        worksheet.Cell(3, 1).Value = "外观";
+        worksheet.Cell(3, 2).Value = "无划伤";
+        worksheet.Cell(3, 3).Value = "OK";
+        worksheet.Cell(3, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 }
 
@@ -2431,6 +2516,21 @@ public sealed class LlmRecordingHistoryFewShotApiFactory : ApiWebApplicationFact
     }
 }
 
+public sealed class LlmOffsetHeaderRecordingApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.AddScoped<IDocumentIntelligenceService, OffsetHeaderMissingSpecificationColumnIntelligenceService>();
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, OffsetHeaderRecordingStructureAdjudicationService>();
+        });
+    }
+}
+
 public sealed class SpecificationOnlyIntelligenceApiFactory : ApiWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -2676,6 +2776,42 @@ public sealed class RoutingBudgetRecordingStructureAdjudicationService : ILlmDoc
     }
 }
 
+public sealed class OffsetHeaderRecordingStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    public static LlmDocumentStructureAdjudicationRequest? LastRequest { get; private set; }
+
+    public static void Reset()
+    {
+        LastRequest = null;
+    }
+
+    public Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        LastRequest = request;
+        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(new LlmDocumentStructureAdjudicationResult
+        {
+            Confidence = 0.92,
+            Decision = "autoApply",
+            Reason = "测试替身记录带前导说明行的坐标",
+            Tables =
+            [
+                new DocumentStructureCandidate
+                {
+                    TableIndex = 0,
+                    ProjectColumnIndex = 0,
+                    SpecificationColumnIndex = 1,
+                    AcceptanceColumnIndex = 2,
+                    RemarkColumnIndex = 3,
+                    Confidence = 0.92,
+                    Source = DocumentStructureCandidateSource.Llm
+                }
+            ]
+        });
+    }
+}
+
 public sealed class MissingAcceptanceAndRemarkColumnIntelligenceService : IDocumentIntelligenceService
 {
     public Task<TableIdentificationResult> IdentifyTargetTableAsync(
@@ -2895,6 +3031,45 @@ public sealed class FusableMissingSpecificationColumnIntelligenceService : IDocu
     }
 
     public int DetectHeaderRowIndex(TableData tableData, int? scanRowLimit = null) => 0;
+}
+
+public sealed class OffsetHeaderMissingSpecificationColumnIntelligenceService : IDocumentIntelligenceService
+{
+    public Task<TableIdentificationResult> IdentifyTargetTableAsync(
+        IReadOnlyList<TableInfo> tables,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new TableIdentificationResult
+        {
+            TableIndex = 0,
+            Confidence = 1,
+            Reasoning = "测试替身"
+        });
+    }
+
+    public Task<ColumnMappingResult> IdentifyColumnMappingAsync(
+        TableData tableData,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new ColumnMappingResult
+        {
+            Confidence = 0.96,
+            Reasoning = "表头存在前导说明行，缺规格列以触发 LLM 裁决",
+            Mapping = new ColumnMapping
+            {
+                ProjectColumn = 0,
+                SpecificationColumn = null,
+                AcceptanceColumn = 2,
+                RemarkColumn = 3,
+                HeaderRowIndex = 1,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 2
+            }
+        });
+    }
+
+    public int DetectHeaderRowIndex(TableData tableData, int? scanRowLimit = null) => 1;
 }
 
 public sealed class SpecificationOnlyIntelligenceService : IDocumentIntelligenceService
