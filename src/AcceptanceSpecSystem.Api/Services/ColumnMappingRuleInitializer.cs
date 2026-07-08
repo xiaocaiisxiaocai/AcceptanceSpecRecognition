@@ -22,53 +22,19 @@ public sealed class ColumnMappingRuleInitializer
         ColumnMappingTargetField? targetField = null,
         CancellationToken cancellationToken = default)
     {
-        var added = 0;
-        foreach (var (columnType, words) in ColumnMappingRuleDefaults.GetAll())
-        {
-            var field = ToTargetField(columnType);
-            if (!field.HasValue || (targetField.HasValue && field.Value != targetField.Value))
-            {
-                continue;
-            }
-
-            var exists = await _unitOfWork.ColumnMappingRules.Query().AnyAsync(rule =>
-                rule.Source == ColumnMappingRuleSource.Builtin &&
-                rule.CustomerId == null &&
-                rule.TargetField == field.Value,
-                cancellationToken);
-            if (exists)
-            {
-                continue;
-            }
-
-            foreach (var word in words)
-            {
-                await _unitOfWork.ColumnMappingRules.AddAsync(new ColumnMappingRule
-                {
-                    TargetField = field.Value,
-                    MatchMode = ColumnMappingMatchMode.Contains,
-                    Pattern = word,
-                    Priority = 0,
-                    Enabled = true,
-                    Source = ColumnMappingRuleSource.Builtin,
-                    CustomerId = null,
-                    CreatedAt = DateTime.UtcNow
-                }, cancellationToken);
-                added++;
-            }
-        }
-
-        if (added > 0)
-        {
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-
-        return added;
+        return await SeedMissingAsync(targetField, cancellationToken);
     }
 
     public async Task<int> RestoreMissingAsync(
         ColumnMappingTargetField? targetField = null,
         CancellationToken cancellationToken = default)
+    {
+        return await SeedMissingAsync(targetField, cancellationToken);
+    }
+
+    private async Task<int> SeedMissingAsync(
+        ColumnMappingTargetField? targetField,
+        CancellationToken cancellationToken)
     {
         var added = 0;
         foreach (var (columnType, words) in ColumnMappingRuleDefaults.GetAll())
@@ -81,7 +47,6 @@ public sealed class ColumnMappingRuleInitializer
 
             var existingPatterns = await _unitOfWork.ColumnMappingRules.Query()
                 .Where(rule =>
-                    rule.Source == ColumnMappingRuleSource.Builtin &&
                     rule.CustomerId == null &&
                     rule.TargetField == field.Value)
                 .Select(rule => rule.Pattern)

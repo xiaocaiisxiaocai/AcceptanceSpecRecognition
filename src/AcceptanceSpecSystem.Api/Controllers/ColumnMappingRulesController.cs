@@ -45,7 +45,9 @@ public class ColumnMappingRulesController : BaseApiController
             .ThenByDescending(rule => rule.Priority)
             .ThenBy(rule => rule.Id)
             .ToListAsync(cancellationToken);
-        var items = rules.Select(ToDto).ToList();
+        var items = ColumnMappingRuleDeduplicator.ForConfigurationList(rules)
+            .Select(ToDto)
+            .ToList();
 
         return Success(items);
     }
@@ -88,6 +90,16 @@ public class ColumnMappingRulesController : BaseApiController
         if (validationError != null)
         {
             return Error<ColumnMappingRuleDto>(400, validationError);
+        }
+
+        if (await IsDuplicateRuleAsync(
+                request.TargetField,
+                request.CustomerId,
+                pattern,
+                exceptId: null,
+                cancellationToken))
+        {
+            return Error<ColumnMappingRuleDto>(400, "同一范围下已存在相同字段和匹配词的列映射规则");
         }
 
         var entity = new ColumnMappingRule
@@ -134,6 +146,16 @@ public class ColumnMappingRulesController : BaseApiController
             return Error<ColumnMappingRuleDto>(400, validationError);
         }
 
+        if (await IsDuplicateRuleAsync(
+                request.TargetField,
+                request.CustomerId,
+                pattern,
+                exceptId: id,
+                cancellationToken))
+        {
+            return Error<ColumnMappingRuleDto>(400, "同一范围下已存在相同字段和匹配词的列映射规则");
+        }
+
         entity.TargetField = request.TargetField;
         entity.MatchMode = request.MatchMode;
         entity.Pattern = pattern;
@@ -165,6 +187,23 @@ public class ColumnMappingRulesController : BaseApiController
         _unitOfWork.ColumnMappingRules.Remove(entity);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Success("删除成功");
+    }
+
+    private async Task<bool> IsDuplicateRuleAsync(
+        ColumnMappingTargetField targetField,
+        int? customerId,
+        string pattern,
+        int? exceptId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedPattern = pattern.Trim().ToLower();
+        return await _unitOfWork.ColumnMappingRules.Query()
+            .AnyAsync(rule =>
+                    (!exceptId.HasValue || rule.Id != exceptId.Value) &&
+                    rule.TargetField == targetField &&
+                    rule.CustomerId == customerId &&
+                    rule.Pattern.Trim().ToLower() == normalizedPattern,
+                cancellationToken);
     }
 
     private static string? ValidateRegexRule(ColumnMappingMatchMode matchMode, string pattern)

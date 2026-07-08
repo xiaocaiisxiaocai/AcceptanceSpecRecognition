@@ -2,18 +2,22 @@
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
 public class ColumnMappingRuleRecoveryTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly ApiWebApplicationFactory _factory;
     private const string BaseUrl = "/api/column-mapping-rules";
 
     public ColumnMappingRuleRecoveryTests(ApiWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -141,7 +145,7 @@ public class ColumnMappingRuleRecoveryTests : IClassFixture<ApiWebApplicationFac
         {
             targetField = 1,
             matchMode = 1,
-            pattern = "项目",
+            pattern = "接口新增项目词",
             priority = 10,
             enabled = true
         }));
@@ -150,7 +154,71 @@ public class ColumnMappingRuleRecoveryTests : IClassFixture<ApiWebApplicationFac
         var json = await resp.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(0);
         json.Data.GetProperty("id").GetInt32().Should().BeGreaterThan(0);
-        json.Data.GetProperty("pattern").GetString().Should().Be("项目");
+        json.Data.GetProperty("pattern").GetString().Should().Be("接口新增项目词");
+    }
+
+    [Fact]
+    public async Task Create_WhenSameTargetPatternAndScopeExists_ShouldReturnBadRequest()
+    {
+        var resp = await _client.PostAsync(BaseUrl, ApiClientJson.ToJsonContent(new
+        {
+            targetField = ColumnMappingTargetField.Project,
+            matchMode = ColumnMappingMatchMode.Contains,
+            pattern = "项目",
+            priority = 10,
+            enabled = true,
+            source = ColumnMappingRuleSource.Manual
+        }));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var json = await resp.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Code.Should().Be(400);
+        json.Message.Should().Contain("已存在");
+    }
+
+    [Fact]
+    public async Task GetAll_WhenHistoricalDuplicateRulesExist_ShouldReturnSingleVisibleRule()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.ColumnMappingRules.Add(new ColumnMappingRule
+            {
+                TargetField = ColumnMappingTargetField.Project,
+                MatchMode = ColumnMappingMatchMode.Contains,
+                Pattern = "历史重复词",
+                Priority = 0,
+                Enabled = true,
+                Source = ColumnMappingRuleSource.Builtin,
+                CustomerId = null,
+                CreatedAt = DateTime.UtcNow
+            });
+            db.ColumnMappingRules.Add(new ColumnMappingRule
+            {
+                TargetField = ColumnMappingTargetField.Project,
+                MatchMode = ColumnMappingMatchMode.Contains,
+                Pattern = "历史重复词",
+                Priority = 0,
+                Enabled = true,
+                Source = ColumnMappingRuleSource.Manual,
+                CustomerId = null,
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var resp = await _client.GetAsync(BaseUrl);
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await resp.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Code.Should().Be(0);
+
+        var visibleCount = json.Data.EnumerateArray()
+            .Count(item =>
+                item.GetProperty("targetField").GetInt32() == (int)ColumnMappingTargetField.Project &&
+                item.GetProperty("customerId").ValueKind == JsonValueKind.Null &&
+                item.GetProperty("pattern").GetString() == "历史重复词");
+
+        visibleCount.Should().Be(1);
     }
 
     [Fact]
