@@ -271,8 +271,10 @@ if (!app.Environment.IsEnvironment("Testing"))
 
 using (var scope = app.Services.CreateScope())
 {
-    var initializer = scope.ServiceProvider.GetRequiredService<SystemPromptTemplateInitializer>();
-    await initializer.EnsureAsync();
+    var promptInitializer = scope.ServiceProvider.GetRequiredService<SystemPromptTemplateInitializer>();
+    await promptInitializer.EnsureAsync();
+    var columnMappingInitializer = scope.ServiceProvider.GetRequiredService<ColumnMappingRuleInitializer>();
+    await columnMappingInitializer.EnsureAsync();
 }
 
 // 使用异常处理中间件

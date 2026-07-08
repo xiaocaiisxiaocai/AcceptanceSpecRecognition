@@ -12,7 +12,6 @@ export type SmartStructureRoutingMatchMode = "Contains" | "Equals" | "Regex";
 export type SmartStructureRoutingRuleSource =
   | "BuiltinSeed"
   | "Manual"
-  | "Learned"
   | "AiSuggested";
 
 export type SmartStructureRoutingRecommendation =

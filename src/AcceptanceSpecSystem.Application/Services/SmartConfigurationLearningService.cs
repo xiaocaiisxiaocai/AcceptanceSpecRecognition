@@ -27,7 +27,6 @@ public sealed class SmartConfigurationLearningService
         CancellationToken cancellationToken)
     {
         var learnedRuleCount = 0;
-        var learnedRoutingRuleCount = 0;
         var promotedGlobalRuleCount = 0;
         foreach (var learnedColumn in learnedColumns)
         {
@@ -59,7 +58,6 @@ public sealed class SmartConfigurationLearningService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return new SmartConfigurationLearningResult(
             learnedRuleCount,
-            learnedRoutingRuleCount,
             promotedGlobalRuleCount);
     }
 
@@ -150,5 +148,4 @@ public sealed class SmartConfigurationLearningService
 
 internal sealed record SmartConfigurationLearningResult(
     int LearnedRuleCount,
-    int LearnedRoutingRuleCount,
     int PromotedGlobalRuleCount);

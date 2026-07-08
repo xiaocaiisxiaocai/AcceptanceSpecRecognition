@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import type { TableData } from "@/api/document";
 import {
   applyExcelMappingRowFieldChange,
+  buildExcelColumnOptions,
+  toExcelColumnLetter,
   normalizeExcelMappingByTable
 } from "../dataImport.helpers";
 
@@ -18,6 +21,8 @@ export type ExcelSheetMapping = {
 
 const props = defineProps<{
   modelValue?: ExcelSheetMapping;
+  detectedMapping?: ExcelSheetMapping;
+  previewData?: TableData | null;
   usedRangeStartRow?: number;
   usedRangeEndRow?: number;
   usedRangeStartColumn?: number;
@@ -150,24 +155,27 @@ watch(
   }
 );
 
-const colLetter = (n?: number) => {
-  if (!n || n <= 0) return "";
-  let x = n;
-  let s = "";
-  while (x > 0) {
-    x -= 1;
-    s = String.fromCharCode(65 + (x % 26)) + s;
-    x = Math.floor(x / 26);
-  }
-  return s;
-};
+const columnOptions = computed(() =>
+  buildExcelColumnOptions(
+    getTableInfoForNormalization(),
+    props.previewData
+  )
+);
 
 const columnHint = computed(() => ({
-  project: colLetter(mapping.value.projectColumn),
-  spec: colLetter(mapping.value.specificationColumn),
-  acceptance: colLetter(mapping.value.acceptanceColumn),
-  remark: colLetter(mapping.value.remarkColumn)
+  project: toExcelColumnLetter(mapping.value.projectColumn),
+  spec: toExcelColumnLetter(mapping.value.specificationColumn),
+  acceptance: toExcelColumnLetter(mapping.value.acceptanceColumn),
+  remark: toExcelColumnLetter(mapping.value.remarkColumn)
 }));
+
+function applyDetectedFieldMapping() {
+  if (!props.detectedMapping) {
+    return;
+  }
+
+  mapping.value = buildNormalizedMapping(props.detectedMapping);
+}
 </script>
 
 <template>
@@ -176,13 +184,24 @@ const columnHint = computed(() => ({
       type="info"
       :closable="false"
       title="Excel 导入按列序号配置（1-based）"
-      :description="`第 1 列 = A；表头可跨多行；合并单元格会在预览与导入时展开。${props.usedRangeStartRow || props.usedRangeStartColumn ? ` 已用区域起点：行 ${props.usedRangeStartRow ?? '-'}，列 ${props.usedRangeStartColumn ?? '-'}（${colLetter(props.usedRangeStartColumn)}）` : ''}`"
+      :description="`第 1 列 = A；表头可跨多行；合并单元格会在预览与导入时展开。${props.usedRangeStartRow || props.usedRangeStartColumn ? ` 已用区域起点：行 ${props.usedRangeStartRow ?? '-'}，列 ${props.usedRangeStartColumn ?? '-'}（${toExcelColumnLetter(props.usedRangeStartColumn)}）` : ''}`"
       show-icon
     />
 
     <div class="grid">
       <div class="group">
-        <div class="group-title">行范围</div>
+        <div class="group-title-row">
+          <div class="group-title">行范围</div>
+          <el-button
+            size="small"
+            type="primary"
+            plain
+            :disabled="!props.detectedMapping"
+            @click="applyDetectedFieldMapping"
+          >
+            重置为识别结果
+          </el-button>
+        </div>
         <el-form label-width="110px">
           <el-form-item label="表头起始行">
             <el-input-number
@@ -237,42 +256,78 @@ const columnHint = computed(() => ({
         <div class="group-title">列映射</div>
         <el-form label-width="110px">
           <el-form-item label="项目列（必填）">
-            <div class="col-input">
-              <el-input-number
+            <div class="col-select-row">
+              <el-select
                 v-model="mapping.projectColumn"
-                :min="1"
-                :step="1"
-              />
+                class="column-select"
+                placeholder="请选择项目列"
+                clearable
+                filterable
+              >
+                <el-option
+                  v-for="opt in columnOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
               <span class="col-letter">{{ columnHint.project }}</span>
             </div>
           </el-form-item>
           <el-form-item label="规格列（必填）">
-            <div class="col-input">
-              <el-input-number
+            <div class="col-select-row">
+              <el-select
                 v-model="mapping.specificationColumn"
-                :min="1"
-                :step="1"
-              />
+                class="column-select"
+                placeholder="请选择规格列"
+                clearable
+                filterable
+              >
+                <el-option
+                  v-for="opt in columnOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
               <span class="col-letter">{{ columnHint.spec }}</span>
             </div>
           </el-form-item>
           <el-form-item label="验收列（可选）">
-            <div class="col-input">
-              <el-input-number
+            <div class="col-select-row">
+              <el-select
                 v-model="mapping.acceptanceColumn"
-                :min="1"
-                :step="1"
-              />
+                class="column-select"
+                placeholder="请选择验收列"
+                clearable
+                filterable
+              >
+                <el-option
+                  v-for="opt in columnOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
               <span class="col-letter">{{ columnHint.acceptance }}</span>
             </div>
           </el-form-item>
           <el-form-item label="备注列（可选）">
-            <div class="col-input">
-              <el-input-number
+            <div class="col-select-row">
+              <el-select
                 v-model="mapping.remarkColumn"
-                :min="1"
-                :step="1"
-              />
+                class="column-select"
+                placeholder="请选择备注列"
+                clearable
+                filterable
+              >
+                <el-option
+                  v-for="opt in columnOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
               <span class="col-letter">{{ columnHint.remark }}</span>
             </div>
           </el-form-item>
@@ -309,10 +364,26 @@ const columnHint = computed(() => ({
   color: var(--color-text);
 }
 
-.col-input {
+.group-title-row {
   display: flex;
   gap: 8px;
   align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.group-title-row .group-title {
+  margin-bottom: 0;
+}
+
+.col-select-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.column-select {
+  width: 260px;
 }
 
 .col-letter {

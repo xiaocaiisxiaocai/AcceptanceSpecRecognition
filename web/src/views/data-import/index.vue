@@ -297,6 +297,8 @@ const smartStructureDisplayGroups = computed(() =>
                 <ExcelColumnMapping
                   v-if="isExcelFile"
                   :model-value="cfg.excelMapping"
+                  :detected-mapping="cfg.recognizedExcelMapping"
+                  :preview-data="cfg.previewData"
                   :used-range-start-row="cfg.tableInfo?.usedRangeStartRow"
                   :used-range-end-row="
                     cfg.tableInfo?.usedRangeStartRow !== undefined

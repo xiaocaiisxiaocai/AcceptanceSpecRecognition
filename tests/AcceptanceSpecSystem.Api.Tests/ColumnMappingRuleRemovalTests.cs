@@ -25,6 +25,116 @@ public class ColumnMappingRuleRecoveryTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
+    public async Task Startup_ShouldSeedBuiltinColumnMappingDefaults()
+    {
+        var resp = await _client.GetAsync(BaseUrl);
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await resp.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Code.Should().Be(0);
+
+        var items = json.Data.EnumerateArray().ToList();
+        items.Should().Contain(item =>
+            item.GetProperty("source").GetInt32() == (int)ColumnMappingRuleSource.Builtin &&
+            item.GetProperty("customerId").ValueKind == JsonValueKind.Null &&
+            item.GetProperty("targetField").GetInt32() == (int)ColumnMappingTargetField.Project &&
+            item.GetProperty("matchMode").GetInt32() == (int)ColumnMappingMatchMode.Contains &&
+            item.GetProperty("pattern").GetString() == "项目");
+        items.Should().Contain(item =>
+            item.GetProperty("source").GetInt32() == (int)ColumnMappingRuleSource.Builtin &&
+            item.GetProperty("customerId").ValueKind == JsonValueKind.Null &&
+            item.GetProperty("targetField").GetInt32() == (int)ColumnMappingTargetField.Specification &&
+            item.GetProperty("pattern").GetString() == "规格");
+    }
+
+    [Fact]
+    public async Task RestoreDefaults_ShouldReplenishBuiltinRulesWithoutTouchingManualRules()
+    {
+        var manualResp = await _client.PostAsync(BaseUrl, ApiClientJson.ToJsonContent(new
+        {
+            targetField = ColumnMappingTargetField.Project,
+            matchMode = ColumnMappingMatchMode.Contains,
+            pattern = "人工项目词",
+            priority = 77,
+            enabled = false,
+            source = ColumnMappingRuleSource.Manual
+        }));
+        manualResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var restoreResp = await _client.PostAsync($"{BaseUrl}/restore-defaults?targetField=Project", null);
+        restoreResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var restoreJson = await restoreResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        restoreJson.Code.Should().Be(0);
+
+        var listResp = await _client.GetAsync(BaseUrl);
+        var listJson = await listResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var items = listJson.Data.EnumerateArray().ToList();
+
+        items.Should().Contain(item =>
+            item.GetProperty("source").GetInt32() == (int)ColumnMappingRuleSource.Builtin &&
+            item.GetProperty("targetField").GetInt32() == (int)ColumnMappingTargetField.Project &&
+            item.GetProperty("pattern").GetString() == "项目");
+        items.Should().Contain(item =>
+            item.GetProperty("source").GetInt32() == (int)ColumnMappingRuleSource.Manual &&
+            item.GetProperty("pattern").GetString() == "人工项目词" &&
+            item.GetProperty("enabled").GetBoolean() == false &&
+            item.GetProperty("priority").GetInt32() == 77);
+    }
+
+    [Fact]
+    public async Task RestoreDefaults_WhenBuiltinFieldAlreadyExistsDisabled_ShouldReplenishMissingDefaultWords()
+    {
+        var initialListResp = await _client.GetAsync(BaseUrl);
+        var initialListJson = await initialListResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var existingRemarkBuiltinIds = initialListJson.Data.EnumerateArray()
+            .Where(item =>
+                item.GetProperty("source").GetInt32() == (int)ColumnMappingRuleSource.Builtin &&
+                item.GetProperty("targetField").GetInt32() == (int)ColumnMappingTargetField.Remark)
+            .Select(item => item.GetProperty("id").GetInt32())
+            .ToList();
+
+        foreach (var id in existingRemarkBuiltinIds)
+        {
+            (await _client.DeleteAsync($"{BaseUrl}/{id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var builtinResp = await _client.PostAsync(BaseUrl, ApiClientJson.ToJsonContent(new
+        {
+            targetField = ColumnMappingTargetField.Remark,
+            matchMode = ColumnMappingMatchMode.Contains,
+            pattern = "禁用内置备注词",
+            priority = 0,
+            enabled = false,
+            source = ColumnMappingRuleSource.Builtin
+        }));
+        builtinResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var restoreResp = await _client.PostAsync($"{BaseUrl}/restore-defaults?targetField=Remark", null);
+        restoreResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var listResp = await _client.GetAsync(BaseUrl);
+        var listJson = await listResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var remarkBuiltinPatterns = listJson.Data.EnumerateArray()
+            .Where(item =>
+                item.GetProperty("source").GetInt32() == (int)ColumnMappingRuleSource.Builtin &&
+                item.GetProperty("targetField").GetInt32() == (int)ColumnMappingTargetField.Remark)
+            .Select(item => item.GetProperty("pattern").GetString())
+            .ToList();
+
+        remarkBuiltinPatterns.Should().Contain("禁用内置备注词");
+        remarkBuiltinPatterns.Should().Contain("备注");
+
+        var disabledId = listJson.Data.EnumerateArray()
+            .Single(item => item.GetProperty("pattern").GetString() == "禁用内置备注词")
+            .GetProperty("id")
+            .GetInt32();
+        (await _client.DeleteAsync($"{BaseUrl}/{disabledId}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        var secondRestoreResp = await _client.PostAsync($"{BaseUrl}/restore-defaults?targetField=Remark", null);
+        secondRestoreResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var secondRestoreJson = await secondRestoreResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        secondRestoreJson.Data.GetProperty("added").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
     public async Task Create_WithContainsMode_ShouldSucceed()
     {
         var resp = await _client.PostAsync(BaseUrl, ApiClientJson.ToJsonContent(new

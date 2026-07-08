@@ -95,4 +95,32 @@ public sealed class SmartStructureRoutingRulesApiTests : IClassFixture<ApiWebApp
             .Should()
             .NotContain("旧上传学习出来的 Layout 规则");
     }
+
+    [Fact]
+    public async Task Create_WhenSourceIsLearned_ShouldRejectLegacyRoutingLearning()
+    {
+        var response = await _client.PostAsync("/api/smart-structure-routing-rules", ApiClientJson.ToJsonContent(new
+        {
+            name = "不应再允许的学习路由规则",
+            tableKind = "AcceptanceSpec",
+            recommendation = "Recommended",
+            matchScope = "Headers",
+            matchMode = "Contains",
+            pattern = "规格",
+            weight = 1,
+            priority = 10,
+            enabled = true,
+            source = "Learned"
+        }));
+        var responseText = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, responseText);
+        responseText.Should().Contain("学习型路由规则已停用");
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var exists = await db.SmartStructureRoutingRules.AnyAsync(rule =>
+            rule.Name == "不应再允许的学习路由规则");
+        exists.Should().BeFalse();
+    }
 }

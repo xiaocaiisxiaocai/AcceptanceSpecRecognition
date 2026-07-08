@@ -8,6 +8,7 @@ import {
   createColumnMappingRule,
   deleteColumnMappingRule,
   getColumnMappingRules,
+  restoreColumnMappingRuleDefaults,
   updateColumnMappingRule,
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
@@ -283,6 +284,41 @@ const remove = async (row: ColumnMappingRule) => {
   }
 };
 
+const restoreDefaults = async () => {
+  if (
+    !ensurePermission(
+      "btn:column-mapping-rule:create",
+      "权限不足，无法恢复默认词"
+    )
+  ) {
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      "将补齐缺失的内置全局默认词，不会改动手动、学习或客户级规则。重启只在某字段内置词全空时兜底补齐。",
+      "恢复默认词",
+      {
+        confirmButtonText: "恢复",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+    const res = await restoreColumnMappingRuleDefaults(activeTarget.value);
+    if (res.code === 0) {
+      ElMessage.success(`默认词已恢复，新增 ${res.data?.added ?? 0} 条`);
+      await load();
+    } else {
+      ElMessage.error(res.message || "恢复默认词失败");
+    }
+  } catch (error: unknown) {
+    if (error === "cancel" || error === "close") {
+      return;
+    }
+    ElMessage.error(getRequestErrorMessage(error, "恢复默认词失败"));
+  }
+};
+
 onMounted(load);
 </script>
 
@@ -300,13 +336,16 @@ onMounted(load);
             <el-button v-if="canCreate" type="primary" @click="openAdd">
               新增规则
             </el-button>
+            <el-button v-if="canCreate" @click="restoreDefaults">
+              恢复默认词
+            </el-button>
           </div>
         </div>
       </template>
 
       <div class="mb-3 text-sm text-gray-500">
         用于 Word 导入和智能填充时自动识别表头列，例如将“工艺流程 / 项目 /
-        项目管理”都映射到“项目”列。
+        项目管理”都映射到“项目”列。删除单个内置词后可通过“恢复默认词”补齐；重启只在某字段内置词全空时兜底补齐。
       </div>
 
       <el-tabs v-model="activeTarget" type="card">

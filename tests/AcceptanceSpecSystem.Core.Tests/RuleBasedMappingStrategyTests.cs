@@ -1,3 +1,4 @@
+using AcceptanceSpecSystem.Core.Documents.Intelligence;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 using AcceptanceSpecSystem.Core.TextProcessing.Services;
@@ -12,6 +13,9 @@ public class RuleBasedMappingStrategyTests
         new MinimalTextPreprocessingPipeline(),
         NullLogger<RuleBasedMappingStrategy>.Instance);
 
+    private static IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> DefaultSynonyms() =>
+        ColumnMappingRuleDefaults.GetAll();
+
     [Fact]
     public async Task IdentifyAsync_WithTraditionalAcceptanceHeaders_ShouldMapColumns()
     {
@@ -21,13 +25,39 @@ public class RuleBasedMappingStrategyTests
             ["項次", "驗收項目", "", "驗收規格", "驗收方法", "設備商確認", "備註"],
             [
                 ["1", "投收板機設備制程能力", "設備流向", "依主設備流向", "裝機時檢查", "■OK   □NG", ""]
-            ]);
+            ],
+            DefaultSynonyms());
 
         result.Mapping.ProjectColumn.Should().Be(1);
         result.Mapping.SpecificationColumn.Should().Be(3);
         result.Mapping.AcceptanceColumn.Should().Be(5);
         result.Mapping.RemarkColumn.Should().Be(6);
         result.Confidence.Should().BeGreaterThan(0.85);
+    }
+
+    [Fact]
+    public async Task IdentifyAsync_WithoutDatabaseSynonyms_ShouldNotMapHeaderKeywordsFromHardcodedDefaults()
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            ["项目", "规格内容", "验收结果", "备注"],
+            [
+                ["外观", "无划伤", "OK", "抽检"]
+            ],
+            new Dictionary<ColumnType, IReadOnlyList<string>>
+            {
+                [ColumnType.Project] = [],
+                [ColumnType.Specification] = [],
+                [ColumnType.Acceptance] = [],
+                [ColumnType.Remark] = []
+            });
+
+        result.Mapping.ProjectColumn.Should().BeNull();
+        result.Mapping.SpecificationColumn.Should().Be(1);
+        result.Mapping.AcceptanceColumn.Should().Be(2);
+        result.Mapping.RemarkColumn.Should().BeNull();
+        result.Confidence.Should().Be(0);
     }
 
     [Fact]
@@ -39,7 +69,8 @@ public class RuleBasedMappingStrategyTests
             ["序号", "标识", "评议项目", "评议标准要求", "验收标准", "验收方式", "评议大纲", "供应商回复", "备注"],
             [
                 ["1", "A", "外观", "无明显划伤", "", "目视", "", "", "待确认"]
-            ]);
+            ],
+            DefaultSynonyms());
 
         result.Mapping.ProjectColumn.Should().Be(2);
         result.Mapping.SpecificationColumn.Should().Be(3);
@@ -94,7 +125,8 @@ public class RuleBasedMappingStrategyTests
 
         var result = await strategy.IdentifyAsync(
             ["项目", "规格", "验收结果", "备注"],
-            []);
+            [],
+            DefaultSynonyms());
 
         result.Mapping.ProjectColumn.Should().Be(0);
         result.Mapping.SpecificationColumn.Should().Be(1);

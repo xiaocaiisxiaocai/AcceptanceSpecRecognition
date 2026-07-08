@@ -1,5 +1,6 @@
 import type {
   ColumnMapping as ColumnMappingType,
+  TableData,
   TableInfo
 } from "@/api/document";
 import type {
@@ -62,6 +63,60 @@ export const normalizeExcelMappingByTable = (
     dataStartRow,
     dataEndRow
   };
+};
+
+export type ExcelColumnOption = {
+  value: number;
+  label: string;
+  letter: string;
+  localIndex: number;
+  header: string;
+};
+
+export const toExcelColumnLetter = (columnNumber?: number) => {
+  if (!columnNumber || columnNumber <= 0) {
+    return "";
+  }
+
+  let current = columnNumber;
+  let result = "";
+  while (current > 0) {
+    current -= 1;
+    result = String.fromCharCode(65 + (current % 26)) + result;
+    current = Math.floor(current / 26);
+  }
+  return result;
+};
+
+export const buildExcelColumnOptions = (
+  tableInfo: TableInfo | undefined,
+  previewData?: TableData | null
+): ExcelColumnOption[] => {
+  const usedStartColumn = tableInfo?.usedRangeStartColumn ?? 1;
+  const displayHeaders = previewData?.headers || tableInfo?.headers || [];
+  const rowMaxColumnCount = Math.max(
+    0,
+    ...(previewData?.rows || []).map(row => row.length)
+  );
+  const columnCount = Math.max(
+    tableInfo?.columnCount ?? 0,
+    previewData?.columnCount ?? 0,
+    displayHeaders.length,
+    rowMaxColumnCount
+  );
+
+  return Array.from({ length: columnCount }, (_, index) => {
+    const value = usedStartColumn + index;
+    const header = (displayHeaders[index] || "").trim();
+    const letter = toExcelColumnLetter(value);
+    return {
+      value,
+      label: `第 ${index + 1} 列（${letter}）${header}`,
+      letter,
+      localIndex: index,
+      header
+    };
+  });
 };
 
 export type ExcelMappingRowField =

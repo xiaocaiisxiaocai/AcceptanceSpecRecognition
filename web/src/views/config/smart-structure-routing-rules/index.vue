@@ -164,7 +164,7 @@ const openAdd = () => {
   if (
     !ensurePermission(
       "btn:smart-structure-routing-rule:create",
-      "权限不足，无法新增智能结构路由规则"
+      "权限不足，无法新增表格路由规则"
     )
   ) {
     return;
@@ -180,7 +180,7 @@ const openEdit = (row: SmartStructureRoutingRule) => {
   if (
     !ensurePermission(
       "btn:smart-structure-routing-rule:update",
-      "权限不足，无法编辑智能结构路由规则"
+      "权限不足，无法编辑表格路由规则"
     )
   ) {
     return;
@@ -265,7 +265,7 @@ const persistRow = async (row: SmartStructureRoutingRule) => {
   if (
     !ensurePermission(
       "btn:smart-structure-routing-rule:update",
-      "权限不足，无法更新智能结构路由规则"
+      "权限不足，无法更新表格路由规则"
     )
   ) {
     await load();
@@ -300,7 +300,7 @@ const remove = async (row: SmartStructureRoutingRule) => {
   if (
     !ensurePermission(
       "btn:smart-structure-routing-rule:delete",
-      "权限不足，无法删除智能结构路由规则"
+      "权限不足，无法删除表格路由规则"
     )
   ) {
     return;
@@ -331,7 +331,7 @@ onMounted(load);
   <div class="page routing-rules config-page">
     <div class="page-header">
       <div>
-        <div class="page-title">智能结构辅助规则</div>
+        <div class="page-title">表格路由规则</div>
       </div>
     </div>
 
@@ -350,7 +350,7 @@ onMounted(load);
           type="info"
           show-icon
           :closable="false"
-          title="系统默认按表头结构和列映射识别；本页只用于少数强制跳过、推荐覆盖或人工兜底场景。"
+          title="系统默认按表头结构和列映射识别；路由只决定整张表的处理建议，用于少数强制跳过、推荐覆盖或人工兜底场景。"
         />
         <el-input
           v-model="keyword"

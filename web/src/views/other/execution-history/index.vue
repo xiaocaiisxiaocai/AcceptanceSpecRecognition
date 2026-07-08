@@ -44,7 +44,7 @@ const taskTypeText = (taskType: string) =>
 const formatTaskOptionLabel = (item: ExecutionHistoryListItem) => {
   const summary =
     item.taskType === "smart-fill" && item.smartFillSummary
-      ? `完全 ${item.smartFillSummary.exactMatchedRowCount ?? "-"} / AI ${item.smartFillSummary.aiMatchedRowCount ?? "-"} / 未采用或未匹配 ${item.smartFillSummary.notUsedRowCount ?? "-"}`
+      ? `完全匹配 ${item.smartFillSummary.exactMatchedRowCount ?? "-"} / AI ${item.smartFillSummary.aiMatchedRowCount ?? "-"} / 未采用/未匹配 ${item.smartFillSummary.notUsedRowCount ?? "-"}`
       : `已采用 ${item.adoptedRowCount} / 未匹配 ${item.unmatchedRowCount}`;
 
   return `${taskTypeText(item.taskType)}｜${item.sourceFileName}｜${formatExecutionHistoryDateTime(item.createdAt)}｜${summary}`;
@@ -164,6 +164,7 @@ onMounted(() => {
         </el-form>
         <el-select
           v-model="selectedTaskId"
+          aria-label="任务下拉"
           class="task-select"
           filterable
           placeholder="请选择任务"

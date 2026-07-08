@@ -189,6 +189,11 @@ public sealed class SmartStructureRoutingRulesController : BaseApiController
             return NormalizedRoutingRuleRequest.Fail($"规则来源无效：{request.Source}");
         }
 
+        if (source == SmartStructureRoutingRuleSource.Learned)
+        {
+            return NormalizedRoutingRuleRequest.Fail("学习型路由规则已停用，请使用手动或 AI 建议来源");
+        }
+
         if (matchMode == SmartStructureRoutingMatchMode.Regex)
         {
             try

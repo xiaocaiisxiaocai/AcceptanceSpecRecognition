@@ -132,6 +132,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableInfo,
                 tableData,
                 headerProfile,
+                headerKeywordMatcher,
                 extraSynonyms,
                 routingRules,
                 () => TryConsumeStructureAdjudicationBudget(ref structureAdjudicationBudget),
@@ -361,7 +362,6 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             TemplateSaved = true,
             TemplateId = template.Id,
             LearnedRuleCount = learningResult.LearnedRuleCount,
-            LearnedRoutingRuleCount = learningResult.LearnedRoutingRuleCount,
             PromotedGlobalRuleCount = learningResult.PromotedGlobalRuleCount,
             LearningSucceeded = true
         };
@@ -374,6 +374,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableInfo? tableInfo,
         TableData tableData,
         HeaderProfile headerProfile,
+        HeaderKeywordMatcher headerKeywordMatcher,
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
@@ -427,6 +428,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableInfo,
                 tableData,
                 mapping,
+                headerKeywordMatcher,
                 extraSynonyms,
                 routingRules,
                 tryConsumeStructureAdjudicationBudget,
@@ -467,12 +469,13 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableInfo? tableInfo,
         TableData tableData,
         ColumnMappingResult mapping,
+        HeaderKeywordMatcher headerKeywordMatcher,
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         CancellationToken cancellationToken)
     {
-        var isSpecificationOnly = IsSpecificationOnlyCandidate(tableData, mapping);
+        var isSpecificationOnly = IsSpecificationOnlyCandidate(tableData, mapping, extraSynonyms);
         var healthCheck = DocumentStructureHealthCheck.Evaluate(
             tableData,
             mapping,
@@ -496,6 +499,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableData,
                 ruleRecognized,
                 healthCheck,
+                headerKeywordMatcher,
                 routingRules))
         {
             var fused = tryConsumeStructureAdjudicationBudget()
@@ -814,18 +818,23 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         return true;
     }
 
-    private static bool IsSpecificationOnlyCandidate(TableData tableData, ColumnMappingResult mapping)
+    private static bool IsSpecificationOnlyCandidate(
+        TableData tableData,
+        ColumnMappingResult mapping,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms)
     {
         if (mapping.Mapping.ProjectColumn.HasValue || !mapping.Mapping.SpecificationColumn.HasValue)
         {
             return false;
         }
 
+        var projectKeywords = extraSynonyms.TryGetValue(ColumnType.Project, out var words)
+            ? words
+            : [];
         return !tableData.Headers.Any(header =>
-            header.Contains("项目", StringComparison.OrdinalIgnoreCase) ||
-            header.Contains("項目", StringComparison.OrdinalIgnoreCase) ||
-            header.Contains("item", StringComparison.OrdinalIgnoreCase) ||
-            header.Contains("project", StringComparison.OrdinalIgnoreCase));
+            projectKeywords.Any(keyword =>
+                !string.IsNullOrWhiteSpace(keyword) &&
+                header.Contains(keyword, StringComparison.OrdinalIgnoreCase)));
     }
 
 }
@@ -834,13 +843,6 @@ internal readonly record struct HeaderProfile(int HeaderRowIndex, int HeaderRowC
 
 internal sealed class HeaderKeywordMatcher
 {
-    private static readonly string[] BuiltInKeywords =
-    [
-        "项目", "规格", "验收", "备注", "标准", "结果", "判定",
-        "检查", "管制", "条件", "对象", "供应商", "确认", "回复", "补充",
-        "依据", "方式", "分类", "project", "spec", "acceptance", "remark"
-    ];
-
     private readonly IReadOnlyList<string> _keywords;
 
     private HeaderKeywordMatcher(IReadOnlyList<string> keywords)
@@ -851,8 +853,8 @@ internal sealed class HeaderKeywordMatcher
     public static HeaderKeywordMatcher FromExtraSynonyms(
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms)
     {
-        var keywords = BuiltInKeywords
-            .Concat(extraSynonyms.Values.SelectMany(words => words))
+        var keywords = extraSynonyms.Values
+            .SelectMany(words => words)
             .Select(keyword => keyword.Trim())
             .Where(keyword => keyword.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)

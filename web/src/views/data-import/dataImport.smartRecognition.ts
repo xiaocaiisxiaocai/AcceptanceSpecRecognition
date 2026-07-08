@@ -173,37 +173,34 @@ export const buildDataImportConfigsFromRecognizedTables = ({
         };
       }
 
+      const excelMapping = normalizeExcelMappingByTable(tableInfo, {
+        projectColumn: toActualColumnNumber(tableInfo, table.projectColumnIndex),
+        specificationColumn: toActualColumnNumber(
+          tableInfo,
+          table.specificationColumnIndex
+        ),
+        acceptanceColumn: toActualColumnNumber(
+          tableInfo,
+          table.acceptanceColumnIndex
+        ),
+        remarkColumn: toActualColumnNumber(tableInfo, table.remarkColumnIndex),
+        headerRowStart: toActualRowNumber(tableInfo, table.headerRowIndex),
+        headerRowCount: Math.max(1, table.headerRowCount),
+        dataStartRow: toActualRowNumber(tableInfo, table.dataStartRowIndex),
+        dataEndRow:
+          table.dataEndRowIndex === undefined
+            ? Math.max(
+                toActualRowNumber(tableInfo, table.dataStartRowIndex),
+                (tableInfo?.usedRangeStartRow ?? 1) +
+                  Math.max(0, (tableInfo?.rowCount ?? 1) - 1)
+              )
+            : toActualRowNumber(tableInfo, table.dataEndRowIndex)
+      });
+
       return {
         ...base,
-        excelMapping: normalizeExcelMappingByTable(tableInfo, {
-          projectColumn: toActualColumnNumber(
-            tableInfo,
-            table.projectColumnIndex
-          ),
-          specificationColumn: toActualColumnNumber(
-            tableInfo,
-            table.specificationColumnIndex
-          ),
-          acceptanceColumn: toActualColumnNumber(
-            tableInfo,
-            table.acceptanceColumnIndex
-          ),
-          remarkColumn: toActualColumnNumber(
-            tableInfo,
-            table.remarkColumnIndex
-          ),
-          headerRowStart: toActualRowNumber(tableInfo, table.headerRowIndex),
-          headerRowCount: Math.max(1, table.headerRowCount),
-          dataStartRow: toActualRowNumber(tableInfo, table.dataStartRowIndex),
-          dataEndRow:
-            table.dataEndRowIndex === undefined
-              ? Math.max(
-                  toActualRowNumber(tableInfo, table.dataStartRowIndex),
-                  (tableInfo?.usedRangeStartRow ?? 1) +
-                    Math.max(0, (tableInfo?.rowCount ?? 1) - 1)
-                )
-              : toActualRowNumber(tableInfo, table.dataEndRowIndex)
-        })
+        excelMapping,
+        recognizedExcelMapping: { ...excelMapping }
       };
     });
 };

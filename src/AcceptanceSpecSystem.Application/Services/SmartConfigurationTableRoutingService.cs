@@ -98,6 +98,7 @@ internal static class SmartConfigurationTableRoutingService
         TableData tableData,
         SmartConfigurationRecognizedTable table,
         DocumentStructureHealthCheckResult healthCheck,
+        HeaderKeywordMatcher headerKeywordMatcher,
         IReadOnlyList<SmartStructureRoutingRule> routingRules)
     {
         var route = Route(tableInfo, tableData, table, healthCheck, routingRules);
@@ -106,7 +107,7 @@ internal static class SmartConfigurationTableRoutingService
             return false;
         }
 
-        if (!HasStructureHeaderSignal(table))
+        if (!HasStructureHeaderSignal(table, headerKeywordMatcher))
         {
             return false;
         }
@@ -200,32 +201,11 @@ internal static class SmartConfigurationTableRoutingService
             : "Unknown";
     }
 
-    private static bool HasStructureHeaderSignal(SmartConfigurationRecognizedTable table)
+    private static bool HasStructureHeaderSignal(
+        SmartConfigurationRecognizedTable table,
+        HeaderKeywordMatcher headerKeywordMatcher)
     {
-        return table.Headers.Any(header =>
-        {
-            var normalized = header.Trim().ToLowerInvariant();
-            return normalized.Contains("项目") ||
-                   normalized.Contains("項目") ||
-                   normalized.Contains("规格") ||
-                   normalized.Contains("規格") ||
-                   normalized.Contains("标准") ||
-                   normalized.Contains("標準") ||
-                   normalized.Contains("要求") ||
-                   normalized.Contains("验收") ||
-                   normalized.Contains("驗收") ||
-                   normalized.Contains("判定") ||
-                   normalized.Contains("检查") ||
-                   normalized.Contains("檢查") ||
-                   normalized.Contains("检验") ||
-                   normalized.Contains("檢驗") ||
-                   normalized.Contains("测试") ||
-                   normalized.Contains("測試") ||
-                   normalized.Contains("spec") ||
-                   normalized.Contains("standard") ||
-                   normalized.Contains("acceptance") ||
-                   normalized.Contains("inspection");
-        });
+        return table.Headers.Any(header => headerKeywordMatcher.Contains(header));
     }
 
     private static string GetDefaultRecommendation(

@@ -56,3 +56,19 @@ test("列映射规则页优先级输入框应与列宽匹配，避免被挤压",
   assert.match(source, /\.table-number-input\s*\{/);
   assert.match(source, /width:\s*100%;/);
 });
+
+test("列映射规则页应提供恢复内置默认词入口", () => {
+  const source = readProjectFile("web/src/views/config/column-mapping-rules/index.vue");
+  const apiSource = readProjectFile("web/src/api/column-mapping-rules.ts");
+
+  assert.match(apiSource, /restoreColumnMappingRuleDefaults/);
+  assert.match(apiSource, /\/restore-defaults/);
+  assert.match(apiSource, /params:\s*targetField === undefined/);
+
+  assert.match(source, /restoreColumnMappingRuleDefaults/);
+  assert.match(source, /const restoreDefaults = async/);
+  assert.match(source, /btn:column-mapping-rule:create/);
+  assert.match(source, /恢复默认词/);
+  assert.match(source, /重启只在某字段内置词全空时兜底补齐/);
+  assert.match(source, /@click="restoreDefaults"/);
+});

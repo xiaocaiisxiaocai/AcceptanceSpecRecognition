@@ -22,6 +22,7 @@ export type TableImportConfig = {
   tableInfo?: TableInfo;
   wordMapping?: ColumnMappingType;
   excelMapping?: ExcelSheetMapping;
+  recognizedExcelMapping?: ExcelSheetMapping;
   previewData: TableData | null;
 };
 

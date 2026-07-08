@@ -117,6 +117,7 @@ public static class ApiServiceCollectionExtensions
 
         // ── 系统初始化 ──
         services.AddScoped<SystemPromptTemplateInitializer>();
+        services.AddScoped<ColumnMappingRuleInitializer>();
 
         // ── AI / Semantic Kernel ──
         services.AddScoped<IAiServiceSelector, AiServiceSelector>();

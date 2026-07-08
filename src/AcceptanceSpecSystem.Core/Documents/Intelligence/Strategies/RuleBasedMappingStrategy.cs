@@ -14,39 +14,13 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
     private readonly ITextPreprocessingPipeline _textPipeline;
     private readonly ILogger<RuleBasedMappingStrategy> _logger;
 
-    // 同义词字典（可通过配置注入）
+    // 表头字段词由数据库 ColumnMappingRules 注入；这里保留空键以维持合并逻辑稳定。
     private static readonly Dictionary<ColumnType, string[]> DefaultSynonyms = new()
     {
-        [ColumnType.Project] = new[]
-        {
-            "项目", "检验项目", "测试项目", "检测项目", "检查项目",
-            "項目", "驗收項目", "檢驗項目", "測試項目", "檢測項目", "檢查項目",
-            "测试内容", "检测内容", "检验内容", "管控项", "关键特性", "ctq",
-            "測試內容", "檢測內容", "檢驗內容", "管控項", "關鍵特性",
-            "item", "test item", "inspection item", "test content"
-        },
-        [ColumnType.Specification] = new[]
-        {
-            "规格", "标准", "要求", "技术标准", "技术要求", "检验标准",
-            "規格", "驗收規格", "標準", "技術標準", "技術要求", "檢驗標準",
-            "规范", "参数", "指标", "基准", "判定基准",
-            "規範", "參數", "指標", "基準", "判定基準",
-            "spec", "specification", "standard", "requirement", "criteria"
-        },
-        [ColumnType.Acceptance] = new[]
-        {
-            "验收", "判定", "结果", "测试结果", "检测结果", "判定结果",
-            "驗收", "設備商確認", "确认", "確認", "結果", "測試結果", "檢測結果", "判定結果",
-            "实测", "实测值", "实测结果", "ok/ng", "合格判定",
-            "實測", "實測值", "實測結果",
-            "acceptance", "result", "judgment", "actual", "pass/fail"
-        },
-        [ColumnType.Remark] = new[]
-        {
-            "备注", "说明", "注释", "补充", "补充说明", "附注",
-            "備註", "說明", "註釋", "補充", "補充說明", "附註",
-            "remark", "note", "comment", "description", "remarks"
-        }
+        [ColumnType.Project] = [],
+        [ColumnType.Specification] = [],
+        [ColumnType.Acceptance] = [],
+        [ColumnType.Remark] = []
     };
 
     public RuleBasedMappingStrategy(

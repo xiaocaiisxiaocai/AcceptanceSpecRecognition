@@ -1,6 +1,7 @@
 ﻿using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -17,10 +18,14 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 public class ColumnMappingRulesController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ColumnMappingRuleInitializer _initializer;
 
-    public ColumnMappingRulesController(IUnitOfWork unitOfWork)
+    public ColumnMappingRulesController(
+        IUnitOfWork unitOfWork,
+        ColumnMappingRuleInitializer initializer)
     {
         _unitOfWork = unitOfWork;
+        _initializer = initializer;
     }
 
     [HttpGet]
@@ -53,6 +58,17 @@ public class ColumnMappingRulesController : BaseApiController
     {
         var rules = await _unitOfWork.ColumnMappingRules.GetEffectiveForCustomerAsync(customerId);
         return Success(rules.Select(ToDto).ToList());
+    }
+
+    [HttpPost("restore-defaults")]
+    [AuditOperation("restore-defaults", "column-mapping-rule")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<object>>> RestoreDefaults(
+        [FromQuery] ColumnMappingTargetField? targetField = null,
+        CancellationToken cancellationToken = default)
+    {
+        var added = await _initializer.RestoreMissingAsync(targetField, cancellationToken);
+        return Success<object>(new { added }, "默认词已恢复");
     }
 
     [HttpPost]

@@ -87,3 +87,15 @@ export const updateColumnMappingRule = (
 export const deleteColumnMappingRule = (id: number) => {
   return http.request<ApiResponse<void>>("delete", `${baseUrl}/${id}`);
 };
+
+export const restoreColumnMappingRuleDefaults = (
+  targetField?: ColumnMappingTargetField
+) => {
+  return http.request<ApiResponse<{ added: number }>>(
+    "post",
+    `${baseUrl}/restore-defaults`,
+    {
+      params: targetField === undefined ? undefined : { targetField }
+    }
+  );
+};

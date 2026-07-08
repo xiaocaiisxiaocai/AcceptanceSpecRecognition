@@ -53,6 +53,9 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
         body.Code.Should().Be(0);
         body.Data.GetProperty("templateSaved").GetBoolean().Should().BeTrue();
         body.Data.GetProperty("learnedRuleCount").GetInt32().Should().Be(2);
+        body.Data.TryGetProperty("learnedRoutingRuleCount", out _)
+            .Should()
+            .BeFalse("路由学习已停用，确认结果不应继续暴露恒为 0 的路由学习计数");
 
         await using var scope = _factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

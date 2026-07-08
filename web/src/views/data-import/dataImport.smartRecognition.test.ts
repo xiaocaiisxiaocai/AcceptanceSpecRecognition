@@ -104,6 +104,7 @@ describe("dataImport.smartRecognition", () => {
       dataStartRow: 4,
       dataEndRow: 11
     });
+    expect(configs[0].recognizedExcelMapping).toEqual(configs[0].excelMapping);
   });
 
   it("跳过 Reject 和缺少任一必填导入列的表", () => {

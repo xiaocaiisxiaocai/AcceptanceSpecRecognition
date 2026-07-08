@@ -114,7 +114,6 @@ export interface SmartConfigConfirmResult {
   templateSaved: boolean;
   templateId: number;
   learnedRuleCount: number;
-  learnedRoutingRuleCount: number;
   promotedGlobalRuleCount: number;
   learningSucceeded: boolean;
 }
