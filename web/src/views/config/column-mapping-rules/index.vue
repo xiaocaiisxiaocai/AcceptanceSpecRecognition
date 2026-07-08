@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   ColumnMappingMatchMode,
@@ -53,6 +53,17 @@ const tabKeywords = reactive({
   [ColumnMappingTargetField.Remark]: ""
 });
 
+const pageSizes = [20, 50, 100, 200];
+
+const pageState = reactive<
+  Record<ColumnMappingTargetField, { page: number; pageSize: number }>
+>({
+  [ColumnMappingTargetField.Project]: { page: 1, pageSize: 20 },
+  [ColumnMappingTargetField.Specification]: { page: 1, pageSize: 20 },
+  [ColumnMappingTargetField.Acceptance]: { page: 1, pageSize: 20 },
+  [ColumnMappingTargetField.Remark]: { page: 1, pageSize: 20 }
+});
+
 const canCreate = computed(() => hasPerms("btn:column-mapping-rule:create"));
 const canUpdate = computed(() => hasPerms("btn:column-mapping-rule:update"));
 const canDelete = computed(() => hasPerms("btn:column-mapping-rule:delete"));
@@ -97,12 +108,35 @@ const filteredRulesByTarget = computed(() => {
   return result;
 });
 
+const pagedRulesByTarget = computed(() => {
+  const result = {} as Record<ColumnMappingTargetField, ColumnMappingRule[]>;
+
+  targetOptions.forEach(target => {
+    const state = pageState[target.value];
+    const filteredRules = filteredRulesByTarget.value[target.value];
+    const start = (state.page - 1) * state.pageSize;
+    result[target.value] = filteredRules.slice(start, start + state.pageSize);
+  });
+
+  return result;
+});
+
+const resetPage = (targetField?: ColumnMappingTargetField) => {
+  const targets = targetField
+    ? [targetField]
+    : targetOptions.map(target => target.value);
+  targets.forEach(target => {
+    pageState[target].page = 1;
+  });
+};
+
 const load = async () => {
   loading.value = true;
   try {
     const res = await getColumnMappingRules();
     if (res.code === 0) {
       rules.value = res.data || [];
+      resetPage();
     } else {
       ElMessage.error(res.message || "加载规则失败");
     }
@@ -112,6 +146,8 @@ const load = async () => {
     loading.value = false;
   }
 };
+
+watch(tabKeywords, () => resetPage(), { deep: true });
 
 const dialogVisible = ref(false);
 const dialogTitle = ref("新增规则");
@@ -366,12 +402,19 @@ onMounted(load);
 
           <el-table
             v-loading="loading"
-            :data="filteredRulesByTarget[target.value]"
+            :data="pagedRulesByTarget[target.value]"
             stripe
             border
           >
-            <el-table-column prop="pattern" label="匹配词" min-width="min(200px, calc(100vw - 32px))" />
-            <el-table-column label="匹配模式" min-width="min(160px, calc(100vw - 32px))">
+            <el-table-column
+              prop="pattern"
+              label="匹配词"
+              min-width="min(200px, calc(100vw - 32px))"
+            />
+            <el-table-column
+              label="匹配模式"
+              min-width="min(160px, calc(100vw - 32px))"
+            >
               <template #default="{ row }">
                 <el-select
                   v-model="row.matchMode"
@@ -390,7 +433,10 @@ onMounted(load);
                 </el-select>
               </template>
             </el-table-column>
-            <el-table-column label="来源" width="min(110px, calc(100vw - 32px))">
+            <el-table-column
+              label="来源"
+              width="min(110px, calc(100vw - 32px))"
+            >
               <template #default="{ row }">
                 <el-tag
                   :type="getSourceOption(row.source).type"
@@ -401,7 +447,10 @@ onMounted(load);
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="客户域" width="min(120px, calc(100vw - 32px))">
+            <el-table-column
+              label="客户域"
+              width="min(120px, calc(100vw - 32px))"
+            >
               <template #default="{ row }">
                 <el-tag
                   :type="row.customerId ? 'success' : 'info'"
@@ -412,7 +461,10 @@ onMounted(load);
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="优先级" width="min(140px, calc(100vw - 32px))">
+            <el-table-column
+              label="优先级"
+              width="min(140px, calc(100vw - 32px))"
+            >
               <template #default="{ row }">
                 <el-input-number
                   v-model="row.priority"
@@ -461,11 +513,27 @@ onMounted(load);
               </template>
             </el-table-column>
           </el-table>
+
+          <div class="rule-pagination">
+            <el-pagination
+              v-model:current-page="pageState[target.value].page"
+              v-model:page-size="pageState[target.value].pageSize"
+              :page-sizes="pageSizes"
+              :total="filteredRulesByTarget[target.value].length"
+              background
+              layout="total, sizes, prev, pager, next, jumper"
+              @size-change="() => resetPage(target.value)"
+            />
+          </div>
         </el-tab-pane>
       </el-tabs>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(480px, calc(100vw - 32px))">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="min(480px, calc(100vw - 32px))"
+    >
       <el-form label-width="90px">
         <el-form-item label="目标字段" required>
           <el-select
@@ -553,5 +621,11 @@ onMounted(load);
 
 .table-number-input {
   width: 100%;
+}
+
+.rule-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 </style>
