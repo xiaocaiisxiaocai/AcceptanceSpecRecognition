@@ -365,7 +365,7 @@ onMounted(load);
         <div class="page-title">列映射规则</div>
       </div>
     </div>
-    <el-card>
+    <el-card class="column-rules-card table-card">
       <template #header>
         <div class="flex justify-between items-center">
           <div>
@@ -384,146 +384,151 @@ onMounted(load);
         项目管理”都映射到“项目”列。删除单个内置词后可通过“恢复默认词”补齐；重启只在某字段内置词全空时兜底补齐。
       </div>
 
-      <el-tabs v-model="activeTarget" type="card">
+      <el-tabs v-model="activeTarget" class="column-rules-tabs" type="card">
         <el-tab-pane
           v-for="target in targetOptions"
           :key="target.value"
           :name="target.value"
           :label="target.label"
         >
-          <div class="rule-toolbar">
-            <el-input
-              v-model="tabKeywords[target.value]"
-              class="rule-search-input"
-              placeholder="搜索当前字段的匹配词 / 匹配模式 / 来源 / 客户"
-              clearable
-            />
-          </div>
+          <div class="rule-pane">
+            <div class="rule-toolbar">
+              <el-input
+                v-model="tabKeywords[target.value]"
+                class="rule-search-input"
+                placeholder="搜索当前字段的匹配词 / 匹配模式 / 来源 / 客户"
+                clearable
+              />
+            </div>
 
-          <el-table
-            v-loading="loading"
-            :data="pagedRulesByTarget[target.value]"
-            stripe
-            border
-          >
-            <el-table-column
-              prop="pattern"
-              label="匹配词"
-              min-width="min(200px, calc(100vw - 32px))"
-            />
-            <el-table-column
-              label="匹配模式"
-              min-width="min(160px, calc(100vw - 32px))"
-            >
-              <template #default="{ row }">
-                <el-select
-                  v-model="row.matchMode"
-                  size="small"
-                  :disabled="!canUpdate"
-                  class="table-select"
-                  popper-class="config-select-popper"
-                  @change="() => persistRow(row)"
-                >
-                  <el-option
-                    v-for="mode in matchModeOptions"
-                    :key="mode.value"
-                    :label="mode.label"
-                    :value="mode.value"
-                  />
-                </el-select>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="来源"
-              width="min(110px, calc(100vw - 32px))"
-            >
-              <template #default="{ row }">
-                <el-tag
-                  :type="getSourceOption(row.source).type"
-                  effect="plain"
-                  size="small"
-                >
-                  {{ getSourceOption(row.source).label }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="客户域"
-              width="min(120px, calc(100vw - 32px))"
-            >
-              <template #default="{ row }">
-                <el-tag
-                  :type="row.customerId ? 'success' : 'info'"
-                  effect="plain"
-                  size="small"
-                >
-                  {{ row.customerId ? `客户 ${row.customerId}` : "全局" }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="优先级"
-              width="min(140px, calc(100vw - 32px))"
-            >
-              <template #default="{ row }">
-                <el-input-number
-                  v-model="row.priority"
-                  class="table-number-input"
-                  size="small"
-                  :disabled="!canUpdate"
-                  :min="-999"
-                  :max="999"
-                  controls-position="right"
-                  @change="() => persistRow(row)"
+            <div class="rule-table-wrap table-region">
+              <el-table
+                v-loading="loading"
+                :data="pagedRulesByTarget[target.value]"
+                stripe
+                border
+                height="100%"
+              >
+                <el-table-column
+                  prop="pattern"
+                  label="匹配词"
+                  min-width="min(200px, calc(100vw - 32px))"
                 />
-              </template>
-            </el-table-column>
-            <el-table-column label="启用" width="90">
-              <template #default="{ row }">
-                <el-switch
-                  v-model="row.enabled"
-                  :disabled="!canUpdate"
-                  @change="() => toggleEnabled(row)"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-if="hasOperationActions"
-              label="操作"
-              width="min(150px, calc(100vw - 32px))"
-              fixed="right"
-            >
-              <template #default="{ row }">
-                <el-button
-                  v-if="canUpdate"
-                  type="primary"
-                  link
-                  @click="openEdit(row)"
+                <el-table-column
+                  label="匹配模式"
+                  min-width="min(160px, calc(100vw - 32px))"
                 >
-                  编辑
-                </el-button>
-                <el-button
-                  v-if="canDelete"
-                  type="danger"
-                  link
-                  @click="remove(row)"
+                  <template #default="{ row }">
+                    <el-select
+                      v-model="row.matchMode"
+                      size="small"
+                      :disabled="!canUpdate"
+                      class="table-select"
+                      popper-class="config-select-popper"
+                      @change="() => persistRow(row)"
+                    >
+                      <el-option
+                        v-for="mode in matchModeOptions"
+                        :key="mode.value"
+                        :label="mode.label"
+                        :value="mode.value"
+                      />
+                    </el-select>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  label="来源"
+                  width="min(110px, calc(100vw - 32px))"
                 >
-                  删除
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+                  <template #default="{ row }">
+                    <el-tag
+                      :type="getSourceOption(row.source).type"
+                      effect="plain"
+                      size="small"
+                    >
+                      {{ getSourceOption(row.source).label }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  label="客户域"
+                  width="min(120px, calc(100vw - 32px))"
+                >
+                  <template #default="{ row }">
+                    <el-tag
+                      :type="row.customerId ? 'success' : 'info'"
+                      effect="plain"
+                      size="small"
+                    >
+                      {{ row.customerId ? `客户 ${row.customerId}` : "全局" }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  label="优先级"
+                  width="min(140px, calc(100vw - 32px))"
+                >
+                  <template #default="{ row }">
+                    <el-input-number
+                      v-model="row.priority"
+                      class="table-number-input"
+                      size="small"
+                      :disabled="!canUpdate"
+                      :min="-999"
+                      :max="999"
+                      controls-position="right"
+                      @change="() => persistRow(row)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column label="启用" width="90">
+                  <template #default="{ row }">
+                    <el-switch
+                      v-model="row.enabled"
+                      :disabled="!canUpdate"
+                      @change="() => toggleEnabled(row)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-if="hasOperationActions"
+                  label="操作"
+                  width="min(150px, calc(100vw - 32px))"
+                  fixed="right"
+                >
+                  <template #default="{ row }">
+                    <el-button
+                      v-if="canUpdate"
+                      type="primary"
+                      link
+                      @click="openEdit(row)"
+                    >
+                      编辑
+                    </el-button>
+                    <el-button
+                      v-if="canDelete"
+                      type="danger"
+                      link
+                      @click="remove(row)"
+                    >
+                      删除
+                    </el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
 
-          <div class="rule-pagination">
-            <el-pagination
-              v-model:current-page="pageState[target.value].page"
-              v-model:page-size="pageState[target.value].pageSize"
-              :page-sizes="pageSizes"
-              :total="filteredRulesByTarget[target.value].length"
-              background
-              layout="total, sizes, prev, pager, next, jumper"
-              @size-change="() => resetPage(target.value)"
-            />
+            <div class="rule-pagination">
+              <el-pagination
+                v-model:current-page="pageState[target.value].page"
+                v-model:page-size="pageState[target.value].pageSize"
+                :page-sizes="pageSizes"
+                :total="filteredRulesByTarget[target.value].length"
+                background
+                layout="total, sizes, prev, pager, next, jumper"
+                @size-change="() => resetPage(target.value)"
+              />
+            </div>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -601,13 +606,55 @@ onMounted(load);
 </template>
 
 <style scoped>
+.column-rules {
+  height: calc(100vh - var(--app-chrome-height, 105px));
+  min-height: 0;
+  overflow: hidden;
+}
+
+.column-rules-card {
+  min-height: 0;
+}
+
+.column-rules-card :deep(.el-card__body) {
+  overflow: hidden;
+}
+
+.column-rules-tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.column-rules-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+}
+
+.column-rules-tabs :deep(.el-tab-pane) {
+  height: 100%;
+}
+
+.rule-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .rule-toolbar {
-  margin-bottom: 16px;
+  flex-shrink: 0;
+  margin-bottom: 12px;
 }
 
 .rule-search-input {
   width: 100%;
   max-width: 360px;
+}
+
+.rule-table-wrap {
+  min-height: 160px;
 }
 
 .table-select {
@@ -625,7 +672,9 @@ onMounted(load);
 
 .rule-pagination {
   display: flex;
+  flex-shrink: 0;
   justify-content: flex-end;
-  margin-top: 14px;
+  padding-top: 12px;
+  overflow-x: auto;
 }
 </style>
