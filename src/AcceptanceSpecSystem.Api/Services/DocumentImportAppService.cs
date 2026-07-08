@@ -40,6 +40,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
     private readonly ImportDuplicateDetectionService _importDuplicateDetectionService;
     private readonly SpecEmbeddingCacheService _specEmbeddingCacheService;
     private readonly EmbeddingCacheWarmupManager _embeddingCacheWarmupManager;
+    private readonly ColumnMappingLearningService _columnMappingLearningService;
     private readonly ILogger<DocumentImportAppService> _logger;
 
     public DocumentImportAppService(
@@ -49,6 +50,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         ImportDuplicateDetectionService importDuplicateDetectionService,
         SpecEmbeddingCacheService specEmbeddingCacheService,
         EmbeddingCacheWarmupManager embeddingCacheWarmupManager,
+        ColumnMappingLearningService columnMappingLearningService,
         ILogger<DocumentImportAppService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -57,6 +59,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         _importDuplicateDetectionService = importDuplicateDetectionService;
         _specEmbeddingCacheService = specEmbeddingCacheService;
         _embeddingCacheWarmupManager = embeddingCacheWarmupManager;
+        _columnMappingLearningService = columnMappingLearningService;
         _logger = logger;
     }
 
@@ -114,7 +117,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 throw;
             }
 
-            return await ExecuteImportAsync(
+            var importResult = await ExecuteImportAsync(
                 scope,
                 wordFile,
                 request.TableIndex,
@@ -138,6 +141,18 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                     GetCellValue(row, request.Mapping.RemarkColumn!.Value)),
                 "表格",
                 cancellationToken);
+
+            await TryLearnColumnMappingsAfterImportAsync(
+                request.CustomerId,
+                tableData.Headers.ToList(),
+                request.Mapping.ProjectColumn,
+                request.Mapping.SpecificationColumn,
+                request.Mapping.AcceptanceColumn,
+                request.Mapping.RemarkColumn,
+                $"表格{request.TableIndex + 1}",
+                importResult,
+                cancellationToken);
+            return importResult;
         }
         catch (AiServiceUnavailableException ex)
         {
@@ -263,7 +278,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
             var acceptanceCol = request.AcceptanceColumn.HasValue ? request.AcceptanceColumn.Value - usedStartCol : (int?)null;
             var remarkCol = request.RemarkColumn.HasValue ? request.RemarkColumn.Value - usedStartCol : (int?)null;
 
-            return await ExecuteImportAsync(
+            var importResult = await ExecuteImportAsync(
                 scope,
                 file,
                 request.SheetIndex,
@@ -287,6 +302,18 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                     remarkCol.HasValue ? GetCellValue(row, remarkCol.Value) : null),
                 "工作表",
                 cancellationToken);
+
+            await TryLearnColumnMappingsAfterImportAsync(
+                request.CustomerId,
+                tableData.Headers.ToList(),
+                projectCol,
+                specCol,
+                acceptanceCol,
+                remarkCol,
+                sheetInfo.Name,
+                importResult,
+                cancellationToken);
+            return importResult;
         }
         catch (AiServiceUnavailableException ex)
         {

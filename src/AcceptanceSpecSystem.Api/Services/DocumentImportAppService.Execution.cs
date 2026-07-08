@@ -11,6 +11,40 @@ namespace AcceptanceSpecSystem.Api.Services;
 
 public sealed partial class DocumentImportAppService
 {
+    private async Task TryLearnColumnMappingsAfterImportAsync(
+        int customerId,
+        IReadOnlyList<string> headers,
+        int? projectColumnIndex,
+        int? specificationColumnIndex,
+        int? acceptanceColumnIndex,
+        int? remarkColumnIndex,
+        string? tableName,
+        DocumentImportAppResult importResult,
+        CancellationToken cancellationToken)
+    {
+        if (importResult.Result.PendingCount > 0 || importResult.Result.SuccessCount <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _columnMappingLearningService.LearnFromHeadersAsync(
+                customerId,
+                headers,
+                projectColumnIndex,
+                specificationColumnIndex,
+                acceptanceColumnIndex,
+                remarkColumnIndex,
+                tableName,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "导入成功后学习列映射失败: 客户{CustomerId}, 表{TableName}", customerId, tableName);
+        }
+    }
+
     private async Task ValidateImportTargetAsync(int customerId, int? processId, int? machineModelId)
     {
         var customer = await _unitOfWork.Customers.GetByIdAsync(customerId);

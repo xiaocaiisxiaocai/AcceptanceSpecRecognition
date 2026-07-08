@@ -36,6 +36,7 @@ public sealed partial class MatchingWorkflowSupportService
     private readonly MatchingApprovalTokenService _approvalTokenService;
     private readonly MatchingConfigResolver _matchingConfigResolver;
     private readonly MatchingCandidateProvider _matchingCandidateProvider;
+    private readonly ColumnMappingLearningService _columnMappingLearningService;
     private readonly ILogger<MatchingWorkflowSupportService> _logger;
 
     private static readonly JsonSerializerOptions SseJsonOptions = new()
@@ -90,6 +91,7 @@ public sealed partial class MatchingWorkflowSupportService
         MatchingApprovalTokenService approvalTokenService,
         MatchingConfigResolver matchingConfigResolver,
         MatchingCandidateProvider matchingCandidateProvider,
+        ColumnMappingLearningService columnMappingLearningService,
         ILogger<MatchingWorkflowSupportService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -105,6 +107,7 @@ public sealed partial class MatchingWorkflowSupportService
         _approvalTokenService = approvalTokenService;
         _matchingConfigResolver = matchingConfigResolver;
         _matchingCandidateProvider = matchingCandidateProvider;
+        _columnMappingLearningService = columnMappingLearningService;
         _logger = logger;
     }
 

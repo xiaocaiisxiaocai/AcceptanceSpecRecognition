@@ -18,7 +18,7 @@ public sealed class SmartConfigurationLearningService
         _options = options.Value;
     }
 
-    internal async Task<SmartConfigurationLearningResult> ApplyLearningAsync(
+    public async Task<SmartConfigurationLearningResult> ApplyLearningAsync(
         int customerId,
         string? tableName,
         string? tableKind,
@@ -146,6 +146,6 @@ public sealed class SmartConfigurationLearningService
     }
 }
 
-internal sealed record SmartConfigurationLearningResult(
+public sealed record SmartConfigurationLearningResult(
     int LearnedRuleCount,
     int PromotedGlobalRuleCount);

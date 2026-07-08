@@ -4,6 +4,7 @@ using System.Text.Json;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using ClosedXML.Excel;
 using FluentAssertions;
@@ -21,9 +22,11 @@ namespace AcceptanceSpecSystem.Api.Tests;
 public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly ApiWebApplicationFactory _factory;
 
     public ExcelFillFlowTests(ApiWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -147,6 +150,14 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         rows[0][3].GetString().Should().Be("RM-1");
         rows[1][2].GetString().Should().Be("AC-2");
         rows[1][3].GetString().Should().Be("RM-2");
+
+        await AssertLearnedColumnMappingRulesAsync(customerId, new[]
+        {
+            ("项目", ColumnMappingTargetField.Project),
+            ("规格", ColumnMappingTargetField.Specification),
+            ("验收", ColumnMappingTargetField.Acceptance),
+            ("备注", ColumnMappingTargetField.Remark)
+        });
     }
 
     [Fact]
@@ -251,6 +262,27 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    private async Task AssertLearnedColumnMappingRulesAsync(
+        int customerId,
+        IEnumerable<(string Pattern, ColumnMappingTargetField TargetField)> expectedRules)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        foreach (var (pattern, targetField) in expectedRules)
+        {
+            var rule = await db.ColumnMappingRules.SingleOrDefaultAsync(item =>
+                item.CustomerId == customerId &&
+                item.Pattern == pattern &&
+                item.TargetField == targetField);
+
+            rule.Should().NotBeNull();
+            rule!.Source.Should().Be(ColumnMappingRuleSource.Learned);
+            rule.MatchMode.Should().Be(ColumnMappingMatchMode.Equals);
+            rule.Priority.Should().BeGreaterThanOrEqualTo(100);
+            rule.Enabled.Should().BeTrue();
+        }
     }
 }
 

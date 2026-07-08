@@ -11,6 +11,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
@@ -220,6 +221,14 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         // 表格2 行1
         GetCellText(filledBytes, 1, 1, 2).Should().Be("FILL-B");
         GetCellText(filledBytes, 1, 1, 3).Should().Be("REM-B");
+
+        await AssertLearnedColumnMappingRulesAsync(customerId, new[]
+        {
+            ("项目", ColumnMappingTargetField.Project),
+            ("规格", ColumnMappingTargetField.Specification),
+            ("验收", ColumnMappingTargetField.Acceptance),
+            ("备注", ColumnMappingTargetField.Remark)
+        });
     }
 
     /// <summary>
@@ -565,6 +574,27 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(0);
         return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private async Task AssertLearnedColumnMappingRulesAsync(
+        int customerId,
+        IEnumerable<(string Pattern, ColumnMappingTargetField TargetField)> expectedRules)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        foreach (var (pattern, targetField) in expectedRules)
+        {
+            var rule = await db.ColumnMappingRules.SingleOrDefaultAsync(item =>
+                item.CustomerId == customerId &&
+                item.Pattern == pattern &&
+                item.TargetField == targetField);
+
+            rule.Should().NotBeNull();
+            rule!.Source.Should().Be(ColumnMappingRuleSource.Learned);
+            rule.MatchMode.Should().Be(ColumnMappingMatchMode.Equals);
+            rule.Priority.Should().BeGreaterThanOrEqualTo(100);
+            rule.Enabled.Should().BeTrue();
+        }
     }
 
     private async Task SeedSpecsAsync(int wordFileId, int customerId, int processId, int count)

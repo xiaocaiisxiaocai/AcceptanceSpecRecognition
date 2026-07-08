@@ -137,6 +137,7 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、Controllers、Api/Services �
 - **Data** 通过 `IUnitOfWork` + 泛型 `IRepository<T>` 抽象持久化。
 - 启动时 `DatabaseInitializer.InitializeAsync()` 自动应用待执行迁移（`Testing` 环境跳过）。
 - 启动时 `SystemPromptTemplateInitializer.EnsureAsync()` 确保默认 Prompt 模板存在。
+- 启动时 `ColumnMappingRuleInitializer.EnsureAsync()` 将列映射关键词种子写入数据库（关键词已从代码迁移到 DB，默认定义见 `Core/Documents/Intelligence/ColumnMappingRuleDefaults.cs`）。
 
 ### Core 核心模块
 

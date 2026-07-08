@@ -73,6 +73,7 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<DocumentFileAccessService>();
         services.AddScoped<DocumentTableAccessService>();
         services.AddScoped<MatchingResultWriteBackService>();
+        services.AddScoped<ColumnMappingLearningService>();
 
         // ── 匹配与智能填充 ──
         services.AddSingleton<BatchPreviewProgressTracker>();

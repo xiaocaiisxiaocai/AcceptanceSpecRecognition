@@ -289,6 +289,13 @@ public sealed partial class MatchingWorkflowSupportService
             }
         }
 
+        await TryLearnColumnMappingsAfterFillAsync(
+            wordFile,
+            request,
+            effectiveCustomerId,
+            totalFilled,
+            cancellationToken);
+
         var response = new ExecuteFillResponse
         {
             TaskId = taskId,
@@ -304,6 +311,47 @@ public sealed partial class MatchingWorkflowSupportService
         return Result(response, isExcelSource
             ? $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行，已写回并可下载 Excel"
             : $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行");
+    }
+
+    private async Task TryLearnColumnMappingsAfterFillAsync(
+        WordFile wordFile,
+        BatchExecuteFillRequest request,
+        int? customerId,
+        int totalFilled,
+        CancellationToken cancellationToken)
+    {
+        if (!customerId.HasValue || customerId.Value <= 0 || totalFilled <= 0)
+        {
+            return;
+        }
+
+        foreach (var table in request.Tables)
+        {
+            try
+            {
+                await _columnMappingLearningService.LearnFromDocumentTableAsync(
+                    customerId,
+                    wordFile,
+                    table.TableIndex,
+                    table.ProjectColumnIndex,
+                    table.SpecificationColumnIndex,
+                    table.AcceptanceColumnIndex,
+                    table.RemarkColumnIndex,
+                    table.HeaderRowStart,
+                    table.HeaderRowCount,
+                    table.DataStartRow,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "智能填充成功后学习列映射失败: 文件{FileId}, 表{TableIndex}, 客户{CustomerId}",
+                    wordFile.Id,
+                    table.TableIndex,
+                    customerId);
+            }
+        }
     }
 
 
