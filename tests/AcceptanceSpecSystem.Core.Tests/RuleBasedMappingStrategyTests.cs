@@ -78,6 +78,56 @@ public class RuleBasedMappingStrategyTests
         result.Mapping.RemarkColumn.Should().Be(8);
     }
 
+    [Theory]
+    [InlineData("是否响应", "供应商说明")]
+    [InlineData("是否相应", "供应商说明")]
+    public async Task IdentifyAsync_WithG5PsdMetadataColumns_ShouldMapBusinessColumns(
+        string acceptanceHeader,
+        string remarkHeader)
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            [
+                "PSD_CODE / 技术标准编码",
+                "PSD_CATCLSCODE / 设备小类编码",
+                "PSD_NUM / *序号",
+                "PSD_IMPORTANCE*关键指标",
+                "PSD_MODIFY / 可修改标识",
+                "PSD_CONFORM / 符合性验证通过",
+                "PSD_ACCEPTANCE / 最终验收通过",
+                "评议项目",
+                "评议标准要求",
+                "验收方式",
+                "评议大纲",
+                acceptanceHeader,
+                remarkHeader
+            ],
+            [
+                [
+                    "A02-035-02-T1",
+                    "A02-035-02",
+                    "1.3.01",
+                    "*",
+                    "N",
+                    "是",
+                    "是",
+                    "设备功能",
+                    "本设备应具备放板、防叠板、居中、传送以及速度调节装置等。",
+                    "/",
+                    "A.设备功能/工艺流程要求",
+                    "是",
+                    "满足"
+                ]
+            ],
+            DefaultSynonyms());
+
+        result.Mapping.ProjectColumn.Should().Be(7);
+        result.Mapping.SpecificationColumn.Should().Be(8);
+        result.Mapping.AcceptanceColumn.Should().Be(11);
+        result.Mapping.RemarkColumn.Should().Be(12);
+    }
+
     [Fact]
     public async Task IdentifyAsync_WithExtraSynonyms_ShouldUseCustomerLearnedTerms()
     {

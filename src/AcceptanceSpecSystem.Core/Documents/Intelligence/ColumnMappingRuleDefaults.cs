@@ -33,12 +33,14 @@ public static class ColumnMappingRuleDefaults
             "設備商確認", "确认", "確認", "結果", "測試結果", "檢測結果", "判定結果",
             "檢查方法", "檢驗方法", "測試方法", "实测", "实测值", "实测结果",
             "實測", "實測值", "實測結果", "ok/ng", "合格判定",
+            "是否响应", "是否相应", "是否響應", "是否相應",
             "acceptance", "result", "judgment", "actual", "pass/fail"
         ],
         [ColumnType.Remark] =
         [
             "备注", "说明", "注释", "补充", "补充说明", "附注",
             "備註", "說明", "註釋", "補充", "補充說明", "附註",
+            "供应商说明", "供應商說明",
             "remark", "note", "comment", "description", "remarks"
         ]
     };

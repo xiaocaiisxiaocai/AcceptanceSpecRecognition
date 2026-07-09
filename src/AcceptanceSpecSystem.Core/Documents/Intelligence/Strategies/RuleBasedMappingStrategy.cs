@@ -70,6 +70,18 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         TextProcessingSession session,
         IReadOnlyDictionary<ColumnType, string[]> synonyms)
     {
+        if (LooksLikePsdMetadataColumn(header))
+        {
+            return new ColumnIdentificationResult
+            {
+                ColumnIndex = columnIndex,
+                HeaderText = header,
+                ColumnType = ColumnType.Unknown,
+                Confidence = 0.0,
+                Reasoning = "PSD 元数据列不参与业务列映射"
+            };
+        }
+
         // 文本标准化
         var normalizedHeader = session.Process(header).ToLowerInvariant();
 
@@ -131,6 +143,13 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
             Confidence = 0.0,
             Reasoning = "未匹配任何规则"
         };
+    }
+
+    private static bool LooksLikePsdMetadataColumn(string header)
+    {
+        var normalized = header.Trim();
+        return normalized.StartsWith("PSD_", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith("*PSD_", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool LooksLikeAcceptanceMethodColumn(string normalizedHeader)
