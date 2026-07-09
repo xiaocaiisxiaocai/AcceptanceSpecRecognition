@@ -116,6 +116,7 @@ const hasColumnIndex = (value?: number | null): value is number =>
 export const canSmartTableBeImported = (table: SmartConfigRecognizedTable) =>
   table.decision !== "Reject" &&
   table.recommendation !== "Skip" &&
+  (!table.isSpecificationOnly || table.decision === "AutoApply") &&
   (hasColumnIndex(table.projectColumnIndex) || table.isSpecificationOnly) &&
   hasColumnIndex(table.specificationColumnIndex) &&
   hasColumnIndex(table.acceptanceColumnIndex) &&

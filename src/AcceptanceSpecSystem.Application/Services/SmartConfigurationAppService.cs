@@ -1226,6 +1226,16 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             return false;
         }
 
+        var mappedColumns = mapping.Mapping.GetMappedColumns().ToHashSet();
+        var hasUnmappedDataColumn = Enumerable.Range(0, tableData.ColumnCount)
+            .Where(columnIndex => !mappedColumns.Contains(columnIndex))
+            .Any(columnIndex => tableData.Rows.Any(row =>
+                !string.IsNullOrWhiteSpace(row.GetValue(columnIndex))));
+        if (hasUnmappedDataColumn)
+        {
+            return false;
+        }
+
         var projectKeywords = extraSynonyms.TryGetValue(ColumnType.Project, out var words)
             ? words
             : [];

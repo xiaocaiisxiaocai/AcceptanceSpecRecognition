@@ -1556,6 +1556,27 @@ public class SmartConfigRecognizeMissingProjectApiTests : IClassFixture<MissingP
         table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
     }
 
+    [Fact]
+    public async Task Recognize_WhenUnmappedColumnHasProjectLikeSamples_ShouldNotAutoMarkSpecificationOnly()
+    {
+        var fileId = await UploadExcelAsync(
+            CreateExcelWithUnmappedProjectSamplesBytes(),
+            "smart-recognize-unmapped-project-samples.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("projectColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("isSpecificationOnly").GetBoolean().Should().BeFalse();
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+    }
+
     private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
     {
         using var content = new MultipartFormDataContent();
@@ -1581,6 +1602,24 @@ public class SmartConfigRecognizeMissingProjectApiTests : IClassFixture<MissingP
         worksheet.Cell(1, 4).Value = "备注";
         worksheet.Cell(2, 1).Value = "外观";
         worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "目视 OK";
+        worksheet.Cell(2, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateExcelWithUnmappedProjectSamplesBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "分类";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "验收标准";
+        worksheet.Cell(1, 4).Value = "备注";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "表面不得有明显划伤";
         worksheet.Cell(2, 3).Value = "目视 OK";
         worksheet.Cell(2, 4).Value = "抽检";
 

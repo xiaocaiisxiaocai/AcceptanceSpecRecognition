@@ -251,10 +251,42 @@ describe("dataImport.smartRecognition", () => {
           isSpecificationOnly: true,
           confidence: 0
         }),
+        recognizedTable({
+          tableIndex: 9,
+          decision: "AutoApply",
+          projectColumnIndex: null as unknown as number,
+          isSpecificationOnly: true,
+          confidence: 0
+        }),
         recognizedTable({ tableIndex: 2, decision: "Reject" }),
         recognizedTable({ tableIndex: 3, decision: "NeedConfirm" })
       ])
-    ).toEqual([0, 3, 8]);
+    ).toEqual([0, 3, 9]);
+  });
+
+  it("仅规格表需要显式确认后才生成导入配置", () => {
+    const pending = recognizedTable({
+      decision: "NeedConfirm",
+      projectColumnIndex: null,
+      isSpecificationOnly: true,
+      confidence: 0
+    });
+
+    expect(
+      buildDataImportConfigsFromRecognizedTables({
+        isExcelFile: false,
+        tables: [pending],
+        tableInfos: [tableInfo(0)]
+      })
+    ).toEqual([]);
+
+    expect(
+      buildDataImportConfigsFromRecognizedTables({
+        isExcelFile: false,
+        tables: [{ ...pending, decision: "AutoApply" }],
+        tableInfos: [tableInfo(0)]
+      })
+    ).toHaveLength(1);
   });
 
   it("按用户勾选过滤需要导入的识别表", () => {
