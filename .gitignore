@@ -117,9 +117,12 @@ tmp/
 
 # Codex / AI tool logs
 .codex-*
+.playwright-cli/
+.runlogs/
 
 # Large generated artifacts
 backups/
+output/
 outputs/
 *.sql
 

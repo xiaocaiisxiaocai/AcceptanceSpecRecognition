@@ -39,15 +39,18 @@ public class ExecutionHistoryFrontendRegressionTests
         pageContent.Should().Contain("getExecutionHistoryList");
         pageContent.Should().Contain("getExecutionHistoryDetail");
 
-        var smartFillContent = ReadRepositoryFile(
-            "web/src/views/other/execution-history/components/ExecutionHistorySmartFillPlayback.vue");
-        smartFillContent.Should().Contain("ScoreDetailDecisionSummarySection");
-        smartFillContent.Should().Contain("ScoreDetailBestMatchSection");
-        smartFillContent.Should().Contain("ScoreDetailCandidateList");
+        var scoreDetailDialogContent = ReadRepositoryFile(
+            "web/src/views/smart-fill/components/ScoreDetailDialog.vue");
+        scoreDetailDialogContent.Should().Contain("ScoreDetailDecisionSummarySection");
+        scoreDetailDialogContent.Should().Contain("ScoreDetailBestMatchSection");
+        scoreDetailDialogContent.Should().Contain("ScoreDetailCandidateList");
 
         var batchReplyContent = ReadRepositoryFile(
             "web/src/views/other/execution-history/components/ExecutionHistoryBatchReplyDetail.vue");
-        batchReplyContent.Should().Contain("批量回复仅保留简化结果");
+        batchReplyContent.Should().Contain("formatConfidence");
+        batchReplyContent.Should().Contain("confidencePercent");
+        batchReplyContent.Should().Contain("prop=\"acceptance\"");
+        batchReplyContent.Should().Contain("prop=\"remark\"");
     }
 
     private static string ReadRepositoryFile(string relativePath)

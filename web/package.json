@@ -23,7 +23,7 @@
     "lint": "pnpm lint:eslint && pnpm lint:prettier && pnpm lint:stylelint",
     "check:smart-fill": "node check-page.mjs",
     "check:smart-fill:cjs": "node check-page.js",
-    "prepare": "husky",
+    "prepare": "cd .. && husky web/.husky",
     "preinstall": "npx only-allow pnpm"
   },
   "keywords": [
