@@ -50,6 +50,7 @@ tmp-*.out
 [Bb]uild[Ll]og.*
 TestResult.xml
 nunit-*.xml
+**/.testbin*/
 
 # Coverage Results
 *.coverage

@@ -156,6 +156,62 @@
 - 输出 TopN 未命中表头及客户分布。
 - 判断哪些可通过规则补齐，哪些需要 AI。
 
+执行入口：
+
+```bash
+dotnet run --project tools/SmartStructureHeaderGapReport -- \
+  --connection "Server=localhost;Database=acceptance_spec_db;User=root;Password=***;CharSet=utf8mb4;" \
+  --top 20 --output smart-structure-header-gap.json
+```
+
+如果库里还没有确认模板，也可以用离线样本：
+
+```bash
+dotnet run --project tools/SmartStructureHeaderGapReport -- \
+  --samples samples.json --top 20
+```
+
+`samples.json` 格式：
+
+```json
+[
+  {
+    "customerId": 7,
+    "templateName": "客户A-验收表",
+    "headers": ["项目", "允收范围", "检验结论", "备注"],
+    "projectColumnIndex": 0,
+    "specificationColumnIndex": 1,
+    "acceptanceColumnIndex": 2,
+    "remarkColumnIndex": 3
+  }
+]
+```
+
+样本列索引为 0-based，和后端 `DocumentTemplate` / `ColumnMapping` 内部索引一致。
+
+报告分三组：
+
+- `GlobalUncoveredHeaders`：用户确认映射过，但全局列映射规则未覆盖。用于判断是否补全局规则。
+- `EffectiveUncoveredHeaders`：用户确认映射过，且“全局 + 当前客户”有效规则仍未覆盖。用于判断当前运行时仍会漏的表头。
+- `LearnedRuleGlobalCandidates`：客户级 Learned 规则中尚未被全局规则覆盖的表头。用于判断是否将高频客户词补为全局规则。
+
+报告还会输出 `Conclusion`：
+
+- `RuleBackfillCandidateCount`：高频或跨客户的全局规则补齐候选数量。
+- `CustomerRuleCandidateCount`：更适合先做客户级规则或继续收样的候选数量。
+- `LearnedRulePromotionCandidateCount`：可评审是否晋升为全局规则的 Learned 候选数量。
+- `EffectiveRuntimeGapCount`：当前运行时有效规则仍可能漏识别的表头种类。
+- `NextAction`：阶段 1 下一步动作建议。
+
+`Conclusion` 只做收敛建议，不代表可以直接自动新增规则或启用 AI。若 `NextAction=ReviewRuleBackfillFirst`，应先评审并补确定性规则；补完规则后复跑报告仍有稳定缺口，再进入 AI 召回评估。
+
+数据来源：
+
+- `DocumentTemplates`：结构确认后保存的最终列映射，可反推“用户最终选择了哪个表头对应哪个字段”。
+- `ColumnMappingRules(Source=Learned)`：导入/确认后沉淀的客户级学习规则，可补充模板缺失时的人工映射信号。
+
+如果上述两类数据均为空，只能说明当前库没有可统计样本，不能据此进入规则补齐或 AI 召回评估。
+
 验收：
 
 - 有数据说明新增能力的必要性。
