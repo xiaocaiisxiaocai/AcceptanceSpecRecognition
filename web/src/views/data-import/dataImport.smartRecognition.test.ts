@@ -147,6 +147,25 @@ describe("dataImport.smartRecognition", () => {
     expect(configs[0].excelMapping?.specificationColumn).toBe(3);
   });
 
+  it("Excel 仅规格 API 返回 null 项目列且 confidence 为 0 时仍不补项目列", () => {
+    const configs = buildDataImportConfigsFromRecognizedTables({
+      isExcelFile: true,
+      tables: [
+        recognizedTable({
+          projectColumnIndex: null as unknown as number,
+          isSpecificationOnly: true,
+          confidence: 0
+        })
+      ],
+      tableInfos: [tableInfo(0)]
+    });
+
+    expect(configs).toHaveLength(1);
+    expect(configs[0].isSpecificationOnly).toBe(true);
+    expect(configs[0].excelMapping?.projectColumn).toBeUndefined();
+    expect(configs[0].excelMapping?.specificationColumn).toBe(3);
+  });
+
   it("跳过 Reject 和缺少任一必填导入列的表", () => {
     const configs = buildDataImportConfigsFromRecognizedTables({
       isExcelFile: false,
@@ -167,6 +186,11 @@ describe("dataImport.smartRecognition", () => {
           decision: "NeedConfirm",
           remarkColumnIndex: undefined
         }),
+        recognizedTable({
+          tableIndex: 5,
+          decision: "NeedConfirm",
+          acceptanceColumnIndex: null as unknown as number
+        }),
         recognizedTable({ tableIndex: 2, decision: "NeedConfirm" })
       ],
       tableInfos: [
@@ -174,7 +198,8 @@ describe("dataImport.smartRecognition", () => {
         tableInfo(1),
         tableInfo(2),
         tableInfo(3),
-        tableInfo(4)
+        tableInfo(4),
+        tableInfo(5)
       ]
     });
 
@@ -214,10 +239,22 @@ describe("dataImport.smartRecognition", () => {
           decision: "NeedConfirm",
           remarkColumnIndex: undefined
         }),
+        recognizedTable({
+          tableIndex: 7,
+          decision: "NeedConfirm",
+          acceptanceColumnIndex: null as unknown as number
+        }),
+        recognizedTable({
+          tableIndex: 8,
+          decision: "NeedConfirm",
+          projectColumnIndex: null as unknown as number,
+          isSpecificationOnly: true,
+          confidence: 0
+        }),
         recognizedTable({ tableIndex: 2, decision: "Reject" }),
         recognizedTable({ tableIndex: 3, decision: "NeedConfirm" })
       ])
-    ).toEqual([0, 3]);
+    ).toEqual([0, 3, 8]);
   });
 
   it("按用户勾选过滤需要导入的识别表", () => {

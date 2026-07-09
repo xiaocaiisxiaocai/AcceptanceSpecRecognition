@@ -11,6 +11,7 @@ import type {
   SkippedRowsGroup,
   TableImportConfig
 } from "../dataImport.types";
+import { shouldBackfillProjectFromSpecification } from "../dataImport.helpers";
 
 const props = defineProps<{
   importResult: CombinedImportResult | null;
@@ -72,8 +73,8 @@ const previewSkippedRowsModel = computed({
 // mutation 经同一引用回传父组件，行为与直接改 prop 一致，同时规避 vue/no-mutating-props。
 const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 const activeCollapseNames = ref<string[]>([]);
-const hasSpecificationOnlyTables = computed(() =>
-  props.tableConfigs.some(cfg => cfg.isSpecificationOnly)
+const hasSpecificationOnlyBackfillTables = computed(() =>
+  props.tableConfigs.some(shouldBackfillProjectFromSpecification)
 );
 </script>
 
@@ -215,12 +216,12 @@ const hasSpecificationOnlyTables = computed(() =>
       class="mb-4"
     />
     <el-alert
-      v-if="hasSpecificationOnlyTables"
+      v-if="hasSpecificationOnlyBackfillTables"
       type="warning"
       :closable="false"
       show-icon
       title="项目将使用规格内容自动补齐"
-      description="仅规格导入会将项目和规格写成同一内容；请确认没有独立项目列，再开始导入。"
+      description="仅规格导入会将项目和规格写成同一内容，可能增加跨项目匹配风险；请确认没有独立项目列，再开始导入。"
       class="mb-4"
     />
     <div class="import-confirm-overview">

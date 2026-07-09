@@ -5,7 +5,8 @@ import {
   getExcelPreviewColumnIndexes,
   getPreviewCellValue,
   getWordPreviewColumnIndexes,
-  normalizeExcelMappingByTable
+  normalizeExcelMappingByTable,
+  shouldBackfillProjectFromSpecification
 } from "../dataImport.helpers";
 import type {
   ImportPreviewGroup,
@@ -89,7 +90,7 @@ export function useDataImportPreviewSelection(
             displayRowNumber: options.isExcelFile.value
               ? (excelMapping?.dataStartRow ?? 1) + rowIndex
               : rowIndex + 1,
-            project: cfg.isSpecificationOnly
+            project: shouldBackfillProjectFromSpecification(cfg)
               ? specification
               : getPreviewCellValue(rowValues, columnIndexes.projectColumn),
             specification,

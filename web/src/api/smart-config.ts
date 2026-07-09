@@ -23,12 +23,7 @@ export type SmartConfigTableKind =
   | "Unknown"
   | string;
 
-export type SmartConfigSource =
-  | "Template"
-  | "Rule"
-  | "Llm"
-  | "Fused"
-  | string;
+export type SmartConfigSource = "Template" | "Rule" | "Llm" | "Fused" | string;
 
 export type SmartConfigRecognizedFieldName =
   | "Project"
@@ -44,10 +39,19 @@ export interface SmartConfigRecognizeRequest {
 
 export interface SmartConfigRecognizedField {
   field: SmartConfigRecognizedFieldName;
-  columnIndex?: number;
+  columnIndex?: number | null;
   header?: string | null;
   confidence: number;
   source: SmartConfigSource;
+}
+
+export interface SmartConfigColumnSemanticRecallSuggestion {
+  columnIndex: number;
+  header: string;
+  targetField: SmartConfigRecognizedFieldName;
+  confidence: number;
+  reason?: string | null;
+  source: string;
 }
 
 export interface SmartConfigRecognitionIssue {
@@ -64,11 +68,11 @@ export interface SmartConfigRecognizedTable {
   headerRowIndex: number;
   headerRowCount: number;
   dataStartRowIndex: number;
-  dataEndRowIndex?: number;
-  projectColumnIndex?: number;
-  specificationColumnIndex?: number;
-  acceptanceColumnIndex?: number;
-  remarkColumnIndex?: number;
+  dataEndRowIndex?: number | null;
+  projectColumnIndex?: number | null;
+  specificationColumnIndex?: number | null;
+  acceptanceColumnIndex?: number | null;
+  remarkColumnIndex?: number | null;
   isSpecificationOnly: boolean;
   confidence: number;
   source: SmartConfigSource;
@@ -78,6 +82,7 @@ export interface SmartConfigRecognizedTable {
   rankingScore?: number;
   skipReason?: string | null;
   issues?: SmartConfigRecognitionIssue[];
+  semanticRecallSuggestions?: SmartConfigColumnSemanticRecallSuggestion[];
   fields: SmartConfigRecognizedField[];
 }
 

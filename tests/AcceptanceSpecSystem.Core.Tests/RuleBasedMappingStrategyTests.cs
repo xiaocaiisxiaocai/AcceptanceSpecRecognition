@@ -129,6 +129,29 @@ public class RuleBasedMappingStrategyTests
     }
 
     [Fact]
+    public async Task IdentifyAsync_WithG5PsdAcceptanceMetadataAndUnknownBusinessAcceptanceHeader_ShouldNotMapMetadataAsAcceptance()
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            [
+                "PSD_ACCEPTANCE / 最终验收通过",
+                "评议项目",
+                "评议标准要求",
+                "评审结论",
+                "供应商说明"
+            ],
+            [
+                ["是", "设备功能", "本设备应具备放板、防叠板、居中、传送以及速度调节装置等。", "通过", "满足"]
+            ],
+            DefaultSynonyms());
+
+        result.Mapping.ProjectColumn.Should().Be(1);
+        result.Mapping.SpecificationColumn.Should().Be(2);
+        result.Mapping.AcceptanceColumn.Should().NotBe(0);
+    }
+
+    [Fact]
     public async Task IdentifyAsync_WithExtraSynonyms_ShouldUseCustomerLearnedTerms()
     {
         var strategy = CreateStrategy();

@@ -67,7 +67,7 @@ export const buildSmartFillConfigsFromRecognizedTables = ({
       table =>
         table.decision !== "Reject" &&
         table.recommendation !== "Skip" &&
-        table.specificationColumnIndex !== undefined
+        table.specificationColumnIndex != null
     )
     .sort((a, b) => a.tableIndex - b.tableIndex)
     .map(table => {
@@ -89,7 +89,7 @@ export const buildSmartFillConfigsFromRecognizedTables = ({
           : (table.acceptanceColumnIndex ?? table.specificationColumnIndex!),
         remarkColumnIndex: isExcelFile
           ? toActualColumnNumber(tableInfo, table.remarkColumnIndex)
-          : table.remarkColumnIndex,
+          : (table.remarkColumnIndex ?? undefined),
         headerRowStart: isExcelFile
           ? toActualRowNumber(tableInfo, table.headerRowIndex)
           : table.headerRowIndex + 1,

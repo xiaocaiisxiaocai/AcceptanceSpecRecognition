@@ -110,14 +110,17 @@ export const getDataImportPreviewTotalCount = (
   }, 0);
 };
 
+const hasColumnIndex = (value?: number | null): value is number =>
+  value != null;
+
 export const canSmartTableBeImported = (table: SmartConfigRecognizedTable) =>
   table.decision !== "Reject" &&
   table.recommendation !== "Skip" &&
-  (table.projectColumnIndex !== undefined || table.isSpecificationOnly) &&
-  table.specificationColumnIndex !== undefined &&
-  table.acceptanceColumnIndex !== undefined &&
-  table.remarkColumnIndex !== undefined &&
-  table.confidence > 0;
+  (hasColumnIndex(table.projectColumnIndex) || table.isSpecificationOnly) &&
+  hasColumnIndex(table.specificationColumnIndex) &&
+  hasColumnIndex(table.acceptanceColumnIndex) &&
+  hasColumnIndex(table.remarkColumnIndex) &&
+  (table.confidence > 0 || table.isSpecificationOnly);
 
 export const createDefaultSelectedSmartTableIndexes = (
   tables: SmartConfigRecognizedTable[]
@@ -162,10 +165,10 @@ export const buildDataImportConfigsFromRecognizedTables = ({
         return {
           ...base,
           wordMapping: {
-            projectColumn: table.projectColumnIndex,
-            specificationColumn: table.specificationColumnIndex,
-            acceptanceColumn: table.acceptanceColumnIndex,
-            remarkColumn: table.remarkColumnIndex,
+            projectColumn: table.projectColumnIndex ?? undefined,
+            specificationColumn: table.specificationColumnIndex ?? undefined,
+            acceptanceColumn: table.acceptanceColumnIndex ?? undefined,
+            remarkColumn: table.remarkColumnIndex ?? undefined,
             headerRowIndex: table.headerRowIndex,
             dataStartRowIndex: table.dataStartRowIndex
           }
@@ -190,7 +193,7 @@ export const buildDataImportConfigsFromRecognizedTables = ({
         headerRowCount: Math.max(1, table.headerRowCount),
         dataStartRow: toActualRowNumber(tableInfo, table.dataStartRowIndex),
         dataEndRow:
-          table.dataEndRowIndex === undefined
+          table.dataEndRowIndex == null
             ? Math.max(
                 toActualRowNumber(tableInfo, table.dataStartRowIndex),
                 (tableInfo?.usedRangeStartRow ?? 1) +

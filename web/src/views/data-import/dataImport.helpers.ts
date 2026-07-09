@@ -166,12 +166,12 @@ export const getMissingMappingFields = (
   isSpecificationOnly = false
 ) => {
   const missing: string[] = [];
-  if (!isSpecificationOnly && mapping.projectColumn === undefined) {
+  if (!isSpecificationOnly && mapping.projectColumn == null) {
     missing.push("项目名称列");
   }
-  if (mapping.specificationColumn === undefined) missing.push("规格内容列");
-  if (mapping.acceptanceColumn === undefined) missing.push("验收标准列");
-  if (mapping.remarkColumn === undefined) missing.push("备注列");
+  if (mapping.specificationColumn == null) missing.push("规格内容列");
+  if (mapping.acceptanceColumn == null) missing.push("验收标准列");
+  if (mapping.remarkColumn == null) missing.push("备注列");
   return missing;
 };
 
@@ -188,6 +188,21 @@ export const getMissingExcelMappingFields = (
   if (mapping.dataStartRow < 1) missing.push("数据起始行");
   if (mapping.dataEndRow < mapping.dataStartRow) missing.push("数据结束行");
   return missing;
+};
+
+export const shouldBackfillProjectFromSpecification = (
+  cfg: TableImportConfig
+) => {
+  if (!cfg.isSpecificationOnly) {
+    return false;
+  }
+
+  const projectColumn = cfg.excelMapping
+    ? normalizeExcelMappingByTable(cfg.tableInfo, cfg.excelMapping)
+        .projectColumn
+    : cfg.wordMapping?.projectColumn;
+
+  return projectColumn == null;
 };
 
 export const getWordPreviewColumnIndexes = (cfg: TableImportConfig) => {

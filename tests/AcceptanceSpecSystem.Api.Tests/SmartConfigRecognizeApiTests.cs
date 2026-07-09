@@ -692,7 +692,36 @@ public class SmartConfigRecognizeLlmFusionApiTests : IClassFixture<LlmFillsMissi
         table.GetProperty("decision").GetString().Should().Be("AutoApply");
     }
 
-    private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
+    [Fact]
+    public async Task Recognize_WhenSemanticRecallRunsBeforeLlmFusion_ShouldKeepRecallSuggestions()
+    {
+        using var factory = new LlmFillsMissingSpecificationWithSemanticRecallApiFactory();
+        var client = factory.CreateClient();
+        var fileId = await UploadExcelAsync(client, CreateExcelBytes(), "smart-recognize-llm-fusion-recall.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+        var suggestions = table.TryGetProperty("semanticRecallSuggestions", out var suggestionsElement) &&
+                          suggestionsElement.ValueKind == JsonValueKind.Array
+            ? suggestionsElement.EnumerateArray().ToList()
+            : [];
+
+        table.GetProperty("source").GetString().Should().Be("Fused");
+        table.GetProperty("specificationColumnIndex").GetInt32().Should().Be(1);
+        suggestions.Should().ContainSingle();
+        suggestions.Single().GetProperty("targetField").GetString().Should().Be("Specification");
+    }
+
+    private Task<int> UploadExcelAsync(byte[] bytes, string fileName) =>
+        UploadExcelAsync(_client, bytes, fileName);
+
+    private static async Task<int> UploadExcelAsync(HttpClient client, byte[] bytes, string fileName)
     {
         using var content = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(bytes);
@@ -700,7 +729,7 @@ public class SmartConfigRecognizeLlmFusionApiTests : IClassFixture<LlmFillsMissi
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", fileName);
 
-        var response = await _client.PostAsync("/api/documents/upload", content);
+        var response = await client.PostAsync("/api/documents/upload", content);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -2736,6 +2765,23 @@ public sealed class LlmFillsMissingSpecificationApiFactory : ApiWebApplicationFa
             services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
             services.AddScoped<IDocumentIntelligenceService, FusableMissingSpecificationColumnIntelligenceService>();
             services.AddScoped<ILlmDocumentStructureAdjudicationService, FillSpecificationColumnStructureAdjudicationService>();
+        });
+    }
+}
+
+public sealed class LlmFillsMissingSpecificationWithSemanticRecallApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
+            services.AddScoped<IDocumentIntelligenceService, FusableMissingSpecificationColumnIntelligenceService>();
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, FillSpecificationColumnStructureAdjudicationService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, SpecificationColumnSemanticRecallService>();
         });
     }
 }

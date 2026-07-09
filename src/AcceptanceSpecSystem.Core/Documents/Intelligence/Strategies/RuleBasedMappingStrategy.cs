@@ -70,6 +70,18 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         TextProcessingSession session,
         IReadOnlyDictionary<ColumnType, string[]> synonyms)
     {
+        if (LooksLikeSystemMetadataColumn(header))
+        {
+            return new ColumnIdentificationResult
+            {
+                ColumnIndex = columnIndex,
+                HeaderText = header,
+                ColumnType = ColumnType.Unknown,
+                Confidence = 0.0,
+                Reasoning = "系统元数据编码列不参与业务字段映射"
+            };
+        }
+
         // 文本标准化
         var normalizedHeader = session.Process(header).ToLowerInvariant();
 
@@ -150,6 +162,43 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
                (normalizedHeader.Contains("标准") || normalizedHeader.Contains("標準")) &&
                !LooksLikeAcceptanceMethodColumn(normalizedHeader);
     }
+
+    private static bool LooksLikeSystemMetadataColumn(string header)
+    {
+        var text = header.TrimStart();
+        if (text.Length == 0)
+        {
+            return false;
+        }
+
+        var tokenLength = 0;
+        while (tokenLength < text.Length && IsAsciiCodeTokenChar(text[tokenLength]))
+        {
+            tokenLength++;
+        }
+
+        if (tokenLength == 0)
+        {
+            return false;
+        }
+
+        var token = text[..tokenLength];
+        var underscoreIndex = token.IndexOf('_');
+        if (underscoreIndex < 3)
+        {
+            return false;
+        }
+
+        return token.Any(char.IsLetter) &&
+               token.Any(char.IsUpper) &&
+               token.Where(char.IsLetter).All(char.IsUpper);
+    }
+
+    private static bool IsAsciiCodeTokenChar(char value) =>
+        value is >= 'A' and <= 'Z' ||
+        value is >= 'a' and <= 'z' ||
+        value is >= '0' and <= '9' ||
+        value == '_';
 
     private (bool matched, double confidence, string matchedKeyword) MatchKeywords(
         string text,

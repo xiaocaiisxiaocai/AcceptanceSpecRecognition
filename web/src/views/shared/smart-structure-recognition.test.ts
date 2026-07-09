@@ -212,6 +212,14 @@ describe("smart-structure-recognition", () => {
     expect(toActualColumnNumber(info, undefined)).toBeUndefined();
   });
 
+  it("将 API 返回的 null 列索引视为缺列", () => {
+    const info = tableInfo();
+
+    expect(
+      toActualColumnNumber(info, null as unknown as number)
+    ).toBeUndefined();
+  });
+
   it("缺少表格区域信息时按 1 起始换算行列位置", () => {
     expect(toActualRowNumber(undefined, 0)).toBe(1);
     expect(toActualColumnNumber(undefined, 0)).toBe(1);

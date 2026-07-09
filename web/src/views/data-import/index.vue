@@ -134,8 +134,7 @@ const firstNeedConfirmTableIndex = computed(
       table =>
         table.recommendation !== "Recommended" &&
         table.recommendation !== "Skip"
-    )
-      ?.tableIndex
+    )?.tableIndex
 );
 const smartStructureDisplayGroups = computed(() =>
   createSmartStructureDisplayGroups(recognizedTables.value)
@@ -374,15 +373,18 @@ const smartStructureDisplayGroups = computed(() =>
                 "
                 :import-selectable="
                   table.decision !== 'Reject' &&
-                  table.projectColumnIndex !== undefined &&
-                  table.specificationColumnIndex !== undefined &&
-                  table.acceptanceColumnIndex !== undefined &&
-                  table.remarkColumnIndex !== undefined
+                  (table.projectColumnIndex != null ||
+                    table.isSpecificationOnly) &&
+                  table.specificationColumnIndex != null &&
+                  table.acceptanceColumnIndex != null &&
+                  table.remarkColumnIndex != null
                 "
                 :default-expanded="
                   table.tableIndex === firstNeedConfirmTableIndex
                 "
-                @confirm="request => handleSmartStructureConfirm(table, request)"
+                @confirm="
+                  request => handleSmartStructureConfirm(table, request)
+                "
                 @advanced="() => enterAdvancedMode('mapping')"
                 @update:import-selected="
                   value => handleSmartTableImportSelectionChange(table, value)

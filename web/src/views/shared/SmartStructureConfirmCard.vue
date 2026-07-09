@@ -64,14 +64,15 @@ const detailVisible = ref(false);
 const resetState = () => {
   state.templateName =
     props.table.tableName?.trim() || `表格 ${props.table.tableIndex + 1}`;
-  state.projectColumnIndex = props.table.projectColumnIndex;
-  state.specificationColumnIndex = props.table.specificationColumnIndex;
-  state.acceptanceColumnIndex = props.table.acceptanceColumnIndex;
-  state.remarkColumnIndex = props.table.remarkColumnIndex;
+  state.projectColumnIndex = props.table.projectColumnIndex ?? undefined;
+  state.specificationColumnIndex =
+    props.table.specificationColumnIndex ?? undefined;
+  state.acceptanceColumnIndex = props.table.acceptanceColumnIndex ?? undefined;
+  state.remarkColumnIndex = props.table.remarkColumnIndex ?? undefined;
   state.headerRowIndex = props.table.headerRowIndex;
   state.headerRowCount = props.table.headerRowCount;
   state.dataStartRowIndex = props.table.dataStartRowIndex;
-  state.dataEndRowIndex = props.table.dataEndRowIndex;
+  state.dataEndRowIndex = props.table.dataEndRowIndex ?? undefined;
   state.isSpecificationOnly = props.table.isSpecificationOnly;
   detailVisible.value =
     props.defaultExpanded ??
@@ -113,8 +114,8 @@ const columnOptions = computed(() =>
   }))
 );
 
-const getHeaderText = (index?: number) =>
-  index === undefined ? "-" : props.table.headers[index] || `列${index + 1}`;
+const getHeaderText = (index?: number | null) =>
+  index == null ? "-" : props.table.headers[index] || `列${index + 1}`;
 
 const summaryFields = computed(() => [
   { label: "项目", value: getHeaderText(props.table.projectColumnIndex) },
@@ -124,7 +125,7 @@ const summaryFields = computed(() => [
 ]);
 
 const hasRequiredProjectColumn = computed(
-  () => state.isSpecificationOnly || state.projectColumnIndex !== undefined
+  () => state.isSpecificationOnly || state.projectColumnIndex != null
 );
 
 const canConfirm = computed(
@@ -132,8 +133,8 @@ const canConfirm = computed(
     !props.readonly &&
     !!props.customerId &&
     hasRequiredProjectColumn.value &&
-    state.specificationColumnIndex !== undefined &&
-    state.acceptanceColumnIndex !== undefined &&
+    state.specificationColumnIndex != null &&
+    state.acceptanceColumnIndex != null &&
     props.table.decision !== "Reject"
 );
 
@@ -142,13 +143,20 @@ const importSwitchText = computed(() =>
 );
 
 const visibleIssues = computed(() => props.table.issues?.slice(0, 4) ?? []);
+const semanticRecallSuggestions = computed(
+  () => props.table.semanticRecallSuggestions?.slice(0, 6) ?? []
+);
 
 const hasStructureChanges = computed(
   () =>
-    state.projectColumnIndex !== props.table.projectColumnIndex ||
-    state.specificationColumnIndex !== props.table.specificationColumnIndex ||
-    state.acceptanceColumnIndex !== props.table.acceptanceColumnIndex ||
-    state.remarkColumnIndex !== props.table.remarkColumnIndex ||
+    (state.projectColumnIndex ?? null) !==
+      (props.table.projectColumnIndex ?? null) ||
+    (state.specificationColumnIndex ?? null) !==
+      (props.table.specificationColumnIndex ?? null) ||
+    (state.acceptanceColumnIndex ?? null) !==
+      (props.table.acceptanceColumnIndex ?? null) ||
+    (state.remarkColumnIndex ?? null) !==
+      (props.table.remarkColumnIndex ?? null) ||
     state.headerRowIndex !== props.table.headerRowIndex ||
     state.headerRowCount !== props.table.headerRowCount ||
     state.dataStartRowIndex !== props.table.dataStartRowIndex ||
@@ -181,30 +189,33 @@ const emitConfirm = () => {
   if (
     !props.customerId ||
     !hasRequiredProjectColumn.value ||
-    state.specificationColumnIndex === undefined ||
-    state.acceptanceColumnIndex === undefined
+    state.specificationColumnIndex == null ||
+    state.acceptanceColumnIndex == null
   ) {
     return;
   }
 
   emit(
     "confirm",
-    buildSmartConfigConfirmRequest(props.customerId, {
-      ...props.table,
-      tableName: state.templateName,
-      projectColumnIndex: state.projectColumnIndex,
-      specificationColumnIndex: state.specificationColumnIndex,
-      acceptanceColumnIndex: state.acceptanceColumnIndex,
-      remarkColumnIndex: state.remarkColumnIndex,
-      headerRowIndex: state.headerRowIndex,
-      headerRowCount: state.headerRowCount,
-      dataStartRowIndex: state.dataStartRowIndex,
-      dataEndRowIndex: state.dataEndRowIndex,
-      isSpecificationOnly: state.isSpecificationOnly
-    },
-    {
-      userModifiedStructure: hasStructureChanges.value
-    })
+    buildSmartConfigConfirmRequest(
+      props.customerId,
+      {
+        ...props.table,
+        tableName: state.templateName,
+        projectColumnIndex: state.projectColumnIndex,
+        specificationColumnIndex: state.specificationColumnIndex,
+        acceptanceColumnIndex: state.acceptanceColumnIndex,
+        remarkColumnIndex: state.remarkColumnIndex,
+        headerRowIndex: state.headerRowIndex,
+        headerRowCount: state.headerRowCount,
+        dataStartRowIndex: state.dataStartRowIndex,
+        dataEndRowIndex: state.dataEndRowIndex,
+        isSpecificationOnly: state.isSpecificationOnly
+      },
+      {
+        userModifiedStructure: hasStructureChanges.value
+      }
+    )
   );
 };
 </script>
@@ -288,6 +299,30 @@ const emitConfirm = () => {
         {{ header || `列${index + 1}` }}
       </el-tag>
       <span v-if="table.headers.length > 10" class="more">...</span>
+    </div>
+
+    <div
+      v-show="detailVisible"
+      v-if="semanticRecallSuggestions.length > 0"
+      class="semantic-recall-list"
+    >
+      <span class="semantic-recall-label">语义召回建议</span>
+      <el-tag
+        v-for="suggestion in semanticRecallSuggestions"
+        :key="`${suggestion.source}-${suggestion.columnIndex}-${suggestion.targetField}`"
+        size="small"
+        type="warning"
+        effect="plain"
+      >
+        [{{ formatDisplayIndexFromZeroBased(suggestion.columnIndex) }}]
+        {{ suggestion.header || `列${suggestion.columnIndex + 1}` }}
+        -> {{ getSmartStructureFieldLabel(suggestion.targetField) }}
+        {{ formatSmartStructurePercent(suggestion.confidence) }}
+        · {{ suggestion.source || "SemanticRecall" }}
+        <template v-if="suggestion.reason">
+          · {{ suggestion.reason }}
+        </template>
+      </el-tag>
     </div>
 
     <el-form
@@ -504,6 +539,7 @@ const emitConfirm = () => {
 
 .headers-preview,
 .field-list,
+.semantic-recall-list,
 .issue-list {
   display: flex;
   flex-wrap: wrap;
@@ -514,6 +550,7 @@ const emitConfirm = () => {
 }
 
 .headers-label,
+.semantic-recall-label,
 .more {
   font-size: 12px;
   color: var(--app-text-disabled);
@@ -534,11 +571,11 @@ const emitConfirm = () => {
   justify-content: flex-end;
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .card-header,
   .card-actions {
-    align-items: stretch;
     flex-direction: column;
+    align-items: stretch;
   }
 
   .card-meta {

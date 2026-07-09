@@ -549,10 +549,22 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                         reextractedRuleCandidate,
                         fused,
                         allowLlmOverride: true);
-                    return BuildFusedRecognizedTable(tableInfo, reextracted, remerged, routingRules, referenceCaseScore);
+                    return BuildFusedRecognizedTable(
+                        tableInfo,
+                        reextracted,
+                        remerged,
+                        routingRules,
+                        referenceCaseScore,
+                        ruleRecognized.SemanticRecallSuggestions);
                 }
 
-                return BuildFusedRecognizedTable(tableInfo, tableData, fused, routingRules, referenceCaseScore);
+                return BuildFusedRecognizedTable(
+                    tableInfo,
+                    tableData,
+                    fused,
+                    routingRules,
+                    referenceCaseScore,
+                    ruleRecognized.SemanticRecallSuggestions);
             }
         }
 
@@ -789,7 +801,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private static SmartConfigurationRecognizedTable CopyWithSemanticRecallSuggestions(
         SmartConfigurationRecognizedTable table,
-        IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion> suggestions)
+        IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion> suggestions,
+        bool forceNeedConfirm = true)
     {
         return new SmartConfigurationRecognizedTable
         {
@@ -807,7 +820,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             IsSpecificationOnly = table.IsSpecificationOnly,
             Confidence = table.Confidence,
             Source = table.Source,
-            Decision = "NeedConfirm",
+            Decision = forceNeedConfirm ? "NeedConfirm" : table.Decision,
             TableKind = table.TableKind,
             Recommendation = table.Recommendation,
             RankingScore = table.RankingScore,
@@ -941,7 +954,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableData tableData,
         DocumentStructureCandidate candidate,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
-        double referenceCaseScore)
+        double referenceCaseScore,
+        IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>? semanticRecallSuggestions = null)
     {
         var healthCheck = DocumentStructureHealthCheck.Evaluate(
             tableData,
@@ -949,7 +963,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             allowMissingProjectColumn: candidate.IsSpecificationOnly,
             autoApplyConfidenceThreshold: GetAutoApplyConfidenceThreshold(),
             minimumSpecificationNonEmptyRate: GetMinimumSpecificationNonEmptyRate());
-        return SmartConfigurationTableRoutingService.Enrich(
+        var recognized = SmartConfigurationTableRoutingService.Enrich(
             tableInfo,
             tableData,
             SmartConfigurationRecognizedTableFactory.FromCandidate(
@@ -960,6 +974,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             healthCheck,
             routingRules,
             referenceCaseScore);
+        return semanticRecallSuggestions is { Count: > 0 }
+            ? CopyWithSemanticRecallSuggestions(recognized, semanticRecallSuggestions, forceNeedConfirm: false)
+            : recognized;
     }
 
     private async Task<double> CalculateReferenceCaseScoreAsync(

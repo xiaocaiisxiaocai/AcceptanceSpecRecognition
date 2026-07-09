@@ -10,7 +10,8 @@ import {
 import { ensurePermission } from "@/utils/permission-guard";
 import {
   defaultExcelMapping,
-  normalizeExcelMappingByTable
+  normalizeExcelMappingByTable,
+  shouldBackfillProjectFromSpecification
 } from "../dataImport.helpers";
 import {
   buildEmptyImportAggregate,
@@ -205,6 +206,7 @@ export function useDataImportBatchExecution(
         projectColumn: normalizedExcelMapping.projectColumn,
         specificationColumn: normalizedExcelMapping.specificationColumn ?? 0
       };
+      const shouldBackfillProject = shouldBackfillProjectFromSpecification(cfg);
 
       const res = options.isExcelFile.value
         ? await importExcelData({
@@ -221,7 +223,7 @@ export function useDataImportBatchExecution(
             skippedDifferenceKeys: skipped,
             excludedRowIndexes,
             duplicateCheckOptions,
-            isSpecificationOnly: cfg.isSpecificationOnly
+            isSpecificationOnly: shouldBackfillProject
           })
         : await importData({
             fileId,
@@ -236,7 +238,7 @@ export function useDataImportBatchExecution(
             skippedDifferenceKeys: skipped,
             excludedRowIndexes,
             duplicateCheckOptions,
-            isSpecificationOnly: cfg.isSpecificationOnly,
+            isSpecificationOnly: shouldBackfillProject,
             mapping: cfg.wordMapping!
           });
 

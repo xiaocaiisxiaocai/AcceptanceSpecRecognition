@@ -2,7 +2,7 @@
 
 commit_msg_file="$1"
 case "$commit_msg_file" in
-  /*) ;;
+  /*|[A-Za-z]:*) ;;
   *)
     repo_root="$(git rev-parse --show-toplevel)"
     commit_msg_file="$repo_root/$commit_msg_file"

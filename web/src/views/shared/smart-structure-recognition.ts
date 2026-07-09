@@ -179,9 +179,9 @@ export const toActualRowNumber = (
 
 export const toActualColumnNumber = (
   tableInfo: TableInfo | undefined,
-  columnIndex?: number
+  columnIndex?: number | null
 ) =>
-  columnIndex === undefined
+  columnIndex == null
     ? undefined
     : Math.max(1, (tableInfo?.usedRangeStartColumn ?? 1) + columnIndex);
 
@@ -308,10 +308,10 @@ export const buildSmartConfigConfirmRequest = (
     >
   > = {}
 ): SmartConfigConfirmRequest => {
-  if (table.specificationColumnIndex === undefined) {
+  if (table.specificationColumnIndex == null) {
     throw new Error("规格列不能为空");
   }
-  if (table.acceptanceColumnIndex === undefined) {
+  if (table.acceptanceColumnIndex == null) {
     throw new Error("验收列不能为空");
   }
 
@@ -322,14 +322,14 @@ export const buildSmartConfigConfirmRequest = (
       table.tableName?.trim() ??
       `表格 ${table.tableIndex + 1}`,
     headers: table.headers,
-    projectColumnIndex: table.projectColumnIndex,
+    projectColumnIndex: table.projectColumnIndex ?? undefined,
     specificationColumnIndex: table.specificationColumnIndex,
     acceptanceColumnIndex: table.acceptanceColumnIndex,
-    remarkColumnIndex: table.remarkColumnIndex,
+    remarkColumnIndex: table.remarkColumnIndex ?? undefined,
     headerRowIndex: table.headerRowIndex,
     headerRowCount: table.headerRowCount,
     dataStartRowIndex: table.dataStartRowIndex,
-    dataEndRowIndex: table.dataEndRowIndex,
+    dataEndRowIndex: table.dataEndRowIndex ?? undefined,
     isSpecificationOnly: table.isSpecificationOnly,
     tableKind: table.tableKind,
     recommendation: table.recommendation,
