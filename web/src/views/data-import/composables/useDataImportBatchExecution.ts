@@ -63,11 +63,12 @@ type CompleteExcelImportMapping = Pick<
   | "headerRowCount"
   | "dataStartRow"
   | "dataEndRow"
-  | "projectColumn"
   | "specificationColumn"
   | "acceptanceColumn"
   | "remarkColumn"
->;
+> & {
+  projectColumn?: number;
+};
 
 export function useDataImportBatchExecution(
   options: UseDataImportBatchExecutionOptions
@@ -193,14 +194,15 @@ export function useDataImportBatchExecution(
       );
       if (
         options.isExcelFile.value &&
-        (normalizedExcelMapping.projectColumn === undefined ||
+        ((!cfg.isSpecificationOnly &&
+          normalizedExcelMapping.projectColumn === undefined) ||
           normalizedExcelMapping.specificationColumn === undefined)
       ) {
         throw new Error(`工作表 ${cfg.tableIndex + 1} 缺少项目列或规格列映射`);
       }
       const excelImportMapping: CompleteExcelImportMapping = {
         ...normalizedExcelMapping,
-        projectColumn: normalizedExcelMapping.projectColumn ?? 0,
+        projectColumn: normalizedExcelMapping.projectColumn,
         specificationColumn: normalizedExcelMapping.specificationColumn ?? 0
       };
 
@@ -218,7 +220,8 @@ export function useDataImportBatchExecution(
             partiallyConfirmedDifferenceKeys: partial,
             skippedDifferenceKeys: skipped,
             excludedRowIndexes,
-            duplicateCheckOptions
+            duplicateCheckOptions,
+            isSpecificationOnly: cfg.isSpecificationOnly
           })
         : await importData({
             fileId,
@@ -233,6 +236,7 @@ export function useDataImportBatchExecution(
             skippedDifferenceKeys: skipped,
             excludedRowIndexes,
             duplicateCheckOptions,
+            isSpecificationOnly: cfg.isSpecificationOnly,
             mapping: cfg.wordMapping!
           });
 

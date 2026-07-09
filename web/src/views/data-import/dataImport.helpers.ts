@@ -161,19 +161,27 @@ export const createDefaultExcelMapping = (
     )
   });
 
-export const getMissingMappingFields = (mapping: ColumnMappingType) => {
+export const getMissingMappingFields = (
+  mapping: ColumnMappingType,
+  isSpecificationOnly = false
+) => {
   const missing: string[] = [];
-  if (mapping.projectColumn === undefined) missing.push("项目名称列");
+  if (!isSpecificationOnly && mapping.projectColumn === undefined) {
+    missing.push("项目名称列");
+  }
   if (mapping.specificationColumn === undefined) missing.push("规格内容列");
   if (mapping.acceptanceColumn === undefined) missing.push("验收标准列");
   if (mapping.remarkColumn === undefined) missing.push("备注列");
   return missing;
 };
 
-export const getMissingExcelMappingFields = (mapping?: ExcelSheetMapping) => {
+export const getMissingExcelMappingFields = (
+  mapping?: ExcelSheetMapping,
+  isSpecificationOnly = false
+) => {
   const missing: string[] = [];
   if (!mapping) return ["Excel 映射未配置"];
-  if (!mapping.projectColumn) missing.push("项目列");
+  if (!isSpecificationOnly && !mapping.projectColumn) missing.push("项目列");
   if (!mapping.specificationColumn) missing.push("规格列");
   if (mapping.headerRowStart < 1) missing.push("表头起始行");
   if (mapping.headerRowCount < 0) missing.push("表头行数");

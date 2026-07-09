@@ -92,6 +92,7 @@ export interface ImportDataRequest {
   processId?: number;
   machineModelId?: number;
   mapping: ColumnMapping;
+  isSpecificationOnly?: boolean;
   cleanupSourceFile?: boolean;
   previewSkippedRows?: boolean;
   confirmedDifferenceKeys?: string[];
@@ -112,6 +113,7 @@ export interface ImportResult {
   requiresConfirmation?: boolean;
   pendingCount?: number;
   pendingDifferences?: ImportPendingDifference[];
+  projectBackfilledFromSpecification?: boolean;
 }
 
 /** 导入错误详情 */
@@ -224,7 +226,7 @@ export interface ExcelImportDataRequest {
   headerRowCount: number;
   dataStartRow: number;
   dataEndRow?: number;
-  projectColumn: number;
+  projectColumn?: number;
   specificationColumn: number;
   acceptanceColumn?: number;
   remarkColumn?: number;
@@ -235,6 +237,7 @@ export interface ExcelImportDataRequest {
   skippedDifferenceKeys?: string[];
   excludedRowIndexes?: number[];
   duplicateCheckOptions?: ImportDuplicateCheckOptions;
+  isSpecificationOnly?: boolean;
 }
 
 /** Excel 导入（按列序号） */

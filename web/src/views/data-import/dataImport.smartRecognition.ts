@@ -69,9 +69,7 @@ export const getDataImportPrevStepState = ({
   };
 };
 
-export const getDataImportPreviewLoadState = (
-  configs: TableImportConfig[]
-) => {
+export const getDataImportPreviewLoadState = (configs: TableImportConfig[]) => {
   return configs.reduce(
     (state, cfg) => {
       const previewData = cfg.previewData;
@@ -115,7 +113,7 @@ export const getDataImportPreviewTotalCount = (
 export const canSmartTableBeImported = (table: SmartConfigRecognizedTable) =>
   table.decision !== "Reject" &&
   table.recommendation !== "Skip" &&
-  table.projectColumnIndex !== undefined &&
+  (table.projectColumnIndex !== undefined || table.isSpecificationOnly) &&
   table.specificationColumnIndex !== undefined &&
   table.acceptanceColumnIndex !== undefined &&
   table.remarkColumnIndex !== undefined &&
@@ -156,6 +154,7 @@ export const buildDataImportConfigsFromRecognizedTables = ({
       const base: TableImportConfig = {
         tableIndex: table.tableIndex,
         tableInfo,
+        isSpecificationOnly: table.isSpecificationOnly,
         previewData: null
       };
 
@@ -174,7 +173,10 @@ export const buildDataImportConfigsFromRecognizedTables = ({
       }
 
       const excelMapping = normalizeExcelMappingByTable(tableInfo, {
-        projectColumn: toActualColumnNumber(tableInfo, table.projectColumnIndex),
+        projectColumn: toActualColumnNumber(
+          tableInfo,
+          table.projectColumnIndex
+        ),
         specificationColumn: toActualColumnNumber(
           tableInfo,
           table.specificationColumnIndex

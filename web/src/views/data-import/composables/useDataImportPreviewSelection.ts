@@ -77,24 +77,29 @@ export function useDataImportPreviewSelection(
         : null;
 
       const rows = previewData.rows
-        .map((rowValues, rowIndex) => ({
-          key: `${cfg.tableIndex}:${rowIndex}`,
-          tableIndex: cfg.tableIndex,
-          rowIndex,
-          displayRowNumber: options.isExcelFile.value
-            ? (excelMapping?.dataStartRow ?? 1) + rowIndex
-            : rowIndex + 1,
-          project: getPreviewCellValue(rowValues, columnIndexes.projectColumn),
-          specification: getPreviewCellValue(
+        .map((rowValues, rowIndex) => {
+          const specification = getPreviewCellValue(
             rowValues,
             columnIndexes.specificationColumn
-          ),
-          acceptance: getPreviewCellValue(
-            rowValues,
-            columnIndexes.acceptanceColumn
-          ),
-          remark: getPreviewCellValue(rowValues, columnIndexes.remarkColumn)
-        }))
+          );
+          return {
+            key: `${cfg.tableIndex}:${rowIndex}`,
+            tableIndex: cfg.tableIndex,
+            rowIndex,
+            displayRowNumber: options.isExcelFile.value
+              ? (excelMapping?.dataStartRow ?? 1) + rowIndex
+              : rowIndex + 1,
+            project: cfg.isSpecificationOnly
+              ? specification
+              : getPreviewCellValue(rowValues, columnIndexes.projectColumn),
+            specification,
+            acceptance: getPreviewCellValue(
+              rowValues,
+              columnIndexes.acceptanceColumn
+            ),
+            remark: getPreviewCellValue(rowValues, columnIndexes.remarkColumn)
+          };
+        })
         .filter(row => !excludedRowIndexes.has(row.rowIndex));
 
       return {

@@ -86,13 +86,18 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
 
             await ValidateImportTargetAsync(request.CustomerId, request.ProcessId, request.MachineModelId);
 
-            if (!request.Mapping.ProjectColumn.HasValue ||
-                !request.Mapping.SpecificationColumn.HasValue ||
+            if (!request.Mapping.SpecificationColumn.HasValue ||
                 !request.Mapping.AcceptanceColumn.HasValue ||
                 !request.Mapping.RemarkColumn.HasValue)
             {
-                throw new ApplicationServiceException(400, "项目列、规格列、验收标准列、备注列为必填");
+                throw new ApplicationServiceException(400, "规格列、验收标准列、备注列为必填");
             }
+
+            ValidateSpecificationOnlyProjectBackfill(
+                request.IsSpecificationOnly,
+                request.Mapping.ProjectColumn,
+                request.Mapping.SpecificationColumn,
+                projectColumnBase: 0);
 
             var mapping = new ColumnMapping
             {
@@ -117,6 +122,12 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 throw;
             }
 
+            ValidateSpecificationOnlyColumnHealth(
+                tableData,
+                request.Mapping.ProjectColumn,
+                request.Mapping.SpecificationColumn!.Value,
+                request.IsSpecificationOnly);
+
             var importResult = await ExecuteImportAsync(
                 scope,
                 wordFile,
@@ -132,15 +143,25 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 request.PreviewSkippedRows,
                 request.CleanupSourceFile,
                 tableData,
-                row => new ImportRowPayload(
-                    row.Index,
-                    GetRowValues(row),
-                    GetCellValue(row, request.Mapping.ProjectColumn!.Value),
-                    GetCellValue(row, request.Mapping.SpecificationColumn!.Value),
-                    GetCellValue(row, request.Mapping.AcceptanceColumn!.Value),
-                    GetCellValue(row, request.Mapping.RemarkColumn!.Value)),
+                row =>
+                {
+                    var specification = GetCellValue(row, request.Mapping.SpecificationColumn!.Value);
+                    return new ImportRowPayload(
+                        row.Index,
+                        GetRowValues(row),
+                        ResolveImportProjectValue(
+                            row,
+                            request.Mapping.ProjectColumn,
+                            request.Mapping.SpecificationColumn!.Value,
+                            request.IsSpecificationOnly),
+                        specification,
+                        GetCellValue(row, request.Mapping.AcceptanceColumn!.Value),
+                        GetCellValue(row, request.Mapping.RemarkColumn!.Value));
+                },
                 "表格",
                 cancellationToken);
+
+            MarkSpecificationOnlyBackfill(importResult, request.IsSpecificationOnly, request.Mapping.ProjectColumn);
 
             await TryLearnColumnMappingsAfterImportAsync(
                 request.CustomerId,
@@ -183,10 +204,16 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
 
             await ValidateImportTargetAsync(request.CustomerId, request.ProcessId, request.MachineModelId);
 
-            if (request.ProjectColumn <= 0 || request.SpecificationColumn <= 0)
+            if (request.SpecificationColumn <= 0)
             {
-                throw new ApplicationServiceException(400, "项目列与规格内容列为必填，且列号必须 >= 1");
+                throw new ApplicationServiceException(400, "规格内容列为必填，且列号必须 >= 1");
             }
+
+            ValidateSpecificationOnlyProjectBackfill(
+                request.IsSpecificationOnly,
+                request.ProjectColumn,
+                request.SpecificationColumn,
+                projectColumnBase: 1);
 
             if (request.HeaderRowStart < 1 ||
                 request.HeaderRowCount < 0 ||
@@ -217,7 +244,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
 
             static bool IsInRange(int value, int start, int end) => value >= start && value <= end;
 
-            if (!IsInRange(request.ProjectColumn, usedStartCol, usedEndCol))
+            if (request.ProjectColumn.HasValue && !IsInRange(request.ProjectColumn.Value, usedStartCol, usedEndCol))
             {
                 throw new ApplicationServiceException(400, $"列号越界：ProjectColumn，已用区域列范围为 {usedStartCol}~{usedEndCol}");
             }
@@ -273,10 +300,16 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 mapping,
                 maxDataRowCount);
 
-            var projectCol = request.ProjectColumn - usedStartCol;
+            var projectCol = request.ProjectColumn.HasValue ? request.ProjectColumn.Value - usedStartCol : (int?)null;
             var specCol = request.SpecificationColumn - usedStartCol;
             var acceptanceCol = request.AcceptanceColumn.HasValue ? request.AcceptanceColumn.Value - usedStartCol : (int?)null;
             var remarkCol = request.RemarkColumn.HasValue ? request.RemarkColumn.Value - usedStartCol : (int?)null;
+
+            ValidateSpecificationOnlyColumnHealth(
+                tableData,
+                projectCol,
+                specCol,
+                request.IsSpecificationOnly);
 
             var importResult = await ExecuteImportAsync(
                 scope,
@@ -293,15 +326,21 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 request.PreviewSkippedRows,
                 request.CleanupSourceFile,
                 tableData,
-                row => new ImportRowPayload(
-                    request.DataStartRow + row.Index,
-                    GetRowValues(row),
-                    GetCellValue(row, projectCol),
-                    GetCellValue(row, specCol),
-                    acceptanceCol.HasValue ? GetCellValue(row, acceptanceCol.Value) : null,
-                    remarkCol.HasValue ? GetCellValue(row, remarkCol.Value) : null),
+                row =>
+                {
+                    var specification = GetCellValue(row, specCol);
+                    return new ImportRowPayload(
+                        request.DataStartRow + row.Index,
+                        GetRowValues(row),
+                        ResolveImportProjectValue(row, projectCol, specCol, request.IsSpecificationOnly),
+                        specification,
+                        acceptanceCol.HasValue ? GetCellValue(row, acceptanceCol.Value) : null,
+                        remarkCol.HasValue ? GetCellValue(row, remarkCol.Value) : null);
+                },
                 "工作表",
                 cancellationToken);
+
+            MarkSpecificationOnlyBackfill(importResult, request.IsSpecificationOnly, projectCol);
 
             await TryLearnColumnMappingsAfterImportAsync(
                 request.CustomerId,
@@ -319,6 +358,81 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         {
             throw new ApplicationServiceException(400, BuildAiImportUnavailableMessage(request.DuplicateCheckOptions, ex));
         }
+    }
+
+    private static void ValidateSpecificationOnlyProjectBackfill(
+        bool isSpecificationOnly,
+        int? projectColumn,
+        int? specificationColumn,
+        int projectColumnBase)
+    {
+        if (!specificationColumn.HasValue)
+        {
+            throw new ApplicationServiceException(400, "规格内容列为必填");
+        }
+
+        if (projectColumn.HasValue && projectColumn.Value < projectColumnBase)
+        {
+            throw new ApplicationServiceException(400, "项目列配置不合法");
+        }
+
+        if (!projectColumn.HasValue && !isSpecificationOnly)
+        {
+            throw new ApplicationServiceException(400, "缺少项目列；如确认该表为仅规格导入，请先启用仅规格确认后再导入");
+        }
+    }
+
+    private static void ValidateSpecificationOnlyColumnHealth(
+        TableData tableData,
+        int? projectColumn,
+        int specificationColumn,
+        bool isSpecificationOnly)
+    {
+        if (!ShouldBackfillProjectFromSpecification(isSpecificationOnly, projectColumn))
+        {
+            return;
+        }
+
+        var hasSpecificationValue = tableData.Rows.Any(row =>
+            !string.IsNullOrWhiteSpace(GetCellValue(row, specificationColumn)));
+        if (!hasSpecificationValue)
+        {
+            throw new ApplicationServiceException(400, "仅规格导入要求规格列存在有效数据");
+        }
+    }
+
+    private static string? ResolveImportProjectValue(
+        RowData row,
+        int? projectColumn,
+        int specificationColumn,
+        bool isSpecificationOnly)
+    {
+        if (projectColumn.HasValue)
+        {
+            return GetCellValue(row, projectColumn.Value);
+        }
+
+        return ShouldBackfillProjectFromSpecification(isSpecificationOnly, projectColumn)
+            ? GetCellValue(row, specificationColumn)
+            : null;
+    }
+
+    private static void MarkSpecificationOnlyBackfill(
+        DocumentImportAppResult result,
+        bool isSpecificationOnly,
+        int? projectColumn)
+    {
+        if (ShouldBackfillProjectFromSpecification(isSpecificationOnly, projectColumn))
+        {
+            result.Result.ProjectBackfilledFromSpecification = true;
+        }
+    }
+
+    private static bool ShouldBackfillProjectFromSpecification(
+        bool isSpecificationOnly,
+        int? projectColumn)
+    {
+        return isSpecificationOnly && !projectColumn.HasValue;
     }
 
 

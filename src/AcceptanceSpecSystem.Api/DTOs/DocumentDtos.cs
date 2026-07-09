@@ -328,6 +328,11 @@ public class ImportDataRequest
     public bool PreviewSkippedRows { get; set; } = false;
 
     /// <summary>
+    /// 是否确认本次为仅规格导入；缺项目列时允许用规格内容回填项目。
+    /// </summary>
+    public bool IsSpecificationOnly { get; set; } = false;
+
+    /// <summary>
     /// 差异行中“确认导入”的键集合（用于二次确认提交）
     /// </summary>
     public List<string> ConfirmedDifferenceKeys { get; set; } = [];
@@ -448,6 +453,11 @@ public class ImportResult
     /// 待确认差异明细
     /// </summary>
     public List<ImportPendingDifference> PendingDifferences { get; set; } = [];
+
+    /// <summary>
+    /// 本次导入是否存在“项目由规格补齐”的行。
+    /// </summary>
+    public bool ProjectBackfilledFromSpecification { get; set; }
 }
 
 /// <summary>

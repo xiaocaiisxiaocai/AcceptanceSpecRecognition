@@ -72,6 +72,9 @@ const previewSkippedRowsModel = computed({
 // mutation 经同一引用回传父组件，行为与直接改 prop 一致，同时规避 vue/no-mutating-props。
 const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 const activeCollapseNames = ref<string[]>([]);
+const hasSpecificationOnlyTables = computed(() =>
+  props.tableConfigs.some(cfg => cfg.isSpecificationOnly)
+);
 </script>
 
 <template>
@@ -150,7 +153,11 @@ const activeCollapseNames = ref<string[]>([]);
                 {{ row.tableIndex + 1 }}
               </template>
             </el-table-column>
-            <el-table-column prop="rowIndex" label="行号" width="min(100px, calc(100vw - 32px))" />
+            <el-table-column
+              prop="rowIndex"
+              label="行号"
+              width="min(100px, calc(100vw - 32px))"
+            />
             <el-table-column
               prop="message"
               label="跳过原因"
@@ -205,6 +212,15 @@ const activeCollapseNames = ref<string[]>([]);
       :closable="false"
       show-icon
       :title="currentImportPermissionMessage"
+      class="mb-4"
+    />
+    <el-alert
+      v-if="hasSpecificationOnlyTables"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="项目将使用规格内容自动补齐"
+      description="仅规格导入会将项目和规格写成同一内容；请确认没有独立项目列，再开始导入。"
       class="mb-4"
     />
     <div class="import-confirm-overview">
@@ -424,7 +440,8 @@ const activeCollapseNames = ref<string[]>([]);
                 v-if="previewLoadState.hasPartialPreview"
                 class="summary-meta"
               >
-                当前先显示前 {{ previewLoadState.loadedRows }} 条，导入前会自动补齐完整数据
+                当前先显示前
+                {{ previewLoadState.loadedRows }} 条，导入前会自动补齐完整数据
               </span>
             </div>
             <div class="import-preview-actions">
@@ -527,7 +544,11 @@ const activeCollapseNames = ref<string[]>([]);
                     {{ row.remark || "-" }}
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="min(100px, calc(100vw - 32px))" fixed="right">
+                <el-table-column
+                  label="操作"
+                  width="min(100px, calc(100vw - 32px))"
+                  fixed="right"
+                >
                   <template #default="{ row }">
                     <el-button
                       type="danger"

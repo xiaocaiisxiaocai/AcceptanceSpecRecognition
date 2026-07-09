@@ -65,11 +65,10 @@ public class ExcelImportDataRequest
     public int? DataEndRow { get; set; }
 
     /// <summary>
-    /// 项目列（必填，1-based；第 1 列为 A）
+    /// 项目列（1-based；仅规格导入时可为空）
     /// </summary>
-    [Required(ErrorMessage = "项目列不能为空")]
     [Range(1, int.MaxValue, ErrorMessage = "项目列必须大于0")]
-    public int ProjectColumn { get; set; }
+    public int? ProjectColumn { get; set; }
 
     /// <summary>
     /// 规格内容列（必填，1-based；第 1 列为 A）
@@ -100,6 +99,11 @@ public class ExcelImportDataRequest
     /// 是否返回“未导入（跳过）”明细（默认不返回，减少响应体）
     /// </summary>
     public bool PreviewSkippedRows { get; set; } = false;
+
+    /// <summary>
+    /// 是否确认本次为仅规格导入；缺项目列时允许用规格内容回填项目。
+    /// </summary>
+    public bool IsSpecificationOnly { get; set; } = false;
 
     /// <summary>
     /// 差异行中“确认导入”的键集合（用于二次确认提交）

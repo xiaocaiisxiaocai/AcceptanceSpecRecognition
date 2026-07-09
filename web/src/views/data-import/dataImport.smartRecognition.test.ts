@@ -107,6 +107,46 @@ describe("dataImport.smartRecognition", () => {
     expect(configs[0].recognizedExcelMapping).toEqual(configs[0].excelMapping);
   });
 
+  it("Word 仅规格识别结果缺少项目列时仍可生成导入配置", () => {
+    const configs = buildDataImportConfigsFromRecognizedTables({
+      isExcelFile: false,
+      tables: [
+        recognizedTable({
+          projectColumnIndex: undefined,
+          isSpecificationOnly: true
+        })
+      ],
+      tableInfos: [tableInfo(0)]
+    });
+
+    expect(configs).toHaveLength(1);
+    expect(configs[0]).toMatchObject({
+      isSpecificationOnly: true,
+      wordMapping: {
+        projectColumn: undefined,
+        specificationColumn: 1
+      }
+    });
+  });
+
+  it("Excel 仅规格识别结果缺少项目列时保留仅规格标记并不补项目列", () => {
+    const configs = buildDataImportConfigsFromRecognizedTables({
+      isExcelFile: true,
+      tables: [
+        recognizedTable({
+          projectColumnIndex: undefined,
+          isSpecificationOnly: true
+        })
+      ],
+      tableInfos: [tableInfo(0)]
+    });
+
+    expect(configs).toHaveLength(1);
+    expect(configs[0].isSpecificationOnly).toBe(true);
+    expect(configs[0].excelMapping?.projectColumn).toBeUndefined();
+    expect(configs[0].excelMapping?.specificationColumn).toBe(3);
+  });
+
   it("跳过 Reject 和缺少任一必填导入列的表", () => {
     const configs = buildDataImportConfigsFromRecognizedTables({
       isExcelFile: false,
@@ -187,10 +227,9 @@ describe("dataImport.smartRecognition", () => {
       recognizedTable({ tableIndex: 2 })
     ];
 
-    expect(filterSelectedSmartTables(tables, [2, 0]).map(t => t.tableIndex)).toEqual([
-      0,
-      2
-    ]);
+    expect(
+      filterSelectedSmartTables(tables, [2, 0]).map(t => t.tableIndex)
+    ).toEqual([0, 2]);
   });
 
   it("高级步骤仅允许进入旧表格选择或映射步骤", () => {
