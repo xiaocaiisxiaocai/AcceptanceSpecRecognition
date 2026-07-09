@@ -106,8 +106,15 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             cancellationToken);
         var headerKeywordMatcher = HeaderKeywordMatcher.FromExtraSynonyms(extraSynonyms);
         var tables = new List<SmartConfigurationRecognizedTable>();
+        var llmCallBudget = Math.Max(0, _options.MaxLlmCallsPerRecognizeDocument);
         var structureAdjudicationBudget = Math.Max(0, _options.MaxStructureAdjudicationCallsPerDocument);
         var columnSemanticRecallBudget = Math.Max(0, _options.MaxColumnSemanticRecallCallsPerDocument);
+        var structureAdjudicationCache =
+            new Dictionary<string, DocumentStructureCandidate?>(
+                StringComparer.Ordinal);
+        var columnSemanticRecallCache =
+            new Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>>(
+                StringComparer.Ordinal);
         for (var i = 0; i < tablesData.Count; i++)
         {
             var tableData = tablesData[i];
@@ -139,8 +146,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 headerKeywordMatcher,
                 extraSynonyms,
                 routingRules,
-                () => TryConsumeStructureAdjudicationBudget(ref structureAdjudicationBudget),
-                () => TryConsumeColumnSemanticRecallBudget(ref columnSemanticRecallBudget),
+                () => TryConsumeLlmBudget(ref llmCallBudget, ref structureAdjudicationBudget),
+                () => TryConsumeLlmBudget(ref llmCallBudget, ref columnSemanticRecallBudget),
+                structureAdjudicationCache,
+                columnSemanticRecallCache,
                 cancellationToken));
         }
 
@@ -384,6 +393,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
+        Dictionary<string, DocumentStructureCandidate?> structureAdjudicationCache,
+        Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
     {
         var headers = tableData.Headers.ToList();
@@ -439,6 +450,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 routingRules,
                 tryConsumeStructureAdjudicationBudget,
                 tryConsumeColumnSemanticRecallBudget,
+                structureAdjudicationCache,
+                columnSemanticRecallCache,
                 cancellationToken);
         }
         catch (Exception ex)
@@ -481,6 +494,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
+        Dictionary<string, DocumentStructureCandidate?> structureAdjudicationCache,
+        Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
     {
         var isSpecificationOnly = IsSpecificationOnlyCandidate(tableData, mapping, extraSynonyms);
@@ -509,6 +524,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             ruleRecognized,
             routingRules,
             tryConsumeColumnSemanticRecallBudget,
+            columnSemanticRecallCache,
             cancellationToken);
         if (!healthCheck.CanAutoApply &&
             SmartConfigurationTableRoutingService.ShouldUseStructureAdjudication(
@@ -519,9 +535,24 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 headerKeywordMatcher,
                 routingRules))
         {
-            var fused = tryConsumeStructureAdjudicationBudget()
-                ? await TryFuseWithLlmStructureAsync(customerId, tableInfo, tableData, mapping, cancellationToken)
-                : null;
+            var structureCacheKey = BuildStructureAdjudicationCacheKey(tableData, mapping);
+            DocumentStructureCandidate? fused;
+            if (structureAdjudicationCache.TryGetValue(structureCacheKey, out var cachedFused))
+            {
+                fused = cachedFused == null
+                    ? null
+                    : CopyStructureCandidateForTable(cachedFused, tableInfo, tableData);
+            }
+            else if (tryConsumeStructureAdjudicationBudget())
+            {
+                fused = await TryFuseWithLlmStructureAsync(customerId, tableInfo, tableData, mapping, cancellationToken);
+                structureAdjudicationCache[structureCacheKey] = fused;
+            }
+            else
+            {
+                fused = null;
+            }
+
             if (fused != null)
             {
                 var totalRowCount = GetTotalRowCount(tableInfo, tableData);
@@ -577,6 +608,45 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             referenceCaseScore);
     }
 
+    private static string BuildStructureAdjudicationCacheKey(
+        TableData tableData,
+        ColumnMappingResult mapping)
+    {
+        var headersKey = string.Join(
+            "\u001f",
+            tableData.Headers.Select(NormalizeColumnSemanticRecallCacheText));
+        var mappedFieldsKey = string.Join(
+            "|",
+            BuildMappedFields(mapping)
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{pair.Key}:{pair.Value?.ToString() ?? "-"}"));
+        var rowRangeKey =
+            $"{mapping.Mapping.HeaderRowIndex}:{mapping.Mapping.HeaderRowCount}:{mapping.Mapping.DataStartRowIndex}";
+
+        return $"{headersKey}\u001e{mappedFieldsKey}\u001e{rowRangeKey}";
+    }
+
+    private static DocumentStructureCandidate CopyStructureCandidateForTable(
+        DocumentStructureCandidate candidate,
+        TableInfo? tableInfo,
+        TableData tableData) =>
+        new()
+        {
+            TableIndex = tableData.TableIndex,
+            TableName = tableInfo?.Name ?? candidate.TableName,
+            HeaderRowIndex = candidate.HeaderRowIndex,
+            HeaderRowCount = candidate.HeaderRowCount,
+            DataStartRowIndex = candidate.DataStartRowIndex,
+            DataEndRowIndex = null,
+            ProjectColumnIndex = candidate.ProjectColumnIndex,
+            SpecificationColumnIndex = candidate.SpecificationColumnIndex,
+            AcceptanceColumnIndex = candidate.AcceptanceColumnIndex,
+            RemarkColumnIndex = candidate.RemarkColumnIndex,
+            IsSpecificationOnly = candidate.IsSpecificationOnly,
+            Confidence = candidate.Confidence,
+            Source = candidate.Source
+        };
+
     private async Task<SmartConfigurationRecognizedTable> TryEnrichWithColumnSemanticRecallAsync(
         TableInfo? tableInfo,
         TableData tableData,
@@ -585,6 +655,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         SmartConfigurationRecognizedTable ruleRecognized,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
+        Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
     {
         if (!ShouldUseColumnSemanticRecall(mapping, healthCheck, ruleRecognized))
@@ -604,7 +675,20 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
 
         var unmappedHeaders = BuildUnmappedHeaderCandidates(tableData, mapping);
-        if (unmappedHeaders.Count == 0 || !tryConsumeColumnSemanticRecallBudget())
+        if (unmappedHeaders.Count == 0)
+        {
+            return ruleRecognized;
+        }
+
+        var cacheKey = BuildColumnSemanticRecallCacheKey(tableData, mapping, unmappedHeaders);
+        if (columnSemanticRecallCache.TryGetValue(cacheKey, out var cachedSuggestions))
+        {
+            return cachedSuggestions.Count == 0
+                ? ruleRecognized
+                : CopyWithSemanticRecallSuggestions(ruleRecognized, cachedSuggestions);
+        }
+
+        if (!tryConsumeColumnSemanticRecallBudget())
         {
             return ruleRecognized;
         }
@@ -634,12 +718,14 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 result?.Suggestions ?? [],
                 unmappedHeaders,
                 mapping);
+            columnSemanticRecallCache[cacheKey] = suggestions;
             return suggestions.Count == 0
                 ? ruleRecognized
                 : CopyWithSemanticRecallSuggestions(ruleRecognized, suggestions);
         }
         catch (Exception ex)
         {
+            columnSemanticRecallCache[cacheKey] = [];
             _logger.LogWarning(
                 ex,
                 "表格 {TableIndex} 列语义召回失败，保留规则识别结果",
@@ -647,6 +733,30 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             return ruleRecognized;
         }
     }
+
+    private static string BuildColumnSemanticRecallCacheKey(
+        TableData tableData,
+        ColumnMappingResult mapping,
+        IReadOnlyList<ColumnSemanticRecallHeaderCandidate> unmappedHeaders)
+    {
+        var headersKey = string.Join(
+            "\u001f",
+            tableData.Headers.Select(NormalizeColumnSemanticRecallCacheText));
+        var mappedFieldsKey = string.Join(
+            "|",
+            BuildMappedFields(mapping)
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{pair.Key}:{pair.Value?.ToString() ?? "-"}"));
+        var unmappedKey = string.Join(
+            "|",
+            unmappedHeaders.Select(item =>
+                $"{item.ColumnIndex}:{NormalizeColumnSemanticRecallCacheText(item.Header)}"));
+
+        return $"{headersKey}\u001e{mappedFieldsKey}\u001e{unmappedKey}";
+    }
+
+    private static string NormalizeColumnSemanticRecallCacheText(string? value) =>
+        (value ?? string.Empty).Trim().ToUpperInvariant();
 
     private static bool ShouldUseColumnSemanticRecall(
         ColumnMappingResult mapping,
@@ -1094,25 +1204,15 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         _ => ColumnType.Unknown
     };
 
-    private static bool TryConsumeStructureAdjudicationBudget(ref int remainingBudget)
+    private static bool TryConsumeLlmBudget(ref int remainingGlobalBudget, ref int remainingChannelBudget)
     {
-        if (remainingBudget <= 0)
+        if (remainingGlobalBudget <= 0 || remainingChannelBudget <= 0)
         {
             return false;
         }
 
-        remainingBudget--;
-        return true;
-    }
-
-    private static bool TryConsumeColumnSemanticRecallBudget(ref int remainingBudget)
-    {
-        if (remainingBudget <= 0)
-        {
-            return false;
-        }
-
-        remainingBudget--;
+        remainingGlobalBudget--;
+        remainingChannelBudget--;
         return true;
     }
 

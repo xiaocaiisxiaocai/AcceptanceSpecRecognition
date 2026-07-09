@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>验收规格管理系统 - 当前架构与能力范围</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --ink: #18202f;
+        --muted: #667085;
+        --line: #d7deea;
+        --blue: #2457a6;
+        --green: #0f7a5a;
+        --amber: #9a5b00;
+        --red: #a43d3d;
+        --purple: #6840a1;
+        --shadow: 0 12px 32px rgba(25, 35, 60, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          "Microsoft YaHei",
+          "PingFang SC",
+          "Noto Sans CJK SC",
+          system-ui,
+          sans-serif;
+        line-height: 1.55;
+      }
+
+      .page {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 20px;
+        align-items: stretch;
+        margin-bottom: 20px;
+      }
+
+      .hero-main,
+      .panel,
+      .capability,
+      .note {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .hero-main {
+        padding: 26px 30px;
+      }
+
+      .hero-main h1 {
+        margin: 0 0 10px;
+        font-size: 30px;
+        letter-spacing: 0;
+      }
+
+      .hero-main p {
+        max-width: 900px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .meta {
+        padding: 18px;
+      }
+
+      .meta dl {
+        display: grid;
+        grid-template-columns: 92px 1fr;
+        gap: 8px 12px;
+        margin: 0;
+        font-size: 13px;
+      }
+
+      .meta dt {
+        color: var(--muted);
+      }
+
+      .meta dd {
+        margin: 0;
+        font-weight: 600;
+      }
+
+      h2 {
+        margin: 0 0 14px;
+        font-size: 20px;
+      }
+
+      h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      .panel {
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+
+      .diagram-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfcff;
+      }
+
+      svg {
+        display: block;
+        min-width: 1180px;
+        height: auto;
+      }
+
+      .box {
+        fill: #fff;
+        stroke: #c8d2e2;
+        stroke-width: 1.2;
+        rx: 8;
+      }
+
+      .box-blue {
+        fill: #edf4ff;
+        stroke: #96b8ef;
+      }
+
+      .box-green {
+        fill: #eaf8f2;
+        stroke: #8ccfb6;
+      }
+
+      .box-amber {
+        fill: #fff6e5;
+        stroke: #e7bd6b;
+      }
+
+      .box-purple {
+        fill: #f3edff;
+        stroke: #baa4e3;
+      }
+
+      .box-red {
+        fill: #fff0f0;
+        stroke: #e1a0a0;
+      }
+
+      .label {
+        fill: var(--ink);
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .small {
+        fill: #526071;
+        font-size: 12px;
+      }
+
+      .arrow {
+        stroke: #8793a5;
+        stroke-width: 1.6;
+        fill: none;
+        marker-end: url(#arrow);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .capability {
+        padding: 16px;
+        border-left: 5px solid var(--blue);
+      }
+
+      .capability.green {
+        border-left-color: var(--green);
+      }
+
+      .capability.amber {
+        border-left-color: var(--amber);
+      }
+
+      .capability.purple {
+        border-left-color: var(--purple);
+      }
+
+      .capability.red {
+        border-left-color: var(--red);
+      }
+
+      .capability p {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .capability ul {
+        padding-left: 18px;
+        margin: 8px 0 0;
+      }
+
+      .capability li {
+        margin: 4px 0;
+        font-size: 13px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+        text-align: left;
+      }
+
+      th {
+        background: #eef3fa;
+        color: #263243;
+        font-weight: 700;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      code {
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: #eef2f7;
+        color: #243247;
+        font-family: Consolas, "Cascadia Code", monospace;
+      }
+
+      .notes {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .note {
+        padding: 16px;
+      }
+
+      .note ul {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+
+      .footer {
+        margin: 22px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      @media (max-width: 980px) {
+        .page {
+          padding: 16px;
+        }
+
+        .hero,
+        .grid,
+        .notes {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div class="hero-main">
+          <h1>验收规格管理系统 - 当前架构与能力范围</h1>
+          <p>
+            本图按当前代码与 OpenSpec 规格整理，目标是说明系统由哪些部分组成、数据怎么流动、
+            每个部分能做到什么，以及哪些能力边界不能越界。它不是未来规划图，而是截至当前提交的运行态说明。
+          </p>
+        </div>
+        <aside class="meta">
+          <dl>
+            <dt>生成日期</dt>
+            <dd>2026-07-09</dd>
+            <dt>当前提交</dt>
+            <dd><code>5c7df63</code></dd>
+            <dt>技术栈</dt>
+            <dd>Vue 3 / ASP.NET Core 8 / EF Core / MySQL / Semantic Kernel</dd>
+            <dt>主要来源</dt>
+            <dd><code>openspec/specs</code>、<code>src</code>、<code>web/src</code></dd>
+          </dl>
+        </aside>
+      </section>
+
+      <section class="panel">
+        <h2>一、总架构图</h2>
+        <div class="diagram-wrap" aria-label="系统总架构图">
+          <svg viewBox="0 0 1220 640" role="img">
+            <defs>
+              <marker
+                id="arrow"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#8793a5" />
+              </marker>
+            </defs>
+
+            <rect x="24" y="30" width="210" height="560" class="box-blue" />
+            <text x="50" y="66" class="label">浏览器前端</text>
+            <text x="50" y="92" class="small">Vue 3 + Element Plus + Vite</text>
+            <text x="50" y="124" class="small">数据导入 / 智能填充</text>
+            <text x="50" y="146" class="small">基础数据 / AI配置</text>
+            <text x="50" y="168" class="small">RBAC / 审计 / 语义搜索</text>
+            <text x="50" y="204" class="small">只负责交互、展示、确认</text>
+            <text x="50" y="226" class="small">不自行裁决匹配结果</text>
+
+            <rect x="290" y="30" width="220" height="560" class="box-green" />
+            <text x="318" y="66" class="label">API 协议层</text>
+            <text x="318" y="92" class="small">ASP.NET Core Web API</text>
+            <text x="318" y="124" class="small">Controllers / JWT / 权限码</text>
+            <text x="318" y="146" class="small">请求校验 / 响应包装</text>
+            <text x="318" y="168" class="small">审计日志 / SSE 输出</text>
+            <text x="318" y="204" class="small">控制器委派 Application</text>
+            <text x="318" y="226" class="small">不直接编排 DbContext</text>
+
+            <rect x="565" y="30" width="245" height="560" class="box-amber" />
+            <text x="592" y="66" class="label">Application 用例层</text>
+            <text x="592" y="92" class="small">导入、匹配、填充、下载</text>
+            <text x="592" y="124" class="small">智能结构识别与学习</text>
+            <text x="592" y="146" class="small">执行历史 / 严格复用</text>
+            <text x="592" y="168" class="small">RBAC 与配置用例</text>
+            <text x="592" y="204" class="small">组合 Core 算法与 Data 仓储</text>
+            <text x="592" y="226" class="small">承载跨资源工作流</text>
+
+            <rect x="865" y="30" width="330" height="250" class="box-purple" />
+            <text x="890" y="66" class="label">Core 业务内核</text>
+            <text x="890" y="92" class="small">文档解析 / 表格结构识别</text>
+            <text x="890" y="114" class="small">规则映射 / 列语义召回</text>
+            <text x="890" y="136" class="small">Embedding 召回 / 证据重排</text>
+            <text x="890" y="158" class="small">LLM 实体判别 / 等价裁决</text>
+            <text x="890" y="190" class="small">只表达领域算法与抽象</text>
+            <text x="890" y="212" class="small">不依赖 Data 或 Api</text>
+
+            <rect x="865" y="340" width="330" height="250" class="box-red" />
+            <text x="890" y="376" class="label">Data 与外部资源</text>
+            <text x="890" y="402" class="small">EF Core / Repository / UnitOfWork</text>
+            <text x="890" y="424" class="small">MySQL 业务数据与迁移</text>
+            <text x="890" y="446" class="small">uploads 文件系统</text>
+            <text x="890" y="468" class="small">OpenAI / Azure / Ollama / LM Studio</text>
+            <text x="890" y="500" class="small">持久化、文件、AI 服务适配</text>
+            <text x="890" y="522" class="small">不承载用例流程</text>
+
+            <path d="M234 310 H290" class="arrow" />
+            <path d="M510 310 H565" class="arrow" />
+            <path d="M810 190 H865" class="arrow" />
+            <path d="M810 455 H865" class="arrow" />
+            <path d="M1030 340 V280" class="arrow" />
+            <path d="M1030 280 V340" class="arrow" />
+
+            <text x="246" y="292" class="small">HTTP / SSE</text>
+            <text x="520" y="292" class="small">用例调用</text>
+            <text x="820" y="172" class="small">算法能力</text>
+            <text x="820" y="436" class="small">仓储/文件/AI</text>
+          </svg>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>二、核心业务流</h2>
+        <div class="diagram-wrap" aria-label="核心业务流程图">
+          <svg viewBox="0 0 1220 520" role="img">
+            <defs>
+              <marker
+                id="arrow2"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#8793a5" />
+              </marker>
+            </defs>
+
+            <text x="28" y="42" class="label">A. 历史文档导入沉淀</text>
+            <rect x="28" y="70" width="150" height="74" class="box-blue" />
+            <text x="48" y="102" class="small">上传 Word/Excel</text>
+            <text x="48" y="122" class="small">选择客户/制程</text>
+            <rect x="228" y="70" width="170" height="74" class="box-purple" />
+            <text x="248" y="102" class="small">智能结构识别</text>
+            <text x="248" y="122" class="small">规则 + LLM 辅助</text>
+            <rect x="448" y="70" width="180" height="74" class="box-amber" />
+            <text x="468" y="102" class="small">确认列映射/预览</text>
+            <text x="468" y="122" class="small">仅规格回填门禁</text>
+            <rect x="678" y="70" width="190" height="74" class="box-amber" />
+            <text x="698" y="102" class="small">重复识别与覆盖确认</text>
+            <text x="698" y="122" class="small">规则 + Embedding + LLM</text>
+            <rect x="918" y="70" width="230" height="74" class="box-red" />
+            <text x="938" y="102" class="small">写入 AcceptanceSpec</text>
+            <text x="938" y="122" class="small">学习列映射 / 更新缓存</text>
+
+            <path d="M178 107 H228" class="arrow" marker-end="url(#arrow2)" />
+            <path d="M398 107 H448" class="arrow" marker-end="url(#arrow2)" />
+            <path d="M628 107 H678" class="arrow" marker-end="url(#arrow2)" />
+            <path d="M868 107 H918" class="arrow" marker-end="url(#arrow2)" />
+
+            <text x="28" y="214" class="label">B. 新文档智能填充</text>
+            <rect x="28" y="242" width="150" height="84" class="box-blue" />
+            <text x="48" y="274" class="small">上传目标文档</text>
+            <text x="48" y="294" class="small">表格配置</text>
+            <rect x="228" y="242" width="170" height="84" class="box-purple" />
+            <text x="248" y="274" class="small">Embedding 召回</text>
+            <text x="248" y="294" class="small">TopK 候选</text>
+            <rect x="448" y="242" width="180" height="84" class="box-purple" />
+            <text x="468" y="274" class="small">证据重排</text>
+            <text x="468" y="294" class="small">冲突/歧义/实体</text>
+            <rect x="678" y="242" width="190" height="84" class="box-purple" />
+            <text x="698" y="274" class="small">AI 等价裁决</text>
+            <text x="698" y="294" class="small">高歧义 LLM 复核</text>
+            <rect x="918" y="242" width="230" height="84" class="box-red" />
+            <text x="938" y="274" class="small">人工确认后填充</text>
+            <text x="938" y="294" class="small">Word 下载 / Excel 回写</text>
+
+            <path d="M178 284 H228" class="arrow" marker-end="url(#arrow2)" />
+            <path d="M398 284 H448" class="arrow" marker-end="url(#arrow2)" />
+            <path d="M628 284 H678" class="arrow" marker-end="url(#arrow2)" />
+            <path d="M868 284 H918" class="arrow" marker-end="url(#arrow2)" />
+
+            <text x="28" y="396" class="label">C. 运维与治理能力</text>
+            <rect x="28" y="424" width="192" height="64" class="box-green" />
+            <text x="48" y="458" class="small">单角色/单组织 RBAC</text>
+            <rect x="260" y="424" width="192" height="64" class="box-green" />
+            <text x="280" y="458" class="small">Prompt / AI 服务配置</text>
+            <rect x="492" y="424" width="192" height="64" class="box-green" />
+            <text x="512" y="458" class="small">执行历史 / 审计日志</text>
+            <rect x="724" y="424" width="192" height="64" class="box-green" />
+            <text x="744" y="458" class="small">Embedding 缓存预热</text>
+            <rect x="956" y="424" width="192" height="64" class="box-green" />
+            <text x="976" y="458" class="small">数据库备份与文件清理</text>
+          </svg>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>三、各部分能做到的范围</h2>
+        <div class="grid">
+          <article class="capability">
+            <h3>1. 前端 Web</h3>
+            <p><code>web/src/views</code>、<code>web/src/api</code></p>
+            <ul>
+              <li>提供数据导入、智能填充、基础数据、配置、RBAC、审计等页面。</li>
+              <li>负责上传、预览、人工确认、冲突选择、结果下载等交互。</li>
+              <li>展示服务端决策、证据、语义召回建议、LLM 流式复核进度。</li>
+              <li>边界：不自行决定匹配是否自动采用，不信任旧兼容字段。</li>
+            </ul>
+          </article>
+
+          <article class="capability green">
+            <h3>2. API 协议层</h3>
+            <p><code>src/AcceptanceSpecSystem.Api/Controllers</code></p>
+            <ul>
+              <li>提供 REST API、JWT 登录刷新、权限码校验、审计、SSE。</li>
+              <li>按 <code>api:resource:action</code> 执行默认拒绝授权。</li>
+              <li>把导入、匹配、填充、下载等请求委派给用例服务。</li>
+              <li>边界：不直接访问 <code>AppDbContext</code>，不承载核心算法。</li>
+            </ul>
+          </article>
+
+          <article class="capability amber">
+            <h3>3. Application 用例层</h3>
+            <p><code>src/AcceptanceSpecSystem.Application</code>、<code>Api/Services</code></p>
+            <ul>
+              <li>编排文档上传、表格预览、导入、匹配预览、执行填充、严格复用。</li>
+              <li>组合 Core 算法、文件服务、仓储、执行历史和权限上下文。</li>
+              <li>智能结构识别链路保留规则、路由、学习、列语义召回建议。</li>
+              <li>边界：不把领域算法写成控制器逻辑，也不把持久化细节外泄。</li>
+            </ul>
+          </article>
+
+          <article class="capability purple">
+            <h3>4. 文档智能与表格结构</h3>
+            <p><code>Core/Documents/Intelligence</code></p>
+            <ul>
+              <li>识别 Word/Excel 表格结构、表头、数据区、项目/规格/验收/备注列。</li>
+              <li>支持规则映射、智能路由、跳过非验收规格表、系统元数据列排除。</li>
+              <li>在缺列时可用 LLM 列语义召回给出建议，前端只展示不自动套用。</li>
+              <li>边界：识别结果仍需门禁与人工确认，低置信不能直接导入。</li>
+            </ul>
+          </article>
+
+          <article class="capability purple">
+            <h3>5. 匹配引擎</h3>
+            <p><code>Core/Matching</code></p>
+            <ul>
+              <li>使用 Embedding 召回项目+规格候选，并生成结构化证据。</li>
+              <li>处理数值、型号、品牌实体、冲突、歧义和候选重排。</li>
+              <li>可调用 LLM 做实体关系判别、等价裁决和高歧义复核。</li>
+              <li>边界：Embedding 不可用时明确失败；LLM 是门禁辅助，不是主排序器。</li>
+            </ul>
+          </article>
+
+          <article class="capability red">
+            <h3>6. 数据层</h3>
+            <p><code>src/AcceptanceSpecSystem.Data</code></p>
+            <ul>
+              <li>通过 EF Core、Repository、UnitOfWork 管理 MySQL 数据。</li>
+              <li>保存客户、机型、制程、验收规格、上传文件、AI 配置、Prompt、RBAC。</li>
+              <li>维护单角色、单组织、迁移、Embedding 缓存、执行历史等数据。</li>
+              <li>边界：只做持久化，不实现 Core 业务接口和用例编排。</li>
+            </ul>
+          </article>
+
+          <article class="capability red">
+            <h3>7. 文件存储与文档写回</h3>
+            <p><code>uploads/</code>、<code>DocumentServiceFactory</code></p>
+            <ul>
+              <li>Word 上传落到 <code>uploads/word-files</code>。</li>
+              <li>Excel 上传与回写落到 <code>uploads/excel-files</code>。</li>
+              <li>Word 填充结果落到 <code>uploads/filled-files</code>。</li>
+              <li>边界：数据库保存文件记录和索引，文件内容主要在文件系统。</li>
+            </ul>
+          </article>
+
+          <article class="capability green">
+            <h3>8. AI 与 Prompt 配置</h3>
+            <p><code>AiServices</code>、<code>PromptTemplates</code></p>
+            <ul>
+              <li>支持 OpenAI、Azure OpenAI、Ollama、LM Studio、OpenAI 兼容端点。</li>
+              <li>按场景管理 Prompt：匹配复核、导入重复复核、实体判别、等价裁决。</li>
+              <li>保存关闭思考模式、连接测试、模板预览、恢复默认。</li>
+              <li>边界：模板无效时拒绝进入运行时；敏感配置走现有配置管理路径。</li>
+            </ul>
+          </article>
+
+          <article class="capability amber">
+            <h3>9. 运维与治理</h3>
+            <p>后台服务、审计、备份、OpenSpec</p>
+            <ul>
+              <li>审计日志、执行历史、匹配任务快照、Embedding 缓存预热。</li>
+              <li>数据库备份、缓存清理、上传文件删除联动。</li>
+              <li>OpenSpec 记录已实现能力和进行中的变更。</li>
+              <li>边界：严格复用是临时会话能力，不是长期模板管理。</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>四、关键能力与边界速查</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>能力域</th>
+              <th>当前能做到</th>
+              <th>明确边界</th>
+              <th>主要入口</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>文档导入</td>
+              <td>上传 Word/Excel、表格预览、智能结构识别、列映射确认、重复识别、覆盖确认、导入到规格库。</td>
+              <td>低置信或缺关键列不能绕过确认；仅规格导入只在项目列真实为空时回填项目。</td>
+              <td><code>DocumentsController</code>、<code>DocumentImportAppService</code>、<code>data-import</code></td>
+            </tr>
+            <tr>
+              <td>智能结构识别</td>
+              <td>规则映射、模板/学习规则、表格路由、LLM 结构辅助、列语义召回建议、系统元数据列排除。</td>
+              <td>语义召回建议只提示，不自动改最终映射；业务字段仍以确认后的配置为准。</td>
+              <td><code>SmartConfigController</code>、<code>SmartConfigurationAppService</code></td>
+            </tr>
+            <tr>
+              <td>智能填充</td>
+              <td>基于项目+规格召回历史规格，展示候选、证据、冲突、歧义、AI 裁决，确认后写回 Word/Excel。</td>
+              <td>前端不透传旧 suggestion 字段；需要人工确认的行不能被静默自动采用。</td>
+              <td><code>MatchingPreviewController</code>、<code>MatchingExecutionController</code>、<code>smart-fill</code></td>
+            </tr>
+            <tr>
+              <td>匹配算法</td>
+              <td>Embedding 召回、结构化证据、冲突降级、实体判别、AI 等价裁决、高歧义 LLM 复核。</td>
+              <td>Embedding 是召回不是最终裁决；Embedding 服务不可用时失败，不降级关键词搜索。</td>
+              <td><code>SemanticKernelMatchingService</code>、<code>LlmMatchingAssistService</code></td>
+            </tr>
+            <tr>
+              <td>AI 语义搜索</td>
+              <td>在验收规格页按多行文本批量搜索语义相近规格，按客户/机型/制程范围过滤。</td>
+              <td>遵守当前数据范围；AI 搜索不替代基础关键词检索。</td>
+              <td><code>SpecsController</code>、<code>SpecSemanticSearchService</code></td>
+            </tr>
+            <tr>
+              <td>严格复用</td>
+              <td>基于当前填充结果，对完全相同模板文件做预检和批量写回。</td>
+              <td>不重新匹配、不调用 AI、不保存长期模板；结构不一致直接拒绝。</td>
+              <td><code>MatchingExecutionController</code>、<code>MatchingFillExecutionAppService</code></td>
+            </tr>
+            <tr>
+              <td>权限与组织</td>
+              <td>JWT、API 权限码、页面/按钮权限、单角色、单组织、根组织维护。</td>
+              <td>默认拒绝；旧多角色/多组织提交被拒绝；最后一个启用 admin 受保护。</td>
+              <td><code>AuthController</code>、<code>SystemUsersController</code>、<code>AuthRolesController</code></td>
+            </tr>
+            <tr>
+              <td>配置管理</td>
+              <td>AI 服务、Prompt 模板、列映射规则、智能结构路由规则、数据库备份配置。</td>
+              <td>Prompt 只按系统场景维护；运行时匹配知识不是对外可编辑配置。</td>
+              <td><code>AiServicesController</code>、<code>PromptTemplatesController</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="notes">
+        <div class="note">
+          <h2>当前架构判断</h2>
+          <ul>
+            <li>系统已经从控制器直写流程收敛到用例服务编排，主线是 <code>Api -> Application -> Core / Data</code>。</li>
+            <li>核心复杂度集中在两个地方：文档结构识别和智能匹配门禁。</li>
+            <li>AI 的定位是辅助识别、复核和裁决，不是替代业务门禁。</li>
+            <li>前端当前主要承担确认台和透明展示台职责，服务端仍是最终规则来源。</li>
+          </ul>
+        </div>
+        <div class="note">
+          <h2>后续看图建议</h2>
+          <ul>
+            <li>查“用户能不能操作”：看前端、API 权限、RBAC 三块。</li>
+            <li>查“识别为什么这样判”：看智能结构识别、规则映射、语义召回。</li>
+            <li>查“匹配为什么不能自动采用”：看结构化证据、AI 等价裁决、人工确认门禁。</li>
+            <li>查“数据最终落哪里”：看 Data 层、MySQL、uploads 文件系统。</li>
+          </ul>
+        </div>
+      </section>
+
+      <p class="footer">
+        注：本文档基于本地代码扫描、OpenSpec 当前规格与提交 <code>5c7df63</code> 整理；若后续
+        OpenSpec 变更归档或模块迁移，请同步更新本图。
+      </p>
+    </main>
+  </body>
+</html>

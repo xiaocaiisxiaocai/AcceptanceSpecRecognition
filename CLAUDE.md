@@ -26,6 +26,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 ## 分支合并保护
 
 - `feat/smart-recognition-simplification` 合并、推送或以任何方式提交到远端 `main` 前，必须先向用户二次确认并取得明确同意。
+- 根目录 `AGENTS.md`（供其他 AI 工具消费）包含相同的 OpenSpec 管理块与本条保护规则，修改任一处须同步另一处。
 
 ---
 
@@ -35,7 +36,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 核心数据模型：按 **客户 (Customer) → 制程 (Process)** 层级组织验收规格（项目 + 规格 → 验收 + 备注）；**机型 (MachineModel)** 为可选筛选维度（业务筛选以 customerId + processId + 可选 machineModelId 为主）。
 
-项目约定的权威说明（技术栈、架构模式、领域上下文、重要约束）见 `openspec/project.md`；本地联调步骤见 `docs/DEV.md`。
+项目约定的权威说明（技术栈、架构模式、领域上下文、重要约束）见 `openspec/project.md`；本地联调步骤见 `docs/DEV.md`；需求/设计文档索引见 `docs/README.md`。
 
 ---
 
@@ -66,11 +67,11 @@ dotnet ef migrations remove -p src/AcceptanceSpecSystem.Data -s src/AcceptanceSp
 
 ```bash
 cd web
-pnpm install
-pnpm dev           # 开发服务器，http://localhost:8849（端口来自 web/.env 的 VITE_PORT）
-pnpm build         # 生产构建（内含 typecheck）
+pnpm install       # 仅允许 pnpm（preinstall 强制 only-allow pnpm；Node ≥20.19 或 ≥22.13）
+pnpm dev           # 开发服务器，http://localhost:8849（端口来自 web/.env 的 VITE_PORT；NODE_OPTIONS=--max-old-space-size=4096）
+pnpm build         # 生产构建（内含 typecheck；NODE_OPTIONS=--max-old-space-size=8192，构建 OOM 时先查此项）
 pnpm typecheck     # TypeScript + Vue 类型检查
-pnpm lint          # ESLint + Prettier + Stylelint 全量检查
+pnpm lint          # ESLint + Prettier + Stylelint 检查并自动修复（--fix/--write，会改写文件）
 pnpm test          # 全部前端单测 = test:vitest + test:node
 pnpm test:vitest   # vitest 跑 src/**/*.test.ts 内联用例（include 配置在 vite.config.ts 的 test 段）
 pnpm test:node     # Node 原生 test runner 跑 web/tests/*.test.ts
@@ -103,6 +104,10 @@ dotnet run --project tools/MatchingRegressionReport -- \
 dotnet run --project tools/SmartFillInsightReport -- \
   --connection "Server=localhost;Database=acceptance_spec_db;User=root;Password=***;CharSet=utf8mb4;" \
   [--top 20] [--from yyyy-MM-dd] [--to yyyy-MM-dd] [--output report.json]
+
+# 表头规则缺口统计（只读，从已确认模板的最终列映射反查 ColumnMappingRules 未覆盖表头 TopN）
+dotnet run --project tools/SmartStructureHeaderGapReport -- \
+  --connection "..." [--samples samples.json] [--top 20] [--output report.json]
 
 # 语义测试数据生成：tools/ParaphraseGenerator（LLM 改写）与 tools/*.ps1（灰区样本提取、改写 Excel 生成等）
 ```
@@ -163,13 +168,13 @@ AcceptanceSpecSystem.Api          ← HTTP 入口、Controllers、Api/Services �
 | `/rbac/` | 用户、角色、权限、组织架构管理 |
 | `/config/` | AI 服务配置、提示词模板、列映射规则、表格路由规则 |
 
-API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。智能结构识别的共享 UI 与逻辑在 `web/src/views/shared/`（`SmartStructureConfirmCard.vue`、`SmartStructureSummaryBanner.vue`、`smart-structure-recognition.ts`、composable `useSmartStructureRecognition.ts`），由 data-import 与 smart-fill 两页复用，各页流程逻辑在自己的 `*.smartRecognition.ts` 中。
+前端基于 **vue-pure-admin 精简版**（pure-admin-thin，非国际化）脚手架：Element Plus + Pinia + Tailwind CSS，`layout/`、`store/`、`router/` 骨架沿用模板约定（文档见 pure-admin.cn）。API 调用封装在 `web/src/api/`，路径别名 `@` 指向 `web/src/`。智能结构识别的共享 UI 与逻辑在 `web/src/views/shared/`（`SmartStructureConfirmCard.vue`、`SmartStructureSummaryBanner.vue`、`smart-structure-recognition.ts`、composable `useSmartStructureRecognition.ts`），由 data-import 与 smart-fill 两页复用，各页流程逻辑在自己的 `*.smartRecognition.ts` 中。
 
 ### 关键 API 端点
 
 ```
-POST /api/auth/login                     登录，返回 accessToken + refreshToken
-POST /api/auth/refresh-token             刷新 token
+POST /login                              登录，返回 accessToken + refreshToken
+POST /refresh-token                      刷新 token
 POST /api/documents/upload               上传 docx/xlsx
 POST /api/documents/import               解析并导入 Word 表格（需 customerId + processId）
 POST /api/documents/excel/import         导入 Excel 表格
@@ -209,7 +214,7 @@ GET  /health                             健康检查
 `SmartConfigurationAppService.RecognizeAsync`（`POST /api/smart-config/recognize`）在导入/填充前识别文档结构，Word/Excel 统一为扁平表格后：
 1. `RuleBasedMappingStrategy` 按列映射规则与表头关键词给出各列字段候选（项目/规格/验收/备注）。
 2. `DocumentStructureFusion` + `DocumentStructureHealthCheck` 融合并体检结构（表头行、表头行数、数据行范围）。
-3. 灰区结果交 LLM 结构裁决；超时由 `SmartConfiguration:StructureAdjudicationTimeoutSeconds` 控制（默认 20 秒，Clamp 1–300）；裁决失败/超时保留规则识别的"待确认"状态，不阻断流程。
+3. 灰区结果交 LLM 结构裁决，缺关键列时可触发列语义召回；单次调用超时由 `SmartConfiguration:StructureAdjudicationTimeoutSeconds` 控制（默认 20 秒，Clamp 1–300），整单共享 `MaxLlmCallsPerRecognizeDocument` 总预算（默认 5），裁决或召回失败/超时保留规则识别的"待确认"状态，不阻断流程。
 4. **多表自适应路由**：`SmartConfigurationTableRoutingService` 为每张表给出路由决策（表类型、综合排序分、建议 Process/Confirm/Skip）。路由规则外置为数据库实体 `SmartStructureRoutingRule`，仅用于人工兜底、排除或推荐覆盖；历史 `Learned` 来源不再参与生效规则，也不允许继续创建。
 5. 每张表输出字段级裁决（自动采用 / 需确认 / 拒绝），前端 `SmartStructureConfirmCard` 呈现供人工修正；确认后经 `/api/smart-config/confirm` 沉淀客户模板与学习到的列映射。
 
@@ -258,3 +263,4 @@ GET  /health                             健康检查
 - 涉及 API、数据库、架构、匹配行为的实质变更，优先通过 OpenSpec 变更提案管理（见 `openspec/AGENTS.md`）。
 - 全仓库启用 **Nullable 引用类型**与 .NET Analyzers（`Directory.Build.props`），新增 C# 代码需通过可空性检查。
 - Git 提交信息格式：`类型: 中文描述`（如 `feat: 添加 Embedding 匹配功能`）；husky + commitlint 强制校验，类型限定 feat/fix/perf/style/docs/test/refactor/build/ci/chore/revert/wip/workflow/types/release，标题 ≤ 108 字符。
+- **Git hooks 挂在 `web/.husky`**（`core.hooksPath=web/.husky/_`）：pre-commit 跑 lint-staged、commit-msg 跑 commitlint，均 `cd web` 后经 `pnpm exec` 执行——根目录提交也依赖 `web/node_modules`，提交报错先确认 web 已 `pnpm install`。

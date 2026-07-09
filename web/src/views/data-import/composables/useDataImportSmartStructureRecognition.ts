@@ -71,6 +71,14 @@ export function useDataImportSmartStructureRecognition({
       throw new Error(res.message || "获取表格列表失败");
     }
 
+    if (uploadedFile.value?.fileId === file.fileId) {
+      uploadedFile.value = {
+        ...uploadedFile.value,
+        tableCount: res.data.length,
+        tableCountReady: true
+      };
+    }
+
     return res.data;
   };
 
@@ -144,8 +152,9 @@ export function useDataImportSmartStructureRecognition({
         return false;
       }
 
-      selectedSmartTableIndexes.value =
-        createDefaultSelectedSmartTableIndexes(result.tables);
+      selectedSmartTableIndexes.value = createDefaultSelectedSmartTableIndexes(
+        result.tables
+      );
       return await applySmartRecognizedTables(result.tables);
     } finally {
       smartStageText.value = "";

@@ -2265,6 +2265,180 @@ public class SmartConfigRecognizeLlmBudgetApiTests : IClassFixture<LlmStructureB
     }
 }
 
+public class SmartConfigRecognizeLlmStructureCacheApiTests : IClassFixture<LlmStructureCacheApiFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeLlmStructureCacheApiTests(LlmStructureCacheApiFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenRepeatedHeaderShapesNeedStructureAdjudication_ShouldReuseStructureResultWithinDocument()
+    {
+        StructureCacheCountingStructureAdjudicationService.Reset();
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-llm-structure-cache.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Data.GetProperty("tables").EnumerateArray().Should().HaveCount(3);
+        StructureCacheCountingStructureAdjudicationService.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Recognize_WhenStructureCacheReusesDifferentRowCounts_ShouldUseCurrentTableDataEnd()
+    {
+        using var factory = new LlmStructureCacheFusedRangeApiFactory();
+        var client = factory.CreateClient();
+        StructureCacheFusedRangeAdjudicationService.Reset();
+        var fileId = await UploadExcelAsync(
+            client,
+            CreateRepeatedHeaderDifferentRowCountExcelBytes(),
+            "smart-recognize-llm-structure-cache-range.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var tables = body.Data.GetProperty("tables").EnumerateArray().ToList();
+
+        tables.Should().HaveCount(2);
+        StructureCacheFusedRangeAdjudicationService.CallCount.Should().Be(1);
+        tables[0].GetProperty("dataEndRowIndex").GetInt32().Should().Be(1);
+        tables[1].GetProperty("dataEndRowIndex").GetInt32().Should().Be(3);
+    }
+
+    private async Task<int> UploadExcelAsync(byte[] bytes, string fileName)
+    {
+        return await UploadExcelAsync(_client, bytes, fileName);
+    }
+
+    private static async Task<int> UploadExcelAsync(HttpClient client, byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        for (var sheet = 1; sheet <= 3; sheet++)
+        {
+            var worksheet = workbook.AddWorksheet($"验收表{sheet}");
+            worksheet.Cell(1, 1).Value = "项目";
+            worksheet.Cell(1, 2).Value = "验收标准";
+            worksheet.Cell(2, 1).Value = $"外观{sheet}";
+            worksheet.Cell(2, 2).Value = "目视 OK";
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateRepeatedHeaderDifferentRowCountExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        for (var sheet = 1; sheet <= 2; sheet++)
+        {
+            var worksheet = workbook.AddWorksheet($"验收表{sheet}");
+            worksheet.Cell(1, 1).Value = "项目";
+            worksheet.Cell(1, 2).Value = "管控要求";
+            worksheet.Cell(1, 3).Value = "验收结果";
+            worksheet.Cell(1, 4).Value = "备注";
+            var dataRows = sheet == 1 ? 1 : 3;
+            for (var row = 0; row < dataRows; row++)
+            {
+                worksheet.Cell(row + 2, 1).Value = $"外观{sheet}-{row + 1}";
+                worksheet.Cell(row + 2, 2).Value = "表面不得有明显划伤";
+                worksheet.Cell(row + 2, 3).Value = "OK";
+                worksheet.Cell(row + 2, 4).Value = "抽检";
+            }
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
+public class SmartConfigRecognizeLlmSharedBudgetApiTests
+{
+    [Fact]
+    public async Task Recognize_WhenGlobalLlmBudgetIsOne_ShouldShareAcrossRecallAndStructure()
+    {
+        using var factory = new LlmSharedBudgetApiFactory();
+        var client = factory.CreateClient();
+        SharedBudgetCountingColumnSemanticRecallService.Reset();
+        SharedBudgetCountingStructureAdjudicationService.Reset();
+        var fileId = await UploadExcelAsync(client, CreateSemanticAliasExcelBytes(), "smart-recognize-llm-shared-budget.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var totalLlmCalls =
+            SharedBudgetCountingColumnSemanticRecallService.CallCount +
+            SharedBudgetCountingStructureAdjudicationService.CallCount;
+        SharedBudgetCountingColumnSemanticRecallService.CallCount.Should().Be(1);
+        SharedBudgetCountingStructureAdjudicationService.CallCount.Should().Be(0);
+        totalLlmCalls.Should().Be(1);
+    }
+
+    private static async Task<int> UploadExcelAsync(HttpClient client, byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await client.PostAsync("/api/documents/upload", content);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateSemanticAliasExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "管控要求";
+        worksheet.Cell(1, 3).Value = "验收结果";
+        worksheet.Cell(1, 4).Value = "备注";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "表面不得有明显划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(2, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
 public class SmartConfigRecognizeLlmRoutingBudgetApiTests : IClassFixture<LlmRoutingBudgetApiFactory>
 {
     private readonly HttpClient _client;
@@ -2501,6 +2675,50 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
         GetSemanticRecallSuggestions(table).Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Recognize_WhenRepeatedHeaderShapesNeedSemanticRecall_ShouldReuseRecallResultWithinDocument()
+    {
+        using var factory = new ColumnSemanticRecallRepeatedHeaderApiFactory();
+        var client = factory.CreateClient();
+        CountingColumnSemanticRecallService.Reset();
+        var fileId = await UploadExcelAsync(
+            client,
+            CreateRepeatedSemanticAliasExcelBytes(),
+            "smart-recognize-column-recall-repeated.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Data.GetProperty("tables").EnumerateArray().Should().HaveCount(3);
+        CountingColumnSemanticRecallService.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Recognize_WhenRepeatedHeaderSemanticRecallFails_ShouldNotRetrySameHeaderShape()
+    {
+        using var factory = new ColumnSemanticRecallFailingRepeatedHeaderApiFactory();
+        var client = factory.CreateClient();
+        FailingColumnSemanticRecallService.Reset();
+        var fileId = await UploadExcelAsync(
+            client,
+            CreateRepeatedSemanticAliasExcelBytes(),
+            "smart-recognize-column-recall-repeated-fail.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Data.GetProperty("tables").EnumerateArray().Should().HaveCount(3);
+        FailingColumnSemanticRecallService.CallCount.Should().Be(1);
+    }
+
     private static IReadOnlyList<JsonElement> GetSemanticRecallSuggestions(JsonElement table)
     {
         return table.TryGetProperty("semanticRecallSuggestions", out var suggestions) &&
@@ -2580,6 +2798,27 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
         workbook.SaveAs(stream);
         return stream.ToArray();
     }
+
+    private static byte[] CreateRepeatedSemanticAliasExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        for (var sheetIndex = 1; sheetIndex <= 3; sheetIndex++)
+        {
+            var worksheet = workbook.AddWorksheet($"验收表{sheetIndex}");
+            worksheet.Cell(1, 1).Value = "项目";
+            worksheet.Cell(1, 2).Value = "管控要求";
+            worksheet.Cell(1, 3).Value = "验收结果";
+            worksheet.Cell(1, 4).Value = "备注";
+            worksheet.Cell(2, 1).Value = $"外观{sheetIndex}";
+            worksheet.Cell(2, 2).Value = "表面不得有明显划伤";
+            worksheet.Cell(2, 3).Value = "OK";
+            worksheet.Cell(2, 4).Value = "抽检";
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
 }
 
 public sealed class MissingSpecificationColumnIntelligenceApiFactory : ApiWebApplicationFactory
@@ -2653,6 +2892,36 @@ public sealed class ColumnSemanticRecallInvalidResultApiFactory : ApiWebApplicat
     }
 }
 
+public sealed class ColumnSemanticRecallRepeatedHeaderApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
+            services.AddScoped<IDocumentIntelligenceService, MissingSpecificationForSemanticRecallIntelligenceService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, CountingColumnSemanticRecallService>();
+        });
+    }
+}
+
+public sealed class ColumnSemanticRecallFailingRepeatedHeaderApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
+            services.AddScoped<IDocumentIntelligenceService, MissingSpecificationForSemanticRecallIntelligenceService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, FailingColumnSemanticRecallService>();
+        });
+    }
+}
+
 public sealed class LowConfidenceCompleteMappingApiFactory : ApiWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -2715,6 +2984,62 @@ public sealed class LlmStructureBudgetApiFactory : ApiWebApplicationFactory
             services.AddScoped<IDocumentIntelligenceService, MissingSpecificationColumnIntelligenceService>();
             services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
             services.AddScoped<ILlmDocumentStructureAdjudicationService, CountingStructureAdjudicationService>();
+        });
+    }
+}
+
+public sealed class LlmStructureCacheApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.AddScoped<IDocumentIntelligenceService, MissingSpecificationColumnIntelligenceService>();
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, StructureCacheCountingStructureAdjudicationService>();
+        });
+    }
+}
+
+public sealed class LlmStructureCacheFusedRangeApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.AddScoped<IDocumentIntelligenceService, FusableMissingSpecificationColumnIntelligenceService>();
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, StructureCacheFusedRangeAdjudicationService>();
+        });
+    }
+}
+
+public sealed class LlmSharedBudgetApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SmartConfiguration:MaxLlmCallsPerRecognizeDocument"] = "1",
+                ["SmartConfiguration:MaxStructureAdjudicationCallsPerDocument"] = "5",
+                ["SmartConfiguration:MaxColumnSemanticRecallCallsPerDocument"] = "5"
+            });
+        });
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
+            services.AddScoped<IDocumentIntelligenceService, MissingSpecificationForSemanticRecallIntelligenceService>();
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, SharedBudgetCountingStructureAdjudicationService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, SharedBudgetCountingColumnSemanticRecallService>();
         });
     }
 }
@@ -2935,6 +3260,82 @@ public sealed class CountingStructureAdjudicationService : ILlmDocumentStructure
     }
 }
 
+public sealed class StructureCacheCountingStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    private static int _callCount;
+
+    public static int CallCount => _callCount;
+
+    public static void Reset()
+    {
+        Interlocked.Exchange(ref _callCount, 0);
+    }
+
+    public Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _callCount);
+        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(null);
+    }
+}
+
+public sealed class StructureCacheFusedRangeAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    private static int _callCount;
+
+    public static int CallCount => _callCount;
+
+    public static void Reset()
+    {
+        Interlocked.Exchange(ref _callCount, 0);
+    }
+
+    public Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _callCount);
+        var tableIndex = request.RuleCandidates.First().TableIndex;
+        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(new LlmDocumentStructureAdjudicationResult
+        {
+            Confidence = 0.92,
+            Decision = "autoApply",
+            Reason = "测试替身补出规格列并触发融合缓存",
+            Tables =
+            [
+                new DocumentStructureCandidate
+                {
+                    TableIndex = tableIndex,
+                    SpecificationColumnIndex = 1,
+                    Confidence = 0.92,
+                    Source = DocumentStructureCandidateSource.Llm
+                }
+            ]
+        });
+    }
+}
+
+public sealed class SharedBudgetCountingStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    private static int _callCount;
+
+    public static int CallCount => _callCount;
+
+    public static void Reset()
+    {
+        Interlocked.Exchange(ref _callCount, 0);
+    }
+
+    public Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _callCount);
+        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(null);
+    }
+}
+
 public sealed class ZeroBudgetCountingStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
 {
     private static int _callCount;
@@ -2972,6 +3373,46 @@ public sealed class CountingColumnSemanticRecallService : ILlmColumnSemanticReca
     {
         Interlocked.Increment(ref _callCount);
         return Task.FromResult<LlmColumnSemanticRecallResult?>(new LlmColumnSemanticRecallResult());
+    }
+}
+
+public sealed class SharedBudgetCountingColumnSemanticRecallService : ILlmColumnSemanticRecallService
+{
+    private static int _callCount;
+
+    public static int CallCount => _callCount;
+
+    public static void Reset()
+    {
+        Interlocked.Exchange(ref _callCount, 0);
+    }
+
+    public Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _callCount);
+        return Task.FromResult<LlmColumnSemanticRecallResult?>(new LlmColumnSemanticRecallResult());
+    }
+}
+
+public sealed class FailingColumnSemanticRecallService : ILlmColumnSemanticRecallService
+{
+    private static int _callCount;
+
+    public static int CallCount => _callCount;
+
+    public static void Reset()
+    {
+        Interlocked.Exchange(ref _callCount, 0);
+    }
+
+    public Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _callCount);
+        throw new InvalidOperationException("测试替身模拟列语义召回失败");
     }
 }
 

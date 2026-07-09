@@ -12,6 +12,8 @@ public sealed class SmartConfigurationOptions
 
     public int GlobalRulePromotionCustomerThreshold { get; set; } = 2;
 
+    public int MaxLlmCallsPerRecognizeDocument { get; set; } = 5;
+
     public int MaxStructureAdjudicationCallsPerDocument { get; set; } = 5;
 
     public int MaxColumnSemanticRecallCallsPerDocument { get; set; } = 5;
