@@ -130,6 +130,7 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<ILlmEquivalenceAdjudicationService>(sp => sp.GetRequiredService<LlmMatchingAssistService>());
         services.AddScoped<ILlmCandidateRerankService>(sp => sp.GetRequiredService<LlmMatchingAssistService>());
         services.AddScoped<ILlmDocumentStructureAdjudicationService>(sp => sp.GetRequiredService<LlmMatchingAssistService>());
+        services.AddScoped<ILlmColumnSemanticRecallService>(sp => sp.GetRequiredService<LlmMatchingAssistService>());
 
         // 规范化器与冲突扫描器：规则初始化后只读，注册为单例。
         // 可通过 SmartFillKnowledge:RulesPath 指向外置品牌/单位 JSON。

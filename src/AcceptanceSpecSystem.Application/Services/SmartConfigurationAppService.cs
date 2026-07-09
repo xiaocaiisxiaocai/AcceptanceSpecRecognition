@@ -35,6 +35,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IDocumentIntelligenceService _intelligenceService;
     private readonly ILlmDocumentStructureAdjudicationService _structureAdjudicationService;
+    private readonly ILlmColumnSemanticRecallService _columnSemanticRecallService;
     private readonly DocumentTemplateAppService _templateService;
     private readonly SmartConfigurationLearningService _learningService;
     private readonly IUploadedDocumentPathResolver _documentPathResolver;
@@ -46,6 +47,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         DocumentServiceFactory documentServiceFactory,
         IDocumentIntelligenceService intelligenceService,
         ILlmDocumentStructureAdjudicationService structureAdjudicationService,
+        ILlmColumnSemanticRecallService columnSemanticRecallService,
         DocumentTemplateAppService templateService,
         SmartConfigurationLearningService learningService,
         IUploadedDocumentPathResolver documentPathResolver,
@@ -56,6 +58,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         _documentServiceFactory = documentServiceFactory;
         _intelligenceService = intelligenceService;
         _structureAdjudicationService = structureAdjudicationService;
+        _columnSemanticRecallService = columnSemanticRecallService;
         _templateService = templateService;
         _learningService = learningService;
         _documentPathResolver = documentPathResolver;
@@ -104,6 +107,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var headerKeywordMatcher = HeaderKeywordMatcher.FromExtraSynonyms(extraSynonyms);
         var tables = new List<SmartConfigurationRecognizedTable>();
         var structureAdjudicationBudget = Math.Max(0, _options.MaxStructureAdjudicationCallsPerDocument);
+        var columnSemanticRecallBudget = Math.Max(0, _options.MaxColumnSemanticRecallCallsPerDocument);
         for (var i = 0; i < tablesData.Count; i++)
         {
             var tableData = tablesData[i];
@@ -136,6 +140,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 extraSynonyms,
                 routingRules,
                 () => TryConsumeStructureAdjudicationBudget(ref structureAdjudicationBudget),
+                () => TryConsumeColumnSemanticRecallBudget(ref columnSemanticRecallBudget),
                 cancellationToken));
         }
 
@@ -378,6 +383,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
+        Func<bool> tryConsumeColumnSemanticRecallBudget,
         CancellationToken cancellationToken)
     {
         var headers = tableData.Headers.ToList();
@@ -432,6 +438,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 extraSynonyms,
                 routingRules,
                 tryConsumeStructureAdjudicationBudget,
+                tryConsumeColumnSemanticRecallBudget,
                 cancellationToken);
         }
         catch (Exception ex)
@@ -473,6 +480,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
+        Func<bool> tryConsumeColumnSemanticRecallBudget,
         CancellationToken cancellationToken)
     {
         var isSpecificationOnly = IsSpecificationOnlyCandidate(tableData, mapping, extraSynonyms);
@@ -493,6 +501,15 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             mapping,
             healthCheck,
             isSpecificationOnly);
+        ruleRecognized = await TryEnrichWithColumnSemanticRecallAsync(
+            tableInfo,
+            tableData,
+            mapping,
+            healthCheck,
+            ruleRecognized,
+            routingRules,
+            tryConsumeColumnSemanticRecallBudget,
+            cancellationToken);
         if (!healthCheck.CanAutoApply &&
             SmartConfigurationTableRoutingService.ShouldUseStructureAdjudication(
                 tableInfo,
@@ -546,6 +563,259 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             healthCheck,
             routingRules,
             referenceCaseScore);
+    }
+
+    private async Task<SmartConfigurationRecognizedTable> TryEnrichWithColumnSemanticRecallAsync(
+        TableInfo? tableInfo,
+        TableData tableData,
+        ColumnMappingResult mapping,
+        DocumentStructureHealthCheckResult healthCheck,
+        SmartConfigurationRecognizedTable ruleRecognized,
+        IReadOnlyList<SmartStructureRoutingRule> routingRules,
+        Func<bool> tryConsumeColumnSemanticRecallBudget,
+        CancellationToken cancellationToken)
+    {
+        if (!ShouldUseColumnSemanticRecall(mapping, healthCheck, ruleRecognized))
+        {
+            return ruleRecognized;
+        }
+
+        var route = SmartConfigurationTableRoutingService.Route(
+            tableInfo,
+            tableData,
+            ruleRecognized,
+            healthCheck,
+            routingRules);
+        if (string.Equals(route.Recommendation, "Skip", StringComparison.OrdinalIgnoreCase))
+        {
+            return ruleRecognized;
+        }
+
+        var unmappedHeaders = BuildUnmappedHeaderCandidates(tableData, mapping);
+        if (unmappedHeaders.Count == 0 || !tryConsumeColumnSemanticRecallBudget())
+        {
+            return ruleRecognized;
+        }
+
+        try
+        {
+            using var timeoutCts = CreateStructureAdjudicationTimeout(cancellationToken);
+            var result = await _columnSemanticRecallService.RecallAsync(
+                new LlmColumnSemanticRecallRequest
+                {
+                    TableIndex = tableData.TableIndex,
+                    TableName = tableInfo?.Name,
+                    Headers = tableData.Headers.ToList(),
+                    UnmappedHeaders = unmappedHeaders,
+                    MappedFields = BuildMappedFields(mapping),
+                    SampleRows = tableData.Rows
+                        .Take(5)
+                        .Select(row => (IReadOnlyList<string>)row.Cells
+                            .OrderBy(cell => cell.ColumnIndex)
+                            .Select(cell => cell.Value ?? string.Empty)
+                            .ToList())
+                        .ToList()
+                },
+                timeoutCts.Token);
+
+            var suggestions = ValidateColumnSemanticRecallSuggestions(
+                result?.Suggestions ?? [],
+                unmappedHeaders,
+                mapping);
+            return suggestions.Count == 0
+                ? ruleRecognized
+                : CopyWithSemanticRecallSuggestions(ruleRecognized, suggestions);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "表格 {TableIndex} 列语义召回失败，保留规则识别结果",
+                tableData.TableIndex);
+            return ruleRecognized;
+        }
+    }
+
+    private static bool ShouldUseColumnSemanticRecall(
+        ColumnMappingResult mapping,
+        DocumentStructureHealthCheckResult healthCheck,
+        SmartConfigurationRecognizedTable ruleRecognized)
+    {
+        if (healthCheck.CanAutoApply)
+        {
+            return false;
+        }
+
+        if (!mapping.Mapping.SpecificationColumn.HasValue)
+        {
+            return true;
+        }
+
+        if (!ruleRecognized.IsSpecificationOnly && !mapping.Mapping.ProjectColumn.HasValue)
+        {
+            return true;
+        }
+
+        return !mapping.Mapping.AcceptanceColumn.HasValue;
+    }
+
+    private static IReadOnlyList<ColumnSemanticRecallHeaderCandidate> BuildUnmappedHeaderCandidates(
+        TableData tableData,
+        ColumnMappingResult mapping)
+    {
+        var mappedColumns = new[]
+            {
+                mapping.Mapping.ProjectColumn,
+                mapping.Mapping.SpecificationColumn,
+                mapping.Mapping.AcceptanceColumn,
+                mapping.Mapping.RemarkColumn
+            }
+            .Where(column => column.HasValue)
+            .Select(column => column!.Value)
+            .ToHashSet();
+        var knownDetails = mapping.Details.ToDictionary(detail => detail.ColumnIndex);
+
+        return tableData.Headers
+            .Select((header, index) => new { Header = header?.Trim() ?? string.Empty, ColumnIndex = index })
+            .Where(item => item.Header.Length is > 0 and <= 40)
+            .Where(item => !mappedColumns.Contains(item.ColumnIndex))
+            .Where(item => !knownDetails.TryGetValue(item.ColumnIndex, out var detail) ||
+                           detail.ColumnType == ColumnType.Unknown)
+            .Select(item => new ColumnSemanticRecallHeaderCandidate
+            {
+                ColumnIndex = item.ColumnIndex,
+                Header = item.Header
+            })
+            .ToList();
+    }
+
+    private static IReadOnlyDictionary<string, int?> BuildMappedFields(ColumnMappingResult mapping)
+    {
+        return new Dictionary<string, int?>
+        {
+            ["Project"] = mapping.Mapping.ProjectColumn,
+            ["Specification"] = mapping.Mapping.SpecificationColumn,
+            ["Acceptance"] = mapping.Mapping.AcceptanceColumn,
+            ["Remark"] = mapping.Mapping.RemarkColumn
+        };
+    }
+
+    private static List<SmartConfigurationColumnSemanticRecallSuggestion> ValidateColumnSemanticRecallSuggestions(
+        IReadOnlyList<LlmColumnSemanticRecallSuggestion> suggestions,
+        IReadOnlyList<ColumnSemanticRecallHeaderCandidate> unmappedHeaders,
+        ColumnMappingResult mapping)
+    {
+        var unmappedByIndex = unmappedHeaders.ToDictionary(item => item.ColumnIndex);
+        var occupiedFields = BuildMappedFields(mapping)
+            .Where(pair => pair.Value.HasValue)
+            .Select(pair => pair.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var acceptedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var valid = new List<SmartConfigurationColumnSemanticRecallSuggestion>();
+
+        foreach (var suggestion in suggestions
+                     .OrderByDescending(item => item.Confidence)
+                     .ThenBy(item => item.ColumnIndex))
+        {
+            if (!unmappedByIndex.TryGetValue(suggestion.ColumnIndex, out var header))
+            {
+                continue;
+            }
+
+            var targetField = NormalizeSemanticRecallTargetField(suggestion.TargetField);
+            if (targetField == null || occupiedFields.Contains(targetField))
+            {
+                continue;
+            }
+
+            if (targetField == "Acceptance" && LooksLikeAcceptanceMethodHeader(header.Header))
+            {
+                continue;
+            }
+
+            if (!string.Equals(targetField, "Unknown", StringComparison.OrdinalIgnoreCase) &&
+                !acceptedFields.Add(targetField))
+            {
+                continue;
+            }
+
+            valid.Add(new SmartConfigurationColumnSemanticRecallSuggestion
+            {
+                ColumnIndex = suggestion.ColumnIndex,
+                Header = string.IsNullOrWhiteSpace(suggestion.Header) ? header.Header : suggestion.Header.Trim(),
+                TargetField = targetField,
+                Confidence = Math.Clamp(suggestion.Confidence, 0, 1),
+                Reason = suggestion.Reason,
+                Source = "SemanticRecall"
+            });
+        }
+
+        return valid
+            .OrderBy(item => item.ColumnIndex)
+            .ToList();
+    }
+
+    private static string? NormalizeSemanticRecallTargetField(string? value)
+    {
+        return value?.Trim() switch
+        {
+            "Project" => "Project",
+            "Specification" => "Specification",
+            "Acceptance" => "Acceptance",
+            "Remark" => "Remark",
+            "Unknown" => "Unknown",
+            _ => null
+        };
+    }
+
+    private static bool LooksLikeAcceptanceMethodHeader(string header)
+    {
+        return (header.Contains("验收", StringComparison.OrdinalIgnoreCase) ||
+                header.Contains("驗收", StringComparison.OrdinalIgnoreCase) ||
+                header.Contains("检查", StringComparison.OrdinalIgnoreCase) ||
+                header.Contains("檢查", StringComparison.OrdinalIgnoreCase) ||
+                header.Contains("测试", StringComparison.OrdinalIgnoreCase) ||
+                header.Contains("測試", StringComparison.OrdinalIgnoreCase)) &&
+               (header.Contains("方法", StringComparison.OrdinalIgnoreCase) ||
+                header.Contains("方式", StringComparison.OrdinalIgnoreCase)) &&
+               !header.Contains("确认", StringComparison.OrdinalIgnoreCase) &&
+               !header.Contains("確認", StringComparison.OrdinalIgnoreCase) &&
+               !header.Contains("结果", StringComparison.OrdinalIgnoreCase) &&
+               !header.Contains("結果", StringComparison.OrdinalIgnoreCase) &&
+               !header.Contains("结论", StringComparison.OrdinalIgnoreCase) &&
+               !header.Contains("結論", StringComparison.OrdinalIgnoreCase) &&
+               !header.Contains("判定", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static SmartConfigurationRecognizedTable CopyWithSemanticRecallSuggestions(
+        SmartConfigurationRecognizedTable table,
+        IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion> suggestions)
+    {
+        return new SmartConfigurationRecognizedTable
+        {
+            TableIndex = table.TableIndex,
+            TableName = table.TableName,
+            Headers = table.Headers,
+            HeaderRowIndex = table.HeaderRowIndex,
+            HeaderRowCount = table.HeaderRowCount,
+            DataStartRowIndex = table.DataStartRowIndex,
+            DataEndRowIndex = table.DataEndRowIndex,
+            ProjectColumnIndex = table.ProjectColumnIndex,
+            SpecificationColumnIndex = table.SpecificationColumnIndex,
+            AcceptanceColumnIndex = table.AcceptanceColumnIndex,
+            RemarkColumnIndex = table.RemarkColumnIndex,
+            IsSpecificationOnly = table.IsSpecificationOnly,
+            Confidence = table.Confidence,
+            Source = table.Source,
+            Decision = "NeedConfirm",
+            TableKind = table.TableKind,
+            Recommendation = table.Recommendation,
+            RankingScore = table.RankingScore,
+            SkipReason = table.SkipReason,
+            Issues = table.Issues,
+            Fields = table.Fields,
+            SemanticRecallSuggestions = suggestions.ToList()
+        };
     }
 
     private async Task<DocumentStructureCandidate?> TryFuseWithLlmStructureAsync(
@@ -808,6 +1078,17 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     };
 
     private static bool TryConsumeStructureAdjudicationBudget(ref int remainingBudget)
+    {
+        if (remainingBudget <= 0)
+        {
+            return false;
+        }
+
+        remainingBudget--;
+        return true;
+    }
+
+    private static bool TryConsumeColumnSemanticRecallBudget(ref int remainingBudget)
     {
         if (remainingBudget <= 0)
         {

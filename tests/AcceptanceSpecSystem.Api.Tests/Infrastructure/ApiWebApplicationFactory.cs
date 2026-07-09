@@ -68,11 +68,13 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll(typeof(ILlmEquivalenceAdjudicationService));
             services.RemoveAll(typeof(ILlmCandidateRerankService));
             services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
             services.RemoveAll(typeof(IEmbeddingService));
             services.AddScoped<ILlmReviewService, TestLlmReviewService>();
             services.AddScoped<ILlmEquivalenceAdjudicationService, TestLlmEquivalenceAdjudicationService>();
             services.AddScoped<ILlmCandidateRerankService, TestLlmCandidateRerankService>();
             services.AddScoped<ILlmDocumentStructureAdjudicationService, TestLlmDocumentStructureAdjudicationService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, TestLlmColumnSemanticRecallService>();
             services.AddScoped<IEmbeddingService, TestEmbeddingService>();
 
             // 使用测试鉴权（默认 admin），避免真实 JWT 依赖影响集成测试

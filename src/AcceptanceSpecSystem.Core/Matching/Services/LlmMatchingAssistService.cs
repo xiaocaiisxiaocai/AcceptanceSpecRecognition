@@ -21,7 +21,8 @@ public partial class LlmMatchingAssistService :
     ILlmReviewService,
     ILlmEquivalenceAdjudicationService,
     ILlmCandidateRerankService,
-    ILlmDocumentStructureAdjudicationService
+    ILlmDocumentStructureAdjudicationService,
+    ILlmColumnSemanticRecallService
 {
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IAiServiceSelector _selector;
@@ -270,6 +271,33 @@ public partial class LlmMatchingAssistService :
             : null;
     }
 
+    public async Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.UnmappedHeaders.Count == 0)
+        {
+            return new LlmColumnSemanticRecallResult();
+        }
+
+        var prompt = BuildColumnSemanticRecallPrompt(request);
+        var raw = await GenerateWithFallbackAsync(
+            prompt,
+            request.LlmServiceId,
+            "LLM 列语义召回失败",
+            static (service, payload) => service.TryParseColumnSemanticRecallResult(payload, out _),
+            cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        return TryParseColumnSemanticRecallResult(raw, out var result)
+            ? result
+            : null;
+    }
+
     public bool TryParseAdjudicationResult(string raw, out LlmEquivalenceAdjudicationResult result)
     {
         result = null!;
@@ -375,6 +403,49 @@ public partial class LlmMatchingAssistService :
             Confidence = Math.Clamp(confidence, 0, 1),
             Decision = TryGetString(doc.RootElement, "decision") ?? "needConfirm",
             Reason = TryGetString(doc.RootElement, "reason") ?? string.Empty
+        };
+        return true;
+    }
+
+    public bool TryParseColumnSemanticRecallResult(
+        string raw,
+        out LlmColumnSemanticRecallResult result)
+    {
+        result = null!;
+        if (!TryParseJson(raw, out var doc))
+            return false;
+
+        if (!doc.RootElement.TryGetProperty("suggestions", out var suggestionsElement) ||
+            suggestionsElement.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        var suggestions = new List<LlmColumnSemanticRecallSuggestion>();
+        foreach (var item in suggestionsElement.EnumerateArray())
+        {
+            if (!TryGetInt32(item, "columnIndex", out var columnIndex))
+            {
+                return false;
+            }
+
+            var targetField = TryGetString(item, "targetField") ?? "Unknown";
+            suggestions.Add(new LlmColumnSemanticRecallSuggestion
+            {
+                ColumnIndex = columnIndex,
+                Header = TryGetString(item, "header") ?? string.Empty,
+                TargetField = targetField,
+                Confidence = TryGetDouble(item, "confidence", out var confidence)
+                    ? Math.Clamp(confidence, 0, 1)
+                    : 0,
+                Reason = TryGetString(item, "reason") ?? string.Empty,
+                Source = "SemanticRecall"
+            });
+        }
+
+        result = new LlmColumnSemanticRecallResult
+        {
+            Suggestions = suggestions
         };
         return true;
     }

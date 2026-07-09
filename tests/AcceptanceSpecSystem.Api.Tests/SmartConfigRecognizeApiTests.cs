@@ -193,8 +193,8 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
             field => field.GetProperty("field").GetString()!,
             field => field);
 
-        fields["Project"].GetProperty("confidence").GetDouble().Should().BeApproximately(0.95, 0.001);
-        fields["Specification"].GetProperty("confidence").GetDouble().Should().BeApproximately(0.95, 0.001);
+        fields["Project"].GetProperty("confidence").GetDouble().Should().BeApproximately(0.99, 0.001);
+        fields["Specification"].GetProperty("confidence").GetDouble().Should().BeApproximately(0.99, 0.001);
         fields["Acceptance"].GetProperty("confidence").GetDouble().Should().BeApproximately(0.75, 0.001);
     }
 
@@ -2376,6 +2376,183 @@ public class SmartConfigRecognizeLlmRoutingBudgetApiTests : IClassFixture<LlmRou
     }
 }
 
+public class SmartConfigRecognizeColumnSemanticRecallApiTests
+{
+    [Fact]
+    public async Task Recognize_WhenRuleMappingIsComplete_ShouldNotCallColumnSemanticRecall()
+    {
+        using var factory = new ColumnSemanticRecallCountingApiFactory();
+        var client = factory.CreateClient();
+        CountingColumnSemanticRecallService.Reset();
+        var fileId = await UploadExcelAsync(client, CreateExcelBytes(), "smart-recognize-column-recall-complete.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+        CountingColumnSemanticRecallService.CallCount.Should().Be(0);
+        GetSemanticRecallSuggestions(table).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenSpecificationHeaderOnlyHasSemanticAlias_ShouldReturnSuggestionWithoutChangingRuleColumns()
+    {
+        using var factory = new ColumnSemanticRecallMissingSpecificationApiFactory();
+        var client = factory.CreateClient();
+        var fileId = await UploadExcelAsync(client, CreateSemanticAliasExcelBytes(), "smart-recognize-column-recall-spec.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+        var suggestions = GetSemanticRecallSuggestions(table);
+
+        table.GetProperty("specificationColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        suggestions.Should().ContainSingle();
+        var suggestion = suggestions.Single();
+        suggestion.GetProperty("columnIndex").GetInt32().Should().Be(1);
+        suggestion.GetProperty("header").GetString().Should().Be("管控要求");
+        suggestion.GetProperty("targetField").GetString().Should().Be("Specification");
+        suggestion.GetProperty("source").GetString().Should().Be("SemanticRecall");
+        suggestion.GetProperty("confidence").GetDouble().Should().BeApproximately(0.88, 0.001);
+    }
+
+    [Fact]
+    public async Task Recognize_WhenAcceptanceMethodAndConfirmationHeadersExist_ShouldNotSuggestMethodAsAcceptance()
+    {
+        using var factory = new ColumnSemanticRecallMissingAcceptanceApiFactory();
+        var client = factory.CreateClient();
+        var fileId = await UploadExcelAsync(client, CreateAcceptanceMethodExcelBytes(), "smart-recognize-column-recall-acceptance.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+        var suggestions = GetSemanticRecallSuggestions(table);
+
+        suggestions.Should().ContainSingle();
+        suggestions.Single().GetProperty("header").GetString().Should().Be("确认结果");
+        suggestions.Single().GetProperty("targetField").GetString().Should().Be("Acceptance");
+        suggestions.Should().NotContain(item => item.GetProperty("header").GetString() == "验收方式");
+        table.GetProperty("acceptanceColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+    }
+
+    [Fact]
+    public async Task Recognize_WhenColumnSemanticRecallFailsOrReturnsInvalidField_ShouldKeepRuleResult()
+    {
+        using var factory = new ColumnSemanticRecallInvalidResultApiFactory();
+        var client = factory.CreateClient();
+        var fileId = await UploadExcelAsync(client, CreateSemanticAliasExcelBytes(), "smart-recognize-column-recall-invalid.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("specificationColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        GetSemanticRecallSuggestions(table).Should().BeEmpty();
+    }
+
+    private static IReadOnlyList<JsonElement> GetSemanticRecallSuggestions(JsonElement table)
+    {
+        return table.TryGetProperty("semanticRecallSuggestions", out var suggestions) &&
+               suggestions.ValueKind == JsonValueKind.Array
+            ? suggestions.EnumerateArray().ToList()
+            : [];
+    }
+
+    private static async Task<int> UploadExcelAsync(HttpClient client, byte[] bytes, string fileName)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", fileName);
+
+        var response = await client.PostAsync("/api/documents/upload", content);
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+
+        var json = JsonSerializer.Deserialize<ApiResponse<JsonElement>>(
+            responseText,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        return json.Data.GetProperty("fileId").GetInt32();
+    }
+
+    private static byte[] CreateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格内容";
+        worksheet.Cell(1, 3).Value = "验收结果";
+        worksheet.Cell(1, 4).Value = "备注";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(2, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateSemanticAliasExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "管控要求";
+        worksheet.Cell(1, 3).Value = "验收结果";
+        worksheet.Cell(1, 4).Value = "备注";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "表面不得有明显划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(2, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateAcceptanceMethodExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格内容";
+        worksheet.Cell(1, 3).Value = "验收方式";
+        worksheet.Cell(1, 4).Value = "确认结果";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "表面不得有明显划伤";
+        worksheet.Cell(2, 3).Value = "目视";
+        worksheet.Cell(2, 4).Value = "OK";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
 public sealed class MissingSpecificationColumnIntelligenceApiFactory : ApiWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -2385,6 +2562,64 @@ public sealed class MissingSpecificationColumnIntelligenceApiFactory : ApiWebApp
         {
             services.RemoveAll(typeof(IDocumentIntelligenceService));
             services.AddScoped<IDocumentIntelligenceService, MissingSpecificationColumnIntelligenceService>();
+        });
+    }
+}
+
+public sealed class ColumnSemanticRecallCountingApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
+            services.AddScoped<ILlmColumnSemanticRecallService, CountingColumnSemanticRecallService>();
+        });
+    }
+}
+
+public sealed class ColumnSemanticRecallMissingSpecificationApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
+            services.AddScoped<IDocumentIntelligenceService, MissingSpecificationForSemanticRecallIntelligenceService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, SpecificationColumnSemanticRecallService>();
+        });
+    }
+}
+
+public sealed class ColumnSemanticRecallMissingAcceptanceApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
+            services.AddScoped<IDocumentIntelligenceService, MissingAcceptanceForSemanticRecallIntelligenceService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, AcceptanceColumnSemanticRecallService>();
+        });
+    }
+}
+
+public sealed class ColumnSemanticRecallInvalidResultApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
+            services.AddScoped<IDocumentIntelligenceService, MissingSpecificationForSemanticRecallIntelligenceService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, InvalidColumnSemanticRecallService>();
         });
     }
 }
@@ -2671,6 +2906,107 @@ public sealed class ZeroBudgetCountingStructureAdjudicationService : ILlmDocumen
     {
         Interlocked.Increment(ref _callCount);
         return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(null);
+    }
+}
+
+public sealed class CountingColumnSemanticRecallService : ILlmColumnSemanticRecallService
+{
+    private static int _callCount;
+
+    public static int CallCount => _callCount;
+
+    public static void Reset()
+    {
+        Interlocked.Exchange(ref _callCount, 0);
+    }
+
+    public Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _callCount);
+        return Task.FromResult<LlmColumnSemanticRecallResult?>(new LlmColumnSemanticRecallResult());
+    }
+}
+
+public sealed class SpecificationColumnSemanticRecallService : ILlmColumnSemanticRecallService
+{
+    public Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<LlmColumnSemanticRecallResult?>(new LlmColumnSemanticRecallResult
+        {
+            Suggestions =
+            [
+                new LlmColumnSemanticRecallSuggestion
+                {
+                    ColumnIndex = 1,
+                    Header = "管控要求",
+                    TargetField = "Specification",
+                    Confidence = 0.88,
+                    Reason = "表头表示规格约束要求",
+                    Source = "SemanticRecall"
+                }
+            ]
+        });
+    }
+}
+
+public sealed class AcceptanceColumnSemanticRecallService : ILlmColumnSemanticRecallService
+{
+    public Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<LlmColumnSemanticRecallResult?>(new LlmColumnSemanticRecallResult
+        {
+            Suggestions =
+            [
+                new LlmColumnSemanticRecallSuggestion
+                {
+                    ColumnIndex = 2,
+                    Header = "验收方式",
+                    TargetField = "Acceptance",
+                    Confidence = 0.91,
+                    Reason = "测试替身故意返回方法列",
+                    Source = "SemanticRecall"
+                },
+                new LlmColumnSemanticRecallSuggestion
+                {
+                    ColumnIndex = 3,
+                    Header = "确认结果",
+                    TargetField = "Acceptance",
+                    Confidence = 0.89,
+                    Reason = "表头表示供应商确认结果",
+                    Source = "SemanticRecall"
+                }
+            ]
+        });
+    }
+}
+
+public sealed class InvalidColumnSemanticRecallService : ILlmColumnSemanticRecallService
+{
+    public Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<LlmColumnSemanticRecallResult?>(new LlmColumnSemanticRecallResult
+        {
+            Suggestions =
+            [
+                new LlmColumnSemanticRecallSuggestion
+                {
+                    ColumnIndex = 1,
+                    Header = "管控要求",
+                    TargetField = "MadeUpField",
+                    Confidence = 0.95,
+                    Reason = "非法字段应被丢弃",
+                    Source = "SemanticRecall"
+                }
+            ]
+        });
     }
 }
 
@@ -3022,6 +3358,98 @@ public sealed class MissingSpecificationColumnIntelligenceService : IDocumentInt
                 HeaderRowCount = 1,
                 DataStartRowIndex = 1
             }
+        });
+    }
+
+    public int DetectHeaderRowIndex(TableData tableData, int? scanRowLimit = null) => 0;
+}
+
+public sealed class MissingSpecificationForSemanticRecallIntelligenceService : IDocumentIntelligenceService
+{
+    public Task<TableIdentificationResult> IdentifyTargetTableAsync(
+        IReadOnlyList<TableInfo> tables,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new TableIdentificationResult
+        {
+            TableIndex = 0,
+            Confidence = 1,
+            Reasoning = "测试替身"
+        });
+    }
+
+    public Task<ColumnMappingResult> IdentifyColumnMappingAsync(
+        TableData tableData,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new ColumnMappingResult
+        {
+            Confidence = 0.72,
+            Reasoning = "缺规格列以触发列语义召回",
+            Mapping = new ColumnMapping
+            {
+                ProjectColumn = 0,
+                SpecificationColumn = null,
+                AcceptanceColumn = 2,
+                RemarkColumn = 3,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1
+            },
+            Details =
+            [
+                new ColumnIdentificationResult { ColumnIndex = 0, HeaderText = "项目", ColumnType = ColumnType.Project, Confidence = 0.95 },
+                new ColumnIdentificationResult { ColumnIndex = 1, HeaderText = "管控要求", ColumnType = ColumnType.Unknown, Confidence = 0 },
+                new ColumnIdentificationResult { ColumnIndex = 2, HeaderText = "验收结果", ColumnType = ColumnType.Acceptance, Confidence = 0.95 },
+                new ColumnIdentificationResult { ColumnIndex = 3, HeaderText = "备注", ColumnType = ColumnType.Remark, Confidence = 0.95 }
+            ]
+        });
+    }
+
+    public int DetectHeaderRowIndex(TableData tableData, int? scanRowLimit = null) => 0;
+}
+
+public sealed class MissingAcceptanceForSemanticRecallIntelligenceService : IDocumentIntelligenceService
+{
+    public Task<TableIdentificationResult> IdentifyTargetTableAsync(
+        IReadOnlyList<TableInfo> tables,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new TableIdentificationResult
+        {
+            TableIndex = 0,
+            Confidence = 1,
+            Reasoning = "测试替身"
+        });
+    }
+
+    public Task<ColumnMappingResult> IdentifyColumnMappingAsync(
+        TableData tableData,
+        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new ColumnMappingResult
+        {
+            Confidence = 0.70,
+            Reasoning = "缺验收结果列以触发列语义召回",
+            Mapping = new ColumnMapping
+            {
+                ProjectColumn = 0,
+                SpecificationColumn = 1,
+                AcceptanceColumn = null,
+                RemarkColumn = null,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1
+            },
+            Details =
+            [
+                new ColumnIdentificationResult { ColumnIndex = 0, HeaderText = "项目", ColumnType = ColumnType.Project, Confidence = 0.95 },
+                new ColumnIdentificationResult { ColumnIndex = 1, HeaderText = "规格内容", ColumnType = ColumnType.Specification, Confidence = 0.95 },
+                new ColumnIdentificationResult { ColumnIndex = 2, HeaderText = "验收方式", ColumnType = ColumnType.Unknown, Confidence = 0 },
+                new ColumnIdentificationResult { ColumnIndex = 3, HeaderText = "确认结果", ColumnType = ColumnType.Unknown, Confidence = 0 }
+            ]
         });
     }
 

@@ -119,6 +119,41 @@ public partial class LlmMatchingAssistService
         });
     }
 
+    private static string BuildColumnSemanticRecallPrompt(LlmColumnSemanticRecallRequest request)
+    {
+        var payload = new
+        {
+            request.TableIndex,
+            request.TableName,
+            request.Headers,
+            request.MappedFields,
+            request.UnmappedHeaders,
+            request.SampleRows
+        };
+
+        return $$"""
+        你是验收规格表头列语义召回助手。系统已经先执行确定性列映射，你只能对未映射表头给出候选建议，不能改写已识别列。
+
+        【字段定义】
+        - Project：验收项目、检查项目、对象、项目名称。
+        - Specification：规格要求、标准要求、管控要求、允收范围、技术条件。
+        - Acceptance：最终验收结果、确认结果、是否响应、OK/NG、供应商确认结论。
+        - Remark：备注、说明、供应商说明、补充说明。
+        - Unknown：无法稳定归类或只是方法、编号、版本、责任人、空白、业务元数据。
+
+        【禁止映射】
+        - “验收方式/验收方法/检查方式/测试方法”不是 Acceptance，除非表头同时明确包含“结果/结论/确认/判定/OK/NG”。
+        - 不得把序号、编号、编码、等级、分类、可修改标识映射为四个业务字段。
+        - 已在 mappedFields 中存在的字段不要重复建议。
+
+        【输入 JSON】
+        {{JsonSerializer.Serialize(payload, PromptJsonOptions)}}
+
+        仅返回严格 JSON：
+        {"suggestions":[{"columnIndex":1,"header":"管控要求","targetField":"Specification","confidence":0.0,"reason":"一句话依据"}]}
+        """;
+    }
+
     // ── LLM 调用 ──
 
 }

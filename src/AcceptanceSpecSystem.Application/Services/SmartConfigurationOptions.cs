@@ -14,6 +14,8 @@ public sealed class SmartConfigurationOptions
 
     public int MaxStructureAdjudicationCallsPerDocument { get; set; } = 5;
 
+    public int MaxColumnSemanticRecallCallsPerDocument { get; set; } = 5;
+
     public int HeaderDetectionScanRowLimit { get; set; } = 20;
 
     public int MaxHeaderRowCount { get; set; } = 6;

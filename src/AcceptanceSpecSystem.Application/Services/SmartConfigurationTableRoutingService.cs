@@ -250,7 +250,8 @@ internal static class SmartConfigurationTableRoutingService
             RankingScore = route.RankingScore,
             SkipReason = route.SkipReason,
             Issues = route.Issues.ToList(),
-            Fields = table.Fields
+            Fields = table.Fields,
+            SemanticRecallSuggestions = table.SemanticRecallSuggestions
         };
     }
 

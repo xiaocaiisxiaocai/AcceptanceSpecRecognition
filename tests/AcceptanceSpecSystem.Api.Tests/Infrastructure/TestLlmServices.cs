@@ -230,6 +230,16 @@ public class TestLlmDocumentStructureAdjudicationService : ILlmDocumentStructure
     }
 }
 
+public class TestLlmColumnSemanticRecallService : ILlmColumnSemanticRecallService
+{
+    public Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<LlmColumnSemanticRecallResult?>(new LlmColumnSemanticRecallResult());
+    }
+}
+
 public class TestEmbeddingService : IEmbeddingService
 {
     public bool IsAvailable => true;

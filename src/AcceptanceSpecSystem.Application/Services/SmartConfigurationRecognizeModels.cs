@@ -57,6 +57,8 @@ public sealed class SmartConfigurationRecognizedTable
     public List<SmartConfigurationRecognitionIssue> Issues { get; init; } = [];
 
     public List<SmartConfigurationRecognizedField> Fields { get; init; } = [];
+
+    public List<SmartConfigurationColumnSemanticRecallSuggestion> SemanticRecallSuggestions { get; init; } = [];
 }
 
 public sealed class SmartConfigurationRecognitionIssue
@@ -81,4 +83,19 @@ public sealed class SmartConfigurationRecognizedField
     public double Confidence { get; init; }
 
     public string Source { get; init; } = string.Empty;
+}
+
+public sealed class SmartConfigurationColumnSemanticRecallSuggestion
+{
+    public int ColumnIndex { get; init; }
+
+    public string Header { get; init; } = string.Empty;
+
+    public string TargetField { get; init; } = string.Empty;
+
+    public double Confidence { get; init; }
+
+    public string Reason { get; init; } = string.Empty;
+
+    public string Source { get; init; } = "SemanticRecall";
 }
