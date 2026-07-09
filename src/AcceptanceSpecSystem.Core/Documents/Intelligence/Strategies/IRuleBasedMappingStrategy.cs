@@ -20,4 +20,25 @@ public interface IRuleBasedMappingStrategy
         IReadOnlyList<IReadOnlyList<string>> sampleRows,
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 使用保留匹配模式和优先级的结构化规则识别列映射。
+    /// </summary>
+    Task<ColumnMappingResult> IdentifyAsync(
+        IReadOnlyList<string> headers,
+        IReadOnlyList<IReadOnlyList<string>> sampleRows,
+        IReadOnlyList<ColumnHeaderMappingRule> rules,
+        CancellationToken cancellationToken = default)
+    {
+        var synonyms = rules
+            .Where(rule => rule.ColumnType != ColumnType.Unknown)
+            .GroupBy(rule => rule.ColumnType)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<string>)group
+                    .Select(rule => rule.Pattern)
+                    .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
+                    .ToList());
+        return IdentifyAsync(headers, sampleRows, synonyms, cancellationToken);
+    }
 }

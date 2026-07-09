@@ -31,21 +31,39 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         _logger = logger;
     }
 
-    public async Task<ColumnMappingResult> IdentifyAsync(
+    public Task<ColumnMappingResult> IdentifyAsync(
         IReadOnlyList<string> headers,
         IReadOnlyList<IReadOnlyList<string>> sampleRows,
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms = null,
         CancellationToken cancellationToken = default)
     {
+        var rules = BuildEffectiveSynonyms(extraSynonyms)
+            .SelectMany(pair => pair.Value.Select(pattern => new ColumnHeaderMappingRule(
+                pair.Key,
+                ColumnHeaderMatchMode.Contains,
+                pattern)))
+            .ToList();
+        return IdentifyAsync(headers, sampleRows, rules, cancellationToken);
+    }
+
+    public async Task<ColumnMappingResult> IdentifyAsync(
+        IReadOnlyList<string> headers,
+        IReadOnlyList<IReadOnlyList<string>> sampleRows,
+        IReadOnlyList<ColumnHeaderMappingRule> rules,
+        CancellationToken cancellationToken = default)
+    {
         var session = await _textPipeline.CreateSessionAsync(cancellationToken);
         var details = new List<ColumnIdentificationResult>();
-        var synonyms = BuildEffectiveSynonyms(extraSynonyms);
+        var effectiveRules = rules
+            .Where(rule => rule.ColumnType != ColumnType.Unknown)
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.Pattern))
+            .ToList();
 
         // 识别每一列
         for (int i = 0; i < headers.Count; i++)
         {
             var header = headers[i];
-            var result = IdentifyColumn(header, i, sampleRows, session, synonyms);
+            var result = IdentifyColumn(header, i, sampleRows, session, effectiveRules);
             details.Add(result);
         }
 
@@ -68,7 +86,7 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         int columnIndex,
         IReadOnlyList<IReadOnlyList<string>> sampleRows,
         TextProcessingSession session,
-        IReadOnlyDictionary<ColumnType, string[]> synonyms)
+        IReadOnlyList<ColumnHeaderMappingRule> rules)
     {
         if (LooksLikeSystemMetadataColumn(header))
         {
@@ -86,28 +104,38 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         var normalizedHeader = session.Process(header).ToLowerInvariant();
 
         // 尝试匹配每种列类型
-        var candidates = new List<(ColumnType type, double confidence, string reason)>();
+        var candidates = new List<(
+            ColumnType type,
+            double confidence,
+            string reason,
+            bool isCustomerSpecific,
+            int priority)>();
 
         if (LooksLikeAcceptanceStandardColumn(normalizedHeader))
         {
-            candidates.Add((ColumnType.Acceptance, 0.98, "表头表示验收标准"));
+            candidates.Add((ColumnType.Acceptance, 0.98, "表头表示验收标准", false, 0));
         }
 
-        foreach (var (type, keywords) in synonyms)
+        foreach (var rule in rules)
         {
-            if (type == ColumnType.Acceptance && LooksLikeAcceptanceMethodColumn(normalizedHeader))
+            if (rule.ColumnType == ColumnType.Acceptance && LooksLikeAcceptanceMethodColumn(normalizedHeader))
             {
                 continue;
             }
-            if (type == ColumnType.Specification && LooksLikeAcceptanceStandardColumn(normalizedHeader))
+            if (rule.ColumnType == ColumnType.Specification && LooksLikeAcceptanceStandardColumn(normalizedHeader))
             {
                 continue;
             }
 
-            var (matched, confidence, matchedKeyword) = MatchKeywords(normalizedHeader, keywords);
-            if (matched)
+            var match = ColumnHeaderRuleMatcher.Match(normalizedHeader, rule);
+            if (match.Matched)
             {
-                candidates.Add((type, confidence, $"表头包含关键词 '{matchedKeyword}'"));
+                candidates.Add((
+                    rule.ColumnType,
+                    match.Confidence,
+                    $"表头命中规则 '{rule.Pattern}'",
+                    rule.IsCustomerSpecific,
+                    rule.Priority));
             }
         }
 
@@ -117,14 +145,23 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
             var dataTypeGuess = GuessColumnTypeByData(columnIndex, sampleRows);
             if (dataTypeGuess.type != ColumnType.Unknown)
             {
-                candidates.Add(dataTypeGuess);
+                candidates.Add((
+                    dataTypeGuess.type,
+                    dataTypeGuess.confidence,
+                    dataTypeGuess.reason,
+                    false,
+                    0));
             }
         }
 
         // 选择置信度最高的
         if (candidates.Count > 0)
         {
-            var best = candidates.OrderByDescending(c => c.confidence).First();
+            var best = candidates
+                .OrderByDescending(candidate => candidate.confidence)
+                .ThenByDescending(candidate => candidate.isCustomerSpecific)
+                .ThenByDescending(candidate => candidate.priority)
+                .First();
             return new ColumnIdentificationResult
             {
                 ColumnIndex = columnIndex,
@@ -199,63 +236,6 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         value is >= 'a' and <= 'z' ||
         value is >= '0' and <= '9' ||
         value == '_';
-
-    private (bool matched, double confidence, string matchedKeyword) MatchKeywords(
-        string text,
-        string[] keywords)
-    {
-        string? bestKeyword = null;
-        var bestConfidence = 0.0;
-
-        // 关键词命中时优先选择更完整的表头词，避免短词抢占业务列。
-        foreach (var keyword in keywords)
-        {
-            var normalizedKeyword = keyword.ToLowerInvariant();
-            if (normalizedKeyword.Length == 0 || !text.Contains(normalizedKeyword))
-            {
-                continue;
-            }
-
-            var confidence = CalculateKeywordConfidence(text, normalizedKeyword);
-            if (confidence > bestConfidence)
-            {
-                bestConfidence = confidence;
-                bestKeyword = keyword;
-            }
-        }
-
-        if (bestKeyword != null)
-        {
-            return (true, bestConfidence, bestKeyword);
-        }
-
-        // 编辑距离匹配（处理拼写变体）
-        foreach (var keyword in keywords)
-        {
-            var similarity = CalculateLevenshteinSimilarity(text, keyword.ToLowerInvariant());
-            var confidence = similarity * 0.9;
-            if (similarity > 0.8 && confidence > bestConfidence)
-            {
-                bestConfidence = confidence;
-                bestKeyword = keyword;
-            }
-        }
-
-        return bestKeyword != null
-            ? (true, bestConfidence, bestKeyword)
-            : (false, 0.0, string.Empty);
-    }
-
-    private static double CalculateKeywordConfidence(string text, string keyword)
-    {
-        if (string.Equals(text, keyword, StringComparison.OrdinalIgnoreCase))
-        {
-            return 0.99;
-        }
-
-        var coverage = Math.Clamp((double)keyword.Length / Math.Max(text.Length, 1), 0, 1);
-        return Math.Round(0.90 + coverage * 0.08, 3);
-    }
 
     private static Dictionary<ColumnType, string[]> BuildEffectiveSynonyms(
         IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>? extraSynonyms)
@@ -435,39 +415,4 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         _ => "未知"
     };
 
-    private double CalculateLevenshteinSimilarity(string s1, string s2)
-    {
-        if (string.IsNullOrEmpty(s1) || string.IsNullOrEmpty(s2))
-            return 0.0;
-
-        var distance = CalculateLevenshteinDistance(s1, s2);
-        var maxLength = Math.Max(s1.Length, s2.Length);
-        return 1.0 - (double)distance / maxLength;
-    }
-
-    private int CalculateLevenshteinDistance(string s1, string s2)
-    {
-        var m = s1.Length;
-        var n = s2.Length;
-        var d = new int[m + 1, n + 1];
-
-        for (var i = 0; i <= m; i++)
-            d[i, 0] = i;
-
-        for (var j = 0; j <= n; j++)
-            d[0, j] = j;
-
-        for (var j = 1; j <= n; j++)
-        {
-            for (var i = 1; i <= m; i++)
-            {
-                var cost = s1[i - 1] == s2[j - 1] ? 0 : 1;
-                d[i, j] = Math.Min(
-                    Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1),
-                    d[i - 1, j - 1] + cost);
-            }
-        }
-
-        return d[m, n];
-    }
 }

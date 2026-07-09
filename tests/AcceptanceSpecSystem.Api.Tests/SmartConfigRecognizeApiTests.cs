@@ -1468,6 +1468,56 @@ public class SmartConfigRecognizeLearningRuleApiTests : IClassFixture<ApiWebAppl
         table.GetProperty("decision").GetString().Should().Be("AutoApply");
     }
 
+    [Fact]
+    public async Task Recognize_WithEqualsRule_ShouldNotMatchLongerHeader()
+    {
+        var customerId = await CreateCustomerAsync("精确规则语义客户");
+        await CreateColumnRuleAsync(customerId, "检查对象", targetField: 1, matchMode: 2);
+        await CreateColumnRuleAsync(customerId, "管制条件", targetField: 2, matchMode: 2);
+        await CreateColumnRuleAsync(customerId, "供应商回复", targetField: 3, matchMode: 2);
+        await CreateColumnRuleAsync(customerId, "补充说明", targetField: 4, matchMode: 2);
+        var fileId = await UploadExcelAsync(
+            CreateLearningRuleExcelBytes("检查对象说明"),
+            "smart-recognize-equals-rule.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("projectColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Recognize_WithRegexRule_ShouldMatchRegularExpression()
+    {
+        var customerId = await CreateCustomerAsync("正则规则语义客户");
+        await CreateColumnRuleAsync(customerId, "检查.*对象", targetField: 1, matchMode: 3);
+        await CreateColumnRuleAsync(customerId, "管制条件", targetField: 2, matchMode: 2);
+        await CreateColumnRuleAsync(customerId, "供应商回复", targetField: 3, matchMode: 2);
+        await CreateColumnRuleAsync(customerId, "补充说明", targetField: 4, matchMode: 2);
+        var fileId = await UploadExcelAsync(
+            CreateLearningRuleExcelBytes("检查设备对象"),
+            "smart-recognize-regex-rule.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("projectColumnIndex").GetInt32().Should().Be(0);
+    }
+
     private async Task<int> CreateCustomerAsync(string name)
     {
         var response = await _client.PostAsync("/api/customers", ApiClientJson.ToJsonContent(new { name }));
@@ -1477,13 +1527,17 @@ public class SmartConfigRecognizeLearningRuleApiTests : IClassFixture<ApiWebAppl
         return json.Data.GetProperty("id").GetInt32();
     }
 
-    private async Task CreateColumnRuleAsync(int customerId, string pattern, int targetField)
+    private async Task CreateColumnRuleAsync(
+        int customerId,
+        string pattern,
+        int targetField,
+        int matchMode = 2)
     {
         var response = await _client.PostAsync("/api/column-mapping-rules", ApiClientJson.ToJsonContent(new
         {
             pattern,
             targetField,
-            matchMode = 2,
+            matchMode,
             priority = 100,
             enabled = true,
             source = 3,
@@ -1508,11 +1562,11 @@ public class SmartConfigRecognizeLearningRuleApiTests : IClassFixture<ApiWebAppl
         return json.Data.GetProperty("fileId").GetInt32();
     }
 
-    private static byte[] CreateLearningRuleExcelBytes()
+    private static byte[] CreateLearningRuleExcelBytes(string projectHeader = "检查对象")
     {
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("验收表");
-        worksheet.Cell(1, 1).Value = "检查对象";
+        worksheet.Cell(1, 1).Value = projectHeader;
         worksheet.Cell(1, 2).Value = "管制条件";
         worksheet.Cell(1, 3).Value = "供应商回复";
         worksheet.Cell(1, 4).Value = "补充说明";

@@ -107,6 +107,28 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         return result;
     }
 
+    public async Task<ColumnMappingResult> IdentifyColumnMappingAsync(
+        TableData tableData,
+        IReadOnlyList<ColumnHeaderMappingRule> rules,
+        CancellationToken cancellationToken = default)
+    {
+        if (tableData.Headers.Count == 0)
+        {
+            throw new ArgumentException("表格没有表头", nameof(tableData));
+        }
+
+        var sampleRows = tableData.Rows
+            .Take(3)
+            .Select(row => (IReadOnlyList<string>)row.Cells.Select(c => c.Value ?? string.Empty).ToList())
+            .ToList();
+
+        return await _ruleStrategy.IdentifyAsync(
+            (IReadOnlyList<string>)tableData.Headers.ToList(),
+            sampleRows,
+            rules,
+            cancellationToken);
+    }
+
     private double ScoreTableRelevance(TableInfo table)
     {
         double score = 0.0;

@@ -32,6 +32,6 @@
 - [x] 5.5 `dotnet test AcceptanceSpecSystem.sln -c Debug`、`cd web && pnpm test && pnpm typecheck`、`openspec validate migrate-column-mapping-keywords-to-db --strict` 全绿
 
 ## 6. 2026-07-10 MatchMode 回归收口
-- [ ] 6.1 Application 向 Core 传递结构化列规则，不再丢失 MatchMode、优先级和客户范围。
-- [ ] 6.2 Core 实现带 Regex 超时的共享匹配器，运行时和缺口分析器复用。
-- [ ] 6.3 增加 Equals/Contains/Regex 及运行时-分析器一致性测试。
+- [x] 6.1 Application 向 Core 传递结构化列规则，不再丢失 MatchMode、优先级和客户范围。
+- [x] 6.2 Core 实现带 Regex 超时的共享匹配器，运行时和缺口分析器复用。
+- [x] 6.3 增加 Equals/Contains/Regex 及运行时-分析器一致性测试。

@@ -1,6 +1,7 @@
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Intelligence;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Documents.Interfaces;
 using AcceptanceSpecSystem.Core.Documents.Models;
@@ -100,11 +101,11 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         await using var stream = File.OpenRead(absolutePath);
         var tablesData = await parser.ExtractAllTablesDataAsync(stream);
 
-        var extraSynonyms = await BuildExtraSynonymsAsync(command.CustomerId, cancellationToken);
+        var columnHeaderRules = await BuildColumnHeaderRulesAsync(command.CustomerId, cancellationToken);
         var routingRules = await _unitOfWork.SmartStructureRoutingRules.GetEffectiveForCustomerAsync(
             command.CustomerId,
             cancellationToken);
-        var headerKeywordMatcher = HeaderKeywordMatcher.FromExtraSynonyms(extraSynonyms);
+        var headerKeywordMatcher = HeaderKeywordMatcher.FromRules(columnHeaderRules);
         var tables = new List<SmartConfigurationRecognizedTable>();
         var llmCallBudget = Math.Max(0, _options.MaxLlmCallsPerRecognizeDocument);
         var structureAdjudicationBudget = Math.Max(0, _options.MaxStructureAdjudicationCallsPerDocument);
@@ -144,7 +145,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableData,
                 headerProfile,
                 headerKeywordMatcher,
-                extraSynonyms,
+                columnHeaderRules,
                 routingRules,
                 () => TryConsumeLlmBudget(ref llmCallBudget, ref structureAdjudicationBudget),
                 () => TryConsumeLlmBudget(ref llmCallBudget, ref columnSemanticRecallBudget),
@@ -389,7 +390,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableData tableData,
         HeaderProfile headerProfile,
         HeaderKeywordMatcher headerKeywordMatcher,
-        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
+        IReadOnlyList<ColumnHeaderMappingRule> columnHeaderRules,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
@@ -432,7 +433,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         {
             var mapping = await _intelligenceService.IdentifyColumnMappingAsync(
                 tableData,
-                extraSynonyms,
+                columnHeaderRules,
                 cancellationToken);
             mapping.Mapping.HeaderRowIndex = headerProfile.HeaderRowIndex;
             mapping.Mapping.HeaderRowCount = headerProfile.HeaderRowCount;
@@ -446,7 +447,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tableData,
                 mapping,
                 headerKeywordMatcher,
-                extraSynonyms,
+                columnHeaderRules,
                 routingRules,
                 tryConsumeStructureAdjudicationBudget,
                 tryConsumeColumnSemanticRecallBudget,
@@ -490,7 +491,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableData tableData,
         ColumnMappingResult mapping,
         HeaderKeywordMatcher headerKeywordMatcher,
-        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms,
+        IReadOnlyList<ColumnHeaderMappingRule> columnHeaderRules,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
@@ -498,7 +499,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
     {
-        var isSpecificationOnly = IsSpecificationOnlyCandidate(tableData, mapping, extraSynonyms);
+        var isSpecificationOnly = IsSpecificationOnlyCandidate(tableData, mapping, columnHeaderRules);
         var healthCheck = DocumentStructureHealthCheck.Evaluate(
             tableData,
             mapping,
@@ -567,7 +568,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 {
                     var remapped = await _intelligenceService.IdentifyColumnMappingAsync(
                         reextracted,
-                        extraSynonyms,
+                        columnHeaderRules,
                         cancellationToken);
                     remapped.Mapping.HeaderRowIndex = fused.HeaderRowIndex;
                     remapped.Mapping.HeaderRowCount = fused.HeaderRowCount;
@@ -1176,23 +1177,21 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             tableName);
     }
 
-    private async Task<IReadOnlyDictionary<ColumnType, IReadOnlyList<string>>> BuildExtraSynonymsAsync(
+    private async Task<IReadOnlyList<ColumnHeaderMappingRule>> BuildColumnHeaderRulesAsync(
         int? customerId,
         CancellationToken cancellationToken)
     {
         var rules = await _unitOfWork.ColumnMappingRules.GetEffectiveForCustomerAsync(customerId);
         return rules
-            .GroupBy(rule => ToColumnType(rule.TargetField))
-            .Where(group => group.Key != ColumnType.Unknown)
-            .ToDictionary(
-                group => group.Key,
-                group => (IReadOnlyList<string>)group
-                    .OrderByDescending(rule => customerId.HasValue && rule.CustomerId == customerId.Value)
-                    .ThenByDescending(rule => rule.Priority)
-                    .Select(rule => rule.Pattern)
-                    .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList());
+            .Where(rule => ToColumnType(rule.TargetField) != ColumnType.Unknown)
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.Pattern))
+            .Select(rule => new ColumnHeaderMappingRule(
+                ToColumnType(rule.TargetField),
+                ToColumnHeaderMatchMode(rule.MatchMode),
+                rule.Pattern.Trim(),
+                rule.Priority,
+                customerId.HasValue && rule.CustomerId == customerId.Value))
+            .ToList();
     }
 
     private static ColumnType ToColumnType(ColumnMappingTargetField targetField) => targetField switch
@@ -1202,6 +1201,13 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         ColumnMappingTargetField.Acceptance => ColumnType.Acceptance,
         ColumnMappingTargetField.Remark => ColumnType.Remark,
         _ => ColumnType.Unknown
+    };
+
+    private static ColumnHeaderMatchMode ToColumnHeaderMatchMode(ColumnMappingMatchMode matchMode) => matchMode switch
+    {
+        ColumnMappingMatchMode.Equals => ColumnHeaderMatchMode.Equals,
+        ColumnMappingMatchMode.Regex => ColumnHeaderMatchMode.Regex,
+        _ => ColumnHeaderMatchMode.Contains
     };
 
     private static bool TryConsumeLlmBudget(ref int remainingGlobalBudget, ref int remainingChannelBudget)
@@ -1219,7 +1225,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     private static bool IsSpecificationOnlyCandidate(
         TableData tableData,
         ColumnMappingResult mapping,
-        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms)
+        IReadOnlyList<ColumnHeaderMappingRule> columnHeaderRules)
     {
         if (mapping.Mapping.ProjectColumn.HasValue || !mapping.Mapping.SpecificationColumn.HasValue)
         {
@@ -1236,13 +1242,11 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             return false;
         }
 
-        var projectKeywords = extraSynonyms.TryGetValue(ColumnType.Project, out var words)
-            ? words
-            : [];
+        var projectRules = columnHeaderRules
+            .Where(rule => rule.ColumnType == ColumnType.Project)
+            .ToList();
         return !tableData.Headers.Any(header =>
-            projectKeywords.Any(keyword =>
-                !string.IsNullOrWhiteSpace(keyword) &&
-                header.Contains(keyword, StringComparison.OrdinalIgnoreCase)));
+            projectRules.Any(rule => ColumnHeaderRuleMatcher.IsMatch(header, rule)));
     }
 
 }
@@ -1251,28 +1255,24 @@ internal readonly record struct HeaderProfile(int HeaderRowIndex, int HeaderRowC
 
 internal sealed class HeaderKeywordMatcher
 {
-    private readonly IReadOnlyList<string> _keywords;
+    private readonly IReadOnlyList<ColumnHeaderMappingRule> _rules;
 
-    private HeaderKeywordMatcher(IReadOnlyList<string> keywords)
+    private HeaderKeywordMatcher(IReadOnlyList<ColumnHeaderMappingRule> rules)
     {
-        _keywords = keywords;
+        _rules = rules;
     }
 
-    public static HeaderKeywordMatcher FromExtraSynonyms(
-        IReadOnlyDictionary<ColumnType, IReadOnlyList<string>> extraSynonyms)
+    public static HeaderKeywordMatcher FromRules(IReadOnlyList<ColumnHeaderMappingRule> rules)
     {
-        var keywords = extraSynonyms.Values
-            .SelectMany(words => words)
-            .Select(keyword => keyword.Trim())
-            .Where(keyword => keyword.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+        var effectiveRules = rules
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.Pattern))
             .ToList();
 
-        return new HeaderKeywordMatcher(keywords);
+        return new HeaderKeywordMatcher(effectiveRules);
     }
 
     public bool Contains(string value)
     {
-        return _keywords.Any(keyword => value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+        return _rules.Any(rule => ColumnHeaderRuleMatcher.IsMatch(value, rule));
     }
 }

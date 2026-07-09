@@ -135,6 +135,39 @@ public class SmartStructureHeaderGapAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_WithContainsRule_ShouldUseRuntimeFuzzyFallback()
+    {
+        var templates = new[]
+        {
+            new DocumentTemplate
+            {
+                Id = 10,
+                CustomerId = 1,
+                TemplateName = "近似表头模板",
+                HeadersJson = """["设备规格要球"]""",
+                SpecificationColumnIndex = 0,
+                ConfirmedAt = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc)
+            }
+        };
+        var rules = new[]
+        {
+            new ColumnMappingRule
+            {
+                CustomerId = null,
+                TargetField = ColumnMappingTargetField.Specification,
+                MatchMode = ColumnMappingMatchMode.Contains,
+                Pattern = "设备规格要求",
+                Enabled = true
+            }
+        };
+
+        var report = SmartStructureHeaderGapAnalyzer.Analyze(templates, rules, topN: 10);
+
+        report.GlobalUncoveredHeaders.Should().BeEmpty();
+        report.EffectiveUncoveredHeaders.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Analyze_ShouldSummarizeStageOneConclusion()
     {
         var templates = new[]

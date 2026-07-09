@@ -177,6 +177,78 @@ public class RuleBasedMappingStrategyTests
     }
 
     [Fact]
+    public async Task IdentifyAsync_WithEqualsRule_ShouldRequireWholeHeaderMatch()
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            ["检查对象说明"],
+            [],
+            [
+                new ColumnHeaderMappingRule(
+                    ColumnType.Project,
+                    ColumnHeaderMatchMode.Equals,
+                    "检查对象")
+            ]);
+
+        result.Mapping.ProjectColumn.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task IdentifyAsync_WithContainsRule_ShouldMatchContainedHeaderText()
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            ["设备检查对象"],
+            [],
+            [
+                new ColumnHeaderMappingRule(
+                    ColumnType.Project,
+                    ColumnHeaderMatchMode.Contains,
+                    "检查对象")
+            ]);
+
+        result.Mapping.ProjectColumn.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task IdentifyAsync_WithExactContainsRule_ShouldKeepExactMatchConfidence()
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            ["检查对象"],
+            [],
+            [
+                new ColumnHeaderMappingRule(
+                    ColumnType.Project,
+                    ColumnHeaderMatchMode.Contains,
+                    "检查对象")
+            ]);
+
+        result.Details.Should().ContainSingle().Which.Confidence.Should().Be(0.99);
+    }
+
+    [Fact]
+    public async Task IdentifyAsync_WithRegexRule_ShouldMatchRegularExpression()
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            ["检查设备对象"],
+            [],
+            [
+                new ColumnHeaderMappingRule(
+                    ColumnType.Project,
+                    ColumnHeaderMatchMode.Regex,
+                    "检查.*对象")
+            ]);
+
+        result.Mapping.ProjectColumn.Should().Be(0);
+    }
+
+    [Fact]
     public async Task IdentifyAsync_WithEmptyHeaders_ShouldReturnZeroConfidence()
     {
         var strategy = CreateStrategy();

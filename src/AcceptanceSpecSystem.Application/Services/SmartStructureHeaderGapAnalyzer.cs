@@ -1,5 +1,6 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 using AcceptanceSpecSystem.Data.Entities;
 
 namespace AcceptanceSpecSystem.Application.Services;
@@ -9,8 +10,6 @@ namespace AcceptanceSpecSystem.Application.Services;
 /// </summary>
 public static class SmartStructureHeaderGapAnalyzer
 {
-    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(200);
-
     public static SmartStructureHeaderGapReport Analyze(
         IEnumerable<DocumentTemplate> templates,
         IEnumerable<ColumnMappingRule> rules,
@@ -169,39 +168,30 @@ public static class SmartStructureHeaderGapAnalyzer
 
     private static bool IsMatch(ColumnMappingRule rule, string header)
     {
-        var pattern = rule.Pattern.Trim();
-        if (pattern.Length == 0)
-        {
-            return false;
-        }
-
-        return rule.MatchMode switch
-        {
-            ColumnMappingMatchMode.Equals => string.Equals(header.Trim(), pattern, StringComparison.OrdinalIgnoreCase),
-            ColumnMappingMatchMode.Regex => RegexMatches(header, pattern),
-            _ => header.Contains(pattern, StringComparison.OrdinalIgnoreCase)
-        };
+        var runtimeRule = new ColumnHeaderMappingRule(
+            ToColumnType(rule.TargetField),
+            ToMatchMode(rule.MatchMode),
+            rule.Pattern,
+            rule.Priority,
+            rule.CustomerId.HasValue);
+        return ColumnHeaderRuleMatcher.IsMatch(header, runtimeRule);
     }
 
-    private static bool RegexMatches(string header, string pattern)
+    private static ColumnType ToColumnType(ColumnMappingTargetField targetField) => targetField switch
     {
-        try
-        {
-            return Regex.IsMatch(
-                header,
-                pattern,
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-                RegexMatchTimeout);
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return false;
-        }
-    }
+        ColumnMappingTargetField.Project => ColumnType.Project,
+        ColumnMappingTargetField.Specification => ColumnType.Specification,
+        ColumnMappingTargetField.Acceptance => ColumnType.Acceptance,
+        ColumnMappingTargetField.Remark => ColumnType.Remark,
+        _ => ColumnType.Unknown
+    };
+
+    private static ColumnHeaderMatchMode ToMatchMode(ColumnMappingMatchMode matchMode) => matchMode switch
+    {
+        ColumnMappingMatchMode.Equals => ColumnHeaderMatchMode.Equals,
+        ColumnMappingMatchMode.Regex => ColumnHeaderMatchMode.Regex,
+        _ => ColumnHeaderMatchMode.Contains
+    };
 
     private static void Add(
         Dictionary<HeaderGapKey, HeaderGapBucket> buckets,

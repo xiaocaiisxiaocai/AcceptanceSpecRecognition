@@ -31,6 +31,26 @@ public interface IDocumentIntelligenceService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 使用保留匹配模式和优先级的结构化规则识别列映射。
+    /// </summary>
+    Task<ColumnMappingResult> IdentifyColumnMappingAsync(
+        TableData tableData,
+        IReadOnlyList<ColumnHeaderMappingRule> rules,
+        CancellationToken cancellationToken = default)
+    {
+        var synonyms = rules
+            .Where(rule => rule.ColumnType != ColumnType.Unknown)
+            .GroupBy(rule => rule.ColumnType)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<string>)group
+                    .Select(rule => rule.Pattern)
+                    .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
+                    .ToList());
+        return IdentifyColumnMappingAsync(tableData, synonyms, cancellationToken);
+    }
+
+    /// <summary>
     /// 检测表头行位置
     /// </summary>
     /// <param name="tableData">表格数据</param>
