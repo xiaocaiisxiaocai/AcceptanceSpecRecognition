@@ -70,18 +70,6 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         TextProcessingSession session,
         IReadOnlyDictionary<ColumnType, string[]> synonyms)
     {
-        if (LooksLikePsdMetadataColumn(header))
-        {
-            return new ColumnIdentificationResult
-            {
-                ColumnIndex = columnIndex,
-                HeaderText = header,
-                ColumnType = ColumnType.Unknown,
-                Confidence = 0.0,
-                Reasoning = "PSD 元数据列不参与业务列映射"
-            };
-        }
-
         // 文本标准化
         var normalizedHeader = session.Process(header).ToLowerInvariant();
 
@@ -145,13 +133,6 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         };
     }
 
-    private static bool LooksLikePsdMetadataColumn(string header)
-    {
-        var normalized = header.Trim();
-        return normalized.StartsWith("PSD_", StringComparison.OrdinalIgnoreCase) ||
-               normalized.StartsWith("*PSD_", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static bool LooksLikeAcceptanceMethodColumn(string normalizedHeader)
     {
         return (normalizedHeader.Contains("验收") || normalizedHeader.Contains("驗收")) &&
@@ -174,26 +155,57 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         string text,
         string[] keywords)
     {
-        // 完全匹配
+        string? bestKeyword = null;
+        var bestConfidence = 0.0;
+
+        // 关键词命中时优先选择更完整的表头词，避免短词抢占业务列。
         foreach (var keyword in keywords)
         {
-            if (text.Contains(keyword.ToLowerInvariant()))
+            var normalizedKeyword = keyword.ToLowerInvariant();
+            if (normalizedKeyword.Length == 0 || !text.Contains(normalizedKeyword))
             {
-                return (true, 0.95, keyword);
+                continue;
             }
+
+            var confidence = CalculateKeywordConfidence(text, normalizedKeyword);
+            if (confidence > bestConfidence)
+            {
+                bestConfidence = confidence;
+                bestKeyword = keyword;
+            }
+        }
+
+        if (bestKeyword != null)
+        {
+            return (true, bestConfidence, bestKeyword);
         }
 
         // 编辑距离匹配（处理拼写变体）
         foreach (var keyword in keywords)
         {
             var similarity = CalculateLevenshteinSimilarity(text, keyword.ToLowerInvariant());
-            if (similarity > 0.8)
+            var confidence = similarity * 0.9;
+            if (similarity > 0.8 && confidence > bestConfidence)
             {
-                return (true, similarity * 0.9, keyword); // 略微降低置信度
+                bestConfidence = confidence;
+                bestKeyword = keyword;
             }
         }
 
-        return (false, 0.0, string.Empty);
+        return bestKeyword != null
+            ? (true, bestConfidence, bestKeyword)
+            : (false, 0.0, string.Empty);
+    }
+
+    private static double CalculateKeywordConfidence(string text, string keyword)
+    {
+        if (string.Equals(text, keyword, StringComparison.OrdinalIgnoreCase))
+        {
+            return 0.99;
+        }
+
+        var coverage = Math.Clamp((double)keyword.Length / Math.Max(text.Length, 1), 0, 1);
+        return Math.Round(0.90 + coverage * 0.08, 3);
     }
 
     private static Dictionary<ColumnType, string[]> BuildEffectiveSynonyms(

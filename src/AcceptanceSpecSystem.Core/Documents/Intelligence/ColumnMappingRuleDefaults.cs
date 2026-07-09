@@ -15,6 +15,7 @@ public static class ColumnMappingRuleDefaults
             "項目", "驗收項目", "檢驗項目", "測試項目", "檢測項目", "檢查項目",
             "检查对象", "檢查對象", "测试内容", "检测内容", "检验内容",
             "管控项", "管控項", "关键特性", "關鍵特性", "ctq",
+            "评议项目", "評議項目",
             "item", "test item", "inspection item", "test content"
         ],
         [ColumnType.Specification] =
@@ -23,6 +24,7 @@ public static class ColumnMappingRuleDefaults
             "規格", "驗收規格", "規格要求", "標準", "技術標準", "技術要求", "檢驗標準",
             "规范", "参数", "指标", "基准", "判定基准", "管制条件", "管控要点",
             "規範", "參數", "指標", "基準", "判定基準",
+            "评议标准要求", "評議標準要求",
             "spec", "specification", "standard", "requirement", "criteria"
         ],
         [ColumnType.Acceptance] =
