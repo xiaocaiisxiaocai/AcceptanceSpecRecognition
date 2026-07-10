@@ -71,7 +71,7 @@ public class DatabaseConnectionConfigurationTests
     }
 
     [Fact]
-    public void LaunchSettings_ShouldInjectSameDevelopmentConnectionString()
+    public void LaunchSettings_ShouldUseDevelopmentEnvironmentWithoutInjectingConnectionString()
     {
         var repositoryRoot = TestPathHelper.GetRepositoryRoot();
         var launchSettingsPath = Path.Combine(
@@ -80,23 +80,24 @@ public class DatabaseConnectionConfigurationTests
             "AcceptanceSpecSystem.Api",
             "Properties",
             "launchSettings.json");
-        var developmentSettingsPath = Path.Combine(
-            repositoryRoot,
-            "src",
-            "AcceptanceSpecSystem.Api",
-            "appsettings.Development.json");
 
-        var developmentConnectionString = ReadConnectionString(developmentSettingsPath);
         using var document = JsonDocument.Parse(File.ReadAllText(launchSettingsPath));
-        var httpProfile = document.RootElement
-            .GetProperty("profiles")
-            .GetProperty("http");
-        var envValue = httpProfile
-            .GetProperty("environmentVariables")
-            .GetProperty("ConnectionStrings__DefaultConnection")
-            .GetString();
+        var profiles = document.RootElement.GetProperty("profiles");
 
-        envValue.Should().Be(developmentConnectionString);
+        foreach (var profileName in new[] { "http", "IIS Express" })
+        {
+            var environmentVariables = profiles
+                .GetProperty(profileName)
+                .GetProperty("environmentVariables");
+
+            environmentVariables
+                .GetProperty("ASPNETCORE_ENVIRONMENT")
+                .GetString()
+                .Should().Be("Development");
+            environmentVariables
+                .TryGetProperty("ConnectionStrings__DefaultConnection", out _)
+                .Should().BeFalse("开发连接串应由被忽略的本地配置提供，不能进入已跟踪的启动配置");
+        }
     }
 
     [Fact]
