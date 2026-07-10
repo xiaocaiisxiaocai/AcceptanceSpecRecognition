@@ -121,6 +121,7 @@ public partial class LlmMatchingAssistService :
         result = null!;
         if (!TryParseJson(raw, out var doc))
             return false;
+        using var parsedDocument = doc;
 
         if (!TryGetDouble(doc.RootElement, "score", out var score))
             return false;
@@ -280,7 +281,10 @@ public partial class LlmMatchingAssistService :
             return new LlmColumnSemanticRecallResult();
         }
 
-        var prompt = BuildColumnSemanticRecallPrompt(request);
+        var template = await GetOrCreateTemplateAsync(
+            PromptTemplateCatalog.GetByScene(PromptTemplateScene.SmartConfigColumnSemanticRecall),
+            cancellationToken);
+        var prompt = BuildColumnSemanticRecallPrompt(template.Content, request);
         var raw = await GenerateWithFallbackAsync(
             prompt,
             request.LlmServiceId,
@@ -303,6 +307,7 @@ public partial class LlmMatchingAssistService :
         result = null!;
         if (!TryParseJson(raw, out var doc))
             return false;
+        using var parsedDocument = doc;
 
         var verdictText = TryGetString(doc.RootElement, "verdict");
         var reasonTypeText = TryGetString(doc.RootElement, "reasonType");
@@ -335,6 +340,7 @@ public partial class LlmMatchingAssistService :
         result = null!;
         if (!TryParseJson(raw, out var doc))
             return false;
+        using var parsedDocument = doc;
 
         if (!TryGetInt32(doc.RootElement, "selectedSpecId", out var selectedSpecId) ||
             selectedSpecId <= 0)
@@ -361,6 +367,7 @@ public partial class LlmMatchingAssistService :
         result = null!;
         if (!TryParseJson(raw, out var doc))
             return false;
+        using var parsedDocument = doc;
 
         if (!doc.RootElement.TryGetProperty("tables", out var tablesElement) ||
             tablesElement.ValueKind != JsonValueKind.Array ||
@@ -414,6 +421,7 @@ public partial class LlmMatchingAssistService :
         result = null!;
         if (!TryParseJson(raw, out var doc))
             return false;
+        using var parsedDocument = doc;
 
         if (!doc.RootElement.TryGetProperty("suggestions", out var suggestionsElement) ||
             suggestionsElement.ValueKind != JsonValueKind.Array)

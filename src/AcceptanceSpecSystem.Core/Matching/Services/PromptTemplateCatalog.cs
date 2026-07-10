@@ -102,7 +102,17 @@ public static partial class PromptTemplateCatalog
             null,
             ["workflowScene", "documentTablesJson", "ruleCandidatesJson"],
             ["workflowScene", "documentTablesJson", "ruleCandidatesJson"],
-            ["tables", "confidence", "decision"])
+            ["tables", "confidence", "decision"]),
+        new(
+            PromptTemplateScene.SmartConfigColumnSemanticRecall,
+            "smart-config-column-semantic-recall",
+            "智能结构列语义召回",
+            "用于智能结构识别中未映射表头的字段候选建议。",
+            SmartConfigColumnSemanticRecallDefaultContent,
+            null,
+            ["inputJson"],
+            ["inputJson"],
+            ["suggestions"])
     ];
 
     public static IReadOnlyList<SystemPromptTemplateDefinition> GetSystemTemplates() => Definitions;
@@ -119,4 +129,3 @@ public static partial class PromptTemplateCatalog
         return definition != null;
     }
 }
-

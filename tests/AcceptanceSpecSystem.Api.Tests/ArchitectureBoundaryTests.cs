@@ -1,10 +1,23 @@
 ﻿using System.Reflection;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
 public class ArchitectureBoundaryTests
 {
+    [Fact]
+    public void LlmMatchingAssistParsing_ShouldDisposeEveryParsedJsonDocument()
+    {
+        var content = ReadFile(
+            "src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs");
+        var parseCount = Regex.Matches(content, @"TryParseJson\(raw, out var doc\)").Count;
+        var disposeCount = Regex.Matches(content, @"using var parsedDocument = doc;").Count;
+
+        parseCount.Should().Be(5);
+        disposeCount.Should().Be(parseCount);
+    }
+
     [Fact]
     public void Solution_ShouldContainApplicationProject_AndApiProject_ShouldReferenceIt()
     {

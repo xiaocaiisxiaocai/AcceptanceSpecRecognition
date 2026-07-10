@@ -87,7 +87,9 @@ public sealed class PromptTemplateValidationService
             ["documentTablesJson"] =
                 "[{\"tableIndex\":0,\"tableName\":\"表1\",\"rows\":[[\"项目\",\"规格\",\"验收标准\",\"备注\"],[\"平台吸附精度\",\"平面度需控制在0.05mm以内\",\"实测不超过0.05mm\",\"\"]]}]",
             ["ruleCandidatesJson"] =
-                "[{\"tableIndex\":0,\"projectColumnIndex\":0,\"specificationColumnIndex\":1,\"acceptanceColumnIndex\":2,\"remarkColumnIndex\":3,\"confidence\":0.92}]"
+                "[{\"tableIndex\":0,\"projectColumnIndex\":0,\"specificationColumnIndex\":1,\"acceptanceColumnIndex\":2,\"remarkColumnIndex\":3,\"confidence\":0.92}]",
+            ["inputJson"] =
+                "{\"TableIndex\":0,\"TableName\":\"验收表\",\"Headers\":[\"项目\",\"管控要求\"],\"MappedFields\":{\"Project\":0,\"Specification\":null},\"UnmappedHeaders\":[{\"ColumnIndex\":1,\"Header\":\"管控要求\"}],\"SampleRows\":[[\"外观\",\"无划伤\"]]}"
         };
 
         return PromptTemplatePlaceholderRenderer.ReplacePlaceholders(template, sampleValues);

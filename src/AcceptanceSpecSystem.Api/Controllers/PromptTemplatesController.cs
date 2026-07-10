@@ -232,6 +232,7 @@ public class PromptTemplatesController : BaseApiController
             CorePromptTemplateScene.MatchingEquivalenceAdjudication => PromptTemplateScene.MatchingEquivalenceAdjudication,
             CorePromptTemplateScene.MatchingCandidateRerank => PromptTemplateScene.MatchingCandidateRerank,
             CorePromptTemplateScene.SmartConfigStructureRecognition => PromptTemplateScene.SmartConfigStructureRecognition,
+            CorePromptTemplateScene.SmartConfigColumnSemanticRecall => PromptTemplateScene.SmartConfigColumnSemanticRecall,
             _ => PromptTemplateScene.Unknown
         };
     }

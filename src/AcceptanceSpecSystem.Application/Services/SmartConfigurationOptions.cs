@@ -6,6 +6,8 @@ public sealed class SmartConfigurationOptions
 
     public int StructureAdjudicationTimeoutSeconds { get; set; } = 20;
 
+    public int ColumnSemanticRecallTimeoutSeconds { get; set; } = 20;
+
     public double AutoApplyConfidenceThreshold { get; set; } = 0.85;
 
     public double MinimumSpecificationNonEmptyRate { get; set; } = 0.5;

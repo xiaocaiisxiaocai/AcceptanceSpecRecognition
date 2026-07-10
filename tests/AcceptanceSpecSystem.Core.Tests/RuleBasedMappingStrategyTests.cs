@@ -78,6 +78,48 @@ public class RuleBasedMappingStrategyTests
         result.Mapping.RemarkColumn.Should().Be(8);
     }
 
+    [Fact]
+    public async Task IdentifyAsync_WithInspectionMethodHeader_ShouldNotMapAcceptance()
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            ["检查方式"],
+            [],
+            [
+                new ColumnHeaderMappingRule(
+                    ColumnType.Acceptance,
+                    ColumnHeaderMatchMode.Contains,
+                    "检查")
+            ]);
+
+        result.Mapping.AcceptanceColumn.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("确认")]
+    [InlineData("结果")]
+    [InlineData("结论")]
+    [InlineData("判定")]
+    [InlineData("OK")]
+    [InlineData("NG")]
+    public async Task IdentifyAsync_WithAcceptanceMethodAndResultSignal_ShouldMapAcceptance(string resultSignal)
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            [$"验收方式{resultSignal}"],
+            [],
+            [
+                new ColumnHeaderMappingRule(
+                    ColumnType.Acceptance,
+                    ColumnHeaderMatchMode.Contains,
+                    "验收")
+            ]);
+
+        result.Mapping.AcceptanceColumn.Should().Be(0);
+    }
+
     [Theory]
     [InlineData("是否响应", "供应商说明")]
     [InlineData("是否相应", "供应商说明")]

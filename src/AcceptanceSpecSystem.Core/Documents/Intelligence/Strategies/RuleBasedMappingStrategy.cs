@@ -118,7 +118,8 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
 
         foreach (var rule in rules)
         {
-            if (rule.ColumnType == ColumnType.Acceptance && LooksLikeAcceptanceMethodColumn(normalizedHeader))
+            if (rule.ColumnType == ColumnType.Acceptance &&
+                AcceptanceResultHeaderPolicy.IsAcceptanceMethodHeader(normalizedHeader))
             {
                 continue;
             }
@@ -182,22 +183,11 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         };
     }
 
-    private static bool LooksLikeAcceptanceMethodColumn(string normalizedHeader)
-    {
-        return (normalizedHeader.Contains("验收") || normalizedHeader.Contains("驗收")) &&
-               (normalizedHeader.Contains("方法") || normalizedHeader.Contains("方式")) &&
-               !normalizedHeader.Contains("确认") &&
-               !normalizedHeader.Contains("確認") &&
-               !normalizedHeader.Contains("结果") &&
-               !normalizedHeader.Contains("結果") &&
-               !normalizedHeader.Contains("判定");
-    }
-
     private static bool LooksLikeAcceptanceStandardColumn(string normalizedHeader)
     {
         return (normalizedHeader.Contains("验收") || normalizedHeader.Contains("驗收")) &&
                (normalizedHeader.Contains("标准") || normalizedHeader.Contains("標準")) &&
-               !LooksLikeAcceptanceMethodColumn(normalizedHeader);
+               !AcceptanceResultHeaderPolicy.IsAcceptanceMethodHeader(normalizedHeader);
     }
 
     private static bool LooksLikeSystemMetadataColumn(string header)

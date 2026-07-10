@@ -696,7 +696,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
         try
         {
-            using var timeoutCts = CreateStructureAdjudicationTimeout(cancellationToken);
+            using var timeoutCts = CreateColumnSemanticRecallTimeout(cancellationToken);
             var result = await _columnSemanticRecallService.RecallAsync(
                 new LlmColumnSemanticRecallRequest
                 {
@@ -834,6 +834,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             .Select(pair => pair.Key)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var acceptedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var acceptedColumns = new HashSet<int>();
         var valid = new List<SmartConfigurationColumnSemanticRecallSuggestion>();
 
         foreach (var suggestion in suggestions
@@ -851,15 +852,23 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 continue;
             }
 
-            if (targetField == "Acceptance" && LooksLikeAcceptanceMethodHeader(header.Header))
+            if (targetField == "Acceptance" &&
+                AcceptanceResultHeaderPolicy.IsAcceptanceMethodHeader(header.Header))
             {
                 continue;
             }
 
-            if (!string.Equals(targetField, "Unknown", StringComparison.OrdinalIgnoreCase) &&
-                !acceptedFields.Add(targetField))
+            if (acceptedColumns.Contains(suggestion.ColumnIndex) ||
+                (!string.Equals(targetField, "Unknown", StringComparison.OrdinalIgnoreCase) &&
+                 acceptedFields.Contains(targetField)))
             {
                 continue;
+            }
+
+            acceptedColumns.Add(suggestion.ColumnIndex);
+            if (!string.Equals(targetField, "Unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                acceptedFields.Add(targetField);
             }
 
             valid.Add(new SmartConfigurationColumnSemanticRecallSuggestion
@@ -889,25 +898,6 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             "Unknown" => "Unknown",
             _ => null
         };
-    }
-
-    private static bool LooksLikeAcceptanceMethodHeader(string header)
-    {
-        return (header.Contains("验收", StringComparison.OrdinalIgnoreCase) ||
-                header.Contains("驗收", StringComparison.OrdinalIgnoreCase) ||
-                header.Contains("检查", StringComparison.OrdinalIgnoreCase) ||
-                header.Contains("檢查", StringComparison.OrdinalIgnoreCase) ||
-                header.Contains("测试", StringComparison.OrdinalIgnoreCase) ||
-                header.Contains("測試", StringComparison.OrdinalIgnoreCase)) &&
-               (header.Contains("方法", StringComparison.OrdinalIgnoreCase) ||
-                header.Contains("方式", StringComparison.OrdinalIgnoreCase)) &&
-               !header.Contains("确认", StringComparison.OrdinalIgnoreCase) &&
-               !header.Contains("確認", StringComparison.OrdinalIgnoreCase) &&
-               !header.Contains("结果", StringComparison.OrdinalIgnoreCase) &&
-               !header.Contains("結果", StringComparison.OrdinalIgnoreCase) &&
-               !header.Contains("结论", StringComparison.OrdinalIgnoreCase) &&
-               !header.Contains("結論", StringComparison.OrdinalIgnoreCase) &&
-               !header.Contains("判定", StringComparison.OrdinalIgnoreCase);
     }
 
     private static SmartConfigurationRecognizedTable CopyWithSemanticRecallSuggestions(
@@ -1045,6 +1035,14 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     private CancellationTokenSource CreateStructureAdjudicationTimeout(CancellationToken cancellationToken)
     {
         var timeoutSeconds = Math.Clamp(_options.StructureAdjudicationTimeoutSeconds, 1, 300);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        return cts;
+    }
+
+    private CancellationTokenSource CreateColumnSemanticRecallTimeout(CancellationToken cancellationToken)
+    {
+        var timeoutSeconds = Math.Clamp(_options.ColumnSemanticRecallTimeoutSeconds, 1, 300);
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         return cts;

@@ -7,7 +7,8 @@ public enum PromptTemplateScene
     ImportDuplicateReview = 2,
     MatchingEquivalenceAdjudication = 6,
     MatchingCandidateRerank = 7,
-    SmartConfigStructureRecognition = 8
+    SmartConfigStructureRecognition = 8,
+    SmartConfigColumnSemanticRecall = 9
 }
 
 /// <summary>

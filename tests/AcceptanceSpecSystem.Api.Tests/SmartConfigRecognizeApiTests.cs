@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -2812,6 +2813,27 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
         FailingColumnSemanticRecallService.CallCount.Should().Be(1);
     }
 
+    [Fact]
+    public async Task Recognize_WhenColumnSemanticRecallHangs_ShouldUseIndependentRecallTimeout()
+    {
+        using var factory = new ColumnSemanticRecallTimeoutApiFactory();
+        var client = factory.CreateClient();
+        BlockingColumnSemanticRecallService.Reset();
+        var fileId = await UploadExcelAsync(
+            client,
+            CreateSemanticAliasExcelBytes(),
+            "smart-recognize-column-recall-timeout.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        BlockingColumnSemanticRecallService.WasCancelled.Should().BeTrue();
+        BlockingColumnSemanticRecallService.CancelledAfter.Should().BeLessThan(TimeSpan.FromSeconds(2));
+    }
+
     private static IReadOnlyList<JsonElement> GetSemanticRecallSuggestions(JsonElement table)
     {
         return table.TryGetProperty("semanticRecallSuggestions", out var suggestions) &&
@@ -3011,6 +3033,30 @@ public sealed class ColumnSemanticRecallFailingRepeatedHeaderApiFactory : ApiWeb
             services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
             services.AddScoped<IDocumentIntelligenceService, MissingSpecificationForSemanticRecallIntelligenceService>();
             services.AddScoped<ILlmColumnSemanticRecallService, FailingColumnSemanticRecallService>();
+        });
+    }
+}
+
+public sealed class ColumnSemanticRecallTimeoutApiFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SmartConfiguration:StructureAdjudicationTimeoutSeconds"] = "3",
+                ["SmartConfiguration:ColumnSemanticRecallTimeoutSeconds"] = "1",
+                ["SmartConfiguration:MaxStructureAdjudicationCallsPerDocument"] = "0"
+            });
+        });
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IDocumentIntelligenceService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
+            services.AddScoped<IDocumentIntelligenceService, MissingSpecificationForSemanticRecallIntelligenceService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, BlockingColumnSemanticRecallService>();
         });
     }
 }
@@ -3509,6 +3555,37 @@ public sealed class FailingColumnSemanticRecallService : ILlmColumnSemanticRecal
     }
 }
 
+public sealed class BlockingColumnSemanticRecallService : ILlmColumnSemanticRecallService
+{
+    public static bool WasCancelled { get; private set; }
+
+    public static TimeSpan CancelledAfter { get; private set; }
+
+    public static void Reset()
+    {
+        WasCancelled = false;
+        CancelledAfter = TimeSpan.Zero;
+    }
+
+    public async Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var startedAt = Stopwatch.GetTimestamp();
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(5), cancellationToken);
+            return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            WasCancelled = true;
+            CancelledAfter = Stopwatch.GetElapsedTime(startedAt);
+            throw;
+        }
+    }
+}
+
 public sealed class SpecificationColumnSemanticRecallService : ILlmColumnSemanticRecallService
 {
     public Task<LlmColumnSemanticRecallResult?> RecallAsync(
@@ -3526,6 +3603,15 @@ public sealed class SpecificationColumnSemanticRecallService : ILlmColumnSemanti
                     TargetField = "Specification",
                     Confidence = 0.88,
                     Reason = "表头表示规格约束要求",
+                    Source = "SemanticRecall"
+                },
+                new LlmColumnSemanticRecallSuggestion
+                {
+                    ColumnIndex = 1,
+                    Header = "管控要求",
+                    TargetField = "Unknown",
+                    Confidence = 0.72,
+                    Reason = "同列低置信度冲突建议应被丢弃",
                     Source = "SemanticRecall"
                 }
             ]

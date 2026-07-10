@@ -47,13 +47,14 @@ public class PromptTemplateValidationServiceTests
     {
         var definitions = PromptTemplateCatalog.GetSystemTemplates();
 
-        definitions.Should().HaveCount(5);
+        definitions.Should().HaveCount(6);
         definitions.Select(item => item.Name).Should().BeEquivalentTo([
             "matching-review",
             "import-duplicate-review",
             "matching-equivalence-adjudication",
             "matching-candidate-rerank",
-            "smart-config-structure-recognition"
+            "smart-config-structure-recognition",
+            "smart-config-column-semantic-recall"
         ]);
 
         var review = definitions.Single(item => item.Name == "matching-review");
@@ -81,6 +82,20 @@ public class PromptTemplateValidationServiceTests
         structureRecognition.RequiredJsonKeys.Should().Contain(["tables", "confidence", "decision"]);
         PromptTemplateCatalog.GetByScene(PromptTemplateScene.SmartConfigStructureRecognition).Name
             .Should().Be("smart-config-structure-recognition");
+
+        var columnSemanticRecall = definitions.Single(item =>
+            item.Name == "smart-config-column-semantic-recall");
+        columnSemanticRecall.RequiredVariables.Should().Equal("inputJson");
+        columnSemanticRecall.AvailableVariables.Should().Contain("inputJson");
+        columnSemanticRecall.DefaultContent.Should().Contain("{{inputJson}}");
+        columnSemanticRecall.DefaultContent.Should().Contain("确认/结果/结论/判定/OK/NG");
+        columnSemanticRecall.RequiredJsonKeys.Should().Contain("suggestions");
+        var columnSemanticRecallPreview = new PromptTemplateValidationService()
+            .Validate(columnSemanticRecall, columnSemanticRecall.DefaultContent);
+        columnSemanticRecallPreview.IsValid.Should().BeTrue();
+        columnSemanticRecallPreview.RenderedPrompt.Should().NotContain("{{inputJson}}");
+        PromptTemplateCatalog.GetByScene(PromptTemplateScene.SmartConfigColumnSemanticRecall).Name
+            .Should().Be("smart-config-column-semantic-recall");
     }
 
     [Fact]

@@ -924,6 +924,28 @@ public class ReviewRegressionTests
     }
 
     [Fact]
+    public void PromptTemplateSceneMappings_ShouldIncludeColumnSemanticRecall()
+    {
+        var providerContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Data/Providers/CoreProviderAdapters.cs".Replace('/', Path.DirectorySeparatorChar)));
+        providerContent.Should().Contain(
+            "PromptTemplateScene.SmartConfigColumnSemanticRecall => Entities.PromptTemplateScene.SmartConfigColumnSemanticRecall");
+
+        var controllerContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Controllers/PromptTemplatesController.cs".Replace('/', Path.DirectorySeparatorChar)));
+        controllerContent.Should().Contain(
+            "CorePromptTemplateScene.SmartConfigColumnSemanticRecall => PromptTemplateScene.SmartConfigColumnSemanticRecall");
+
+        var initializerContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Api/Services/SystemPromptTemplateInitializer.cs".Replace('/', Path.DirectorySeparatorChar)));
+        initializerContent.Should().Contain(
+            "CorePromptTemplateScene.SmartConfigColumnSemanticRecall => PromptTemplateScene.SmartConfigColumnSemanticRecall");
+    }
+
+    [Fact]
     public void ScoreDetailDialog_ShouldHideRemovedEntityEvidenceSection()
     {
         var bestMatchSectionContent = File.ReadAllText(Path.Combine(

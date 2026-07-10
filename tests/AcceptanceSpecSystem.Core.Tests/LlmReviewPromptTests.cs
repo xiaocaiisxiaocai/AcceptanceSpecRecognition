@@ -198,6 +198,44 @@ public class LlmReviewPromptTests
         chatService.LastPrompt.Should().NotContain("{{referenceCasesJson}}");
     }
 
+    [Fact]
+    public async Task RecallColumnsAsync_ShouldUseDedicatedTemplateAndRenderInputJson()
+    {
+        var promptProvider = new RecordingPromptTemplateProvider(
+            "【输入 JSON】{{inputJson}}\n仅返回严格 JSON：\n{\"suggestions\":[{\"columnIndex\":1,\"header\":\"管控要求\",\"targetField\":\"Specification\",\"confidence\":0.88,\"reason\":\"规格约束\"}]}");
+        var selector = new StubAiServiceSelector();
+        var chatService = new RecordingChatCompletionService(
+            "{\"suggestions\":[{\"columnIndex\":1,\"header\":\"管控要求\",\"targetField\":\"Specification\",\"confidence\":0.88,\"reason\":\"规格约束\"}]}");
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            selector,
+            new StubSemanticKernelServiceFactory(chatService),
+            NullLogger<LlmMatchingAssistService>.Instance);
+
+        var result = await service.RecallAsync(new LlmColumnSemanticRecallRequest
+        {
+            TableIndex = 2,
+            TableName = "验收表",
+            Headers = ["项目", "管控要求"],
+            UnmappedHeaders =
+            [
+                new ColumnSemanticRecallHeaderCandidate
+                {
+                    ColumnIndex = 1,
+                    Header = "管控要求"
+                }
+            ]
+        });
+
+        result.Should().NotBeNull();
+        result!.Suggestions.Should().ContainSingle();
+        promptProvider.LastScene.Should().Be(PromptTemplateScene.SmartConfigColumnSemanticRecall);
+        chatService.LastPrompt.Should().Contain("【输入 JSON】");
+        chatService.LastPrompt.Should().Contain("\"TableIndex\":2");
+        chatService.LastPrompt.Should().Contain("管控要求");
+        chatService.LastPrompt.Should().NotContain("{{inputJson}}");
+    }
+
     private sealed class RecordingPromptTemplateProvider : IPromptTemplateProvider
     {
         private readonly string _content;
