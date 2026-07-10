@@ -1,11 +1,4 @@
-import {
-  ref,
-  computed,
-  watch,
-  onActivated,
-  onMounted,
-  onUnmounted
-} from "vue";
+import { ref, computed, watch, onActivated, onMounted, onUnmounted } from "vue";
 import { storeToRefs } from "pinia";
 import { ElLoading, ElMessage } from "element-plus";
 import {
@@ -576,6 +569,7 @@ export function useDataImportPage() {
 
   const {
     smartRecognizing,
+    smartRecognitionError,
     smartConfirmingTableIndex,
     recognizedTables,
     smartStructureSummary,
@@ -1092,6 +1086,7 @@ export function useDataImportPage() {
     importDuplicateAiConfig,
     steps,
     smartRecognizing,
+    smartRecognitionError,
     smartStageText,
     selectedSmartTableIndexes,
     smartConfirmingTableIndex,

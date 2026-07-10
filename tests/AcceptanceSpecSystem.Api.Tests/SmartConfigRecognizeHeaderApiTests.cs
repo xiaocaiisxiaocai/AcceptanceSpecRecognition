@@ -199,8 +199,9 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         var table = body.Data.GetProperty("tables").EnumerateArray().Single();
 
-        var dataStartRowIndex = table.GetProperty("dataStartRowIndex").GetInt32();
-        dataStartRowIndex.Should().BeGreaterThan(0);
+        table.GetProperty("headerRowIndex").GetInt32().Should().Be(2);
+        table.GetProperty("headerRowCount").GetInt32().Should().Be(1);
+        table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(3);
         table.GetProperty("dataEndRowIndex").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
@@ -368,18 +369,21 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
     {
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Utility");
-        worksheet.Cell(1, 1).Value = "设备类型";
-        worksheet.Cell(1, 2).Value = "电力需求";
-        worksheet.Cell(1, 3).Value = "电力需求";
-        worksheet.Cell(1, 4).Value = "其它需求";
-        worksheet.Cell(2, 1).Value = "设备名称";
-        worksheet.Cell(2, 2).Value = "电压";
-        worksheet.Cell(2, 3).Value = "紧急电功率";
-        worksheet.Cell(2, 4).Value = "备注";
-        worksheet.Cell(3, 1).Value = "设备名称";
-        worksheet.Cell(3, 2).Value = "电压";
-        worksheet.Cell(3, 3).Value = "紧急电功率";
-        worksheet.Cell(3, 4).Value = "备注";
+        worksheet.Cell(1, 1).Value = "基本信息";
+        worksheet.Cell(1, 2).Value = "基本信息";
+        worksheet.Cell(1, 3).Value = "规格信息";
+        worksheet.Cell(1, 4).Value = "规格信息";
+        worksheet.Cell(1, 5).Value = "验收信息";
+        worksheet.Cell(1, 6).Value = "备注信息";
+        for (var row = 2; row <= 3; row++)
+        {
+            worksheet.Cell(row, 1).Value = "项目";
+            worksheet.Cell(row, 2).Value = "附件";
+            worksheet.Cell(row, 3).Value = "规格";
+            worksheet.Cell(row, 4).Value = "验收";
+            worksheet.Cell(row, 5).Value = "结果";
+            worksheet.Cell(row, 6).Value = "备注";
+        }
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

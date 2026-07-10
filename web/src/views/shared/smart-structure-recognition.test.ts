@@ -138,12 +138,32 @@ describe("smart-structure-recognition", () => {
       tableKind: undefined,
       recommendation: undefined,
       userModifiedStructure: false,
+      tableIndex: 0,
       learnedColumns: [
         { header: "项目名称", targetField: 1 },
         { header: "规格内容", targetField: 2 },
         { header: "判定", targetField: 3 }
       ]
     });
+  });
+
+  it("确认请求携带来源文件与表格编号供后端重新提取表头", () => {
+    const request = buildSmartConfigConfirmRequest(
+      12,
+      table({ tableIndex: 3 }),
+      { fileId: 88 }
+    );
+
+    expect(request).toMatchObject({ fileId: 88, tableIndex: 3 });
+  });
+
+  it("确认请求保证数据起始行位于全部表头之后", () => {
+    const request = buildSmartConfigConfirmRequest(
+      12,
+      table({ headerRowIndex: 7, headerRowCount: 2, dataStartRowIndex: 8 })
+    );
+
+    expect(request.dataStartRowIndex).toBe(9);
   });
 
   it("缺少规格列时拒绝构建确认请求", () => {

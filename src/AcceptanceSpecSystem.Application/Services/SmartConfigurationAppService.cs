@@ -193,15 +193,114 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         int maxHeaderRowCount,
         HeaderKeywordMatcher headerKeywordMatcher)
     {
-        // 分组表的评分锚点可能落在分组行或首条数据行，需在同一表头窗口内寻找叶级标题。
+        if (tableData.Rows.Count == 0)
+        {
+            return null;
+        }
+
+        // 锚点可能落在分组行或首条数据行；宽窗口只用于收集候选，后续仅允许相邻叶行晋级。
         var startRowIndex = Math.Max(0, anchorRowIndex - maxHeaderRowCount + 1);
         var endRowIndex = Math.Min(tableData.Rows.Count - 1, anchorRowIndex + maxHeaderRowCount - 1);
 
-        return Enumerable.Range(startRowIndex, endRowIndex - startRowIndex + 1)
-            .Where(rowIndex => headerKeywordMatcher.IsCompleteRepeatedLeafHeader(tableData.Rows[rowIndex]))
+        var repeatedLeafRowWithGroupContext = Enumerable.Range(startRowIndex + 1, endRowIndex - startRowIndex)
+            .Where(rowIndex =>
+                rowIndex == anchorRowIndex + 2 &&
+                !headerKeywordMatcher.IsCompleteRepeatedLeafHeader(tableData.Rows[anchorRowIndex]) &&
+                headerKeywordMatcher.IsCompleteHeader(tableData.Rows[rowIndex]) &&
+                CountRepeatedValueGroups(tableData.Rows[rowIndex - 2]) > 0 &&
+                HaveSameNormalizedCellValues(tableData.Rows[rowIndex - 1], tableData.Rows[rowIndex]))
             .OrderByDescending(rowIndex => rowIndex)
             .Select(rowIndex => (int?)rowIndex)
             .FirstOrDefault();
+        if (repeatedLeafRowWithGroupContext.HasValue)
+        {
+            return repeatedLeafRowWithGroupContext;
+        }
+
+        var candidates = Enumerable.Range(startRowIndex, endRowIndex - startRowIndex + 1)
+            .Where(rowIndex => headerKeywordMatcher.IsCompleteRepeatedLeafHeader(tableData.Rows[rowIndex]))
+            .ToList();
+        var nearestAtOrBeforeAnchor = candidates
+            .Where(rowIndex => rowIndex <= anchorRowIndex)
+            .OrderByDescending(rowIndex => rowIndex)
+            .Select(rowIndex => (int?)rowIndex)
+            .FirstOrDefault();
+        if (!nearestAtOrBeforeAnchor.HasValue)
+        {
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            var firstCandidate = candidates.Min();
+            return firstCandidate == anchorRowIndex + 1 &&
+                   CountRepeatedValueGroups(tableData.Rows[anchorRowIndex]) >= 2
+                ? AdvanceAcrossIdenticalCandidates(tableData, candidates, firstCandidate)
+                : null;
+        }
+
+        if (nearestAtOrBeforeAnchor.Value == anchorRowIndex &&
+            anchorRowIndex > 0 &&
+            CountRepeatedValueGroups(tableData.Rows[anchorRowIndex - 1]) == 0 &&
+            headerKeywordMatcher.IsCompleteHeader(tableData.Rows[anchorRowIndex - 1]))
+        {
+            return null;
+        }
+
+        var nextRowIndex = anchorRowIndex + 1;
+        if (nearestAtOrBeforeAnchor.Value == anchorRowIndex && candidates.Contains(nextRowIndex))
+        {
+            var anchorGroupCount = CountRepeatedValueGroups(tableData.Rows[anchorRowIndex]);
+            var nextGroupCount = CountRepeatedValueGroups(tableData.Rows[nextRowIndex]);
+            if (HaveSameNormalizedCellValues(
+                    tableData.Rows[anchorRowIndex],
+                    tableData.Rows[nextRowIndex]) ||
+                anchorGroupCount > nextGroupCount)
+            {
+                return AdvanceAcrossIdenticalCandidates(tableData, candidates, nextRowIndex);
+            }
+        }
+
+        return AdvanceAcrossIdenticalCandidates(
+            tableData,
+            candidates,
+            nearestAtOrBeforeAnchor.Value);
+    }
+
+    private static int AdvanceAcrossIdenticalCandidates(
+        TableData tableData,
+        IReadOnlyCollection<int> candidates,
+        int rowIndex)
+    {
+        while (candidates.Contains(rowIndex + 1) &&
+               HaveSameNormalizedCellValues(tableData.Rows[rowIndex], tableData.Rows[rowIndex + 1]))
+        {
+            rowIndex++;
+        }
+
+        return rowIndex;
+    }
+
+    private static int CountRepeatedValueGroups(RowData row)
+    {
+        return row.Cells
+            .Select(cell => cell.Value?.Trim() ?? string.Empty)
+            .Where(value => value.Length > 0)
+            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .Count(group => group.Count() > 1);
+    }
+
+    private static bool HaveSameNormalizedCellValues(RowData left, RowData right)
+    {
+        var leftValues = left.Cells
+            .OrderBy(cell => cell.ColumnIndex)
+            .Select(cell => (cell.Value ?? string.Empty).Trim())
+            .ToList();
+        var rightValues = right.Cells
+            .OrderBy(cell => cell.ColumnIndex)
+            .Select(cell => (cell.Value ?? string.Empty).Trim())
+            .ToList();
+        return leftValues.SequenceEqual(rightValues, StringComparer.OrdinalIgnoreCase);
     }
 
     private static TableData BuildHeaderDetectionTableData(TableData tableData)
@@ -282,7 +381,19 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var maxHeaderRows = Math.Min(tableData.Rows.Count, headerRowIndex + maxHeaderRowCount);
         for (var rowIndex = headerRowIndex + 1; rowIndex < maxHeaderRows; rowIndex++)
         {
-            if (!LooksLikeAdditionalHeaderRow(tableData.Rows[rowIndex], headerKeywordMatcher))
+            var repeatsPreviousHeaderRow = HaveSameNormalizedCellValues(
+                tableData.Rows[rowIndex - 1],
+                tableData.Rows[rowIndex]);
+            var completeLeafAfterAtomicHeader =
+                CountRepeatedValueGroups(tableData.Rows[rowIndex - 1]) == 0 &&
+                headerKeywordMatcher.IsCompleteRepeatedLeafHeader(tableData.Rows[rowIndex]);
+            if (completeLeafAfterAtomicHeader)
+            {
+                break;
+            }
+
+            if (!repeatsPreviousHeaderRow &&
+                !LooksLikeAdditionalHeaderRow(tableData.Rows[rowIndex], headerKeywordMatcher))
             {
                 break;
             }
@@ -305,7 +416,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
 
         var keywordCount = values.Count(headerKeywordMatcher.Contains);
-        if (keywordCount == 0)
+        if (keywordCount == 0 || headerKeywordMatcher.HasAmbiguousCustomerTypeEvidence(values))
         {
             return false;
         }
@@ -368,12 +479,29 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             throw new ApplicationServiceException(400, "表头不能为空");
         }
 
+        ValidateConfirmCoordinates(command);
+
+        IReadOnlyList<string> effectiveHeaders = command.Headers;
+        IReadOnlyList<SmartConfigurationLearnedColumn> effectiveLearnedColumns = command.LearnedColumns;
+        if (command.UserModifiedStructure)
+        {
+            if (command.FileId is not > 0)
+            {
+                throw new ApplicationServiceException(400, "人工修改结构时必须提供有效FileId");
+            }
+
+            effectiveHeaders = await ExtractConfirmedHeadersAsync(command, cancellationToken);
+            effectiveLearnedColumns = RebuildLearnedColumns(command, effectiveHeaders);
+        }
+
+        ValidateConfirmColumnIndexes(command, effectiveHeaders.Count);
+
         var template = await _templateService.SaveTemplateAsync(
             command.CustomerId,
             string.IsNullOrWhiteSpace(command.TemplateName)
                 ? $"客户{command.CustomerId}-结构模板"
                 : command.TemplateName.Trim(),
-            command.Headers,
+            effectiveHeaders,
             new ColumnMapping
             {
                 ProjectColumn = command.ProjectColumnIndex,
@@ -396,7 +524,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             command.TemplateName,
             command.TableKind,
             command.Recommendation,
-            command.LearnedColumns,
+            effectiveLearnedColumns,
             cancellationToken);
 
         return new SmartConfigurationConfirmResult
@@ -407,6 +535,150 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             PromotedGlobalRuleCount = learningResult.PromotedGlobalRuleCount,
             LearningSucceeded = true
         };
+    }
+
+    private static void ValidateConfirmCoordinates(SmartConfigurationConfirmCommand command)
+    {
+        if (command.HeaderRowIndex < 0)
+        {
+            throw new ApplicationServiceException(400, "表头行索引不能小于0");
+        }
+
+        if (command.HeaderRowCount <= 0)
+        {
+            throw new ApplicationServiceException(400, "表头行数必须大于0");
+        }
+
+        if ((long)command.DataStartRowIndex < (long)command.HeaderRowIndex + command.HeaderRowCount)
+        {
+            throw new ApplicationServiceException(400, "数据起始行不能早于表头结束行");
+        }
+
+        if (command.DataEndRowIndex.HasValue && command.DataEndRowIndex.Value < command.DataStartRowIndex)
+        {
+            throw new ApplicationServiceException(400, "数据结束行不能早于数据起始行");
+        }
+
+    }
+
+    private static void ValidateConfirmColumnIndexes(
+        SmartConfigurationConfirmCommand command,
+        int headerCount)
+    {
+        ValidateColumnIndex(command.SpecificationColumnIndex, headerCount, "规格列");
+        ValidateOptionalColumnIndex(command.ProjectColumnIndex, headerCount, "项目列");
+        ValidateOptionalColumnIndex(command.AcceptanceColumnIndex, headerCount, "验收列");
+        ValidateOptionalColumnIndex(command.RemarkColumnIndex, headerCount, "备注列");
+    }
+
+    private async Task<IReadOnlyList<string>> ExtractConfirmedHeadersAsync(
+        SmartConfigurationConfirmCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (command.FileId is not > 0)
+        {
+            throw new ApplicationServiceException(400, "FileId 必须大于0");
+        }
+
+        if (command.TableIndex < 0)
+        {
+            throw new ApplicationServiceException(400, "表格索引不能小于0");
+        }
+
+        var file = await _unitOfWork.WordFiles.GetByIdAsync(command.FileId.Value, cancellationToken);
+        if (file == null)
+        {
+            throw new ApplicationServiceException(404, $"文件不存在：{command.FileId.Value}");
+        }
+
+        if (string.IsNullOrWhiteSpace(file.FilePath))
+        {
+            throw new ApplicationServiceException(400, "文件路径为空");
+        }
+
+        var documentType = file.FileType == UploadedFileType.ExcelXlsx
+            ? DocumentType.Excel
+            : DocumentType.Word;
+        var parser = _documentServiceFactory.GetParser(documentType)
+            ?? throw new ApplicationServiceException(400, "文档解析器不可用");
+        var absolutePath = _documentPathResolver.ResolveAbsolutePath(file.FilePath);
+        var tables = await parser.GetTablesAsync(absolutePath);
+        var table = tables.FirstOrDefault(item => item.Index == command.TableIndex);
+        if (table == null)
+        {
+            throw new ApplicationServiceException(400, $"表格索引超出范围：{command.TableIndex}");
+        }
+
+        var headerEndRowIndex = (long)command.HeaderRowIndex + command.HeaderRowCount;
+        if (headerEndRowIndex > table.RowCount || command.DataStartRowIndex > table.RowCount)
+        {
+            throw new ApplicationServiceException(400, "确认的行坐标超出表格范围");
+        }
+
+        await using var stream = File.OpenRead(absolutePath);
+        var extracted = await parser.ExtractTableDataAsync(
+            stream,
+            command.TableIndex,
+            new ColumnMapping
+            {
+                HeaderRowIndex = command.HeaderRowIndex,
+                HeaderRowCount = command.HeaderRowCount,
+                DataStartRowIndex = command.DataStartRowIndex
+            });
+        var headers = extracted.Headers.ToList();
+        if (headers.Count == 0)
+        {
+            throw new ApplicationServiceException(400, "修正坐标未提取到表头");
+        }
+
+        return headers;
+    }
+
+    private static IReadOnlyList<SmartConfigurationLearnedColumn> RebuildLearnedColumns(
+        SmartConfigurationConfirmCommand command,
+        IReadOnlyList<string> headers)
+    {
+        return command.LearnedColumns
+            .Select(item => new
+            {
+                item.TargetField,
+                ColumnIndex = item.TargetField switch
+                {
+                    ColumnMappingTargetField.Project => command.ProjectColumnIndex,
+                    ColumnMappingTargetField.Specification => command.SpecificationColumnIndex,
+                    ColumnMappingTargetField.Acceptance => command.AcceptanceColumnIndex,
+                    ColumnMappingTargetField.Remark => command.RemarkColumnIndex,
+                    _ => null
+                }
+            })
+            .Where(item => item.ColumnIndex.HasValue &&
+                           item.ColumnIndex.Value >= 0 &&
+                           item.ColumnIndex.Value < headers.Count &&
+                           !string.IsNullOrWhiteSpace(headers[item.ColumnIndex.Value]))
+            .GroupBy(item => item.TargetField)
+            .Select(group => group.First())
+            .Select(item => new SmartConfigurationLearnedColumn
+            {
+                Header = headers[item.ColumnIndex!.Value].Trim(),
+                TargetField = item.TargetField
+            })
+            .ToList();
+    }
+
+    private static void ValidateOptionalColumnIndex(int? columnIndex, int headerCount, string fieldName)
+    {
+        if (columnIndex.HasValue)
+        {
+            ValidateColumnIndex(columnIndex.Value, headerCount, fieldName);
+        }
+    }
+
+    private static void ValidateColumnIndex(int columnIndex, int headerCount, string fieldName)
+    {
+        if (columnIndex < 0 || columnIndex >= headerCount)
+        {
+            throw new ApplicationServiceException(400, $"{fieldName}索引超出表头范围");
+        }
     }
 
     private async Task<SmartConfigurationRecognizedTable> RecognizeTableAsync(
@@ -1281,17 +1553,50 @@ internal sealed class HeaderKeywordMatcher
         return _rules.Any(rule => ColumnHeaderRuleMatcher.IsMatch(value, rule));
     }
 
+    public bool HasAmbiguousCustomerTypeEvidence(IEnumerable<string> values)
+    {
+        return values.Any(value => _rules
+            .Where(rule => rule.IsCustomerSpecific)
+            .Where(rule => ColumnHeaderRuleMatcher.IsMatch(value, rule))
+            .Select(rule => rule.ColumnType)
+            .Distinct()
+            .Skip(1)
+            .Any());
+    }
+
     public bool IsCompleteRepeatedLeafHeader(RowData row)
     {
-        var values = row.Cells
-            .Select(cell => cell.Value?.Trim() ?? string.Empty)
-            .Where(value => value.Length > 0)
+        var evidence = BuildEvidence(row);
+        if (!HasIndependentRequiredTypes(evidence))
+        {
+            return false;
+        }
+
+        return evidence
+            .Select(item => item.Value)
+            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .Any(group => group.Count() > 1 && Contains(group.Key));
+    }
+
+    public bool IsCompleteHeader(RowData row) => HasIndependentRequiredTypes(BuildEvidence(row));
+
+    private List<HeaderEvidence> BuildEvidence(RowData row)
+    {
+        return row.Cells
+            .Select(cell => new HeaderEvidence(
+                cell.ColumnIndex,
+                cell.Value?.Trim() ?? string.Empty,
+                _rules
+                    .Where(rule => ColumnHeaderRuleMatcher.IsMatch(cell.Value ?? string.Empty, rule))
+                    .Select(rule => rule.ColumnType)
+                    .Distinct()
+                    .ToList()))
+            .Where(item => item.Value.Length > 0 && item.MatchedTypes.Count > 0)
             .ToList();
-        var matchedTypes = values
-            .SelectMany(value => _rules
-                .Where(rule => ColumnHeaderRuleMatcher.IsMatch(value, rule))
-                .Select(rule => rule.ColumnType))
-            .ToHashSet();
+    }
+
+    private static bool HasIndependentRequiredTypes(IReadOnlyList<HeaderEvidence> evidence)
+    {
         var requiredTypes = new[]
         {
             ColumnType.Project,
@@ -1299,13 +1604,54 @@ internal sealed class HeaderKeywordMatcher
             ColumnType.Acceptance,
             ColumnType.Remark
         };
-        if (requiredTypes.Any(type => !matchedTypes.Contains(type)))
+        if (!CanAssignIndependentEvidence(
+                requiredTypes,
+                evidence,
+                0,
+                [],
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)))
         {
             return false;
         }
 
-        return values
-            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
-            .Any(group => group.Count() > 1 && Contains(group.Key));
+        return true;
     }
+
+    private static bool CanAssignIndependentEvidence(
+        IReadOnlyList<ColumnType> requiredTypes,
+        IReadOnlyList<HeaderEvidence> evidence,
+        int typeIndex,
+        HashSet<int> usedColumns,
+        HashSet<string> usedValues)
+    {
+        if (typeIndex >= requiredTypes.Count)
+        {
+            return true;
+        }
+
+        foreach (var item in evidence.Where(item => item.MatchedTypes.Contains(requiredTypes[typeIndex])))
+        {
+            if (usedColumns.Contains(item.ColumnIndex) || usedValues.Contains(item.Value))
+            {
+                continue;
+            }
+
+            usedColumns.Add(item.ColumnIndex);
+            usedValues.Add(item.Value);
+            if (CanAssignIndependentEvidence(requiredTypes, evidence, typeIndex + 1, usedColumns, usedValues))
+            {
+                return true;
+            }
+
+            usedColumns.Remove(item.ColumnIndex);
+            usedValues.Remove(item.Value);
+        }
+
+        return false;
+    }
+
+    private sealed record HeaderEvidence(
+        int ColumnIndex,
+        string Value,
+        IReadOnlyList<ColumnType> MatchedTypes);
 }

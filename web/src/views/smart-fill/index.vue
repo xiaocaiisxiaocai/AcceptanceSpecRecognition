@@ -154,6 +154,7 @@ let scopeOptionsController: AbortController | undefined;
 
 const {
   recognizing: smartRecognizing,
+  recognitionError: smartRecognitionError,
   confirmingTableIndex: smartConfirmingTableIndex,
   recognizedTables,
   recognize: recognizeSmartStructure,
@@ -740,9 +741,10 @@ const handleRestart = () => {
               </el-row>
             </el-form>
             <SmartStructureSummaryBanner
-              v-if="recognizedTables.length > 0"
+              v-if="recognizedTables.length > 0 || smartRecognitionError"
               :tables="recognizedTables"
               :loading="smartRecognizing"
+              :error="smartRecognitionError"
               @retry="runSmartStructureRecognition"
             />
             <div
@@ -764,6 +766,7 @@ const handleRestart = () => {
                   v-for="table in group.tables"
                   :key="table.tableIndex"
                   :table="table"
+                  :file-id="uploadedFile?.fileId"
                   :customer-id="matchScope.customerId"
                   :confirming="smartConfirmingTableIndex === table.tableIndex"
                   :import-selected="table.recommendation !== 'Skip'"

@@ -98,6 +98,8 @@ export interface SmartConfigLearnedColumn {
 
 export interface SmartConfigConfirmRequest {
   customerId: number;
+  fileId?: number;
+  tableIndex: number;
   templateName?: string;
   headers: string[];
   projectColumnIndex?: number;

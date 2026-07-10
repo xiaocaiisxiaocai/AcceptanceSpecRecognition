@@ -195,9 +195,14 @@ public class SmartConfigRecognizeHistoryFewShotApiTests : IClassFixture<LlmRecor
     public async Task Confirm_WhenRoutingMetadataProvided_ShouldPersistStructureCaseMetadata()
     {
         var customerId = await CreateCustomerAsync("历史案例元数据客户");
+        var fileId = await UploadExcelAsync(
+            CreateExcelBytes(),
+            "smart-recognize-history-routing-metadata.xlsx");
 
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
+            tableIndex = 0,
             customerId,
             templateName = "带路由元数据模板",
             headers = new[] { "项目", "规格", "验收", "备注" },

@@ -61,6 +61,8 @@ public class SmartConfigController : BaseApiController
             var result = await _smartConfigService.ConfirmAsync(
                 new SmartConfigurationConfirmCommand
                 {
+                    FileId = request.FileId,
+                    TableIndex = request.TableIndex,
                     CustomerId = request.CustomerId,
                     TemplateName = request.TemplateName,
                     Headers = request.Headers,

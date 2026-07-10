@@ -118,7 +118,11 @@ const getRowKey = (row: AiServiceConfig) => String(row.id);
         </template>
       </el-table-column>
       <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="name" label="名称" min-width="min(180px, calc(100vw - 32px))" />
+      <el-table-column
+        prop="name"
+        label="名称"
+        min-width="min(180px, calc(100vw - 32px))"
+      />
       <el-table-column label="状态" width="min(100px, calc(100vw - 32px))">
         <template #default="{ row }: { row: AiServiceConfig }">
           <el-tag
@@ -130,24 +134,43 @@ const getRowKey = (row: AiServiceConfig) => String(row.id);
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="serviceType" label="类型" width="min(160px, calc(100vw - 32px))">
+      <el-table-column
+        prop="serviceType"
+        label="类型"
+        width="min(160px, calc(100vw - 32px))"
+      >
         <template #default="{ row }: { row: AiServiceConfig }">
           {{ getServiceTypeLabel(row.serviceType) }}
         </template>
       </el-table-column>
-      <el-table-column prop="purpose" label="用途" width="min(160px, calc(100vw - 32px))">
+      <el-table-column
+        prop="purpose"
+        label="用途"
+        width="min(160px, calc(100vw - 32px))"
+      >
         <template #default="{ row }: { row: AiServiceConfig }">
           {{ formatPurpose(row.purpose) }}
         </template>
       </el-table-column>
-      <el-table-column prop="endpoint" label="Endpoint" min-width="min(240px, calc(100vw - 32px))" />
+      <el-table-column
+        prop="endpoint"
+        label="Endpoint"
+        min-width="min(240px, calc(100vw - 32px))"
+      />
       <el-table-column
         prop="embeddingModel"
         label="EmbeddingModel"
         min-width="min(160px, calc(100vw - 32px))"
       />
-      <el-table-column prop="llmModel" label="LLMModel" min-width="min(160px, calc(100vw - 32px))" />
-      <el-table-column label="关闭思考模式" width="min(140px, calc(100vw - 32px))">
+      <el-table-column
+        prop="llmModel"
+        label="LLMModel"
+        min-width="min(160px, calc(100vw - 32px))"
+      />
+      <el-table-column
+        label="关闭思考模式"
+        width="min(140px, calc(100vw - 32px))"
+      >
         <template #default="{ row }: { row: AiServiceConfig }">
           {{ row.disableThinking ? "是" : "否" }}
         </template>
@@ -155,56 +178,58 @@ const getRowKey = (row: AiServiceConfig) => String(row.id);
       <el-table-column
         v-if="hasActionButtons"
         label="操作"
-        width="min(360px, calc(100vw - 32px))"
+        width="300"
         fixed="right"
       >
         <template #default="{ row }: { row: AiServiceConfig }">
-          <el-button
-            v-if="canUpdate"
-            type="primary"
-            link
-            @click="emit('edit', row)"
-          >
-            编辑
-          </el-button>
-          <el-button
-            v-if="canUpdate"
-            :type="row.isDisabled ? 'success' : 'warning'"
-            link
-            :loading="isRowLoading(disabledState, row.id)"
-            :disabled="isRowLoading(disabledState, row.id)"
-            @click="emit('toggleDisabled', row)"
-          >
-            {{ row.isDisabled ? "启用" : "禁用" }}
-          </el-button>
-          <el-button
-            v-if="canDelete"
-            type="danger"
-            link
-            @click="emit('delete', row)"
-          >
-            删除
-          </el-button>
-          <el-button
-            v-if="canTest"
-            type="warning"
-            link
-            :loading="isRowLoading(testingState, row.id)"
-            :disabled="row.isDisabled || isRowLoading(testingState, row.id)"
-            @click="emit('test', row)"
-          >
-            完整测试
-          </el-button>
-          <el-button
-            v-if="canProbeModels"
-            type="success"
-            link
-            :loading="isRowLoading(probingState, row.id)"
-            :disabled="row.isDisabled || isRowLoading(probingState, row.id)"
-            @click="emit('probeModels', row)"
-          >
-            模型
-          </el-button>
+          <div class="ai-service-actions">
+            <el-button
+              v-if="canUpdate"
+              type="primary"
+              link
+              @click="emit('edit', row)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              v-if="canUpdate"
+              :type="row.isDisabled ? 'success' : 'warning'"
+              link
+              :loading="isRowLoading(disabledState, row.id)"
+              :disabled="isRowLoading(disabledState, row.id)"
+              @click="emit('toggleDisabled', row)"
+            >
+              {{ row.isDisabled ? "启用" : "禁用" }}
+            </el-button>
+            <el-button
+              v-if="canDelete"
+              type="danger"
+              link
+              @click="emit('delete', row)"
+            >
+              删除
+            </el-button>
+            <el-button
+              v-if="canTest"
+              type="warning"
+              link
+              :loading="isRowLoading(testingState, row.id)"
+              :disabled="row.isDisabled || isRowLoading(testingState, row.id)"
+              @click="emit('test', row)"
+            >
+              完整测试
+            </el-button>
+            <el-button
+              v-if="canProbeModels"
+              type="success"
+              link
+              :loading="isRowLoading(probingState, row.id)"
+              :disabled="row.isDisabled || isRowLoading(probingState, row.id)"
+              @click="emit('probeModels', row)"
+            >
+              模型
+            </el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>

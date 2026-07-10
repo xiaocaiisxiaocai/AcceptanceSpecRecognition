@@ -19,6 +19,31 @@ const dataImportSource = readFileSync(
   resolve(process.cwd(), "web/src/views/data-import/index.vue"),
   "utf8"
 );
+const dataImportStyleSource = readFileSync(
+  resolve(process.cwd(), "web/src/views/data-import/index.styles.css"),
+  "utf8"
+);
+const summaryBannerSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/shared/SmartStructureSummaryBanner.vue"
+  ),
+  "utf8"
+);
+const recognitionComposableSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/shared/useSmartStructureRecognition.ts"
+  ),
+  "utf8"
+);
+const uploadStepSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/data-import/components/DataImportStepUpload.vue"
+  ),
+  "utf8"
+);
 
 test("数据导入确认页应把导入设置和待导入清单折叠，避免预览页被明细长表撑散", () => {
   assert.match(confirmPanelSource, /<el-collapse[\s\S]*confirm-panel-collapse/);
@@ -47,9 +72,104 @@ test("智能结构确认卡片应把项目列放在规格列之前", () => {
   const formEnd = confirmCardSource.indexOf("</el-form>", formStart);
   const formSource = confirmCardSource.slice(formStart, formEnd);
 
+  const projectIndex = formSource.indexOf('label="项目列"');
+  const specificationIndex = formSource.indexOf('label="规格列"');
+
   assert.ok(formStart >= 0 && formEnd > formStart);
-  assert.ok(
-    formSource.indexOf('label="项目列"') < formSource.indexOf('label="规格列"')
+  assert.ok(projectIndex >= 0, "确认表单缺少项目列");
+  assert.ok(specificationIndex >= 0, "确认表单缺少规格列");
+  assert.ok(projectIndex < specificationIndex, "项目列必须位于规格列之前");
+});
+
+test("展开配置后应以当前编辑表单为主，避免重复展示映射和置信度", () => {
+  assert.match(
+    confirmCardSource,
+    /class="card-summary-strip"[\s\S]*v-show="!detailVisible"/
+  );
+  assert.match(confirmCardSource, /const showRecognitionEvidence = computed/);
+  assert.match(
+    confirmCardSource,
+    /v-if="showRecognitionEvidence"[\s\S]*class="headers-preview"/
+  );
+  assert.match(
+    confirmCardSource,
+    /v-if="showRecognitionEvidence && table\.fields/
+  );
+});
+
+test("折叠摘要应读取用户当前编辑的列映射", () => {
+  assert.match(confirmCardSource, /getHeaderText\(state\.projectColumnIndex\)/);
+  assert.match(
+    confirmCardSource,
+    /getHeaderText\(state\.specificationColumnIndex\)/
+  );
+  assert.match(
+    confirmCardSource,
+    /getHeaderText\(state\.acceptanceColumnIndex\)/
+  );
+  assert.match(confirmCardSource, /getHeaderText\(state\.remarkColumnIndex\)/);
+});
+
+test("调整表头行或表头行数后应同步约束数据起始行", () => {
+  assert.match(confirmCardSource, /const minimumDataStartRowIndex = computed/);
+  assert.match(
+    confirmCardSource,
+    /watch\([\s\S]*minimumDataStartRowIndex[\s\S]*state\.dataStartRowIndex/
+  );
+  assert.match(
+    confirmCardSource,
+    /v-model="displayDataStartRowIndex"[\s\S]*:min="displayMinimumDataStartRowIndex"/
+  );
+});
+
+test("移动端应为固定操作栏预留完整空间并提供至少 44px 触控目标", () => {
+  assert.match(
+    dataImportStyleSource,
+    /--data-import-action-bar-height:\s*\d+px/
+  );
+  assert.match(
+    dataImportStyleSource,
+    /padding-bottom:\s*calc\([\s\S]*--data-import-action-bar-height[\s\S]*env\(safe-area-inset-bottom/
+  );
+  assert.match(
+    confirmCardSource,
+    /\.card-actions\s+:deep\(\.el-button\)[\s\S]*min-height:\s*44px/
+  );
+  assert.match(
+    confirmCardSource,
+    /\.headers-label,[\s\S]*color:\s*var\(--app-text-secondary\)/
+  );
+});
+
+test("识别失败应保留错误信息并提供重新识别入口", () => {
+  assert.match(recognitionComposableSource, /const recognitionError = ref/);
+  assert.match(recognitionComposableSource, /recognitionError\.value =/);
+  assert.match(summaryBannerSource, /error\?: string/);
+  assert.match(summaryBannerSource, /summary\.total > 0 \|\| error/);
+  assert.match(dataImportSource, /:error="smartRecognitionError"/);
+  assert.match(
+    dataImportSource,
+    /<DataImportStepUpload[\s\S]*:smart-recognition-error="smartRecognitionError"[\s\S]*@retry="runSmartStructureRecognition"/
+  );
+  assert.match(
+    uploadStepSource,
+    /<SmartStructureSummaryBanner[\s\S]*v-if="smartRecognitionError"/
+  );
+});
+
+test("两处确认卡片调用均应传递来源文件编号", () => {
+  const smartFillSource = readFileSync(
+    resolve(process.cwd(), "web/src/views/smart-fill/index.vue"),
+    "utf8"
+  );
+
+  assert.match(
+    dataImportSource,
+    /<SmartStructureConfirmCard[\s\S]*:file-id="uploadedFile\?\.fileId"/
+  );
+  assert.match(
+    smartFillSource,
+    /<SmartStructureConfirmCard[\s\S]*:file-id="uploadedFile\?\.fileId"/
   );
 });
 

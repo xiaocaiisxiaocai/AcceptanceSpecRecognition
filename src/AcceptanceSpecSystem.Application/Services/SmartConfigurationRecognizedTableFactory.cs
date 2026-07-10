@@ -32,7 +32,7 @@ internal static class SmartConfigurationRecognizedTableFactory
             Source = "Template",
             Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm"
         };
-        return ToRecognizedTable(NormalizeRowRange(tableData, structure));
+        return ToRecognizedTable(NormalizeRowRange(tableInfo, tableData, structure));
     }
 
     public static SmartConfigurationRecognizedTable FromMapping(
@@ -44,7 +44,7 @@ internal static class SmartConfigurationRecognizedTableFactory
     {
         var headers = tableData.Headers.ToList();
         var structure = FromColumnMapping(tableInfo, tableData, mapping, isSpecificationOnly);
-        return ToRecognizedTable(NormalizeRowRange(tableData, structure) with
+        return ToRecognizedTable(NormalizeRowRange(tableInfo, tableData, structure) with
         {
             Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm",
             FieldConfidences = BuildFieldConfidences(mapping)
@@ -66,7 +66,7 @@ internal static class SmartConfigurationRecognizedTableFactory
             HeaderRowIndex = columnMapping.HeaderRowIndex,
             HeaderRowCount = columnMapping.HeaderRowCount,
             DataStartRowIndex = columnMapping.DataStartRowIndex,
-            DataEndRowIndex = tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null,
+            DataEndRowIndex = GetOriginalTableEndRowIndex(tableInfo, tableData),
             ProjectColumnIndex = columnMapping.ProjectColumn,
             SpecificationColumnIndex = columnMapping.SpecificationColumn,
             AcceptanceColumnIndex = columnMapping.AcceptanceColumn,
@@ -107,7 +107,7 @@ internal static class SmartConfigurationRecognizedTableFactory
         DocumentStructureHealthCheckResult healthCheck)
     {
         var structure = FromCandidate(tableInfo, tableData, candidate);
-        return ToRecognizedTable(NormalizeRowRange(tableData, structure) with
+        return ToRecognizedTable(NormalizeRowRange(tableInfo, tableData, structure) with
         {
             Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm"
         });
@@ -126,7 +126,7 @@ internal static class SmartConfigurationRecognizedTableFactory
             HeaderRowIndex = candidate.HeaderRowIndex,
             HeaderRowCount = candidate.HeaderRowCount,
             DataStartRowIndex = candidate.DataStartRowIndex,
-            DataEndRowIndex = candidate.DataEndRowIndex ?? (tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null),
+            DataEndRowIndex = candidate.DataEndRowIndex ?? GetOriginalTableEndRowIndex(tableInfo, tableData),
             ProjectColumnIndex = candidate.ProjectColumnIndex,
             SpecificationColumnIndex = candidate.SpecificationColumnIndex,
             AcceptanceColumnIndex = candidate.AcceptanceColumnIndex,
@@ -258,12 +258,11 @@ internal static class SmartConfigurationRecognizedTableFactory
     }
 
     private static SmartConfigurationTableStructure NormalizeRowRange(
+        TableInfo? tableInfo,
         TableData tableData,
         SmartConfigurationTableStructure structure)
     {
-        var fallbackEndRowIndex = tableData.TotalRowCount > 0
-            ? tableData.TotalRowCount - 1
-            : (int?)null;
+        var fallbackEndRowIndex = GetOriginalTableEndRowIndex(tableInfo, tableData);
         var dataEndRowIndex = structure.DataEndRowIndex ?? fallbackEndRowIndex;
         if (dataEndRowIndex.HasValue && fallbackEndRowIndex.HasValue)
         {
@@ -280,6 +279,14 @@ internal static class SmartConfigurationRecognizedTableFactory
         {
             DataEndRowIndex = dataEndRowIndex
         };
+    }
+
+    private static int? GetOriginalTableEndRowIndex(TableInfo? tableInfo, TableData tableData)
+    {
+        var totalRowCount = tableInfo?.RowCount > 0
+            ? tableInfo.RowCount
+            : tableData.TotalRowCount;
+        return totalRowCount > 0 ? totalRowCount - 1 : null;
     }
 
     private static int? NormalizeTemplateColumn(int? columnIndex)

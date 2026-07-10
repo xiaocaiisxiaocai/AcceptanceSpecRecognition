@@ -57,8 +57,10 @@ export function useDataImportSmartStructureRecognition({
 }) {
   const {
     recognizing: smartRecognizing,
+    recognitionError: smartRecognitionError,
     confirmingTableIndex: smartConfirmingTableIndex,
     recognizedTables,
+    replaceRecognizedTables,
     summary: smartStructureSummary,
     recognize: recognizeSmartStructure,
     confirm: confirmSmartStructure,
@@ -191,6 +193,7 @@ export function useDataImportSmartStructureRecognition({
           ? replaceRecognizedTableWithConfirmRequest(item, request)
           : item
       );
+      replaceRecognizedTables(nextTables);
       if (!selectedSmartTableIndexes.value.includes(table.tableIndex)) {
         selectedSmartTableIndexes.value = [
           ...selectedSmartTableIndexes.value,
@@ -226,6 +229,7 @@ export function useDataImportSmartStructureRecognition({
 
   return {
     smartRecognizing,
+    smartRecognitionError,
     smartConfirmingTableIndex,
     recognizedTables,
     smartStructureSummary,

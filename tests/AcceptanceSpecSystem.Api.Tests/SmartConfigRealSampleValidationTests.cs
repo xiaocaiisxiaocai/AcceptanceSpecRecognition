@@ -50,11 +50,8 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
         var tables = recognizeBody.Data!.GetProperty("tables").EnumerateArray().ToList();
         tables.Should().NotBeEmpty("真实样本应至少识别出一个表格");
 
-        var usableTable = tables
-            .Where(table => table.GetProperty("headers").GetArrayLength() > 0)
-            .OrderByDescending(table => table.GetProperty("specificationColumnIndex").ValueKind != JsonValueKind.Null)
-            .ThenByDescending(table => table.GetProperty("confidence").GetDouble())
-            .First();
+        var usableTable = tables.Single(table =>
+            table.GetProperty("tableIndex").GetInt32() == 0);
 
         var headers = usableTable.GetProperty("headers")
             .EnumerateArray()
@@ -70,6 +67,19 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
         var headerRowCount = usableTable.GetProperty("headerRowCount").GetInt32();
         var dataStartRowIndex = usableTable.GetProperty("dataStartRowIndex").GetInt32();
         var dataEndRowIndex = ReadNullableInt(usableTable, "dataEndRowIndex");
+
+        headerRowIndex.Should().Be(7);
+        headerRowCount.Should().Be(1);
+        dataStartRowIndex.Should().Be(8);
+        dataEndRowIndex.Should().Be(194);
+        projectColumnIndex.Should().Be(2);
+        specificationColumnIndex.Should().Be(3);
+        acceptanceColumnIndex.Should().Be(8);
+        remarkColumnIndex.Should().Be(9);
+        headers[projectColumnIndex!.Value].Should().Be("具體項目");
+        headers[specificationColumnIndex!.Value].Should().Be("規格");
+        headers[acceptanceColumnIndex!.Value].Should().Be("OK/NG");
+        headers[remarkColumnIndex!.Value].Should().Be("Remark");
 
         var confirmResponse = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
@@ -105,6 +115,7 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
             source = usableTable.GetProperty("source").GetString(),
             confidence = usableTable.GetProperty("confidence").GetDouble(),
             headerRowIndex,
+            headerRowCount,
             dataStartRowIndex,
             dataEndRowIndex,
             projectColumnIndex,

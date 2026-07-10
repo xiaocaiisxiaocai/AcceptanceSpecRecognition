@@ -4,6 +4,10 @@ namespace AcceptanceSpecSystem.Api.DTOs;
 
 public sealed class SmartConfigConfirmRequest
 {
+    public int? FileId { get; set; }
+
+    public int TableIndex { get; set; }
+
     public int CustomerId { get; set; }
 
     public string? TemplateName { get; set; }

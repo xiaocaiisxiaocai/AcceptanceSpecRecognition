@@ -16,6 +16,8 @@ import {
 
 export function useSmartStructureRecognition() {
   const recognizing = ref(false);
+  const recognitionError = ref("");
+  const activeRecognitionFileId = ref<number | null>(null);
   const confirmingTableIndex = ref<number | null>(null);
   const recognitionResult = ref<SmartConfigRecognizeResult | null>(null);
   const lastConfirmResult = ref<SmartConfigConfirmResult | null>(null);
@@ -26,23 +28,52 @@ export function useSmartStructureRecognition() {
   const summary = computed(() =>
     createSmartStructureSummary(recognizedTables.value)
   );
+  let recognitionRequestVersion = 0;
 
   const recognize = async (fileId: number, customerId?: number) => {
+    const requestVersion = ++recognitionRequestVersion;
+    activeRecognitionFileId.value = fileId;
     recognizing.value = true;
+    recognitionError.value = "";
+    recognitionResult.value = null;
+    const isCurrentRequest = () =>
+      requestVersion === recognitionRequestVersion &&
+      activeRecognitionFileId.value === fileId;
+
     try {
       const res = await recognizeSmartConfig({ fileId, customerId });
       if (res.code !== 0) {
         throw new Error(res.message || "智能结构识别失败");
       }
+      if (!isCurrentRequest() || res.data.fileId !== fileId) {
+        return null;
+      }
 
       recognitionResult.value = res.data;
       return res.data;
     } catch (error) {
-      ElMessage.error(getRequestErrorMessage(error, "智能结构识别失败"));
+      if (!isCurrentRequest()) {
+        return null;
+      }
+      recognitionError.value = getRequestErrorMessage(
+        error,
+        "智能结构识别失败"
+      );
+      ElMessage.error(recognitionError.value);
       return null;
     } finally {
-      recognizing.value = false;
+      if (isCurrentRequest()) {
+        recognizing.value = false;
+      }
     }
+  };
+
+  const replaceRecognizedTables = (tables: SmartConfigRecognizedTable[]) => {
+    if (!recognitionResult.value) return;
+    recognitionResult.value = {
+      ...recognitionResult.value,
+      tables
+    };
   };
 
   const confirm = async (
@@ -59,8 +90,7 @@ export function useSmartStructureRecognition() {
       return null;
     }
 
-    confirmingTableIndex.value =
-      "tableIndex" in requestOrTable ? requestOrTable.tableIndex : null;
+    confirmingTableIndex.value = requestOrTable.tableIndex;
     try {
       const res = await confirmSmartConfig(request);
       if (res.code !== 0) {
@@ -79,16 +109,22 @@ export function useSmartStructureRecognition() {
   };
 
   const reset = () => {
+    recognitionRequestVersion += 1;
+    activeRecognitionFileId.value = null;
+    recognizing.value = false;
     recognitionResult.value = null;
+    recognitionError.value = "";
     lastConfirmResult.value = null;
     confirmingTableIndex.value = null;
   };
 
   return {
     recognizing,
+    recognitionError,
     confirmingTableIndex,
     recognitionResult,
     recognizedTables,
+    replaceRecognizedTables,
     summary,
     lastConfirmResult,
     recognize,

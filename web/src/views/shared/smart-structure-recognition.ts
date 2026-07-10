@@ -304,7 +304,7 @@ export const buildSmartConfigConfirmRequest = (
   overrides: Partial<
     Pick<
       SmartConfigConfirmRequest,
-      "templateName" | "learnedColumns" | "userModifiedStructure"
+      "fileId" | "templateName" | "learnedColumns" | "userModifiedStructure"
     >
   > = {}
 ): SmartConfigConfirmRequest => {
@@ -317,6 +317,8 @@ export const buildSmartConfigConfirmRequest = (
 
   return {
     customerId,
+    fileId: overrides.fileId,
+    tableIndex: table.tableIndex,
     templateName:
       overrides.templateName ??
       table.tableName?.trim() ??
@@ -328,7 +330,10 @@ export const buildSmartConfigConfirmRequest = (
     remarkColumnIndex: table.remarkColumnIndex ?? undefined,
     headerRowIndex: table.headerRowIndex,
     headerRowCount: table.headerRowCount,
-    dataStartRowIndex: table.dataStartRowIndex,
+    dataStartRowIndex: Math.max(
+      table.dataStartRowIndex,
+      table.headerRowIndex + Math.max(table.headerRowCount, 1)
+    ),
     dataEndRowIndex: table.dataEndRowIndex ?? undefined,
     isSpecificationOnly: table.isSpecificationOnly,
     tableKind: table.tableKind,

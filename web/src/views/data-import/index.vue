@@ -37,6 +37,7 @@ const {
   importDuplicateAiConfig,
   steps,
   smartRecognizing,
+  smartRecognitionError,
   smartStageText,
   selectedSmartTableIndexes,
   smartConfirmingTableIndex,
@@ -170,7 +171,10 @@ const smartStructureDisplayGroups = computed(() =>
           :can-import-any="canImportAny"
           :upload-accept="uploadAccept"
           :upload-blocked-message="uploadBlockedMessage"
+          :smart-recognition-error="smartRecognitionError"
+          :smart-recognizing="smartRecognizing"
           @uploaded="handleFileUploaded"
+          @retry="runSmartStructureRecognition"
         >
           <template #extra>
             <div class="upload-target-panel">
@@ -348,6 +352,7 @@ const smartStructureDisplayGroups = computed(() =>
           <SmartStructureSummaryBanner
             :tables="recognizedTables"
             :loading="smartRecognizing"
+            :error="smartRecognitionError"
             @retry="runSmartStructureRecognition"
           />
           <div v-if="recognizedTables.length > 0" class="smart-confirm-list">
@@ -366,6 +371,7 @@ const smartStructureDisplayGroups = computed(() =>
                 v-for="table in group.tables"
                 :key="table.tableIndex"
                 :table="table"
+                :file-id="uploadedFile?.fileId"
                 :customer-id="selectedCustomerId"
                 :confirming="smartConfirmingTableIndex === table.tableIndex"
                 :import-selected="

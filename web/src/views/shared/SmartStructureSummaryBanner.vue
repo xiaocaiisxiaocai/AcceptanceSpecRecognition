@@ -9,6 +9,7 @@ import {
 const props = defineProps<{
   tables: SmartConfigRecognizedTable[];
   loading?: boolean;
+  error?: string;
 }>();
 
 const emit = defineEmits<{
@@ -17,12 +18,14 @@ const emit = defineEmits<{
 
 const summary = computed(() => createSmartStructureSummary(props.tables));
 const alertType = computed(() => {
+  if (props.error) return "error";
   if (summary.value.hasReject) return "error";
   if (summary.value.hasNeedConfirm) return "warning";
   if (summary.value.canAutoApplyAll) return "success";
   return "info";
 });
 const title = computed(() => {
+  if (props.error) return "智能结构识别失败";
   if (summary.value.total === 0) return "尚未执行智能结构识别";
   if (summary.value.hasReject) return "部分表格暂不可用";
   if (summary.value.hasNeedConfirm) return "识别完成，存在待确认表格";
@@ -38,7 +41,7 @@ const title = computed(() => {
         <div class="summary-title">
           <span>{{ title }}</span>
           <el-button
-            v-if="summary.total > 0"
+            v-if="summary.total > 0 || error"
             type="primary"
             link
             :loading="loading"
@@ -49,7 +52,8 @@ const title = computed(() => {
         </div>
       </template>
       <template #default>
-        <div class="summary-metrics">
+        <div v-if="error" class="summary-error">{{ error }}</div>
+        <div v-else class="summary-metrics">
           <span>表格 {{ summary.total }}</span>
           <span>可直达 {{ summary.autoApply }}</span>
           <span>待确认 {{ summary.needConfirm }}</span>
@@ -87,5 +91,17 @@ const title = computed(() => {
   margin-top: 6px;
   font-size: 13px;
   line-height: 1.7;
+}
+
+.summary-error {
+  margin-top: 6px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+@media (width <= 768px) {
+  .summary-title :deep(.el-button) {
+    min-height: 44px;
+  }
 }
 </style>

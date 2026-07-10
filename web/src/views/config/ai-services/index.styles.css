@@ -80,6 +80,19 @@
   margin-top: 8px;
 }
 
+.ai-service-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+:deep(.ai-service-actions .el-button + .el-button) {
+  margin-left: 0;
+}
+
 :deep(.test-result-expand-column .cell),
 :deep(.test-result-expand-column .el-table__expand-icon) {
   width: 0;

@@ -7,6 +7,10 @@ namespace AcceptanceSpecSystem.Application.Services;
 /// </summary>
 public sealed class SmartConfigurationConfirmCommand
 {
+    public int? FileId { get; init; }
+
+    public int TableIndex { get; init; }
+
     public int CustomerId { get; init; }
 
     public string? TemplateName { get; init; }

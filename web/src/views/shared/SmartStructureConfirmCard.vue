@@ -20,6 +20,7 @@ import {
 
 const props = defineProps<{
   table: SmartConfigRecognizedTable;
+  fileId?: number;
   customerId?: number;
   confirming?: boolean;
   readonly?: boolean;
@@ -118,10 +119,10 @@ const getHeaderText = (index?: number | null) =>
   index == null ? "-" : props.table.headers[index] || `列${index + 1}`;
 
 const summaryFields = computed(() => [
-  { label: "项目", value: getHeaderText(props.table.projectColumnIndex) },
-  { label: "规格", value: getHeaderText(props.table.specificationColumnIndex) },
-  { label: "验收", value: getHeaderText(props.table.acceptanceColumnIndex) },
-  { label: "备注", value: getHeaderText(props.table.remarkColumnIndex) }
+  { label: "项目", value: getHeaderText(state.projectColumnIndex) },
+  { label: "规格", value: getHeaderText(state.specificationColumnIndex) },
+  { label: "验收", value: getHeaderText(state.acceptanceColumnIndex) },
+  { label: "备注", value: getHeaderText(state.remarkColumnIndex) }
 ]);
 
 const hasRequiredProjectColumn = computed(
@@ -145,6 +146,13 @@ const importSwitchText = computed(() =>
 const visibleIssues = computed(() => props.table.issues?.slice(0, 4) ?? []);
 const semanticRecallSuggestions = computed(
   () => props.table.semanticRecallSuggestions?.slice(0, 6) ?? []
+);
+const showRecognitionEvidence = computed(
+  () =>
+    props.table.decision !== "AutoApply" ||
+    props.table.confidence < 0.8 ||
+    visibleIssues.value.length > 0 ||
+    semanticRecallSuggestions.value.length > 0
 );
 
 const hasStructureChanges = computed(
@@ -171,10 +179,26 @@ const displayHeaderRowIndex = computed({
   }
 });
 
+const minimumDataStartRowIndex = computed(
+  () => state.headerRowIndex + Math.max(state.headerRowCount, 1)
+);
+const displayMinimumDataStartRowIndex = computed(() =>
+  toDisplayIndexFromZeroBased(minimumDataStartRowIndex.value)
+);
+
+watch(minimumDataStartRowIndex, minimum => {
+  if (state.dataStartRowIndex < minimum) {
+    state.dataStartRowIndex = minimum;
+  }
+});
+
 const displayDataStartRowIndex = computed({
   get: () => toDisplayIndexFromZeroBased(state.dataStartRowIndex),
   set: value => {
-    state.dataStartRowIndex = toZeroBasedIndexFromDisplay(value);
+    state.dataStartRowIndex = Math.max(
+      toZeroBasedIndexFromDisplay(value),
+      minimumDataStartRowIndex.value
+    );
   }
 });
 
@@ -213,6 +237,7 @@ const emitConfirm = () => {
         isSpecificationOnly: state.isSpecificationOnly
       },
       {
+        fileId: props.fileId,
         userModifiedStructure: hasStructureChanges.value
       }
     )
@@ -244,7 +269,7 @@ const emitConfirm = () => {
           {{ tableKindLabel }}
         </el-tag>
       </div>
-      <div class="card-meta">
+      <div v-if="showRecognitionEvidence" class="card-meta">
         <span>{{ table.source || "-" }}</span>
         <span>置信度 {{ formatSmartStructurePercent(table.confidence) }}</span>
         <span>
@@ -253,7 +278,7 @@ const emitConfirm = () => {
       </div>
     </div>
 
-    <div class="card-summary-strip">
+    <div v-show="!detailVisible" class="card-summary-strip">
       <el-tag
         v-for="field in summaryFields"
         :key="field.label"
@@ -286,7 +311,11 @@ const emitConfirm = () => {
       </el-tag>
     </div>
 
-    <div v-show="detailVisible" class="headers-preview">
+    <div
+      v-if="showRecognitionEvidence"
+      v-show="detailVisible"
+      class="headers-preview"
+    >
       <span class="headers-label">表头</span>
       <el-tag
         v-for="(header, index) in table.headers.slice(0, 10)"
@@ -446,7 +475,7 @@ const emitConfirm = () => {
             <el-input-number
               v-model="displayDataStartRowIndex"
               :disabled="readonly"
-              :min="1"
+              :min="displayMinimumDataStartRowIndex"
             />
           </el-form-item>
         </el-col>
@@ -455,7 +484,7 @@ const emitConfirm = () => {
 
     <div
       v-show="detailVisible"
-      v-if="table.fields?.length > 0"
+      v-if="showRecognitionEvidence && table.fields?.length > 0"
       class="field-list"
     >
       <el-tag
@@ -491,6 +520,10 @@ const emitConfirm = () => {
 
 <style scoped>
 .smart-structure-card {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 12px 14px;
   background: var(--app-bg-card);
   border: 1px solid var(--app-border);
@@ -553,7 +586,7 @@ const emitConfirm = () => {
 .semantic-recall-label,
 .more {
   font-size: 12px;
-  color: var(--app-text-disabled);
+  color: var(--app-text-secondary);
 }
 
 .confirm-form {
@@ -580,6 +613,36 @@ const emitConfirm = () => {
 
   .card-meta {
     justify-content: flex-start;
+  }
+
+  .smart-structure-card {
+    padding: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .card-title :deep(.el-checkbox),
+  .card-actions :deep(.el-button) {
+    min-height: 44px;
+  }
+
+  .card-actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .confirm-form {
+    padding: 10px 8px 0;
+  }
+
+  .confirm-form :deep(.el-form-item__content),
+  .confirm-form :deep(.el-input__wrapper),
+  .confirm-form :deep(.el-select__wrapper),
+  .confirm-form :deep(.el-input-number) {
+    min-height: 44px;
+  }
+
+  .confirm-form :deep(.el-input-number) {
+    width: 100%;
   }
 }
 </style>
