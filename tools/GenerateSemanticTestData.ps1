@@ -2,7 +2,7 @@
 # 从库中选择规格，对规格列进行语义化改写（不是简单的字符替换/同义词）
 
 param(
-    [string]$InputJson = "huaian_specs.json",
+    [string]$InputJson = "tools/Fixtures/synthetic_specs.json",
     [string]$OutputCsv = "huaian_ai_semantic_test.csv",
     [int]$SampleCount = 50
 )

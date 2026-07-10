@@ -1,0 +1,118 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "customerId": 1,
+        "processId": 1,
+        "machineModelId": 1,
+        "customerName": "示例客户",
+        "processName": "示例制程",
+        "machineModelName": "示例机型",
+        "project": "输送方向",
+        "specification": "物料从左侧进入并从右侧送出",
+        "acceptance": "方向检查通过",
+        "remark": null
+      },
+      {
+        "id": 2,
+        "customerId": 1,
+        "processId": 1,
+        "machineModelId": 1,
+        "customerName": "示例客户",
+        "processName": "示例制程",
+        "machineModelName": "示例机型",
+        "project": "输送方向",
+        "specification": "产品采用左进右出的传送方向",
+        "acceptance": "方向检查通过",
+        "remark": "近义表达样本"
+      },
+      {
+        "id": 3,
+        "customerId": 1,
+        "processId": 1,
+        "machineModelId": 1,
+        "customerName": "示例客户",
+        "processName": "示例制程",
+        "machineModelName": "示例机型",
+        "project": "安全联锁",
+        "specification": "防护门打开时设备必须停止运行",
+        "acceptance": "打开防护门后设备停止",
+        "remark": null
+      },
+      {
+        "id": 4,
+        "customerId": 1,
+        "processId": 1,
+        "machineModelId": 1,
+        "customerName": "示例客户",
+        "processName": "示例制程",
+        "machineModelName": "示例机型",
+        "project": "安全联锁",
+        "specification": "开启安全门应立即触发停机联锁",
+        "acceptance": "联锁响应正常",
+        "remark": "近义表达样本"
+      },
+      {
+        "id": 5,
+        "customerId": 1,
+        "processId": 1,
+        "machineModelId": 1,
+        "customerName": "示例客户",
+        "processName": "示例制程",
+        "machineModelName": "示例机型",
+        "project": "生产节拍",
+        "specification": "设备产能不低于每分钟六十件",
+        "acceptance": "连续运行十分钟达到目标产能",
+        "remark": null
+      },
+      {
+        "id": 6,
+        "customerId": 1,
+        "processId": 1,
+        "machineModelId": 1,
+        "customerName": "示例客户",
+        "processName": "示例制程",
+        "machineModelName": "示例机型",
+        "project": "生产节拍",
+        "specification": "额定速度应达到每分钟六十个产品",
+        "acceptance": "产能测试通过",
+        "remark": "近义表达样本"
+      },
+      {
+        "id": 7,
+        "customerId": 1,
+        "processId": 1,
+        "machineModelId": 1,
+        "customerName": "示例客户",
+        "processName": "示例制程",
+        "machineModelName": "示例机型",
+        "project": "供电要求",
+        "specification": "设备使用三相三百八十伏交流电源",
+        "acceptance": "额定电压下运行正常",
+        "remark": null
+      },
+      {
+        "id": 8,
+        "customerId": 1,
+        "processId": 1,
+        "machineModelId": 1,
+        "customerName": "示例客户",
+        "processName": "示例制程",
+        "machineModelName": "示例机型",
+        "project": "供电要求",
+        "specification": "输入电源规格为交流三相三百八十伏",
+        "acceptance": "供电检查通过",
+        "remark": "近义表达样本"
+      }
+    ],
+    "total": 8,
+    "page": 1,
+    "pageSize": 8,
+    "totalPages": 1,
+    "hasNext": false,
+    "hasPrevious": false
+  }
+}

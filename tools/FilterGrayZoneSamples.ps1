@@ -3,7 +3,7 @@
 # 保留：需要 LLM 语义判断的中间地带
 
 param(
-    [string]$InputJson = "huaian_specs.json",
+    [string]$InputJson = "tools/Fixtures/synthetic_specs.json",
     [string]$OutputCsv = "huaian_gray_zone_samples.csv",
     [int]$MinPairs = 50,
     [double]$MinEmbedding = 0.75,  # Embedding 下限：太低的不是语义等价

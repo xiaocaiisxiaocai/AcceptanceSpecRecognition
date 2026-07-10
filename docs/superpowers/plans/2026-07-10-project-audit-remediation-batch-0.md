@@ -72,7 +72,7 @@ Run: Step 1 命令，连续执行三次。
 
 Expected: 每次 0 失败；条件测试保持跳过。
 
-- [ ] **Step 4：提交测试基线修复**
+- [x] **Step 4：提交测试基线修复**
 
 ```powershell
 git add tests/AcceptanceSpecSystem.Api.Tests/TestAssemblyConfiguration.cs docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-0.md
@@ -85,7 +85,7 @@ git commit -m "test: 限制API测试集合并行度"
 
 - Create: `tests/AcceptanceSpecSystem.Api.Tests/RepositoryHygieneTests.cs`
 
-- [ ] **Step 1：编写失败测试**
+- [x] **Step 1：编写失败测试**
 
 测试应读取仓库文件并验证：
 
@@ -116,7 +116,7 @@ public void LocalSensitiveArtifacts_ShouldBeIgnored_AndToolsShouldUseSyntheticFi
 
 测试 helper 使用与 `ArchitectureBoundaryTests` 相同的仓库根目录向上查找方式，不调用 Git，不读取真实样本内容。
 
-- [ ] **Step 2：运行测试确认失败**
+- [x] **Step 2：运行测试确认失败**
 
 Run:
 
@@ -134,7 +134,7 @@ Expected: FAIL，原因包括缺少 ignore 规则、合成夹具不存在和工�
 - Modify: `.gitignore`
 - Modify: 上述 6 个工具入口文件
 
-- [ ] **Step 1：添加根目录精确 ignore 规则**
+- [x] **Step 1：添加根目录精确 ignore 规则**
 
 在本地 scratch 区增加：
 
@@ -145,7 +145,7 @@ Expected: FAIL，原因包括缺少 ignore 规则、合成夹具不存在和工�
 /淮安庆鼎_智能填充测试说明.md
 ```
 
-- [ ] **Step 2：创建合成 JSON**
+- [x] **Step 2：创建合成 JSON**
 
 结构必须保持工具现有契约：
 
@@ -181,7 +181,7 @@ Expected: FAIL，原因包括缺少 ignore 规则、合成夹具不存在和工�
 
 实际夹具提供至少 8 条记录，并包含同项目近义规格，使灰区提取工具仍有可用输入。不得包含真实客户、厂区、人员、URL、数据库 ID 或原样本文本。
 
-- [ ] **Step 3：切换工具默认值**
+- [x] **Step 3：切换工具默认值**
 
 6 个工具统一使用：
 
@@ -191,13 +191,13 @@ tools/Fixtures/synthetic_specs.json
 
 仅修改默认参数；显式参数优先级保持不变。
 
-- [ ] **Step 4：运行失败守卫确认通过**
+- [x] **Step 4：运行失败守卫确认通过**
 
 Run: Task 1 的定向测试命令。
 
 Expected: PASS。
 
-- [ ] **Step 5：验证合成 JSON 契约**
+- [x] **Step 5：验证合成 JSON 契约**
 
 Run:
 
@@ -214,7 +214,7 @@ Expected: exit 0。
 
 - Git index only: `output/` 和 3 个真实样本文件
 
-- [ ] **Step 1：记录本地文件存在状态**
+- [x] **Step 1：记录本地文件存在状态**
 
 Run:
 
@@ -227,7 +227,7 @@ Test-Path '淮安庆鼎_智能填充测试说明.md'
 
 Expected: 全部为 `True`。
 
-- [ ] **Step 2：仅从索引移除**
+- [x] **Step 2：仅从索引移除**
 
 Run:
 
@@ -236,7 +236,7 @@ git rm -r --cached -- output
 git rm --cached -- huaian_specs.json huaian_specs_500.json '淮安庆鼎_智能填充测试说明.md'
 ```
 
-- [ ] **Step 3：验证本地文件仍存在且不再跟踪**
+- [x] **Step 3：验证本地文件仍存在且不再跟踪**
 
 Run:
 

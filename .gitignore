@@ -111,6 +111,11 @@ docs/design-overview.pdf
 tmp/
 提供测试的文档/
 
+# Local real-world samples (keep outside version control)
+/huaian_specs.json
+/huaian_specs_500.json
+/淮安庆鼎_智能填充测试说明.md
+
 # DataProtection key ring (runtime generated)
 **/data-protection-keys/
 .ace-tool/

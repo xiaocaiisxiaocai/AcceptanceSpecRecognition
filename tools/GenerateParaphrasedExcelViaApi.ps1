@@ -1,7 +1,7 @@
 # 调用系统配置的 LLM 服务对淮安规格进行语义改写
 param(
     [string]$ApiBaseUrl = "http://localhost:5291",
-    [string]$InputJson = "huaian_specs.json",
+    [string]$InputJson = "tools/Fixtures/synthetic_specs.json",
     [string]$OutputExcel = "huaian_ai_paraphrased_50.xlsx",
     [int]$MaxCount = 50
 )

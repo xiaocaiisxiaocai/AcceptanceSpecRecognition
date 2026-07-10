@@ -32,7 +32,7 @@ var generator = serviceProvider.GetRequiredService<ParaphraseGenerator.Paraphras
 var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
 // 读取淮安数据
-var inputFile = args.Length > 0 ? args[0] : "huaian_specs.json";
+var inputFile = args.Length > 0 ? args[0] : "tools/Fixtures/synthetic_specs.json";
 var outputFile = args.Length > 1 ? args[1] : "huaian_ai_paraphrased_50.csv";
 var maxCount = args.Length > 2 ? int.Parse(args[2]) : 50;
 

@@ -3,7 +3,7 @@
 # 保留：需要语义匹配才能找到候选的源行
 
 param(
-    [string]$InputJson = "huaian_specs.json",
+    [string]$InputJson = "tools/Fixtures/synthetic_specs.json",
     [string]$OutputCsv = "huaian_llm_semantic_sources.csv",
     [int]$SampleCount = 50
 )

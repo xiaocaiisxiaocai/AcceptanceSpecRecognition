@@ -1,7 +1,7 @@
 # 调用本地 LLM 对淮安规格进行语义改写，生成 Excel 测试数据
 param(
     [string]$ApiBaseUrl = "http://localhost:5291",
-    [string]$InputJson = "huaian_specs.json",
+    [string]$InputJson = "tools/Fixtures/synthetic_specs.json",
     [string]$OutputExcel = "huaian_ai_paraphrased_50.xlsx",
     [int]$MaxCount = 50
 )
