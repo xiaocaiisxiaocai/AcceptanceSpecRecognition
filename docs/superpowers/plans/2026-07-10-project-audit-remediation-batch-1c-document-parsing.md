@@ -27,7 +27,7 @@
 
 - Create: `tests/AcceptanceSpecSystem.Api.Tests/DocumentTableAccessFailureTests.cs`
 
-- [ ] **Step 1：编写损坏 Excel 测试**
+- [x] **Step 1：编写损坏 Excel 测试**
 
 测试通过 `ApiWebApplicationFactory.Services.CreateScope()` 解析 `DocumentTableAccessService`，构造只使用内存内容的文件：
 
@@ -42,14 +42,14 @@ var wordFile = new WordFile
 
 调用 `ExtractMatchSourceItemsAsync(wordFile, 0, 0, 1)`，断言抛出 `ApplicationServiceException`，Code 为 400，消息为稳定用户文案“文档解析失败，请确认文件完整且未被占用”。
 
-- [ ] **Step 2：编写合法空结果测试**
+- [x] **Step 2：编写合法空结果测试**
 
 使用 ClosedXML 创建含一个空工作表的合法 xlsx 字节：
 
 - 请求不存在的 table index，断言返回空集合。
 - 请求存在但无可用来源行的空工作表，断言返回空集合；若解析器把完全空工作表表示为无表，只保留“目标表不存在”的空集合断言，不为测试改变解析器语义。
 
-- [ ] **Step 3：运行行为测试确认红灯**
+- [x] **Step 3：运行行为测试确认红灯**
 
 Run:
 
@@ -65,7 +65,7 @@ Expected: 损坏 Excel 用例 FAIL，当前实现捕获全部异常并返回空�
 
 - Create: `tests/AcceptanceSpecSystem.Api.Tests/DocumentParsingErrorGuardTests.cs`
 
-- [ ] **Step 1：编写源码守卫**
+- [x] **Step 1：编写源码守卫**
 
 读取 `DocumentTableAccessService.cs` 并断言：
 
@@ -74,7 +74,7 @@ Expected: 损坏 Excel 用例 FAIL，当前实现捕获全部异常并返回空�
 - 两个方法均调用同一个 `CreateDocumentParsingException` 私有方法。
 - 日志模板包含 `FileId`、`FileType`、`TableIndex`、`ExceptionType`，不包含 `FileName`、正文或单元格值占位符。
 
-- [ ] **Step 2：运行守卫确认失败**
+- [x] **Step 2：运行守卫确认失败**
 
 Run:
 
@@ -90,7 +90,7 @@ Expected: FAIL，当前两个来源路径仍使用无类型 catch 返回空集�
 
 - Modify: `src/AcceptanceSpecSystem.Api/Services/DocumentTableAccessService.cs`
 
-- [ ] **Step 1：注入 logger**
+- [x] **Step 1：注入 logger**
 
 构造函数增加：
 
@@ -100,11 +100,11 @@ ILogger<DocumentTableAccessService> logger
 
 保存到 `_logger`；现有 `AddScoped<DocumentTableAccessService>()` 可由 DI 自动解析，不修改注册代码。
 
-- [ ] **Step 2：将流打开纳入 try 边界**
+- [x] **Step 2：将流打开纳入 try 边界**
 
 在 `ExtractMatchSourceItemsAsync` 和 `ExtractReplySourceItemsAsync` 中，把 `OpenReadStream` 和解析器调用放入同一 try，确保文件不存在、权限和读取失败不会绕过转换逻辑。
 
-- [ ] **Step 3：为两个方法应用一致 catch 顺序**
+- [x] **Step 3：为两个方法应用一致 catch 顺序**
 
 ```csharp
 catch (OperationCanceledException)
@@ -127,7 +127,7 @@ catch (Exception ex)
 
 目标表索引在可预检处继续先检查并返回空集合。不得把 `IOException`、`UnauthorizedAccessException`、Open XML/ClosedXML 损坏异常或未知异常放入降级集合。
 
-- [ ] **Step 4：实现共享转换方法**
+- [x] **Step 4：实现共享转换方法**
 
 ```csharp
 private ApplicationServiceException CreateDocumentParsingException(
@@ -151,7 +151,7 @@ private ApplicationServiceException CreateDocumentParsingException(
 
 日志不得增加文件名、路径、正文、表头或单元格内容。
 
-- [ ] **Step 5：运行定向测试确认通过**
+- [x] **Step 5：运行定向测试确认通过**
 
 Run:
 
@@ -161,7 +161,7 @@ dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.
 
 Expected: 全部 PASS。
 
-- [ ] **Step 6：运行文档和匹配相关回归**
+- [x] **Step 6：运行文档和匹配相关回归**
 
 Run:
 
@@ -171,7 +171,7 @@ dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.
 
 Expected: 0 失败；依赖真实外部资源的条件测试保持跳过。
 
-- [ ] **Step 7：运行 Release 构建**
+- [x] **Step 7：运行 Release 构建**
 
 Run:
 
@@ -181,7 +181,7 @@ dotnet build AcceptanceSpecSystem.sln -c Release --no-restore -p:TreatWarningsAs
 
 Expected: 0 警告、0 错误。
 
-- [ ] **Step 8：提交 1C**
+- [x] **Step 8：提交 1C**
 
 ```powershell
 git add src/AcceptanceSpecSystem.Api/Services/DocumentTableAccessService.cs tests/AcceptanceSpecSystem.Api.Tests/DocumentTableAccessFailureTests.cs tests/AcceptanceSpecSystem.Api.Tests/DocumentParsingErrorGuardTests.cs docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-1c-document-parsing.md

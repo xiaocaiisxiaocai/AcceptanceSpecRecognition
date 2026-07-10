@@ -17,13 +17,16 @@ public sealed class DocumentTableAccessService
 
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly DocumentFileAccessService _documentFileAccessService;
+    private readonly ILogger<DocumentTableAccessService> _logger;
 
     public DocumentTableAccessService(
         DocumentServiceFactory documentServiceFactory,
-        DocumentFileAccessService documentFileAccessService)
+        DocumentFileAccessService documentFileAccessService,
+        ILogger<DocumentTableAccessService> logger)
     {
         _documentServiceFactory = documentServiceFactory;
         _documentFileAccessService = documentFileAccessService;
+        _logger = logger;
     }
 
     public async Task<int> CountTablesAsync(UploadedFileType fileType, byte[] fileContent)
@@ -157,13 +160,13 @@ public sealed class DocumentTableAccessService
             return [];
         }
 
-        using var stream = _documentFileAccessService.OpenReadStream(wordFile);
         // Excel 与 Word 的表格坐标口径不同：Excel 需要先按已用区域换算相对行号，
         // 后续写回才能继续使用解析器返回的行索引。
         TableData tableData;
         var excelDataStartRowIndexForWriteBack = 1;
         try
         {
+            using var stream = _documentFileAccessService.OpenReadStream(wordFile);
             var mapping = new ColumnMapping
             {
                 HeaderRowIndex = 0,
@@ -218,9 +221,21 @@ public sealed class DocumentTableAccessService
 
             tableData = await parser.ExtractTableDataAsync(stream, tableIndex, mapping);
         }
-        catch
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (ArgumentOutOfRangeException)
         {
             return [];
+        }
+        catch (NotSupportedException)
+        {
+            return [];
+        }
+        catch (Exception ex)
+        {
+            throw CreateDocumentParsingException(wordFile, tableIndex, ex);
         }
 
         if (tableData.ColumnCount < 2 ||
@@ -273,11 +288,11 @@ public sealed class DocumentTableAccessService
             return [];
         }
 
-        using var stream = _documentFileAccessService.OpenReadStream(wordFile);
         TableData tableData;
         var excelDataStartRowIndexForWriteBack = 1;
         try
         {
+            using var stream = _documentFileAccessService.OpenReadStream(wordFile);
             var mapping = new ColumnMapping
             {
                 HeaderRowIndex = 0,
@@ -320,9 +335,21 @@ public sealed class DocumentTableAccessService
 
             tableData = await parser.ExtractTableDataAsync(stream, config.TableIndex, mapping);
         }
-        catch
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (ArgumentOutOfRangeException)
         {
             return [];
+        }
+        catch (NotSupportedException)
+        {
+            return [];
+        }
+        catch (Exception ex)
+        {
+            throw CreateDocumentParsingException(wordFile, config.TableIndex, ex);
         }
 
         var requiredColumns = new[]
@@ -369,6 +396,24 @@ public sealed class DocumentTableAccessService
         }
 
         return items;
+    }
+
+    private ApplicationServiceException CreateDocumentParsingException(
+        WordFile wordFile,
+        int tableIndex,
+        Exception exception)
+    {
+        _logger.LogError(
+            exception,
+            "文档解析失败: FileId={FileId}, FileType={FileType}, TableIndex={TableIndex}, ExceptionType={ExceptionType}",
+            wordFile.Id,
+            wordFile.FileType,
+            tableIndex,
+            exception.GetType().Name);
+
+        return new ApplicationServiceException(
+            400,
+            "文档解析失败，请确认文件完整且未被占用");
     }
 
     private IDocumentParser GetRequiredParser(UploadedFileType fileType)
