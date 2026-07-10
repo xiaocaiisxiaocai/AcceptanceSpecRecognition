@@ -1354,9 +1354,16 @@ public class ReviewRegressionTests
     public void SmartFill_OnUnmount_ShouldAbortPreviewRequestsToo()
     {
         var smartFillContent = ReadFileText("web/src/views/smart-fill/index.vue");
-        smartFillContent.Should().Contain(
-            "onBeforeUnmount(() => {\n  invalidatePendingPreview();\n  stopLlmStream();\n});",
-            "页面卸载时应同时取消未完成的批量预览请求和流式请求，避免离页后仍占用后端算力");
+        var hookStart = smartFillContent.IndexOf("onBeforeUnmount(() => {", StringComparison.Ordinal);
+        hookStart.Should().BeGreaterThanOrEqualTo(0);
+        var hookEnd = smartFillContent.IndexOf("\n});", hookStart, StringComparison.Ordinal);
+        hookEnd.Should().BeGreaterThan(hookStart);
+        var unmountHook = smartFillContent[hookStart..(hookEnd + 4)];
+
+        unmountHook.Should().Contain("invalidatePendingPreview();",
+            "页面卸载时应取消未完成的批量预览请求，避免离页后仍占用后端算力");
+        unmountHook.Should().Contain("stopLlmStream();",
+            "页面卸载时应停止流式请求，避免离页后仍占用后端算力");
     }
 
     [Fact]

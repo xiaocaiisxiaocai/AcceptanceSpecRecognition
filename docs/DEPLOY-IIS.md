@@ -14,7 +14,6 @@
 
 - 前端：`http://192.168.1.10/`
 - API：`http://192.168.1.10/api`
-- Swagger：`http://192.168.1.10/api/swagger`
 - 健康检查：`http://192.168.1.10/api/health`
 
 ## 2. 前置条件
@@ -121,7 +120,6 @@ dotnet ef database update -p .\src\AcceptanceSpecSystem.Data -s .\src\Acceptance
 2. 打开 `http://<IIS地址>/api/health`，返回 `healthy`
 3. 上传 Word/Excel 后，`FileStorage:BasePath` 下有实际文件
 4. 执行智能填充，Word 下载与 Excel 写回正常
-5. 打开 `http://<IIS地址>/api/swagger` 可查看接口文档
 
 ## 9. 常见问题
 

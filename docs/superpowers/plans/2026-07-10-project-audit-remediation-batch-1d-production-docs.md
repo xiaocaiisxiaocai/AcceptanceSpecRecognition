@@ -30,7 +30,7 @@
 
 - Create: `tests/AcceptanceSpecSystem.Api.Tests/ProductionDeploymentDocumentationTests.cs`
 
-- [ ] **Step 1：编写失败测试**
+- [x] **Step 1：编写失败测试**
 
 沿用仓库根目录向上查找 helper，读取 `Program.cs` 和三份部署文档并断言：
 
@@ -47,7 +47,7 @@ windowsDockerDoc.Should().NotContain("/swagger");
 
 对 `Program.cs` 额外断言 `UseSwagger()` 和 `UseSwaggerUI()` 仍位于 `app.Environment.IsDevelopment()` 条件块中，Production 没有独立 Swagger 开关。
 
-- [ ] **Step 2：运行测试确认失败**
+- [x] **Step 2：运行测试确认失败**
 
 Run:
 
@@ -65,19 +65,19 @@ Expected: FAIL，Docker 和 IIS 文档仍包含 Swagger 验收入口。
 - Modify: `docs/DEPLOY-IIS.md`
 - Modify: `docs/DEPLOY-WINDOWS-DOCKER.md`
 
-- [ ] **Step 1：修正 Docker 文档**
+- [x] **Step 1：修正 Docker 文档**
 
 删除 `Swagger：http://localhost/swagger`。API 验收仅保留 `http://localhost:5290/health`，并说明 Production 默认不提供 Swagger UI。
 
-- [ ] **Step 2：修正 IIS 文档**
+- [x] **Step 2：修正 IIS 文档**
 
 删除概览中的 `http://192.168.1.10/api/swagger` 和验收步骤“打开 `/api/swagger`”。保留 `/api/health` 返回 `healthy` 作为 API 启动判据，并保持前端访问验证为独立步骤。
 
-- [ ] **Step 3：核对 Windows Docker 文档**
+- [x] **Step 3：核对 Windows Docker 文档**
 
 不新增 Swagger 文案；确认本机和局域网验收均指向 `/health`。只在需要统一措辞时做最小修改。
 
-- [ ] **Step 4：运行文档守卫确认通过**
+- [x] **Step 4：运行文档守卫确认通过**
 
 Run: Task 1 Step 2 命令。
 
@@ -85,7 +85,7 @@ Expected: PASS。
 
 ## Task 3：运行批次 1 全量验证
 
-- [ ] **Step 1：运行前端测试和类型检查**
+- [x] **Step 1：运行前端测试和类型检查**
 
 ```powershell
 pnpm --dir web test
@@ -102,7 +102,7 @@ dotnet test AcceptanceSpecSystem.sln -c Release --no-restore -m:1
 
 Expected: 0 失败；真实 AI、真实 MySQL 等条件测试保持跳过。
 
-- [ ] **Step 3：运行 warnings-as-errors Release 构建**
+- [x] **Step 3：运行 warnings-as-errors Release 构建**
 
 ```powershell
 dotnet build AcceptanceSpecSystem.sln -c Release --no-restore -p:TreatWarningsAsErrors=true
@@ -110,7 +110,7 @@ dotnet build AcceptanceSpecSystem.sln -c Release --no-restore -p:TreatWarningsAs
 
 Expected: 0 警告、0 错误。
 
-- [ ] **Step 4：检查提交范围**
+- [x] **Step 4：检查提交范围**
 
 ```powershell
 git status --short
@@ -130,7 +130,7 @@ Expected: 仅剩 1D 文档和守卫改动未提交；1A、1B、1C 各自已有�
 - Modify: `docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-1c-document-parsing.md`
 - Modify: `docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-1d-production-docs.md`
 
-- [ ] **Step 1：追加实施状态**
+- [x] **Step 1：追加实施状态**
 
 准确记录：
 
@@ -139,18 +139,18 @@ Expected: 仅剩 1D 文档和守卫改动未提交；1A、1B、1C 各自已有�
 - P1-05：合法空结果继续降级，损坏/I/O/未知解析异常改为业务错误并记录脱敏结构化日志。
 - P1-06：Production 继续关闭 Swagger，Docker/IIS 文档统一以 health 验收。
 
-- [ ] **Step 2：勾选四份计划的完成项**
+- [x] **Step 2：勾选四份计划的完成项**
 
 只勾选已经实际执行并验证的步骤；任何失败或未运行项保持未完成并在报告中说明。
 
-- [ ] **Step 3：提交 1D 和批次状态**
+- [x] **Step 3：提交 1D 和批次状态**
 
 ```powershell
 git add docs/DEPLOY-DOCKER.md docs/DEPLOY-IIS.md docs/DEPLOY-WINDOWS-DOCKER.md tests/AcceptanceSpecSystem.Api.Tests/ProductionDeploymentDocumentationTests.cs docs/项目深度审核与优化建议-2026-07-10.md docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-1a-pagination.md docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-1b-action-errors.md docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-1c-document-parsing.md docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-1d-production-docs.md
 git commit -m "docs: 对齐生产部署验收并记录批次1结果"
 ```
 
-- [ ] **Step 4：提交后最终检查**
+- [x] **Step 4：提交后最终检查**
 
 ```powershell
 git status --short

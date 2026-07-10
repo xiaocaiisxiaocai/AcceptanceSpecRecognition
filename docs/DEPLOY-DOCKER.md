@@ -38,12 +38,12 @@ docker compose logs -f api
 - 前端：`http://localhost`
 - API（直连排障）：`http://localhost:5290`
 - API 健康检查：`http://localhost:5290/health`
-- Swagger：`http://localhost/swagger`
 
 说明：
 
 - 前端通过 Nginx 反向代理到 API。
 - 反向代理已包含：`/api`、`/login`、`/refresh-token`、`/get-async-routes`。
+- Production 环境默认不提供 Swagger UI，API 启动以健康检查返回成功为准。
 
 ## 5. 默认容器与端口
 
