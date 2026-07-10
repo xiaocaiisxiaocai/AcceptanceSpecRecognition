@@ -53,6 +53,31 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
     }
 
     [Fact]
+    public async Task Recognize_WhenRepeatedLeafHeadersAreComplete_ShouldPreferSingleLeafHeaderRow()
+    {
+        var fileId = await UploadExcelAsync(
+            CreateRepeatedLeafHeaderExcelBytes(),
+            "smart-recognize-repeated-leaf-header.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+
+        table.GetProperty("headerRowIndex").GetInt32().Should().Be(7);
+        table.GetProperty("headerRowCount").GetInt32().Should().Be(1);
+        table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(8);
+        table.GetProperty("projectColumnIndex").GetInt32().Should().Be(2);
+        table.GetProperty("specificationColumnIndex").GetInt32().Should().Be(3);
+        table.GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(8);
+        table.GetProperty("remarkColumnIndex").GetInt32().Should().Be(9);
+    }
+
+    [Fact]
     public async Task Recognize_WhenHeaderStartsAfterLeadingDescriptionRows_ShouldDetectFullHeaderBlock()
     {
         var fileId = await UploadExcelAsync(
@@ -223,6 +248,50 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
         worksheet.Cell(3, 2).Value = "无划伤";
         worksheet.Cell(3, 3).Value = "目视 OK";
         worksheet.Cell(3, 4).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateRepeatedLeafHeaderExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("工作表1");
+        worksheet.Cell(1, 1).Value = "LTH D1翻板机设备表";
+        worksheet.Cell(2, 1).Value = "設備規範編號";
+        worksheet.Cell(3, 1).Value = "申請人";
+        worksheet.Cell(4, 1).Value = "廠商名稱";
+        worksheet.Cell(5, 1).Value = "廠商聯絡人";
+        worksheet.Cell(6, 1).Value = "一、功能／配備規格：";
+        worksheet.Range("B7:C7").Merge().Value = "功能項目";
+        worksheet.Range("D7:F7").Merge().Value = "規格";
+        worksheet.Range("G7:H7").Merge().Value = "測試方法&備註(請需求單位自填)";
+        worksheet.Range("I7:J7").Merge().Value = "廠商確認";
+        worksheet.Range("K7:L7").Merge().Value = "廠內定稿";
+        worksheet.Range("M7:N7").Merge().Value = "Final验收";
+        worksheet.Cell(7, 15).Value = "备注";
+        worksheet.Cell(8, 2).Value = "功能";
+        worksheet.Cell(8, 3).Value = "具體項目";
+        worksheet.Range("D8:F8").Merge().Value = "規格";
+        worksheet.Range("G8:H8").Merge().Value = "測試方法&備註(請需求單位自填)";
+        worksheet.Cell(8, 9).Value = "OK/NG";
+        worksheet.Cell(8, 10).Value = "Remark";
+        worksheet.Cell(8, 11).Value = "OK/NG";
+        worksheet.Cell(8, 12).Value = "Owner";
+        worksheet.Cell(8, 13).Value = "OK/NG";
+        worksheet.Cell(8, 14).Value = "Owner";
+        worksheet.Cell(9, 2).Value = "功能類";
+        worksheet.Cell(9, 3).Value = "生產板尺寸";
+        worksheet.Range("D9:F9").Merge().Value = "基板尺寸固定";
+        worksheet.Range("G9:H9").Merge().Value = "工作區域測試";
+        worksheet.Cell(9, 9).Value = "OK";
+        worksheet.Cell(9, 10).Value = "長邊進板";
+        worksheet.Cell(9, 11).Value = "待確認";
+        worksheet.Cell(9, 12).Value = "評估單位";
+        worksheet.Cell(9, 13).Value = "待確認二";
+        worksheet.Cell(9, 14).Value = "最終單位";
+        worksheet.Cell(9, 15).Value = "現場備註";
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

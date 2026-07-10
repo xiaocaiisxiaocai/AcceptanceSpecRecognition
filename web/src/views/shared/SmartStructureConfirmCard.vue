@@ -342,11 +342,11 @@ const emitConfirm = () => {
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="规格列" required>
+          <el-form-item label="项目列" :required="!state.isSpecificationOnly">
             <el-select
-              v-model="state.specificationColumnIndex"
-              :disabled="readonly"
-              placeholder="请选择规格列"
+              v-model="state.projectColumnIndex"
+              :disabled="readonly || state.isSpecificationOnly"
+              placeholder="请选择项目列"
               clearable
               style="width: 100%"
             >
@@ -360,11 +360,11 @@ const emitConfirm = () => {
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="项目列" :required="!state.isSpecificationOnly">
+          <el-form-item label="规格列" required>
             <el-select
-              v-model="state.projectColumnIndex"
-              :disabled="readonly || state.isSpecificationOnly"
-              placeholder="请选择项目列"
+              v-model="state.specificationColumnIndex"
+              :disabled="readonly"
+              placeholder="请选择规格列"
               clearable
               style="width: 100%"
             >

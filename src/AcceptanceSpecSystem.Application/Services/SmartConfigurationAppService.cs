@@ -172,9 +172,36 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             Math.Max(1, detectionTable.Rows.Count));
         var maxHeaderRowCount = Math.Clamp(_options.MaxHeaderRowCount, 1, 20);
         var anchorRowIndex = _intelligenceService.DetectHeaderRowIndex(detectionTable, scanRowLimit);
+        var repeatedLeafHeaderRowIndex = FindCompleteRepeatedLeafHeaderRow(
+            detectionTable,
+            anchorRowIndex,
+            maxHeaderRowCount,
+            headerKeywordMatcher);
+        if (repeatedLeafHeaderRowIndex.HasValue)
+        {
+            return new HeaderProfile(repeatedLeafHeaderRowIndex.Value, 1);
+        }
+
         var headerRowIndex = ExpandHeaderStart(detectionTable, anchorRowIndex, maxHeaderRowCount, headerKeywordMatcher);
         var headerRowCount = DetectHeaderRowCount(detectionTable, headerRowIndex, maxHeaderRowCount, headerKeywordMatcher);
         return new HeaderProfile(headerRowIndex, headerRowCount);
+    }
+
+    private static int? FindCompleteRepeatedLeafHeaderRow(
+        TableData tableData,
+        int anchorRowIndex,
+        int maxHeaderRowCount,
+        HeaderKeywordMatcher headerKeywordMatcher)
+    {
+        // 分组表的评分锚点可能落在分组行或首条数据行，需在同一表头窗口内寻找叶级标题。
+        var startRowIndex = Math.Max(0, anchorRowIndex - maxHeaderRowCount + 1);
+        var endRowIndex = Math.Min(tableData.Rows.Count - 1, anchorRowIndex + maxHeaderRowCount - 1);
+
+        return Enumerable.Range(startRowIndex, endRowIndex - startRowIndex + 1)
+            .Where(rowIndex => headerKeywordMatcher.IsCompleteRepeatedLeafHeader(tableData.Rows[rowIndex]))
+            .OrderByDescending(rowIndex => rowIndex)
+            .Select(rowIndex => (int?)rowIndex)
+            .FirstOrDefault();
     }
 
     private static TableData BuildHeaderDetectionTableData(TableData tableData)
@@ -1252,5 +1279,33 @@ internal sealed class HeaderKeywordMatcher
     public bool Contains(string value)
     {
         return _rules.Any(rule => ColumnHeaderRuleMatcher.IsMatch(value, rule));
+    }
+
+    public bool IsCompleteRepeatedLeafHeader(RowData row)
+    {
+        var values = row.Cells
+            .Select(cell => cell.Value?.Trim() ?? string.Empty)
+            .Where(value => value.Length > 0)
+            .ToList();
+        var matchedTypes = values
+            .SelectMany(value => _rules
+                .Where(rule => ColumnHeaderRuleMatcher.IsMatch(value, rule))
+                .Select(rule => rule.ColumnType))
+            .ToHashSet();
+        var requiredTypes = new[]
+        {
+            ColumnType.Project,
+            ColumnType.Specification,
+            ColumnType.Acceptance,
+            ColumnType.Remark
+        };
+        if (requiredTypes.Any(type => !matchedTypes.Contains(type)))
+        {
+            return false;
+        }
+
+        return values
+            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .Any(group => group.Count() > 1 && Contains(group.Key));
     }
 }

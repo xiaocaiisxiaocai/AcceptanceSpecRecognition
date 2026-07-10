@@ -40,6 +40,19 @@ test("智能结构确认卡片应支持默认折叠摘要态，减少多表确�
   assert.match(confirmCardSource, /v-show="detailVisible"/);
 });
 
+test("智能结构确认卡片应把项目列放在规格列之前", () => {
+  const formStart = confirmCardSource.indexOf(
+    '<el-form\n      v-show="detailVisible"'
+  );
+  const formEnd = confirmCardSource.indexOf("</el-form>", formStart);
+  const formSource = confirmCardSource.slice(formStart, formEnd);
+
+  assert.ok(formStart >= 0 && formEnd > formStart);
+  assert.ok(
+    formSource.indexOf('label="项目列"') < formSource.indexOf('label="规格列"')
+  );
+});
+
 test("数据导入确认页默认只展开第一张待确认表，避免多张表同时展开撑满首屏", () => {
   assert.match(dataImportSource, /firstNeedConfirmTableIndex/);
   assert.match(

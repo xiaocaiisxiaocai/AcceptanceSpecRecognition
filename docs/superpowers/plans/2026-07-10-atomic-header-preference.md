@@ -43,7 +43,7 @@ Expected: FAIL，旧逻辑返回更早的表头行和多行表头。
 
 - [ ] **Step 1: 增加最小识别条件**
 
-在 `HeaderKeywordMatcher` 内基于现有规则判断候选行：
+在 `HeaderKeywordMatcher` 内基于现有规则判断候选行，并在评分锚点前后的既有表头窗口内查找：
 
 ```csharp
 public bool IsCompleteRepeatedLeafHeader(RowData row)
@@ -54,9 +54,10 @@ public bool IsCompleteRepeatedLeafHeader(RowData row)
 - [ ] **Step 2: 在表头范围检测入口优先返回单行**
 
 ```csharp
-if (headerKeywordMatcher.IsCompleteRepeatedLeafHeader(detectionTable.Rows[anchorRowIndex]))
+var repeatedLeafHeaderRowIndex = FindCompleteRepeatedLeafHeaderRow(...);
+if (repeatedLeafHeaderRowIndex.HasValue)
 {
-    return new HeaderProfile(anchorRowIndex, 1);
+    return new HeaderProfile(repeatedLeafHeaderRowIndex.Value, 1);
 }
 ```
 
