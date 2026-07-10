@@ -905,29 +905,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion> suggestions,
         bool forceNeedConfirm = true)
     {
-        return new SmartConfigurationRecognizedTable
+        return table with
         {
-            TableIndex = table.TableIndex,
-            TableName = table.TableName,
-            Headers = table.Headers,
-            HeaderRowIndex = table.HeaderRowIndex,
-            HeaderRowCount = table.HeaderRowCount,
-            DataStartRowIndex = table.DataStartRowIndex,
-            DataEndRowIndex = table.DataEndRowIndex,
-            ProjectColumnIndex = table.ProjectColumnIndex,
-            SpecificationColumnIndex = table.SpecificationColumnIndex,
-            AcceptanceColumnIndex = table.AcceptanceColumnIndex,
-            RemarkColumnIndex = table.RemarkColumnIndex,
-            IsSpecificationOnly = table.IsSpecificationOnly,
-            Confidence = table.Confidence,
-            Source = table.Source,
             Decision = forceNeedConfirm ? "NeedConfirm" : table.Decision,
-            TableKind = table.TableKind,
-            Recommendation = table.Recommendation,
-            RankingScore = table.RankingScore,
-            SkipReason = table.SkipReason,
-            Issues = table.Issues,
-            Fields = table.Fields,
             SemanticRecallSuggestions = suggestions.ToList()
         };
     }

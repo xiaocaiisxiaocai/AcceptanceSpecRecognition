@@ -228,30 +228,13 @@ internal static class SmartConfigurationTableRoutingService
         SmartConfigurationRecognizedTable table,
         SmartConfigurationTableRoutingDecision route)
     {
-        return new SmartConfigurationRecognizedTable
+        return table with
         {
-            TableIndex = table.TableIndex,
-            TableName = table.TableName,
-            Headers = table.Headers,
-            HeaderRowIndex = table.HeaderRowIndex,
-            HeaderRowCount = table.HeaderRowCount,
-            DataStartRowIndex = table.DataStartRowIndex,
-            DataEndRowIndex = table.DataEndRowIndex,
-            ProjectColumnIndex = table.ProjectColumnIndex,
-            SpecificationColumnIndex = table.SpecificationColumnIndex,
-            AcceptanceColumnIndex = table.AcceptanceColumnIndex,
-            RemarkColumnIndex = table.RemarkColumnIndex,
-            IsSpecificationOnly = table.IsSpecificationOnly,
-            Confidence = table.Confidence,
-            Source = table.Source,
-            Decision = table.Decision,
             TableKind = route.TableKind,
             Recommendation = route.Recommendation,
             RankingScore = route.RankingScore,
             SkipReason = route.SkipReason,
-            Issues = route.Issues.ToList(),
-            Fields = table.Fields,
-            SemanticRecallSuggestions = table.SemanticRecallSuggestions
+            Issues = route.Issues.ToList()
         };
     }
 

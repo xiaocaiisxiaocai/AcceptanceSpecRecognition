@@ -14,7 +14,7 @@ public sealed class SmartConfigurationRecognizeResult
     public List<SmartConfigurationRecognizedTable> Tables { get; init; } = [];
 }
 
-public sealed class SmartConfigurationRecognizedTable
+public sealed record SmartConfigurationRecognizedTable
 {
     public int TableIndex { get; init; }
 

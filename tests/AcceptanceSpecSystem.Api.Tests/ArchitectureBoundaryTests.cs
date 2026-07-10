@@ -517,6 +517,23 @@ public class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void SmartConfigurationRecognizedTableCopies_ShouldUseRecordWithExpressions()
+    {
+        var modelContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/SmartConfigurationRecognizeModels.cs");
+        var appServiceContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService.cs");
+        var routingContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/SmartConfigurationTableRoutingService.cs");
+
+        modelContent.Should().Contain("public sealed record SmartConfigurationRecognizedTable",
+            "响应 DTO 需要依靠 record 复制构造器自动保留未来新增字段");
+        appServiceContent.Should().MatchRegex(
+            @"CopyWithSemanticRecallSuggestions\([\s\S]*?return\s+table\s+with\s*\{",
+            "语义召回复制只应覆盖变化字段");
+        routingContent.Should().MatchRegex(
+            @"CopyWithRouting\([\s\S]*?return\s+table\s+with\s*\{",
+            "路由复制只应覆盖变化字段");
+    }
+
+    [Fact]
     public void PermissionAndNavigationMetadata_ShouldUseSharedManifest_AndNotDependOnAsyncRoutesRuntime()
     {
         var repositoryRoot = GetRepositoryRoot();
