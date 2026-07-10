@@ -61,22 +61,26 @@ docker compose logs -f api
 
 ## 7. 关键环境变量
 
-部署默认值写在 `.env.docker`，当前保持与旧版 `docker-compose.yml` 一致：
+从 `.env.docker.example` 创建本地 `.env.docker` 后，必须填写以下敏感配置：
 
-- `MYSQL_DATABASE=acceptance_spec_ai_equivalence_adjudication_db`
-- `MYSQL_USER=acceptance`
-- `MYSQL_PASSWORD=acceptance123`
-- `JWT_SIGNING_KEY=AcceptanceSpec_DockerJwtKey_2026_ReplaceWithLongRandom`
-- `AUTH_SEED_ADMIN_PASSWORD=Admin@20260403`
-- `AUTH_SEED_COMMON_PASSWORD=Common@20260403`
-- `Cors__AllowedOrigins__0`
-- `Cors__AllowedOrigins__1`
+- `MYSQL_ROOT_PASSWORD`
+- `MYSQL_PASSWORD`
+- `JWT_SIGNING_KEY`（至少 32 个字符的随机值）
+- `AUTH_SEED_ADMIN_PASSWORD`
+- `AUTH_SEED_COMMON_PASSWORD`
+
+非敏感默认配置为 `MYSQL_DATABASE=acceptance_spec_db`、`MYSQL_USER=acceptance`。敏感值为空时不得部署。
+
+其他常用配置：
+
+- `CORS_ORIGIN_0`
+- `CORS_ORIGIN_1`
 
 说明：
 
 - 启动命令必须带 `--env-file .env.docker`，否则 Docker Compose 会把未设置变量解析为空。
 - 默认建议通过 `http://localhost` 走 Nginx 同源访问。
-- 如果需要前后端分站访问，再把 `Cors__AllowedOrigins__*` 改成你的实际来源地址；不要使用通配符 `*`。
+- 如果需要前后端分站访问，再把 `CORS_ORIGIN_*` 改成你的实际来源地址；不要使用通配符 `*`。
 
 ## 8. 停止与清理
 

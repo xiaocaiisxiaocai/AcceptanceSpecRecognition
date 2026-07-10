@@ -8,6 +8,23 @@
 dotnet run --project src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj -c Debug --urls http://localhost:5291
 ```
 
+首次启动前，在已被 Git 忽略的
+`src/AcceptanceSpecSystem.Api/appsettings.Development.json` 中配置本地连接串和开发种子用户口令：
+
+```json
+{
+    "ConnectionStrings": {
+        "DefaultConnection": "Server=localhost;Database=acceptance_spec_db;User=root;Password=REPLACE_WITH_LOCAL_PASSWORD;CharSet=utf8mb4;"
+    },
+    "AuthSeed": {
+        "AdminPassword": "REPLACE_WITH_LOCAL_ADMIN_PASSWORD",
+        "CommonPassword": "REPLACE_WITH_LOCAL_COMMON_PASSWORD"
+    }
+}
+```
+
+本地配置不得提交到 Git，也不要复用共享测试或生产环境口令。
+
 健康检查：
 
 ```powershell
@@ -71,4 +88,3 @@ dotnet run --project tools/E2ETest/E2ETest.csproj -c Debug -- `
   --acceptanceColumnIndex 2 `
   --remarkColumnIndex 3
 ```
-

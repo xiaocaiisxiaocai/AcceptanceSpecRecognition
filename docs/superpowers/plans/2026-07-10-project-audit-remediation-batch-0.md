@@ -32,6 +32,7 @@
 - `src/AcceptanceSpecSystem.Api/Properties/launchSettings.json`：删除固定本地连接串。
 - `docs/DEV.md`：说明本地开发连接串配置方式。
 - `docs/DEPLOY-DOCKER.md`：删除固定口令示例，明确敏感值必须填写。
+- `docs/DEPLOY-WINDOWS-DOCKER.md`：同步删除 Windows 部署说明中的固定口令。
 
 **仅解除 Git 跟踪、保留物理文件：**
 
@@ -249,7 +250,7 @@ git ls-files huaian_specs.json huaian_specs_500.json '淮安庆鼎_智能填充�
 
 Expected: `Test-Path` 为 `True`，两个 `git ls-files` 命令无输出。
 
-- [ ] **Step 4：提交仓库资产治理**
+- [x] **Step 4：提交仓库资产治理**
 
 ```powershell
 git add .gitignore `
@@ -272,7 +273,7 @@ git commit -m "chore: 收敛本地样本与浏览器产物"
 
 - Create: `tests/AcceptanceSpecSystem.Api.Tests/DevelopmentConfigurationGuardTests.cs`
 
-- [ ] **Step 1：编写失败测试**
+- [x] **Step 1：编写失败测试**
 
 ```csharp
 [Fact]
@@ -291,7 +292,7 @@ public void TrackedExamples_ShouldNotContainReusableCredentials()
 }
 ```
 
-- [ ] **Step 2：运行测试确认失败**
+- [x] **Step 2：运行测试确认失败**
 
 Run:
 
@@ -309,8 +310,9 @@ Expected: FAIL，当前示例包含固定值且 launchSettings 含连接串。
 - Modify: `src/AcceptanceSpecSystem.Api/Properties/launchSettings.json`
 - Modify: `docs/DEV.md`
 - Modify: `docs/DEPLOY-DOCKER.md`
+- Modify: `docs/DEPLOY-WINDOWS-DOCKER.md`
 
-- [ ] **Step 1：将敏感示例值置空**
+- [x] **Step 1：将敏感示例值置空**
 
 保留以下键但值为空：
 
@@ -324,7 +326,7 @@ AUTH_SEED_ADMIN_PASSWORD=
 AUTH_SEED_COMMON_PASSWORD=
 ```
 
-- [ ] **Step 2：删除 launchSettings 固定连接串**
+- [x] **Step 2：删除 launchSettings 固定连接串**
 
 `environmentVariables` 仅保留：
 
@@ -332,18 +334,19 @@ AUTH_SEED_COMMON_PASSWORD=
 "ASPNETCORE_ENVIRONMENT": "Development"
 ```
 
-- [ ] **Step 3：更新开发和部署文档**
+- [x] **Step 3：更新开发和部署文档**
 
 - `docs/DEV.md` 增加被忽略的 `appsettings.Development.json` 配置示例，密码使用 `REPLACE_WITH_LOCAL_PASSWORD` 占位符。
 - `docs/DEPLOY-DOCKER.md` 不再展示任何固定密码，明确复制 `.env.docker.example` 后必须填写 5 个敏感键，否则容器启动或健康检查应失败。
+- `docs/DEPLOY-WINDOWS-DOCKER.md` 使用相同的空值和稳定数据库名规则。
 
-- [ ] **Step 4：运行配置守卫确认通过**
+- [x] **Step 4：运行配置守卫确认通过**
 
 Run: Task 4 的定向测试命令。
 
 Expected: PASS。
 
-- [ ] **Step 5：运行批次 0 回归**
+- [x] **Step 5：运行批次 0 回归**
 
 Run:
 
@@ -364,7 +367,7 @@ Expected: 0 警告、0 错误。
 - [ ] **Step 6：提交配置治理**
 
 ```powershell
-git add .env.docker.example src/AcceptanceSpecSystem.Api/Properties/launchSettings.json docs/DEV.md docs/DEPLOY-DOCKER.md tests/AcceptanceSpecSystem.Api.Tests/DevelopmentConfigurationGuardTests.cs
+git add .env.docker.example src/AcceptanceSpecSystem.Api/Properties/launchSettings.json docs/DEV.md docs/DEPLOY-DOCKER.md docs/DEPLOY-WINDOWS-DOCKER.md tests/AcceptanceSpecSystem.Api.Tests/DevelopmentConfigurationGuardTests.cs
 git commit -m "chore: 清理可复用开发示例口令"
 ```
 

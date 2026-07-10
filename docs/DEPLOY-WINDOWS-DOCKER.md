@@ -117,20 +117,18 @@ Invoke-WebRequest http://localhost:5290/health
 - API：`5290`
 - MySQL：仅容器内访问，不映射到宿主机
 
-## 7. 默认配置说明
+## 7. 配置说明
 
 当前部署配置由 `docker-compose.yml` 和 `.env.docker` 共同提供，不需要额外改 `appsettings.Production.json`。
 
-关键点如下：
+非敏感默认配置如下：
 
-- 数据库名：`acceptance_spec_ai_equivalence_adjudication_db`
+- 数据库名：`acceptance_spec_db`
 - 数据库用户：`acceptance`
-- 数据库密码：`acceptance123`
-- JWT 密钥：`AcceptanceSpec_DockerJwtKey_2026_ReplaceWithLongRandom`
-- 默认管理员密码：`Admin@20260403`
-- 默认普通用户密码：`Common@20260403`
 - API 端口：`5290`
 - 前端端口：`80`
+
+从 `.env.docker.example` 创建 `.env.docker` 后，必须填写数据库 root/应用用户密码、JWT 密钥、管理员密码和普通用户密码。敏感值为空时不得部署。
 
 启动命令必须带 `--env-file .env.docker`，否则 Docker Compose 会把未设置变量解析为空，导致 MySQL 或 API 启动失败。
 
