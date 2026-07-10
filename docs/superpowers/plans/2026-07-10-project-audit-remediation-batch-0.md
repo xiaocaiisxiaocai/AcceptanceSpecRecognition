@@ -15,6 +15,7 @@
 **创建：**
 
 - `tools/Fixtures/synthetic_specs.json`：不含客户信息的工具默认输入。
+- `tests/AcceptanceSpecSystem.Api.Tests/TestAssemblyConfiguration.cs`：限制 API 测试集合并行度，消除全量运行时资源争用。
 - `tests/AcceptanceSpecSystem.Api.Tests/RepositoryHygieneTests.cs`：仓库资产和工具默认值守卫。
 - `tests/AcceptanceSpecSystem.Api.Tests/DevelopmentConfigurationGuardTests.cs`：开发/部署示例配置守卫。
 
@@ -38,6 +39,45 @@
 - `huaian_specs.json`
 - `huaian_specs_500.json`
 - `淮安庆鼎_智能填充测试说明.md`
+
+## Task 0：稳定 API 全量测试基线
+
+**Files:**
+
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/TestAssemblyConfiguration.cs`
+
+- [x] **Step 1：运行全量测试并确认红灯**
+
+Run:
+
+```powershell
+dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.csproj -c Debug --no-restore
+```
+
+Observed: 连续两次全量运行分别出现 1 个 10 秒超时，以及 16 个 `IServiceProvider/TestServer` 已释放的级联失败；相关测试单独运行和 22 项组合运行均通过，问题只在高并发全量运行出现。
+
+- [x] **Step 2：限制测试集合并行度**
+
+创建程序集级配置：
+
+```csharp
+using Xunit;
+
+[assembly: CollectionBehavior(MaxParallelThreads = 4)]
+```
+
+- [x] **Step 3：连续验证三次全量测试**
+
+Run: Step 1 命令，连续执行三次。
+
+Expected: 每次 0 失败；条件测试保持跳过。
+
+- [ ] **Step 4：提交测试基线修复**
+
+```powershell
+git add tests/AcceptanceSpecSystem.Api.Tests/TestAssemblyConfiguration.cs docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-0.md
+git commit -m "test: 限制API测试集合并行度"
+```
 
 ## Task 1：建立仓库资产失败守卫
 
