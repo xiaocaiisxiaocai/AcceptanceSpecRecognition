@@ -364,7 +364,7 @@ dotnet build AcceptanceSpecSystem.sln -c Release --no-restore -p:TreatWarningsAs
 
 Expected: 0 警告、0 错误。
 
-- [ ] **Step 6：提交配置治理**
+- [x] **Step 6：提交配置治理**
 
 ```powershell
 git add .env.docker.example src/AcceptanceSpecSystem.Api/Properties/launchSettings.json docs/DEV.md docs/DEPLOY-DOCKER.md docs/DEPLOY-WINDOWS-DOCKER.md tests/AcceptanceSpecSystem.Api.Tests/DevelopmentConfigurationGuardTests.cs
@@ -373,7 +373,7 @@ git commit -m "chore: 清理可复用开发示例口令"
 
 ## Task 6：批次收口
 
-- [ ] **Step 1：检查工作树和提交范围**
+- [x] **Step 1：检查工作树和提交范围**
 
 ```powershell
 git status --short
@@ -383,7 +383,7 @@ git diff HEAD~2 HEAD --check
 
 Expected: 工作树干净；最近提交只包含计划文档和批次 0 两个主题提交；diff check 无输出。
 
-- [ ] **Step 2：更新审核报告状态**
+- [x] **Step 2：更新审核报告状态**
 
 在 `docs/项目深度审核与优化建议-2026-07-10.md` 追加实施状态，准确记录：
 
@@ -391,7 +391,7 @@ Expected: 工作树干净；最近提交只包含计划文档和批次 0 两个�
 - P1-01 当前树已解除跟踪并由合成夹具替代，但旧历史未清理。
 - P2-12 已完成配置治理。
 
-- [ ] **Step 3：提交状态记录**
+- [x] **Step 3：提交状态记录**
 
 ```powershell
 git add docs/项目深度审核与优化建议-2026-07-10.md
