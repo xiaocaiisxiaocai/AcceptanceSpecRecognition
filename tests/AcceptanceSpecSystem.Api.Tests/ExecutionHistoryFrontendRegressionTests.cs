@@ -39,11 +39,16 @@ public class ExecutionHistoryFrontendRegressionTests
         pageContent.Should().Contain("getExecutionHistoryList");
         pageContent.Should().Contain("getExecutionHistoryDetail");
 
-        var scoreDetailDialogContent = ReadRepositoryFile(
-            "web/src/views/smart-fill/components/ScoreDetailDialog.vue");
-        scoreDetailDialogContent.Should().Contain("ScoreDetailDecisionSummarySection");
-        scoreDetailDialogContent.Should().Contain("ScoreDetailBestMatchSection");
-        scoreDetailDialogContent.Should().Contain("ScoreDetailCandidateList");
+        var smartFillPlaybackContent = ReadRepositoryFile(
+            "web/src/views/other/execution-history/components/ExecutionHistorySmartFillPlayback.vue");
+        smartFillPlaybackContent.Should().Contain("statusOptions");
+        smartFillPlaybackContent.Should().Contain("getMatchOriginText");
+        smartFillPlaybackContent.Should().Contain("完全匹配");
+        smartFillPlaybackContent.Should().Contain("AI匹配");
+        smartFillPlaybackContent.Should().Contain("未采用");
+        smartFillPlaybackContent.Should().Contain("未匹配");
+        smartFillPlaybackContent.Should().Contain("executionSnapshot.finalAcceptance");
+        smartFillPlaybackContent.Should().Contain("executionSnapshot.finalRemark");
 
         var batchReplyContent = ReadRepositoryFile(
             "web/src/views/other/execution-history/components/ExecutionHistoryBatchReplyDetail.vue");

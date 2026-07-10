@@ -123,7 +123,7 @@ public class RuleBasedMappingStrategyTests
     [Theory]
     [InlineData("是否响应", "供应商说明")]
     [InlineData("是否相应", "供应商说明")]
-    public async Task IdentifyAsync_WithG5PsdMetadataColumns_ShouldMapBusinessColumns(
+    public async Task IdentifyAsync_WithSystemMetadataEncodingColumns_ShouldMapBusinessColumns(
         string acceptanceHeader,
         string remarkHeader)
     {
@@ -171,7 +171,7 @@ public class RuleBasedMappingStrategyTests
     }
 
     [Fact]
-    public async Task IdentifyAsync_WithG5PsdAcceptanceMetadataAndUnknownBusinessAcceptanceHeader_ShouldNotMapMetadataAsAcceptance()
+    public async Task IdentifyAsync_WithSystemAcceptanceMetadataAndUnknownBusinessAcceptanceHeader_ShouldNotMapMetadataAsAcceptance()
     {
         var strategy = CreateStrategy();
 

@@ -21,6 +21,19 @@ const repositoryRoot = getRepositoryRoot();
 const readProjectFile = (relativePath: string) =>
   readFileSync(resolve(repositoryRoot, relativePath), "utf8");
 
+const getTableColumnFragment = (source: string, label: string) => {
+  const labelIndex = source.indexOf(`label="${label}"`);
+  assert.notEqual(labelIndex, -1, `未找到 ${label} 列`);
+
+  const startIndex = source.lastIndexOf("<el-table-column", labelIndex);
+  const closingTag = "</el-table-column>";
+  const endIndex = source.indexOf(closingTag, labelIndex);
+  assert.notEqual(startIndex, -1, `未找到 ${label} 列起始标签`);
+  assert.notEqual(endIndex, -1, `未找到 ${label} 列结束标签`);
+
+  return source.slice(startIndex, endIndex + closingTag.length);
+};
+
 test("列映射规则新增弹窗默认匹配模式应为相等", () => {
   const source = readProjectFile(
     "web/src/views/config/column-mapping-rules/index.vue"
@@ -56,14 +69,32 @@ test("列映射规则页优先级输入框应与列宽匹配，避免被挤压",
   const source = readProjectFile(
     "web/src/views/config/column-mapping-rules/index.vue"
   );
+  const priorityColumn = getTableColumnFragment(source, "优先级");
 
   assert.match(
-    source,
-    /<el-table-column[\s\S]*label="优先级"[\s\S]*width="(?:140|min\(140px, calc\(100vw - 32px\)\)")/
+    priorityColumn,
+    /width="(?:140|min\(140px, calc\(100vw - 32px\)\))"/
   );
-  assert.match(source, /<el-input-number[\s\S]*class="table-number-input"/);
+  assert.match(priorityColumn, /class="table-number-input"/);
   assert.match(source, /\.table-number-input\s*\{/);
   assert.match(source, /width:\s*100%;/);
+});
+
+test("优先级列宽守卫不得借用相邻列的宽度", () => {
+  const source = `
+    <el-table-column label="客户域" width="min(140px, calc(100vw - 32px))">
+    </el-table-column>
+    <el-table-column label="优先级" width="90">
+      <el-input-number class="table-number-input" />
+    </el-table-column>
+  `;
+
+  const priorityColumn = getTableColumnFragment(source, "优先级");
+
+  assert.doesNotMatch(
+    priorityColumn,
+    /width="(?:140|min\(140px, calc\(100vw - 32px\)\))"/
+  );
 });
 
 test("列映射规则页应提供恢复内置默认词入口", () => {
