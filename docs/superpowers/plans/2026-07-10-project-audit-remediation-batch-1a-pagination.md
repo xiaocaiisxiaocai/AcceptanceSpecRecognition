@@ -35,7 +35,7 @@
 - Create: `web/src/utils/paged-options.test.ts`
 - Create: `web/src/utils/paged-options.ts`
 
-- [ ] **Step 1：编写 251 条跨页失败测试**
+- [x] **Step 1：编写 251 条跨页失败测试**
 
 测试回调按 `pageSize = 200` 返回 200 条和 51 条，断言请求页为 `[1, 2]`、结果长度为 251、ID 顺序为 1 到 251。先从尚不存在的 `loadAllPagedItems` 导入，使测试红灯。
 
@@ -46,7 +46,7 @@
 - 非首页空页、响应页码不一致、`totalPages > 1000`、业务 `code != 0` 均拒绝并携带可读消息。
 - 已取消的 `AbortSignal` 不调用请求回调并抛出取消异常。
 
-- [ ] **Step 2：运行测试确认失败**
+- [x] **Step 2：运行测试确认失败**
 
 Run:
 
@@ -56,7 +56,7 @@ pnpm --dir web test:vitest -- src/utils/paged-options.test.ts
 
 Expected: FAIL，原因是 `paged-options.ts` 或 `loadAllPagedItems` 不存在。
 
-- [ ] **Step 3：实现最小加载器**
+- [x] **Step 3：实现最小加载器**
 
 实现公开契约：
 
@@ -80,7 +80,7 @@ export async function loadAllPagedItems<T, TKey>(
 
 实现要求：默认 `pageSize = 200`、`maxPages = 1000`；每页前调用 `signal?.throwIfAborted()`；业务码非 0 直接抛错；合法空集合只接受 total/totalPages/items 同时为空；用 `Map<TKey, T>` 保留首次出现顺序；任何异常分页元数据不得返回部分结果。
 
-- [ ] **Step 4：运行加载器测试确认通过**
+- [x] **Step 4：运行加载器测试确认通过**
 
 Run: Step 2 命令。
 
@@ -92,7 +92,7 @@ Expected: 全部 PASS。
 
 - Create: `tests/AcceptanceSpecSystem.Api.Tests/MasterDataPaginationContractTests.cs`
 
-- [ ] **Step 1：编写 251 条 API 契约测试**
+- [x] **Step 1：编写 251 条 API 契约测试**
 
 使用 `ApiWebApplicationFactory`，通过作用域中的 `AppDbContext` 分别写入带唯一前缀的 251 个 `Customer`、`Process`、`MachineModel`。每个端点使用该前缀作为 keyword 请求：
 
@@ -107,7 +107,7 @@ GET /api/machine-models?page=2&pageSize=200&keyword=<prefix>
 
 对每类断言第一页 200 条、第二页 51 条、`total = 251`、`totalPages = 2`、`pageSize = 200`、两页 ID 无重复。
 
-- [ ] **Step 2：运行 API 契约测试**
+- [x] **Step 2：运行 API 契约测试**
 
 Run:
 
@@ -129,7 +129,7 @@ Expected: PASS，证明前端应按 200 条分页遍历，而不是继续传入 
 - Modify: `web/src/views/data-import/composables/useDataImportTarget.ts`
 - Create: `web/tests/master-data-options-pagination.test.ts`
 
-- [ ] **Step 1：编写页面接入失败守卫**
+- [x] **Step 1：编写页面接入失败守卫**
 
 Node test 读取三个业务入口，断言：
 
@@ -137,7 +137,7 @@ Node test 读取三个业务入口，断言：
 - 不再出现主数据列表的 `pageSize: 1000` 或客户 `pageSize: 100` 单页加载。
 - 智能填充和 MatchConfig 在销毁时取消请求；数据导入 composable 使用 `onScopeDispose` 取消请求。
 
-- [ ] **Step 2：运行接入守卫确认失败**
+- [x] **Step 2：运行接入守卫确认失败**
 
 Run:
 
@@ -147,7 +147,7 @@ pnpm --dir web test:node -- tests/master-data-options-pagination.test.ts
 
 Expected: FAIL，当前三个入口仍直接请求第一页。
 
-- [ ] **Step 3：扩展列表 API 的可选配置**
+- [x] **Step 3：扩展列表 API 的可选配置**
 
 在 `customer.ts` 导出 `PagedListRequestOptions`，三个 API 使用一致签名：
 
@@ -163,7 +163,7 @@ export const getCustomerList = (
 
 Process 和 MachineModel 保持相同模式，不改变已有单参数调用。
 
-- [ ] **Step 4：替换三个页面的主数据加载**
+- [x] **Step 4：替换三个页面的主数据加载**
 
 统一调用模式：
 
@@ -179,7 +179,7 @@ loadAllPagedItems(
 
 Smart Fill 的三个并行请求共用一次范围加载 controller；MatchConfig 和 data import 对客户、制程、机型分别管理 controller。销毁或 scope dispose 时统一 abort。
 
-- [ ] **Step 5：运行前端定向测试和类型检查**
+- [x] **Step 5：运行前端定向测试和类型检查**
 
 Run:
 
@@ -191,7 +191,7 @@ pnpm --dir web typecheck
 
 Expected: 全部 PASS。
 
-- [ ] **Step 6：运行 1A 回归**
+- [x] **Step 6：运行 1A 回归**
 
 Run:
 
@@ -202,7 +202,7 @@ dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.
 
 Expected: 全部 PASS。
 
-- [ ] **Step 7：提交 1A**
+- [x] **Step 7：提交 1A**
 
 ```powershell
 git add web/src/utils/paged-options.ts web/src/utils/paged-options.test.ts web/tests/master-data-options-pagination.test.ts web/src/api/customer.ts web/src/api/process.ts web/src/api/machine-model.ts web/src/views/smart-fill/index.vue web/src/views/smart-fill/components/MatchConfig.vue web/src/views/data-import/composables/useDataImportTarget.ts tests/AcceptanceSpecSystem.Api.Tests/MasterDataPaginationContractTests.cs docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-1a-pagination.md

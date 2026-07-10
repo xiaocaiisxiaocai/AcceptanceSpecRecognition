@@ -25,6 +25,10 @@ export interface PagedRequest {
   keyword?: string;
 }
 
+export interface PagedListRequestOptions {
+  signal?: AbortSignal;
+}
+
 /** 客户类型 */
 export interface Customer {
   id: number;
@@ -47,9 +51,13 @@ export interface UpdateCustomerRequest {
 const baseUrl = "/api/customers";
 
 /** 获取客户列表 */
-export const getCustomerList = (params?: PagedRequest) => {
+export const getCustomerList = (
+  params?: PagedRequest,
+  options?: PagedListRequestOptions
+) => {
   return http.request<ApiResponse<PagedData<Customer>>>("get", baseUrl, {
-    params
+    params,
+    signal: options?.signal
   });
 };
 

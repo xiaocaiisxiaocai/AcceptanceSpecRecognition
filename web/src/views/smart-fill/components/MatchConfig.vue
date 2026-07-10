@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   MAX_RECALL_TOP_K,
@@ -17,6 +17,8 @@ import {
   type AiServiceConfig
 } from "@/api/ai-service";
 import { ElMessage } from "element-plus";
+import { getRequestErrorMessage } from "@/utils/error-message";
+import { loadAllPagedItems } from "@/utils/paged-options";
 
 const props = defineProps<{
   modelValue?: MatchConfig;
@@ -47,6 +49,9 @@ const loadingCustomers = ref(false);
 const loadingProcesses = ref(false);
 const loadingMachineModels = ref(false);
 const loadingAiServices = ref(false);
+let customerOptionsController: AbortController | undefined;
+let processOptionsController: AbortController | undefined;
+let machineModelOptionsController: AbortController | undefined;
 const embeddingServices = ref<AiServiceConfig[]>([]);
 const llmServices = ref<AiServiceConfig[]>([]);
 const allowLlm = computed(() => props.allowLlm !== false);
@@ -164,46 +169,78 @@ watch(
 
 // 加载客户列表
 const loadCustomers = async () => {
+  customerOptionsController?.abort();
+  const controller = new AbortController();
+  customerOptionsController = controller;
   loadingCustomers.value = true;
   try {
-    const res = await getCustomerList({ page: 1, pageSize: 100 });
-    if (res.code === 0) {
-      customers.value = res.data.items;
+    const items = await loadAllPagedItems(
+      (page, pageSize, signal) =>
+        getCustomerList({ page, pageSize }, { signal }),
+      { getKey: item => item.id, signal: controller.signal }
+    );
+    if (customerOptionsController === controller) customers.value = items;
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      ElMessage.error(getRequestErrorMessage(error, "加载客户列表失败"));
     }
-  } catch {
-    ElMessage.error("加载客户列表失败");
   } finally {
-    loadingCustomers.value = false;
+    if (customerOptionsController === controller) {
+      customerOptionsController = undefined;
+      loadingCustomers.value = false;
+    }
   }
 };
 
 // 加载制程列表
 const loadProcesses = async () => {
+  processOptionsController?.abort();
+  const controller = new AbortController();
+  processOptionsController = controller;
   loadingProcesses.value = true;
   try {
-    const res = await getProcessList({ page: 1, pageSize: 1000 });
-    if (res.code === 0) {
-      processes.value = res.data.items;
+    const items = await loadAllPagedItems(
+      (page, pageSize, signal) =>
+        getProcessList({ page, pageSize }, { signal }),
+      { getKey: item => item.id, signal: controller.signal }
+    );
+    if (processOptionsController === controller) processes.value = items;
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      ElMessage.error(getRequestErrorMessage(error, "加载制程列表失败"));
     }
-  } catch {
-    ElMessage.error("加载制程列表失败");
   } finally {
-    loadingProcesses.value = false;
+    if (processOptionsController === controller) {
+      processOptionsController = undefined;
+      loadingProcesses.value = false;
+    }
   }
 };
 
 // 加载机型列表
 const loadMachineModels = async () => {
+  machineModelOptionsController?.abort();
+  const controller = new AbortController();
+  machineModelOptionsController = controller;
   loadingMachineModels.value = true;
   try {
-    const res = await getMachineModelList({ page: 1, pageSize: 1000 });
-    if (res.code === 0) {
-      machineModels.value = res.data.items;
+    const items = await loadAllPagedItems(
+      (page, pageSize, signal) =>
+        getMachineModelList({ page, pageSize }, { signal }),
+      { getKey: item => item.id, signal: controller.signal }
+    );
+    if (machineModelOptionsController === controller) {
+      machineModels.value = items;
     }
-  } catch {
-    ElMessage.error("加载机型列表失败");
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      ElMessage.error(getRequestErrorMessage(error, "加载机型列表失败"));
+    }
   } finally {
-    loadingMachineModels.value = false;
+    if (machineModelOptionsController === controller) {
+      machineModelOptionsController = undefined;
+      loadingMachineModels.value = false;
+    }
   }
 };
 
@@ -343,6 +380,12 @@ onMounted(() => {
   loadProcesses();
   loadMachineModels();
   loadAiServices();
+});
+
+onBeforeUnmount(() => {
+  customerOptionsController?.abort();
+  processOptionsController?.abort();
+  machineModelOptionsController?.abort();
 });
 
 // 暴露方法
@@ -962,7 +1005,7 @@ export default {
 
 /* 减少form-inline-tip的上方间距 */
 .match-config .form-inline-tip {
-  margin-top: 0px !important;
-  margin-bottom: 0px !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
 }
 </style>

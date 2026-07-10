@@ -1,4 +1,4 @@
-import { ref, computed } from "vue";
+import { ref, computed, onScopeDispose } from "vue";
 import type { Ref } from "vue";
 import { ElMessage } from "element-plus";
 import { getCustomerList, type Customer } from "@/api/customer";
@@ -11,6 +11,8 @@ import {
   type AiServiceConfig
 } from "@/api/ai-service";
 import type { ImportDuplicateAiConfig } from "../dataImport.types";
+import { getRequestErrorMessage } from "@/utils/error-message";
+import { loadAllPagedItems } from "@/utils/paged-options";
 
 type DataImportTargetSelectionRefs = {
   selectedCustomerId: Ref<number | undefined>;
@@ -41,6 +43,9 @@ export function useDataImportTarget(
   const loadingProcesses = ref(false);
   const loadingMachineModels = ref(false);
   const loadingAiServices = ref(false);
+  let customerOptionsController: AbortController | undefined;
+  let processOptionsController: AbortController | undefined;
+  let machineModelOptionsController: AbortController | undefined;
   const embeddingServices = ref<AiServiceConfig[]>([]);
   const llmServices = ref<AiServiceConfig[]>([]);
 
@@ -54,44 +59,76 @@ export function useDataImportTarget(
   });
 
   const loadCustomers = async () => {
+    customerOptionsController?.abort();
+    const controller = new AbortController();
+    customerOptionsController = controller;
     loadingCustomers.value = true;
     try {
-      const res = await getCustomerList({ page: 1, pageSize: 100 });
-      if (res.code === 0) {
-        customers.value = res.data.items;
+      const items = await loadAllPagedItems(
+        (page, pageSize, signal) =>
+          getCustomerList({ page, pageSize }, { signal }),
+        { getKey: item => item.id, signal: controller.signal }
+      );
+      if (customerOptionsController === controller) customers.value = items;
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        ElMessage.error(getRequestErrorMessage(error, "加载客户列表失败"));
       }
-    } catch {
-      ElMessage.error("加载客户列表失败");
     } finally {
-      loadingCustomers.value = false;
+      if (customerOptionsController === controller) {
+        customerOptionsController = undefined;
+        loadingCustomers.value = false;
+      }
     }
   };
 
   const loadProcesses = async () => {
+    processOptionsController?.abort();
+    const controller = new AbortController();
+    processOptionsController = controller;
     loadingProcesses.value = true;
     try {
-      const res = await getProcessList({ page: 1, pageSize: 1000 });
-      if (res.code === 0) {
-        processes.value = res.data.items;
+      const items = await loadAllPagedItems(
+        (page, pageSize, signal) =>
+          getProcessList({ page, pageSize }, { signal }),
+        { getKey: item => item.id, signal: controller.signal }
+      );
+      if (processOptionsController === controller) processes.value = items;
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        ElMessage.error(getRequestErrorMessage(error, "加载制程列表失败"));
       }
-    } catch {
-      ElMessage.error("加载制程列表失败");
     } finally {
-      loadingProcesses.value = false;
+      if (processOptionsController === controller) {
+        processOptionsController = undefined;
+        loadingProcesses.value = false;
+      }
     }
   };
 
   const loadMachineModels = async () => {
+    machineModelOptionsController?.abort();
+    const controller = new AbortController();
+    machineModelOptionsController = controller;
     loadingMachineModels.value = true;
     try {
-      const res = await getMachineModelList({ page: 1, pageSize: 1000 });
-      if (res.code === 0) {
-        machineModels.value = res.data.items;
+      const items = await loadAllPagedItems(
+        (page, pageSize, signal) =>
+          getMachineModelList({ page, pageSize }, { signal }),
+        { getKey: item => item.id, signal: controller.signal }
+      );
+      if (machineModelOptionsController === controller) {
+        machineModels.value = items;
       }
-    } catch {
-      ElMessage.error("加载机型列表失败");
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        ElMessage.error(getRequestErrorMessage(error, "加载机型列表失败"));
+      }
     } finally {
-      loadingMachineModels.value = false;
+      if (machineModelOptionsController === controller) {
+        machineModelOptionsController = undefined;
+        loadingMachineModels.value = false;
+      }
     }
   };
 
@@ -162,6 +199,12 @@ export function useDataImportTarget(
     selectedProcessId.value = undefined;
     selectedMachineModelId.value = undefined;
   };
+
+  onScopeDispose(() => {
+    customerOptionsController?.abort();
+    processOptionsController?.abort();
+    machineModelOptionsController?.abort();
+  });
 
   return {
     customers,

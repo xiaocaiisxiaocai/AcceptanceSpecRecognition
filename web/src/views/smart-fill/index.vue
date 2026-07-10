@@ -30,6 +30,8 @@ import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
 import { getMachineModelList, type MachineModel } from "@/api/machine-model";
 import { hasPerms } from "@/utils/auth";
+import { getRequestErrorMessage } from "@/utils/error-message";
+import { loadAllPagedItems } from "@/utils/paged-options";
 import { ensurePermission } from "@/utils/permission-guard";
 import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
 import { useSmartFillBackfillState } from "./composables/useSmartFillBackfillState";
@@ -148,6 +150,7 @@ const customers = ref<Customer[]>([]);
 const processes = ref<Process[]>([]);
 const machineModels = ref<MachineModel[]>([]);
 const loadingScopeOptions = ref(false);
+let scopeOptionsController: AbortController | undefined;
 
 const {
   recognizing: smartRecognizing,
@@ -184,21 +187,42 @@ const selectedScopeSummary = computed(() => {
 });
 
 const loadScopeOptions = async () => {
+  scopeOptionsController?.abort();
+  const controller = new AbortController();
+  scopeOptionsController = controller;
   loadingScopeOptions.value = true;
   try {
-    const [customerRes, processRes, machineModelRes] = await Promise.all([
-      getCustomerList({ page: 1, pageSize: 1000 }),
-      getProcessList({ page: 1, pageSize: 1000 }),
-      getMachineModelList({ page: 1, pageSize: 1000 })
+    const [customerItems, processItems, machineModelItems] = await Promise.all([
+      loadAllPagedItems(
+        (page, pageSize, signal) =>
+          getCustomerList({ page, pageSize }, { signal }),
+        { getKey: item => item.id, signal: controller.signal }
+      ),
+      loadAllPagedItems(
+        (page, pageSize, signal) =>
+          getProcessList({ page, pageSize }, { signal }),
+        { getKey: item => item.id, signal: controller.signal }
+      ),
+      loadAllPagedItems(
+        (page, pageSize, signal) =>
+          getMachineModelList({ page, pageSize }, { signal }),
+        { getKey: item => item.id, signal: controller.signal }
+      )
     ]);
 
-    if (customerRes.code === 0) customers.value = customerRes.data.items;
-    if (processRes.code === 0) processes.value = processRes.data.items;
-    if (machineModelRes.code === 0) {
-      machineModels.value = machineModelRes.data.items;
+    if (scopeOptionsController !== controller) return;
+    customers.value = customerItems;
+    processes.value = processItems;
+    machineModels.value = machineModelItems;
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      ElMessage.error(getRequestErrorMessage(error, "加载匹配范围失败"));
     }
   } finally {
-    loadingScopeOptions.value = false;
+    if (scopeOptionsController === controller) {
+      scopeOptionsController = undefined;
+      loadingScopeOptions.value = false;
+    }
   }
 };
 
@@ -370,6 +394,7 @@ const { doPreview, invalidatePendingPreview, previewAbortController } =
 
 // 页面卸载时清理进行中的预览/流式请求，防止离页后继续占用资源
 onBeforeUnmount(() => {
+  scopeOptionsController?.abort();
   invalidatePendingPreview();
   stopLlmStream();
 });
@@ -478,8 +503,7 @@ const firstNeedConfirmTableIndex = computed(
       table =>
         table.recommendation !== "Recommended" &&
         table.recommendation !== "Skip"
-    )
-      ?.tableIndex ?? null
+    )?.tableIndex ?? null
 );
 const smartStructureDisplayGroups = computed(() =>
   createSmartStructureDisplayGroups(recognizedTables.value)
@@ -721,7 +745,10 @@ const handleRestart = () => {
               :loading="smartRecognizing"
               @retry="runSmartStructureRecognition"
             />
-            <div v-if="recognizedTables.length > 0" class="smart-fill-confirm-list">
+            <div
+              v-if="recognizedTables.length > 0"
+              class="smart-fill-confirm-list"
+            >
               <section
                 v-for="group in smartStructureDisplayGroups"
                 :key="group.key"
@@ -741,8 +768,12 @@ const handleRestart = () => {
                   :confirming="smartConfirmingTableIndex === table.tableIndex"
                   :import-selected="table.recommendation !== 'Skip'"
                   :import-selectable="false"
-                  :default-expanded="table.tableIndex === firstNeedConfirmTableIndex"
-                  @confirm="request => handleSmartStructureConfirm(table, request)"
+                  :default-expanded="
+                    table.tableIndex === firstNeedConfirmTableIndex
+                  "
+                  @confirm="
+                    request => handleSmartStructureConfirm(table, request)
+                  "
                   @advanced="enterAdvancedMode"
                 />
               </section>
