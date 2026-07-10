@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 补齐仅规格安全门禁，并完成列规则语义、列语义召回和测试守卫的 P2 收口。
+**Goal:** 补齐仅规格安全门禁，并完成列规则语义、列语义召回、测试守卫和 P2-D 维护性的完整收口。
 
 **Architecture:** 数据库列规则在 Application 映射为 Core 结构化规则，由单一匹配器供运行时和离线分析复用。列语义召回保留候选建议边界，通过统一表头策略、模板目录和独立超时降低漂移。仅规格首次识别必须经过显式确认后才能生成导入配置。
 
@@ -97,10 +97,47 @@
 - [ ] 运行 Node 与 API/Core 定向测试。
 - [ ] 提交 `test: 加固智能结构P2回归守卫`。
 
-### Task 6: 全量验证与集成
+### Task 6: P2-D1 收敛 DTO 复制
+
+**Files:**
+- Modify: `tests/AcceptanceSpecSystem.Api.Tests/ArchitectureBoundaryTests.cs`
+- Modify: `src/AcceptanceSpecSystem.Application/Services/SmartConfigurationRecognizeModels.cs`
+- Modify: `src/AcceptanceSpecSystem.Application/Services/SmartConfigurationAppService.cs`
+- Modify: `src/AcceptanceSpecSystem.Application/Services/SmartConfigurationTableRoutingService.cs`
+
+- [ ] 写失败守卫：响应 DTO 必须为 `sealed record`，两个复制点必须使用 `with`。
+- [ ] 运行守卫并确认因当前 class/手工复制而失败。
+- [ ] 改为 `sealed record` 和 `with`，保留列表复制及 Decision 覆盖语义。
+- [ ] 运行架构与智能识别定向测试。
+- [ ] 提交 `refactor: 收敛智能识别响应复制`。
+
+### Task 7: P2-D2 拆分大型测试设施
+
+**Files:**
+- Modify: `tests/AcceptanceSpecSystem.Api.Tests/ArchitectureBoundaryTests.cs`
+- Modify: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeApiTests.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeHealthAndFusionApiTests.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeHistoryApiTests.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeConfirmationApiTests.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeHeaderApiTests.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeLlmBudgetApiTests.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeColumnSemanticRecallApiTests.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeApiFactories.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeLlmTestDoubles.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeIntelligenceTestDoubles.cs`
+- Create: `tests/AcceptanceSpecSystem.Api.Tests/SmartConfigRecognizeTestFiles.cs`
+
+- [ ] 写失败守卫：智能识别测试按职责分文件，任一相关文件不得超过 800 行。
+- [ ] 运行守卫并确认因 4,319 行单文件而失败。
+- [ ] 机械拆分测试类、Factory 和替身，保持类名、命名空间和测试体不变。
+- [ ] 提取无状态上传 helper 与具名 Factory 公共基类，删除重复装配样板。
+- [ ] 运行测试发现清单，确认仍发现并通过 52 个智能识别测试。
+- [ ] 提交 `refactor: 拆分智能识别API测试设施`。
+
+### Task 8: 全量验证与集成
 
 - [ ] 运行 `dotnet test AcceptanceSpecSystem.sln -c Debug`。
 - [ ] 运行 `pnpm --dir web test`。
 - [ ] 运行 `pnpm --dir web typecheck`。
 - [ ] 运行 `git diff --check` 并确认工作树状态。
-- [ ] 将隔离分支提交合回 `feat/smart-recognition-simplification`，不推送远端。
+- [ ] 确认全部本地提交位于 `feat/smart-recognition-simplification`，不推送远端。
