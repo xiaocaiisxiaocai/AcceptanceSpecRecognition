@@ -94,7 +94,7 @@ pnpm --dir web typecheck
 
 Expected: 全部 PASS。
 
-- [ ] **Step 2：运行后端串行全量测试**
+- [x] **Step 2：运行后端串行全量测试**
 
 ```powershell
 dotnet test AcceptanceSpecSystem.sln -c Release --no-restore -m:1
