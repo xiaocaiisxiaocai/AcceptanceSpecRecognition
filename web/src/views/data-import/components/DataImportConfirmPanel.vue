@@ -224,38 +224,52 @@ const hasSpecificationOnlyBackfillTables = computed(() =>
       description="仅规格导入会将项目和规格写成同一内容，可能增加跨项目匹配风险；请确认没有独立项目列，再开始导入。"
       class="mb-4"
     />
-    <div class="import-confirm-overview">
-      <div class="overview-item overview-item--wide">
-        <span class="overview-label">源文件</span>
-        <span class="overview-value" :title="uploadedFileName">
+    <div class="import-summary-bar">
+      <div class="import-summary-bar__meta">
+        <span class="import-summary-bar__file" :title="uploadedFileName">
           {{ uploadedFileName || "-" }}
         </span>
-      </div>
-      <div class="overview-item">
-        <span class="overview-label">目标客户</span>
-        <span class="overview-value">
-          {{ customers.find(c => c.id === selectedCustomerId)?.name || "-" }}
+        <span>
+          客户：{{
+            customers.find(c => c.id === selectedCustomerId)?.name || "-"
+          }}
         </span>
-      </div>
-      <div class="overview-item">
-        <span class="overview-label">目标制程</span>
-        <span class="overview-value">
-          {{ processes.find(p => p.id === selectedProcessId)?.name || "-" }}
+        <span>
+          制程：{{
+            processes.find(p => p.id === selectedProcessId)?.name || "-"
+          }}
         </span>
+        <span>机型：{{ selectedMachineModelName || "-" }}</span>
+        <span>{{ tableConfigs.length }} 张 Sheet</span>
+        <span class="import-summary-bar__count"
+          >预计 {{ previewDataCount }} 条</span
+        >
       </div>
-      <div class="overview-item">
-        <span class="overview-label">目标机型</span>
-        <span class="overview-value">{{
-          selectedMachineModelName || "-"
-        }}</span>
+      <div class="import-summary-bar__actions">
+        <div class="skip-preview-switch">
+          <span class="label">预览未导入明细</span>
+          <el-switch
+            v-model="previewSkippedRowsModel"
+            :disabled="importing || hasPendingDifferenceConfirmation"
+            active-text="开启"
+            inactive-text="关闭"
+          />
+        </div>
+        <el-button
+          v-if="canImportCurrentFile"
+          type="primary"
+          :loading="importing"
+          :disabled="
+            !hasPendingDifferenceConfirmation && previewDataCount === 0
+          "
+          @click="emit('import')"
+        >
+          {{ importPrimaryButtonText }}
+        </el-button>
       </div>
-      <div class="overview-item">
-        <span class="overview-label">表格</span>
-        <span class="overview-value">{{ tableConfigs.length }} 个</span>
-      </div>
-      <div class="overview-item">
-        <span class="overview-label">预计导入</span>
-        <span class="overview-value strong">{{ previewDataCount }} 条</span>
+      <div v-if="importing" class="import-summary-bar__progress">
+        <strong>{{ importProgressText }}</strong>
+        <span>{{ importProgressDescription }}</span>
       </div>
     </div>
 
@@ -571,33 +585,5 @@ const hasSpecificationOnlyBackfillTables = computed(() =>
         </div>
       </el-collapse-item>
     </el-collapse>
-
-    <div class="import-actions">
-      <div class="skip-preview-switch">
-        <span class="label">预览未导入明细</span>
-        <el-switch
-          v-model="previewSkippedRowsModel"
-          :disabled="importing || hasPendingDifferenceConfirmation"
-          active-text="开启"
-          inactive-text="关闭"
-        />
-      </div>
-      <div v-if="importing" class="import-progress-panel">
-        <div class="import-progress-panel__title">{{ importProgressText }}</div>
-        <div class="import-progress-panel__desc">
-          {{ importProgressDescription }}
-        </div>
-      </div>
-      <el-button
-        v-if="canImportCurrentFile"
-        type="primary"
-        size="large"
-        :loading="importing"
-        :disabled="!hasPendingDifferenceConfirmation && previewDataCount === 0"
-        @click="emit('import')"
-      >
-        {{ importPrimaryButtonText }}
-      </el-button>
-    </div>
   </div>
 </template>

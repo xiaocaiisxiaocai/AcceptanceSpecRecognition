@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
 import DataImportConfirmPanel from "./components/DataImportConfirmPanel.vue";
@@ -139,6 +139,34 @@ const firstNeedConfirmTableIndex = computed(
 );
 const smartStructureDisplayGroups = computed(() =>
   createSmartStructureDisplayGroups(recognizedTables.value)
+);
+const smartStructureTabItems = computed(() =>
+  smartStructureDisplayGroups.value.flatMap(group => group.tables)
+);
+const activeSmartStructureTab = ref<number | undefined>();
+
+watch(
+  smartStructureTabItems,
+  tables => {
+    if (!tables.length) {
+      activeSmartStructureTab.value = undefined;
+      return;
+    }
+
+    if (
+      tables.some(table => table.tableIndex === activeSmartStructureTab.value)
+    ) {
+      return;
+    }
+
+    activeSmartStructureTab.value =
+      tables.find(
+        table =>
+          table.recommendation !== "Recommended" &&
+          table.recommendation !== "Skip"
+      )?.tableIndex ?? tables[0].tableIndex;
+  },
+  { immediate: true }
 );
 </script>
 
@@ -355,21 +383,39 @@ const smartStructureDisplayGroups = computed(() =>
             :error="smartRecognitionError"
             @retry="runSmartStructureRecognition"
           />
-          <div v-if="recognizedTables.length > 0" class="smart-confirm-list">
-            <section
-              v-for="group in smartStructureDisplayGroups"
-              :key="group.key"
-              class="smart-confirm-group"
+          <el-tabs
+            v-if="smartStructureTabItems.length > 0"
+            v-model="activeSmartStructureTab"
+            class="smart-confirm-tabs"
+          >
+            <el-tab-pane
+              v-for="table in smartStructureTabItems"
+              :key="table.tableIndex"
+              :name="table.tableIndex"
             >
-              <div class="smart-confirm-group-title">
-                <el-tag size="small" :type="group.tagType" effect="plain">
-                  {{ group.title }}
-                </el-tag>
-                <span>{{ group.tables.length }} 张</span>
-              </div>
+              <template #label>
+                <span class="smart-confirm-tab-label">
+                  <span class="smart-confirm-tab-name">
+                    {{ table.tableName || `工作表 ${table.tableIndex + 1}` }}
+                  </span>
+                  <span
+                    class="smart-confirm-tab-status"
+                    :class="{
+                      'is-ready': table.recommendation === 'Recommended',
+                      'is-skip': table.recommendation === 'Skip'
+                    }"
+                  >
+                    {{
+                      table.recommendation === "Recommended"
+                        ? "可导入"
+                        : table.recommendation === "Skip"
+                          ? "跳过"
+                          : "待确认"
+                    }}
+                  </span>
+                </span>
+              </template>
               <SmartStructureConfirmCard
-                v-for="table in group.tables"
-                :key="table.tableIndex"
                 :table="table"
                 :file-id="uploadedFile?.fileId"
                 :customer-id="selectedCustomerId"
@@ -396,8 +442,8 @@ const smartStructureDisplayGroups = computed(() =>
                   value => handleSmartTableImportSelectionChange(table, value)
                 "
               />
-            </section>
-          </div>
+            </el-tab-pane>
+          </el-tabs>
           <DataImportConfirmPanel
             v-model:preview-skipped-rows="previewSkippedRows"
             :import-result="importResult"

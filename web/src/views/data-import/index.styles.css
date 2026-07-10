@@ -88,23 +88,38 @@
   gap: 14px;
 }
 
-.smart-confirm-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.smart-confirm-tabs {
+  min-width: 0;
 }
 
-.smart-confirm-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.smart-confirm-tabs :deep(.el-tabs__header) {
+  margin: 0 0 10px;
 }
 
-.smart-confirm-group-title {
-  display: flex;
-  gap: 8px;
+.smart-confirm-tab-label {
+  display: inline-flex;
   align-items: center;
-  font-size: 12px;
+  gap: 6px;
+  max-width: 210px;
+}
+
+.smart-confirm-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smart-confirm-tab-status {
+  flex: none;
+  font-size: 11px;
+  color: var(--app-warning);
+}
+
+.smart-confirm-tab-status.is-ready {
+  color: var(--app-success);
+}
+
+.smart-confirm-tab-status.is-skip {
   color: var(--app-text-secondary);
 }
 
@@ -134,8 +149,6 @@
 
 .import-confirm {
   width: 100%;
-  max-width: 1180px;
-  margin: 0 auto;
 }
 
 .difference-entry {
@@ -158,10 +171,11 @@
   color: var(--app-warning);
 }
 
-.import-confirm-overview {
+.import-summary-bar {
   display: grid;
-  grid-template-columns: minmax(280px, 2fr) repeat(5, minmax(110px, 1fr));
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  align-items: center;
   padding: 12px;
   margin-bottom: 12px;
   background: var(--app-info-bg);
@@ -169,29 +183,49 @@
   border-radius: 8px;
 }
 
-.overview-item {
+.import-summary-bar__meta,
+.import-summary-bar__actions {
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.overview-label {
-  font-size: 12px;
+  gap: 8px 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
   color: var(--app-text-secondary);
 }
 
-.overview-value {
+.import-summary-bar__actions {
+  justify-content: flex-end;
+  color: var(--app-text-primary);
+}
+
+.import-summary-bar__file {
+  max-width: min(340px, 42vw);
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
   font-weight: 600;
   color: var(--app-text-primary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.overview-value.strong {
+.import-summary-bar__count {
+  font-weight: 600;
+  color: var(--app-primary);
+}
+
+.import-summary-bar__progress {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding-top: 8px;
+  border-top: 1px dashed var(--app-border);
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.import-summary-bar__progress strong {
   color: var(--app-primary);
 }
 
@@ -350,40 +384,6 @@
 .group-count {
   color: var(--app-text-secondary);
   font-weight: 500;
-}
-
-.import-actions {
-  margin-top: 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.import-progress-panel {
-  width: 100%;
-  max-width: 720px;
-  border: 1px solid var(--app-border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  background: linear-gradient(
-    180deg,
-    var(--app-info-bg) 0%,
-    var(--app-bg-card) 100%
-  );
-}
-
-.import-progress-panel__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--app-primary);
-}
-
-.import-progress-panel__desc {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--app-text-secondary);
 }
 
 .skip-preview-switch {
@@ -662,12 +662,17 @@
 }
 
 @media (width <= 900px) {
-  .import-confirm-overview {
-    grid-template-columns: 1fr 1fr;
+  .import-summary-bar {
+    grid-template-columns: 1fr;
   }
 
-  .overview-item--wide {
-    grid-column: 1 / -1;
+  .import-summary-bar__actions {
+    justify-content: space-between;
+  }
+
+  .import-summary-bar__actions :deep(.el-button) {
+    flex: 1;
+    min-height: 40px;
   }
 
   .difference-sheet {
