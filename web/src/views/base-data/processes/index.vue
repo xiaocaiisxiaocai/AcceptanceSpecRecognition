@@ -12,6 +12,7 @@ import {
 } from "@/api/process";
 import { hasPerms } from "@/utils/auth";
 import { getRequestErrorMessage } from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 
 defineOptions({
   name: "Processes"
@@ -117,7 +118,10 @@ const handleDelete = async (row: Process) => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {}
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
+  }
 };
 
 const handleBatchDelete = async () => {
@@ -143,7 +147,10 @@ const handleBatchDelete = async () => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {}
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "批量删除失败"));
+  }
 };
 
 const handleSubmit = async () => {
@@ -239,8 +246,16 @@ onMounted(() => {
         >
           <el-table-column v-if="canDelete" type="selection" width="50" />
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="name" label="制程名称" min-width="min(200px, calc(100vw - 32px))" />
-          <el-table-column prop="createdAt" label="创建时间" width="min(180px, calc(100vw - 32px))">
+          <el-table-column
+            prop="name"
+            label="制程名称"
+            min-width="min(200px, calc(100vw - 32px))"
+          />
+          <el-table-column
+            prop="createdAt"
+            label="创建时间"
+            width="min(180px, calc(100vw - 32px))"
+          >
             <template #default="{ row }">{{
               new Date(row.createdAt).toLocaleString()
             }}</template>
@@ -284,7 +299,11 @@ onMounted(() => {
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(480px, calc(100vw - 32px))">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="min(480px, calc(100vw - 32px))"
+    >
       <el-form label-width="80px">
         <el-form-item label="制程名称" required>
           <el-input
@@ -303,5 +322,3 @@ onMounted(() => {
     </el-dialog>
   </div>
 </template>
-
-<style scoped></style>

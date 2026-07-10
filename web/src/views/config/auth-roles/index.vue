@@ -15,6 +15,8 @@ import {
   type AuthPermission
 } from "@/api/auth-permission";
 import { getOrgUnitFlat, type OrgUnit } from "@/api/org-unit";
+import { getRequestErrorMessage } from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 
 defineOptions({
   name: "AuthRolesConfig"
@@ -489,8 +491,9 @@ const handleDelete = async (role: AuthRole) => {
     } else {
       ElMessage.error(res.message || "删除角色失败");
     }
-  } catch {
-    // 取消删除
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除角色失败"));
   }
 };
 
@@ -573,9 +576,20 @@ onMounted(initPage);
 
       <el-table v-loading="loading" :data="roles" stripe>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="code" label="角色编码" min-width="min(160px, calc(100vw - 32px))" />
-        <el-table-column prop="name" label="角色名称" min-width="min(140px, calc(100vw - 32px))" />
-        <el-table-column label="内置角色" width="min(110px, calc(100vw - 32px))">
+        <el-table-column
+          prop="code"
+          label="角色编码"
+          min-width="min(160px, calc(100vw - 32px))"
+        />
+        <el-table-column
+          prop="name"
+          label="角色名称"
+          min-width="min(140px, calc(100vw - 32px))"
+        />
+        <el-table-column
+          label="内置角色"
+          width="min(110px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <el-tag :type="row.isBuiltIn ? 'warning' : 'info'">
               {{ row.isBuiltIn ? "是" : "否" }}
@@ -594,7 +608,10 @@ onMounted(initPage);
             {{ row.permissionCodes?.length ?? 0 }}
           </template>
         </el-table-column>
-        <el-table-column label="验收规格数据范围" min-width="min(280px, calc(100vw - 32px))">
+        <el-table-column
+          label="验收规格数据范围"
+          min-width="min(280px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             {{ formatScopeSummary(row) }}
           </template>
@@ -605,7 +622,11 @@ onMounted(initPage);
           min-width="min(220px, calc(100vw - 32px))"
           show-overflow-tooltip
         />
-        <el-table-column label="操作" width="min(220px, calc(100vw - 32px))" fixed="right">
+        <el-table-column
+          label="操作"
+          width="min(220px, calc(100vw - 32px))"
+          fixed="right"
+        >
           <template #default="{ row }">
             <el-button
               v-perms="'btn:auth-role:update'"
@@ -629,7 +650,11 @@ onMounted(initPage);
       </el-table>
     </el-card>
 
-    <el-dialog v-model="createDialogVisible" title="新增角色" width="min(960px, calc(100vw - 32px))">
+    <el-dialog
+      v-model="createDialogVisible"
+      title="新增角色"
+      width="min(960px, calc(100vw - 32px))"
+    >
       <el-form label-width="110px">
         <el-form-item label="角色编码" required>
           <el-input
@@ -759,7 +784,11 @@ onMounted(initPage);
           </div>
         </el-form-item>
         <el-form-item label="验收规格范围" required>
-          <el-select v-model="createForm.scopeType" class="w-full" popper-class="config-select-popper">
+          <el-select
+            v-model="createForm.scopeType"
+            class="w-full"
+            popper-class="config-select-popper"
+          >
             <el-option
               v-for="option in scopeTypeOptions"
               :key="`create-scope-type-${option.value}`"
@@ -802,7 +831,11 @@ onMounted(initPage);
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editDialogVisible" title="编辑角色" width="min(960px, calc(100vw - 32px))">
+    <el-dialog
+      v-model="editDialogVisible"
+      title="编辑角色"
+      width="min(960px, calc(100vw - 32px))"
+    >
       <el-form label-width="110px">
         <el-alert
           v-if="editForm.isBuiltIn"

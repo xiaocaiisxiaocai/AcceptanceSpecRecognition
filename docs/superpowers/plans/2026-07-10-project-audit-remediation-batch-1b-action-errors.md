@@ -38,7 +38,7 @@
 - Create: `web/src/utils/message-box.ts`
 - Create: `web/src/utils/message-box.test.ts`
 
-- [ ] **Step 1：编写失败测试**
+- [x] **Step 1：编写失败测试**
 
 测试 `isMessageBoxCancel`：
 
@@ -52,7 +52,7 @@ expect(isMessageBoxCancel(new Error("Network Error"))).toBe(false);
 expect(isMessageBoxCancel({ isAxiosError: true, code: "ERR_CANCELED" })).toBe(false);
 ```
 
-- [ ] **Step 2：运行测试确认失败**
+- [x] **Step 2：运行测试确认失败**
 
 Run:
 
@@ -62,7 +62,7 @@ pnpm --dir web test:vitest -- src/utils/message-box.test.ts
 
 Expected: FAIL，helper 不存在。
 
-- [ ] **Step 3：实现严格判断**
+- [x] **Step 3：实现严格判断**
 
 ```typescript
 export function isMessageBoxCancel(error: unknown): boolean {
@@ -72,7 +72,7 @@ export function isMessageBoxCancel(error: unknown): boolean {
 
 不得把 Axios 的 `ERR_CANCELED` 归为确认框取消；请求取消仍属于调用链需要显式处理的异常。
 
-- [ ] **Step 4：运行 helper 测试确认通过**
+- [x] **Step 4：运行 helper 测试确认通过**
 
 Run: Step 2 命令。
 
@@ -84,7 +84,7 @@ Expected: PASS。
 
 - Create: `web/tests/destructive-action-errors.test.ts`
 
-- [ ] **Step 1：编写失败守卫**
+- [x] **Step 1：编写失败守卫**
 
 测试读取文件边界中的 10 个 Vue 文件并验证：
 
@@ -95,7 +95,7 @@ Expected: PASS。
 
 对客户、制程、机型和 SpecTable 额外确认单删与批删两个路径均已覆盖。
 
-- [ ] **Step 2：运行守卫确认失败**
+- [x] **Step 2：运行守卫确认失败**
 
 Run:
 
@@ -114,7 +114,7 @@ Expected: FAIL，当前多个入口仍无条件吞掉异常。
 - Modify: `web/src/views/base-data/machine-models/index.vue`
 - Modify: `web/src/views/base-data/specs/components/SpecTable.vue`
 
-- [ ] **Step 1：为四个文件增加共享导入**
+- [x] **Step 1：为四个文件增加共享导入**
 
 ```typescript
 import { isMessageBoxCancel } from "@/utils/message-box";
@@ -123,7 +123,7 @@ import { getRequestErrorMessage } from "@/utils/error-message";
 
 已有 `getRequestErrorMessage` 导入时不重复添加。
 
-- [ ] **Step 2：替换单删和批删 catch**
+- [x] **Step 2：替换单删和批删 catch**
 
 使用一致模式，fallback 按页面语义分别为“删除失败”或“批量删除失败”：
 
@@ -136,7 +136,7 @@ import { getRequestErrorMessage } from "@/utils/error-message";
 
 请求异常时不得清空勾选、调用 `loadData()` 或显示成功消息；保留响应 `code != 0` 的现有错误提示。
 
-- [ ] **Step 3：运行源码守卫观察剩余失败**
+- [x] **Step 3：运行源码守卫观察剩余失败**
 
 Run: Task 2 Step 2 命令。
 
@@ -153,11 +153,11 @@ Expected: 这四个文件通过，配置类页面仍失败。
 - Modify: `web/src/views/config/column-mapping-rules/index.vue`
 - Modify: `web/src/views/config/ai-services/index.vue`
 
-- [ ] **Step 1：逐文件应用取消和错误模式**
+- [x] **Step 1：逐文件应用取消和错误模式**
 
 覆盖审核指出的用户删除、路由规则删除、提示词模板删除、角色删除、列映射恢复默认、AI 服务删除路径。每个 catch 使用对应 fallback；已有正确实现也统一调用 `isMessageBoxCancel`，删除散落的字符串判断。
 
-- [ ] **Step 2：确认状态更新只发生在成功分支**
+- [x] **Step 2：确认状态更新只发生在成功分支**
 
 逐文件检查：
 
@@ -165,7 +165,7 @@ Expected: 这四个文件通过，配置类页面仍失败。
 - 列表刷新、选择清空、弹窗关闭只在成功后执行。
 - 权限不足、500、网络断开和解析异常进入 `ElMessage.error`。
 
-- [ ] **Step 3：运行 helper、源码守卫和类型检查**
+- [x] **Step 3：运行 helper、源码守卫和类型检查**
 
 Run:
 
@@ -177,7 +177,7 @@ pnpm --dir web typecheck
 
 Expected: 全部 PASS。
 
-- [ ] **Step 4：运行前端全量回归**
+- [x] **Step 4：运行前端全量回归**
 
 Run:
 
@@ -187,7 +187,7 @@ pnpm --dir web test
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5：提交 1B**
+- [x] **Step 5：提交 1B**
 
 ```powershell
 git add web/src/utils/message-box.ts web/src/utils/message-box.test.ts web/tests/destructive-action-errors.test.ts web/src/views/base-data/customers/index.vue web/src/views/base-data/processes/index.vue web/src/views/base-data/machine-models/index.vue web/src/views/base-data/specs/components/SpecTable.vue web/src/views/config/system-users/index.vue web/src/views/config/smart-structure-routing-rules/index.vue web/src/views/config/prompt-templates/index.vue web/src/views/config/auth-roles/index.vue web/src/views/config/column-mapping-rules/index.vue web/src/views/config/ai-services/index.vue docs/superpowers/plans/2026-07-10-project-audit-remediation-batch-1b-action-errors.md

@@ -14,6 +14,7 @@ import {
 } from "@/api/column-mapping-rules";
 import { hasPerms } from "@/utils/auth";
 import { getRequestErrorMessage } from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
@@ -315,8 +316,9 @@ const remove = async (row: ColumnMappingRule) => {
     } else {
       ElMessage.error(res.message || "删除失败");
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
 
@@ -348,9 +350,7 @@ const restoreDefaults = async () => {
       ElMessage.error(res.message || "恢复默认词失败");
     }
   } catch (error: unknown) {
-    if (error === "cancel" || error === "close") {
-      return;
-    }
+    if (isMessageBoxCancel(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "恢复默认词失败"));
   }
 };

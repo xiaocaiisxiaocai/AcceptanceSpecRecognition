@@ -11,6 +11,7 @@ import {
 } from "@/api/customer";
 import { hasPerms } from "@/utils/auth";
 import { getRequestErrorMessage } from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 
 defineOptions({
   name: "Customers"
@@ -130,8 +131,9 @@ const handleDelete = async (row: Customer) => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
 
@@ -163,8 +165,9 @@ const handleBatchDelete = async () => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "批量删除失败"));
   }
 };
 
@@ -266,8 +269,16 @@ onMounted(() => {
         >
           <el-table-column v-if="canDelete" type="selection" width="50" />
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="name" label="客户名称" min-width="min(200px, calc(100vw - 32px))" />
-          <el-table-column prop="createdAt" label="创建时间" width="min(180px, calc(100vw - 32px))">
+          <el-table-column
+            prop="name"
+            label="客户名称"
+            min-width="min(200px, calc(100vw - 32px))"
+          />
+          <el-table-column
+            prop="createdAt"
+            label="创建时间"
+            width="min(180px, calc(100vw - 32px))"
+          >
             <template #default="{ row }">
               {{ new Date(row.createdAt).toLocaleString() }}
             </template>
@@ -313,7 +324,11 @@ onMounted(() => {
     </el-card>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(480px, calc(100vw - 32px))">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="min(480px, calc(100vw - 32px))"
+    >
       <el-form label-width="80px">
         <el-form-item label="客户名称" required>
           <el-input
@@ -332,5 +347,3 @@ onMounted(() => {
     </el-dialog>
   </div>
 </template>
-
-<style scoped></style>

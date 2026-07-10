@@ -16,6 +16,8 @@ import {
 } from "@/api/system-user";
 import { getAuthRoleList, type AuthRole } from "@/api/auth-role";
 import { getOrgUnitFlat, type OrgUnit } from "@/api/org-unit";
+import { getRequestErrorMessage } from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 
 defineOptions({
   name: "SystemUsersConfig"
@@ -363,8 +365,9 @@ const handleDelete = async (row: SystemUser) => {
     } else {
       ElMessage.error(res.message || "删除用户失败");
     }
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除用户失败"));
   }
 };
 
@@ -473,9 +476,20 @@ onMounted(initPage);
 
       <el-table v-loading="loading" :data="tableData" stripe>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="username" label="用户名" min-width="min(140px, calc(100vw - 32px))" />
-        <el-table-column prop="nickname" label="昵称" min-width="min(120px, calc(100vw - 32px))" />
-        <el-table-column label="角色" min-width="min(220px, calc(100vw - 32px))">
+        <el-table-column
+          prop="username"
+          label="用户名"
+          min-width="min(140px, calc(100vw - 32px))"
+        />
+        <el-table-column
+          prop="nickname"
+          label="昵称"
+          min-width="min(120px, calc(100vw - 32px))"
+        />
+        <el-table-column
+          label="角色"
+          min-width="min(220px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <el-tag
               v-if="row.roleCode"
@@ -488,7 +502,10 @@ onMounted(initPage);
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="组织" min-width="min(240px, calc(100vw - 32px))">
+        <el-table-column
+          label="组织"
+          min-width="min(240px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <el-tag
               v-if="row.orgUnitId"
@@ -515,12 +532,19 @@ onMounted(initPage);
             />
           </template>
         </el-table-column>
-        <el-table-column label="更新时间" width="min(180px, calc(100vw - 32px))">
+        <el-table-column
+          label="更新时间"
+          width="min(180px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             {{ formatDateTime(row.updatedAt ?? row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="min(300px, calc(100vw - 32px))" fixed="right">
+        <el-table-column
+          label="操作"
+          width="min(300px, calc(100vw - 32px))"
+          fixed="right"
+        >
           <template #default="{ row }">
             <el-button
               v-perms="'btn:system-user:update'"

@@ -14,6 +14,7 @@ import {
 } from "@/api/smart-structure-routing-rules";
 import { hasPerms } from "@/utils/auth";
 import { getRequestErrorMessage } from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
@@ -72,9 +73,7 @@ const getMatchScopeLabel = (value: SmartStructureRoutingMatchScope) =>
 const getMatchModeLabel = (value: SmartStructureRoutingMatchMode) =>
   matchModeOptions.find(option => option.value === value)?.label ?? value;
 
-const getRecommendationOption = (
-  value?: SmartStructureRoutingRecommendation
-) =>
+const getRecommendationOption = (value?: SmartStructureRoutingRecommendation) =>
   recommendationOptions.find(option => option.value === value) ??
   recommendationOptions[1];
 
@@ -319,8 +318,9 @@ const remove = async (row: SmartStructureRoutingRule) => {
     } else {
       ElMessage.error(res.message || "删除失败");
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
 
@@ -459,12 +459,7 @@ onMounted(load);
             >
               编辑
             </el-button>
-            <el-button
-              v-if="canDelete"
-              type="danger"
-              link
-              @click="remove(row)"
-            >
+            <el-button v-if="canDelete" type="danger" link @click="remove(row)">
               删除
             </el-button>
           </template>
@@ -477,10 +472,10 @@ onMounted(load);
       :title="dialogTitle"
       width="min(560px, calc(100vw - 32px))"
     >
-        <el-form label-width="96px">
-          <el-form-item label="规则名称" required>
-            <el-input v-model="form.name" placeholder="例如：报价单跳过" />
-          </el-form-item>
+      <el-form label-width="96px">
+        <el-form-item label="规则名称" required>
+          <el-input v-model="form.name" placeholder="例如：报价单跳过" />
+        </el-form-item>
         <el-form-item label="推荐结果">
           <el-select
             v-model="form.recommendation"

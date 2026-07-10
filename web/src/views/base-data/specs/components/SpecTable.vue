@@ -14,6 +14,8 @@ import {
   type SpecDuplicateDetectionResult
 } from "@/api/spec";
 import { hasPerms } from "@/utils/auth";
+import { getRequestErrorMessage } from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 import SpecDuplicateDialog from "./SpecDuplicateDialog.vue";
 import SpecSemanticSearchDialog from "./SpecSemanticSearchDialog.vue";
 
@@ -276,8 +278,9 @@ const handleDelete = async (row: AcceptanceSpec) => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
 
@@ -309,8 +312,9 @@ const handleBatchDelete = async () => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "批量删除失败"));
   }
 };
 
@@ -545,21 +549,33 @@ const groupLabel = () => {
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="project" label="项目" min-width="min(150px, calc(100vw - 32px))">
+        <el-table-column
+          prop="project"
+          label="项目"
+          min-width="min(150px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <span class="line-clamp-1" :title="row.project">{{
               row.project
             }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="specification" label="规格内容" min-width="min(200px, calc(100vw - 32px))">
+        <el-table-column
+          prop="specification"
+          label="规格内容"
+          min-width="min(200px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <span class="line-clamp-1" :title="row.specification">{{
               row.specification
             }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="acceptance" label="验收标准" min-width="min(150px, calc(100vw - 32px))">
+        <el-table-column
+          prop="acceptance"
+          label="验收标准"
+          min-width="min(150px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <span
               v-if="row.acceptance"
@@ -570,7 +586,11 @@ const groupLabel = () => {
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="min(150px, calc(100vw - 32px))">
+        <el-table-column
+          prop="remark"
+          label="备注"
+          min-width="min(150px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <span v-if="row.remark" class="line-clamp-1" :title="row.remark">{{
               row.remark
@@ -616,7 +636,11 @@ const groupLabel = () => {
       />
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(640px, calc(100vw - 32px))">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="min(640px, calc(100vw - 32px))"
+    >
       <el-form label-width="100px">
         <el-form-item label="项目名称" required>
           <el-input
@@ -658,7 +682,11 @@ const groupLabel = () => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="detailDialogVisible" title="规格详情" width="min(640px, calc(100vw - 32px))">
+    <el-dialog
+      v-model="detailDialogVisible"
+      title="规格详情"
+      width="min(640px, calc(100vw - 32px))"
+    >
       <el-descriptions v-if="detailData" :column="1" border>
         <el-descriptions-item label="ID">{{
           detailData.id

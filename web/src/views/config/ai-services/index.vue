@@ -15,6 +15,7 @@ import {
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
 import { getRequestErrorMessage } from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 import {
   buildAiServiceConfigSummary,
   getDefaultPriority,
@@ -219,8 +220,9 @@ const handleDelete = async (row: AiServiceConfig) => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
 
@@ -257,9 +259,8 @@ const handleToggleDisabled = async (row: AiServiceConfig) => {
       ElMessage.error(res.message || "操作失败");
     }
   } catch (error) {
-    if (error !== "cancel" && error !== "close") {
-      ElMessage.error(extractErrorMessage(error, "操作失败"));
-    }
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "操作失败"));
   } finally {
     setRowLoading(disabledState, row.id, false);
   }
