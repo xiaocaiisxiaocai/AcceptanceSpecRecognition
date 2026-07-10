@@ -534,6 +534,57 @@ public class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void SmartConfigRecognizeApiTests_ShouldBeSplitByResponsibility()
+    {
+        var testDirectory = Path.Combine(GetRepositoryRoot(), "tests", "AcceptanceSpecSystem.Api.Tests");
+        var expectedFiles = new[]
+        {
+            "SmartConfigRecognizeApiTests.cs",
+            "SmartConfigRecognizeHealthAndFusionApiTests.cs",
+            "SmartConfigRecognizeHistoryApiTests.cs",
+            "SmartConfigRecognizeConfirmationApiTests.cs",
+            "SmartConfigRecognizeHeaderApiTests.cs",
+            "SmartConfigRecognizeLlmBudgetApiTests.cs",
+            "SmartConfigRecognizeColumnSemanticRecallApiTests.cs",
+            "SmartConfigRecognizeApiFactories.cs",
+            "SmartConfigRecognizeLlmTestDoubles.cs",
+            "SmartConfigRecognizeIntelligenceTestDoubles.cs",
+            "SmartConfigRecognizeTestFiles.cs"
+        };
+        var files = Directory.GetFiles(testDirectory, "SmartConfigRecognize*.cs");
+        var fileNames = files.Select(Path.GetFileName).ToList();
+
+        foreach (var expectedFile in expectedFiles)
+        {
+            fileNames.Should().Contain(expectedFile, "智能识别测试应按场景和设施职责拆分");
+        }
+
+        foreach (var file in files)
+        {
+            File.ReadLines(file).Count().Should().BeLessThanOrEqualTo(
+                800,
+                $"{Path.GetFileName(file)} 不应重新膨胀为大型测试文件");
+        }
+
+        foreach (var scenarioFile in files.Where(file => Path.GetFileName(file).EndsWith("ApiTests.cs")))
+        {
+            var content = File.ReadAllText(scenarioFile);
+            content.Should().NotContain("new MultipartFormDataContent",
+                $"{Path.GetFileName(scenarioFile)} 应复用统一上传 helper");
+            content.Should().NotContain("WordprocessingDocument.Create",
+                $"{Path.GetFileName(scenarioFile)} 应复用统一 Word 测试文档 helper");
+        }
+
+        File.ReadAllText(Path.Combine(testDirectory, "SmartConfigRecognizeTestFiles.cs"))
+            .Should().Contain("UploadExcelAsync", "重复文件上传应收敛到无状态 helper");
+        var factoryContent = File.ReadAllText(Path.Combine(testDirectory, "SmartConfigRecognizeApiFactories.cs"));
+        factoryContent.Should().Contain("SmartConfigRecognizeApiFactoryBase",
+            "具名 Factory 应复用统一装配骨架");
+        factoryContent.Should().Contain("ReplaceScoped<",
+            "测试服务替换应收敛到统一 DI helper");
+    }
+
+    [Fact]
     public void PermissionAndNavigationMetadata_ShouldUseSharedManifest_AndNotDependOnAsyncRoutesRuntime()
     {
         var repositoryRoot = GetRepositoryRoot();
