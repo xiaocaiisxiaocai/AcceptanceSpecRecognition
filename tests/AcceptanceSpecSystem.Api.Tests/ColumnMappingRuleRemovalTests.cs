@@ -314,7 +314,7 @@ public class ColumnMappingRuleRecoveryTests : IClassFixture<ApiWebApplicationFac
 
         File.Exists(Path.Combine(repositoryRoot, "src", "AcceptanceSpecSystem.Api", "Controllers", "ColumnMappingRulesController.cs"))
             .Should().BeTrue();
-        File.Exists(Path.Combine(repositoryRoot, "src", "AcceptanceSpecSystem.Api", "DTOs", "ColumnMappingRuleDtos.cs"))
+        File.Exists(Path.Combine(repositoryRoot, "src", "AcceptanceSpecSystem.Application", "Contracts", "ConfigurationDtos.cs"))
             .Should().BeTrue();
         File.Exists(Path.Combine(repositoryRoot, "src", "AcceptanceSpecSystem.Data", "Entities", "ColumnMappingRule.cs"))
             .Should().BeTrue();

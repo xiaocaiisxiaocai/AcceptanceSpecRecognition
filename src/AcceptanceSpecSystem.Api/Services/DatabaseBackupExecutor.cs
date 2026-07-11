@@ -1,18 +1,10 @@
-﻿using System.Data.Common;
+using System.Data.Common;
 using System.Diagnostics;
 using System.IO.Compression;
-using AcceptanceSpecSystem.Api.Options;
+
+using AcceptanceSpecSystem.Application.Options;
 
 namespace AcceptanceSpecSystem.Api.Services;
-
-public interface IDatabaseBackupExecutor
-{
-    Task<DatabaseBackupExecutionResult> BackupAsync(
-        DatabaseBackupOptions options,
-        CancellationToken cancellationToken);
-}
-
-public sealed record DatabaseBackupExecutionResult(string FileName, long FileSizeBytes);
 
 /// <summary>
 /// 基于 mysqldump 的 MySQL 备份执行器。

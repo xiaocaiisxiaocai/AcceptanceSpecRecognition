@@ -25,8 +25,13 @@ public interface IDocumentWriter
     /// <param name="stream">文档流（可读写）</param>
     /// <param name="tableIndex">表格索引（从0开始）</param>
     /// <param name="operations">写入操作列表</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功写入的操作数量</returns>
-    Task<int> WriteTableDataAsync(Stream stream, int tableIndex, IEnumerable<CellWriteOperation> operations);
+    Task<int> WriteTableDataAsync(
+        Stream stream,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 写入表格数据到文件
@@ -34,8 +39,13 @@ public interface IDocumentWriter
     /// <param name="filePath">文件路径</param>
     /// <param name="tableIndex">表格索引（从0开始）</param>
     /// <param name="operations">写入操作列表</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功写入的操作数量</returns>
-    Task<int> WriteTableDataAsync(string filePath, int tableIndex, IEnumerable<CellWriteOperation> operations);
+    Task<int> WriteTableDataAsync(
+        string filePath,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 写入单个单元格
@@ -45,8 +55,15 @@ public interface IDocumentWriter
     /// <param name="rowIndex">行索引</param>
     /// <param name="columnIndex">列索引</param>
     /// <param name="value">要写入的值</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>是否写入成功</returns>
-    Task<bool> WriteCellAsync(Stream stream, int tableIndex, int rowIndex, int columnIndex, string value);
+    Task<bool> WriteCellAsync(
+        Stream stream,
+        int tableIndex,
+        int rowIndex,
+        int columnIndex,
+        string value,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 创建文档副本并写入数据
@@ -55,14 +72,24 @@ public interface IDocumentWriter
     /// <param name="targetFilePath">目标文件路径</param>
     /// <param name="tableIndex">表格索引</param>
     /// <param name="operations">写入操作列表</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功写入的操作数量</returns>
-    Task<int> WriteToNewFileAsync(string sourceFilePath, string targetFilePath, int tableIndex, IEnumerable<CellWriteOperation> operations);
+    Task<int> WriteToNewFileAsync(
+        string sourceFilePath,
+        string targetFilePath,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 批量写入多个表格的数据（一次打开文档，写入所有表格后保存）
     /// </summary>
     /// <param name="stream">文档流（可读写）</param>
     /// <param name="tableOperations">按表格索引分组的写入操作字典</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功写入的总操作数量</returns>
-    Task<int> WriteMultipleTablesAsync(Stream stream, Dictionary<int, List<CellWriteOperation>> tableOperations);
+    Task<int> WriteMultipleTablesAsync(
+        Stream stream,
+        Dictionary<int, List<CellWriteOperation>> tableOperations,
+        CancellationToken cancellationToken = default);
 }

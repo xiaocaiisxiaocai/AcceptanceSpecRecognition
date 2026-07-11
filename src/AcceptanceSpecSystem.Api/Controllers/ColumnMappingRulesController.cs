@@ -1,75 +1,38 @@
-﻿using System.Text.RegularExpressions;
-using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
-using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Data.Entities;
-using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
-/// <summary>
-/// Word 列映射规则配置接口。
-/// </summary>
 [Route("api/column-mapping-rules")]
 [Authorize]
 public class ColumnMappingRulesController : BaseApiController
 {
-    private readonly IUnitOfWork _unitOfWork;
-    private readonly ColumnMappingRuleInitializer _initializer;
+    private readonly IColumnMappingRuleAppService _appService;
 
-    public ColumnMappingRulesController(
-        IUnitOfWork unitOfWork,
-        ColumnMappingRuleInitializer initializer)
-    {
-        _unitOfWork = unitOfWork;
-        _initializer = initializer;
-    }
+    public ColumnMappingRulesController(IColumnMappingRuleAppService appService) => _appService = appService;
 
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<List<ColumnMappingRuleDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<ColumnMappingRuleDto>>>> GetAll(
-        [FromQuery] bool? enabled = null,
-        CancellationToken cancellationToken = default)
-    {
-        var query = _unitOfWork.ColumnMappingRules.Query();
-        if (enabled.HasValue)
-        {
-            query = query.Where(rule => rule.Enabled == enabled.Value);
-        }
-
-        var rules = await query
-            .OrderBy(rule => rule.TargetField)
-            .ThenByDescending(rule => rule.Priority)
-            .ThenBy(rule => rule.Id)
-            .ToListAsync(cancellationToken);
-        var items = ColumnMappingRuleDeduplicator.ForConfigurationList(rules)
-            .Select(ToDto)
-            .ToList();
-
-        return Success(items);
-    }
+        [FromQuery] bool? enabled = null, CancellationToken cancellationToken = default) =>
+        Success(await _appService.GetAllAsync(enabled, cancellationToken));
 
     [HttpGet("effective")]
     [ProducesResponseType(typeof(ApiResponse<List<ColumnMappingRuleDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<ColumnMappingRuleDto>>>> GetEffective(
-        [FromQuery] int? customerId = null,
-        CancellationToken cancellationToken = default)
-    {
-        var rules = await _unitOfWork.ColumnMappingRules.GetEffectiveForCustomerAsync(customerId);
-        return Success(rules.Select(ToDto).ToList());
-    }
+        [FromQuery] int? customerId = null, CancellationToken cancellationToken = default) =>
+        Success(await _appService.GetEffectiveAsync(customerId, cancellationToken));
 
     [HttpPost("restore-defaults")]
     [AuditOperation("restore-defaults", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> RestoreDefaults(
-        [FromQuery] ColumnMappingTargetField? targetField = null,
-        CancellationToken cancellationToken = default)
+        [FromQuery] ColumnMappingTargetField? targetField = null, CancellationToken cancellationToken = default)
     {
-        var added = await _initializer.RestoreMissingAsync(targetField, cancellationToken);
+        var added = await _appService.RestoreDefaultsAsync(targetField, cancellationToken);
         return Success<object>(new { added }, "默认词已恢复");
     }
 
@@ -77,164 +40,28 @@ public class ColumnMappingRulesController : BaseApiController
     [AuditOperation("create", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse<ColumnMappingRuleDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<ColumnMappingRuleDto>>> Create(
-        [FromBody] CreateColumnMappingRuleRequest request,
-        CancellationToken cancellationToken = default)
+        [FromBody] CreateColumnMappingRuleRequest request, CancellationToken cancellationToken = default)
     {
-        var pattern = request.Pattern?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(pattern))
-        {
-            return Error<ColumnMappingRuleDto>(400, "匹配词不能为空");
-        }
-
-        var validationError = ValidateRegexRule(request.MatchMode, pattern);
-        if (validationError != null)
-        {
-            return Error<ColumnMappingRuleDto>(400, validationError);
-        }
-
-        if (await IsDuplicateRuleAsync(
-                request.TargetField,
-                request.CustomerId,
-                pattern,
-                exceptId: null,
-                cancellationToken))
-        {
-            return Error<ColumnMappingRuleDto>(400, "同一范围下已存在相同字段和匹配词的列映射规则");
-        }
-
-        var entity = new ColumnMappingRule
-        {
-            TargetField = request.TargetField,
-            MatchMode = request.MatchMode,
-            Pattern = pattern,
-            Priority = request.Priority,
-            Enabled = request.Enabled,
-            Source = request.Source,
-            CustomerId = request.CustomerId,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        await _unitOfWork.ColumnMappingRules.AddAsync(entity, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return Success(ToDto(entity), "创建成功");
+        try { return Success(await _appService.CreateAsync(request, cancellationToken), "创建成功"); }
+        catch (ApplicationServiceException ex) { return Error<ColumnMappingRuleDto>(ex.Code, ex.Message); }
     }
 
     [HttpPut("{id:int}")]
     [AuditOperation("update", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse<ColumnMappingRuleDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<ColumnMappingRuleDto>>> Update(
-        int id,
-        [FromBody] UpdateColumnMappingRuleRequest request,
-        CancellationToken cancellationToken = default)
+        int id, [FromBody] UpdateColumnMappingRuleRequest request, CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.ColumnMappingRules.GetByIdAsync(id, cancellationToken);
-        if (entity == null)
-        {
-            return Error<ColumnMappingRuleDto>(400, "规则不存在");
-        }
-
-        var pattern = request.Pattern?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(pattern))
-        {
-            return Error<ColumnMappingRuleDto>(400, "匹配词不能为空");
-        }
-
-        var validationError = ValidateRegexRule(request.MatchMode, pattern);
-        if (validationError != null)
-        {
-            return Error<ColumnMappingRuleDto>(400, validationError);
-        }
-
-        if (await IsDuplicateRuleAsync(
-                request.TargetField,
-                request.CustomerId,
-                pattern,
-                exceptId: id,
-                cancellationToken))
-        {
-            return Error<ColumnMappingRuleDto>(400, "同一范围下已存在相同字段和匹配词的列映射规则");
-        }
-
-        entity.TargetField = request.TargetField;
-        entity.MatchMode = request.MatchMode;
-        entity.Pattern = pattern;
-        entity.Priority = request.Priority;
-        entity.Enabled = request.Enabled;
-        entity.Source = request.Source;
-        entity.CustomerId = request.CustomerId;
-        entity.UpdatedAt = DateTime.UtcNow;
-
-        _unitOfWork.ColumnMappingRules.Update(entity);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return Success(ToDto(entity), "更新成功");
+        try { return Success(await _appService.UpdateAsync(id, request, cancellationToken), "更新成功"); }
+        catch (ApplicationServiceException ex) { return Error<ColumnMappingRuleDto>(ex.Code, ex.Message); }
     }
 
     [HttpDelete("{id:int}")]
     [AuditOperation("delete", "column-mapping-rule")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse>> Delete(
-        int id,
-        CancellationToken cancellationToken = default)
+    public async Task<ActionResult<ApiResponse>> Delete(int id, CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.ColumnMappingRules.GetByIdAsync(id, cancellationToken);
-        if (entity == null)
-        {
-            return Error(400, "规则不存在");
-        }
-
-        _unitOfWork.ColumnMappingRules.Remove(entity);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Success("删除成功");
+        try { await _appService.DeleteAsync(id, cancellationToken); return Success("删除成功"); }
+        catch (ApplicationServiceException ex) { return Error(ex.Code, ex.Message); }
     }
-
-    private async Task<bool> IsDuplicateRuleAsync(
-        ColumnMappingTargetField targetField,
-        int? customerId,
-        string pattern,
-        int? exceptId,
-        CancellationToken cancellationToken)
-    {
-        var normalizedPattern = pattern.Trim().ToLower();
-        return await _unitOfWork.ColumnMappingRules.Query()
-            .AnyAsync(rule =>
-                    (!exceptId.HasValue || rule.Id != exceptId.Value) &&
-                    rule.TargetField == targetField &&
-                    rule.CustomerId == customerId &&
-                    rule.Pattern.Trim().ToLower() == normalizedPattern,
-                cancellationToken);
-    }
-
-    private static string? ValidateRegexRule(ColumnMappingMatchMode matchMode, string pattern)
-    {
-        if (matchMode != ColumnMappingMatchMode.Regex)
-        {
-            return null;
-        }
-
-        try
-        {
-            _ = new Regex(pattern);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            return $"正则表达式无效: {ex.Message}";
-        }
-    }
-
-    private static ColumnMappingRuleDto ToDto(ColumnMappingRule entity) => new()
-    {
-        Id = entity.Id,
-        TargetField = entity.TargetField,
-        MatchMode = entity.MatchMode,
-        Pattern = entity.Pattern,
-        Priority = entity.Priority,
-        Enabled = entity.Enabled,
-        Source = entity.Source,
-        CustomerId = entity.CustomerId,
-        CreatedAt = entity.CreatedAt,
-        UpdatedAt = entity.UpdatedAt
-    };
 }

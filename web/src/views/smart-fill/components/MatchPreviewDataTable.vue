@@ -67,7 +67,10 @@ defineEmits<{
       </el-table-column>
 
       <!-- 源数据 -->
-      <el-table-column label="源数据" min-width="min(200px, calc(100vw - 32px))">
+      <el-table-column
+        label="源数据"
+        min-width="min(200px, calc(100vw - 32px))"
+      >
         <template #default="{ row }">
           <div class="source-data">
             <div class="source-project">{{ row.sourceProject }}</div>
@@ -90,7 +93,11 @@ defineEmits<{
       </el-table-column>
 
       <!-- 填充建议 -->
-      <el-table-column label="填充建议" width="min(120px, calc(100vw - 32px))" align="center">
+      <el-table-column
+        label="填充建议"
+        width="min(120px, calc(100vw - 32px))"
+        align="center"
+      >
         <template #default="{ row }">
           <el-tag
             v-if="shouldShowFillRecommendation(row)"
@@ -104,7 +111,10 @@ defineEmits<{
       </el-table-column>
 
       <!-- 最佳匹配 -->
-      <el-table-column label="最佳匹配" min-width="min(260px, calc(100vw - 32px))">
+      <el-table-column
+        label="最佳匹配"
+        min-width="min(260px, calc(100vw - 32px))"
+      >
         <template #default="{ row }">
           <MatchPreviewBestMatchCell
             :item="row"
@@ -114,7 +124,11 @@ defineEmits<{
       </el-table-column>
 
       <!-- 复核状态 -->
-      <el-table-column label="复核状态" width="min(130px, calc(100vw - 32px))" align="center">
+      <el-table-column
+        label="复核状态"
+        width="min(130px, calc(100vw - 32px))"
+        align="center"
+      >
         <template #default="{ row }">
           <div class="ai-status-cell">
             <el-tag
@@ -131,7 +145,10 @@ defineEmits<{
       </el-table-column>
 
       <!-- 验收标准预览 -->
-      <el-table-column label="验收标准" min-width="min(180px, calc(100vw - 32px))">
+      <el-table-column
+        label="验收标准"
+        min-width="min(180px, calc(100vw - 32px))"
+      >
         <template #default="{ row }">
           <MatchPreviewTextCell
             :text="getDisplayAcceptanceText(row)"
@@ -153,14 +170,23 @@ defineEmits<{
       </el-table-column>
 
       <!-- 不匹配原因 / 复核说明 -->
-      <el-table-column v-if="hasReasonColumn" label="异常/原因" min-width="min(220px, calc(100vw - 32px))">
+      <el-table-column
+        v-if="hasReasonColumn"
+        label="异常/原因"
+        min-width="min(220px, calc(100vw - 32px))"
+      >
         <template #default="{ row }">
           <MatchPreviewReasonCell :item="row" />
         </template>
       </el-table-column>
 
       <!-- 操作 -->
-      <el-table-column label="操作" width="min(140px, calc(100vw - 32px))" align="center" fixed="right">
+      <el-table-column
+        label="操作"
+        width="min(140px, calc(100vw - 32px))"
+        align="center"
+        fixed="right"
+      >
         <template #default="{ row }">
           <div class="action-buttons">
             <el-button

@@ -13,7 +13,7 @@ public class MatchingApprovalTokenServiceTests
     public void ResolveBundle_WhenTokenIssuedWithExactMatchOnly_ShouldPreserveExactMatchOnly()
     {
         var provider = DataProtectionProvider.Create("matching-approval-token-tests");
-        var service = new MatchingApprovalTokenService(provider);
+        var service = new MatchingApprovalTokenService(new MatchingApprovalTokenProtector(provider));
         var token = service.IssueToken(
             userId: 7,
             tableIndex: 0,
@@ -65,7 +65,7 @@ public class MatchingApprovalTokenServiceTests
     public void EnsureRequestContextMatchesBundle_WhenRequestScopeDiffers_ShouldReject()
     {
         var provider = DataProtectionProvider.Create("matching-approval-token-tests");
-        var service = new MatchingApprovalTokenService(provider);
+        var service = new MatchingApprovalTokenService(new MatchingApprovalTokenProtector(provider));
         var token = service.IssueToken(
             userId: 7,
             tableIndex: 0,

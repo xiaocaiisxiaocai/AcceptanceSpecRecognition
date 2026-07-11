@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getRequestErrorMessage } from "./error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "./error-message";
 
 describe("getRequestErrorMessage", () => {
   it("优先返回 Axios response.data.message", () => {
@@ -69,5 +72,25 @@ describe("getRequestErrorMessage", () => {
 
   it("无法提取错误时返回调用方兜底文案", () => {
     expect(getRequestErrorMessage(undefined, "兜底错误")).toBe("兜底错误");
+  });
+});
+
+describe("isGloballyHandledAuthError", () => {
+  it.each([401, 403])("识别由 HTTP 层统一处理的 %s", status => {
+    expect(
+      isGloballyHandledAuthError({
+        isAxiosError: true,
+        response: { status }
+      })
+    ).toBe(true);
+  });
+
+  it("保留普通请求错误的页面提示", () => {
+    expect(
+      isGloballyHandledAuthError({
+        isAxiosError: true,
+        response: { status: 500 }
+      })
+    ).toBe(false);
   });
 });

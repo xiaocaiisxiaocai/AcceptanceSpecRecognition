@@ -22,7 +22,11 @@ const form = computed(() => formData.value);
 </script>
 
 <template>
-  <el-dialog v-model="visible" :title="title" width="min(640px, calc(100vw - 32px))">
+  <el-dialog
+    v-model="visible"
+    :title="title"
+    width="min(640px, calc(100vw - 32px))"
+  >
     <el-form label-width="120px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" maxlength="100" />

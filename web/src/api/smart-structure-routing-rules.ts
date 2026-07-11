@@ -58,14 +58,16 @@ export type UpdateSmartStructureRoutingRuleRequest =
 const baseUrl = "/api/smart-structure-routing-rules";
 
 export const getSmartStructureRoutingRules = (enabled?: boolean) => {
-  return http.request<ApiResponse<SmartStructureRoutingRule[]>>("get", baseUrl, {
-    params: enabled === undefined ? undefined : { enabled }
-  });
+  return http.request<ApiResponse<SmartStructureRoutingRule[]>>(
+    "get",
+    baseUrl,
+    {
+      params: enabled === undefined ? undefined : { enabled }
+    }
+  );
 };
 
-export const getEffectiveSmartStructureRoutingRules = (
-  customerId?: number
-) => {
+export const getEffectiveSmartStructureRoutingRules = (customerId?: number) => {
   return http.request<ApiResponse<SmartStructureRoutingRule[]>>(
     "get",
     `${baseUrl}/effective`,

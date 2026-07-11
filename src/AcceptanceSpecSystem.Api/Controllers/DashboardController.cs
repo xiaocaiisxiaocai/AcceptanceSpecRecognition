@@ -1,5 +1,6 @@
 ﻿using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -28,7 +29,18 @@ public sealed class DashboardController : BaseApiController
         [FromQuery] DateTime? to = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await _dashboardAppService.GetSummaryAsync(User, range, from, to, cancellationToken);
+        var userId = AuthClaimHelper.GetUserId(User);
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        if (!userId.HasValue || !companyId.HasValue)
+            return Error<DashboardSummaryDto>(401, "会话缺少用户上下文");
+
+        var result = await _dashboardAppService.GetSummaryAsync(
+            userId.Value,
+            companyId.Value,
+            range,
+            from,
+            to,
+            cancellationToken);
         if (result == null)
         {
             return Error<DashboardSummaryDto>(401, "会话缺少用户上下文");

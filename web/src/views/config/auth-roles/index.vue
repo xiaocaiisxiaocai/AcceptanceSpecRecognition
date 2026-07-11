@@ -15,7 +15,10 @@ import {
   type AuthPermission
 } from "@/api/auth-permission";
 import { getOrgUnitFlat, type OrgUnit } from "@/api/org-unit";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 
 defineOptions({
@@ -492,7 +495,7 @@ const handleDelete = async (role: AuthRole) => {
       ElMessage.error(res.message || "删除角色失败");
     }
   } catch (error) {
-    if (isMessageBoxCancel(error)) return;
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "删除角色失败"));
   }
 };

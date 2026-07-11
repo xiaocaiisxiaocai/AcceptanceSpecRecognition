@@ -587,3 +587,78 @@ const hasSpecificationOnlyBackfillTables = computed(() =>
     </el-collapse>
   </div>
 </template>
+
+<style scoped>
+.import-summary-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.import-summary-bar__meta,
+.import-summary-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+
+.import-summary-bar__actions {
+  justify-content: flex-end;
+  color: var(--app-text-primary);
+}
+
+.import-summary-bar__file {
+  min-width: 0;
+  max-width: min(340px, 42vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  white-space: nowrap;
+}
+
+.import-summary-bar__count {
+  font-weight: 600;
+  color: var(--app-primary);
+}
+
+.import-summary-bar__progress {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 8px;
+  align-items: baseline;
+  padding-top: 8px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  border-top: 1px dashed var(--app-border);
+}
+
+.import-summary-bar__progress strong {
+  color: var(--app-primary);
+}
+
+@media (width <= 900px) {
+  .import-summary-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .import-summary-bar__actions {
+    justify-content: space-between;
+  }
+
+  .import-summary-bar__actions :deep(.el-button) {
+    flex: 1;
+    min-height: 40px;
+  }
+}
+</style>

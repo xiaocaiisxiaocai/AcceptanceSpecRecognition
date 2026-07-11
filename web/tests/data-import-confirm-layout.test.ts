@@ -82,10 +82,18 @@ test("智能结构确认卡片应把项目列放在规格列之前", () => {
 });
 
 test("展开配置后应以当前编辑表单为主，避免重复展示映射和置信度", () => {
-  assert.match(
-    confirmCardSource,
-    /class="card-summary-strip"[\s\S]*v-show="!detailVisible"/
+  const summaryClassIndex = confirmCardSource.indexOf(
+    'class="card-summary-strip"'
   );
+  const summaryTagStart = confirmCardSource.lastIndexOf(
+    "<div",
+    summaryClassIndex
+  );
+  const summaryTagEnd = confirmCardSource.indexOf(">", summaryClassIndex);
+  const summaryTag = confirmCardSource.slice(summaryTagStart, summaryTagEnd);
+
+  assert.ok(summaryClassIndex >= 0, "缺少折叠摘要区域");
+  assert.match(summaryTag, /v-show="!detailVisible"/);
   assert.match(confirmCardSource, /const showRecognitionEvidence = computed/);
   assert.match(
     confirmCardSource,

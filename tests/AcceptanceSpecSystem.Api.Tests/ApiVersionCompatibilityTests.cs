@@ -34,13 +34,8 @@ public sealed class ApiVersionCompatibilityTests : IClassFixture<ApiWebApplicati
     [Fact]
     public async Task AuthRoutes_ShouldKeepLegacyRootPaths()
     {
-        var response = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new
-            {
-                username = "",
-                password = ""
-            }));
+        using var loginRequest = AuthCookieTestHelper.CreateLoginRequest("", "");
+        var response = await _client.SendAsync(loginRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }

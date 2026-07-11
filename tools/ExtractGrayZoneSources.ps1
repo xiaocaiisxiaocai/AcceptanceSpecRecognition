@@ -1,17 +1,17 @@
-# 从淮安数据中提取"需要 LLM 语义裁决"的源行
+# 从合成数据中提取"需要 LLM 语义裁决"的源行
 # 排除：项目+规格在库中有完全一致的候选
 # 保留：需要语义匹配才能找到候选的源行
 
 param(
     [string]$InputJson = "tools/Fixtures/synthetic_specs.json",
-    [string]$OutputCsv = "huaian_llm_semantic_sources.csv",
+    [string]$OutputCsv = "generated_llm_semantic_sources.csv",
     [int]$SampleCount = 50
 )
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot\..
 
-Write-Host "🔍 加载淮安规格数据..." -ForegroundColor Cyan
+Write-Host "🔍 加载合成规格数据..." -ForegroundColor Cyan
 $json = Get-Content $InputJson -Raw -Encoding UTF8 | ConvertFrom-Json
 $specs = $json.data.items
 

@@ -212,8 +212,8 @@ onMounted(() => {
 
 .detail-card {
   display: flex;
-  flex-direction: column;
   flex: 1;
+  flex-direction: column;
   min-height: 0;
 }
 

@@ -148,7 +148,10 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                       min-width="min(160px, calc(100vw - 32px))"
                       show-overflow-tooltip
                     />
-                    <el-table-column label="导入时间" width="min(180px, calc(100vw - 32px))">
+                    <el-table-column
+                      label="导入时间"
+                      width="min(180px, calc(100vw - 32px))"
+                    >
                       <template #default="{ row }">
                         {{ formatImportedAt(row.importedAt) }}
                       </template>
@@ -224,7 +227,10 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                       min-width="min(160px, calc(100vw - 32px))"
                       show-overflow-tooltip
                     />
-                    <el-table-column label="导入时间" width="min(180px, calc(100vw - 32px))">
+                    <el-table-column
+                      label="导入时间"
+                      width="min(180px, calc(100vw - 32px))"
+                    >
                       <template #default="{ row }">
                         {{ formatImportedAt(row.importedAt) }}
                       </template>

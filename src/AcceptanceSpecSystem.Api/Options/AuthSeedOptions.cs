@@ -68,5 +68,10 @@ public sealed class AuthSeedOptionsValidator : IValidateOptions<AuthSeedOptions>
         {
             failures.Add($"{AuthSeedOptions.SectionName}:{optionName} 长度至少需要 {MinimumPasswordLength} 位");
         }
+
+        if (ProductionSecretGuard.IsKnownPlaceholder(password))
+        {
+            failures.Add($"{AuthSeedOptions.SectionName}:{optionName} 不能使用示例值或已知占位符");
+        }
     }
 }

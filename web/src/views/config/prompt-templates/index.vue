@@ -10,7 +10,10 @@ import {
   type PromptTemplatePreviewResponse
 } from "@/api/prompt-template";
 import { hasPerms } from "@/utils/auth";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
 
@@ -210,7 +213,7 @@ const handleResetSystem = async (row: PromptTemplate) => {
       ElMessage.error(res.message);
     }
   } catch (error) {
-    if (isMessageBoxCancel(error)) return;
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "恢复系统默认模板失败"));
   }
 };

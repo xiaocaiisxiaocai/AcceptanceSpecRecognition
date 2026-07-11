@@ -5,14 +5,15 @@ const apiMocks = vi.hoisted(() => ({
   recognizeSmartConfig: vi.fn(),
   confirmSmartConfig: vi.fn()
 }));
+const messageMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+  warning: vi.fn(),
+  success: vi.fn()
+}));
 
 vi.mock("@/api/smart-config", () => apiMocks);
 vi.mock("element-plus", () => ({
-  ElMessage: {
-    error: vi.fn(),
-    warning: vi.fn(),
-    success: vi.fn()
-  }
+  ElMessage: messageMocks
 }));
 
 import { useSmartStructureRecognition } from "./useSmartStructureRecognition";
@@ -92,5 +93,54 @@ describe("useSmartStructureRecognition", () => {
     await pendingB;
     expect(state.recognizedTables.value).toEqual([]);
     expect(state.recognitionError.value).toBe("识别失败");
+  });
+
+  it("reset 换文件后忽略旧文件更晚返回的确认结果", async () => {
+    const requestA = deferred<any>();
+    apiMocks.recognizeSmartConfig
+      .mockReset()
+      .mockResolvedValueOnce({ code: 0, data: result(10, "A文件") })
+      .mockResolvedValueOnce({ code: 0, data: result(20, "B文件") });
+    apiMocks.confirmSmartConfig
+      .mockReset()
+      .mockReturnValueOnce(requestA.promise);
+    messageMocks.success.mockClear();
+    const state = useSmartStructureRecognition();
+
+    await state.recognize(10, 1);
+    const pendingConfirm = state.confirm({
+      customerId: 1,
+      fileId: 10,
+      tableIndex: 0,
+      headers: ["项目", "规格", "验收", "备注"],
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 2,
+      remarkColumnIndex: 3,
+      headerRowIndex: 0,
+      headerRowCount: 1,
+      dataStartRowIndex: 1,
+      isSpecificationOnly: false,
+      learnedColumns: []
+    });
+
+    state.reset();
+    await state.recognize(20, 1);
+    requestA.resolve({
+      code: 0,
+      data: {
+        templateSaved: true,
+        templateId: 1,
+        learnedRuleCount: 1,
+        promotedGlobalRuleCount: 0,
+        learningSucceeded: true
+      }
+    });
+
+    expect(await pendingConfirm).toBeNull();
+    expect(state.lastConfirmResult.value).toBeNull();
+    expect(state.recognitionResult.value?.fileId).toBe(20);
+    expect(state.confirmingTableIndex.value).toBeNull();
+    expect(messageMocks.success).not.toHaveBeenCalled();
   });
 });

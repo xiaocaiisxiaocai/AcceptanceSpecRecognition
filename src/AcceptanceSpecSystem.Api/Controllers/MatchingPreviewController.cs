@@ -25,7 +25,8 @@ public class MatchingPreviewController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<BatchPreviewResponse>), StatusCodes.Status400BadRequest)]
     public Task<ActionResult<ApiResponse<BatchPreviewResponse>>> BatchPreview([FromBody] BatchPreviewRequest request)
     {
-        return HandleAsync(() => _matchingPreviewAppService.BatchPreviewAsync(User, request, HttpContext.RequestAborted));
+        return HandleAsync(() => _matchingPreviewAppService.BatchPreviewAsync(
+            GetMatchingUserContext(), request, HttpContext.RequestAborted));
     }
 
     [HttpGet("batch-preview-progress/{requestId}")]

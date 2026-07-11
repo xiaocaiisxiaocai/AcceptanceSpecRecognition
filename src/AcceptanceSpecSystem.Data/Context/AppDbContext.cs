@@ -83,6 +83,11 @@ public class AppDbContext : DbContext
     public DbSet<SystemUser> SystemUsers => Set<SystemUser>();
 
     /// <summary>
+    /// 浏览器刷新令牌会话
+    /// </summary>
+    public DbSet<AuthRefreshSession> AuthRefreshSessions => Set<AuthRefreshSession>();
+
+    /// <summary>
     /// 公司表
     /// </summary>
     public DbSet<OrgCompany> OrgCompanies => Set<OrgCompany>();
@@ -327,7 +332,9 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Pattern).IsRequired().HasMaxLength(200);
-            entity.Property(e => e.Source).HasDefaultValue(ColumnMappingRuleSource.Manual);
+            entity.Property(e => e.Source)
+                .HasDefaultValue(ColumnMappingRuleSource.Manual)
+                .HasSentinel((ColumnMappingRuleSource)0);
             entity.HasIndex(e => new { e.TargetField, e.Pattern });
             entity.HasIndex(e => new { e.CustomerId, e.TargetField, e.Pattern });
             entity.HasIndex(e => new { e.TargetField, e.Priority });
@@ -341,7 +348,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.TableKind).IsRequired().HasMaxLength(50);
             entity.Property(e => e.Recommendation).IsRequired().HasMaxLength(50);
             entity.Property(e => e.Pattern).IsRequired().HasMaxLength(500);
-            entity.Property(e => e.Source).HasDefaultValue(SmartStructureRoutingRuleSource.Manual);
+            entity.Property(e => e.Source)
+                .HasDefaultValue(SmartStructureRoutingRuleSource.Manual)
+                .HasSentinel((SmartStructureRoutingRuleSource)0);
             entity.Property(e => e.Weight).HasDefaultValue(1.0);
             entity.HasIndex(e => new { e.CustomerId, e.MatchScope, e.Pattern });
             entity.HasIndex(e => new { e.TableKind, e.Priority });
@@ -455,6 +464,22 @@ public class AppDbContext : DbContext
                 .WithMany(c => c.Users)
                 .HasForeignKey(e => e.CompanyId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AuthRefreshSession>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.FamilyId).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.TokenHash).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.RevocationReason).HasMaxLength(128);
+            entity.HasIndex(e => e.TokenHash).IsUnique();
+            entity.HasIndex(e => new { e.FamilyId, e.Status });
+            entity.HasIndex(e => new { e.UserId, e.Status });
+            entity.HasIndex(e => e.ExpiresAt);
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // AuthUserRole配置

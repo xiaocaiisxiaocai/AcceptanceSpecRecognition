@@ -1,11 +1,6 @@
-﻿using AcceptanceSpecSystem.Api.Options;
+using AcceptanceSpecSystem.Application.Options;
 
 namespace AcceptanceSpecSystem.Api.Services;
-
-public interface IEmbeddingCacheWarmupExecutor
-{
-    Task WarmupAsync(int batchSize, int maxItemsPerRun, CancellationToken cancellationToken);
-}
 
 /// <summary>
 /// 向量缓存后台预热服务
@@ -13,13 +8,16 @@ public interface IEmbeddingCacheWarmupExecutor
 public sealed class EmbeddingCacheWarmupService : BackgroundService
 {
     private readonly EmbeddingCacheWarmupManager _manager;
+    private readonly IEmbeddingCacheWarmupTrigger _trigger;
     private readonly ILogger<EmbeddingCacheWarmupService> _logger;
 
     public EmbeddingCacheWarmupService(
         EmbeddingCacheWarmupManager manager,
+        IEmbeddingCacheWarmupTrigger trigger,
         ILogger<EmbeddingCacheWarmupService> logger)
     {
         _manager = manager;
+        _trigger = trigger;
         _logger = logger;
     }
 
@@ -30,30 +28,33 @@ public sealed class EmbeddingCacheWarmupService : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             var options = _manager.GetOptions();
-            if (!options.Enabled)
-            {
-                await DelayOrStopAsync(GetIntervalDelay(options), stoppingToken);
-                continue;
-            }
-
             if (!startupHandled)
             {
                 startupHandled = true;
-                if (options.RunOnStartup)
+                if (options.Enabled && options.RunOnStartup)
                 {
-                    await WarmupOnceAsync(options, stoppingToken);
+                    await WarmupOnceAsync(requireEnabled: true, stoppingToken);
                     continue;
                 }
             }
 
-            await DelayOrStopAsync(GetNextDelay(options), stoppingToken);
-            await WarmupOnceAsync(_manager.GetOptions(), stoppingToken);
+            var delay = options.Enabled
+                ? GetNextDelay(options)
+                : GetIntervalDelay(options);
+            var triggered = await WaitForTriggerOrDelayAsync(delay, stoppingToken);
+            if (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            // 导入触发保持原有语义，不受定时开关限制；定时触发仍遵循 Enabled。
+            await WarmupOnceAsync(requireEnabled: !triggered, stoppingToken);
         }
     }
 
-    private async Task WarmupOnceAsync(EmbeddingCacheWarmupOptions options, CancellationToken stoppingToken)
+    private async Task WarmupOnceAsync(bool requireEnabled, CancellationToken stoppingToken)
     {
-        if (!options.Enabled || stoppingToken.IsCancellationRequested)
+        if ((requireEnabled && !_manager.GetOptions().Enabled) || stoppingToken.IsCancellationRequested)
             return;
 
         var result = await _manager.RunOnceAsync(stoppingToken);
@@ -81,14 +82,29 @@ public sealed class EmbeddingCacheWarmupService : BackgroundService
     private static TimeSpan GetIntervalDelay(EmbeddingCacheWarmupOptions options)
         => TimeSpan.FromHours(Math.Max(1, options.IntervalHours));
 
-    private static async Task DelayOrStopAsync(TimeSpan delay, CancellationToken stoppingToken)
+    private async Task<bool> WaitForTriggerOrDelayAsync(TimeSpan delay, CancellationToken stoppingToken)
     {
         try
         {
-            await Task.Delay(delay, stoppingToken);
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            var triggerTask = _trigger.WaitAsync(waitCts.Token).AsTask();
+            var delayTask = Task.Delay(delay, waitCts.Token);
+            await Task.WhenAny(triggerTask, delayTask);
+            var triggered = triggerTask.IsCompletedSuccessfully;
+            waitCts.Cancel();
+            try
+            {
+                await (triggered ? delayTask : triggerTask);
+            }
+            catch (OperationCanceledException) when (waitCts.IsCancellationRequested)
+            {
+            }
+
+            return triggered;
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
+            return false;
         }
     }
 

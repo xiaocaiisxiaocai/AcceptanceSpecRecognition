@@ -18,10 +18,11 @@ public class MatchingTaskController : MatchingApiControllerBase
     }
 
     [HttpGet("download/{taskId:regex(^[[a-f0-9]]{{32}}$)}")]
-    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-    public Task<IActionResult> Download(string taskId)
+    public Task<IActionResult> Download(string taskId, CancellationToken cancellationToken = default)
     {
-        return HandleFileAsync(() => _matchingTaskAppService.DownloadAsync(User, taskId));
+        return HandleFileAsync(() => _matchingTaskAppService.DownloadAsync(
+            GetMatchingUserContext(), taskId, cancellationToken));
     }
 }

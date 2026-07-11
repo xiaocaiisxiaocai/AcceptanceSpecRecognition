@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -16,15 +17,15 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
 
     public AuthTests(ApiWebApplicationFactory factory)
     {
-        _client = factory.CreateClient();
+        _client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
     }
 
     [Fact]
     public async Task Login_WithValidCredential_ShouldReturnJwtPayload()
     {
-        var resp = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new { username = "admin", password = ApiWebApplicationFactory.TestAdminPassword }));
+        using var loginRequest = AuthCookieTestHelper.CreateLoginRequest(
+            "admin", ApiWebApplicationFactory.TestAdminPassword);
+        var resp = await _client.SendAsync(loginRequest);
 
         var raw = await resp.Content.ReadAsStringAsync();
         resp.StatusCode.Should().Be(HttpStatusCode.OK, $"返回内容: {raw}");
@@ -33,23 +34,27 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
 
         var data = json.GetProperty("data");
         data.GetProperty("accessToken").GetString().Should().NotBeNullOrWhiteSpace();
-        data.GetProperty("refreshToken").GetString().Should().NotBeNullOrWhiteSpace();
+        data.TryGetProperty("refreshToken", out _).Should().BeFalse();
         data.GetProperty("roleCode").GetString().Should().Be("admin");
         data.TryGetProperty("roles", out _).Should().BeFalse();
+        var setCookies = resp.Headers.GetValues("Set-Cookie").ToArray();
+        setCookies.Should().Contain(value => value.StartsWith("__Host-acceptance-refresh=") &&
+                                             value.Contains("httponly", StringComparison.OrdinalIgnoreCase) &&
+                                             value.Contains("secure", StringComparison.OrdinalIgnoreCase) &&
+                                             value.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
     public async Task Login_WhenRateLimitExceeded_ShouldReturnTooManyRequests()
     {
         await using var factory = new LoginRateLimitApiWebApplicationFactory();
-        using var client = factory.CreateClient();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
         HttpResponseMessage? lastResponse = null;
         for (var i = 0; i < 3; i++)
         {
             lastResponse?.Dispose();
-            lastResponse = await client.PostAsync(
-                "/login",
-                ApiClientJson.ToJsonContent(new { username = "admin", password = "wrong-password" }));
+            using var request = AuthCookieTestHelper.CreateLoginRequest("admin", "wrong-password");
+            lastResponse = await client.SendAsync(request);
         }
 
         using (lastResponse)
@@ -62,14 +67,13 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     public async Task RefreshToken_WhenRateLimitExceeded_ShouldReturnTooManyRequests()
     {
         await using var factory = new LoginRateLimitApiWebApplicationFactory();
-        using var client = factory.CreateClient();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
         HttpResponseMessage? lastResponse = null;
         for (var i = 0; i < 3; i++)
         {
             lastResponse?.Dispose();
-            lastResponse = await client.PostAsync(
-                "/refresh-token",
-                ApiClientJson.ToJsonContent(new { refreshToken = "invalid-token" }));
+            using var request = AuthCookieTestHelper.CreateStateChangingRequest("/refresh-token", "invalid-token", "csrf");
+            lastResponse = await client.SendAsync(request);
         }
 
         using (lastResponse)
@@ -101,9 +105,8 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     [Fact]
     public async Task RefreshToken_WithInvalidToken_ShouldReturnUnauthorized()
     {
-        var resp = await _client.PostAsync(
-            "/refresh-token",
-            ApiClientJson.ToJsonContent(new { refreshToken = "invalid-token" }));
+        using var request = AuthCookieTestHelper.CreateStateChangingRequest("/refresh-token", "invalid-token", "csrf");
+        var resp = await _client.SendAsync(request);
 
         resp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         var json = await resp.ReadAsAsync<JsonElement>();
@@ -113,18 +116,14 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     [Fact]
     public async Task RefreshToken_WithValidToken_ShouldReturnLatestAuthorizationSnapshot()
     {
-        var loginResp = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new { username = "admin", password = ApiWebApplicationFactory.TestAdminPassword }));
+        using var loginRequest = AuthCookieTestHelper.CreateLoginRequest(
+            "admin", ApiWebApplicationFactory.TestAdminPassword);
+        var loginResp = await _client.SendAsync(loginRequest);
         loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var loginJson = await loginResp.ReadAsAsync<JsonElement>();
-        var refreshToken = loginJson.GetProperty("data").GetProperty("refreshToken").GetString();
-        refreshToken.Should().NotBeNullOrWhiteSpace();
-
-        var refreshResp = await _client.PostAsync(
-            "/refresh-token",
-            ApiClientJson.ToJsonContent(new { refreshToken }));
+        var (refreshToken, csrfToken) = AuthCookieTestHelper.ReadSessionCookies(loginResp);
+        using var refreshRequest = AuthCookieTestHelper.CreateStateChangingRequest("/refresh-token", refreshToken, csrfToken);
+        var refreshResp = await _client.SendAsync(refreshRequest);
         refreshResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var refreshJson = await refreshResp.ReadAsAsync<JsonElement>();
@@ -141,15 +140,13 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
     public async Task RefreshToken_WhenPermissionVersionChanged_ShouldReturnUnauthorized()
     {
         await using var factory = new ApiWebApplicationFactory();
-        using var client = factory.CreateClient();
-        var loginResp = await client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new { username = "admin", password = ApiWebApplicationFactory.TestAdminPassword }));
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+        using var loginRequest = AuthCookieTestHelper.CreateLoginRequest(
+            "admin", ApiWebApplicationFactory.TestAdminPassword);
+        var loginResp = await client.SendAsync(loginRequest);
         loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var loginJson = await loginResp.ReadAsAsync<JsonElement>();
-        var refreshToken = loginJson.GetProperty("data").GetProperty("refreshToken").GetString();
-        refreshToken.Should().NotBeNullOrWhiteSpace();
+        var (refreshToken, csrfToken) = AuthCookieTestHelper.ReadSessionCookies(loginResp);
 
         using (var scope = factory.Services.CreateScope())
         {
@@ -159,9 +156,8 @@ public class AuthTests : IClassFixture<ApiWebApplicationFactory>
             await dbContext.SaveChangesAsync();
         }
 
-        var refreshResp = await client.PostAsync(
-            "/refresh-token",
-            ApiClientJson.ToJsonContent(new { refreshToken }));
+        using var refreshRequest = AuthCookieTestHelper.CreateStateChangingRequest("/refresh-token", refreshToken, csrfToken);
+        var refreshResp = await client.SendAsync(refreshRequest);
 
         refreshResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         var refreshJson = await refreshResp.ReadAsAsync<JsonElement>();

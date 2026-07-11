@@ -26,9 +26,11 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
     public async Task Confirm_ShouldUpsertTemplateAndWriteCustomerLearnedRules()
     {
         var customerId = await CreateCustomerAsync("确认学习-客户A");
+        var fileId = await UploadConfirmationFileAsync(["管控项目", "规格要求", "判定标准", "备注"], 21);
 
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName = "客户A-规格模板",
             headers = new[] { "管控项目", "规格要求", "判定标准", "备注" },
@@ -120,9 +122,11 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
     public async Task Confirm_ShouldNotCreateLearnedRoutingRuleFromTemplateName()
     {
         var customerId = await CreateCustomerAsync("确认学习-表名规则收敛客户");
+        var fileId = await UploadConfirmationFileAsync(["项目", "规格", "验收"]);
 
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName = "客户专用验收主表",
             headers = new[] { "项目", "规格", "验收" },
@@ -151,8 +155,10 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
 
     private async Task ConfirmHeaderAsync(int customerId, string header, int targetField)
     {
+        var fileId = await UploadConfirmationFileAsync([header, "规格"]);
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName = $"客户{customerId}-模板",
             headers = new[] { header, "规格" },
@@ -176,8 +182,10 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
         string templateName,
         int acceptanceColumnIndex)
     {
+        var fileId = await UploadConfirmationFileAsync(["项目", "规格", "验收", "备注"]);
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName,
             headers = new[] { "项目", "规格", "验收", "备注" },
@@ -202,6 +210,21 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
 
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private Task<int> UploadConfirmationFileAsync(string[] headers, int rowCount = 2)
+    {
+        var rows = new string[Math.Max(2, rowCount)][];
+        rows[0] = headers;
+        for (var index = 1; index < rows.Length; index++)
+        {
+            rows[index] = headers.Select((_, column) => $"值{index}-{column}").ToArray();
+        }
+
+        return SmartConfigRecognizeTestFiles.UploadWordAsync(
+            _client,
+            SmartConfigRecognizeTestFiles.CreateWordBytes(rows),
+            $"smart-confirm-learning-{Guid.NewGuid():N}.docx");
     }
 }
 
@@ -238,8 +261,17 @@ public class SmartConfigConfirmLearningConfiguredThresholdTests : IClassFixture<
 
     private async Task ConfirmHeaderAsync(int customerId, string header, int targetField)
     {
+        var fileId = await SmartConfigRecognizeTestFiles.UploadWordAsync(
+            _client,
+            SmartConfigRecognizeTestFiles.CreateWordBytes(
+            [
+                [header, "规格"],
+                ["项目值", "规格值"]
+            ]),
+            $"smart-confirm-threshold-{Guid.NewGuid():N}.docx");
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName = $"客户{customerId}-模板",
             headers = new[] { header, "规格" },

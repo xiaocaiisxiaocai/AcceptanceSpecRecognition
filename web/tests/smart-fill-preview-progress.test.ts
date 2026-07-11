@@ -25,7 +25,10 @@ test("smart-fill 匹配 API 应暴露 previewRequestId 与进度查询接口", (
   const matchingApiSource = readProjectFile("web/src/api/matching.ts");
 
   assert.match(matchingApiSource, /previewRequestId\?: string;/);
-  assert.match(matchingApiSource, /export interface BatchPreviewProgressResponse \{/);
+  assert.match(
+    matchingApiSource,
+    /export interface BatchPreviewProgressResponse \{/
+  );
   assert.match(matchingApiSource, /export const getBatchPreviewProgress = \(/);
 });
 
@@ -42,7 +45,6 @@ test("smart-fill 批量预览接口应显式关闭 axios 默认超时，避免�
 });
 
 test("smart-fill 页面应维护真实进度状态并轮询 preview 进度", () => {
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
   const progressSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillPreviewProgress.ts"
   );
@@ -65,7 +67,10 @@ test("smart-fill 进度轮询遇到失效 requestId 时应停止继续轮询", (
     "web/src/views/smart-fill/composables/useSmartFillPreviewProgress.ts"
   );
 
-  assert.match(progressSource, /if \(axiosError\?\.response\?\.status === 404\) \{/);
+  assert.match(
+    progressSource,
+    /if \(axiosError\?\.response\?\.status === 404\) \{/
+  );
   assert.match(progressSource, /if \(!isLoading\(\)\) \{/);
   assert.match(progressSource, /stopPreviewProgressPolling\(\);/);
 });
@@ -75,16 +80,16 @@ test("batch-preview 控制器与应用服务应透传请求取消令牌，避免
     "src/AcceptanceSpecSystem.Api/Controllers/MatchingPreviewController.cs"
   );
   const appServiceSource = readProjectFile(
-    "src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs"
+    "src/AcceptanceSpecSystem.Application/Services/MatchingPreviewAppService.cs"
   );
 
   assert.match(
     controllerSource,
-    /BatchPreviewAsync\(User,\s*request,\s*HttpContext\.RequestAborted\)/
+    /BatchPreviewAsync\(\s*GetMatchingUserContext\(\),\s*request,\s*HttpContext\.RequestAborted\)/
   );
   assert.match(
     appServiceSource,
-    /BatchPreviewAsync\(\s*ClaimsPrincipal user,\s*BatchPreviewRequest request,\s*CancellationToken cancellationToken = default\)/
+    /BatchPreviewAsync\(\s*MatchingUserContext user,\s*BatchPreviewRequest request,\s*CancellationToken cancellationToken = default\)/
   );
   assert.match(
     appServiceSource,
@@ -105,10 +110,7 @@ test("匹配服务应在批量预览链路中把取消令牌下传到 Embedding�
     matchingInterfaceSource,
     /BatchMatchAsync\(\s*IEnumerable<MatchSource> sources,\s*IEnumerable<MatchCandidate> candidates,\s*MatchingConfig\? config = null,\s*IProgress<BatchMatchProgress>\? progress = null,\s*CancellationToken cancellationToken = default\)/
   );
-  assert.match(
-    matchingServiceSource,
-    /cancellationToken/
-  );
+  assert.match(matchingServiceSource, /cancellationToken/);
   assert.match(
     matchingServiceSource,
     /GenerateEmbeddingsAsync\(\s*pendingSourceIndices\.Select\(index => GetSourceEmbeddingText\(sourceList\[index\], config\)\),\s*config\.EmbeddingServiceId,\s*cancellationToken\)/
@@ -132,5 +134,8 @@ test("批量预览 Tabs 应只渲染当前激活表，避免一次性挂载全�
   assert.match(previewTabsSource, /v-if="activeTableResult"/);
   assert.match(previewTabsSource, /:items="activeTableResult\.items"/);
   assert.doesNotMatch(previewTabsSource, /:items="tableResult\.items"/);
-  assert.doesNotMatch(previewTabsSource, /emit\('select', tableResult\.tableIndex/);
+  assert.doesNotMatch(
+    previewTabsSource,
+    /emit\('select', tableResult\.tableIndex/
+  );
 });

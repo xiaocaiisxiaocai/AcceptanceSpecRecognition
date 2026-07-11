@@ -59,12 +59,20 @@ const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
             <el-checkbox v-model="row.selected" />
           </template>
         </el-table-column>
-        <el-table-column label="表格/行" width="min(110px, calc(100vw - 32px))" align="center">
+        <el-table-column
+          label="表格/行"
+          width="min(110px, calc(100vw - 32px))"
+          align="center"
+        >
           <template #default="{ row }">
             {{ row.tableIndex + 1 }} / {{ row.rowIndex + 1 }}
           </template>
         </el-table-column>
-        <el-table-column label="动作" width="min(120px, calc(100vw - 32px))" align="center">
+        <el-table-column
+          label="动作"
+          width="min(120px, calc(100vw - 32px))"
+          align="center"
+        >
           <template #default="{ row }">
             <el-tag
               size="small"
@@ -74,7 +82,10 @@ const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="项目/规格" min-width="min(220px, calc(100vw - 32px))">
+        <el-table-column
+          label="项目/规格"
+          min-width="min(220px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <div class="backfill-source">
               <div>{{ row.sourceProject }}</div>
@@ -82,7 +93,10 @@ const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="验收标准" min-width="min(260px, calc(100vw - 32px))">
+        <el-table-column
+          label="验收标准"
+          min-width="min(260px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <div class="backfill-change">
               <div class="backfill-change__old">
@@ -94,7 +108,10 @@ const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="备注" min-width="min(220px, calc(100vw - 32px))">
+        <el-table-column
+          label="备注"
+          min-width="min(220px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             <div class="backfill-change">
               <div class="backfill-change__old">

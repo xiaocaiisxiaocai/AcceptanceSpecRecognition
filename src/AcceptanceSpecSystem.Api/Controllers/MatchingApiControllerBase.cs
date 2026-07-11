@@ -1,5 +1,6 @@
 ﻿using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Api.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,6 +12,16 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public abstract class MatchingApiControllerBase : BaseApiController
 {
+    protected MatchingUserContext GetMatchingUserContext()
+    {
+        var userId = AuthClaimHelper.GetUserId(User);
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        if (!userId.HasValue || !companyId.HasValue)
+            throw new MatchingApiException(401, "会话缺少用户上下文");
+
+        return new MatchingUserContext(userId.Value, companyId.Value, User.Identity?.Name ?? string.Empty);
+    }
+
     /// <summary>
     /// 统一处理工作流显式业务异常；其余异常继续交给全局异常中间件处理。
     /// </summary>
@@ -39,7 +50,7 @@ public abstract class MatchingApiControllerBase : BaseApiController
         try
         {
             var result = await action();
-            return File(result.Content, result.ContentType, result.FileName);
+            return File(result.Content, result.ContentType, result.FileName, enableRangeProcessing: false);
         }
         catch (MatchingApiException ex) when (ex.IsNotFound)
         {

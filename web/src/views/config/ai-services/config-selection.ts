@@ -24,8 +24,9 @@ const serviceTypeLabels = new Map<number, string>([
 const hasPurposeValue = (value: number, flag: AiServicePurposeValue) =>
   (value & flag) === flag;
 
-export const getServiceTypeLabel = (value: AiServiceConfigLike["serviceType"]) =>
-  serviceTypeLabels.get(value) || "-";
+export const getServiceTypeLabel = (
+  value: AiServiceConfigLike["serviceType"]
+) => serviceTypeLabels.get(value) || "-";
 
 export const pickConfigByPurpose = <TConfig extends AiServiceConfigLike>(
   configs: TConfig[],
@@ -34,21 +35,29 @@ export const pickConfigByPurpose = <TConfig extends AiServiceConfigLike>(
   const enabledConfigs = configs.filter(item => !item.isDisabled);
   const exact = enabledConfigs.find(item => item.purpose === purpose);
   if (exact) return exact;
-  return enabledConfigs.find(item => hasPurposeValue(item.purpose, purpose)) || null;
+  return (
+    enabledConfigs.find(item => hasPurposeValue(item.purpose, purpose)) || null
+  );
 };
 
 export const countEnabledConfigsByPurpose = (
   configs: AiServiceConfigLike[],
   purpose: AiServicePurposeValue
 ) =>
-  configs.filter(item => !item.isDisabled && hasPurposeValue(item.purpose, purpose))
-    .length;
+  configs.filter(
+    item => !item.isDisabled && hasPurposeValue(item.purpose, purpose)
+  ).length;
 
-export const buildAiServiceConfigSummary = <TConfig extends AiServiceConfigLike>(
+export const buildAiServiceConfigSummary = <
+  TConfig extends AiServiceConfigLike
+>(
   configs: TConfig[]
 ) => ({
   llmConfig: pickConfigByPurpose(configs, AiServicePurposeValue.Llm),
-  embeddingConfig: pickConfigByPurpose(configs, AiServicePurposeValue.Embedding),
+  embeddingConfig: pickConfigByPurpose(
+    configs,
+    AiServicePurposeValue.Embedding
+  ),
   llmCount: countEnabledConfigsByPurpose(configs, AiServicePurposeValue.Llm),
   embeddingCount: countEnabledConfigsByPurpose(
     configs,
@@ -56,7 +65,9 @@ export const buildAiServiceConfigSummary = <TConfig extends AiServiceConfigLike>
   )
 });
 
-export const shouldShowAllConfigsByDefault = (configs: AiServiceConfigLike[]) => {
+export const shouldShowAllConfigsByDefault = (
+  configs: AiServiceConfigLike[]
+) => {
   const summary = buildAiServiceConfigSummary(configs);
   return summary.llmCount > 1 || summary.embeddingCount > 1;
 };

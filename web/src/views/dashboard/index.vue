@@ -307,7 +307,10 @@ onBeforeUnmount(() => {
           min-width="min(220px, calc(100vw - 32px))"
           show-overflow-tooltip
         />
-        <el-table-column label="采用/总行" width="min(110px, calc(100vw - 32px))">
+        <el-table-column
+          label="采用/总行"
+          width="min(110px, calc(100vw - 32px))"
+        >
           <template #default="{ row }">
             {{ formatNumber(row.adoptedRowCount) }} /
             {{ formatNumber(row.totalRowCount) }}

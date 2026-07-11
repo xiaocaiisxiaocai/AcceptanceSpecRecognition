@@ -392,17 +392,59 @@ public class SmartConfigConfirmValidationRegressionTests : IClassFixture<ApiWebA
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Message.Should().Contain("人工修改结构时必须提供有效FileId");
+        body.Message.Should().Contain("确认结构时必须提供有效FileId");
     }
 
     [Fact]
-    public async Task Confirm_WhenLegacyRequestIsNotUserModified_ShouldRemainCompatibleWithoutFileId()
+    public async Task Confirm_WhenRequestIsNotUserModifiedButHasNoFileId_ShouldReject()
     {
         var customerId = await CreateCustomerAsync($"确认结构校验-旧请求-{Guid.NewGuid():N}");
 
         var response = await PostValidConfirmAsync(customerId, userModifiedStructure: false);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain("确认结构时必须提供有效FileId");
+    }
+
+    [Fact]
+    public async Task Confirm_WhenDataEndExceedsUploadedTable_ShouldRejectBeforeSaving()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            stream.ToArray(),
+            $"smart-confirm-invalid-end-{Guid.NewGuid():N}.xlsx");
+        var customerId = await CreateCustomerAsync($"确认结束行上界-{Guid.NewGuid():N}");
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            tableIndex = 0,
+            customerId,
+            templateName = "结束行越界模板",
+            headers = new[] { "项目", "规格" },
+            projectColumnIndex = 0,
+            specificationColumnIndex = 1,
+            headerRowIndex = 0,
+            headerRowCount = 1,
+            dataStartRowIndex = 1,
+            dataEndRowIndex = 2,
+            isSpecificationOnly = false,
+            userModifiedStructure = true,
+            learnedColumns = Array.Empty<object>()
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain("数据结束行超出表格范围");
     }
 
     private Task<HttpResponseMessage> PostValidConfirmAsync(int customerId, bool userModifiedStructure)

@@ -74,6 +74,38 @@ describe("loadAllPagedItems", () => {
     ]);
   });
 
+  it("跨页重复导致唯一记录少于 total 时拒绝返回部分数据", async () => {
+    await expect(
+      loadAllPagedItems(
+        async page =>
+          page === 1
+            ? pageResponse(
+                1,
+                [
+                  { id: 1, name: "first" },
+                  { id: 2, name: "second" }
+                ],
+                3,
+                2
+              )
+            : pageResponse(2, [{ id: 2, name: "duplicate" }], 3, 2),
+        { getKey: item => item.id }
+      )
+    ).rejects.toThrow("分页数据不完整");
+  });
+
+  it("分页期间 total 或 totalPages 变化时要求重试", async () => {
+    await expect(
+      loadAllPagedItems(
+        async page =>
+          page === 1
+            ? pageResponse(1, [{ id: 1, name: "first" }], 2, 2)
+            : pageResponse(2, [{ id: 2, name: "second" }], 3, 2),
+        { getKey: item => item.id }
+      )
+    ).rejects.toThrow("加载期间发生变化");
+  });
+
   it("接受后端合法空分页", async () => {
     const result = await loadAllPagedItems(
       async () => pageResponse(1, [], 0, 0),

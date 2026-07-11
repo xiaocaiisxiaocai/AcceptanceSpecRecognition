@@ -66,14 +66,14 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
             ApiClientJson.ToJsonContent(new { newPassword = "User@654321" }));
         resetResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var oldLoginResp = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new { username = "test_user_01", password = "User@123456" }));
+        using var oldLoginRequest = AuthCookieTestHelper.CreateLoginRequest(
+            "test_user_01", "User@123456");
+        var oldLoginResp = await _client.SendAsync(oldLoginRequest);
         oldLoginResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        var newLoginResp = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new { username = "test_user_01", password = "User@654321" }));
+        using var newLoginRequest = AuthCookieTestHelper.CreateLoginRequest(
+            "test_user_01", "User@654321");
+        var newLoginResp = await _client.SendAsync(newLoginRequest);
         newLoginResp.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 

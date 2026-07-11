@@ -24,6 +24,8 @@ export default {
   ],
   rules: {
     "prettier/prettier": true,
+    "function-no-unknown": [true, { ignoreFunctions: ["v-bind"] }],
+    "value-keyword-case": ["lower", { ignoreFunctions: ["v-bind"] }],
     "selector-class-pattern": null,
     "no-descending-specificity": null,
     "scss/dollar-variable-pattern": null,
@@ -83,5 +85,13 @@ export default {
       { severity: "warning" }
     ]
   },
-  ignoreFiles: ["**/*.js", "**/*.ts", "**/*.jsx", "**/*.tsx", "report.html"]
+  ignoreFiles: [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.js",
+    "**/*.ts",
+    "**/*.jsx",
+    "**/*.tsx",
+    "report.html"
+  ]
 };

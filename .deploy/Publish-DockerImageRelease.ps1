@@ -90,6 +90,7 @@ $apiDockerfile = Join-Path $repoRoot "src\AcceptanceSpecSystem.Api\Dockerfile"
 $webDockerfile = Join-Path $repoRoot "web\Dockerfile"
 $composeTemplate = Join-Path $PSScriptRoot "docker-compose.images.yml"
 $envTemplate = Join-Path $PSScriptRoot "production.env.example"
+$envValidatorTemplate = Join-Path $repoRoot "deploy\validate-production-env.sh"
 
 if (-not (Test-Path $apiDockerfile)) {
   throw "未找到 API Dockerfile: $apiDockerfile"
@@ -107,6 +108,10 @@ if (-not (Test-Path $envTemplate)) {
   throw "未找到环境变量模板: $envTemplate"
 }
 
+if (-not (Test-Path $envValidatorTemplate)) {
+  throw "未找到生产环境变量校验脚本: $envValidatorTemplate"
+}
+
 $releaseRoot = if ($OutputDir) {
   $OutputDir
 } else {
@@ -122,6 +127,7 @@ $apiTarPath = Join-Path $releaseRoot $apiTarName
 $webTarPath = Join-Path $releaseRoot $webTarName
 $releaseComposePath = Join-Path $releaseRoot "docker-compose.yml"
 $releaseEnvExamplePath = Join-Path $releaseRoot "production.env.example"
+$releaseEnvValidatorPath = Join-Path $releaseRoot "validate-production-env.sh"
 $serverDeployGuidePath = Join-Path $releaseRoot "SERVER-DEPLOY.txt"
 
 if ((Test-Path $releaseRoot) -and $Force) {
@@ -161,6 +167,7 @@ Invoke-Step -Title "导出镜像 tar" -Action {
 Invoke-Step -Title "生成发布目录文件" -Action {
   Copy-Item -Force $composeTemplate $releaseComposePath
   Copy-Item -Force $envTemplate $releaseEnvExamplePath
+  Copy-Item -Force $envValidatorTemplate $releaseEnvValidatorPath
 
   $guide = @"
 发布版本：$VersionTag
@@ -173,15 +180,20 @@ $ServerDeployDir
 - $apiTarName
 - $webTarName
 - production.env.example（仅首次部署参考，不要覆盖线上现有 .env）
+- validate-production-env.sh
 
 服务器执行命令：
 cd $ServerDeployDir
 sudo docker load -i $apiTarName
 sudo docker load -i $webTarName
+sh validate-production-env.sh .env
 sed -i 's#^API_IMAGE=.*#API_IMAGE=$apiImage#' .env
 sed -i 's#^WEB_IMAGE=.*#WEB_IMAGE=$webImage#' .env
 sudo docker compose --env-file .env -f docker-compose.yml up -d
 sudo docker compose --env-file .env -f docker-compose.yml ps
+
+校验脚本只输出不合格的变量名，不会回显任何密钥值；两个初始化密码至少 12 位，JWT 密钥至少 32 位。
+数据库备份保存在 api-backups 卷中。请定期复制到异机或对象存储，生产环境不要执行 docker compose down -v。
 
 验证命令：
 curl http://127.0.0.1:15290/health

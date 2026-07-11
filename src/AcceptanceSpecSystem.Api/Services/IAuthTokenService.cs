@@ -9,7 +9,6 @@ public interface IAuthTokenService
 {
     AuthTokenPair CreateTokenPair(AuthTokenUser user);
 
-    ClaimsPrincipal? ValidateRefreshToken(string refreshToken);
 }
 
 /// <summary>
@@ -40,4 +39,6 @@ public class AuthTokenPair
     public string RefreshToken { get; set; } = string.Empty;
 
     public DateTime AccessTokenExpiresAt { get; set; }
+
+    public DateTime RefreshTokenExpiresAt { get; set; }
 }

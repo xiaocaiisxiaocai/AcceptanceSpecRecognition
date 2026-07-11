@@ -1,4 +1,5 @@
 /dist/*
+/node_modules/*
 /public/*
 public/*
 src/style/reset.scss

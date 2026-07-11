@@ -62,9 +62,7 @@ const handleUpload = (options: UploadRequestOptions) => {
       </el-icon>
       <div class="el-upload__text">
         <span v-if="uploading">上传中...</span>
-        <span v-else>
-          {{ dragText }}<em>点击上传</em>
-        </span>
+        <span v-else> {{ dragText }}<em>点击上传</em> </span>
       </div>
       <template #tip>
         <div class="el-upload__tip">{{ uploadHint || tipText }}</div>

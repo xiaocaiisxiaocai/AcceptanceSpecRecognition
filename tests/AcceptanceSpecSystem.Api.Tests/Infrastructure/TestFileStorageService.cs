@@ -23,13 +23,15 @@ public sealed class TestFileStorageService : IFileStorageService
     public Task<string> SaveSmartFillPlaybackArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
         => SaveAsync("uploads/execution-history/smart-fill", originalFileName, content, cancellationToken);
 
-    public Task<byte[]> ReadSmartFillPlaybackArchiveAsync(string relativePath, CancellationToken cancellationToken = default)
+    public Stream OpenReadStream(string relativePath)
     {
-        var normalized = relativePath.Replace('\\', '/');
-        if (!normalized.StartsWith("uploads/execution-history/smart-fill/", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("智能填充回放归档路径非法");
-
-        return File.ReadAllBytesAsync(GetAbsolutePath(relativePath), cancellationToken);
+        return new FileStream(
+            GetAbsolutePath(relativePath),
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
     }
 
     public Task<string> WriteHealthCheckFileAsync(CancellationToken cancellationToken = default)
@@ -70,4 +72,3 @@ public sealed class TestFileStorageService : IFileStorageService
         return relativePath;
     }
 }
-

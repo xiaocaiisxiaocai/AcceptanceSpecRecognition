@@ -82,7 +82,7 @@ export function useNav() {
 
   /** 退出登录 */
   function logout() {
-    useUserStoreHook().logOut();
+    void useUserStoreHook().logout();
   }
 
   function backTopMenu() {

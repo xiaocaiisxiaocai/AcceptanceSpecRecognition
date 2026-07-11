@@ -9,6 +9,7 @@ using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Application;
+using AcceptanceSpecSystem.Application.Options;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
@@ -17,7 +18,6 @@ using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.TextProcessing.Services;
 using AcceptanceSpecSystem.Data;
 using AcceptanceSpecSystem.Data.Context;
-using AcceptanceSpecSystem.Data.Providers;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -160,6 +160,14 @@ if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("ConnectionStrings:DefaultConnection 未配置，当前分支禁止回退到硬编码默认数据库。");
 }
 
+var requiresProductionSecrets =
+    !builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing");
+if (requiresProductionSecrets &&
+    ProductionSecretGuard.HasKnownPlaceholderPassword(connectionString))
+{
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection 不能使用示例密码或已知占位符");
+}
+
 builder.Services.AddScoped<SlowQueryLoggingInterceptor>();
 // ServerVersion.AutoDetect 每次调用都会额外建立一次 MySQL 连接探测版本，
 // 用 Lazy 保证整个进程只探测一次；保持惰性以便 Testing 环境（SQLite 替换 DbContext）不触发连接。
@@ -186,6 +194,10 @@ if (string.IsNullOrWhiteSpace(jwtOptions.SigningKey) || jwtOptions.SigningKey.Le
 {
     throw new InvalidOperationException("JwtAuth:SigningKey 至少需要 32 个字符");
 }
+if (requiresProductionSecrets && ProductionSecretGuard.IsKnownPlaceholder(jwtOptions.SigningKey))
+{
+    throw new InvalidOperationException("JwtAuth:SigningKey 不能使用示例值或已知占位符");
+}
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -210,8 +222,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 var validationService = context.HttpContext.RequestServices
                     .GetRequiredService<IAuthSessionValidationService>();
+                var principal = context.Principal;
                 var result = await validationService.ValidateAccessTokenAsync(
-                    context.Principal,
+                    new AuthAccessTokenContext(
+                        principal?.Identity?.IsAuthenticated == true,
+                        principal?.FindFirst("token_type")?.Value,
+                        ParseIntClaim(principal, "user_id"),
+                        ParseIntClaim(principal, "company_id"),
+                        ParseIntClaim(principal, "permission_version")),
                     context.HttpContext.RequestAborted);
                 if (!result.IsValid)
                 {
@@ -220,6 +238,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             }
         };
     });
+
+static int? ParseIntClaim(System.Security.Claims.ClaimsPrincipal? principal, string claimType)
+{
+    return int.TryParse(principal?.FindFirst(claimType)?.Value, out var value) ? value : null;
+}
 
 builder.Services.AddAuthorization(options =>
 {
@@ -248,17 +271,36 @@ if (allowedOrigins.Length == 0 || allowedOrigins.Contains("*", StringComparer.Or
     }
 }
 
+var configuredBrowserAuth = builder.Configuration.GetSection(BrowserAuthOptions.SectionName).Get<BrowserAuthOptions>()
+    ?? new BrowserAuthOptions();
+if (configuredBrowserAuth.AllowedOrigins.Length > 0 &&
+    !configuredBrowserAuth.AllowedOrigins.Select(origin => origin.TrimEnd('/')).ToHashSet(StringComparer.OrdinalIgnoreCase)
+        .SetEquals(allowedOrigins.Select(origin => origin.TrimEnd('/'))))
+    throw new InvalidOperationException("BrowserAuth:AllowedOrigins 必须与 Cors:AllowedOrigins 完全一致，避免凭据来源策略分叉");
+var browserAllowedOrigins = configuredBrowserAuth.AllowedOrigins.Length > 0
+    ? configuredBrowserAuth.AllowedOrigins
+    : allowedOrigins;
+BrowserAuthConfigurationGuard.Validate(configuredBrowserAuth, browserAllowedOrigins, requiresProductionSecrets);
+builder.Services.PostConfigure<BrowserAuthOptions>(options => options.AllowedOrigins = browserAllowedOrigins);
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowVueFrontend", policy =>
     {
         policy.WithOrigins(allowedOrigins)
+              .AllowCredentials()
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
 });
 
 var app = builder.Build();
+
+if (configuredBrowserAuth.AllowInsecureHttp)
+{
+    app.Logger.LogWarning(
+        "BrowserAuth 正在使用显式内网 HTTP 模式：传输未加密，仅允许固定同站内网入口；不得暴露到公网或不可信网络");
+}
 
 // 启动时应用数据库迁移（避免运行期出现字段缺失）
 // 测试环境下由测试工厂自行控制数据库初始化方式（例如 SQLite in-memory）

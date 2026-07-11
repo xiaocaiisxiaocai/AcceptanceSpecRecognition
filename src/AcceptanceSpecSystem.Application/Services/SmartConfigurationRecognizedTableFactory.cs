@@ -7,6 +7,26 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 internal static class SmartConfigurationRecognizedTableFactory
 {
+    public static SmartConfigurationRecognizedTable FromFailure(
+        TableInfo? tableInfo,
+        TableData tableData,
+        IReadOnlyList<string> headers)
+    {
+        return new SmartConfigurationRecognizedTable
+        {
+            TableIndex = tableData.TableIndex,
+            TableName = tableInfo?.Name,
+            Headers = headers.ToList(),
+            HeaderRowIndex = 0,
+            HeaderRowCount = 1,
+            DataStartRowIndex = 1,
+            DataEndRowIndex = GetOriginalTableEndRowIndex(tableInfo, tableData),
+            Confidence = 0,
+            Source = "Failed",
+            Decision = "NeedConfirm"
+        };
+    }
+
     public static SmartConfigurationRecognizedTable FromTemplate(
         TableInfo? tableInfo,
         TableData tableData,

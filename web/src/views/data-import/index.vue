@@ -131,11 +131,8 @@ const activeTableTabModel = computed({
 
 const firstNeedConfirmTableIndex = computed(
   () =>
-    recognizedTables.value.find(
-      table =>
-        table.recommendation !== "Recommended" &&
-        table.recommendation !== "Skip"
-    )?.tableIndex
+    recognizedTables.value.find(table => table.decision === "NeedConfirm")
+      ?.tableIndex
 );
 const smartStructureDisplayGroups = computed(() =>
   createSmartStructureDisplayGroups(recognizedTables.value)
@@ -160,11 +157,8 @@ watch(
     }
 
     activeSmartStructureTab.value =
-      tables.find(
-        table =>
-          table.recommendation !== "Recommended" &&
-          table.recommendation !== "Skip"
-      )?.tableIndex ?? tables[0].tableIndex;
+      tables.find(table => table.decision === "NeedConfirm")?.tableIndex ??
+      tables[0].tableIndex;
   },
   { immediate: true }
 );
@@ -401,14 +395,14 @@ watch(
                   <span
                     class="smart-confirm-tab-status"
                     :class="{
-                      'is-ready': table.recommendation === 'Recommended',
-                      'is-skip': table.recommendation === 'Skip'
+                      'is-ready': table.decision === 'AutoApply',
+                      'is-skip': table.decision === 'Reject'
                     }"
                   >
                     {{
-                      table.recommendation === "Recommended"
+                      table.decision === "AutoApply"
                         ? "可导入"
-                        : table.recommendation === "Skip"
+                        : table.decision === "Reject"
                           ? "跳过"
                           : "待确认"
                     }}

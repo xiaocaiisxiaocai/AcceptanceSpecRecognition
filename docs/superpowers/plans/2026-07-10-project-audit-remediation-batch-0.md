@@ -37,9 +37,8 @@
 **仅解除 Git 跟踪、保留物理文件：**
 
 - `output/`
-- `huaian_specs.json`
-- `huaian_specs_500.json`
-- `淮安庆鼎_智能填充测试说明.md`
+- 根目录本地业务规格样本（2 份，文件名脱敏）
+- 根目录客户测试说明（1 份，文件名脱敏）
 
 ## Task 0：稳定 API 全量测试基线
 
@@ -95,9 +94,7 @@ git commit -m "test: 限制API测试集合并行度"
 public void LocalSensitiveArtifacts_ShouldBeIgnored_AndToolsShouldUseSyntheticFixture()
 {
     var ignore = ReadFile(".gitignore");
-    ignore.Should().Contain("/huaian_specs.json");
-    ignore.Should().Contain("/huaian_specs_500.json");
-    ignore.Should().Contain("/淮安庆鼎_智能填充测试说明.md");
+    ignore.Should().Contain("/<local-business-sample-pattern>");
 
     var fixturePath = Path.Combine(GetRepositoryRoot(), "tools", "Fixtures", "synthetic_specs.json");
     File.Exists(fixturePath).Should().BeTrue();
@@ -110,7 +107,7 @@ public void LocalSensitiveArtifacts_ShouldBeIgnored_AndToolsShouldUseSyntheticFi
     {
         var content = ReadFile(relativePath);
         content.Should().Contain("tools/Fixtures/synthetic_specs.json");
-        content.Should().NotContain("\"huaian_specs.json\"");
+        content.Should().NotContain("<local-business-sample-name>");
     }
 }
 ```
@@ -141,9 +138,7 @@ Expected: FAIL，原因包括缺少 ignore 规则、合成夹具不存在和工�
 
 ```gitignore
 # Local real-world samples (keep outside version control)
-/huaian_specs.json
-/huaian_specs_500.json
-/淮安庆鼎_智能填充测试说明.md
+/<local-business-sample-pattern>
 ```
 
 - [x] **Step 2：创建合成 JSON**
@@ -221,9 +216,9 @@ Run:
 
 ```powershell
 Test-Path output
-Test-Path huaian_specs.json
-Test-Path huaian_specs_500.json
-Test-Path '淮安庆鼎_智能填充测试说明.md'
+Test-Path '<local-business-sample-1>'
+Test-Path '<local-business-sample-2>'
+Test-Path '<local-business-test-note>'
 ```
 
 Expected: 全部为 `True`。
@@ -234,7 +229,7 @@ Run:
 
 ```powershell
 git rm -r --cached -- output
-git rm --cached -- huaian_specs.json huaian_specs_500.json '淮安庆鼎_智能填充测试说明.md'
+git rm --cached -- '<local-business-sample-1>' '<local-business-sample-2>' '<local-business-test-note>'
 ```
 
 - [x] **Step 3：验证本地文件仍存在且不再跟踪**
@@ -243,9 +238,9 @@ Run:
 
 ```powershell
 Test-Path output
-Test-Path huaian_specs.json
+Test-Path '<local-business-sample-1>'
 git ls-files output
-git ls-files huaian_specs.json huaian_specs_500.json '淮安庆鼎_智能填充测试说明.md'
+git ls-files '<local-business-sample-1>' '<local-business-sample-2>' '<local-business-test-note>'
 ```
 
 Expected: `Test-Path` 为 `True`，两个 `git ls-files` 命令无输出。

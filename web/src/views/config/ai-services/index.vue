@@ -14,7 +14,10 @@ import {
 } from "@/api/ai-service";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import {
   buildAiServiceConfigSummary,
@@ -221,7 +224,7 @@ const handleDelete = async (row: AiServiceConfig) => {
       ElMessage.error(res.message);
     }
   } catch (error) {
-    if (isMessageBoxCancel(error)) return;
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
@@ -259,7 +262,7 @@ const handleToggleDisabled = async (row: AiServiceConfig) => {
       ElMessage.error(res.message || "操作失败");
     }
   } catch (error) {
-    if (isMessageBoxCancel(error)) return;
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "操作失败"));
   } finally {
     setRowLoading(disabledState, row.id, false);

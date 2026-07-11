@@ -20,58 +20,94 @@ public class ExcelDocumentParser : IDocumentParser
         return ext == ".xlsx";
     }
 
-    public async Task<IReadOnlyList<TableInfo>> GetTablesAsync(Stream stream)
+    public Task<IReadOnlyList<TableInfo>> GetTablesAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
     {
-        using var workbook = new XLWorkbook(stream);
-        return await Task.FromResult(GetSheetInfos(workbook));
+        return Task.Run<IReadOnlyList<TableInfo>>(() =>
+        {
+            using var workbook = new XLWorkbook(stream);
+            cancellationToken.ThrowIfCancellationRequested();
+            return GetSheetInfos(workbook, cancellationToken);
+        }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<TableInfo>> GetTablesAsync(string filePath)
+    public Task<IReadOnlyList<TableInfo>> GetTablesAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
     {
-        using var workbook = new XLWorkbook(filePath);
-        return await Task.FromResult(GetSheetInfos(workbook));
+        return Task.Run<IReadOnlyList<TableInfo>>(() =>
+        {
+            using var workbook = new XLWorkbook(filePath);
+            cancellationToken.ThrowIfCancellationRequested();
+            return GetSheetInfos(workbook, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<TableData> ExtractTableDataAsync(
         Stream stream,
         int tableIndex,
         ColumnMapping? mapping = null,
-        int? maxDataRowCount = null)
+        int? maxDataRowCount = null,
+        CancellationToken cancellationToken = default)
     {
-        using var workbook = new XLWorkbook(stream);
-        return await Task.FromResult(ExtractSheetTableData(workbook, tableIndex, mapping, maxDataRowCount));
+        return await Task.Run(() =>
+        {
+            using var workbook = new XLWorkbook(stream);
+            cancellationToken.ThrowIfCancellationRequested();
+            return ExtractSheetTableData(workbook, tableIndex, mapping, maxDataRowCount, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<TableData> ExtractTableDataAsync(
         string filePath,
         int tableIndex,
         ColumnMapping? mapping = null,
-        int? maxDataRowCount = null)
+        int? maxDataRowCount = null,
+        CancellationToken cancellationToken = default)
     {
-        using var workbook = new XLWorkbook(filePath);
-        return await Task.FromResult(ExtractSheetTableData(workbook, tableIndex, mapping, maxDataRowCount));
-    }
-
-    public async Task<IReadOnlyList<TableData>> ExtractAllTablesDataAsync(Stream stream)
-    {
-        using var workbook = new XLWorkbook(stream);
-        var infos = GetSheetInfos(workbook);
-        var list = new List<TableData>(infos.Count);
-        foreach (var info in infos)
+        return await Task.Run(() =>
         {
-            list.Add(ExtractSheetTableData(workbook, info.Index, mapping: null));
-        }
-
-        return await Task.FromResult(list);
+            using var workbook = new XLWorkbook(filePath);
+            cancellationToken.ThrowIfCancellationRequested();
+            return ExtractSheetTableData(workbook, tableIndex, mapping, maxDataRowCount, cancellationToken);
+        }, cancellationToken);
     }
 
-    private static List<TableInfo> GetSheetInfos(XLWorkbook workbook)
+    public Task<IReadOnlyList<TableData>> ExtractAllTablesDataAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run<IReadOnlyList<TableData>>(() =>
+        {
+            using var workbook = new XLWorkbook(stream);
+            cancellationToken.ThrowIfCancellationRequested();
+            var infos = GetSheetInfos(workbook, cancellationToken);
+            var list = new List<TableData>(infos.Count);
+            foreach (var info in infos)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                list.Add(ExtractSheetTableData(
+                    workbook,
+                    info.Index,
+                    mapping: null,
+                    cancellationToken: cancellationToken));
+            }
+
+            return list;
+        }, cancellationToken);
+    }
+
+    private static List<TableInfo> GetSheetInfos(
+        XLWorkbook workbook,
+        CancellationToken cancellationToken)
     {
         var list = new List<TableInfo>();
 
         var index = 0;
         foreach (var sheet in workbook.Worksheets)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var used = sheet.RangeUsed();
             var hasMerged = sheet.MergedRanges?.Count > 0;
 
@@ -88,6 +124,7 @@ public class ExcelDocumentParser : IDocumentParser
                 var cols = new List<string>(colCount);
                 for (var c = 0; c < colCount; c++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     var absCol = startCol + c;
                     cols.Add(GetCellString(sheet, headerRow, absCol, mergedLookup: null));
                 }
@@ -125,7 +162,8 @@ public class ExcelDocumentParser : IDocumentParser
         XLWorkbook workbook,
         int tableIndex,
         ColumnMapping? mapping,
-        int? maxDataRowCount = null)
+        int? maxDataRowCount = null,
+        CancellationToken cancellationToken = default)
     {
         var sheets = workbook.Worksheets.ToList();
         if (tableIndex < 0 || tableIndex >= sheets.Count)
@@ -157,7 +195,7 @@ public class ExcelDocumentParser : IDocumentParser
         if (dataStartRowIndex < 0) dataStartRowIndex = 0;
 
         // 合并单元格展开：建立“子单元格 -> 左上角单元格”映射
-        var mergedLookup = BuildMergedLookup(sheet, used);
+        var mergedLookup = BuildMergedLookup(sheet, used, cancellationToken);
 
         // headers：支持多行表头（HeaderRowCount），按列将每一行非空片段用 " / " 拼接
         var headerAbsRow = startRow + headerRowIndex;
@@ -167,6 +205,7 @@ public class ExcelDocumentParser : IDocumentParser
         var headers = new string[colCount];
         for (var c = 0; c < colCount; c++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var absCol = startCol + c;
             var parts = new List<string>(headerRowCount);
             for (var k = 0; k < headerRowCount; k++)
@@ -196,6 +235,7 @@ public class ExcelDocumentParser : IDocumentParser
         var rowIndex = 0;
         for (var r = dataAbsStartRow; r <= dataAbsEndRow; r++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var row = new RowData { Index = rowIndex };
             for (var c = 0; c < colCount; c++)
             {
@@ -220,13 +260,17 @@ public class ExcelDocumentParser : IDocumentParser
         };
     }
 
-    private static Dictionary<(int Row, int Col), (int MasterRow, int MasterCol)> BuildMergedLookup(IXLWorksheet sheet, IXLRange usedRange)
+    private static Dictionary<(int Row, int Col), (int MasterRow, int MasterCol)> BuildMergedLookup(
+        IXLWorksheet sheet,
+        IXLRange usedRange,
+        CancellationToken cancellationToken)
     {
         var dict = new Dictionary<(int Row, int Col), (int MasterRow, int MasterCol)>();
 
         // 仅考虑与已用区域相交的合并区域，避免大表性能问题
         foreach (var merged in sheet.MergedRanges)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!merged.Intersects(usedRange))
                 continue;
 
@@ -241,6 +285,7 @@ public class ExcelDocumentParser : IDocumentParser
 
             for (var r = r1; r <= r2; r++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 for (var c = c1; c <= c2; c++)
                 {
                     dict[(r, c)] = (masterRow, masterCol);

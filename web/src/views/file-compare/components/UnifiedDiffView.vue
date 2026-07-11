@@ -660,8 +660,8 @@ const getRightCellClass = (row: DiffRow) => {
 /* ─── 外层容器 ─── */
 .side-by-side-diff {
   display: flex;
-  min-height: 0;
   flex-direction: column;
+  min-height: 0;
   overflow: hidden;
   font-size: 13px;
   line-height: 1.6;
@@ -673,8 +673,8 @@ const getRightCellClass = (row: DiffRow) => {
 /* ─── 表头：左文件A / 右文件B ─── */
 .diff-table-header {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   flex: 0 0 auto;
+  grid-template-columns: 1fr 1fr;
   font-weight: 600;
   color: var(--app-text-primary);
   user-select: none;

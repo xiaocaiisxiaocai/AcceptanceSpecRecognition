@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -275,8 +276,17 @@ public sealed class DocumentTemplateAppService
         var totalSimilarity = 0.0;
         for (int i = 0; i < headers1.Count; i++)
         {
-            var h1 = headers1[i].Trim().ToLowerInvariant();
-            var h2 = headers2[i].Trim().ToLowerInvariant();
+            var rawHeader1 = headers1[i] ?? string.Empty;
+            var rawHeader2 = headers2[i] ?? string.Empty;
+            if (rawHeader1.Length > ColumnHeaderRuleMatcher.MaxHeaderInputLength ||
+                rawHeader2.Length > ColumnHeaderRuleMatcher.MaxHeaderInputLength)
+            {
+                totalSimilarity += string.Equals(rawHeader1, rawHeader2, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+                continue;
+            }
+
+            var h1 = rawHeader1.Trim().ToLowerInvariant();
+            var h2 = rawHeader2.Trim().ToLowerInvariant();
 
             if (h1 == h2)
             {
@@ -376,6 +386,12 @@ public sealed class DocumentTemplateAppService
 
     private double CalculateTextSimilarity(string? left, string? right)
     {
+        if (left?.Length > ColumnHeaderRuleMatcher.MaxHeaderInputLength ||
+            right?.Length > ColumnHeaderRuleMatcher.MaxHeaderInputLength)
+        {
+            return string.Equals(left, right, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        }
+
         var l = left?.Trim().ToLowerInvariant() ?? string.Empty;
         var r = right?.Trim().ToLowerInvariant() ?? string.Empty;
         if (l.Length == 0 || r.Length == 0)
@@ -396,32 +412,37 @@ public sealed class DocumentTemplateAppService
     /// <summary>
     /// 计算编辑距离
     /// </summary>
-    private int CalculateLevenshteinDistance(string s1, string s2)
+    private static int CalculateLevenshteinDistance(string s1, string s2)
     {
         if (string.IsNullOrEmpty(s1)) return s2?.Length ?? 0;
         if (string.IsNullOrEmpty(s2)) return s1.Length;
 
-        var m = s1.Length;
-        var n = s2.Length;
-        var d = new int[m + 1, n + 1];
-
-        for (var i = 0; i <= m; i++)
-            d[i, 0] = i;
-
-        for (var j = 0; j <= n; j++)
-            d[0, j] = j;
-
-        for (var j = 1; j <= n; j++)
+        if (s1.Length > s2.Length)
         {
-            for (var i = 1; i <= m; i++)
-            {
-                var cost = s1[i - 1] == s2[j - 1] ? 0 : 1;
-                d[i, j] = Math.Min(
-                    Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1),
-                    d[i - 1, j - 1] + cost);
-            }
+            (s1, s2) = (s2, s1);
         }
 
-        return d[m, n];
+        var previous = new int[s1.Length + 1];
+        var current = new int[s1.Length + 1];
+        for (var index = 0; index <= s1.Length; index++)
+        {
+            previous[index] = index;
+        }
+
+        for (var rightIndex = 1; rightIndex <= s2.Length; rightIndex++)
+        {
+            current[0] = rightIndex;
+            for (var leftIndex = 1; leftIndex <= s1.Length; leftIndex++)
+            {
+                var cost = s1[leftIndex - 1] == s2[rightIndex - 1] ? 0 : 1;
+                current[leftIndex] = Math.Min(
+                    Math.Min(previous[leftIndex] + 1, current[leftIndex - 1] + 1),
+                    previous[leftIndex - 1] + cost);
+            }
+
+            (previous, current) = (current, previous);
+        }
+
+        return previous[s1.Length];
     }
 }

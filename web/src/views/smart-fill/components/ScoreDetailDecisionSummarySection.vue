@@ -279,7 +279,11 @@ const getComparisonHtml = (
 }
 
 .hero-card--primary {
-  background: linear-gradient(135deg, var(--app-info-bg) 0%, var(--app-info-bg) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--app-info-bg) 0%,
+    var(--app-info-bg) 100%
+  );
   border-color: var(--app-info-bg);
 }
 
@@ -364,7 +368,11 @@ const getComparisonHtml = (
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  background: linear-gradient(180deg, var(--app-info-bg) 0%, var(--app-info-bg) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--app-info-bg) 0%,
+    var(--app-info-bg) 100%
+  );
   border: 1px solid var(--app-info-bg);
   border-radius: 14px;
 }

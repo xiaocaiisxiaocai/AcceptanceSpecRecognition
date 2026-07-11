@@ -11,6 +11,11 @@ import {
   type AuditLogListItem
 } from "@/api/audit-log";
 import { hasPerms } from "@/utils/auth";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
 
 defineOptions({
@@ -131,18 +136,18 @@ const handleDeleteByRange = async () => {
     return;
   }
 
-  await ElMessageBox.confirm(
-    "删除后不可恢复，确认删除该时间范围内的审计日志吗？",
-    "确认删除",
-    {
-      type: "warning",
-      confirmButtonText: "确认删除",
-      cancelButtonText: "取消"
-    }
-  );
-
-  deleting.value = true;
   try {
+    await ElMessageBox.confirm(
+      "删除后不可恢复，确认删除该时间范围内的审计日志吗？",
+      "确认删除",
+      {
+        type: "warning",
+        confirmButtonText: "确认删除",
+        cancelButtonText: "取消"
+      }
+    );
+
+    deleting.value = true;
     const res = await deleteAuditLogsByRange({
       from: from || undefined,
       to: to || undefined
@@ -155,8 +160,9 @@ const handleDeleteByRange = async () => {
     } else {
       ElMessage.error(res.message || "删除失败");
     }
-  } catch {
-    ElMessage.error("删除失败");
+  } catch (error) {
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   } finally {
     deleting.value = false;
   }
@@ -297,7 +303,11 @@ onMounted(loadData);
         </div>
       </template>
 
-      <el-form v-if="canDeleteRange" :inline="true" class="delete-row filter-form">
+      <el-form
+        v-if="canDeleteRange"
+        :inline="true"
+        class="delete-row filter-form"
+      >
         <el-form-item label="删除时间">
           <el-date-picker
             v-model="deleteRange"
@@ -330,8 +340,16 @@ onMounted(loadData);
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="eventType" label="事件" width="min(150px, calc(100vw - 32px))" />
-          <el-table-column prop="username" label="用户" width="min(120px, calc(100vw - 32px))" />
+          <el-table-column
+            prop="eventType"
+            label="事件"
+            width="min(150px, calc(100vw - 32px))"
+          />
+          <el-table-column
+            prop="username"
+            label="用户"
+            width="min(120px, calc(100vw - 32px))"
+          />
           <el-table-column prop="requestMethod" label="方法" width="90" />
           <el-table-column
             prop="requestPath"
@@ -346,8 +364,16 @@ onMounted(loadData);
             show-overflow-tooltip
           />
           <el-table-column prop="statusCode" label="状态" width="90" />
-          <el-table-column prop="durationMs" label="耗时(ms)" width="min(100px, calc(100vw - 32px))" />
-          <el-table-column prop="createdAt" label="时间" width="min(180px, calc(100vw - 32px))">
+          <el-table-column
+            prop="durationMs"
+            label="耗时(ms)"
+            width="min(100px, calc(100vw - 32px))"
+          />
+          <el-table-column
+            prop="createdAt"
+            label="时间"
+            width="min(180px, calc(100vw - 32px))"
+          >
             <template #default="{ row }">
               {{ new Date(row.createdAt).toLocaleString() }}
             </template>

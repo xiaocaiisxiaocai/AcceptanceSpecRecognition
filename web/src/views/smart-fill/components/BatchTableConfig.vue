@@ -667,8 +667,16 @@ const getPreviewResult = (tableIndex: number) => {
               class="preview-table"
               max-height="420"
             >
-              <el-table-column prop="rowIndex" label="目标行号" width="min(100px, calc(100vw - 32px))" />
-              <el-table-column prop="project" label="项目" min-width="min(160px, calc(100vw - 32px))" />
+              <el-table-column
+                prop="rowIndex"
+                label="目标行号"
+                width="min(100px, calc(100vw - 32px))"
+              />
+              <el-table-column
+                prop="project"
+                label="项目"
+                min-width="min(160px, calc(100vw - 32px))"
+              />
               <el-table-column
                 prop="specification"
                 label="规格"
@@ -679,7 +687,11 @@ const getPreviewResult = (tableIndex: number) => {
                 label="预览验收"
                 min-width="min(180px, calc(100vw - 32px))"
               />
-              <el-table-column prop="remark" label="预览备注" min-width="min(180px, calc(100vw - 32px))" />
+              <el-table-column
+                prop="remark"
+                label="预览备注"
+                min-width="min(180px, calc(100vw - 32px))"
+              />
             </el-table>
           </div>
         </div>

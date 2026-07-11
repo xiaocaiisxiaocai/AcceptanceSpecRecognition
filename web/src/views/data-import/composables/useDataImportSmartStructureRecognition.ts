@@ -21,6 +21,7 @@ import type { TableImportConfig } from "../dataImport.types";
 const SMART_CONFIRM_PREVIEW_ROWS = 50;
 
 type EnsurePreviewDataLoaded = (options: {
+  sourceFileId: number;
   previewRows: number;
   initialText: string;
   completeText?: string;
@@ -66,9 +67,19 @@ export function useDataImportSmartStructureRecognition({
     confirm: confirmSmartStructure,
     reset: resetSmartStructure
   } = useSmartStructureRecognition();
+  let smartFlowVersion = 0;
 
-  const loadTablesForSmartRecognition = async (file: FileUploadResponse) => {
+  const isCurrentSmartFlow = (fileId: number, flowVersion: number) =>
+    uploadedFile.value?.fileId === fileId && smartFlowVersion === flowVersion;
+
+  const loadTablesForSmartRecognition = async (
+    file: FileUploadResponse,
+    flowVersion: number
+  ) => {
     const res = await getFileTables(file.fileId);
+    if (!isCurrentSmartFlow(file.fileId, flowVersion)) {
+      return null;
+    }
     if (res.code !== 0 || !res.data?.length) {
       throw new Error(res.message || "获取表格列表失败");
     }
@@ -85,18 +96,26 @@ export function useDataImportSmartStructureRecognition({
   };
 
   const applySmartRecognizedTables = async (
-    tables = recognizedTables.value
+    tables = recognizedTables.value,
+    sourceFile = uploadedFile.value,
+    flowVersion = smartFlowVersion
   ) => {
-    if (!uploadedFile.value) {
+    if (!sourceFile) {
       ElMessage.warning("请先上传文件");
       return false;
     }
 
+    const sourceFileId = sourceFile.fileId;
+
     try {
       smartStageText.value = "正在读取工作表列表...";
       const tableInfos = await loadTablesForSmartRecognition(
-        uploadedFile.value
+        sourceFile,
+        flowVersion
       );
+      if (!tableInfos || !isCurrentSmartFlow(sourceFileId, flowVersion)) {
+        return false;
+      }
       smartStageText.value = "正在应用识别到的结构...";
       const importTables = filterSelectedSmartTables(
         tables,
@@ -126,11 +145,15 @@ export function useDataImportSmartStructureRecognition({
       importPreviewSelectionKeys.value = [];
       excludedRowIndexMap.value = {};
       return await ensurePreviewDataLoaded({
+        sourceFileId,
         previewRows: SMART_CONFIRM_PREVIEW_ROWS,
         initialText: "正在生成导入预览...",
         completeText: "导入预览已生成，正在进入确认页..."
       });
     } catch (error) {
+      if (!isCurrentSmartFlow(sourceFileId, flowVersion)) {
+        return false;
+      }
       ElMessage.error(
         error instanceof Error ? error.message : "应用智能识别结果失败"
       );
@@ -139,27 +162,37 @@ export function useDataImportSmartStructureRecognition({
   };
 
   const runSmartStructureRecognition = async () => {
-    if (!uploadedFile.value) {
+    const sourceFile = uploadedFile.value;
+    if (!sourceFile) {
       ElMessage.warning("请先上传文件");
       return false;
     }
 
+    const flowVersion = ++smartFlowVersion;
+    const sourceFileId = sourceFile.fileId;
+
     smartStageText.value = "正在读取工作表结构...";
     try {
       const result = await recognizeSmartStructure(
-        uploadedFile.value.fileId,
+        sourceFileId,
         selectedCustomerId.value
       );
-      if (!result) {
+      if (!result || !isCurrentSmartFlow(sourceFileId, flowVersion)) {
         return false;
       }
 
       selectedSmartTableIndexes.value = createDefaultSelectedSmartTableIndexes(
         result.tables
       );
-      return await applySmartRecognizedTables(result.tables);
+      return await applySmartRecognizedTables(
+        result.tables,
+        sourceFile,
+        flowVersion
+      );
     } finally {
-      smartStageText.value = "";
+      if (isCurrentSmartFlow(sourceFileId, flowVersion)) {
+        smartStageText.value = "";
+      }
     }
   };
 
@@ -186,14 +219,21 @@ export function useDataImportSmartStructureRecognition({
     table: SmartConfigRecognizedTable,
     request: SmartConfigConfirmRequest
   ) => {
+    const sourceFileId = request.fileId;
     const result = await confirmSmartStructure(request);
-    if (result) {
+    if (
+      result &&
+      sourceFileId != null &&
+      uploadedFile.value?.fileId === sourceFileId
+    ) {
       const nextTables = recognizedTables.value.map(item =>
         item.tableIndex === table.tableIndex
           ? replaceRecognizedTableWithConfirmRequest(item, request)
           : item
       );
-      replaceRecognizedTables(nextTables);
+      if (!replaceRecognizedTables(nextTables, sourceFileId)) {
+        return;
+      }
       if (!selectedSmartTableIndexes.value.includes(table.tableIndex)) {
         selectedSmartTableIndexes.value = [
           ...selectedSmartTableIndexes.value,
@@ -222,6 +262,7 @@ export function useDataImportSmartStructureRecognition({
   };
 
   const resetSmartStructureState = () => {
+    smartFlowVersion += 1;
     selectedSmartTableIndexes.value = [];
     smartStageText.value = "";
     resetSmartStructure();

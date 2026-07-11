@@ -11,7 +11,10 @@ import {
   __APP_INFO__
 } from "./build/utils";
 
-export default async ({ mode, command }: ConfigEnv): Promise<UserConfigExport> => {
+export default async ({
+  mode,
+  command
+}: ConfigEnv): Promise<UserConfigExport> => {
   const {
     VITE_CDN,
     VITE_PORT,
@@ -48,6 +51,10 @@ export default async ({ mode, command }: ConfigEnv): Promise<UserConfigExport> =
           changeOrigin: true
         },
         "/refresh-token": {
+          target: VITE_API_PROXY_TARGET || "http://localhost:5291",
+          changeOrigin: true
+        },
+        "/logout": {
           target: VITE_API_PROXY_TARGET || "http://localhost:5291",
           changeOrigin: true
         }

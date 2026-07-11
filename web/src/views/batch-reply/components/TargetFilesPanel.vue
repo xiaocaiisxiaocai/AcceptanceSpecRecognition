@@ -79,7 +79,9 @@ defineEmits<{
             ? `当前仅接受 ${targetAccept} 格式`
             : '来源文件确认后自动限定同格式上传'
         "
-        @upload="(options: UploadRequestOptions) => $emit('fileChange', options)"
+        @upload="
+          (options: UploadRequestOptions) => $emit('fileChange', options)
+        "
       />
     </div>
 

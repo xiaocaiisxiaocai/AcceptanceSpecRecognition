@@ -13,18 +13,18 @@ public class DocumentsController : BaseApiController
     // 文件级范围校验已下沉到应用服务和共享访问组件，底层仍统一复用 WordFileDataScopeHelper。
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IDocumentFileAppService _documentFileAppService;
-    private readonly DocumentTableAccessService _documentTableAccessService;
+    private readonly IDocumentTableQueryAppService _documentTableQueryAppService;
     private readonly IDocumentImportAppService _documentImportAppService;
 
     public DocumentsController(
         IAuthDataScopeService authDataScopeService,
         IDocumentFileAppService documentFileAppService,
-        DocumentTableAccessService documentTableAccessService,
+        IDocumentTableQueryAppService documentTableQueryAppService,
         IDocumentImportAppService documentImportAppService)
     {
         _authDataScopeService = authDataScopeService;
         _documentFileAppService = documentFileAppService;
-        _documentTableAccessService = documentTableAccessService;
+        _documentTableQueryAppService = documentTableQueryAppService;
         _documentImportAppService = documentImportAppService;
     }
 
@@ -43,7 +43,7 @@ public class DocumentsController : BaseApiController
         }
 
         var result = await _documentFileAppService.GetFilesAsync(
-            scope,
+            scope.ToAccessContext(),
             page,
             pageSize,
             keyword,
@@ -68,10 +68,18 @@ public class DocumentsController : BaseApiController
 
         try
         {
+            var fileType = UploadFileValidation.ValidateOfficeDocument(file, allowExcel: true, allowWord: true);
+            byte[] content;
+            using (var memoryStream = new MemoryStream())
+            {
+                await file.CopyToAsync(memoryStream, HttpContext.RequestAborted);
+                content = memoryStream.ToArray();
+            }
+
             // 使用 HttpContext.RequestAborted 作为取消令牌，确保客户端断开时终止文件上传处理
             var result = await _documentFileAppService.UploadFileAsync(
-                scope,
-                file,
+                scope.ToAccessContext(),
+                new DocumentUploadCommand(file.FileName, fileType, content),
                 HttpContext.RequestAborted);
             return Success(result, "文件上传成功");
         }
@@ -94,16 +102,15 @@ public class DocumentsController : BaseApiController
             return Error<List<TableInfoDto>>(401, "会话缺少用户上下文");
         }
 
-        var wordFile = await _documentFileAppService.FindAccessibleWordFileAsync(scope, id);
-        if (wordFile == null)
-        {
-            return NotFoundResult<List<TableInfoDto>>("文件不存在");
-        }
-
         try
         {
-            var result = await _documentTableAccessService.GetTableInfoDtosAsync(wordFile);
+            var result = await _documentTableQueryAppService.GetTablesAsync(
+                scope.ToAccessContext(), id, cancellationToken);
             return Success(result);
+        }
+        catch (ApplicationServiceException ex) when (ex.Code == 404)
+        {
+            return NotFoundResult<List<TableInfoDto>>(ex.Message);
         }
         catch (ApplicationServiceException ex)
         {
@@ -130,23 +137,23 @@ public class DocumentsController : BaseApiController
             return Error<TableDataDto>(401, "会话缺少用户上下文");
         }
 
-        var wordFile = await _documentFileAppService.FindAccessibleWordFileAsync(scope, id);
-        if (wordFile == null)
-        {
-            return NotFoundResult<TableDataDto>("文件不存在");
-        }
-
         try
         {
-            var result = await _documentTableAccessService.GetTablePreviewAsync(
-                wordFile,
+            var result = await _documentTableQueryAppService.GetPreviewAsync(
+                scope.ToAccessContext(),
+                id,
                 tableIndex,
                 previewRows,
                 headerRowIndex,
                 headerRowCount,
                 dataStartRowIndex,
-                dataEndRowIndex);
+                dataEndRowIndex,
+                cancellationToken);
             return Success(result);
+        }
+        catch (ApplicationServiceException ex) when (ex.Code == 404)
+        {
+            return NotFoundResult<TableDataDto>(ex.Message);
         }
         catch (ApplicationServiceException ex)
         {
@@ -172,7 +179,7 @@ public class DocumentsController : BaseApiController
         try
         {
             var importResult = await _documentImportAppService.ImportWordAsync(
-                scope,
+                scope.ToAccessContext(),
                 request,
                 cancellationToken);
             return Success(importResult.Result, importResult.Message);
@@ -201,7 +208,7 @@ public class DocumentsController : BaseApiController
         try
         {
             var importResult = await _documentImportAppService.ImportExcelAsync(
-                scope,
+                scope.ToAccessContext(),
                 request,
                 cancellationToken);
             return Success(importResult.Result, importResult.Message);
@@ -228,7 +235,7 @@ public class DocumentsController : BaseApiController
 
         try
         {
-            await _documentFileAppService.DeleteFileAsync(scope, id, cancellationToken);
+            await _documentFileAppService.DeleteFileAsync(scope.ToAccessContext(), id, cancellationToken);
             return Success("删除成功");
         }
         catch (ApplicationServiceException ex) when (ex.Code == 404)

@@ -32,6 +32,7 @@ public interface ISmartConfigurationAppService
 /// </summary>
 public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 {
+    private const int MaxConfirmedHeaderCount = 512;
     private readonly IUnitOfWork _unitOfWork;
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IDocumentIntelligenceService _intelligenceService;
@@ -40,6 +41,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     private readonly DocumentTemplateAppService _templateService;
     private readonly SmartConfigurationLearningService _learningService;
     private readonly IUploadedDocumentPathResolver _documentPathResolver;
+    private readonly ISmartConfigurationFileAccessService _fileAccessService;
     private readonly ILogger<SmartConfigurationAppService> _logger;
     private readonly SmartConfigurationOptions _options;
 
@@ -52,6 +54,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         DocumentTemplateAppService templateService,
         SmartConfigurationLearningService learningService,
         IUploadedDocumentPathResolver documentPathResolver,
+        ISmartConfigurationFileAccessService fileAccessService,
         ILogger<SmartConfigurationAppService> logger,
         IOptions<SmartConfigurationOptions> options)
     {
@@ -63,6 +66,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         _templateService = templateService;
         _learningService = learningService;
         _documentPathResolver = documentPathResolver;
+        _fileAccessService = fileAccessService;
         _logger = logger;
         _options = options.Value;
     }
@@ -79,7 +83,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             throw new ApplicationServiceException(400, "FileId 不能为空");
         }
 
-        var file = await _unitOfWork.WordFiles.GetByIdAsync(command.FileId, cancellationToken);
+        var file = await _fileAccessService.GetAccessibleFileAsync(command.FileId, cancellationToken);
         if (file == null)
         {
             throw new ApplicationServiceException(404, $"文件不存在：{command.FileId}");
@@ -97,9 +101,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             ?? throw new ApplicationServiceException(400, "文档解析器不可用");
 
         var absolutePath = _documentPathResolver.ResolveAbsolutePath(file.FilePath);
-        var tablesInfo = await parser.GetTablesAsync(absolutePath);
+        var tablesInfo = await parser.GetTablesAsync(absolutePath, cancellationToken);
         await using var stream = File.OpenRead(absolutePath);
-        var tablesData = await parser.ExtractAllTablesDataAsync(stream);
+        var tablesData = await parser.ExtractAllTablesDataAsync(stream, cancellationToken);
 
         var columnHeaderRules = await BuildColumnHeaderRulesAsync(command.CustomerId, cancellationToken);
         var routingRules = await _unitOfWork.SmartStructureRoutingRules.GetEffectiveForCustomerAsync(
@@ -118,6 +122,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 StringComparer.Ordinal);
         for (var i = 0; i < tablesData.Count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var tableData = tablesData[i];
             var tableInfo = tablesInfo.FirstOrDefault(table => table.Index == tableData.TableIndex)
                 ?? tablesInfo.ElementAtOrDefault(i);
@@ -134,7 +139,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                         HeaderRowIndex = headerProfile.HeaderRowIndex,
                         HeaderRowCount = headerProfile.HeaderRowCount,
                         DataStartRowIndex = headerProfile.HeaderRowIndex + headerProfile.HeaderRowCount
-                    });
+                    },
+                    cancellationToken: cancellationToken);
             }
 
             tables.Add(await RecognizeTableAsync(
@@ -480,21 +486,27 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
 
         ValidateConfirmCoordinates(command);
-
-        IReadOnlyList<string> effectiveHeaders = command.Headers;
-        IReadOnlyList<SmartConfigurationLearnedColumn> effectiveLearnedColumns = command.LearnedColumns;
-        if (command.UserModifiedStructure)
+        ValidateConfirmColumnIndexes(command, command.Headers.Count);
+        if (command.FileId is not > 0)
         {
-            if (command.FileId is not > 0)
-            {
-                throw new ApplicationServiceException(400, "人工修改结构时必须提供有效FileId");
-            }
+            throw new ApplicationServiceException(400, "确认结构时必须提供有效FileId");
+        }
 
-            effectiveHeaders = await ExtractConfirmedHeadersAsync(command, cancellationToken);
-            effectiveLearnedColumns = RebuildLearnedColumns(command, effectiveHeaders);
+        var tableContext = await GetConfirmedTableContextAsync(command, cancellationToken);
+        if (!await _fileAccessService.CanAccessCustomerAsync(command.CustomerId, cancellationToken))
+        {
+            throw new ApplicationServiceException(404, $"客户不存在或无权访问：{command.CustomerId}");
+        }
+
+        var effectiveHeaders = await ExtractConfirmedHeadersAsync(command, tableContext, cancellationToken);
+        if (effectiveHeaders.Count > MaxConfirmedHeaderCount ||
+            effectiveHeaders.Any(header => header.Length > ColumnHeaderRuleMatcher.MaxHeaderInputLength))
+        {
+            throw new ApplicationServiceException(400, "表头数量或文本长度超出安全限制");
         }
 
         ValidateConfirmColumnIndexes(command, effectiveHeaders.Count);
+        var effectiveLearnedColumns = RebuildLearnedColumns(command, effectiveHeaders);
 
         var template = await _templateService.SaveTemplateAsync(
             command.CustomerId,
@@ -573,19 +585,45 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private async Task<IReadOnlyList<string>> ExtractConfirmedHeadersAsync(
         SmartConfigurationConfirmCommand command,
+        ConfirmedTableContext context,
         CancellationToken cancellationToken)
     {
-        if (command.FileId is not > 0)
+        var headerEndRowIndex = (long)command.HeaderRowIndex + command.HeaderRowCount;
+        if (headerEndRowIndex > context.Table.RowCount || command.DataStartRowIndex > context.Table.RowCount)
         {
-            throw new ApplicationServiceException(400, "FileId 必须大于0");
+            throw new ApplicationServiceException(400, "确认的行坐标超出表格范围");
         }
 
+        await using var stream = File.OpenRead(context.AbsolutePath);
+        var extracted = await context.Parser.ExtractTableDataAsync(
+            stream,
+            command.TableIndex,
+            new ColumnMapping
+            {
+                HeaderRowIndex = command.HeaderRowIndex,
+                HeaderRowCount = command.HeaderRowCount,
+                DataStartRowIndex = command.DataStartRowIndex
+            },
+            cancellationToken: cancellationToken);
+        var headers = extracted.Headers.ToList();
+        if (headers.Count == 0)
+        {
+            throw new ApplicationServiceException(400, "修正坐标未提取到表头");
+        }
+
+        return headers;
+    }
+
+    private async Task<ConfirmedTableContext> GetConfirmedTableContextAsync(
+        SmartConfigurationConfirmCommand command,
+        CancellationToken cancellationToken)
+    {
         if (command.TableIndex < 0)
         {
             throw new ApplicationServiceException(400, "表格索引不能小于0");
         }
 
-        var file = await _unitOfWork.WordFiles.GetByIdAsync(command.FileId.Value, cancellationToken);
+        var file = await _fileAccessService.GetAccessibleFileAsync(command.FileId!.Value, cancellationToken);
         if (file == null)
         {
             throw new ApplicationServiceException(404, $"文件不存在：{command.FileId.Value}");
@@ -602,37 +640,31 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var parser = _documentServiceFactory.GetParser(documentType)
             ?? throw new ApplicationServiceException(400, "文档解析器不可用");
         var absolutePath = _documentPathResolver.ResolveAbsolutePath(file.FilePath);
-        var tables = await parser.GetTablesAsync(absolutePath);
-        var table = tables.FirstOrDefault(item => item.Index == command.TableIndex);
+        var table = (await parser.GetTablesAsync(absolutePath, cancellationToken))
+            .FirstOrDefault(item => item.Index == command.TableIndex);
         if (table == null)
         {
             throw new ApplicationServiceException(400, $"表格索引超出范围：{command.TableIndex}");
         }
 
-        var headerEndRowIndex = (long)command.HeaderRowIndex + command.HeaderRowCount;
-        if (headerEndRowIndex > table.RowCount || command.DataStartRowIndex > table.RowCount)
-        {
-            throw new ApplicationServiceException(400, "确认的行坐标超出表格范围");
-        }
-
-        await using var stream = File.OpenRead(absolutePath);
-        var extracted = await parser.ExtractTableDataAsync(
-            stream,
-            command.TableIndex,
-            new ColumnMapping
-            {
-                HeaderRowIndex = command.HeaderRowIndex,
-                HeaderRowCount = command.HeaderRowCount,
-                DataStartRowIndex = command.DataStartRowIndex
-            });
-        var headers = extracted.Headers.ToList();
-        if (headers.Count == 0)
-        {
-            throw new ApplicationServiceException(400, "修正坐标未提取到表头");
-        }
-
-        return headers;
+        ValidateDataEndRowIndex(command, table.RowCount);
+        return new ConfirmedTableContext(parser, absolutePath, table);
     }
+
+    private static void ValidateDataEndRowIndex(
+        SmartConfigurationConfirmCommand command,
+        int tableRowCount)
+    {
+        if (command.DataEndRowIndex.HasValue && command.DataEndRowIndex.Value >= tableRowCount)
+        {
+            throw new ApplicationServiceException(400, "数据结束行超出表格范围");
+        }
+    }
+
+    private sealed record ConfirmedTableContext(
+        IDocumentParser Parser,
+        string AbsolutePath,
+        TableInfo Table);
 
     private static IReadOnlyList<SmartConfigurationLearnedColumn> RebuildLearnedColumns(
         SmartConfigurationConfirmCommand command,
@@ -754,25 +786,20 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 columnSemanticRecallCache,
                 cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(
                 ex,
                 "表格 {TableIndex} 结构识别失败，返回待确认状态",
                 tableData.TableIndex);
-            var failed = new SmartConfigurationRecognizedTable
-            {
-                TableIndex = tableData.TableIndex,
-                TableName = tableInfo?.Name,
-                Headers = headers,
-                HeaderRowIndex = 0,
-                HeaderRowCount = 1,
-                DataStartRowIndex = 1,
-                DataEndRowIndex = tableData.TotalRowCount > 0 ? tableData.TotalRowCount - 1 : null,
-                Confidence = 0,
-                Source = "Failed",
-                Decision = "NeedConfirm"
-            };
+            var failed = SmartConfigurationRecognizedTableFactory.FromFailure(
+                tableInfo,
+                tableData,
+                headers);
             return SmartConfigurationTableRoutingService.Enrich(
                 tableInfo,
                 tableData,
@@ -1023,6 +1050,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 ? ruleRecognized
                 : CopyWithSemanticRecallSuggestions(ruleRecognized, suggestions);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             columnSemanticRecallCache[cacheKey] = [];
@@ -1247,6 +1278,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
             return fused;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(
@@ -1281,7 +1316,12 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     HeaderRowIndex = candidate.HeaderRowIndex,
                     HeaderRowCount = candidate.HeaderRowCount,
                     DataStartRowIndex = candidate.DataStartRowIndex
-                });
+                },
+                cancellationToken: cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -1523,7 +1563,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             .Where(rule => rule.ColumnType == ColumnType.Project)
             .ToList();
         return !tableData.Headers.Any(header =>
-            projectRules.Any(rule => ColumnHeaderRuleMatcher.IsMatch(header, rule)));
+            ColumnHeaderRuleMatcher.TryNormalizeHeader(header, out var normalizedHeader) &&
+            projectRules.Any(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched));
     }
 
 }
@@ -1550,18 +1591,21 @@ internal sealed class HeaderKeywordMatcher
 
     public bool Contains(string value)
     {
-        return _rules.Any(rule => ColumnHeaderRuleMatcher.IsMatch(value, rule));
+        return ColumnHeaderRuleMatcher.TryNormalizeHeader(value, out var normalizedHeader) &&
+               _rules.Any(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched);
     }
 
     public bool HasAmbiguousCustomerTypeEvidence(IEnumerable<string> values)
     {
-        return values.Any(value => _rules
-            .Where(rule => rule.IsCustomerSpecific)
-            .Where(rule => ColumnHeaderRuleMatcher.IsMatch(value, rule))
-            .Select(rule => rule.ColumnType)
-            .Distinct()
-            .Skip(1)
-            .Any());
+        return values.Any(value =>
+            ColumnHeaderRuleMatcher.TryNormalizeHeader(value, out var normalizedHeader) &&
+            _rules
+                .Where(rule => rule.IsCustomerSpecific)
+                .Where(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched)
+                .Select(rule => rule.ColumnType)
+                .Distinct()
+                .Skip(1)
+                .Any());
     }
 
     public bool IsCompleteRepeatedLeafHeader(RowData row)
@@ -1583,16 +1627,24 @@ internal sealed class HeaderKeywordMatcher
     private List<HeaderEvidence> BuildEvidence(RowData row)
     {
         return row.Cells
-            .Select(cell => new HeaderEvidence(
-                cell.ColumnIndex,
-                cell.Value?.Trim() ?? string.Empty,
-                _rules
-                    .Where(rule => ColumnHeaderRuleMatcher.IsMatch(cell.Value ?? string.Empty, rule))
-                    .Select(rule => rule.ColumnType)
-                    .Distinct()
-                    .ToList()))
+            .Select(cell => BuildEvidence(cell.ColumnIndex, cell.Value))
             .Where(item => item.Value.Length > 0 && item.MatchedTypes.Count > 0)
             .ToList();
+    }
+
+    private HeaderEvidence BuildEvidence(int columnIndex, string? value)
+    {
+        if (!ColumnHeaderRuleMatcher.TryNormalizeHeader(value, out var normalizedHeader))
+        {
+            return new HeaderEvidence(columnIndex, string.Empty, []);
+        }
+
+        var matchedTypes = _rules
+            .Where(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched)
+            .Select(rule => rule.ColumnType)
+            .Distinct()
+            .ToList();
+        return new HeaderEvidence(columnIndex, normalizedHeader, matchedTypes);
     }
 
     private static bool HasIndependentRequiredTypes(IReadOnlyList<HeaderEvidence> evidence)

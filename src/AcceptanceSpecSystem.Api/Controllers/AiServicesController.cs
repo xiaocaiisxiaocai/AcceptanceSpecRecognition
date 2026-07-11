@@ -2,17 +2,16 @@
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
-using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Options;
+using AcceptanceSpecSystem.Application.Contracts;
+using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
-using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel.ChatCompletion;
@@ -27,7 +26,7 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class AiServicesController : BaseApiController
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly IAiServiceConfigurationAppService _configuration;
     private readonly ISemanticKernelServiceFactory _semanticKernelFactory;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AiServicesController> _logger;
@@ -38,14 +37,14 @@ public class AiServicesController : BaseApiController
     private readonly string _azureOpenAiApiVersion;
 
     public AiServicesController(
-        IUnitOfWork unitOfWork,
+        IAiServiceConfigurationAppService configuration,
         ISemanticKernelServiceFactory semanticKernelFactory,
         IHttpClientFactory httpClientFactory,
         IOptions<AiServiceTestOptions> aiServiceTestOptions,
         IOptions<SemanticKernelOptions> semanticKernelOptions,
         ILogger<AiServicesController> logger)
     {
-        _unitOfWork = unitOfWork;
+        _configuration = configuration;
         _semanticKernelFactory = semanticKernelFactory;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
@@ -70,38 +69,13 @@ public class AiServicesController : BaseApiController
         [FromQuery] AiServiceType? serviceType = null,
         CancellationToken cancellationToken = default)
     {
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 200);
-
-        var query = _unitOfWork.AiServiceConfigs.Query();
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            var key = keyword.Trim();
-            query = query.Where(c =>
-                c.Name.Contains(key) ||
-                (c.Endpoint != null && c.Endpoint.Contains(key)));
-        }
-
-        if (serviceType.HasValue)
-        {
-            query = query.Where(c => c.ServiceType == serviceType.Value);
-        }
-
-        var total = await query.CountAsync(cancellationToken);
-        var rows = await query
-            .OrderBy(c => c.Priority)
-            .ThenByDescending(c => c.UpdatedAt ?? c.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(cancellationToken);
-        var items = rows.Select(ToDto).ToList();
-
+        var result = await _configuration.GetPagedAsync(page, pageSize, keyword, serviceType, cancellationToken);
         return Success(new PagedData<AiServiceConfigDto>
         {
-            Items = items,
-            Total = total,
-            Page = page,
-            PageSize = pageSize
+            Items = result.Items,
+            Total = result.Total,
+            Page = result.Page,
+            PageSize = result.PageSize
         });
     }
 
@@ -115,13 +89,10 @@ public class AiServicesController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs
-            .Query()
-            .SingleOrDefaultAsync(config => config.Id == id, cancellationToken);
-        if (entity == null)
+        var item = await _configuration.GetByIdAsync(id, cancellationToken);
+        if (item == null)
             return NotFoundResult<AiServiceConfigDetailDto>("配置不存在");
-
-        return Success(ToDetailDto(entity));
+        return Success(item);
     }
 
     /// <summary>
@@ -135,52 +106,8 @@ public class AiServicesController : BaseApiController
         [FromBody] CreateAiServiceRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return Error<AiServiceConfigDto>(400, "名称不能为空");
-        var purposeError = ValidatePurpose(request.Purpose);
-        if (purposeError != null)
-            return Error<AiServiceConfigDto>(400, purposeError);
-        var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
-        if (modelError != null)
-            return Error<AiServiceConfigDto>(400, modelError);
-        var endpointError = TryNormalizeEndpoint(request.Endpoint, request.ServiceType, out var normalizedEndpoint);
-        if (endpointError != null)
-            return Error<AiServiceConfigDto>(400, endpointError);
-
-        var trimmedName = request.Name.Trim();
-        var exists = await _unitOfWork.AiServiceConfigs
-            .Query()
-            .SingleOrDefaultAsync(config => config.Name == trimmedName, cancellationToken);
-        if (exists != null)
-            return Error<AiServiceConfigDto>(400, "名称已存在");
-
-        var embeddingModel = NormalizeOptional(request.EmbeddingModel);
-        var llmModel = NormalizeOptional(request.LlmModel);
-        if (request.Purpose == AiServicePurpose.Llm)
-            embeddingModel = null;
-        if (request.Purpose == AiServicePurpose.Embedding)
-            llmModel = null;
-
-        var entity = new AiServiceConfig
-        {
-            Name = trimmedName,
-            ServiceType = request.ServiceType,
-            Purpose = request.Purpose,
-            Priority = request.Priority,
-            ApiKey = NormalizeOptional(request.ApiKey),
-            Endpoint = normalizedEndpoint,
-            EmbeddingModel = embeddingModel,
-            LlmModel = llmModel,
-            DisableThinking = request.DisableThinking,
-            DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK),
-            CreatedAt = DateTime.UtcNow
-        };
-
-        await _unitOfWork.AiServiceConfigs.AddAsync(entity, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        _logger.LogInformation("创建AI服务配置: {Id} {Name} {Type}", entity.Id, entity.Name, entity.ServiceType);
-        return Success(ToDto(entity), "创建成功");
+        try { return Success(await _configuration.CreateAsync(request, cancellationToken), "创建成功"); }
+        catch (ApplicationServiceException ex) { return Error<AiServiceConfigDto>(ex.Code, ex.Message); }
     }
 
     /// <summary>
@@ -195,62 +122,8 @@ public class AiServicesController : BaseApiController
         [FromBody] UpdateAiServiceRequest request,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken);
-        if (entity == null)
-            return Error<AiServiceConfigDto>(400, "配置不存在");
-        if (entity.IsLegacyDualPurposeConfiguration())
-            return Error<AiServiceConfigDto>(400, BuildLegacyDualPurposeMessage());
-
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return Error<AiServiceConfigDto>(400, "名称不能为空");
-        var purposeError = ValidatePurpose(request.Purpose);
-        if (purposeError != null)
-            return Error<AiServiceConfigDto>(400, purposeError);
-        var modelError = ValidateModelForPurpose(request.Purpose, request.LlmModel, request.EmbeddingModel);
-        if (modelError != null)
-            return Error<AiServiceConfigDto>(400, modelError);
-        var endpointError = TryNormalizeEndpoint(request.Endpoint, request.ServiceType, out var normalizedEndpoint);
-        if (endpointError != null)
-            return Error<AiServiceConfigDto>(400, endpointError);
-
-        var newName = request.Name.Trim();
-        if (!string.Equals(entity.Name, newName, StringComparison.OrdinalIgnoreCase))
-        {
-            var exists = await _unitOfWork.AiServiceConfigs
-                .Query()
-                .SingleOrDefaultAsync(config => config.Name == newName, cancellationToken);
-            if (exists != null && exists.Id != id)
-                return Error<AiServiceConfigDto>(400, "名称已存在");
-        }
-
-        entity.Name = newName;
-        entity.ServiceType = request.ServiceType;
-        entity.Purpose = request.Purpose;
-        entity.Priority = request.Priority;
-        entity.Endpoint = normalizedEndpoint;
-        entity.DisableThinking = request.DisableThinking;
-        entity.DefaultRecallTopK = Math.Clamp(request.DefaultRecallTopK, 1, MatchingThresholds.MaxRecallTopK);
-
-        var embeddingModel = NormalizeOptional(request.EmbeddingModel);
-        var llmModel = NormalizeOptional(request.LlmModel);
-        if (request.Purpose == AiServicePurpose.Llm)
-            embeddingModel = null;
-        if (request.Purpose == AiServicePurpose.Embedding)
-            llmModel = null;
-        entity.EmbeddingModel = embeddingModel;
-        entity.LlmModel = llmModel;
-        if (request.ApiKey != null)
-        {
-            // 允许更新/清空 ApiKey：传空字符串即清空
-            entity.ApiKey = NormalizeOptional(request.ApiKey);
-        }
-
-        entity.UpdatedAt = DateTime.UtcNow;
-        _unitOfWork.AiServiceConfigs.Update(entity);
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return Success(ToDto(entity), "更新成功");
+        try { return Success(await _configuration.UpdateAsync(id, request, cancellationToken), "更新成功"); }
+        catch (ApplicationServiceException ex) { return Error<AiServiceConfigDto>(ex.Code, ex.Message); }
     }
 
     /// <summary>
@@ -265,17 +138,12 @@ public class AiServicesController : BaseApiController
         [FromBody] SetAiServiceDisabledRequest request,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken);
-        if (entity == null)
-            return Error<AiServiceConfigDto>(400, "配置不存在");
-
-        entity.IsDisabled = request.IsDisabled;
-        entity.UpdatedAt = DateTime.UtcNow;
-        _unitOfWork.AiServiceConfigs.Update(entity);
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return Success(ToDto(entity), request.IsDisabled ? "已禁用" : "已启用");
+        try
+        {
+            var item = await _configuration.SetDisabledAsync(id, request.IsDisabled, cancellationToken);
+            return Success(item, request.IsDisabled ? "已禁用" : "已启用");
+        }
+        catch (ApplicationServiceException ex) { return Error<AiServiceConfigDto>(ex.Code, ex.Message); }
     }
 
     /// <summary>
@@ -289,14 +157,8 @@ public class AiServicesController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken);
-        if (entity == null)
-            return Error(400, "配置不存在");
-
-        _unitOfWork.AiServiceConfigs.Remove(entity);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return Success("删除成功");
+        try { await _configuration.DeleteAsync(id, cancellationToken); return Success("删除成功"); }
+        catch (ApplicationServiceException ex) { return Error(ex.Code, ex.Message); }
     }
 
     /// <summary>
@@ -311,15 +173,15 @@ public class AiServicesController : BaseApiController
         [FromQuery] AiServiceConnectionTestMode mode = AiServiceConnectionTestMode.Full,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken);
+        var entity = await _configuration.GetProbeConfigAsync(id, cancellationToken);
         if (entity == null)
             return Error<AiServiceTestResultDto>(400, "配置不存在");
         if (entity.IsDisabled)
             return Error<AiServiceTestResultDto>(400, "配置已禁用");
-        if (entity.IsLegacyDualPurposeConfiguration())
+        if (IsLegacyDualPurpose(entity.Purpose))
             return Error<AiServiceTestResultDto>(400, BuildLegacyDualPurposeMessage());
 
-        var effectivePurpose = entity.GetEffectivePurpose();
+        var effectivePurpose = entity.Purpose;
         var purposeError = ValidatePurpose(effectivePurpose);
         if (purposeError != null)
             return Error<AiServiceTestResultDto>(400, purposeError);
@@ -706,7 +568,7 @@ public class AiServicesController : BaseApiController
     }
 
     private async Task<IReadOnlyCollection<string>> FetchRemoteModelsAsync(
-        AiServiceConfig config,
+        AiServiceProbeConfig config,
         CancellationToken cancellationToken)
     {
         return config.ServiceType switch
@@ -752,80 +614,19 @@ public class AiServicesController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs
-            .Query()
-            .SingleOrDefaultAsync(config => config.Id == id, cancellationToken);
+        var entity = await _configuration.GetProbeConfigAsync(id, cancellationToken);
         if (entity == null)
             return Error<AiServiceModelsResultDto>(400, "配置不存在");
         if (entity.IsDisabled)
             return Error<AiServiceModelsResultDto>(400, "配置已禁用");
-        if (entity.IsLegacyDualPurposeConfiguration())
+        if (IsLegacyDualPurpose(entity.Purpose))
             return Error<AiServiceModelsResultDto>(400, BuildLegacyDualPurposeMessage());
 
         var result = await ProbeModelsAsync(entity, cancellationToken);
         return Success(result, result.Message ?? "模型探测完成");
     }
 
-    private static AiServiceConfigDto ToDto(AiServiceConfig c)
-    {
-        var effectivePurpose = c.GetEffectivePurpose();
-        return new AiServiceConfigDto
-        {
-            Id = c.Id,
-            Name = c.Name,
-            ServiceType = c.ServiceType,
-            Purpose = effectivePurpose,
-            Priority = c.Priority,
-            Endpoint = c.Endpoint,
-            EmbeddingModel = effectivePurpose.HasFlag(AiServicePurpose.Embedding) ? c.EmbeddingModel : null,
-            LlmModel = effectivePurpose.HasFlag(AiServicePurpose.Llm) ? c.LlmModel : null,
-            DisableThinking = c.DisableThinking,
-            IsDisabled = c.IsDisabled,
-            DefaultRecallTopK = c.DefaultRecallTopK,
-            HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
-            CreatedAt = c.CreatedAt,
-            UpdatedAt = c.UpdatedAt
-        };
-    }
-
-    private static AiServiceConfigDetailDto ToDetailDto(AiServiceConfig c)
-    {
-        var effectivePurpose = c.GetEffectivePurpose();
-        return new AiServiceConfigDetailDto
-        {
-            Id = c.Id,
-            Name = c.Name,
-            ServiceType = c.ServiceType,
-            Purpose = effectivePurpose,
-            Priority = c.Priority,
-            Endpoint = c.Endpoint,
-            EmbeddingModel = effectivePurpose.HasFlag(AiServicePurpose.Embedding) ? c.EmbeddingModel : null,
-            LlmModel = effectivePurpose.HasFlag(AiServicePurpose.Llm) ? c.LlmModel : null,
-            DisableThinking = c.DisableThinking,
-            IsDisabled = c.IsDisabled,
-            DefaultRecallTopK = c.DefaultRecallTopK,
-            HasApiKey = !string.IsNullOrWhiteSpace(c.ApiKey),
-            ApiKey = MaskApiKey(c.ApiKey),
-            CreatedAt = c.CreatedAt,
-            UpdatedAt = c.UpdatedAt
-        };
-    }
-
-    private static string? MaskApiKey(string? apiKey)
-    {
-        if (string.IsNullOrWhiteSpace(apiKey))
-            return apiKey;
-
-        var value = apiKey.Trim();
-        if (value.Length <= 4)
-            return new string('*', value.Length);
-        if (value.Length <= 8)
-            return $"{value[..2]}***{value[^2..]}";
-
-        return $"{value[..4]}***{value[^4..]}";
-    }
-
-    private async Task<AiServiceModelsResultDto> ProbeModelsAsync(AiServiceConfig config, CancellationToken cancellationToken)
+    private async Task<AiServiceModelsResultDto> ProbeModelsAsync(AiServiceProbeConfig config, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(config.Endpoint))
         {
@@ -837,7 +638,7 @@ public class AiServicesController : BaseApiController
 
         try
         {
-            var effectivePurpose = config.GetEffectivePurpose();
+            var effectivePurpose = config.Purpose;
             var models = config.ServiceType switch
             {
                 AiServiceType.OpenAI or AiServiceType.CustomOpenAICompatible or AiServiceType.LMStudio
@@ -870,7 +671,7 @@ public class AiServicesController : BaseApiController
     }
 
     private async Task<IReadOnlyList<string>> FetchOpenAiCompatibleModelsAsync(
-        AiServiceConfig config,
+        AiServiceProbeConfig config,
         CancellationToken cancellationToken)
     {
         var endpoint = NormalizeOpenAiBaseUrl(config.Endpoint!, config.ServiceType);
@@ -891,7 +692,7 @@ public class AiServicesController : BaseApiController
     }
 
     private async Task<IReadOnlyList<string>> FetchAzureDeploymentModelsAsync(
-        AiServiceConfig config,
+        AiServiceProbeConfig config,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(config.ApiKey))
@@ -912,7 +713,7 @@ public class AiServicesController : BaseApiController
     }
 
     private async Task<IReadOnlyList<string>> FetchOllamaModelsAsync(
-        AiServiceConfig config,
+        AiServiceProbeConfig config,
         CancellationToken cancellationToken)
     {
         var endpoint = NormalizeOllamaBaseUrl(config.Endpoint!);
@@ -1087,8 +888,11 @@ public class AiServicesController : BaseApiController
 
     private static string BuildLegacyDualPurposeMessage()
     {
-        return "检测到历史双用途 AI 服务配置，当前记录同时保留了 LLM 和 Embedding 模型。请先完成迁移拆分后再编辑或测试，避免静默丢失另一侧模型。";
+        return AiServiceConfigurationAppService.LegacyMessage;
     }
+
+    private static bool IsLegacyDualPurpose(AiServicePurpose purpose) =>
+        purpose.HasFlag(AiServicePurpose.Llm) && purpose.HasFlag(AiServicePurpose.Embedding);
 
     private static string? ValidateModelForPurpose(
         AiServicePurpose purpose,
@@ -1102,9 +906,9 @@ public class AiServicesController : BaseApiController
         return null;
     }
 
-    private static CoreAiServiceConfigModel ToCoreModel(AiServiceConfig entity)
+    private static CoreAiServiceConfigModel ToCoreModel(AiServiceProbeConfig entity)
     {
-        var effectivePurpose = entity.GetEffectivePurpose();
+        var effectivePurpose = entity.Purpose;
         return new CoreAiServiceConfigModel
         {
             Id = entity.Id,
@@ -1141,4 +945,3 @@ public class AiServicesController : BaseApiController
     }
 
 }
-

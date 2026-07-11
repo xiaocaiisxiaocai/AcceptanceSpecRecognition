@@ -13,7 +13,10 @@ import {
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
 import { hasPerms } from "@/utils/auth";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
 
@@ -317,7 +320,7 @@ const remove = async (row: ColumnMappingRule) => {
       ElMessage.error(res.message || "删除失败");
     }
   } catch (error) {
-    if (isMessageBoxCancel(error)) return;
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
@@ -350,7 +353,7 @@ const restoreDefaults = async () => {
       ElMessage.error(res.message || "恢复默认词失败");
     }
   } catch (error: unknown) {
-    if (isMessageBoxCancel(error)) return;
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "恢复默认词失败"));
   }
 };

@@ -19,9 +19,8 @@ public class RepositoryHygieneTests
     public void LocalSensitiveArtifacts_ShouldBeIgnored_AndToolsShouldUseSyntheticFixture()
     {
         var ignore = ReadFile(".gitignore");
-        ignore.Should().Contain("/huaian_specs.json");
-        ignore.Should().Contain("/huaian_specs_500.json");
-        ignore.Should().Contain("/淮安庆鼎_智能填充测试说明.md");
+        ignore.Should().Contain("/huaian*");
+        ignore.Should().Contain("/淮安庆鼎*");
 
         var fixturePath = GetRepositoryPath("tools/Fixtures/synthetic_specs.json");
         File.Exists(fixturePath).Should().BeTrue();
@@ -38,8 +37,27 @@ public class RepositoryHygieneTests
         {
             var content = ReadFile(relativePath);
             content.Should().Contain("tools/Fixtures/synthetic_specs.json");
-            content.Should().NotContain("\"huaian_specs.json\"");
+            content.Should().NotContain("huaian");
+            content.Should().NotContain("淮安庆鼎");
         }
+    }
+
+    [Fact]
+    public void DockerBuildContext_ShouldExcludeLocalSecretsBackupsAndRealSamples()
+    {
+        var ignore = ReadFile(".dockerignore").Replace("\r\n", "\n");
+
+        ignore.Should().Contain("/.env*\n");
+        ignore.Should().Contain("!/.env*.example");
+        ignore.Should().Contain("*.sql");
+        ignore.Should().Contain("**/*.sql");
+        ignore.Should().Contain("/backups");
+        ignore.Should().Contain("**/data-protection-keys");
+        ignore.Should().Contain("/output");
+        ignore.Should().Contain("/outputs");
+        ignore.Should().Contain("/huaian*");
+        ignore.Should().Contain("/淮安庆鼎*");
+        ignore.Should().NotContain("\noutputs\n");
     }
 
     private static string ReadFile(string relativePath)

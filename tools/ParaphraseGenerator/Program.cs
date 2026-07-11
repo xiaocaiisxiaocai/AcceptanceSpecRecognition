@@ -31,9 +31,9 @@ var serviceProvider = services.BuildServiceProvider();
 var generator = serviceProvider.GetRequiredService<ParaphraseGenerator.ParaphraseGenerator>();
 var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
-// 读取淮安数据
+// 读取合成测试数据
 var inputFile = args.Length > 0 ? args[0] : "tools/Fixtures/synthetic_specs.json";
-var outputFile = args.Length > 1 ? args[1] : "huaian_ai_paraphrased_50.csv";
+var outputFile = args.Length > 1 ? args[1] : "generated_ai_paraphrased_50.csv";
 var maxCount = args.Length > 2 ? int.Parse(args[2]) : 50;
 
 logger.LogInformation("读取输入文件: {File}", inputFile);

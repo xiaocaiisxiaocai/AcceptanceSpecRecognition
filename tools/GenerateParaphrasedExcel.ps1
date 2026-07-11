@@ -1,15 +1,15 @@
-# 调用本地 LLM 对淮安规格进行语义改写，生成 Excel 测试数据
+# 调用本地 LLM 对合成规格进行语义改写，生成 Excel 测试数据
 param(
     [string]$ApiBaseUrl = "http://localhost:5291",
     [string]$InputJson = "tools/Fixtures/synthetic_specs.json",
-    [string]$OutputExcel = "huaian_ai_paraphrased_50.xlsx",
+    [string]$OutputExcel = "generated_ai_paraphrased_50.xlsx",
     [int]$MaxCount = 50
 )
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot\..
 
-Write-Host "🔍 加载淮安规格数据..." -ForegroundColor Cyan
+Write-Host "🔍 加载合成规格数据..." -ForegroundColor Cyan
 $json = Get-Content $InputJson -Raw -Encoding UTF8 | ConvertFrom-Json
 $specs = $json.data.items | Select-Object -First $MaxCount
 

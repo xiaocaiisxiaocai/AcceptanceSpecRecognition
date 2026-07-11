@@ -268,7 +268,11 @@ const {
 
 .source-brief-card {
   padding: 14px 16px;
-  background: linear-gradient(180deg, var(--app-info-bg) 0%, var(--app-info-bg) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--app-info-bg) 0%,
+    var(--app-info-bg) 100%
+  );
   border: 1px solid var(--app-border);
   border-radius: 14px;
 }

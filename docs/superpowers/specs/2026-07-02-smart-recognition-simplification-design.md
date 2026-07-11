@@ -171,7 +171,7 @@ POST /api/smart-config/confirm     fileId(int) + 最终配置 + 修正明细 →
 - **Core 单测**：结构指纹稳定性；L1 对典型/变体/干扰表头判定；结果验证器各体检项的通过/拦截边界；决策规则（必需列缺失、低置信、歧义、体检失败 → NeedsConfirmation）。LLM 用现有 Fake 替身。
 - **API 集成测试**（WebApplicationFactory + SQLite）：`recognize` 对标准 docx/xlsx、怪表头 xlsx、多 Excel 工作表混合置信度、**仅规格列（无项目列）**四类夹具端到端断言；`confirm` 后模板命中（二次识别走 L0）与字典学习生效；降级路径。断言 `fileId` 为数字、`tables` 为扁平数组。
 - **回归护栏**：现有导入/填充 E2E 测试原样通过（验证「零改动」承诺）；架构边界测试通过（Core 无上层引用、AppService 接口化、文件 <500 行、前端壳+组件拆分）；新增 OpenSpec change 必须 `openspec validate <change-id> --strict` 通过。
-- **真实效果验收**：以仓库内淮安庆鼎等真实样本手工过两条链路，验证确认卡触发率与识别正确性（老客户重复结构 100% 直达；新结构 ≥70% 免修正）。
+- **真实效果验收**：以仓库外、经授权的脱敏样本手工过两条链路，验证确认卡触发率与识别正确性（老客户重复结构 100% 直达；新结构 ≥70% 免修正）。
 
 ---
 

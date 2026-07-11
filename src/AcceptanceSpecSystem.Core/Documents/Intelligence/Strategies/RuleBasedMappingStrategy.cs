@@ -88,7 +88,21 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         TextProcessingSession session,
         IReadOnlyList<ColumnHeaderMappingRule> rules)
     {
-        if (LooksLikeSystemMetadataColumn(header))
+        if (header.Length > ColumnHeaderRuleMatcher.MaxHeaderInputLength)
+        {
+            return new ColumnIdentificationResult
+            {
+                ColumnIndex = columnIndex,
+                HeaderText = header,
+                ColumnType = ColumnType.Unknown,
+                Confidence = 0.0,
+                Reasoning = "表头文本超出安全长度限制"
+            };
+        }
+
+        ColumnHeaderRuleMatcher.TryNormalizeHeader(header, out var boundedHeader);
+
+        if (LooksLikeSystemMetadataColumn(boundedHeader))
         {
             return new ColumnIdentificationResult
             {
@@ -101,7 +115,7 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         }
 
         // 文本标准化
-        var normalizedHeader = session.Process(header).ToLowerInvariant();
+        var normalizedHeader = session.Process(boundedHeader).ToLowerInvariant();
 
         // 尝试匹配每种列类型
         var candidates = new List<(
@@ -111,11 +125,6 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
             bool isCustomerSpecific,
             int priority)>();
 
-        if (LooksLikeAcceptanceStandardColumn(normalizedHeader))
-        {
-            candidates.Add((ColumnType.Acceptance, 0.98, "表头表示验收标准", false, 0));
-        }
-
         foreach (var rule in rules)
         {
             if (rule.ColumnType == ColumnType.Acceptance &&
@@ -123,12 +132,7 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
             {
                 continue;
             }
-            if (rule.ColumnType == ColumnType.Specification && LooksLikeAcceptanceStandardColumn(normalizedHeader))
-            {
-                continue;
-            }
-
-            var match = ColumnHeaderRuleMatcher.Match(normalizedHeader, rule);
+            var match = ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule);
             if (match.Matched)
             {
                 candidates.Add((
@@ -181,13 +185,6 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
             Confidence = 0.0,
             Reasoning = "未匹配任何规则"
         };
-    }
-
-    private static bool LooksLikeAcceptanceStandardColumn(string normalizedHeader)
-    {
-        return (normalizedHeader.Contains("验收") || normalizedHeader.Contains("驗收")) &&
-               (normalizedHeader.Contains("标准") || normalizedHeader.Contains("標準")) &&
-               !AcceptanceResultHeaderPolicy.IsAcceptanceMethodHeader(normalizedHeader);
     }
 
     private static bool LooksLikeSystemMetadataColumn(string header)

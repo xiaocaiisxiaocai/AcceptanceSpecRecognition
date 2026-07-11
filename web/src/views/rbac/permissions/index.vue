@@ -115,8 +115,16 @@ onMounted(loadData);
       </template>
 
       <el-table v-loading="loading" :data="permissions" stripe max-height="580">
-        <el-table-column prop="code" label="权限编码" min-width="min(320px, calc(100vw - 32px))" />
-        <el-table-column prop="name" label="权限名称" min-width="min(220px, calc(100vw - 32px))" />
+        <el-table-column
+          prop="code"
+          label="权限编码"
+          min-width="min(320px, calc(100vw - 32px))"
+        />
+        <el-table-column
+          prop="name"
+          label="权限名称"
+          min-width="min(220px, calc(100vw - 32px))"
+        />
         <el-table-column label="类型" width="min(120px, calc(100vw - 32px))">
           <template #default="{ row }">
             <el-tag
@@ -135,8 +143,16 @@ onMounted(loadData);
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="resource" label="资源" min-width="min(140px, calc(100vw - 32px))" />
-        <el-table-column prop="action" label="动作" min-width="min(140px, calc(100vw - 32px))" />
+        <el-table-column
+          prop="resource"
+          label="资源"
+          min-width="min(140px, calc(100vw - 32px))"
+        />
+        <el-table-column
+          prop="action"
+          label="动作"
+          min-width="min(140px, calc(100vw - 32px))"
+        />
       </el-table>
     </el-card>
   </div>

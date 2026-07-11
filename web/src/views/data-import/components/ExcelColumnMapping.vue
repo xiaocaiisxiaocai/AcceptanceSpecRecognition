@@ -156,10 +156,7 @@ watch(
 );
 
 const columnOptions = computed(() =>
-  buildExcelColumnOptions(
-    getTableInfoForNormalization(),
-    props.previewData
-  )
+  buildExcelColumnOptions(getTableInfoForNormalization(), props.previewData)
 );
 
 const columnHint = computed(() => ({

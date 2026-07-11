@@ -1,5 +1,7 @@
 ﻿using System.IO.Compression;
 using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Application;
+using Microsoft.AspNetCore.Http;
 
 namespace AcceptanceSpecSystem.Api.Services;
 

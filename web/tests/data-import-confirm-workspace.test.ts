@@ -30,13 +30,9 @@ test("导入确认页应使用紧凑摘要操作栏承载文件信息和导入�
   const panelSource = readProjectFile(
     "web/src/views/data-import/components/DataImportConfirmPanel.vue"
   );
-  const stylesSource = readProjectFile(
-    "web/src/views/data-import/index.styles.css"
-  );
-
   assert.match(panelSource, /class="import-summary-bar"/);
   assert.match(panelSource, /class="import-summary-bar__meta"/);
   assert.match(panelSource, /class="import-summary-bar__actions"/);
-  assert.match(stylesSource, /\.import-summary-bar\s*\{/);
-  assert.match(stylesSource, /\.import-summary-bar__actions\s*\{/);
+  assert.match(panelSource, /\.import-summary-bar\s*\{/);
+  assert.match(panelSource, /\.import-summary-bar__actions\s*\{/);
 });

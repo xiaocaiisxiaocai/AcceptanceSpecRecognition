@@ -461,17 +461,22 @@ export function useDataImportPage() {
 
   const loadPreviewData = async (
     cfg: TableImportConfig,
-    previewRows: number
+    previewRows: number,
+    sourceFileId = uploadedFile.value?.fileId
   ): Promise<TableData> => {
-    if (!uploadedFile.value) {
+    if (sourceFileId == null || uploadedFile.value?.fileId !== sourceFileId) {
       throw new Error("源文件不存在，无法加载预览");
     }
 
     const res = await getTablePreview(
-      uploadedFile.value.fileId,
+      sourceFileId,
       cfg.tableIndex,
       buildPreviewQuery(cfg, previewRows)
     );
+
+    if (uploadedFile.value?.fileId !== sourceFileId) {
+      throw new Error("源文件已变更，已取消旧文件预览");
+    }
 
     if (res.code !== 0 || !res.data) {
       throw new Error(res.message || "加载预览失败");
@@ -481,14 +486,19 @@ export function useDataImportPage() {
   };
 
   const ensurePreviewDataLoaded = async ({
+    sourceFileId,
     previewRows,
     initialText,
     completeText
   }: {
+    sourceFileId: number;
     previewRows: number;
     initialText: string;
     completeText?: string;
   }) => {
+    if (uploadedFile.value?.fileId !== sourceFileId) {
+      return false;
+    }
     const pendingConfigs = tableConfigs.value.filter(cfg => {
       if (!cfg.previewData) {
         return true;
@@ -512,18 +522,35 @@ export function useDataImportPage() {
 
     try {
       for (const [index, cfg] of pendingConfigs.entries()) {
+        if (uploadedFile.value?.fileId !== sourceFileId) {
+          return false;
+        }
         smartStageText.value = buildDataImportPreviewStageText(
           index + 1,
           pendingConfigs.length,
           cfg.tableInfo?.name
         );
-        cfg.previewData = await loadPreviewData(cfg, previewRows);
+        const previewData = await loadPreviewData(
+          cfg,
+          previewRows,
+          sourceFileId
+        );
+        if (
+          uploadedFile.value?.fileId !== sourceFileId ||
+          !tableConfigs.value.includes(cfg)
+        ) {
+          return false;
+        }
+        cfg.previewData = previewData;
       }
       if (completeText) {
         smartStageText.value = completeText;
       }
       return true;
     } catch (error) {
+      if (uploadedFile.value?.fileId !== sourceFileId) {
+        return false;
+      }
       ElMessage.error(
         error instanceof Error ? error.message : "加载导入预览失败"
       );

@@ -244,8 +244,10 @@ public class SmartConfigRecognizeHistoryFewShotApiTests : IClassFixture<LlmRecor
 
     private async Task ConfirmTemplateAsync(int customerId)
     {
+        var fileId = await UploadExcelAsync(CreateHistoryTemplateExcelBytes(), $"smart-history-confirm-{Guid.NewGuid():N}.xlsx");
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName = "历史确认模板",
             headers = new[] { "检查对象", "管制条件", "供应商回复", "补充说明" },
@@ -265,6 +267,23 @@ public class SmartConfigRecognizeHistoryFewShotApiTests : IClassFixture<LlmRecor
 
     private Task<int> UploadExcelAsync(byte[] bytes, string fileName) =>
         SmartConfigRecognizeTestFiles.UploadExcelAsync(_client, bytes, fileName);
+
+    private static byte[] CreateHistoryTemplateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("历史模板");
+        worksheet.Cell(1, 1).Value = "检查对象";
+        worksheet.Cell(1, 2).Value = "管制条件";
+        worksheet.Cell(1, 3).Value = "供应商回复";
+        worksheet.Cell(1, 4).Value = "补充说明";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(2, 4).Value = "抽检";
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
 
     private static byte[] CreateExcelBytes()
     {

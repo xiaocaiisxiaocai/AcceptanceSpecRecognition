@@ -284,8 +284,8 @@ defineExpose({
   flex-direction: column;
   width: 100%;
   min-width: 0;
-  min-height: 480px;
   height: min(620px, calc(100vh - 360px));
+  min-height: 480px;
 }
 
 .loading-container,
@@ -298,8 +298,8 @@ defineExpose({
   flex: 1;
   flex-direction: column;
   gap: 12px;
-  min-height: 0;
   min-width: 0;
+  min-height: 0;
 }
 
 .preview-info {
@@ -319,8 +319,8 @@ defineExpose({
 .table-container {
   flex: 1;
   width: 100%;
-  min-height: 360px;
   min-width: 0;
+  min-height: 360px;
   padding-bottom: 8px;
   overflow: auto hidden;
 }

@@ -11,14 +11,6 @@ public class LoginRequest
 }
 
 /// <summary>
-/// 刷新Token请求
-/// </summary>
-public class RefreshTokenRequest
-{
-    public string RefreshToken { get; set; } = string.Empty;
-}
-
-/// <summary>
 /// 前端登录返回结构（兼容 PureAdmin 默认 user.ts）
 /// </summary>
 public class FrontendAuthResponse<TData>
@@ -47,8 +39,6 @@ public class LoginSuccessData
 
     public string AccessToken { get; set; } = string.Empty;
 
-    public string RefreshToken { get; set; } = string.Empty;
-
     public DateTime Expires { get; set; }
 }
 
@@ -68,8 +58,6 @@ public class RefreshTokenSuccessData
     public List<string> Permissions { get; set; } = [];
 
     public string AccessToken { get; set; } = string.Empty;
-
-    public string RefreshToken { get; set; } = string.Empty;
 
     public DateTime Expires { get; set; }
 }

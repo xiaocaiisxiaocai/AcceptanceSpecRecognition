@@ -125,9 +125,9 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
 
-        var response = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new { username = "admin", password = ApiWebApplicationFactory.TestAdminPassword }));
+        using var request = AuthCookieTestHelper.CreateLoginRequest(
+            "admin", ApiWebApplicationFactory.TestAdminPassword);
+        var response = await _client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<JsonElement>();
@@ -146,9 +146,9 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
 
-        var response = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new { username = "admin", password = ApiWebApplicationFactory.TestAdminPassword }));
+        using var request = AuthCookieTestHelper.CreateLoginRequest(
+            "admin", ApiWebApplicationFactory.TestAdminPassword);
+        var response = await _client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<JsonElement>();
@@ -177,13 +177,9 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
 
-        var response = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new
-            {
-                username = "common",
-                password = ApiWebApplicationFactory.TestCommonPassword
-            }));
+        using var request = AuthCookieTestHelper.CreateLoginRequest(
+            "common", ApiWebApplicationFactory.TestCommonPassword);
+        var response = await _client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<JsonElement>();
@@ -219,13 +215,9 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
 
-        var response = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new
-            {
-                username = "common",
-                password = ApiWebApplicationFactory.TestCommonPassword
-            }));
+        using var request = AuthCookieTestHelper.CreateLoginRequest(
+            "common", ApiWebApplicationFactory.TestCommonPassword);
+        var response = await _client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<JsonElement>();
@@ -251,13 +243,9 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
 
-        var response = await _client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new
-            {
-                username = "common",
-                password = ApiWebApplicationFactory.TestCommonPassword
-            }));
+        using var request = AuthCookieTestHelper.CreateLoginRequest(
+            "common", ApiWebApplicationFactory.TestCommonPassword);
+        var response = await _client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<JsonElement>();

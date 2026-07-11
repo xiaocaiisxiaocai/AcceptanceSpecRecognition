@@ -690,15 +690,15 @@ watch(
 .compare-card:last-child {
   display: flex;
   flex: 1;
-  min-height: 0;
   flex-direction: column;
+  min-height: 0;
 }
 
 .compare-card:last-child :deep(.el-card__body) {
   display: flex;
   flex: 1;
-  min-height: 0;
   flex-direction: column;
+  min-height: 0;
 }
 
 .card-title {
@@ -760,8 +760,8 @@ watch(
 
 .compare-pane {
   display: flex;
-  min-height: 0;
   flex-direction: column;
+  min-height: 0;
   overflow: hidden;
   background: var(--app-bg-card);
   border: 1px solid var(--app-border);
@@ -791,8 +791,8 @@ watch(
 
 .pane-body {
   flex: 1;
-  min-height: 0;
   height: 100%;
+  min-height: 0;
   overflow: auto;
   background: var(--app-bg-card);
 }

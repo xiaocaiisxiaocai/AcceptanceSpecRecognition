@@ -25,8 +25,8 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     [Fact]
     public void AiServiceRequests_ShouldDefaultRecallTopKToTwo()
     {
-        var createRequest = new AcceptanceSpecSystem.Api.DTOs.CreateAiServiceRequest();
-        var updateRequest = new AcceptanceSpecSystem.Api.DTOs.UpdateAiServiceRequest();
+        var createRequest = new AcceptanceSpecSystem.Application.Contracts.CreateAiServiceRequest();
+        var updateRequest = new AcceptanceSpecSystem.Application.Contracts.UpdateAiServiceRequest();
 
         createRequest.DefaultRecallTopK.Should().Be(2);
         updateRequest.DefaultRecallTopK.Should().Be(2);

@@ -13,7 +13,8 @@ const expectedCancelChecks = new Map<string, number>([
   ["web/src/views/config/prompt-templates/index.vue", 1],
   ["web/src/views/config/auth-roles/index.vue", 1],
   ["web/src/views/config/column-mapping-rules/index.vue", 2],
-  ["web/src/views/config/ai-services/index.vue", 2]
+  ["web/src/views/config/ai-services/index.vue", 2],
+  ["web/src/views/other/audit-logs/index.vue", 1]
 ]);
 
 for (const [relativePath, minimumChecks] of expectedCancelChecks) {
@@ -25,6 +26,7 @@ for (const [relativePath, minimumChecks] of expectedCancelChecks) {
       /import \{ isMessageBoxCancel \} from "@\/utils\/message-box";/
     );
     assert.match(source, /getRequestErrorMessage\(error,/);
+    assert.match(source, /isGloballyHandledAuthError\(error\)/);
     assert.ok(
       (source.match(/isMessageBoxCancel\(error\)/g) ?? []).length >=
         minimumChecks,

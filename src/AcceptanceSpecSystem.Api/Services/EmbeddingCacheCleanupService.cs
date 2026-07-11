@@ -1,5 +1,4 @@
-﻿using AcceptanceSpecSystem.Api.Options;
-using AcceptanceSpecSystem.Data.Repositories;
+using AcceptanceSpecSystem.Api.Options;
 using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Services;
@@ -57,8 +56,8 @@ public sealed class EmbeddingCacheCleanupService : BackgroundService
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-            var deleted = await unitOfWork.EmbeddingCaches.DeleteExpiredAsync(beforeTime);
+            var appService = scope.ServiceProvider.GetRequiredService<IEmbeddingCacheRetentionAppService>();
+            var deleted = await appService.DeleteExpiredAsync(beforeTime, stoppingToken);
             if (deleted > 0)
             {
                 _logger.LogInformation("向量缓存自动清理完成：删除 {Count} 条过期缓存（早于 {BeforeTime:yyyy-MM-dd HH:mm:ss}）", deleted, beforeTime);

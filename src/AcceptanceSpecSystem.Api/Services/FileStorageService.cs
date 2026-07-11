@@ -1,5 +1,8 @@
 ﻿using System.Security.Cryptography;
 
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+
 namespace AcceptanceSpecSystem.Api.Services;
 
 /// <summary>
@@ -52,16 +55,16 @@ public class FileStorageService : IFileStorageService
         return await SaveAsync("uploads/execution-history/smart-fill", originalFileName, content, cancellationToken);
     }
 
-    public async Task<byte[]> ReadSmartFillPlaybackArchiveAsync(string relativePath, CancellationToken cancellationToken = default)
+    public Stream OpenReadStream(string relativePath)
     {
-        if (string.IsNullOrWhiteSpace(relativePath) ||
-            !relativePath.Replace('\\', '/').StartsWith("uploads/execution-history/smart-fill/", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("智能填充回放归档路径非法");
-        }
-
         var fullPath = GetAbsolutePath(relativePath);
-        return await File.ReadAllBytesAsync(fullPath, cancellationToken);
+        return new FileStream(
+            fullPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
     }
 
     public async Task<string> WriteHealthCheckFileAsync(CancellationToken cancellationToken = default)
@@ -129,18 +132,60 @@ public class FileStorageService : IFileStorageService
 
         // 写文件（原子性：先写到临时文件再替换）
         var tempPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
-        await File.WriteAllBytesAsync(tempPath, content, cancellationToken);
+        try
+        {
+            await WriteAllBytesAsync(tempPath, content, cancellationToken);
 
-        if (File.Exists(fullPath))
-        {
-            File.Move(tempPath, fullPath, overwrite: true);
+            if (FileExists(fullPath))
+            {
+                MoveFile(tempPath, fullPath, overwrite: true);
+            }
+            else
+            {
+                MoveFile(tempPath, fullPath, overwrite: false);
+            }
         }
-        else
+        catch
         {
-            File.Move(tempPath, fullPath);
+            try
+            {
+                if (FileExists(tempPath))
+                {
+                    DeleteFile(tempPath);
+                }
+            }
+            catch
+            {
+                // 临时文件清理失败不能遮蔽原始写入/移动异常。
+            }
+
+            throw;
         }
 
         return relativePath;
+    }
+
+    protected virtual Task WriteAllBytesAsync(
+        string path,
+        byte[] content,
+        CancellationToken cancellationToken)
+    {
+        return File.WriteAllBytesAsync(path, content, cancellationToken);
+    }
+
+    protected virtual bool FileExists(string path)
+    {
+        return File.Exists(path);
+    }
+
+    protected virtual void MoveFile(string sourcePath, string destinationPath, bool overwrite)
+    {
+        File.Move(sourcePath, destinationPath, overwrite);
+    }
+
+    protected virtual void DeleteFile(string path)
+    {
+        File.Delete(path);
     }
 
     /// <summary>
@@ -152,4 +197,3 @@ public class FileStorageService : IFileStorageService
         return Convert.ToHexString(sha256.ComputeHash(content)).ToLowerInvariant();
     }
 }
-

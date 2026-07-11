@@ -7,6 +7,8 @@ import { MotionPlugin } from "@vueuse/motion";
 import { createApp, type Directive } from "vue";
 import { useElementPlus } from "@/plugins/elementPlus";
 import { injectResponsiveStorage } from "@/utils/responsive";
+import { useUserStoreHook } from "@/store/modules/user";
+import { removeLegacyPersistedTokens } from "@/utils/auth";
 
 import Table from "@pureadmin/table";
 // import PureDescriptions from "@pureadmin/descriptions";
@@ -49,6 +51,10 @@ app.use(VueTippy);
 
 getPlatformConfig(app).then(async config => {
   setupStore(app);
+  removeLegacyPersistedTokens();
+  const userStore = useUserStoreHook();
+  userStore.initializeSessionEvents();
+  await userStore.restoreSession();
   app.use(router);
   await router.isReady();
   injectResponsiveStorage(app, config);

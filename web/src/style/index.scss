@@ -150,7 +150,9 @@
   flex-wrap: nowrap;
 }
 
-.simple-crud-search.el-form--inline .el-form-item:last-child .el-form-item__content {
+.simple-crud-search.el-form--inline
+  .el-form-item:last-child
+  .el-form-item__content {
   display: flex;
   flex-wrap: nowrap;
   gap: 8px;

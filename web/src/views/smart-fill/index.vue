@@ -157,6 +157,7 @@ const {
   recognitionError: smartRecognitionError,
   confirmingTableIndex: smartConfirmingTableIndex,
   recognizedTables,
+  replaceRecognizedTables,
   recognize: recognizeSmartStructure,
   confirm: confirmSmartStructure,
   reset: resetSmartStructure
@@ -500,11 +501,8 @@ const runSmartStructureRecognition = async () => {
 
 const firstNeedConfirmTableIndex = computed(
   () =>
-    recognizedTables.value.find(
-      table =>
-        table.recommendation !== "Recommended" &&
-        table.recommendation !== "Skip"
-    )?.tableIndex ?? null
+    recognizedTables.value.find(table => table.decision === "NeedConfirm")
+      ?.tableIndex ?? null
 );
 const smartStructureDisplayGroups = computed(() =>
   createSmartStructureDisplayGroups(recognizedTables.value)
@@ -541,6 +539,9 @@ const handleSmartStructureConfirm = async (
       ? replaceRecognizedTableWithConfirmRequest(item, request)
       : item
   );
+  if (!replaceRecognizedTables(nextTables, request.fileId)) {
+    return;
+  }
   batchTableConfigs.value = buildSmartFillConfigsFromRecognizedTables({
     isExcelFile: isExcelFile.value,
     tables: nextTables,

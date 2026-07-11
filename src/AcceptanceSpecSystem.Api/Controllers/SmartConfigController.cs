@@ -39,9 +39,17 @@ public class SmartConfigController : BaseApiController
 
             return Success(result, "识别完成");
         }
+        catch (ApplicationServiceException ex) when (ex.Code == 404)
+        {
+            return NotFoundResult<SmartConfigurationRecognizeResult>(ex.Message);
+        }
         catch (ApplicationServiceException ex)
         {
             return Error<SmartConfigurationRecognizeResult>(ex.Code, ex.Message);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -89,9 +97,17 @@ public class SmartConfigController : BaseApiController
 
             return Success(result, "确认成功");
         }
+        catch (ApplicationServiceException ex) when (ex.Code == 404)
+        {
+            return NotFoundResult<SmartConfigurationConfirmResult>(ex.Message);
+        }
         catch (ApplicationServiceException ex)
         {
             return Error<SmartConfigurationConfirmResult>(ex.Code, ex.Message);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

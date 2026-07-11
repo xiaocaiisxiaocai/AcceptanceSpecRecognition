@@ -18,6 +18,8 @@ export async function loadAllPagedItems<T, TKey>(
   const pageSize = options.pageSize ?? 200;
   const maxPages = options.maxPages ?? 1000;
   const itemsByKey = new Map<TKey, T>();
+  let expectedTotal: number | undefined;
+  let expectedTotalPages: number | undefined;
 
   for (let page = 1; page <= maxPages; page += 1) {
     options.signal?.throwIfAborted();
@@ -34,6 +36,16 @@ export async function loadAllPagedItems<T, TKey>(
 
     if (data.total === 0 && data.totalPages === 0 && data.items.length === 0) {
       return [];
+    }
+
+    if (expectedTotal === undefined) {
+      expectedTotal = data.total;
+      expectedTotalPages = data.totalPages;
+    } else if (
+      data.total !== expectedTotal ||
+      data.totalPages !== expectedTotalPages
+    ) {
+      throw new Error("分页数据在加载期间发生变化，请重试");
     }
 
     if (data.totalPages < 1) {
@@ -54,6 +66,11 @@ export async function loadAllPagedItems<T, TKey>(
     }
 
     if (page >= data.totalPages) {
+      if (itemsByKey.size !== data.total) {
+        throw new Error(
+          `分页数据不完整：应加载 ${data.total} 条唯一记录，实际 ${itemsByKey.size} 条`
+        );
+      }
       return [...itemsByKey.values()];
     }
   }

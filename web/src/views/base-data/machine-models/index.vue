@@ -11,7 +11,10 @@ import {
   type MachineModelListRequest
 } from "@/api/machine-model";
 import { hasPerms } from "@/utils/auth";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 
 defineOptions({
@@ -119,7 +122,7 @@ const handleDelete = async (row: MachineModel) => {
       ElMessage.error(res.message);
     }
   } catch (error) {
-    if (isMessageBoxCancel(error)) return;
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
@@ -148,7 +151,7 @@ const handleBatchDelete = async () => {
       ElMessage.error(res.message);
     }
   } catch (error) {
-    if (isMessageBoxCancel(error)) return;
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "批量删除失败"));
   }
 };

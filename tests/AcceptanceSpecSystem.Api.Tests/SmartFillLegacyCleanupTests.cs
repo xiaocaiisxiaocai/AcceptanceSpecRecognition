@@ -125,7 +125,7 @@ public class SmartFillLegacyCleanupTests : IClassFixture<ApiWebApplicationFactor
         var repositoryRoot = GetRepositoryRoot();
         var dtoPath = Path.Combine(
             repositoryRoot,
-            "src/AcceptanceSpecSystem.Api/DTOs/MatchingDtos.cs".Replace('/', Path.DirectorySeparatorChar));
+            "src/AcceptanceSpecSystem.Application/Contracts/MatchingDtos.cs".Replace('/', Path.DirectorySeparatorChar));
         var content = File.ReadAllText(dtoPath);
 
         content.Should().NotContain("public class MatchPreviewRequest",

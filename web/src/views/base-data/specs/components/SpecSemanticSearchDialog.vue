@@ -279,7 +279,10 @@ defineExpose({
                   size="small"
                   max-height="280"
                 >
-                  <el-table-column label="相似度" width="min(110px, calc(100vw - 32px))">
+                  <el-table-column
+                    label="相似度"
+                    width="min(110px, calc(100vw - 32px))"
+                  >
                     <template #default="{ row }">
                       <el-tag :type="scoreTagType(row.score)" effect="light">
                         {{ formatScore(row.score) }}
@@ -309,7 +312,10 @@ defineExpose({
                     min-width="min(160px, calc(100vw - 32px))"
                     show-overflow-tooltip
                   />
-                  <el-table-column label="导入时间" width="min(180px, calc(100vw - 32px))">
+                  <el-table-column
+                    label="导入时间"
+                    width="min(180px, calc(100vw - 32px))"
+                  >
                     <template #default="{ row }">
                       {{ formatImportedAt(row.importedAt) }}
                     </template>

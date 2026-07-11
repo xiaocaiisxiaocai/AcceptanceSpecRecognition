@@ -1,5 +1,6 @@
 ﻿using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -29,7 +30,10 @@ public class ExecutionHistoryController : BaseApiController
         [FromQuery] string? taskType = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await _executionHistoryAppService.GetListAsync(User, page, pageSize, keyword, taskType, cancellationToken);
+        var user = ResolveUserContext();
+        if (user == null)
+            return Error<PagedData<ExecutionHistoryListItemDto>>(401, "会话缺少用户上下文");
+        var result = await _executionHistoryAppService.GetListAsync(user, page, pageSize, keyword, taskType, cancellationToken);
         return Success(result);
     }
 
@@ -40,7 +44,10 @@ public class ExecutionHistoryController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var result = await _executionHistoryAppService.GetDetailAsync(User, id, cancellationToken);
+        var user = ResolveUserContext();
+        if (user == null)
+            return Error<ExecutionHistoryDetailDto>(401, "会话缺少用户上下文");
+        var result = await _executionHistoryAppService.GetDetailAsync(user, id, cancellationToken);
         if (result == null)
         {
             return NotFoundResult<ExecutionHistoryDetailDto>("执行记录不存在");
@@ -59,8 +66,12 @@ public class ExecutionHistoryController : BaseApiController
         [FromQuery] int rowIndex,
         CancellationToken cancellationToken = default)
     {
+        var user = ResolveUserContext();
+        if (user == null)
+            return Error<ExecutionHistorySmartFillRowDto>(401, "会话缺少用户上下文");
+
         var result = await _executionHistoryAppService.GetSmartFillRowAsync(
-            User,
+            user,
             id,
             fileIndex,
             sheetIndex,
@@ -72,5 +83,14 @@ public class ExecutionHistoryController : BaseApiController
         }
 
         return Success(result);
+    }
+
+    private MatchingUserContext? ResolveUserContext()
+    {
+        var userId = AuthClaimHelper.GetUserId(User);
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        return userId.HasValue && companyId.HasValue
+            ? new MatchingUserContext(userId.Value, companyId.Value, User.Identity?.Name ?? string.Empty)
+            : null;
     }
 }

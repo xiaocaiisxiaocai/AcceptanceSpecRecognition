@@ -16,7 +16,10 @@ import {
 } from "@/api/system-user";
 import { getAuthRoleList, type AuthRole } from "@/api/auth-role";
 import { getOrgUnitFlat, type OrgUnit } from "@/api/org-unit";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 
 defineOptions({
@@ -366,7 +369,7 @@ const handleDelete = async (row: SystemUser) => {
       ElMessage.error(res.message || "删除用户失败");
     }
   } catch (error) {
-    if (isMessageBoxCancel(error)) return;
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
     ElMessage.error(getRequestErrorMessage(error, "删除用户失败"));
   }
 };

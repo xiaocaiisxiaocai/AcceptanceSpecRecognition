@@ -10,7 +10,7 @@ namespace AcceptanceSpecSystem.Data.Tests;
 
 public class MySqlMigrationSmokeTests
 {
-    private const string LatestMigrationId = "20260416093000_RepairLegacyAiServicePurposeAndTaskOwnership";
+    private const string LatestMigrationId = "20260711010000_EnforceDatabaseCollation";
 
     [MySqlSmokeFact]
     public async Task DatabaseMigrate_OnFreshIsolatedMySqlDatabase_ShouldApplyCurrentMigrationChain()

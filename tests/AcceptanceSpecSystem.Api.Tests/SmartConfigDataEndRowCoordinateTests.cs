@@ -109,6 +109,19 @@ public class SmartConfigDataEndRowCoordinateTests : IClassFixture<ApiWebApplicat
         recognized.DataEndRowIndex.Should().Be(TotalRowCount - 1);
     }
 
+    [Fact]
+    public void FromFailure_WhenReextractedRowCountIsLocal_ShouldUseOriginalTableEndCoordinate()
+    {
+        var recognized = InvokeFactory(
+            "FromFailure",
+            CreateTableInfo(),
+            CreateReextractedTableData(),
+            CreateHeaders());
+
+        recognized.Source.Should().Be("Failed");
+        recognized.DataEndRowIndex.Should().Be(TotalRowCount - 1);
+    }
+
     private async Task<JsonElement> RecognizeSingleTableAsync(int fileId)
     {
         var response = await _client.PostAsync(

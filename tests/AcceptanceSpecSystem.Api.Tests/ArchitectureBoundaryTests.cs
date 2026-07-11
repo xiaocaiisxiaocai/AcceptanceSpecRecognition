@@ -1,5 +1,6 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using FluentAssertions;
 
 namespace AcceptanceSpecSystem.Api.Tests;
@@ -28,6 +29,90 @@ public class ArchitectureBoundaryTests
         apiProjectContent.Should().Contain("AcceptanceSpecSystem.Application.csproj");
         apiProjectContent.Should().NotContain("AcceptanceSpecSystem.Core.csproj");
         apiProjectContent.Should().NotContain("AcceptanceSpecSystem.Data.csproj");
+    }
+
+    [Fact]
+    public void Projects_ShouldNotCompileSourceFilesFromAnotherProject()
+    {
+        var sourceRoot = Path.Combine(GetRepositoryRoot(), "src");
+        var projectFiles = Directory.GetFiles(sourceRoot, "*.csproj", SearchOption.AllDirectories);
+
+        foreach (var projectFile in projectFiles)
+        {
+            var document = XDocument.Load(projectFile);
+            var linkedSources = document
+                .Descendants("Compile")
+                .Select(element => new
+                {
+                    Include = (string?)element.Attribute("Include"),
+                    Link = (string?)element.Attribute("Link")
+                })
+                .Where(item => !string.IsNullOrWhiteSpace(item.Include))
+                .Where(item => item.Link is not null || item.Include!.Contains("..", StringComparison.Ordinal))
+                .ToList();
+
+            linkedSources.Should().BeEmpty(
+                $"{Path.GetRelativePath(sourceRoot, projectFile)} 不得通过 Compile Include/Link 编译其他项目源码");
+        }
+    }
+
+    [Fact]
+    public void Application_ShouldOwnSharedContractsAndProviderAdapters()
+    {
+        var contractFiles = new[]
+        {
+            "AuthRoleDtos.cs",
+            "OrgUnitDtos.cs",
+            "SystemUserDtos.cs",
+            "DocumentDtos.cs",
+            "ExcelImportDtos.cs",
+            "AuditLogDtos.cs",
+            "AiServiceDtos.cs",
+            "ConfigurationDtos.cs",
+            "AcceptanceSpecDtos.cs",
+            "EmbeddingCacheWarmupDtos.cs"
+        };
+
+        foreach (var fileName in contractFiles)
+        {
+            var applicationPath = $"src/AcceptanceSpecSystem.Application/Contracts/{fileName}";
+            File.Exists(Path.Combine(GetRepositoryRoot(), applicationPath.Replace('/', Path.DirectorySeparatorChar)))
+                .Should().BeTrue($"{fileName} 应由 Application/Contracts 唯一拥有");
+            ReadFile(applicationPath).Should().Contain("namespace AcceptanceSpecSystem.Application.Contracts;");
+            File.Exists(Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Api", "DTOs", fileName))
+                .Should().BeFalse($"{fileName} 不应继续物理归属 Api");
+        }
+
+        var providerPath = "src/AcceptanceSpecSystem.Application/Providers/CoreProviderAdapters.cs";
+        File.Exists(Path.Combine(GetRepositoryRoot(), providerPath.Replace('/', Path.DirectorySeparatorChar)))
+            .Should().BeTrue("Core provider adapter 应由 Application 唯一拥有");
+        ReadFile(providerPath).Should().Contain("namespace AcceptanceSpecSystem.Application.Providers;");
+        File.Exists(Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Data", "Providers", "CoreProviderAdapters.cs"))
+            .Should().BeFalse("Data 目录不应继续保留由 Application 编译的 provider adapter 源码");
+    }
+
+    [Fact]
+    public void ProtocolLayerPersistenceDependencies_ShouldNotExpandBeyondPhaseTwoBaseline()
+    {
+        var apiRoot = Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Api");
+        var protocolDirectories = new[] { "Controllers", "Middleware", "Authorization" };
+
+        foreach (var directory in protocolDirectories)
+        {
+            foreach (var sourceFile in Directory.GetFiles(Path.Combine(apiRoot, directory), "*.cs", SearchOption.AllDirectories))
+            {
+                var content = File.ReadAllText(sourceFile);
+                var fileName = Path.GetFileName(sourceFile);
+
+                content.Should().NotContain("AppDbContext",
+                    $"{fileName} 属于协议层，不得直接依赖具体 DbContext");
+                Regex.IsMatch(content, @"\bI[A-Za-z0-9]+Repository\b").Should().BeFalse(
+                    $"{fileName} 属于协议层，不得直接依赖 Repository");
+
+                content.Should().NotContain("IUnitOfWork",
+                    $"{fileName} 属于协议层，不得直接依赖工作单元");
+            }
+        }
     }
 
     [Fact]
@@ -184,7 +269,7 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void MatchingPreviewAppService_ShouldNotDependOnMatchingWorkflowService()
     {
-        var content = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
+        var content = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingPreviewAppService.cs");
 
         content.Should().NotContain("MatchingWorkflowService", "预览应用服务应承载独立预览用例，而不是继续透传巨型工作流服务");
     }
@@ -192,7 +277,7 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void MatchingWorkflowService_ShouldNotKeepPreviewEntrypoints()
     {
-        var content = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var content = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingWorkflowSupportService.cs");
 
         content.Should().NotContain("public async Task<MatchingOperationResult<MatchPreviewResponse>> PreviewAsync(",
             "预览入口已经拆到独立应用服务，不应继续留在巨型工作流服务中");
@@ -205,28 +290,27 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void MatchingTaskAppService_ShouldNotDependOnMatchingWorkflowService()
     {
-        var content = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingTaskAppService.cs");
+        var content = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingTaskAppService.cs");
 
         content.Should().NotContain("MatchingWorkflowService", "任务下载应用服务应承载独立下载用例，而不是继续透传巨型工作流服务");
     }
 
     [Fact]
-    public void MatchingExecutionAppService_ShouldDelegateToSplitUseCaseServices()
+    public void MatchingExecutionFacade_ShouldBeRemoved_AfterControllerUsesSplitUseCases()
     {
-        var content = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingExecutionAppService.cs");
-
-        content.Should().NotContain("MatchingWorkflowService",
-            "执行应用服务不应继续直接透传巨型工作流服务");
-        content.Should().Contain("MatchingLlmStreamAppService",
-            "LLM 流式复核应拆到独立用例服务");
-        content.Should().Contain("MatchingFillExecutionAppService",
-            "执行填充与批量执行应拆到独立用例服务");
+        File.Exists(Path.Combine(GetRepositoryRoot(),
+                "src/AcceptanceSpecSystem.Application/Services/MatchingExecutionAppService.cs".Replace('/', Path.DirectorySeparatorChar)))
+            .Should().BeFalse("迁移期聚合 façade 应在 2.6 删除");
+        var controller = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/MatchingExecutionController.cs");
+        controller.Should().Contain("IMatchingLlmStreamAppService");
+        controller.Should().Contain("IMatchingFillExecutionAppService");
+        controller.Should().NotContain("IMatchingExecutionAppService");
     }
 
     [Fact]
     public void MatchingWorkflowService_ShouldNotKeepTaskDownloadEntrypoint()
     {
-        var content = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var content = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingWorkflowSupportService.cs");
 
         content.Should().NotContain("public async Task<MatchingDownloadResult> DownloadAsync(",
             "任务下载入口已经拆到独立应用服务，不应继续留在巨型工作流服务中");
@@ -246,7 +330,7 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void MatchingWorkflowService_ShouldNotKeepStrictReuseEntrypoints()
     {
-        var content = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var content = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingWorkflowSupportService.cs");
 
         content.Should().NotContain("public async Task<MatchingOperationResult<StrictReusePreviewResponse>> PreviewStrictReuseAsync(",
             "严格复用预检入口已经拆到独立应用服务，不应继续留在巨型工作流服务中");
@@ -257,7 +341,7 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void MatchingWorkflowService_ShouldNotKeepExecutionOrSnapshotEntrypoints()
     {
-        var content = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs");
+        var content = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingWorkflowSupportService.cs");
 
         content.Should().NotContain("public async Task LlmStreamAsync(",
             "LLM 流式复核入口应拆到独立应用服务，不应继续留在巨型工作流服务中");
@@ -277,7 +361,7 @@ public class ArchitectureBoundaryTests
         var repositoryRoot = GetRepositoryRoot();
         var snapshotServicePath = Path.Combine(
             repositoryRoot,
-            "src/AcceptanceSpecSystem.Api/Services/MatchingTaskSnapshotService.cs".Replace('/', Path.DirectorySeparatorChar));
+            "src/AcceptanceSpecSystem.Application/Services/MatchingTaskSnapshotService.cs".Replace('/', Path.DirectorySeparatorChar));
 
         File.Exists(snapshotServicePath).Should().BeTrue("任务快照应收敛到独立共享服务，供执行与下载共同使用");
 
@@ -286,10 +370,10 @@ public class ArchitectureBoundaryTests
         snapshotContent.Should().Contain("LoadAsync(", "快照服务应提供统一读取入口");
         snapshotContent.Should().Contain("EnsureTaskOwnership", "快照服务应统一校验任务归属");
 
-        ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs")
+        ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingWorkflowSupportService.cs")
             .Should().Contain("MatchingTaskSnapshotService",
                 "执行填充核心协作组件应通过共享快照服务持久化任务结果");
-        ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingTaskAppService.cs")
+        ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingTaskAppService.cs")
             .Should().Contain("MatchingTaskSnapshotService",
                 "下载应用服务应通过共享快照服务读取任务结果");
     }
@@ -322,21 +406,24 @@ public class ArchitectureBoundaryTests
                 .Should().BeTrue($"{relativePath} 应作为 2.3 的共享协作组件存在");
         }
 
-        ReadFile("src/AcceptanceSpecSystem.Api/Services/DocumentImportAppService.cs")
-            .Should().Contain("DocumentFileAccessService",
+        ReadFile("src/AcceptanceSpecSystem.Application/Services/DocumentImportAppService.cs")
+            .Should().Contain("IDocumentFileAccessService",
                 "导入应用服务应复用共享文件读取组件");
-        ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs")
-            .Should().Contain("DocumentTableAccessService",
+        ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingPreviewAppService.cs")
+            .Should().Contain("IBatchReplyDocumentTablePort",
                 "匹配预览应用服务应复用共享表格提取组件");
-        ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs")
-            .Should().Contain("MatchingResultWriteBackService",
+        ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingWorkflowSupportService.cs")
+            .Should().Contain("IMatchingResultWriteBackPort",
                 "执行填充协作组件应复用共享结果写回组件");
-        ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingTaskAppService.cs")
-            .Should().Contain("MatchingResultWriteBackService",
+        ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingTaskAppService.cs")
+            .Should().Contain("IMatchingResultWriteBackPort",
                 "下载应用服务应复用共享结果写回组件");
         ReadFile("src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs")
-            .Should().Contain("DocumentTableAccessService",
-                "文档控制器相关用例应通过共享表格访问组件完成");
+            .Should().NotContain("DocumentTableAccessService",
+                "文档控制器不应直接依赖 parser 基础设施适配器");
+        ReadFile("src/AcceptanceSpecSystem.Application/Services/DocumentTableQueryAppService.cs")
+            .Should().Contain("IDocumentImportTableReader",
+                "表格列表与预览用例应通过 Application 端口访问 parser 适配器");
     }
 
     [Fact]
@@ -346,6 +433,10 @@ public class ArchitectureBoundaryTests
 
         content.Should().Contain("DocumentFileAppService",
             "文档资源接口应通过独立应用服务完成文件列表、上传、预览与删除编排");
+        content.Should().Contain("IDocumentTableQueryAppService",
+            "文档表格列表与预览应通过 Application 用例完成");
+        content.Should().NotContain("private readonly DocumentTableAccessService",
+            "控制器不得直接依赖 parser 基础设施实现");
         content.Should().NotContain("private readonly DocumentServiceFactory",
             "文档控制器不应再直接依赖文档工厂");
         content.Should().NotContain("private readonly IFileStorageService",
@@ -364,64 +455,87 @@ public class ArchitectureBoundaryTests
             "文档控制器不应再直接处理上传文件持久化");
         content.Should().NotContain("ExtractTableDataAsync(",
             "文档控制器不应再直接调用表格提取实现");
-        content.Should().NotContain("GetTablesAsync(",
-            "文档控制器不应再直接调用表格查询实现");
+        content.Should().NotContain("_documentTableAccessService.GetTablesAsync(",
+            "文档控制器不应直接调用 parser 基础设施实现");
         content.Should().NotContain("DeleteIfExistsAsync(",
             "文档控制器不应再直接删除物理文件");
     }
 
     [Fact]
+    public void DocumentTablePresentation_ShouldBeOwnedByApplicationUseCase()
+    {
+        var controller = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs");
+        var appService = ReadFile("src/AcceptanceSpecSystem.Application/Services/DocumentTableQueryAppService.cs");
+        var parserAdapter = ReadFile("src/AcceptanceSpecSystem.Api/Services/DocumentTableAccessService.cs");
+
+        controller.Should().Contain("IDocumentTableQueryAppService");
+        controller.Should().NotContain("DocumentTableAccessService");
+        appService.Should().Contain("TableInfoDto");
+        appService.Should().Contain("TableDataDto");
+        appService.Should().Contain("MapStructuredCellValue");
+        appService.Should().Contain("FormatPreviewCellText");
+        parserAdapter.Should().Contain("DocumentTableQueryAppService.MapTableInfos");
+        parserAdapter.Should().Contain("DocumentTableQueryAppService.MapPreview");
+        parserAdapter.Should().NotContain("new TableInfoDto");
+        parserAdapter.Should().NotContain("new TableDataDto");
+        parserAdapter.Should().NotContain("private static StructuredCellValueDto MapStructuredCellValue");
+    }
+
+    [Fact]
     public void SimpleApiAppServices_ShouldExposeInterfaces_AndControllersShouldDependOnInterfaces()
     {
-        var serviceCollectionContent = ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs");
+        var serviceCollectionContent = string.Join(
+            Environment.NewLine,
+            ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs"),
+            ReadFile("src/AcceptanceSpecSystem.Application/ServiceCollectionExtensions.cs"));
 
         var services = new[]
         {
-            ("src/AcceptanceSpecSystem.Api/Services/DashboardAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/DashboardAppService.cs",
                 "IDashboardAppService",
                 "DashboardAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/DashboardController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/DocumentFileAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/DocumentFileAppService.cs",
                 "IDocumentFileAppService",
                 "DocumentFileAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/MatchingTaskAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/DocumentTableQueryAppService.cs",
+                "IDocumentTableQueryAppService",
+                "DocumentTableQueryAppService",
+                "src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs"),
+            ("src/AcceptanceSpecSystem.Application/Services/MatchingTaskAppService.cs",
                 "IMatchingTaskAppService",
                 "MatchingTaskAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/MatchingTaskController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/AuthRoleAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/AuthRoleAppService.cs",
                 "IAuthRoleAppService",
                 "AuthRoleAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/AuthRolesController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/OrgUnitAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/OrgUnitAppService.cs",
                 "IOrgUnitAppService",
                 "OrgUnitAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/OrgUnitsController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/SystemUserAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/SystemUserAppService.cs",
                 "ISystemUserAppService",
                 "SystemUserAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/SystemUsersController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/ExecutionHistoryAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/ExecutionHistoryAppService.cs",
                 "IExecutionHistoryAppService",
                 "ExecutionHistoryAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/ExecutionHistoryController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/BatchReplyAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/BatchReplyAppService.cs",
                 "IBatchReplyAppService",
                 "BatchReplyAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/BatchReplyController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/DocumentImportAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/DocumentImportAppService.cs",
                 "IDocumentImportAppService",
                 "DocumentImportAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/DocumentsController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/MatchingPreviewAppService.cs",
                 "IMatchingPreviewAppService",
                 "MatchingPreviewAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/MatchingPreviewController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/MatchingExecutionAppService.cs",
-                "IMatchingExecutionAppService",
-                "MatchingExecutionAppService",
-                "src/AcceptanceSpecSystem.Api/Controllers/MatchingExecutionController.cs"),
-            ("src/AcceptanceSpecSystem.Api/Services/SmartFillSpecBackfillAppService.cs",
+            ("src/AcceptanceSpecSystem.Application/Services/SmartFillSpecBackfillAppService.cs",
                 "ISmartFillSpecBackfillAppService",
                 "SmartFillSpecBackfillAppService",
                 "src/AcceptanceSpecSystem.Api/Controllers/MatchingExecutionController.cs")
@@ -591,10 +705,15 @@ public class ArchitectureBoundaryTests
         File.Exists(Path.Combine(repositoryRoot, "shared/navigation/navigation-manifest.json"))
             .Should().BeTrue("页面、菜单、权限码应收敛到共享导航清单");
 
-        var seedContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/AuthUserSeedService.cs");
+        var seedContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/AuthUserSeedAppService.cs");
         seedContent.Should().NotContain("PagePermissions =", "后端权限种子不应继续内嵌页面权限数组");
         seedContent.Should().NotContain("MenuPermissions =", "后端权限种子不应继续内嵌菜单权限数组");
-        seedContent.Should().Contain("navigation-manifest.json", "后端权限种子应消费共享导航清单");
+        seedContent.Should().Contain("IAuthPermissionSeedCatalog", "Application 种子服务应通过宿主端口获取权限定义");
+        seedContent.Should().NotContain("Microsoft.AspNetCore", "Application 种子服务不应依赖 ASP.NET 元数据");
+
+        var seedCatalogContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/AuthPermissionSeedCatalog.cs");
+        seedCatalogContent.Should().Contain("navigation-manifest.json", "API 宿主适配器应消费共享导航清单");
+        seedCatalogContent.Should().Contain("HttpMethodAttribute", "API 宿主适配器负责读取 ASP.NET 动作元数据");
 
         var routerUtilsContent = ReadFile("web/src/router/utils.ts");
         routerUtilsContent.Should().NotContain("getAsyncRoutes", "前端启动不应再依赖运行时 async-routes 接口");
@@ -629,7 +748,7 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void MatchingDefaultRecallTopKQueries_ShouldIgnoreDisabledEmbeddingServices()
     {
-        var resolverContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingConfigResolver.cs");
+        var resolverContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingConfigResolver.cs");
 
         resolverContent.Should().Contain("!item.IsDisabled");
     }
@@ -651,23 +770,26 @@ public class ArchitectureBoundaryTests
     }
 
     [Fact]
-    public void AiServicesQueryEndpoints_ShouldUseCancellableEfQueries()
+    public void AiServicesQueryEndpoints_ShouldDelegateCancellableQueriesToApplication()
     {
-        var content = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/AiServicesController.cs");
+        var controller = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/AiServicesController.cs");
+        var appService = ReadFile("src/AcceptanceSpecSystem.Application/Services/AiServiceConfigurationAppService.cs");
 
-        content.Should().Contain("GetById(");
-        content.Should().Contain("CancellationToken cancellationToken = default");
-        content.Should().Contain(".SingleOrDefaultAsync(config => config.Id == id, cancellationToken)");
-        content.Should().Contain("GetModels(");
-        content.Should().Contain("ProbeModelsAsync(entity, cancellationToken)");
+        controller.Should().Contain("IAiServiceConfigurationAppService");
+        controller.Should().Contain("GetProbeConfigAsync(id, cancellationToken)");
+        controller.Should().Contain("ProbeModelsAsync(entity, cancellationToken)");
+        controller.Should().NotContain("IUnitOfWork");
+        appService.Should().Contain("SingleOrDefaultAsync(config => config.Id == id, cancellationToken)");
     }
 
     [Fact]
     public void MatchingUseCases_ShouldShareMatchingConfigResolver()
     {
-        var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
+        var previewContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingPreviewAppService.cs");
         var workflowContent = ReadServiceFamily("MatchingWorkflow");
-        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs");
+        var programContent = string.Join(Environment.NewLine,
+            ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs"),
+            ReadFile("src/AcceptanceSpecSystem.Application/ServiceCollectionExtensions.cs"));
 
         previewContent.Should().Contain("MatchingConfigResolver");
         workflowContent.Should().Contain("MatchingConfigResolver");
@@ -686,8 +808,8 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void MatchingUseCases_ShouldShareResultDtoMapper()
     {
-        var mapperContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingResultDtoMapper.cs");
-        var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
+        var mapperContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingResultDtoMapper.cs");
+        var previewContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingPreviewAppService.cs");
         var workflowContent = ReadServiceFamily("MatchingWorkflow");
 
         mapperContent.Should().Contain("ToMatchResultDto");
@@ -705,10 +827,12 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void MatchingUseCases_ShouldShareCandidateProvider()
     {
-        var providerContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs");
-        var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
+        var providerContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingCandidateProvider.cs");
+        var previewContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingPreviewAppService.cs");
         var workflowContent = ReadServiceFamily("MatchingWorkflow");
-        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs");
+        var programContent = string.Join(Environment.NewLine,
+            ReadFile("src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs"),
+            ReadFile("src/AcceptanceSpecSystem.Application/ServiceCollectionExtensions.cs"));
 
         providerContent.Should().Contain("GetCandidatesAsync");
         providerContent.Should().Contain("MaxScopedCandidateCount");
@@ -728,7 +852,7 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void ExactMatchOnly_ShouldNotRequireEmbeddingService()
     {
-        var previewContent = ReadFile("src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs");
+        var previewContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/MatchingPreviewAppService.cs");
         var workflowContent = ReadServiceFamily("MatchingWorkflow");
 
         previewContent.Should().NotMatchRegex(
@@ -743,19 +867,62 @@ public class ArchitectureBoundaryTests
     public void SmartStructureRoutingRegex_ShouldUseExplicitTimeout()
     {
         var routingContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/SmartConfigurationTableRoutingService.cs");
-        var controllerContent = ReadFile("src/AcceptanceSpecSystem.Api/Controllers/SmartStructureRoutingRulesController.cs");
+        var configurationContent = ReadFile("src/AcceptanceSpecSystem.Application/Services/SmartStructureRoutingRuleAppService.cs");
 
         routingContent.Should().Contain("RegexMatchTimeoutException");
         routingContent.Should().Contain("Regex.IsMatch(");
         routingContent.Should().Contain("RegexMatchTimeout");
-        controllerContent.Should().Contain("RegexMatchTimeout");
+        configurationContent.Should().Contain("RegexMatchTimeout");
+    }
+
+    [Fact]
+    public void ConfigurationAndAuditProtocolAdapters_ShouldOnlyDependOnApplicationPorts()
+    {
+        var adapters = new[]
+        {
+            "src/AcceptanceSpecSystem.Api/Controllers/AuditOperationAttribute.cs",
+            "src/AcceptanceSpecSystem.Api/Controllers/AuditLogsController.cs",
+            "src/AcceptanceSpecSystem.Api/Controllers/AiServicesController.cs",
+            "src/AcceptanceSpecSystem.Api/Controllers/ColumnMappingRulesController.cs",
+            "src/AcceptanceSpecSystem.Api/Controllers/PromptTemplatesController.cs",
+            "src/AcceptanceSpecSystem.Api/Controllers/SmartStructureRoutingRulesController.cs"
+        };
+
+        foreach (var adapter in adapters)
+        {
+            var content = ReadFile(adapter);
+            content.Should().NotContain("IUnitOfWork", $"{adapter} 不应直接编排工作单元");
+            content.Should().NotContain("AppDbContext", $"{adapter} 不应直接访问 DbContext");
+            Regex.IsMatch(content, @"\bI[A-Za-z0-9]+Repository\b").Should().BeFalse(
+                $"{adapter} 不应直接访问 Repository");
+            content.Should().NotContain("SaveChangesAsync", $"{adapter} 不应拥有事务提交边界");
+        }
+
+        ReadFile("src/AcceptanceSpecSystem.Api/Controllers/AuditOperationAttribute.cs")
+            .Should().Contain("IAuditTrailAppService");
+        ReadFile("src/AcceptanceSpecSystem.Api/Controllers/ColumnMappingRulesController.cs")
+            .Should().Contain("IColumnMappingRuleAppService");
+        ReadFile("src/AcceptanceSpecSystem.Api/Controllers/PromptTemplatesController.cs")
+            .Should().Contain("IPromptTemplateAppService");
+        ReadFile("src/AcceptanceSpecSystem.Api/Controllers/SmartStructureRoutingRulesController.cs")
+            .Should().Contain("ISmartStructureRoutingRuleAppService");
+
+        foreach (var legacyDto in new[]
+                 {
+                     "AuditLogDtos.cs", "AiServiceDtos.cs", "ColumnMappingRuleDtos.cs",
+                     "PromptTemplateDtos.cs", "SmartStructureRoutingRuleDtos.cs"
+                 })
+        {
+            File.Exists(Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Api", "DTOs", legacyDto))
+                .Should().BeFalse($"{legacyDto} 已迁入 Application 契约所有权");
+        }
     }
 
     [Fact]
     public void BackendUseCaseServiceFiles_ShouldStayBelowLargeFileThreshold()
     {
         var serviceFiles = Directory.GetFiles(
-            Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Api", "Services"),
+            Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Application", "Services"),
             "*.cs")
             .Where(path =>
             {
@@ -799,7 +966,7 @@ public class ArchitectureBoundaryTests
 
     private static string ReadServiceFamily(string fileNamePrefix)
     {
-        var serviceDirectory = Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Api", "Services");
+        var serviceDirectory = Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Application", "Services");
         var contents = Directory.GetFiles(serviceDirectory, $"{fileNamePrefix}*.cs")
             .OrderBy(Path.GetFileName, StringComparer.Ordinal)
             .Select(File.ReadAllText);

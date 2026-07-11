@@ -29,10 +29,15 @@ export function useSmartStructureRecognition() {
     createSmartStructureSummary(recognizedTables.value)
   );
   let recognitionRequestVersion = 0;
+  let contextVersion = 0;
+  let confirmRequestVersion = 0;
 
   const recognize = async (fileId: number, customerId?: number) => {
     const requestVersion = ++recognitionRequestVersion;
+    contextVersion += 1;
+    confirmRequestVersion += 1;
     activeRecognitionFileId.value = fileId;
+    confirmingTableIndex.value = null;
     recognizing.value = true;
     recognitionError.value = "";
     recognitionResult.value = null;
@@ -68,12 +73,23 @@ export function useSmartStructureRecognition() {
     }
   };
 
-  const replaceRecognizedTables = (tables: SmartConfigRecognizedTable[]) => {
-    if (!recognitionResult.value) return;
+  const replaceRecognizedTables = (
+    tables: SmartConfigRecognizedTable[],
+    expectedFileId = activeRecognitionFileId.value
+  ) => {
+    if (
+      !recognitionResult.value ||
+      expectedFileId == null ||
+      recognitionResult.value.fileId !== expectedFileId ||
+      activeRecognitionFileId.value !== expectedFileId
+    ) {
+      return false;
+    }
     recognitionResult.value = {
       ...recognitionResult.value,
       tables
     };
+    return true;
   };
 
   const confirm = async (
@@ -90,9 +106,29 @@ export function useSmartStructureRecognition() {
       return null;
     }
 
+    const expectedFileId = request.fileId ?? activeRecognitionFileId.value;
+    if (
+      expectedFileId == null ||
+      activeRecognitionFileId.value !== expectedFileId ||
+      recognitionResult.value?.fileId !== expectedFileId
+    ) {
+      return null;
+    }
+
+    const requestVersion = ++confirmRequestVersion;
+    const requestContextVersion = contextVersion;
+    const isCurrentRequest = () =>
+      requestVersion === confirmRequestVersion &&
+      requestContextVersion === contextVersion &&
+      activeRecognitionFileId.value === expectedFileId &&
+      recognitionResult.value?.fileId === expectedFileId;
+
     confirmingTableIndex.value = requestOrTable.tableIndex;
     try {
       const res = await confirmSmartConfig(request);
+      if (!isCurrentRequest()) {
+        return null;
+      }
       if (res.code !== 0) {
         throw new Error(res.message || "确认结构失败");
       }
@@ -101,15 +137,22 @@ export function useSmartStructureRecognition() {
       ElMessage.success("结构确认已保存");
       return res.data;
     } catch (error) {
+      if (!isCurrentRequest()) {
+        return null;
+      }
       ElMessage.error(getRequestErrorMessage(error, "确认结构失败"));
       return null;
     } finally {
-      confirmingTableIndex.value = null;
+      if (isCurrentRequest()) {
+        confirmingTableIndex.value = null;
+      }
     }
   };
 
   const reset = () => {
     recognitionRequestVersion += 1;
+    contextVersion += 1;
+    confirmRequestVersion += 1;
     activeRecognitionFileId.value = null;
     recognizing.value = false;
     recognitionResult.value = null;

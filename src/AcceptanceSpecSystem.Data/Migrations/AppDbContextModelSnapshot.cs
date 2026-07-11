@@ -293,6 +293,63 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("AuthPermissions");
                 });
 
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthRefreshSession", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("FamilyId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<int>("PermissionVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RevocationReason")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("RotatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("FamilyId", "Status");
+
+                    b.HasIndex("UserId", "Status");
+
+                    b.ToTable("AuthRefreshSessions");
+                });
+
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthRole", b =>
                 {
                     b.Property<int>("Id")
@@ -532,74 +589,6 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("ColumnMappingRules");
                 });
 
-            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SmartStructureRoutingRule", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("CustomerId")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("Enabled")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<int>("MatchMode")
-                        .HasColumnType("int");
-
-                    b.Property<int>("MatchScope")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<string>("Pattern")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<int>("Priority")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Recommendation")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<int>("Source")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(2);
-
-                    b.Property<string>("TableKind")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<double>("Weight")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("double")
-                        .HasDefaultValue(1.0);
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CustomerId", "MatchScope", "Pattern");
-
-                    b.HasIndex("TableKind", "Priority");
-
-                    b.ToTable("SmartStructureRoutingRules");
-                });
-
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.Customer", b =>
                 {
                     b.Property<int>("Id")
@@ -689,10 +678,10 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<int?>("AcceptanceColumnIndex")
                         .HasColumnType("int");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTime?>("ConfirmedAt")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<DateTime?>("ConfirmedAt")
+                    b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
                     b.Property<int>("CustomerId")
@@ -728,13 +717,13 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Property<int?>("ProjectColumnIndex")
                         .HasColumnType("int");
 
-                    b.Property<int?>("RemarkColumnIndex")
-                        .HasColumnType("int");
-
                     b.Property<string>("Recommendation")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("RemarkColumnIndex")
+                        .HasColumnType("int");
 
                     b.Property<int>("SpecificationColumnIndex")
                         .HasColumnType("int");
@@ -1167,6 +1156,74 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.ToTable("PromptTemplates");
                 });
 
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SmartStructureRoutingRule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("CustomerId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int>("MatchMode")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MatchScope")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("Pattern")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Recommendation")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int>("Source")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(2);
+
+                    b.Property<string>("TableKind")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<double>("Weight")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("double")
+                        .HasDefaultValue(1.0);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TableKind", "Priority");
+
+                    b.HasIndex("CustomerId", "MatchScope", "Pattern");
+
+                    b.ToTable("SmartStructureRoutingRules");
+                });
+
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.SystemUser", b =>
                 {
                     b.Property<int>("Id")
@@ -1319,6 +1376,17 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.Navigation("Process");
 
                     b.Navigation("WordFile");
+                });
+
+            modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthRefreshSession", b =>
+                {
+                    b.HasOne("AcceptanceSpecSystem.Data.Entities.SystemUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("AcceptanceSpecSystem.Data.Entities.AuthRole", b =>

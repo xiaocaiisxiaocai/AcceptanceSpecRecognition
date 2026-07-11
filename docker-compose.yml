@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mysql:8.0
+    image: mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
     container_name: acceptance-mysql
     restart: unless-stopped
     environment:
@@ -28,6 +28,9 @@ services:
       dockerfile: src/AcceptanceSpecSystem.Api/Dockerfile
     container_name: acceptance-api
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
     depends_on:
       mysql:
         condition: service_healthy
@@ -44,8 +47,13 @@ services:
       ApiRateLimits__Upload__WindowSeconds: ${API_RATE_LIMIT_UPLOAD_WINDOW_SECONDS:-60}
       ApiRateLimits__AiHeavy__PermitLimit: ${API_RATE_LIMIT_AI_HEAVY_PERMIT_LIMIT:-30}
       ApiRateLimits__AiHeavy__WindowSeconds: ${API_RATE_LIMIT_AI_HEAVY_WINDOW_SECONDS:-60}
-      Cors__AllowedOrigins__0: ${CORS_ORIGIN_0:-http://localhost}
-      Cors__AllowedOrigins__1: ${CORS_ORIGIN_1:-http://127.0.0.1}
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_0:?CORS_ORIGIN_0 must be set}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_1:-}
+      BrowserAuth__AllowInsecureHttp: ${BROWSER_AUTH_ALLOW_INSECURE_HTTP:-false}
+      BrowserAuth__RefreshCookieName: ${BROWSER_AUTH_REFRESH_COOKIE_NAME:-__Host-acceptance-refresh}
+      BrowserAuth__CookieSecure: ${BROWSER_AUTH_COOKIE_SECURE:-true}
+      BrowserAuth__CookieSameSite: ${BROWSER_AUTH_COOKIE_SAME_SITE:-Strict}
+      BrowserAuth__CookieDomain: ${BROWSER_AUTH_COOKIE_DOMAIN:-}
       JwtAuth__SigningKey: ${JWT_SIGNING_KEY}
       AuthSeed__AdminPassword: ${AUTH_SEED_ADMIN_PASSWORD}
       AuthSeed__CommonPassword: ${AUTH_SEED_COMMON_PASSWORD}
@@ -55,7 +63,7 @@ services:
       - api-dpkeys:/data/dp-keys
       - api-backups:/app/backups
     ports:
-      - "5290:8080"
+      - "127.0.0.1:${API_HOST_PORT:-5290}:8080"
 
   web:
     build:
@@ -63,10 +71,15 @@ services:
       dockerfile: web/Dockerfile
     container_name: acceptance-web
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /var/cache/nginx:size=32m,mode=0755,uid=101,gid=101
+      - /var/run:size=8m,mode=0755,uid=101,gid=101
     depends_on:
       - api
     ports:
-      - "80:80"
+      - "80:8080"
 
 volumes:
   mysql-data:

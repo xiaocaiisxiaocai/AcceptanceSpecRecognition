@@ -2,6 +2,8 @@
 
 本文适用于内网 IIS 部署场景（无正式域名），默认前后端通过同一台 IIS 提供服务。
 
+当前认证边界为无 SSO 的同站 HTTP。HTTP 不提供传输加密：能够监听或篡改内网链路的人员或设备仍可能获取登录口令、AccessToken 或 Cookie。此方案只适用于受信任的隔离网段/VLAN，并应通过 Windows 防火墙限制客户端来源；不得暴露到互联网或不可信无线网络。威胁边界变化时应升级为内部 HTTPS。
+
 ## 1. 推荐拓扑
 
 建议使用同站点路径方案，避免跨站 CORS 问题：
@@ -71,7 +73,11 @@ IIS 站点根目录示例：
 使用 `src/AcceptanceSpecSystem.Api/appsettings.Production.json`：
 
 - `ConnectionStrings:DefaultConnection`：必须填写当前环境实际 MySQL 连接串；未配置时后端会直接启动失败，不再回退到源码内固定数据库
-- `Cors:AllowedOrigins`：生产环境必须配置显式来源白名单；仓库中的 `https://acceptance-spec.example.com` 只是占位示例，部署时请替换为实际访问地址，不能留空，也不能使用 `["*"]`
+- `Cors:AllowedOrigins`：必须配置实际同站 HTTP 入口的精确来源，例如 `http://192.168.1.10`；不能留空，也不能使用 `["*"]`
+- `BrowserAuth:AllowInsecureHttp`：内网 HTTP 部署必须显式设为 `true`
+- `BrowserAuth:CookieSecure`：内网 HTTP 部署设为 `false`
+- `BrowserAuth:RefreshCookieName`：使用不带 `__Host-` 前缀的名称，例如 `acceptance-refresh`
+- `BrowserAuth:CookieSameSite`：必须为 `Strict`，并保持 `CookieDomain` 为空
 - `FileStorage:BasePath`：建议配置为独立持久化目录，例如 `D:\AcceptanceSpecData`
 - `JwtAuth:SigningKey`：必须填写至少 32 个字符的随机密钥
 - `AuthSeed:AdminPassword` / `AuthSeed:CommonPassword`：生产环境必须显式配置初始化口令；系统账号存储在数据库 `SystemUsers` 表，但首次启动时仍需要这两个种子密码
@@ -125,5 +131,5 @@ dotnet ef database update -p .\src\AcceptanceSpecSystem.Data -s .\src\Acceptance
 
 - 前端刷新 404：确认 `dist` 下有 `web.config`，且 URL Rewrite 已安装
 - 上传失败/无权限：检查 `FileStorage:BasePath` 目录权限
-- 跨域报错：优先使用本文推荐的同站点 `/ + /api` 方案；如果必须跨站访问，`Cors:AllowedOrigins` 必须与实际访问地址完全一致（协议、域名、端口都要匹配），程序会拒绝 `*`
+- 来源校验报错：确认浏览器始终使用同一个固定主机名或 IP，`Cors:AllowedOrigins` 与实际入口的协议、主机名、端口完全一致；本部署模式不支持跨站入口，程序会拒绝 `*`
 - API 无法启动：确认已安装 `.NET 8 Hosting Bundle`，并查看 IIS 应用事件日志

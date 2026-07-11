@@ -61,6 +61,19 @@ public class RuleBasedMappingStrategyTests
     }
 
     [Fact]
+    public async Task IdentifyAsync_WhenAcceptanceRulesAreDisabled_ShouldNotHardcodeAcceptanceStandardHeader()
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            ["验收标准"],
+            [],
+            Array.Empty<ColumnHeaderMappingRule>());
+
+        result.Mapping.AcceptanceColumn.Should().BeNull();
+    }
+
+    [Fact]
     public async Task IdentifyAsync_WithAcceptanceStandardHeader_ShouldPreferAcceptance()
     {
         var strategy = CreateStrategy();

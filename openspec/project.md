@@ -18,6 +18,7 @@
 |------|----------|------|
 | 前端 | Vue 3 + TypeScript + Vite + Element Plus | 管理后台 SPA |
 | API | ASP.NET Core 8 Web API | HTTP 接口、Swagger、中间件 |
+| Application | C# .NET 8 类库 | 用例编排、事务边界、共享 API 契约与 provider adapter |
 | Core | C# .NET 8 类库 | 匹配、AI、文本预处理、文档处理 |
 | Data | EF Core 8 + Pomelo MySQL | 数据访问、迁移、仓储 |
 | 数据库 | MySQL 8 | 主业务数据存储 |
@@ -51,7 +52,10 @@
 - 复杂业务逻辑可以加简短中文注释，但避免解释显而易见的代码。
 
 ### Architecture Patterns
-- **分层架构**：`Api -> Core -> Data`，禁止反向依赖。
+- **分层架构**：项目引用固定为 `Api -> Application -> Core / Data`；`Core` 与 `Data` 互不依赖，禁止反向引用。
+- **物理源码所有权**：每个源码文件只由其所在项目编译，禁止跨项目 `Compile Include/Link` 或源码复制绕过项目边界。
+- **契约归属**：跨 API 与应用用例共享的请求/响应契约统一归属 `AcceptanceSpecSystem.Application/Contracts`；仅由 HTTP 适配使用的 DTO 保留在 Api。
+- **协议层职责**：Api 只承担 HTTP、认证接入、SSE、下载和宿主适配；Application 承担用例编排和事务边界。Phase 2 迁移完成前，协议层持久化依赖按架构基线白名单只减不增。
 - **仓储 + 工作单元**：通过 `IUnitOfWork` 聚合仓储访问。
 - **工厂模式**：文档解析/写入与 Semantic Kernel 服务构建都通过工厂统一封装。
 - **管道模式**：文本预处理通过可配置 pipeline 执行。
@@ -71,8 +75,10 @@
 
 ### Testing Strategy
 - API 集成测试：`AcceptanceSpecSystem.Api.Tests`，基于 `WebApplicationFactory`。
+- 架构测试：解析 `.csproj` 与协议层源码，阻止跨项目源码链接、项目引用倒置及新增协议层持久化依赖。
 - Core 单元测试：`AcceptanceSpecSystem.Core.Tests`，覆盖匹配、文档、异常路径。
 - Data 测试：`AcceptanceSpecSystem.Data.Tests`，覆盖仓储与工作单元行为。
+- CI 为后端生成 Cobertura 覆盖率，为前端 Vitest 生成 Cobertura 与 JSON summary，并保存 artifact；当前阶段只记录基线，不设置任意绝对阈值。
 - 前端至少保证 `pnpm build` 可通过；后端至少保证 `dotnet test AcceptanceSpecSystem.sln -c Debug` 可通过。
 
 ### Git Workflow

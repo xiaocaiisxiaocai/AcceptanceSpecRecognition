@@ -100,8 +100,10 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     public async Task Recognize_WhenCustomerTemplateExists_ShouldUseTemplate()
     {
         var customerId = await CreateCustomerAsync("智能识别-客户B");
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-template.xlsx");
         await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName = "模板命中",
             headers = new[] { "项目", "规格内容", "验收结果", "备注" },
@@ -115,8 +117,6 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
             isSpecificationOnly = false,
             learnedColumns = Array.Empty<object>()
         }));
-        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-template.xlsx");
-
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
             fileId,
@@ -136,8 +136,10 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     public async Task Recognize_WhenCustomerTemplateMissesRequiredColumns_ShouldNeedConfirmAndClampRowRange()
     {
         var customerId = await CreateCustomerAsync("智能识别-模板健康检查客户");
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-template-health.xlsx");
         await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName = "缺列模板",
             headers = new[] { "项目", "规格内容", "验收结果", "备注" },
@@ -148,12 +150,10 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
             headerRowIndex = 0,
             headerRowCount = 1,
             dataStartRowIndex = 1,
-            dataEndRowIndex = 999,
+            dataEndRowIndex = 1,
             isSpecificationOnly = false,
             learnedColumns = Array.Empty<object>()
         }));
-        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-template-health.xlsx");
-
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
             fileId,
@@ -270,9 +270,11 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     public async Task Confirm_WhenExcelSheetNameIsSpecific_ShouldNotCreateCustomerScopedLearnedRoutingRule()
     {
         var customerId = await CreateCustomerAsync("智能识别-路由学习收敛客户");
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-confirm-routing.xlsx");
 
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName = "客户专用验收主表",
             headers = new[] { "项目", "规格内容", "验收结果", "备注" },
@@ -309,9 +311,18 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     public async Task Confirm_WhenWordTableTitleLooksSpecific_ShouldNotCreateTableNameRoutingRule()
     {
         var customerId = await CreateCustomerAsync("智能识别-Word结构学习客户");
+        var fileId = await SmartConfigRecognizeTestFiles.UploadWordAsync(
+            _client,
+            SmartConfigRecognizeTestFiles.CreateWordBytes(
+            [
+                ["检查项目", "规格要求", "判定标准"],
+                ["外观", "无划伤", "OK"]
+            ]),
+            "smart-confirm-word-routing.docx");
 
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
+            fileId,
             customerId,
             templateName = "第3表 安全验收项目",
             headers = new[] { "检查项目", "规格要求", "判定标准" },
