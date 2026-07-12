@@ -43,7 +43,15 @@ jobs:
         run: dotnet restore AcceptanceSpecSystem.sln
 
       - name: Audit NuGet dependencies
-        run: dotnet list AcceptanceSpecSystem.sln package --vulnerable --include-transitive --no-restore
+        run: |
+          mkdir -p artifacts
+          dotnet list AcceptanceSpecSystem.sln package --vulnerable --include-transitive --no-restore --format json > artifacts/nuget-audit.json
+          python tools/assert_nuget_audit.py artifacts/nuget-audit.json
+          printf '%s' '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"audit-gate-fixture","vulnerabilities":[{"severity":"High","advisoryurl":"https://example.invalid/advisory"}]}]}]}]}' > /tmp/nuget-vulnerable-fixture.json
+          if python tools/assert_nuget_audit.py /tmp/nuget-vulnerable-fixture.json; then
+            echo 'NuGet audit parser must reject vulnerable package reports'
+            exit 1
+          fi
 
       - name: Test
         run: dotnet test AcceptanceSpecSystem.sln --no-restore -m:1 --collect:"XPlat Code Coverage" --results-directory artifacts/backend-coverage
@@ -326,6 +334,15 @@ jobs:
             /tmp/production-valid.env > /tmp/production-valid-http.env
           sh deploy/validate-production-env.sh /tmp/production-valid-http.env
 
+          for invalid_origin in 'https://:443' 'https://host:abc' 'https://host:70000' 'https://host:'; do
+            sed "s|CORS_ALLOWED_ORIGIN=https://ci.example.invalid|CORS_ALLOWED_ORIGIN=$invalid_origin|" \
+              /tmp/production-valid.env > /tmp/production-invalid-origin.env
+            if sh deploy/validate-production-env.sh /tmp/production-invalid-origin.env; then
+              echo "invalid Origin unexpectedly passed validation: $invalid_origin"
+              exit 1
+            fi
+          done
+
           MYSQL_ROOT_PASSWORD=CiRootPassword_2026! \
           MYSQL_PASSWORD=CiAppPassword_2026! \
           JWT_SIGNING_KEY=CiOnlySigningKey_AtLeast32Characters_2026! \
@@ -357,7 +374,7 @@ jobs:
           test "$web_user" != "0"
           test "$web_user" != "root"
 
-          docker network create acceptance-smoke-ci
+          docker network create --subnet 172.31.250.0/24 acceptance-smoke-ci
           docker volume create acceptance-api-files-ci
           docker volume create acceptance-api-dpkeys-ci
           docker volume create acceptance-api-backups-ci
@@ -419,6 +436,9 @@ jobs:
             -e 'BrowserAuth__RefreshCookieName=acceptance-refresh' \
             -e 'BrowserAuth__CookieSecure=false' \
             -e 'BrowserAuth__CookieSameSite=Strict' \
+            -e 'ProxyForwarding__Enabled=true' \
+            -e 'ProxyForwarding__ForwardLimit=1' \
+            -e 'ProxyForwarding__KnownNetworks__0=172.31.250.0/24' \
             acceptance-spec-api:ci
           for attempt in $(seq 1 90); do
             api_health=$(docker inspect acceptance-api-image-ci --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')

@@ -15,19 +15,67 @@ public sealed record BatchReplyRetentionPolicy(
 public sealed class BatchReplySessionCoordinator
 {
     private readonly ReferenceCountedKeyedLock<string> _locks = new(StringComparer.Ordinal);
+    private readonly IBatchReplyDistributedLockProvider _distributedLocks;
 
-    public ValueTask<IDisposable> AcquireSessionAsync(
+    public BatchReplySessionCoordinator(IBatchReplyDistributedLockProvider? distributedLocks = null)
+    {
+        _distributedLocks = distributedLocks ?? NoOpBatchReplyDistributedLockProvider.Instance;
+    }
+
+    public async ValueTask<IAsyncDisposable> AcquireSessionAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
     {
-        return _locks.AcquireAsync($"session:{sessionId}", cancellationToken);
+        return await AcquireAsync($"session:{sessionId}", cancellationToken);
     }
 
-    public ValueTask<IDisposable> AcquireArtifactAsync(
+    public async ValueTask<IAsyncDisposable> AcquireArtifactAsync(
         string taskId,
         CancellationToken cancellationToken = default)
     {
-        return _locks.AcquireAsync($"artifact:{taskId}", cancellationToken);
+        return await AcquireAsync($"artifact:{taskId}", cancellationToken);
+    }
+
+    private async ValueTask<IAsyncDisposable> AcquireAsync(string key, CancellationToken cancellationToken)
+    {
+        var local = await _locks.AcquireAsync(key, cancellationToken);
+        try
+        {
+            var distributed = await _distributedLocks.TryAcquireAsync(key, TimeSpan.FromSeconds(10), cancellationToken)
+                ?? throw new TimeoutException($"等待 BatchReply 分布式锁超时: {key}");
+            return new CompositeBatchReplyLock(local, distributed);
+        }
+        catch
+        {
+            local.Dispose();
+            throw;
+        }
+    }
+}
+
+public interface IBatchReplyDistributedLockProvider
+{
+    Task<IAsyncDisposable?> TryAcquireAsync(string key, TimeSpan waitTimeout, CancellationToken cancellationToken);
+}
+
+internal sealed class NoOpBatchReplyDistributedLockProvider : IBatchReplyDistributedLockProvider
+{
+    public static NoOpBatchReplyDistributedLockProvider Instance { get; } = new();
+    public Task<IAsyncDisposable?> TryAcquireAsync(string key, TimeSpan waitTimeout, CancellationToken cancellationToken) =>
+        Task.FromResult<IAsyncDisposable?>(new NoOpLease());
+
+    private sealed class NoOpLease : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+}
+
+internal sealed class CompositeBatchReplyLock(IDisposable local, IAsyncDisposable distributed) : IAsyncDisposable
+{
+    public async ValueTask DisposeAsync()
+    {
+        try { await distributed.DisposeAsync(); }
+        finally { local.Dispose(); }
     }
 }
 
@@ -38,7 +86,16 @@ public interface IBatchReplyCleanupStore
     Task<string> ReadTextAsync(string relativePath, CancellationToken cancellationToken);
 
     Task<bool> DeleteIfExistsAsync(string relativePath, CancellationToken cancellationToken);
+
+    Task<bool> IsContentPathReferencedAsync(
+        string relativePath,
+        string excludingManifestPath,
+        CancellationToken cancellationToken);
+
+    Task<IBatchReplyCleanupLease?> TryAcquireCleanupLeaseAsync(CancellationToken cancellationToken);
 }
+
+public interface IBatchReplyCleanupLease : IAsyncDisposable;
 
 public sealed record BatchReplyCleanupRequest(bool ObservationMode);
 
@@ -117,6 +174,23 @@ public sealed class BatchReplyCleanupAppService : IBatchReplyCleanupAppService
         var metrics = new CleanupMetrics(request.ObservationMode);
         try
         {
+            await using var distributedLease = await _store.TryAcquireCleanupLeaseAsync(cancellationToken);
+            if (distributedLease == null)
+            {
+                return new BatchReplyCleanupResult(
+                    true,
+                    request.ObservationMode,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    _timeProvider.GetElapsedTime(startedAt));
+            }
+
             await ScanSessionsAsync(metrics, cancellationToken);
             await ScanArtifactsAsync(metrics, cancellationToken);
             return metrics.ToResult(_timeProvider.GetElapsedTime(startedAt));
@@ -161,7 +235,7 @@ public sealed class BatchReplyCleanupAppService : IBatchReplyCleanupAppService
                 }
 
                 var manifestId = Path.GetFileNameWithoutExtension(manifestPath);
-                using var sessionLock = await _coordinator.AcquireSessionAsync(manifestId, cancellationToken);
+                await using var sessionLock = await _coordinator.AcquireSessionAsync(manifestId, cancellationToken);
                 session = await ReadSessionAsync(manifestPath, cancellationToken);
                 if (session == null ||
                     !string.Equals(session.SessionId, manifestId, StringComparison.Ordinal) ||
@@ -231,7 +305,7 @@ public sealed class BatchReplyCleanupAppService : IBatchReplyCleanupAppService
                 }
 
                 var manifestId = Path.GetFileNameWithoutExtension(manifestPath);
-                using var artifactLock = await _coordinator.AcquireArtifactAsync(manifestId, cancellationToken);
+                await using var artifactLock = await _coordinator.AcquireArtifactAsync(manifestId, cancellationToken);
                 artifact = await ReadArtifactAsync(manifestPath, cancellationToken);
                 if (artifact == null ||
                     !string.Equals(artifact.TaskId, manifestId, StringComparison.Ordinal) ||
@@ -284,6 +358,19 @@ public sealed class BatchReplyCleanupAppService : IBatchReplyCleanupAppService
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                if (!IsOwnedContentPath(manifestType, contentPath) ||
+                    await _store.IsContentPathReferencedAsync(contentPath, manifestPath, cancellationToken))
+                {
+                    contentDeleteFailed = true;
+                    metrics.FailureCount++;
+                    _logger.LogWarning(
+                        "拒绝删除不属于清单命名空间或仍被其他清单/数据库引用的文件: {ManifestType} {ManifestId} {ContentPath}",
+                        manifestType,
+                        manifestId,
+                        contentPath);
+                    continue;
+                }
+
                 if (await _store.DeleteIfExistsAsync(contentPath, cancellationToken))
                 {
                     metrics.DeletedFiles++;
@@ -322,6 +409,39 @@ public sealed class BatchReplyCleanupAppService : IBatchReplyCleanupAppService
             metrics.FailureCount++;
             _logger.LogWarning(ex, "删除批量回复过期清单失败: {ManifestType} {ManifestId}", manifestType, manifestId);
         }
+    }
+
+    internal static bool IsOwnedContentPath(string manifestType, string contentPath)
+    {
+        if (string.IsNullOrWhiteSpace(contentPath) ||
+            Path.IsPathRooted(contentPath) ||
+            contentPath.Contains('\\', StringComparison.Ordinal) ||
+            contentPath.Split('/', StringSplitOptions.RemoveEmptyEntries).Any(segment => segment is "." or ".."))
+        {
+            return false;
+        }
+
+        var segments = contentPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length != 4 ||
+            !string.Equals(segments[0], "uploads", StringComparison.Ordinal) ||
+            !DateOnly.TryParseExact(segments[2], "yyyy-MM-dd", out _))
+        {
+            return false;
+        }
+
+        var fileName = segments[3];
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        if (Path.GetFileName(fileName) != fileName || !Guid.TryParseExact(stem, "N", out _))
+        {
+            return false;
+        }
+
+        return manifestType switch
+        {
+            "session" => segments[1] is "word-files" or "excel-files",
+            "artifact" => segments[1] == "filled-files",
+            _ => false
+        };
     }
 
     private async Task<BatchReplySourceSession?> ReadSessionAsync(

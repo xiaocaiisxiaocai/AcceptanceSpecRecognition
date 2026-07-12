@@ -130,6 +130,7 @@ backups/
 output/
 outputs/
 *.sql
+!deploy/preflight-collation-migration.sql
 
 # Node modules (root-level scratch / tooling installs)
 node_modules/

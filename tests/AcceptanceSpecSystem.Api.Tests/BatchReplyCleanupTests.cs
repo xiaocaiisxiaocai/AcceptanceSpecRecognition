@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
@@ -29,8 +31,8 @@ public sealed class BatchReplyCleanupTests
         result.ObservedManifests.Should().Be(2);
         result.DeletedManifests.Should().Be(0);
         result.RetainedManifests.Should().Be(1);
-        store.Paths.Should().Contain("source-old.docx");
-        store.Paths.Should().Contain("result-old.zip");
+        store.Paths.Should().Contain(StoredPath("word-files", "source-old.docx"));
+        store.Paths.Should().Contain(StoredPath("filled-files", "result-old.zip"));
     }
 
     [Fact]
@@ -44,7 +46,7 @@ public sealed class BatchReplyCleanupTests
             "source-fail.docx",
             "target-good.docx");
         AddArtifact(store, "successful-artifact", Now.UtcDateTime.AddHours(-3), "result-good.zip");
-        store.DeleteFailures.Add("source-fail.docx");
+        store.DeleteFailures.Add(StoredPath("word-files", "source-fail.docx"));
 
         var service = CreateService(store);
         var result = await service.CleanupAsync(new BatchReplyCleanupRequest(ObservationMode: false));
@@ -54,7 +56,7 @@ public sealed class BatchReplyCleanupTests
         result.DeletedManifests.Should().Be(1);
         store.Paths.Should().Contain(SessionManifestPath("failed-session"), "内容删除失败时保留清单供下轮重试");
         store.Paths.Should().NotContain(ArtifactManifestPath("successful-artifact"));
-        store.Paths.Should().NotContain("result-good.zip");
+        store.Paths.Should().NotContain(StoredPath("filled-files", "result-good.zip"));
     }
 
     [Fact]
@@ -94,6 +96,64 @@ public sealed class BatchReplyCleanupTests
 
         store.ReleaseReads();
         (await firstRun.WaitAsync(TimeSpan.FromSeconds(5))).SkippedBecauseAlreadyRunning.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeleteMode_ShouldRejectPathOutsideOwnedNamespace()
+    {
+        var store = new FakeCleanupStore();
+        AddSession(store, "malicious-session", Now.UtcDateTime.AddHours(-2), "source.docx");
+        var manifestPath = SessionManifestPath("malicious-session");
+        var session = JsonSerializer.Deserialize<BatchReplySourceSession>(await store.ReadTextAsync(manifestPath, default))!;
+        session.SourceFileRelativePath = "uploads/filled-files/2026-07-10/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.docx";
+        store.Add(manifestPath, JsonSerializer.Serialize(session));
+        store.Add(session.SourceFileRelativePath, "must-remain");
+
+        var result = await CreateService(store).CleanupAsync(new BatchReplyCleanupRequest(false));
+
+        result.FailureCount.Should().Be(1);
+        store.Paths.Should().Contain(session.SourceFileRelativePath);
+        store.Paths.Should().Contain(manifestPath, "未能安全删除全部内容时必须保留清单供人工检查");
+    }
+
+    [Fact]
+    public async Task DeleteMode_ShouldKeepContentReferencedByAnotherOwner()
+    {
+        var store = new FakeCleanupStore();
+        AddArtifact(store, "shared-artifact", Now.UtcDateTime.AddHours(-3), "shared.zip");
+        var path = StoredPath("filled-files", "shared.zip");
+        store.ReferencedPaths.Add(path);
+
+        var result = await CreateService(store).CleanupAsync(new BatchReplyCleanupRequest(false));
+
+        result.FailureCount.Should().Be(1);
+        store.Paths.Should().Contain(path);
+        store.Paths.Should().Contain(ArtifactManifestPath("shared-artifact"));
+    }
+
+    [Fact]
+    public async Task DistributedDatabaseLockConflict_ShouldSkipWithoutScanning()
+    {
+        var store = new FakeCleanupStore { LeaseAvailable = false };
+        AddSession(store, "lease-session", Now.UtcDateTime.AddHours(-2), "source.docx");
+
+        var result = await CreateService(store).CleanupAsync(new BatchReplyCleanupRequest(false));
+
+        result.SkippedBecauseAlreadyRunning.Should().BeTrue();
+        result.SessionManifestsScanned.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task SessionCoordinator_ShouldSerializeSameSessionAcrossReplicaInstances()
+    {
+        var provider = new FakeDistributedLockProvider();
+        var firstReplica = new BatchReplySessionCoordinator(provider);
+        var secondReplica = new BatchReplySessionCoordinator(provider);
+
+        await using var firstLease = await firstReplica.AcquireSessionAsync("same-session");
+        Func<Task> competingAcquire = async () => await secondReplica.AcquireSessionAsync("same-session");
+
+        await competingAcquire.Should().ThrowAsync<TimeoutException>();
     }
 
     [Fact]
@@ -138,6 +198,8 @@ public sealed class BatchReplyCleanupTests
         string sourcePath,
         params string[] targetPaths)
     {
+        sourcePath = StoredPath("word-files", sourcePath);
+        targetPaths = targetPaths.Select(path => StoredPath("word-files", path)).ToArray();
         var manifestPath = SessionManifestPath(sessionId);
         var session = new BatchReplySourceSession
         {
@@ -165,6 +227,7 @@ public sealed class BatchReplyCleanupTests
 
     private static void AddArtifact(FakeCleanupStore store, string taskId, DateTime createdAt, string resultPath)
     {
+        resultPath = StoredPath("filled-files", resultPath);
         var manifestPath = ArtifactManifestPath(taskId);
         var artifact = new BatchReplyDownloadArtifact
         {
@@ -187,6 +250,12 @@ public sealed class BatchReplyCleanupTests
     private static string ArtifactManifestPath(string id) =>
         $"{BatchReplyCleanupAppService.ArtifactManifestDirectory}/{id}.json";
 
+    private static string StoredPath(string bucket, string seed)
+    {
+        var guidBytes = MD5.HashData(Encoding.UTF8.GetBytes(seed));
+        return $"uploads/{bucket}/2026-07-10/{new Guid(guidBytes):N}{Path.GetExtension(seed)}";
+    }
+
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
@@ -199,6 +268,8 @@ public sealed class BatchReplyCleanupTests
 
         public TaskCompletionSource ReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public HashSet<string> DeleteFailures { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> ReferencedPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public bool LeaseAvailable { get; set; } = true;
         public IReadOnlyCollection<string> Paths => _files.Keys.ToArray();
 
         public void Add(string path, string content) => _files[path] = content;
@@ -234,6 +305,49 @@ public sealed class BatchReplyCleanupTests
             }
 
             return Task.FromResult(_files.TryRemove(relativePath, out _));
+        }
+
+        public Task<bool> IsContentPathReferencedAsync(
+            string relativePath,
+            string excludingManifestPath,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(ReferencedPaths.Contains(relativePath));
+        }
+
+        public Task<IBatchReplyCleanupLease?> TryAcquireCleanupLeaseAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IBatchReplyCleanupLease?>(LeaseAvailable ? new FakeLease() : null);
+        }
+
+        private sealed class FakeLease : IBatchReplyCleanupLease
+        {
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FakeDistributedLockProvider : IBatchReplyDistributedLockProvider
+    {
+        private readonly HashSet<string> _held = new(StringComparer.Ordinal);
+
+        public Task<IAsyncDisposable?> TryAcquireAsync(string key, TimeSpan waitTimeout, CancellationToken cancellationToken)
+        {
+            lock (_held)
+            {
+                if (!_held.Add(key)) return Task.FromResult<IAsyncDisposable?>(null);
+            }
+            return Task.FromResult<IAsyncDisposable?>(new Lease(_held, key));
+        }
+
+        private sealed class Lease(HashSet<string> held, string key) : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync()
+            {
+                lock (held) { held.Remove(key); }
+                return ValueTask.CompletedTask;
+            }
         }
     }
 

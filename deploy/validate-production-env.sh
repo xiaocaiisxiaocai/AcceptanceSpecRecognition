@@ -123,29 +123,62 @@ case "$cookie_secure" in
     ;;
 esac
 
-case "$cors_allowed_origin" in
-  http://*) origin_authority=${cors_allowed_origin#http://} ;;
-  https://*) origin_authority=${cors_allowed_origin#https://} ;;
-  *)
-    origin_authority=""
-    echo "ERROR: CORS_ALLOWED_ORIGIN 必须是精确的 HTTP(S) Origin" >&2
-    validation_failed=1
-    ;;
-esac
+validate_origin_authority() {
+  candidate="$1"
+  case "$candidate" in
+    http://*) authority=${candidate#http://} ;;
+    https://*) authority=${candidate#https://} ;;
+    *) return 1 ;;
+  esac
 
-case "$cors_allowed_origin" in
-  *'*'*)
-    echo "ERROR: CORS_ALLOWED_ORIGIN 禁止使用通配符" >&2
-    validation_failed=1
-    ;;
-esac
+  case "$authority" in
+    ""|*'*'*|*/*|*\?*|*\#*|*@*|*[[:space:]]*) return 1 ;;
+  esac
 
-case "$origin_authority" in
-  ""|*/*|*\?*|*\#*|*@*|*' '*|*'\t'*)
-    echo "ERROR: CORS_ALLOWED_ORIGIN 只能包含协议、主机和可选端口" >&2
-    validation_failed=1
-    ;;
-esac
+  origin_host=""
+  origin_port=""
+  case "$authority" in
+    \[*\]*)
+      origin_host=${authority%%]*}
+      origin_host=${origin_host#\[}
+      remainder=${authority#*]}
+      case "$remainder" in
+        "") ;;
+        :*) origin_port=${remainder#:}; [ -n "$origin_port" ] || return 1 ;;
+        *) return 1 ;;
+      esac
+      case "$origin_host" in
+        ""|*[!0-9A-Fa-f:.%_-]*) return 1 ;;
+      esac
+      ;;
+    *:*)
+      origin_host=${authority%:*}
+      origin_port=${authority##*:}
+      [ -n "$origin_port" ] || return 1
+      case "$origin_host" in *:*) return 1 ;; esac
+      ;;
+    *) origin_host=$authority ;;
+  esac
+
+  case "$origin_host" in
+    ""|.*|*..*|*.|*[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+
+  if [ -n "$origin_port" ]; then
+    case "$origin_port" in *[!0-9]*|"") return 1 ;; esac
+    [ "${#origin_port}" -le 5 ] || return 1
+    if [ "$origin_port" -lt 1 ] || [ "$origin_port" -gt 65535 ]; then
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
+if ! validate_origin_authority "$cors_allowed_origin"; then
+  echo "ERROR: CORS_ALLOWED_ORIGIN 必须是包含合法主机和端口的精确 HTTP(S) Origin" >&2
+  validation_failed=1
+fi
 
 if [ "$cookie_same_site" != "Strict" ]; then
   echo "ERROR: BROWSER_AUTH_COOKIE_SAME_SITE 必须为 Strict" >&2
@@ -195,7 +228,7 @@ elif [ "$allow_insecure_http" = "true" ]; then
 fi
 
 unset auth_key auth_value cors_allowed_origin allow_insecure_http refresh_cookie_name
-unset cookie_secure cookie_same_site cookie_domain origin_authority
+unset cookie_secure cookie_same_site cookie_domain candidate authority origin_host origin_port remainder
 
 if [ "$validation_failed" -ne 0 ]; then
   exit 1

@@ -49,3 +49,15 @@
 - [x] 5.4 发布后端和前端覆盖率 artifact，确定总体或变更行“不回退”策略并记录例外审批。
 - [x] 5.5 运行全量后端、前端、真实 MySQL、浏览器 E2E、镜像 smoke 和 OpenSpec strict 验证。
 - [x] 5.6 更新架构图、部署手册、故障处理与回滚手册；所有阶段证据齐全后才勾选完成。
+
+## 6. 提交后深度审核修复
+
+- [x] 6.1 仅信任显式 Docker 代理转发头，使登录/刷新限流与审计按真实客户端 IP 工作。
+- [x] 6.2 将全库 collation 重写移出 API 自动启动路径，增加发布前预检、显式执行与失败恢复证据。
+- [x] 6.3 使本地 Docker 示例默认配置与内网 HTTP 入口一致，同时保留 HTTPS 模式说明。
+- [x] 6.4 BatchReply 清理验证 manifest 路径所有权、数据库/其他 manifest 引用，并 fail closed。
+- [x] 6.5 BatchReply 清理及业务写入使用 MySQL advisory lock 跨副本互斥，避免多副本竞态删除。
+- [x] 6.6 前端仅在明确会话无效时跨标签广播失效，瞬态错误保留会话。
+- [x] 6.7 流式 authorized fetch 首次 401 复用 single-flight refresh，并只安全重放一次。
+- [x] 6.8 生产 env 校验拒绝无效 host/端口 Origin，CI 覆盖反例。
+- [x] 6.9 NuGet 漏洞报告解析为阻断门禁，并完成全量回归、容器 smoke 与 OpenSpec strict。

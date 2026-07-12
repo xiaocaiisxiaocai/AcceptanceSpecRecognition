@@ -79,7 +79,9 @@ public sealed class PhaseTwoFinalBoundaryTests
         {
             "AiConfigHealthCheck.cs",
             "DatabaseHealthCheck.cs",
+            "BatchReplyCleanupFileStore.cs",
             "DocumentFileAccessService.cs",
+            "MySqlBatchReplyDistributedLockProvider.cs",
             "SmartConfigurationFileAccessService.cs",
             "SpecEmbeddingCacheService.cs"
         };

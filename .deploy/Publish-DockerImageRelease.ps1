@@ -91,6 +91,7 @@ $webDockerfile = Join-Path $repoRoot "web\Dockerfile"
 $composeTemplate = Join-Path $PSScriptRoot "docker-compose.images.yml"
 $envTemplate = Join-Path $PSScriptRoot "production.env.example"
 $envValidatorTemplate = Join-Path $repoRoot "deploy\validate-production-env.sh"
+$collationPreflightTemplate = Join-Path $repoRoot "deploy\preflight-collation-migration.sql"
 
 if (-not (Test-Path $apiDockerfile)) {
   throw "未找到 API Dockerfile: $apiDockerfile"
@@ -112,6 +113,10 @@ if (-not (Test-Path $envValidatorTemplate)) {
   throw "未找到生产环境变量校验脚本: $envValidatorTemplate"
 }
 
+if (-not (Test-Path $collationPreflightTemplate)) {
+  throw "未找到排序规则迁移预检脚本: $collationPreflightTemplate"
+}
+
 $releaseRoot = if ($OutputDir) {
   $OutputDir
 } else {
@@ -128,6 +133,7 @@ $webTarPath = Join-Path $releaseRoot $webTarName
 $releaseComposePath = Join-Path $releaseRoot "docker-compose.yml"
 $releaseEnvExamplePath = Join-Path $releaseRoot "production.env.example"
 $releaseEnvValidatorPath = Join-Path $releaseRoot "validate-production-env.sh"
+$releaseCollationPreflightPath = Join-Path $releaseRoot "preflight-collation-migration.sql"
 $serverDeployGuidePath = Join-Path $releaseRoot "SERVER-DEPLOY.txt"
 
 if ((Test-Path $releaseRoot) -and $Force) {
@@ -168,6 +174,7 @@ Invoke-Step -Title "生成发布目录文件" -Action {
   Copy-Item -Force $composeTemplate $releaseComposePath
   Copy-Item -Force $envTemplate $releaseEnvExamplePath
   Copy-Item -Force $envValidatorTemplate $releaseEnvValidatorPath
+  Copy-Item -Force $collationPreflightTemplate $releaseCollationPreflightPath
 
   $guide = @"
 发布版本：$VersionTag
@@ -181,12 +188,20 @@ $ServerDeployDir
 - $webTarName
 - production.env.example（仅首次部署参考，不要覆盖线上现有 .env）
 - validate-production-env.sh
+- preflight-collation-migration.sql
 
 服务器执行命令：
 cd $ServerDeployDir
 sudo docker load -i $apiTarName
 sudo docker load -i $webTarName
 sh validate-production-env.sh .env
+
+已有数据库首次升级到本版本时，在启动新 API 前：
+1. 停止全部 API 副本并完成备份/恢复抽检。
+2. 执行 preflight-collation-migration.sql，确认没有活动事务、锁等待、唯一键冲突，并核对可用磁盘空间。
+3. 只运行一个 `docker compose run --rm --no-deps api --migrate-only`。
+4. 成功后再执行下面的 up -d；失败时排除原因后重复 migrate-only，禁止跳过迁移强行启动。
+
 sed -i 's#^API_IMAGE=.*#API_IMAGE=$apiImage#' .env
 sed -i 's#^WEB_IMAGE=.*#WEB_IMAGE=$webImage#' .env
 sudo docker compose --env-file .env -f docker-compose.yml up -d

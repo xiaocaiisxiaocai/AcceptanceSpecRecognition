@@ -14,6 +14,7 @@ using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.TextProcessing.Services;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AcceptanceSpecSystem.Api;
 
@@ -99,6 +100,7 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<IBatchReplyWriteBackPort>(sp => sp.GetRequiredService<MatchingResultWriteBackService>());
         services.AddScoped<IBatchReplyExecutionHistoryPort, BatchReplyExecutionHistoryAdapter>();
         services.AddSingleton<IBatchReplyCleanupStore, BatchReplyCleanupFileStore>();
+        services.Replace(ServiceDescriptor.Singleton<IBatchReplyDistributedLockProvider, MySqlBatchReplyDistributedLockProvider>());
         services.AddSingleton<IOrphanFileStore, OrphanFileStore>();
         services.AddSingleton(sp =>
         {

@@ -1,8 +1,4 @@
-import {
-  createAuthorizedFetchInit,
-  ensureFetchResponseAuthHandled,
-  http
-} from "@/utils/http";
+import { authorizedFetch, http } from "@/utils/http";
 import type { PureHttpRequestConfig } from "@/utils/http/types.d";
 import type { ApiResponse } from "./customer";
 import type { TableData, TableInfo } from "./document";
@@ -619,7 +615,7 @@ export const requestMatchLlmStream = async (
   signal?: AbortSignal
 ) => {
   const url = `${baseUrl}/llm-stream`;
-  const init = await createAuthorizedFetchInit(url, {
+  return authorizedFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -627,9 +623,6 @@ export const requestMatchLlmStream = async (
     body: JSON.stringify(data),
     signal
   });
-  const response = await fetch(url, init);
-  await ensureFetchResponseAuthHandled(response, url);
-  return response;
 };
 
 export interface BatchReplySourceUploadResponse {

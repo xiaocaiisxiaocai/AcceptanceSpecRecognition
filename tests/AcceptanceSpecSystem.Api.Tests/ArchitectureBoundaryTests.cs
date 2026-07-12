@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using FluentAssertions;
@@ -147,6 +147,19 @@ public class ArchitectureBoundaryTests
             .Should().BeLessThan(
                 programContent.IndexOf("app.UseRateLimiter();", StringComparison.Ordinal),
                 "限流按用户分区前必须先完成认证，否则会退化为按 IP 分区");
+    }
+
+    [Fact]
+    public void Program_ShouldApplyTrustedForwardedHeadersBeforeIpConsumers()
+    {
+        var programContent = ReadFile("src/AcceptanceSpecSystem.Api/Program.cs");
+        var forwardedHeadersIndex = programContent.IndexOf("app.UseForwardedHeaders", StringComparison.Ordinal);
+
+        forwardedHeadersIndex.Should().BeGreaterThan(-1);
+        forwardedHeadersIndex.Should().BeLessThan(
+            programContent.IndexOf("app.UseMiddleware<RequestTracingMiddleware>();", StringComparison.Ordinal));
+        forwardedHeadersIndex.Should().BeLessThan(
+            programContent.IndexOf("app.UseRateLimiter();", StringComparison.Ordinal));
     }
 
     [Fact]

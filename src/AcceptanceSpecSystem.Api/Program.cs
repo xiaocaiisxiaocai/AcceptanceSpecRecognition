@@ -23,6 +23,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -33,6 +34,14 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var proxyForwarding = builder.Configuration.GetSection(ProxyForwardingOptions.SectionName)
+    .Get<ProxyForwardingOptions>() ?? new ProxyForwardingOptions();
+ForwardedHeadersOptions? forwardedHeadersOptions = null;
+if (proxyForwarding.Enabled)
+{
+    forwardedHeadersOptions = ProxyForwardingConfiguration.Create(proxyForwarding);
+}
 
 builder.Services.AddScoped<AuditOperationFilter>();
 builder.Services.AddHttpContextAccessor();
@@ -295,6 +304,18 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+var migrateOnly = args.Any(argument => string.Equals(argument, "--migrate-only", StringComparison.OrdinalIgnoreCase));
+
+if (forwardedHeadersOptions is not null)
+{
+    // 必须位于请求跟踪、审计、认证和限流之前，使这些组件只读取可信代理还原后的客户端地址。
+    app.UseForwardedHeaders(forwardedHeadersOptions);
+    app.Logger.LogInformation(
+        "已启用可信代理转发头，ForwardLimit={ForwardLimit}，KnownProxies={KnownProxyCount}，KnownNetworks={KnownNetworkCount}",
+        forwardedHeadersOptions.ForwardLimit,
+        forwardedHeadersOptions.KnownProxies.Count,
+        forwardedHeadersOptions.KnownNetworks.Count);
+}
 
 if (configuredBrowserAuth.AllowInsecureHttp)
 {
@@ -308,7 +329,13 @@ if (!app.Environment.IsEnvironment("Testing"))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await DatabaseInitializer.InitializeAsync(db);
+    await DatabaseInitializer.InitializeAsync(db, allowControlledMigrations: migrateOnly);
+}
+
+if (migrateOnly)
+{
+    app.Logger.LogInformation("数据库受控迁移已完成；--migrate-only 模式不会启动 HTTP 服务");
+    return;
 }
 
 using (var scope = app.Services.CreateScope())
@@ -382,11 +409,7 @@ static RateLimitPartition<string> CreateFixedWindowLimiter(
     HttpContext httpContext,
     RateLimitPolicyOptions options)
 {
-    var partitionKey =
-        httpContext.User?.Identity?.IsAuthenticated == true
-            ? httpContext.User.Identity.Name
-            : httpContext.Connection.RemoteIpAddress?.ToString();
-    partitionKey = string.IsNullOrWhiteSpace(partitionKey) ? "anonymous" : partitionKey;
+    var partitionKey = RateLimitPartitionKeyResolver.Resolve(httpContext);
 
     return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
     {

@@ -1417,10 +1417,8 @@ public class ReviewRegressionTests
             "web/src/api/matching.ts".Replace('/', Path.DirectorySeparatorChar)));
         matchingApiContent.Should().Contain("export const requestMatchLlmStream = async",
             "智能填充流式请求应收敛到匹配 API 模块，避免页面直接拼装原生请求");
-        matchingApiContent.Should().Contain("createAuthorizedFetchInit(url, {",
-            "匹配 API 模块应复用共享鉴权初始化");
-        matchingApiContent.Should().Contain("ensureFetchResponseAuthHandled(response, url)",
-            "匹配 API 模块应复用统一的认证失败处理");
+        matchingApiContent.Should().Contain("return authorizedFetch(url, {",
+            "匹配 API 模块应复用带单次刷新重放和统一认证失败处理的共享 fetch 封装");
 
         var smartFillContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),

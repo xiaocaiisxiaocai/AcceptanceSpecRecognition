@@ -21,4 +21,5 @@ public sealed class BatchReplyCleanupOptions
     public int SessionRetentionMinutes { get; set; } = 240;
 
     public int ArtifactRetentionMinutes { get; set; } = 1440;
+
 }

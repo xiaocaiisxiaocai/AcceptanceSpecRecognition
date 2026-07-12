@@ -19,6 +19,7 @@ import {
   getCurrentFrontendRoute
 } from "@/utils/audit-context";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { isRefreshSessionInvalidError } from "@/utils/auth-refresh-error";
 
 // 相关配置请参考：www.axios-js.com/zh-cn/docs/#axios-request-config-1
 const defaultConfig: AxiosRequestConfig = {
@@ -158,10 +159,11 @@ class PureHttp {
 
   private static waitForTokenRefresh(config: PureHttpRequestConfig) {
     PureHttp.startTokenRefresh();
-    return PureHttp.retryOriginalRequest(config).catch(error => {
-      PureHttp.handleAuthFailure(401, String(config.url ?? ""));
-      throw error;
-    });
+    return PureHttp.retryOriginalRequest(config);
+  }
+
+  public static refreshAuthorization(config: PureHttpRequestConfig) {
+    return PureHttp.waitForTokenRefresh(config);
   }
 
   public static async ensureAuthorization(
@@ -186,7 +188,14 @@ class PureHttp {
       return config;
     }
 
-    return PureHttp.waitForTokenRefresh(config);
+    try {
+      return await PureHttp.waitForTokenRefresh(config);
+    } catch (error) {
+      if (isRefreshSessionInvalidError(error)) {
+        PureHttp.handleAuthFailure(401, requestUrl);
+      }
+      throw error;
+    }
   }
 
   public static handleAuthFailure(
@@ -298,11 +307,13 @@ class PureHttp {
               await PureHttp.waitForTokenRefresh(requestConfig);
             return await PureHttp.axiosInstance.request(retryConfig);
           } catch (refreshError) {
-            PureHttp.handleAuthFailure(
-              status,
-              requestUrl,
-              $error?.response?.data
-            );
+            if (isRefreshSessionInvalidError(refreshError)) {
+              PureHttp.handleAuthFailure(
+                status,
+                requestUrl,
+                $error?.response?.data
+              );
+            }
             return Promise.reject(refreshError);
           }
         }
@@ -404,7 +415,30 @@ export async function authorizedFetch(
   init: RequestInit = {},
   options: { handleAuthFailure?: boolean } = {}
 ): Promise<Response> {
-  const response = await fetch(url, await createAuthorizedFetchInit(url, init));
+  const authorizedInit = await createAuthorizedFetchInit(url, init);
+  let response = await fetch(url, authorizedInit);
+
+  if (response.status === 401) {
+    try {
+      const retryConfig = await PureHttp.refreshAuthorization({
+        url,
+        headers: normalizeFetchHeaders(authorizedInit.headers)
+      });
+      response = await fetch(url, {
+        ...authorizedInit,
+        headers: retryConfig.headers as HeadersInit
+      });
+    } catch (refreshError) {
+      if (
+        options.handleAuthFailure !== false &&
+        isRefreshSessionInvalidError(refreshError)
+      ) {
+        PureHttp.handleAuthFailure(401, url);
+      }
+      throw refreshError;
+    }
+  }
+
   if (options.handleAuthFailure !== false) {
     await ensureFetchResponseAuthHandled(response, url);
   }

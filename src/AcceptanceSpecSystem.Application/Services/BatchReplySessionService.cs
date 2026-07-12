@@ -218,6 +218,7 @@ public sealed class BatchReplySessionService
         BatchReplyDownloadArtifact artifact,
         CancellationToken cancellationToken = default)
     {
+        await using var artifactLock = await _coordinator.AcquireArtifactAsync(artifact.TaskId, cancellationToken);
         artifact.OwnerUserId = userId;
         artifact.OwnerCompanyId = companyId;
         artifact.CreatedAt = UtcNow;
@@ -325,7 +326,7 @@ public sealed class BatchReplySessionService
         int userId,
         int companyId)
     {
-        using var sessionLock = await _coordinator.AcquireSessionAsync(sessionId, cancellationToken);
+        await using var sessionLock = await _coordinator.AcquireSessionAsync(sessionId, cancellationToken);
         var session = GetSession(userId, companyId, sessionId);
         if (session == null)
         {

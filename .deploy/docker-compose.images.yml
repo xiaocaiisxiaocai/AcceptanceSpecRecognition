@@ -49,6 +49,9 @@ services:
       BrowserAuth__CookieSecure: ${BROWSER_AUTH_COOKIE_SECURE:-true}
       BrowserAuth__CookieSameSite: ${BROWSER_AUTH_COOKIE_SAME_SITE:-Strict}
       BrowserAuth__CookieDomain: ${BROWSER_AUTH_COOKIE_DOMAIN:-}
+      ProxyForwarding__Enabled: "true"
+      ProxyForwarding__ForwardLimit: "1"
+      ProxyForwarding__KnownNetworks__0: ${APP_NETWORK_SUBNET:-172.30.0.0/24}
       JwtAuth__SigningKey: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY must be set}
       AuthSeed__AdminPassword: ${AUTH_SEED_ADMIN_PASSWORD:?AUTH_SEED_ADMIN_PASSWORD must be set}
       AuthSeed__CommonPassword: ${AUTH_SEED_COMMON_PASSWORD:?AUTH_SEED_COMMON_PASSWORD must be set}
@@ -79,3 +82,9 @@ volumes:
   api-files:
   api-dpkeys:
   api-backups:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${APP_NETWORK_SUBNET:-172.30.0.0/24}

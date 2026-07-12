@@ -33,6 +33,30 @@ docker compose ps
 docker compose logs -f api
 ```
 
+`APP_NETWORK_SUBNET` 同时用于创建 Compose 私有网络和限定 API 信任的反向代理来源。部署前应选择一个与宿主机、VPN 及其他 Docker 网络不重叠的 RFC1918 子网（示例为 `172.30.0.0/24`）；只能填写本 Compose 网络的精确小网段，禁止扩大为 `0.0.0.0/0`。API 仅接受该网络内紧邻 Nginx 写入的单层转发头。
+
+若从历史 root 镜像升级且复用已有业务卷，必须先停 API，再执行一次卷权限迁移：
+
+```bash
+docker compose run --rm --no-deps --user 0 --entrypoint sh api -c \
+  'chown -R 1654:0 /data/files /data/dp-keys /app/backups && chmod -R g=u /data/files /data/dp-keys /app/backups'
+```
+
+完成后立即移除维护容器并以默认非 root 用户启动 API；不得通过长期使用 root 绕过卷权限问题。
+
+### 已有数据库升级：受控排序规则迁移
+
+`20260711010000_EnforceDatabaseCollation` 会重写历史表，API 常规启动会主动拒绝在已有数据库上自动执行。升级时必须先完成数据库备份和恢复抽检，并在维护窗口执行：
+
+```bash
+docker compose stop api
+docker compose exec -T mysql sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < deploy/preflight-collation-migration.sql
+docker compose run --rm --no-deps api --migrate-only
+docker compose up -d api
+```
+
+预检读取全局活动事务和锁等待，因此必须在 MySQL 容器内使用具备 `PROCESS` 权限的管理账号；不要给日常应用账号追加该权限。预检会拒绝存在活动事务、锁等待或目标排序规则唯一键冲突的数据库，并输出数据库估算字节数。宿主机/MySQL 表空间可用空间仍须由运维确认至少覆盖数据库当前体积与备份；空间不足时不得执行。迁移使用持久化进度标记，非事务性 DDL 中断后可在排除磁盘、锁或数据冲突后重复运行同一条 `--migrate-only` 命令恢复。不要同时启动多个迁移容器。
+
 ## 4. 访问地址
 
 - 前端：`http://localhost`

@@ -111,6 +111,9 @@ public sealed class ProductionDeploymentDocumentationTests
         webDockerfile.Should().Contain("nginxinc/nginx-unprivileged:1.28-alpine@sha256:");
         webDockerfile.Should().Contain("USER nginx");
         webDockerfile.Should().Contain("EXPOSE 8080");
+        webDockerfile.Should().Contain("http://127.0.0.1:8080/");
+        webDockerfile.Should().NotContain("http://localhost:8080/",
+            "Alpine 会优先把 localhost 解析为 IPv6，而 Nginx 当前仅监听 IPv4");
         nginx.Should().Contain("listen 8080;");
         nginx.Should().Contain("location = /logout");
         nginx.Should().Contain("proxy_pass http://api:8080/logout;");

@@ -83,6 +83,10 @@ sh validate-production-env.sh .env
 
 校验只输出缺失、不合规或仍为已知占位符的变量名，绝不会回显配置值。缺少任一项时，请先写入真实密钥再启动新版本。`production.env.example` 的敏感值故意留空，不可直接部署；Production 环境也不会为初始化账号回退到开发默认口令。
 
+`APP_NETWORK_SUBNET` 必须设置为与宿主机、VPN 和其他 Docker 网络不重叠的 RFC1918 小网段。该值既创建 Compose 网络，也限定 API 信任的紧邻 Nginx 代理范围；不得配置为全网或其他宽泛网段。
+
+若目标数据库尚未应用 `20260711010000_EnforceDatabaseCollation`，还必须在停止全部 API 副本、完成备份与恢复抽检后，按 [Docker 部署指南](../docs/DEPLOY-DOCKER.md) 运行排序规则预检和单个 `api --migrate-only` 容器。常规 API 启动不会在已有数据库上自动执行该全表重写。
+
 ## 4. 服务器更新发布
 
 登录服务器后执行：

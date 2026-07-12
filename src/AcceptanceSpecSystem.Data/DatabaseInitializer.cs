@@ -8,17 +8,25 @@ namespace AcceptanceSpecSystem.Data;
 /// </summary>
 public static class DatabaseInitializer
 {
+    public const string ControlledCollationMigrationId = "20260711010000_EnforceDatabaseCollation";
+
     /// <summary>
     /// 初始化数据库（应用所有待执行的迁移）
     /// </summary>
     /// <param name="context">数据库上下文</param>
+    /// <param name="allowControlledMigrations">是否由维护窗口显式允许受控迁移</param>
     /// <returns>初始化是否成功</returns>
-    public static async Task<bool> InitializeAsync(AppDbContext context)
+    public static async Task<bool> InitializeAsync(
+        AppDbContext context,
+        bool allowControlledMigrations = false)
     {
         try
         {
             // 获取待执行的迁移
-            var pendingMigrations = await context.Database.GetPendingMigrationsAsync();
+            var pendingMigrations = (await context.Database.GetPendingMigrationsAsync()).ToArray();
+            var appliedMigrations = (await context.Database.GetAppliedMigrationsAsync()).ToArray();
+
+            EnsureControlledMigrationPolicy(appliedMigrations, pendingMigrations, allowControlledMigrations);
 
             if (pendingMigrations.Any())
             {
@@ -39,12 +47,16 @@ public static class DatabaseInitializer
     /// 初始化数据库（同步版本）
     /// </summary>
     /// <param name="context">数据库上下文</param>
+    /// <param name="allowControlledMigrations">是否由维护窗口显式允许受控迁移</param>
     /// <returns>初始化是否成功</returns>
-    public static bool Initialize(AppDbContext context)
+    public static bool Initialize(AppDbContext context, bool allowControlledMigrations = false)
     {
         try
         {
-            var pendingMigrations = context.Database.GetPendingMigrations();
+            var pendingMigrations = context.Database.GetPendingMigrations().ToArray();
+            var appliedMigrations = context.Database.GetAppliedMigrations().ToArray();
+
+            EnsureControlledMigrationPolicy(appliedMigrations, pendingMigrations, allowControlledMigrations);
 
             if (pendingMigrations.Any())
             {
@@ -56,6 +68,23 @@ public static class DatabaseInitializer
         catch (Exception)
         {
             throw;
+        }
+    }
+
+    public static void EnsureControlledMigrationPolicy(
+        IReadOnlyCollection<string> appliedMigrations,
+        IReadOnlyCollection<string> pendingMigrations,
+        bool allowControlledMigrations)
+    {
+        // 全新空库不存在历史数据和在线 DDL 风险，可一次性建立最终结构。
+        var existingDatabaseUpgrade = appliedMigrations.Count > 0;
+        if (existingDatabaseUpgrade &&
+            !allowControlledMigrations &&
+            pendingMigrations.Contains(ControlledCollationMigrationId, StringComparer.Ordinal))
+        {
+            throw new ControlledDatabaseMigrationRequiredException(
+                $"检测到受控迁移 {ControlledCollationMigrationId}。API 启动不会自动执行全表排序规则重写；" +
+                "请先备份并停止 API 副本，再使用同一镜像执行 --migrate-only，完成后再启动服务。");
         }
     }
 
@@ -99,3 +128,5 @@ public static class DatabaseInitializer
         return await context.Database.GetPendingMigrationsAsync();
     }
 }
+
+public sealed class ControlledDatabaseMigrationRequiredException(string message) : InvalidOperationException(message);

@@ -18,6 +18,18 @@ public sealed class EnforceDatabaseCollation : Migration
         migrationBuilder.Sql(
             "ALTER DATABASE CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
 
+        // MySQL DDL 会隐式提交，不能依赖 EF 事务回滚。进度表使维护窗口中断后可从
+        // 未完成表继续，避免对已经成功转换的大表重复执行昂贵的 ALTER TABLE。
+        migrationBuilder.Sql(
+            """
+            CREATE TABLE IF NOT EXISTS `__ControlledMigrationProgress` (
+                `MigrationId` varchar(150) NOT NULL,
+                `ObjectName` varchar(150) NOT NULL,
+                `CompletedAt` datetime(6) NOT NULL,
+                PRIMARY KEY (`MigrationId`, `ObjectName`)
+            ) CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """);
+
         // ALTER DATABASE 只影响后续新建对象。历史表可能已经继承 MySQL 8 的
         // utf8mb4_0900_ai_ci，因此必须显式转换当前模型中的所有表。
         string[] tables =
@@ -55,8 +67,26 @@ public sealed class EnforceDatabaseCollation : Migration
         foreach (var table in tables)
         {
             migrationBuilder.Sql(
-                $"ALTER TABLE `{table}` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+                $"""
+                SET @controlled_ddl = IF(
+                    EXISTS(
+                        SELECT 1 FROM `__ControlledMigrationProgress`
+                        WHERE `MigrationId` = '20260711010000_EnforceDatabaseCollation'
+                          AND `ObjectName` = '{table}'
+                    ),
+                    'SELECT 1',
+                    'ALTER TABLE `{table}` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
+                );
+                PREPARE controlled_stmt FROM @controlled_ddl;
+                EXECUTE controlled_stmt;
+                DEALLOCATE PREPARE controlled_stmt;
+                INSERT IGNORE INTO `__ControlledMigrationProgress` (`MigrationId`, `ObjectName`, `CompletedAt`)
+                VALUES ('20260711010000_EnforceDatabaseCollation', '{table}', UTC_TIMESTAMP(6));
+                """);
         }
+
+        // 保留极小的进度表：若所有 ALTER 已完成但 EF 写迁移历史时进程退出，
+        // 下一次维护模式运行仍能跳过已经完成的全表转换。
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)

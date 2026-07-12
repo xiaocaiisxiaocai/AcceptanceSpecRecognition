@@ -23,6 +23,7 @@ import {
   onAuthSessionEvent,
   publishAuthSessionEvent
 } from "@/utils/auth-session-events";
+import { isRefreshSessionInvalidError } from "@/utils/auth-refresh-error";
 
 let sessionEventsInitialized = false;
 let refreshPromise: Promise<RefreshTokenResult> | undefined;
@@ -180,7 +181,9 @@ export const useUserStore = defineStore("pure-user", {
         return data;
       })
         .catch(error => {
-          publishAuthSessionEvent("session-invalidated");
+          if (isRefreshSessionInvalidError(error)) {
+            publishAuthSessionEvent("session-invalidated");
+          }
           throw error;
         })
         .finally(() => {
@@ -194,8 +197,10 @@ export const useUserStore = defineStore("pure-user", {
       try {
         const result = await this.handRefreshToken();
         return Boolean(result?.success);
-      } catch {
-        removeToken();
+      } catch (error) {
+        if (isRefreshSessionInvalidError(error)) {
+          removeToken();
+        }
         return false;
       }
     },
