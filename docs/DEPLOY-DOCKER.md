@@ -55,7 +55,36 @@ docker compose run --rm --no-deps api --migrate-only
 docker compose up -d api
 ```
 
-预检读取全局活动事务和锁等待，因此必须在 MySQL 容器内使用具备 `PROCESS` 权限的管理账号；不要给日常应用账号追加该权限。预检会拒绝存在活动事务、锁等待或目标排序规则唯一键冲突的数据库，并输出数据库估算字节数。宿主机/MySQL 表空间可用空间仍须由运维确认至少覆盖数据库当前体积与备份；空间不足时不得执行。迁移使用持久化进度标记，非事务性 DDL 中断后可在排除磁盘、锁或数据冲突后重复运行同一条 `--migrate-only` 命令恢复。不要同时启动多个迁移容器。
+Windows PowerShell 5.1 不得使用 `Get-Content ... | docker exec -i ...` 传入该 UTF-8 SQL 文件；无 BOM 文件可能被按本地代码页解码，使注释与 SQL 行边界损坏。应原样复制到 MySQL 容器后执行，并在删除临时文件前保存退出码：
+
+```powershell
+$preflightContainerPath = "/tmp/preflight-collation-$([Guid]::NewGuid().ToString('N')).sql"
+
+docker compose --env-file .env.docker stop api
+if ($LASTEXITCODE -ne 0) { throw "failed to stop api" }
+
+$cleanupExit = $null
+try {
+  docker cp .\deploy\preflight-collation-migration.sql "acceptance-mysql:$preflightContainerPath"
+  if ($LASTEXITCODE -ne 0) { throw "failed to copy collation preflight" }
+
+  docker exec -e "PREFLIGHT_SQL_PATH=$preflightContainerPath" acceptance-mysql sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" < "$PREFLIGHT_SQL_PATH"'
+  if ($LASTEXITCODE -ne 0) { throw "collation preflight failed" }
+}
+finally {
+  docker exec acceptance-mysql rm -f $preflightContainerPath
+  $cleanupExit = $LASTEXITCODE
+}
+if ($cleanupExit -ne 0) { throw "failed to clean collation preflight" }
+
+docker compose --env-file .env.docker run --rm --no-deps api --migrate-only
+if ($LASTEXITCODE -ne 0) { throw "controlled migration failed" }
+
+docker compose --env-file .env.docker up -d api
+if ($LASTEXITCODE -ne 0) { throw "failed to start api" }
+```
+
+预检读取全局活动事务和锁等待，因此必须在 MySQL 容器内使用具备 `PROCESS` 权限的管理账号；不要给日常应用账号追加该权限。预检会拒绝存在活动事务、锁等待或目标排序规则唯一键冲突的数据库，并输出数据库估算字节数。宿主机/MySQL 表空间可用空间仍须由运维确认至少覆盖数据库当前体积与备份；空间不足时不得执行。`--migrate-only` 会将数据库命令超时临时提高到 30 分钟，正常 API 运行仍保持默认短超时。迁移使用持久化进度标记，非事务性 DDL 中断后可在排除磁盘、锁或数据冲突后重复运行同一条 `--migrate-only` 命令恢复。不要同时启动多个迁移容器。
 
 ## 4. 访问地址
 

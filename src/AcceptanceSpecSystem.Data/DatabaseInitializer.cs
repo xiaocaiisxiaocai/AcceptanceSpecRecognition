@@ -9,6 +9,7 @@ namespace AcceptanceSpecSystem.Data;
 public static class DatabaseInitializer
 {
     public const string ControlledCollationMigrationId = "20260711010000_EnforceDatabaseCollation";
+    public const int ControlledMigrationCommandTimeoutSeconds = 1800;
 
     /// <summary>
     /// 初始化数据库（应用所有待执行的迁移）
@@ -20,6 +21,10 @@ public static class DatabaseInitializer
         AppDbContext context,
         bool allowControlledMigrations = false)
     {
+        using var commandTimeoutScope = CreateControlledMigrationCommandTimeoutScope(
+            context,
+            allowControlledMigrations);
+
         try
         {
             // 获取待执行的迁移
@@ -51,6 +56,10 @@ public static class DatabaseInitializer
     /// <returns>初始化是否成功</returns>
     public static bool Initialize(AppDbContext context, bool allowControlledMigrations = false)
     {
+        using var commandTimeoutScope = CreateControlledMigrationCommandTimeoutScope(
+            context,
+            allowControlledMigrations);
+
         try
         {
             var pendingMigrations = context.Database.GetPendingMigrations().ToArray();
@@ -68,6 +77,38 @@ public static class DatabaseInitializer
         catch (Exception)
         {
             throw;
+        }
+    }
+
+    internal static IDisposable? CreateControlledMigrationCommandTimeoutScope(
+        AppDbContext context,
+        bool allowControlledMigrations)
+    {
+        if (!allowControlledMigrations)
+        {
+            return null;
+        }
+
+        var originalCommandTimeout = context.Database.GetCommandTimeout();
+        context.Database.SetCommandTimeout(ControlledMigrationCommandTimeoutSeconds);
+        return new CommandTimeoutScope(context, originalCommandTimeout);
+    }
+
+    private sealed class CommandTimeoutScope(
+        AppDbContext context,
+        int? originalCommandTimeout) : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            context.Database.SetCommandTimeout(originalCommandTimeout);
+            _disposed = true;
         }
     }
 
