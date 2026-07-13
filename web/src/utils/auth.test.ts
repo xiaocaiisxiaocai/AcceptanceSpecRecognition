@@ -34,7 +34,8 @@ vi.mock("./permission", () => ({
   hasAllPermissions: vi.fn()
 }));
 
-const { getToken, removeToken, setToken, userKey } = await import("./auth");
+const { getToken, hasBrowserRefreshSession, removeToken, setToken, userKey } =
+  await import("./auth");
 
 describe("browser credential storage", () => {
   beforeEach(() => {
@@ -80,5 +81,16 @@ describe("browser credential storage", () => {
         refreshToken: expect.anything()
       })
     );
+  });
+
+  it("detects the readable CSRF cookie used as the refresh-session marker", () => {
+    expect(hasBrowserRefreshSession("")).toBe(false);
+    expect(hasBrowserRefreshSession("unrelated=value")).toBe(false);
+    expect(hasBrowserRefreshSession("acceptance-csrf-old=value")).toBe(false);
+    expect(
+      hasBrowserRefreshSession(
+        "theme=light; acceptance-csrf=csrf-value; locale=zh-CN"
+      )
+    ).toBe(true);
   });
 });

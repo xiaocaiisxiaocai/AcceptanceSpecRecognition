@@ -17,7 +17,13 @@ import {
 } from "@/api/user";
 import { useMultiTagsStoreHook } from "./multiTags";
 import { usePermissionStoreHook } from "./permission";
-import { type DataInfo, setToken, removeToken, userKey } from "@/utils/auth";
+import {
+  type DataInfo,
+  hasBrowserRefreshSession,
+  setToken,
+  removeToken,
+  userKey
+} from "@/utils/auth";
 import { hasAnyPermission } from "@/utils/permission";
 import {
   onAuthSessionEvent,
@@ -194,6 +200,11 @@ export const useUserStore = defineStore("pure-user", {
     },
     /** 页面启动时通过 HttpOnly RefreshToken Cookie 恢复内存会话。 */
     async restoreSession() {
+      if (!hasBrowserRefreshSession()) {
+        removeToken();
+        return false;
+      }
+
       try {
         const result = await this.handRefreshToken();
         return Boolean(result?.success);

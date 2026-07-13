@@ -20,6 +20,7 @@ export const userKey = "user-info";
 /** Legacy keys are exported only so cleanup/migration code can remove them. */
 export const TokenKey = "authorized-token";
 export const multipleTabsKey = "multiple-tabs";
+export const CsrfCookieName = "acceptance-csrf";
 
 let accessToken = "";
 let accessTokenExpires = 0;
@@ -47,6 +48,16 @@ function normalizeStringValue(value?: string) {
 function removeCookie(name: string) {
   if (typeof document === "undefined") return;
   document.cookie = `${encodeURIComponent(name)}=; Max-Age=0; Path=/; SameSite=Lax`;
+}
+
+/** A readable CSRF cookie is the browser-side marker for a refresh session. */
+export function hasBrowserRefreshSession(
+  cookieSource = typeof document === "undefined" ? "" : document.cookie
+) {
+  const cookiePrefix = `${encodeURIComponent(CsrfCookieName)}=`;
+  return cookieSource
+    .split(";")
+    .some(cookie => cookie.trimStart().startsWith(cookiePrefix));
 }
 
 /** Remove credentials persisted by pre-migration clients. */
