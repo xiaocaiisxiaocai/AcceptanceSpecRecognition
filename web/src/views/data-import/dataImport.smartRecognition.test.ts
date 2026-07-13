@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDataImportPreviewStageText,
   buildDataImportConfigsFromRecognizedTables,
+  canSmartTableBeImported,
   createDataImportSmartSteps,
   createDefaultSelectedSmartTableIndexes,
   filterSelectedSmartTables,
@@ -166,7 +167,7 @@ describe("dataImport.smartRecognition", () => {
     expect(configs[0].excelMapping?.specificationColumn).toBe(3);
   });
 
-  it("跳过 Reject 和缺少任一必填导入列的表", () => {
+  it("跳过 Reject 和缺少项目、规格或验收必填列的表，备注列保持可选", () => {
     const configs = buildDataImportConfigsFromRecognizedTables({
       isExcelFile: false,
       tables: [
@@ -203,13 +204,37 @@ describe("dataImport.smartRecognition", () => {
       ]
     });
 
-    expect(configs.map(item => item.tableIndex)).toEqual([2]);
+    expect(configs.map(item => item.tableIndex)).toEqual([2, 4]);
   });
 
-  it("默认仅选中可导入的识别表", () => {
+  it("手动勾选不等于已具备导入条件", () => {
+    expect(
+      canSmartTableBeImported(
+        recognizedTable({
+          decision: "NeedConfirm",
+          projectColumnIndex: undefined,
+          acceptanceColumnIndex: undefined
+        })
+      )
+    ).toBe(false);
+    expect(
+      canSmartTableBeImported(
+        recognizedTable({
+          decision: "NeedConfirm",
+          remarkColumnIndex: undefined
+        })
+      )
+    ).toBe(true);
+  });
+
+  it("默认仅选中后端明确可直达、推荐且置信度大于 0 的表", () => {
     expect(
       createDefaultSelectedSmartTableIndexes([
-        recognizedTable({ tableIndex: 0, decision: "AutoApply" }),
+        recognizedTable({
+          tableIndex: 0,
+          decision: "AutoApply",
+          recommendation: "Recommended"
+        }),
         recognizedTable({
           tableIndex: 4,
           decision: "NeedConfirm",
@@ -261,10 +286,10 @@ describe("dataImport.smartRecognition", () => {
         recognizedTable({ tableIndex: 2, decision: "Reject" }),
         recognizedTable({ tableIndex: 3, decision: "NeedConfirm" })
       ])
-    ).toEqual([0, 3, 9]);
+    ).toEqual([0]);
   });
 
-  it("仅规格表需要显式确认后才生成导入配置", () => {
+  it("仅规格待确认表可在用户手动选择后生成导入配置", () => {
     const pending = recognizedTable({
       decision: "NeedConfirm",
       projectColumnIndex: null,
@@ -278,7 +303,7 @@ describe("dataImport.smartRecognition", () => {
         tables: [pending],
         tableInfos: [tableInfo(0)]
       })
-    ).toEqual([]);
+    ).toHaveLength(1);
 
     expect(
       buildDataImportConfigsFromRecognizedTables({

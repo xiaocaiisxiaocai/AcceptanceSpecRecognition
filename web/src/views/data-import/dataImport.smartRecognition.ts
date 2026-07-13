@@ -3,6 +3,7 @@ import type { SmartConfigRecognizedTable } from "@/api/smart-config";
 import type { TableImportConfig } from "./dataImport.types";
 import { normalizeExcelMappingByTable } from "./dataImport.helpers";
 import {
+  getSmartStructureImportReadinessReason,
   getRecognizedTableInfo,
   toActualColumnNumber,
   toActualRowNumber
@@ -110,24 +111,22 @@ export const getDataImportPreviewTotalCount = (
   }, 0);
 };
 
-const hasColumnIndex = (value?: number | null): value is number =>
-  value != null;
-
 export const canSmartTableBeImported = (table: SmartConfigRecognizedTable) =>
-  table.decision !== "Reject" &&
-  table.recommendation !== "Skip" &&
-  (!table.isSpecificationOnly || table.decision === "AutoApply") &&
-  (hasColumnIndex(table.projectColumnIndex) || table.isSpecificationOnly) &&
-  hasColumnIndex(table.specificationColumnIndex) &&
-  hasColumnIndex(table.acceptanceColumnIndex) &&
-  hasColumnIndex(table.remarkColumnIndex) &&
-  (table.confidence > 0 || table.isSpecificationOnly);
+  getSmartStructureImportReadinessReason(table) === "";
+
+export const shouldSelectSmartTableByDefault = (
+  table: SmartConfigRecognizedTable
+) =>
+  canSmartTableBeImported(table) &&
+  table.decision === "AutoApply" &&
+  table.recommendation === "Recommended" &&
+  table.confidence > 0;
 
 export const createDefaultSelectedSmartTableIndexes = (
   tables: SmartConfigRecognizedTable[]
 ) =>
   tables
-    .filter(canSmartTableBeImported)
+    .filter(shouldSelectSmartTableByDefault)
     .map(table => table.tableIndex)
     .sort((a, b) => a - b);
 

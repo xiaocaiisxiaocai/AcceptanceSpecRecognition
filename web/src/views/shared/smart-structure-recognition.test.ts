@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSmartConfigConfirmRequest,
+  canSelectSmartStructureTable,
   createSmartStructureSummary,
   formatDisplayIndexFromZeroBased,
   formatDisplayRowRange,
   getRecognizedTableInfo,
   getSmartStructureDecisionTag,
   getSmartStructureFieldLabel,
+  getSmartStructureImportReadinessReason,
+  getSmartStructureImportSelectionDisabledReason,
   toActualColumnNumber,
   toActualRowNumber
 } from "./smart-structure-recognition";
@@ -191,6 +194,37 @@ describe("smart-structure-recognition", () => {
     );
 
     expect(request.remarkColumnIndex).toBeUndefined();
+  });
+
+  it("待确认表缺少必填列时仍可手动勾选，但保持待配置状态", () => {
+    const pendingTable = table({
+      decision: "NeedConfirm",
+      recommendation: "Optional",
+      projectColumnIndex: undefined,
+      acceptanceColumnIndex: undefined
+    });
+
+    expect(canSelectSmartStructureTable(pendingTable)).toBe(true);
+    expect(getSmartStructureImportSelectionDisabledReason(pendingTable)).toBe(
+      ""
+    );
+    expect(getSmartStructureImportReadinessReason(pendingTable)).toBe(
+      "缺少项目列、验收列；请补齐后点击“确认并学习”"
+    );
+  });
+
+  it("后端明确拒绝或建议跳过的表不可手动勾选", () => {
+    const rejectedTable = table({ decision: "Reject" });
+    const skippedTable = table({ recommendation: "Skip" });
+
+    expect(canSelectSmartStructureTable(rejectedTable)).toBe(false);
+    expect(getSmartStructureImportReadinessReason(rejectedTable)).toBe(
+      "后端判定该表不可导入"
+    );
+    expect(canSelectSmartStructureTable(skippedTable)).toBe(false);
+    expect(getSmartStructureImportSelectionDisabledReason(skippedTable)).toBe(
+      "后端建议跳过该表"
+    );
   });
 
   it("转换字段和决策展示标签", () => {

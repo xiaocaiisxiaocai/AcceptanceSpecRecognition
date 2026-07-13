@@ -88,41 +88,6 @@
   gap: 14px;
 }
 
-.smart-confirm-tabs {
-  min-width: 0;
-}
-
-.smart-confirm-tabs :deep(.el-tabs__header) {
-  margin: 0 0 10px;
-}
-
-.smart-confirm-tab-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 210px;
-}
-
-.smart-confirm-tab-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.smart-confirm-tab-status {
-  flex: none;
-  font-size: 11px;
-  color: var(--app-warning);
-}
-
-.smart-confirm-tab-status.is-ready {
-  color: var(--app-success);
-}
-
-.smart-confirm-tab-status.is-skip {
-  color: var(--app-text-secondary);
-}
-
 .mapping-quick-actions {
   display: flex;
   align-items: center;

@@ -27,6 +27,8 @@ const props = defineProps<{
   committedFailedCount: number;
   uploadedFileName?: string;
   tableConfigs: TableImportConfig[];
+  selectedSheetCount?: number;
+  pendingSelectedSheetCount?: number;
   customers: Customer[];
   processes: Process[];
   selectedCustomerId?: number;
@@ -75,6 +77,12 @@ const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 const activeCollapseNames = ref<string[]>([]);
 const hasSpecificationOnlyBackfillTables = computed(() =>
   props.tableConfigs.some(shouldBackfillProjectFromSpecification)
+);
+const effectiveSelectedSheetCount = computed(
+  () => props.selectedSheetCount ?? props.tableConfigs.length
+);
+const effectivePendingSelectedSheetCount = computed(
+  () => props.pendingSelectedSheetCount ?? 0
 );
 </script>
 
@@ -224,6 +232,15 @@ const hasSpecificationOnlyBackfillTables = computed(() =>
       description="仅规格导入会将项目和规格写成同一内容，可能增加跨项目匹配风险；请确认没有独立项目列，再开始导入。"
       class="mb-4"
     />
+    <el-alert
+      v-if="effectivePendingSelectedSheetCount > 0"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="`已勾选 ${effectivePendingSelectedSheetCount} 张待配置 Sheet`"
+      description="请先补齐必填列并点击“确认并学习”；完成前这些 Sheet 不计入预览，也不能开始导入。"
+      class="mb-4"
+    />
     <div class="import-summary-bar">
       <div class="import-summary-bar__meta">
         <span class="import-summary-bar__file" :title="uploadedFileName">
@@ -240,9 +257,13 @@ const hasSpecificationOnlyBackfillTables = computed(() =>
           }}
         </span>
         <span>机型：{{ selectedMachineModelName || "-" }}</span>
-        <span>{{ tableConfigs.length }} 张 Sheet</span>
+        <span>已勾选 {{ effectiveSelectedSheetCount }} 张 Sheet</span>
+        <span v-if="effectivePendingSelectedSheetCount > 0">
+          可导入 {{ tableConfigs.length }} 张，待配置
+          {{ effectivePendingSelectedSheetCount }} 张
+        </span>
         <span class="import-summary-bar__count"
-          >预计 {{ previewDataCount }} 条</span
+          >已配置合计预计 {{ previewDataCount }} 条</span
         >
       </div>
       <div class="import-summary-bar__actions">
@@ -260,7 +281,8 @@ const hasSpecificationOnlyBackfillTables = computed(() =>
           type="primary"
           :loading="importing"
           :disabled="
-            !hasPendingDifferenceConfirmation && previewDataCount === 0
+            effectivePendingSelectedSheetCount > 0 ||
+            (!hasPendingDifferenceConfirmation && previewDataCount === 0)
           "
           @click="emit('import')"
         >
@@ -429,7 +451,7 @@ const hasSpecificationOnlyBackfillTables = computed(() =>
       <el-collapse-item name="preview-list">
         <template #title>
           <div class="collapse-title">
-            <span>待导入清单</span>
+            <span>待导入清单（已配置 Sheet 合计）</span>
             <span class="collapse-subtitle">
               当前保留 {{ previewDataCount }} 条
               <template v-if="removedPreviewRowCount > 0">

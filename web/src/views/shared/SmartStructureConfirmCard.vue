@@ -27,6 +27,8 @@ const props = defineProps<{
   defaultExpanded?: boolean;
   importSelected?: boolean;
   importSelectable?: boolean;
+  selectionDisabledReason?: string;
+  selectionPendingReason?: string;
 }>();
 
 const emit = defineEmits<{
@@ -276,6 +278,20 @@ const emitConfirm = () => {
           排序分 {{ formatSmartStructurePercent(table.rankingScore) }}
         </span>
       </div>
+    </div>
+
+    <div
+      v-if="!readonly && importSelectable === false && selectionDisabledReason"
+      class="selection-disabled-hint"
+    >
+      暂不可导入：{{ selectionDisabledReason }}
+    </div>
+
+    <div
+      v-if="!readonly && importSelected && selectionPendingReason"
+      class="selection-pending-hint"
+    >
+      已勾选，待配置：{{ selectionPendingReason }}
     </div>
 
     <div v-show="!detailVisible" class="card-summary-strip">
@@ -555,6 +571,17 @@ const emitConfirm = () => {
   justify-content: flex-end;
   font-size: 12px;
   color: var(--app-text-secondary);
+}
+
+.selection-disabled-hint,
+.selection-pending-hint {
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-warning);
+  background: var(--app-warning-bg);
+  border-radius: 6px;
 }
 
 .card-summary-strip {

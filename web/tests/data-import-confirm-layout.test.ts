@@ -15,6 +15,10 @@ const confirmCardSource = readFileSync(
   resolve(process.cwd(), "web/src/views/shared/SmartStructureConfirmCard.vue"),
   "utf8"
 );
+const confirmTabsSource = readFileSync(
+  resolve(process.cwd(), "web/src/views/shared/SmartStructureConfirmTabs.vue"),
+  "utf8"
+);
 const dataImportSource = readFileSync(
   resolve(process.cwd(), "web/src/views/data-import/index.vue"),
   "utf8"
@@ -165,6 +169,17 @@ test("识别失败应保留错误信息并提供重新识别入口", () => {
   );
 });
 
+test("上传目标区域的智能识别入口应复用下一步流程，识别成功后进入确认页", () => {
+  assert.match(
+    dataImportSource,
+    /class="smart-entry-actions"[\s\S]*@click="goNext"[\s\S]*智能识别结构/
+  );
+  assert.doesNotMatch(
+    dataImportSource,
+    /class="smart-entry-actions"[\s\S]*@click="runSmartStructureRecognition"[\s\S]*智能识别结构/
+  );
+});
+
 test("两处确认卡片调用均应传递来源文件编号", () => {
   const smartFillSource = readFileSync(
     resolve(process.cwd(), "web/src/views/smart-fill/index.vue"),
@@ -173,11 +188,11 @@ test("两处确认卡片调用均应传递来源文件编号", () => {
 
   assert.match(
     dataImportSource,
-    /<SmartStructureConfirmCard[\s\S]*:file-id="uploadedFile\?\.fileId"/
+    /<SmartStructureConfirmTabs[\s\S]*:file-id="uploadedFile\?\.fileId"/
   );
   assert.match(
     smartFillSource,
-    /<SmartStructureConfirmCard[\s\S]*:file-id="uploadedFile\?\.fileId"/
+    /<SmartStructureConfirmTabs[\s\S]*:file-id="uploadedFile\?\.fileId"/
   );
 });
 
@@ -185,13 +200,48 @@ test("数据导入确认页默认只展开第一张待确认表，避免多张�
   assert.match(dataImportSource, /firstNeedConfirmTableIndex/);
   assert.match(
     dataImportSource,
-    /:default-expanded="[\s\S]*table\.tableIndex === firstNeedConfirmTableIndex[\s\S]*"/
+    /:default-expanded-table-index="firstNeedConfirmTableIndex"/
   );
 });
 
 test("智能确认卡片应提供 Sheet 是否参与导入的勾选入口", () => {
   assert.match(confirmCardSource, /importSelected\?: boolean/);
   assert.match(confirmCardSource, /<el-checkbox/);
+  assert.match(confirmTabsSource, /selectedTableIndexes/);
   assert.match(dataImportSource, /selectedSmartTableIndexes/);
   assert.match(dataImportSource, /handleSmartTableImportSelectionChange/);
+});
+
+test("数据导入与智能填充应复用同一套识别结果 Tab", () => {
+  const smartFillSource = readFileSync(
+    resolve(process.cwd(), "web/src/views/smart-fill/index.vue"),
+    "utf8"
+  );
+
+  assert.match(dataImportSource, /<SmartStructureConfirmTabs/);
+  assert.match(smartFillSource, /<SmartStructureConfirmTabs/);
+  assert.match(confirmTabsSource, /createSmartStructureDisplayGroups/);
+});
+
+test("待确认表应可手动勾选，并区分已勾选与已配置汇总", () => {
+  assert.match(confirmCardSource, /selectionDisabledReason\?: string/);
+  assert.match(confirmCardSource, /selectionPendingReason\?: string/);
+  assert.match(confirmCardSource, /暂不可导入/);
+  assert.match(confirmCardSource, /已勾选，待配置/);
+  assert.match(dataImportSource, /当前表未参与本次导入/);
+  assert.match(dataImportSource, /当前表已勾选，仍需配置/);
+  assert.match(dataImportSource, /:pending-selected-sheet-count=/);
+  assert.match(
+    confirmPanelSource,
+    /已勾选 \{\{ effectiveSelectedSheetCount \}\} 张 Sheet/
+  );
+  assert.match(
+    confirmPanelSource,
+    /已配置合计预计 \{\{ previewDataCount \}\} 条/
+  );
+  assert.match(confirmPanelSource, /待导入清单（已配置 Sheet 合计）/);
+  assert.match(
+    confirmPanelSource,
+    /effectivePendingSelectedSheetCount > 0 \|\|/
+  );
 });

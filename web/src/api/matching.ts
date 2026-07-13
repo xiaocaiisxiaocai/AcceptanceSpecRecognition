@@ -327,13 +327,13 @@ export interface BatchTableConfig {
   tableIndex: number;
   /** 批量回复目标表对应的来源表索引（可选） */
   sourceTableIndex?: number;
-  /** 项目列索引 */
+  /** 项目列索引（表格已用区域内 0-based 相对索引） */
   projectColumnIndex: number;
-  /** 规格列索引 */
+  /** 规格列索引（表格已用区域内 0-based 相对索引） */
   specificationColumnIndex: number;
-  /** 验收列索引 */
+  /** 验收列索引（表格已用区域内 0-based 相对索引） */
   acceptanceColumnIndex: number;
-  /** 备注列索引（可选） */
+  /** 备注列索引（表格已用区域内 0-based 相对索引，可选） */
   remarkColumnIndex?: number;
   /** Excel 表头起始行（1-based，可选） */
   headerRowStart?: number;

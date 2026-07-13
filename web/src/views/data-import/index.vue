@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
 import DataImportConfirmPanel from "./components/DataImportConfirmPanel.vue";
@@ -11,9 +11,13 @@ import DataImportStepTarget from "./components/DataImportStepTarget.vue";
 import DataImportStepUpload from "./components/DataImportStepUpload.vue";
 import ExcelColumnMapping from "./components/ExcelColumnMapping.vue";
 import { useDataImportPage } from "./composables/useDataImportPage";
-import SmartStructureConfirmCard from "@/views/shared/SmartStructureConfirmCard.vue";
+import SmartStructureConfirmTabs from "@/views/shared/SmartStructureConfirmTabs.vue";
 import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
-import { createSmartStructureDisplayGroups } from "@/views/shared/smart-structure-recognition";
+import {
+  canSelectSmartStructureTable,
+  getSmartStructureImportReadinessReason,
+  getSmartStructureImportSelectionDisabledReason
+} from "@/views/shared/smart-structure-recognition";
 // 边界说明：useDataImportPage 内部组合 useDataImportMapping、
 // useDataImportPreviewSelection、useDataImportExecution；差异弹窗由
 // DataImportDifferenceConfirmDialog 继续组合 DataImportDifferenceDialog。
@@ -134,34 +138,73 @@ const firstNeedConfirmTableIndex = computed(
     recognizedTables.value.find(table => table.decision === "NeedConfirm")
       ?.tableIndex
 );
-const smartStructureDisplayGroups = computed(() =>
-  createSmartStructureDisplayGroups(recognizedTables.value)
-);
-const smartStructureTabItems = computed(() =>
-  smartStructureDisplayGroups.value.flatMap(group => group.tables)
-);
 const activeSmartStructureTab = ref<number | undefined>();
-
-watch(
-  smartStructureTabItems,
-  tables => {
-    if (!tables.length) {
-      activeSmartStructureTab.value = undefined;
-      return;
-    }
-
-    if (
-      tables.some(table => table.tableIndex === activeSmartStructureTab.value)
-    ) {
-      return;
-    }
-
-    activeSmartStructureTab.value =
-      tables.find(table => table.decision === "NeedConfirm")?.tableIndex ??
-      tables[0].tableIndex;
-  },
-  { immediate: true }
+const smartStructureSelectableTableIndexes = computed(() =>
+  recognizedTables.value
+    .filter(canSelectSmartStructureTable)
+    .map(table => table.tableIndex)
 );
+const smartStructureSelectionDisabledReasons = computed(() =>
+  Object.fromEntries(
+    recognizedTables.value.map(table => [
+      table.tableIndex,
+      getSmartStructureImportSelectionDisabledReason(table)
+    ])
+  )
+);
+const smartStructureSelectionPendingReasons = computed(() =>
+  Object.fromEntries(
+    recognizedTables.value.map(table => [
+      table.tableIndex,
+      getSmartStructureImportReadinessReason(table)
+    ])
+  )
+);
+const pendingSelectedSmartTableCount = computed(
+  () =>
+    recognizedTables.value.filter(
+      table =>
+        selectedSmartTableIndexes.value.includes(table.tableIndex) &&
+        getSmartStructureImportReadinessReason(table) !== ""
+    ).length
+);
+const activeSmartStructureTable = computed(() =>
+  recognizedTables.value.find(
+    table => table.tableIndex === activeSmartStructureTab.value
+  )
+);
+const activeSmartStructureTableSelected = computed(
+  () =>
+    activeSmartStructureTable.value != null &&
+    selectedSmartTableIndexes.value.includes(
+      activeSmartStructureTable.value.tableIndex
+    )
+);
+const activeSmartStructureReadinessReason = computed(() => {
+  const table = activeSmartStructureTable.value;
+  return table ? getSmartStructureImportReadinessReason(table) : "";
+});
+const activeSmartStructureScopeTitle = computed(() =>
+  activeSmartStructureTableSelected.value &&
+  activeSmartStructureReadinessReason.value
+    ? "当前表已勾选，仍需配置"
+    : "当前表未参与本次导入"
+);
+const activeSmartStructureScopeDescription = computed(() => {
+  const table = activeSmartStructureTable.value;
+  if (!table) return "";
+
+  if (
+    activeSmartStructureTableSelected.value &&
+    activeSmartStructureReadinessReason.value
+  ) {
+    return `${activeSmartStructureReadinessReason.value}。补齐并确认前不计入下方导入汇总，也不能开始导入。`;
+  }
+
+  const reason = getSmartStructureImportSelectionDisabledReason(table);
+  const reasonText = reason ? `${reason}。` : "";
+  return `${reasonText}下方“已配置 Sheet 合计”只统计其他已勾选且完成配置的 Sheet，不包含当前表。`;
+});
 </script>
 
 <template>
@@ -226,7 +269,7 @@ watch(
                   type="primary"
                   :disabled="!uploadedFile || !selectedCustomerId"
                   :loading="smartRecognizing"
-                  @click="runSmartStructureRecognition"
+                  @click="goNext"
                 >
                   {{ smartStageText || "智能识别结构" }}
                 </el-button>
@@ -377,67 +420,36 @@ watch(
             :error="smartRecognitionError"
             @retry="runSmartStructureRecognition"
           />
-          <el-tabs
-            v-if="smartStructureTabItems.length > 0"
-            v-model="activeSmartStructureTab"
-            class="smart-confirm-tabs"
-          >
-            <el-tab-pane
-              v-for="table in smartStructureTabItems"
-              :key="table.tableIndex"
-              :name="table.tableIndex"
-            >
-              <template #label>
-                <span class="smart-confirm-tab-label">
-                  <span class="smart-confirm-tab-name">
-                    {{ table.tableName || `工作表 ${table.tableIndex + 1}` }}
-                  </span>
-                  <span
-                    class="smart-confirm-tab-status"
-                    :class="{
-                      'is-ready': table.decision === 'AutoApply',
-                      'is-skip': table.decision === 'Reject'
-                    }"
-                  >
-                    {{
-                      table.decision === "AutoApply"
-                        ? "可导入"
-                        : table.decision === "Reject"
-                          ? "跳过"
-                          : "待确认"
-                    }}
-                  </span>
-                </span>
-              </template>
-              <SmartStructureConfirmCard
-                :table="table"
-                :file-id="uploadedFile?.fileId"
-                :customer-id="selectedCustomerId"
-                :confirming="smartConfirmingTableIndex === table.tableIndex"
-                :import-selected="
-                  selectedSmartTableIndexes.includes(table.tableIndex)
-                "
-                :import-selectable="
-                  table.decision !== 'Reject' &&
-                  (table.projectColumnIndex != null ||
-                    table.isSpecificationOnly) &&
-                  table.specificationColumnIndex != null &&
-                  table.acceptanceColumnIndex != null &&
-                  table.remarkColumnIndex != null
-                "
-                :default-expanded="
-                  table.tableIndex === firstNeedConfirmTableIndex
-                "
-                @confirm="
-                  request => handleSmartStructureConfirm(table, request)
-                "
-                @advanced="() => enterAdvancedMode('mapping')"
-                @update:import-selected="
-                  value => handleSmartTableImportSelectionChange(table, value)
-                "
-              />
-            </el-tab-pane>
-          </el-tabs>
+          <SmartStructureConfirmTabs
+            v-model:active-table-index="activeSmartStructureTab"
+            :tables="recognizedTables"
+            :selected-table-indexes="selectedSmartTableIndexes"
+            :selectable-table-indexes="smartStructureSelectableTableIndexes"
+            :selection-disabled-reasons="smartStructureSelectionDisabledReasons"
+            :selection-pending-reasons="smartStructureSelectionPendingReasons"
+            :file-id="uploadedFile?.fileId"
+            :customer-id="selectedCustomerId"
+            :confirming-table-index="smartConfirmingTableIndex"
+            :default-expanded-table-index="firstNeedConfirmTableIndex"
+            ready-label="可导入"
+            unavailable-label="跳过"
+            @confirm="handleSmartStructureConfirm"
+            @advanced="() => enterAdvancedMode('mapping')"
+            @update:table-selected="handleSmartTableImportSelectionChange"
+          />
+          <el-alert
+            v-if="
+              activeSmartStructureTable &&
+              (!activeSmartStructureTableSelected ||
+                activeSmartStructureReadinessReason)
+            "
+            :type="activeSmartStructureTableSelected ? 'warning' : 'info'"
+            :closable="false"
+            show-icon
+            :title="activeSmartStructureScopeTitle"
+            :description="activeSmartStructureScopeDescription"
+            class="smart-import-scope-alert"
+          />
           <DataImportConfirmPanel
             v-model:preview-skipped-rows="previewSkippedRows"
             :import-result="importResult"
@@ -459,6 +471,8 @@ watch(
             :committed-failed-count="committedImportAggregate?.failedCount || 0"
             :uploaded-file-name="uploadedFile?.fileName"
             :table-configs="tableConfigs"
+            :selected-sheet-count="selectedSmartTableIndexes.length"
+            :pending-selected-sheet-count="pendingSelectedSmartTableCount"
             :customers="customers"
             :processes="processes"
             :selected-customer-id="selectedCustomerId"

@@ -9,7 +9,7 @@ import SmartFillPreviewStep from "./components/SmartFillPreviewStep.vue";
 import SmartFillSteps from "./components/SmartFillSteps.vue";
 import SmartFillTableStep from "./components/SmartFillTableStep.vue";
 import SmartFillUploadStep from "./components/SmartFillUploadStep.vue";
-import SmartStructureConfirmCard from "@/views/shared/SmartStructureConfirmCard.vue";
+import SmartStructureConfirmTabs from "@/views/shared/SmartStructureConfirmTabs.vue";
 import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
 import type { BatchTableConfigItem } from "./components/batchTableConfig.types";
 import {
@@ -45,12 +45,14 @@ import { useSmartFillPreviewRequest } from "./composables/useSmartFillPreviewReq
 import { useSmartFillExecution } from "./composables/useSmartFillExecution";
 import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTables";
 import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
-import { createSmartStructureDisplayGroups } from "@/views/shared/smart-structure-recognition";
+import { getSmartStructureImportSelectionDisabledReason } from "@/views/shared/smart-structure-recognition";
 import {
   buildSmartFillConfigsFromRecognizedTables,
+  canContinueFromSmartRecognition,
   createSmartFillSmartSteps,
   getSmartFillPrevStepState
 } from "./smartFill.smartRecognition";
+import type { SmartFillScope } from "./smartFillExecution.helpers";
 
 defineOptions({ name: "FillData" });
 
@@ -110,6 +112,11 @@ const loading = ref(false);
 const selectedTableCount = computed(
   () => batchTableConfigs.value.filter(t => t.selected).length
 );
+const selectedTableIndexes = computed(() =>
+  batchTableConfigs.value
+    .filter(table => table.selected)
+    .map(table => table.tableIndex)
+);
 const {
   previewElapsedSeconds,
   previewProgress,
@@ -136,11 +143,7 @@ const getEffectiveFilterEmptySourceRows = (tableConfig: {
 const detailVisible = ref(false);
 const detailItem = ref<MatchPreviewItem | null>(null);
 
-const matchScope = ref<{
-  customerId?: number;
-  processId?: number;
-  machineModelId?: number;
-}>({
+const matchScope = ref<SmartFillScope>({
   customerId: undefined,
   processId: undefined,
   machineModelId: undefined
@@ -410,14 +413,34 @@ watch(currentStep, step => {
 });
 
 // 计算属性
+const canContinueSmartRecognition = computed(() =>
+  canContinueFromSmartRecognition(
+    recognizedTables.value,
+    selectedTableIndexes.value
+  )
+);
+const smartFillPrimaryActionText = computed(() => {
+  if (advancedMode.value || currentStep.value !== 0) return "下一步";
+  if (recognizedTables.value.length === 0) return "识别并配置";
+  if (!canContinueSmartRecognition.value) return "请先确认列配置";
+  return "下一步：匹配配置";
+});
 const canGoNext = computed(() => {
   if (!advancedMode.value) {
     switch (currentStep.value) {
       case 0:
+        if (
+          !(
+            uploadedFile.value !== null &&
+            !!matchScope.value.customerId &&
+            !loadingUploadedFileTables.value
+          )
+        ) {
+          return false;
+        }
         return (
-          uploadedFile.value !== null &&
-          !!matchScope.value.customerId &&
-          !loadingUploadedFileTables.value
+          recognizedTables.value.length === 0 ||
+          canContinueSmartRecognition.value
         );
       case 1:
         return selectedTableCount.value > 0;
@@ -496,7 +519,6 @@ const runSmartStructureRecognition = async () => {
   }
 
   batchTableConfigs.value = configs;
-  currentStep.value = 1;
 };
 
 const firstNeedConfirmTableIndex = computed(
@@ -504,9 +526,28 @@ const firstNeedConfirmTableIndex = computed(
     recognizedTables.value.find(table => table.decision === "NeedConfirm")
       ?.tableIndex ?? null
 );
-const smartStructureDisplayGroups = computed(() =>
-  createSmartStructureDisplayGroups(recognizedTables.value)
+const activeSmartStructureTab = ref<number | undefined>();
+const smartFillSelectableTableIndexes = computed(() =>
+  batchTableConfigs.value.map(config => config.tableIndex)
 );
+const smartFillSelectionDisabledReasons = computed(() =>
+  Object.fromEntries(
+    recognizedTables.value.map(table => [
+      table.tableIndex,
+      getSmartStructureImportSelectionDisabledReason(table) ||
+        "当前结构无法生成填充配置，请先确认列配置"
+    ])
+  )
+);
+
+const handleRecognizedTableSelectionChange = (
+  tableIndex: number,
+  selected: boolean
+) => {
+  batchTableConfigs.value = batchTableConfigs.value.map(config =>
+    config.tableIndex === tableIndex ? { ...config, selected } : config
+  );
+};
 
 const replaceRecognizedTableWithConfirmRequest = (
   table: SmartConfigRecognizedTable,
@@ -542,11 +583,17 @@ const handleSmartStructureConfirm = async (
   if (!replaceRecognizedTables(nextTables, request.fileId)) {
     return;
   }
+  const selectedState = new Map(
+    batchTableConfigs.value.map(config => [config.tableIndex, config.selected])
+  );
   batchTableConfigs.value = buildSmartFillConfigsFromRecognizedTables({
     isExcelFile: isExcelFile.value,
     tables: nextTables,
     tableInfos: allTables.value
-  });
+  }).map(config => ({
+    ...config,
+    selected: selectedState.get(config.tableIndex) ?? config.selected
+  }));
 };
 
 const enterAdvancedMode = () => {
@@ -578,7 +625,13 @@ const toggleBackfillCandidates = (checked: boolean) => {
 // 步骤切换
 const goNext = () => {
   if (!advancedMode.value && currentStep.value === 0) {
-    void runSmartStructureRecognition();
+    if (recognizedTables.value.length === 0) {
+      void runSmartStructureRecognition();
+      return;
+    }
+    if (canContinueSmartRecognition.value) {
+      currentStep.value = 1;
+    }
     return;
   }
 
@@ -748,40 +801,26 @@ const handleRestart = () => {
               :error="smartRecognitionError"
               @retry="runSmartStructureRecognition"
             />
-            <div
-              v-if="recognizedTables.length > 0"
-              class="smart-fill-confirm-list"
-            >
-              <section
-                v-for="group in smartStructureDisplayGroups"
-                :key="group.key"
-                class="smart-fill-confirm-group"
-              >
-                <div class="smart-fill-confirm-group-title">
-                  <el-tag size="small" :type="group.tagType" effect="plain">
-                    {{ group.title }}
-                  </el-tag>
-                  <span>{{ group.tables.length }} 张</span>
-                </div>
-                <SmartStructureConfirmCard
-                  v-for="table in group.tables"
-                  :key="table.tableIndex"
-                  :table="table"
-                  :file-id="uploadedFile?.fileId"
-                  :customer-id="matchScope.customerId"
-                  :confirming="smartConfirmingTableIndex === table.tableIndex"
-                  :import-selected="table.recommendation !== 'Skip'"
-                  :import-selectable="false"
-                  :default-expanded="
-                    table.tableIndex === firstNeedConfirmTableIndex
-                  "
-                  @confirm="
-                    request => handleSmartStructureConfirm(table, request)
-                  "
-                  @advanced="enterAdvancedMode"
-                />
-              </section>
-            </div>
+            <SmartStructureConfirmTabs
+              v-model:active-table-index="activeSmartStructureTab"
+              :tables="recognizedTables"
+              :selected-table-indexes="selectedTableIndexes"
+              :selectable-table-indexes="smartFillSelectableTableIndexes"
+              :selection-disabled-reasons="smartFillSelectionDisabledReasons"
+              :file-id="uploadedFile?.fileId"
+              :customer-id="matchScope.customerId"
+              :confirming-table-index="smartConfirmingTableIndex"
+              :default-expanded-table-index="firstNeedConfirmTableIndex"
+              @confirm="handleSmartStructureConfirm"
+              @advanced="enterAdvancedMode"
+              @update:table-selected="
+                (table, selected) =>
+                  handleRecognizedTableSelectionChange(
+                    table.tableIndex,
+                    selected
+                  )
+              "
+            />
             <div class="smart-fill-entry-actions">
               <el-button
                 type="primary"
@@ -793,7 +832,9 @@ const handleRestart = () => {
                 :loading="smartRecognizing"
                 @click="runSmartStructureRecognition"
               >
-                智能识别并配置
+                {{
+                  recognizedTables.length > 0 ? "重新识别" : "智能识别并配置"
+                }}
               </el-button>
               <el-button :disabled="!uploadedFile" @click="enterAdvancedMode">
                 高级手动配置
@@ -824,6 +865,7 @@ const handleRestart = () => {
         :preview-blocking-message="previewBlockingMessage"
         :preview-blocking-hint="previewBlockingHint"
         :scope-summary="selectedScopeSummary"
+        :scope="matchScope"
         @scope-change="handleScopeChange"
       />
 
@@ -883,7 +925,7 @@ const handleRestart = () => {
           :loading="!advancedMode && currentStep === 0 && smartRecognizing"
           @click="goNext"
         >
-          {{ !advancedMode && currentStep === 0 ? "识别并配置" : "下一步" }}
+          {{ smartFillPrimaryActionText }}
         </el-button>
       </div>
     </el-card>

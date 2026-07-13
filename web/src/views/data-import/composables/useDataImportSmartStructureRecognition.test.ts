@@ -133,4 +133,50 @@ describe("useDataImportSmartStructureRecognition", () => {
       dataStartRowIndex: 3
     });
   });
+
+  it("手动勾选缺少必填列的待确认 Sheet 时保留勾选状态但不生成导入配置", async () => {
+    const pendingTable: SmartConfigRecognizedTable = {
+      ...oldTable,
+      decision: "NeedConfirm",
+      recommendation: "Optional",
+      projectColumnIndex: undefined,
+      acceptanceColumnIndex: undefined
+    };
+    apiMocks.recognizeSmartConfig.mockResolvedValue({
+      code: 0,
+      data: { fileId: 7, tables: [pendingTable] }
+    });
+
+    const tableConfigs = ref<any[]>([]);
+    const selectedSmartTableIndexes = ref<number[]>([]);
+    const state = useDataImportSmartStructureRecognition({
+      uploadedFile: ref({
+        fileId: 7,
+        fileName: "test.xlsx",
+        fileType: 1,
+        fileHash: "hash",
+        isDuplicate: false,
+        tableCount: 1,
+        tableCountReady: true
+      }),
+      selectedCustomerId: ref(1),
+      isExcelFile: ref(false),
+      currentStep: ref(1),
+      tableConfigs,
+      selectedTableIndexes: ref<number[]>([]),
+      selectedTables: ref<any[]>([]),
+      activeTableIndex: ref<number | null>(null),
+      importPreviewSelectionKeys: ref<string[]>([]),
+      excludedRowIndexMap: ref<Record<number, number[]>>({}),
+      smartStageText: ref(""),
+      selectedSmartTableIndexes,
+      ensurePreviewDataLoaded: vi.fn().mockResolvedValue(true)
+    });
+
+    await state.runSmartStructureRecognition();
+    await state.handleSmartTableImportSelectionChange(pendingTable, true);
+
+    expect(selectedSmartTableIndexes.value).toEqual([0]);
+    expect(tableConfigs.value).toEqual([]);
+  });
 });

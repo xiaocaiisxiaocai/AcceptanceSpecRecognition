@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import MatchConfig from "./MatchConfig.vue";
 import type { MatchConfig as MatchConfigType } from "@/api/matching";
+import type { SmartFillScope } from "../smartFillExecution.helpers";
 
 defineProps<{
   matchConfig: MatchConfigType;
@@ -9,6 +10,7 @@ defineProps<{
   previewBlockingMessage: string;
   previewBlockingHint: string;
   scopeSummary?: string;
+  scope?: SmartFillScope;
 }>();
 
 const emit = defineEmits<{
@@ -72,6 +74,7 @@ const handleScopeChange = (
       ref="matchConfigRef"
       :model-value="matchConfig"
       :allow-llm="canLlmStream"
+      :scope="scope"
       @update:model-value="emit('update:matchConfig', $event)"
       @scope-change="handleScopeChange"
     />

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSmartFillConfigsFromRecognizedTables,
+  canContinueFromSmartRecognition,
   createSmartFillSmartSteps,
-  getSmartFillPrevStepState
+  getSmartFillPrevStepState,
+  shouldSelectSmartFillTableByDefault
 } from "./smartFill.smartRecognition";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
 import type { TableInfo } from "@/api/document";
@@ -36,6 +38,7 @@ const recognizedTable = (
   confidence: 0.94,
   source: "Rule",
   decision: "AutoApply",
+  recommendation: "Recommended",
   fields: [],
   ...overrides
 });
@@ -71,7 +74,37 @@ describe("smartFill.smartRecognition", () => {
     });
   });
 
-  it("Excel 识别结果转为实际 1-based 行列号", () => {
+  it("仅后端明确判定可直达且推荐的表才默认勾选", () => {
+    expect(
+      shouldSelectSmartFillTableByDefault(
+        recognizedTable({
+          decision: "AutoApply",
+          recommendation: "Recommended",
+          confidence: 0.94
+        })
+      )
+    ).toBe(true);
+    expect(
+      shouldSelectSmartFillTableByDefault(
+        recognizedTable({
+          decision: "NeedConfirm",
+          recommendation: "Optional",
+          confidence: 0
+        })
+      )
+    ).toBe(false);
+    expect(
+      shouldSelectSmartFillTableByDefault(
+        recognizedTable({
+          decision: "AutoApply",
+          recommendation: "Recommended",
+          confidence: 0
+        })
+      )
+    ).toBe(false);
+  });
+
+  it("Excel 匹配列保持 0-based 相对索引，仅行号转为工作表绝对行号", () => {
     const configs = buildSmartFillConfigsFromRecognizedTables({
       isExcelFile: true,
       tables: [recognizedTable({})],
@@ -79,14 +112,41 @@ describe("smartFill.smartRecognition", () => {
     });
 
     expect(configs[0]).toMatchObject({
-      projectColumnIndex: 3,
-      specificationColumnIndex: 4,
-      acceptanceColumnIndex: 5,
-      remarkColumnIndex: 6,
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 2,
+      remarkColumnIndex: 3,
       headerRowStart: 2,
       headerRowCount: 1,
       dataStartRow: 3
     });
+  });
+
+  it("识别结果应留在当前页复核，只有全部无需确认时才允许进入匹配配置", () => {
+    expect(canContinueFromSmartRecognition([recognizedTable({})], [0])).toBe(
+      true
+    );
+    expect(
+      canContinueFromSmartRecognition(
+        [recognizedTable({ decision: "NeedConfirm" })],
+        [0]
+      )
+    ).toBe(false);
+    expect(canContinueFromSmartRecognition([recognizedTable({})], [])).toBe(
+      false
+    );
+  });
+
+  it("取消勾选的待确认表不应继续阻塞已选表进入匹配配置", () => {
+    expect(
+      canContinueFromSmartRecognition(
+        [
+          recognizedTable({ tableIndex: 0 }),
+          recognizedTable({ tableIndex: 1, decision: "NeedConfirm" })
+        ],
+        [0]
+      )
+    ).toBe(true);
   });
 
   it("仅规格模式允许缺少项目列并跳过不可用表", () => {

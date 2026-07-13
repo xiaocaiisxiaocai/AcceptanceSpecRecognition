@@ -19,10 +19,12 @@ import {
 import { ElMessage } from "element-plus";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import { loadAllPagedItems } from "@/utils/paged-options";
+import type { SmartFillScope } from "../smartFillExecution.helpers";
 
 const props = defineProps<{
   modelValue?: MatchConfig;
   allowLlm?: boolean;
+  scope?: SmartFillScope;
 }>();
 
 const emit = defineEmits<{
@@ -45,6 +47,7 @@ const machineModels = ref<MachineModel[]>([]);
 const selectedCustomerId = ref<number | undefined>(undefined);
 const selectedProcessId = ref<number | undefined>(undefined);
 const selectedMachineModelId = ref<number | undefined>(undefined);
+let syncingScopeFromParent = false;
 const loadingCustomers = ref(false);
 const loadingProcesses = ref(false);
 const loadingMachineModels = ref(false);
@@ -333,35 +336,36 @@ watch(
   }
 );
 
-// 监听客户变化
-watch(selectedCustomerId, () => {
-  emit(
-    "scopeChange",
-    selectedCustomerId.value,
-    selectedProcessId.value,
-    selectedMachineModelId.value
-  );
-});
+watch(
+  () =>
+    [
+      props.scope?.customerId,
+      props.scope?.processId,
+      props.scope?.machineModelId
+    ] as const,
+  ([customerId, processId, machineModelId]) => {
+    syncingScopeFromParent = true;
+    selectedCustomerId.value = customerId;
+    selectedProcessId.value = processId;
+    selectedMachineModelId.value = machineModelId;
+    syncingScopeFromParent = false;
+  },
+  { immediate: true, flush: "sync" }
+);
 
-// 监听制程变化
-watch(selectedProcessId, () => {
-  emit(
-    "scopeChange",
-    selectedCustomerId.value,
-    selectedProcessId.value,
-    selectedMachineModelId.value
-  );
-});
-
-// 监听机型变化
-watch(selectedMachineModelId, () => {
-  emit(
-    "scopeChange",
-    selectedCustomerId.value,
-    selectedProcessId.value,
-    selectedMachineModelId.value
-  );
-});
+watch(
+  [selectedCustomerId, selectedProcessId, selectedMachineModelId],
+  () => {
+    if (syncingScopeFromParent) return;
+    emit(
+      "scopeChange",
+      selectedCustomerId.value,
+      selectedProcessId.value,
+      selectedMachineModelId.value
+    );
+  },
+  { flush: "sync" }
+);
 
 // 重置配置
 const resetConfig = () => {

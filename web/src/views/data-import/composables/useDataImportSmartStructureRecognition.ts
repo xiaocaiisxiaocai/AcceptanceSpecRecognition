@@ -12,6 +12,7 @@ import type {
 import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
 import {
   buildDataImportConfigsFromRecognizedTables,
+  canSmartTableBeImported,
   createDefaultSelectedSmartTableIndexes,
   filterSelectedSmartTables,
   SMART_STEP_CONFIRM_PREVIEW
@@ -132,7 +133,13 @@ export function useDataImportSmartStructureRecognition({
         selectedTableIndexes.value = [];
         selectedTables.value = [];
         activeTableIndex.value = null;
-        ElMessage.warning("未识别到可导入表格，请进入高级手动配置");
+        ElMessage.warning(
+          importTables.length === 0
+            ? "请手动勾选需要导入的 Sheet"
+            : importTables.some(table => !canSmartTableBeImported(table))
+              ? "已勾选的表仍需补齐列配置并确认"
+              : "未识别到可导入表格，请进入高级手动配置"
+        );
         return false;
       }
 

@@ -32,3 +32,11 @@ test("智能填充匹配配置组件不应在模块顶层直接触发加载请�
     /\nloadCustomers\(\);\s*\nloadProcesses\(\);\s*\nloadMachineModels\(\);\s*\nloadAiServices\(\);/
   );
 });
+
+test("智能填充匹配配置应由父页面同步客户、制程和机型范围", () => {
+  assert.match(source, /scope\?: SmartFillScope/);
+  assert.match(source, /props\.scope\?\.customerId/);
+  assert.match(source, /props\.scope\?\.processId/);
+  assert.match(source, /props\.scope\?\.machineModelId/);
+  assert.match(source, /syncingScopeFromParent/);
+});

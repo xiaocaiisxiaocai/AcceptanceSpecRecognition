@@ -190,6 +190,45 @@ export const getRecognizedTableInfo = (
   table: SmartConfigRecognizedTable
 ) => tableInfos.find(item => item.index === table.tableIndex);
 
+export const getSmartStructureImportSelectionDisabledReason = (
+  table: SmartConfigRecognizedTable
+) => {
+  if (table.decision === "Reject") {
+    return table.skipReason?.trim() || "后端判定该表不可导入";
+  }
+  if (table.recommendation === "Skip") {
+    return table.skipReason?.trim() || "后端建议跳过该表";
+  }
+
+  return "";
+};
+
+export const getSmartStructureImportReadinessReason = (
+  table: SmartConfigRecognizedTable
+) => {
+  const selectionDisabledReason =
+    getSmartStructureImportSelectionDisabledReason(table);
+  if (selectionDisabledReason) {
+    return selectionDisabledReason;
+  }
+
+  const missingFields = [
+    !table.isSpecificationOnly && table.projectColumnIndex == null
+      ? "项目列"
+      : "",
+    table.specificationColumnIndex == null ? "规格列" : "",
+    table.acceptanceColumnIndex == null ? "验收列" : ""
+  ].filter(Boolean);
+
+  return missingFields.length > 0
+    ? `缺少${missingFields.join("、")}；请补齐后点击“确认并学习”`
+    : "";
+};
+
+export const canSelectSmartStructureTable = (
+  table: SmartConfigRecognizedTable
+) => getSmartStructureImportSelectionDisabledReason(table) === "";
+
 export const createSmartStructureSummary = (
   tables: SmartConfigRecognizedTable[]
 ): SmartStructureSummary => {
