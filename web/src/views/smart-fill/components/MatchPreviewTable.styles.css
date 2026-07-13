@@ -1,16 +1,12 @@
 .match-preview-table {
   display: flex;
   flex-direction: column;
-  min-height: 560px;
-  height: calc(100vh - 320px);
-  max-height: calc(100vh - 220px);
   min-width: 0;
   width: 100%;
 }
 
 .match-preview-data-table {
-  flex: 1;
-  min-height: 420px;
+  min-width: 0;
 }
 
 .stats-bar {

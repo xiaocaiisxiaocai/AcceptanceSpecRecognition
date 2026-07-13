@@ -56,7 +56,6 @@ defineEmits<{
       :data="items"
       stripe
       border
-      height="100%"
       row-key="rowIndex"
     >
       <!-- 行号 -->

@@ -326,10 +326,14 @@ test("向导页操作区应采用紧凑间距", () => {
   );
 });
 
-test("核心预览表不应使用固定 400/500px max-height", () => {
+test("智能填充预览应使用页面单一纵向滚动，避免内外滚动区冲突", () => {
   assert.doesNotMatch(matchPreviewDataTableSource, /max-height="500"/);
   assert.doesNotMatch(tablePreviewSource, /max-height="400"/);
-  assert.match(matchPreviewDataTableSource, /height="100%"/);
+  assert.doesNotMatch(matchPreviewDataTableSource, /height="100%"/);
+  assert.doesNotMatch(
+    matchPreviewTableStyleSource,
+    /height:\s*calc\(100vh|max-height:\s*calc\(100vh|min-height:\s*(420|560)px/
+  );
   assert.match(tablePreviewSource, /height="100%"/);
 });
 
