@@ -351,7 +351,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             TableIndex = tableData.TableIndex,
             Headers = tableData.Headers,
             Rows = rows,
-            TotalDataRowCount = tableData.TotalDataRowCount
+            TotalDataRowCount = tableData.TotalDataRowCount,
+            OriginalRowCount = tableData.OriginalRowCount
         };
     }
 

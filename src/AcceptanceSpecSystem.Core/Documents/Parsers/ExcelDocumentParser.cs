@@ -179,7 +179,8 @@ public class ExcelDocumentParser : IDocumentParser
             {
                 TableIndex = tableIndex,
                 Headers = Array.Empty<string>(),
-                Rows = new List<RowData>()
+                Rows = new List<RowData>(),
+                OriginalRowCount = 0
             };
         }
 
@@ -256,7 +257,8 @@ public class ExcelDocumentParser : IDocumentParser
             TableIndex = tableIndex,
             Headers = headers,
             Rows = rows,
-            TotalDataRowCount = totalDataRowCount
+            TotalDataRowCount = totalDataRowCount,
+            OriginalRowCount = rowCount
         };
     }
 

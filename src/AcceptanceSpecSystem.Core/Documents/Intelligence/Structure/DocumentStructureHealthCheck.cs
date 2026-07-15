@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Scoring;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 using AcceptanceSpecSystem.Core.Documents.Models;
 
 namespace AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
@@ -160,9 +161,20 @@ public static class DocumentStructureHealthCheck
         List<DocumentStructureHealthIssue> issues)
     {
         var ambiguousTypes = mappingResult.Details
-            .Where(detail => detail.ColumnType != ColumnType.Unknown && detail.Confidence >= 0.8)
+            .Where(detail =>
+                // 备注列是可选输出，重复时沿用规则策略的稳定最左列选择，
+                // 不应仅因 Remark/备注等同义标题阻断主结构自动采用。
+                detail.ColumnType is not (ColumnType.Unknown or ColumnType.Remark) &&
+                detail.Confidence >= 0.8)
             .GroupBy(detail => detail.ColumnType)
-            .Where(group => group.Count() > 1)
+            // Excel 合并表头展开后，同一个叶子标题会复制到多个物理列。
+            // 规则映射已按置信度和列顺序稳定选择最左列；只有标题语义不同的
+            // 高置信候选才属于真正歧义，完全相同的重复标题不应触发 LLM 裁决。
+            .Where(group => group
+                .Select(detail => NormalizeHeaderText(detail.HeaderText))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Skip(1)
+                .Any())
             .Select(group => group.Key)
             .ToList();
 
@@ -174,16 +186,27 @@ public static class DocumentStructureHealthCheck
         }
     }
 
+    private static string NormalizeHeaderText(string? header)
+    {
+        return ColumnHeaderRuleMatcher.TryNormalizeHeader(header, out var normalized)
+            ? normalized
+            : string.Empty;
+    }
+
     private static void AddRowRangeIssues(
         TableData tableData,
         ColumnMapping mapping,
         List<DocumentStructureHealthIssue> issues)
     {
+        // Header/DataStart 保留原始表格坐标，而 tableData.Rows 是按 DataStart
+        // 重新提取后的数据集合，必须使用解析器保留的原始总行数校验上界。
         if (mapping.HeaderRowIndex < 0 ||
             mapping.HeaderRowCount <= 0 ||
             mapping.DataStartRowIndex < 0 ||
             mapping.DataStartRowIndex < mapping.HeaderRowIndex + mapping.HeaderRowCount ||
-            mapping.DataStartRowIndex >= Math.Max(tableData.TotalRowCount, 1))
+            (tableData.OriginalRowCount.HasValue &&
+             mapping.DataStartRowIndex >= tableData.OriginalRowCount.Value) ||
+            tableData.Rows.Count == 0)
         {
             issues.Add(new DocumentStructureHealthIssue(
                 DocumentStructureHealthIssueCode.InvalidRowRange,

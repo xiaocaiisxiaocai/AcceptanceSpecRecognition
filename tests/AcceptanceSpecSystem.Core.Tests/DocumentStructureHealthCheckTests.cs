@@ -85,6 +85,83 @@ public class DocumentStructureHealthCheckTests
     }
 
     [Fact]
+    public void Evaluate_WhenRepeatedLeafHeadersHaveSameText_ShouldNotTreatThemAsAmbiguous()
+    {
+        var table = CreateTable(
+            ["项目", "规格", "规格", "规格", "OK/NG", "备注", "OK/NG", "OK/NG"],
+            ["外观", "无划伤", "无划伤", "无划伤", "OK", "", "待确认", "待确认二"]);
+        var mapping = CreateMapping(projectColumn: 0, specificationColumn: 1, acceptanceColumn: 4, remarkColumn: 5);
+        mapping.Details.AddRange([
+            new ColumnIdentificationResult { ColumnIndex = 0, HeaderText = "项目", ColumnType = ColumnType.Project, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 1, HeaderText = "规格", ColumnType = ColumnType.Specification, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 2, HeaderText = "规格", ColumnType = ColumnType.Specification, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 3, HeaderText = "规格", ColumnType = ColumnType.Specification, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 4, HeaderText = "OK/NG", ColumnType = ColumnType.Acceptance, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 5, HeaderText = "备注", ColumnType = ColumnType.Remark, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 6, HeaderText = "OK/NG", ColumnType = ColumnType.Acceptance, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 7, HeaderText = "OK/NG", ColumnType = ColumnType.Acceptance, Confidence = 0.99 }
+        ]);
+
+        var result = DocumentStructureHealthCheck.Evaluate(table, mapping, confidence: 0.96);
+
+        result.Decision.Should().Be(DocumentStructureDecision.AutoApply);
+        result.Issues.Should().NotContain(issue => issue.Code == DocumentStructureHealthIssueCode.AmbiguousColumnMapping);
+    }
+
+    [Fact]
+    public void Evaluate_WhenOptionalRemarkHasMultipleCandidates_ShouldKeepDeterministicSelection()
+    {
+        var table = CreateTable(
+            ["项目", "规格", "OK/NG", "Remark", "备注"],
+            ["外观", "无划伤", "OK", "供应商备注", "现场备注"]);
+        var mapping = CreateMapping(projectColumn: 0, specificationColumn: 1, acceptanceColumn: 2, remarkColumn: 3);
+        mapping.Details.AddRange([
+            new ColumnIdentificationResult { ColumnIndex = 0, HeaderText = "项目", ColumnType = ColumnType.Project, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 1, HeaderText = "规格", ColumnType = ColumnType.Specification, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 2, HeaderText = "OK/NG", ColumnType = ColumnType.Acceptance, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 3, HeaderText = "Remark", ColumnType = ColumnType.Remark, Confidence = 0.99 },
+            new ColumnIdentificationResult { ColumnIndex = 4, HeaderText = "备注", ColumnType = ColumnType.Remark, Confidence = 0.99 }
+        ]);
+
+        var result = DocumentStructureHealthCheck.Evaluate(table, mapping, confidence: 0.96);
+
+        result.Decision.Should().Be(DocumentStructureDecision.AutoApply);
+        result.Issues.Should().NotContain(issue => issue.Code == DocumentStructureHealthIssueCode.AmbiguousColumnMapping);
+    }
+
+    [Fact]
+    public void Evaluate_WhenReextractedTableUsesOriginalRowCoordinates_ShouldAcceptValidRange()
+    {
+        var table = CreateTable(
+            ["项目", "规格", "OK/NG", "备注"],
+            ["外观", "无划伤", "OK", ""]);
+        var mapping = CreateMapping(projectColumn: 0, specificationColumn: 1, acceptanceColumn: 2, remarkColumn: 3);
+        mapping.Mapping.HeaderRowIndex = 7;
+        mapping.Mapping.DataStartRowIndex = 8;
+        table.OriginalRowCount = 9;
+
+        var result = DocumentStructureHealthCheck.Evaluate(table, mapping, confidence: 0.96);
+
+        result.Decision.Should().Be(DocumentStructureDecision.AutoApply);
+        result.Issues.Should().NotContain(issue => issue.Code == DocumentStructureHealthIssueCode.InvalidRowRange);
+    }
+
+    [Fact]
+    public void Evaluate_WhenDataStartExceedsOriginalRowCount_ShouldRejectRange()
+    {
+        var table = CreateTable(
+            ["项目", "规格", "OK/NG", "备注"],
+            ["外观", "无划伤", "OK", ""]);
+        var mapping = CreateMapping(projectColumn: 0, specificationColumn: 1, acceptanceColumn: 2, remarkColumn: 3);
+        mapping.Mapping.DataStartRowIndex = 2;
+
+        var result = DocumentStructureHealthCheck.Evaluate(table, mapping, confidence: 0.96);
+
+        result.Decision.Should().Be(DocumentStructureDecision.NeedConfirm);
+        result.Issues.Should().Contain(issue => issue.Code == DocumentStructureHealthIssueCode.InvalidRowRange);
+    }
+
+    [Fact]
     public void Evaluate_WhenSpecificationOnlyContextAllowsMissingProject_ShouldAllowAutoApply()
     {
         var table = CreateTable(
@@ -253,6 +330,7 @@ public class DocumentStructureHealthCheckTests
         {
             TableIndex = 0,
             Headers = headers.ToList(),
+            OriginalRowCount = rows.Length + (headers.Count > 0 ? 1 : 0),
             Rows = rows
                 .Select((row, rowIndex) => new RowData
                 {

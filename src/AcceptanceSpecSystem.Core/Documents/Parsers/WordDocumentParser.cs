@@ -306,6 +306,7 @@ public class WordDocumentParser : IDocumentParser
     {
         var tableData = new TableData { TableIndex = tableIndex };
         var rows = table.Elements<TableRow>().ToList();
+        tableData.OriginalRowCount = rows.Count;
 
         if (rows.Count == 0)
             return tableData;
