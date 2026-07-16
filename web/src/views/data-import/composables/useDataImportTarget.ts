@@ -11,7 +11,10 @@ import {
   type AiServiceConfig
 } from "@/api/ai-service";
 import type { ImportDuplicateAiConfig } from "../dataImport.types";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
 import { loadAllPagedItems } from "@/utils/paged-options";
 
 type DataImportTargetSelectionRefs = {
@@ -71,7 +74,7 @@ export function useDataImportTarget(
       );
       if (customerOptionsController === controller) customers.value = items;
     } catch (error) {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && !isGloballyHandledAuthError(error)) {
         ElMessage.error(getRequestErrorMessage(error, "加载客户列表失败"));
       }
     } finally {
@@ -95,7 +98,7 @@ export function useDataImportTarget(
       );
       if (processOptionsController === controller) processes.value = items;
     } catch (error) {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && !isGloballyHandledAuthError(error)) {
         ElMessage.error(getRequestErrorMessage(error, "加载制程列表失败"));
       }
     } finally {
@@ -121,7 +124,7 @@ export function useDataImportTarget(
         machineModels.value = items;
       }
     } catch (error) {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && !isGloballyHandledAuthError(error)) {
         ElMessage.error(getRequestErrorMessage(error, "加载机型列表失败"));
       }
     } finally {
@@ -186,8 +189,10 @@ export function useDataImportTarget(
         return;
       }
       ElMessage.error(res.message || "加载 AI 服务失败");
-    } catch {
-      ElMessage.error("加载 AI 服务失败");
+    } catch (error) {
+      if (!isGloballyHandledAuthError(error)) {
+        ElMessage.error("加载 AI 服务失败");
+      }
     } finally {
       loadingAiServices.value = false;
     }

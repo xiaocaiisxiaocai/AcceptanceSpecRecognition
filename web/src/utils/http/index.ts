@@ -10,7 +10,7 @@ import type {
   PureHttpRequestConfig
 } from "./types.d";
 import { stringify } from "qs";
-import { getToken, formatToken } from "@/utils/auth";
+import { getToken, formatToken, hasBrowserRefreshSession } from "@/utils/auth";
 import { useUserStoreHook } from "@/store/modules/user";
 import { router } from "@/router";
 import {
@@ -178,6 +178,16 @@ class PureHttp {
     config.headers = config.headers ?? {};
     const data = getToken();
     if (!data?.accessToken) {
+      if (hasBrowserRefreshSession()) {
+        try {
+          return await PureHttp.waitForTokenRefresh(config);
+        } catch (error) {
+          if (isRefreshSessionInvalidError(error)) {
+            PureHttp.handleAuthFailure(401, requestUrl);
+          }
+          throw error;
+        }
+      }
       return config;
     }
 
@@ -295,7 +305,7 @@ class PureHttp {
           status === 401 &&
           requestConfig != null &&
           !requestConfig.authRetryAttempted &&
-          Boolean(token?.accessToken) &&
+          (Boolean(token?.accessToken) || hasBrowserRefreshSession()) &&
           !requestUrl.endsWith("/login") &&
           !requestUrl.endsWith("/refresh-token") &&
           !requestUrl.endsWith("/logout");

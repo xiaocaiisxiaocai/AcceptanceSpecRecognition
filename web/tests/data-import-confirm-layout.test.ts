@@ -48,6 +48,13 @@ const uploadStepSource = readFileSync(
   ),
   "utf8"
 );
+const dataImportTargetSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/data-import/composables/useDataImportTarget.ts"
+  ),
+  "utf8"
+);
 
 test("数据导入确认页应把导入设置和待导入清单折叠，避免预览页被明细长表撑散", () => {
   assert.match(confirmPanelSource, /<el-collapse[\s\S]*confirm-panel-collapse/);
@@ -169,6 +176,14 @@ test("识别失败应保留错误信息并提供重新识别入口", () => {
   );
 });
 
+test("登录失效由全局鉴权统一处理，页面初始化请求不应重复弹错", () => {
+  assert.match(dataImportTargetSource, /isGloballyHandledAuthError\(error\)/);
+  assert.match(
+    dataImportTargetSource,
+    /catch \(error\)[\s\S]*!isGloballyHandledAuthError\(error\)[\s\S]*加载 AI 服务失败/
+  );
+});
+
 test("上传目标区域的智能识别入口应复用下一步流程，识别成功后进入确认页", () => {
   assert.match(
     dataImportSource,
@@ -178,6 +193,11 @@ test("上传目标区域的智能识别入口应复用下一步流程，识别�
     dataImportSource,
     /class="smart-entry-actions"[\s\S]*@click="runSmartStructureRecognition"[\s\S]*智能识别结构/
   );
+  assert.match(
+    dataImportSource,
+    /v-if="showManualFallback"[\s\S]*@click="enterAdvancedMode\('tableSelect'\)"[\s\S]*手动处理/
+  );
+  assert.doesNotMatch(dataImportSource, />\s*高级手动配置\s*</);
 });
 
 test("两处确认卡片调用均应传递来源文件编号", () => {

@@ -229,6 +229,27 @@ export const canSelectSmartStructureTable = (
   table: SmartConfigRecognizedTable
 ) => getSmartStructureImportSelectionDisabledReason(table) === "";
 
+export const needsManualStructureFallback = (
+  table: SmartConfigRecognizedTable
+) => table.decision === "Reject" || table.recommendation === "Skip";
+
+export const shouldShowSmartStructureManualFallback = ({
+  recognitionAttempted,
+  recognizing,
+  error,
+  tables
+}: {
+  recognitionAttempted: boolean;
+  recognizing: boolean;
+  error: string;
+  tables: SmartConfigRecognizedTable[];
+}) =>
+  recognitionAttempted &&
+  !recognizing &&
+  (error.trim().length > 0 ||
+    tables.length === 0 ||
+    tables.some(needsManualStructureFallback));
+
 export const createSmartStructureSummary = (
   tables: SmartConfigRecognizedTable[]
 ): SmartStructureSummary => {

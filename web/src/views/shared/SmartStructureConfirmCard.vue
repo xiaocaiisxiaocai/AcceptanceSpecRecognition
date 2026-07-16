@@ -14,6 +14,7 @@ import {
   getSmartStructureIssueTagType,
   getSmartStructureRecommendationTag,
   getSmartStructureTableKindLabel,
+  needsManualStructureFallback,
   toDisplayIndexFromZeroBased,
   toZeroBasedIndexFromDisplay
 } from "./smart-structure-recognition";
@@ -155,6 +156,9 @@ const showRecognitionEvidence = computed(
     props.table.confidence < 0.8 ||
     visibleIssues.value.length > 0 ||
     semanticRecallSuggestions.value.length > 0
+);
+const showAdvancedFallback = computed(() =>
+  needsManualStructureFallback(props.table)
 );
 
 const hasStructureChanges = computed(
@@ -519,8 +523,13 @@ const emitConfirm = () => {
       <el-button type="primary" link @click="detailVisible = !detailVisible">
         {{ detailVisible ? "收起配置" : "展开配置" }}
       </el-button>
-      <el-button type="primary" link @click="emit('advanced', table)">
-        高级手动配置
+      <el-button
+        v-if="showAdvancedFallback"
+        type="primary"
+        link
+        @click="emit('advanced', table)"
+      >
+        手动处理
       </el-button>
       <el-button
         type="primary"

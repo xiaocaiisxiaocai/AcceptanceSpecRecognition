@@ -596,6 +596,7 @@ export function useDataImportPage() {
 
   const {
     smartRecognizing,
+    smartRecognitionAttempted,
     smartRecognitionError,
     smartConfirmingTableIndex,
     recognizedTables,
@@ -1113,6 +1114,7 @@ export function useDataImportPage() {
     importDuplicateAiConfig,
     steps,
     smartRecognizing,
+    smartRecognitionAttempted,
     smartRecognitionError,
     smartStageText,
     selectedSmartTableIndexes,

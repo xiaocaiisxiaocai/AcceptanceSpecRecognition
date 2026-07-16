@@ -16,6 +16,7 @@ import {
 
 export function useSmartStructureRecognition() {
   const recognizing = ref(false);
+  const recognitionAttempted = ref(false);
   const recognitionError = ref("");
   const activeRecognitionFileId = ref<number | null>(null);
   const confirmingTableIndex = ref<number | null>(null);
@@ -39,6 +40,7 @@ export function useSmartStructureRecognition() {
     activeRecognitionFileId.value = fileId;
     confirmingTableIndex.value = null;
     recognizing.value = true;
+    recognitionAttempted.value = false;
     recognitionError.value = "";
     recognitionResult.value = null;
     const isCurrentRequest = () =>
@@ -69,6 +71,7 @@ export function useSmartStructureRecognition() {
     } finally {
       if (isCurrentRequest()) {
         recognizing.value = false;
+        recognitionAttempted.value = true;
       }
     }
   };
@@ -155,6 +158,7 @@ export function useSmartStructureRecognition() {
     confirmRequestVersion += 1;
     activeRecognitionFileId.value = null;
     recognizing.value = false;
+    recognitionAttempted.value = false;
     recognitionResult.value = null;
     recognitionError.value = "";
     lastConfirmResult.value = null;
@@ -163,6 +167,7 @@ export function useSmartStructureRecognition() {
 
   return {
     recognizing,
+    recognitionAttempted,
     recognitionError,
     confirmingTableIndex,
     recognitionResult,

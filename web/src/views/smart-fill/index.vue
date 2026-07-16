@@ -30,7 +30,10 @@ import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
 import { getMachineModelList, type MachineModel } from "@/api/machine-model";
 import { hasPerms } from "@/utils/auth";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
 import { loadAllPagedItems } from "@/utils/paged-options";
 import { ensurePermission } from "@/utils/permission-guard";
 import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
@@ -45,7 +48,10 @@ import { useSmartFillPreviewRequest } from "./composables/useSmartFillPreviewReq
 import { useSmartFillExecution } from "./composables/useSmartFillExecution";
 import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTables";
 import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
-import { getSmartStructureImportSelectionDisabledReason } from "@/views/shared/smart-structure-recognition";
+import {
+  getSmartStructureImportSelectionDisabledReason,
+  shouldShowSmartStructureManualFallback
+} from "@/views/shared/smart-structure-recognition";
 import {
   buildSmartFillConfigsFromRecognizedTables,
   canContinueFromSmartRecognition,
@@ -157,6 +163,7 @@ let scopeOptionsController: AbortController | undefined;
 
 const {
   recognizing: smartRecognizing,
+  recognitionAttempted: smartRecognitionAttempted,
   recognitionError: smartRecognitionError,
   confirmingTableIndex: smartConfirmingTableIndex,
   recognizedTables,
@@ -220,7 +227,7 @@ const loadScopeOptions = async () => {
     processes.value = processItems;
     machineModels.value = machineModelItems;
   } catch (error) {
-    if (!controller.signal.aborted) {
+    if (!controller.signal.aborted && !isGloballyHandledAuthError(error)) {
       ElMessage.error(getRequestErrorMessage(error, "加载匹配范围失败"));
     }
   } finally {
@@ -425,6 +432,14 @@ const smartFillPrimaryActionText = computed(() => {
   if (!canContinueSmartRecognition.value) return "请先确认列配置";
   return "下一步：匹配配置";
 });
+const showManualFallback = computed(() =>
+  shouldShowSmartStructureManualFallback({
+    recognitionAttempted: smartRecognitionAttempted.value,
+    recognizing: smartRecognizing.value,
+    error: smartRecognitionError.value,
+    tables: recognizedTables.value
+  })
+);
 const canGoNext = computed(() => {
   if (!advancedMode.value) {
     switch (currentStep.value) {
@@ -514,7 +529,7 @@ const runSmartStructureRecognition = async () => {
     tableInfos: allTables.value
   });
   if (configs.length === 0) {
-    ElMessage.warning("未识别到可填充表格，请进入高级手动配置");
+    ElMessage.warning("未识别到可填充表格，请使用手动处理");
     return;
   }
 
@@ -836,8 +851,12 @@ const handleRestart = () => {
                   recognizedTables.length > 0 ? "重新识别" : "智能识别并配置"
                 }}
               </el-button>
-              <el-button :disabled="!uploadedFile" @click="enterAdvancedMode">
-                高级手动配置
+              <el-button
+                v-if="showManualFallback"
+                :disabled="!uploadedFile"
+                @click="enterAdvancedMode"
+              >
+                手动处理
               </el-button>
             </div>
           </div>

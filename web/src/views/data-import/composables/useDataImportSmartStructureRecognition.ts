@@ -59,6 +59,7 @@ export function useDataImportSmartStructureRecognition({
 }) {
   const {
     recognizing: smartRecognizing,
+    recognitionAttempted: smartRecognitionAttempted,
     recognitionError: smartRecognitionError,
     confirmingTableIndex: smartConfirmingTableIndex,
     recognizedTables,
@@ -138,7 +139,7 @@ export function useDataImportSmartStructureRecognition({
             ? "请手动勾选需要导入的 Sheet"
             : importTables.some(table => !canSmartTableBeImported(table))
               ? "已勾选的表仍需补齐列配置并确认"
-              : "未识别到可导入表格，请进入高级手动配置"
+              : "未识别到可导入表格，请使用手动处理"
         );
         return false;
       }
@@ -277,6 +278,7 @@ export function useDataImportSmartStructureRecognition({
 
   return {
     smartRecognizing,
+    smartRecognitionAttempted,
     smartRecognitionError,
     smartConfirmingTableIndex,
     recognizedTables,

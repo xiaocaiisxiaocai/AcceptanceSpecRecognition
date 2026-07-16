@@ -65,6 +65,7 @@ describe("useSmartStructureRecognition", () => {
     const state = useSmartStructureRecognition();
 
     const pendingA = state.recognize(10, 1);
+    expect(state.recognitionAttempted.value).toBe(false);
     state.reset();
     const pendingB = state.recognize(20, 1);
 
@@ -75,6 +76,7 @@ describe("useSmartStructureRecognition", () => {
     expect(await pendingA).toBeNull();
     expect(state.recognitionResult.value?.fileId).toBe(20);
     expect(state.recognizedTables.value[0]?.tableName).toBe("B文件");
+    expect(state.recognitionAttempted.value).toBe(true);
   });
 
   it("新识别开始和失败时清空旧结果", async () => {
@@ -93,6 +95,7 @@ describe("useSmartStructureRecognition", () => {
     await pendingB;
     expect(state.recognizedTables.value).toEqual([]);
     expect(state.recognitionError.value).toBe("识别失败");
+    expect(state.recognitionAttempted.value).toBe(true);
   });
 
   it("reset 换文件后忽略旧文件更晚返回的确认结果", async () => {

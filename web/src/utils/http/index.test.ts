@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
     requestUse,
     responseUse,
     getToken: vi.fn(),
+    hasBrowserRefreshSession: vi.fn(),
     handRefreshToken: vi.fn(),
     logOut: vi.fn(),
     alert: vi.fn()
@@ -29,6 +30,7 @@ vi.mock("axios", () => ({
 
 vi.mock("@/utils/auth", () => ({
   getToken: mocks.getToken,
+  hasBrowserRefreshSession: mocks.hasBrowserRefreshSession,
   formatToken: (token: string) => `Bearer ${token}`
 }));
 
@@ -96,6 +98,7 @@ describe("PureHttp 并发 401 刷新队列", () => {
       expires: Date.now() + 60_000
     });
     mocks.handRefreshToken.mockReset();
+    mocks.hasBrowserRefreshSession.mockReset().mockReturnValue(true);
     mocks.logOut.mockReset();
     mocks.alert.mockReset().mockResolvedValue(undefined);
     mocks.axiosInstance.request.mockReset();
@@ -156,6 +159,47 @@ describe("PureHttp 并发 401 刷新队列", () => {
     expect(mocks.logOut).not.toHaveBeenCalled();
   });
 
+  it("内存 token 丢失但浏览器会话仍在时，并发请求先刷新一次再发送", async () => {
+    const refresh = deferred<any>();
+    mocks.getToken.mockReturnValue({ accessToken: "", expires: 0 });
+    mocks.handRefreshToken.mockReturnValue(refresh.promise);
+
+    const pending = Array.from({ length: 4 }, (_, index) =>
+      requestHandler()({
+        method: "get",
+        url: `/protected/bootstrap/${index}`,
+        headers: {}
+      })
+    );
+
+    expect(mocks.handRefreshToken).toHaveBeenCalledTimes(1);
+    refresh.resolve({ data: { accessToken: "restored-token" } });
+
+    const configs = await Promise.all(pending);
+    expect(mocks.handRefreshToken).toHaveBeenCalledTimes(1);
+    expect(configs).toHaveLength(4);
+    configs.forEach(config => {
+      expect(config).toMatchObject({
+        headers: { Authorization: "Bearer restored-token" }
+      });
+    });
+    expect(mocks.alert).not.toHaveBeenCalled();
+  });
+
+  it("内存 token 与浏览器会话都不存在时不发起刷新", async () => {
+    mocks.getToken.mockReturnValue({ accessToken: "", expires: 0 });
+    mocks.hasBrowserRefreshSession.mockReturnValue(false);
+
+    const config = {
+      method: "get",
+      url: "/protected/anonymous",
+      headers: {}
+    };
+
+    await expect(requestHandler()(config)).resolves.toBe(config);
+    expect(mocks.handRefreshToken).not.toHaveBeenCalled();
+  });
+
   it("瞬态刷新失败时全部拒绝，但不会清理仍可能有效的会话", async () => {
     const refresh = deferred<any>();
     const refreshError = new Error("refresh rejected");
@@ -201,6 +245,7 @@ describe("authorizedFetch 401 重放", () => {
       expires: Date.now() + 60_000
     });
     mocks.handRefreshToken.mockReset();
+    mocks.hasBrowserRefreshSession.mockReset().mockReturnValue(true);
     mocks.logOut.mockReset();
     mocks.alert.mockReset().mockResolvedValue(undefined);
   });

@@ -16,7 +16,8 @@ import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBan
 import {
   canSelectSmartStructureTable,
   getSmartStructureImportReadinessReason,
-  getSmartStructureImportSelectionDisabledReason
+  getSmartStructureImportSelectionDisabledReason,
+  shouldShowSmartStructureManualFallback
 } from "@/views/shared/smart-structure-recognition";
 // 边界说明：useDataImportPage 内部组合 useDataImportMapping、
 // useDataImportPreviewSelection、useDataImportExecution；差异弹窗由
@@ -41,6 +42,7 @@ const {
   importDuplicateAiConfig,
   steps,
   smartRecognizing,
+  smartRecognitionAttempted,
   smartRecognitionError,
   smartStageText,
   selectedSmartTableIndexes,
@@ -168,6 +170,14 @@ const pendingSelectedSmartTableCount = computed(
         getSmartStructureImportReadinessReason(table) !== ""
     ).length
 );
+const showManualFallback = computed(() =>
+  shouldShowSmartStructureManualFallback({
+    recognitionAttempted: smartRecognitionAttempted.value,
+    recognizing: smartRecognizing.value,
+    error: smartRecognitionError.value,
+    tables: recognizedTables.value
+  })
+);
 const activeSmartStructureTable = computed(() =>
   recognizedTables.value.find(
     table => table.tableIndex === activeSmartStructureTab.value
@@ -273,8 +283,11 @@ const activeSmartStructureScopeDescription = computed(() => {
                 >
                   {{ smartStageText || "智能识别结构" }}
                 </el-button>
-                <el-button @click="enterAdvancedMode('tableSelect')">
-                  高级手动配置
+                <el-button
+                  v-if="showManualFallback"
+                  @click="enterAdvancedMode('tableSelect')"
+                >
+                  手动处理
                 </el-button>
               </div>
             </div>

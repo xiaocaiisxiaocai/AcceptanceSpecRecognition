@@ -10,6 +10,8 @@ import {
   getSmartStructureFieldLabel,
   getSmartStructureImportReadinessReason,
   getSmartStructureImportSelectionDisabledReason,
+  needsManualStructureFallback,
+  shouldShowSmartStructureManualFallback,
   toActualColumnNumber,
   toActualRowNumber
 } from "./smart-structure-recognition";
@@ -225,6 +227,55 @@ describe("smart-structure-recognition", () => {
     expect(getSmartStructureImportSelectionDisabledReason(skippedTable)).toBe(
       "后端建议跳过该表"
     );
+    expect(needsManualStructureFallback(rejectedTable)).toBe(true);
+    expect(needsManualStructureFallback(skippedTable)).toBe(true);
+  });
+
+  it("仅在识别结束且存在异常结果时显示手动兜底", () => {
+    const normalTables = [
+      table({ decision: "AutoApply", recommendation: "Recommended" })
+    ];
+
+    expect(
+      shouldShowSmartStructureManualFallback({
+        recognitionAttempted: false,
+        recognizing: false,
+        error: "",
+        tables: []
+      })
+    ).toBe(false);
+    expect(
+      shouldShowSmartStructureManualFallback({
+        recognitionAttempted: true,
+        recognizing: true,
+        error: "",
+        tables: []
+      })
+    ).toBe(false);
+    expect(
+      shouldShowSmartStructureManualFallback({
+        recognitionAttempted: true,
+        recognizing: false,
+        error: "",
+        tables: normalTables
+      })
+    ).toBe(false);
+    expect(
+      shouldShowSmartStructureManualFallback({
+        recognitionAttempted: true,
+        recognizing: false,
+        error: "识别失败",
+        tables: []
+      })
+    ).toBe(true);
+    expect(
+      shouldShowSmartStructureManualFallback({
+        recognitionAttempted: true,
+        recognizing: false,
+        error: "",
+        tables: [table({ decision: "Reject" })]
+      })
+    ).toBe(true);
   });
 
   it("转换字段和决策展示标签", () => {
