@@ -13,6 +13,7 @@ import {
   type ExecutionHistoryListItem
 } from "@/api/execution-history";
 import { formatExecutionHistoryDateTime } from "@/views/other/execution-history/executionHistory.formatters";
+import DashboardSparkline from "./components/DashboardSparkline.vue";
 
 defineOptions({
   name: "Dashboard"
@@ -40,6 +41,10 @@ const periodPreset = ref<DashboardPeriodPreset>("last7");
 const customRange = ref<[Date, Date] | null>(null);
 const summary = ref<DashboardSummary | null>(null);
 const recentTasks = ref<ExecutionHistoryListItem[]>([]);
+const trendLoading = ref(false);
+const trendLabels = ref<string[]>([]);
+const importTrend = ref<number[]>([]);
+const taskTrend = ref<number[]>([]);
 const datePickerDefaultTime: [Date, Date] = [
   new Date(2000, 0, 1, 0, 0, 0),
   new Date(2000, 0, 1, 23, 59, 59)
@@ -94,6 +99,52 @@ const load = async () => {
   }
 };
 
+const buildDailyTrendRequests = () => {
+  const today = new Date();
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(today);
+    day.setDate(today.getDate() - (6 - index));
+    const from = new Date(day);
+    const to = new Date(day);
+    from.setHours(0, 0, 0, 0);
+    to.setHours(23, 59, 59, 999);
+
+    return {
+      label: `${day.getMonth() + 1}/${day.getDate()}`,
+      request: getDashboardSummary({
+        range: "custom",
+        from: from.toISOString(),
+        to: to.toISOString()
+      })
+    };
+  });
+};
+
+const loadTrends = async () => {
+  trendLoading.value = true;
+  const dailyRequests = buildDailyTrendRequests();
+
+  try {
+    const responses = await Promise.all(
+      dailyRequests.map(item => item.request)
+    );
+    trendLabels.value = dailyRequests.map(item => item.label);
+    importTrend.value = responses.map(item =>
+      item.code === 0 ? item.data.importedSpecCount : 0
+    );
+    taskTrend.value = responses.map(item =>
+      item.code === 0 ? item.data.smartFillTaskCount : 0
+    );
+  } catch {
+    trendLabels.value = dailyRequests.map(item => item.label);
+    importTrend.value = Array(7).fill(0);
+    taskTrend.value = Array(7).fill(0);
+  } finally {
+    trendLoading.value = false;
+  }
+};
+
 const loadRecentTasks = async () => {
   recentLoading.value = true;
   try {
@@ -117,6 +168,7 @@ const scheduleLoad = () => {
       () => {
         void load();
         void loadRecentTasks();
+        void loadTrends();
       },
       { timeout: 800 }
     );
@@ -126,6 +178,7 @@ const scheduleLoad = () => {
   loadTimerId = globalThis.setTimeout(() => {
     void load();
     void loadRecentTasks();
+    void loadTrends();
   }, 120);
 };
 
@@ -158,10 +211,6 @@ const formatNumber = (value: number | undefined) => {
   return (value ?? 0).toLocaleString("zh-CN");
 };
 
-const formatPercent = (value: number | undefined) => {
-  return `${Math.round((value ?? 0) * 100)}%`;
-};
-
 const taskTypeText = (taskType: string) =>
   taskType === "batch-reply" ? "批量回复" : "智能填充";
 
@@ -178,6 +227,12 @@ const formatDateTime = (value: string | undefined) => {
     hour: "2-digit",
     minute: "2-digit"
   });
+};
+
+const refreshDashboard = () => {
+  void load();
+  void loadRecentTasks();
+  void loadTrends();
 };
 
 onMounted(() => {
@@ -225,7 +280,11 @@ onBeforeUnmount(() => {
           class="period-picker"
           @change="handleCustomRangeChange"
         />
-        <el-button :icon="Refresh" :loading="loading" @click="load">
+        <el-button
+          :icon="Refresh"
+          :loading="loading || trendLoading"
+          @click="refreshDashboard"
+        >
           刷新
         </el-button>
       </div>
@@ -234,25 +293,61 @@ onBeforeUnmount(() => {
     <el-row :gutter="16">
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card v-loading="loading" class="stat-card stat-card--primary">
-          <div class="stat">
-            <div class="stat-title">匹配度</div>
-            <div class="stat-value">
-              {{ formatPercent(currentSummary.matchingRate) }}
+          <div class="stat stat--progress">
+            <div>
+              <div class="stat-title">匹配度</div>
+              <div class="stat-note">
+                已匹配 {{ formatNumber(currentSummary.smartFillMatchedRows) }} /
+                {{ formatNumber(currentSummary.smartFillTotalRows) }} 行
+              </div>
             </div>
-            <div class="stat-note">
-              已匹配 {{ formatNumber(currentSummary.smartFillMatchedRows) }} /
-              {{ formatNumber(currentSummary.smartFillTotalRows) }} 行
+            <el-progress
+              type="circle"
+              :width="82"
+              :stroke-width="8"
+              :percentage="Math.round(currentSummary.matchingRate * 100)"
+            />
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="12" :lg="6">
+        <el-card v-loading="loading" class="stat-card">
+          <div class="stat stat--progress">
+            <div>
+              <div class="stat-title">采用率</div>
+              <div class="stat-note">
+                已采用 {{ formatNumber(currentSummary.smartFillAdoptedRows) }} /
+                {{ formatNumber(currentSummary.smartFillMatchedRows) }} 行
+              </div>
             </div>
+            <el-progress
+              type="circle"
+              status="success"
+              :width="82"
+              :stroke-width="8"
+              :percentage="Math.round(currentSummary.adoptionRate * 100)"
+            />
           </div>
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card v-loading="loading" class="stat-card stat-card--import">
           <div class="stat">
-            <div class="stat-title">历史资料导入</div>
-            <div class="stat-value">
-              {{ formatNumber(currentSummary.importedSpecCount) }}
+            <div class="stat-heading">
+              <div>
+                <div class="stat-title">历史资料导入</div>
+                <div class="stat-value">
+                  {{ formatNumber(currentSummary.importedSpecCount) }}
+                </div>
+              </div>
+              <span class="stat-period">近 7 天</span>
             </div>
+            <DashboardSparkline
+              :values="importTrend"
+              :labels="trendLabels"
+              :loading="trendLoading"
+              color-token="--app-success"
+            />
             <div class="stat-note">周期内新增或更新规格</div>
           </div>
         </el-card>
@@ -260,26 +355,22 @@ onBeforeUnmount(() => {
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card v-loading="loading" class="stat-card">
           <div class="stat">
-            <div class="stat-title">智能填充任务</div>
-            <div class="stat-value">
-              {{ formatNumber(currentSummary.smartFillTaskCount) }}
+            <div class="stat-heading">
+              <div>
+                <div class="stat-title">智能填充任务</div>
+                <div class="stat-value">
+                  {{ formatNumber(currentSummary.smartFillTaskCount) }}
+                </div>
+              </div>
+              <span class="stat-period">近 7 天</span>
             </div>
+            <DashboardSparkline
+              :values="taskTrend"
+              :labels="trendLabels"
+              :loading="trendLoading"
+            />
             <div class="stat-note">
-              采用率 {{ formatPercent(currentSummary.adoptionRate) }}
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card v-loading="loading" class="stat-card">
-          <div class="stat">
-            <div class="stat-title">验收规格总量</div>
-            <div class="stat-value">
-              {{ formatNumber(currentSummary.specTotal) }}
-            </div>
-            <div class="stat-note">
-              客户 {{ formatNumber(currentSummary.customerTotal) }}，制程
-              {{ formatNumber(currentSummary.processTotal) }}
+              规格总量 {{ formatNumber(currentSummary.specTotal) }}
             </div>
           </div>
         </el-card>
@@ -384,7 +475,36 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 118px;
+  min-height: 112px;
+}
+
+.stat--progress {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stat--progress > div:first-child {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-self: stretch;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.stat-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.stat-period {
+  padding: 3px 7px;
+  font-size: 11px;
+  color: var(--app-text-secondary);
+  background: var(--app-fill-light);
+  border-radius: 999px;
 }
 
 .stat-title {

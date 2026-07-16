@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import type { FormRules } from "element-plus";
 import type { Customer } from "@/api/customer";
 import type { MachineModel } from "@/api/machine-model";
 import type { Process } from "@/api/process";
 
-defineProps<{
+const props = defineProps<{
   customers: Customer[];
   processes: Process[];
   machineModels: MachineModel[];
@@ -16,6 +18,17 @@ defineProps<{
   compact?: boolean;
 }>();
 
+const formModel = computed(() => ({
+  customerId: props.selectedCustomerId,
+  processId: props.selectedProcessId,
+  machineModelId: props.selectedMachineModelId
+}));
+const formRules: FormRules = {
+  customerId: [
+    { required: true, message: "请选择客户", trigger: ["blur", "change"] }
+  ]
+};
+
 const emit = defineEmits<{
   (e: "update:selectedCustomerId", value: number | undefined): void;
   (e: "update:selectedProcessId", value: number | undefined): void;
@@ -25,8 +38,14 @@ const emit = defineEmits<{
 
 <template>
   <div :class="['step-panel', { 'step-panel--compact': compact }]">
-    <el-form label-width="100px" class="target-form">
-      <el-form-item label="选择客户" required>
+    <el-form
+      :model="formModel"
+      :rules="formRules"
+      label-width="100px"
+      class="target-form"
+      status-icon
+    >
+      <el-form-item label="选择客户" prop="customerId">
         <el-select
           :model-value="selectedCustomerId"
           placeholder="请选择客户"

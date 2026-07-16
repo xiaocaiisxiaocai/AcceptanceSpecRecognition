@@ -351,8 +351,8 @@ const getComparisonHtml = (
   margin-bottom: 8px;
   font-size: 13px;
   line-height: 1.5;
-  color: #1e40af;
-  background: #f0f9ff;
+  color: var(--app-primary);
+  background: var(--app-primary-light);
   border-radius: 12px;
 }
 

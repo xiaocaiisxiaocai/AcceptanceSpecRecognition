@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   getEmbeddingCacheWarmupInfo,
   runEmbeddingCacheWarmup,
@@ -10,6 +15,7 @@ import {
 } from "@/api/embedding-cache-warmup";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
+import { validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "EmbeddingCacheWarmup"
@@ -28,6 +34,28 @@ const form = reactive<EmbeddingCacheWarmupOptions>({
   batchSize: 100,
   maxItemsPerRun: 1000
 });
+const formRef = ref<FormInstance>();
+const positiveNumberRule = (message: string) => ({
+  type: "number" as const,
+  min: 1,
+  message,
+  trigger: ["blur", "change"]
+});
+const formRules: FormRules<EmbeddingCacheWarmupOptions> = {
+  intervalHours: [positiveNumberRule("间隔小时数必须大于 0")],
+  batchSize: [positiveNumberRule("单批数量必须大于 0")],
+  maxItemsPerRun: [
+    positiveNumberRule("单轮上限必须大于 0"),
+    {
+      validator: (_rule, value, callback) => {
+        if (form.batchSize > value) {
+          callback(new Error("单批数量不能大于单轮上限"));
+        } else callback();
+      },
+      trigger: ["blur", "change"]
+    }
+  ]
+};
 
 const canUpdate = computed(() => hasPerms("btn:embedding-cache-warmup:update"));
 const canExecute = computed(() =>
@@ -100,26 +128,6 @@ const buildPayload = (): EmbeddingCacheWarmupOptions => ({
   maxItemsPerRun: Number(form.maxItemsPerRun) || 1000
 });
 
-const validate = () => {
-  if (form.intervalHours < 1) {
-    ElMessage.warning("间隔小时数必须大于 0");
-    return false;
-  }
-  if (form.batchSize < 1) {
-    ElMessage.warning("单批数量必须大于 0");
-    return false;
-  }
-  if (form.maxItemsPerRun < 1) {
-    ElMessage.warning("单轮上限必须大于 0");
-    return false;
-  }
-  if (form.batchSize > form.maxItemsPerRun) {
-    ElMessage.warning("单批数量不能大于单轮上限");
-    return false;
-  }
-  return true;
-};
-
 const save = async () => {
   if (
     !ensurePermission(
@@ -129,7 +137,7 @@ const save = async () => {
   ) {
     return;
   }
-  if (!validate()) return;
+  if (!(await validateForm(formRef.value))) return;
 
   saving.value = true;
   try {
@@ -157,7 +165,7 @@ const runNow = async () => {
   ) {
     return;
   }
-  if (!validate()) return;
+  if (!(await validateForm(formRef.value))) return;
 
   try {
     await ElMessageBox.confirm(
@@ -272,7 +280,14 @@ onMounted(load);
             </div>
           </template>
 
-          <el-form label-width="130px" class="warmup-form">
+          <el-form
+            ref="formRef"
+            :model="form"
+            :rules="formRules"
+            label-width="130px"
+            class="warmup-form"
+            status-icon
+          >
             <el-form-item label="启用自动预热">
               <el-switch v-model="form.enabled" />
             </el-form-item>
@@ -288,7 +303,7 @@ onMounted(load);
                 clearable
               />
             </el-form-item>
-            <el-form-item label="间隔小时数">
+            <el-form-item label="间隔小时数" prop="intervalHours">
               <el-input-number
                 v-model="form.intervalHours"
                 :min="1"
@@ -296,7 +311,7 @@ onMounted(load);
                 controls-position="right"
               />
             </el-form-item>
-            <el-form-item label="单批数量">
+            <el-form-item label="单批数量" prop="batchSize">
               <el-input-number
                 v-model="form.batchSize"
                 :min="1"
@@ -304,7 +319,7 @@ onMounted(load);
                 controls-position="right"
               />
             </el-form-item>
-            <el-form-item label="单轮最多处理">
+            <el-form-item label="单轮最多处理" prop="maxItemsPerRun">
               <el-input-number
                 v-model="form.maxItemsPerRun"
                 :min="1"
@@ -361,17 +376,11 @@ onMounted(load);
 }
 
 .page-header {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  justify-content: space-between;
   margin-bottom: 16px;
 }
 
 .page-title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 650;
 }
 
 .header-actions,

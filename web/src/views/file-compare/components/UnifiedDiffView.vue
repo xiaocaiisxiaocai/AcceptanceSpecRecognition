@@ -482,7 +482,11 @@ const getRightCellClass = (row: DiffRow) => {
           <template v-if="isGapExpanded('gap-leading')">
             <div
               class="hunk-separator hunk-separator-clickable"
+              role="button"
+              tabindex="0"
               @click="toggleGap('gap-leading')"
+              @keydown.enter="toggleGap('gap-leading')"
+              @keydown.space.prevent="toggleGap('gap-leading')"
             >
               ▾ 收起前 {{ leadingGapCount }} 行上下文
             </div>
@@ -508,7 +512,11 @@ const getRightCellClass = (row: DiffRow) => {
           <div
             v-else
             class="hunk-separator hunk-separator-clickable"
+            role="button"
+            tabindex="0"
             @click="toggleGap('gap-leading')"
+            @keydown.enter="toggleGap('gap-leading')"
+            @keydown.space.prevent="toggleGap('gap-leading')"
           >
             ▸ 展开前 {{ leadingGapCount }} 行上下文 ···
           </div>
@@ -551,7 +559,11 @@ const getRightCellClass = (row: DiffRow) => {
             <template v-if="isGapExpanded(`gap-${hunkIdx}`)">
               <div
                 class="hunk-separator hunk-separator-clickable"
+                role="button"
+                tabindex="0"
                 @click="toggleGap(`gap-${hunkIdx}`)"
+                @keydown.enter="toggleGap(`gap-${hunkIdx}`)"
+                @keydown.space.prevent="toggleGap(`gap-${hunkIdx}`)"
               >
                 ▾ 收起 {{ getSkippedLines(hunk, hunkIdx + 1) }} 行上下文
               </div>
@@ -578,7 +590,11 @@ const getRightCellClass = (row: DiffRow) => {
             <div
               v-else
               class="hunk-separator hunk-separator-clickable"
+              role="button"
+              tabindex="0"
               @click="toggleGap(`gap-${hunkIdx}`)"
+              @keydown.enter="toggleGap(`gap-${hunkIdx}`)"
+              @keydown.space.prevent="toggleGap(`gap-${hunkIdx}`)"
             >
               ▸ 展开 {{ getSkippedLines(hunk, hunkIdx + 1) }} 行上下文 ···
             </div>
@@ -590,7 +606,11 @@ const getRightCellClass = (row: DiffRow) => {
           <template v-if="isGapExpanded('gap-trailing')">
             <div
               class="hunk-separator hunk-separator-clickable"
+              role="button"
+              tabindex="0"
               @click="toggleGap('gap-trailing')"
+              @keydown.enter="toggleGap('gap-trailing')"
+              @keydown.space.prevent="toggleGap('gap-trailing')"
             >
               ▾ 收起后 {{ trailingGapCount }} 行上下文
             </div>
@@ -616,7 +636,11 @@ const getRightCellClass = (row: DiffRow) => {
           <div
             v-else
             class="hunk-separator hunk-separator-clickable"
+            role="button"
+            tabindex="0"
             @click="toggleGap('gap-trailing')"
+            @keydown.enter="toggleGap('gap-trailing')"
+            @keydown.space.prevent="toggleGap('gap-trailing')"
           >
             ▸ 展开后 {{ trailingGapCount }} 行上下文 ···
           </div>

@@ -748,7 +748,15 @@ defineExpose({
 
     <!-- 高级选项 -->
     <div class="config-section">
-      <div class="section-header" @click="showAdvanced = !showAdvanced">
+      <div
+        class="section-header"
+        role="button"
+        tabindex="0"
+        :aria-expanded="showAdvanced"
+        @click="showAdvanced = !showAdvanced"
+        @keydown.enter="showAdvanced = !showAdvanced"
+        @keydown.space.prevent="showAdvanced = !showAdvanced"
+      >
         <span class="section-title">LLM 复核</span>
         <el-icon :class="{ rotated: showAdvanced }">
           <ArrowRight />
@@ -932,7 +940,7 @@ export default {
   gap: 4px;
   align-items: center;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .advanced-options {
@@ -963,19 +971,19 @@ export default {
 .llm-hint {
   margin-top: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .parallelism-hint {
   font-size: 12px;
   line-height: 32px;
-  color: #9ca3af;
+  color: var(--app-text-disabled);
 }
 
 .form-inline-tip {
   margin-left: 8px;
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--app-text-disabled);
 }
 
 .reset-btn {

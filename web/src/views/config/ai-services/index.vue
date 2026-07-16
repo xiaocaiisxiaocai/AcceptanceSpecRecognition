@@ -37,8 +37,7 @@ import {
   createNewAiServiceFormData,
   getAiServiceDialogTitle,
   getAiServiceSubmitPermission,
-  getAiServiceSubmitSuccessMessage,
-  validateAiServiceFormData
+  getAiServiceSubmitSuccessMessage
 } from "./form";
 import { useAiServiceModelsProbe } from "./composables/useAiServiceModelsProbe";
 import {
@@ -332,12 +331,6 @@ const handleSubmit = async () => {
   if (!ensurePermission(submitPermission.code, submitPermission.message)) {
     return;
   }
-  const validateMessage = validateAiServiceFormData(formData);
-  if (validateMessage) {
-    ElMessage.warning(validateMessage);
-    return;
-  }
-
   try {
     const res = await (async () => {
       if (isEdit.value) {

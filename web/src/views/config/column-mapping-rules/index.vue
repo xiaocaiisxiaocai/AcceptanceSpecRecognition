@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   ColumnMappingMatchMode,
   ColumnMappingRuleSource,
@@ -19,6 +24,11 @@ import {
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
+import {
+  requiredSelectionRule,
+  requiredTrimmedRule,
+  validateForm
+} from "@/utils/form-rules";
 
 defineOptions({
   name: "ColumnMappingRules"
@@ -167,6 +177,11 @@ const form = reactive({
   source: ColumnMappingRuleSource.Manual,
   customerId: undefined as number | undefined
 });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<typeof form> = {
+  targetField: [requiredSelectionRule("请选择目标字段")],
+  pattern: [requiredTrimmedRule("请输入匹配词")]
+};
 
 const openAdd = () => {
   if (
@@ -228,11 +243,9 @@ const submit = async () => {
     return;
   }
 
+  if (!(await validateForm(formRef.value))) return;
+
   const pattern = form.pattern.trim();
-  if (!pattern) {
-    ElMessage.warning("请输入匹配词");
-    return;
-  }
 
   try {
     const payload = {
@@ -370,8 +383,8 @@ onMounted(load);
     </div>
     <el-card class="column-rules-card table-card">
       <template #header>
-        <div class="flex justify-between items-center">
-          <div>
+        <div class="list-card-toolbar">
+          <div class="list-card-toolbar__right">
             <el-button v-if="canCreate" type="primary" @click="openAdd">
               新增规则
             </el-button>
@@ -542,8 +555,14 @@ onMounted(load);
       :title="dialogTitle"
       width="min(480px, calc(100vw - 32px))"
     >
-      <el-form label-width="90px">
-        <el-form-item label="目标字段" required>
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="formRules"
+        label-width="90px"
+        status-icon
+      >
+        <el-form-item label="目标字段" prop="targetField">
           <el-select
             v-model="form.targetField"
             popper-class="config-select-popper"
@@ -569,7 +588,7 @@ onMounted(load);
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="匹配词" required>
+        <el-form-item label="匹配词" prop="pattern">
           <el-input v-model="form.pattern" placeholder="例如：项目管理" />
         </el-form-item>
         <el-form-item label="优先级">

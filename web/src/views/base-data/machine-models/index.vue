@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, reactive } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   getMachineModelList,
   createMachineModel,
@@ -16,6 +21,7 @@ import {
   isGloballyHandledAuthError
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
+import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "MachineModels"
@@ -43,6 +49,10 @@ const dialogVisible = ref(false);
 const dialogTitle = ref("");
 const isEdit = ref(false);
 const formData = reactive({ id: 0, name: "" });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<typeof formData> = {
+  name: [requiredTrimmedRule("请输入机型名称")]
+};
 
 const canCreate = computed(() => hasPerms("btn:machine-model:create"));
 const canUpdate = computed(() => hasPerms("btn:machine-model:update"));
@@ -161,10 +171,7 @@ const handleSubmit = async () => {
     ElMessage.error("权限不足，无法提交当前操作");
     return;
   }
-  if (!formData.name.trim()) {
-    ElMessage.warning("请输入机型名称");
-    return;
-  }
+  if (!(await validateForm(formRef.value))) return;
   try {
     const res = isEdit.value
       ? await updateMachineModel(formData.id, { name: formData.name })
@@ -307,8 +314,14 @@ onMounted(() => {
       :title="dialogTitle"
       width="min(480px, calc(100vw - 32px))"
     >
-      <el-form label-width="80px">
-        <el-form-item label="机型名称" required>
+      <el-form
+        ref="formRef"
+        :model="formData"
+        :rules="formRules"
+        label-width="80px"
+        status-icon
+      >
+        <el-form-item label="机型名称" prop="name">
           <el-input
             v-model="formData.name"
             placeholder="请输入机型名称"

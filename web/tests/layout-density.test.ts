@@ -215,8 +215,13 @@ test("全局设计令牌文件必须存在并定义中性主题变量", () => {
 
   assert.match(tokensSource, /--app-bg-page:\s*#f5f6f8/i);
   assert.match(tokensSource, /--app-text-primary:\s*#111827/i);
-  assert.match(tokensSource, /--app-primary:\s*#7c3aed/i);
+  assert.match(tokensSource, /--app-primary:\s*#064790/i);
   assert.match(tokensSource, /--app-decision-auto:\s*var\(--app-success\)/);
+});
+
+test("运行时 Element Plus 主色必须与 SAA 品牌蓝一致", () => {
+  const platformConfig = JSON.parse(platformConfigSource);
+  assert.equal(platformConfig.EpThemeColor, "#064790");
 });
 
 test("主内容容器不应使用 24px 外边距挤占业务首屏", () => {
@@ -303,7 +308,7 @@ test("向导页内容区不应通过固定 500px 最小高度空撑", () => {
   }
 });
 
-test("向导页操作区应采用紧凑间距", () => {
+test("向导页操作区应采用固定底栏并提供足够触控高度", () => {
   assert.doesNotMatch(
     smartFillStyleSource,
     /\.step-actions\s*\{[^}]*margin-top:\s*32px/s
@@ -312,14 +317,14 @@ test("向导页操作区应采用紧凑间距", () => {
     smartFillStyleSource,
     /\.step-actions\s*\{[^}]*padding-top:\s*16px/s
   );
-  assert.match(
-    smartFillStyleSource,
-    /\.step-actions\s*\{[^}]*margin-top:\s*12px/s
-  );
-  assert.match(
-    smartFillStyleSource,
-    /\.step-actions\s*\{[^}]*padding-top:\s*12px/s
-  );
+  for (const source of [dataImportStyleSource, smartFillStyleSource]) {
+    assert.match(source, /\.step-actions\s*\{[^}]*position:\s*fixed/s);
+    assert.match(source, /\.step-actions\s*\{[^}]*bottom:\s*0/s);
+    assert.match(
+      source,
+      /\.step-actions\s*:deep\(\.el-button\)\s*\{[^}]*min-height:\s*44px/s
+    );
+  }
   assert.doesNotMatch(
     dataImportStyleSource,
     /\.data-import-body\s*\{[^}]*padding-bottom:\s*84px/s

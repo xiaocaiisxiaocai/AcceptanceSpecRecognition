@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   AuditLogLevel,
   AuditLogSource,
@@ -17,6 +22,7 @@ import {
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
+import { requiredSelectionRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "AuditLogs"
@@ -27,7 +33,11 @@ const deleting = ref(false);
 const tableData = ref<AuditLogListItem[]>([]);
 const total = ref(0);
 const queryRange = ref<string[]>([]);
-const deleteRange = ref<string[]>([]);
+const deleteForm = reactive({ range: [] as string[] });
+const deleteFormRef = ref<FormInstance>();
+const deleteFormRules: FormRules<typeof deleteForm> = {
+  range: [requiredSelectionRule("请选择删除时间范围")]
+};
 
 const queryParams = reactive({
   page: 1,
@@ -130,11 +140,8 @@ const handleDeleteByRange = async () => {
   ) {
     return;
   }
-  const [from, to] = deleteRange.value ?? [];
-  if (!from && !to) {
-    ElMessage.warning("请选择删除时间范围");
-    return;
-  }
+  if (!(await validateForm(deleteFormRef.value))) return;
+  const [from, to] = deleteForm.range ?? [];
 
   try {
     await ElMessageBox.confirm(
@@ -154,7 +161,7 @@ const handleDeleteByRange = async () => {
     });
     if (res.code === 0) {
       ElMessage.success(res.message || "删除成功");
-      deleteRange.value = [];
+      deleteForm.range = [];
       queryParams.page = 1;
       await loadData();
     } else {
@@ -305,12 +312,15 @@ onMounted(loadData);
 
       <el-form
         v-if="canDeleteRange"
+        ref="deleteFormRef"
+        :model="deleteForm"
+        :rules="deleteFormRules"
         :inline="true"
         class="delete-row filter-form"
       >
-        <el-form-item label="删除时间">
+        <el-form-item label="删除时间" prop="range">
           <el-date-picker
-            v-model="deleteRange"
+            v-model="deleteForm.range"
             type="datetimerange"
             unlink-panels
             value-format="YYYY-MM-DDTHH:mm:ss"

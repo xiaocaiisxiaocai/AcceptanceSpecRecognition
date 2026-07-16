@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createAuthRole,
@@ -20,24 +20,12 @@ import {
   isGloballyHandledAuthError
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
+import RoleFormDialog from "./components/RoleFormDialog.vue";
+import type { RoleFormModel, ScopeType } from "./roleForm.types";
 
 defineOptions({
   name: "AuthRolesConfig"
 });
-
-type ScopeType = 0 | 1 | 2 | 4;
-
-interface RoleFormModel {
-  id: number;
-  code: string;
-  name: string;
-  description: string;
-  isBuiltIn: boolean;
-  isActive: boolean;
-  permissionCodes: string[];
-  scopeType: ScopeType;
-  scopeOrgUnitIds: number[];
-}
 
 const loading = ref(false);
 const submitLoading = ref(false);
@@ -55,13 +43,6 @@ const scopeTypeOptions = [
   { label: "组织及子树", value: 2 as ScopeType },
   { label: "全部数据", value: 4 as ScopeType }
 ];
-
-const permissionTypeLabels: Record<number, string> = {
-  0: "页面权限",
-  1: "按钮权限",
-  2: "接口权限",
-  3: "菜单权限"
-};
 
 const createForm = reactive<RoleFormModel>({
   id: 0,
@@ -99,48 +80,6 @@ const orgUnitOptions = computed(() => {
   }));
 });
 
-const permissionGroups = computed(() => {
-  const grouped: Record<number, AuthPermission[]> = {
-    0: [],
-    1: [],
-    2: [],
-    3: []
-  };
-
-  permissions.value.forEach(item => {
-    if (grouped[item.permissionType]) {
-      grouped[item.permissionType].push(item);
-    }
-  });
-
-  return Object.keys(grouped)
-    .map(key => Number(key))
-    .map(type => ({
-      type,
-      label: permissionTypeLabels[type] ?? "其他",
-      items: grouped[type].sort((a, b) => a.code.localeCompare(b.code))
-    }))
-    .filter(group => group.items.length > 0);
-});
-
-const permissionCodeMap = computed(() => {
-  return new Map(permissions.value.map(item => [item.code, item]));
-});
-
-const createSingleScopeOrgId = computed<number | null>({
-  get: () => createForm.scopeOrgUnitIds[0] ?? null,
-  set: value => {
-    createForm.scopeOrgUnitIds = value ? [value] : [];
-  }
-});
-
-const editSingleScopeOrgId = computed<number | null>({
-  get: () => editForm.scopeOrgUnitIds[0] ?? null,
-  set: value => {
-    editForm.scopeOrgUnitIds = value ? [value] : [];
-  }
-});
-
 const ensureScopeNodeSelection = (form: RoleFormModel) => {
   if (form.scopeType === 0 || form.scopeType === 4) {
     form.scopeOrgUnitIds = [];
@@ -155,16 +94,6 @@ const ensureScopeNodeSelection = (form: RoleFormModel) => {
   }
 };
 
-watch(
-  () => createForm.scopeType,
-  () => ensureScopeNodeSelection(createForm)
-);
-
-watch(
-  () => editForm.scopeType,
-  () => ensureScopeNodeSelection(editForm)
-);
-
 const normalizeStringList = (values: string[]) => {
   return [...new Set(values.map(item => item.trim()).filter(item => !!item))];
 };
@@ -173,70 +102,6 @@ const normalizeNumberList = (values: number[]) => {
   return [
     ...new Set(values.filter(item => Number.isInteger(item) && item > 0))
   ];
-};
-
-const getPermissionCodesByType = (permissionType: number) => {
-  return permissions.value
-    .filter(item => item.permissionType === permissionType)
-    .map(item => item.code);
-};
-
-const mergePermissionCodes = (
-  form: RoleFormModel,
-  permissionCodes: string[]
-) => {
-  form.permissionCodes = normalizeStringList([
-    ...form.permissionCodes,
-    ...permissionCodes
-  ]);
-};
-
-const removePermissionCodes = (
-  form: RoleFormModel,
-  permissionCodes: string[]
-) => {
-  const removeSet = new Set(permissionCodes);
-  form.permissionCodes = form.permissionCodes.filter(
-    code => !removeSet.has(code)
-  );
-};
-
-const selectAllPermissions = (form: RoleFormModel) => {
-  form.permissionCodes = normalizeStringList(
-    permissions.value.map(item => item.code)
-  );
-};
-
-const clearAllPermissions = (form: RoleFormModel) => {
-  form.permissionCodes = [];
-};
-
-const selectPermissionType = (form: RoleFormModel, permissionType: number) => {
-  mergePermissionCodes(form, getPermissionCodesByType(permissionType));
-};
-
-const clearPermissionType = (form: RoleFormModel, permissionType: number) => {
-  removePermissionCodes(form, getPermissionCodesByType(permissionType));
-};
-
-const getSelectedPermissionItems = (form: RoleFormModel) => {
-  return form.permissionCodes
-    .map(code => permissionCodeMap.value.get(code))
-    .filter(item => !!item) as AuthPermission[];
-};
-
-const createSelectedPermissionItems = computed(() =>
-  getSelectedPermissionItems(createForm)
-);
-const editSelectedPermissionItems = computed(() =>
-  getSelectedPermissionItems(editForm)
-);
-
-const permissionTagType = (permissionType: number) => {
-  if (permissionType === 0) return "success";
-  if (permissionType === 1) return "warning";
-  if (permissionType === 2) return "info";
-  return "danger";
 };
 
 const getDefaultScopeOrgId = () => {
@@ -373,6 +238,14 @@ const openCreateDialog = () => {
 const openEditDialog = (role: AuthRole) => {
   applyRoleToEditForm(role);
   editDialogVisible.value = true;
+};
+
+const updateCreateForm = (value: RoleFormModel) => {
+  Object.assign(createForm, value);
+};
+
+const updateEditForm = (value: RoleFormModel) => {
+  Object.assign(editForm, value);
 };
 
 const validateRoleForm = (form: RoleFormModel, isCreate: boolean) => {
@@ -525,9 +398,6 @@ const formatScopeSummary = (role: AuthRole) => {
   return label;
 };
 
-const needsSingleOrg = (scopeType: ScopeType) =>
-  scopeType === 1 || scopeType === 2;
-
 const handleSearch = () => {
   loadRoles();
 };
@@ -541,14 +411,14 @@ onMounted(initPage);
 </script>
 
 <template>
-  <div class="page">
+  <div class="page config-page">
     <div class="page-header">
       <div>
         <div class="page-title">角色管理</div>
       </div>
     </div>
 
-    <el-card>
+    <el-card class="full-height-table-wrapper">
       <template #header>
         <div class="list-card-toolbar">
           <div class="list-card-toolbar__right">
@@ -653,430 +523,34 @@ onMounted(initPage);
       </el-table>
     </el-card>
 
-    <el-dialog
-      v-model="createDialogVisible"
-      title="新增角色"
-      width="min(960px, calc(100vw - 32px))"
-    >
-      <el-form label-width="110px">
-        <el-form-item label="角色编码" required>
-          <el-input
-            v-model="createForm.code"
-            maxlength="64"
-            placeholder="例：qa_leader"
-          />
-        </el-form-item>
-        <el-form-item label="角色名称" required>
-          <el-input v-model="createForm.name" maxlength="100" />
-        </el-form-item>
-        <el-form-item label="角色描述">
-          <el-input
-            v-model="createForm.description"
-            type="textarea"
-            :rows="2"
-            maxlength="500"
-            show-word-limit
-          />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-switch v-model="createForm.isActive" />
-        </el-form-item>
-        <el-form-item>
-          <template #label>
-            权限配置
-            <span class="permission-count"
-              >({{ createForm.permissionCodes.length }})</span
-            >
-          </template>
-          <div class="permission-panel w-full">
-            <div class="permission-actions">
-              <el-button
-                text
-                type="primary"
-                @click="selectPermissionType(createForm, 3)"
-                >全选菜单</el-button
-              >
-              <el-button
-                text
-                type="primary"
-                @click="selectPermissionType(createForm, 0)"
-                >全选页面</el-button
-              >
-              <el-button
-                text
-                type="primary"
-                @click="selectPermissionType(createForm, 1)"
-                >全选按钮</el-button
-              >
-              <el-button
-                text
-                type="primary"
-                @click="selectPermissionType(createForm, 2)"
-                >全选接口</el-button
-              >
-              <el-button
-                text
-                type="warning"
-                @click="clearPermissionType(createForm, 3)"
-                >清空菜单</el-button
-              >
-              <el-button
-                text
-                type="warning"
-                @click="clearPermissionType(createForm, 0)"
-                >清空页面</el-button
-              >
-              <el-button
-                text
-                type="warning"
-                @click="clearPermissionType(createForm, 1)"
-                >清空按钮</el-button
-              >
-              <el-button
-                text
-                type="warning"
-                @click="clearPermissionType(createForm, 2)"
-                >清空接口</el-button
-              >
-              <el-button text @click="selectAllPermissions(createForm)"
-                >全选全部</el-button
-              >
-              <el-button
-                text
-                type="danger"
-                @click="clearAllPermissions(createForm)"
-                >清空全部</el-button
-              >
-            </div>
-            <el-select
-              v-model="createForm.permissionCodes"
-              multiple
-              filterable
-              collapse-tags
-              collapse-tags-tooltip
-              class="w-full"
-            >
-              <el-option-group
-                v-for="group in permissionGroups"
-                :key="`create-perm-group-${group.type}`"
-                :label="group.label"
-              >
-                <el-option
-                  v-for="permission in group.items"
-                  :key="`create-perm-${permission.code}`"
-                  :label="`${permission.code} - ${permission.name}`"
-                  :value="permission.code"
-                />
-              </el-option-group>
-            </el-select>
-            <div
-              v-if="createSelectedPermissionItems.length > 0"
-              class="selected-permission-list"
-            >
-              <el-tag
-                v-for="permission in createSelectedPermissionItems"
-                :key="`create-selected-${permission.code}`"
-                :type="permissionTagType(permission.permissionType)"
-                size="small"
-                class="mr-1 mb-1"
-              >
-                {{ permission.code }}
-              </el-tag>
-            </div>
-            <div v-else class="selected-permission-empty">未选择权限</div>
-          </div>
-        </el-form-item>
-        <el-form-item label="验收规格范围" required>
-          <el-select
-            v-model="createForm.scopeType"
-            class="w-full"
-            popper-class="config-select-popper"
-          >
-            <el-option
-              v-for="option in scopeTypeOptions"
-              :key="`create-scope-type-${option.value}`"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item
-          v-if="needsSingleOrg(createForm.scopeType)"
-          label="组织节点"
-          required
-        >
-          <el-select
-            v-model="createSingleScopeOrgId"
-            clearable
-            filterable
-            class="w-full"
-          >
-            <el-option
-              v-for="option in orgUnitOptions"
-              :key="`create-scope-org-${option.value}`"
-              :label="option.label"
-              :value="option.value"
-              :disabled="option.disabled"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button
-          v-perms="'btn:auth-role:create'"
-          type="primary"
-          :loading="submitLoading"
-          @click="handleCreate"
-        >
-          创建
-        </el-button>
-      </template>
-    </el-dialog>
+    <RoleFormDialog
+      v-model:visible="createDialogVisible"
+      mode="create"
+      :model-value="createForm"
+      :permissions="permissions"
+      :scope-type-options="scopeTypeOptions"
+      :org-unit-options="orgUnitOptions"
+      :submitting="submitLoading"
+      @update:model-value="updateCreateForm"
+      @submit="handleCreate"
+    />
 
-    <el-dialog
-      v-model="editDialogVisible"
-      title="编辑角色"
-      width="min(960px, calc(100vw - 32px))"
-    >
-      <el-form label-width="110px">
-        <el-alert
-          v-if="editForm.isBuiltIn"
-          class="mb-4"
-          type="info"
-          :closable="false"
-          show-icon
-          title="内置角色只读，不可保存"
-        />
-        <el-form-item label="角色编码">
-          <el-input :model-value="editForm.code" disabled />
-        </el-form-item>
-        <el-form-item label="角色名称" required>
-          <el-input
-            v-model="editForm.name"
-            maxlength="100"
-            :disabled="editForm.isBuiltIn"
-          />
-        </el-form-item>
-        <el-form-item label="角色描述">
-          <el-input
-            v-model="editForm.description"
-            type="textarea"
-            :rows="2"
-            maxlength="500"
-            show-word-limit
-            :disabled="editForm.isBuiltIn"
-          />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-switch
-            v-model="editForm.isActive"
-            :disabled="editForm.isBuiltIn"
-          />
-        </el-form-item>
-        <el-form-item>
-          <template #label>
-            权限配置
-            <span class="permission-count"
-              >({{ editForm.permissionCodes.length }})</span
-            >
-          </template>
-          <div class="permission-panel w-full">
-            <div class="permission-actions">
-              <el-button
-                text
-                type="primary"
-                :disabled="editForm.isBuiltIn"
-                @click="selectPermissionType(editForm, 3)"
-                >全选菜单</el-button
-              >
-              <el-button
-                text
-                type="primary"
-                :disabled="editForm.isBuiltIn"
-                @click="selectPermissionType(editForm, 0)"
-                >全选页面</el-button
-              >
-              <el-button
-                text
-                type="primary"
-                :disabled="editForm.isBuiltIn"
-                @click="selectPermissionType(editForm, 1)"
-                >全选按钮</el-button
-              >
-              <el-button
-                text
-                type="primary"
-                :disabled="editForm.isBuiltIn"
-                @click="selectPermissionType(editForm, 2)"
-                >全选接口</el-button
-              >
-              <el-button
-                text
-                type="warning"
-                :disabled="editForm.isBuiltIn"
-                @click="clearPermissionType(editForm, 3)"
-                >清空菜单</el-button
-              >
-              <el-button
-                text
-                type="warning"
-                :disabled="editForm.isBuiltIn"
-                @click="clearPermissionType(editForm, 0)"
-                >清空页面</el-button
-              >
-              <el-button
-                text
-                type="warning"
-                :disabled="editForm.isBuiltIn"
-                @click="clearPermissionType(editForm, 1)"
-                >清空按钮</el-button
-              >
-              <el-button
-                text
-                type="warning"
-                :disabled="editForm.isBuiltIn"
-                @click="clearPermissionType(editForm, 2)"
-                >清空接口</el-button
-              >
-              <el-button
-                text
-                :disabled="editForm.isBuiltIn"
-                @click="selectAllPermissions(editForm)"
-                >全选全部</el-button
-              >
-              <el-button
-                text
-                type="danger"
-                :disabled="editForm.isBuiltIn"
-                @click="clearAllPermissions(editForm)"
-                >清空全部</el-button
-              >
-            </div>
-            <el-select
-              v-model="editForm.permissionCodes"
-              multiple
-              filterable
-              collapse-tags
-              collapse-tags-tooltip
-              class="w-full"
-              :disabled="editForm.isBuiltIn"
-            >
-              <el-option-group
-                v-for="group in permissionGroups"
-                :key="`edit-perm-group-${group.type}`"
-                :label="group.label"
-              >
-                <el-option
-                  v-for="permission in group.items"
-                  :key="`edit-perm-${permission.code}`"
-                  :label="`${permission.code} - ${permission.name}`"
-                  :value="permission.code"
-                />
-              </el-option-group>
-            </el-select>
-            <div
-              v-if="editSelectedPermissionItems.length > 0"
-              class="selected-permission-list"
-            >
-              <el-tag
-                v-for="permission in editSelectedPermissionItems"
-                :key="`edit-selected-${permission.code}`"
-                :type="permissionTagType(permission.permissionType)"
-                size="small"
-                class="mr-1 mb-1"
-              >
-                {{ permission.code }}
-              </el-tag>
-            </div>
-            <div v-else class="selected-permission-empty">未选择权限</div>
-          </div>
-        </el-form-item>
-        <el-form-item label="验收规格范围" required>
-          <el-select
-            v-model="editForm.scopeType"
-            class="w-full"
-            :disabled="editForm.isBuiltIn"
-          >
-            <el-option
-              v-for="option in scopeTypeOptions"
-              :key="`edit-scope-type-${option.value}`"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item
-          v-if="needsSingleOrg(editForm.scopeType)"
-          label="组织节点"
-          required
-        >
-          <el-select
-            v-model="editSingleScopeOrgId"
-            clearable
-            filterable
-            class="w-full"
-            :disabled="editForm.isBuiltIn"
-          >
-            <el-option
-              v-for="option in orgUnitOptions"
-              :key="`edit-scope-org-${option.value}`"
-              :label="option.label"
-              :value="option.value"
-              :disabled="option.disabled"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button
-          v-perms="'btn:auth-role:update'"
-          type="primary"
-          :loading="submitLoading"
-          :disabled="editForm.isBuiltIn"
-          @click="handleUpdate"
-        >
-          {{ editForm.isBuiltIn ? "不可保存" : "保存" }}
-        </el-button>
-      </template>
-    </el-dialog>
+    <RoleFormDialog
+      v-model:visible="editDialogVisible"
+      mode="edit"
+      :model-value="editForm"
+      :permissions="permissions"
+      :scope-type-options="scopeTypeOptions"
+      :org-unit-options="orgUnitOptions"
+      :submitting="submitLoading"
+      @update:model-value="updateEditForm"
+      @submit="handleUpdate"
+    />
   </div>
 </template>
 
 <style scoped>
 .page {
   padding: 0;
-}
-
-.permission-count {
-  margin-left: 4px;
-  font-size: 12px;
-  color: var(--app-text-disabled);
-}
-
-.permission-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.permission-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-}
-
-.selected-permission-list {
-  max-height: 100px;
-  padding: 8px;
-  overflow-y: auto;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 4px;
-}
-
-.selected-permission-empty {
-  font-size: 12px;
-  color: var(--app-text-disabled);
 }
 </style>

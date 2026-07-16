@@ -397,8 +397,8 @@ const sourceDiffTone = computed(() =>
   padding: 8px 10px;
   font-size: 12px;
   font-weight: 600;
-  color: #1f2937;
-  background: #eef4ff;
+  color: var(--app-text-primary);
+  background: var(--app-primary-light);
   border-radius: 10px;
 }
 

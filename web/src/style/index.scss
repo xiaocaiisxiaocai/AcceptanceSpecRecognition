@@ -9,7 +9,7 @@
 :root {
   /* 设计系统基础变量 */
   --color-primary: var(--app-primary);
-  --color-secondary: #a78bfa;
+  --color-secondary: #1c599b;
   --color-cta: #f97316;
   --color-background: var(--app-bg-page);
   --color-text: var(--app-text-primary);
@@ -318,6 +318,24 @@
   font-size: 20px;
   font-weight: 600;
   color: var(--app-text-primary);
+}
+
+.full-height-table-wrapper {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.full-height-table-wrapper > .el-card__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.full-height-table-wrapper > .el-card__body > .el-table {
+  flex: 1;
 }
 
 /* 灰色模式 */

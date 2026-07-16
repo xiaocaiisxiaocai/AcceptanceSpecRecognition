@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { getTablePreview } from "@/api/document";
 import type {
   SmartConfigConfirmRequest,
@@ -24,6 +24,7 @@ import {
   toDisplayIndexFromZeroBased,
   toZeroBasedIndexFromDisplay
 } from "./smart-structure-recognition";
+import { requiredSelectionRule, validateForm } from "@/utils/form-rules";
 
 const props = defineProps<{
   table: SmartConfigRecognizedTable;
@@ -69,6 +70,20 @@ const state = reactive<EditableState>({
   dataEndRowIndex: undefined,
   isSpecificationOnly: false
 });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<EditableState> = {
+  projectColumnIndex: [
+    {
+      validator: (_rule, value, callback) => {
+        if (state.isSpecificationOnly || value != null) callback();
+        else callback(new Error("请选择项目列"));
+      },
+      trigger: "change"
+    }
+  ],
+  specificationColumnIndex: [requiredSelectionRule("请选择规格列")],
+  acceptanceColumnIndex: [requiredSelectionRule("请选择验收列")]
+};
 const detailVisible = ref(false);
 const currentHeaders = ref<string[]>([]);
 const headersLoading = ref(false);
@@ -282,7 +297,9 @@ const displayRowRangeText = computed(() =>
   })
 );
 
-const emitConfirm = () => {
+const emitConfirm = async () => {
+  if (!(await validateForm(formRef.value))) return;
+
   if (
     !props.customerId ||
     !hasRequiredProjectColumn.value ||
@@ -444,9 +461,13 @@ const emitConfirm = () => {
 
     <el-form
       v-show="detailVisible"
+      ref="formRef"
+      :model="state"
+      :rules="formRules"
       label-width="96px"
       size="small"
       class="confirm-form"
+      status-icon
     >
       <el-row :gutter="14">
         <el-col :xs="24" :sm="12" :lg="8">
@@ -459,7 +480,7 @@ const emitConfirm = () => {
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="项目列" :required="!state.isSpecificationOnly">
+          <el-form-item label="项目列" prop="projectColumnIndex">
             <el-select
               v-model="state.projectColumnIndex"
               :disabled="
@@ -480,7 +501,7 @@ const emitConfirm = () => {
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="规格列" required>
+          <el-form-item label="规格列" prop="specificationColumnIndex">
             <el-select
               v-model="state.specificationColumnIndex"
               :disabled="readonly || headersLoading"
@@ -499,7 +520,7 @@ const emitConfirm = () => {
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="验收列" required>
+          <el-form-item label="验收列" prop="acceptanceColumnIndex">
             <el-select
               v-model="state.acceptanceColumnIndex"
               :disabled="readonly || headersLoading"

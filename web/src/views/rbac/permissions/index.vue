@@ -74,8 +74,12 @@ onMounted(loadData);
 </script>
 
 <template>
-  <div class="page">
-    <el-card>
+  <div class="page config-page">
+    <div class="page-header">
+      <div class="page-title">权限字典</div>
+    </div>
+
+    <el-card class="full-height-table-wrapper">
       <template #header>
         <div class="list-card-toolbar">
           <div class="list-card-toolbar__right">
@@ -114,7 +118,7 @@ onMounted(loadData);
         </div>
       </template>
 
-      <el-table v-loading="loading" :data="permissions" stripe max-height="580">
+      <el-table v-loading="loading" :data="permissions" stripe height="100%">
         <el-table-column
           prop="code"
           label="权限编码"

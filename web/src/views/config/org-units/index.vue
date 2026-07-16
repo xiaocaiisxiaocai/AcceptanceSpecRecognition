@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { getOrgUnitTree, updateOrgUnit, type OrgUnit } from "@/api/org-unit";
 import { hasPerms } from "@/utils/auth";
+import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "OrgUnitsConfig"
@@ -19,6 +20,11 @@ const editForm = reactive({
   sort: 0,
   isActive: true
 });
+const editFormRef = ref<FormInstance>();
+const editFormRules: FormRules<typeof editForm> = {
+  code: [requiredTrimmedRule("请输入组织编码")],
+  name: [requiredTrimmedRule("请输入组织名称")]
+};
 
 const canUpdate = computed(() => hasPerms("btn:org-unit:update"));
 const rootOrgUnit = computed(() => treeData.value[0] ?? null);
@@ -49,10 +55,7 @@ const openEditDialog = (row: OrgUnit) => {
 };
 
 const handleUpdate = async () => {
-  if (!editForm.code.trim() || !editForm.name.trim()) {
-    ElMessage.warning("编码和名称不能为空");
-    return;
-  }
+  if (!(await validateForm(editFormRef.value))) return;
 
   try {
     const res = await updateOrgUnit(editForm.id, {
@@ -78,12 +81,18 @@ onMounted(loadTree);
 </script>
 
 <template>
-  <div class="page">
-    <el-card>
+  <div class="page config-page">
+    <div class="page-header">
+      <div class="page-title">组织管理</div>
+    </div>
+
+    <el-card class="full-height-table-wrapper">
       <template #header>
-        <div class="flex items-center justify-between">
-          <div>
-            <div class="page-title">组织管理</div>
+        <div class="list-card-toolbar">
+          <div class="list-card-toolbar__right">
+            <span class="text-sm text-[var(--app-text-secondary)]">
+              当前仅维护根组织节点
+            </span>
           </div>
         </div>
       </template>
@@ -149,11 +158,17 @@ onMounted(loadTree);
       title="编辑组织"
       width="min(480px, calc(100vw - 32px))"
     >
-      <el-form label-width="90px">
-        <el-form-item label="组织编码" required>
+      <el-form
+        ref="editFormRef"
+        :model="editForm"
+        :rules="editFormRules"
+        label-width="90px"
+        status-icon
+      >
+        <el-form-item label="组织编码" prop="code">
           <el-input v-model="editForm.code" maxlength="64" />
         </el-form-item>
-        <el-form-item label="组织名称" required>
+        <el-form-item label="组织名称" prop="name">
           <el-input v-model="editForm.name" maxlength="100" />
         </el-form-item>
         <el-form-item label="排序">

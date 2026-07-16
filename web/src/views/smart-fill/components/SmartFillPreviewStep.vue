@@ -306,7 +306,7 @@ const loadingHintText = computed(() => {
   font-size: 12px;
   font-weight: 600;
   color: var(--app-text-secondary);
-  background: #ede9fe;
+  background: var(--app-primary-light);
   border-radius: 10px;
 }
 

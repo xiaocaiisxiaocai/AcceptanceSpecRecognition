@@ -717,15 +717,15 @@ const getPreviewResult = (tableIndex: number) => {
   padding: 12px 14px;
   margin-bottom: 16px;
   font-size: 14px;
-  color: #5d6d7e;
+  color: var(--app-text-secondary);
   background: var(--app-info-bg);
-  border: 1px solid #dbe3ec;
+  border: 1px solid var(--app-border);
   border-radius: 12px;
 }
 
 .sync-tip {
   font-size: 12px;
-  color: #8a6408;
+  color: var(--app-warning);
 }
 
 .sheet-tabs {
@@ -734,12 +734,12 @@ const getPreviewResult = (tableIndex: number) => {
 
 .sheet-tabs :deep(.el-tabs__nav-wrap::after) {
   height: 1px;
-  background: #d9e1ea;
+  background: var(--app-border);
 }
 
 .sheet-tabs :deep(.el-tabs__item) {
   height: 38px;
-  color: #60707f;
+  color: var(--app-text-secondary);
 }
 
 .sheet-tabs :deep(.el-tabs__item.is-active) {
@@ -759,18 +759,18 @@ const getPreviewResult = (tableIndex: number) => {
 
 .sheet-card {
   padding: 18px;
-  background: #fff;
-  border: 1px solid #d9e2eb;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
   border-radius: 16px;
-  box-shadow: 0 6px 18px rgb(15 23 42 / 3%);
+  box-shadow: var(--app-shadow-card);
   transition:
     border-color 0.2s,
     box-shadow 0.2s;
 }
 
 .sheet-card.selected {
-  border-color: #9fb7d6;
-  box-shadow: 0 8px 22px rgb(47 107 178 / 8%);
+  border-color: var(--app-primary);
+  box-shadow: var(--app-shadow-overlay);
 }
 
 .card-header {
@@ -830,7 +830,7 @@ const getPreviewResult = (tableIndex: number) => {
   margin-bottom: 10px;
   font-size: 13px;
   font-weight: 700;
-  color: #1f3349;
+  color: var(--app-text-primary);
 }
 
 .row-config-title {
@@ -865,7 +865,7 @@ const getPreviewResult = (tableIndex: number) => {
 .inline-preview {
   padding-top: 18px;
   margin-top: 20px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--app-border);
 }
 
 .preview-errors {

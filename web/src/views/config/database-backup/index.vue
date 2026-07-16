@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   getDatabaseBackupInfo,
   runDatabaseBackup,
@@ -10,6 +15,7 @@ import {
 } from "@/api/database-backup";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
+import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "DatabaseBackup"
@@ -26,6 +32,18 @@ const form = reactive<DatabaseBackupOptions>({
   backupDirectory: "/app/backups",
   retentionCount: 7
 });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<DatabaseBackupOptions> = {
+  backupDirectory: [requiredTrimmedRule("备份目录不能为空")],
+  retentionCount: [
+    {
+      type: "number",
+      min: 1,
+      message: "保留份数必须大于 0",
+      trigger: ["blur", "change"]
+    }
+  ]
+};
 
 const canUpdate = computed(() => hasPerms("btn:database-backup:update"));
 const canExecute = computed(() => hasPerms("btn:database-backup:execute"));
@@ -90,18 +108,6 @@ const buildPayload = (): DatabaseBackupOptions => ({
   retentionCount: Number(form.retentionCount) || 7
 });
 
-const validate = () => {
-  if (!form.backupDirectory?.trim()) {
-    ElMessage.warning("备份目录不能为空");
-    return false;
-  }
-  if (form.retentionCount < 1) {
-    ElMessage.warning("保留份数必须大于 0");
-    return false;
-  }
-  return true;
-};
-
 const save = async () => {
   if (
     !ensurePermission(
@@ -111,7 +117,7 @@ const save = async () => {
   ) {
     return;
   }
-  if (!validate()) return;
+  if (!(await validateForm(formRef.value))) return;
 
   saving.value = true;
   try {
@@ -139,7 +145,7 @@ const runNow = async () => {
   ) {
     return;
   }
-  if (!validate()) return;
+  if (!(await validateForm(formRef.value))) return;
 
   try {
     await ElMessageBox.confirm(
@@ -263,7 +269,14 @@ onMounted(load);
             </div>
           </template>
 
-          <el-form label-width="120px" class="backup-form">
+          <el-form
+            ref="formRef"
+            :model="form"
+            :rules="formRules"
+            label-width="120px"
+            class="backup-form"
+            status-icon
+          >
             <el-form-item label="启用自动备份">
               <el-switch v-model="form.enabled" />
             </el-form-item>
@@ -276,14 +289,14 @@ onMounted(load);
                 clearable
               />
             </el-form-item>
-            <el-form-item label="备份目录">
+            <el-form-item label="备份目录" prop="backupDirectory">
               <el-input
                 v-model="form.backupDirectory"
                 placeholder="/app/backups"
                 clearable
               />
             </el-form-item>
-            <el-form-item label="保留份数">
+            <el-form-item label="保留份数" prop="retentionCount">
               <el-input-number
                 v-model="form.retentionCount"
                 :min="1"
@@ -370,17 +383,11 @@ onMounted(load);
 }
 
 .page-header {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  justify-content: space-between;
   margin-bottom: 16px;
 }
 
 .page-title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 650;
 }
 
 .header-actions,

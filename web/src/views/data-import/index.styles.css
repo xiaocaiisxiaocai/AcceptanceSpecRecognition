@@ -53,7 +53,7 @@
 .error-list h4 {
   font-size: 14px;
   font-weight: 500;
-  color: var(--app-text-regular);
+  color: var(--app-text-secondary);
   margin-bottom: 12px;
 }
 

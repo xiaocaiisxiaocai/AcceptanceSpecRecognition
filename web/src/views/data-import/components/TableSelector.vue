@@ -211,7 +211,11 @@ watch(
             ? selectedIndexes.includes(table.index)
             : selectedIndex === table.index
         }"
+        role="button"
+        tabindex="0"
         @click="handleSelect(table)"
+        @keydown.enter="handleSelect(table)"
+        @keydown.space.prevent="handleSelect(table)"
       >
         <div class="table-header">
           <div class="table-title">

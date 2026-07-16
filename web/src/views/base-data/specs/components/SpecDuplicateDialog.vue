@@ -269,27 +269,27 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
   gap: 6px;
   padding: 14px 16px;
   background: linear-gradient(180deg, #fff 0%, var(--app-info-bg) 100%);
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid var(--app-border-light);
   border-radius: 12px;
 }
 
 .summary-card.danger {
-  background: linear-gradient(180deg, var(--app-danger-bg) 0%, #fff0f0 100%);
+  background: var(--app-danger-bg);
 }
 
 .summary-card.warning {
-  background: linear-gradient(180deg, #fffaf2 0%, #fff4e2 100%);
+  background: var(--app-warning-bg);
 }
 
 .summary-label {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .summary-value {
   font-size: 18px;
   line-height: 1.4;
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
 }
 
 .content-scroll {
@@ -320,12 +320,12 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
 .section-header h3 {
   margin: 0;
   font-size: 16px;
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
 }
 
 .section-header span {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .group-list {
@@ -360,7 +360,7 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
 
 .group-index {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .group-preview,
@@ -370,12 +370,12 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
 }
 
 .group-preview {
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
 }
 
 .group-reason {
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .group-score {
@@ -385,12 +385,12 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
   justify-content: center;
   min-width: 96px;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .group-score strong {
   font-size: 18px;
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
 }
 
 @media (width <= 960px) {

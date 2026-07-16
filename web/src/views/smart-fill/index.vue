@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, watch } from "vue";
 import { useEventListener } from "@vueuse/core";
-import { ElMessage } from "element-plus";
+import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
 import SmartFillBackfillDialog from "./components/SmartFillBackfillDialog.vue";
 import SmartFillMatchStep from "./components/SmartFillMatchStep.vue";
@@ -59,6 +59,7 @@ import {
   getSmartFillPrevStepState
 } from "./smartFill.smartRecognition";
 import type { SmartFillScope } from "./smartFillExecution.helpers";
+import { requiredSelectionRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({ name: "FillData" });
 
@@ -154,6 +155,10 @@ const matchScope = ref<SmartFillScope>({
   processId: undefined,
   machineModelId: undefined
 });
+const scopeFormRef = ref<FormInstance>();
+const scopeFormRules: FormRules<SmartFillScope> = {
+  customerId: [requiredSelectionRule("请选择客户")]
+};
 const selectedCustomerIdForRules = ref<number | undefined>(undefined);
 const customers = ref<Customer[]>([]);
 const processes = ref<Process[]>([]);
@@ -512,10 +517,7 @@ const runSmartStructureRecognition = async () => {
     ElMessage.warning("请先上传目标文档");
     return;
   }
-  if (!matchScope.value.customerId) {
-    ElMessage.warning("请先选择客户");
-    return;
-  }
+  if (!(await validateForm(scopeFormRef.value))) return;
 
   const result = await recognizeSmartStructure(
     uploadedFile.value.fileId,
@@ -724,10 +726,17 @@ const handleRestart = () => {
       >
         <template #extra>
           <div class="smart-fill-scope-panel">
-            <el-form label-width="96px" class="smart-fill-scope-form">
+            <el-form
+              ref="scopeFormRef"
+              :model="matchScope"
+              :rules="scopeFormRules"
+              label-width="96px"
+              class="smart-fill-scope-form"
+              status-icon
+            >
               <el-row :gutter="16">
                 <el-col :xs="24" :sm="8">
-                  <el-form-item label="客户" required>
+                  <el-form-item label="客户" prop="customerId">
                     <el-select
                       v-model="matchScope.customerId"
                       :loading="loadingScopeOptions"
@@ -837,20 +846,6 @@ const handleRestart = () => {
               "
             />
             <div class="smart-fill-entry-actions">
-              <el-button
-                type="primary"
-                :disabled="
-                  !uploadedFile ||
-                  !matchScope.customerId ||
-                  loadingUploadedFileTables
-                "
-                :loading="smartRecognizing"
-                @click="runSmartStructureRecognition"
-              >
-                {{
-                  recognizedTables.length > 0 ? "重新识别" : "智能识别并配置"
-                }}
-              </el-button>
               <el-button
                 v-if="showManualFallback"
                 :disabled="!uploadedFile"

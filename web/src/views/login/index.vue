@@ -18,6 +18,8 @@ import dayIcon from "@/assets/svg/day.svg?component";
 import darkIcon from "@/assets/svg/dark.svg?component";
 import Lock from "~icons/ri/lock-fill";
 import User from "~icons/ri/user-3-fill";
+import Eye from "~icons/ri/eye-line";
+import EyeOff from "~icons/ri/eye-off-line";
 
 defineOptions({
   name: "Login"
@@ -28,6 +30,7 @@ const route = useRoute();
 const loading = ref(false);
 const disabled = ref(false);
 const ruleFormRef = ref<FormInstance>();
+const passwordVisible = ref(false);
 
 const { dataTheme, overallStyle, dataThemeChange } = useDataThemeChange();
 dataThemeChange(overallStyle.value);
@@ -173,10 +176,23 @@ useEventListener(document, "keydown", ({ code }) => {
                 <el-input
                   v-model="ruleForm.password"
                   clearable
-                  show-password
+                  :type="passwordVisible ? 'text' : 'password'"
                   placeholder="密码"
                   :prefix-icon="useRenderIcon(Lock)"
-                />
+                >
+                  <template #suffix>
+                    <button
+                      type="button"
+                      class="password-visibility-toggle"
+                      :aria-label="passwordVisible ? '隐藏密码' : '显示密码'"
+                      @click="passwordVisible = !passwordVisible"
+                    >
+                      <el-icon>
+                        <component :is="passwordVisible ? EyeOff : Eye" />
+                      </el-icon>
+                    </button>
+                  </template>
+                </el-input>
               </el-form-item>
             </Motion>
 
@@ -206,5 +222,22 @@ useEventListener(document, "keydown", ({ code }) => {
 <style lang="scss" scoped>
 :deep(.el-input-group__append, .el-input-group__prepend) {
   padding: 0;
+}
+
+.password-visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+
+.password-visibility-toggle:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 1px;
 }
 </style>

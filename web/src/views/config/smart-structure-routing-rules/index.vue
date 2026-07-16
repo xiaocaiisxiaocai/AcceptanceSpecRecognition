@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   createSmartStructureRoutingRule,
   deleteSmartStructureRoutingRule,
@@ -19,6 +24,7 @@ import {
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
+import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "SmartStructureRoutingRules"
@@ -146,6 +152,11 @@ const form = reactive({
   source: "Manual" as SmartStructureRoutingRuleSource,
   customerId: undefined as number | undefined
 });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<typeof form> = {
+  name: [requiredTrimmedRule("请输入规则名称")],
+  pattern: [requiredTrimmedRule("请输入匹配词")]
+};
 
 const resetForm = () => {
   form.id = 0;
@@ -240,11 +251,10 @@ const submit = async () => {
     return;
   }
 
+  if (!(await validateForm(formRef.value))) return;
+
   const payload = buildPayload();
-  if (!payload) {
-    ElMessage.warning("请填写规则名称和匹配词");
-    return;
-  }
+  if (!payload) return;
 
   try {
     const res = isEdit.value
@@ -338,12 +348,14 @@ onMounted(load);
       </div>
     </div>
 
-    <el-card>
+    <el-card class="full-height-table-wrapper">
       <template #header>
-        <div class="flex justify-between items-center">
-          <el-button v-if="canCreate" type="primary" @click="openAdd">
-            新增规则
-          </el-button>
+        <div class="list-card-toolbar">
+          <div class="list-card-toolbar__right">
+            <el-button v-if="canCreate" type="primary" @click="openAdd">
+              新增规则
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -475,8 +487,14 @@ onMounted(load);
       :title="dialogTitle"
       width="min(560px, calc(100vw - 32px))"
     >
-      <el-form label-width="96px">
-        <el-form-item label="规则名称" required>
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="formRules"
+        label-width="96px"
+        status-icon
+      >
+        <el-form-item label="规则名称" prop="name">
           <el-input v-model="form.name" placeholder="例如：报价单跳过" />
         </el-form-item>
         <el-form-item label="推荐结果">
@@ -521,7 +539,7 @@ onMounted(load);
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="匹配词" required>
+        <el-form-item label="匹配词" prop="pattern">
           <el-input v-model="form.pattern" placeholder="例如：報價 / Layout" />
         </el-form-item>
         <el-form-item label="权重">

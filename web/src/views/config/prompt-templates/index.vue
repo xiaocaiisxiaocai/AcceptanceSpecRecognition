@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   getPromptTemplateList,
   previewPromptTemplate,
@@ -16,6 +21,7 @@ import {
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
+import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "PromptTemplates"
@@ -53,6 +59,11 @@ const formData = reactive({
   usageDescription: "",
   availableVariables: [] as string[]
 });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<typeof formData> = {
+  displayName: [requiredTrimmedRule("请输入显示名称")],
+  content: [requiredTrimmedRule("请输入内容")]
+};
 
 const loadData = async () => {
   loading.value = true;
@@ -119,10 +130,10 @@ const handlePreview = async () => {
   ) {
     return;
   }
-  if (!formData.content.trim()) {
-    ElMessage.warning("请输入内容");
-    return;
-  }
+  const contentValid = Boolean(
+    await formRef.value?.validateField("content").catch(() => false)
+  );
+  if (!contentValid) return;
 
   previewLoading.value = true;
   try {
@@ -152,14 +163,7 @@ const handleSubmit = async () => {
   ) {
     return;
   }
-  if (!formData.displayName.trim()) {
-    ElMessage.warning("请输入显示名称");
-    return;
-  }
-  if (!formData.content.trim()) {
-    ElMessage.warning("请输入内容");
-    return;
-  }
+  if (!(await validateForm(formRef.value))) return;
 
   try {
     const res = await updatePromptTemplate(formData.id, {
@@ -240,7 +244,7 @@ onMounted(loadData);
       </div>
     </div>
 
-    <el-card>
+    <el-card class="full-height-table-wrapper">
       <template #header>
         <div class="list-card-toolbar">
           <div class="list-card-toolbar__right">
@@ -365,14 +369,20 @@ onMounted(loadData);
       :title="dialogTitle"
       width="min(960px, calc(100vw - 32px))"
     >
-      <el-form label-width="100px">
+      <el-form
+        ref="formRef"
+        :model="formData"
+        :rules="formRules"
+        label-width="100px"
+        status-icon
+      >
         <el-form-item label="系统键">
           <el-input :model-value="formData.name" readonly />
         </el-form-item>
         <el-form-item label="用途说明">
           <el-input :model-value="formData.usageDescription" readonly />
         </el-form-item>
-        <el-form-item label="显示名称" required>
+        <el-form-item label="显示名称" prop="displayName">
           <el-input v-model="formData.displayName" maxlength="100" />
         </el-form-item>
         <el-form-item label="占位符">
@@ -387,7 +397,7 @@ onMounted(loadData);
             </el-tag>
           </div>
         </el-form-item>
-        <el-form-item label="内容" required>
+        <el-form-item label="内容" prop="content">
           <el-input
             v-model="formData.content"
             type="textarea"
@@ -474,7 +484,7 @@ onMounted(loadData);
 }
 
 .preview-card {
-  background: #fafafa;
+  background: var(--app-bg-page);
 }
 
 .preview-title {
@@ -489,7 +499,7 @@ onMounted(loadData);
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--app-info-bg);
+  color: var(--app-bg-card);
   word-break: break-word;
   white-space: pre-wrap;
   background: var(--app-text-primary);
@@ -499,6 +509,6 @@ onMounted(loadData);
 .preview-errors {
   padding-left: 18px;
   margin: 0;
-  color: #dc2626;
+  color: var(--app-danger);
 }
 </style>

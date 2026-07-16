@@ -276,14 +276,6 @@ const activeSmartStructureScopeDescription = computed(() => {
               />
               <div class="smart-entry-actions">
                 <el-button
-                  type="primary"
-                  :disabled="!uploadedFile || !selectedCustomerId"
-                  :loading="smartRecognizing"
-                  @click="goNext"
-                >
-                  {{ smartStageText || "智能识别结构" }}
-                </el-button>
-                <el-button
                   v-if="showManualFallback"
                   @click="enterAdvancedMode('tableSelect')"
                 >

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import type { FormRules } from "element-plus";
 import type { TableData } from "@/api/document";
 import {
   applyExcelMappingRowFieldChange,
@@ -44,6 +45,14 @@ const defaultMapping: ExcelSheetMapping = {
 };
 
 const mapping = ref<ExcelSheetMapping>({ ...defaultMapping });
+const columnFormRules: FormRules<ExcelSheetMapping> = {
+  projectColumn: [
+    { required: true, message: "请选择项目列", trigger: "change" }
+  ],
+  specificationColumn: [
+    { required: true, message: "请选择规格列", trigger: "change" }
+  ]
+};
 
 function getTableInfoForNormalization() {
   const usedStartRow = Math.max(1, props.usedRangeStartRow || 1);
@@ -251,8 +260,13 @@ function applyDetectedFieldMapping() {
 
       <div class="group">
         <div class="group-title">列映射</div>
-        <el-form label-width="110px">
-          <el-form-item label="项目列（必填）">
+        <el-form
+          :model="mapping"
+          :rules="columnFormRules"
+          label-width="110px"
+          status-icon
+        >
+          <el-form-item label="项目列（必填）" prop="projectColumn">
             <div class="col-select-row">
               <el-select
                 v-model="mapping.projectColumn"
@@ -271,7 +285,7 @@ function applyDetectedFieldMapping() {
               <span class="col-letter">{{ columnHint.project }}</span>
             </div>
           </el-form-item>
-          <el-form-item label="规格列（必填）">
+          <el-form-item label="规格列（必填）" prop="specificationColumn">
             <div class="col-select-row">
               <el-select
                 v-model="mapping.specificationColumn"

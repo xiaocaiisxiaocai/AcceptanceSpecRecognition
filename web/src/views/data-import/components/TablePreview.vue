@@ -309,11 +309,11 @@ defineExpose({
 
 .preview-tip {
   margin-left: 8px;
-  color: #94a3b8;
+  color: var(--app-text-disabled);
 }
 
 .preview-tip--scroll {
-  color: #2563eb;
+  color: var(--app-primary);
 }
 
 .table-container {

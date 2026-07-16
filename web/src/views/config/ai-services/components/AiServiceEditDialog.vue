@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import type { FormInstance, FormRules } from "element-plus";
 import { AiServicePurpose } from "@/api/ai-service";
 import { MAX_RECALL_TOP_K } from "@/api/matching";
 import { purposeOptions, serviceTypeOptions } from "../constants";
 import type { AiServiceFormData } from "../form";
 import { hasPurpose } from "../utils";
+import {
+  requiredSelectionRule,
+  requiredTrimmedRule,
+  validateForm
+} from "@/utils/form-rules";
 
 const visible = defineModel<boolean>({ required: true });
 const formData = defineModel<AiServiceFormData>("formData", { required: true });
@@ -19,6 +25,19 @@ const emit = defineEmits<{
 }>();
 
 const form = computed(() => formData.value);
+const formRef = ref<FormInstance>();
+const formRules: FormRules<AiServiceFormData> = {
+  name: [requiredTrimmedRule("请输入名称")],
+  serviceType: [requiredSelectionRule("请选择类型")],
+  purpose: [requiredSelectionRule("请选择用途")],
+  embeddingModel: [requiredTrimmedRule("请输入 Embedding 模型")],
+  llmModel: [requiredTrimmedRule("请输入 LLM 模型")]
+};
+
+const handleSubmit = async () => {
+  if (!(await validateForm(formRef.value))) return;
+  emit("submit");
+};
 </script>
 
 <template>
@@ -27,11 +46,17 @@ const form = computed(() => formData.value);
     :title="title"
     width="min(640px, calc(100vw - 32px))"
   >
-    <el-form label-width="120px">
-      <el-form-item label="名称" required>
+    <el-form
+      ref="formRef"
+      :model="form"
+      :rules="formRules"
+      label-width="120px"
+      status-icon
+    >
+      <el-form-item label="名称" prop="name">
         <el-input v-model="form.name" maxlength="100" />
       </el-form-item>
-      <el-form-item label="类型" required>
+      <el-form-item label="类型" prop="serviceType">
         <el-select
           v-model="form.serviceType"
           class="w-full"
@@ -45,7 +70,7 @@ const form = computed(() => formData.value);
           />
         </el-select>
       </el-form-item>
-      <el-form-item label="用途" required>
+      <el-form-item label="用途" prop="purpose">
         <el-radio-group v-model="form.purpose">
           <el-radio
             v-for="opt in purposeOptions"
@@ -81,7 +106,7 @@ const form = computed(() => formData.value);
       <el-form-item
         v-if="hasPurpose(form.purpose, AiServicePurpose.Embedding)"
         label="EmbeddingModel"
-        required
+        prop="embeddingModel"
       >
         <el-input v-model="form.embeddingModel" />
       </el-form-item>
@@ -110,7 +135,7 @@ const form = computed(() => formData.value);
       <el-form-item
         v-if="hasPurpose(form.purpose, AiServicePurpose.Llm)"
         label="LLMModel"
-        required
+        prop="llmModel"
       >
         <el-input v-model="form.llmModel" />
       </el-form-item>
@@ -129,7 +154,7 @@ const form = computed(() => formData.value);
     </el-form>
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
-      <el-button v-if="canSubmit" type="primary" @click="emit('submit')">
+      <el-button v-if="canSubmit" type="primary" @click="handleSubmit">
         确定
       </el-button>
     </template>

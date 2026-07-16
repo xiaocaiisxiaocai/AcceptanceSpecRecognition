@@ -199,14 +199,18 @@ test("登录失效由全局鉴权统一处理，页面初始化请求不应重�
   );
 });
 
-test("上传目标区域的智能识别入口应复用下一步流程，识别成功后进入确认页", () => {
-  assert.match(
+test("上传目标区域只保留底栏主操作，识别成功后进入确认页", () => {
+  assert.doesNotMatch(
     dataImportSource,
-    /class="smart-entry-actions"[\s\S]*@click="goNext"[\s\S]*智能识别结构/
+    /class="smart-entry-actions"[\s\S]{0,600}@click="goNext"/
   );
   assert.doesNotMatch(
     dataImportSource,
-    /class="smart-entry-actions"[\s\S]*@click="runSmartStructureRecognition"[\s\S]*智能识别结构/
+    /class="smart-entry-actions"[\s\S]{0,600}@click="runSmartStructureRecognition"/
+  );
+  assert.match(
+    dataImportSource,
+    /class="step-actions"[\s\S]*@click="goNext"[\s\S]*识别并进入确认/
   );
   assert.match(
     dataImportSource,

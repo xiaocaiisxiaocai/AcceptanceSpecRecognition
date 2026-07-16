@@ -366,7 +366,7 @@ defineExpose({
 .result-panel {
   min-height: 0;
   background: linear-gradient(180deg, #fff 0%, var(--app-info-bg) 100%);
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid var(--app-border-light);
   border-radius: 16px;
 }
 
@@ -386,13 +386,13 @@ defineExpose({
 .panel-header h3 {
   margin: 0;
   font-size: 18px;
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
 }
 
 .panel-header span,
 .group-label-title {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .group-label {
@@ -400,7 +400,7 @@ defineExpose({
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px;
-  background: #f5f7fa;
+  background: var(--app-info-bg);
   border-radius: 12px;
 }
 
@@ -418,7 +418,7 @@ defineExpose({
 
 .control-item span {
   font-size: 13px;
-  color: var(--el-text-color-regular);
+  color: var(--app-text-secondary);
 }
 
 .control-actions {
@@ -446,19 +446,19 @@ defineExpose({
   gap: 6px;
   padding: 14px 16px;
   background: #fff;
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid var(--app-border-light);
   border-radius: 12px;
 }
 
 .summary-label {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .summary-value {
   font-size: 18px;
   line-height: 1.4;
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
 }
 
 .result-scroll {
@@ -500,13 +500,13 @@ defineExpose({
 
 .group-index {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .group-query {
   margin: 0;
   line-height: 1.7;
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
   white-space: pre-wrap;
 }
 

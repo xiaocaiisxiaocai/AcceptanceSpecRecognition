@@ -315,8 +315,8 @@ defineProps<{
 }
 
 .candidate-status-top1 {
-  color: #1d4ed8;
-  background: rgb(64 158 255 / 12%);
+  color: var(--app-primary);
+  background: var(--app-primary-light);
 }
 
 .candidate-status-compare {
@@ -412,7 +412,7 @@ defineProps<{
 }
 
 .issue-card__meta {
-  color: #7c2d12;
+  color: var(--app-warning);
 }
 
 .issue-card__action {
