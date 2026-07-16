@@ -141,6 +141,21 @@ test("调整表头行或表头行数后应同步约束数据起始行", () => {
   );
 });
 
+test("调整表头结构后应重新加载对应行并刷新列选项", () => {
+  assert.match(confirmCardSource, /getTablePreview/);
+  assert.match(
+    confirmCardSource,
+    /watch\([\s\S]*state\.headerRowIndex[\s\S]*state\.headerRowCount[\s\S]*loadHeadersForCurrentStructure/
+  );
+  assert.match(confirmCardSource, /const currentHeaders = ref<string\[]>/);
+  assert.match(
+    confirmCardSource,
+    /const columnOptions = computed\([\s\S]*currentHeaders\.value\.map/
+  );
+  assert.match(confirmCardSource, /headers:\s*\[\.\.\.currentHeaders\.value\]/);
+  assert.match(confirmCardSource, /latestHeaderRequestId/);
+});
+
 test("移动端应为固定操作栏预留完整空间并提供至少 44px 触控目标", () => {
   assert.match(
     dataImportStyleSource,

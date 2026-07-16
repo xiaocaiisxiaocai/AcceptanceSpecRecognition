@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
+import { ElMessage } from "element-plus";
+import { getTablePreview } from "@/api/document";
 import type {
   SmartConfigConfirmRequest,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
 import {
   buildSmartConfigConfirmRequest,
   formatDisplayIndexFromZeroBased,
@@ -64,8 +70,16 @@ const state = reactive<EditableState>({
   isSpecificationOnly: false
 });
 const detailVisible = ref(false);
+const currentHeaders = ref<string[]>([]);
+const headersLoading = ref(false);
+let latestHeaderRequestId = 0;
+let resettingState = false;
 
 const resetState = () => {
+  resettingState = true;
+  latestHeaderRequestId += 1;
+  headersLoading.value = false;
+  currentHeaders.value = [...props.table.headers];
   state.templateName =
     props.table.tableName?.trim() || `表格 ${props.table.tableIndex + 1}`;
   state.projectColumnIndex = props.table.projectColumnIndex ?? undefined;
@@ -82,6 +96,7 @@ const resetState = () => {
     props.defaultExpanded ??
     (props.table.recommendation !== "Skip" &&
       props.table.decision !== "AutoApply");
+  resettingState = false;
 };
 
 watch(() => props.table, resetState, { immediate: true });
@@ -110,7 +125,7 @@ const tableTitle = computed(
 );
 
 const columnOptions = computed(() =>
-  props.table.headers.map((header, index) => ({
+  currentHeaders.value.map((header, index) => ({
     value: index,
     label: `[${formatDisplayIndexFromZeroBased(index)}] ${
       header || `列${index + 1}`
@@ -119,7 +134,7 @@ const columnOptions = computed(() =>
 );
 
 const getHeaderText = (index?: number | null) =>
-  index == null ? "-" : props.table.headers[index] || `列${index + 1}`;
+  index == null ? "-" : currentHeaders.value[index] || `列${index + 1}`;
 
 const summaryFields = computed(() => [
   { label: "项目", value: getHeaderText(state.projectColumnIndex) },
@@ -192,6 +207,58 @@ const displayMinimumDataStartRowIndex = computed(() =>
   toDisplayIndexFromZeroBased(minimumDataStartRowIndex.value)
 );
 
+const normalizeHeaders = (headers: string[], columnCount: number) =>
+  Array.from(
+    { length: Math.max(headers.length, columnCount) },
+    (_, index) => headers[index] ?? ""
+  );
+
+const loadHeadersForCurrentStructure = async () => {
+  if (!props.fileId) return;
+
+  const requestId = ++latestHeaderRequestId;
+  headersLoading.value = true;
+  try {
+    const res = await getTablePreview(props.fileId, props.table.tableIndex, {
+      previewRows: 1,
+      headerRowIndex: state.headerRowIndex,
+      headerRowCount: state.headerRowCount,
+      dataStartRowIndex: minimumDataStartRowIndex.value
+    });
+    if (requestId !== latestHeaderRequestId) return;
+
+    if (res.code !== 0) {
+      throw new Error(res.message || "加载表头失败");
+    }
+
+    currentHeaders.value = normalizeHeaders(
+      res.data.headers,
+      res.data.columnCount
+    );
+  } catch (error) {
+    if (
+      requestId === latestHeaderRequestId &&
+      !isGloballyHandledAuthError(error)
+    ) {
+      ElMessage.error(getRequestErrorMessage(error, "加载表头失败"));
+    }
+  } finally {
+    if (requestId === latestHeaderRequestId) {
+      headersLoading.value = false;
+    }
+  }
+};
+
+watch(
+  () => [state.headerRowIndex, state.headerRowCount] as const,
+  () => {
+    if (!resettingState) {
+      void loadHeadersForCurrentStructure();
+    }
+  },
+  { flush: "sync" }
+);
+
 watch(minimumDataStartRowIndex, minimum => {
   if (state.dataStartRowIndex < minimum) {
     state.dataStartRowIndex = minimum;
@@ -231,6 +298,7 @@ const emitConfirm = () => {
       props.customerId,
       {
         ...props.table,
+        headers: [...currentHeaders.value],
         tableName: state.templateName,
         projectColumnIndex: state.projectColumnIndex,
         specificationColumnIndex: state.specificationColumnIndex,
@@ -338,7 +406,7 @@ const emitConfirm = () => {
     >
       <span class="headers-label">表头</span>
       <el-tag
-        v-for="(header, index) in table.headers.slice(0, 10)"
+        v-for="(header, index) in currentHeaders.slice(0, 10)"
         :key="`${table.tableIndex}-${index}`"
         size="small"
         type="info"
@@ -347,7 +415,7 @@ const emitConfirm = () => {
         [{{ formatDisplayIndexFromZeroBased(index) }}]
         {{ header || `列${index + 1}` }}
       </el-tag>
-      <span v-if="table.headers.length > 10" class="more">...</span>
+      <span v-if="currentHeaders.length > 10" class="more">...</span>
     </div>
 
     <div
@@ -394,7 +462,10 @@ const emitConfirm = () => {
           <el-form-item label="项目列" :required="!state.isSpecificationOnly">
             <el-select
               v-model="state.projectColumnIndex"
-              :disabled="readonly || state.isSpecificationOnly"
+              :disabled="
+                readonly || state.isSpecificationOnly || headersLoading
+              "
+              :loading="headersLoading"
               placeholder="请选择项目列"
               clearable
               style="width: 100%"
@@ -412,7 +483,8 @@ const emitConfirm = () => {
           <el-form-item label="规格列" required>
             <el-select
               v-model="state.specificationColumnIndex"
-              :disabled="readonly"
+              :disabled="readonly || headersLoading"
+              :loading="headersLoading"
               placeholder="请选择规格列"
               clearable
               style="width: 100%"
@@ -430,7 +502,8 @@ const emitConfirm = () => {
           <el-form-item label="验收列" required>
             <el-select
               v-model="state.acceptanceColumnIndex"
-              :disabled="readonly"
+              :disabled="readonly || headersLoading"
+              :loading="headersLoading"
               placeholder="请选择验收列"
               clearable
               style="width: 100%"
@@ -448,7 +521,8 @@ const emitConfirm = () => {
           <el-form-item label="备注列">
             <el-select
               v-model="state.remarkColumnIndex"
-              :disabled="readonly"
+              :disabled="readonly || headersLoading"
+              :loading="headersLoading"
               placeholder="请选择备注列（可选）"
               clearable
               style="width: 100%"
@@ -533,7 +607,7 @@ const emitConfirm = () => {
       </el-button>
       <el-button
         type="primary"
-        :disabled="!canConfirm"
+        :disabled="!canConfirm || headersLoading"
         :loading="confirming"
         @click="emitConfirm"
       >
