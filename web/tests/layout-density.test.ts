@@ -394,6 +394,22 @@ test("简单 CRUD 页不应显示 PureTableBar 工具按钮", () => {
   }
 });
 
+test("权限字典页应固定筛选栏和分页，并仅在表格内容区滚动", () => {
+  assert.match(
+    permissionsPageSource,
+    /<div class="page page--fill config-page permissions-page">/
+  );
+  assert.match(
+    permissionsPageSource,
+    /<el-card class="table-card" shadow="never">/
+  );
+  assert.match(permissionsPageSource, /<div class="table-region">/);
+  assert.match(permissionsPageSource, /:data="pagedPermissions"/);
+  assert.match(permissionsPageSource, /height="100%"/);
+  assert.match(permissionsPageSource, /<div class="pagination-bar">/);
+  assert.match(permissionsPageSource, /const pageSize = ref\(50\)/);
+});
+
 test("简单 CRUD 工具栏换行时不应拆散搜索表单和操作按钮", () => {
   assert.match(
     globalStyleSource,

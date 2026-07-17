@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   getAuthPermissionList,
@@ -14,6 +14,8 @@ type PermissionTypeFilter = "" | "0" | "1" | "2" | "3";
 
 const loading = ref(false);
 const permissions = ref<AuthPermission[]>([]);
+const currentPage = ref(1);
+const pageSize = ref(50);
 const queryForm = reactive({
   keyword: "",
   permissionType: "" as PermissionTypeFilter
@@ -26,6 +28,11 @@ const permissionTypeOptions = [
   { label: "接口权限", value: "2" },
   { label: "菜单权限", value: "3" }
 ];
+
+const pagedPermissions = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return permissions.value.slice(start, start + pageSize.value);
+});
 
 const permissionTypeLabel = (permissionType: number) => {
   if (permissionType === 0) return "页面权限";
@@ -50,6 +57,7 @@ const loadData = async () => {
       permissions.value = (res.data ?? []).sort((a, b) =>
         a.code.localeCompare(b.code)
       );
+      currentPage.value = 1;
     } else {
       ElMessage.error(res.message || "加载权限字典失败");
     }
@@ -70,16 +78,20 @@ const handleReset = () => {
   loadData();
 };
 
+const handlePageSizeChange = () => {
+  currentPage.value = 1;
+};
+
 onMounted(loadData);
 </script>
 
 <template>
-  <div class="page config-page">
+  <div class="page page--fill config-page permissions-page">
     <div class="page-header">
       <div class="page-title">权限字典</div>
     </div>
 
-    <el-card class="full-height-table-wrapper">
+    <el-card class="table-card" shadow="never">
       <template #header>
         <div class="list-card-toolbar">
           <div class="list-card-toolbar__right">
@@ -118,46 +130,64 @@ onMounted(loadData);
         </div>
       </template>
 
-      <el-table v-loading="loading" :data="permissions" stripe height="100%">
-        <el-table-column
-          prop="code"
-          label="权限编码"
-          min-width="min(320px, calc(100vw - 32px))"
+      <div class="table-region">
+        <el-table
+          v-loading="loading"
+          :data="pagedPermissions"
+          stripe
+          height="100%"
+        >
+          <el-table-column
+            prop="code"
+            label="权限编码"
+            min-width="min(320px, calc(100vw - 32px))"
+          />
+          <el-table-column
+            prop="name"
+            label="权限名称"
+            min-width="min(220px, calc(100vw - 32px))"
+          />
+          <el-table-column label="类型" width="min(120px, calc(100vw - 32px))">
+            <template #default="{ row }">
+              <el-tag
+                :type="
+                  row.permissionType === 0
+                    ? 'success'
+                    : row.permissionType === 1
+                      ? 'warning'
+                      : row.permissionType === 2
+                        ? 'info'
+                        : 'danger'
+                "
+                size="small"
+              >
+                {{ permissionTypeLabel(row.permissionType) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="resource"
+            label="资源"
+            min-width="min(140px, calc(100vw - 32px))"
+          />
+          <el-table-column
+            prop="action"
+            label="动作"
+            min-width="min(140px, calc(100vw - 32px))"
+          />
+        </el-table>
+      </div>
+
+      <div class="pagination-bar">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[20, 50, 100]"
+          :total="permissions.length"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handlePageSizeChange"
         />
-        <el-table-column
-          prop="name"
-          label="权限名称"
-          min-width="min(220px, calc(100vw - 32px))"
-        />
-        <el-table-column label="类型" width="min(120px, calc(100vw - 32px))">
-          <template #default="{ row }">
-            <el-tag
-              :type="
-                row.permissionType === 0
-                  ? 'success'
-                  : row.permissionType === 1
-                    ? 'warning'
-                    : row.permissionType === 2
-                      ? 'info'
-                      : 'danger'
-              "
-              size="small"
-            >
-              {{ permissionTypeLabel(row.permissionType) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="resource"
-          label="资源"
-          min-width="min(140px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          prop="action"
-          label="动作"
-          min-width="min(140px, calc(100vw - 32px))"
-        />
-      </el-table>
+      </div>
     </el-card>
   </div>
 </template>
