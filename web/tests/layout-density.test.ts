@@ -425,7 +425,15 @@ test("向导页操作区应采用固定底栏、为可选页脚让位并提供�
   );
 });
 
-test("栅格配置页不应因 gutter 负边距产生整页横向滚动", () => {
+test("栅格页面不应因 gutter 负边距产生整页横向滚动", () => {
+  assert.match(
+    dashboardPageSource,
+    /\.dashboard\s*\{[^}]*overflow-x:\s*hidden/s
+  );
+  assert.match(
+    dashboardPageSource,
+    /\.dashboard :deep\(\.el-row\)\s*\{[^}]*margin-right:\s*0 !important;[^}]*margin-left:\s*0 !important/s
+  );
   assert.match(
     embeddingCacheWarmupSource,
     /\.embedding-warmup-page\s*\{[^}]*overflow-x:\s*hidden/s

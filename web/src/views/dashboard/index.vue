@@ -425,6 +425,15 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
+.dashboard {
+  overflow-x: hidden;
+}
+
+.dashboard :deep(.el-row) {
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+}
+
 .page-header {
   display: flex;
   gap: 16px;
