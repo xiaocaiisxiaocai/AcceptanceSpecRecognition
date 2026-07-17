@@ -556,6 +556,8 @@ test("已触达核心流程样式不得继续使用 Element Plus 旧状态色", 
 test("简单 CRUD 页应使用全高骨架与单行工具栏", () => {
   for (const source of simpleCrudPages) {
     assert.match(source, /<div class="page page--fill simple-crud-page">/);
+    assert.doesNotMatch(source, /class="page-header"/);
+    assert.doesNotMatch(source, /class="page-title"/);
     assert.doesNotMatch(source, /class="page-subtitle"/);
     assert.doesNotMatch(source, /<el-card class="mb-4">/);
     assert.match(source, /<div class="simple-crud-toolbar">/);
@@ -836,6 +838,8 @@ test("向导步骤组件不应重复展示步骤标题和长说明", () => {
   }
   assert.doesNotMatch(dataImportSource, /class="step-title"/);
   assert.doesNotMatch(dataImportSource, /class="step-desc/);
+  assert.doesNotMatch(dataImportSource, /:description="step\.description"/);
+  assert.doesNotMatch(smartFillStepsSource, /:description="step\.description"/);
 });
 
 test("上传区入口应复用统一上传区类和令牌化样式", () => {

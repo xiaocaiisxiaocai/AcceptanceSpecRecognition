@@ -60,9 +60,9 @@ describe("dataImport.smartRecognition", () => {
 
   it("创建三步式智能导入步骤", () => {
     expect(createDataImportSmartSteps()).toEqual([
-      { title: "上传/目标", description: "上传文件并选择业务归属" },
-      { title: "确认/预览", description: "确认识别结构并预览待导入数据" },
-      { title: "完成", description: "执行导入并查看结果" }
+      { title: "上传/目标" },
+      { title: "确认/预览" },
+      { title: "完成" }
     ]);
   });
 

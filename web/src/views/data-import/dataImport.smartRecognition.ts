@@ -11,7 +11,6 @@ import {
 
 export type DataImportSmartStep = {
   title: string;
-  description: string;
 };
 
 export const SMART_STEP_UPLOAD_TARGET = 0;
@@ -27,9 +26,9 @@ export type DataImportStepState = {
 };
 
 export const createDataImportSmartSteps = (): DataImportSmartStep[] => [
-  { title: "上传/目标", description: "上传文件并选择业务归属" },
-  { title: "确认/预览", description: "确认识别结构并预览待导入数据" },
-  { title: "完成", description: "执行导入并查看结果" }
+  { title: "上传/目标" },
+  { title: "确认/预览" },
+  { title: "完成" }
 ];
 
 export const getDataImportAdvancedStep = (target: "tableSelect" | "mapping") =>

@@ -205,12 +205,6 @@ onMounted(() => {
 
 <template>
   <div class="page page--fill simple-crud-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">机型管理</div>
-      </div>
-    </div>
-
     <el-card class="table-card" shadow="never">
       <template #header>
         <div class="simple-crud-toolbar">

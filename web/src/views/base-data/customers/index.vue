@@ -227,12 +227,6 @@ onMounted(() => {
 
 <template>
   <div class="page page--fill simple-crud-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">客户管理</div>
-      </div>
-    </div>
-
     <!-- 数据表格 -->
     <el-card class="table-card" shadow="never">
       <template #header>

@@ -8,7 +8,6 @@ import {
 
 export type SmartFillSmartStep = {
   title: string;
-  description: string;
 };
 
 export const SMART_FILL_STEP_UPLOAD_SCOPE = 0;
@@ -35,9 +34,9 @@ export const canContinueFromSmartRecognition = (
 };
 
 export const createSmartFillSmartSteps = (): SmartFillSmartStep[] => [
-  { title: "上传/归属", description: "上传目标文档并选择业务归属" },
-  { title: "匹配配置", description: "确认匹配参数" },
-  { title: "预览确认", description: "确认匹配结果" }
+  { title: "上传/归属" },
+  { title: "匹配配置" },
+  { title: "预览确认" }
 ];
 
 export const getSmartFillPrevStepState = ({

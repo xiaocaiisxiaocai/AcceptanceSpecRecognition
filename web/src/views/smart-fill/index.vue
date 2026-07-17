@@ -67,10 +67,10 @@ defineOptions({ name: "FillData" });
 const currentStep = ref(0);
 const advancedMode = ref(false);
 const legacySteps = [
-  { title: "上传文件", description: "选择目标文档" },
-  { title: "选择表格", description: "选择要填充的表格并配置列索引" },
-  { title: "配置匹配", description: "设置匹配参数" },
-  { title: "预览确认", description: "确认匹配结果" }
+  { title: "上传文件" },
+  { title: "选择表格" },
+  { title: "配置匹配" },
+  { title: "预览确认" }
 ];
 const steps = computed(() =>
   advancedMode.value ? legacySteps : createSmartFillSmartSteps()

@@ -229,7 +229,6 @@ const activeSmartStructureScopeDescription = computed(() => {
             v-for="(step, index) in steps"
             :key="index"
             :title="step.title"
-            :description="step.description"
           />
         </el-steps>
       </div>

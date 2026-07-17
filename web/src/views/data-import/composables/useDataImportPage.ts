@@ -72,22 +72,11 @@ export function useDataImportPage() {
 
   const advancedMode = ref(false);
   const legacySteps = computed(() => [
-    {
-      title: "上传文件",
-      description: isExcelFile.value
-        ? "选择 Excel 文件"
-        : "选择 Word/Excel 文件"
-    },
-    {
-      title: isExcelFile.value ? "选择工作表" : "选择表格",
-      description: "选择要导入的数据范围"
-    },
-    {
-      title: "配置映射",
-      description: isExcelFile.value ? "按列序号指定字段" : "设置列映射关系"
-    },
-    { title: "选择目标", description: "选择导入目标" },
-    { title: "确认导入", description: "预览并确认" }
+    { title: "上传文件" },
+    { title: isExcelFile.value ? "选择工作表" : "选择表格" },
+    { title: "配置映射" },
+    { title: "选择目标" },
+    { title: "确认导入" }
   ]);
   const steps = computed(() =>
     advancedMode.value ? legacySteps.value : createDataImportSmartSteps()
