@@ -3,6 +3,7 @@ using System.Text.Json;
 using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Data.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 
@@ -82,13 +83,19 @@ public sealed class AuthPermissionSeedCatalog : IAuthPermissionSeedCatalog
         foreach (var controllerType in typeof(Program).Assembly.GetTypes()
                      .Where(type => !type.IsAbstract && typeof(ControllerBase).IsAssignableFrom(type)))
         {
+            if (controllerType.GetCustomAttribute<AllowAnonymousAttribute>(true) is not null)
+                continue;
+
             var controllerName = controllerType.Name.EndsWith("Controller", StringComparison.OrdinalIgnoreCase)
                 ? controllerType.Name[..^10]
                 : controllerType.Name;
             var controllerRoute = ResolveControllerRoute(controllerType);
 
             foreach (var method in controllerType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
-                         .Where(method => !method.IsSpecialName && method.GetCustomAttribute<NonActionAttribute>(true) == null))
+                         .Where(method =>
+                             !method.IsSpecialName &&
+                             method.GetCustomAttribute<NonActionAttribute>(true) is null &&
+                             method.GetCustomAttribute<AllowAnonymousAttribute>(true) is null))
             {
                 var audit = method.GetCustomAttribute<AuditOperationAttribute>(true);
                 foreach (var httpAttribute in method.GetCustomAttributes(true).OfType<HttpMethodAttribute>())

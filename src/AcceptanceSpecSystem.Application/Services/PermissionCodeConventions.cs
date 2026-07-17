@@ -138,7 +138,7 @@ public static class PermissionCodeConventions
             return "test";
         }
 
-        if (normalizedRouteTemplate.Contains("models", StringComparison.Ordinal))
+        if (normalizedRouteTemplate.EndsWith("/models", StringComparison.Ordinal))
         {
             return "models";
         }

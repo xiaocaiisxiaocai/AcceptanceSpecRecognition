@@ -12,6 +12,12 @@ namespace AcceptanceSpecSystem.Application.Services;
 /// </summary>
 public static class AuthUserSeedAppService
 {
+    private static readonly IReadOnlyDictionary<string, string> PermissionCodeReplacements =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["api:machine-model:models"] = "api:machine-model:read"
+        };
+
     public const string DefaultCompanyCode = "default-company";
     public const string DefaultCompanyName = "默认公司";
     public const string DefaultRootOrgCode = "ROOT";
@@ -206,7 +212,59 @@ public static class AuthUserSeedAppService
         }
 
         await dbContext.SaveChangesAsync();
+        await MigratePermissionAssignmentsAsync(dbContext, existing, seededPermissions, now);
         return seededPermissions;
+    }
+
+    private static async Task MigratePermissionAssignmentsAsync(
+        AppDbContext dbContext,
+        IReadOnlyDictionary<string, AuthPermission> existingPermissions,
+        IReadOnlyDictionary<string, AuthPermission> seededPermissions,
+        DateTime now)
+    {
+        foreach (var (legacyCode, replacementCode) in PermissionCodeReplacements)
+        {
+            if (!existingPermissions.TryGetValue(legacyCode, out var legacyPermission) ||
+                !seededPermissions.TryGetValue(replacementCode, out var replacementPermission))
+            {
+                continue;
+            }
+
+            var legacyLinks = await dbContext.AuthRolePermissions
+                .Where(link => link.PermissionId == legacyPermission.Id)
+                .ToListAsync();
+            if (legacyLinks.Count == 0)
+                continue;
+
+            var affectedRoleIds = legacyLinks
+                .Select(link => link.RoleId)
+                .Distinct()
+                .ToArray();
+            var roleIdsWithReplacement = (await dbContext.AuthRolePermissions
+                .Where(link =>
+                    affectedRoleIds.Contains(link.RoleId) &&
+                    link.PermissionId == replacementPermission.Id)
+                .Select(link => link.RoleId)
+                .ToListAsync())
+                .ToHashSet();
+
+            foreach (var roleId in affectedRoleIds.Where(roleId => !roleIdsWithReplacement.Contains(roleId)))
+            {
+                await dbContext.AuthRolePermissions.AddAsync(new AuthRolePermission
+                {
+                    RoleId = roleId,
+                    PermissionId = replacementPermission.Id
+                });
+            }
+
+            dbContext.AuthRolePermissions.RemoveRange(legacyLinks);
+            await dbContext.SaveChangesAsync();
+
+            foreach (var roleId in affectedRoleIds)
+            {
+                await TouchUsersByRoleAsync(dbContext, roleId, now);
+            }
+        }
     }
 
     private static async Task<Dictionary<string, AuthRole>> EnsureRolesAsync(
