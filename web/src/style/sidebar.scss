@@ -44,6 +44,8 @@
   }
 
   .main-container {
+    --app-content-left: #{$sideBarWidth};
+
     position: relative;
     height: 100vh;
     min-height: 100%;
@@ -71,6 +73,8 @@
   }
 
   .main-hidden {
+    --app-content-left: 0px !important;
+
     margin-left: 0 !important;
 
     .fixed-header {
@@ -531,6 +535,8 @@
     }
 
     .main-container {
+      --app-content-left: 0px !important;
+
       margin-left: 0 !important;
     }
 
@@ -579,6 +585,8 @@ body[layout="vertical"] {
     }
 
     .main-container {
+      --app-content-left: 54px;
+
       margin-left: 54px;
     }
 
@@ -672,6 +680,8 @@ body[layout="mix"] {
     }
 
     .main-container {
+      --app-content-left: 54px;
+
       margin-left: 54px;
     }
 

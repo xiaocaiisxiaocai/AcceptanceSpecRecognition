@@ -13,6 +13,7 @@ const footerLayoutSource = readSource(
   "web/src/layout/components/lay-footer/index.vue"
 );
 const globalStyleSource = readSource("web/src/style/index.scss");
+const sidebarStyleSource = readSource("web/src/style/sidebar.scss");
 const elementPlusStyleSource = readSource("web/src/style/element-plus.scss");
 const platformConfigSource = readSource("web/public/platform-config.json");
 const dataImportStyleSource = readSource(
@@ -412,6 +413,10 @@ test("向导页操作区应采用固定底栏、为可选页脚让位并提供�
     assert.match(source, /\.step-actions\s*\{[^}]*position:\s*fixed/s);
     assert.match(
       source,
+      /\.step-actions\s*\{[^}]*left:\s*var\(--app-content-left,\s*0px\)/s
+    );
+    assert.match(
+      source,
       /\.step-actions\s*\{[^}]*bottom:\s*var\(--app-layout-footer-height,\s*0px\)/s
     );
     assert.match(
@@ -422,6 +427,18 @@ test("向导页操作区应采用固定底栏、为可选页脚让位并提供�
   assert.doesNotMatch(
     dataImportStyleSource,
     /\.data-import-body\s*\{[^}]*padding-bottom:\s*84px/s
+  );
+  assert.match(
+    sidebarStyleSource,
+    /\.main-container\s*\{[^}]*--app-content-left:\s*#\{\$sideBarWidth\}/s
+  );
+  assert.match(
+    sidebarStyleSource,
+    /\.main-hidden\s*\{[^}]*--app-content-left:\s*0px !important/s
+  );
+  assert.equal(
+    [...sidebarStyleSource.matchAll(/--app-content-left:\s*54px;/g)].length,
+    2
   );
 });
 

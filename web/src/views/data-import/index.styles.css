@@ -590,7 +590,7 @@
 
 .step-actions {
   position: fixed;
-  left: 0;
+  left: var(--app-content-left, 0px);
   right: 0;
   bottom: var(--app-layout-footer-height, 0px);
   z-index: 1000;
@@ -603,6 +603,7 @@
   display: flex;
   justify-content: center;
   gap: 16px;
+  transition: left var(--pure-transition-duration);
 }
 
 .step-actions :deep(.el-button) {
