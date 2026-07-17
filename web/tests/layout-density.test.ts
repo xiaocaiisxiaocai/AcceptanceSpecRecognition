@@ -273,6 +273,10 @@ test("卡片与表格应采用紧凑密度且不使用 hover 抬升", () => {
     elementPlusStyleSource,
     /\.el-table \.el-table__cell\s*\{[^}]*padding:\s*6px 0/s
   );
+  assert.match(
+    elementPlusStyleSource,
+    /\.el-table th\.el-table__cell,\s*\.el-table td\.el-table__cell\s*\{[^}]*text-align:\s*center/s
+  );
   assert.doesNotMatch(
     elementPlusStyleSource,
     /\.el-card:hover\s*\{[^}]*box-shadow/s
