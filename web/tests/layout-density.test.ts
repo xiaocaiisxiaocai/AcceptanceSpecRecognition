@@ -410,6 +410,27 @@ test("权限字典页应固定筛选栏和分页，并仅在表格内容区滚�
   assert.match(permissionsPageSource, /const pageSize = ref\(50\)/);
 });
 
+test("审计日志页应使用紧凑单行筛选和固定分页布局", () => {
+  assert.match(
+    auditLogsSource,
+    /<div class="page page--fill audit-logs-page">/
+  );
+  assert.match(
+    auditLogsSource,
+    /<el-card class="table-card audit-table-card" shadow="never">/
+  );
+  assert.match(auditLogsSource, /class="filter-form audit-filter-form"/);
+  assert.match(
+    auditLogsSource,
+    /\.audit-filter-form\s*\{[^}]*flex-wrap:\s*nowrap/s
+  );
+  assert.match(auditLogsSource, /search-select--160/);
+  assert.doesNotMatch(auditLogsSource, /search-select--300/);
+  assert.doesNotMatch(auditLogsSource, /详情可点击“查看”展开/);
+  assert.match(auditLogsSource, /<div class="table-region">/);
+  assert.match(auditLogsSource, /<div class="pagination-bar">/);
+});
+
 test("简单 CRUD 工具栏换行时不应拆散搜索表单和操作按钮", () => {
   assert.match(
     globalStyleSource,

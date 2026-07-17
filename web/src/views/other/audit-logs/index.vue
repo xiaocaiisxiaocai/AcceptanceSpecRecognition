@@ -208,25 +208,24 @@ onMounted(loadData);
 </script>
 
 <template>
-  <div class="page">
+  <div class="page page--fill audit-logs-page">
     <div class="page-header">
       <div>
         <div class="page-title">审计日志</div>
       </div>
     </div>
 
-    <el-card class="audit-table-card">
+    <el-card class="table-card audit-table-card" shadow="never">
       <template #header>
         <div class="list-card-toolbar">
           <div class="list-card-toolbar__right">
-            <span class="text-sm text-gray-500">详情可点击“查看”展开</span>
             <el-form :inline="true" class="filter-form audit-filter-form">
               <el-form-item label="来源">
                 <el-select
                   v-model="queryParams.source"
                   clearable
                   placeholder="全部"
-                  class="search-select search-select--300"
+                  class="search-select search-select--160"
                   popper-class="app-select-popper"
                 >
                   <el-option
@@ -243,7 +242,7 @@ onMounted(loadData);
                   v-model="queryParams.level"
                   clearable
                   placeholder="全部"
-                  class="search-select search-select--300"
+                  class="search-select search-select--160"
                   popper-class="app-select-popper"
                 >
                   <el-option
@@ -258,6 +257,7 @@ onMounted(loadData);
               <el-form-item label="用户">
                 <el-input
                   v-model="queryParams.username"
+                  class="audit-user-filter"
                   clearable
                   placeholder="用户名"
                   @keyup.enter="handleSearch"
@@ -269,7 +269,7 @@ onMounted(loadData);
                   v-model="queryParams.requestMethod"
                   clearable
                   placeholder="全部"
-                  class="search-select search-select--300"
+                  class="search-select search-select--160"
                   popper-class="app-select-popper"
                 >
                   <el-option
@@ -284,6 +284,7 @@ onMounted(loadData);
               <el-form-item label="查询时间">
                 <el-date-picker
                   v-model="queryRange"
+                  class="audit-date-filter"
                   type="datetimerange"
                   unlink-panels
                   value-format="YYYY-MM-DDTHH:mm:ss"
@@ -295,6 +296,7 @@ onMounted(loadData);
               <el-form-item label="关键词">
                 <el-input
                   v-model="queryParams.keyword"
+                  class="audit-keyword-filter"
                   clearable
                   placeholder="路径 / 事件 / 详情"
                   @keyup.enter="handleSearch"
@@ -340,7 +342,7 @@ onMounted(loadData);
         </el-form-item>
       </el-form>
 
-      <div class="table-wrap">
+      <div class="table-region">
         <el-table v-loading="loading" :data="tableData" stripe height="100%">
           <el-table-column prop="id" label="ID" width="80" />
           <el-table-column label="级别" width="min(100px, calc(100vw - 32px))">
@@ -398,7 +400,7 @@ onMounted(loadData);
         </el-table>
       </div>
 
-      <div class="pager-wrap">
+      <div class="pagination-bar">
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
@@ -451,41 +453,27 @@ onMounted(loadData);
 </template>
 
 <style scoped>
-.page {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: calc(100vh - 104px);
-  padding: 0;
-  overflow: hidden;
-}
-
 .delete-row {
   padding-top: 8px;
 }
 
-.audit-table-card {
+.audit-filter-form {
   flex: 1;
+  flex-wrap: nowrap;
+  min-width: 0;
   min-height: 0;
 }
 
-.audit-table-card :deep(.el-card__body) {
-  display: flex;
-  flex-direction: column;
-  height: calc(100% - 0px);
-  min-height: 0;
+.audit-user-filter {
+  width: 130px;
 }
 
-.table-wrap {
-  flex: 1;
-  min-height: 0;
+.audit-date-filter {
+  width: 300px;
 }
 
-.pager-wrap {
-  display: flex;
-  flex-shrink: 0;
-  justify-content: flex-end;
-  padding-top: 12px;
+.audit-keyword-filter {
+  width: 180px;
 }
 
 .detail-content {
@@ -508,5 +496,11 @@ pre {
   color: var(--el-text-color-primary);
   background: var(--el-fill-color-light);
   border-radius: 6px;
+}
+
+@media (width <= 1750px) {
+  .audit-filter-form {
+    flex-wrap: wrap;
+  }
 }
 </style>
