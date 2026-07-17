@@ -375,7 +375,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="page column-rules config-page">
+  <div class="page page--fill column-rules config-page">
     <div class="page-header">
       <div>
         <div class="page-title">列映射规则</div>
@@ -629,7 +629,6 @@ onMounted(load);
 
 <style scoped>
 .column-rules {
-  height: calc(100vh - var(--app-chrome-height, 105px));
   min-height: 0;
   overflow: hidden;
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { ref, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { getSpecGroups, type SpecGroup } from "@/api/spec";
 import SpecGroupTree from "./components/SpecGroupTree.vue";
@@ -16,38 +16,6 @@ const groupsLoading = ref(false);
 
 // 当前选中分组
 const selectedGroup = ref<SelectedGroup | null>(null);
-const pageRef = ref<HTMLElement | null>(null);
-const pageViewportHeight = ref(0);
-let appMainWrapEl: HTMLElement | null = null;
-let previousAppMainOverflowY = "";
-
-/** 锁定页面可视高度，避免外层滚动，滚动仅发生在表格内容区 */
-const updatePageViewportHeight = () => {
-  const host = pageRef.value;
-  if (!host) return;
-  const rect = host.getBoundingClientRect();
-  pageViewportHeight.value = Math.max(
-    480,
-    Math.floor(window.innerHeight - rect.top - 12)
-  );
-};
-
-/** 锁定外层滚动，只允许本页内部滚动 */
-const lockOuterScroll = () => {
-  appMainWrapEl = document.querySelector(
-    ".app-main .el-scrollbar__wrap"
-  ) as HTMLElement | null;
-  if (!appMainWrapEl) return;
-  previousAppMainOverflowY = appMainWrapEl.style.overflowY;
-  appMainWrapEl.style.overflowY = "hidden";
-};
-
-/** 恢复外层滚动 */
-const unlockOuterScroll = () => {
-  if (!appMainWrapEl) return;
-  appMainWrapEl.style.overflowY = previousAppMainOverflowY;
-  appMainWrapEl = null;
-};
 
 /** 加载分组汇总 */
 const loadGroups = async () => {
@@ -91,25 +59,11 @@ const handleDataChange = () => {
 
 onMounted(() => {
   loadGroups();
-  nextTick(updatePageViewportHeight);
-  nextTick(lockOuterScroll);
-  window.addEventListener("resize", updatePageViewportHeight);
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener("resize", updatePageViewportHeight);
-  unlockOuterScroll();
 });
 </script>
 
 <template>
-  <div
-    ref="pageRef"
-    class="page"
-    :style="
-      pageViewportHeight > 0 ? { height: `${pageViewportHeight}px` } : undefined
-    "
-  >
+  <div class="page page--fill specs-page">
     <div class="page-header">
       <div>
         <div class="page-title">验收规格</div>

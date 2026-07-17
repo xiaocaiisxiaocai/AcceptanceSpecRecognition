@@ -80,7 +80,8 @@
 }
 
 .page--fill {
-  height: calc(100vh - var(--app-chrome-height, 105px));
+  flex: 1;
+  height: auto;
   min-height: 0;
   overflow: hidden;
 }

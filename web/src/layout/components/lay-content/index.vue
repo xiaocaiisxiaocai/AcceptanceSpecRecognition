@@ -155,7 +155,8 @@ const transitionMain = defineComponent({
               }"
               :view-style="{
                 display: 'flex',
-                flex: 'auto',
+                height: '100%',
+                'min-height': 0,
                 overflow: 'hidden',
                 'flex-direction': 'column'
               }"
@@ -167,7 +168,7 @@ const transitionMain = defineComponent({
               >
                 <BackTopIcon />
               </el-backtop>
-              <div class="grow">
+              <div class="app-main-content grow">
                 <transitionMain :route="route">
                   <keep-alive v-if="isKeepAlive" :include="keepAliveIncludes">
                     <component
@@ -188,7 +189,7 @@ const transitionMain = defineComponent({
               </div>
               <LayFooter v-if="!hideFooter" />
             </el-scrollbar>
-            <div v-else class="grow">
+            <div v-else class="app-main-content grow">
               <transitionMain :route="route">
                 <keep-alive v-if="isKeepAlive" :include="keepAliveIncludes">
                   <component
@@ -232,7 +233,24 @@ const transitionMain = defineComponent({
   width: 100%;
 }
 
+.app-main-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .main-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   margin: 12px;
+  overflow: auto;
+}
+
+.main-content.page--fill {
+  overflow: hidden;
 }
 </style>

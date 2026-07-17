@@ -23,6 +23,7 @@ const YEAR_TEXT = new Date().getFullYear().toString();
 <style lang="scss" scoped>
 .layout-footer {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 100%;

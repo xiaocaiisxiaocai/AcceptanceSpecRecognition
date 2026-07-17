@@ -9,6 +9,9 @@ const readSource = (path: string) =>
 const contentLayoutSource = readSource(
   "web/src/layout/components/lay-content/index.vue"
 );
+const footerLayoutSource = readSource(
+  "web/src/layout/components/lay-footer/index.vue"
+);
 const globalStyleSource = readSource("web/src/style/index.scss");
 const elementPlusStyleSource = readSource("web/src/style/element-plus.scss");
 const platformConfigSource = readSource("web/public/platform-config.json");
@@ -236,6 +239,53 @@ test("主内容容器外边距不应超过 12px", () => {
   assert.doesNotMatch(
     contentLayoutSource,
     /\.main-content\s*\{[^}]*margin:\s*16px/s
+  );
+});
+
+test("主内容区应按可选页脚分配剩余高度且不产生最外层滚动", () => {
+  assert.equal(
+    contentLayoutSource.match(/class="app-main-content grow"/g)?.length,
+    2
+  );
+  assert.match(contentLayoutSource, /height:\s*'100%'/);
+  assert.match(contentLayoutSource, /'min-height':\s*0/);
+  assert.match(
+    contentLayoutSource,
+    /\.app-main-content\s*\{[^}]*display:\s*flex;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden/s
+  );
+  assert.match(
+    contentLayoutSource,
+    /\.main-content\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-height:\s*0;[^}]*overflow:\s*auto/s
+  );
+  assert.match(
+    contentLayoutSource,
+    /\.main-content\.page--fill\s*\{[^}]*overflow:\s*hidden/s
+  );
+  assert.match(
+    globalStyleSource,
+    /\.page--fill\s*\{[^}]*flex:\s*1;[^}]*height:\s*auto;[^}]*overflow:\s*hidden/s
+  );
+  assert.doesNotMatch(
+    globalStyleSource,
+    /\.page--fill\s*\{[^}]*height:\s*calc\(100vh/s
+  );
+  assert.match(
+    footerLayoutSource,
+    /\.layout-footer\s*\{[^}]*flex-shrink:\s*0/s
+  );
+
+  assert.match(specsPageSource, /class="page page--fill specs-page"/);
+  assert.doesNotMatch(
+    specsPageSource,
+    /window\.innerHeight|pageViewportHeight|lockOuterScroll/
+  );
+  assert.match(
+    columnMappingRulesSource,
+    /class="page page--fill column-rules config-page"/
+  );
+  assert.doesNotMatch(
+    columnMappingRulesSource,
+    /height:\s*calc\(100vh[^)]*app-chrome-height/
   );
 });
 
