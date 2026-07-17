@@ -8,6 +8,7 @@ import {
 import { formatPurpose, isRowLoading } from "../utils";
 
 defineProps<{
+  expanded: boolean;
   tableData: AiServiceConfig[];
   expandedTestRowKeys: string[];
   activeTestResult: InlineTestResultCard | null;
@@ -22,7 +23,7 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-  collapse: [];
+  toggle: [];
   clearTestResult: [];
   edit: [row: AiServiceConfig];
   toggleDisabled: [row: AiServiceConfig];
@@ -35,14 +36,19 @@ const getRowKey = (row: AiServiceConfig) => String(row.id);
 </script>
 
 <template>
-  <el-card class="service-table">
+  <el-card
+    class="service-table"
+    :class="{ 'service-table--collapsed': !expanded }"
+  >
     <template #header>
       <div class="flex justify-between items-center">
         <span>全部配置</span>
-        <el-button @click="emit('collapse')">收起</el-button>
+        <el-button @click="emit('toggle')">
+          {{ expanded ? "收起" : "展开全部" }}
+        </el-button>
       </div>
     </template>
-    <div class="service-table-region">
+    <div v-if="expanded" class="service-table-region">
       <el-table
         :data="tableData"
         height="100%"

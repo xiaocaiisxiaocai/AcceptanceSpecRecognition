@@ -360,14 +360,6 @@ onMounted(loadData);
 
 <template>
   <div class="page page--fill config-page ai-services-page">
-    <div class="page-header">
-      <el-button
-        v-if="tableData.length"
-        @click="showAllConfigs = !showAllConfigs"
-      >
-        {{ showAllConfigs ? "收起全部" : "查看全部" }}
-      </el-button>
-    </div>
     <el-alert
       v-if="llmCount > 1 || embeddingCount > 1"
       type="warning"
@@ -425,7 +417,8 @@ onMounted(loadData);
     </div>
 
     <AiServiceConfigsTable
-      v-if="showAllConfigs"
+      v-if="tableData.length"
+      :expanded="showAllConfigs"
       :table-data="tableData"
       :expanded-test-row-keys="expandedTestRowKeys"
       :active-test-result="activeTestResult"
@@ -437,7 +430,7 @@ onMounted(loadData);
       :disabled-state="disabledState"
       :testing-state="testingState"
       :probing-state="probingState"
-      @collapse="showAllConfigs = false"
+      @toggle="showAllConfigs = !showAllConfigs"
       @clear-test-result="clearInlineTestResult"
       @edit="handleEdit"
       @toggle-disabled="handleToggleDisabled"

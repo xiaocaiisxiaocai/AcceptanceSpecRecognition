@@ -319,6 +319,12 @@ test("AI 服务配置页应在固定页脚上方提供独立表格滚动区", ()
     /class="page page--fill config-page ai-services-page"/
   );
   assert.match(aiServicesTableSource, /class="service-table-region"/);
+  assert.doesNotMatch(aiServicesSource, /<div class="page-header">/);
+  assert.doesNotMatch(aiServicesSource, /收起全部/);
+  assert.match(aiServicesSource, /:expanded="showAllConfigs"/);
+  assert.match(aiServicesSource, /@toggle="showAllConfigs = !showAllConfigs"/);
+  assert.match(aiServicesTableSource, /expanded \? "收起" : "展开全部"/);
+  assert.match(aiServicesTableSource, /v-if="expanded"/);
   assert.match(aiServicesTableSource, /<el-table[\s\S]*height="100%"/);
   assert.match(
     aiServicesStyleSource,
@@ -327,6 +333,14 @@ test("AI 服务配置页应在固定页脚上方提供独立表格滚动区", ()
   assert.match(
     aiServicesStyleSource,
     /\.service-table-region\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0/s
+  );
+  assert.match(
+    aiServicesStyleSource,
+    /\.service-table--collapsed\s*\{[^}]*flex:\s*0 0 auto/s
+  );
+  assert.match(
+    aiServicesStyleSource,
+    /:deep\(\.service-table\.service-table--collapsed > \.el-card__body\)\s*\{[^}]*display:\s*none/s
   );
   assert.match(
     aiServicesStyleSource,
