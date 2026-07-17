@@ -380,6 +380,12 @@ onMounted(load);
 <style scoped>
 .database-backup-page {
   padding: 0;
+  overflow-x: hidden;
+}
+
+.database-backup-page :deep(.el-row) {
+  margin-right: 0 !important;
+  margin-left: 0 !important;
 }
 
 .page-header {

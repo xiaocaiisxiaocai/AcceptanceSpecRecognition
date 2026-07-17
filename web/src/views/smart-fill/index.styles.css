@@ -168,7 +168,7 @@
 .step-actions {
   position: fixed;
   right: 0;
-  bottom: 0;
+  bottom: var(--app-layout-footer-height, 0px);
   left: 0;
   z-index: 1000;
   box-sizing: border-box;

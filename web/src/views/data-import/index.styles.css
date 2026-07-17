@@ -592,7 +592,7 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: var(--app-layout-footer-height, 0px);
   z-index: 1000;
   margin-top: 0;
   box-sizing: border-box;

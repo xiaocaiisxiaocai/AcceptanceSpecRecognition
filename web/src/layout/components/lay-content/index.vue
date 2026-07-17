@@ -137,7 +137,10 @@ const transitionMain = defineComponent({
 
 <template>
   <section
-    :class="[fixedHeader ? 'app-main' : 'app-main-nofixed-header']"
+    :class="[
+      fixedHeader ? 'app-main' : 'app-main-nofixed-header',
+      { 'has-layout-footer': !hideFooter }
+    ]"
     :style="getSectionStyle"
   >
     <router-view>
@@ -220,6 +223,15 @@ const transitionMain = defineComponent({
 </template>
 
 <style scoped>
+.app-main,
+.app-main-nofixed-header {
+  --app-layout-footer-height: 0px;
+}
+
+.has-layout-footer {
+  --app-layout-footer-height: 29px;
+}
+
 .app-main {
   position: relative;
   width: 100%;

@@ -280,6 +280,15 @@ test("主内容区应按可选页脚分配剩余高度且不产生最外层滚�
     footerLayoutSource,
     /\.layout-footer\s*\{[^}]*flex-shrink:\s*0/s
   );
+  assert.match(contentLayoutSource, /'has-layout-footer':\s*!hideFooter/);
+  assert.match(
+    contentLayoutSource,
+    /\.has-layout-footer\s*\{[^}]*--app-layout-footer-height:\s*29px/s
+  );
+  assert.match(
+    footerLayoutSource,
+    /min-height:\s*var\(--app-layout-footer-height,\s*29px\)/
+  );
 
   assert.match(specsPageSource, /class="page page--fill specs-page"/);
   assert.doesNotMatch(
@@ -390,7 +399,7 @@ test("向导页内容区不应通过固定 500px 最小高度空撑", () => {
   }
 });
 
-test("向导页操作区应采用固定底栏并提供足够触控高度", () => {
+test("向导页操作区应采用固定底栏、为可选页脚让位并提供足够触控高度", () => {
   assert.doesNotMatch(
     smartFillStyleSource,
     /\.step-actions\s*\{[^}]*margin-top:\s*32px/s
@@ -401,7 +410,10 @@ test("向导页操作区应采用固定底栏并提供足够触控高度", () =>
   );
   for (const source of [dataImportStyleSource, smartFillStyleSource]) {
     assert.match(source, /\.step-actions\s*\{[^}]*position:\s*fixed/s);
-    assert.match(source, /\.step-actions\s*\{[^}]*bottom:\s*0/s);
+    assert.match(
+      source,
+      /\.step-actions\s*\{[^}]*bottom:\s*var\(--app-layout-footer-height,\s*0px\)/s
+    );
     assert.match(
       source,
       /\.step-actions\s*:deep\(\.el-button\)\s*\{[^}]*min-height:\s*44px/s
@@ -410,6 +422,25 @@ test("向导页操作区应采用固定底栏并提供足够触控高度", () =>
   assert.doesNotMatch(
     dataImportStyleSource,
     /\.data-import-body\s*\{[^}]*padding-bottom:\s*84px/s
+  );
+});
+
+test("栅格配置页不应因 gutter 负边距产生整页横向滚动", () => {
+  assert.match(
+    embeddingCacheWarmupSource,
+    /\.embedding-warmup-page\s*\{[^}]*overflow-x:\s*hidden/s
+  );
+  assert.match(
+    embeddingCacheWarmupSource,
+    /\.embedding-warmup-page :deep\(\.el-row\)\s*\{[^}]*margin-right:\s*0 !important;[^}]*margin-left:\s*0 !important/s
+  );
+  assert.match(
+    databaseBackupSource,
+    /\.database-backup-page\s*\{[^}]*overflow-x:\s*hidden/s
+  );
+  assert.match(
+    databaseBackupSource,
+    /\.database-backup-page :deep\(\.el-row\)\s*\{[^}]*margin-right:\s*0 !important;[^}]*margin-left:\s*0 !important/s
   );
 });
 

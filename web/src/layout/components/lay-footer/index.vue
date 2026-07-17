@@ -27,6 +27,7 @@ const YEAR_TEXT = new Date().getFullYear().toString();
   align-items: center;
   justify-content: center;
   width: 100%;
+  min-height: var(--app-layout-footer-height, 29px);
   padding: 0 0 8px;
   font-size: 14px;
 }

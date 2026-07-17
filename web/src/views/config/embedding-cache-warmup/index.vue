@@ -373,6 +373,12 @@ onMounted(load);
 <style scoped>
 .embedding-warmup-page {
   padding: 0;
+  overflow-x: hidden;
+}
+
+.embedding-warmup-page :deep(.el-row) {
+  margin-right: 0 !important;
+  margin-left: 0 !important;
 }
 
 .page-header {
