@@ -342,12 +342,6 @@ onMounted(load);
 
 <template>
   <div class="page routing-rules config-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">表格路由规则</div>
-      </div>
-    </div>
-
     <el-card class="full-height-table-wrapper">
       <template #header>
         <div class="list-card-toolbar">

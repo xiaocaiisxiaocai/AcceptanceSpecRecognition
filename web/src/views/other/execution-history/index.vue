@@ -126,12 +126,6 @@ onMounted(() => {
 
 <template>
   <div class="page page--fill execution-history-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">执行记录</div>
-      </div>
-    </div>
-
     <el-card v-loading="loading" class="task-card">
       <div class="task-control-row">
         <span class="card-header-tip">当前页共 {{ total }} 条记录</span>

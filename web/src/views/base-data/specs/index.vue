@@ -64,12 +64,6 @@ onMounted(() => {
 
 <template>
   <div class="page page--fill specs-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">验收规格</div>
-      </div>
-    </div>
-
     <div class="split-layout">
       <!-- 左侧面板：分组树 -->
       <el-card class="left-panel">

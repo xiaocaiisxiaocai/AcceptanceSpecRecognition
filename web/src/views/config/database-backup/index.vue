@@ -200,9 +200,6 @@ onMounted(load);
 <template>
   <div class="page page--fill config-page database-backup-page">
     <div class="page-header">
-      <div>
-        <div class="page-title">数据库备份</div>
-      </div>
       <div class="header-actions">
         <el-button :loading="loading" @click="load">刷新</el-button>
         <el-button
@@ -388,8 +385,8 @@ onMounted(load);
   margin-left: 0 !important;
 }
 
-.page-title {
-  margin: 0;
+.page-header {
+  justify-content: flex-end;
 }
 
 .header-actions,

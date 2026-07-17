@@ -257,7 +257,6 @@ onBeforeUnmount(() => {
   <div class="page dashboard">
     <div class="page-header">
       <div>
-        <div class="page-title">系统概览</div>
         <div class="dashboard-period-range">
           {{ formatDateTime(currentSummary.periodStart) }} 至
           {{ formatDateTime(currentSummary.periodEnd) }}
@@ -441,14 +440,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
 }
 
-.page-title {
-  font-size: var(--app-font-xl);
-  font-weight: 650;
-  color: var(--app-text-primary);
-}
-
 .dashboard-period-range {
-  margin-top: 4px;
   font-size: 13px;
   color: var(--app-text-secondary);
 }

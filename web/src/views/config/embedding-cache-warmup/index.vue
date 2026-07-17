@@ -211,9 +211,6 @@ onMounted(load);
 <template>
   <div class="page config-page embedding-warmup-page">
     <div class="page-header">
-      <div>
-        <div class="page-title">Embedding 缓存预热</div>
-      </div>
       <div class="header-actions">
         <el-button :loading="loading" @click="load">刷新</el-button>
         <el-button
@@ -382,11 +379,7 @@ onMounted(load);
 }
 
 .page-header {
-  margin-bottom: 16px;
-}
-
-.page-title {
-  margin: 0;
+  justify-content: flex-end;
 }
 
 .header-actions,

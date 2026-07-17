@@ -196,6 +196,8 @@ const managementSummaryPages = [
   specsPageSource,
   systemUsersSource,
   promptTemplatesPageSource,
+  authRolesPageSource,
+  permissionsPageSource,
   executionHistorySource,
   auditLogsSource,
   aiServicesSource,
@@ -701,19 +703,13 @@ test("列表页筛选栏应放在表格卡头同一行左侧，不再单独占�
   }
 });
 
-test("权限中心用户与角色页面应显示页面标题", () => {
-  assert.match(
-    systemUsersSource,
-    /<div class="page-title">系统用户管理<\/div>/
-  );
-  assert.match(authRolesSource, /<div class="page-title">角色管理<\/div>/);
-});
-
 test("管理与配置列表页不应保留重复说明和卡头区域名", () => {
   assert.doesNotMatch(globalStyleSource, /\.page-subtitle\s*\{/);
+  assert.doesNotMatch(globalStyleSource, /\.page-title\s*\{/);
 
   for (const source of managementSummaryPages) {
     assert.doesNotMatch(source, /class="page-subtitle"/);
+    assert.doesNotMatch(source, /class="page-title"/);
   }
 
   for (const source of [...simpleCrudPages, ...headerFilterPages]) {
@@ -799,6 +795,8 @@ test("批量回复页应使用紧凑令牌化头部", () => {
     /<div class="page page--fill(?: page-shell)? batch-reply-page">/
   );
   assert.doesNotMatch(batchReplySource, /page-header__eyebrow/);
+  assert.doesNotMatch(batchReplySource, /page-header__main/);
+  assert.doesNotMatch(batchReplySource, /class="page-title"/);
   assert.doesNotMatch(batchReplySource, /<h1>批量回复<\/h1>/);
   assert.match(batchReplyStyleSource, /--app-primary/);
   assert.match(batchReplyStyleSource, /--app-bg-card/);

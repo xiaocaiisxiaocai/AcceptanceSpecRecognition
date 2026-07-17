@@ -220,9 +220,6 @@ const activeSmartStructureScopeDescription = computed(() => {
 <template>
   <div class="page data-import">
     <div class="page-header">
-      <div>
-        <div class="page-title">数据导入</div>
-      </div>
       <div class="wizard-steps">
         <el-steps :active="currentStep" finish-status="success">
           <el-step

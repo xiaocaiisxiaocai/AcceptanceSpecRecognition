@@ -412,12 +412,6 @@ onMounted(initPage);
 
 <template>
   <div class="page config-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">角色管理</div>
-      </div>
-    </div>
-
     <el-card class="full-height-table-wrapper">
       <template #header>
         <div class="list-card-toolbar">

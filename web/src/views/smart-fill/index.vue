@@ -709,9 +709,6 @@ const handleRestart = () => {
 <template>
   <div class="page smart-fill">
     <div class="page-header">
-      <div>
-        <div class="page-title">智能填充</div>
-      </div>
       <SmartFillSteps :steps="steps" :current-step="currentStep" />
     </div>
 

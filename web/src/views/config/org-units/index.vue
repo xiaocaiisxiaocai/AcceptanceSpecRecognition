@@ -82,10 +82,6 @@ onMounted(loadTree);
 
 <template>
   <div class="page config-page">
-    <div class="page-header">
-      <div class="page-title">组织管理</div>
-    </div>
-
     <el-card class="full-height-table-wrapper">
       <template #header>
         <div class="list-card-toolbar">

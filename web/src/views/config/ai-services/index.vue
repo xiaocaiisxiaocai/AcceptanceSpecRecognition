@@ -361,10 +361,6 @@ onMounted(loadData);
 <template>
   <div class="page page--fill config-page ai-services-page">
     <div class="page-header">
-      <div>
-        <div class="page-title">AI 服务配置</div>
-        <!-- 当前匹配模式采用证据裁决，LLM 服务用于等价裁决与候选重排，Embedding 服务用于向量相似度检索 -->
-      </div>
       <el-button
         v-if="tableData.length"
         @click="showAllConfigs = !showAllConfigs"

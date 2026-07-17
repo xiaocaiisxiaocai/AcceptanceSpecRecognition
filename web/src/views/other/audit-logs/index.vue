@@ -209,12 +209,6 @@ onMounted(loadData);
 
 <template>
   <div class="page page--fill audit-logs-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">审计日志</div>
-      </div>
-    </div>
-
     <el-card class="table-card audit-table-card" shadow="never">
       <template #header>
         <div class="list-card-toolbar">

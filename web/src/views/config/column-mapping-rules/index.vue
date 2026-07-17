@@ -376,11 +376,6 @@ onMounted(load);
 
 <template>
   <div class="page page--fill column-rules config-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">列映射规则</div>
-      </div>
-    </div>
     <el-card class="column-rules-card table-card">
       <template #header>
         <div class="list-card-toolbar">

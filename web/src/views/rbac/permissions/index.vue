@@ -87,10 +87,6 @@ onMounted(loadData);
 
 <template>
   <div class="page page--fill config-page permissions-page">
-    <div class="page-header">
-      <div class="page-title">权限字典</div>
-    </div>
-
     <el-card class="table-card" shadow="never">
       <template #header>
         <div class="list-card-toolbar">
