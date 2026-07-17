@@ -125,6 +125,12 @@ const auditLogsSource = readSource("web/src/views/other/audit-logs/index.vue");
 const aiServicesSource = readSource(
   "web/src/views/config/ai-services/index.vue"
 );
+const aiServicesTableSource = readSource(
+  "web/src/views/config/ai-services/components/AiServiceConfigsTable.vue"
+);
+const aiServicesStyleSource = readSource(
+  "web/src/views/config/ai-services/index.styles.css"
+);
 const orgUnitsSource = readSource("web/src/views/config/org-units/index.vue");
 const columnMappingRulesSource = readSource(
   "web/src/views/config/column-mapping-rules/index.vue"
@@ -248,10 +254,11 @@ test("主内容区应按可选页脚分配剩余高度且不产生最外层滚�
     2
   );
   assert.match(contentLayoutSource, /height:\s*'100%'/);
+  assert.match(contentLayoutSource, /width:\s*'100%'/);
   assert.match(contentLayoutSource, /'min-height':\s*0/);
   assert.match(
     contentLayoutSource,
-    /\.app-main-content\s*\{[^}]*display:\s*flex;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden/s
+    /\.app-main-content\s*\{[^}]*display:\s*flex;[^}]*width:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden/s
   );
   assert.match(
     contentLayoutSource,
@@ -286,6 +293,27 @@ test("主内容区应按可选页脚分配剩余高度且不产生最外层滚�
   assert.doesNotMatch(
     columnMappingRulesSource,
     /height:\s*calc\(100vh[^)]*app-chrome-height/
+  );
+});
+
+test("AI 服务配置页应在固定页脚上方提供独立表格滚动区", () => {
+  assert.match(
+    aiServicesSource,
+    /class="page page--fill config-page ai-services-page"/
+  );
+  assert.match(aiServicesTableSource, /class="service-table-region"/);
+  assert.match(aiServicesTableSource, /<el-table[\s\S]*height="100%"/);
+  assert.match(
+    aiServicesStyleSource,
+    /\.service-table\s*\{[^}]*display:\s*flex;[^}]*flex:\s*1;[^}]*min-height:\s*0/s
+  );
+  assert.match(
+    aiServicesStyleSource,
+    /\.service-table-region\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0/s
+  );
+  assert.match(
+    aiServicesStyleSource,
+    /:deep\(\.service-table > \.el-card__body\)\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*hidden/s
   );
 });
 

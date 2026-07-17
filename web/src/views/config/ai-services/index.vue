@@ -359,7 +359,7 @@ onMounted(loadData);
 </script>
 
 <template>
-  <div class="page config-page">
+  <div class="page page--fill config-page ai-services-page">
     <div class="page-header">
       <div>
         <div class="page-title">AI 服务配置</div>

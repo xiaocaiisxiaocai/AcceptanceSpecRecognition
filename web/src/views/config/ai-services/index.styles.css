@@ -18,6 +18,7 @@
 
 .service-grid {
   display: grid;
+  flex-shrink: 0;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px;
 }
@@ -77,7 +78,24 @@
 }
 
 .service-table {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
   margin-top: 8px;
+}
+
+:deep(.service-table > .el-card__body) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.service-table-region {
+  flex: 1;
+  min-height: 0;
 }
 
 .ai-service-actions {
