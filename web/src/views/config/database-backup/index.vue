@@ -198,7 +198,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="page config-page database-backup-page">
+  <div class="page page--fill config-page database-backup-page">
     <div class="page-header">
       <div>
         <div class="page-title">数据库备份</div>
@@ -252,7 +252,7 @@ onMounted(load);
       </el-col>
     </el-row>
 
-    <el-row :gutter="16">
+    <el-row :gutter="16" class="config-row">
       <el-col :xs="24" :lg="14">
         <el-card v-loading="loading" shadow="never">
           <template #header>
@@ -350,7 +350,7 @@ onMounted(load);
         <span>备份文件</span>
       </template>
 
-      <el-table :data="info?.files ?? []" stripe>
+      <el-table :data="info?.files ?? []" height="100%" stripe>
         <el-table-column
           prop="fileName"
           label="文件名"
@@ -378,18 +378,14 @@ onMounted(load);
 </template>
 
 <style scoped>
-.database-backup-page {
+.database-backup-page.page--fill {
   padding: 0;
-  overflow-x: hidden;
+  overflow: hidden auto !important;
 }
 
 .database-backup-page :deep(.el-row) {
   margin-right: 0 !important;
   margin-left: 0 !important;
-}
-
-.page-header {
-  margin-bottom: 16px;
 }
 
 .page-title {
@@ -404,13 +400,14 @@ onMounted(load);
   justify-content: space-between;
 }
 
-.summary-row {
-  margin-bottom: 16px;
+.summary-row,
+.config-row {
+  flex: 0 0 auto;
+  row-gap: 12px;
 }
 
 .metric-card {
   height: 100%;
-  margin-bottom: 16px;
 }
 
 .metric-label {
@@ -439,9 +436,27 @@ onMounted(load);
   word-break: break-word;
 }
 
-.file-card,
 .mt-4 {
   margin-top: 16px;
+}
+
+.file-card {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  min-height: 260px;
+}
+
+.file-card :deep(.el-card__body) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.file-card :deep(.el-table) {
+  flex: 1;
+  min-height: 0;
 }
 
 @media (width <= 768px) {

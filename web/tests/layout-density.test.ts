@@ -480,11 +480,39 @@ test("栅格页面不应因 gutter 负边距产生整页横向滚动", () => {
   );
   assert.match(
     databaseBackupSource,
-    /\.database-backup-page\s*\{[^}]*overflow-x:\s*hidden/s
+    /\.database-backup-page\.page--fill\s*\{[^}]*overflow:\s*hidden auto !important/s
   );
   assert.match(
     databaseBackupSource,
     /\.database-backup-page :deep\(\.el-row\)\s*\{[^}]*margin-right:\s*0 !important;[^}]*margin-left:\s*0 !important/s
+  );
+});
+
+test("数据库备份页应在页脚上方保留可滚动的文件列表区域", () => {
+  assert.match(
+    databaseBackupSource,
+    /class="page page--fill config-page database-backup-page"/
+  );
+  assert.match(databaseBackupSource, /class="config-row"/);
+  assert.match(
+    databaseBackupSource,
+    /<el-table :data="info\?\.files \?\? \[\]" height="100%" stripe>/
+  );
+  assert.match(
+    databaseBackupSource,
+    /\.file-card\s*\{[^}]*display:\s*flex;[^}]*flex:\s*1 1 260px;[^}]*min-height:\s*260px/s
+  );
+  assert.match(
+    databaseBackupSource,
+    /\.file-card :deep\(\.el-card__body\)\s*\{[^}]*display:\s*flex;[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden/s
+  );
+  assert.doesNotMatch(
+    databaseBackupSource,
+    /\.page-header\s*\{[^}]*margin-bottom:/s
+  );
+  assert.doesNotMatch(
+    databaseBackupSource,
+    /\.summary-row\s*\{[^}]*margin-bottom:/s
   );
 });
 
