@@ -26,6 +26,7 @@ export default {
         icon: "ri:edit-2-line",
         title: getPageTitle("smart-fill-index"),
         permissions: getPagePermission("smart-fill-index"),
+        transition: { name: "fade" },
         keepAlive: true
       }
     }

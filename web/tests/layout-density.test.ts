@@ -14,6 +14,7 @@ const footerLayoutSource = readSource(
 );
 const globalStyleSource = readSource("web/src/style/index.scss");
 const sidebarStyleSource = readSource("web/src/style/sidebar.scss");
+const transitionStyleSource = readSource("web/src/style/transition.scss");
 const elementPlusStyleSource = readSource("web/src/style/element-plus.scss");
 const platformConfigSource = readSource("web/public/platform-config.json");
 const dataImportStyleSource = readSource(
@@ -81,6 +82,10 @@ const batchReplyTargetFilesPanelSource = readSource(
   "web/src/views/batch-reply/components/TargetFilesPanel.vue"
 );
 const dataImportSource = readSource("web/src/views/data-import/index.vue");
+const dataImportRouteSource = readSource(
+  "web/src/router/modules/data-import.ts"
+);
+const smartFillRouteSource = readSource("web/src/router/modules/smart-fill.ts");
 const tablePreviewSource = readSource(
   "web/src/views/data-import/components/TablePreview.vue"
 );
@@ -439,6 +444,20 @@ test("向导页操作区应采用固定底栏、为可选页脚让位并提供�
   assert.equal(
     [...sidebarStyleSource.matchAll(/--app-content-left:\s*54px;/g)].length,
     2
+  );
+});
+
+test("带固定底栏的向导页应使用无位移过渡，避免刷新时定位参照改变", () => {
+  for (const source of [dataImportRouteSource, smartFillRouteSource]) {
+    assert.match(source, /transition:\s*\{\s*name:\s*"fade"\s*\}/s);
+  }
+  assert.match(
+    transitionStyleSource,
+    /\.fade-enter-from,\s*\.fade-leave-to\s*\{[^}]*opacity:\s*0/s
+  );
+  assert.doesNotMatch(
+    transitionStyleSource,
+    /\.fade-(?:enter-from|leave-to)\s*\{[^}]*transform:/s
   );
 });
 

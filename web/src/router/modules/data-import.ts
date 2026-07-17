@@ -26,6 +26,7 @@ export default {
         icon: "ri:file-upload-line",
         title: getPageTitle("data-import-index"),
         permissions: getPagePermission("data-import-index"),
+        transition: { name: "fade" },
         keepAlive: true
       }
     }
