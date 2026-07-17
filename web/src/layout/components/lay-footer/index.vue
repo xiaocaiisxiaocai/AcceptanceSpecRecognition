@@ -10,13 +10,9 @@ const YEAR_TEXT = new Date().getFullYear().toString();
     class="layout-footer text-[rgba(0,0,0,0.6)] dark:text-[rgba(220,220,242,0.8)]"
   >
     Copyright © {{ YEAR_TEXT }}
-    <a
-      class="hover:text-primary!"
-      href="https://github.com/pure-admin"
-      target="_blank"
-    >
+    <router-link class="hover:text-primary!" to="/dashboard">
       &nbsp;{{ TITLE }}
-    </a>
+    </router-link>
   </footer>
 </template>
 

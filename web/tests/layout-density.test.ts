@@ -313,6 +313,14 @@ test("主内容区应按可选页脚分配剩余高度且不产生最外层滚�
   );
 });
 
+test("页脚项目名称应返回系统首页而不是跳转到模板仓库", () => {
+  assert.match(
+    footerLayoutSource,
+    /<router-link class="hover:text-primary!" to="\/dashboard">/
+  );
+  assert.doesNotMatch(footerLayoutSource, /github\.com\/pure-admin/);
+});
+
 test("AI 服务配置页应在固定页脚上方提供独立表格滚动区", () => {
   assert.match(
     aiServicesSource,
