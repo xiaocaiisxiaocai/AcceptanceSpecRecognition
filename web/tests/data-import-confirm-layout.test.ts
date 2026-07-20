@@ -69,6 +69,10 @@ const dataImportPageSource = readFileSync(
   ),
   "utf8"
 );
+const dataImportHelpersSource = readFileSync(
+  resolve(process.cwd(), "web/src/views/data-import/dataImport.helpers.ts"),
+  "utf8"
+);
 
 test("数据导入确认页应把导入设置和待导入清单折叠，避免预览页被明细长表撑散", () => {
   assert.match(confirmPanelSource, /<el-collapse[\s\S]*confirm-panel-collapse/);
@@ -78,37 +82,93 @@ test("数据导入确认页应把导入设置和待导入清单折叠，避免�
   assert.match(confirmPanelSource, /待导入清单/);
 });
 
+test("AI 去重关闭时应收起无效配置，并由确认组件自身承载样式", () => {
+  assert.match(
+    confirmPanelSource,
+    /v-if="!duplicateAiConfig\.enableSemanticDuplicateCheck"[\s\S]*AI 去重当前关闭/
+  );
+  assert.match(
+    confirmPanelSource,
+    /<el-form[\s\S]*v-else[\s\S]*label-position="top"/
+  );
+  assert.match(confirmPanelSource, /\.duplicate-ai-panel__mark/);
+  assert.doesNotMatch(dataImportStyleSource, /\.duplicate-ai-panel/);
+});
+
+test("待导入清单应使用数量概览和移出语义，避免重复标题与删除歧义", () => {
+  assert.match(confirmPanelSource, /class="preview-metric primary"/);
+  assert.match(confirmPanelSource, /移出所选/);
+  assert.match(confirmPanelSource, /移出仅影响本次导入，不会修改原文件/);
+  assert.doesNotMatch(confirmPanelSource, /批量删除/);
+  assert.doesNotMatch(confirmPanelSource, /待导入数据清单/);
+});
+
+test("展开待导入清单时应自动补拉完整预览并复用并发请求", () => {
+  assert.match(
+    confirmPanelSource,
+    /names\.includes\("preview-list"\)[\s\S]*previewLoadState\.hasPartialPreview[\s\S]*emit\("loadFullPreview"\)/
+  );
+  assert.match(confirmPanelSource, /@change="handleCollapseChange"/);
+  assert.equal(
+    dataImportSource.match(/@load-full-preview="ensureFullPreviewDataLoaded"/g)
+      ?.length,
+    2
+  );
+  assert.match(
+    dataImportPageSource,
+    /let fullPreviewLoadPromise: Promise<boolean> \| null = null/
+  );
+  assert.match(
+    dataImportPageSource,
+    /if \(fullPreviewLoadPromise\) \{\s*return fullPreviewLoadPromise;\s*\}/
+  );
+  assert.match(
+    dataImportPageSource,
+    /previewLoadState,\s*ensureFullPreviewDataLoaded,/
+  );
+});
+
 test("待导入清单不应使用内部纵向滚动，避免鼠标滚轮被表格区域截获", () => {
   assert.doesNotMatch(confirmPanelSource, /max-height="280"/);
 });
 
-test("智能结构确认卡片应常驻展示多区域范围，并折叠高级字段", () => {
-  assert.match(confirmCardSource, /const detailVisible = ref/);
-  assert.match(confirmCardSource, /defaultExpanded\?: boolean/);
+test("未导入详情应折叠重复多行表头并保持单行显示", () => {
+  assert.match(confirmPanelSource, /class="skipped-rows-table"/);
+  assert.match(
+    confirmPanelSource,
+    /\.skipped-rows-table :deep\(\.el-table__header \.cell\)[\s\S]*white-space:\s*nowrap/
+  );
+  assert.match(
+    dataImportHelpersSource,
+    /buildSkippedPreviewColumns\(headers, maxColumnCount\)/
+  );
+  assert.match(confirmPanelSource, /col\.indexes\.join\('-'\)/);
+  assert.match(confirmPanelSource, /mergeSkippedPreviewCellValues/);
+});
+
+test("智能结构确认卡片应常驻展示多区域范围，并移除重复高级字段", () => {
+  assert.doesNotMatch(confirmCardSource, /defaultExpanded\?: boolean/);
   assert.match(confirmCardSource, /class="range-summary-panel"/);
   assert.match(confirmCardSource, /effectiveRowCount/);
   assert.match(confirmCardSource, /ignoredRowCount/);
-  assert.match(confirmCardSource, /高级设置|收起高级设置/);
-  assert.match(confirmCardSource, /v-show="detailVisible"/);
+  assert.doesNotMatch(confirmCardSource, />高级设置|收起高级设置</);
+  assert.doesNotMatch(confirmCardSource, /v-show="detailVisible"/);
 });
 
 test("智能结构确认卡片应把项目列放在规格列之前", () => {
-  const formStart = confirmCardSource.indexOf(
-    '<el-form\n      v-show="detailVisible"'
-  );
-  const formEnd = confirmCardSource.indexOf("</el-form>", formStart);
-  const formSource = confirmCardSource.slice(formStart, formEnd);
+  const summaryStart = confirmCardSource.indexOf("const rangeSummaryFields");
+  const summaryEnd = confirmCardSource.indexOf("const regionSummaryItems");
+  const summarySource = confirmCardSource.slice(summaryStart, summaryEnd);
+  const projectIndex = summarySource.indexOf('{ label: "项目列"');
+  const specificationIndex = summarySource.indexOf('{ label: "规格列"');
 
-  const projectIndex = formSource.indexOf('label="项目列"');
-  const specificationIndex = formSource.indexOf('label="规格列"');
-
-  assert.ok(formStart >= 0 && formEnd > formStart);
-  assert.ok(projectIndex >= 0, "确认表单缺少项目列");
-  assert.ok(specificationIndex >= 0, "确认表单缺少规格列");
+  assert.ok(summaryStart >= 0 && summaryEnd > summaryStart);
+  assert.ok(projectIndex >= 0, "范围摘要缺少项目列");
+  assert.ok(specificationIndex >= 0, "范围摘要缺少规格列");
   assert.ok(projectIndex < specificationIndex, "项目列必须位于规格列之前");
 });
 
-test("展开配置后应以当前编辑表单为主，避免重复展示映射和置信度", () => {
+test("确认卡应避免重复展示映射，并仅在需要时展示识别依据", () => {
   assert.doesNotMatch(confirmCardSource, /card-summary-strip/);
   assert.match(confirmCardSource, /const showRecognitionEvidence = computed/);
   assert.match(
@@ -122,43 +182,29 @@ test("展开配置后应以当前编辑表单为主，避免重复展示映射�
 });
 
 test("范围摘要应读取用户当前编辑的多区域列映射", () => {
-  assert.match(
-    confirmCardSource,
-    /projectColumnIndex: state\.projectColumnIndex/
-  );
-  assert.match(
-    confirmCardSource,
-    /specificationColumnIndex: state\.specificationColumnIndex/
-  );
+  assert.match(confirmCardSource, /const activeRegions = computed/);
+  assert.match(confirmCardSource, /editableRegions\.value/);
   assert.match(confirmCardSource, /const rangeSummaryFields = computed/);
   assert.match(confirmCardSource, /activeRegions\.value/);
 });
 
-test("调整表头行或表头行数后应同步约束数据起始行", () => {
-  assert.match(confirmCardSource, /const minimumDataStartRowIndex = computed/);
-  assert.match(
-    confirmCardSource,
-    /watch\([\s\S]*minimumDataStartRowIndex[\s\S]*state\.dataStartRowIndex/
-  );
-  assert.match(
-    confirmCardSource,
-    /v-model="displayDataStartRowIndex"[\s\S]*:min="displayMinimumDataStartRowIndex"/
-  );
+test("Excel 数据起始行应由 A1 范围反推且不再单独编辑", () => {
+  assert.match(rangeEditorSource, /draft\.dataStartRow = firstRange\.startRow/);
+  assert.doesNotMatch(confirmCardSource, /v-model="displayDataStartRowIndex"/);
+  assert.doesNotMatch(confirmCardSource, /v-model="state\.headerRowCount"/);
 });
 
-test("调整表头结构后应重新加载对应行并刷新列选项", () => {
-  assert.match(confirmCardSource, /getTablePreview/);
+test("保存 Excel 范围后应向上查找最近表头并刷新只读标题", () => {
+  assert.match(rangeEditorSource, /getTablePreview/);
   assert.match(
-    confirmCardSource,
-    /watch\([\s\S]*state\.headerRowIndex[\s\S]*state\.headerRowCount[\s\S]*loadHeadersForCurrentStructure/
+    rangeEditorSource,
+    /findNearestSmartStructureHeaderRowIndex\([\s\S]*res\.data\.rows/
   );
-  assert.match(confirmCardSource, /const currentHeaders = ref<string\[]>/);
   assert.match(
-    confirmCardSource,
-    /const columnOptions = computed\([\s\S]*currentHeaders\.value\.map/
+    rangeEditorSource,
+    /headers: normalizeHeaders\([\s\S]*res\.data\.rows\[matchedRowIndex\]/
   );
-  assert.match(confirmCardSource, /headers:\s*\[\.\.\.currentHeaders\.value\]/);
-  assert.match(confirmCardSource, /latestHeaderRequestId/);
+  assert.match(rangeEditorSource, /headerRequestVersion/);
 });
 
 test("移动端应为固定操作栏预留完整空间并提供至少 44px 触控目标", () => {
@@ -224,6 +270,17 @@ test("上传目标区域只保留底栏主操作，识别成功后进入确认�
   assert.doesNotMatch(dataImportSource, />\s*高级手动配置\s*</);
 });
 
+test("智能识别期间不应挂载隐藏的高级预览，避免同一 Sheet 并发加载", () => {
+  assert.match(
+    dataImportSource,
+    /<DataImportStepMapping\s+v-if="advancedMode && currentStep === 2"/
+  );
+  assert.doesNotMatch(
+    dataImportSource,
+    /<DataImportStepMapping\s+v-show="advancedMode && currentStep === 2"/
+  );
+});
+
 test("两处确认卡片调用均应传递来源文件编号", () => {
   const smartFillSource = readFileSync(
     resolve(process.cwd(), "web/src/views/smart-fill/index.vue"),
@@ -240,12 +297,10 @@ test("两处确认卡片调用均应传递来源文件编号", () => {
   );
 });
 
-test("数据导入确认页默认只展开第一张待确认表，避免多张表同时展开撑满首屏", () => {
-  assert.match(dataImportSource, /firstNeedConfirmTableIndex/);
-  assert.match(
-    dataImportSource,
-    /:default-expanded-table-index="firstNeedConfirmTableIndex"/
-  );
+test("移除高级表单后不再维护无效的默认展开状态", () => {
+  assert.doesNotMatch(dataImportSource, /firstNeedConfirmTableIndex/);
+  assert.doesNotMatch(dataImportSource, /default-expanded-table-index/);
+  assert.doesNotMatch(confirmTabsSource, /defaultExpandedTableIndex/);
 });
 
 test("智能确认卡片应提供 Sheet 是否参与导入的勾选入口", () => {
@@ -265,6 +320,95 @@ test("数据导入与智能填充应复用同一套识别结果 Tab", () => {
   assert.match(dataImportSource, /<SmartStructureConfirmTabs/);
   assert.match(smartFillSource, /<SmartStructureConfirmTabs/);
   assert.match(confirmTabsSource, /createSmartStructureDisplayGroups/);
+});
+
+test("数据导入应隐藏逐 Sheet 确认并只保留一个文件级确认学习导入按钮", () => {
+  const primaryActionLabel = "确认所选 Sheet、学习并开始导入";
+
+  assert.match(
+    dataImportSource,
+    /<SmartStructureConfirmTabs[\s\S]{0,2200}:show-confirm-action="false"/
+  );
+  assert.match(dataImportSource, new RegExp(primaryActionLabel));
+  assert.equal(
+    dataImportSource.match(new RegExp(primaryActionLabel, "g"))?.length,
+    1,
+    "数据导入确认页只能声明一个文件级主操作"
+  );
+  assert.match(
+    dataImportSource,
+    /:import-primary-button-text="smartBatchImportButtonText"/
+  );
+  assert.match(
+    dataImportSource,
+    /@import="handleSmartStructureBatchConfirmImport"/
+  );
+});
+
+test("文件级操作应接收每张 Sheet 最终草稿并在批量期间统一锁定交互", () => {
+  assert.match(confirmCardSource, /showConfirmAction\?: boolean/);
+  assert.match(confirmCardSource, /interactionLocked\?: boolean/);
+  assert.match(confirmCardSource, /showConfirmAction: true/);
+  assert.match(confirmCardSource, /interactionLocked: false/);
+  assert.match(
+    confirmCardSource,
+    /"draft-change": \[request: SmartConfigConfirmRequest \| null\]/
+  );
+  assert.match(confirmCardSource, /v-if="showConfirmAction"/);
+  assert.match(
+    confirmCardSource,
+    /props\.readonly\s*\|\|\s*props\.confirmationLocked\s*\|\|\s*props\.interactionLocked/
+  );
+
+  assert.match(confirmTabsSource, /showConfirmAction\?: boolean/);
+  assert.match(confirmTabsSource, /interactionLocked\?: boolean/);
+  assert.match(confirmTabsSource, /:show-confirm-action="showConfirmAction"/);
+  assert.match(confirmTabsSource, /:interaction-locked="interactionLocked"/);
+  assert.match(
+    confirmTabsSource,
+    /@draft-change="request => emit\('draft-change', table, request\)"/
+  );
+
+  assert.match(
+    dataImportSource,
+    /@draft-change="handleSmartStructureDraftChange"/
+  );
+  assert.match(
+    dataImportSource,
+    /:interaction-locked="[^"]*batchConfirmImportRunning[^"]*"/
+  );
+  assert.match(dataImportSource, /smartConfirmDrafts/);
+});
+
+test("文件级批量确认应展示当前 Sheet 进度并移除旧单 Sheet 分支", () => {
+  assert.match(dataImportSource, /batchConfirmProgress/);
+  assert.match(dataImportSource, /batchConfirmImportRunning/);
+  assert.match(dataImportSource, /runSmartStructureBatchConfirmImportAction/);
+  assert.match(dataImportSource, /正在确认第/);
+  assert.doesNotMatch(dataImportSource, /combinedConfirmImportTableIndex/);
+  assert.doesNotMatch(dataImportSource, /getSingleSelectedTableIndex/);
+  assert.doesNotMatch(dataImportSource, /handleSmartStructureConfirmAction/);
+  assert.doesNotMatch(confirmTabsSource, /combinedActionTableIndex/);
+  assert.doesNotMatch(confirmTabsSource, /combinedActionLabel/);
+});
+
+test("智能填充应继续保留默认逐表确认学习操作", () => {
+  const smartFillSource = readFileSync(
+    resolve(process.cwd(), "web/src/views/smart-fill/index.vue"),
+    "utf8"
+  );
+
+  assert.match(confirmCardSource, /confirmActionLabel: "确认并学习"/);
+  assert.match(smartFillSource, /<SmartStructureConfirmTabs/);
+  assert.match(smartFillSource, /@confirm="handleSmartStructureConfirm"/);
+  assert.doesNotMatch(
+    smartFillSource,
+    /<SmartStructureConfirmTabs[\s\S]{0,2200}:show-confirm-action="false"/
+  );
+  assert.doesNotMatch(
+    smartFillSource,
+    /runSmartStructureBatchConfirmImportAction/
+  );
 });
 
 test("确认卡应使用完整识别表信息，不应只使用已生成导入配置的 Sheet", () => {
@@ -301,7 +445,10 @@ test("待确认表应可手动勾选，并区分已勾选与已配置汇总", ()
     confirmPanelSource,
     /已配置合计预计 \{\{ previewDataCount \}\} 条/
   );
-  assert.match(confirmPanelSource, /待导入清单（已配置 Sheet 合计）/);
+  assert.match(
+    confirmPanelSource,
+    /待导入清单[\s\S]*已配置 Sheet 合计 \{\{ previewDataCount \}\} 条/
+  );
   assert.match(
     confirmPanelSource,
     /effectivePendingSelectedSheetCount > 0 \|\|/
@@ -329,7 +476,7 @@ test("任一结构确认进行中应锁定所有结构编辑入口", () => {
   assert.match(confirmCardSource, /:disabled="controlsLocked"/);
   assert.match(
     confirmCardSource,
-    /:disabled="[\s\S]*controlsLocked \|\| state\.isSpecificationOnly \|\| headersLoading[\s\S]*"/
+    /if \(locked\) rangeEditorVisible\.value = false/
   );
 });
 
@@ -347,6 +494,15 @@ test("Reject 未修正时应向辅助技术说明确认按钮禁用原因", () =
   assert.match(confirmCardSource, /class="sr-only"/);
 });
 
+test("待确认卡片应展示区域级问题，避免只显示状态而不说明原因", () => {
+  assert.match(
+    confirmCardSource,
+    /activeRegions\.value\.flatMap\(region => region\.issues \?\? \[\]\)/
+  );
+  assert.match(confirmCardSource, /const visibleIssues = computed/);
+  assert.match(confirmCardSource, /v-for="issue in visibleIssues"/);
+});
+
 test("范围抽屉保存期间取消后不得提交旧保存请求", () => {
   assert.match(rangeEditorSource, /let saveRequestVersion = 0/);
   assert.match(
@@ -362,6 +518,50 @@ test("范围抽屉保存期间取消后不得提交旧保存请求", () => {
   );
   const saveEmitIndex = rangeEditorSource.indexOf('emit("save", regions)');
   assert.ok(staleGuardIndex >= 0 && staleGuardIndex < saveEmitIndex);
+});
+
+test("Excel 范围抽屉应允许直接编辑 A1 范围并反算内部行列映射", () => {
+  assert.match(rangeEditorSource, /直接修改 Excel 范围/);
+  assert.match(rangeEditorSource, /v-model="draft\.projectRange"/);
+  assert.match(rangeEditorSource, /v-model="draft\.specificationRange"/);
+  assert.match(rangeEditorSource, /v-model="draft\.acceptanceRange"/);
+  assert.match(rangeEditorSource, /v-model="draft\.remarkRange"/);
+  assert.match(rangeEditorSource, /parseExcelA1ColumnRange/);
+  assert.match(
+    rangeEditorSource,
+    /draft\.dataStartRow = firstRange\.startRow;[\s\S]*draft\.dataEndRow = firstRange\.endRow;/
+  );
+  assert.match(
+    rangeEditorSource,
+    /relativeColumnIndex = parsed\.columnNumber - baseColumn\.value/
+  );
+  assert.match(
+    rangeEditorSource,
+    /draft\.isSpecificationOnly = draft\.projectRange\.trim\(\)\.length === 0/
+  );
+  assert.doesNotMatch(
+    rangeEditorSource,
+    /v-model="draft\.projectRange"[\s\S]{0,120}:disabled="draft\.isSpecificationOnly"/
+  );
+  assert.match(rangeEditorSource, /findNearestSmartStructureHeaderRowIndex/);
+  assert.match(
+    rangeEditorSource,
+    /draft\.headerStartRow = headerRow;[\s\S]*draft\.headerEndRow = headerRow;/
+  );
+  assert.match(rangeEditorSource, /<template v-else>[\s\S]*表头起始行/);
+});
+
+test("智能确认卡应保留 A1 范围并移除重复高级行列表单", () => {
+  assert.match(confirmCardSource, /class="range-summary-panel"/);
+  assert.match(confirmCardSource, />\s*调整范围\s*</);
+  assert.doesNotMatch(confirmCardSource, />高级设置</);
+  assert.doesNotMatch(confirmCardSource, /v-model="state\.templateName"/);
+  assert.doesNotMatch(confirmCardSource, /v-model="state\.headerRowCount"/);
+  assert.doesNotMatch(confirmCardSource, /v-model="displayDataStartRowIndex"/);
+  assert.doesNotMatch(
+    confirmCardSource,
+    /v-model="state\.isSpecificationOnly"/
+  );
 });
 
 test("高级预览应在写入共享配置前拒绝旧配置响应", () => {

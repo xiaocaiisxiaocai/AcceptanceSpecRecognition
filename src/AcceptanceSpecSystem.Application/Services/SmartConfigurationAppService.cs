@@ -191,6 +191,17 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             return ValidateTemplateRegions(fullTableData, recognizedTable, headerKeywordMatcher);
         }
 
+        return DetectLogicalRegionsFromCurrentStructure(
+            fullTableData,
+            recognizedTable,
+            headerKeywordMatcher);
+    }
+
+    private SmartConfigurationRecognizedTable DetectLogicalRegionsFromCurrentStructure(
+        TableData fullTableData,
+        SmartConfigurationRecognizedTable recognizedTable,
+        HeaderKeywordMatcher headerKeywordMatcher)
+    {
         if (!recognizedTable.SpecificationColumnIndex.HasValue ||
             !recognizedTable.DataEndRowIndex.HasValue)
         {
@@ -227,7 +238,12 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             for (var rowIndex = scanRow; rowIndex < detectionTable.Rows.Count; rowIndex++)
             {
                 if (headerKeywordMatcher.IsCompleteHeader(detectionTable.Rows[rowIndex]) ||
-                    LooksLikeMappedHeaderRow(detectionTable.Rows[rowIndex], recognizedTable, headerKeywordMatcher))
+                    LooksLikeMappedHeaderRow(detectionTable.Rows[rowIndex], recognizedTable, headerKeywordMatcher) ||
+                    LooksLikeCompositeHeaderStart(
+                        detectionTable,
+                        rowIndex,
+                        maxHeaderRowCount,
+                        headerKeywordMatcher))
                 {
                     candidateRow = rowIndex;
                     break;
@@ -465,6 +481,44 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 $"第 {shiftedRegionHeader.Value + 1} 行发现未被模板覆盖的新区域表头，请确认区域和列映射");
         }
 
+        // 早期版本可能把整张工作表保存成一个过宽的单区域。即使后续重复表头
+        // 落在这个旧闭区间内，也要按当前文件重新探测并展示离散区域；否则旧模板
+        // 会永久遮蔽已经具备识别能力的新结构。
+        var rediscovered = DetectLogicalRegionsFromCurrentStructure(
+            fullTableData,
+            recognizedTable with { Regions = [] },
+            headerKeywordMatcher);
+        if (rediscovered.Regions.Count > validatedRegions.Count)
+        {
+            var rediscoveredRegions = rediscovered.Regions
+                .OrderBy(region => region.RegionIndex)
+                .ToList();
+            var existingIssueCodes = rediscoveredRegions[0].Issues
+                .Select(issue => issue.Code)
+                .ToHashSet(StringComparer.Ordinal);
+            var preservedTemplateIssues = validatedRegions
+                .SelectMany(region => region.Issues)
+                .Where(issue => existingIssueCodes.Add(issue.Code))
+                .ToList();
+            if (preservedTemplateIssues.Count > 0)
+            {
+                rediscoveredRegions[0] = rediscoveredRegions[0] with
+                {
+                    Issues = [.. rediscoveredRegions[0].Issues, .. preservedTemplateIssues]
+                };
+            }
+            rediscoveredRegions[0] = AddRegionIssue(
+                rediscoveredRegions[0],
+                "TemplateRegionStructureChanged",
+                $"当前文件识别到 {rediscoveredRegions.Count} 个数据区域，旧模板仅保存 {validatedRegions.Count} 个，请确认后更新模板");
+            return rediscovered with
+            {
+                Source = recognizedTable.Source,
+                Decision = "NeedConfirm",
+                Regions = rediscoveredRegions
+            };
+        }
+
         return recognizedTable with
         {
             Regions = validatedRegions,
@@ -523,6 +577,25 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private static bool HasErrorIssue(SmartConfigurationRecognizedRegion region) =>
         region.Issues.Any(issue => string.Equals(issue.Severity, "Error", StringComparison.OrdinalIgnoreCase));
+
+    private static (SmartConfigurationRecognizedTable Table, DocumentTemplate Template)
+        SelectBestDegradedTemplateCandidate(
+            IReadOnlyList<(SmartConfigurationRecognizedTable Table, DocumentTemplate Template)> candidates)
+    {
+        return candidates
+            .OrderBy(candidate => Math.Abs(
+                GetPersistedTemplateRegionCount(candidate.Template) - candidate.Table.Regions.Count))
+            .ThenBy(candidate => candidate.Table.Regions.Sum(region =>
+                region.Issues.Count(issue =>
+                    string.Equals(issue.Severity, "Error", StringComparison.OrdinalIgnoreCase))))
+            .ThenByDescending(candidate => candidate.Template.UpdatedAt)
+            .ThenByDescending(candidate => candidate.Template.UsageCount)
+            .ThenByDescending(candidate => candidate.Template.Id)
+            .First();
+    }
+
+    private static int GetPersistedTemplateRegionCount(DocumentTemplate template) =>
+        template.Regions.Count > 0 ? template.Regions.Count : 1;
 
     private static void AuditRegionCoverage(
         TableData detectionTable,
@@ -799,6 +872,33 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         if (MatchesMappedHeader(row, table.AcceptanceColumnIndex, ColumnType.Acceptance, matcher)) matchedCount++;
         if (MatchesMappedHeader(row, table.RemarkColumnIndex, ColumnType.Remark, matcher)) matchedCount++;
         return specificationMatched && matchedCount >= 2;
+    }
+
+    private static bool LooksLikeCompositeHeaderStart(
+        TableData tableData,
+        int startRowIndex,
+        int maxHeaderRowCount,
+        HeaderKeywordMatcher matcher)
+    {
+        if (startRowIndex < 0 || startRowIndex >= tableData.Rows.Count ||
+            !matcher.HasProjectAndSpecificationEvidence(tableData.Rows[startRowIndex]))
+        {
+            return false;
+        }
+
+        var availableRowCount = Math.Min(
+            maxHeaderRowCount,
+            tableData.Rows.Count - startRowIndex);
+        for (var rowCount = 2; rowCount <= availableRowCount; rowCount++)
+        {
+            if (matcher.IsCompleteHeader(
+                    tableData.Rows.Skip(startRowIndex).Take(rowCount)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool MatchesMappedHeader(
@@ -1816,8 +1916,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 customerId.Value,
                 headers,
                 cancellationToken);
-            SmartConfigurationRecognizedTable? firstDegradedTemplate = null;
-            DocumentTemplate? firstDegradedTemplateEntity = null;
+            var degradedTemplateCandidates =
+                new List<(SmartConfigurationRecognizedTable Table, DocumentTemplate Template)>();
             foreach (var template in templateCandidates)
             {
                 var templateHealthCheck = DocumentStructureHealthCheck.Evaluate(
@@ -1848,14 +1948,17 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     return validatedTemplate;
                 }
 
-                firstDegradedTemplate ??= validatedTemplate;
-                firstDegradedTemplateEntity ??= template;
+                degradedTemplateCandidates.Add((validatedTemplate, template));
             }
 
-            if (firstDegradedTemplate != null && firstDegradedTemplateEntity != null)
+            if (degradedTemplateCandidates.Count > 0)
             {
-                await _templateService.IncrementUsageAsync(firstDegradedTemplateEntity.Id, cancellationToken);
-                return firstDegradedTemplate;
+                var bestDegradedTemplate =
+                    SelectBestDegradedTemplateCandidate(degradedTemplateCandidates);
+                await _templateService.IncrementUsageAsync(
+                    bestDegradedTemplate.Template.Id,
+                    cancellationToken);
+                return bestDegradedTemplate.Table;
             }
         }
 
@@ -2711,10 +2814,30 @@ internal sealed class HeaderKeywordMatcher
     }
     public bool Matches(ColumnType columnType, string? value)
     {
-        return ColumnHeaderRuleMatcher.TryNormalizeHeader(value, out var normalizedHeader) &&
-               _rules
-                   .Where(rule => rule.ColumnType == columnType)
-                   .Any(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched);
+        return ExpandCompositeHeaderValues(value)
+            .Any(candidate =>
+                ColumnHeaderRuleMatcher.TryNormalizeHeader(candidate, out var normalizedHeader) &&
+                _rules
+                    .Where(rule => rule.ColumnType == columnType)
+                    .Any(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched));
+    }
+
+    private static IEnumerable<string> ExpandCompositeHeaderValues(string? value)
+    {
+        var header = value?.Trim() ?? string.Empty;
+        if (header.Length == 0)
+        {
+            yield break;
+        }
+
+        yield return header;
+        foreach (var segment in header.Split(" / ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!string.Equals(segment, header, StringComparison.Ordinal))
+            {
+                yield return segment;
+            }
+        }
     }
 
     public bool HasAmbiguousCustomerTypeEvidence(IEnumerable<string> values)
@@ -2745,6 +2868,16 @@ internal sealed class HeaderKeywordMatcher
     }
 
     public bool IsCompleteHeader(RowData row) => HasIndependentRequiredTypes(BuildEvidence(row));
+
+    public bool IsCompleteHeader(IEnumerable<RowData> rows) =>
+        HasIndependentRequiredTypes(rows.SelectMany(BuildEvidence).ToList());
+
+    public bool HasProjectAndSpecificationEvidence(RowData row)
+    {
+        var evidence = BuildEvidence(row);
+        return evidence.Any(item => item.MatchedTypes.Contains(ColumnType.Project)) &&
+               evidence.Any(item => item.MatchedTypes.Contains(ColumnType.Specification));
+    }
 
     private List<HeaderEvidence> BuildEvidence(RowData row)
     {

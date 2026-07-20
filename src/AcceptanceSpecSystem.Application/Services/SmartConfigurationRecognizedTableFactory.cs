@@ -128,7 +128,10 @@ internal static class SmartConfigurationRecognizedTableFactory
             IsSpecificationOnly = primary.IsSpecificationOnly,
             Fields = primary.Fields,
             Regions = regions,
-            Decision = regions.Count > 1 || regions.Any(region =>
+            // 已由用户确认并保存的多区域模板，只要每个区域仍通过健康检查，
+            // 就应与稳定单区域模板一样自动采用。新发现或结构发生变化的多区域
+            // 会在识别/模板校验阶段附加 Error，并继续降级为待确认。
+            Decision = regions.Any(region =>
                 region.Issues.Any(issue => string.Equals(
                     issue.Severity,
                     "Error",

@@ -35,6 +35,13 @@ const batchExecutionSource = readFileSync(
   ),
   "utf8"
 );
+const executionStateSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/data-import/composables/useDataImportExecution.ts"
+  ),
+  "utf8"
+);
 
 test("导入页应维护显式进度文案，避免长时间 AI 去重时只有处理中提示", () => {
   assert.match(pageComposableSource, /const importProgressText = ref\(""\);/);
@@ -54,6 +61,15 @@ test("导入页在执行中应在摘要操作栏展示进度提示", () => {
   );
   assert.match(confirmPanelSource, /\{\{ importProgressText \}\}/);
   assert.match(confirmPanelSource, /\{\{ importProgressDescription \}\}/);
+});
+
+test("未导入明细应固定开启且不再展示开关", () => {
+  assert.doesNotMatch(confirmPanelSource, /预览未导入明细/);
+  assert.doesNotMatch(confirmPanelSource, /previewSkippedRows/);
+  assert.doesNotMatch(executionStateSource, /previewSkippedRows/);
+  assert.doesNotMatch(pageComposableSource, /previewSkippedRows/);
+  assert.doesNotMatch(batchExecutionSource, /options\.previewSkippedRows/);
+  assert.match(batchExecutionSource, /previewSkippedRows:\s*true/g);
 });
 
 test("导入按钮与重复确认按钮应复用更明确的进度文案", () => {
@@ -221,7 +237,7 @@ test("任一分区业务失败后必须立即中止，不能继续到可能清�
     "if (response.code !== 0)"
   );
   const aggregateCreation = batchExecutionSource.indexOf(
-    "aggregate = createSingleTableAggregate",
+    "createSingleTableAggregate(",
     failureBranchStart
   );
   const failureBranch = batchExecutionSource.slice(

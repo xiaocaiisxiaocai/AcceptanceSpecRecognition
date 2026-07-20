@@ -5,6 +5,8 @@ import {
   canConfirmSmartStructureTable,
   canSelectSmartStructureTable,
   createSmartStructureSummary,
+  excelColumnLabelToNumber,
+  findNearestSmartStructureHeaderRowIndex,
   formatDisplayIndexFromZeroBased,
   formatDisplayRowRange,
   getRecognizedTableInfo,
@@ -13,11 +15,13 @@ import {
   getSmartStructureImportReadinessReason,
   getSmartStructureImportSelectionDisabledReason,
   needsManualStructureFallback,
+  parseExcelA1ColumnRange,
   countSmartStructureRegionRows,
   resolveSmartStructureRegionEndRowIndex,
   shouldShowSmartStructureManualFallback,
   toActualColumnNumber,
   toActualRowNumber,
+  toExcelColumnLabel,
   validateSmartStructureRegions
 } from "./smart-structure-recognition";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
@@ -59,6 +63,37 @@ const tableInfo = (overrides: Partial<TableInfo> = {}): TableInfo => ({
 });
 
 describe("smart-structure-recognition", () => {
+  it("从数据区上方向前找到最近有效单行表头并跳过非表头行", () => {
+    const rows = [
+      ["", "项目", "细项", "规格", "", "", "", "", "厂商确认", ""],
+      ["", "项目", "细项", "规格", "", "", "", "", "OK/NG", "Remark"],
+      ["", "设备装机", "装机前验机", "", "", "", "", "", "", ""]
+    ];
+
+    expect(
+      findNearestSmartStructureHeaderRowIndex(rows, [
+        { columnIndex: 2, expectedHeader: "细项" },
+        { columnIndex: 3, expectedHeader: "规格" },
+        { columnIndex: 8, expectedHeader: "厂商确认 / OK/NG" },
+        { columnIndex: 9, expectedHeader: "Remark" }
+      ])
+    ).toBe(1);
+  });
+
+  it("不会把字段值完整但与已识别标题不匹配的数据行当成表头", () => {
+    expect(
+      findNearestSmartStructureHeaderRowIndex(
+        [["设备装机", "位置要求", "OK", "无"]],
+        [
+          { columnIndex: 0, expectedHeader: "项目" },
+          { columnIndex: 1, expectedHeader: "规格" },
+          { columnIndex: 2, expectedHeader: "OK/NG" },
+          { columnIndex: 3, expectedHeader: "Remark" }
+        ]
+      )
+    ).toBeUndefined();
+  });
+
   it("统计智能结构识别结果摘要", () => {
     const summary = createSmartStructureSummary([
       table({ decision: "AutoApply" }),
@@ -479,6 +514,29 @@ describe("smart-structure-recognition", () => {
         dataStartRowIndex: 1
       })
     ).toBe("表头 1 / 数据 2");
+  });
+
+  it("解析并标准化用户直接输入的 Excel 单列 A1 范围", () => {
+    expect(parseExcelA1ColumnRange(" c9：c112 ")).toEqual({
+      columnNumber: 3,
+      startRow: 9,
+      endRow: 112,
+      normalized: "C9:C112"
+    });
+    expect(parseExcelA1ColumnRange("$AA$128:$AA$143")).toEqual({
+      columnNumber: 27,
+      startRow: 128,
+      endRow: 143,
+      normalized: "AA128:AA143"
+    });
+    expect(excelColumnLabelToNumber("AA")).toBe(27);
+    expect(toExcelColumnLabel(27)).toBe("AA");
+  });
+
+  it("拒绝跨列、倒序或不完整的 Excel A1 范围", () => {
+    expect(parseExcelA1ColumnRange("C9:D112")).toBeUndefined();
+    expect(parseExcelA1ColumnRange("C112:C9")).toBeUndefined();
+    expect(parseExcelA1ColumnRange("C9")).toBeUndefined();
   });
 
   it("按表格实际使用区域换算识别出的行列位置", () => {

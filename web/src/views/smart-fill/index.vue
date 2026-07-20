@@ -566,11 +566,6 @@ const runSmartStructureRecognition = async () => {
   batchTableConfigs.value = configs;
 };
 
-const firstNeedConfirmTableIndex = computed(
-  () =>
-    recognizedTables.value.find(table => table.decision === "NeedConfirm")
-      ?.tableIndex ?? null
-);
 const activeSmartStructureTab = ref<number | undefined>();
 const smartFillSelectableTableIndexes = computed(() =>
   batchTableConfigs.value.map(config => config.tableIndex)
@@ -858,7 +853,6 @@ const handleRestart = () => {
               :file-id="uploadedFile?.fileId"
               :customer-id="matchScope.customerId"
               :confirming-table-index="smartConfirmingTableIndex"
-              :default-expanded-table-index="firstNeedConfirmTableIndex"
               @confirm="handleSmartStructureConfirm"
               @advanced="enterAdvancedMode"
               @update:table-selected="

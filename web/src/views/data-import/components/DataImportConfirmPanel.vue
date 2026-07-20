@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { InfoFilled } from "@element-plus/icons-vue";
 import type { AiServiceConfig } from "@/api/ai-service";
 import type { Customer } from "@/api/customer";
 import type { Process } from "@/api/process";
@@ -11,50 +12,60 @@ import type {
   SkippedRowsGroup,
   TableImportConfig
 } from "../dataImport.types";
-import { shouldBackfillProjectFromSpecification } from "../dataImport.helpers";
+import {
+  mergeSkippedPreviewCellValues,
+  shouldBackfillProjectFromSpecification
+} from "../dataImport.helpers";
 
-const props = defineProps<{
-  importResult: CombinedImportResult | null;
-  isExcelFile: boolean;
-  canUploadSourceFile: boolean;
-  canImportAny: boolean;
-  canImportCurrentFile: boolean;
-  currentImportPermissionMessage: string;
-  hasPendingDifferenceConfirmation: boolean;
-  pendingDifferencesCount: number;
-  hasCommittedImportProgress: boolean;
-  committedSuccessCount: number;
-  committedSkippedCount: number;
-  committedFailedCount: number;
-  uploadedFileName?: string;
-  tableConfigs: TableImportConfig[];
-  selectedSheetCount?: number;
-  pendingSelectedSheetCount?: number;
-  customers: Customer[];
-  processes: Process[];
-  selectedCustomerId?: number;
-  selectedProcessId?: number;
-  selectedMachineModelName: string;
-  previewDataCount: number;
-  importDuplicateAiConfig: ImportDuplicateAiConfig;
-  loadingAiServices: boolean;
-  embeddingServices: AiServiceConfig[];
-  llmServices: AiServiceConfig[];
-  removedPreviewRowCount: number;
-  selectedImportPreviewRowsCount: number;
-  importPreviewGroups: ImportPreviewGroup[];
-  previewLoadState: {
-    loadedRows: number;
-    totalRows: number;
-    hasPartialPreview: boolean;
-  };
-  previewSkippedRows: boolean;
-  importing: boolean;
-  importProgressText: string;
-  importProgressDescription: string;
-  importPrimaryButtonText: string;
-  skippedRowsGroups: SkippedRowsGroup[];
-}>();
+const props = withDefaults(
+  defineProps<{
+    importResult: CombinedImportResult | null;
+    isExcelFile: boolean;
+    canUploadSourceFile: boolean;
+    canImportAny: boolean;
+    canImportCurrentFile: boolean;
+    currentImportPermissionMessage: string;
+    hasPendingDifferenceConfirmation: boolean;
+    pendingDifferencesCount: number;
+    hasCommittedImportProgress: boolean;
+    committedSuccessCount: number;
+    committedSkippedCount: number;
+    committedFailedCount: number;
+    uploadedFileName?: string;
+    tableConfigs: TableImportConfig[];
+    selectedSheetCount?: number;
+    pendingSelectedSheetCount?: number;
+    customers: Customer[];
+    processes: Process[];
+    selectedCustomerId?: number;
+    selectedProcessId?: number;
+    selectedMachineModelName: string;
+    previewDataCount: number;
+    importDuplicateAiConfig: ImportDuplicateAiConfig;
+    loadingAiServices: boolean;
+    embeddingServices: AiServiceConfig[];
+    llmServices: AiServiceConfig[];
+    removedPreviewRowCount: number;
+    selectedImportPreviewRowsCount: number;
+    importPreviewGroups: ImportPreviewGroup[];
+    previewLoadState: {
+      loadedRows: number;
+      totalRows: number;
+      hasPartialPreview: boolean;
+    };
+    importing: boolean;
+    importProgressText: string;
+    importProgressDescription: string;
+    importPrimaryButtonText: string;
+    skippedRowsGroups: SkippedRowsGroup[];
+    showImportAction?: boolean;
+    allowEmptyPreviewAction?: boolean;
+  }>(),
+  {
+    showImportAction: true,
+    allowEmptyPreviewAction: false
+  }
+);
 
 const emit = defineEmits<{
   restart: [];
@@ -63,19 +74,25 @@ const emit = defineEmits<{
   restoreRemovedPreviewRows: [];
   importPreviewSelectionChange: [tableIndex: number, rows: ImportPreviewRow[]];
   removeSinglePreviewRow: [row: ImportPreviewRow];
-  "update:previewSkippedRows": [value: boolean];
+  loadFullPreview: [];
   import: [];
 }>();
-
-const previewSkippedRowsModel = computed({
-  get: () => props.previewSkippedRows,
-  set: value => emit("update:previewSkippedRows", value)
-});
 
 // 父组件以引用方式传入配置对象，子组件通过该代理直接编辑其字段；
 // mutation 经同一引用回传父组件，行为与直接改 prop 一致，同时规避 vue/no-mutating-props。
 const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 const activeCollapseNames = ref<string[]>([]);
+const handleCollapseChange = (
+  activeNames: string | number | Array<string | number>
+) => {
+  const names = Array.isArray(activeNames) ? activeNames : [activeNames];
+  if (
+    names.includes("preview-list") &&
+    props.previewLoadState.hasPartialPreview
+  ) {
+    emit("loadFullPreview");
+  }
+};
 const hasSpecificationOnlyBackfillTables = computed(() =>
   props.tableConfigs.some(shouldBackfillProjectFromSpecification)
 );
@@ -147,8 +164,8 @@ const effectivePendingSelectedSheetCount = computed(
         type="info"
         :closable="false"
         show-icon
-        title="已跳过部分数据（未开启明细预览）"
-        description="如需查看具体哪些行被跳过，请在导入前开启“预览未导入明细”。"
+        title="已跳过部分数据，但未返回可展示的行明细"
+        description="请查看导入日志或重新导入；系统已默认请求保留未导入明细。"
       />
       <div v-else>
         <div
@@ -162,7 +179,12 @@ const effectivePendingSelectedSheetCount = computed(
               >，区域 {{ group.regionIndex + 1 }}</template
             >
           </div>
-          <el-table :data="group.rows" max-height="220" size="small">
+          <el-table
+            :data="group.rows"
+            max-height="220"
+            size="small"
+            class="skipped-rows-table"
+          >
             <el-table-column prop="tableIndex" label="表格" width="80">
               <template #default="{ row }">
                 {{ row.tableIndex + 1 }}
@@ -184,13 +206,15 @@ const effectivePendingSelectedSheetCount = computed(
             />
             <el-table-column
               v-for="col in group.columns"
-              :key="`skip-col-${group.tableIndex}-${col.index}`"
+              :key="`skip-col-${group.tableIndex}-${col.indexes.join('-')}`"
               :label="col.label"
               min-width="min(140px, calc(100vw - 32px))"
             >
               <template #default="{ row }">
                 <div class="skipped-cell-value">
-                  {{ row.rowValues?.[col.index] || "" }}
+                  {{
+                    mergeSkippedPreviewCellValues(row.rowValues, col.indexes)
+                  }}
                 </div>
               </template>
             </el-table-column>
@@ -247,7 +271,7 @@ const effectivePendingSelectedSheetCount = computed(
       :closable="false"
       show-icon
       :title="`已勾选 ${effectivePendingSelectedSheetCount} 张待配置 Sheet`"
-      description="请先补齐必填列并点击“确认并学习”；完成前这些 Sheet 不计入预览，也不能开始导入。"
+      description="请切换到对应 Sheet 补齐必填列；全部可确认后，即可使用文件级主操作统一学习并导入。"
       class="mb-4"
     />
     <div class="import-summary-bar">
@@ -276,22 +300,15 @@ const effectivePendingSelectedSheetCount = computed(
         >
       </div>
       <div class="import-summary-bar__actions">
-        <div class="skip-preview-switch">
-          <span class="label">预览未导入明细</span>
-          <el-switch
-            v-model="previewSkippedRowsModel"
-            :disabled="importing || hasPendingDifferenceConfirmation"
-            active-text="开启"
-            inactive-text="关闭"
-          />
-        </div>
         <el-button
-          v-if="canImportCurrentFile"
+          v-if="showImportAction && canImportCurrentFile"
           type="primary"
           :loading="importing"
           :disabled="
             effectivePendingSelectedSheetCount > 0 ||
-            (!hasPendingDifferenceConfirmation && previewDataCount === 0)
+            (!allowEmptyPreviewAction &&
+              !hasPendingDifferenceConfirmation &&
+              previewDataCount === 0)
           "
           @click="emit('import')"
         >
@@ -304,36 +321,61 @@ const effectivePendingSelectedSheetCount = computed(
       </div>
     </div>
 
-    <el-collapse v-model="activeCollapseNames" class="confirm-panel-collapse">
+    <el-collapse
+      v-model="activeCollapseNames"
+      class="confirm-panel-collapse"
+      @change="handleCollapseChange"
+    >
       <el-collapse-item name="duplicate-ai">
         <template #title>
           <div class="collapse-title">
-            <span>导入设置</span>
-            <span class="collapse-subtitle">
-              AI 疑似重复识别：{{
-                duplicateAiConfig.enableSemanticDuplicateCheck ? "开启" : "关闭"
+            <span class="collapse-title__main">导入设置</span>
+            <span
+              class="collapse-status"
+              :class="{
+                active: duplicateAiConfig.enableSemanticDuplicateCheck
+              }"
+            >
+              AI 去重{{
+                duplicateAiConfig.enableSemanticDuplicateCheck
+                  ? "已开启"
+                  : "未开启"
               }}
             </span>
           </div>
         </template>
         <div class="duplicate-ai-panel">
           <div class="duplicate-ai-panel__header">
-            <div>
-              <div class="duplicate-ai-panel__title">AI 疑似重复识别</div>
-              <div class="duplicate-ai-panel__desc">
-                规则命中优先；未命中时再用 Embedding 召回候选，并可选用 LLM
-                复核。
+            <div class="duplicate-ai-panel__heading">
+              <div class="duplicate-ai-panel__mark" aria-hidden="true">AI</div>
+              <div>
+                <div class="duplicate-ai-panel__title">疑似重复识别</div>
+                <div class="duplicate-ai-panel__desc">
+                  规则优先，未命中时使用 Embedding 召回，并可追加 LLM 复核。
+                </div>
               </div>
             </div>
-            <el-switch
-              v-model="duplicateAiConfig.enableSemanticDuplicateCheck"
-              active-text="开启"
-              inactive-text="关闭"
-            />
+            <div class="duplicate-ai-panel__control">
+              <span>{{
+                duplicateAiConfig.enableSemanticDuplicateCheck
+                  ? "运行中"
+                  : "已关闭"
+              }}</span>
+              <el-switch
+                v-model="duplicateAiConfig.enableSemanticDuplicateCheck"
+                aria-label="启用 AI 疑似重复识别"
+              />
+            </div>
           </div>
-          <el-form label-width="132px" class="duplicate-ai-form">
+          <div
+            v-if="!duplicateAiConfig.enableSemanticDuplicateCheck"
+            class="duplicate-ai-panel__inactive"
+          >
+            AI 去重当前关闭，本次导入仅使用已有规则判断重复数据。
+          </div>
+          <el-form v-else label-position="top" class="duplicate-ai-form">
             <el-row :gutter="16">
-              <el-col :span="12">
+              <el-col :xs="24" :lg="12">
                 <el-form-item label="Embedding 服务">
                   <el-select
                     v-model="duplicateAiConfig.embeddingServiceId"
@@ -355,17 +397,18 @@ const effectivePendingSelectedSheetCount = computed(
                   </el-select>
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :xs="24" :lg="12">
                 <el-form-item label="候选数量 TopK">
                   <el-input-number
                     v-model="duplicateAiConfig.semanticTopK"
                     :min="1"
                     :max="10"
                     :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
+                    style="width: 100%"
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :xs="24" :lg="12">
                 <el-form-item label="召回阈值">
                   <el-slider
                     v-model="duplicateAiConfig.semanticMinScore"
@@ -381,7 +424,7 @@ const effectivePendingSelectedSheetCount = computed(
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :xs="24" :lg="12">
                 <el-form-item label="高置信阈值">
                   <el-slider
                     v-model="duplicateAiConfig.highConfidenceThreshold"
@@ -400,14 +443,27 @@ const effectivePendingSelectedSheetCount = computed(
             </el-row>
             <div class="duplicate-ai-panel__llm">
               <div class="llm-toggle">
-                <span>启用 LLM 复核</span>
-                <el-switch
-                  v-model="duplicateAiConfig.enableLlmDuplicateReview"
-                  :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
-                />
+                <div>
+                  <strong>LLM 二次复核</strong>
+                  <span>仅对 Embedding 召回的疑似项进行进一步判断</span>
+                </div>
+                <div class="llm-toggle__control">
+                  <span>{{
+                    duplicateAiConfig.enableLlmDuplicateReview
+                      ? "已开启"
+                      : "未开启"
+                  }}</span>
+                  <el-switch
+                    v-model="duplicateAiConfig.enableLlmDuplicateReview"
+                    aria-label="启用 LLM 二次复核"
+                  />
+                </div>
               </div>
-              <el-row :gutter="16">
-                <el-col :span="12">
+              <el-row
+                v-if="duplicateAiConfig.enableLlmDuplicateReview"
+                :gutter="16"
+              >
+                <el-col :xs="24" :lg="12">
                   <el-form-item label="LLM 服务">
                     <el-select
                       v-model="duplicateAiConfig.llmServiceId"
@@ -432,7 +488,7 @@ const effectivePendingSelectedSheetCount = computed(
                     </el-select>
                   </el-form-item>
                 </el-col>
-                <el-col :span="12">
+                <el-col :xs="24" :lg="12">
                   <el-form-item label="LLM 通过阈值">
                     <el-slider
                       v-model="duplicateAiConfig.llmPassScore"
@@ -460,11 +516,11 @@ const effectivePendingSelectedSheetCount = computed(
       <el-collapse-item name="preview-list">
         <template #title>
           <div class="collapse-title">
-            <span>待导入清单（已配置 Sheet 合计）</span>
+            <span class="collapse-title__main">待导入清单</span>
             <span class="collapse-subtitle">
-              当前保留 {{ previewDataCount }} 条
+              已配置 Sheet 合计 {{ previewDataCount }} 条
               <template v-if="removedPreviewRowCount > 0">
-                ，已剔除 {{ removedPreviewRowCount }} 条
+                · 已移出 {{ removedPreviewRowCount }} 条
               </template>
             </span>
           </div>
@@ -472,23 +528,21 @@ const effectivePendingSelectedSheetCount = computed(
         <div class="import-preview-panel">
           <div class="import-preview-toolbar">
             <div class="import-preview-summary">
-              <span class="summary-title">待导入数据清单</span>
-              <span class="summary-meta"
-                >当前保留 {{ previewDataCount }} 条</span
-              >
-              <span
+              <div class="preview-metric primary">
+                <strong>{{ previewDataCount }}</strong>
+                <span>待导入</span>
+              </div>
+              <div class="preview-metric">
+                <strong>{{ previewLoadState.loadedRows }}</strong>
+                <span>当前显示</span>
+              </div>
+              <div
                 v-if="removedPreviewRowCount > 0"
-                class="summary-meta warning"
+                class="preview-metric warning"
               >
-                已剔除 {{ removedPreviewRowCount }} 条
-              </span>
-              <span
-                v-if="previewLoadState.hasPartialPreview"
-                class="summary-meta"
-              >
-                当前先显示前
-                {{ previewLoadState.loadedRows }} 条，导入前会自动补齐完整数据
-              </span>
+                <strong>{{ removedPreviewRowCount }}</strong>
+                <span>已移出</span>
+              </div>
             </div>
             <div class="import-preview-actions">
               <el-button
@@ -501,7 +555,7 @@ const effectivePendingSelectedSheetCount = computed(
                 "
                 @click="emit('removeSelectedPreviewRows')"
               >
-                批量删除（{{ selectedImportPreviewRowsCount }}）
+                移出所选（{{ selectedImportPreviewRowsCount }}）
               </el-button>
               <el-button
                 size="small"
@@ -511,17 +565,22 @@ const effectivePendingSelectedSheetCount = computed(
                 "
                 @click="emit('restoreRemovedPreviewRows')"
               >
-                恢复已删除
+                恢复移出项
               </el-button>
             </div>
           </div>
 
-          <el-alert
-            type="info"
-            :closable="false"
-            show-icon
-            title="这里删除的是本次待导入清单，删除后只是不参与本次导入，不会修改原文件。"
-          />
+          <div class="import-preview-note">
+            <el-icon><InfoFilled /></el-icon>
+            <span>
+              移出仅影响本次导入，不会修改原文件。
+              <template v-if="previewLoadState.hasPartialPreview">
+                当前为前
+                {{ previewLoadState.loadedRows }}
+                条预览，导入前会自动补齐完整数据。
+              </template>
+            </span>
+          </div>
 
           <div v-if="previewDataCount > 0" class="import-preview-groups">
             <div
@@ -602,7 +661,7 @@ const effectivePendingSelectedSheetCount = computed(
                       :disabled="hasPendingDifferenceConfirmation"
                       @click="emit('removeSinglePreviewRow', row)"
                     >
-                      删除
+                      移出
                     </el-button>
                   </template>
                 </el-table-column>
@@ -620,6 +679,13 @@ const effectivePendingSelectedSheetCount = computed(
 </template>
 
 <style scoped>
+.skipped-rows-table :deep(.el-table__header .cell) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: keep-all;
+  white-space: nowrap;
+}
+
 .import-summary-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -678,6 +744,315 @@ const effectivePendingSelectedSheetCount = computed(
   color: var(--app-primary);
 }
 
+.confirm-panel-collapse {
+  margin-top: 10px;
+  border-top: 1px solid var(--app-border);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.confirm-panel-collapse :deep(.el-collapse-item__header) {
+  height: 48px;
+  padding: 0 10px;
+  font-weight: 600;
+}
+
+.confirm-panel-collapse :deep(.el-collapse-item__content) {
+  padding: 0 10px 16px;
+}
+
+.collapse-title {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.collapse-title__main {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--app-text-primary);
+}
+
+.collapse-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+}
+
+.collapse-status {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--app-text-secondary);
+  background: var(--el-fill-color);
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+}
+
+.collapse-status.active {
+  color: var(--el-color-success-dark-2);
+  background: var(--el-color-success-light-9);
+  border-color: var(--el-color-success-light-5);
+}
+
+.duplicate-ai-panel {
+  overflow: hidden;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+}
+
+.duplicate-ai-panel__header,
+.duplicate-ai-panel__heading,
+.duplicate-ai-panel__control,
+.llm-toggle,
+.llm-toggle__control {
+  display: flex;
+  align-items: center;
+}
+
+.duplicate-ai-panel__header {
+  gap: 18px;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: linear-gradient(
+    110deg,
+    var(--app-info-bg) 0%,
+    var(--app-bg-card) 72%
+  );
+  border-bottom: 1px solid var(--app-border);
+}
+
+.duplicate-ai-panel__heading {
+  gap: 12px;
+  min-width: 0;
+}
+
+.duplicate-ai-panel__mark {
+  display: grid;
+  flex: 0 0 36px;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--app-primary);
+  letter-spacing: 0.06em;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 9px;
+}
+
+.duplicate-ai-panel__title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--app-text-primary);
+}
+
+.duplicate-ai-panel__desc {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text-secondary);
+}
+
+.duplicate-ai-panel__control,
+.llm-toggle__control {
+  flex: 0 0 auto;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.duplicate-ai-panel__inactive {
+  padding: 13px 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+  background: var(--el-fill-color-extra-light);
+}
+
+.duplicate-ai-form {
+  padding: 16px 16px 2px;
+}
+
+.duplicate-ai-form :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
+
+.duplicate-ai-form :deep(.el-form-item__label) {
+  height: auto;
+  padding: 0 0 7px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--app-text-secondary);
+}
+
+.duplicate-ai-form :deep(.el-slider__runway.show-input) {
+  margin-right: 16px;
+}
+
+.duplicate-ai-panel__llm {
+  padding: 13px 14px 0;
+  margin-bottom: 14px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.llm-toggle {
+  gap: 16px;
+  justify-content: space-between;
+  padding-bottom: 12px;
+}
+
+.llm-toggle > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.llm-toggle strong {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--app-text-primary);
+}
+
+.llm-toggle > div:first-child span {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.import-preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.import-preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.import-preview-summary,
+.import-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.import-preview-summary {
+  gap: 0;
+}
+
+.preview-metric {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 0 14px;
+  color: var(--app-text-secondary);
+  border-left: 1px solid var(--app-border);
+}
+
+.preview-metric:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.preview-metric strong {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+  letter-spacing: -0.03em;
+}
+
+.preview-metric span {
+  font-size: 12px;
+}
+
+.preview-metric.primary strong {
+  color: var(--app-primary);
+}
+
+.preview-metric.warning strong {
+  color: var(--app-warning);
+}
+
+.import-preview-actions {
+  gap: 8px;
+}
+
+.import-preview-note {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+}
+
+.import-preview-note .el-icon {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--el-color-info);
+}
+
+.import-preview-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.import-preview-group {
+  overflow: hidden;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.import-preview-group__header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  background: var(--el-fill-color-extra-light);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.group-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text-secondary);
+}
+
+.import-preview-group :deep(.el-table) {
+  --el-table-border-color: var(--app-border);
+
+  border: 0;
+}
+
+.import-preview-group :deep(.el-table__inner-wrapper::before) {
+  display: none;
+}
+
 @media (width <= 900px) {
   .import-summary-bar {
     grid-template-columns: 1fr;
@@ -690,6 +1065,46 @@ const effectivePendingSelectedSheetCount = computed(
   .import-summary-bar__actions :deep(.el-button) {
     flex: 1;
     min-height: 40px;
+  }
+
+  .duplicate-ai-panel__header,
+  .llm-toggle {
+    align-items: flex-start;
+  }
+
+  .import-preview-toolbar {
+    align-items: stretch;
+  }
+
+  .import-preview-summary,
+  .import-preview-actions {
+    width: 100%;
+  }
+
+  .import-preview-actions :deep(.el-button) {
+    flex: 1;
+    min-height: 40px;
+    margin-left: 0;
+  }
+}
+
+@media (width <= 560px) {
+  .collapse-subtitle {
+    display: none;
+  }
+
+  .duplicate-ai-panel__header {
+    flex-direction: column;
+  }
+
+  .duplicate-ai-panel__control {
+    justify-content: space-between;
+    width: 100%;
+    padding-left: 48px;
+  }
+
+  .preview-metric {
+    padding: 0 10px;
   }
 }
 </style>

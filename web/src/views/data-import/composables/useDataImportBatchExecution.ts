@@ -43,7 +43,6 @@ type UseDataImportBatchExecutionOptions = {
   importResult: Ref<CombinedImportResult | null>;
   pendingImportAggregate: Ref<CombinedImportResult | null>;
   committedImportAggregate: Ref<CombinedImportResult | null>;
-  previewSkippedRows: Ref<boolean>;
   differenceDecisionMap: Ref<Record<string, DifferenceDecision | undefined>>;
   differenceConfirmDialogVisible: Ref<boolean>;
   importDuplicateAiConfig: Ref<ImportDuplicateAiConfig>;
@@ -304,7 +303,7 @@ export function useDataImportBatchExecution(
           JSON.stringify(mapping),
           excludedRowIndexes.join(","),
           JSON.stringify(duplicateCheckOptions),
-          options.previewSkippedRows.value ? "with-skipped-detail" : "summary",
+          "with-skipped-detail",
           includeDifferenceDecisions ? "confirmation" : "initial",
           JSON.stringify(decisions)
         ].join(":");
@@ -390,7 +389,7 @@ export function useDataImportBatchExecution(
             processId: options.selectedProcessId.value || undefined,
             machineModelId: options.selectedMachineModelId.value || undefined,
             cleanupSourceFile: regionKey === lastPlannedRegionKey,
-            previewSkippedRows: options.previewSkippedRows.value,
+            previewSkippedRows: true,
             confirmedDifferenceKeys: confirmed,
             partiallyConfirmedDifferenceKeys: partial,
             skippedDifferenceKeys: skipped,
@@ -449,7 +448,7 @@ export function useDataImportBatchExecution(
             processId: options.selectedProcessId.value || undefined,
             machineModelId: options.selectedMachineModelId.value || undefined,
             cleanupSourceFile: regionKey === lastPlannedRegionKey,
-            previewSkippedRows: options.previewSkippedRows.value,
+            previewSkippedRows: true,
             confirmedDifferenceKeys: confirmed,
             partiallyConfirmedDifferenceKeys: partial,
             skippedDifferenceKeys: skipped,

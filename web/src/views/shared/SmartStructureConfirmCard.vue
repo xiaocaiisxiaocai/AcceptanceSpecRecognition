@@ -1,17 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
-import { ElMessage, type FormInstance, type FormRules } from "element-plus";
-import { getTablePreview, type TableInfo } from "@/api/document";
+import { computed, ref, watch } from "vue";
+import { ElMessage } from "element-plus";
+import type { TableInfo } from "@/api/document";
 import type {
   SmartConfigConfirmRequest,
   SmartConfigRecognizedRegion,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import SmartStructureRangeEditorDrawer from "./SmartStructureRangeEditorDrawer.vue";
-import {
-  getRequestErrorMessage,
-  isGloballyHandledAuthError
-} from "@/utils/error-message";
 import {
   buildSmartConfigConfirmRequest,
   canConfirmSmartStructureTable,
@@ -20,13 +16,13 @@ import {
   getSmartStructureFieldLabel,
   getSmartStructureIssueTagType,
   getSmartStructureRecommendationTag,
+  getSmartStructureSourceLabel,
   getSmartStructureTableKindLabel,
   needsManualStructureFallback,
   countSmartStructureRegionRows,
   resolveSmartStructureRegionEndRowIndex,
   validateSmartStructureRegions
 } from "./smart-structure-recognition";
-import { requiredSelectionRule, validateForm } from "@/utils/form-rules";
 
 const props = withDefaults(
   defineProps<{
@@ -37,92 +33,38 @@ const props = withDefaults(
     confirming?: boolean;
     confirmationLocked?: boolean;
     readonly?: boolean;
-    defaultExpanded?: boolean;
     importSelected?: boolean;
     importSelectable?: boolean;
     selectionDisabledReason?: string;
     selectionPendingReason?: string;
     isExcelFile?: boolean;
+    confirmActionLabel?: string;
+    showConfirmAction?: boolean;
+    interactionLocked?: boolean;
   }>(),
   {
     confirmationLocked: false,
-    isExcelFile: true
+    isExcelFile: true,
+    confirmActionLabel: "确认并学习",
+    showConfirmAction: true,
+    interactionLocked: false
   }
 );
 
 const emit = defineEmits<{
   confirm: [request: SmartConfigConfirmRequest];
+  "draft-change": [request: SmartConfigConfirmRequest | null];
   advanced: [table: SmartConfigRecognizedTable];
   "update:importSelected": [value: boolean];
 }>();
 
-type EditableState = {
-  templateName: string;
-  projectColumnIndex?: number;
-  specificationColumnIndex?: number;
-  acceptanceColumnIndex?: number;
-  remarkColumnIndex?: number;
-  headerRowIndex: number;
-  headerRowCount: number;
-  dataStartRowIndex: number;
-  dataEndRowIndex?: number;
-  isSpecificationOnly: boolean;
-};
-
-const state = reactive<EditableState>({
-  templateName: "",
-  projectColumnIndex: undefined,
-  specificationColumnIndex: undefined,
-  acceptanceColumnIndex: undefined,
-  remarkColumnIndex: undefined,
-  headerRowIndex: 0,
-  headerRowCount: 1,
-  dataStartRowIndex: 1,
-  dataEndRowIndex: undefined,
-  isSpecificationOnly: false
-});
-const formRef = ref<FormInstance>();
-const formRules: FormRules<EditableState> = {
-  projectColumnIndex: [
-    {
-      validator: (_rule, value, callback) => {
-        if (state.isSpecificationOnly || value != null) callback();
-        else callback(new Error("请选择项目列"));
-      },
-      trigger: "change"
-    }
-  ],
-  specificationColumnIndex: [requiredSelectionRule("请选择规格列")],
-  acceptanceColumnIndex: [requiredSelectionRule("请选择验收列")]
-};
-const detailVisible = ref(false);
 const rangeEditorVisible = ref(false);
 const editableRegions = ref<SmartConfigRecognizedRegion[]>([]);
-const currentHeaders = ref<string[]>([]);
-const headersLoading = ref(false);
-let latestHeaderRequestId = 0;
-let resettingState = false;
 const controlsLocked = computed(() =>
-  Boolean(props.readonly || props.confirmationLocked)
+  Boolean(props.readonly || props.confirmationLocked || props.interactionLocked)
 );
 
 const resetState = () => {
-  resettingState = true;
-  latestHeaderRequestId += 1;
-  headersLoading.value = false;
-  currentHeaders.value = [...props.table.headers];
-  state.templateName =
-    props.table.tableName?.trim() || `表格 ${props.table.tableIndex + 1}`;
-  state.projectColumnIndex = props.table.projectColumnIndex ?? undefined;
-  state.specificationColumnIndex =
-    props.table.specificationColumnIndex ?? undefined;
-  state.acceptanceColumnIndex = props.table.acceptanceColumnIndex ?? undefined;
-  state.remarkColumnIndex = props.table.remarkColumnIndex ?? undefined;
-  state.headerRowIndex = props.table.headerRowIndex;
-  state.headerRowCount = props.table.headerRowCount;
-  state.dataStartRowIndex = props.table.dataStartRowIndex;
-  state.dataEndRowIndex = props.table.dataEndRowIndex ?? undefined;
-  state.isSpecificationOnly = props.table.isSpecificationOnly;
   editableRegions.value = (
     props.table.regions?.length
       ? props.table.regions
@@ -147,27 +89,13 @@ const resetState = () => {
           }
         ]
   ).map(region => ({ ...region, headers: [...region.headers] }));
-  detailVisible.value = props.defaultExpanded ?? false;
   rangeEditorVisible.value = false;
-  resettingState = false;
 };
 
 watch(() => props.table, resetState, { immediate: true });
-watch(
-  () => props.confirmationLocked,
-  locked => {
-    if (locked) rangeEditorVisible.value = false;
-  }
-);
-
-watch(
-  () => state.isSpecificationOnly,
-  isSpecificationOnly => {
-    if (isSpecificationOnly) {
-      state.projectColumnIndex = undefined;
-    }
-  }
-);
+watch(controlsLocked, locked => {
+  if (locked) rangeEditorVisible.value = false;
+});
 
 const decisionTag = computed(() =>
   getSmartStructureDecisionTag(props.table.decision)
@@ -199,35 +127,10 @@ const formatColumnCoordinate = (index: number) =>
     ? toExcelColumnLabel((props.tableInfo?.usedRangeStartColumn ?? 1) + index)
     : `第 ${index + 1} 列`;
 
-const columnOptions = computed(() =>
-  currentHeaders.value.map((header, index) => {
-    return {
-      value: index,
-      label: `[${formatColumnCoordinate(index)}] ${header || `列${index + 1}`}`
-    };
-  })
+const activeRegions = computed(() => editableRegions.value);
+const displayHeaders = computed(
+  () => activeRegions.value[0]?.headers ?? props.table.headers
 );
-
-const activeRegions = computed(() => {
-  const regions = editableRegions.value;
-  return regions.map((region, index) =>
-    index === 0
-      ? {
-          ...region,
-          headers: currentHeaders.value,
-          headerRowIndex: state.headerRowIndex,
-          headerRowCount: state.headerRowCount,
-          dataStartRowIndex: state.dataStartRowIndex,
-          dataEndRowIndex: state.dataEndRowIndex,
-          projectColumnIndex: state.projectColumnIndex,
-          specificationColumnIndex: state.specificationColumnIndex,
-          acceptanceColumnIndex: state.acceptanceColumnIndex,
-          remarkColumnIndex: state.remarkColumnIndex,
-          isSpecificationOnly: state.isSpecificationOnly
-        }
-      : region
-  );
-});
 
 const handleRangesSave = (regions: SmartConfigRecognizedRegion[]) => {
   if (regions.length === 0) return;
@@ -235,22 +138,6 @@ const handleRangesSave = (regions: SmartConfigRecognizedRegion[]) => {
     ...region,
     headers: [...region.headers]
   }));
-
-  const primary = editableRegions.value[0];
-  resettingState = true;
-  currentHeaders.value = [...primary.headers];
-  state.projectColumnIndex = primary.projectColumnIndex ?? undefined;
-  state.specificationColumnIndex =
-    primary.specificationColumnIndex ?? undefined;
-  state.acceptanceColumnIndex = primary.acceptanceColumnIndex ?? undefined;
-  state.remarkColumnIndex = primary.remarkColumnIndex ?? undefined;
-  state.headerRowIndex = primary.headerRowIndex;
-  state.headerRowCount = primary.headerRowCount;
-  state.dataStartRowIndex = primary.dataStartRowIndex;
-  state.dataEndRowIndex = primary.dataEndRowIndex ?? undefined;
-  state.isSpecificationOnly = primary.isSpecificationOnly;
-  resettingState = false;
-  void loadHeadersForCurrentStructure();
 };
 
 const formatColumnRange = (
@@ -291,7 +178,12 @@ const rangeSummaryFields = computed(() =>
           region.dataEndRowIndex
         )
       )
-      .filter(range => range !== "-")
+      .filter(range => range !== "-"),
+    emptyText:
+      field.key === "projectColumnIndex" &&
+      activeRegions.value.every(region => region.isSpecificationOnly)
+        ? "仅规格表"
+        : "未识别"
   }))
 );
 
@@ -323,10 +215,6 @@ const ignoredRowCount = computed(() =>
   )
 );
 
-const hasRequiredProjectColumn = computed(
-  () => state.isSpecificationOnly || state.projectColumnIndex != null
-);
-
 const allRegionsConfirmable = computed(() =>
   activeRegions.value.every(
     region =>
@@ -344,7 +232,20 @@ const importSwitchText = computed(() =>
   props.importSelected ? "参与导入" : "不导入"
 );
 
-const visibleIssues = computed(() => props.table.issues?.slice(0, 4) ?? []);
+const visibleIssues = computed(() => {
+  const seen = new Set<string>();
+  return [
+    ...(props.table.issues ?? []),
+    ...activeRegions.value.flatMap(region => region.issues ?? [])
+  ]
+    .filter(issue => {
+      const key = `${issue.code}-${issue.field ?? ""}-${issue.message}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 4);
+});
 const semanticRecallSuggestions = computed(
   () => props.table.semanticRecallSuggestions?.slice(0, 6) ?? []
 );
@@ -398,7 +299,9 @@ const hasStructureChanges = computed(() => regionsHaveChanges.value);
 const canConfirm = computed(() =>
   canConfirmSmartStructureTable({
     readonly: Boolean(props.readonly),
-    confirmationLocked: props.confirmationLocked,
+    confirmationLocked: Boolean(
+      props.confirmationLocked || props.interactionLocked
+    ),
     customerId: props.customerId,
     allRegionsConfirmable: allRegionsConfirmable.value,
     structureValidationError: structureValidationError.value,
@@ -408,7 +311,7 @@ const canConfirm = computed(() =>
 );
 
 const confirmDisabledReason = computed(() => {
-  if (canConfirm.value || props.readonly || props.confirmationLocked) return "";
+  if (canConfirm.value || props.readonly || controlsLocked.value) return "";
   if (props.table.decision === "Reject" && !hasStructureChanges.value) {
     return "识别结果不可用，请先调整范围或列映射后再确认";
   }
@@ -418,114 +321,45 @@ const confirmDisabledReasonId = computed(
   () => `smart-structure-confirm-reason-${props.table.tableIndex}`
 );
 
-const displayHeaderRowIndex = computed({
-  get: () => (props.tableInfo?.usedRangeStartRow ?? 1) + state.headerRowIndex,
-  set: value => {
-    state.headerRowIndex = Math.max(
-      0,
-      (value ?? props.tableInfo?.usedRangeStartRow ?? 1) -
-        (props.tableInfo?.usedRangeStartRow ?? 1)
-    );
-  }
-});
+const buildDraftRequest = (): SmartConfigConfirmRequest | null => {
+  if (!props.customerId || !allRegionsConfirmable.value) return null;
 
-const minimumDataStartRowIndex = computed(
-  () => state.headerRowIndex + Math.max(state.headerRowCount, 1)
-);
-const displayMinimumDataStartRowIndex = computed(
-  () =>
-    (props.tableInfo?.usedRangeStartRow ?? 1) + minimumDataStartRowIndex.value
-);
-const displayMaximumRow = computed(
-  () =>
-    (props.tableInfo?.usedRangeStartRow ?? 1) +
-    Math.max(0, (props.tableInfo?.rowCount ?? 1) - 1)
-);
-
-const normalizeHeaders = (headers: string[], columnCount: number) =>
-  Array.from(
-    { length: Math.max(headers.length, columnCount) },
-    (_, index) => headers[index] ?? ""
-  );
-
-const loadHeadersForCurrentStructure = async () => {
-  if (!props.fileId) return;
-
-  const requestId = ++latestHeaderRequestId;
-  headersLoading.value = true;
   try {
-    const res = await getTablePreview(props.fileId, props.table.tableIndex, {
-      previewRows: 1,
-      headerRowIndex: state.headerRowIndex,
-      headerRowCount: state.headerRowCount,
-      dataStartRowIndex: minimumDataStartRowIndex.value
-    });
-    if (requestId !== latestHeaderRequestId) return;
-
-    if (res.code !== 0) {
-      throw new Error(res.message || "加载表头失败");
-    }
-
-    currentHeaders.value = normalizeHeaders(
-      res.data.headers,
-      res.data.columnCount
+    return buildSmartConfigConfirmRequest(
+      props.customerId,
+      {
+        ...props.table,
+        regions: activeRegions.value
+      },
+      {
+        fileId: props.fileId,
+        userModifiedStructure: hasStructureChanges.value
+      }
     );
-  } catch (error) {
-    if (
-      requestId === latestHeaderRequestId &&
-      !isGloballyHandledAuthError(error)
-    ) {
-      ElMessage.error(getRequestErrorMessage(error, "加载表头失败"));
-    }
-  } finally {
-    if (requestId === latestHeaderRequestId) {
-      headersLoading.value = false;
-    }
+  } catch {
+    return null;
   }
 };
 
 watch(
-  () => [state.headerRowIndex, state.headerRowCount] as const,
-  () => {
-    if (!resettingState) {
-      void loadHeadersForCurrentStructure();
-    }
-  },
-  { flush: "sync" }
+  [
+    () => props.customerId,
+    () => props.fileId,
+    () => props.table,
+    activeRegions,
+    hasStructureChanges
+  ],
+  () => emit("draft-change", buildDraftRequest()),
+  { deep: true, immediate: true }
 );
 
-watch(minimumDataStartRowIndex, minimum => {
-  if (state.dataStartRowIndex < minimum) {
-    state.dataStartRowIndex = minimum;
-  }
-});
-
-const displayDataStartRowIndex = computed({
-  get: () =>
-    (props.tableInfo?.usedRangeStartRow ?? 1) + state.dataStartRowIndex,
-  set: value => {
-    state.dataStartRowIndex = Math.max(
-      (value ?? props.tableInfo?.usedRangeStartRow ?? 1) -
-        (props.tableInfo?.usedRangeStartRow ?? 1),
-      minimumDataStartRowIndex.value
-    );
-  }
-});
-
-const emitConfirm = async () => {
-  if (!(await validateForm(formRef.value))) return;
-
+const emitConfirm = () => {
   if (structureValidationError.value) {
     ElMessage.warning(structureValidationError.value);
     return;
   }
 
-  if (
-    !props.customerId ||
-    !hasRequiredProjectColumn.value ||
-    state.specificationColumnIndex == null ||
-    state.acceptanceColumnIndex == null
-  ) {
+  if (!props.customerId || !allRegionsConfirmable.value) {
     return;
   }
 
@@ -535,17 +369,6 @@ const emitConfirm = async () => {
       props.customerId,
       {
         ...props.table,
-        headers: [...currentHeaders.value],
-        tableName: state.templateName,
-        projectColumnIndex: state.projectColumnIndex,
-        specificationColumnIndex: state.specificationColumnIndex,
-        acceptanceColumnIndex: state.acceptanceColumnIndex,
-        remarkColumnIndex: state.remarkColumnIndex,
-        headerRowIndex: state.headerRowIndex,
-        headerRowCount: state.headerRowCount,
-        dataStartRowIndex: state.dataStartRowIndex,
-        dataEndRowIndex: state.dataEndRowIndex,
-        isSpecificationOnly: state.isSpecificationOnly,
         regions: activeRegions.value
       },
       {
@@ -583,7 +406,7 @@ const emitConfirm = async () => {
         </el-tag>
       </div>
       <div v-if="showRecognitionEvidence" class="card-meta">
-        <span>{{ table.source || "-" }}</span>
+        <span>{{ getSmartStructureSourceLabel(table.source) }}</span>
         <span>置信度 {{ formatSmartStructurePercent(table.confidence) }}</span>
         <span>
           排序分 {{ formatSmartStructurePercent(table.rankingScore) }}
@@ -652,9 +475,9 @@ const emitConfirm = async () => {
           <span class="range-label">{{ field.label }}</span>
           <div class="range-values">
             <code v-for="range in field.ranges" :key="range">{{ range }}</code>
-            <span v-if="field.ranges.length === 0" class="range-empty"
-              >未识别</span
-            >
+            <span v-if="field.ranges.length === 0" class="range-empty">{{
+              field.emptyText
+            }}</span>
           </div>
         </div>
       </div>
@@ -689,14 +512,10 @@ const emitConfirm = async () => {
       </el-tag>
     </div>
 
-    <div
-      v-if="showRecognitionEvidence"
-      v-show="detailVisible"
-      class="headers-preview"
-    >
+    <div v-if="showRecognitionEvidence" class="headers-preview">
       <span class="headers-label">表头</span>
       <el-tag
-        v-for="(header, index) in currentHeaders.slice(0, 10)"
+        v-for="(header, index) in displayHeaders.slice(0, 10)"
         :key="`${table.tableIndex}-${index}`"
         size="small"
         type="info"
@@ -705,11 +524,10 @@ const emitConfirm = async () => {
         [{{ formatColumnCoordinate(index) }}]
         {{ header || `列${index + 1}` }}
       </el-tag>
-      <span v-if="currentHeaders.length > 10" class="more">...</span>
+      <span v-if="displayHeaders.length > 10" class="more">...</span>
     </div>
 
     <div
-      v-show="detailVisible"
       v-if="semanticRecallSuggestions.length > 0"
       class="semantic-recall-list"
     >
@@ -732,154 +550,7 @@ const emitConfirm = async () => {
       </el-tag>
     </div>
 
-    <el-form
-      v-show="detailVisible"
-      ref="formRef"
-      :model="state"
-      :rules="formRules"
-      label-width="96px"
-      size="small"
-      class="confirm-form"
-      status-icon
-    >
-      <el-row :gutter="14">
-        <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="模板名">
-            <el-input
-              v-model="state.templateName"
-              :disabled="controlsLocked"
-              placeholder="确认后保存为客户模板"
-            />
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="项目列" prop="projectColumnIndex">
-            <el-select
-              v-model="state.projectColumnIndex"
-              :disabled="
-                controlsLocked || state.isSpecificationOnly || headersLoading
-              "
-              :loading="headersLoading"
-              placeholder="请选择项目列"
-              clearable
-              style="width: 100%"
-            >
-              <el-option
-                v-for="opt in columnOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="规格列" prop="specificationColumnIndex">
-            <el-select
-              v-model="state.specificationColumnIndex"
-              :disabled="controlsLocked || headersLoading"
-              :loading="headersLoading"
-              placeholder="请选择规格列"
-              clearable
-              style="width: 100%"
-            >
-              <el-option
-                v-for="opt in columnOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="验收列" prop="acceptanceColumnIndex">
-            <el-select
-              v-model="state.acceptanceColumnIndex"
-              :disabled="controlsLocked || headersLoading"
-              :loading="headersLoading"
-              placeholder="请选择验收列"
-              clearable
-              style="width: 100%"
-            >
-              <el-option
-                v-for="opt in columnOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="备注列">
-            <el-select
-              v-model="state.remarkColumnIndex"
-              :disabled="controlsLocked || headersLoading"
-              :loading="headersLoading"
-              placeholder="请选择备注列（可选）"
-              clearable
-              style="width: 100%"
-            >
-              <el-option
-                v-for="opt in columnOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="12" :lg="8">
-          <el-form-item label="仅规格">
-            <el-switch
-              v-model="state.isSpecificationOnly"
-              :disabled="controlsLocked"
-              :aria-label="tableTitle + ' 是否仅规格表'"
-              active-text="是"
-              inactive-text="否"
-            />
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="表头行">
-            <el-input-number
-              v-model="displayHeaderRowIndex"
-              :disabled="controlsLocked"
-              :min="tableInfo?.usedRangeStartRow ?? 1"
-              :max="tableInfo ? displayMaximumRow : undefined"
-            />
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="表头行数">
-            <el-input-number
-              v-model="state.headerRowCount"
-              :disabled="controlsLocked"
-              :min="1"
-              :max="
-                tableInfo
-                  ? Math.max(1, displayMaximumRow - displayHeaderRowIndex + 1)
-                  : undefined
-              "
-            />
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="数据起始">
-            <el-input-number
-              v-model="displayDataStartRowIndex"
-              :disabled="controlsLocked"
-              :min="displayMinimumDataStartRowIndex"
-              :max="tableInfo ? displayMaximumRow : undefined"
-            />
-          </el-form-item>
-        </el-col>
-      </el-row>
-    </el-form>
-
     <div
-      v-show="detailVisible"
       v-if="showRecognitionEvidence && table.fields?.length > 0"
       class="field-list"
     >
@@ -895,10 +566,7 @@ const emitConfirm = async () => {
       </el-tag>
     </div>
 
-    <div class="card-actions">
-      <el-button type="primary" link @click="detailVisible = !detailVisible">
-        {{ detailVisible ? "收起高级设置" : "高级设置" }}
-      </el-button>
+    <div v-if="showAdvancedFallback || showConfirmAction" class="card-actions">
       <el-button
         v-if="showAdvancedFallback"
         type="primary"
@@ -909,8 +577,9 @@ const emitConfirm = async () => {
         手动处理
       </el-button>
       <el-button
+        v-if="showConfirmAction"
         type="primary"
-        :disabled="!canConfirm || headersLoading"
+        :disabled="!canConfirm"
         :loading="confirming"
         :title="confirmDisabledReason || undefined"
         :aria-describedby="
@@ -918,10 +587,10 @@ const emitConfirm = async () => {
         "
         @click="emitConfirm"
       >
-        确认并学习
+        {{ confirmActionLabel }}
       </el-button>
       <span
-        v-if="confirmDisabledReason"
+        v-if="showConfirmAction && confirmDisabledReason"
         :id="confirmDisabledReasonId"
         class="sr-only"
       >
@@ -1110,15 +779,6 @@ const emitConfirm = async () => {
   color: var(--app-text-secondary);
 }
 
-.confirm-form {
-  padding: 10px 12px 0;
-  margin-top: 10px;
-  margin-bottom: 10px;
-  background: var(--app-info-bg);
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-}
-
 .card-actions {
   display: flex;
   gap: 10px;
@@ -1165,21 +825,6 @@ const emitConfirm = async () => {
   .card-actions :deep(.el-button) {
     width: 100%;
     margin-left: 0;
-  }
-
-  .confirm-form {
-    padding: 10px 8px 0;
-  }
-
-  .confirm-form :deep(.el-form-item__content),
-  .confirm-form :deep(.el-input__wrapper),
-  .confirm-form :deep(.el-select__wrapper),
-  .confirm-form :deep(.el-input-number) {
-    min-height: 44px;
-  }
-
-  .confirm-form :deep(.el-input-number) {
-    width: 100%;
   }
 }
 </style>

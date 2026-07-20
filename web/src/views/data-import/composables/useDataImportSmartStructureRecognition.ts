@@ -1,4 +1,4 @@
-import { ref, type Ref } from "vue";
+import { computed, ref, type Ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   getFileTables,
@@ -61,7 +61,7 @@ export function useDataImportSmartStructureRecognition({
   ensurePreviewDataLoaded: EnsurePreviewDataLoaded;
 }) {
   const {
-    recognizing: smartRecognizing,
+    recognizing: structureRecognizing,
     recognitionAttempted: smartRecognitionAttempted,
     recognitionError: smartRecognitionError,
     confirmingTableIndex: smartConfirmingTableIndex,
@@ -74,6 +74,10 @@ export function useDataImportSmartStructureRecognition({
   } = useSmartStructureRecognition();
   const smartTableInfos = ref<TableInfo[]>([]);
   const smartApplyError = ref("");
+  const activeSmartFlowVersion = ref<number | null>(null);
+  const smartRecognizing = computed(
+    () => structureRecognizing.value || activeSmartFlowVersion.value != null
+  );
   let smartFlowVersion = 0;
 
   const isCurrentSmartFlow = (fileId: number, flowVersion: number) =>
@@ -195,6 +199,10 @@ export function useDataImportSmartStructureRecognition({
   };
 
   const runSmartStructureRecognition = async () => {
+    if (activeSmartFlowVersion.value != null || structureRecognizing.value) {
+      return false;
+    }
+
     const sourceFile = uploadedFile.value;
     if (!sourceFile) {
       ElMessage.warning("请先上传文件");
@@ -202,6 +210,7 @@ export function useDataImportSmartStructureRecognition({
     }
 
     const flowVersion = ++smartFlowVersion;
+    activeSmartFlowVersion.value = flowVersion;
     const sourceFileId = sourceFile.fileId;
     clearAppliedRecognitionState();
 
@@ -224,6 +233,9 @@ export function useDataImportSmartStructureRecognition({
         flowVersion
       );
     } finally {
+      if (activeSmartFlowVersion.value === flowVersion) {
+        activeSmartFlowVersion.value = null;
+      }
       if (isCurrentSmartFlow(sourceFileId, flowVersion)) {
         smartStageText.value = "";
       }
@@ -232,32 +244,43 @@ export function useDataImportSmartStructureRecognition({
 
   const handleSmartStructureConfirm = async (
     table: SmartConfigRecognizedTable,
-    request: SmartConfigConfirmRequest
-  ) => {
+    request: SmartConfigConfirmRequest,
+    options: { refreshPreview?: boolean } = {}
+  ): Promise<boolean> => {
     const sourceFileId = request.fileId;
     const result = await confirmSmartStructure(request);
     if (
-      result &&
-      sourceFileId != null &&
-      uploadedFile.value?.fileId === sourceFileId
+      !result ||
+      sourceFileId == null ||
+      uploadedFile.value?.fileId !== sourceFileId
     ) {
-      const nextTables = recognizedTables.value.map(item =>
-        item.tableIndex === table.tableIndex
-          ? applySmartConfigConfirmRequestToTable(item, request)
-          : item
-      );
-      if (!replaceRecognizedTables(nextTables, sourceFileId)) {
-        return;
-      }
-      if (!selectedSmartTableIndexes.value.includes(table.tableIndex)) {
-        selectedSmartTableIndexes.value = [
-          ...selectedSmartTableIndexes.value,
-          table.tableIndex
-        ].sort((a, b) => a - b);
-      }
-      await applySmartRecognizedTables(nextTables);
+      return false;
     }
+
+    const nextTables = recognizedTables.value.map(item =>
+      item.tableIndex === table.tableIndex
+        ? applySmartConfigConfirmRequestToTable(item, request)
+        : item
+    );
+    if (!replaceRecognizedTables(nextTables, sourceFileId)) {
+      return false;
+    }
+    if (!selectedSmartTableIndexes.value.includes(table.tableIndex)) {
+      selectedSmartTableIndexes.value = [
+        ...selectedSmartTableIndexes.value,
+        table.tableIndex
+      ].sort((a, b) => a - b);
+    }
+
+    if (options.refreshPreview === false) {
+      return true;
+    }
+
+    return await applySmartRecognizedTables(nextTables);
   };
+
+  const applyCurrentSmartRecognizedTables = async () =>
+    await applySmartRecognizedTables(recognizedTables.value);
 
   const handleSmartTableImportSelectionChange = async (
     table: SmartConfigRecognizedTable,
@@ -323,6 +346,7 @@ export function useDataImportSmartStructureRecognition({
 
   const resetSmartStructureState = () => {
     smartFlowVersion += 1;
+    activeSmartFlowVersion.value = null;
     selectedSmartTableIndexes.value = [];
     clearAppliedRecognitionState();
     smartStageText.value = "";
@@ -340,6 +364,7 @@ export function useDataImportSmartStructureRecognition({
     smartStructureSummary,
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
+    applyCurrentSmartRecognizedTables,
     handleSmartTableImportSelectionChange,
     prepareAdvancedTableConfig,
     syncAdvancedConfigsToRecognizedTables,

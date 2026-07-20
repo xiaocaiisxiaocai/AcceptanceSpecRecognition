@@ -3,6 +3,8 @@ using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using AcceptanceSpecSystem.Application.Contracts;
+using AcceptanceSpecSystem.Application.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
@@ -25,6 +27,102 @@ public sealed class DocumentTemplateAppService
     {
         _unitOfWork = unitOfWork;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// 分页查询已经学习的客户级文档结构模板。
+    /// </summary>
+    public async Task<PagedResult<DocumentTemplateListItemDto>> GetPagedAsync(
+        int page,
+        int pageSize,
+        int? customerId,
+        string? keyword,
+        CancellationToken cancellationToken = default)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var normalizedKeyword = keyword?.Trim();
+
+        var query = _unitOfWork.DocumentTemplates.Query();
+        if (customerId.HasValue)
+        {
+            query = query.Where(template => template.CustomerId == customerId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedKeyword))
+        {
+            query = query.Where(template =>
+                template.TemplateName.Contains(normalizedKeyword) ||
+                template.Customer.Name.Contains(normalizedKeyword));
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(template => template.UpdatedAt)
+            .ThenByDescending(template => template.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(template => new DocumentTemplateListItemDto
+            {
+                Id = template.Id,
+                CustomerId = template.CustomerId,
+                CustomerName = template.Customer.Name,
+                TemplateName = template.TemplateName,
+                TableKind = template.TableKind,
+                Recommendation = template.Recommendation,
+                RegionCount = template.Regions.Count == 0 ? 1 : template.Regions.Count,
+                UsageCount = template.UsageCount,
+                UserModifiedStructure = template.UserModifiedStructure,
+                ConfirmedAt = template.ConfirmedAt,
+                LastUsedAt = template.LastUsedAt,
+                CreatedAt = template.CreatedAt,
+                UpdatedAt = template.UpdatedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        return new PagedResult<DocumentTemplateListItemDto>
+        {
+            Items = items,
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    /// <summary>
+    /// 获取模板详情；没有区域子记录的旧模板按主记录兼容为一个区域。
+    /// </summary>
+    public async Task<DocumentTemplateDetailDto?> GetDetailAsync(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        var template = await _unitOfWork.DocumentTemplates.Query()
+            .Include(item => item.Customer)
+            .Include(item => item.Regions)
+            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+        return template == null ? null : ToDetailDto(template);
+    }
+
+    /// <summary>
+    /// 删除模板及其级联区域。
+    /// </summary>
+    public async Task<bool> DeleteAsync(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        var template = await _unitOfWork.DocumentTemplates.GetByIdAsync(id, cancellationToken);
+        if (template == null)
+        {
+            return false;
+        }
+
+        _unitOfWork.DocumentTemplates.Remove(template);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "删除文档结构模板（ID: {TemplateId}，客户: {CustomerId}）",
+            template.Id,
+            template.CustomerId);
+        return true;
     }
 
     /// <summary>
@@ -445,6 +543,62 @@ public sealed class DocumentTemplateAppService
 
     private static int? NormalizeColumn(int? columnIndex) =>
         columnIndex.HasValue && columnIndex.Value >= 0 ? columnIndex.Value : null;
+
+    private static DocumentTemplateDetailDto ToDetailDto(DocumentTemplate template)
+    {
+        var regions = template.Regions.Count > 0
+            ? template.Regions
+                .OrderBy(region => region.RegionIndex)
+                .Select(region => new DocumentTemplateRegionDto
+                {
+                    RegionIndex = region.RegionIndex,
+                    Headers = ReadHeaders(region.HeadersJson),
+                    HeaderRowIndex = region.HeaderRowIndex,
+                    HeaderRowCount = region.HeaderRowCount,
+                    DataStartRowIndex = region.DataStartRowIndex,
+                    DataEndRowIndex = region.DataEndRowIndex,
+                    ProjectColumnIndex = NormalizeColumn(region.ProjectColumnIndex),
+                    SpecificationColumnIndex = NormalizeColumn(region.SpecificationColumnIndex),
+                    AcceptanceColumnIndex = NormalizeColumn(region.AcceptanceColumnIndex),
+                    RemarkColumnIndex = NormalizeColumn(region.RemarkColumnIndex),
+                    IsSpecificationOnly = region.IsSpecificationOnly
+                })
+                .ToList()
+            :
+            [
+                new DocumentTemplateRegionDto
+                {
+                    RegionIndex = 0,
+                    Headers = ReadHeaders(template.HeadersJson),
+                    HeaderRowIndex = template.HeaderRowIndex,
+                    HeaderRowCount = template.HeaderRowCount,
+                    DataStartRowIndex = template.DataStartRowIndex,
+                    DataEndRowIndex = template.DataEndRowIndex,
+                    ProjectColumnIndex = NormalizeColumn(template.ProjectColumnIndex),
+                    SpecificationColumnIndex = NormalizeColumn(template.SpecificationColumnIndex),
+                    AcceptanceColumnIndex = NormalizeColumn(template.AcceptanceColumnIndex),
+                    RemarkColumnIndex = NormalizeColumn(template.RemarkColumnIndex),
+                    IsSpecificationOnly = template.IsSpecificationOnly
+                }
+            ];
+
+        return new DocumentTemplateDetailDto
+        {
+            Id = template.Id,
+            CustomerId = template.CustomerId,
+            CustomerName = template.Customer.Name,
+            TemplateName = template.TemplateName,
+            TableKind = template.TableKind,
+            Recommendation = template.Recommendation,
+            UsageCount = template.UsageCount,
+            UserModifiedStructure = template.UserModifiedStructure,
+            ConfirmedAt = template.ConfirmedAt,
+            LastUsedAt = template.LastUsedAt,
+            CreatedAt = template.CreatedAt,
+            UpdatedAt = template.UpdatedAt,
+            Regions = regions
+        };
+    }
 
     private static string ComputeSha256(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();

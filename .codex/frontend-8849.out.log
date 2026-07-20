@@ -1,0 +1,107 @@
+
+> acceptance-spec-system-web@1.0.0 dev D:\Temp\AcceptanceSpecificationSystem\web
+> NODE_OPTIONS=--max-old-space-size=4096 vite "--host" "127.0.0.1" "--port" "8849"
+
+╭─────────────────────────────────────────────╮
+│ 您好! 欢迎使用 pure-admin 开源项目          │
+│ 我们为您精心准备了下面两个贴心的保姆级文档  │
+│ https://pure-admin.cn                       │
+│ https://pure-admin-utils.netlify.app        │
+╰─────────────────────────────────────────────╯
+
+  [32m[1mVITE[22m v7.3.6[39m  [2mready in [0m[1m6030[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m8849[22m/[39m
+[2m14:32:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mD:/Temp/AcceptanceSpecificationSystem/shared/navigation/navigation-manifest.json[22m
+[2m14:32:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/router/modules/config.ts[22m
+[2m14:32:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue, /src/views/shared/SmartStructureSummaryBanner.vue, /src/views/shared/SmartStructureConfirmTabs.vue, /src/views/shared/SmartStructureConfirmCard.vue, /src/views/shared/SmartStructureRangeEditorDrawer.vue[22m
+[2m14:32:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/router/modules/config.ts[22m
+[2m14:32:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/shared/SmartStructureConfirmCard.vue, /src/style/tailwind.css[22m
+[2m14:33:53[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/views/config/document-templates/index.vue[22m
+[2m14:45:45[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m14:45:46[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m14:45:47[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue, /src/views/shared/SmartStructureSummaryBanner.vue, /src/views/shared/SmartStructureConfirmTabs.vue, /src/views/shared/SmartStructureConfirmCard.vue, /src/views/shared/SmartStructureRangeEditorDrawer.vue[22m
+[2m14:45:47[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m14:45:47[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m14:45:47[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m14:45:47[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue, /src/views/shared/SmartStructureSummaryBanner.vue, /src/views/shared/SmartStructureConfirmTabs.vue, /src/views/shared/SmartStructureConfirmCard.vue, /src/views/shared/SmartStructureRangeEditorDrawer.vue[22m
+[2m14:45:49[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mD:/Temp/AcceptanceSpecificationSystem/shared/navigation/navigation-manifest.json[22m
+[2m14:46:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mD:/Temp/AcceptanceSpecificationSystem/shared/navigation/navigation-manifest.json[22m
+[2m14:46:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mD:/Temp/AcceptanceSpecificationSystem/shared/navigation/navigation-manifest.json[22m
+[2m15:19:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue[22m
+[2m15:19:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue[22m
+[2m15:19:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m15:19:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue[22m
+[2m15:19:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.styles.css?vue&type=style&index=0&src=a8f94d6f&scoped=a8f94d6f&lang.css[22m
+[2m15:19:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m15:19:13[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m15:19:37[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m15:19:37[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m15:29:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m15:29:25[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m15:29:42[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m15:30:29[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.styles.css?vue&type=style&index=0&src=a8f94d6f&scoped=a8f94d6f&lang.css[22m
+[2m15:30:40[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.styles.css?vue&type=style&index=0&src=a8f94d6f&scoped=a8f94d6f&lang.css[22m
+[2m15:31:06[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.styles.css?vue&type=style&index=0&src=a8f94d6f&scoped=a8f94d6f&lang.css[22m
+[2m15:31:55[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue?vue&type=style&index=0&scoped=53074834&lang.css, /src/style/tailwind.css[22m
+[2m15:32:10[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m15:32:25[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m15:32:55[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue?vue&type=style&index=0&scoped=53074834&lang.css, /src/style/tailwind.css[22m
+[2m15:33:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m15:46:42[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue[22m
+[2m15:46:43[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m15:46:43[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m15:46:58[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m15:47:55[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m15:51:25[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m16:25:16[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue[22m
+[2m16:25:16[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/shared/SmartStructureConfirmCard.vue, /src/style/tailwind.css[22m
+[2m16:25:16[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/shared/SmartStructureConfirmTabs.vue, /src/style/tailwind.css[22m
+[2m16:25:16[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m16:25:33[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m16:26:11[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m16:26:11[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m16:26:11[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m16:42:49[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/components/DataImportConfirmPanel.vue, /src/views/data-import/components/ExcelColumnMapping.vue, /src/views/data-import/index.vue[22m
+[2m16:42:49[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m16:42:49[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/views/data-import/components/DataImportConfirmPanel.vue?vue&type=style&index=0&scoped=53074834&lang.css, /src/style/tailwind.css[22m
+[2m16:43:08[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m16:43:33[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue?vue&type=style&index=0&scoped=53074834&lang.css, /src/style/tailwind.css[22m
+[2m16:51:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/components/DataImportConfirmPanel.vue, /src/views/data-import/components/DataImportStepConfirm.vue[22m
+[2m16:51:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/components/DataImportConfirmPanel.vue, /src/views/data-import/components/ExcelColumnMapping.vue, /src/views/data-import/index.vue[22m
+[2m16:51:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m16:51:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m16:51:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m16:51:06[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/components/DataImportConfirmPanel.vue, /src/views/data-import/components/ExcelColumnMapping.vue, /src/views/data-import/index.vue[22m
+[2m16:51:14[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m18:07:32[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m18:14:20[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue[22m
+[2m18:14:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue[22m
+[2m18:14:49[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue[22m
+[2m18:14:49[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m18:15:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m18:15:27[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m18:15:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/views/data-import/dataImport.confirmImport.ts[22m
+[2m18:15:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m18:16:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/shared/SmartStructureConfirmCard.vue, /src/style/tailwind.css[22m
+[2m18:16:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/shared/SmartStructureConfirmTabs.vue, /src/style/tailwind.css[22m
+[2m18:16:08[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m18:16:15[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m18:16:20[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/views/data-import/dataImport.confirmImport.ts[22m
+[2m18:16:20[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m18:16:30[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m18:16:39[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/shared/SmartStructureConfirmCard.vue, /src/style/tailwind.css[22m
+[2m18:16:40[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m18:16:50[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m18:16:53[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m18:16:58[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m18:17:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m18:17:59[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/shared/SmartStructureConfirmTabs.vue, /src/style/tailwind.css[22m
+[2m18:18:25[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m18:18:34[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/components/DataImportConfirmPanel.vue, /src/style/tailwind.css[22m
+[2m18:18:46[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m18:19:44[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m
+[2m18:21:32[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m18:22:14[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/views/data-import/index.vue, /src/style/tailwind.css[22m
+[2m18:26:48[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css, /src/views/data-import/index.vue[22m
+[2m18:26:48[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/tailwind.css[22m

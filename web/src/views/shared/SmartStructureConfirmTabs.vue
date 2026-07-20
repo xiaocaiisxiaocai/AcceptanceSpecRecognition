@@ -20,20 +20,22 @@ const props = withDefaults(
     fileId?: number;
     customerId?: number;
     confirmingTableIndex?: number | null;
-    defaultExpandedTableIndex?: number | null;
     readyLabel?: string;
     unavailableLabel?: string;
     isExcelFile?: boolean;
+    showConfirmAction?: boolean;
+    interactionLocked?: boolean;
   }>(),
   {
     tableInfos: () => [],
     selectionDisabledReasons: () => ({}),
     selectionPendingReasons: () => ({}),
     confirmingTableIndex: null,
-    defaultExpandedTableIndex: null,
     readyLabel: "可直达",
     unavailableLabel: "不可用",
-    isExcelFile: true
+    isExcelFile: true,
+    showConfirmAction: true,
+    interactionLocked: false
   }
 );
 
@@ -42,6 +44,10 @@ const emit = defineEmits<{
   confirm: [
     table: SmartConfigRecognizedTable,
     request: SmartConfigConfirmRequest
+  ];
+  "draft-change": [
+    table: SmartConfigRecognizedTable,
+    request: SmartConfigConfirmRequest | null
   ];
   advanced: [table: SmartConfigRecognizedTable];
   "update:tableSelected": [
@@ -128,13 +134,15 @@ watch(
         :customer-id="customerId"
         :confirming="confirmingTableIndex === table.tableIndex"
         :confirmation-locked="confirmingTableIndex != null"
+        :interaction-locked="interactionLocked"
+        :show-confirm-action="showConfirmAction"
         :is-excel-file="isExcelFile"
         :import-selected="selectedTableIndexSet.has(table.tableIndex)"
         :import-selectable="selectableTableIndexSet.has(table.tableIndex)"
         :selection-disabled-reason="selectionDisabledReasons[table.tableIndex]"
         :selection-pending-reason="selectionPendingReasons[table.tableIndex]"
-        :default-expanded="table.tableIndex === defaultExpandedTableIndex"
         @confirm="request => emit('confirm', table, request)"
+        @draft-change="request => emit('draft-change', table, request)"
         @advanced="emit('advanced', table)"
         @update:import-selected="
           selected => emit('update:tableSelected', table, selected)

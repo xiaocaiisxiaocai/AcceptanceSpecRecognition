@@ -176,6 +176,64 @@ export const formatSmartStructurePercent = (value: number | undefined) => {
   return `${(Math.max(0, Math.min(1, value)) * 100).toFixed(0)}%`;
 };
 
+export type SmartStructureHeaderProbe = {
+  columnIndex?: number | null;
+  expectedHeader?: string | null;
+};
+
+const normalizeSmartStructureHeaderText = (value: string | null | undefined) =>
+  (value ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
+
+const headerTextMatches = (
+  candidate: string | null | undefined,
+  expected: string | null | undefined
+) => {
+  const normalizedCandidate = normalizeSmartStructureHeaderText(candidate);
+  const normalizedExpected = normalizeSmartStructureHeaderText(expected);
+  return (
+    normalizedCandidate.length > 0 &&
+    normalizedExpected.length > 0 &&
+    (normalizedCandidate === normalizedExpected ||
+      normalizedCandidate.includes(normalizedExpected) ||
+      normalizedExpected.includes(normalizedCandidate))
+  );
+};
+
+/**
+ * 从预览行末尾向上寻找最近的有效单行表头。
+ * Excel 解析器会先将合并单元格展开，因此合并区域的末行仍能匹配左上角标题。
+ */
+export const findNearestSmartStructureHeaderRowIndex = (
+  rows: string[][],
+  probes: SmartStructureHeaderProbe[]
+) => {
+  const configured = probes.filter(
+    probe => probe.columnIndex != null && probe.columnIndex >= 0
+  );
+  const comparable = configured.filter(
+    probe => normalizeSmartStructureHeaderText(probe.expectedHeader).length > 0
+  );
+  if (configured.length === 0 || comparable.length === 0) return undefined;
+
+  for (let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex -= 1) {
+    const row = rows[rowIndex] ?? [];
+    const allConfiguredCellsHaveValues = configured.every(probe =>
+      Boolean(row[probe.columnIndex!]?.trim())
+    );
+    if (!allConfiguredCellsHaveValues) continue;
+
+    const matches = comparable.filter(probe =>
+      headerTextMatches(row[probe.columnIndex!], probe.expectedHeader)
+    ).length;
+    if (matches === comparable.length) return rowIndex;
+  }
+
+  return undefined;
+};
+
 export const formatDisplayIndexFromZeroBased = (
   value: number | undefined
 ): number | "-" => (value === undefined ? "-" : value + 1);
@@ -188,6 +246,61 @@ export const toZeroBasedIndexFromDisplay = (
   min = 0
 ) => Math.max(min, (value ?? min + 1) - 1);
 
+export type ExcelA1ColumnRange = {
+  columnNumber: number;
+  startRow: number;
+  endRow: number;
+  normalized: string;
+};
+
+export const toExcelColumnLabel = (columnNumber: number) => {
+  let value = Math.max(1, Math.trunc(columnNumber));
+  let label = "";
+  while (value > 0) {
+    value -= 1;
+    label = String.fromCharCode(65 + (value % 26)) + label;
+    value = Math.floor(value / 26);
+  }
+  return label;
+};
+
+export const excelColumnLabelToNumber = (columnLabel: string) => {
+  const normalized = columnLabel.trim().toUpperCase();
+  if (!/^[A-Z]+$/.test(normalized)) return undefined;
+
+  return [...normalized].reduce(
+    (columnNumber, character) =>
+      columnNumber * 26 + character.charCodeAt(0) - 64,
+    0
+  );
+};
+
+export const parseExcelA1ColumnRange = (
+  value: string
+): ExcelA1ColumnRange | undefined => {
+  const normalizedInput = value
+    .trim()
+    .toUpperCase()
+    .replace(/[：]/g, ":")
+    .replace(/\$/g, "")
+    .replace(/\s+/g, "");
+  const match = /^([A-Z]+)([1-9]\d*):([A-Z]+)([1-9]\d*)$/.exec(normalizedInput);
+  if (!match || match[1] !== match[3]) return undefined;
+
+  const columnNumber = excelColumnLabelToNumber(match[1]);
+  const startRow = Number(match[2]);
+  const endRow = Number(match[4]);
+  if (!columnNumber || endRow < startRow) return undefined;
+
+  const column = toExcelColumnLabel(columnNumber);
+  return {
+    columnNumber,
+    startRow,
+    endRow,
+    normalized: `${column}${startRow}:${column}${endRow}`
+  };
+};
+
 export const formatDisplayRowRange = ({
   headerRowIndex,
   dataStartRowIndex
@@ -196,6 +309,22 @@ export const formatDisplayRowRange = ({
   dataStartRowIndex: number;
 }) =>
   `表头 ${formatDisplayIndexFromZeroBased(headerRowIndex)} / 数据 ${formatDisplayIndexFromZeroBased(dataStartRowIndex)}`;
+
+const smartStructureSourceLabels: Record<string, string> = {
+  Template: "历史模板",
+  RuleBased: "规则识别",
+  Fused: "综合识别",
+  SemanticRecall: "语义召回",
+  RepeatedHeader: "重复表头",
+  Failed: "识别失败"
+};
+
+export const getSmartStructureSourceLabel = (source?: string | null) => {
+  const normalized = source?.trim();
+  return normalized
+    ? (smartStructureSourceLabels[normalized] ?? normalized)
+    : "-";
+};
 
 export const toActualRowNumber = (
   tableInfo: TableInfo | undefined,

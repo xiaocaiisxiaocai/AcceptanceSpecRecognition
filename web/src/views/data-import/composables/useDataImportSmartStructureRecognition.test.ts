@@ -124,7 +124,9 @@ describe("useDataImportSmartStructureRecognition", () => {
       learnedColumns: []
     };
 
-    await state.handleSmartStructureConfirm(oldTable, request);
+    expect(await state.handleSmartStructureConfirm(oldTable, request)).toBe(
+      true
+    );
     await state.handleSmartTableImportSelectionChange(oldTable, true);
 
     expect(tableConfigs.value[0]?.wordMapping).toMatchObject({
@@ -133,6 +135,113 @@ describe("useDataImportSmartStructureRecognition", () => {
       headerRowIndex: 2,
       dataStartRowIndex: 3
     });
+  });
+
+  it("确认接口失败时返回失败且不重新应用导入配置", async () => {
+    const ensurePreviewDataLoaded = vi.fn().mockResolvedValue(true);
+    const state = useDataImportSmartStructureRecognition({
+      uploadedFile: ref({
+        fileId: 7,
+        fileName: "test.xlsx",
+        fileType: 1,
+        fileHash: "hash",
+        isDuplicate: false,
+        tableCount: 1,
+        tableCountReady: true
+      }),
+      selectedCustomerId: ref(1),
+      isExcelFile: ref(true),
+      currentStep: ref(1),
+      tableConfigs: ref<any[]>([]),
+      selectedTableIndexes: ref<number[]>([]),
+      selectedTables: ref<any[]>([]),
+      activeTableIndex: ref<number | null>(null),
+      importPreviewSelectionKeys: ref<string[]>([]),
+      excludedRowIndexMap: ref<Record<number, number[]>>({}),
+      smartStageText: ref(""),
+      selectedSmartTableIndexes: ref<number[]>([0]),
+      ensurePreviewDataLoaded
+    });
+
+    await state.runSmartStructureRecognition();
+    apiMocks.confirmSmartConfig.mockResolvedValueOnce({
+      code: 500,
+      message: "保存失败"
+    });
+
+    const confirmed = await state.handleSmartStructureConfirm(oldTable, {
+      customerId: 1,
+      fileId: 7,
+      tableIndex: 0,
+      templateName: "Sheet1",
+      headers: oldTable.headers,
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 3,
+      remarkColumnIndex: 4,
+      headerRowIndex: 0,
+      headerRowCount: 1,
+      dataStartRowIndex: 1,
+      dataEndRowIndex: 8,
+      isSpecificationOnly: false,
+      learnedColumns: []
+    });
+
+    expect(confirmed).toBe(false);
+    expect(ensurePreviewDataLoaded).toHaveBeenCalledOnce();
+  });
+
+  it("确认成功但导入配置刷新失败时返回失败", async () => {
+    const ensurePreviewDataLoaded = vi
+      .fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const state = useDataImportSmartStructureRecognition({
+      uploadedFile: ref({
+        fileId: 7,
+        fileName: "test.xlsx",
+        fileType: 1,
+        fileHash: "hash",
+        isDuplicate: false,
+        tableCount: 1,
+        tableCountReady: true
+      }),
+      selectedCustomerId: ref(1),
+      isExcelFile: ref(true),
+      currentStep: ref(1),
+      tableConfigs: ref<any[]>([]),
+      selectedTableIndexes: ref<number[]>([]),
+      selectedTables: ref<any[]>([]),
+      activeTableIndex: ref<number | null>(null),
+      importPreviewSelectionKeys: ref<string[]>([]),
+      excludedRowIndexMap: ref<Record<number, number[]>>({}),
+      smartStageText: ref(""),
+      selectedSmartTableIndexes: ref<number[]>([0]),
+      ensurePreviewDataLoaded
+    });
+
+    await state.runSmartStructureRecognition();
+
+    expect(
+      await state.handleSmartStructureConfirm(oldTable, {
+        customerId: 1,
+        fileId: 7,
+        tableIndex: 0,
+        templateName: "Sheet1",
+        headers: oldTable.headers,
+        projectColumnIndex: 0,
+        specificationColumnIndex: 1,
+        acceptanceColumnIndex: 3,
+        remarkColumnIndex: 4,
+        headerRowIndex: 0,
+        headerRowCount: 1,
+        dataStartRowIndex: 1,
+        dataEndRowIndex: 8,
+        isSpecificationOnly: false,
+        learnedColumns: []
+      })
+    ).toBe(false);
+    expect(ensurePreviewDataLoaded).toHaveBeenCalledTimes(2);
   });
 
   it("手动勾选缺少必填列的待确认 Sheet 时保留勾选状态但不生成导入配置", async () => {
@@ -257,5 +366,51 @@ describe("useDataImportSmartStructureRecognition", () => {
     expect(await state.runSmartStructureRecognition()).toBe(false);
     expect(state.smartApplyError.value).toContain("预览生成失败");
     expect(state.recognizedTables.value).toHaveLength(1);
+  });
+
+  it("识别到预览完成前重复触发时只执行一次完整流程", async () => {
+    let resolvePreview!: (value: boolean) => void;
+    const ensurePreviewDataLoaded = vi.fn(
+      () =>
+        new Promise<boolean>(resolve => {
+          resolvePreview = resolve;
+        })
+    );
+    const state = useDataImportSmartStructureRecognition({
+      uploadedFile: ref({
+        fileId: 7,
+        fileName: "test.xlsx",
+        fileType: 1,
+        fileHash: "hash",
+        isDuplicate: false,
+        tableCount: 1,
+        tableCountReady: true
+      }),
+      selectedCustomerId: ref(1),
+      isExcelFile: ref(true),
+      currentStep: ref(0),
+      tableConfigs: ref<any[]>([]),
+      selectedTableIndexes: ref<number[]>([]),
+      selectedTables: ref<any[]>([]),
+      activeTableIndex: ref<number | null>(null),
+      importPreviewSelectionKeys: ref<string[]>([]),
+      excludedRowIndexMap: ref<Record<number, number[]>>({}),
+      smartStageText: ref(""),
+      selectedSmartTableIndexes: ref<number[]>([]),
+      ensurePreviewDataLoaded
+    });
+
+    const firstRun = state.runSmartStructureRecognition();
+    await vi.waitFor(() =>
+      expect(ensurePreviewDataLoaded).toHaveBeenCalledOnce()
+    );
+
+    expect(state.smartRecognizing.value).toBe(true);
+    expect(await state.runSmartStructureRecognition()).toBe(false);
+    expect(apiMocks.recognizeSmartConfig).toHaveBeenCalledOnce();
+
+    resolvePreview(true);
+    expect(await firstRun).toBe(true);
+    expect(state.smartRecognizing.value).toBe(false);
   });
 });

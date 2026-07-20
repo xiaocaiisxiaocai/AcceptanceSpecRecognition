@@ -70,6 +70,16 @@ export default {
       }
     },
     {
+      path: "/config/document-templates",
+      name: "DocumentTemplates",
+      component: () => import("@/views/config/document-templates/index.vue"),
+      meta: {
+        icon: "ri:file-search-line",
+        title: getPageTitle("config-document-templates"),
+        permissions: getPagePermission("config-document-templates")
+      }
+    },
+    {
       path: "/config/smart-structure-routing-rules",
       name: "SmartStructureRoutingRules",
       component: () =>

@@ -120,7 +120,7 @@ export type ImportPreviewGroup = {
   rows: ImportPreviewRow[];
 };
 
-export type SkippedPreviewColumn = { index: number; label: string };
+export type SkippedPreviewColumn = { indexes: number[]; label: string };
 
 export type SkippedRowsGroup = {
   tableIndex: number;

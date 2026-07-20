@@ -3,9 +3,15 @@ import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { getTablePreview, type TableInfo } from "@/api/document";
 import type {
+  SmartConfigRecognizedField,
   SmartConfigRecognizedRegion,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
+import {
+  findNearestSmartStructureHeaderRowIndex,
+  parseExcelA1ColumnRange,
+  toExcelColumnLabel
+} from "./smart-structure-recognition";
 
 const props = withDefaults(
   defineProps<{
@@ -34,6 +40,11 @@ type RegionDraft = {
   specificationColumnIndex?: number;
   acceptanceColumnIndex?: number;
   remarkColumnIndex?: number;
+  projectRange: string;
+  specificationRange: string;
+  acceptanceRange: string;
+  remarkRange: string;
+  rangeError: string;
   isSpecificationOnly: boolean;
   headersLoading: boolean;
   headerRequestVersion: number;
@@ -63,17 +74,6 @@ const columnCount = computed(() =>
   )
 );
 
-const toExcelColumnLabel = (columnNumber: number) => {
-  let value = Math.max(1, columnNumber);
-  let label = "";
-  while (value > 0) {
-    value -= 1;
-    label = String.fromCharCode(65 + (value % 26)) + label;
-    value = Math.floor(value / 26);
-  }
-  return label;
-};
-
 const baseColumnOptions = computed(() =>
   Array.from({ length: columnCount.value }, (_, index) => ({
     value: index,
@@ -96,6 +96,16 @@ const getColumnOptions = (draft: RegionDraft) =>
       option.label
   }));
 
+const formatExcelDataRange = (
+  dataStartRow: number,
+  dataEndRow: number,
+  columnIndex?: number | null
+) => {
+  if (columnIndex == null) return "";
+  const column = toExcelColumnLabel(baseColumn.value + columnIndex);
+  return `${column}${dataStartRow}:${column}${dataEndRow}`;
+};
+
 const toDraft = (region: SmartConfigRecognizedRegion): RegionDraft => {
   const headerStartRow = baseRow.value + region.headerRowIndex;
   const dataStartRow = baseRow.value + region.dataStartRowIndex;
@@ -111,6 +121,35 @@ const toDraft = (region: SmartConfigRecognizedRegion): RegionDraft => {
     specificationColumnIndex: region.specificationColumnIndex ?? undefined,
     acceptanceColumnIndex: region.acceptanceColumnIndex ?? undefined,
     remarkColumnIndex: region.remarkColumnIndex ?? undefined,
+    projectRange: formatExcelDataRange(
+      dataStartRow,
+      baseRow.value +
+        (region.dataEndRowIndex ??
+          Math.max(0, maximumRow.value - baseRow.value)),
+      region.projectColumnIndex
+    ),
+    specificationRange: formatExcelDataRange(
+      dataStartRow,
+      baseRow.value +
+        (region.dataEndRowIndex ??
+          Math.max(0, maximumRow.value - baseRow.value)),
+      region.specificationColumnIndex
+    ),
+    acceptanceRange: formatExcelDataRange(
+      dataStartRow,
+      baseRow.value +
+        (region.dataEndRowIndex ??
+          Math.max(0, maximumRow.value - baseRow.value)),
+      region.acceptanceColumnIndex
+    ),
+    remarkRange: formatExcelDataRange(
+      dataStartRow,
+      baseRow.value +
+        (region.dataEndRowIndex ??
+          Math.max(0, maximumRow.value - baseRow.value)),
+      region.remarkColumnIndex
+    ),
+    rangeError: "",
     isSpecificationOnly: region.isSpecificationOnly,
     headersLoading: false,
     headerRequestVersion: 0
@@ -152,11 +191,135 @@ const normalizeHeaders = (headers: string[], previewColumnCount: number) =>
     (_, index) => headers[index] ?? ""
   );
 
+const getHeaderProbes = (draft: RegionDraft) =>
+  [
+    draft.isSpecificationOnly
+      ? undefined
+      : {
+          columnIndex: draft.projectColumnIndex,
+          expectedHeader:
+            draft.source.headers[draft.projectColumnIndex ?? -1] ?? ""
+        },
+    {
+      columnIndex: draft.specificationColumnIndex,
+      expectedHeader:
+        draft.source.headers[draft.specificationColumnIndex ?? -1] ?? ""
+    },
+    {
+      columnIndex: draft.acceptanceColumnIndex,
+      expectedHeader:
+        draft.source.headers[draft.acceptanceColumnIndex ?? -1] ?? ""
+    },
+    draft.remarkColumnIndex == null
+      ? undefined
+      : {
+          columnIndex: draft.remarkColumnIndex,
+          expectedHeader: draft.source.headers[draft.remarkColumnIndex] ?? ""
+        }
+  ].filter((probe): probe is NonNullable<typeof probe> => Boolean(probe));
+
+const resolveExcelHeaderForDraft = async (
+  draft: RegionDraft,
+  requestVersion: number
+) => {
+  if (!props.fileId) return true;
+
+  let searchEndRow = draft.dataStartRow - 1;
+  const probes = getHeaderProbes(draft);
+  const searchWindowSize = 50;
+
+  while (searchEndRow >= baseRow.value) {
+    const searchStartRow = Math.max(
+      baseRow.value,
+      searchEndRow - searchWindowSize + 1
+    );
+    const previewRowCount = searchEndRow - searchStartRow + 1;
+    const res = await getTablePreview(props.fileId, props.table.tableIndex, {
+      previewRows: previewRowCount,
+      headerRowIndex: Math.max(0, draft.source.headerRowIndex),
+      headerRowCount: 1,
+      dataStartRowIndex: searchStartRow - baseRow.value,
+      dataEndRowIndex: searchEndRow - baseRow.value
+    });
+    if (
+      requestVersion !== draft.headerRequestVersion ||
+      !drafts.value.includes(draft)
+    ) {
+      return false;
+    }
+    if (res.code !== 0) {
+      throw new Error(res.message || "加载表头候选失败");
+    }
+
+    const matchedRowIndex = findNearestSmartStructureHeaderRowIndex(
+      res.data.rows,
+      probes
+    );
+    if (matchedRowIndex != null) {
+      const headerRow = searchStartRow + matchedRowIndex;
+      draft.headerStartRow = headerRow;
+      draft.headerEndRow = headerRow;
+      draft.source = {
+        ...draft.source,
+        headers: normalizeHeaders(
+          res.data.rows[matchedRowIndex] ?? [],
+          res.data.columnCount
+        )
+      };
+      return true;
+    }
+
+    searchEndRow = searchStartRow - 1;
+  }
+
+  draft.rangeError = "未在数据范围上方找到与当前列映射匹配的有效表头";
+  throw new Error(draft.rangeError);
+};
+
+const rebuildRecognizedFields = (
+  draft: RegionDraft
+): SmartConfigRecognizedField[] => {
+  const definitions: Array<{
+    field: SmartConfigRecognizedField["field"];
+    columnIndex?: number;
+  }> = [
+    {
+      field: "Project",
+      columnIndex: draft.isSpecificationOnly
+        ? undefined
+        : draft.projectColumnIndex
+    },
+    { field: "Specification", columnIndex: draft.specificationColumnIndex },
+    { field: "Acceptance", columnIndex: draft.acceptanceColumnIndex },
+    { field: "Remark", columnIndex: draft.remarkColumnIndex }
+  ];
+
+  return definitions.map(definition => {
+    const previous = draft.source.fields.find(
+      field => field.field === definition.field
+    );
+    return {
+      field: definition.field,
+      columnIndex: definition.columnIndex,
+      header:
+        definition.columnIndex == null
+          ? undefined
+          : draft.source.headers[definition.columnIndex] || undefined,
+      confidence: previous?.confidence ?? 1,
+      source: previous?.source ?? "Manual"
+    };
+  });
+};
+
 const loadHeadersForDraft = async (draft: RegionDraft) => {
   if (!props.fileId) return true;
   const requestVersion = ++draft.headerRequestVersion;
   draft.headersLoading = true;
   try {
+    if (props.isExcelFile) {
+      return await resolveExcelHeaderForDraft(draft, requestVersion);
+    }
+
     const headerRowIndex = draft.headerStartRow - baseRow.value;
     const headerRowCount = draft.headerEndRow - draft.headerStartRow + 1;
     const res = await getTablePreview(props.fileId, props.table.tableIndex, {
@@ -217,7 +380,11 @@ watch(
     const previousById = new Map(previous.map(item => [item.id, item]));
     current.forEach((item, index) => {
       const old = previousById.get(item.id);
-      if (old && (old.start !== item.start || old.end !== item.end)) {
+      if (
+        !props.isExcelFile &&
+        old &&
+        (old.start !== item.start || old.end !== item.end)
+      ) {
         const draft = drafts.value[index];
         if (draft.headerEndRow >= draft.headerStartRow) {
           scheduleHeaderLoad(draft);
@@ -237,14 +404,135 @@ const formatColumnRange = (draft: RegionDraft, columnIndex?: number | null) => {
 };
 
 const regionPreview = (draft: RegionDraft) =>
-  [
-    formatColumnRange(draft, draft.projectColumnIndex),
-    formatColumnRange(draft, draft.specificationColumnIndex),
-    formatColumnRange(draft, draft.acceptanceColumnIndex),
-    formatColumnRange(draft, draft.remarkColumnIndex)
-  ]
+  (props.isExcelFile
+    ? [
+        draft.projectRange,
+        draft.specificationRange,
+        draft.acceptanceRange,
+        draft.remarkRange
+      ]
+    : [
+        formatColumnRange(draft, draft.projectColumnIndex),
+        formatColumnRange(draft, draft.specificationColumnIndex),
+        formatColumnRange(draft, draft.acceptanceColumnIndex),
+        formatColumnRange(draft, draft.remarkColumnIndex)
+      ]
+  )
     .filter(value => value !== "-")
+    .filter(Boolean)
     .join(" · ");
+
+type ExcelRangeField =
+  | "projectRange"
+  | "specificationRange"
+  | "acceptanceRange"
+  | "remarkRange";
+
+const normalizeRangeInput = (draft: RegionDraft, field: ExcelRangeField) => {
+  draft.rangeError = "";
+  const parsed = parseExcelA1ColumnRange(draft[field]);
+  if (parsed) draft[field] = parsed.normalized;
+};
+
+const applyExcelRanges = (draft: RegionDraft, regionIndex: number) => {
+  draft.rangeError = "";
+  draft.isSpecificationOnly = draft.projectRange.trim().length === 0;
+  const definitions: Array<{
+    field: ExcelRangeField;
+    label: string;
+    required: boolean;
+    setColumnIndex: (value: number | undefined) => void;
+  }> = [
+    {
+      field: "projectRange",
+      label: "项目范围",
+      required: !draft.isSpecificationOnly,
+      setColumnIndex: value => {
+        draft.projectColumnIndex = value;
+      }
+    },
+    {
+      field: "specificationRange",
+      label: "规格范围",
+      required: true,
+      setColumnIndex: value => {
+        draft.specificationColumnIndex = value;
+      }
+    },
+    {
+      field: "acceptanceRange",
+      label: "验收范围",
+      required: true,
+      setColumnIndex: value => {
+        draft.acceptanceColumnIndex = value;
+      }
+    },
+    {
+      field: "remarkRange",
+      label: "备注范围",
+      required: false,
+      setColumnIndex: value => {
+        draft.remarkColumnIndex = value;
+      }
+    }
+  ];
+  const parsedRanges: Array<{
+    label: string;
+    startRow: number;
+    endRow: number;
+  }> = [];
+
+  for (const definition of definitions) {
+    if (definition.field === "projectRange" && draft.isSpecificationOnly) {
+      definition.setColumnIndex(undefined);
+      continue;
+    }
+    const value = draft[definition.field].trim();
+    if (!value) {
+      definition.setColumnIndex(undefined);
+      if (!definition.required) continue;
+      draft.rangeError = `${definition.label}不能为空`;
+      return `区域 ${regionIndex + 1}的${draft.rangeError}`;
+    }
+
+    const parsed = parseExcelA1ColumnRange(value);
+    if (!parsed) {
+      draft.rangeError = `${definition.label}格式无效，请输入单列范围，例如 C9:C112`;
+      return `区域 ${regionIndex + 1}的${draft.rangeError}`;
+    }
+    const relativeColumnIndex = parsed.columnNumber - baseColumn.value;
+    if (relativeColumnIndex < 0 || relativeColumnIndex >= columnCount.value) {
+      draft.rangeError = `${definition.label}超出当前工作表列范围`;
+      return `区域 ${regionIndex + 1}的${draft.rangeError}`;
+    }
+    if (parsed.startRow < baseRow.value || parsed.endRow > maximumRow.value) {
+      draft.rangeError = `${definition.label}超出当前工作表行范围`;
+      return `区域 ${regionIndex + 1}的${draft.rangeError}`;
+    }
+
+    draft[definition.field] = parsed.normalized;
+    definition.setColumnIndex(relativeColumnIndex);
+    parsedRanges.push({
+      label: definition.label,
+      startRow: parsed.startRow,
+      endRow: parsed.endRow
+    });
+  }
+
+  const firstRange = parsedRanges[0];
+  const inconsistentRange = parsedRanges.find(
+    range =>
+      range.startRow !== firstRange.startRow ||
+      range.endRow !== firstRange.endRow
+  );
+  if (inconsistentRange) {
+    draft.rangeError = `${inconsistentRange.label}的起止行需与其他范围一致`;
+    return `区域 ${regionIndex + 1}的${draft.rangeError}`;
+  }
+  draft.dataStartRow = firstRange.startRow;
+  draft.dataEndRow = firstRange.endRow;
+  return "";
+};
 
 const addRegion = () => {
   const last = drafts.value.at(-1);
@@ -272,6 +560,27 @@ const addRegion = () => {
     specificationColumnIndex: last?.specificationColumnIndex,
     acceptanceColumnIndex: last?.acceptanceColumnIndex,
     remarkColumnIndex: last?.remarkColumnIndex,
+    projectRange: formatExcelDataRange(
+      dataStartRow,
+      maximumRow.value,
+      last?.projectColumnIndex
+    ),
+    specificationRange: formatExcelDataRange(
+      dataStartRow,
+      maximumRow.value,
+      last?.specificationColumnIndex
+    ),
+    acceptanceRange: formatExcelDataRange(
+      dataStartRow,
+      maximumRow.value,
+      last?.acceptanceColumnIndex
+    ),
+    remarkRange: formatExcelDataRange(
+      dataStartRow,
+      maximumRow.value,
+      last?.remarkColumnIndex
+    ),
+    rangeError: "",
     isSpecificationOnly: last?.isSpecificationOnly ?? false,
     headersLoading: false,
     headerRequestVersion: 0
@@ -294,7 +603,19 @@ const removeRegion = (index: number) => {
 const validateDrafts = () => {
   for (const [index, draft] of drafts.value.entries()) {
     const label = `区域 ${index + 1}`;
-    if (
+    if (props.isExcelFile) {
+      const rangeError = applyExcelRanges(draft, index);
+      if (rangeError) return rangeError;
+    }
+    if (props.isExcelFile) {
+      if (
+        draft.dataStartRow <= baseRow.value ||
+        draft.dataEndRow < draft.dataStartRow ||
+        draft.dataEndRow > maximumRow.value
+      ) {
+        return `${label}的数据行范围无效`;
+      }
+    } else if (
       draft.headerStartRow < baseRow.value ||
       draft.headerEndRow < draft.headerStartRow ||
       draft.dataStartRow <= draft.headerEndRow ||
@@ -323,11 +644,16 @@ const validateDrafts = () => {
     }
   }
 
-  const ordered = [...drafts.value].sort(
-    (left, right) => left.headerStartRow - right.headerStartRow
+  const ordered = [...drafts.value].sort((left, right) =>
+    props.isExcelFile
+      ? left.dataStartRow - right.dataStartRow
+      : left.headerStartRow - right.headerStartRow
   );
   for (let index = 1; index < ordered.length; index += 1) {
-    if (ordered[index].headerStartRow <= ordered[index - 1].dataEndRow) {
+    const nextStart = props.isExcelFile
+      ? ordered[index].dataStartRow
+      : ordered[index].headerStartRow;
+    if (nextStart <= ordered[index - 1].dataEndRow) {
       return "数据区域之间不能重叠";
     }
   }
@@ -356,6 +682,19 @@ const saveRanges = async () => {
     return;
   }
 
+  const resolvedHeaderError = [...drafts.value]
+    .sort((left, right) => left.headerStartRow - right.headerStartRow)
+    .find(
+      (draft, index, ordered) =>
+        draft.headerStartRow < baseRow.value ||
+        draft.headerEndRow >= draft.dataStartRow ||
+        (index > 0 && draft.headerStartRow <= ordered[index - 1].dataEndRow)
+    );
+  if (resolvedHeaderError) {
+    ElMessage.warning("反推的表头与数据区域重叠，请检查范围");
+    return;
+  }
+
   const regions = [...drafts.value]
     .sort((left, right) => left.headerStartRow - right.headerStartRow)
     .map(
@@ -372,7 +711,8 @@ const saveRanges = async () => {
         specificationColumnIndex: draft.specificationColumnIndex,
         acceptanceColumnIndex: draft.acceptanceColumnIndex,
         remarkColumnIndex: draft.remarkColumnIndex,
-        isSpecificationOnly: draft.isSpecificationOnly
+        isSpecificationOnly: draft.isSpecificationOnly,
+        fields: rebuildRecognizedFields(draft)
       })
     );
 
@@ -391,11 +731,15 @@ const saveRanges = async () => {
     destroy-on-close
   >
     <div class="range-editor-intro">
-      <strong> 按{{ isExcelFile ? "工作表" : "表格" }}中的真实行号调整 </strong>
+      <strong>
+        {{ isExcelFile ? "直接修改 Excel 范围" : "按表格中的真实行号调整" }}
+      </strong>
       <span>
-        修改后下方{{
-          isExcelFile ? " A1 范围" : "行列范围"
-        }}会同步变化；区域之间不能重叠。
+        {{
+          isExcelFile
+            ? "输入单列 A1 范围，例如 C9:C112；同一区域的起止行需一致。"
+            : "修改后下方行列范围会同步变化；区域之间不能重叠。"
+        }}
       </span>
     </div>
 
@@ -421,117 +765,180 @@ const saveRanges = async () => {
           </el-button>
         </header>
 
-        <div class="row-editor-grid">
-          <label>
-            <span>表头起始行</span>
-            <el-input-number
-              v-model="draft.headerStartRow"
-              :min="baseRow"
-              :max="maximumRow"
-              controls-position="right"
-            />
-          </label>
-          <label>
-            <span>表头结束行</span>
-            <el-input-number
-              v-model="draft.headerEndRow"
-              :min="draft.headerStartRow"
-              :max="maximumRow"
-              controls-position="right"
-            />
-          </label>
-          <label>
-            <span>数据起始行</span>
-            <el-input-number
-              v-model="draft.dataStartRow"
-              :min="draft.headerEndRow + 1"
-              :max="maximumRow"
-              controls-position="right"
-            />
-          </label>
-          <label>
-            <span>数据结束行</span>
-            <el-input-number
-              v-model="draft.dataEndRow"
-              :min="draft.dataStartRow"
-              :max="maximumRow"
-              controls-position="right"
-            />
-          </label>
-        </div>
+        <template v-if="isExcelFile">
+          <div class="excel-range-context">
+            <span>
+              表头：第 {{ draft.headerStartRow
+              }}{{
+                draft.headerEndRow === draft.headerStartRow
+                  ? ""
+                  : `–${draft.headerEndRow}`
+              }}
+              行
+            </span>
+            <span>系统会从 A1 范围反算行列，并向上寻找最近有效表头</span>
+          </div>
 
-        <div class="column-editor-grid">
-          <label>
-            <span>项目列</span>
-            <el-select
-              v-model="draft.projectColumnIndex"
-              :disabled="draft.isSpecificationOnly || draft.headersLoading"
-              :loading="draft.headersLoading"
-              clearable
-              placeholder="请选择"
-            >
-              <el-option
-                v-for="option in getColumnOptions(draft)"
-                :key="option.value"
-                :value="option.value"
-                :label="`[${option.column}] ${option.label}`"
+          <div class="a1-range-grid">
+            <label>
+              <span>项目范围（仅规格表可留空）</span>
+              <el-input
+                v-model="draft.projectRange"
+                placeholder="例如 C9:C112"
+                clearable
+                @input="draft.rangeError = ''"
+                @blur="normalizeRangeInput(draft, 'projectRange')"
               />
-            </el-select>
-          </label>
-          <label>
-            <span>规格列</span>
-            <el-select
-              v-model="draft.specificationColumnIndex"
-              :disabled="draft.headersLoading"
-              :loading="draft.headersLoading"
-              clearable
-              placeholder="请选择"
-            >
-              <el-option
-                v-for="option in getColumnOptions(draft)"
-                :key="option.value"
-                :value="option.value"
-                :label="`[${option.column}] ${option.label}`"
+            </label>
+            <label>
+              <span>规格范围</span>
+              <el-input
+                v-model="draft.specificationRange"
+                placeholder="例如 D9:D112"
+                clearable
+                @input="draft.rangeError = ''"
+                @blur="normalizeRangeInput(draft, 'specificationRange')"
               />
-            </el-select>
-          </label>
-          <label>
-            <span>验收列</span>
-            <el-select
-              v-model="draft.acceptanceColumnIndex"
-              :disabled="draft.headersLoading"
-              :loading="draft.headersLoading"
-              clearable
-              placeholder="请选择"
-            >
-              <el-option
-                v-for="option in getColumnOptions(draft)"
-                :key="option.value"
-                :value="option.value"
-                :label="`[${option.column}] ${option.label}`"
+            </label>
+            <label>
+              <span>验收范围</span>
+              <el-input
+                v-model="draft.acceptanceRange"
+                placeholder="例如 I9:I112"
+                clearable
+                @input="draft.rangeError = ''"
+                @blur="normalizeRangeInput(draft, 'acceptanceRange')"
               />
-            </el-select>
-          </label>
-          <label>
-            <span>备注列（可选）</span>
-            <el-select
-              v-model="draft.remarkColumnIndex"
-              :disabled="draft.headersLoading"
-              :loading="draft.headersLoading"
-              clearable
-              placeholder="未设置"
-            >
-              <el-option
-                v-for="option in getColumnOptions(draft)"
-                :key="option.value"
-                :value="option.value"
-                :label="`[${option.column}] ${option.label}`"
+            </label>
+            <label>
+              <span>备注范围（可选）</span>
+              <el-input
+                v-model="draft.remarkRange"
+                placeholder="例如 J9:J112"
+                clearable
+                @input="draft.rangeError = ''"
+                @blur="normalizeRangeInput(draft, 'remarkRange')"
               />
-            </el-select>
-          </label>
-        </div>
+            </label>
+          </div>
+          <p v-if="draft.rangeError" class="range-error" role="alert">
+            {{ draft.rangeError }}
+          </p>
+        </template>
 
-        <div class="region-editor-foot">
+        <template v-else>
+          <div class="row-editor-grid">
+            <label>
+              <span>表头起始行</span>
+              <el-input-number
+                v-model="draft.headerStartRow"
+                :min="baseRow"
+                :max="maximumRow"
+                controls-position="right"
+              />
+            </label>
+            <label>
+              <span>表头结束行</span>
+              <el-input-number
+                v-model="draft.headerEndRow"
+                :min="draft.headerStartRow"
+                :max="maximumRow"
+                controls-position="right"
+              />
+            </label>
+            <label>
+              <span>数据起始行</span>
+              <el-input-number
+                v-model="draft.dataStartRow"
+                :min="draft.headerEndRow + 1"
+                :max="maximumRow"
+                controls-position="right"
+              />
+            </label>
+            <label>
+              <span>数据结束行</span>
+              <el-input-number
+                v-model="draft.dataEndRow"
+                :min="draft.dataStartRow"
+                :max="maximumRow"
+                controls-position="right"
+              />
+            </label>
+          </div>
+
+          <div class="column-editor-grid">
+            <label>
+              <span>项目列</span>
+              <el-select
+                v-model="draft.projectColumnIndex"
+                :disabled="draft.isSpecificationOnly || draft.headersLoading"
+                :loading="draft.headersLoading"
+                clearable
+                placeholder="请选择"
+              >
+                <el-option
+                  v-for="option in getColumnOptions(draft)"
+                  :key="option.value"
+                  :value="option.value"
+                  :label="`[${option.column}] ${option.label}`"
+                />
+              </el-select>
+            </label>
+            <label>
+              <span>规格列</span>
+              <el-select
+                v-model="draft.specificationColumnIndex"
+                :disabled="draft.headersLoading"
+                :loading="draft.headersLoading"
+                clearable
+                placeholder="请选择"
+              >
+                <el-option
+                  v-for="option in getColumnOptions(draft)"
+                  :key="option.value"
+                  :value="option.value"
+                  :label="`[${option.column}] ${option.label}`"
+                />
+              </el-select>
+            </label>
+            <label>
+              <span>验收列</span>
+              <el-select
+                v-model="draft.acceptanceColumnIndex"
+                :disabled="draft.headersLoading"
+                :loading="draft.headersLoading"
+                clearable
+                placeholder="请选择"
+              >
+                <el-option
+                  v-for="option in getColumnOptions(draft)"
+                  :key="option.value"
+                  :value="option.value"
+                  :label="`[${option.column}] ${option.label}`"
+                />
+              </el-select>
+            </label>
+            <label>
+              <span>备注列（可选）</span>
+              <el-select
+                v-model="draft.remarkColumnIndex"
+                :disabled="draft.headersLoading"
+                :loading="draft.headersLoading"
+                clearable
+                placeholder="未设置"
+              >
+                <el-option
+                  v-for="option in getColumnOptions(draft)"
+                  :key="option.value"
+                  :value="option.value"
+                  :label="`[${option.column}] ${option.label}`"
+                />
+              </el-select>
+            </label>
+          </div>
+        </template>
+
+        <div v-if="!isExcelFile" class="region-editor-foot">
           <span>仅规格表（没有项目列）</span>
           <el-switch
             v-model="draft.isSpecificationOnly"
@@ -634,7 +1041,8 @@ const saveRanges = async () => {
 }
 
 .row-editor-grid,
-.column-editor-grid {
+.column-editor-grid,
+.a1-range-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
@@ -645,7 +1053,8 @@ const saveRanges = async () => {
 }
 
 .row-editor-grid label,
-.column-editor-grid label {
+.column-editor-grid label,
+.a1-range-grid label {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -655,8 +1064,29 @@ const saveRanges = async () => {
 }
 
 .row-editor-grid :deep(.el-input-number),
-.column-editor-grid :deep(.el-select) {
+.column-editor-grid :deep(.el-select),
+.a1-range-grid :deep(.el-input) {
   width: 100%;
+}
+
+.excel-range-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.excel-range-context span:first-child {
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.range-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--el-color-danger);
 }
 
 .region-editor-foot {
@@ -689,7 +1119,8 @@ const saveRanges = async () => {
 
 @media (width <= 720px) {
   .row-editor-grid,
-  .column-editor-grid {
+  .column-editor-grid,
+  .a1-range-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

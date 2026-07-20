@@ -1,0 +1,198 @@
+- generic [ref=f3e3]:
+  - generic:
+    - generic:
+      - link "logo":
+        - /url: "#/dashboard"
+        - img "logo"
+    - generic:
+      - generic:
+        - generic:
+          - menubar:
+            - link:
+              - /url: "#/"
+              - menuitem
+            - menuitem
+            - link:
+              - /url: "#/data-import"
+              - menuitem
+            - link:
+              - /url: "#/smart-fill"
+              - menuitem
+            - link:
+              - /url: "#/batch-reply"
+              - menuitem
+            - menuitem
+            - menuitem
+            - link:
+              - /url: "#/file-compare"
+              - menuitem
+            - menuitem
+  - generic [ref=f3e87]:
+    - generic [ref=f3e88]:
+      - generic [ref=f3e89]:
+        - generic "点击展开" [ref=f3e20094] [cursor=pointer]
+        - generic [ref=f3e93]:
+          - button [ref=f3e102] [cursor=pointer]:
+            - paragraph [ref=f3e104]: 管理员
+          - generic "打开系统配置" [ref=f3e105] [cursor=pointer]
+      - generic [ref=f3e108]:
+        - generic [ref=f3e110]:
+          - generic [ref=f3e111] [cursor=pointer]: 首页
+          - generic [ref=f3e113] [cursor=pointer]: 导入数据
+          - generic [ref=f3e533] [cursor=pointer]: 智能填充
+          - generic [ref=f3e670] [cursor=pointer]: 验收规格
+          - generic [ref=f3e19129] [cursor=pointer]: 角色管理
+          - generic [ref=f3e19369] [cursor=pointer]: 文件对比
+          - generic [ref=f3e19400] [cursor=pointer]: 批量回复
+          - generic [ref=f3e19528] [cursor=pointer]: AI服务配置
+        - button [ref=f3e115] [cursor=pointer]
+    - generic [ref=f3e122]:
+      - generic [ref=f3e19955]:
+        - generic [ref=f3e19956]:
+          - generic [ref=f3e19957]:
+            - generic [ref=f3e19958]: 系统概览
+            - generic [ref=f3e19959]: 2026/07/09 09:30 至 2026/07/16 09:30
+          - generic [ref=f3e19960]:
+            - radiogroup "segmented" [ref=f3e19961]:
+              - generic [ref=f3e19962]:
+                - generic [ref=f3e19963] [cursor=pointer]:
+                  - radio "最近7天" [checked]
+                  - generic [ref=f3e19964]: 最近7天
+                - generic [ref=f3e19965] [cursor=pointer]:
+                  - radio "最近30天"
+                  - generic [ref=f3e19966]: 最近30天
+                - generic [ref=f3e19967] [cursor=pointer]:
+                  - radio "自定义"
+                  - generic [ref=f3e19968]: 自定义
+            - button "刷新" [ref=f3e19969] [cursor=pointer]
+        - generic [ref=f3e19974]:
+          - generic [ref=f3e19978]:
+            - generic [ref=f3e19979]: 匹配度
+            - generic [ref=f3e19980]: 0%
+            - generic [ref=f3e19981]: 已匹配 0 / 0 行
+          - generic [ref=f3e19985]:
+            - generic [ref=f3e19986]: 历史资料导入
+            - generic [ref=f3e19987]: "0"
+            - generic [ref=f3e19988]: 周期内新增或更新规格
+          - generic [ref=f3e19992]:
+            - generic [ref=f3e19993]: 智能填充任务
+            - generic [ref=f3e19994]: "0"
+            - generic [ref=f3e19995]: 采用率 0%
+          - generic [ref=f3e19999]:
+            - generic [ref=f3e20000]: 验收规格总量
+            - generic [ref=f3e20001]: 8,758
+            - generic [ref=f3e20002]: 客户 14，制程 2
+        - generic [ref=f3e20003]:
+          - generic [ref=f3e20005]:
+            - generic [ref=f3e20006]: 最近执行
+            - generic [ref=f3e20007]: 最新 5 条
+          - generic [ref=f3e20010]:
+            - table [ref=f3e20012]:
+              - rowgroup [ref=f3e20018]:
+                - row [ref=f3e20019]:
+                  - columnheader "类型" [ref=f3e20020]
+                  - columnheader "来源文件" [ref=f3e20022]
+                  - columnheader "采用/总行" [ref=f3e20024]
+                  - columnheader "时间" [ref=f3e20026]
+            - table [ref=f3e20032]:
+              - rowgroup [ref=f3e20038]:
+                - row [ref=f3e20039]:
+                  - cell "批量回复" [ref=f3e20040]
+                  - cell "泰國投收板機及串線設備驗規-大厚板.xlsx" [ref=f3e20044]
+                  - cell "262 / 262" [ref=f3e20046]
+                  - cell "2026/7/4 11:04:05" [ref=f3e20048]
+                - row [ref=f3e20050]:
+                  - cell "智能填充" [ref=f3e20051]
+                  - cell "泰國投收板機及串線設備驗規-大厚板.xlsx" [ref=f3e20055]
+                  - cell "20 / 270" [ref=f3e20057]
+                  - cell "2026/7/4 10:55:56" [ref=f3e20059]
+                - row [ref=f3e20061]:
+                  - cell "智能填充" [ref=f3e20062]
+                  - cell "棕化线外翻板機驗收規格-HB07.xlsx" [ref=f3e20066]
+                  - cell "12 / 65" [ref=f3e20068]
+                  - cell "2026/5/27 19:15:13" [ref=f3e20070]
+                - row [ref=f3e20072]:
+                  - cell "智能填充" [ref=f3e20073]
+                  - cell "HD03 太阳翻板机-20260507.xlsx" [ref=f3e20077]
+                  - cell "43 / 396" [ref=f3e20079]
+                  - cell "2026/5/26 20:38:19" [ref=f3e20081]
+                - row [ref=f3e20083]:
+                  - cell "智能填充" [ref=f3e20084]
+                  - cell "JC05 化金壓膜連線移載機驗收規範-20260525.xlsx" [ref=f3e20088]
+                  - cell "84 / 90" [ref=f3e20090]
+                  - cell "2026/5/25 14:09:01" [ref=f3e20092]
+      - generic [ref=f3e263]:
+        - text: Copyright © 2026
+        - link "验收规格管理系统" [ref=f3e264] [cursor=pointer]:
+          - /url: https://github.com/pure-admin
+  - generic [ref=f3e265]:
+    - heading "系统配置" [level=4] [ref=f3e267]
+    - generic [ref=f3e274]:
+      - paragraph [ref=f3e275]: 整体风格
+      - generic [ref=f3e277]:
+        - generic [ref=f3e279] [cursor=pointer]:
+          - radio "浅色"
+          - generic [ref=f3e280]: 浅色
+        - generic [ref=f3e286] [cursor=pointer]:
+          - radio "深色"
+          - generic [ref=f3e287]: 深色
+        - generic [ref=f3e293] [cursor=pointer]:
+          - radio "自动"
+          - generic [ref=f3e294]: 自动
+      - paragraph [ref=f3e300]: 主题色
+      - list [ref=f3e301]:
+        - listitem [ref=f3e302] [cursor=pointer]
+        - listitem [ref=f3e306] [cursor=pointer]
+        - listitem [ref=f3e310] [cursor=pointer]
+        - listitem [ref=f3e314] [cursor=pointer]
+        - listitem [ref=f3e318] [cursor=pointer]
+        - listitem [ref=f3e322] [cursor=pointer]
+        - listitem [ref=f3e326] [cursor=pointer]
+        - listitem [ref=f3e330] [cursor=pointer]
+      - paragraph [ref=f3e334]: 导航模式
+      - list [ref=f3e335]:
+        - listitem [ref=f3e336] [cursor=pointer]
+      - paragraph [ref=f3e362]: 页签风格
+      - generic [ref=f3e364]:
+        - generic [ref=f3e366] [cursor=pointer]:
+          - radio "灵动"
+          - generic [ref=f3e367]: 灵动
+        - generic [ref=f3e369] [cursor=pointer]:
+          - radio "卡片"
+          - generic [ref=f3e370]: 卡片
+        - generic [ref=f3e372] [cursor=pointer]:
+          - radio "谷歌"
+          - generic [ref=f3e373]: 谷歌
+      - paragraph [ref=f3e375]: 界面显示
+      - list [ref=f3e376]:
+        - listitem [ref=f3e377]:
+          - generic [ref=f3e378]: 灰色模式
+          - generic [ref=f3e379]:
+            - switch
+            - generic [ref=f3e380] [cursor=pointer]: 关
+        - listitem [ref=f3e384]:
+          - generic [ref=f3e385]: 色弱模式
+          - generic [ref=f3e386]:
+            - switch
+            - generic [ref=f3e387] [cursor=pointer]: 关
+        - listitem [ref=f3e391]:
+          - generic [ref=f3e392]: 隐藏标签页
+          - generic [ref=f3e393]:
+            - switch
+            - generic [ref=f3e394] [cursor=pointer]: 关
+        - listitem [ref=f3e398]:
+          - generic [ref=f3e399]: 隐藏页脚
+          - generic [ref=f3e400]:
+            - switch
+            - generic [ref=f3e401] [cursor=pointer]: 关
+        - listitem [ref=f3e405]:
+          - generic [ref=f3e406]: Logo
+          - generic [ref=f3e407]:
+            - switch [checked]
+            - generic [ref=f3e408] [cursor=pointer]: 开
+        - listitem [ref=f3e412]:
+          - generic [ref=f3e413]: 页签持久化
+          - generic [ref=f3e414]:
+            - switch [checked]
+            - generic [ref=f3e415] [cursor=pointer]: 开
+    - button "清空缓存" [ref=f3e420] [cursor=pointer]

@@ -235,6 +235,50 @@ export const getPreviewCellValue = (row: string[], columnIndex?: number) => {
   return typeof value === "string" ? value.trim() : "";
 };
 
+export const getSkippedPreviewHeaderGroupLabel = (label: string) => {
+  const normalizedLabel = label.trim();
+  const levels = normalizedLabel
+    .split(/\s+[\/／]\s+/)
+    .map(level => level.trim())
+    .filter(Boolean);
+
+  return levels[0] || normalizedLabel;
+};
+
+export const buildSkippedPreviewColumns = (
+  headers: string[],
+  columnCount: number
+): SkippedPreviewColumn[] => {
+  const columns: SkippedPreviewColumn[] = [];
+
+  for (let index = 0; index < columnCount; index += 1) {
+    const sourceHeader = (headers[index] || "").trim();
+    const label = sourceHeader
+      ? getSkippedPreviewHeaderGroupLabel(sourceHeader)
+      : `列${index + 1}`;
+    const previous = columns[columns.length - 1];
+
+    if (sourceHeader && previous?.label === label) {
+      previous.indexes.push(index);
+    } else {
+      columns.push({ indexes: [index], label });
+    }
+  }
+
+  return columns;
+};
+
+export const mergeSkippedPreviewCellValues = (
+  rowValues: string[] | null | undefined,
+  indexes: number[]
+) => {
+  const values = indexes
+    .map(index => rowValues?.[index]?.trim() || "")
+    .filter(Boolean);
+
+  return [...new Set(values)].join("；");
+};
+
 export const buildSkippedRowsGroups = (
   rows: ImportSkippedRowWithTable[],
   tableConfigs: TableImportConfig[]
@@ -273,16 +317,7 @@ export const buildSkippedRowsGroups = (
         0
       );
 
-      const columns: SkippedPreviewColumn[] = Array.from(
-        { length: maxColumnCount },
-        (_, i) => {
-          const header = (headers[i] || "").trim();
-          return {
-            index: i,
-            label: header || `列${i + 1}`
-          };
-        }
-      );
+      const columns = buildSkippedPreviewColumns(headers, maxColumnCount);
 
       return {
         tableIndex,

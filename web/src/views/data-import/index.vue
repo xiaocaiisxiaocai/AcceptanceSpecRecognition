@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import { ElMessage } from "element-plus";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
 import DataImportConfirmPanel from "./components/DataImportConfirmPanel.vue";
@@ -11,8 +12,16 @@ import DataImportStepTarget from "./components/DataImportStepTarget.vue";
 import DataImportStepUpload from "./components/DataImportStepUpload.vue";
 import ExcelColumnMapping from "./components/ExcelColumnMapping.vue";
 import { useDataImportPage } from "./composables/useDataImportPage";
+import {
+  runSmartStructureBatchConfirmImportAction,
+  type SmartStructureBatchConfirmProgress
+} from "./dataImport.confirmImport";
 import SmartStructureConfirmTabs from "@/views/shared/SmartStructureConfirmTabs.vue";
 import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
+import type {
+  SmartConfigConfirmRequest,
+  SmartConfigRecognizedTable
+} from "@/api/smart-config";
 import {
   canSelectSmartStructureTable,
   getSmartStructureImportReadinessReason,
@@ -63,7 +72,6 @@ const {
   importing,
   importResult,
   committedImportAggregate,
-  previewSkippedRows,
   differenceDecisionMap,
   differenceConfirmDialogVisible,
   importProgressText,
@@ -91,6 +99,7 @@ const {
   handleFileUploaded,
   runSmartStructureRecognition,
   handleSmartStructureConfirm,
+  applyCurrentSmartRecognizedTables,
   handleSmartTableImportSelectionChange,
   enterAdvancedMode,
   exitAdvancedMode,
@@ -109,6 +118,7 @@ const {
   handleRestart,
   previewDataCount,
   previewLoadState,
+  ensureFullPreviewDataLoaded,
   pendingDifferences,
   pagedPendingDifferences,
   pendingUndecidedCount,
@@ -139,12 +149,33 @@ const activeTableTabModel = computed({
   }
 });
 
-const firstNeedConfirmTableIndex = computed(
-  () =>
-    recognizedTables.value.find(table => table.decision === "NeedConfirm")
-      ?.tableIndex
-);
 const activeSmartStructureTab = ref<number | undefined>();
+const smartConfirmDrafts = ref<
+  Record<number, SmartConfigConfirmRequest | null>
+>({});
+const batchConfirmImportRunning = ref(false);
+const batchConfirmingTableIndex = ref<number | null>(null);
+const batchConfirmProgress = ref<{
+  phase: SmartStructureBatchConfirmProgress["phase"];
+  current: number;
+  total: number;
+  tableName: string;
+}>({ phase: "validating", current: 0, total: 0, tableName: "" });
+
+watch(
+  () => uploadedFile.value?.fileId,
+  () => {
+    smartConfirmDrafts.value = {};
+    batchConfirmImportRunning.value = false;
+    batchConfirmingTableIndex.value = null;
+    batchConfirmProgress.value = {
+      phase: "validating",
+      current: 0,
+      total: 0,
+      tableName: ""
+    };
+  }
+);
 const smartStructureSelectableTableIndexes = computed(() =>
   recognizedTables.value
     .filter(canSelectSmartStructureTable)
@@ -168,12 +199,169 @@ const smartStructureSelectionPendingReasons = computed(() =>
 );
 const pendingSelectedSmartTableCount = computed(
   () =>
-    recognizedTables.value.filter(
+    recognizedTables.value.filter(table => {
+      if (!selectedSmartTableIndexes.value.includes(table.tableIndex)) {
+        return false;
+      }
+      const hasDraftState = Object.prototype.hasOwnProperty.call(
+        smartConfirmDrafts.value,
+        table.tableIndex
+      );
+      const draft = smartConfirmDrafts.value[table.tableIndex];
+      return (
+        (hasDraftState && draft == null) ||
+        (table.decision !== "AutoApply" && draft == null)
+      );
+    }).length
+);
+const selectedSmartTablesRequiringConfirmationCount = computed(
+  () =>
+    recognizedTables.value.filter(table => {
+      if (!selectedSmartTableIndexes.value.includes(table.tableIndex)) {
+        return false;
+      }
+      const draft = smartConfirmDrafts.value[table.tableIndex];
+      return (
+        table.decision !== "AutoApply" || Boolean(draft?.userModifiedStructure)
+      );
+    }).length
+);
+const effectiveSmartConfirmingTableIndex = computed(
+  () => batchConfirmingTableIndex.value ?? smartConfirmingTableIndex.value
+);
+const handleSmartStructureDraftChange = (
+  table: SmartConfigRecognizedTable,
+  request: SmartConfigConfirmRequest | null
+) => {
+  smartConfirmDrafts.value = {
+    ...smartConfirmDrafts.value,
+    [table.tableIndex]: request
+  };
+};
+const smartBatchImportButtonText = computed(() =>
+  !batchConfirmImportRunning.value
+    ? "确认所选 Sheet、学习并开始导入"
+    : batchConfirmProgress.value.phase === "confirming"
+      ? `正在确认 ${batchConfirmProgress.value.current}/${batchConfirmProgress.value.total}`
+      : batchConfirmProgress.value.phase === "refreshing"
+        ? "正在刷新配置"
+        : batchConfirmProgress.value.phase === "importing"
+          ? "正在开始导入"
+          : "正在检查配置"
+);
+const smartBatchProgressText = computed(() => {
+  if (!batchConfirmImportRunning.value) return importProgressText.value;
+  if (batchConfirmProgress.value.phase === "confirming") {
+    return `正在确认第 ${batchConfirmProgress.value.current}/${batchConfirmProgress.value.total} 张 Sheet`;
+  }
+  if (batchConfirmProgress.value.phase === "refreshing") {
+    return "正在统一刷新导入配置";
+  }
+  if (batchConfirmProgress.value.phase === "importing") {
+    return "确认完成，正在开始导入";
+  }
+  return "正在检查所选 Sheet 配置";
+});
+const smartBatchProgressDescription = computed(() =>
+  batchConfirmImportRunning.value && batchConfirmProgress.value.tableName
+    ? `当前：${batchConfirmProgress.value.tableName}。全部确认成功后将自动开始导入。`
+    : importProgressDescription.value
+);
+const updateBatchConfirmProgress = (
+  progress: SmartStructureBatchConfirmProgress
+) => {
+  const table = recognizedTables.value.find(
+    item => item.tableIndex === progress.currentTableIndex
+  );
+  batchConfirmingTableIndex.value = progress.currentTableIndex ?? null;
+  batchConfirmProgress.value = {
+    phase: progress.phase,
+    current:
+      progress.phase === "confirming"
+        ? Math.min(progress.total, progress.completed + 1)
+        : progress.completed,
+    total: progress.total,
+    tableName:
+      table?.tableName || (table ? `工作表 ${table.tableIndex + 1}` : "")
+  };
+};
+const handleSmartStructureBatchConfirmImport = async () => {
+  if (batchConfirmImportRunning.value || importing.value) return;
+
+  if (pendingSelectedSmartTableCount.value > 0) {
+    const pendingTable = recognizedTables.value.find(
       table =>
         selectedSmartTableIndexes.value.includes(table.tableIndex) &&
-        getSmartStructureImportReadinessReason(table) !== ""
-    ).length
-);
+        smartConfirmDrafts.value[table.tableIndex] == null
+    );
+    if (pendingTable) activeSmartStructureTab.value = pendingTable.tableIndex;
+    ElMessage.warning("请先补齐已勾选 Sheet 的必填列或有效范围");
+    return;
+  }
+
+  batchConfirmImportRunning.value = true;
+  batchConfirmProgress.value = {
+    phase: "validating",
+    current: 0,
+    total: 0,
+    tableName: ""
+  };
+
+  try {
+    const drafts = new Map<number, SmartConfigConfirmRequest>();
+    Object.entries(smartConfirmDrafts.value).forEach(
+      ([tableIndex, request]) => {
+        if (request) drafts.set(Number(tableIndex), request);
+      }
+    );
+
+    const result = await runSmartStructureBatchConfirmImportAction({
+      tables: recognizedTables.value,
+      selectedTableIndexes: selectedSmartTableIndexes.value,
+      draftRequests: drafts,
+      requiresConfirmation: (table, request) =>
+        table.decision !== "AutoApply" ||
+        Boolean(request?.userModifiedStructure),
+      confirm: (table, request) =>
+        handleSmartStructureConfirm(table, request, {
+          refreshPreview: false
+        }),
+      refresh: applyCurrentSmartRecognizedTables,
+      importData: handleImport,
+      onProgress: updateBatchConfirmProgress
+    });
+
+    if (result.success) return;
+
+    if (result.failedTableIndex != null) {
+      activeSmartStructureTab.value = result.failedTableIndex;
+    }
+    const failedTable = recognizedTables.value.find(
+      table => table.tableIndex === result.failedTableIndex
+    );
+    const failedTableName =
+      failedTable?.tableName ||
+      (result.failedTableIndex == null
+        ? ""
+        : `工作表 ${result.failedTableIndex + 1}`);
+    if (result.failure === "missing-draft") {
+      ElMessage.warning(`${failedTableName}配置不完整，请补齐后重试`);
+    } else if (result.failure === "no-selected-tables") {
+      ElMessage.warning("请至少勾选一张需要导入的 Sheet");
+    } else if (result.failure === "confirm-failed") {
+      ElMessage.error(`${failedTableName}确认学习失败，已停止本次导入`);
+    } else if (result.failure === "refresh-failed") {
+      ElMessage.error("全部 Sheet 已确认，但刷新导入配置失败，请重试");
+    } else if (result.failure === "import-failed") {
+      ElMessage.error("确认学习已完成，但开始导入失败，请重试");
+    } else {
+      ElMessage.error("批量确认未完成，请检查 Sheet 配置后重试");
+    }
+  } finally {
+    batchConfirmImportRunning.value = false;
+    batchConfirmingTableIndex.value = null;
+  }
+};
 const showManualFallback = computed(
   () =>
     !!smartApplyError.value ||
@@ -302,7 +490,7 @@ const activeSmartStructureScopeDescription = computed(() => {
 
         <!-- 高级模式步骤3: 配置映射 -->
         <DataImportStepMapping
-          v-show="advancedMode && currentStep === 2"
+          v-if="advancedMode && currentStep === 2"
           :is-excel-file="isExcelFile"
           :uploaded-file="uploadedFile"
           :table-configs="tableConfigs"
@@ -442,11 +630,12 @@ const activeSmartStructureScopeDescription = computed(() => {
             :selection-pending-reasons="smartStructureSelectionPendingReasons"
             :file-id="uploadedFile?.fileId"
             :customer-id="selectedCustomerId"
-            :confirming-table-index="smartConfirmingTableIndex"
-            :default-expanded-table-index="firstNeedConfirmTableIndex"
+            :confirming-table-index="effectiveSmartConfirmingTableIndex"
+            :show-confirm-action="false"
+            :interaction-locked="batchConfirmImportRunning || importing"
             ready-label="可导入"
             unavailable-label="跳过"
-            @confirm="handleSmartStructureConfirm"
+            @draft-change="handleSmartStructureDraftChange"
             @advanced="table => enterAdvancedMode('mapping', table.tableIndex)"
             @update:table-selected="handleSmartTableImportSelectionChange"
           />
@@ -464,7 +653,6 @@ const activeSmartStructureScopeDescription = computed(() => {
             class="smart-import-scope-alert"
           />
           <DataImportConfirmPanel
-            v-model:preview-skipped-rows="previewSkippedRows"
             :import-result="importResult"
             :is-excel-file="isExcelFile"
             :can-upload-source-file="canUploadSourceFile"
@@ -501,11 +689,15 @@ const activeSmartStructureScopeDescription = computed(() => {
             :removed-preview-row-count="removedPreviewRowCount"
             :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
             :import-preview-groups="importPreviewGroups"
-            :importing="importing"
-            :import-progress-text="importProgressText"
-            :import-progress-description="importProgressDescription"
-            :import-primary-button-text="importPrimaryButtonText"
+            :importing="importing || batchConfirmImportRunning"
+            :import-progress-text="smartBatchProgressText"
+            :import-progress-description="smartBatchProgressDescription"
+            :import-primary-button-text="smartBatchImportButtonText"
             :skipped-rows-groups="skippedRowsGroups"
+            :show-import-action="true"
+            :allow-empty-preview-action="
+              selectedSmartTablesRequiringConfirmationCount > 0
+            "
             @restart="handleRestart"
             @open-difference-confirm-dialog="openDifferenceConfirmDialog"
             @remove-selected-preview-rows="handleRemoveSelectedPreviewRows"
@@ -514,7 +706,8 @@ const activeSmartStructureScopeDescription = computed(() => {
               handleImportPreviewSelectionChange
             "
             @remove-single-preview-row="handleRemoveSinglePreviewRow"
-            @import="handleImport"
+            @load-full-preview="ensureFullPreviewDataLoaded"
+            @import="handleSmartStructureBatchConfirmImport"
           />
         </div>
 
@@ -527,7 +720,6 @@ const activeSmartStructureScopeDescription = computed(() => {
           :import-result="importResult"
         >
           <DataImportConfirmPanel
-            v-model:preview-skipped-rows="previewSkippedRows"
             :import-result="importResult"
             :is-excel-file="isExcelFile"
             :can-upload-source-file="canUploadSourceFile"
@@ -575,6 +767,7 @@ const activeSmartStructureScopeDescription = computed(() => {
               handleImportPreviewSelectionChange
             "
             @remove-single-preview-row="handleRemoveSinglePreviewRow"
+            @load-full-preview="ensureFullPreviewDataLoaded"
             @import="handleImport"
           />
         </DataImportStepConfirm>

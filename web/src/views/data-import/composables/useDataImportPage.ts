@@ -118,7 +118,6 @@ export function useDataImportPage() {
     importResult,
     pendingImportAggregate,
     committedImportAggregate,
-    previewSkippedRows,
     differenceDecisionMap,
     differenceConfirmDialogVisible
   } = useDataImportExecution();
@@ -255,7 +254,6 @@ export function useDataImportPage() {
     excludedRowIndexMap.value = {};
     importPreviewSelectionKeys.value = [];
     importResult.value = null;
-    previewSkippedRows.value = false;
     mappingRules.value = [];
     mappingRulesCustomerId.value = undefined;
     mappingRulesRequestVersion += 1;
@@ -700,7 +698,7 @@ export function useDataImportPage() {
     }
   };
 
-  const ensureFullPreviewDataLoaded = async () => {
+  const loadFullPreviewData = async () => {
     const pendingConfigs = tableConfigs.value.filter(
       cfg =>
         !cfg.previewData ||
@@ -736,6 +734,20 @@ export function useDataImportPage() {
     }
   };
 
+  let fullPreviewLoadPromise: Promise<boolean> | null = null;
+  const ensureFullPreviewDataLoaded = async () => {
+    if (fullPreviewLoadPromise) {
+      return fullPreviewLoadPromise;
+    }
+
+    fullPreviewLoadPromise = loadFullPreviewData();
+    try {
+      return await fullPreviewLoadPromise;
+    } finally {
+      fullPreviewLoadPromise = null;
+    }
+  };
+
   const {
     smartRecognizing,
     smartRecognitionAttempted,
@@ -747,6 +759,7 @@ export function useDataImportPage() {
     smartStructureSummary,
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
+    applyCurrentSmartRecognizedTables,
     handleSmartTableImportSelectionChange,
     prepareAdvancedTableConfig,
     syncAdvancedConfigsToRecognizedTables,
@@ -1235,7 +1248,6 @@ export function useDataImportPage() {
     importResult,
     pendingImportAggregate,
     committedImportAggregate,
-    previewSkippedRows,
     differenceDecisionMap,
     differenceConfirmDialogVisible,
     importDuplicateAiConfig,
@@ -1353,7 +1365,6 @@ export function useDataImportPage() {
     importing,
     importResult,
     committedImportAggregate,
-    previewSkippedRows,
     differenceDecisionMap,
     differenceConfirmDialogVisible,
     importProgressText,
@@ -1381,6 +1392,7 @@ export function useDataImportPage() {
     handleFileUploaded,
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
+    applyCurrentSmartRecognizedTables,
     handleSmartTableImportSelectionChange,
     enterAdvancedMode,
     exitAdvancedMode,
@@ -1399,6 +1411,7 @@ export function useDataImportPage() {
     handleRestart,
     previewDataCount,
     previewLoadState,
+    ensureFullPreviewDataLoaded,
     pendingDifferences,
     pagedPendingDifferences,
     pendingUndecidedCount,
