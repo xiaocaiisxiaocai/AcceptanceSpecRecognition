@@ -2,6 +2,7 @@ using AcceptanceSpecSystem.Core.Documents.Intelligence.Models;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Data.Entities;
+using System.Text.Json;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -52,7 +53,89 @@ internal static class SmartConfigurationRecognizedTableFactory
             Source = "Template",
             Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm"
         };
-        return ToRecognizedTable(NormalizeRowRange(tableInfo, tableData, structure));
+        var recognized = ToRecognizedTable(NormalizeRowRange(tableInfo, tableData, structure));
+        if (template.Regions.Count == 0)
+        {
+            return recognized;
+        }
+
+        var regions = template.Regions
+            .OrderBy(region => region.RegionIndex)
+            .Select((region, index) =>
+            {
+                var regionHeaders = JsonSerializer.Deserialize<List<string>>(region.HeadersJson) ?? [];
+                var rawRegionStructure = new SmartConfigurationTableStructure
+                {
+                    TableIndex = tableData.TableIndex,
+                    TableName = tableInfo?.Name,
+                    Headers = regionHeaders,
+                    HeaderRowIndex = region.HeaderRowIndex,
+                    HeaderRowCount = region.HeaderRowCount,
+                    DataStartRowIndex = region.DataStartRowIndex,
+                    DataEndRowIndex = region.DataEndRowIndex,
+                    ProjectColumnIndex = region.IsSpecificationOnly
+                        ? null
+                        : NormalizeTemplateColumn(region.ProjectColumnIndex),
+                    SpecificationColumnIndex = NormalizeTemplateColumn(region.SpecificationColumnIndex),
+                    AcceptanceColumnIndex = NormalizeTemplateColumn(region.AcceptanceColumnIndex),
+                    RemarkColumnIndex = NormalizeTemplateColumn(region.RemarkColumnIndex),
+                    IsSpecificationOnly = region.IsSpecificationOnly,
+                    Confidence = 1,
+                    Source = "Template",
+                    Decision = healthCheck.CanAutoApply ? "AutoApply" : "NeedConfirm"
+                };
+                var regionStructure = NormalizeRowRange(tableInfo, tableData, rawRegionStructure);
+                var regionTable = ToRecognizedTable(regionStructure);
+                var normalizedRegion = regionTable.Regions[0] with
+                {
+                    RegionId = BuildRegionId(tableData.TableIndex, index),
+                    RegionIndex = index
+                };
+                if (region.DataEndRowIndex.HasValue &&
+                    regionStructure.DataEndRowIndex != region.DataEndRowIndex)
+                {
+                    normalizedRegion = normalizedRegion with
+                    {
+                        Decision = "NeedConfirm",
+                        Issues =
+                        [
+                            .. normalizedRegion.Issues,
+                            new SmartConfigurationRecognitionIssue
+                            {
+                                Code = "TemplateRegionClamped",
+                                Severity = "Error",
+                                Message = "已学习区域超出当前表格范围，请重新确认"
+                            }
+                        ]
+                    };
+                }
+
+                return normalizedRegion;
+            })
+            .ToList();
+        var primary = regions[0];
+        return recognized with
+        {
+            Headers = primary.Headers,
+            HeaderRowIndex = primary.HeaderRowIndex,
+            HeaderRowCount = primary.HeaderRowCount,
+            DataStartRowIndex = primary.DataStartRowIndex,
+            DataEndRowIndex = primary.DataEndRowIndex,
+            ProjectColumnIndex = primary.ProjectColumnIndex,
+            SpecificationColumnIndex = primary.SpecificationColumnIndex,
+            AcceptanceColumnIndex = primary.AcceptanceColumnIndex,
+            RemarkColumnIndex = primary.RemarkColumnIndex,
+            IsSpecificationOnly = primary.IsSpecificationOnly,
+            Fields = primary.Fields,
+            Regions = regions,
+            Decision = regions.Count > 1 || regions.Any(region =>
+                region.Issues.Any(issue => string.Equals(
+                    issue.Severity,
+                    "Error",
+                    StringComparison.OrdinalIgnoreCase)))
+                ? "NeedConfirm"
+                : recognized.Decision
+        };
     }
 
     public static SmartConfigurationRecognizedTable FromMapping(
@@ -248,6 +331,15 @@ internal static class SmartConfigurationRecognizedTableFactory
 
     public static SmartConfigurationRecognizedTable ToRecognizedTable(SmartConfigurationTableStructure structure)
     {
+        var fields = BuildFields(
+            structure.Headers,
+            structure.ProjectColumnIndex,
+            structure.SpecificationColumnIndex,
+            structure.AcceptanceColumnIndex,
+            structure.RemarkColumnIndex,
+            structure.Confidence,
+            structure.Source,
+            structure.FieldConfidences);
         return new SmartConfigurationRecognizedTable
         {
             TableIndex = structure.TableIndex,
@@ -265,16 +357,35 @@ internal static class SmartConfigurationRecognizedTableFactory
             Confidence = structure.Confidence,
             Source = structure.Source,
             Decision = structure.Decision,
-            Fields = BuildFields(
-                structure.Headers,
-                structure.ProjectColumnIndex,
-                structure.SpecificationColumnIndex,
-                structure.AcceptanceColumnIndex,
-                structure.RemarkColumnIndex,
-                structure.Confidence,
-                structure.Source,
-                structure.FieldConfidences)
+            Fields = fields,
+            Regions =
+            [
+                new SmartConfigurationRecognizedRegion
+                {
+                    RegionId = BuildRegionId(structure.TableIndex, 0),
+                    RegionIndex = 0,
+                    Headers = structure.Headers,
+                    HeaderRowIndex = structure.HeaderRowIndex,
+                    HeaderRowCount = structure.HeaderRowCount,
+                    DataStartRowIndex = structure.DataStartRowIndex,
+                    DataEndRowIndex = structure.DataEndRowIndex,
+                    ProjectColumnIndex = structure.ProjectColumnIndex,
+                    SpecificationColumnIndex = structure.SpecificationColumnIndex,
+                    AcceptanceColumnIndex = structure.AcceptanceColumnIndex,
+                    RemarkColumnIndex = structure.RemarkColumnIndex,
+                    IsSpecificationOnly = structure.IsSpecificationOnly,
+                    Confidence = structure.Confidence,
+                    Source = structure.Source,
+                    Decision = structure.Decision,
+                    Fields = fields
+                }
+            ]
         };
+    }
+
+    public static string BuildRegionId(int tableIndex, int regionIndex)
+    {
+        return $"table-{tableIndex}-region-{regionIndex}";
     }
 
     private static SmartConfigurationTableStructure NormalizeRowRange(

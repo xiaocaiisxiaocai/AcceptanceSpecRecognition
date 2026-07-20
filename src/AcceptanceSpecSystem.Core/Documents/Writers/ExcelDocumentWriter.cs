@@ -123,7 +123,6 @@ public class ExcelDocumentWriter : IDocumentWriter
 
         var sheet = sheets[tableIndex];
         var successCount = WriteSheetOperations(sheet, operationsList, cancellationToken);
-        RemoveWorksheetTables(sheet);
 
         SaveWorkbookToStream(workbook, stream, cancellationToken);
         return successCount;
@@ -156,7 +155,6 @@ public class ExcelDocumentWriter : IDocumentWriter
 
             var sheet = sheets[tableIndex];
             totalSuccess += WriteSheetOperations(sheet, operations, cancellationToken);
-            RemoveWorksheetTables(sheet);
         }
 
         SaveWorkbookToStream(workbook, stream, cancellationToken);
@@ -178,11 +176,26 @@ public class ExcelDocumentWriter : IDocumentWriter
             : BuildMergedLookup(sheet, usedRange, cancellationToken);
 
         var successCount = 0;
+        var writtenTargets = new HashSet<(int Row, int Col)>();
         foreach (var operation in operations)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (TryWriteCell(sheet, startRow, startCol, endRow, endCol, mergedLookup, operation))
+            if (TryResolveTarget(
+                    startRow,
+                    startCol,
+                    endRow,
+                    endCol,
+                    mergedLookup,
+                    operation,
+                    out var target))
             {
+                if (!writtenTargets.Add(target))
+                {
+                    throw new InvalidOperationException(
+                        $"多个写入操作指向同一单元格 {sheet.Name}!R{target.Row}C{target.Col}，请检查合并单元格和列映射");
+                }
+
+                sheet.Cell(target.Row, target.Col).Value = operation.Value ?? string.Empty;
                 successCount++;
             }
         }
@@ -190,28 +203,16 @@ public class ExcelDocumentWriter : IDocumentWriter
         return successCount;
     }
 
-    private static void RemoveWorksheetTables(IXLWorksheet sheet)
-    {
-        var tableNames = sheet.Tables.Select(table => table.Name).ToList();
-        if (tableNames.Count == 0)
-            return;
-
-        // 部分外部生成的 Excel Table 关系会让 ClosedXML 保存时报关系 id 异常；写回只依赖单元格内容，移除表元数据保留数据。
-        foreach (var tableName in tableNames)
-        {
-            sheet.Tables.Remove(tableName);
-        }
-    }
-
-    private static bool TryWriteCell(
-        IXLWorksheet sheet,
+    private static bool TryResolveTarget(
         int startRow,
         int startCol,
         int endRow,
         int endCol,
         Dictionary<(int Row, int Col), (int MasterRow, int MasterCol)>? mergedLookup,
-        CellWriteOperation operation)
+        CellWriteOperation operation,
+        out (int Row, int Col) target)
     {
+        target = default;
         if (operation.RowIndex < 0 || operation.ColumnIndex < 0)
             return false;
 
@@ -227,7 +228,7 @@ public class ExcelDocumentWriter : IDocumentWriter
             absCol = master.MasterCol;
         }
 
-        sheet.Cell(absRow, absCol).Value = operation.Value ?? string.Empty;
+        target = (absRow, absCol);
         return true;
     }
 
@@ -272,9 +273,16 @@ public class ExcelDocumentWriter : IDocumentWriter
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        // ClosedXML 在从同一个可写流加载工作簿后，保存期间仍会读取原包中的
+        // Structured Table 关系。先截断原流会让这些关系失效，因此必须先完整
+        // 序列化到独立缓冲区，再替换调用方流。
+        using var output = new MemoryStream();
+        workbook.SaveAs(output);
+        cancellationToken.ThrowIfCancellationRequested();
+        output.Position = 0;
         stream.Position = 0;
         stream.SetLength(0);
-        workbook.SaveAs(stream);
+        output.CopyTo(stream);
         stream.Position = 0;
     }
 }

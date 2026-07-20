@@ -41,7 +41,8 @@ const oldTable: SmartConfigRecognizedTable = {
   isSpecificationOnly: false,
   confidence: 0.95,
   source: "Rule",
-  decision: "AutoApply",
+  decision: "NeedConfirm",
+  recommendation: "NeedConfirm",
   fields: []
 };
 
@@ -173,10 +174,88 @@ describe("useDataImportSmartStructureRecognition", () => {
       ensurePreviewDataLoaded: vi.fn().mockResolvedValue(true)
     });
 
-    await state.runSmartStructureRecognition();
+    const recognized = await state.runSmartStructureRecognition();
     await state.handleSmartTableImportSelectionChange(pendingTable, true);
 
+    expect(recognized).toBe(true);
+    expect(state.smartTableInfos.value).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ index: 0, rowCount: 10, columnCount: 5 })
+      ])
+    );
     expect(selectedSmartTableIndexes.value).toEqual([0]);
     expect(tableConfigs.value).toEqual([]);
+  });
+
+  it("Reject Sheet 进入手动处理时会生成默认配置并定位到该 Sheet", async () => {
+    const tableConfigs = ref<any[]>([]);
+    const activeTableIndex = ref<number | null>(null);
+    const selectedTableIndexes = ref<number[]>([]);
+    const state = useDataImportSmartStructureRecognition({
+      uploadedFile: ref({
+        fileId: 7,
+        fileName: "test.xlsx",
+        fileType: 1,
+        fileHash: "hash",
+        isDuplicate: false,
+        tableCount: 1,
+        tableCountReady: true
+      }),
+      selectedCustomerId: ref(1),
+      isExcelFile: ref(true),
+      currentStep: ref(1),
+      tableConfigs,
+      selectedTableIndexes,
+      selectedTables: ref<any[]>([]),
+      activeTableIndex,
+      importPreviewSelectionKeys: ref<string[]>([]),
+      excludedRowIndexMap: ref<Record<number, number[]>>({}),
+      smartStageText: ref(""),
+      selectedSmartTableIndexes: ref<number[]>([]),
+      ensurePreviewDataLoaded: vi.fn().mockResolvedValue(true)
+    });
+
+    await state.runSmartStructureRecognition();
+    tableConfigs.value = [];
+    selectedTableIndexes.value = [];
+
+    expect(state.prepareAdvancedTableConfig(0)).toBe(true);
+    expect(activeTableIndex.value).toBe(0);
+    expect(selectedTableIndexes.value).toEqual([0]);
+    expect(tableConfigs.value[0]).toMatchObject({
+      tableIndex: 0,
+      previewData: null
+    });
+    expect(tableConfigs.value[0].excelMapping).toBeDefined();
+  });
+
+  it("识别成功但预览失败时暴露手动兜底错误状态", async () => {
+    const state = useDataImportSmartStructureRecognition({
+      uploadedFile: ref({
+        fileId: 7,
+        fileName: "test.xlsx",
+        fileType: 1,
+        fileHash: "hash",
+        isDuplicate: false,
+        tableCount: 1,
+        tableCountReady: true
+      }),
+      selectedCustomerId: ref(1),
+      isExcelFile: ref(false),
+      currentStep: ref(0),
+      tableConfigs: ref<any[]>([]),
+      selectedTableIndexes: ref<number[]>([]),
+      selectedTables: ref<any[]>([]),
+      activeTableIndex: ref<number | null>(null),
+      importPreviewSelectionKeys: ref<string[]>([]),
+      excludedRowIndexMap: ref<Record<number, number[]>>({}),
+      smartStageText: ref(""),
+      selectedSmartTableIndexes: ref<number[]>([]),
+      ensurePreviewDataLoaded: vi.fn().mockResolvedValue(false)
+    });
+
+    expect(await state.runSmartStructureRecognition()).toBe(false);
+    expect(state.smartApplyError.value).toContain("预览生成失败");
+    expect(state.recognizedTables.value).toHaveLength(1);
   });
 });

@@ -878,10 +878,14 @@ public class ReviewRegressionTests
         var aiServiceConfigContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/config/ai-services/index.vue".Replace('/', Path.DirectorySeparatorChar)));
-        aiServiceConfigContent.Should().Contain("证据裁决");
-        aiServiceConfigContent.Should().NotContain("defaultMatchingStrategy");
-        aiServiceConfigContent.Should().NotContain("单阶段");
-        aiServiceConfigContent.Should().NotContain("多阶段");
+        var aiServiceSummaryContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/ai-services/components/AiServiceSummaryCard.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var aiServiceUiContent = aiServiceConfigContent + aiServiceSummaryContent;
+        aiServiceUiContent.Should().Contain("证据裁决");
+        aiServiceUiContent.Should().NotContain("defaultMatchingStrategy");
+        aiServiceUiContent.Should().NotContain("单阶段");
+        aiServiceUiContent.Should().NotContain("多阶段");
 
         var apiDtoContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
@@ -1156,9 +1160,14 @@ public class ReviewRegressionTests
 
         content.Should().Contain("内置角色只读，不可保存",
             "内置角色允许打开编辑弹窗时，应明确提示当前为只读模式");
-        content.Should().Contain(":disabled=\"editForm.isBuiltIn\"",
+        var dialogContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/auth-roles/components/RoleFormDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
+        dialogContent.Should().Contain("props.modelValue.isBuiltIn",
+            "编辑弹窗应从当前角色模型推导只读状态");
+        dialogContent.Should().Contain(":disabled=\"readOnly\"",
             "编辑弹窗中的输入控件应随内置角色状态进入只读态");
-        content.Should().Contain("{{ editForm.isBuiltIn ? \"不可保存\" : \"保存\" }}",
+        dialogContent.Should().Contain("{{ readOnly ? \"不可保存\"",
             "内置角色弹窗底部按钮文案应明确告知不可保存");
     }
 

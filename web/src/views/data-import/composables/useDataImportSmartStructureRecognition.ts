@@ -1,4 +1,4 @@
-import type { Ref } from "vue";
+import { ref, type Ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   getFileTables,
@@ -10,11 +10,14 @@ import type {
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
+import { applySmartConfigConfirmRequestToTable } from "@/views/shared/smart-structure-recognition";
 import {
   buildDataImportConfigsFromRecognizedTables,
+  buildManualDataImportConfig,
   canSmartTableBeImported,
   createDefaultSelectedSmartTableIndexes,
   filterSelectedSmartTables,
+  syncDataImportConfigsToRecognizedTables,
   SMART_STEP_CONFIRM_PREVIEW
 } from "../dataImport.smartRecognition";
 import type { TableImportConfig } from "../dataImport.types";
@@ -69,10 +72,23 @@ export function useDataImportSmartStructureRecognition({
     confirm: confirmSmartStructure,
     reset: resetSmartStructure
   } = useSmartStructureRecognition();
+  const smartTableInfos = ref<TableInfo[]>([]);
+  const smartApplyError = ref("");
   let smartFlowVersion = 0;
 
   const isCurrentSmartFlow = (fileId: number, flowVersion: number) =>
     uploadedFile.value?.fileId === fileId && smartFlowVersion === flowVersion;
+
+  const clearAppliedRecognitionState = () => {
+    tableConfigs.value = [];
+    selectedTableIndexes.value = [];
+    selectedTables.value = [];
+    activeTableIndex.value = null;
+    importPreviewSelectionKeys.value = [];
+    excludedRowIndexMap.value = {};
+    smartTableInfos.value = [];
+    smartApplyError.value = "";
+  };
 
   const loadTablesForSmartRecognition = async (
     file: FileUploadResponse,
@@ -110,6 +126,7 @@ export function useDataImportSmartStructureRecognition({
     const sourceFileId = sourceFile.fileId;
 
     try {
+      smartApplyError.value = "";
       smartStageText.value = "正在读取工作表列表...";
       const tableInfos = await loadTablesForSmartRecognition(
         sourceFile,
@@ -118,6 +135,7 @@ export function useDataImportSmartStructureRecognition({
       if (!tableInfos || !isCurrentSmartFlow(sourceFileId, flowVersion)) {
         return false;
       }
+      smartTableInfos.value = tableInfos;
       smartStageText.value = "正在应用识别到的结构...";
       const importTables = filterSelectedSmartTables(
         tables,
@@ -141,7 +159,9 @@ export function useDataImportSmartStructureRecognition({
               ? "已勾选的表仍需补齐列配置并确认"
               : "未识别到可导入表格，请使用手动处理"
         );
-        return false;
+        // 没有立即可预览的配置不等于识别失败。仍需进入确认页，让用户
+        // 为缺少必填列的 Sheet 调整范围并完成确认。
+        return tables.length > 0;
       }
 
       tableConfigs.value = configs;
@@ -152,19 +172,24 @@ export function useDataImportSmartStructureRecognition({
       activeTableIndex.value = configs[0]?.tableIndex ?? null;
       importPreviewSelectionKeys.value = [];
       excludedRowIndexMap.value = {};
-      return await ensurePreviewDataLoaded({
+      const previewLoaded = await ensurePreviewDataLoaded({
         sourceFileId,
         previewRows: SMART_CONFIRM_PREVIEW_ROWS,
         initialText: "正在生成导入预览...",
         completeText: "导入预览已生成，正在进入确认页..."
       });
+      if (!previewLoaded && isCurrentSmartFlow(sourceFileId, flowVersion)) {
+        smartApplyError.value =
+          "智能结构已识别，但导入预览生成失败，可重试或使用手动处理";
+      }
+      return previewLoaded;
     } catch (error) {
       if (!isCurrentSmartFlow(sourceFileId, flowVersion)) {
         return false;
       }
-      ElMessage.error(
-        error instanceof Error ? error.message : "应用智能识别结果失败"
-      );
+      smartApplyError.value =
+        error instanceof Error ? error.message : "应用智能识别结果失败";
+      ElMessage.error(smartApplyError.value);
       return false;
     }
   };
@@ -178,6 +203,7 @@ export function useDataImportSmartStructureRecognition({
 
     const flowVersion = ++smartFlowVersion;
     const sourceFileId = sourceFile.fileId;
+    clearAppliedRecognitionState();
 
     smartStageText.value = "正在读取工作表结构...";
     try {
@@ -204,25 +230,6 @@ export function useDataImportSmartStructureRecognition({
     }
   };
 
-  const replaceRecognizedTableWithConfirmRequest = (
-    table: SmartConfigRecognizedTable,
-    request: SmartConfigConfirmRequest
-  ): SmartConfigRecognizedTable => ({
-    ...table,
-    tableName: request.templateName || table.tableName,
-    headers: request.headers,
-    projectColumnIndex: request.projectColumnIndex,
-    specificationColumnIndex: request.specificationColumnIndex,
-    acceptanceColumnIndex: request.acceptanceColumnIndex,
-    remarkColumnIndex: request.remarkColumnIndex,
-    headerRowIndex: request.headerRowIndex,
-    headerRowCount: request.headerRowCount,
-    dataStartRowIndex: request.dataStartRowIndex,
-    dataEndRowIndex: request.dataEndRowIndex,
-    isSpecificationOnly: request.isSpecificationOnly,
-    decision: "AutoApply"
-  });
-
   const handleSmartStructureConfirm = async (
     table: SmartConfigRecognizedTable,
     request: SmartConfigConfirmRequest
@@ -236,7 +243,7 @@ export function useDataImportSmartStructureRecognition({
     ) {
       const nextTables = recognizedTables.value.map(item =>
         item.tableIndex === table.tableIndex
-          ? replaceRecognizedTableWithConfirmRequest(item, request)
+          ? applySmartConfigConfirmRequestToTable(item, request)
           : item
       );
       if (!replaceRecognizedTables(nextTables, sourceFileId)) {
@@ -269,9 +276,55 @@ export function useDataImportSmartStructureRecognition({
     }
   };
 
+  const prepareAdvancedTableConfig = (tableIndex?: number) => {
+    const targetTableInfo =
+      smartTableInfos.value.find(item => item.index === tableIndex) ??
+      smartTableInfos.value[0];
+    if (!targetTableInfo) return false;
+
+    if (
+      !tableConfigs.value.some(
+        item => item.tableIndex === targetTableInfo.index
+      )
+    ) {
+      tableConfigs.value = [
+        ...tableConfigs.value,
+        buildManualDataImportConfig({
+          isExcelFile: isExcelFile.value,
+          tableInfo: targetTableInfo
+        })
+      ].sort((left, right) => left.tableIndex - right.tableIndex);
+    }
+    if (!selectedTableIndexes.value.includes(targetTableInfo.index)) {
+      selectedTableIndexes.value = [
+        ...selectedTableIndexes.value,
+        targetTableInfo.index
+      ].sort((left, right) => left - right);
+    }
+    selectedTables.value = smartTableInfos.value.filter(item =>
+      selectedTableIndexes.value.includes(item.index)
+    );
+    activeTableIndex.value = targetTableInfo.index;
+    return true;
+  };
+
+  const syncAdvancedConfigsToRecognizedTables = () => {
+    const fileId = uploadedFile.value?.fileId;
+    if (fileId == null) return false;
+    return replaceRecognizedTables(
+      syncDataImportConfigsToRecognizedTables({
+        isExcelFile: isExcelFile.value,
+        tables: recognizedTables.value,
+        configs: tableConfigs.value
+      }),
+      fileId
+    );
+  };
+
   const resetSmartStructureState = () => {
     smartFlowVersion += 1;
     selectedSmartTableIndexes.value = [];
+    clearAppliedRecognitionState();
     smartStageText.value = "";
     resetSmartStructure();
   };
@@ -280,12 +333,16 @@ export function useDataImportSmartStructureRecognition({
     smartRecognizing,
     smartRecognitionAttempted,
     smartRecognitionError,
+    smartApplyError,
     smartConfirmingTableIndex,
+    smartTableInfos,
     recognizedTables,
     smartStructureSummary,
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
     handleSmartTableImportSelectionChange,
+    prepareAdvancedTableConfig,
+    syncAdvancedConfigsToRecognizedTables,
     resetSmartStructureState
   };
 }

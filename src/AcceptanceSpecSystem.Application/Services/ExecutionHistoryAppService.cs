@@ -157,7 +157,7 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
                 CreatedByUserId = owner.UserId,
                 CompanyId = owner.CompanyId
             };
-            await _unitOfWork.ExecutionHistoryRecords.AddAsync(entity);
+            await _unitOfWork.ExecutionHistoryRecords.AddAsync(entity, cancellationToken);
         }
 
         entity.TaskType = draft.TaskType;
@@ -177,7 +177,7 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
 
         if (saveImmediately)
         {
-            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
     }
 

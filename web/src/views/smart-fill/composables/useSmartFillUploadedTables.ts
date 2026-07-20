@@ -31,6 +31,8 @@ export function useSmartFillUploadedTables({
   loadingUploadedFileTables,
   selectedCustomerId
 }: UseSmartFillUploadedTablesOptions) {
+  let tableLoadVersion = 0;
+  let ruleLoadVersion = 0;
   const applyRuleColumnsToTableConfig = (
     table: TableInfo,
     config: BatchTableConfigItem
@@ -96,13 +98,36 @@ export function useSmartFillUploadedTables({
     return applyRuleColumnsToTableConfig(table, baseConfig);
   };
 
-  const refreshWordColumnMappingRules = async (customerId?: number) => {
+  const refreshWordColumnMappingRules = async (
+    customerId?: number,
+    expectedFileId = uploadedFile.value?.fileId
+  ) => {
+    const requestVersion = ++ruleLoadVersion;
     if (isExcelFile.value) {
       wordColumnMappingRules.value = [];
       return true;
     }
 
-    const rulesRes = await getEffectiveColumnMappingRules(customerId);
+    let rulesRes;
+    try {
+      rulesRes = await getEffectiveColumnMappingRules(customerId);
+    } catch (error) {
+      if (
+        requestVersion !== ruleLoadVersion ||
+        selectedCustomerId?.value !== customerId ||
+        uploadedFile.value?.fileId !== expectedFileId
+      ) {
+        return false;
+      }
+      throw error;
+    }
+    if (
+      requestVersion !== ruleLoadVersion ||
+      selectedCustomerId?.value !== customerId ||
+      uploadedFile.value?.fileId !== expectedFileId
+    ) {
+      return false;
+    }
     if (rulesRes.code === 0) {
       wordColumnMappingRules.value = rulesRes.data || [];
       return true;
@@ -139,12 +164,22 @@ export function useSmartFillUploadedTables({
   };
 
   const loadUploadedFileTables = async (file: FileUploadResponse) => {
+    const requestVersion = ++tableLoadVersion;
+    ruleLoadVersion += 1;
     loadingUploadedFileTables.value = true;
+    allTables.value = [];
+    batchTableConfigs.value = [];
 
     let tables: TableInfo[] = [];
     let tableMetaLoaded = false;
     try {
       const tablesRes = await getFileTables(file.fileId);
+      if (
+        requestVersion !== tableLoadVersion ||
+        uploadedFile.value?.fileId !== file.fileId
+      ) {
+        return;
+      }
       if (tablesRes.code === 0) {
         tables = tablesRes.data;
         tableMetaLoaded = true;
@@ -153,12 +188,20 @@ export function useSmartFillUploadedTables({
       }
 
       if (file.fileType !== 1) {
-        await refreshWordColumnMappingRules(selectedCustomerId?.value);
+        await refreshWordColumnMappingRules(
+          selectedCustomerId?.value,
+          file.fileId
+        );
       } else {
         wordColumnMappingRules.value = [];
       }
     } catch {
-      ElMessage.warning("获取表格列表失败");
+      if (
+        requestVersion === tableLoadVersion &&
+        uploadedFile.value?.fileId === file.fileId
+      ) {
+        ElMessage.warning("获取表格列表失败");
+      }
     } finally {
       if (uploadedFile.value?.fileId === file.fileId) {
         uploadedFile.value = {
@@ -167,7 +210,9 @@ export function useSmartFillUploadedTables({
           tableCountReady: true
         };
       }
-      loadingUploadedFileTables.value = false;
+      if (requestVersion === tableLoadVersion) {
+        loadingUploadedFileTables.value = false;
+      }
     }
 
     if (uploadedFile.value?.fileId !== file.fileId) return;
@@ -179,8 +224,19 @@ export function useSmartFillUploadedTables({
     );
   };
 
+  const ensureManualTableConfigs = () => {
+    if (batchTableConfigs.value.length > 0 || allTables.value.length === 0) {
+      return batchTableConfigs.value.length > 0;
+    }
+    batchTableConfigs.value = allTables.value.map(table =>
+      buildDefaultTableConfig(table, allTables.value.length === 1)
+    );
+    return true;
+  };
+
   return {
     loadUploadedFileTables,
-    reloadWordColumnMappingRulesForCustomer
+    reloadWordColumnMappingRulesForCustomer,
+    ensureManualTableConfigs
   };
 }

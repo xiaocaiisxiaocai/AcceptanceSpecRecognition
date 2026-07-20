@@ -34,7 +34,7 @@ public static class ExecutionHistoryDisplayTags
 
 public sealed class ExecutionHistoryDraft
 {
-    public const int CurrentSmartFillPlaybackVersion = 1;
+    public const int CurrentSmartFillPlaybackVersion = 2;
 
     public string TaskId { get; set; } = string.Empty;
 

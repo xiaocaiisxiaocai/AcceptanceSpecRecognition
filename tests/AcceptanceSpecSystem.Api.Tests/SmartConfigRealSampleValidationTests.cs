@@ -71,11 +71,23 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
         headerRowIndex.Should().Be(7);
         headerRowCount.Should().Be(1);
         dataStartRowIndex.Should().Be(8);
-        dataEndRowIndex.Should().Be(194);
+        dataEndRowIndex.Should().Be(111);
         projectColumnIndex.Should().Be(2);
         specificationColumnIndex.Should().Be(3);
         acceptanceColumnIndex.Should().Be(8);
         remarkColumnIndex.Should().Be(9);
+        usableTable.GetProperty("recommendation").GetString().Should().Be(
+            "NeedConfirm",
+            "多区域验收表需要确认范围，但前端仍应自动选中并进入确认页");
+        var regions = usableTable.GetProperty("regions").EnumerateArray().ToList();
+        regions.Should().HaveCount(2);
+        ReadRegionCoordinates(regions[0]).Should().Be((7, 1, 8, 111));
+        ReadRegionCoordinates(regions[1]).Should().Be((124, 2, 127, 142));
+        regions[1].GetProperty("projectColumnIndex").GetInt32().Should().Be(2);
+        regions[1].GetProperty("specificationColumnIndex").GetInt32().Should().Be(3);
+        regions[1].GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(8);
+        regions[1].GetProperty("remarkColumnIndex").GetInt32().Should().Be(9);
+        regions[1].GetProperty("headers")[2].GetString().Should().NotBe(headers[2], "第二段未录入的项目表头应独立参与学习");
         headers[projectColumnIndex!.Value].Should().Be("具體項目");
         headers[specificationColumnIndex!.Value].Should().Be("規格");
         headers[acceptanceColumnIndex!.Value].Should().Be("OK/NG");
@@ -84,6 +96,8 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
         var confirmResponse = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
             customerId,
+            fileId,
+            tableIndex = 0,
             templateName = $"真实样本-{Path.GetFileNameWithoutExtension(samplePath)}",
             headers,
             projectColumnIndex,
@@ -95,7 +109,22 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
             dataStartRowIndex,
             dataEndRowIndex,
             isSpecificationOnly = projectColumnIndex == null,
-            learnedColumns = BuildLearnedColumns(headers, projectColumnIndex, specificationColumnIndex, acceptanceColumnIndex, remarkColumnIndex)
+            learnedColumns = BuildLearnedColumns(headers, projectColumnIndex, specificationColumnIndex, acceptanceColumnIndex, remarkColumnIndex),
+            regions = regions.Select(region => new
+            {
+                regionId = region.GetProperty("regionId").GetString(),
+                regionIndex = region.GetProperty("regionIndex").GetInt32(),
+                headers = region.GetProperty("headers").EnumerateArray().Select(item => item.GetString() ?? string.Empty).ToArray(),
+                projectColumnIndex = ReadNullableInt(region, "projectColumnIndex"),
+                specificationColumnIndex = ReadNullableInt(region, "specificationColumnIndex"),
+                acceptanceColumnIndex = ReadNullableInt(region, "acceptanceColumnIndex"),
+                remarkColumnIndex = ReadNullableInt(region, "remarkColumnIndex"),
+                headerRowIndex = region.GetProperty("headerRowIndex").GetInt32(),
+                headerRowCount = region.GetProperty("headerRowCount").GetInt32(),
+                dataStartRowIndex = region.GetProperty("dataStartRowIndex").GetInt32(),
+                dataEndRowIndex = ReadNullableInt(region, "dataEndRowIndex"),
+                isSpecificationOnly = region.GetProperty("isSpecificationOnly").GetBoolean()
+            }).ToArray()
         }));
         var confirmText = await confirmResponse.Content.ReadAsStringAsync();
         confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK, confirmText);
@@ -103,6 +132,30 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
         var confirmBody = await confirmResponse.ReadAsAsync<ApiResponse<JsonElement>>();
         confirmBody.Code.Should().Be(0, confirmText);
         confirmBody.Data!.GetProperty("templateSaved").GetBoolean().Should().BeTrue();
+        confirmBody.Data.GetProperty("learnedRuleCount").GetInt32().Should().BeGreaterThanOrEqualTo(4);
+
+        var secondProjectHeader = regions[1].GetProperty("headers")[2].GetString();
+        var learnedRulesResponse = await _client.GetAsync($"/api/column-mapping-rules/effective?customerId={customerId}");
+        var learnedRulesBody = await learnedRulesResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        learnedRulesBody.Data.EnumerateArray().Should().Contain(item =>
+            item.GetProperty("targetField").GetInt32() == 1 &&
+            item.GetProperty("pattern").GetString() == secondProjectHeader &&
+            item.GetProperty("customerId").GetInt32() == customerId);
+
+        var reuseResponse = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+        var reuseText = await reuseResponse.Content.ReadAsStringAsync();
+        reuseResponse.StatusCode.Should().Be(HttpStatusCode.OK, reuseText);
+        var reuseBody = await reuseResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        var reusedTable = reuseBody.Data!.GetProperty("tables").EnumerateArray()
+            .Single(table => table.GetProperty("tableIndex").GetInt32() == 0);
+        reusedTable.GetProperty("source").GetString().Should().Be("Template");
+        reusedTable.GetProperty("regions").EnumerateArray()
+            .Select(ReadRegionCoordinates)
+            .Should().Equal(regions.Select(ReadRegionCoordinates));
 
         Console.WriteLine("SMART_CONFIG_REAL_SAMPLE_SUMMARY " + JsonSerializer.Serialize(new
         {
@@ -122,6 +175,7 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
             specificationColumnIndex,
             acceptanceColumnIndex,
             remarkColumnIndex,
+            regions = regions.Select(ReadRegionCoordinates).ToArray(),
             headers = headers.Take(12).ToArray()
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
     }
@@ -188,6 +242,14 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
         };
     }
 
+    private static (int HeaderRowIndex, int HeaderRowCount, int DataStartRowIndex, int DataEndRowIndex) ReadRegionCoordinates(JsonElement region)
+    {
+        return (
+            region.GetProperty("headerRowIndex").GetInt32(),
+            region.GetProperty("headerRowCount").GetInt32(),
+            region.GetProperty("dataStartRowIndex").GetInt32(),
+            region.GetProperty("dataEndRowIndex").GetInt32());
+    }
     private static int? ReadNullableInt(JsonElement element, string propertyName)
     {
         var value = element.GetProperty(propertyName);

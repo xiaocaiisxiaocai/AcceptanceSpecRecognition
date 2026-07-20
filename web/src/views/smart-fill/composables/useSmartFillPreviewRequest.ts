@@ -147,6 +147,8 @@ export function useSmartFillPreviewRequest({
           headerRowStart: t.headerRowStart,
           headerRowCount: t.headerRowCount,
           dataStartRow: t.dataStartRow,
+          dataEndRow: t.dataEndRow,
+          regions: t.regions,
           filterEmptySourceRows: getEffectiveFilterEmptySourceRows(t)
         })),
         customerId: scope.customerId,

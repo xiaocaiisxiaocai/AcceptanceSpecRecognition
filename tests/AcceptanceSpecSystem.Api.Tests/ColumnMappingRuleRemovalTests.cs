@@ -5,6 +5,7 @@ using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
@@ -177,48 +178,73 @@ public class ColumnMappingRuleRecoveryTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
-    public async Task GetAll_WhenHistoricalDuplicateRulesExist_ShouldReturnSingleVisibleRule()
+    public async Task Update_WhenGlobalPatternBelongsToAnotherTarget_ShouldReturnHttp409()
     {
-        using (var scope = _factory.Services.CreateScope())
+        var suffix = Guid.NewGuid().ToString("N");
+        var protectedPattern = $"全局字段冲突-{suffix}";
+        var first = await _client.PostAsync(BaseUrl, ApiClientJson.ToJsonContent(new
         {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            db.ColumnMappingRules.Add(new ColumnMappingRule
-            {
-                TargetField = ColumnMappingTargetField.Project,
-                MatchMode = ColumnMappingMatchMode.Contains,
-                Pattern = "历史重复词",
-                Priority = 0,
-                Enabled = true,
-                Source = ColumnMappingRuleSource.Builtin,
-                CustomerId = null,
-                CreatedAt = DateTime.UtcNow
-            });
-            db.ColumnMappingRules.Add(new ColumnMappingRule
-            {
-                TargetField = ColumnMappingTargetField.Project,
-                MatchMode = ColumnMappingMatchMode.Contains,
-                Pattern = "历史重复词",
-                Priority = 0,
-                Enabled = true,
-                Source = ColumnMappingRuleSource.Manual,
-                CustomerId = null,
-                CreatedAt = DateTime.UtcNow
-            });
-            await db.SaveChangesAsync();
-        }
+            targetField = ColumnMappingTargetField.Project,
+            matchMode = ColumnMappingMatchMode.Equals,
+            pattern = protectedPattern,
+            priority = 10,
+            enabled = true,
+            source = ColumnMappingRuleSource.Manual
+        }));
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        var second = await _client.PostAsync(BaseUrl, ApiClientJson.ToJsonContent(new
+        {
+            targetField = ColumnMappingTargetField.Specification,
+            matchMode = ColumnMappingMatchMode.Equals,
+            pattern = $"更新前-{suffix}",
+            priority = 10,
+            enabled = true,
+            source = ColumnMappingRuleSource.Manual
+        }));
+        var secondBody = await second.ReadAsAsync<ApiResponse<JsonElement>>();
+        var secondId = secondBody.Data.GetProperty("id").GetInt32();
 
-        var resp = await _client.GetAsync(BaseUrl);
-        resp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var json = await resp.ReadAsAsync<ApiResponse<JsonElement>>();
-        json.Code.Should().Be(0);
+        var response = await _client.PutAsync($"{BaseUrl}/{secondId}", ApiClientJson.ToJsonContent(new
+        {
+            targetField = ColumnMappingTargetField.Specification,
+            matchMode = ColumnMappingMatchMode.Equals,
+            pattern = protectedPattern,
+            priority = 10,
+            enabled = true,
+            source = ColumnMappingRuleSource.Manual
+        }));
 
-        var visibleCount = json.Data.EnumerateArray()
-            .Count(item =>
-                item.GetProperty("targetField").GetInt32() == (int)ColumnMappingTargetField.Project &&
-                item.GetProperty("customerId").ValueKind == JsonValueKind.Null &&
-                item.GetProperty("pattern").GetString() == "历史重复词");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(409);
+    }
 
-        visibleCount.Should().Be(1);
+    [Fact]
+    public async Task Database_WhenNormalizedGlobalRuleAlreadyExists_ShouldRejectDuplicate()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.ColumnMappingRules.Add(new ColumnMappingRule
+        {
+            TargetField = ColumnMappingTargetField.Project,
+            MatchMode = ColumnMappingMatchMode.Contains,
+            Pattern = "持久化唯一词",
+            Source = ColumnMappingRuleSource.Builtin,
+            CustomerId = null
+        });
+        await db.SaveChangesAsync();
+
+        db.ColumnMappingRules.Add(new ColumnMappingRule
+        {
+            TargetField = ColumnMappingTargetField.Project,
+            MatchMode = ColumnMappingMatchMode.Equals,
+            Pattern = "  持久化唯一词  ",
+            Source = ColumnMappingRuleSource.Manual,
+            CustomerId = null
+        });
+
+        var saveDuplicate = async () => await db.SaveChangesAsync();
+        await saveDuplicate.Should().ThrowAsync<DbUpdateException>();
     }
 
     [Fact]

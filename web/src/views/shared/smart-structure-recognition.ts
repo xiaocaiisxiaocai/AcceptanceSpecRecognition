@@ -4,6 +4,7 @@ import type {
   SmartConfigDecision,
   SmartConfigRecommendation,
   SmartConfigRecognizedField,
+  SmartConfigRecognizedRegion,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import type { TableInfo } from "@/api/document";
@@ -30,6 +31,30 @@ export type SmartStructureDisplayGroup = {
   tagType: ElementPlusTagType;
   tables: SmartConfigRecognizedTable[];
 };
+
+export const canConfirmSmartStructureTable = ({
+  readonly,
+  confirmationLocked,
+  customerId,
+  allRegionsConfirmable,
+  structureValidationError,
+  decision,
+  hasStructureChanges
+}: {
+  readonly: boolean;
+  confirmationLocked: boolean;
+  customerId?: number;
+  allRegionsConfirmable: boolean;
+  structureValidationError: string;
+  decision: SmartConfigDecision;
+  hasStructureChanges: boolean;
+}) =>
+  !readonly &&
+  !confirmationLocked &&
+  !!customerId &&
+  allRegionsConfirmable &&
+  !structureValidationError &&
+  (decision !== "Reject" || hasStructureChanges);
 
 export const getSmartStructureFieldLabel = (field: string) => {
   switch (field) {
@@ -190,6 +215,107 @@ export const getRecognizedTableInfo = (
   table: SmartConfigRecognizedTable
 ) => tableInfos.find(item => item.index === table.tableIndex);
 
+export const resolveSmartStructureRegionEndRowIndex = (
+  region: Pick<
+    SmartConfigRecognizedRegion,
+    "dataStartRowIndex" | "dataEndRowIndex"
+  >,
+  tableInfo?: TableInfo
+) =>
+  region.dataEndRowIndex ??
+  (tableInfo?.rowCount
+    ? Math.max(region.dataStartRowIndex, tableInfo.rowCount - 1)
+    : region.dataStartRowIndex);
+
+export const countSmartStructureRegionRows = (
+  regions: Pick<
+    SmartConfigRecognizedRegion,
+    "dataStartRowIndex" | "dataEndRowIndex"
+  >[],
+  tableInfo?: TableInfo
+) =>
+  regions.reduce(
+    (sum, region) =>
+      sum +
+      Math.max(
+        0,
+        resolveSmartStructureRegionEndRowIndex(region, tableInfo) -
+          region.dataStartRowIndex +
+          1
+      ),
+    0
+  );
+
+export const validateSmartStructureRegions = (
+  regions: SmartConfigRecognizedRegion[],
+  tableInfo?: TableInfo
+) => {
+  if (regions.length === 0) return "请至少保留一个数据区域";
+  const maximumRowIndex = tableInfo?.rowCount
+    ? Math.max(0, tableInfo.rowCount - 1)
+    : undefined;
+  const columnCount = tableInfo?.columnCount;
+
+  for (const [index, region] of regions.entries()) {
+    const label = `区域 ${index + 1}`;
+    const headerEndRowIndex =
+      region.headerRowIndex + Math.max(1, region.headerRowCount) - 1;
+    const dataEndRowIndex = resolveSmartStructureRegionEndRowIndex(
+      region,
+      tableInfo
+    );
+    if (
+      region.headerRowIndex < 0 ||
+      region.headerRowCount < 1 ||
+      region.dataStartRowIndex <= headerEndRowIndex ||
+      dataEndRowIndex < region.dataStartRowIndex ||
+      (maximumRowIndex != null &&
+        (headerEndRowIndex > maximumRowIndex ||
+          dataEndRowIndex > maximumRowIndex))
+    ) {
+      return `${label}的表头或数据行范围无效`;
+    }
+    if (!region.isSpecificationOnly && region.projectColumnIndex == null) {
+      return `${label}请选择项目列`;
+    }
+    if (region.specificationColumnIndex == null) {
+      return `${label}请选择规格列`;
+    }
+    if (region.acceptanceColumnIndex == null) {
+      return `${label}请选择验收列`;
+    }
+    const columns = [
+      region.isSpecificationOnly ? null : region.projectColumnIndex,
+      region.specificationColumnIndex,
+      region.acceptanceColumnIndex,
+      region.remarkColumnIndex
+    ].filter((value): value is number => value != null);
+    if (
+      columns.some(
+        column => column < 0 || (columnCount != null && column >= columnCount)
+      )
+    ) {
+      return `${label}包含超出表格范围的字段列`;
+    }
+    if (new Set(columns).size !== columns.length) {
+      return `${label}的字段列不能重复`;
+    }
+  }
+
+  const ordered = [...regions].sort(
+    (left, right) => left.headerRowIndex - right.headerRowIndex
+  );
+  for (let index = 1; index < ordered.length; index += 1) {
+    if (
+      ordered[index].headerRowIndex <=
+      resolveSmartStructureRegionEndRowIndex(ordered[index - 1], tableInfo)
+    ) {
+      return "数据区域之间不能重叠";
+    }
+  }
+  return "";
+};
+
 export const getSmartStructureImportSelectionDisabledReason = (
   table: SmartConfigRecognizedTable
 ) => {
@@ -212,13 +338,20 @@ export const getSmartStructureImportReadinessReason = (
     return selectionDisabledReason;
   }
 
-  const missingFields = [
-    !table.isSpecificationOnly && table.projectColumnIndex == null
-      ? "项目列"
-      : "",
-    table.specificationColumnIndex == null ? "规格列" : "",
-    table.acceptanceColumnIndex == null ? "验收列" : ""
-  ].filter(Boolean);
+  const regions = table.regions?.length ? table.regions : [table];
+  const missingFields = Array.from(
+    new Set(
+      regions
+        .flatMap(region => [
+          !region.isSpecificationOnly && region.projectColumnIndex == null
+            ? "项目列"
+            : "",
+          region.specificationColumnIndex == null ? "规格列" : "",
+          region.acceptanceColumnIndex == null ? "验收列" : ""
+        ])
+        .filter(Boolean)
+    )
+  );
 
   return missingFields.length > 0
     ? `缺少${missingFields.join("、")}；请补齐后点击“确认并学习”`
@@ -368,12 +501,53 @@ export const buildSmartConfigConfirmRequest = (
     >
   > = {}
 ): SmartConfigConfirmRequest => {
-  if (table.specificationColumnIndex == null) {
+  const sourceRegions =
+    table.regions && table.regions.length > 0
+      ? table.regions
+      : [
+          {
+            regionId: `table-${table.tableIndex}-region-0`,
+            regionIndex: 0,
+            headers: table.headers,
+            projectColumnIndex: table.projectColumnIndex,
+            specificationColumnIndex: table.specificationColumnIndex,
+            acceptanceColumnIndex: table.acceptanceColumnIndex,
+            remarkColumnIndex: table.remarkColumnIndex,
+            headerRowIndex: table.headerRowIndex,
+            headerRowCount: table.headerRowCount,
+            dataStartRowIndex: table.dataStartRowIndex,
+            dataEndRowIndex: table.dataEndRowIndex,
+            isSpecificationOnly: table.isSpecificationOnly,
+            fields: table.fields
+          }
+        ];
+
+  if (sourceRegions.some(region => region.specificationColumnIndex == null)) {
     throw new Error("规格列不能为空");
   }
-  if (table.acceptanceColumnIndex == null) {
+  if (sourceRegions.some(region => region.acceptanceColumnIndex == null)) {
     throw new Error("验收列不能为空");
   }
+
+  const regions = sourceRegions.map(region => ({
+    regionId: region.regionId,
+    regionIndex: region.regionIndex,
+    headers: region.headers,
+    projectColumnIndex: region.projectColumnIndex ?? undefined,
+    specificationColumnIndex: region.specificationColumnIndex!,
+    acceptanceColumnIndex: region.acceptanceColumnIndex ?? undefined,
+    remarkColumnIndex: region.remarkColumnIndex ?? undefined,
+    headerRowIndex: region.headerRowIndex,
+    headerRowCount: region.headerRowCount,
+    dataStartRowIndex: Math.max(
+      region.dataStartRowIndex,
+      region.headerRowIndex + Math.max(region.headerRowCount, 1)
+    ),
+    dataEndRowIndex: region.dataEndRowIndex ?? undefined,
+    isSpecificationOnly: region.isSpecificationOnly
+  }));
+  const primary = regions[0];
+  const learnedFields = sourceRegions.flatMap(region => region.fields ?? []);
 
   return {
     customerId,
@@ -383,23 +557,73 @@ export const buildSmartConfigConfirmRequest = (
       overrides.templateName ??
       table.tableName?.trim() ??
       `表格 ${table.tableIndex + 1}`,
-    headers: table.headers,
-    projectColumnIndex: table.projectColumnIndex ?? undefined,
-    specificationColumnIndex: table.specificationColumnIndex,
-    acceptanceColumnIndex: table.acceptanceColumnIndex,
-    remarkColumnIndex: table.remarkColumnIndex ?? undefined,
-    headerRowIndex: table.headerRowIndex,
-    headerRowCount: table.headerRowCount,
-    dataStartRowIndex: Math.max(
-      table.dataStartRowIndex,
-      table.headerRowIndex + Math.max(table.headerRowCount, 1)
-    ),
-    dataEndRowIndex: table.dataEndRowIndex ?? undefined,
-    isSpecificationOnly: table.isSpecificationOnly,
+    headers: primary.headers,
+    projectColumnIndex: primary.projectColumnIndex,
+    specificationColumnIndex: primary.specificationColumnIndex,
+    acceptanceColumnIndex: primary.acceptanceColumnIndex,
+    remarkColumnIndex: primary.remarkColumnIndex,
+    headerRowIndex: primary.headerRowIndex,
+    headerRowCount: primary.headerRowCount,
+    dataStartRowIndex: primary.dataStartRowIndex,
+    dataEndRowIndex: primary.dataEndRowIndex,
+    isSpecificationOnly: primary.isSpecificationOnly,
     tableKind: table.tableKind,
-    recommendation: table.recommendation,
+    // 用户确认意味着该结构已经可用；Skip/NeedConfirm 只能作为识别阶段建议，
+    // 不能继续固化到模板，否则重传同结构时仍会被永久跳过。
+    recommendation:
+      table.recommendation === "Recommended" ? "Recommended" : "Optional",
     userModifiedStructure: overrides.userModifiedStructure ?? false,
     learnedColumns:
-      overrides.learnedColumns ?? buildLearnedColumns(table.fields ?? [])
+      overrides.learnedColumns ?? buildLearnedColumns(learnedFields),
+    regions
+  };
+};
+
+export const applySmartConfigConfirmRequestToTable = (
+  table: SmartConfigRecognizedTable,
+  request: SmartConfigConfirmRequest
+): SmartConfigRecognizedTable => {
+  const regions = request.regions?.map(
+    (region, index): SmartConfigRecognizedRegion => {
+      const previous =
+        table.regions?.find(item => item.regionId === region.regionId) ??
+        table.regions?.[index];
+      return {
+        ...previous,
+        ...region,
+        regionId:
+          region.regionId ??
+          previous?.regionId ??
+          `table-${table.tableIndex}-region-${index}`,
+        regionIndex: index,
+        headers: [...region.headers],
+        confidence: previous?.confidence ?? table.confidence,
+        source: previous?.source ?? table.source,
+        decision: "AutoApply",
+        issues: [],
+        fields: previous?.fields ?? table.fields
+      };
+    }
+  );
+
+  return {
+    ...table,
+    tableName: request.templateName || table.tableName,
+    headers: request.headers,
+    projectColumnIndex: request.projectColumnIndex,
+    specificationColumnIndex: request.specificationColumnIndex,
+    acceptanceColumnIndex: request.acceptanceColumnIndex,
+    remarkColumnIndex: request.remarkColumnIndex,
+    headerRowIndex: request.headerRowIndex,
+    headerRowCount: request.headerRowCount,
+    dataStartRowIndex: request.dataStartRowIndex,
+    dataEndRowIndex: request.dataEndRowIndex,
+    isSpecificationOnly: request.isSpecificationOnly,
+    regions: regions?.length ? regions : table.regions,
+    decision: "AutoApply",
+    recommendation:
+      table.recommendation === "Recommended" ? "Recommended" : "Optional",
+    skipReason: undefined,
+    issues: []
   };
 };

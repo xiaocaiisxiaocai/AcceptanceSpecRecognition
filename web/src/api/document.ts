@@ -86,12 +86,19 @@ export interface ImportDuplicateCheckOptions {
 }
 
 export interface ImportDataRequest {
+  executionRequestId?: string;
   fileId: number;
   tableIndex: number;
   customerId: number;
   processId?: number;
   machineModelId?: number;
   mapping: ColumnMapping;
+  /** 多区域导入的稳定区域标识 */
+  regionId?: string;
+  /** Word 多行表头行数 */
+  headerRowCount?: number;
+  /** Word 数据结束行（表格内 0-based，闭区间） */
+  dataEndRowIndex?: number;
   isSpecificationOnly?: boolean;
   cleanupSourceFile?: boolean;
   previewSkippedRows?: boolean;
@@ -217,6 +224,7 @@ export const importData = (data: ImportDataRequest) => {
 
 /** Excel 导入请求（列号/行号均为 1-based） */
 export interface ExcelImportDataRequest {
+  executionRequestId?: string;
   fileId: number;
   sheetIndex: number;
   customerId: number;

@@ -161,6 +161,378 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task MultiRegionExcel_WithDifferentTargetColumns_ShouldWriteEachRegionToItsOwnColumns()
+    {
+        var originalXlsx = CreateExcelBytes(
+        [
+            ["项目", "规格", "验收", "", "备注"],
+            ["P1", "S1", "", "", ""],
+            ["", "", "", "", ""],
+            ["细项", "规格", "", "判定", "备注"],
+            ["P2", "S2", "", "", ""]
+        ]);
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(originalXlsx);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", "multi-region-target-columns.xlsx");
+        var upload = await _client.PostAsync("/api/documents/upload", content);
+        var uploadBody = await upload.ReadAsAsync<ApiResponse<JsonElement>>();
+        var fileId = uploadBody.Data.GetProperty("fileId").GetInt32();
+
+        var customerId = (await (await _client.PostAsync(
+                "/api/customers",
+                ApiClientJson.ToJsonContent(new { name = $"ExcelMultiRegion-C-{Guid.NewGuid():N}" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+        var processId = (await (await _client.PostAsync(
+                "/api/processes",
+                ApiClientJson.ToJsonContent(new { name = $"ExcelMultiRegion-P-{Guid.NewGuid():N}" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        foreach (var source in new[] { (Project: "P1", Specification: "S1", Acceptance: "AC-1"), (Project: "P2", Specification: "S2", Acceptance: "AC-2") })
+        {
+            var createSpec = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                project = source.Project,
+                specification = source.Specification,
+                acceptance = source.Acceptance,
+                remark = ""
+            }));
+            createSpec.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var regions = new[]
+        {
+            new { regionId = "table-0-region-0", regionIndex = 0, projectColumnIndex = 0, specificationColumnIndex = 1, acceptanceColumnIndex = 2, remarkColumnIndex = (int?)4, headerRowStart = 1, headerRowCount = 1, dataStartRow = 2, dataEndRow = 2 },
+            new { regionId = "table-0-region-1", regionIndex = 1, projectColumnIndex = 0, specificationColumnIndex = 1, acceptanceColumnIndex = 3, remarkColumnIndex = (int?)4, headerRowStart = 4, headerRowCount = 1, dataStartRow = 5, dataEndRow = 5 }
+        };
+        var preview = await _client.PostAsync("/api/matching/batch-preview", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId,
+            processId,
+            config = new { minScoreThreshold = 0.0 },
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 4,
+                    regions
+                }
+            }
+        }));
+        preview.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewBody = await preview.ReadAsAsync<ApiResponse<JsonElement>>();
+        var items = previewBody.Data.GetProperty("tables")[0].GetProperty("items");
+        items.GetArrayLength().Should().Be(2);
+        items[0].GetProperty("regionId").GetString().Should().Be("table-0-region-0");
+        items[1].GetProperty("regionId").GetString().Should().Be("table-0-region-1");
+        var mappings = items.EnumerateArray().Select(item => new
+        {
+            rowIndex = item.GetProperty("rowIndex").GetInt32(),
+            specId = item.GetProperty("bestMatch").GetProperty("specId").GetInt32()
+        }).ToArray();
+        var previewTables = new[]
+        {
+            new
+            {
+                tableIndex = 0,
+                items = items.EnumerateArray().Select(item => new
+                {
+                    regionId = item.GetProperty("regionId").GetString(),
+                    regionIndex = item.GetProperty("regionIndex").GetInt32(),
+                    acceptanceColumnIndex = item.GetProperty("acceptanceColumnIndex").GetInt32(),
+                    remarkColumnIndex = item.TryGetProperty("remarkColumnIndex", out var remarkColumn) && remarkColumn.ValueKind != JsonValueKind.Null
+                        ? remarkColumn.GetInt32()
+                        : (int?)null,
+                    rowIndex = item.GetProperty("rowIndex").GetInt32(),
+                    sourceProject = item.GetProperty("sourceProject").GetString(),
+                    sourceSpecification = item.GetProperty("sourceSpecification").GetString(),
+                    bestMatch = JsonSerializer.Deserialize<JsonElement>(item.GetProperty("bestMatch").GetRawText()),
+                    hasMatch = item.GetProperty("hasMatch").GetBoolean(),
+                    confidenceLevel = item.GetProperty("confidenceLevel").GetString()
+                }).ToArray()
+            }
+        };
+
+        var executionRequestId = Guid.NewGuid().ToString("N");
+        var executePayload = new
+        {
+            executionRequestId,
+            fileId,
+            customerId,
+            processId,
+            previewTables,
+            config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.95 },
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 4,
+                    regions,
+                    mappings
+                }
+            }
+        };
+        var executeTask = _client.PostAsync(
+            "/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(executePayload));
+        var concurrentRetryTask = _client.PostAsync(
+            "/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(executePayload));
+        await Task.WhenAll(executeTask, concurrentRetryTask);
+        var execute = await executeTask;
+        var concurrentRetry = await concurrentRetryTask;
+        execute.StatusCode.Should().Be(HttpStatusCode.OK);
+        concurrentRetry.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executeBody = await execute.ReadAsAsync<ApiResponse<JsonElement>>();
+        var persistedTaskId = executeBody.Data.GetProperty("taskId").GetString();
+        persistedTaskId.Should().MatchRegex("^[a-f0-9]{32}$");
+        var concurrentRetryBody = await concurrentRetry.ReadAsAsync<ApiResponse<JsonElement>>();
+        concurrentRetryBody.Data.GetProperty("taskId").GetString()
+            .Should().Be(executeBody.Data.GetProperty("taskId").GetString());
+
+        var retry = await _client.PostAsync("/api/matching/batch-execute", ApiClientJson.ToJsonContent(executePayload));
+        retry.StatusCode.Should().Be(HttpStatusCode.OK);
+        var retryBody = await retry.ReadAsAsync<ApiResponse<JsonElement>>();
+        retryBody.Data.GetProperty("taskId").GetString()
+            .Should().Be(executeBody.Data.GetProperty("taskId").GetString());
+
+        var changedPayloadRetry = await _client.PostAsync(
+            "/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                executionRequestId,
+                fileId,
+                customerId,
+                processId,
+                previewTables,
+                config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.94 },
+                tables = executePayload.tables
+            }));
+        changedPayloadRetry.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var changedPayloadBody = await changedPayloadRetry.ReadAsAsync<ApiResponse<JsonElement>>();
+        changedPayloadBody.Code.Should().Be(409);
+        changedPayloadBody.Message.Should().Contain("不同的填充请求");
+
+        var after = await _client.GetAsync(
+            $"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+        var afterBody = await after.ReadAsAsync<ApiResponse<JsonElement>>();
+        var rows = afterBody.Data.GetProperty("rows");
+        rows[0][2].GetString().Should().Be("AC-1");
+        rows[3][2].GetString().Should().BeEmpty();
+        rows[3][3].GetString().Should().Be("AC-2");
+
+        await AssertLearnedColumnMappingRulesAsync(customerId, new[]
+        {
+            ("项目", ColumnMappingTargetField.Project),
+            ("细项", ColumnMappingTargetField.Project),
+            ("验收", ColumnMappingTargetField.Acceptance),
+            ("判定", ColumnMappingTargetField.Acceptance)
+        });
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var historyRecord = await db.ExecutionHistoryRecords.SingleAsync(
+            item => item.TaskId == persistedTaskId);
+        var historyResponse = await _client.GetAsync($"/api/execution-history/{historyRecord.Id}");
+        var historyBody = await historyResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        var historyRows = historyBody.Data
+            .GetProperty("smartFillPlayback")
+            .GetProperty("files")[0]
+            .GetProperty("sheets")[0]
+            .GetProperty("rows");
+        historyRows[0].GetProperty("regionId").GetString().Should().Be("table-0-region-0");
+        historyRows[1].GetProperty("regionId").GetString().Should().Be("table-0-region-1");
+        historyRows[1].GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ConcurrentExecute_SameRequestIdForDifferentFiles_ShouldReturnOneSuccessAndOneConflict()
+    {
+        async Task<int> UploadAsync(string fileName)
+        {
+            using var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(CreateExcelBytes(
+            [
+                ["项目", "规格", "验收"],
+                ["P1", "S1", ""]
+            ]));
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            content.Add(fileContent, "file", fileName);
+            var upload = await _client.PostAsync("/api/documents/upload", content);
+            upload.StatusCode.Should().Be(HttpStatusCode.OK);
+            return (await upload.ReadAsAsync<ApiResponse<JsonElement>>())
+                .Data.GetProperty("fileId").GetInt32();
+        }
+
+        var firstFileId = await UploadAsync("idempotency-first.xlsx");
+        var secondFileId = await UploadAsync("idempotency-second.xlsx");
+        var executionRequestId = Guid.NewGuid().ToString("N");
+
+        object BuildPayload(int fileId) => new
+        {
+            executionRequestId,
+            fileId,
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    mappings = new[]
+                    {
+                        new
+                        {
+                            rowIndex = 1,
+                            manualFill = true,
+                            overrideAcceptance = $"FILE-{fileId}"
+                        }
+                    }
+                }
+            }
+        };
+
+        var firstExecution = _client.PostAsync(
+            "/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(BuildPayload(firstFileId)));
+        var secondExecution = _client.PostAsync(
+            "/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(BuildPayload(secondFileId)));
+        await Task.WhenAll(firstExecution, secondExecution);
+
+        var responses = new[] { await firstExecution, await secondExecution };
+        responses.Count(response => response.StatusCode == HttpStatusCode.OK).Should().Be(1);
+        responses.Count(response => response.StatusCode == HttpStatusCode.BadRequest).Should().Be(1);
+        var conflict = responses.Single(response => response.StatusCode == HttpStatusCode.BadRequest);
+        var conflictBody = await conflict.ReadAsAsync<ApiResponse<JsonElement>>();
+        conflictBody.Code.Should().Be(409);
+        conflictBody.Message.Should().Contain("其他文件");
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var succeededTaskId = (await responses.Single(response => response.StatusCode == HttpStatusCode.OK)
+                .ReadAsAsync<ApiResponse<JsonElement>>())
+            .Data.GetProperty("taskId").GetString();
+        (await db.MatchingFillTasks.CountAsync(item => item.TaskId == succeededTaskId))
+            .Should().Be(1);
+    }
+
+    [Fact]
+    public async Task BatchExecute_WithOverlappingRegions_ShouldRejectBeforeWriteBack()
+    {
+        var response = await _client.PostAsync(
+            "/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId = 1,
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        mappings = Array.Empty<object>(),
+                        regions = new[]
+                        {
+                            new { regionId = "r0", regionIndex = 0, projectColumnIndex = 0, specificationColumnIndex = 1, acceptanceColumnIndex = 2, headerRowStart = 1, headerRowCount = 1, dataStartRow = 2, dataEndRow = 5 },
+                            new { regionId = "r1", regionIndex = 1, projectColumnIndex = 0, specificationColumnIndex = 1, acceptanceColumnIndex = 3, headerRowStart = 4, headerRowCount = 1, dataStartRow = 5, dataEndRow = 8 }
+                        }
+                    }
+                }
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain("不能重叠");
+    }
+
+    [Fact]
+    public async Task BatchExecute_ManualFill_ShouldDeriveWriteTargetFromRegionsNotPreviewSnapshot()
+    {
+        var originalXlsx = CreateExcelBytes(
+        [
+            ["项目", "规格", "验收", "错误目标"],
+            ["P1", "S1", "", ""]
+        ]);
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(originalXlsx);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", "canonical-region-target.xlsx");
+        var upload = await _client.PostAsync("/api/documents/upload", content);
+        var uploadBody = await upload.ReadAsAsync<ApiResponse<JsonElement>>();
+        var fileId = uploadBody.Data.GetProperty("fileId").GetInt32();
+
+        var execute = await _client.PostAsync(
+            "/api/matching/batch-execute",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                previewTables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        items = new[]
+                        {
+                            new
+                            {
+                                regionId = "r0",
+                                regionIndex = 0,
+                                acceptanceColumnIndex = 3,
+                                rowIndex = 1,
+                                sourceProject = "P1",
+                                sourceSpecification = "S1"
+                            }
+                        }
+                    }
+                },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        regions = new[]
+                        {
+                            new { regionId = "r0", regionIndex = 0, projectColumnIndex = 0, specificationColumnIndex = 1, acceptanceColumnIndex = 2, headerRowStart = 1, headerRowCount = 1, dataStartRow = 2, dataEndRow = 2 }
+                        },
+                        mappings = new[]
+                        {
+                            new { rowIndex = 1, manualFill = true, overrideAcceptance = "MANUAL" }
+                        }
+                    }
+                }
+            }));
+
+        execute.StatusCode.Should().Be(HttpStatusCode.OK);
+        var after = await _client.GetAsync(
+            $"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+        var afterBody = await after.ReadAsAsync<ApiResponse<JsonElement>>();
+        var row = afterBody.Data.GetProperty("rows")[0];
+        row[2].GetString().Should().Be("MANUAL");
+        row[3].GetString().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Execute_ForExcel_WhenMatchedRemarkIsEmpty_ShouldClearOldRemarkCell()
     {
         var originalXlsx = CreateExcelBytes(new[]
@@ -805,6 +1177,7 @@ public sealed class SnapshotFailureExcelApiWebApplicationFactory : ApiWebApplica
             services.AddScoped(sp => new MatchingTaskSnapshotService(
                 new ThrowOnSaveChangesUnitOfWork(sp.GetRequiredService<IUnitOfWork>(), "模拟任务快照保存失败"),
                 sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IDocumentFileAccessService>(),
                 sp.GetRequiredService<ILogger<MatchingTaskSnapshotService>>()));
         });
     }

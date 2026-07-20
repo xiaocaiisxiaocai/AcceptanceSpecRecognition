@@ -56,8 +56,5 @@ public static class ColumnMappingRuleDeduplicator
         _ => 0
     };
 
-    private static string NormalizePattern(string? pattern)
-    {
-        return (pattern ?? string.Empty).Trim().ToUpperInvariant();
-    }
+    private static string NormalizePattern(string? pattern) => ColumnMappingRule.NormalizePattern(pattern);
 }

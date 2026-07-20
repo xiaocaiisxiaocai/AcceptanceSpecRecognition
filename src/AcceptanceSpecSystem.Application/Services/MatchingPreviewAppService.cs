@@ -150,6 +150,13 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
             foreach (var tableConfig in request.Tables)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var regionValidationError = MatchingRegionValidator.GetValidationError(
+                    tableConfig.Regions,
+                    tableConfig.TableIndex);
+                if (regionValidationError != null)
+                {
+                    throw Failure(400, regionValidationError);
+                }
 
                 _batchPreviewProgressTracker.Update(
                     previewRequestId,
@@ -160,16 +167,48 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                         ? 18
                         : 18 + (12d * extractedTableCount / request.Tables.Count));
 
-                var extracted = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
-                    wordFile,
-                    tableConfig.TableIndex,
-                    tableConfig.ProjectColumnIndex,
-                    tableConfig.SpecificationColumnIndex,
-                    tableConfig.HeaderRowStart,
-                    tableConfig.HeaderRowCount,
-                    tableConfig.DataStartRow,
-                    tableConfig.FilterEmptySourceRows ?? config.FilterEmptySourceRows,
-                    cancellationToken);
+                var effectiveRegions = tableConfig.Regions.Count > 0
+                    ? tableConfig.Regions.OrderBy(region => region.RegionIndex).ToList()
+                    :
+                    [
+                        new BatchTableRegionConfig
+                        {
+                            RegionIndex = 0,
+                            ProjectColumnIndex = tableConfig.ProjectColumnIndex,
+                            SpecificationColumnIndex = tableConfig.SpecificationColumnIndex,
+                            AcceptanceColumnIndex = tableConfig.AcceptanceColumnIndex,
+                            RemarkColumnIndex = tableConfig.RemarkColumnIndex,
+                            HeaderRowStart = tableConfig.HeaderRowStart,
+                            HeaderRowCount = tableConfig.HeaderRowCount,
+                            DataStartRow = tableConfig.DataStartRow,
+                            DataEndRow = tableConfig.DataEndRow
+                        }
+                    ];
+                var extracted = new List<MatchSourceItem>();
+                foreach (var region in effectiveRegions)
+                {
+                    var regionItems = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
+                        wordFile,
+                        tableConfig.TableIndex,
+                        region.ProjectColumnIndex,
+                        region.SpecificationColumnIndex,
+                        region.HeaderRowStart,
+                        region.HeaderRowCount,
+                        region.DataStartRow,
+                        region.DataEndRow,
+                        tableConfig.FilterEmptySourceRows ?? config.FilterEmptySourceRows,
+                        cancellationToken);
+                    foreach (var item in regionItems)
+                    {
+                        item.RegionId = string.IsNullOrWhiteSpace(region.RegionId)
+                            ? $"table-{tableConfig.TableIndex}-region-{region.RegionIndex}"
+                            : region.RegionId;
+                        item.RegionIndex = region.RegionIndex;
+                        item.AcceptanceColumnIndex = region.AcceptanceColumnIndex;
+                        item.RemarkColumnIndex = region.RemarkColumnIndex;
+                    }
+                    extracted.AddRange(regionItems);
+                }
 
                 var sources = extracted.Select(item => new MatchSource
                 {
@@ -306,6 +345,10 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
 
                     var previewItem = new MatchPreviewItem
                     {
+                        RegionId = item.RegionId,
+                        RegionIndex = item.RegionIndex,
+                        AcceptanceColumnIndex = item.AcceptanceColumnIndex,
+                        RemarkColumnIndex = item.RemarkColumnIndex,
                         RowIndex = item.RowIndex,
                         SourceProject = item.Project,
                         SourceSpecification = item.Specification,

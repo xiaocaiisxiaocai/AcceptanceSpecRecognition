@@ -7,6 +7,10 @@ namespace AcceptanceSpecSystem.Application.Contracts;
 /// </summary>
 public class ExcelImportDataRequest
 {
+    /// <summary>客户端生成的幂等键；同一用户下相同键与请求内容的重试返回既有结果。</summary>
+    [StringLength(80)]
+    public string? ExecutionRequestId { get; set; }
+
     /// <summary>
     /// 文件ID
     /// </summary>

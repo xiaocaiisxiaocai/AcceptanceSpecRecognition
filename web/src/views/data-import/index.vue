@@ -34,6 +34,7 @@ const {
   uploadedFile,
   isExcelFile,
   selectedTableIndexes,
+  selectedTables,
   activeTableIndex,
   tableConfigs,
   selectedCustomerId,
@@ -44,9 +45,11 @@ const {
   smartRecognizing,
   smartRecognitionAttempted,
   smartRecognitionError,
+  smartApplyError,
   smartStageText,
   selectedSmartTableIndexes,
   smartConfirmingTableIndex,
+  smartTableInfos,
   recognizedTables,
   canUploadSourceFile,
   canImportAny,
@@ -95,6 +98,7 @@ const {
   loadMappingRules,
   handleTablesSelected,
   handlePreviewLoaded,
+  loadAdvancedPreview,
   updateExcelMapping,
   getTableConfigTabLabel,
   canPasteClipboard,
@@ -170,13 +174,18 @@ const pendingSelectedSmartTableCount = computed(
         getSmartStructureImportReadinessReason(table) !== ""
     ).length
 );
-const showManualFallback = computed(() =>
-  shouldShowSmartStructureManualFallback({
-    recognitionAttempted: smartRecognitionAttempted.value,
-    recognizing: smartRecognizing.value,
-    error: smartRecognitionError.value,
-    tables: recognizedTables.value
-  })
+const showManualFallback = computed(
+  () =>
+    !!smartApplyError.value ||
+    shouldShowSmartStructureManualFallback({
+      recognitionAttempted: smartRecognitionAttempted.value,
+      recognizing: smartRecognizing.value,
+      error: smartRecognitionError.value,
+      tables: recognizedTables.value
+    })
+);
+const smartEntryError = computed(
+  () => smartRecognitionError.value || smartApplyError.value
 );
 const activeSmartStructureTable = computed(() =>
   recognizedTables.value.find(
@@ -242,7 +251,7 @@ const activeSmartStructureScopeDescription = computed(() => {
           :can-import-any="canImportAny"
           :upload-accept="uploadAccept"
           :upload-blocked-message="uploadBlockedMessage"
-          :smart-recognition-error="smartRecognitionError"
+          :smart-recognition-error="smartEntryError"
           :smart-recognizing="smartRecognizing"
           @uploaded="handleFileUploaded"
           @retry="runSmartStructureRecognition"
@@ -357,6 +366,7 @@ const activeSmartStructureScopeDescription = computed(() => {
                       : undefined
                   "
                   :mapping="isExcelFile ? undefined : cfg.wordMapping"
+                  :preview-loader="loadAdvancedPreview"
                   @loaded="data => handlePreviewLoaded(cfg.tableIndex, data)"
                 />
               </div>
@@ -424,6 +434,8 @@ const activeSmartStructureScopeDescription = computed(() => {
           <SmartStructureConfirmTabs
             v-model:active-table-index="activeSmartStructureTab"
             :tables="recognizedTables"
+            :table-infos="smartTableInfos"
+            :is-excel-file="isExcelFile"
             :selected-table-indexes="selectedSmartTableIndexes"
             :selectable-table-indexes="smartStructureSelectableTableIndexes"
             :selection-disabled-reasons="smartStructureSelectionDisabledReasons"
@@ -435,7 +447,7 @@ const activeSmartStructureScopeDescription = computed(() => {
             ready-label="可导入"
             unavailable-label="跳过"
             @confirm="handleSmartStructureConfirm"
-            @advanced="() => enterAdvancedMode('mapping')"
+            @advanced="table => enterAdvancedMode('mapping', table.tableIndex)"
             @update:table-selected="handleSmartTableImportSelectionChange"
           />
           <el-alert
@@ -454,6 +466,7 @@ const activeSmartStructureScopeDescription = computed(() => {
           <DataImportConfirmPanel
             v-model:preview-skipped-rows="previewSkippedRows"
             :import-result="importResult"
+            :is-excel-file="isExcelFile"
             :can-upload-source-file="canUploadSourceFile"
             :can-import-any="canImportAny"
             :can-import-current-file="canImportCurrentFile"
@@ -516,6 +529,7 @@ const activeSmartStructureScopeDescription = computed(() => {
           <DataImportConfirmPanel
             v-model:preview-skipped-rows="previewSkippedRows"
             :import-result="importResult"
+            :is-excel-file="isExcelFile"
             :can-upload-source-file="canUploadSourceFile"
             :can-import-any="canImportAny"
             :can-import-current-file="canImportCurrentFile"
@@ -600,6 +614,7 @@ const activeSmartStructureScopeDescription = computed(() => {
           v-model="differenceConfirmDialogVisible"
           v-model:pending-difference-page="pendingDifferencePage"
           v-model:pending-difference-page-size="pendingDifferencePageSize"
+          :is-excel-file="isExcelFile"
           :pending-differences="pendingDifferences"
           :paged-pending-differences="pagedPendingDifferences"
           :difference-decision-map="differenceDecisionMap"

@@ -119,4 +119,9 @@ public class DocumentTemplate
     /// 导航属性：客户
     /// </summary>
     public Customer Customer { get; set; } = null!;
+
+    /// <summary>
+    /// 导航属性：同一工作表中的有序数据区域
+    /// </summary>
+    public ICollection<DocumentTemplateRegion> Regions { get; set; } = new List<DocumentTemplateRegion>();
 }

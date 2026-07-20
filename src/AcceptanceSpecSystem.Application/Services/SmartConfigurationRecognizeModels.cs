@@ -59,8 +59,46 @@ public sealed record SmartConfigurationRecognizedTable
     public List<SmartConfigurationRecognizedField> Fields { get; init; } = [];
 
     public List<SmartConfigurationColumnSemanticRecallSuggestion> SemanticRecallSuggestions { get; init; } = [];
+
+    public List<SmartConfigurationRecognizedRegion> Regions { get; init; } = [];
 }
 
+public sealed record SmartConfigurationRecognizedRegion
+{
+    public string RegionId { get; init; } = string.Empty;
+
+    public int RegionIndex { get; init; }
+
+    public List<string> Headers { get; init; } = [];
+
+    public int HeaderRowIndex { get; init; }
+
+    public int HeaderRowCount { get; init; } = 1;
+
+    public int DataStartRowIndex { get; init; } = 1;
+
+    public int? DataEndRowIndex { get; init; }
+
+    public int? ProjectColumnIndex { get; init; }
+
+    public int? SpecificationColumnIndex { get; init; }
+
+    public int? AcceptanceColumnIndex { get; init; }
+
+    public int? RemarkColumnIndex { get; init; }
+
+    public bool IsSpecificationOnly { get; init; }
+
+    public double Confidence { get; init; }
+
+    public string Source { get; init; } = string.Empty;
+
+    public string Decision { get; init; } = string.Empty;
+
+    public List<SmartConfigurationRecognitionIssue> Issues { get; init; } = [];
+
+    public List<SmartConfigurationRecognizedField> Fields { get; init; } = [];
+}
 public sealed class SmartConfigurationRecognitionIssue
 {
     public string Code { get; init; } = string.Empty;

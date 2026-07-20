@@ -197,10 +197,12 @@ public class WordDocumentWriter : IDocumentWriter
             var table = tables[tableIndex];
             var rows = table.Elements<TableRow>().ToList();
             var cellMap = BuildCellMap(rows, cancellationToken);
+            var writtenCells = new HashSet<TableCell>(ReferenceEqualityComparer.Instance);
 
             foreach (var operation in operations)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                EnsureUniqueWriteTarget(cellMap, operation, writtenCells, tableIndex);
                 if (TryWriteCell(cellMap, rows, operation, cancellationToken))
                 {
                     totalSuccess++;
@@ -243,10 +245,12 @@ public class WordDocumentWriter : IDocumentWriter
         var cellMap = BuildCellMap(rows, cancellationToken);
 
         int successCount = 0;
+        var writtenCells = new HashSet<TableCell>(ReferenceEqualityComparer.Instance);
 
         foreach (var operation in operationsList)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            EnsureUniqueWriteTarget(cellMap, operation, writtenCells, tableIndex);
             if (TryWriteCell(cellMap, rows, operation, cancellationToken))
             {
                 successCount++;
@@ -258,6 +262,20 @@ public class WordDocumentWriter : IDocumentWriter
         mainDocument.Save();
 
         return successCount;
+    }
+
+    private static void EnsureUniqueWriteTarget(
+        IReadOnlyDictionary<(int row, int col), TableCell> cellMap,
+        CellWriteOperation operation,
+        HashSet<TableCell> writtenCells,
+        int tableIndex)
+    {
+        if (cellMap.TryGetValue((operation.RowIndex, operation.ColumnIndex), out var cell) &&
+            !writtenCells.Add(cell))
+        {
+            throw new InvalidOperationException(
+                $"多个写入操作指向表格{tableIndex + 1}中的同一合并单元格，请检查行列映射");
+        }
     }
 
     /// <summary>

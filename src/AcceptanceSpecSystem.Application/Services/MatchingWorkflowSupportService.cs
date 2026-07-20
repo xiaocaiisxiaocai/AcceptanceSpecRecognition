@@ -131,9 +131,12 @@ public sealed partial class MatchingWorkflowSupportService
 /// </summary>
 public class FillTaskResult
 {
-    public int PayloadVersion { get; set; } = 2;
+    public int PayloadVersion { get; set; } = 4;
     public string TaskId { get; set; } = string.Empty;
     public int SourceFileId { get; set; }
+    public string? RequestFingerprint { get; set; }
+    public int FilledCount { get; set; }
+    public int SkippedCount { get; set; }
     public int SourceTableIndex { get; set; }
     public int? AcceptanceColumnIndex { get; set; }
     public int? RemarkColumnIndex { get; set; }
@@ -165,6 +168,20 @@ public class FillTaskResult
     /// 下载产物内容类型
     /// </summary>
     public string? DownloadArtifactContentType { get; set; }
+
+    /// <summary>
+    /// Excel 原文件替换尚未与最终数据库事务共同完成。该状态会被启动恢复器处理。
+    /// </summary>
+    public bool FileMutationPending { get; set; }
+
+    /// <summary>
+    /// 原文件的持久化回滚副本。
+    /// </summary>
+    public string? SourceRollbackArtifactRelativePath { get; set; }
+
+    public string? SourceOriginalFilePath { get; set; }
+
+    public string? SourceOriginalFileHash { get; set; }
 }
 
 /// <summary>
@@ -183,6 +200,10 @@ public class TableFillEntry
 /// </summary>
 public class FillResult
 {
+    public string? RegionId { get; set; }
+    public int? RegionIndex { get; set; }
+    public int? AcceptanceColumnIndex { get; set; }
+    public int? RemarkColumnIndex { get; set; }
     public int RowIndex { get; set; }
     public int SpecId { get; set; }
     public string Acceptance { get; set; } = string.Empty;

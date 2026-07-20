@@ -40,6 +40,16 @@ test("强状态流程页应启用 keep-alive 并让组件名匹配子路由名",
   }
 });
 
+test("文件对比菜单应使用 Remix Icon 中存在的双向对比图标", () => {
+  const routeSource = readProjectFile("web/src/router/modules/file-compare.ts");
+
+  assert.equal(
+    routeSource.match(/icon:\s*"ri:arrow-left-right-line"/g)?.length,
+    2
+  );
+  assert.doesNotMatch(routeSource, /ri:compare-line/);
+});
+
 test("智能填充进度快照 404 时应停止轮询但不取消主匹配", () => {
   const progressSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillPreviewProgress.ts"

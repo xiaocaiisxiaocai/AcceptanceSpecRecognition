@@ -255,8 +255,8 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         record.GetProperty("totalRowCount").GetInt32().Should().Be(4);
         record.GetProperty("adoptedRowCount").GetInt32().Should().Be(3);
         record.GetProperty("unmatchedRowCount").GetInt32().Should().Be(1);
-        record.GetProperty("smartFillSummary").GetProperty("exactMatchedRowCount").GetInt32().Should().Be(1);
-        record.GetProperty("smartFillSummary").GetProperty("aiMatchedRowCount").GetInt32().Should().Be(1);
+        record.GetProperty("smartFillSummary").GetProperty("exactMatchedRowCount").GetInt32().Should().Be(2);
+        record.GetProperty("smartFillSummary").GetProperty("aiMatchedRowCount").GetInt32().Should().Be(0);
         record.GetProperty("smartFillSummary").GetProperty("manualConfirmedRowCount").GetInt32().Should().Be(1);
         record.GetProperty("smartFillSummary").GetProperty("manualEditedRowCount").GetInt32().Should().Be(2);
         record.GetProperty("smartFillSummary").GetProperty("notUsedRowCount").GetInt32().Should().Be(1);
@@ -282,23 +282,22 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         rows[0].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates").GetArrayLength().Should().Be(1, "完整回放归档保留完全一致行的候选上下文，超大记录才由 Slimmer 精简");
         rows[0].GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be("AC-1");
 
-        rows[1].GetProperty("matchOrigin").GetString().Should().Be("ai");
-        rows[1].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("AI匹配", "人工确认", "人工写入");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("aiRerank");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("matchBasis").GetString().Should().Be("specification");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewScore").GetDouble().Should().Be(91.5);
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewReason").GetString().Should().Be("复核判定语义等价");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewCommentary").GetString().Should().Be("仅格式差异，可人工确认采用");
+        rows[1].GetProperty("matchOrigin").GetString().Should().Be("exact");
+        rows[1].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("完全匹配", "人工确认", "人工写入");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("exactShortcut");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("matchBasis").GetString().Should().Be("projectSpecification");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewScore").ValueKind.Should().Be(JsonValueKind.Null);
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewReason").ValueKind.Should().Be(JsonValueKind.Null);
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewCommentary").ValueKind.Should().Be(JsonValueKind.Null);
         rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates").GetArrayLength().Should().Be(1, "非完全一致的归档仍需保留候选上下文");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates")[0].GetProperty("matchBasis").GetString().Should().Be("specification");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("equivalent");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates")[0].GetProperty("matchBasis").GetString().Should().Be("projectSpecification");
         rows[1].GetProperty("executionSnapshot").GetProperty("manualConfirmed").GetBoolean().Should().BeTrue();
         rows[1].GetProperty("executionSnapshot").GetProperty("manualEdited").GetBoolean().Should().BeTrue();
         rows[1].GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be("AC-2-人工");
         rows[1].GetProperty("executionSnapshot").GetProperty("finalRemark").GetString().Should().Be("RM-2-人工");
 
         rows[2].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("未采用/未匹配");
-        rows[2].GetProperty("previewSnapshot").GetProperty("noMatchReason").GetString().Should().Be("未找到可采用候选");
+        rows[2].GetProperty("previewSnapshot").GetProperty("noMatchReason").GetString().Should().Be("执行时未匹配到可用规格");
         rows[2].GetProperty("executionSnapshot").GetProperty("status").GetString().Should().Be("unmatched");
 
         rows[3].GetProperty("status").GetString().Should().Be("adopted");

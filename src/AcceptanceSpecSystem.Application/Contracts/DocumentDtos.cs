@@ -282,6 +282,10 @@ public class ColumnMappingDto
 /// </summary>
 public class ImportDataRequest
 {
+    /// <summary>客户端生成的幂等键；同一用户下相同键与请求内容的重试返回既有结果。</summary>
+    [StringLength(80)]
+    public string? ExecutionRequestId { get; set; }
+
     /// <summary>
     /// 文件ID
     /// </summary>
@@ -315,6 +319,17 @@ public class ImportDataRequest
     /// </summary>
     [Required(ErrorMessage = "列映射配置不能为空")]
     public ColumnMappingDto Mapping { get; set; } = new();
+
+    /// <summary>多区域导入的稳定区域标识。</summary>
+    [StringLength(100)]
+    public string? RegionId { get; set; }
+
+    /// <summary>Word 多行表头行数。</summary>
+    [Range(1, 100)]
+    public int HeaderRowCount { get; set; } = 1;
+
+    /// <summary>Word 数据结束行，表格内 0-based 闭区间。</summary>
+    public int? DataEndRowIndex { get; set; }
 
     /// <summary>
     /// 是否在本次导入后清理源文件。

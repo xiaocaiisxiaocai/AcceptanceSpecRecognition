@@ -15,6 +15,7 @@ import { shouldBackfillProjectFromSpecification } from "../dataImport.helpers";
 
 const props = defineProps<{
   importResult: CombinedImportResult | null;
+  isExcelFile: boolean;
   canUploadSourceFile: boolean;
   canImportAny: boolean;
   canImportCurrentFile: boolean;
@@ -78,6 +79,8 @@ const activeCollapseNames = ref<string[]>([]);
 const hasSpecificationOnlyBackfillTables = computed(() =>
   props.tableConfigs.some(shouldBackfillProjectFromSpecification)
 );
+const formatResultRowNumber = (rowIndex: number) =>
+  props.isExcelFile ? rowIndex : rowIndex + 1;
 const effectiveSelectedSheetCount = computed(
   () => props.selectedSheetCount ?? props.tableConfigs.length
 );
@@ -130,7 +133,7 @@ const effectivePendingSelectedSheetCount = computed(
         </el-table-column>
         <el-table-column prop="rowIndex" label="行号" width="80">
           <template #default="{ row }">
-            {{ row.rowIndex + 1 }}
+            {{ formatResultRowNumber(row.rowIndex) }}
           </template>
         </el-table-column>
         <el-table-column prop="message" label="错误信息" />
@@ -150,11 +153,14 @@ const effectivePendingSelectedSheetCount = computed(
       <div v-else>
         <div
           v-for="group in skippedRowsGroups"
-          :key="`skip-group-${group.tableIndex}`"
+          :key="`skip-group-${group.tableIndex}-${group.regionId ?? 'default'}`"
           class="skipped-group"
         >
           <div v-if="skippedRowsGroups.length > 1" class="skipped-group-title">
-            表格 {{ group.tableIndex + 1 }}
+            表格 {{ group.tableIndex + 1
+            }}<template v-if="group.regionIndex !== undefined"
+              >，区域 {{ group.regionIndex + 1 }}</template
+            >
           </div>
           <el-table :data="group.rows" max-height="220" size="small">
             <el-table-column prop="tableIndex" label="表格" width="80">
@@ -163,10 +169,13 @@ const effectivePendingSelectedSheetCount = computed(
               </template>
             </el-table-column>
             <el-table-column
-              prop="rowIndex"
               label="行号"
               width="min(100px, calc(100vw - 32px))"
-            />
+            >
+              <template #default="{ row }">
+                {{ formatResultRowNumber(row.rowIndex) }}
+              </template>
+            </el-table-column>
             <el-table-column
               prop="message"
               label="跳过原因"

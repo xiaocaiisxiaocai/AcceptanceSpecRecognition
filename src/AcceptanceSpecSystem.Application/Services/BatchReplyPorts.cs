@@ -39,6 +39,7 @@ public interface IBatchReplyDocumentTablePort
         int? headerRowStart = null,
         int? headerRowCount = null,
         int? dataStartRow = null,
+        int? dataEndRow = null,
         bool filterEmptySourceRows = true,
         CancellationToken cancellationToken = default);
     Task<List<ReplySourceItem>> ExtractReplySourceItemsAsync(

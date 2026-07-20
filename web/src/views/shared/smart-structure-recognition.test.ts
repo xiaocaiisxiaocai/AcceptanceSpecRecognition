@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  applySmartConfigConfirmRequestToTable,
   buildSmartConfigConfirmRequest,
+  canConfirmSmartStructureTable,
   canSelectSmartStructureTable,
   createSmartStructureSummary,
   formatDisplayIndexFromZeroBased,
@@ -11,9 +13,12 @@ import {
   getSmartStructureImportReadinessReason,
   getSmartStructureImportSelectionDisabledReason,
   needsManualStructureFallback,
+  countSmartStructureRegionRows,
+  resolveSmartStructureRegionEndRowIndex,
   shouldShowSmartStructureManualFallback,
   toActualColumnNumber,
-  toActualRowNumber
+  toActualRowNumber,
+  validateSmartStructureRegions
 } from "./smart-structure-recognition";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
 import type { TableInfo } from "@/api/document";
@@ -129,6 +134,7 @@ describe("smart-structure-recognition", () => {
 
     expect(request).toEqual({
       customerId: 12,
+      fileId: undefined,
       templateName: "A客户模板",
       headers: ["项目", "规格", "验收", "备注"],
       projectColumnIndex: 0,
@@ -141,14 +147,44 @@ describe("smart-structure-recognition", () => {
       dataEndRowIndex: 8,
       isSpecificationOnly: false,
       tableKind: undefined,
-      recommendation: undefined,
+      recommendation: "Optional",
       userModifiedStructure: false,
       tableIndex: 0,
       learnedColumns: [
         { header: "项目名称", targetField: 1 },
         { header: "规格内容", targetField: 2 },
         { header: "判定", targetField: 3 }
+      ],
+      regions: [
+        {
+          regionId: "table-0-region-0",
+          regionIndex: 0,
+          headers: ["项目", "规格", "验收", "备注"],
+          projectColumnIndex: 0,
+          specificationColumnIndex: 1,
+          acceptanceColumnIndex: 2,
+          remarkColumnIndex: 3,
+          headerRowIndex: 0,
+          headerRowCount: 1,
+          dataStartRowIndex: 1,
+          dataEndRowIndex: 8,
+          isSpecificationOnly: false
+        }
       ]
+    });
+  });
+
+  it("确认后不会把 Skip 建议固化进模板", () => {
+    const source = table({ recommendation: "Skip", decision: "NeedConfirm" });
+    const request = buildSmartConfigConfirmRequest(12, source);
+
+    expect(request.recommendation).toBe("Optional");
+    expect(
+      applySmartConfigConfirmRequestToTable(source, request)
+    ).toMatchObject({
+      decision: "AutoApply",
+      recommendation: "Optional",
+      skipReason: undefined
     });
   });
 
@@ -160,6 +196,144 @@ describe("smart-structure-recognition", () => {
     );
 
     expect(request).toMatchObject({ fileId: 88, tableIndex: 3 });
+  });
+
+  it("确认后保留用户调整和新增的多区域范围", () => {
+    const source = table({});
+    const request = buildSmartConfigConfirmRequest(12, source);
+    request.regions = [
+      { ...request.regions![0], dataEndRowIndex: 5 },
+      {
+        ...request.regions![0],
+        regionId: "table-0-region-new-1",
+        regionIndex: 1,
+        headerRowIndex: 19,
+        dataStartRowIndex: 20,
+        dataEndRowIndex: 30
+      }
+    ];
+
+    const updated = applySmartConfigConfirmRequestToTable(source, request);
+
+    expect(updated.regions).toHaveLength(2);
+    expect(updated.regions?.map(region => region.dataEndRowIndex)).toEqual([
+      5, 30
+    ]);
+    expect(updated.regions?.[1]).toMatchObject({
+      regionId: "table-0-region-new-1",
+      regionIndex: 1,
+      decision: "AutoApply"
+    });
+  });
+
+  it("确认后清理已处理的跳过状态和旧结构问题", () => {
+    const source = table({
+      decision: "Reject",
+      recommendation: "Skip",
+      skipReason: "命中非业务表路由规则",
+      issues: [
+        {
+          code: "MissingAcceptanceColumn",
+          severity: "Error",
+          message: "缺少验收列"
+        },
+        {
+          code: "RoutingRule.7",
+          severity: "Info",
+          message: "建议跳过"
+        }
+      ],
+      regions: [
+        {
+          regionId: "table-0-region-0",
+          regionIndex: 0,
+          headers: ["项目", "规格", "验收", "备注"],
+          headerRowIndex: 0,
+          headerRowCount: 1,
+          dataStartRowIndex: 1,
+          dataEndRowIndex: 8,
+          projectColumnIndex: 0,
+          specificationColumnIndex: 1,
+          acceptanceColumnIndex: 2,
+          remarkColumnIndex: 3,
+          isSpecificationOnly: false,
+          confidence: 0.45,
+          source: "Rule",
+          decision: "Reject",
+          issues: [
+            {
+              code: "InvalidRowRange",
+              severity: "Error",
+              message: "数据范围无效"
+            }
+          ],
+          fields: []
+        }
+      ]
+    });
+    const request = buildSmartConfigConfirmRequest(12, source, {
+      userModifiedStructure: true
+    });
+
+    const updated = applySmartConfigConfirmRequestToTable(source, request);
+
+    expect(updated).toMatchObject({
+      decision: "AutoApply",
+      recommendation: "Optional",
+      skipReason: undefined,
+      issues: []
+    });
+    expect(updated.regions?.[0]).toMatchObject({
+      decision: "AutoApply",
+      issues: []
+    });
+    expect(canSelectSmartStructureTable(updated)).toBe(true);
+  });
+
+  it("Reject 必须发生结构修改后才允许确认", () => {
+    const base = {
+      readonly: false,
+      confirmationLocked: false,
+      customerId: 12,
+      allRegionsConfirmable: true,
+      structureValidationError: ""
+    };
+
+    expect(
+      canConfirmSmartStructureTable({
+        ...base,
+        decision: "Reject",
+        hasStructureChanges: false
+      })
+    ).toBe(false);
+    expect(
+      canConfirmSmartStructureTable({
+        ...base,
+        decision: "Reject",
+        hasStructureChanges: true
+      })
+    ).toBe(true);
+    expect(
+      canConfirmSmartStructureTable({
+        ...base,
+        decision: "NeedConfirm",
+        hasStructureChanges: false
+      })
+    ).toBe(true);
+  });
+
+  it("待确认建议在确认成功后归一为可选", () => {
+    const source = table({
+      decision: "NeedConfirm",
+      recommendation: "NeedConfirm"
+    });
+
+    const updated = applySmartConfigConfirmRequestToTable(
+      source,
+      buildSmartConfigConfirmRequest(12, source)
+    );
+
+    expect(updated.recommendation).toBe("Optional");
   });
 
   it("确认请求保证数据起始行位于全部表头之后", () => {
@@ -337,5 +511,82 @@ describe("smart-structure-recognition", () => {
         table({ tableIndex: 2 })
       )?.name
     ).toBe("第二张表");
+  });
+
+  it("开放结束行按工作表末行统计并保持 A1 范围口径一致", () => {
+    const region = {
+      regionId: "region-0",
+      regionIndex: 0,
+      headers: ["项目", "规格", "验收", "备注"],
+      headerRowIndex: 7,
+      headerRowCount: 1,
+      dataStartRowIndex: 8,
+      dataEndRowIndex: null,
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 2,
+      remarkColumnIndex: 3,
+      isSpecificationOnly: false,
+      confidence: 0.9,
+      source: "Rule",
+      decision: "AutoApply" as const,
+      fields: []
+    };
+    const info = tableInfo({ rowCount: 143 });
+
+    expect(resolveSmartStructureRegionEndRowIndex(region, info)).toBe(142);
+    expect(countSmartStructureRegionRows([region], info)).toBe(135);
+    expect(validateSmartStructureRegions([region], info)).toBe("");
+  });
+
+  it("共享区域校验拒绝重复列、越界行和区域重叠", () => {
+    const baseRegion = {
+      regionId: "region-0",
+      regionIndex: 0,
+      headers: ["项目", "规格", "验收", "备注"],
+      headerRowIndex: 0,
+      headerRowCount: 1,
+      dataStartRowIndex: 1,
+      dataEndRowIndex: 5,
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 2,
+      remarkColumnIndex: 3,
+      isSpecificationOnly: false,
+      confidence: 0.9,
+      source: "Rule",
+      decision: "NeedConfirm" as const,
+      fields: []
+    };
+    const info = tableInfo({ rowCount: 20, columnCount: 4 });
+
+    expect(
+      validateSmartStructureRegions(
+        [{ ...baseRegion, specificationColumnIndex: 0 }],
+        info
+      )
+    ).toContain("不能重复");
+    expect(
+      validateSmartStructureRegions(
+        [{ ...baseRegion, dataEndRowIndex: 20 }],
+        info
+      )
+    ).toContain("范围无效");
+    expect(
+      validateSmartStructureRegions(
+        [
+          baseRegion,
+          {
+            ...baseRegion,
+            regionId: "region-1",
+            regionIndex: 1,
+            headerRowIndex: 5,
+            dataStartRowIndex: 6,
+            dataEndRowIndex: 10
+          }
+        ],
+        info
+      )
+    ).toBe("数据区域之间不能重叠");
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDataImportPreviewStageText,
   buildDataImportConfigsFromRecognizedTables,
+  buildManualDataImportConfig,
   canSmartTableBeImported,
   createDataImportSmartSteps,
   createDefaultSelectedSmartTableIndexes,
@@ -9,7 +10,8 @@ import {
   getDataImportPreviewLoadState,
   getDataImportPreviewTotalCount,
   getDataImportPrevStepState,
-  getDataImportAdvancedStep
+  getDataImportAdvancedStep,
+  syncDataImportConfigsToRecognizedTables
 } from "./dataImport.smartRecognition";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
 import type { TableInfo } from "@/api/document";
@@ -96,6 +98,8 @@ describe("dataImport.smartRecognition", () => {
     });
 
     expect(configs[0].excelMapping).toEqual({
+      regionId: "table-0-region-0",
+      regionIndex: 0,
       projectColumn: 2,
       specificationColumn: 3,
       acceptanceColumn: 4,
@@ -103,9 +107,73 @@ describe("dataImport.smartRecognition", () => {
       headerRowStart: 3,
       headerRowCount: 1,
       dataStartRow: 4,
-      dataEndRow: 11
+      dataEndRow: 11,
+      isSpecificationOnly: false
     });
     expect(configs[0].recognizedExcelMapping).toEqual(configs[0].excelMapping);
+  });
+
+  it("高级 Excel 映射会同步回识别区域，保持摘要、学习和执行同源", () => {
+    const info = tableInfo(0);
+    const source = recognizedTable({
+      regions: [
+        {
+          regionId: "r1",
+          regionIndex: 0,
+          headers: ["项目", "规格", "验收", "备注"],
+          headerRowIndex: 0,
+          headerRowCount: 1,
+          dataStartRowIndex: 1,
+          dataEndRowIndex: 8,
+          projectColumnIndex: 0,
+          specificationColumnIndex: 1,
+          acceptanceColumnIndex: 2,
+          remarkColumnIndex: 3,
+          isSpecificationOnly: false,
+          confidence: 0.9,
+          source: "Rule",
+          decision: "NeedConfirm",
+          fields: []
+        }
+      ]
+    });
+    const config = buildManualDataImportConfig({
+      isExcelFile: true,
+      tableInfo: info
+    });
+    config.excelMapping = {
+      projectColumn: 4,
+      specificationColumn: 5,
+      acceptanceColumn: 3,
+      remarkColumn: 2,
+      headerRowStart: 8,
+      headerRowCount: 2,
+      dataStartRow: 10,
+      dataEndRow: 14
+    };
+
+    const [synced] = syncDataImportConfigsToRecognizedTables({
+      isExcelFile: true,
+      tables: [source],
+      configs: [config]
+    });
+
+    expect(synced).toMatchObject({
+      projectColumnIndex: 2,
+      specificationColumnIndex: 3,
+      acceptanceColumnIndex: 1,
+      remarkColumnIndex: 0,
+      headerRowIndex: 5,
+      headerRowCount: 2,
+      dataStartRowIndex: 7,
+      dataEndRowIndex: 11
+    });
+    expect(synced.regions).toHaveLength(1);
+    expect(synced.regions?.[0]).toMatchObject({
+      projectColumnIndex: 2,
+      headerRowIndex: 5,
+      dataEndRowIndex: 11
+    });
   });
 
   it("Word 仅规格识别结果缺少项目列时仍可生成导入配置", () => {
@@ -227,7 +295,7 @@ describe("dataImport.smartRecognition", () => {
     ).toBe(true);
   });
 
-  it("默认仅选中后端明确可直达、推荐且置信度大于 0 的表", () => {
+  it("默认选中后端推荐且结构完整的表，包括需要确认的多区域表", () => {
     expect(
       createDefaultSelectedSmartTableIndexes([
         recognizedTable({
@@ -284,9 +352,14 @@ describe("dataImport.smartRecognition", () => {
           confidence: 0
         }),
         recognizedTable({ tableIndex: 2, decision: "Reject" }),
-        recognizedTable({ tableIndex: 3, decision: "NeedConfirm" })
+        recognizedTable({ tableIndex: 3, decision: "NeedConfirm" }),
+        recognizedTable({
+          tableIndex: 10,
+          decision: "NeedConfirm",
+          recommendation: "NeedConfirm"
+        })
       ])
-    ).toEqual([0]);
+    ).toEqual([0, 10]);
   });
 
   it("仅规格待确认表可在用户手动选择后生成导入配置", () => {
@@ -378,6 +451,124 @@ describe("dataImport.smartRecognition", () => {
       loadedRows: 1,
       totalRows: 8,
       hasPartialPreview: true
+    });
+  });
+  it("Excel 多区域识别结果保留每段绝对行列范围", () => {
+    const base = recognizedTable({});
+    const configs = buildDataImportConfigsFromRecognizedTables({
+      isExcelFile: true,
+      tables: [
+        recognizedTable({
+          regions: [
+            {
+              regionId: "table-0-region-0",
+              regionIndex: 0,
+              headers: base.headers,
+              headerRowIndex: 0,
+              headerRowCount: 1,
+              dataStartRowIndex: 1,
+              dataEndRowIndex: 8,
+              projectColumnIndex: 0,
+              specificationColumnIndex: 1,
+              acceptanceColumnIndex: 2,
+              remarkColumnIndex: 3,
+              isSpecificationOnly: false,
+              confidence: 0.98,
+              source: "Rule",
+              decision: "AutoApply",
+              fields: []
+            },
+            {
+              regionId: "table-0-region-1",
+              regionIndex: 1,
+              headers: base.headers,
+              headerRowIndex: 10,
+              headerRowCount: 2,
+              dataStartRowIndex: 12,
+              dataEndRowIndex: 15,
+              projectColumnIndex: 0,
+              specificationColumnIndex: 1,
+              acceptanceColumnIndex: 2,
+              remarkColumnIndex: 3,
+              isSpecificationOnly: false,
+              confidence: 0.88,
+              source: "RepeatedHeader",
+              decision: "NeedConfirm",
+              fields: []
+            }
+          ]
+        })
+      ],
+      tableInfos: [{ ...tableInfo(0), rowCount: 20 }]
+    });
+
+    expect(configs[0].recognizedExcelMappings).toEqual([
+      expect.objectContaining({
+        projectColumn: 2,
+        dataStartRow: 4,
+        dataEndRow: 11
+      }),
+      expect.objectContaining({
+        headerRowStart: 13,
+        headerRowCount: 2,
+        dataStartRow: 15,
+        dataEndRow: 18
+      })
+    ]);
+  });
+
+  it("Word 多区域识别结果保留每段闭区间并同步回识别结构", () => {
+    const base = recognizedTable({});
+    const source = recognizedTable({
+      regions: [
+        {
+          ...base,
+          regionId: "word-region-0",
+          regionIndex: 0,
+          headers: base.headers,
+          dataEndRowIndex: 8
+        },
+        {
+          ...base,
+          regionId: "word-region-1",
+          regionIndex: 1,
+          headers: base.headers,
+          headerRowIndex: 10,
+          headerRowCount: 2,
+          dataStartRowIndex: 12,
+          dataEndRowIndex: 15
+        }
+      ]
+    });
+    const configs = buildDataImportConfigsFromRecognizedTables({
+      isExcelFile: false,
+      tables: [source],
+      tableInfos: [tableInfo(0)]
+    });
+
+    expect(configs[0].recognizedWordMappings).toEqual([
+      expect.objectContaining({
+        regionId: "word-region-0",
+        dataStartRowIndex: 1,
+        dataEndRowIndex: 8
+      }),
+      expect.objectContaining({
+        regionId: "word-region-1",
+        headerRowCount: 2,
+        dataStartRowIndex: 12,
+        dataEndRowIndex: 15
+      })
+    ]);
+    const [synced] = syncDataImportConfigsToRecognizedTables({
+      isExcelFile: false,
+      tables: [source],
+      configs
+    });
+    expect(synced.regions).toHaveLength(2);
+    expect(synced.regions?.[1]).toMatchObject({
+      regionId: "word-region-1",
+      headerRowCount: 2,
+      dataEndRowIndex: 15
     });
   });
 });

@@ -1,7 +1,4 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Text;
-using System.Text.Json;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
@@ -14,7 +11,7 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 public sealed partial class MatchingWorkflowSupportService
 {
-    internal async Task<MatchingOperationResult<ExecuteFillResponse>> BatchExecuteFillCoreAsync(MatchingUserContext user, BatchExecuteFillRequest request, CancellationToken cancellationToken = default)
+    private async Task<MatchingOperationResult<ExecuteFillResponse>> BatchExecuteFillUnlockedAsync(MatchingUserContext user, BatchExecuteFillRequest request, CancellationToken cancellationToken)
     {
         if (request.Tables == null || request.Tables.Count == 0)
         {
@@ -25,6 +22,13 @@ public sealed partial class MatchingWorkflowSupportService
         EnsureDistinctPreviewTableIndexes(request.PreviewTables);
         foreach (var table in request.Tables)
         {
+            var regionValidationError = MatchingRegionValidator.GetValidationError(
+                table.Regions,
+                table.TableIndex);
+            if (regionValidationError != null)
+            {
+                throw Failure(400, regionValidationError);
+            }
             EnsureDistinctFillMappings(
                 table.Mappings,
                 $"表格{table.TableIndex + 1}存在重复的行索引，请删除重复映射后重试");
@@ -52,6 +56,51 @@ public sealed partial class MatchingWorkflowSupportService
         if (wordFile == null)
         {
             throw Failure(400, "源文件不存在");
+        }
+        var executionRequestId = request.ExecutionRequestId?.Trim();
+        var requestFingerprint = BuildFillExecutionRequestFingerprint(request);
+        if (!string.IsNullOrEmpty(executionRequestId))
+        {
+            if (executionRequestId.Length > 80 ||
+                executionRequestId.Any(character =>
+                    !char.IsLetterOrDigit(character) && character is not '-' and not '_'))
+            {
+                throw Failure(400, "执行幂等键格式不合法");
+            }
+
+            var existingTask = await LoadIdempotentTaskAsync(
+                _matchingTaskSnapshotService,
+                user,
+                executionRequestId);
+            if (existingTask != null)
+            {
+                EnsureIdempotentFillRequestMatches(
+                    existingTask,
+                    request.FileId,
+                    requestFingerprint);
+
+                if (existingTask.FileMutationPending)
+                {
+                    await _matchingTaskSnapshotService.RecoverPendingFileMutationAsync(
+                        user,
+                        existingTask,
+                        cancellationToken);
+                }
+                else
+                {
+                    return Result(
+                        new ExecuteFillResponse
+                        {
+                            TaskId = existingTask.TaskId,
+                            FilledCount = existingTask.FilledCount,
+                            SkippedCount = existingTask.SkippedCount,
+                            DownloadUrl = wordFile.FileType == UploadedFileType.ExcelXlsx
+                                ? string.Empty
+                                : $"/api/matching/download/{existingTask.TaskId}"
+                        },
+                        "该填充请求已完成，已返回原任务结果");
+                }
+            }
         }
         var reviewApprovalBundle = _approvalTokenService.ResolveBundle(
             request.Tables.SelectMany(table =>
@@ -92,6 +141,16 @@ public sealed partial class MatchingWorkflowSupportService
         foreach (var table in request.Tables)
         {
             var currentSnapshot = currentMatchLookups.GetValueOrDefault(table.TableIndex);
+            currentSnapshot ??= new ExecutionMatchSnapshot();
+            currentMatchLookups[table.TableIndex] = currentSnapshot;
+            await CanonicalizeExecutionRegionSourcesAsync(
+                wordFile,
+                table,
+                currentSnapshot,
+                // 执行门禁必须能验证被过滤的空源行确实存在，人工填写才可安全写入；
+                // 当前匹配仍在后续按用户的 FilterEmptySourceRows 配置过滤。
+                filterEmptySourceRows: false,
+                cancellationToken);
             if (ExecutionPreviewSnapshotCoversMappings(table, currentSnapshot, reviewApprovalBundle))
             {
                 continue;
@@ -109,6 +168,8 @@ public sealed partial class MatchingWorkflowSupportService
                     table.HeaderRowStart,
                     table.HeaderRowCount,
                     table.DataStartRow,
+                    table.DataEndRow,
+                    table.Regions,
                     table.FilterEmptySourceRows ?? executionConfig.FilterEmptySourceRows,
                     effectiveCustomerId,
                     effectiveProcessId,
@@ -146,11 +207,17 @@ public sealed partial class MatchingWorkflowSupportService
 
             foreach (var mapping in tableFill.Mappings)
             {
+                var sourceItem = currentSourceRowLookup.GetValueOrDefault(mapping.RowIndex);
                 var selectedSpecId = mapping.SpecId ?? 0;
                 if (selectedSpecId <= 0 || !specDict.TryGetValue(selectedSpecId, out var spec))
                 {
                     if (TryCreateManualFillResult(mapping, out var manualFillResult))
                     {
+                        ApplyRegionWriteTarget(
+                            manualFillResult,
+                            sourceItem,
+                            tableFill.AcceptanceColumnIndex,
+                            tableFill.RemarkColumnIndex);
                         entry.FillResults.Add(manualFillResult);
                         adoptedRowLookup[tableFill.TableIndex].Add(mapping.RowIndex);
                         totalFilled++;
@@ -180,6 +247,10 @@ public sealed partial class MatchingWorkflowSupportService
 
                     entry.FillResults.Add(new FillResult
                     {
+                        RegionId = sourceItem?.RegionId,
+                        RegionIndex = sourceItem?.RegionIndex,
+                        AcceptanceColumnIndex = sourceItem?.AcceptanceColumnIndex ?? tableFill.AcceptanceColumnIndex,
+                        RemarkColumnIndex = sourceItem?.RemarkColumnIndex ?? tableFill.RemarkColumnIndex,
                         RowIndex = mapping.RowIndex,
                         SpecId = spec.Id,
                         Acceptance = mapping.OverrideAcceptance ?? spec.Acceptance ?? "",
@@ -194,11 +265,16 @@ public sealed partial class MatchingWorkflowSupportService
         }
 
         // 生成任务ID
-        var taskId = Guid.NewGuid().ToString("N");
+        var taskId = string.IsNullOrEmpty(executionRequestId)
+            ? Guid.NewGuid().ToString("N")
+            : BuildScopedFillTaskId(user, executionRequestId);
         var taskResult = new FillTaskResult
         {
             TaskId = taskId,
             SourceFileId = request.FileId,
+            RequestFingerprint = requestFingerprint,
+            FilledCount = totalFilled,
+            SkippedCount = totalSkipped,
             IsBatchMode = true,
             TableEntries = tableEntries,
             CreatedAt = DateTime.UtcNow
@@ -209,6 +285,22 @@ public sealed partial class MatchingWorkflowSupportService
             ? CreatePersistableTaskResult(taskResult, includeFillEntries: false)
             : taskResult;
         if (isExcelSource)
+        {
+            await PersistExcelFillExecutionAsync(
+                user,
+                request,
+                wordFile,
+                taskId,
+                taskResult,
+                persistedTaskResult,
+                executionConfig,
+                specDict,
+                adoptedRowLookup,
+                currentMatchLookups,
+                requestFingerprint,
+                cancellationToken);
+        }
+        else
         {
             try
             {
@@ -221,9 +313,18 @@ public sealed partial class MatchingWorkflowSupportService
                 await _unitOfWork.BeginTransactionAsync();
                 try
                 {
-                    await _matchingTaskSnapshotService.SaveAsync(user, persistedTaskResult, saveImmediately: false);
-                    await _unitOfWork.SaveChangesAsync();
-
+                    await _matchingTaskSnapshotService.SaveAsync(
+                        user,
+                        persistedTaskResult,
+                        saveImmediately: false,
+                        cancellationToken: cancellationToken);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    await PersistDownloadArtifactAsync(
+                        taskId,
+                        persistedTaskResult,
+                        wordFile,
+                        renderedFile.Content,
+                        cancellationToken);
                     await SaveExecutionHistoryAsync(
                         user,
                         wordFile,
@@ -237,62 +338,23 @@ public sealed partial class MatchingWorkflowSupportService
                         currentMatchLookups,
                         saveImmediately: false,
                         cancellationToken: cancellationToken);
-                    await _unitOfWork.SaveChangesAsync();
-
-                    await PersistExcelExecutionAsync(wordFile, renderedFile.Content, cancellationToken);
-                    await PersistDownloadArtifactAsync(
-                        taskId,
-                        persistedTaskResult,
-                        wordFile,
-                        renderedFile.Content,
-                        cancellationToken);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
                     await _unitOfWork.CommitTransactionAsync();
+                    await _matchingTaskSnapshotService.CompleteDeferredExpiredArtifactCleanupAsync(cancellationToken);
                 }
                 catch
                 {
-                    await _unitOfWork.RollbackTransactionAsync();
+                    try
+                    {
+                        await _unitOfWork.RollbackTransactionAsync();
+                    }
+                    finally
+                    {
+                        await DeleteFailedDownloadArtifactAsync(persistedTaskResult);
+                        _matchingTaskSnapshotService.DiscardDeferredExpiredArtifactCleanup();
+                    }
                     throw;
                 }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "批量填充后写回 Excel 失败: 文件{FileId}", wordFile.Id);
-                throw Failure(500, $"写回 Excel 失败: {ex.Message}");
-            }
-        }
-        else
-        {
-            try
-            {
-                var renderedFile = await _matchingResultWriteBackService.RenderFillResultToSourceFileAsync(
-                    wordFile,
-                    taskResult,
-                    cancellationToken);
-                EnsureWriteBackCompleted(renderedFile.Summary);
-
-                await _matchingTaskSnapshotService.SaveAsync(user, persistedTaskResult);
-                await PersistDownloadArtifactAsync(
-                    taskId,
-                    persistedTaskResult,
-                    wordFile,
-                    renderedFile.Content,
-                    cancellationToken);
-                await SaveExecutionHistoryAsync(
-                    user,
-                    wordFile,
-                    taskId,
-                    taskResult.CreatedAt,
-                    request.Tables,
-                    request.PreviewTables,
-                    executionConfig,
-                    specDict,
-                    adoptedRowLookup,
-                    currentMatchLookups,
-                    cancellationToken: cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -331,61 +393,6 @@ public sealed partial class MatchingWorkflowSupportService
         return Result(response, isExcelSource
             ? $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行，已写回并可下载 Excel"
             : $"批量填充完成：已填充{totalFilled}行，跳过{totalSkipped}行");
-    }
-
-    private async Task TryLearnColumnMappingsAfterFillAsync(
-        WordFile wordFile,
-        BatchExecuteFillRequest request,
-        int? customerId,
-        int totalFilled,
-        CancellationToken cancellationToken)
-    {
-        if (!customerId.HasValue || customerId.Value <= 0 || totalFilled <= 0)
-        {
-            return;
-        }
-
-        foreach (var table in request.Tables)
-        {
-            try
-            {
-                await _columnMappingLearningService.LearnFromDocumentTableAsync(
-                    customerId,
-                    wordFile,
-                    table.TableIndex,
-                    table.ProjectColumnIndex,
-                    table.SpecificationColumnIndex,
-                    table.AcceptanceColumnIndex,
-                    table.RemarkColumnIndex,
-                    table.HeaderRowStart,
-                    table.HeaderRowCount,
-                    table.DataStartRow,
-                    cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "智能填充成功后学习列映射失败: 文件{FileId}, 表{TableIndex}, 客户{CustomerId}",
-                    wordFile.Id,
-                    table.TableIndex,
-                    customerId);
-            }
-        }
-    }
-
-
-    private void EnsureExecutionPreviewContext(int? projectColumnIndex, int? specificationColumnIndex, int? tableIndex = null)
-    {
-        if (projectColumnIndex.HasValue && specificationColumnIndex.HasValue)
-        {
-            return;
-        }
-
-        var prefix = tableIndex.HasValue
-            ? $"表格{tableIndex.Value}执行填充"
-            : "执行填充";
-        throw Failure(400, $"{prefix}必须提供项目列索引和规格列索引，请重新预览后再执行");
     }
 
     private static void EnsureDistinctBatchTableIndexes(IReadOnlyCollection<BatchTableFillMapping> tables)

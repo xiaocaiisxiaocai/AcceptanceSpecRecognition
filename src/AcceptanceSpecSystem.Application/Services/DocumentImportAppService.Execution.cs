@@ -11,6 +11,7 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 public sealed partial class DocumentImportAppService
 {
+    private static readonly SemaphoreSlim SourceCleanupMemoryLease = new(1, 1);
     private async Task TryLearnColumnMappingsAfterImportAsync(
         int customerId,
         IReadOnlyList<string> headers,
@@ -72,6 +73,38 @@ public sealed partial class DocumentImportAppService
         }
     }
 
+    private async Task<WordFile> AuthorizeImportReplayAsync(
+        SpecAccessContext scope,
+        int fileId,
+        UploadedFileType expectedFileType,
+        int customerId,
+        int? processId,
+        int? machineModelId,
+        CancellationToken cancellationToken)
+    {
+        var file = await _documentFileAccessService.GetAccessibleWordFileAsync(
+            fileId,
+            scope,
+            includeScopedSpecs: true,
+            cancellationToken);
+        if (file == null)
+        {
+            throw new ApplicationServiceException(400, "文件不存在或当前无权访问");
+        }
+
+        if (file.FileType != expectedFileType)
+        {
+            throw new ApplicationServiceException(
+                400,
+                expectedFileType == UploadedFileType.ExcelXlsx
+                    ? "该文件不是 Excel 文件"
+                    : "该文件为 Excel，请使用 Excel 导入接口");
+        }
+
+        await ValidateImportTargetAsync(customerId, processId, machineModelId);
+        return file;
+    }
+
     private async Task<DocumentImportAppResult> ExecuteImportAsync(
         SpecAccessContext scope,
         WordFile wordFile,
@@ -89,19 +122,27 @@ public sealed partial class DocumentImportAppService
         TableData tableData,
         Func<RowData, ImportRowPayload> rowPayloadFactory,
         string sourceLabel,
-        CancellationToken cancellationToken)
+        ImportIdempotencyContext? idempotency,
+        CancellationToken cancellationToken,
+        string? completedMessageOverride = null)
     {
+        var importScopeKey = $"document-import:{scope.CompanyId}:{customerId}:{processId?.ToString() ?? "none"}:{machineModelId?.ToString() ?? "none"}";
+        await using var importScopeLease = await _unitOfWork.AcquireOperationLockAsync(
+            importScopeKey,
+            cancellationToken);
+        try
+        {
         var result = new ImportResult
         {
             TotalCount = tableData.Rows.Count
         };
 
         var excludedSet = (excludedRowIndexes ?? [])
-            .Where(index => index >= 0)
+            .Where(index => index >= 0 && index < tableData.Rows.Count)
             .ToHashSet();
         if (excludedSet.Count > 0)
         {
-            result.TotalCount = Math.Max(0, tableData.Rows.Count - tableData.Rows.Count(row => excludedSet.Contains(row.Index)));
+            result.TotalCount = Math.Max(0, tableData.Rows.Count - excludedSet.Count);
         }
 
         var existingSpecsInScope = await LoadExistingSpecsForImportAsync(
@@ -112,11 +153,19 @@ public sealed partial class DocumentImportAppService
             cancellationToken);
         // 先按当前数据范围建立重复检测会话；后续逐行只消费同一套确认/跳过规则，
         // 避免同批导入中重复判断口径前后不一致。
-        var duplicateSession = await CreateDuplicateDetectionSessionAsync(
-            existingSpecsInScope,
+        var pendingDecisionMap = BuildPendingDecisionMap(
+            scope,
+            wordFile.Id,
+            sourceIndex,
+            customerId,
+            processId,
+            machineModelId,
             confirmedDifferenceKeys,
             partiallyConfirmedDifferenceKeys,
-            skippedDifferenceKeys,
+            skippedDifferenceKeys);
+        var duplicateSession = await CreateDuplicateDetectionSessionAsync(
+            existingSpecsInScope,
+            pendingDecisionMap.Count > 0,
             duplicateCheckOptions,
             cancellationToken);
         var executionContext = CreateImportExecutionContext(
@@ -126,21 +175,24 @@ public sealed partial class DocumentImportAppService
             partiallyConfirmedDifferenceKeys,
             skippedDifferenceKeys,
             duplicateSession,
+            pendingDecisionMap,
             customerId,
             processId,
             machineModelId,
             wordFile.Id,
             scope.UserId,
+            scope.CompanyId,
             scope.OrgUnitId,
             previewSkippedRows);
 
-        foreach (var row in tableData.Rows)
+        for (var relativeRowIndex = 0; relativeRowIndex < tableData.Rows.Count; relativeRowIndex++)
         {
-            if (excludedSet.Contains(row.Index))
+            if (excludedSet.Contains(relativeRowIndex))
             {
                 continue;
             }
 
+            var row = tableData.Rows[relativeRowIndex];
             var payload = rowPayloadFactory(row);
             try
             {
@@ -161,56 +213,67 @@ public sealed partial class DocumentImportAppService
             }
         }
 
-        if (result.PendingCount > 0)
+        if (result.FailedCount > 0)
         {
+            result.SuccessCount = 0;
             return new DocumentImportAppResult(
                 result,
-                $"检测到{result.PendingCount}条重复或疑似重复数据，请逐条确认后再导入");
+                $"导入失败：{result.FailedCount}条数据处理失败，本区域未写入任何数据");
         }
 
-        if (executionContext.SpecsToInsert.Count > 0 || executionContext.OverwriteCount > 0)
+        if (result.PendingCount > 0)
         {
-            // 行级校验和重复判断先在内存中累计；只有确认无待处理项后，
-            // 才开启事务提交最终插入/覆盖，避免半批次写入。
-            await _unitOfWork.BeginTransactionAsync();
-            try
+            // 已明确确认的覆盖允许在本轮落库；尚未确认的新增行仍留待下一轮，
+            // 避免把用户已经确认的结果反复弹出。
+            var pendingMessage = $"检测到{result.PendingCount}条重复或疑似重复数据，请逐条确认后再导入";
+            if (executionContext.OverwriteCount > 0 || idempotency != null)
             {
-                if (executionContext.SpecsToInsert.Count > 0)
-                {
-                    await _unitOfWork.AcceptanceSpecs.AddRangeAsync(executionContext.SpecsToInsert);
-                }
-
-                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.BeginTransactionAsync();
+                await AddImportExecutionSnapshotAsync(
+                    idempotency,
+                    scope,
+                    wordFile.Id,
+                    result,
+                    pendingMessage,
+                    cleanupRequested: false);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
                 await _unitOfWork.CommitTransactionAsync();
-                result.SuccessCount = executionContext.SpecsToInsert.Count + executionContext.OverwriteCount;
             }
-            catch
-            {
-                await _unitOfWork.RollbackTransactionAsync();
-                throw;
-            }
+            return new DocumentImportAppResult(
+                result,
+                pendingMessage);
         }
 
-        if (cleanupSourceFile)
+        var hasSpecificationChanges =
+            executionContext.SpecsToInsert.Count > 0 || executionContext.OverwriteCount > 0;
+        if (hasSpecificationChanges || idempotency != null)
         {
-            try
+            // 解析、Embedding 与 AI 重复判断均已在事务外完成。这里只用短事务提交
+            // 最终规格变更和幂等快照，避免慢外部调用长期占用数据库事务。
+            await _unitOfWork.BeginTransactionAsync();
+            if (executionContext.SpecsToInsert.Count > 0)
             {
-                if (!string.IsNullOrWhiteSpace(wordFile.FilePath))
-                {
-                    await using var stream = _documentFileAccessService.OpenReadStream(wordFile);
-                    using var memoryStream = new MemoryStream();
-                    await stream.CopyToAsync(memoryStream, cancellationToken);
-                    wordFile.FileContent = memoryStream.ToArray();
-                    await _documentFileAccessService.DeleteIfExistsAsync(wordFile.FilePath, cancellationToken);
-                    wordFile.FilePath = null;
-                }
+                await _unitOfWork.AcceptanceSpecs.AddRangeAsync(
+                    executionContext.SpecsToInsert,
+                    cancellationToken);
+            }
 
-                await _unitOfWork.SaveChangesAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "{SourceLabel}导入后清理源文件失败: fileId={FileId}", sourceLabel, wordFile.Id);
-            }
+            result.SuccessCount = executionContext.SpecsToInsert.Count + executionContext.OverwriteCount;
+            var completedMessage = completedMessageOverride ?? BuildCompletedImportMessage(result);
+            await AddImportExecutionSnapshotAsync(
+                idempotency,
+                scope,
+                wordFile.Id,
+                result,
+                completedMessage,
+                cleanupSourceFile);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync();
+        }
+
+        if (cleanupSourceFile && result.FailedCount == 0)
+        {
+            await TryCompleteSourceCleanupAsync(idempotency, wordFile, sourceLabel, cancellationToken);
         }
 
         _logger.LogInformation(
@@ -237,7 +300,115 @@ public sealed partial class DocumentImportAppService
 
         return new DocumentImportAppResult(
             result,
-            $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条");
+            completedMessageOverride ?? BuildCompletedImportMessage(result));
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+    }
+
+    private static string BuildCompletedImportMessage(ImportResult result) =>
+        $"导入完成：成功{result.SuccessCount}条，失败{result.FailedCount}条，跳过{result.SkippedCount}条";
+
+    private async Task TryCompleteSourceCleanupAsync(
+        ImportIdempotencyContext? idempotency,
+        WordFile wordFile,
+        string sourceLabel,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            DocumentImportExecution? execution = null;
+            if (idempotency != null)
+            {
+                execution = await _importExecutions.GetByRequestKeyAsync(
+                    idempotency.RequestKey,
+                    cancellationToken);
+            }
+            await TryCompleteSourceCleanupAsync(execution, wordFile, sourceLabel, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "{SourceLabel}导入后记录清理状态失败: fileId={FileId}", sourceLabel, wordFile.Id);
+        }
+    }
+
+    private async Task TryCompleteSourceCleanupAsync(
+        DocumentImportExecution? execution,
+        WordFile wordFile,
+        string sourceLabel,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (execution is { CleanupRequested: false } or { CleanupCompleted: true })
+            {
+                return;
+            }
+
+            var physicalPath = wordFile.FilePath;
+            if (!string.IsNullOrWhiteSpace(physicalPath))
+            {
+                // 兼容既有“清理后仍可读取”契约，但对最大 50MB 文件只允许一个
+                // 清理迁移占用大块托管内存，并使用单一缓冲区避免 MemoryStream.ToArray
+                // 造成双份峰值内存。
+                await SourceCleanupMemoryLease.WaitAsync(cancellationToken);
+                try
+                {
+                    await using var stream = _documentFileAccessService.OpenReadStream(wordFile);
+                    if (!stream.CanSeek || stream.Length > int.MaxValue)
+                    {
+                        throw new InvalidOperationException("源文件大小无法安全迁移到兼容存储");
+                    }
+
+                    var content = GC.AllocateUninitializedArray<byte>(checked((int)stream.Length));
+                    await stream.ReadExactlyAsync(content, cancellationToken);
+                    wordFile.FileContent = content;
+                    wordFile.FilePath = null;
+                }
+                finally
+                {
+                    SourceCleanupMemoryLease.Release();
+                }
+            }
+
+            if (execution != null)
+            {
+                execution.CleanupCompleted = true;
+                _importExecutions.Update(execution);
+            }
+
+            if (!string.IsNullOrWhiteSpace(physicalPath) || execution != null)
+            {
+                // 数据库先持久化可读副本和完成状态；此后即使进程退出，物理文件只会
+                // 成为可由孤儿巡检回收的冗余副本，不会留下不可读的文件记录。
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            if (!string.IsNullOrWhiteSpace(physicalPath))
+            {
+                try
+                {
+                    await _documentFileAccessService.DeleteIfExistsAsync(physicalPath, cancellationToken);
+                }
+                catch (Exception deleteEx)
+                {
+                    _logger.LogWarning(
+                        deleteEx,
+                        "{SourceLabel}导入后删除冗余源文件失败: fileId={FileId}",
+                        sourceLabel,
+                        wordFile.Id);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // 规格与幂等快照已经提交，清理失败必须保持 pending，让同键重试补做，
+            // 不能把已成功的导入伪装成整体失败。
+            _logger.LogWarning(ex, "{SourceLabel}导入后清理源文件失败: fileId={FileId}", sourceLabel, wordFile.Id);
+        }
     }
 
 
@@ -266,20 +437,19 @@ public sealed partial class DocumentImportAppService
         IEnumerable<string>? partiallyConfirmedDifferenceKeys,
         IEnumerable<string>? skippedDifferenceKeys,
         ImportDuplicateDetectionSession duplicateSession,
+        Dictionary<string, PendingDecisionEntry> pendingDecisionMap,
         int customerId,
         int? processId,
         int? machineModelId,
         int fileId,
         int userId,
+        int companyId,
         int? ownerOrgUnitId,
         bool previewSkippedRows)
     {
         return new ImportExecutionContext
         {
-            PendingDecisionMap = BuildPendingDecisionMap(
-                confirmedDifferenceKeys,
-                partiallyConfirmedDifferenceKeys,
-                skippedDifferenceKeys),
+            PendingDecisionMap = pendingDecisionMap,
             Result = result,
             ExistingSpecs = existingSpecs,
             PendingInsertedSpecs = [],
@@ -299,6 +469,7 @@ public sealed partial class DocumentImportAppService
             MachineModelId = machineModelId,
             FileId = fileId,
             UserId = userId,
+            CompanyId = companyId,
             OwnerOrgUnitId = ownerOrgUnitId,
             PreviewSkippedRows = previewSkippedRows
         };

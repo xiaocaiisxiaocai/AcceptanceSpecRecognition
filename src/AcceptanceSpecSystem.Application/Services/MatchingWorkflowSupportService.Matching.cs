@@ -40,6 +40,10 @@ public sealed partial class MatchingWorkflowSupportService
                             var item = group.First();
                             return new MatchSourceItem
                             {
+                                RegionId = item.RegionId,
+                                RegionIndex = item.RegionIndex,
+                                AcceptanceColumnIndex = item.AcceptanceColumnIndex,
+                                RemarkColumnIndex = item.RemarkColumnIndex,
                                 RowIndex = item.RowIndex,
                                 Project = item.SourceProject,
                                 Specification = item.SourceSpecification
@@ -73,8 +77,7 @@ public sealed partial class MatchingWorkflowSupportService
 
         foreach (var mapping in table.Mappings)
         {
-            if (MappingHasApprovalToken(table.TableIndex, mapping, reviewApprovalBundle) ||
-                mapping.SpecId.GetValueOrDefault() <= 0)
+            if (mapping.SpecId.GetValueOrDefault() <= 0)
             {
                 if (!snapshot.SourceRowLookup.ContainsKey(mapping.RowIndex))
                 {
@@ -96,9 +99,7 @@ public sealed partial class MatchingWorkflowSupportService
         MatchingApprovalTokenService.ApprovalTokenBundle? reviewApprovalBundle)
     {
         return table.Mappings
-            .Where(mapping =>
-                mapping.SpecId.GetValueOrDefault() > 0 &&
-                !MappingHasApprovalToken(table.TableIndex, mapping, reviewApprovalBundle))
+            .Where(mapping => mapping.SpecId.GetValueOrDefault() > 0)
             .Select(mapping => mapping.RowIndex)
             .ToHashSet();
     }
@@ -200,7 +201,8 @@ public sealed partial class MatchingWorkflowSupportService
     }
 
     /// <summary>
-    /// 执行前重建服务端匹配快照；只有带审批 token 的行可复用预览结果，其余行必须重新匹配。
+    /// 执行前重建服务端匹配快照。客户端预览只负责交互展示；即使携带审批 token，
+    /// 执行审计证据也必须由服务端当前匹配结果生成，避免伪造分数、候选和 LLM 说明。
     /// </summary>
     private async Task<ExecutionMatchSnapshot> BuildCurrentMatchLookupAsync(
         WordFile wordFile,
@@ -210,6 +212,8 @@ public sealed partial class MatchingWorkflowSupportService
         int? headerRowStart,
         int? headerRowCount,
         int? dataStartRow,
+        int? dataEndRow,
+        IReadOnlyList<BatchTableRegionConfig>? regions,
         bool filterEmptySourceRows,
         int? customerId,
         int? processId,
@@ -225,7 +229,7 @@ public sealed partial class MatchingWorkflowSupportService
             return new ExecutionMatchSnapshot();
         }
 
-        var sourceRows = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
+        var sourceRows = await ExtractMatchSourceItemsForRegionsAsync(
             wordFile,
             tableIndex,
             projectColumnIndex.Value,
@@ -233,6 +237,8 @@ public sealed partial class MatchingWorkflowSupportService
             headerRowStart,
             headerRowCount,
             dataStartRow,
+            dataEndRow,
+            regions,
             filterEmptySourceRows,
             cancellationToken);
 

@@ -140,6 +140,14 @@ public class ExecutionHistorySmartFillSheetDto
 
 public class ExecutionHistorySmartFillRowDto
 {
+    public string? RegionId { get; set; }
+
+    public int? RegionIndex { get; set; }
+
+    public int? AcceptanceColumnIndex { get; set; }
+
+    public int? RemarkColumnIndex { get; set; }
+
     public int RowIndex { get; set; }
 
     public string SourceProject { get; set; } = string.Empty;
@@ -218,6 +226,10 @@ public class ExecutionHistorySheetDto
 
 public class ExecutionHistoryRowDto
 {
+    public string? RegionId { get; set; }
+
+    public int? RegionIndex { get; set; }
+
     public int RowIndex { get; set; }
 
     public string Project { get; set; } = string.Empty;

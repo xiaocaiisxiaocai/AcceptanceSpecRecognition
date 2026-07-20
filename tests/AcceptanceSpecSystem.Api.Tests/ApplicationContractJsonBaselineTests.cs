@@ -24,13 +24,14 @@ public class ApplicationContractJsonBaselineTests
             "roleStartAt", "roleEndAt", "orgStartAt", "orgEndAt", "isActive");
 
         AssertPropertyNames(new ImportDataRequest(),
-            "fileId", "tableIndex", "customerId", "processId", "machineModelId", "mapping",
+            "executionRequestId", "fileId", "tableIndex", "customerId", "processId", "machineModelId", "mapping",
+            "regionId", "headerRowCount", "dataEndRowIndex",
             "cleanupSourceFile", "previewSkippedRows", "isSpecificationOnly",
             "confirmedDifferenceKeys", "partiallyConfirmedDifferenceKeys", "skippedDifferenceKeys",
             "excludedRowIndexes", "duplicateCheckOptions");
 
         AssertPropertyNames(new ExcelImportDataRequest(),
-            "fileId", "sheetIndex", "customerId", "processId", "machineModelId",
+            "executionRequestId", "fileId", "sheetIndex", "customerId", "processId", "machineModelId",
             "headerRowStart", "headerRowCount", "dataStartRow", "dataEndRow",
             "projectColumn", "specificationColumn", "acceptanceColumn", "remarkColumn",
             "cleanupSourceFile", "previewSkippedRows", "isSpecificationOnly",

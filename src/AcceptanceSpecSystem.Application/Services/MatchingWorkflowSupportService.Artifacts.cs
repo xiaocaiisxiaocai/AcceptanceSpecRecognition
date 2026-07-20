@@ -14,6 +14,12 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 public sealed partial class MatchingWorkflowSupportService
 {
+    private sealed record SourceFileRollbackSnapshot(
+        string? FilePath,
+        byte[] FileContent,
+        string FileHash,
+        byte[] Content);
+
     private static void EnsureWriteBackCompleted(WriteBackSummary summary)
     {
         if (summary.RequestedCells > 0 && summary.WrittenCells == 0)
@@ -36,7 +42,7 @@ public sealed partial class MatchingWorkflowSupportService
         {
             await _documentFileAccessService.PersistUpdatedFileContentAsync(wordFile, updatedContent, cancellationToken);
             filePersisted = true;
-            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch
         {
@@ -62,6 +68,76 @@ public sealed partial class MatchingWorkflowSupportService
         using var memoryStream = new MemoryStream();
         await stream.CopyToAsync(memoryStream, cancellationToken);
         return memoryStream.ToArray();
+    }
+
+    private async Task<SourceFileRollbackSnapshot> CaptureSourceFileRollbackSnapshotAsync(
+        WordFile wordFile,
+        CancellationToken cancellationToken)
+    {
+        return new SourceFileRollbackSnapshot(
+            wordFile.FilePath,
+            wordFile.FileContent.ToArray(),
+            wordFile.FileHash,
+            await ReadSourceFileContentAsync(wordFile, cancellationToken));
+    }
+
+    private async Task RestoreSourceFileAfterFailedExecutionAsync(
+        WordFile wordFile,
+        SourceFileRollbackSnapshot snapshot)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(snapshot.FilePath))
+            {
+                wordFile.FilePath = snapshot.FilePath;
+                await _documentFileAccessService.PersistUpdatedFileContentAsync(
+                    wordFile,
+                    snapshot.Content,
+                    CancellationToken.None);
+            }
+            else if (!string.IsNullOrWhiteSpace(wordFile.FilePath))
+            {
+                await _documentFileAccessService.DeleteIfExistsAsync(wordFile.FilePath, CancellationToken.None);
+            }
+
+            // 数据库事务会恢复持久化值；这里同步恢复当前 DbContext 中的实体状态，
+            // 防止后续 SaveChanges 把失败写回产生的元数据再次提交。
+            wordFile.FilePath = snapshot.FilePath;
+            wordFile.FileContent = snapshot.FileContent.ToArray();
+            wordFile.FileHash = snapshot.FileHash;
+        }
+        catch (Exception restoreException)
+        {
+            _logger.LogCritical(
+                restoreException,
+                "填充失败后恢复源文件失败: 文件{FileId}",
+                wordFile.Id);
+        }
+    }
+
+    private async Task DeleteFailedDownloadArtifactAsync(FillTaskResult taskResult)
+    {
+        if (string.IsNullOrWhiteSpace(taskResult.DownloadArtifactRelativePath))
+        {
+            return;
+        }
+
+        try
+        {
+            await _documentFileAccessService.DeleteIfExistsAsync(
+                taskResult.DownloadArtifactRelativePath,
+                CancellationToken.None);
+            taskResult.DownloadArtifactRelativePath = null;
+            taskResult.DownloadArtifactFileName = null;
+            taskResult.DownloadArtifactContentType = null;
+        }
+        catch (Exception cleanupException)
+        {
+            _logger.LogError(
+                cleanupException,
+                "填充失败后清理下载产物失败: 任务{TaskId}",
+                taskResult.TaskId);
+        }
     }
 
     private async Task PersistDownloadArtifactAsync(
@@ -105,6 +181,9 @@ public sealed partial class MatchingWorkflowSupportService
             PayloadVersion = taskResult.PayloadVersion,
             TaskId = taskResult.TaskId,
             SourceFileId = taskResult.SourceFileId,
+            RequestFingerprint = taskResult.RequestFingerprint,
+            FilledCount = taskResult.FilledCount,
+            SkippedCount = taskResult.SkippedCount,
             SourceTableIndex = taskResult.SourceTableIndex,
             AcceptanceColumnIndex = taskResult.AcceptanceColumnIndex,
             RemarkColumnIndex = taskResult.RemarkColumnIndex,
@@ -131,7 +210,11 @@ public sealed partial class MatchingWorkflowSupportService
                 : [],
             DownloadArtifactRelativePath = taskResult.DownloadArtifactRelativePath,
             DownloadArtifactFileName = taskResult.DownloadArtifactFileName,
-            DownloadArtifactContentType = taskResult.DownloadArtifactContentType
+            DownloadArtifactContentType = taskResult.DownloadArtifactContentType,
+            FileMutationPending = taskResult.FileMutationPending,
+            SourceRollbackArtifactRelativePath = taskResult.SourceRollbackArtifactRelativePath,
+            SourceOriginalFilePath = taskResult.SourceOriginalFilePath,
+            SourceOriginalFileHash = taskResult.SourceOriginalFileHash
         };
     }
 

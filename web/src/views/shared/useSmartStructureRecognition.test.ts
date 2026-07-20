@@ -146,4 +146,85 @@ describe("useSmartStructureRecognition", () => {
     expect(state.confirmingTableIndex.value).toBeNull();
     expect(messageMocks.success).not.toHaveBeenCalled();
   });
+
+  it("客户变化后拒绝使用旧客户的识别上下文确认", async () => {
+    apiMocks.recognizeSmartConfig
+      .mockReset()
+      .mockResolvedValueOnce({ code: 0, data: result(10, "A客户") });
+    apiMocks.confirmSmartConfig.mockReset();
+    messageMocks.warning.mockClear();
+    const state = useSmartStructureRecognition();
+
+    await state.recognize(10, 1);
+    const confirmed = await state.confirm({
+      customerId: 2,
+      fileId: 10,
+      tableIndex: 0,
+      headers: ["项目", "规格", "验收", "备注"],
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 2,
+      remarkColumnIndex: 3,
+      headerRowIndex: 0,
+      headerRowCount: 1,
+      dataStartRowIndex: 1,
+      isSpecificationOnly: false,
+      learnedColumns: []
+    });
+
+    expect(confirmed).toBeNull();
+    expect(apiMocks.confirmSmartConfig).not.toHaveBeenCalled();
+    expect(messageMocks.warning).toHaveBeenCalledWith(
+      "客户已变更，请重新识别后再确认结构"
+    );
+  });
+
+  it("确认期间串行化其他表格请求，避免请求结果互相取消", async () => {
+    const requestA = deferred<any>();
+    apiMocks.recognizeSmartConfig
+      .mockReset()
+      .mockResolvedValueOnce({ code: 0, data: result(10, "多表") });
+    apiMocks.confirmSmartConfig
+      .mockReset()
+      .mockReturnValueOnce(requestA.promise);
+    messageMocks.warning.mockClear();
+    const state = useSmartStructureRecognition();
+    await state.recognize(10, 1);
+
+    const baseRequest = {
+      customerId: 1,
+      fileId: 10,
+      headers: ["项目", "规格", "验收", "备注"],
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 2,
+      remarkColumnIndex: 3,
+      headerRowIndex: 0,
+      headerRowCount: 1,
+      dataStartRowIndex: 1,
+      isSpecificationOnly: false,
+      learnedColumns: []
+    };
+    const pendingA = state.confirm({ ...baseRequest, tableIndex: 0 });
+    const blockedB = await state.confirm({ ...baseRequest, tableIndex: 1 });
+
+    expect(blockedB).toBeNull();
+    expect(apiMocks.confirmSmartConfig).toHaveBeenCalledTimes(1);
+    expect(messageMocks.warning).toHaveBeenCalledWith(
+      "正在确认其他表格，请稍候"
+    );
+
+    requestA.resolve({
+      code: 0,
+      data: {
+        templateSaved: true,
+        templateId: 1,
+        learnedRuleCount: 0,
+        promotedGlobalRuleCount: 0,
+        learningSucceeded: true
+      }
+    });
+    await expect(pendingA).resolves.toMatchObject({ templateSaved: true });
+    expect(state.confirmingTableIndex.value).toBeNull();
+  });
 });

@@ -45,7 +45,6 @@ public sealed class SmartConfigurationLearningService
                 learnedRuleCount++;
             }
 
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
             if (await PromoteGlobalRuleIfReadyAsync(
                     pattern,
                     learnedColumn.TargetField,
@@ -55,7 +54,6 @@ public sealed class SmartConfigurationLearningService
             }
         }
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
         return new SmartConfigurationLearningResult(
             learnedRuleCount,
             promotedGlobalRuleCount);
@@ -67,24 +65,34 @@ public sealed class SmartConfigurationLearningService
         ColumnMappingTargetField targetField,
         CancellationToken cancellationToken)
     {
+        var scopeKey = ColumnMappingRule.BuildScopeKey(customerId);
+        var normalizedPattern = ColumnMappingRule.NormalizePattern(pattern);
         var existing = await _unitOfWork.ColumnMappingRules.Query(asNoTracking: false)
             .FirstOrDefaultAsync(rule =>
-                rule.CustomerId == customerId &&
+                rule.ScopeKey == scopeKey &&
                 rule.TargetField == targetField &&
-                rule.Pattern == pattern,
+                rule.NormalizedPattern == normalizedPattern,
                 cancellationToken);
 
         if (existing != null)
         {
+            // 用户手工配置（含显式禁用）优先于自动学习，确认流程不得篡改其来源、
+            // 匹配模式或启用状态。仅维护已经启用的 Learned 规则。
+            if (!existing.Enabled || existing.Source != ColumnMappingRuleSource.Learned)
+            {
+                return false;
+            }
+
             existing.Source = ColumnMappingRuleSource.Learned;
             existing.MatchMode = ColumnMappingMatchMode.Equals;
             existing.Enabled = true;
             existing.Priority = Math.Max(existing.Priority, 100);
             existing.UpdatedAt = DateTime.UtcNow;
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
             return false;
         }
 
-        await _unitOfWork.ColumnMappingRules.AddAsync(new ColumnMappingRule
+        var candidate = new ColumnMappingRule
         {
             CustomerId = customerId,
             TargetField = targetField,
@@ -94,8 +102,27 @@ public sealed class SmartConfigurationLearningService
             Enabled = true,
             Source = ColumnMappingRuleSource.Learned,
             CreatedAt = DateTime.UtcNow
-        }, cancellationToken);
-        return true;
+        };
+        candidate.RefreshUniqueIdentity();
+        await _unitOfWork.ColumnMappingRules.AddAsync(candidate, cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateException)
+        {
+            _unitOfWork.ColumnMappingRules.Remove(candidate);
+            var concurrentWinner = await FindRuleByIdentityAsync(
+                scopeKey,
+                targetField,
+                normalizedPattern,
+                cancellationToken);
+            if (concurrentWinner is null)
+                throw;
+
+            return false;
+        }
     }
 
     private async Task<bool> PromoteGlobalRuleIfReadyAsync(
@@ -103,15 +130,16 @@ public sealed class SmartConfigurationLearningService
         ColumnMappingTargetField targetField,
         CancellationToken cancellationToken)
     {
-        var hasGlobal = await _unitOfWork.ColumnMappingRules.Query()
-            .AnyAsync(rule =>
-                rule.CustomerId == null &&
-                rule.TargetField == targetField &&
-                rule.Pattern == pattern &&
-                rule.Enabled,
+        var scopeKey = ColumnMappingRule.BuildScopeKey(customerId: null);
+        var normalizedPattern = ColumnMappingRule.NormalizePattern(pattern);
+        var existingGlobal = await _unitOfWork.ColumnMappingRules.Query()
+            .FirstOrDefaultAsync(rule =>
+                rule.ScopeKey == scopeKey &&
+                rule.NormalizedPattern == normalizedPattern,
                 cancellationToken);
-        if (hasGlobal)
+        if (existingGlobal is not null)
         {
+            // 同一全局表头已经归属任意字段时都不再提升，防止学习结果跨客户污染。
             return false;
         }
 
@@ -120,7 +148,7 @@ public sealed class SmartConfigurationLearningService
                 rule.CustomerId != null &&
                 rule.Source == ColumnMappingRuleSource.Learned &&
                 rule.TargetField == targetField &&
-                rule.Pattern == pattern &&
+                rule.NormalizedPattern == normalizedPattern &&
                 rule.Enabled)
             .Select(rule => rule.CustomerId!.Value)
             .Distinct()
@@ -131,7 +159,7 @@ public sealed class SmartConfigurationLearningService
             return false;
         }
 
-        await _unitOfWork.ColumnMappingRules.AddAsync(new ColumnMappingRule
+        var candidate = new ColumnMappingRule
         {
             CustomerId = null,
             TargetField = targetField,
@@ -141,9 +169,34 @@ public sealed class SmartConfigurationLearningService
             Enabled = true,
             Source = ColumnMappingRuleSource.Learned,
             CreatedAt = DateTime.UtcNow
-        }, cancellationToken);
-        return true;
+        };
+        candidate.RefreshUniqueIdentity();
+        await _unitOfWork.ColumnMappingRules.AddAsync(candidate, cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateException)
+        {
+            _unitOfWork.ColumnMappingRules.Remove(candidate);
+            // GlobalNormalizedPatternKey 的唯一约束负责跨实例裁决。同字段或其他
+            // 字段的并发赢家都意味着本次无需再次提升。
+            return false;
+        }
     }
+
+    private Task<ColumnMappingRule?> FindRuleByIdentityAsync(
+        string scopeKey,
+        ColumnMappingTargetField targetField,
+        string normalizedPattern,
+        CancellationToken cancellationToken) =>
+        _unitOfWork.ColumnMappingRules.Query()
+            .FirstOrDefaultAsync(rule =>
+                rule.ScopeKey == scopeKey &&
+                rule.TargetField == targetField &&
+                rule.NormalizedPattern == normalizedPattern,
+                cancellationToken);
 }
 
 public sealed record SmartConfigurationLearningResult(

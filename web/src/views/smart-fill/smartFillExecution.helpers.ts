@@ -1,6 +1,7 @@
 import type {
   BatchExecuteFillRequest,
   BatchTablePreviewResult,
+  BatchTableRegionConfig,
   MatchConfig,
   MatchPreviewItem,
   MatchResult
@@ -31,6 +32,8 @@ export type SmartFillExecuteTableConfig = {
   headerRowStart?: number;
   headerRowCount?: number;
   dataStartRow?: number;
+  dataEndRow?: number;
+  regions?: BatchTableRegionConfig[];
   filterEmptySourceRows?: boolean;
 };
 
@@ -86,6 +89,10 @@ export const buildExecutionHistoryPreviewTables = (
     .map(result => ({
       tableIndex: result.tableIndex,
       items: result.items.map((item: MatchPreviewItem) => ({
+        regionId: item.regionId,
+        regionIndex: item.regionIndex,
+        acceptanceColumnIndex: item.acceptanceColumnIndex,
+        remarkColumnIndex: item.remarkColumnIndex,
         rowIndex: item.rowIndex,
         sourceProject: item.sourceProject,
         sourceSpecification: item.sourceSpecification,
@@ -135,6 +142,8 @@ export const buildSmartFillExecuteRequest = ({
         headerRowStart: config.headerRowStart,
         headerRowCount: config.headerRowCount,
         dataStartRow: config.dataStartRow,
+        dataEndRow: config.dataEndRow,
+        regions: config.regions,
         filterEmptySourceRows: resolveFilterEmptySourceRows(config),
         mappings: selections.map(s => ({
           rowIndex: s.rowIndex,

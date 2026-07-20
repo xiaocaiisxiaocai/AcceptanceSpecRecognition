@@ -1,4 +1,4 @@
-﻿using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -77,6 +77,8 @@ public class AppDbContext : DbContext
     /// </summary>
     public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
 
+    public DbSet<DocumentTemplateRegion> DocumentTemplateRegions => Set<DocumentTemplateRegion>();
+
     /// <summary>
     /// 系统用户表
     /// </summary>
@@ -146,6 +148,8 @@ public class AppDbContext : DbContext
     /// 执行记录表
     /// </summary>
     public DbSet<ExecutionHistoryRecord> ExecutionHistoryRecords => Set<ExecutionHistoryRecord>();
+
+    public DbSet<DocumentImportExecution> DocumentImportExecutions => Set<DocumentImportExecution>();
 
     /// <summary>
     /// 数据库连接字符串
@@ -332,12 +336,17 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Pattern).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.ScopeKey).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.NormalizedPattern).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.GlobalNormalizedPatternKey).HasMaxLength(200);
             entity.Property(e => e.Source)
                 .HasDefaultValue(ColumnMappingRuleSource.Manual)
                 .HasSentinel((ColumnMappingRuleSource)0);
             entity.HasIndex(e => new { e.TargetField, e.Pattern });
             entity.HasIndex(e => new { e.CustomerId, e.TargetField, e.Pattern });
             entity.HasIndex(e => new { e.TargetField, e.Priority });
+            entity.HasIndex(e => new { e.ScopeKey, e.TargetField, e.NormalizedPattern }).IsUnique();
+            entity.HasIndex(e => e.GlobalNormalizedPatternKey).IsUnique();
         });
 
         // SmartStructureRoutingRule 配置
@@ -372,6 +381,16 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<DocumentTemplateRegion>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.HeadersJson).IsRequired();
+            entity.HasIndex(e => new { e.DocumentTemplateId, e.RegionIndex }).IsUnique();
+            entity.HasOne(e => e.DocumentTemplate)
+                .WithMany(e => e.Regions)
+                .HasForeignKey(e => e.DocumentTemplateId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
         // OrgCompany配置
         modelBuilder.Entity<OrgCompany>(entity =>
         {
@@ -590,6 +609,49 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => new { e.CompanyId, e.CreatedByUserId, e.CreatedAt });
         });
+
+        modelBuilder.Entity<DocumentImportExecution>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.RequestKey).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.RequestFingerprint).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.ResultJson).IsRequired();
+            entity.Property(e => e.Message).IsRequired().HasMaxLength(512);
+            entity.HasIndex(e => e.RequestKey).IsUnique();
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.ExpiresAt);
+            entity.HasIndex(e => new { e.CompanyId, e.CreatedByUserId, e.CreatedAt });
+        });
+    }
+
+    public override int SaveChanges() => SaveChanges(acceptAllChangesOnSuccess: true);
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        RefreshColumnMappingRuleUniqueIdentities();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        SaveChangesAsync(acceptAllChangesOnSuccess: true, cancellationToken);
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        RefreshColumnMappingRuleUniqueIdentities();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void RefreshColumnMappingRuleUniqueIdentities()
+    {
+        foreach (var entry in ChangeTracker.Entries<ColumnMappingRule>())
+        {
+            if (entry.State is EntityState.Added or EntityState.Modified)
+            {
+                entry.Entity.RefreshUniqueIdentity();
+            }
+        }
     }
 
     /// <summary>

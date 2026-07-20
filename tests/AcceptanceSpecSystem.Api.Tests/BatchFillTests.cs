@@ -90,6 +90,57 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task BatchPreview_WordDataEndRow_ShouldUseInclusiveRange()
+    {
+        var docxBytes = CreateMultiTableDocxBytes(
+            new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "", "" },
+                new[] { "P2", "S2", "", "" },
+                new[] { "P3", "S3", "", "" }
+            });
+        var fileId = await UploadDocxAsync(docxBytes, "word-inclusive-end.docx");
+        var customerId = await CreateCustomerAsync($"WordEnd-C-{Guid.NewGuid():N}");
+        var processId = await CreateProcessAsync($"WordEnd-P-{Guid.NewGuid():N}");
+        await CreateSpecAsync(customerId, processId, "P1", "S1", "A1", "");
+        await CreateSpecAsync(customerId, processId, "P2", "S2", "A2", "");
+        await CreateSpecAsync(customerId, processId, "P3", "S3", "A3", "");
+
+        var response = await _client.PostAsync(
+            "/api/matching/batch-preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                customerId,
+                processId,
+                config = new { minScoreThreshold = 0.0 },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        headerRowStart = 1,
+                        headerRowCount = 1,
+                        dataStartRow = 2,
+                        dataEndRow = 3
+                    }
+                }
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var items = body.Data.GetProperty("tables")[0].GetProperty("items");
+        items.GetArrayLength().Should().Be(2);
+        items[0].GetProperty("sourceProject").GetString().Should().Be("P1");
+        items[1].GetProperty("sourceProject").GetString().Should().Be("P2");
+    }
+
+    [Fact]
     public async Task BatchPreview_WhenShortAsciiExactMatch_ShouldExposeAiEquivalenceAndHighConfidence()
     {
         var docxBytes = CreateMultiTableDocxBytes(

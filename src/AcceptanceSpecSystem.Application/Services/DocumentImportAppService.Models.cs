@@ -40,6 +40,8 @@ public sealed partial class DocumentImportAppService
 
         public required int UserId { get; init; }
 
+        public required int CompanyId { get; init; }
+
         public required int? OwnerOrgUnitId { get; init; }
 
         public required bool PreviewSkippedRows { get; init; }

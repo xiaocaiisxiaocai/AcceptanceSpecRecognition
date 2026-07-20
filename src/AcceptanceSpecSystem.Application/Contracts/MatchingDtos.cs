@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
@@ -10,6 +10,14 @@ namespace AcceptanceSpecSystem.Application.Contracts;
 /// </summary>
 public class MatchSourceItem
 {
+    public string? RegionId { get; set; }
+
+    public int? RegionIndex { get; set; }
+
+    public int? AcceptanceColumnIndex { get; set; }
+
+    public int? RemarkColumnIndex { get; set; }
+
     /// <summary>
     /// 行索引（用于定位）
     /// </summary>
@@ -145,6 +153,14 @@ public class MatchConfigDto
 /// </summary>
 public class MatchPreviewItem
 {
+    public string? RegionId { get; set; }
+
+    public int? RegionIndex { get; set; }
+
+    public int? AcceptanceColumnIndex { get; set; }
+
+    public int? RemarkColumnIndex { get; set; }
+
     /// <summary>
     /// 行索引
     /// </summary>
@@ -691,6 +707,19 @@ public class MatchLlmStreamItem
 /// <summary>
 /// 批量表格配置（单个表格的列索引）
 /// </summary>
+public class BatchTableRegionConfig
+{
+    public string? RegionId { get; set; }
+    public int RegionIndex { get; set; }
+    public int ProjectColumnIndex { get; set; }
+    public int SpecificationColumnIndex { get; set; }
+    public int AcceptanceColumnIndex { get; set; }
+    public int? RemarkColumnIndex { get; set; }
+    public int? HeaderRowStart { get; set; }
+    public int? HeaderRowCount { get; set; }
+    public int? DataStartRow { get; set; }
+    public int? DataEndRow { get; set; }
+}
 public class BatchTableConfig
 {
     /// <summary>
@@ -737,6 +766,10 @@ public class BatchTableConfig
     /// Excel 数据起始行（1-based，可选；未传则默认紧随表头）
     /// </summary>
     public int? DataStartRow { get; set; }
+
+    public int? DataEndRow { get; set; }
+
+    public List<BatchTableRegionConfig> Regions { get; set; } = [];
 
     /// <summary>
     /// 是否过滤项目列与规格列都为空的源行（表格级，可选；未传时走全局配置）
@@ -990,6 +1023,10 @@ public class BatchTableFillMapping
     /// </summary>
     public int? DataStartRow { get; set; }
 
+    public int? DataEndRow { get; set; }
+
+    public List<BatchTableRegionConfig> Regions { get; set; } = [];
+
     /// <summary>
     /// 是否过滤项目列与规格列都为空的行
     /// </summary>
@@ -1007,6 +1044,11 @@ public class BatchTableFillMapping
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public class BatchExecuteFillRequest
 {
+    /// <summary>
+    /// 客户端生成的执行幂等键；相同用户、文件和键的重试返回既有任务。
+    /// </summary>
+    public string? ExecutionRequestId { get; set; }
+
     /// <summary>
     /// 文件ID
     /// </summary>

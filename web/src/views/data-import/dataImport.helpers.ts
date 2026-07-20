@@ -241,19 +241,33 @@ export const buildSkippedRowsGroups = (
 ): SkippedRowsGroup[] => {
   if (rows.length === 0) return [];
 
-  const grouped = new Map<number, ImportSkippedRowWithTable[]>();
+  const grouped = new Map<string, ImportSkippedRowWithTable[]>();
   for (const row of rows) {
-    const list = grouped.get(row.tableIndex) || [];
+    const groupKey = `${row.tableIndex}:${row.regionId ?? "default"}`;
+    const list = grouped.get(groupKey) || [];
     list.push(row);
-    grouped.set(row.tableIndex, list);
+    grouped.set(groupKey, list);
   }
 
   return Array.from(grouped.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([tableIndex, groupRows]) => {
+    .sort((a, b) => {
+      const first = a[1][0];
+      const second = b[1][0];
+      return (
+        first.tableIndex - second.tableIndex ||
+        (first.regionId ?? "").localeCompare(second.regionId ?? "")
+      );
+    })
+    .map(([, groupRows]) => {
+      const tableIndex = groupRows[0].tableIndex;
+      const regionId = groupRows[0].regionId;
       const tableCfg = tableConfigs.find(cfg => cfg.tableIndex === tableIndex);
-      const headers =
-        tableCfg?.previewData?.headers || tableCfg?.tableInfo?.headers || [];
+      const regionLocation = tableCfg?.excelPreviewRowLocations?.find(
+        item => item.regionId === regionId
+      );
+      const headers = regionLocation?.headers?.length
+        ? regionLocation.headers
+        : tableCfg?.previewData?.headers || tableCfg?.tableInfo?.headers || [];
       const maxColumnCount = groupRows.reduce(
         (max, row) => Math.max(max, row.rowValues?.length || 0),
         0
@@ -272,6 +286,8 @@ export const buildSkippedRowsGroups = (
 
       return {
         tableIndex,
+        regionId,
+        regionIndex: regionLocation?.regionIndex,
         rows: groupRows,
         columns
       };

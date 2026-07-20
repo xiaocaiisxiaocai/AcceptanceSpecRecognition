@@ -61,6 +61,25 @@ export interface SmartConfigRecognitionIssue {
   message: string;
 }
 
+export interface SmartConfigRecognizedRegion {
+  regionId: string;
+  regionIndex: number;
+  headers: string[];
+  headerRowIndex: number;
+  headerRowCount: number;
+  dataStartRowIndex: number;
+  dataEndRowIndex?: number | null;
+  projectColumnIndex?: number | null;
+  specificationColumnIndex?: number | null;
+  acceptanceColumnIndex?: number | null;
+  remarkColumnIndex?: number | null;
+  isSpecificationOnly: boolean;
+  confidence: number;
+  source: SmartConfigSource;
+  decision: SmartConfigDecision;
+  issues?: SmartConfigRecognitionIssue[];
+  fields: SmartConfigRecognizedField[];
+}
 export interface SmartConfigRecognizedTable {
   tableIndex: number;
   tableName?: string | null;
@@ -84,6 +103,7 @@ export interface SmartConfigRecognizedTable {
   issues?: SmartConfigRecognitionIssue[];
   semanticRecallSuggestions?: SmartConfigColumnSemanticRecallSuggestion[];
   fields: SmartConfigRecognizedField[];
+  regions?: SmartConfigRecognizedRegion[];
 }
 
 export interface SmartConfigRecognizeResult {
@@ -96,6 +116,20 @@ export interface SmartConfigLearnedColumn {
   targetField: ColumnMappingTargetField;
 }
 
+export interface SmartConfigConfirmRegion {
+  regionId?: string;
+  regionIndex: number;
+  headers: string[];
+  projectColumnIndex?: number;
+  specificationColumnIndex: number;
+  acceptanceColumnIndex?: number;
+  remarkColumnIndex?: number;
+  headerRowIndex: number;
+  headerRowCount: number;
+  dataStartRowIndex: number;
+  dataEndRowIndex?: number;
+  isSpecificationOnly: boolean;
+}
 export interface SmartConfigConfirmRequest {
   customerId: number;
   fileId?: number;
@@ -115,6 +149,7 @@ export interface SmartConfigConfirmRequest {
   recommendation?: SmartConfigRecommendation;
   userModifiedStructure?: boolean;
   learnedColumns: SmartConfigLearnedColumn[];
+  regions?: SmartConfigConfirmRegion[];
 }
 
 export interface SmartConfigConfirmResult {

@@ -12,20 +12,164 @@ public sealed class MatchingTaskSnapshotService
 {
     private static readonly JsonSerializerOptions FillTaskJsonOptions = new(JsonSerializerDefaults.Web);
     private const int FillTaskRetentionHours = 24;
-    private const int CurrentFillTaskPayloadVersion = 2;
+    private const int CurrentFillTaskPayloadVersion = 4;
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _fileStorage;
+    private readonly IDocumentFileAccessService _documentFileAccessService;
     private readonly ILogger<MatchingTaskSnapshotService> _logger;
+    private readonly HashSet<string> _deferredExpiredArtifactPaths = new(StringComparer.OrdinalIgnoreCase);
 
     public MatchingTaskSnapshotService(
         IUnitOfWork unitOfWork,
         IFileStorageService fileStorage,
+        IDocumentFileAccessService documentFileAccessService,
         ILogger<MatchingTaskSnapshotService> logger)
     {
         _unitOfWork = unitOfWork;
         _fileStorage = fileStorage;
+        _documentFileAccessService = documentFileAccessService;
         _logger = logger;
+    }
+
+    internal async Task PersistSourceRollbackArtifactAsync(
+        FillTaskResult taskResult,
+        string sourceFileName,
+        byte[] content,
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(taskResult.SourceRollbackArtifactRelativePath))
+        {
+            return;
+        }
+
+        var extension = Path.GetExtension(sourceFileName);
+        var fileName = $"rollback-{taskResult.TaskId}{extension}";
+        taskResult.SourceRollbackArtifactRelativePath = await _fileStorage.SaveFilledWordAsync(
+            fileName,
+            content,
+            cancellationToken);
+    }
+
+    internal async Task DeleteSourceRollbackArtifactAsync(
+        FillTaskResult taskResult,
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(taskResult.SourceRollbackArtifactRelativePath))
+        {
+            try
+            {
+                await _fileStorage.DeleteIfExistsAsync(
+                    taskResult.SourceRollbackArtifactRelativePath,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "清理 Excel 回滚产物失败，后续保留策略将重试: {ArtifactPath}",
+                    taskResult.SourceRollbackArtifactRelativePath);
+            }
+        }
+    }
+
+    internal async Task<bool> IsCompletedFileMutationAsync(
+        MatchingUserContext user,
+        string taskId,
+        string requestFingerprint)
+    {
+        var task = await LoadAsync(user, taskId);
+        return task != null &&
+               !task.FileMutationPending &&
+               string.Equals(task.RequestFingerprint, requestFingerprint, StringComparison.Ordinal);
+    }
+
+    internal async Task RecoverPendingFileMutationAsync(
+        MatchingUserContext user,
+        FillTaskResult taskResult,
+        CancellationToken cancellationToken = default)
+    {
+        if (!taskResult.FileMutationPending)
+        {
+            return;
+        }
+
+        var entity = await _unitOfWork.MatchingFillTasks.GetByTaskIdAsync(taskResult.TaskId);
+        if (entity == null)
+        {
+            return;
+        }
+        await EnsureTaskOwnershipAsync(user, entity);
+
+        if (string.IsNullOrWhiteSpace(taskResult.SourceRollbackArtifactRelativePath))
+        {
+            throw new InvalidOperationException($"待恢复任务缺少回滚产物: {taskResult.TaskId}");
+        }
+
+        byte[] originalContent;
+        await using (var rollbackStream = _fileStorage.OpenReadStream(taskResult.SourceRollbackArtifactRelativePath))
+        using (var rollbackContent = new MemoryStream())
+        {
+            await rollbackStream.CopyToAsync(rollbackContent, cancellationToken);
+            originalContent = rollbackContent.ToArray();
+        }
+
+        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(taskResult.SourceFileId);
+        if (wordFile != null)
+        {
+            if (!string.IsNullOrWhiteSpace(taskResult.SourceOriginalFilePath))
+            {
+                wordFile.FilePath = taskResult.SourceOriginalFilePath;
+                await _documentFileAccessService.PersistUpdatedFileContentAsync(
+                    wordFile,
+                    originalContent,
+                    cancellationToken);
+            }
+            else
+            {
+                wordFile.FilePath = null;
+                wordFile.FileContent = originalContent;
+                wordFile.FileHash = taskResult.SourceOriginalFileHash ?? wordFile.FileHash;
+            }
+            _unitOfWork.WordFiles.Update(wordFile);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        _unitOfWork.MatchingFillTasks.Remove(entity);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DeleteSourceRollbackArtifactAsync(taskResult, cancellationToken);
+    }
+
+    public async Task RecoverAllPendingFileMutationsAsync(CancellationToken cancellationToken = default)
+    {
+        var candidates = await _unitOfWork.MatchingFillTasks
+            .Query()
+            .Where(task => task.PayloadJson.Contains("\"fileMutationPending\":true"))
+            .ToListAsync(cancellationToken);
+
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var taskResult = DeserializeFillTaskResult(candidate.PayloadJson);
+                if (taskResult?.FileMutationPending != true ||
+                    !candidate.CreatedByUserId.HasValue ||
+                    !candidate.CompanyId.HasValue)
+                {
+                    continue;
+                }
+
+                await RecoverPendingFileMutationAsync(
+                    new MatchingUserContext(candidate.CreatedByUserId.Value, candidate.CompanyId.Value),
+                    taskResult,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, "恢复未完成的 Excel 文件写回失败: {TaskId}", candidate.TaskId);
+            }
+        }
     }
 
     internal async Task PersistDownloadArtifactAsync(
@@ -58,10 +202,14 @@ public sealed class MatchingTaskSnapshotService
 
         entity.PayloadJson = JsonSerializer.Serialize(taskResult, FillTaskJsonOptions);
         _unitOfWork.MatchingFillTasks.Update(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
-    internal async Task SaveAsync(MatchingUserContext user, FillTaskResult taskResult, bool saveImmediately = true)
+    internal async Task SaveAsync(
+        MatchingUserContext user,
+        FillTaskResult taskResult,
+        bool saveImmediately = true,
+        CancellationToken cancellationToken = default)
     {
         var owner = ResolveTaskOwner(user);
         taskResult.PayloadVersion = CurrentFillTaskPayloadVersion;
@@ -81,6 +229,21 @@ public sealed class MatchingTaskSnapshotService
         }
         else
         {
+            var existingTask = DeserializeFillTaskResult(existed.PayloadJson);
+            if (existingTask == null ||
+                existed.CreatedByUserId != owner.UserId ||
+                existed.CompanyId != owner.CompanyId ||
+                existingTask.SourceFileId != taskResult.SourceFileId ||
+                !string.Equals(
+                    existingTask.RequestFingerprint,
+                    taskResult.RequestFingerprint,
+                    StringComparison.Ordinal))
+            {
+                // TaskId 是数据库唯一键。并发请求若在入口检查后才看到其它请求已经
+                // 落库，不能把赢家的快照改写成当前文件/映射，交由上层回读并返回 409。
+                throw new InvalidOperationException("匹配任务幂等键已被不同请求占用");
+            }
+
             existed.SourceFileId = taskResult.SourceFileId;
             existed.CreatedByUserId = owner.UserId;
             existed.CompanyId = owner.CompanyId;
@@ -90,14 +253,18 @@ public sealed class MatchingTaskSnapshotService
         }
 
         var expireTime = DateTime.UtcNow.AddHours(-FillTaskRetentionHours);
-        await CleanupExpiredArtifactsAsync(expireTime);
+        await CleanupExpiredArtifactsAsync(expireTime, cancellationToken);
         if (saveImmediately)
         {
-            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await CompleteDeferredExpiredArtifactCleanupAsync(cancellationToken);
         }
     }
 
-    internal async Task<FillTaskResult?> LoadAsync(MatchingUserContext user, string taskId)
+    internal async Task<FillTaskResult?> LoadAsync(
+        MatchingUserContext user,
+        string taskId,
+        CancellationToken cancellationToken = default)
     {
         var entity = await _unitOfWork.MatchingFillTasks.GetByTaskIdAsync(taskId);
         if (entity == null || string.IsNullOrWhiteSpace(entity.PayloadJson))
@@ -105,7 +272,7 @@ public sealed class MatchingTaskSnapshotService
             return null;
         }
 
-        await EnsureTaskOwnershipAsync(user, entity);
+        await EnsureTaskOwnershipAsync(user, entity, cancellationToken);
 
         try
         {
@@ -118,12 +285,14 @@ public sealed class MatchingTaskSnapshotService
         }
     }
 
-    private async Task CleanupExpiredArtifactsAsync(DateTime expireTime)
+    private async Task CleanupExpiredArtifactsAsync(
+        DateTime expireTime,
+        CancellationToken cancellationToken)
     {
         var expiredTasks = await _unitOfWork.MatchingFillTasks
             .Query(asNoTracking: false)
             .Where(task => task.CreatedAt < expireTime)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         if (expiredTasks.Count == 0)
         {
@@ -142,7 +311,11 @@ public sealed class MatchingTaskSnapshotService
                 var snapshot = DeserializeFillTaskResult(expiredTask.PayloadJson);
                 if (!string.IsNullOrWhiteSpace(snapshot?.DownloadArtifactRelativePath))
                 {
-                    await _fileStorage.DeleteIfExistsAsync(snapshot.DownloadArtifactRelativePath);
+                    _deferredExpiredArtifactPaths.Add(snapshot.DownloadArtifactRelativePath);
+                }
+                if (!string.IsNullOrWhiteSpace(snapshot?.SourceRollbackArtifactRelativePath))
+                {
+                    _deferredExpiredArtifactPaths.Add(snapshot.SourceRollbackArtifactRelativePath);
                 }
             }
             catch (Exception ex)
@@ -152,6 +325,35 @@ public sealed class MatchingTaskSnapshotService
         }
 
         _unitOfWork.MatchingFillTasks.RemoveRange(expiredTasks);
+    }
+
+    internal async Task CompleteDeferredExpiredArtifactCleanupAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (_deferredExpiredArtifactPaths.Count == 0)
+        {
+            return;
+        }
+
+        var paths = _deferredExpiredArtifactPaths.ToArray();
+        _deferredExpiredArtifactPaths.Clear();
+        foreach (var path in paths)
+        {
+            try
+            {
+                await _fileStorage.DeleteIfExistsAsync(path, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                // 数据库已提交删除；物理清理失败时保留为孤儿文件，后续孤儿扫描可重试。
+                _logger.LogWarning(ex, "清理已过期填充产物失败: {ArtifactPath}", path);
+            }
+        }
+    }
+
+    internal void DiscardDeferredExpiredArtifactCleanup()
+    {
+        _deferredExpiredArtifactPaths.Clear();
     }
 
     private static FillTaskResult? DeserializeFillTaskResult(string payload)
@@ -175,11 +377,14 @@ public sealed class MatchingTaskSnapshotService
         return (user.UserId, user.CompanyId);
     }
 
-    private async Task EnsureTaskOwnershipAsync(MatchingUserContext user, MatchingFillTask entity)
+    private async Task EnsureTaskOwnershipAsync(
+        MatchingUserContext user,
+        MatchingFillTask entity,
+        CancellationToken cancellationToken = default)
     {
         if (!entity.CreatedByUserId.HasValue || !entity.CompanyId.HasValue)
         {
-            await TryRecoverLegacyTaskOwnershipAsync(entity);
+            await TryRecoverLegacyTaskOwnershipAsync(entity, cancellationToken);
         }
 
         if (!entity.CreatedByUserId.HasValue || !entity.CompanyId.HasValue)
@@ -194,7 +399,9 @@ public sealed class MatchingTaskSnapshotService
         }
     }
 
-    private async Task TryRecoverLegacyTaskOwnershipAsync(MatchingFillTask entity)
+    private async Task TryRecoverLegacyTaskOwnershipAsync(
+        MatchingFillTask entity,
+        CancellationToken cancellationToken)
     {
         if (entity.SourceFileId <= 0)
         {
@@ -210,7 +417,7 @@ public sealed class MatchingTaskSnapshotService
         entity.CreatedByUserId = sourceFile.CreatedByUserId;
         entity.CompanyId = sourceFile.CompanyId;
         _unitOfWork.MatchingFillTasks.Update(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     private static MatchingApiException Failure(int code, string message)

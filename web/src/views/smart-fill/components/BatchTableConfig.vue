@@ -10,7 +10,8 @@ import type {
 } from "@/api/matching";
 import {
   applyExcelBatchTableRowFieldChange,
-  normalizeExcelBatchTableRows
+  normalizeExcelBatchTableRows,
+  syncPrimaryBatchTableRegion
 } from "./batchTableConfig.helpers";
 import type { BatchTableConfigItem } from "./batchTableConfig.types";
 
@@ -115,12 +116,12 @@ const applyPrimaryExcelConfigToOthers = (
       dataStartRow: primary.dataStartRow
     });
 
-    return {
+    return syncPrimaryBatchTableRegion({
       ...next,
       headerRowStart: normalized.headerRowStart,
       headerRowCount: normalized.headerRowCount,
       dataStartRow: normalized.dataStartRow
-    };
+    });
   });
 };
 
@@ -162,11 +163,11 @@ const updateField = (
     "acceptanceColumnIndex",
     "remarkColumnIndex"
   ];
-  updated[index] = {
+  updated[index] = syncPrimaryBatchTableRegion({
     ...updated[index],
     [field]: value,
     ...(mappingFields.includes(field) ? { mappingAutoDetected: false } : {})
-  };
+  });
 
   if (props.isExcel && index === 0) {
     items.value = applyPrimaryExcelConfigToOthers(updated);
@@ -200,12 +201,12 @@ const updateExcelRowField = (
   if (!changed) return;
 
   const updated = [...items.value];
-  updated[index] = {
+  updated[index] = syncPrimaryBatchTableRegion({
     ...old,
     headerRowStart: normalized.headerRowStart,
     headerRowCount: normalized.headerRowCount,
     dataStartRow: normalized.dataStartRow
-  };
+  });
 
   const nextItems =
     props.isExcel && index === 0

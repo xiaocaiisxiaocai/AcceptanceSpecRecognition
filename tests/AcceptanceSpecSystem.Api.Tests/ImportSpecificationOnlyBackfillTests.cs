@@ -60,6 +60,47 @@ public class ImportSpecificationOnlyBackfillTests : IClassFixture<ApiWebApplicat
     }
 
     [Fact]
+    public async Task ImportExcel_WhenSameExecutionRequestIsConcurrent_ShouldCommitOnceAndReturnSameResult()
+    {
+        var scope = await SeedImportScopeAsync();
+        var fileId = await UploadExcelAsync(CreateSpecificationOnlyExcelBytes(
+            "规格内容", "验收标准", "备注", "IDEMPOTENT-SPEC", "A1", "R1"));
+        var requestId = Guid.NewGuid().ToString("N");
+        var payload = new
+        {
+            executionRequestId = requestId,
+            fileId,
+            sheetIndex = 0,
+            customerId = scope.CustomerId,
+            processId = scope.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            specificationColumn = 1,
+            acceptanceColumn = 2,
+            remarkColumn = 3,
+            isSpecificationOnly = true,
+            cleanupSourceFile = false
+        };
+
+        var first = ImportExcelAsync(payload);
+        var second = ImportExcelAsync(payload);
+        await Task.WhenAll(first, second);
+        first.Result.StatusCode.Should().Be(HttpStatusCode.OK);
+        second.Result.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await first.Result.ReadAsAsync<ApiResponse<JsonElement>>()).Data
+            .GetProperty("successCount").GetInt32().Should().Be(1);
+        (await second.Result.ReadAsAsync<ApiResponse<JsonElement>>()).Data
+            .GetProperty("successCount").GetInt32().Should().Be(1);
+
+        (await CountSpecsAsync(scope.CustomerId, scope.ProcessId)).Should().Be(1);
+        using var verificationScope = _factory.Services.CreateScope();
+        var db = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.DocumentImportExecutions.CountAsync(item => item.SourceFileId == fileId))
+            .Should().Be(1);
+    }
+
+    [Fact]
     public async Task ImportWord_WhenSpecificationOnlyConfirmed_ShouldBackfillProjectFromSpecification()
     {
         var scope = await SeedImportScopeAsync();
@@ -98,6 +139,42 @@ public class ImportSpecificationOnlyBackfillTests : IClassFixture<ApiWebApplicat
         spec.Specification.Should().Be("SPEC-ONLY-WORD");
         spec.Acceptance.Should().Be("A1");
         spec.Remark.Should().Be("R1");
+    }
+
+    [Fact]
+    public async Task ImportWord_WhenFirstParsedDataRowExcluded_ShouldImportOnlySecondDataRow()
+    {
+        var scope = await SeedImportScopeAsync();
+        var fileId = await UploadWordAsync(CreateSpecificationOnlyDocxBytes(
+            "规格内容", "验收标准", "备注",
+            "WORD-EXCLUDED", "A-EXCLUDED", "R-EXCLUDED",
+            "WORD-KEPT", "A-KEPT", "R-KEPT"));
+
+        var response = await ImportWordAsync(new
+        {
+            fileId,
+            tableIndex = 0,
+            customerId = scope.CustomerId,
+            processId = scope.ProcessId,
+            isSpecificationOnly = true,
+            excludedRowIndexes = new[] { 0 },
+            mapping = new
+            {
+                specificationColumn = 0,
+                acceptanceColumn = 1,
+                remarkColumn = 2,
+                headerRowIndex = 0,
+                dataStartRowIndex = 1
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Data.GetProperty("successCount").GetInt32().Should().Be(1);
+
+        var spec = await FindSingleSpecAsync(scope.CustomerId, scope.ProcessId);
+        spec.Project.Should().Be("WORD-KEPT");
+        spec.Specification.Should().Be("WORD-KEPT");
     }
 
     [Fact]

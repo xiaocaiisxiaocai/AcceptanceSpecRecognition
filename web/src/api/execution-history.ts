@@ -82,6 +82,10 @@ export interface ExecutionHistorySmartFillExecutionSnapshot {
 }
 
 export interface ExecutionHistorySmartFillRow {
+  regionId?: string;
+  regionIndex?: number;
+  acceptanceColumnIndex?: number;
+  remarkColumnIndex?: number;
   rowIndex: number;
   sourceProject: string;
   sourceSpecification: string;

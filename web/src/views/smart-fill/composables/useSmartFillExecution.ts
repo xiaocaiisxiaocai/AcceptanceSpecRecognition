@@ -78,6 +78,15 @@ export function useSmartFillExecution({
   const downloadingResult = ref(false);
   const taskId = ref<string | null>(null);
   const lastDownloadFailed = ref(false);
+  let lastExecutionIdentity: { fingerprint: string; requestId: string } | null =
+    null;
+
+  const createExecutionRequestId = () => {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+      return globalThis.crypto.randomUUID().replaceAll("-", "");
+    }
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  };
 
   const getHighConfidenceThreshold = () =>
     Math.min(
@@ -146,7 +155,7 @@ export function useSmartFillExecution({
     selectedConfigs: BatchTableConfigItem[],
     allSelections: SmartFillPreviewSelections
   ): BatchExecuteFillRequest | null => {
-    return buildSmartFillExecuteRequest({
+    const request = buildSmartFillExecuteRequest({
       uploadedFileId: uploadedFile.value?.fileId,
       scope,
       selectedConfigs,
@@ -156,6 +165,24 @@ export function useSmartFillExecution({
       previewResults: batchPreviewResults.value,
       resolveFilterEmptySourceRows: getEffectiveFilterEmptySourceRows
     });
+    if (!request) return null;
+
+    const fingerprint = JSON.stringify({
+      fileId: request.fileId,
+      customerId: request.customerId,
+      processId: request.processId,
+      machineModelId: request.machineModelId,
+      config: request.config,
+      tables: request.tables
+    });
+    if (lastExecutionIdentity?.fingerprint !== fingerprint) {
+      lastExecutionIdentity = {
+        fingerprint,
+        requestId: createExecutionRequestId()
+      };
+    }
+    request.executionRequestId = lastExecutionIdentity.requestId;
+    return request;
   };
 
   const runExecuteFill = async (request: BatchExecuteFillRequest) => {

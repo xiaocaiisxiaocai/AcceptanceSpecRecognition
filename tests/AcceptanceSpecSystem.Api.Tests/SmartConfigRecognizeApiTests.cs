@@ -133,6 +133,136 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     }
 
     [Fact]
+    public async Task Recognize_WhenHighestUsageTemplateRegionIsStale_ShouldSelectHealthyVariant()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-多模板择优客户");
+        var fileId = await UploadExcelAsync(
+            CreateTwoRegionTemplateSelectionExcelBytes(),
+            "smart-recognize-template-variant.xlsx");
+        var headers = new[] { "项目", "规格", "验收" };
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.DocumentTemplates.AddRange(
+                CreateTemplateVariant(customerId, "高频失效模板", new string('a', 64), 100, 3, 4, 5, headers),
+                CreateTemplateVariant(customerId, "低频健康模板", new string('b', 64), 0, 5, 6, 7, headers));
+            await db.SaveChangesAsync();
+        }
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+        var regions = table.GetProperty("regions").EnumerateArray().ToList();
+        table.GetProperty("source").GetString().Should().Be("Template");
+        regions.Should().HaveCount(2);
+        regions[1].GetProperty("headerRowIndex").GetInt32().Should().Be(5);
+        regions.SelectMany(region => region.GetProperty("issues").EnumerateArray())
+            .Should().NotContain(issue => issue.GetProperty("code").GetString() == "TemplateHeaderChanged");
+    }
+
+    [Fact]
+    public async Task Recognize_WhenSingleRegionTemplateRangeNoLongerContainsData_ShouldNeedConfirm()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-单区域范围漂移客户");
+        var headers = new[] { "项目", "规格内容", "验收结果", "备注" };
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var now = DateTime.UtcNow;
+            db.DocumentTemplates.Add(new DocumentTemplate
+            {
+                CustomerId = customerId,
+                TemplateName = "旧单区域模板",
+                HeadersFingerprint = new string('c', 64),
+                HeadersJson = JsonSerializer.Serialize(headers),
+                ProjectColumnIndex = 0,
+                SpecificationColumnIndex = 1,
+                AcceptanceColumnIndex = 2,
+                RemarkColumnIndex = 3,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1,
+                DataEndRowIndex = 5,
+                TableKind = "Acceptance",
+                Recommendation = "AutoApply",
+                CreatedAt = now,
+                UpdatedAt = now,
+                Regions =
+                [
+                    new DocumentTemplateRegion
+                    {
+                        RegionIndex = 0,
+                        HeadersJson = JsonSerializer.Serialize(headers),
+                        HeaderRowIndex = 0,
+                        HeaderRowCount = 1,
+                        DataStartRowIndex = 1,
+                        DataEndRowIndex = 5,
+                        ProjectColumnIndex = 0,
+                        SpecificationColumnIndex = 1,
+                        AcceptanceColumnIndex = 2,
+                        RemarkColumnIndex = 3
+                    }
+                ]
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var fileId = await UploadExcelAsync(
+            CreateExcelWithDataMovedAfterTemplateRangeBytes(),
+            "smart-recognize-template-range-drift.xlsx");
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+        table.GetProperty("source").GetString().Should().Be("Template");
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        table.GetProperty("regions").EnumerateArray().Single()
+            .GetProperty("issues").EnumerateArray()
+            .Should().Contain(issue =>
+                issue.GetProperty("code").GetString() == "TemplateRegionDataChanged" ||
+                issue.GetProperty("code").GetString() == "UncoveredBusinessRows");
+    }
+
+    [Fact]
+    public async Task Recognize_WhenSecondRegionColumnsMove_ShouldPreferExplicitHeaderMatches()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-区域列移动客户");
+        var fileId = await UploadExcelAsync(
+            CreateExcelWithShiftedSecondRegionColumnsBytes(),
+            "smart-recognize-shifted-second-region.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId
+        }));
+
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var regions = body.Data.GetProperty("tables").EnumerateArray().Single()
+            .GetProperty("regions").EnumerateArray().ToList();
+        regions.Should().HaveCount(2);
+        regions[1].GetProperty("projectColumnIndex").GetInt32().Should().Be(2);
+        regions[1].GetProperty("specificationColumnIndex").GetInt32().Should().Be(3);
+        regions[1].GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(8);
+        regions[1].GetProperty("remarkColumnIndex").GetInt32().Should().Be(9);
+    }
+
+    [Fact]
     public async Task Recognize_WhenCustomerTemplateMissesRequiredColumns_ShouldNeedConfirmAndClampRowRange()
     {
         var customerId = await CreateCustomerAsync("智能识别-模板健康检查客户");
@@ -407,6 +537,143 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    private static byte[] CreateTwoRegionTemplateSelectionExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        void Header(int row)
+        {
+            worksheet.Cell(row, 1).Value = "项目";
+            worksheet.Cell(row, 2).Value = "规格";
+            worksheet.Cell(row, 3).Value = "验收";
+        }
+
+        void Data(int row, string project, string specification)
+        {
+            worksheet.Cell(row, 1).Value = project;
+            worksheet.Cell(row, 2).Value = specification;
+            worksheet.Cell(row, 3).Value = "OK";
+        }
+
+        Header(1);
+        Data(2, "外观", "无划伤");
+        Data(3, "尺寸", "100mm");
+        Header(6);
+        Data(7, "功能", "运行正常");
+        Data(8, "安全", "保护有效");
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateExcelWithDataMovedAfterTemplateRangeBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格内容";
+        worksheet.Cell(1, 3).Value = "验收结果";
+        worksheet.Cell(1, 4).Value = "备注";
+        for (var row = 7; row <= 12; row++)
+        {
+            worksheet.Cell(row, 1).Value = $"项目{row}";
+            worksheet.Cell(row, 2).Value = $"规格{row}";
+            worksheet.Cell(row, 3).Value = "OK";
+            worksheet.Cell(row, 4).Value = "抽检";
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateExcelWithShiftedSecondRegionColumnsBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 3).Value = "项目";
+        worksheet.Cell(1, 4).Value = "规格";
+        worksheet.Cell(1, 9).Value = "验收";
+        worksheet.Cell(1, 10).Value = "备注";
+        for (var row = 2; row <= 3; row++)
+        {
+            worksheet.Cell(row, 3).Value = row == 2 ? "外观" : "尺寸";
+            worksheet.Cell(row, 4).Value = row == 2 ? "无划伤" : "100mm";
+            worksheet.Cell(row, 9).Value = "OK";
+            worksheet.Cell(row, 10).Value = "抽检";
+        }
+
+        worksheet.Cell(6, 3).Value = "序号";
+        worksheet.Cell(6, 4).Value = "类别";
+        worksheet.Cell(6, 5).Value = "项目";
+        worksheet.Cell(6, 6).Value = "规格";
+        worksheet.Cell(6, 9).Value = "方法";
+        worksheet.Cell(6, 10).Value = "记录";
+        worksheet.Cell(6, 11).Value = "验收";
+        worksheet.Cell(6, 12).Value = "备注";
+        for (var row = 7; row <= 8; row++)
+        {
+            worksheet.Cell(row, 5).Value = row == 7 ? "功能" : "安全";
+            worksheet.Cell(row, 6).Value = row == 7 ? "运行正常" : "保护有效";
+            worksheet.Cell(row, 11).Value = "OK";
+            worksheet.Cell(row, 12).Value = "复验";
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static DocumentTemplate CreateTemplateVariant(
+        int customerId,
+        string name,
+        string fingerprint,
+        int usageCount,
+        int secondHeaderRow,
+        int secondDataStart,
+        int secondDataEnd,
+        IReadOnlyList<string> headers)
+    {
+        var now = DateTime.UtcNow;
+        DocumentTemplateRegion Region(int index, int headerRow, int dataStart, int dataEnd) => new()
+        {
+            RegionIndex = index,
+            HeadersJson = JsonSerializer.Serialize(headers),
+            HeaderRowIndex = headerRow,
+            HeaderRowCount = 1,
+            DataStartRowIndex = dataStart,
+            DataEndRowIndex = dataEnd,
+            ProjectColumnIndex = 0,
+            SpecificationColumnIndex = 1,
+            AcceptanceColumnIndex = 2
+        };
+
+        return new DocumentTemplate
+        {
+            CustomerId = customerId,
+            TemplateName = name,
+            HeadersFingerprint = fingerprint,
+            HeadersJson = JsonSerializer.Serialize(headers),
+            ProjectColumnIndex = 0,
+            SpecificationColumnIndex = 1,
+            AcceptanceColumnIndex = 2,
+            HeaderRowIndex = 0,
+            HeaderRowCount = 1,
+            DataStartRowIndex = 1,
+            DataEndRowIndex = 2,
+            TableKind = "Acceptance",
+            Recommendation = "NeedConfirm",
+            UsageCount = usageCount,
+            CreatedAt = now,
+            UpdatedAt = now,
+            Regions =
+            [
+                Region(0, 0, 1, 2),
+                Region(1, secondHeaderRow, secondDataStart, secondDataEnd)
+            ]
+        };
     }
 
     private static byte[] CreateExcelWithTraditionalHeadersAfterTitleBytes()

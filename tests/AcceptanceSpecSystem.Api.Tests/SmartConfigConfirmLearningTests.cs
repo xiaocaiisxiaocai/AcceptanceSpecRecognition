@@ -153,6 +153,84 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
         learnedRoutingRule.Should().BeNull();
     }
 
+    [Fact]
+    public async Task Confirm_WhenRegionIndexesAreNotContinuous_ShouldRejectWithoutWrites()
+    {
+        var customerId = await CreateCustomerAsync("确认学习-非连续区域索引客户");
+        var fileId = await UploadConfirmationFileAsync(["项目", "规格"]);
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId,
+            templateName = "非连续区域模板",
+            regions = new[]
+            {
+                new
+                {
+                    regionId = "region-1",
+                    regionIndex = 1,
+                    headers = new[] { "项目", "规格" },
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    headerRowIndex = 0,
+                    headerRowCount = 1,
+                    dataStartRowIndex = 1,
+                    dataEndRowIndex = 1,
+                    isSpecificationOnly = false
+                }
+            }
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain("区域索引必须从0开始连续递增");
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.DocumentTemplates.AnyAsync(template => template.CustomerId == customerId)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Confirm_WhenMatchingManualRuleIsDisabled_ShouldNotRewriteOrEnableIt()
+    {
+        var customerId = await CreateCustomerAsync("确认学习-保留手工规则客户");
+        int ruleId;
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var rule = new ColumnMappingRule
+            {
+                CustomerId = customerId,
+                TargetField = ColumnMappingTargetField.Project,
+                MatchMode = ColumnMappingMatchMode.Contains,
+                Pattern = "管控项目",
+                Priority = 77,
+                Enabled = false,
+                Source = ColumnMappingRuleSource.Manual,
+                CreatedAt = DateTime.UtcNow
+            };
+            db.ColumnMappingRules.Add(rule);
+            await db.SaveChangesAsync();
+            ruleId = rule.Id;
+        }
+
+        await ConfirmHeaderAsync(customerId, "管控项目", targetField: 1);
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var rule = await db.ColumnMappingRules.SingleAsync(item => item.Id == ruleId);
+            rule.Enabled.Should().BeFalse();
+            rule.Source.Should().Be(ColumnMappingRuleSource.Manual);
+            rule.MatchMode.Should().Be(ColumnMappingMatchMode.Contains);
+            rule.Priority.Should().Be(77);
+            (await db.ColumnMappingRules.CountAsync(item =>
+                item.CustomerId == customerId &&
+                item.TargetField == ColumnMappingTargetField.Project &&
+                item.Pattern.ToLower() == "管控项目".ToLower())).Should().Be(1);
+        }
+    }
+
     private async Task ConfirmHeaderAsync(int customerId, string header, int targetField)
     {
         var fileId = await UploadConfirmationFileAsync([header, "规格"]);
@@ -192,7 +270,7 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
             projectColumnIndex = 0,
             specificationColumnIndex = 1,
             acceptanceColumnIndex,
-            remarkColumnIndex = 3,
+            remarkColumnIndex = acceptanceColumnIndex == 3 ? 2 : 3,
             headerRowIndex = 0,
             headerRowCount = 1,
             dataStartRowIndex = 1,

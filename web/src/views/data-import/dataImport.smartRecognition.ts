@@ -1,7 +1,14 @@
 import type { TableInfo } from "@/api/document";
-import type { SmartConfigRecognizedTable } from "@/api/smart-config";
+import type {
+  SmartConfigRecognizedRegion,
+  SmartConfigRecognizedTable
+} from "@/api/smart-config";
 import type { TableImportConfig } from "./dataImport.types";
-import { normalizeExcelMappingByTable } from "./dataImport.helpers";
+import {
+  createDefaultExcelMapping,
+  defaultWordMapping,
+  normalizeExcelMappingByTable
+} from "./dataImport.helpers";
 import {
   getSmartStructureImportReadinessReason,
   getRecognizedTableInfo,
@@ -117,8 +124,9 @@ export const shouldSelectSmartTableByDefault = (
   table: SmartConfigRecognizedTable
 ) =>
   canSmartTableBeImported(table) &&
-  table.decision === "AutoApply" &&
-  table.recommendation === "Recommended" &&
+  table.decision !== "Reject" &&
+  (table.recommendation === "Recommended" ||
+    table.recommendation === "NeedConfirm") &&
   table.confidence > 0;
 
 export const createDefaultSelectedSmartTableIndexes = (
@@ -161,50 +169,280 @@ export const buildDataImportConfigsFromRecognizedTables = ({
       };
 
       if (!isExcelFile) {
+        const sourceRegions = table.regions?.length ? table.regions : [table];
+        const wordMappings = sourceRegions.map((region, regionIndex) => ({
+          regionId:
+            "regionId" in region
+              ? region.regionId
+              : `table-${table.tableIndex}-region-${regionIndex}`,
+          regionIndex:
+            "regionIndex" in region ? region.regionIndex : regionIndex,
+          projectColumn: region.projectColumnIndex ?? undefined,
+          specificationColumn: region.specificationColumnIndex ?? undefined,
+          acceptanceColumn: region.acceptanceColumnIndex ?? undefined,
+          remarkColumn: region.remarkColumnIndex ?? undefined,
+          headerRowIndex: region.headerRowIndex,
+          headerRowCount: Math.max(1, region.headerRowCount),
+          dataStartRowIndex: region.dataStartRowIndex,
+          dataEndRowIndex: region.dataEndRowIndex ?? undefined,
+          isSpecificationOnly: region.isSpecificationOnly
+        }));
         return {
           ...base,
-          wordMapping: {
-            projectColumn: table.projectColumnIndex ?? undefined,
-            specificationColumn: table.specificationColumnIndex ?? undefined,
-            acceptanceColumn: table.acceptanceColumnIndex ?? undefined,
-            remarkColumn: table.remarkColumnIndex ?? undefined,
-            headerRowIndex: table.headerRowIndex,
-            dataStartRowIndex: table.dataStartRowIndex
-          }
+          wordMapping: { ...wordMappings[0] },
+          recognizedWordMappings: wordMappings
         };
       }
 
-      const excelMapping = normalizeExcelMappingByTable(tableInfo, {
-        projectColumn: toActualColumnNumber(
-          tableInfo,
-          table.projectColumnIndex
-        ),
-        specificationColumn: toActualColumnNumber(
-          tableInfo,
-          table.specificationColumnIndex
-        ),
-        acceptanceColumn: toActualColumnNumber(
-          tableInfo,
-          table.acceptanceColumnIndex
-        ),
-        remarkColumn: toActualColumnNumber(tableInfo, table.remarkColumnIndex),
-        headerRowStart: toActualRowNumber(tableInfo, table.headerRowIndex),
-        headerRowCount: Math.max(1, table.headerRowCount),
-        dataStartRow: toActualRowNumber(tableInfo, table.dataStartRowIndex),
-        dataEndRow:
-          table.dataEndRowIndex == null
-            ? Math.max(
-                toActualRowNumber(tableInfo, table.dataStartRowIndex),
-                (tableInfo?.usedRangeStartRow ?? 1) +
-                  Math.max(0, (tableInfo?.rowCount ?? 1) - 1)
-              )
-            : toActualRowNumber(tableInfo, table.dataEndRowIndex)
-      });
+      const sourceRegions = table.regions?.length ? table.regions : [table];
+      const excelMappings = sourceRegions.map((region, regionIndex) => ({
+        ...normalizeExcelMappingByTable(tableInfo, {
+          projectColumn: toActualColumnNumber(
+            tableInfo,
+            region.projectColumnIndex
+          ),
+          specificationColumn: toActualColumnNumber(
+            tableInfo,
+            region.specificationColumnIndex
+          ),
+          acceptanceColumn: toActualColumnNumber(
+            tableInfo,
+            region.acceptanceColumnIndex
+          ),
+          remarkColumn: toActualColumnNumber(
+            tableInfo,
+            region.remarkColumnIndex
+          ),
+          headerRowStart: toActualRowNumber(tableInfo, region.headerRowIndex),
+          headerRowCount: Math.max(1, region.headerRowCount),
+          dataStartRow: toActualRowNumber(tableInfo, region.dataStartRowIndex),
+          dataEndRow:
+            region.dataEndRowIndex == null
+              ? Math.max(
+                  toActualRowNumber(tableInfo, region.dataStartRowIndex),
+                  (tableInfo?.usedRangeStartRow ?? 1) +
+                    Math.max(0, (tableInfo?.rowCount ?? 1) - 1)
+                )
+              : toActualRowNumber(tableInfo, region.dataEndRowIndex)
+        }),
+        regionId:
+          "regionId" in region
+            ? region.regionId
+            : `table-${table.tableIndex}-region-${regionIndex}`,
+        regionIndex: "regionIndex" in region ? region.regionIndex : regionIndex,
+        isSpecificationOnly: region.isSpecificationOnly
+      }));
+      const excelMapping = excelMappings[0];
 
       return {
         ...base,
         excelMapping,
-        recognizedExcelMapping: { ...excelMapping }
+        recognizedExcelMapping: { ...excelMapping },
+        recognizedExcelMappings: excelMappings.map(mapping => ({ ...mapping }))
       };
     });
+};
+
+export const buildManualDataImportConfig = ({
+  isExcelFile,
+  tableInfo
+}: {
+  isExcelFile: boolean;
+  tableInfo: TableInfo;
+}): TableImportConfig => ({
+  tableIndex: tableInfo.index,
+  tableInfo,
+  previewData: null,
+  ...(isExcelFile
+    ? { excelMapping: createDefaultExcelMapping(tableInfo) }
+    : { wordMapping: defaultWordMapping() })
+});
+
+const toRelativeRowIndex = (tableInfo: TableInfo | undefined, row: number) =>
+  Math.max(0, row - (tableInfo?.usedRangeStartRow ?? 1));
+
+const toRelativeColumnIndex = (
+  tableInfo: TableInfo | undefined,
+  column?: number
+) =>
+  column == null
+    ? undefined
+    : Math.max(0, column - (tableInfo?.usedRangeStartColumn ?? 1));
+
+const getRegionId = (
+  region: SmartConfigRecognizedTable | SmartConfigRecognizedRegion
+): string | undefined => {
+  const value = "regionId" in region ? region.regionId : undefined;
+  return typeof value === "string" ? value : undefined;
+};
+
+/** 将高级执行配置投影回智能识别结构，保持摘要、确认学习和执行单一真相。 */
+export const syncDataImportConfigsToRecognizedTables = ({
+  isExcelFile,
+  tables,
+  configs
+}: {
+  isExcelFile: boolean;
+  tables: SmartConfigRecognizedTable[];
+  configs: TableImportConfig[];
+}): SmartConfigRecognizedTable[] => {
+  const configByTableIndex = new Map(
+    configs.map(config => [config.tableIndex, config])
+  );
+
+  return tables.map(table => {
+    const config = configByTableIndex.get(table.tableIndex);
+    if (!config) return table;
+    const previousRegions = table.regions?.length ? table.regions : [table];
+
+    if (isExcelFile) {
+      const mappings = config.recognizedExcelMappings?.length
+        ? config.recognizedExcelMappings
+        : config.excelMapping
+          ? [config.excelMapping]
+          : [];
+      if (mappings.length === 0) return table;
+
+      const regions = mappings.map(
+        (mapping, index): SmartConfigRecognizedRegion => {
+          const candidateRegionId =
+            "regionId" in mapping ? mapping.regionId : undefined;
+          const mappingRegionId =
+            typeof candidateRegionId === "string"
+              ? candidateRegionId
+              : undefined;
+          const previous =
+            previousRegions.find(
+              region => getRegionId(region) === mappingRegionId
+            ) ??
+            previousRegions[index] ??
+            previousRegions[0];
+          const headers =
+            index === 0 && config.previewData?.headers?.length
+              ? config.previewData.headers
+              : previous.headers;
+          return {
+            ...previous,
+            regionId:
+              mappingRegionId ||
+              getRegionId(previous) ||
+              `table-${table.tableIndex}-region-${index}`,
+            regionIndex: index,
+            headers: [...headers],
+            projectColumnIndex: toRelativeColumnIndex(
+              config.tableInfo,
+              mapping.projectColumn
+            ),
+            specificationColumnIndex: toRelativeColumnIndex(
+              config.tableInfo,
+              mapping.specificationColumn
+            ),
+            acceptanceColumnIndex: toRelativeColumnIndex(
+              config.tableInfo,
+              mapping.acceptanceColumn
+            ),
+            remarkColumnIndex: toRelativeColumnIndex(
+              config.tableInfo,
+              mapping.remarkColumn
+            ),
+            headerRowIndex: toRelativeRowIndex(
+              config.tableInfo,
+              mapping.headerRowStart
+            ),
+            headerRowCount: Math.max(1, mapping.headerRowCount),
+            dataStartRowIndex: toRelativeRowIndex(
+              config.tableInfo,
+              mapping.dataStartRow
+            ),
+            dataEndRowIndex:
+              mapping.dataEndRow == null
+                ? undefined
+                : toRelativeRowIndex(config.tableInfo, mapping.dataEndRow),
+            isSpecificationOnly:
+              "isSpecificationOnly" in mapping
+                ? Boolean(mapping.isSpecificationOnly)
+                : table.isSpecificationOnly
+          };
+        }
+      );
+      const primary = regions[0];
+      return {
+        ...table,
+        headers: [...primary.headers],
+        projectColumnIndex: primary.projectColumnIndex,
+        specificationColumnIndex: primary.specificationColumnIndex,
+        acceptanceColumnIndex: primary.acceptanceColumnIndex,
+        remarkColumnIndex: primary.remarkColumnIndex,
+        headerRowIndex: primary.headerRowIndex,
+        headerRowCount: primary.headerRowCount,
+        dataStartRowIndex: primary.dataStartRowIndex,
+        dataEndRowIndex: primary.dataEndRowIndex,
+        isSpecificationOnly: primary.isSpecificationOnly,
+        regions
+      };
+    }
+
+    const mappings = config.recognizedWordMappings?.length
+      ? config.recognizedWordMappings
+      : config.wordMapping
+        ? [
+            {
+              ...config.wordMapping,
+              regionId:
+                getRegionId(previousRegions[0]) ||
+                `table-${table.tableIndex}-region-0`,
+              regionIndex: 0,
+              headerRowCount: previousRegions[0].headerRowCount,
+              dataEndRowIndex: previousRegions[0].dataEndRowIndex,
+              isSpecificationOnly:
+                config.isSpecificationOnly ?? table.isSpecificationOnly
+            }
+          ]
+        : [];
+    if (mappings.length === 0) return table;
+    const regions = mappings.map(
+      (mapping, index): SmartConfigRecognizedRegion => {
+        const previous =
+          previousRegions.find(
+            region => getRegionId(region) === mapping.regionId
+          ) ??
+          previousRegions[index] ??
+          previousRegions[0];
+        const headers =
+          index === 0 && config.previewData?.headers?.length
+            ? config.previewData.headers
+            : previous.headers;
+        return {
+          ...previous,
+          regionId: mapping.regionId,
+          regionIndex: index,
+          headers: [...headers],
+          projectColumnIndex: mapping.projectColumn,
+          specificationColumnIndex: mapping.specificationColumn,
+          acceptanceColumnIndex: mapping.acceptanceColumn,
+          remarkColumnIndex: mapping.remarkColumn,
+          headerRowIndex: mapping.headerRowIndex,
+          headerRowCount: Math.max(1, mapping.headerRowCount),
+          dataStartRowIndex: mapping.dataStartRowIndex,
+          dataEndRowIndex: mapping.dataEndRowIndex,
+          isSpecificationOnly: mapping.isSpecificationOnly
+        };
+      }
+    );
+    const primary = regions[0];
+    return {
+      ...table,
+      headers: [...primary.headers],
+      projectColumnIndex: primary.projectColumnIndex,
+      specificationColumnIndex: primary.specificationColumnIndex,
+      acceptanceColumnIndex: primary.acceptanceColumnIndex,
+      remarkColumnIndex: primary.remarkColumnIndex,
+      headerRowIndex: primary.headerRowIndex,
+      headerRowCount: primary.headerRowCount,
+      dataStartRowIndex: primary.dataStartRowIndex,
+      isSpecificationOnly: primary.isSpecificationOnly,
+      dataEndRowIndex: primary.dataEndRowIndex,
+      regions
+    };
+  });
 };

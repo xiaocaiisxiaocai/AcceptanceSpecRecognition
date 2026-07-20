@@ -110,6 +110,50 @@ public class SmartConfigDataEndRowCoordinateTests : IClassFixture<ApiWebApplicat
     }
 
     [Fact]
+    public void FromTemplate_WhenMigratedOptionalColumnsUseNegativeSentinel_ShouldReturnNullColumns()
+    {
+        var template = new DocumentTemplate
+        {
+            HeaderRowIndex = 7,
+            HeaderRowCount = 1,
+            DataStartRowIndex = 8,
+            DataEndRowIndex = TotalRowCount - 1,
+            ProjectColumnIndex = -1,
+            SpecificationColumnIndex = 1,
+            AcceptanceColumnIndex = -1,
+            RemarkColumnIndex = -1,
+            Regions =
+            [
+                new DocumentTemplateRegion
+                {
+                    RegionIndex = 0,
+                    HeadersJson = JsonSerializer.Serialize(CreateHeaders()),
+                    HeaderRowIndex = 7,
+                    HeaderRowCount = 1,
+                    DataStartRowIndex = 8,
+                    DataEndRowIndex = TotalRowCount - 1,
+                    ProjectColumnIndex = -1,
+                    SpecificationColumnIndex = 1,
+                    AcceptanceColumnIndex = -1,
+                    RemarkColumnIndex = -1
+                }
+            ]
+        };
+
+        var recognized = InvokeFactory(
+            "FromTemplate",
+            CreateTableInfo(),
+            CreateReextractedTableData(),
+            template,
+            CreateHeaders(),
+            CreateHealthCheckResult());
+
+        recognized.Regions.Single().ProjectColumnIndex.Should().BeNull();
+        recognized.Regions.Single().AcceptanceColumnIndex.Should().BeNull();
+        recognized.Regions.Single().RemarkColumnIndex.Should().BeNull();
+    }
+
+    [Fact]
     public void FromFailure_WhenReextractedRowCountIsLocal_ShouldUseOriginalTableEndCoordinate()
     {
         var recognized = InvokeFactory(

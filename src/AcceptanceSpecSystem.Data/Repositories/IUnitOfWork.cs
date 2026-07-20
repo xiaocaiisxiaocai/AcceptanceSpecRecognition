@@ -6,6 +6,14 @@
 public interface IUnitOfWork : IDisposable
 {
     /// <summary>
+    /// 获取跨实例操作锁。调用方必须释放返回的租约。
+    /// </summary>
+    Task<IAsyncDisposable> AcquireOperationLockAsync(
+        string operationKey,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IAsyncDisposable>(NoopOperationLockLease.Instance);
+
+    /// <summary>
     /// 客户Repository
     /// </summary>
     ICustomerRepository Customers { get; }
@@ -80,6 +88,7 @@ public interface IUnitOfWork : IDisposable
     /// </summary>
     IExecutionHistoryRecordRepository ExecutionHistoryRecords { get; }
 
+
     /// <summary>
     /// 保存所有更改
     /// </summary>
@@ -106,4 +115,11 @@ public interface IUnitOfWork : IDisposable
     /// 回滚事务
     /// </summary>
     Task RollbackTransactionAsync();
+}
+
+internal sealed class NoopOperationLockLease : IAsyncDisposable
+{
+    public static NoopOperationLockLease Instance { get; } = new();
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

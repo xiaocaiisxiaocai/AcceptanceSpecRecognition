@@ -10,8 +10,6 @@ namespace AcceptanceSpecSystem.Data.Tests;
 
 public class MySqlMigrationSmokeTests
 {
-    private const string LatestMigrationId = "20260711010000_EnforceDatabaseCollation";
-
     [MySqlSmokeFact]
     public async Task DatabaseMigrate_OnFreshIsolatedMySqlDatabase_ShouldApplyCurrentMigrationChain()
     {
@@ -24,7 +22,8 @@ public class MySqlMigrationSmokeTests
         var expectedMigrations = context.Database.GetMigrations().ToArray();
 
         appliedMigrations.Should().Equal(expectedMigrations);
-        appliedMigrations.Should().EndWith(LatestMigrationId);
+        expectedMigrations.Should().NotBeEmpty();
+        appliedMigrations.Should().EndWith(expectedMigrations[^1]);
 
         var promptTemplateLegacyColumn = await database.ExecuteScalarAsync("SHOW COLUMNS FROM PromptTemplates LIKE 'IsDefault';");
         promptTemplateLegacyColumn.Should().BeNull();

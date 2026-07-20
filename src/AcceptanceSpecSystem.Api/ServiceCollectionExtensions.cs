@@ -179,6 +179,7 @@ public static class ApiServiceCollectionExtensions
         services.AddHostedService<EmbeddingCacheWarmupService>();
         services.AddHostedService<DatabaseBackupService>();
         services.AddHostedService<BatchReplyCleanupHostedService>();
+        services.AddHostedService<MatchingFileMutationRecoveryHostedService>();
         services.AddHostedService<OrphanFileInspectionHostedService>();
 
         return services;
@@ -205,6 +206,7 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IMatchingFillTaskRepository, MatchingFillTaskRepository>();
         services.AddScoped<IExecutionHistoryRecordRepository, ExecutionHistoryRecordRepository>();
+        services.AddScoped<IDocumentImportExecutionRepository, DocumentImportExecutionRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         return services;

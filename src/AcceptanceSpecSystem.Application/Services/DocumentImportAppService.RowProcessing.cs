@@ -13,16 +13,11 @@ public sealed partial class DocumentImportAppService
 {
     private async Task<ImportDuplicateDetectionSession> CreateDuplicateDetectionSessionAsync(
         IReadOnlyCollection<AcceptanceSpec> existingSpecs,
-        IEnumerable<string>? confirmedDifferenceKeys,
-        IEnumerable<string>? partiallyConfirmedDifferenceKeys,
-        IEnumerable<string>? skippedDifferenceKeys,
+        bool hasValidatedReplayDecisions,
         ImportDuplicateCheckOptions? options,
         CancellationToken cancellationToken)
     {
-        if (HasReplayDifferenceDecisions(
-                confirmedDifferenceKeys,
-                partiallyConfirmedDifferenceKeys,
-                skippedDifferenceKeys))
+        if (hasValidatedReplayDecisions)
         {
             _logger.LogInformation("检测到已确认的导入差异决策，本次确认提交跳过 AI/Embedding 重复检测");
             return ImportDuplicateDetectionSession.Disabled(new ImportDuplicateCheckOptions());
@@ -93,6 +88,7 @@ public sealed partial class DocumentImportAppService
         if (projectConflict != null)
         {
             var diffKey = BuildDifferenceKey(
+                context,
                 tableIndex,
                 row.RowIndex,
                 MatchTypeConflict,
@@ -148,6 +144,7 @@ public sealed partial class DocumentImportAppService
             if (semanticMatch != null)
             {
                 var diffKey = BuildDifferenceKey(
+                    context,
                     tableIndex,
                     row.RowIndex,
                     MatchTypeSemantic,

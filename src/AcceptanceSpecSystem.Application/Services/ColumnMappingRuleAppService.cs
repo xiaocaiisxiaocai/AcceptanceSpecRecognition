@@ -45,6 +45,7 @@ public sealed class ColumnMappingRuleAppService : IColumnMappingRuleAppService
 
     public async Task<int> RestoreDefaultsAsync(ColumnMappingTargetField? targetField, CancellationToken cancellationToken = default)
     {
+        await RepairNormalizedIdentitiesAsync(cancellationToken);
         var added = 0;
         foreach (var (columnType, words) in ColumnMappingRuleDefaults.GetAll())
         {
@@ -52,14 +53,28 @@ public sealed class ColumnMappingRuleAppService : IColumnMappingRuleAppService
             if (!field.HasValue || (targetField.HasValue && field.Value != targetField.Value))
                 continue;
 
+            var scopeKey = ColumnMappingRule.BuildScopeKey(customerId: null);
             var patterns = await _unitOfWork.ColumnMappingRules.Query()
-                .Where(rule => rule.CustomerId == null && rule.TargetField == field.Value)
-                .Select(rule => rule.Pattern)
+                .Where(rule => rule.ScopeKey == scopeKey && rule.TargetField == field.Value)
+                .Select(rule => rule.NormalizedPattern)
                 .ToListAsync(cancellationToken);
-            var existing = patterns.Select(pattern => pattern.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var word in words.Where(word => !existing.Contains(word)))
+            var existing = patterns.ToHashSet(StringComparer.Ordinal);
+            foreach (var word in words)
             {
-                await _unitOfWork.ColumnMappingRules.AddAsync(new ColumnMappingRule
+                var normalizedPattern = ColumnMappingRule.NormalizePattern(word);
+                if (existing.Contains(normalizedPattern))
+                    continue;
+
+                var belongsToAnotherGlobalField = await _unitOfWork.ColumnMappingRules.Query()
+                    .AnyAsync(rule =>
+                        rule.ScopeKey == ColumnMappingRule.GlobalScopeKey &&
+                        rule.NormalizedPattern == normalizedPattern &&
+                        rule.TargetField != field.Value,
+                        cancellationToken);
+                if (belongsToAnotherGlobalField)
+                    continue;
+
+                var entity = new ColumnMappingRule
                 {
                     TargetField = field.Value,
                     MatchMode = ColumnMappingMatchMode.Contains,
@@ -68,14 +83,116 @@ public sealed class ColumnMappingRuleAppService : IColumnMappingRuleAppService
                     Enabled = true,
                     Source = ColumnMappingRuleSource.Builtin,
                     CreatedAt = DateTime.UtcNow
-                }, cancellationToken);
-                added++;
+                };
+                entity.RefreshUniqueIdentity();
+                await _unitOfWork.ColumnMappingRules.AddAsync(entity, cancellationToken);
+                try
+                {
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    existing.Add(normalizedPattern);
+                    added++;
+                }
+                catch (DbUpdateException)
+                {
+                    _unitOfWork.ColumnMappingRules.Remove(entity);
+                    var concurrentWinnerExists = await RuleIdentityQuery(
+                            scopeKey,
+                            field.Value,
+                            normalizedPattern)
+                        .AnyAsync(cancellationToken);
+                    var conflictingGlobalExists = concurrentWinnerExists ||
+                        await _unitOfWork.ColumnMappingRules.Query()
+                            .AnyAsync(rule =>
+                                rule.ScopeKey == ColumnMappingRule.GlobalScopeKey &&
+                                rule.NormalizedPattern == normalizedPattern,
+                                cancellationToken);
+                    if (!conflictingGlobalExists)
+                        throw;
+
+                    existing.Add(normalizedPattern);
+                }
+            }
+        }
+        return added;
+    }
+
+    private async Task RepairNormalizedIdentitiesAsync(CancellationToken cancellationToken)
+    {
+        var rules = await _unitOfWork.ColumnMappingRules.Query(asNoTracking: false)
+            .OrderBy(rule => rule.Id)
+            .ToListAsync(cancellationToken);
+        if (rules.Count == 0)
+        {
+            return;
+        }
+
+        static int SourceRank(ColumnMappingRuleSource source) => source switch
+        {
+            ColumnMappingRuleSource.Manual => 3,
+            ColumnMappingRuleSource.Learned => 2,
+            ColumnMappingRuleSource.Builtin => 1,
+            _ => 0
+        };
+
+        static ColumnMappingRule PickWinner(IEnumerable<ColumnMappingRule> candidates) => candidates
+            .OrderByDescending(rule => rule.Enabled)
+            .ThenByDescending(rule => SourceRank(rule.Source))
+            .ThenByDescending(rule => rule.Priority)
+            .ThenBy(rule => rule.Id)
+            .First();
+
+        var losers = new HashSet<ColumnMappingRule>();
+        foreach (var group in rules.GroupBy(rule => (
+                     Scope: ColumnMappingRule.BuildScopeKey(rule.CustomerId),
+                     rule.TargetField,
+                     Pattern: ColumnMappingRule.NormalizePattern(rule.Pattern))))
+        {
+            var winner = PickWinner(group);
+            foreach (var duplicate in group.Where(rule => !ReferenceEquals(rule, winner)))
+            {
+                losers.Add(duplicate);
             }
         }
 
-        if (added > 0)
+        foreach (var group in rules
+                     .Where(rule => rule.CustomerId is null && !losers.Contains(rule))
+                     .GroupBy(rule => ColumnMappingRule.NormalizePattern(rule.Pattern)))
+        {
+            var winner = PickWinner(group);
+            foreach (var conflict in group.Where(rule => !ReferenceEquals(rule, winner)))
+            {
+                losers.Add(conflict);
+            }
+        }
+
+        if (losers.Count > 0)
+        {
+            _unitOfWork.ColumnMappingRules.RemoveRange(losers);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return added;
+        }
+
+        var changed = false;
+        foreach (var rule in rules.Where(rule => !losers.Contains(rule)))
+        {
+            var expectedScope = ColumnMappingRule.BuildScopeKey(rule.CustomerId);
+            var expectedPattern = ColumnMappingRule.NormalizePattern(rule.Pattern);
+            var expectedGlobal = rule.CustomerId.HasValue ? null : expectedPattern;
+            if (rule.ScopeKey == expectedScope &&
+                rule.NormalizedPattern == expectedPattern &&
+                rule.GlobalNormalizedPatternKey == expectedGlobal)
+            {
+                continue;
+            }
+
+            rule.RefreshUniqueIdentity();
+            _unitOfWork.ColumnMappingRules.Update(rule);
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
     }
 
     public async Task<ColumnMappingRuleDto> CreateAsync(CreateColumnMappingRuleRequest request, CancellationToken cancellationToken = default)
@@ -93,9 +210,34 @@ public sealed class ColumnMappingRuleAppService : IColumnMappingRuleAppService
             CustomerId = request.CustomerId,
             CreatedAt = DateTime.UtcNow
         };
+        entity.RefreshUniqueIdentity();
         await _unitOfWork.ColumnMappingRules.AddAsync(entity, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return ToDto(entity);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDto(entity);
+        }
+        catch (DbUpdateException)
+        {
+            _unitOfWork.ColumnMappingRules.Remove(entity);
+            var concurrentWinner = await RuleIdentityQuery(
+                    entity.ScopeKey,
+                    entity.TargetField,
+                    entity.NormalizedPattern)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (concurrentWinner is null && entity.CustomerId is null)
+            {
+                var conflictingGlobal = await FindGlobalPatternAsync(
+                    entity.NormalizedPattern,
+                    cancellationToken);
+                if (conflictingGlobal is not null)
+                    throw new ApplicationServiceException(409, "该全局匹配词已映射到其他目标字段");
+            }
+            if (concurrentWinner is null)
+                throw;
+
+            return ToDto(concurrentWinner);
+        }
     }
 
     public async Task<ColumnMappingRuleDto> UpdateAsync(int id, UpdateColumnMappingRuleRequest request, CancellationToken cancellationToken = default)
@@ -113,7 +255,30 @@ public sealed class ColumnMappingRuleAppService : IColumnMappingRuleAppService
         entity.CustomerId = request.CustomerId;
         entity.UpdatedAt = DateTime.UtcNow;
         _unitOfWork.ColumnMappingRules.Update(entity);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // 预检查与写入之间可能有其他实例抢先提交，数据库唯一键是最终裁决者。
+            var identityConflict = await RuleIdentityQuery(
+                    entity.ScopeKey,
+                    entity.TargetField,
+                    entity.NormalizedPattern)
+                .AnyAsync(rule => rule.Id != entity.Id, cancellationToken);
+            var globalConflict = entity.CustomerId is null &&
+                await _unitOfWork.ColumnMappingRules.Query()
+                    .AnyAsync(rule =>
+                        rule.ScopeKey == ColumnMappingRule.GlobalScopeKey &&
+                        rule.NormalizedPattern == entity.NormalizedPattern &&
+                        rule.Id != entity.Id,
+                        cancellationToken);
+            if (!identityConflict && !globalConflict)
+                throw;
+
+            throw new ApplicationServiceException(409, "列映射规则已被其他请求更新为冲突配置，请刷新后重试");
+        }
         return ToDto(entity);
     }
 
@@ -127,14 +292,44 @@ public sealed class ColumnMappingRuleAppService : IColumnMappingRuleAppService
 
     private async Task EnsureUniqueAsync(ColumnMappingTargetField targetField, int? customerId, string pattern, int? exceptId, CancellationToken cancellationToken)
     {
-        var normalized = pattern.ToLower();
-        var exists = await _unitOfWork.ColumnMappingRules.Query().AnyAsync(rule =>
-            (!exceptId.HasValue || rule.Id != exceptId.Value) &&
-            rule.TargetField == targetField && rule.CustomerId == customerId &&
-            rule.Pattern.Trim().ToLower() == normalized, cancellationToken);
+        var scopeKey = ColumnMappingRule.BuildScopeKey(customerId);
+        var normalizedPattern = ColumnMappingRule.NormalizePattern(pattern);
+        if (!customerId.HasValue)
+        {
+            var conflictingGlobal = await _unitOfWork.ColumnMappingRules.Query()
+                .AnyAsync(rule =>
+                    rule.ScopeKey == ColumnMappingRule.GlobalScopeKey &&
+                    rule.NormalizedPattern == normalizedPattern &&
+                    rule.TargetField != targetField &&
+                    (!exceptId.HasValue || rule.Id != exceptId.Value),
+                    cancellationToken);
+            if (conflictingGlobal)
+                throw new ApplicationServiceException(409, "该全局匹配词已映射到其他目标字段");
+        }
+
+        var exists = await RuleIdentityQuery(scopeKey, targetField, normalizedPattern)
+            .AnyAsync(rule => !exceptId.HasValue || rule.Id != exceptId.Value, cancellationToken);
         if (exists)
             throw new ApplicationServiceException(400, "同一范围下已存在相同字段和匹配词的列映射规则");
     }
+
+    private Task<ColumnMappingRule?> FindGlobalPatternAsync(
+        string normalizedPattern,
+        CancellationToken cancellationToken) =>
+        _unitOfWork.ColumnMappingRules.Query()
+            .FirstOrDefaultAsync(rule =>
+                rule.ScopeKey == ColumnMappingRule.GlobalScopeKey &&
+                rule.NormalizedPattern == normalizedPattern,
+                cancellationToken);
+
+    private IQueryable<ColumnMappingRule> RuleIdentityQuery(
+        string scopeKey,
+        ColumnMappingTargetField targetField,
+        string normalizedPattern) =>
+        _unitOfWork.ColumnMappingRules.Query().Where(rule =>
+            rule.ScopeKey == scopeKey &&
+            rule.TargetField == targetField &&
+            rule.NormalizedPattern == normalizedPattern);
 
     private static string ValidateAndNormalize(ColumnMappingMatchMode matchMode, string? value)
     {

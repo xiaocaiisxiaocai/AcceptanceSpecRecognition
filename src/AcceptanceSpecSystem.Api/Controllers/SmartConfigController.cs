@@ -91,7 +91,22 @@ public class SmartConfigController : BaseApiController
                         {
                             Header = item.Header,
                             TargetField = item.TargetField
-                        }).ToList()
+                        }).ToList(),
+                    Regions = request.Regions.Select(region => new SmartConfigurationConfirmRegion
+                    {
+                        RegionId = region.RegionId,
+                        RegionIndex = region.RegionIndex,
+                        Headers = region.Headers,
+                        ProjectColumnIndex = region.ProjectColumnIndex,
+                        SpecificationColumnIndex = region.SpecificationColumnIndex,
+                        AcceptanceColumnIndex = region.AcceptanceColumnIndex,
+                        RemarkColumnIndex = region.RemarkColumnIndex,
+                        HeaderRowIndex = region.HeaderRowIndex,
+                        HeaderRowCount = region.HeaderRowCount,
+                        DataStartRowIndex = region.DataStartRowIndex,
+                        DataEndRowIndex = region.DataEndRowIndex,
+                        IsSpecificationOnly = region.IsSpecificationOnly
+                    }).ToList()
                 },
                 cancellationToken);
 

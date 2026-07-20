@@ -180,7 +180,14 @@ public sealed class MatchingResultWriteBackService : IBatchReplyWriteBackPort, I
                 }
 
                 requestedCells += operations.Count;
-                tableOperations[entry.TableIndex] = operations;
+                if (!tableOperations.TryGetValue(entry.TableIndex, out var existingOperations))
+                {
+                    tableOperations[entry.TableIndex] = operations;
+                }
+                else
+                {
+                    existingOperations.AddRange(operations);
+                }
             }
 
             if (tableOperations.Count > 0)
@@ -231,10 +238,10 @@ public sealed class MatchingResultWriteBackService : IBatchReplyWriteBackPort, I
         if (taskResult.IsBatchMode)
         {
             return taskResult.TableEntries.Sum(entry =>
-                entry.FillResults.Count * (entry.RemarkColumnIndex.HasValue &&
-                                           entry.RemarkColumnIndex.Value != entry.AcceptanceColumnIndex
-                    ? 2
-                    : 1));
+                CountFillResultOperations(
+                    entry.FillResults,
+                    entry.AcceptanceColumnIndex,
+                    entry.RemarkColumnIndex));
         }
 
         return taskResult.FillResults.Count * (taskResult.RemarkColumnIndex.HasValue &&
@@ -259,21 +266,25 @@ public sealed class MatchingResultWriteBackService : IBatchReplyWriteBackPort, I
         var operations = new List<CellWriteOperation>();
         foreach (var fillResult in fillResults)
         {
+            var effectiveAcceptanceColumnIndex =
+                fillResult.AcceptanceColumnIndex ?? acceptanceColumnIndex;
+            var effectiveRemarkColumnIndex =
+                fillResult.RemarkColumnIndex ?? remarkColumnIndex;
             operations.Add(new CellWriteOperation
             {
                 RowIndex = fillResult.RowIndex,
-                ColumnIndex = acceptanceColumnIndex,
+                ColumnIndex = effectiveAcceptanceColumnIndex,
                 Value = fillResult.Acceptance,
                 PreserveFormatting = true
             });
 
-            if (remarkColumnIndex.HasValue &&
-                remarkColumnIndex.Value != acceptanceColumnIndex)
+            if (effectiveRemarkColumnIndex.HasValue &&
+                effectiveRemarkColumnIndex.Value != effectiveAcceptanceColumnIndex)
             {
                 operations.Add(new CellWriteOperation
                 {
                     RowIndex = fillResult.RowIndex,
-                    ColumnIndex = remarkColumnIndex.Value,
+                    ColumnIndex = effectiveRemarkColumnIndex.Value,
                     Value = fillResult.Remark ?? string.Empty,
                     PreserveFormatting = true
                 });
@@ -281,6 +292,19 @@ public sealed class MatchingResultWriteBackService : IBatchReplyWriteBackPort, I
         }
 
         return operations;
+    }
+
+    private static int CountFillResultOperations(
+        IEnumerable<FillResult> fillResults,
+        int acceptanceColumnIndex,
+        int? remarkColumnIndex)
+    {
+        return fillResults.Sum(fillResult =>
+        {
+            var effectiveAcceptance = fillResult.AcceptanceColumnIndex ?? acceptanceColumnIndex;
+            var effectiveRemark = fillResult.RemarkColumnIndex ?? remarkColumnIndex;
+            return effectiveRemark.HasValue && effectiveRemark.Value != effectiveAcceptance ? 2 : 1;
+        });
     }
 
     private static List<CellWriteOperation> BuildReplyCellWriteOperations(

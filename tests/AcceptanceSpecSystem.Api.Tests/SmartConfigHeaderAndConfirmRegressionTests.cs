@@ -39,6 +39,57 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
     }
 
     [Fact]
+    public async Task Recognize_WhenSingleRegionContinuesAfterTwoBlankRows_ShouldPreserveTailAndNeedConfirm()
+    {
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateSingleRegionWithInternalBlankBandExcelBytes(),
+            "smart-recognize-single-region-internal-gap.xlsx");
+
+        var table = await RecognizeSingleTableAsync(fileId);
+
+        table.GetProperty("dataEndRowIndex").GetInt32().Should().Be(6);
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        var region = table.GetProperty("regions").EnumerateArray().Single();
+        region.GetProperty("dataEndRowIndex").GetInt32().Should().Be(6);
+        region.GetProperty("issues").EnumerateArray()
+            .Should().Contain(issue => issue.GetProperty("code").GetString() == "UnassignedDataAfterGap");
+    }
+
+    [Fact]
+    public async Task Recognize_WhenMultiRegionLeavesBusinessTailUncovered_ShouldReturnCoverageIssue()
+    {
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateMultiRegionWithUncoveredBusinessTailExcelBytes(),
+            "smart-recognize-multi-region-uncovered-tail.xlsx");
+
+        var table = await RecognizeSingleTableAsync(fileId);
+        var regions = table.GetProperty("regions").EnumerateArray().ToList();
+
+        regions.Should().HaveCount(2);
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        regions.SelectMany(region => region.GetProperty("issues").EnumerateArray())
+            .Should().Contain(issue => issue.GetProperty("code").GetString() == "UncoveredBusinessRows");
+    }
+
+    [Fact]
+    public async Task Recognize_WhenMultiRegionLeavesOneProjectAndSpecificationRow_ShouldReturnCoverageIssue()
+    {
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateMultiRegionWithUncoveredBusinessTailExcelBytes(includeSecondTailRow: false),
+            "smart-recognize-multi-region-single-uncovered-row.xlsx");
+
+        var table = await RecognizeSingleTableAsync(fileId);
+        var regions = table.GetProperty("regions").EnumerateArray().ToList();
+
+        regions.Should().HaveCount(2);
+        regions.SelectMany(region => region.GetProperty("issues").EnumerateArray())
+            .Should().Contain(issue => issue.GetProperty("code").GetString() == "UncoveredBusinessRows");
+    }
+
+    [Fact]
     public async Task Recognize_WhenWordDataRowLooksLikeRepeatedLeafHeader_ShouldKeepEarlierHeader()
     {
         var bytes = SmartConfigRecognizeTestFiles.CreateWordBytes(
@@ -258,6 +309,66 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
         return stream.ToArray();
     }
 
+    private static byte[] CreateSingleRegionWithInternalBlankBandExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "验收";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(3, 1).Value = "尺寸";
+        worksheet.Cell(3, 2).Value = "100mm";
+        worksheet.Cell(3, 3).Value = "OK";
+        worksheet.Cell(6, 1).Value = "功能";
+        worksheet.Cell(6, 2).Value = "运行正常";
+        worksheet.Cell(6, 3).Value = "OK";
+        worksheet.Cell(7, 1).Value = "安全";
+        worksheet.Cell(7, 2).Value = "保护有效";
+        worksheet.Cell(7, 3).Value = "OK";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateMultiRegionWithUncoveredBusinessTailExcelBytes(bool includeSecondTailRow = true)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        void WriteHeader(int row)
+        {
+            worksheet.Cell(row, 1).Value = "项目";
+            worksheet.Cell(row, 2).Value = "规格";
+            worksheet.Cell(row, 3).Value = "验收";
+        }
+
+        void WriteData(int row, string project, string specification)
+        {
+            worksheet.Cell(row, 1).Value = project;
+            worksheet.Cell(row, 2).Value = specification;
+            worksheet.Cell(row, 3).Value = "OK";
+        }
+
+        WriteHeader(1);
+        WriteData(2, "外观", "无划伤");
+        WriteData(3, "尺寸", "100mm");
+        WriteHeader(6);
+        WriteData(7, "功能", "运行正常");
+        WriteData(8, "安全", "保护有效");
+        WriteData(11, "噪声", "低于标准");
+        if (includeSecondTailRow)
+        {
+            WriteData(12, "温升", "低于限值");
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
     private static byte[] CreateIdenticalTrailingHeaderRowsExcelBytes()
     {
         using var workbook = new XLWorkbook();
@@ -445,6 +556,134 @@ public class SmartConfigConfirmValidationRegressionTests : IClassFixture<ApiWebA
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         body.Message.Should().Contain("数据结束行超出表格范围");
+    }
+
+    [Fact]
+    public async Task Confirm_WhenRegionsAreComplete_ShouldNotRequireLegacyTopLevelProjection()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            stream.ToArray(),
+            $"smart-confirm-regions-only-{Guid.NewGuid():N}.xlsx");
+        var customerId = await CreateCustomerAsync($"区域请求无需旧投影-{Guid.NewGuid():N}");
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            tableIndex = 0,
+            customerId,
+            templateName = "区域请求模板",
+            regions = new[]
+            {
+                new
+                {
+                    regionId = "region-0",
+                    regionIndex = 0,
+                    headers = Array.Empty<string>(),
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    headerRowIndex = 0,
+                    headerRowCount = 1,
+                    dataStartRowIndex = 1,
+                    dataEndRowIndex = 1,
+                    isSpecificationOnly = false
+                }
+            }
+        }));
+
+        var responseText = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+    }
+
+    [Theory]
+    [InlineData(false, "数据区域之间不能重叠")]
+    [InlineData(true, "字段列不能重复")]
+    public async Task Confirm_WhenSubmittedRegionsConflict_ShouldRejectBeforeSaving(
+        bool duplicateColumns,
+        string expectedMessage)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        for (var row = 1; row <= 8; row++)
+        {
+            worksheet.Cell(row, 1).Value = row is 1 or 5 ? "项目" : $"项目-{row}";
+            worksheet.Cell(row, 2).Value = row is 1 or 5 ? "规格" : $"规格-{row}";
+            worksheet.Cell(row, 3).Value = row is 1 or 5 ? "验收" : "OK";
+            worksheet.Cell(row, 4).Value = row is 1 or 5 ? "备注" : string.Empty;
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            stream.ToArray(),
+            $"smart-confirm-invalid-regions-{Guid.NewGuid():N}.xlsx");
+        var customerId = await CreateCustomerAsync($"确认区域冲突-{Guid.NewGuid():N}");
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            tableIndex = 0,
+            customerId,
+            templateName = "冲突区域模板",
+            headers = new[] { "项目", "规格", "验收", "备注" },
+            projectColumnIndex = 0,
+            specificationColumnIndex = 1,
+            acceptanceColumnIndex = 2,
+            remarkColumnIndex = 3,
+            headerRowIndex = 0,
+            headerRowCount = 1,
+            dataStartRowIndex = 1,
+            dataEndRowIndex = 3,
+            isSpecificationOnly = false,
+            userModifiedStructure = true,
+            learnedColumns = Array.Empty<object>(),
+            regions = new object[]
+            {
+                new
+                {
+                    regionId = "region-0",
+                    regionIndex = 0,
+                    headers = new[] { "项目", "规格", "验收", "备注" },
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = duplicateColumns ? 0 : 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3,
+                    headerRowIndex = 0,
+                    headerRowCount = 1,
+                    dataStartRowIndex = 1,
+                    dataEndRowIndex = 4,
+                    isSpecificationOnly = false
+                },
+                new
+                {
+                    regionId = "region-1",
+                    regionIndex = 1,
+                    headers = new[] { "项目", "规格", "验收", "备注" },
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3,
+                    headerRowIndex = duplicateColumns ? 4 : 3,
+                    headerRowCount = 1,
+                    dataStartRowIndex = duplicateColumns ? 5 : 4,
+                    dataEndRowIndex = 7,
+                    isSpecificationOnly = false
+                }
+            }
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain(expectedMessage);
     }
 
     private Task<HttpResponseMessage> PostValidConfirmAsync(int customerId, bool userModifiedStructure)

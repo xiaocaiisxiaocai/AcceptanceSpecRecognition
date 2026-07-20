@@ -231,6 +231,14 @@ export interface MatchCandidateOption {
 
 /** 匹配预览项 */
 export interface MatchPreviewItem {
+  /** 逻辑区域标识 */
+  regionId?: string;
+  /** 逻辑区域顺序 */
+  regionIndex?: number;
+  /** 当前逻辑区域的验收写回列 */
+  acceptanceColumnIndex?: number;
+  /** 当前逻辑区域的备注写回列 */
+  remarkColumnIndex?: number;
   /** 行索引 */
   rowIndex: number;
   /** 源项目名称 */
@@ -322,6 +330,18 @@ export const defaultMatchConfig: MatchConfig = {
 // ===== 批量填充 =====
 
 /** 批量表格配置 */
+export interface BatchTableRegionConfig {
+  regionId?: string;
+  regionIndex: number;
+  projectColumnIndex: number;
+  specificationColumnIndex: number;
+  acceptanceColumnIndex: number;
+  remarkColumnIndex?: number;
+  headerRowStart?: number;
+  headerRowCount?: number;
+  dataStartRow?: number;
+  dataEndRow?: number;
+}
 export interface BatchTableConfig {
   /** 表格索引 */
   tableIndex: number;
@@ -341,6 +361,10 @@ export interface BatchTableConfig {
   headerRowCount?: number;
   /** Excel 数据起始行（1-based，可选） */
   dataStartRow?: number;
+  /** Excel 数据结束行（1-based，可选） */
+  dataEndRow?: number;
+  /** 同一工作表中的连续数据区域 */
+  regions?: BatchTableRegionConfig[];
   /** 是否过滤项目/规格均为空的行（表格级，可选；未传时走全局配置） */
   filterEmptySourceRows?: boolean;
   /** 重复项目/规格组合处理决议 */
@@ -438,6 +462,10 @@ export interface BatchTableFillMapping {
   headerRowCount?: number;
   /** Excel 数据起始行（1-based，可选） */
   dataStartRow?: number;
+  /** Excel 数据结束行（1-based，可选） */
+  dataEndRow?: number;
+  /** 同一工作表中的连续数据区域 */
+  regions?: BatchTableRegionConfig[];
   /** 是否过滤项目/规格均为空的行 */
   filterEmptySourceRows?: boolean;
   /** 填充映射列表 */
@@ -446,6 +474,8 @@ export interface BatchTableFillMapping {
 
 /** 批量执行填充请求 */
 export interface BatchExecuteFillRequest {
+  /** 页面内稳定的执行幂等键，用于超时后安全重试 */
+  executionRequestId?: string;
   /** 文件ID */
   fileId: number;
   /** 客户ID */

@@ -15,11 +15,13 @@ import {
 import { applyWordRulesToWordMapping } from "@/views/shared/word-column-mapping-rules";
 import type {
   DifferenceDecision,
+  ExcelRegionMapping,
   ExcelSheetMapping,
   ImportPendingDifferenceWithTable,
   MappingClipboard,
   SkippedRowsGroup,
-  TableImportConfig
+  TableImportConfig,
+  WordRegionMapping
 } from "../dataImport.types";
 import {
   createDefaultImportDuplicateAiConfig,
@@ -51,10 +53,20 @@ import {
   SMART_STEP_UPLOAD_TARGET
 } from "../dataImport.smartRecognition";
 import { useDataImportSmartStructureRecognition } from "./useDataImportSmartStructureRecognition";
+import {
+  buildImportDifferenceDecisionKey,
+  buildImportRegionKey,
+  captureExcludedRowIdentities,
+  mergeExcelRegionPreviews,
+  mergeWordRegionPreviews,
+  replaceExcelRegionMapping,
+  resolveExcludedCombinedIndexes
+} from "../dataImport.regions";
 
 const MAPPING_PREVIEW_ROWS = 50;
 
 export function useDataImportPage() {
+  const previewLoadVersions = new Map<number, number>();
   const dataImportStore = useDataImportStoreHook();
   const {
     currentStep,
@@ -96,6 +108,8 @@ export function useDataImportPage() {
   const mappingClipboardSourceIndex = ref<number | null>(null);
   const mappingRules = ref<ColumnMappingRule[]>([]);
   const loadingMappingRules = ref(false);
+  const mappingRulesCustomerId = ref<number | null | undefined>(undefined);
+  let mappingRulesRequestVersion = 0;
   const smartStageText = ref("");
   const selectedSmartTableIndexes = ref<number[]>([]);
 
@@ -243,6 +257,8 @@ export function useDataImportPage() {
     importResult.value = null;
     previewSkippedRows.value = false;
     mappingRules.value = [];
+    mappingRulesCustomerId.value = undefined;
+    mappingRulesRequestVersion += 1;
     loadingMappingRules.value = false;
     pendingDifferencePage.value = 1;
     pendingDifferencePageSize.value = 20;
@@ -292,25 +308,43 @@ export function useDataImportPage() {
 
   const loadMappingRules = async () => {
     if (isExcelFile.value) {
+      mappingRulesRequestVersion += 1;
       mappingRules.value = [];
+      mappingRulesCustomerId.value = undefined;
+      loadingMappingRules.value = false;
       return;
     }
 
+    const requestVersion = ++mappingRulesRequestVersion;
+    const customerId = selectedCustomerId.value;
     loadingMappingRules.value = true;
     try {
-      const res = await getEffectiveColumnMappingRules(
-        selectedCustomerId.value
-      );
+      const res = await getEffectiveColumnMappingRules(customerId);
+      if (
+        requestVersion !== mappingRulesRequestVersion ||
+        customerId !== selectedCustomerId.value ||
+        isExcelFile.value
+      ) {
+        return;
+      }
       if (res.code === 0) {
         mappingRules.value = res.data || [];
+        mappingRulesCustomerId.value = customerId ?? null;
         applyRulesToAll(false);
       } else {
         ElMessage.error(res.message || "加载列映射规则失败");
       }
     } catch {
-      ElMessage.error("加载列映射规则失败");
+      if (
+        requestVersion === mappingRulesRequestVersion &&
+        customerId === selectedCustomerId.value
+      ) {
+        ElMessage.error("加载列映射规则失败");
+      }
     } finally {
-      loadingMappingRules.value = false;
+      if (requestVersion === mappingRulesRequestVersion) {
+        loadingMappingRules.value = false;
+      }
     }
   };
 
@@ -427,24 +461,31 @@ export function useDataImportPage() {
   const handlePreviewLoaded = (tableIndex: number, data: TableData) => {
     const cfg = tableConfigs.value.find(c => c.tableIndex === tableIndex);
     if (cfg) {
+      if (isExcelFile.value && (cfg.recognizedExcelMappings?.length ?? 0) > 1) {
+        return;
+      }
       cfg.previewData = data;
       applyRulesToConfig(cfg, false);
     }
   };
 
-  const buildPreviewQuery = (cfg: TableImportConfig, previewRows: number) => ({
+  const buildPreviewQuery = (
+    cfg: TableImportConfig,
+    previewRows: number,
+    excelMapping = cfg.excelMapping
+  ) => ({
     previewRows,
     headerRowIndex: isExcelFile.value
-      ? getExcelPreviewOptions(cfg).headerRowIndex
+      ? getExcelPreviewOptions({ ...cfg, excelMapping }).headerRowIndex
       : (cfg.wordMapping?.headerRowIndex ?? 0),
     headerRowCount: isExcelFile.value
-      ? getExcelPreviewOptions(cfg).headerRowCount
+      ? getExcelPreviewOptions({ ...cfg, excelMapping }).headerRowCount
       : 1,
     dataStartRowIndex: isExcelFile.value
-      ? getExcelPreviewOptions(cfg).dataStartRowIndex
+      ? getExcelPreviewOptions({ ...cfg, excelMapping }).dataStartRowIndex
       : (cfg.wordMapping?.dataStartRowIndex ?? 1),
     dataEndRowIndex: isExcelFile.value
-      ? getExcelPreviewOptions(cfg).dataEndRowIndex
+      ? getExcelPreviewOptions({ ...cfg, excelMapping }).dataEndRowIndex
       : undefined
   });
 
@@ -453,25 +494,137 @@ export function useDataImportPage() {
     previewRows: number,
     sourceFileId = uploadedFile.value?.fileId
   ): Promise<TableData> => {
+    const previewConfigFingerprint = JSON.stringify({
+      excelMapping: cfg.excelMapping,
+      recognizedExcelMappings: cfg.recognizedExcelMappings,
+      wordMapping: cfg.wordMapping,
+      recognizedWordMappings: cfg.recognizedWordMappings
+    });
+    const requestVersion = (previewLoadVersions.get(cfg.tableIndex) ?? 0) + 1;
+    previewLoadVersions.set(cfg.tableIndex, requestVersion);
+    const ensureCurrentRequest = () => {
+      if (previewLoadVersions.get(cfg.tableIndex) !== requestVersion) {
+        throw new Error("预览配置已更新，已忽略旧预览结果");
+      }
+      const currentFingerprint = JSON.stringify({
+        excelMapping: cfg.excelMapping,
+        recognizedExcelMappings: cfg.recognizedExcelMappings,
+        wordMapping: cfg.wordMapping,
+        recognizedWordMappings: cfg.recognizedWordMappings
+      });
+      if (currentFingerprint !== previewConfigFingerprint) {
+        throw new Error("预览配置已更新，已忽略旧预览结果");
+      }
+    };
     if (sourceFileId == null || uploadedFile.value?.fileId !== sourceFileId) {
       throw new Error("源文件不存在，无法加载预览");
     }
 
-    const res = await getTablePreview(
-      sourceFileId,
-      cfg.tableIndex,
-      buildPreviewQuery(cfg, previewRows)
+    const regionMappings = isExcelFile.value
+      ? cfg.recognizedExcelMappings?.length
+        ? cfg.recognizedExcelMappings
+        : null
+      : cfg.recognizedWordMappings?.length
+        ? cfg.recognizedWordMappings
+        : null;
+    if (!regionMappings) {
+      const res = await getTablePreview(
+        sourceFileId,
+        cfg.tableIndex,
+        buildPreviewQuery(cfg, previewRows)
+      );
+      if (uploadedFile.value?.fileId !== sourceFileId) {
+        throw new Error("源文件已变更，已取消旧文件预览");
+      }
+      if (res.code !== 0 || !res.data) {
+        throw new Error(res.message || "加载预览失败");
+      }
+      ensureCurrentRequest();
+      cfg.excelPreviewRowLocations = undefined;
+      return res.data;
+    }
+
+    const regionPreviews: Array<{
+      mapping: ExcelRegionMapping | WordRegionMapping;
+      preview: TableData;
+    }> = [];
+    // 合并预览从“每段前 N 行”升级为全量时，各区域在合并数组中的偏移会变化。
+    // 先保存区域内稳定坐标，加载后再反解为新的合并索引，避免剔除行串区。
+    const excludedRowIdentities = captureExcludedRowIdentities(
+      getExcludedRowIndexes(cfg.tableIndex),
+      cfg.excelPreviewRowLocations ?? []
     );
-
-    if (uploadedFile.value?.fileId !== sourceFileId) {
-      throw new Error("源文件已变更，已取消旧文件预览");
+    for (const mapping of regionMappings) {
+      const previewOptions = isExcelFile.value
+        ? buildPreviewQuery(cfg, previewRows, mapping as ExcelRegionMapping)
+        : {
+            previewRows,
+            headerRowIndex: (mapping as WordRegionMapping).headerRowIndex,
+            headerRowCount: (mapping as WordRegionMapping).headerRowCount,
+            dataStartRowIndex: (mapping as WordRegionMapping).dataStartRowIndex,
+            dataEndRowIndex: (mapping as WordRegionMapping).dataEndRowIndex
+          };
+      const res = await getTablePreview(
+        sourceFileId,
+        cfg.tableIndex,
+        previewOptions
+      );
+      if (uploadedFile.value?.fileId !== sourceFileId) {
+        throw new Error("源文件已变更，已取消旧文件预览");
+      }
+      if (res.code !== 0 || !res.data) {
+        throw new Error(
+          res.message || `区域 ${mapping.regionIndex + 1} 预览失败`
+        );
+      }
+      ensureCurrentRequest();
+      regionPreviews.push({ mapping, preview: res.data });
     }
 
-    if (res.code !== 0 || !res.data) {
-      throw new Error(res.message || "加载预览失败");
+    const merged = isExcelFile.value
+      ? mergeExcelRegionPreviews(
+          cfg.tableIndex,
+          regionPreviews as Array<{
+            mapping: ExcelRegionMapping;
+            preview: TableData;
+          }>
+        )
+      : mergeWordRegionPreviews(
+          cfg.tableIndex,
+          regionPreviews as Array<{
+            mapping: WordRegionMapping;
+            preview: TableData;
+          }>
+        );
+    ensureCurrentRequest();
+    cfg.excelPreviewRowLocations = merged.rowLocations;
+    if (excludedRowIdentities.length > 0) {
+      setExcludedRowIndexes(
+        cfg.tableIndex,
+        resolveExcludedCombinedIndexes(
+          excludedRowIdentities,
+          merged.rowLocations
+        )
+      );
     }
+    return merged.previewData;
+  };
 
-    return res.data;
+  const loadAdvancedPreview = async (
+    tableIndex: number,
+    options: { previewRows?: number }
+  ) => {
+    const cfg = tableConfigs.value.find(item => item.tableIndex === tableIndex);
+    if (!cfg) {
+      throw new Error("表格配置不存在，无法加载预览");
+    }
+    const previewData = await loadPreviewData(
+      cfg,
+      options.previewRows ?? MAPPING_PREVIEW_ROWS
+    );
+    cfg.previewData = previewData;
+    applyRulesToConfig(cfg, false);
+    return previewData;
   };
 
   const ensurePreviewDataLoaded = async ({
@@ -587,12 +740,16 @@ export function useDataImportPage() {
     smartRecognizing,
     smartRecognitionAttempted,
     smartRecognitionError,
+    smartApplyError,
     smartConfirmingTableIndex,
+    smartTableInfos,
     recognizedTables,
     smartStructureSummary,
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
     handleSmartTableImportSelectionChange,
+    prepareAdvancedTableConfig,
+    syncAdvancedConfigsToRecognizedTables,
     resetSmartStructureState
   } = useDataImportSmartStructureRecognition({
     uploadedFile,
@@ -611,13 +768,18 @@ export function useDataImportPage() {
   });
 
   const enterAdvancedMode = (
-    target: "tableSelect" | "mapping" = "tableSelect"
+    target: "tableSelect" | "mapping" = "tableSelect",
+    tableIndex?: number
   ) => {
+    if (target === "mapping") {
+      prepareAdvancedTableConfig(tableIndex);
+    }
     advancedMode.value = true;
     currentStep.value = getDataImportAdvancedStep(target);
   };
 
   const exitAdvancedMode = () => {
+    syncAdvancedConfigsToRecognizedTables();
     advancedMode.value = false;
     currentStep.value = SMART_STEP_CONFIRM_PREVIEW;
   };
@@ -625,7 +787,25 @@ export function useDataImportPage() {
   const updateExcelMapping = (tableIndex: number, value: ExcelSheetMapping) => {
     const cfg = tableConfigs.value.find(c => c.tableIndex === tableIndex);
     if (!cfg) return;
-    cfg.excelMapping = normalizeExcelMappingByTable(cfg.tableInfo, value);
+    const previousMapping = cfg.excelMapping;
+    const normalizedMapping = normalizeExcelMappingByTable(
+      cfg.tableInfo,
+      value
+    );
+    if (cfg.recognizedExcelMappings?.length) {
+      cfg.recognizedExcelMappings = replaceExcelRegionMapping({
+        regions: cfg.recognizedExcelMappings,
+        mapping: normalizedMapping,
+        previousMapping
+      });
+    }
+    cfg.excelMapping = normalizedMapping;
+    cfg.excelPreviewRowLocations = undefined;
+    cfg.previewData = null;
+    setExcludedRowIndexes(tableIndex, []);
+    importPreviewSelectionKeys.value = importPreviewSelectionKeys.value.filter(
+      key => !key.startsWith(`${tableIndex}:`)
+    );
   };
 
   const getActiveTableConfig = (): TableImportConfig | null => {
@@ -697,15 +877,46 @@ export function useDataImportPage() {
       if (cfg.tableIndex === activeCfg.tableIndex) continue;
 
       if (isExcelFile.value && mappingClipboard.value.kind === "excel") {
-        cfg.excelMapping = normalizeExcelMappingByTable(cfg.tableInfo, {
+        const previousMapping = cfg.excelMapping;
+        const normalizedMapping = normalizeExcelMappingByTable(cfg.tableInfo, {
           ...mappingClipboard.value.value
         });
+        cfg.excelMapping = normalizedMapping;
+        cfg.recognizedExcelMapping = { ...normalizedMapping };
+        if (cfg.recognizedExcelMappings?.length) {
+          cfg.recognizedExcelMappings = replaceExcelRegionMapping({
+            regions: cfg.recognizedExcelMappings,
+            mapping: normalizedMapping,
+            previousMapping
+          });
+        }
+        cfg.excelPreviewRowLocations = undefined;
+        cfg.previewData = null;
+        setExcludedRowIndexes(cfg.tableIndex, []);
+        importPreviewSelectionKeys.value =
+          importPreviewSelectionKeys.value.filter(
+            key => !key.startsWith(`${cfg.tableIndex}:`)
+          );
         pastedCount++;
         continue;
       }
 
       if (!isExcelFile.value && mappingClipboard.value.kind === "word") {
-        cfg.wordMapping = { ...mappingClipboard.value.value };
+        const nextMapping = { ...mappingClipboard.value.value };
+        cfg.wordMapping = nextMapping;
+        if (cfg.recognizedWordMappings?.length) {
+          cfg.recognizedWordMappings = cfg.recognizedWordMappings.map(
+            (region, regionIndex) =>
+              regionIndex === 0 ? { ...region, ...nextMapping } : region
+          );
+        }
+        cfg.excelPreviewRowLocations = undefined;
+        cfg.previewData = null;
+        setExcludedRowIndexes(cfg.tableIndex, []);
+        importPreviewSelectionKeys.value =
+          importPreviewSelectionKeys.value.filter(
+            key => !key.startsWith(`${cfg.tableIndex}:`)
+          );
         pastedCount++;
       }
     }
@@ -736,7 +947,7 @@ export function useDataImportPage() {
     if (
       step === 2 &&
       !isExcelFile.value &&
-      mappingRules.value.length === 0 &&
+      mappingRulesCustomerId.value !== (selectedCustomerId.value ?? null) &&
       !loadingMappingRules.value
     ) {
       loadMappingRules();
@@ -753,13 +964,12 @@ export function useDataImportPage() {
   });
 
   watch(selectedCustomerId, () => {
-    if (
-      advancedMode.value &&
-      currentStep.value === 2 &&
-      !isExcelFile.value &&
-      !loadingMappingRules.value
-    ) {
-      loadMappingRules();
+    mappingRulesRequestVersion += 1;
+    mappingRules.value = [];
+    mappingRulesCustomerId.value = undefined;
+    loadingMappingRules.value = false;
+    if (advancedMode.value && !isExcelFile.value) {
+      void loadMappingRules();
     }
   });
 
@@ -884,7 +1094,8 @@ export function useDataImportPage() {
     const nextMap: Record<string, DifferenceDecision | undefined> = {};
 
     for (const item of items) {
-      nextMap[item.key] = differenceDecisionMap.value[item.key];
+      const decisionKey = buildImportDifferenceDecisionKey(item);
+      nextMap[decisionKey] = differenceDecisionMap.value[decisionKey];
     }
 
     differenceDecisionMap.value = nextMap;
@@ -901,7 +1112,7 @@ export function useDataImportPage() {
     const nextMap = { ...differenceDecisionMap.value };
 
     for (const item of pendingImportAggregate.value?.pendingDifferences || []) {
-      nextMap[item.key] = decision;
+      nextMap[buildImportDifferenceDecisionKey(item)] = decision;
     }
 
     differenceDecisionMap.value = nextMap;
@@ -948,25 +1159,32 @@ export function useDataImportPage() {
 
   const pendingUndecidedCount = computed(() => {
     return pendingDifferences.value.filter(
-      item => !differenceDecisionMap.value[item.key]
+      item =>
+        !differenceDecisionMap.value[buildImportDifferenceDecisionKey(item)]
     ).length;
   });
 
   const pendingImportDecisionCount = computed(() => {
     return pendingDifferences.value.filter(
-      item => differenceDecisionMap.value[item.key] === "import"
+      item =>
+        differenceDecisionMap.value[buildImportDifferenceDecisionKey(item)] ===
+        "import"
     ).length;
   });
 
   const pendingPartialDecisionCount = computed(() => {
     return pendingDifferences.value.filter(
-      item => differenceDecisionMap.value[item.key] === "partial"
+      item =>
+        differenceDecisionMap.value[buildImportDifferenceDecisionKey(item)] ===
+        "partial"
     ).length;
   });
 
   const pendingSkipDecisionCount = computed(() => {
     return pendingDifferences.value.filter(
-      item => differenceDecisionMap.value[item.key] === "skip"
+      item =>
+        differenceDecisionMap.value[buildImportDifferenceDecisionKey(item)] ===
+        "skip"
     ).length;
   });
 
@@ -987,6 +1205,15 @@ export function useDataImportPage() {
   const pendingTableIndexes = computed<number[]>(() => {
     return Array.from(
       new Set(pendingDifferences.value.map(item => item.tableIndex))
+    );
+  });
+  const pendingRegionKeys = computed<string[]>(() => {
+    return Array.from(
+      new Set(
+        pendingDifferences.value.map(item =>
+          buildImportRegionKey(item.tableIndex, item.regionId)
+        )
+      )
     );
   });
 
@@ -1016,6 +1243,7 @@ export function useDataImportPage() {
     pendingDifferences,
     pendingUndecidedCount,
     pendingTableIndexes,
+    pendingRegionKeys,
     previewDataCount,
     hasPendingDifferenceConfirmation,
     currentImportPermissionCode,
@@ -1095,6 +1323,7 @@ export function useDataImportPage() {
     uploadedFile,
     isExcelFile,
     selectedTableIndexes,
+    selectedTables,
     activeTableIndex,
     tableConfigs,
     selectedCustomerId,
@@ -1105,9 +1334,11 @@ export function useDataImportPage() {
     smartRecognizing,
     smartRecognitionAttempted,
     smartRecognitionError,
+    smartApplyError,
     smartStageText,
     selectedSmartTableIndexes,
     smartConfirmingTableIndex,
+    smartTableInfos,
     recognizedTables,
     smartStructureSummary,
     canUploadSourceFile,
@@ -1157,6 +1388,7 @@ export function useDataImportPage() {
     loadMappingRules,
     handleTablesSelected,
     handlePreviewLoaded,
+    loadAdvancedPreview,
     updateExcelMapping,
     getTableConfigTabLabel,
     canPasteClipboard,

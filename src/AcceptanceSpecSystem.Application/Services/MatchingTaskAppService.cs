@@ -52,7 +52,7 @@ public sealed class MatchingTaskAppService : IMatchingTaskAppService
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var taskResult = await _matchingTaskSnapshotService.LoadAsync(user, taskId);
+        var taskResult = await _matchingTaskSnapshotService.LoadAsync(user, taskId, cancellationToken);
         if (taskResult == null)
         {
             throw NotFoundFailure("任务不存在或已过期");
@@ -96,9 +96,11 @@ public sealed class MatchingTaskAppService : IMatchingTaskAppService
         }
 
         var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(taskResult.SourceFileId);
-        if (wordFile == null)
+        if (wordFile == null ||
+            wordFile.CreatedByUserId != user.UserId ||
+            wordFile.CompanyId != user.CompanyId)
         {
-            throw NotFoundFailure("源文件不存在");
+            throw NotFoundFailure("源文件不存在或无权访问");
         }
 
         byte[] resultContent;

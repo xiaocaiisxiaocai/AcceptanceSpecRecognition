@@ -5,11 +5,13 @@ import type {
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import SmartStructureConfirmCard from "./SmartStructureConfirmCard.vue";
+import type { TableInfo } from "@/api/document";
 import { createSmartStructureDisplayGroups } from "./smart-structure-recognition";
 
 const props = withDefaults(
   defineProps<{
     tables: SmartConfigRecognizedTable[];
+    tableInfos?: TableInfo[];
     activeTableIndex?: number;
     selectedTableIndexes: number[];
     selectableTableIndexes: number[];
@@ -21,14 +23,17 @@ const props = withDefaults(
     defaultExpandedTableIndex?: number | null;
     readyLabel?: string;
     unavailableLabel?: string;
+    isExcelFile?: boolean;
   }>(),
   {
+    tableInfos: () => [],
     selectionDisabledReasons: () => ({}),
     selectionPendingReasons: () => ({}),
     confirmingTableIndex: null,
     defaultExpandedTableIndex: null,
     readyLabel: "可直达",
-    unavailableLabel: "不可用"
+    unavailableLabel: "不可用",
+    isExcelFile: true
   }
 );
 
@@ -118,9 +123,12 @@ watch(
 
       <SmartStructureConfirmCard
         :table="table"
+        :table-info="tableInfos.find(item => item.index === table.tableIndex)"
         :file-id="fileId"
         :customer-id="customerId"
         :confirming="confirmingTableIndex === table.tableIndex"
+        :confirmation-locked="confirmingTableIndex != null"
+        :is-excel-file="isExcelFile"
         :import-selected="selectedTableIndexSet.has(table.tableIndex)"
         :import-selectable="selectableTableIndexSet.has(table.tableIndex)"
         :selection-disabled-reason="selectionDisabledReasons[table.tableIndex]"

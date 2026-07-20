@@ -436,8 +436,14 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         fullRow.GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be(longAcceptance);
         var fullBest = fullRow.GetProperty("previewSnapshot").GetProperty("bestMatch");
         fullBest.GetProperty("topCandidates").GetArrayLength().Should().Be(1, "完整归档行详情必须保留候选明细");
-        fullBest.GetProperty("evidenceSummary")[0].GetString().Should().Contain("证据1");
-        fullBest.GetProperty("issues")[0].GetProperty("message").GetString().Should().Contain("问题1");
+        fullBest.GetProperty("evidenceSummary").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().NotContain(item => item != null && item.Contains("证据1", StringComparison.Ordinal),
+                "执行历史不得归档客户端伪造的匹配证据");
+        fullBest.GetProperty("issues").EnumerateArray()
+            .Select(item => item.GetProperty("message").GetString())
+            .Should().NotContain(item => item != null && item.Contains("问题1", StringComparison.Ordinal),
+                "执行历史不得归档客户端伪造的问题说明");
     }
 
     private static string[][] BuildExcelRows(int rowCount)

@@ -37,6 +37,22 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
+    public async Task Recognize_WhenOwnedFileUsesCustomerOutsideSpecScope_ShouldReturnNotFound()
+    {
+        await RestrictCommonRoleToSelfAsync();
+        var fileId = await UploadAsCommonAsync();
+        var customerId = await CreateCustomerAsync();
+        await SeedOutOfScopeSpecAsync(customerId, fileId);
+
+        using var request = CreateCommonRequest(
+            "/api/smart-config/recognize",
+            new { fileId, customerId });
+        using var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task Confirm_WhenModifiedStructureReferencesFileOutsideScope_ShouldNotSaveTemplate()
     {
         var fileId = await UploadAsAdminAsync();

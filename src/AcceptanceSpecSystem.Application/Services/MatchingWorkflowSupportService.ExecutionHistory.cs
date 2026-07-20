@@ -30,7 +30,9 @@ public sealed partial class MatchingWorkflowSupportService
     {
         var tableMetas = await _documentTableAccessService.GetTablesAsync(wordFile, cancellationToken);
         var tableMetaLookup = tableMetas.ToDictionary(table => table.Index);
-        var previewLookup = BuildExecutionHistoryPreviewLookup(previewTables);
+        var previewLookup = BuildAuthoritativeExecutionHistoryPreviewLookup(
+            currentMatchLookups,
+            executionConfig);
         var fileDetail = new ExecutionHistoryFileDto
         {
             FileName = wordFile.FileName,
@@ -114,7 +116,7 @@ public sealed partial class MatchingWorkflowSupportService
 
         if (table.ProjectColumnIndex.HasValue && table.SpecificationColumnIndex.HasValue)
         {
-            sourceRows = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
+            sourceRows = await ExtractMatchSourceItemsForRegionsAsync(
                 wordFile,
                 table.TableIndex,
                 table.ProjectColumnIndex.Value,
@@ -122,6 +124,8 @@ public sealed partial class MatchingWorkflowSupportService
                 table.HeaderRowStart,
                 table.HeaderRowCount,
                 table.DataStartRow,
+                table.DataEndRow,
+                table.Regions,
                 table.FilterEmptySourceRows ?? executionConfig.FilterEmptySourceRows,
                 cancellationToken);
         }
@@ -139,7 +143,8 @@ public sealed partial class MatchingWorkflowSupportService
                     adoptedRows,
                     currentMatchLookup?.GetValueOrDefault(item.RowIndex),
                     table.AcceptanceColumnIndex,
-                    table.RemarkColumnIndex))
+                    table.RemarkColumnIndex,
+                    null))
                 .ToList();
         }
 
@@ -161,8 +166,9 @@ public sealed partial class MatchingWorkflowSupportService
                     specDict,
                     adoptedRows,
                     currentMatchLookup?.GetValueOrDefault(rowIndex),
-                    table.AcceptanceColumnIndex,
-                    table.RemarkColumnIndex);
+                    sourceRow?.AcceptanceColumnIndex ?? table.AcceptanceColumnIndex,
+                    sourceRow?.RemarkColumnIndex ?? table.RemarkColumnIndex,
+                    sourceRow);
             })
             .ToList();
     }
@@ -176,7 +182,8 @@ public sealed partial class MatchingWorkflowSupportService
         HashSet<int>? adoptedRows,
         MatchResult? currentMatch,
         int acceptanceColumnIndex,
-        int? remarkColumnIndex)
+        int? remarkColumnIndex,
+        MatchSourceItem? sourceItem)
     {
         var selectedSpecId = mapping?.SpecId ?? 0;
         AcceptanceSpec? matchedSpec = null;
@@ -195,6 +202,8 @@ public sealed partial class MatchingWorkflowSupportService
             {
                 return new ExecutionHistoryRowDto
                 {
+                    RegionId = sourceItem?.RegionId,
+                    RegionIndex = sourceItem?.RegionIndex,
                     RowIndex = rowIndex,
                     Project = project,
                     Specification = specification,
@@ -210,6 +219,8 @@ public sealed partial class MatchingWorkflowSupportService
 
             return new ExecutionHistoryRowDto
             {
+                RegionId = sourceItem?.RegionId,
+                RegionIndex = sourceItem?.RegionIndex,
                 RowIndex = rowIndex,
                 Project = project,
                 Specification = specification,
@@ -227,6 +238,8 @@ public sealed partial class MatchingWorkflowSupportService
 
         return new ExecutionHistoryRowDto
         {
+            RegionId = sourceItem?.RegionId,
+            RegionIndex = sourceItem?.RegionIndex,
             RowIndex = rowIndex,
             Project = project,
             Specification = specification,
@@ -241,22 +254,6 @@ public sealed partial class MatchingWorkflowSupportService
             AcceptanceColumnIndex = acceptanceColumnIndex,
             RemarkColumnIndex = remarkColumnIndex
         };
-    }
-
-    private static IReadOnlyDictionary<int, IReadOnlyDictionary<int, MatchPreviewItem>> BuildExecutionHistoryPreviewLookup(
-        IReadOnlyCollection<ExecutionHistoryPreviewTableSnapshot>? previewTables)
-    {
-        if (previewTables == null || previewTables.Count == 0)
-        {
-            return new Dictionary<int, IReadOnlyDictionary<int, MatchPreviewItem>>();
-        }
-
-        return previewTables.ToDictionary(
-            table => table.TableIndex,
-            table => (IReadOnlyDictionary<int, MatchPreviewItem>)table.Items
-                .GroupBy(item => item.RowIndex)
-                .Select(group => group.Last())
-                .ToDictionary(item => item.RowIndex));
     }
 
     private static List<ExecutionHistorySmartFillRowDto> BuildSmartFillPlaybackRows(
@@ -278,6 +275,10 @@ public sealed partial class MatchingWorkflowSupportService
 
                 return new ExecutionHistorySmartFillRowDto
                 {
+                    RegionId = row.RegionId,
+                    RegionIndex = row.RegionIndex,
+                    AcceptanceColumnIndex = row.AcceptanceColumnIndex,
+                    RemarkColumnIndex = row.RemarkColumnIndex,
                     RowIndex = row.RowIndex,
                     SourceProject = row.Project,
                     SourceSpecification = row.Specification,

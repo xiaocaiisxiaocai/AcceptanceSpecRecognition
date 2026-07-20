@@ -193,3 +193,70 @@ test("导入页应复用差异展示格式化 helper，避免弹窗展示逻辑�
     /const isDifferenceColumnChanged = \(/
   );
 });
+
+test("多区域导入应由最后一个实际区域清理物理源文件，不删除文件实体", () => {
+  assert.doesNotMatch(batchExecutionSource, /\bdeleteFile\b/);
+  assert.match(batchExecutionSource, /const lastPlannedRegionKey =/);
+  assert.match(
+    batchExecutionSource,
+    /cleanupSourceFile:\s*regionKey === lastPlannedRegionKey/
+  );
+});
+
+test("多区域导入应隔离区域决策并缓存已提交区域以支持安全重试", () => {
+  assert.match(
+    batchExecutionSource,
+    /buildImportDifferenceDecisionKey\(item\)/
+  );
+  assert.match(
+    batchExecutionSource,
+    /const completedRequestAggregates = new Map/
+  );
+  assert.match(batchExecutionSource, /completedRequestAggregates\.get/);
+  assert.match(batchExecutionSource, /completedRequestAggregates\.set/);
+});
+
+test("任一分区业务失败后必须立即中止，不能继续到可能清理源文件的后续分区", () => {
+  const failureBranchStart = batchExecutionSource.indexOf(
+    "if (response.code !== 0)"
+  );
+  const aggregateCreation = batchExecutionSource.indexOf(
+    "aggregate = createSingleTableAggregate",
+    failureBranchStart
+  );
+  const failureBranch = batchExecutionSource.slice(
+    failureBranchStart,
+    aggregateCreation
+  );
+  assert.match(
+    failureBranch,
+    /throw new Error\(response\.message \|\| "导入失败，请稍后重试"\);/
+  );
+  assert.doesNotMatch(failureBranch, /tableAggregates\.push/);
+});
+
+test("分区响应成功但包含失败行时也必须先记录结果再中止，且不能写入完成 checkpoint", () => {
+  const aggregatePush = batchExecutionSource.indexOf(
+    "tableAggregates.push(aggregate)"
+  );
+  const failedCountBranch = batchExecutionSource.indexOf(
+    "if (response.data.failedCount > 0)",
+    aggregatePush
+  );
+  const abortThrow = batchExecutionSource.indexOf(
+    "throw new Error(",
+    failedCountBranch
+  );
+  const checkpointWrite = batchExecutionSource.indexOf(
+    "completedRequestAggregates.set(checkpointKey, aggregate)",
+    failedCountBranch
+  );
+
+  assert.ok(aggregatePush >= 0, "应先把当前区域结果加入本次汇总");
+  assert.ok(failedCountBranch > aggregatePush, "失败行判断应位于结果汇总之后");
+  assert.ok(abortThrow > failedCountBranch, "发现失败行后应抛错中止后续区域");
+  assert.ok(
+    checkpointWrite > abortThrow,
+    "只有无失败行的响应才能写入完成 checkpoint"
+  );
+});

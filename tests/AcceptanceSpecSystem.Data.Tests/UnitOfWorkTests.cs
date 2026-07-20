@@ -137,6 +137,34 @@ public class UnitOfWorkTests
         GetTransaction(unitOfWork).Should().BeNull();
     }
 
+    [Fact]
+    public async Task AcquireOperationLockAsync_ShouldSerializeAndRemoveReleasedLocalLock()
+    {
+        var (firstContext, firstServices) = CreateContextWithServices();
+        var (secondContext, secondServices) = CreateContextWithServices();
+        using var first = new UnitOfWork(firstContext, firstServices);
+        using var second = new UnitOfWork(secondContext, secondServices);
+
+        var firstLease = await first.AcquireOperationLockAsync("same-operation");
+        var secondAcquire = second.AcquireOperationLockAsync("same-operation");
+
+        await Task.Delay(50);
+        secondAcquire.IsCompleted.Should().BeFalse();
+
+        await firstLease.DisposeAsync();
+        await using var secondLease = await secondAcquire.WaitAsync(TimeSpan.FromSeconds(2));
+        await secondLease.DisposeAsync();
+
+        var locksField = typeof(UnitOfWork).GetField(
+            "LocalOperationLocks",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        locksField.Should().NotBeNull();
+        var locks = locksField!.GetValue(null);
+        locks.Should().NotBeNull();
+        var count = (int)locks!.GetType().GetProperty("Count")!.GetValue(locks)!;
+        count.Should().Be(0);
+    }
+
     private static void SetTransaction(UnitOfWork unitOfWork, IDbContextTransaction transaction)
     {
         var field = typeof(UnitOfWork).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic);

@@ -35,37 +35,65 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
     private const string MatchTypeSemantic = "semantic";
 
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IDocumentImportExecutionRepository _importExecutions;
     private readonly IDocumentFileAccessService _documentFileAccessService;
     private readonly IDocumentImportTableReader _documentTableAccessService;
     private readonly ImportDuplicateDetectionService _importDuplicateDetectionService;
     private readonly IImportEmbeddingCache _specEmbeddingCacheService;
     private readonly IImportWarmupTrigger _embeddingCacheWarmupTrigger;
     private readonly ColumnMappingLearningService _columnMappingLearningService;
+    private readonly IMatchingApprovalTokenProtector _decisionTokenProtector;
     private readonly ILogger<DocumentImportAppService> _logger;
 
     public DocumentImportAppService(
         IUnitOfWork unitOfWork,
+        IDocumentImportExecutionRepository importExecutions,
         IDocumentFileAccessService documentFileAccessService,
         IDocumentImportTableReader documentTableAccessService,
         ImportDuplicateDetectionService importDuplicateDetectionService,
         IImportEmbeddingCache specEmbeddingCacheService,
         IImportWarmupTrigger embeddingCacheWarmupTrigger,
         ColumnMappingLearningService columnMappingLearningService,
+        IMatchingApprovalTokenProtector decisionTokenProtector,
         ILogger<DocumentImportAppService> logger)
     {
         _unitOfWork = unitOfWork;
+        _importExecutions = importExecutions;
         _documentFileAccessService = documentFileAccessService;
         _documentTableAccessService = documentTableAccessService;
         _importDuplicateDetectionService = importDuplicateDetectionService;
         _specEmbeddingCacheService = specEmbeddingCacheService;
         _embeddingCacheWarmupTrigger = embeddingCacheWarmupTrigger;
         _columnMappingLearningService = columnMappingLearningService;
+        _decisionTokenProtector = decisionTokenProtector;
         _logger = logger;
     }
 
-    public async Task<DocumentImportAppResult> ImportWordAsync(
+    public Task<DocumentImportAppResult> ImportWordAsync(
         SpecAccessContext scope,
         ImportDataRequest request,
+        CancellationToken cancellationToken)
+    {
+        return ExecuteIdempotentImportAsync(
+            scope,
+            request.ExecutionRequestId,
+            request,
+            () => AuthorizeImportReplayAsync(
+                scope,
+                request.FileId,
+                UploadedFileType.WordDocx,
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                cancellationToken),
+            idempotency => ImportWordCoreAsync(scope, request, idempotency, cancellationToken),
+            cancellationToken);
+    }
+
+    private async Task<DocumentImportAppResult> ImportWordCoreAsync(
+        SpecAccessContext scope,
+        ImportDataRequest request,
+        ImportIdempotencyContext? idempotency,
         CancellationToken cancellationToken)
     {
         try
@@ -99,6 +127,16 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 request.Mapping.SpecificationColumn,
                 projectColumnBase: 0);
 
+            var headerRowCount = Math.Max(1, request.HeaderRowCount);
+            var headerEndRowIndex = request.Mapping.HeaderRowIndex + headerRowCount - 1;
+            if (request.Mapping.HeaderRowIndex < 0 ||
+                request.Mapping.DataStartRowIndex <= headerEndRowIndex ||
+                (request.DataEndRowIndex.HasValue &&
+                 request.DataEndRowIndex.Value < request.Mapping.DataStartRowIndex))
+            {
+                throw new ApplicationServiceException(400, "Word 表头行或数据起始行配置不合法");
+            }
+
             var mapping = new ColumnMapping
             {
                 ProjectColumn = request.Mapping.ProjectColumn,
@@ -106,8 +144,13 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 AcceptanceColumn = request.Mapping.AcceptanceColumn,
                 RemarkColumn = request.Mapping.RemarkColumn,
                 HeaderRowIndex = request.Mapping.HeaderRowIndex,
+                HeaderRowCount = headerRowCount,
                 DataStartRowIndex = request.Mapping.DataStartRowIndex
             };
+
+            var maxDataRowCount = request.DataEndRowIndex.HasValue
+                ? request.DataEndRowIndex.Value - request.Mapping.DataStartRowIndex + 1
+                : (int?)null;
 
             TableData tableData;
             try
@@ -116,6 +159,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                     wordFile,
                     request.TableIndex,
                     mapping,
+                    maxDataRowCount,
                     cancellationToken: cancellationToken);
             }
             catch (ApplicationServiceException)
@@ -160,6 +204,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                         GetCellValue(row, request.Mapping.RemarkColumn!.Value));
                 },
                 "表格",
+                idempotency,
                 cancellationToken);
 
             MarkSpecificationOnlyBackfill(importResult, request.IsSpecificationOnly, request.Mapping.ProjectColumn);
@@ -182,9 +227,31 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         }
     }
 
-    public async Task<DocumentImportAppResult> ImportExcelAsync(
+    public Task<DocumentImportAppResult> ImportExcelAsync(
         SpecAccessContext scope,
         ExcelImportDataRequest request,
+        CancellationToken cancellationToken)
+    {
+        return ExecuteIdempotentImportAsync(
+            scope,
+            request.ExecutionRequestId,
+            request,
+            () => AuthorizeImportReplayAsync(
+                scope,
+                request.FileId,
+                UploadedFileType.ExcelXlsx,
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                cancellationToken),
+            idempotency => ImportExcelCoreAsync(scope, request, idempotency, cancellationToken),
+            cancellationToken);
+    }
+
+    private async Task<DocumentImportAppResult> ImportExcelCoreAsync(
+        SpecAccessContext scope,
+        ExcelImportDataRequest request,
+        ImportIdempotencyContext? idempotency,
         CancellationToken cancellationToken)
     {
         try
@@ -235,7 +302,26 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
             var sheetInfo = tables[request.SheetIndex];
             if (sheetInfo.RowCount <= 0 || sheetInfo.ColumnCount <= 0)
             {
-                return new DocumentImportAppResult(new ImportResult(), "工作表为空，无可导入数据");
+                return await ExecuteImportAsync(
+                    scope,
+                    file,
+                    request.SheetIndex,
+                    request.CustomerId,
+                    request.ProcessId,
+                    request.MachineModelId,
+                    request.ConfirmedDifferenceKeys,
+                    request.PartiallyConfirmedDifferenceKeys,
+                    request.SkippedDifferenceKeys,
+                    request.ExcludedRowIndexes,
+                    request.DuplicateCheckOptions,
+                    request.PreviewSkippedRows,
+                    request.CleanupSourceFile,
+                    new TableData { TableIndex = request.SheetIndex },
+                    _ => throw new InvalidOperationException("空工作表不应生成导入行"),
+                    "工作表",
+                    idempotency,
+                    cancellationToken,
+                    completedMessageOverride: "工作表为空，无可导入数据");
             }
 
             var usedStartCol = sheetInfo.UsedRangeStartColumn;
@@ -244,6 +330,18 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
             var usedEndRow = usedStartRow + sheetInfo.RowCount - 1;
 
             static bool IsInRange(int value, int start, int end) => value >= start && value <= end;
+
+            if (!IsInRange(request.HeaderRowStart, usedStartRow, usedEndRow))
+            {
+                throw new ApplicationServiceException(400, $"表头起始行超出已用区域：{request.HeaderRowStart}，允许范围为 {usedStartRow}~{usedEndRow}");
+            }
+
+            var effectiveHeaderRowCount = Math.Max(1, request.HeaderRowCount);
+            var minimumDataStartRow = request.HeaderRowStart + effectiveHeaderRowCount;
+            if (request.DataStartRow < usedStartRow || request.DataStartRow < minimumDataStartRow)
+            {
+                throw new ApplicationServiceException(400, $"数据起始行必须位于表头之后且不能早于已用区域：最小为 {Math.Max(usedStartRow, minimumDataStartRow)}");
+            }
 
             if (request.ProjectColumn.HasValue && !IsInRange(request.ProjectColumn.Value, usedStartCol, usedEndCol))
             {
@@ -340,6 +438,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                         remarkCol.HasValue ? GetCellValue(row, remarkCol.Value) : null);
                 },
                 "工作表",
+                idempotency,
                 cancellationToken);
 
             MarkSpecificationOnlyBackfill(importResult, request.IsSpecificationOnly, projectCol);
@@ -361,87 +460,6 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
             throw new ApplicationServiceException(400, BuildAiImportUnavailableMessage(request.DuplicateCheckOptions, ex));
         }
     }
-
-    private static void ValidateSpecificationOnlyProjectBackfill(
-        bool isSpecificationOnly,
-        int? projectColumn,
-        int? specificationColumn,
-        int projectColumnBase)
-    {
-        if (!specificationColumn.HasValue)
-        {
-            throw new ApplicationServiceException(400, "规格内容列为必填");
-        }
-
-        if (projectColumn.HasValue && projectColumn.Value < projectColumnBase)
-        {
-            throw new ApplicationServiceException(400, "项目列配置不合法");
-        }
-
-        if (!projectColumn.HasValue && !isSpecificationOnly)
-        {
-            throw new ApplicationServiceException(400, "缺少项目列；如确认该表为仅规格导入，请先启用仅规格确认后再导入");
-        }
-    }
-
-    private static void ValidateSpecificationOnlyColumnHealth(
-        TableData tableData,
-        int? projectColumn,
-        int specificationColumn,
-        bool isSpecificationOnly)
-    {
-        if (!ShouldBackfillProjectFromSpecification(isSpecificationOnly, projectColumn))
-        {
-            return;
-        }
-
-        var hasSpecificationValue = tableData.Rows.Any(row =>
-            !string.IsNullOrWhiteSpace(GetCellValue(row, specificationColumn)));
-        if (!hasSpecificationValue)
-        {
-            throw new ApplicationServiceException(400, "仅规格导入要求规格列存在有效数据");
-        }
-    }
-
-    private static string? ResolveImportProjectValue(
-        RowData row,
-        int? projectColumn,
-        int specificationColumn,
-        bool isSpecificationOnly)
-    {
-        if (projectColumn.HasValue)
-        {
-            return GetCellValue(row, projectColumn.Value);
-        }
-
-        return ShouldBackfillProjectFromSpecification(isSpecificationOnly, projectColumn)
-            ? GetCellValue(row, specificationColumn)
-            : null;
-    }
-
-    private static void MarkSpecificationOnlyBackfill(
-        DocumentImportAppResult result,
-        bool isSpecificationOnly,
-        int? projectColumn)
-    {
-        if (ShouldBackfillProjectFromSpecification(isSpecificationOnly, projectColumn))
-        {
-            result.Result.ProjectBackfilledFromSpecification = true;
-        }
-    }
-
-    private static bool ShouldBackfillProjectFromSpecification(
-        bool isSpecificationOnly,
-        int? projectColumn)
-    {
-        return isSpecificationOnly && !projectColumn.HasValue;
-    }
-
-
-
-
-
-
 
 }
 

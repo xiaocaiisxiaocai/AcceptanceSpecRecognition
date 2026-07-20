@@ -19,6 +19,7 @@ export function useSmartStructureRecognition() {
   const recognitionAttempted = ref(false);
   const recognitionError = ref("");
   const activeRecognitionFileId = ref<number | null>(null);
+  const activeRecognitionCustomerId = ref<number | null>(null);
   const confirmingTableIndex = ref<number | null>(null);
   const recognitionResult = ref<SmartConfigRecognizeResult | null>(null);
   const lastConfirmResult = ref<SmartConfigConfirmResult | null>(null);
@@ -31,21 +32,22 @@ export function useSmartStructureRecognition() {
   );
   let recognitionRequestVersion = 0;
   let contextVersion = 0;
-  let confirmRequestVersion = 0;
 
   const recognize = async (fileId: number, customerId?: number) => {
     const requestVersion = ++recognitionRequestVersion;
     contextVersion += 1;
-    confirmRequestVersion += 1;
     activeRecognitionFileId.value = fileId;
+    activeRecognitionCustomerId.value = customerId ?? null;
     confirmingTableIndex.value = null;
     recognizing.value = true;
     recognitionAttempted.value = false;
     recognitionError.value = "";
     recognitionResult.value = null;
+    lastConfirmResult.value = null;
     const isCurrentRequest = () =>
       requestVersion === recognitionRequestVersion &&
-      activeRecognitionFileId.value === fileId;
+      activeRecognitionFileId.value === fileId &&
+      activeRecognitionCustomerId.value === (customerId ?? null);
 
     try {
       const res = await recognizeSmartConfig({ fileId, customerId });
@@ -109,6 +111,11 @@ export function useSmartStructureRecognition() {
       return null;
     }
 
+    if (activeRecognitionCustomerId.value !== request.customerId) {
+      ElMessage.warning("客户已变更，请重新识别后再确认结构");
+      return null;
+    }
+
     const expectedFileId = request.fileId ?? activeRecognitionFileId.value;
     if (
       expectedFileId == null ||
@@ -118,12 +125,16 @@ export function useSmartStructureRecognition() {
       return null;
     }
 
-    const requestVersion = ++confirmRequestVersion;
+    if (confirmingTableIndex.value != null) {
+      ElMessage.warning("正在确认其他表格，请稍候");
+      return null;
+    }
+
     const requestContextVersion = contextVersion;
     const isCurrentRequest = () =>
-      requestVersion === confirmRequestVersion &&
       requestContextVersion === contextVersion &&
       activeRecognitionFileId.value === expectedFileId &&
+      activeRecognitionCustomerId.value === request.customerId &&
       recognitionResult.value?.fileId === expectedFileId;
 
     confirmingTableIndex.value = requestOrTable.tableIndex;
@@ -137,7 +148,12 @@ export function useSmartStructureRecognition() {
       }
 
       lastConfirmResult.value = res.data;
-      ElMessage.success("结构确认已保存");
+      const learnedText = res.data.learnedRuleCount
+        ? `，已学习 ${res.data.learnedRuleCount} 条列映射`
+        : "，列映射无需新增";
+      ElMessage.success(
+        `${res.data.templateSaved ? "结构模板已保存" : "结构确认完成"}${learnedText}`
+      );
       return res.data;
     } catch (error) {
       if (!isCurrentRequest()) {
@@ -155,8 +171,8 @@ export function useSmartStructureRecognition() {
   const reset = () => {
     recognitionRequestVersion += 1;
     contextVersion += 1;
-    confirmRequestVersion += 1;
     activeRecognitionFileId.value = null;
+    activeRecognitionCustomerId.value = null;
     recognizing.value = false;
     recognitionAttempted.value = false;
     recognitionResult.value = null;
@@ -169,6 +185,8 @@ export function useSmartStructureRecognition() {
     recognizing,
     recognitionAttempted,
     recognitionError,
+    activeRecognitionFileId,
+    activeRecognitionCustomerId,
     confirmingTableIndex,
     recognitionResult,
     recognizedTables,

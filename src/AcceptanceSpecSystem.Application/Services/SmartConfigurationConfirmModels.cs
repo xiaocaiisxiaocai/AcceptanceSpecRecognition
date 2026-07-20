@@ -42,8 +42,36 @@ public sealed class SmartConfigurationConfirmCommand
     public bool UserModifiedStructure { get; init; }
 
     public IReadOnlyList<SmartConfigurationLearnedColumn> LearnedColumns { get; init; } = [];
+
+    public IReadOnlyList<SmartConfigurationConfirmRegion> Regions { get; init; } = [];
 }
 
+public sealed class SmartConfigurationConfirmRegion
+{
+    public string? RegionId { get; init; }
+
+    public int RegionIndex { get; init; }
+
+    public IReadOnlyList<string> Headers { get; init; } = [];
+
+    public int HeaderRowIndex { get; init; }
+
+    public int HeaderRowCount { get; init; } = 1;
+
+    public int DataStartRowIndex { get; init; } = 1;
+
+    public int? DataEndRowIndex { get; init; }
+
+    public int? ProjectColumnIndex { get; init; }
+
+    public int SpecificationColumnIndex { get; init; }
+
+    public int? AcceptanceColumnIndex { get; init; }
+
+    public int? RemarkColumnIndex { get; init; }
+
+    public bool IsSpecificationOnly { get; init; }
+}
 /// <summary>
 /// 用户确认后的表头学习项。
 /// </summary>

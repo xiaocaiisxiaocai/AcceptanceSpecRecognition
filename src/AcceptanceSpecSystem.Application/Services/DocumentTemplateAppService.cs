@@ -5,6 +5,8 @@ using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace AcceptanceSpecSystem.Application.Services;
@@ -37,51 +39,76 @@ public sealed class DocumentTemplateAppService
         IReadOnlyList<string> headers,
         CancellationToken cancellationToken = default)
     {
+        return (await FindMatchingTemplatesAsync(customerId, headers, cancellationToken)).FirstOrDefault();
+    }
+
+    public async Task<IReadOnlyList<DocumentTemplate>> FindMatchingTemplatesAsync(
+        int customerId,
+        IReadOnlyList<string> headers,
+        CancellationToken cancellationToken = default)
+    {
         // 生成表头指纹
         var fingerprint = GenerateHeadersFingerprint(headers);
 
-        // 1. 精确匹配：相同的表头指纹
-        var exactMatch = await _unitOfWork.DocumentTemplates
+        var templates = await _unitOfWork.DocumentTemplates
             .Query()
-            .Where(t => t.CustomerId == customerId && t.HeadersFingerprint == fingerprint)
-            .OrderByDescending(t => t.UsageCount)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Include(t => t.Regions)
+            .Where(t => t.CustomerId == customerId)
+            .ToListAsync(cancellationToken);
 
-        if (exactMatch != null)
+        // HeadersFingerprint 对新模板保存完整结构指纹，因此通过 HeadersJson 计算主表头指纹，
+        // 既兼容旧库，也允许相同首段表头持久化多个区域变体。
+        var readableTemplates = templates
+            .Select(template => new
+            {
+                Template = template,
+                Headers = TryReadHeaders(template.HeadersJson)
+            })
+            .Where(item => item.Headers != null && HasReadableRegionHeaders(item.Template))
+            .Select(item => new { item.Template, Headers = item.Headers! })
+            .ToList();
+
+        var exactMatches = readableTemplates
+            .Where(item => GenerateHeadersFingerprint(item.Headers) == fingerprint)
+            .Select(item => item.Template)
+            .OrderByDescending(template => template.UsageCount)
+            .ThenByDescending(template => template.LastUsedAt)
+            .ThenByDescending(template => template.UpdatedAt)
+            .ToList();
+
+        if (exactMatches.Count > 0)
         {
             _logger.LogInformation(
-                "找到精确匹配的模板（ID: {TemplateId}，名称: {TemplateName}）",
-                exactMatch.Id,
-                exactMatch.TemplateName);
-            return exactMatch;
+                "找到 {TemplateCount} 个精确匹配的模板候选",
+                exactMatches.Count);
+            return exactMatches;
         }
 
         // 2. 模糊匹配：相似的表头（编辑距离）
-        var templates = await _unitOfWork.DocumentTemplates
-            .Query()
-            .Where(t => t.CustomerId == customerId)
-            .OrderByDescending(t => t.UsageCount)
+        var fuzzyCandidates = readableTemplates
+            .OrderByDescending(t => t.Template.UsageCount)
             .Take(10) // 只取最常用的 10 个模板
-            .ToListAsync(cancellationToken);
+            .ToList();
 
-        foreach (var template in templates)
-        {
-            var templateHeaders = JsonSerializer.Deserialize<List<string>>(template.HeadersJson) ?? new List<string>();
-            var similarity = CalculateHeadersSimilarity(headers, templateHeaders);
-
-            if (similarity > 0.9) // 90% 相似度阈值
+        var fuzzyMatches = fuzzyCandidates
+            .Select(item => new
             {
-                _logger.LogInformation(
-                    "找到模糊匹配的模板（ID: {TemplateId}，名称: {TemplateName}，相似度: {Similarity:P0}）",
-                    template.Id,
-                    template.TemplateName,
-                    similarity);
-                return template;
-            }
+                item.Template,
+                Similarity = CalculateHeadersSimilarity(headers, item.Headers)
+            })
+            .Where(item => item.Similarity > 0.9)
+            .OrderByDescending(item => item.Similarity)
+            .ThenByDescending(item => item.Template.UsageCount)
+            .Select(item => item.Template)
+            .ToList();
+        if (fuzzyMatches.Count > 0)
+        {
+            _logger.LogInformation("找到 {TemplateCount} 个模糊匹配的模板候选", fuzzyMatches.Count);
+            return fuzzyMatches;
         }
 
         _logger.LogInformation("客户 {CustomerId} 没有找到匹配的模板", customerId);
-        return null;
+        return [];
     }
 
     public async Task<IReadOnlyList<DocumentStructureReferenceCase>> FindReferenceCasesAsync(
@@ -125,26 +152,62 @@ public sealed class DocumentTemplateAppService
         string? tableKind = null,
         string? recommendation = null,
         bool userModifiedStructure = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<DocumentTemplateRegionInput>? regions = null,
+        bool operationLockAlreadyHeld = false)
     {
-        var fingerprint = GenerateHeadersFingerprint(headers);
         var headersJson = JsonSerializer.Serialize(headers);
         var now = DateTime.UtcNow;
         var normalizedTableKind = NormalizeMetadata(tableKind, "Unknown");
         var normalizedRecommendation = NormalizeMetadata(recommendation, "NeedConfirm");
-
-        // 检查是否已存在相同指纹的模板
-        var existing = await _unitOfWork.DocumentTemplates
-            .Query(asNoTracking: false)
-            .FirstOrDefaultAsync(t =>
-                t.CustomerId == customerId &&
-                t.HeadersFingerprint == fingerprint,
+        var effectiveRegions = regions is { Count: > 0 }
+            ? regions.OrderBy(region => region.RegionIndex).ToList()
+            :
+            [
+                new DocumentTemplateRegionInput
+                {
+                    RegionIndex = 0,
+                    Headers = headers,
+                    HeaderRowIndex = columnMapping.HeaderRowIndex,
+                    HeaderRowCount = columnMapping.HeaderRowCount,
+                    DataStartRowIndex = columnMapping.DataStartRowIndex,
+                    DataEndRowIndex = dataEndRowIndex,
+                    ProjectColumnIndex = columnMapping.ProjectColumn,
+                    SpecificationColumnIndex = columnMapping.SpecificationColumn ?? -1,
+                    AcceptanceColumnIndex = columnMapping.AcceptanceColumn,
+                    RemarkColumnIndex = columnMapping.RemarkColumn,
+                    IsSpecificationOnly = isSpecificationOnly
+                }
+            ];
+        var primaryFingerprint = GenerateHeadersFingerprint(headers);
+        var structureFingerprint = GenerateStructureFingerprint(effectiveRegions);
+        await using var templateLock = operationLockAlreadyHeld
+            ? NoopTemplateLock.Instance
+            : await _unitOfWork.AcquireOperationLockAsync(
+                $"document-template:{customerId}",
                 cancellationToken);
+
+        // 完整结构相同才更新；相同首段表头但区域位置/列不同的模板必须并存。
+        var customerTemplates = await _unitOfWork.DocumentTemplates
+            .Query(asNoTracking: false)
+            .Include(t => t.Regions)
+            .Where(t => t.CustomerId == customerId)
+            .ToListAsync(cancellationToken);
+        var existing = customerTemplates.FirstOrDefault(template =>
+            string.Equals(template.HeadersFingerprint, structureFingerprint, StringComparison.Ordinal) ||
+            (GenerateHeadersFingerprint(ReadHeaders(template.HeadersJson)) == primaryFingerprint &&
+             HasEquivalentRegions(template, effectiveRegions)));
+        existing ??= customerTemplates.FirstOrDefault(template =>
+            GenerateHeadersFingerprint(ReadHeaders(template.HeadersJson)) == primaryFingerprint &&
+            effectiveRegions.Count == 1 &&
+            GetPersistedRegionCount(template) <= 1);
 
         if (existing != null)
         {
             // 更新现有模板
             existing.TemplateName = templateName;
+            existing.HeadersFingerprint = structureFingerprint;
+            existing.HeadersJson = headersJson;
             existing.ProjectColumnIndex = columnMapping.ProjectColumn ?? -1;
             existing.SpecificationColumnIndex = columnMapping.SpecificationColumn ?? -1;
             existing.AcceptanceColumnIndex = columnMapping.AcceptanceColumn ?? -1;
@@ -159,6 +222,11 @@ public sealed class DocumentTemplateAppService
             existing.ConfirmedAt = now;
             existing.UserModifiedStructure = userModifiedStructure;
             existing.UpdatedAt = now;
+            existing.Regions.Clear();
+            foreach (var region in effectiveRegions)
+            {
+                existing.Regions.Add(ToRegionEntity(region));
+            }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -175,7 +243,7 @@ public sealed class DocumentTemplateAppService
         {
             CustomerId = customerId,
             TemplateName = templateName,
-            HeadersFingerprint = fingerprint,
+            HeadersFingerprint = structureFingerprint,
             HeadersJson = headersJson,
             ProjectColumnIndex = columnMapping.ProjectColumn ?? -1,
             SpecificationColumnIndex = columnMapping.SpecificationColumn ?? -1,
@@ -192,11 +260,32 @@ public sealed class DocumentTemplateAppService
             UserModifiedStructure = userModifiedStructure,
             UsageCount = 0,
             CreatedAt = now,
-            UpdatedAt = now
+            UpdatedAt = now,
+            Regions = effectiveRegions.Select(ToRegionEntity).ToList()
         };
 
         await _unitOfWork.DocumentTemplates.AddAsync(template);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // 查询与插入之间可能有另一应用实例保存了同一结构。数据库唯一键是
+            // 最终裁决者；丢弃本地 Added 实体并返回已持久化的并发赢家。
+            _unitOfWork.DocumentTemplates.Remove(template);
+            var concurrentWinner = await _unitOfWork.DocumentTemplates
+                .Query(asNoTracking: false)
+                .Include(item => item.Regions)
+                .FirstOrDefaultAsync(item =>
+                    item.CustomerId == customerId &&
+                    item.HeadersFingerprint == structureFingerprint,
+                    cancellationToken);
+            if (concurrentWinner is null)
+                throw;
+
+            return concurrentWinner;
+        }
 
         _logger.LogInformation(
             "创建新模板（ID: {TemplateId}，客户: {CustomerId}，名称: {TemplateName}）",
@@ -207,6 +296,23 @@ public sealed class DocumentTemplateAppService
         return template;
     }
 
+    private static DocumentTemplateRegion ToRegionEntity(DocumentTemplateRegionInput input)
+    {
+        return new DocumentTemplateRegion
+        {
+            RegionIndex = input.RegionIndex,
+            HeadersJson = JsonSerializer.Serialize(input.Headers),
+            HeaderRowIndex = input.HeaderRowIndex,
+            HeaderRowCount = input.HeaderRowCount,
+            DataStartRowIndex = input.DataStartRowIndex,
+            DataEndRowIndex = input.DataEndRowIndex,
+            ProjectColumnIndex = input.ProjectColumnIndex,
+            SpecificationColumnIndex = input.SpecificationColumnIndex,
+            AcceptanceColumnIndex = input.AcceptanceColumnIndex,
+            RemarkColumnIndex = input.RemarkColumnIndex,
+            IsSpecificationOnly = input.IsSpecificationOnly
+        };
+    }
     /// <summary>
     /// 增加模板使用次数
     /// </summary>
@@ -236,15 +342,112 @@ public sealed class DocumentTemplateAppService
     /// <summary>
     /// 生成表头指纹（用于快速匹配）
     /// </summary>
-    private string GenerateHeadersFingerprint(IReadOnlyList<string> headers)
+    private static string GenerateHeadersFingerprint(IReadOnlyList<string> headers)
     {
-        // 标准化：去除空格、转小写
+        // 保留空列位置，并用定长哈希避免宽表超过数据库 128 字符限制。
         var normalized = headers
             .Select(h => h.Trim().ToLowerInvariant())
-            .Where(h => !string.IsNullOrEmpty(h));
+            .ToList();
 
-        return string.Join("|", normalized);
+        return ComputeSha256(JsonSerializer.Serialize(normalized));
     }
+
+    private static string GenerateStructureFingerprint(IReadOnlyList<DocumentTemplateRegionInput> regions)
+    {
+        var normalized = regions
+            .OrderBy(region => region.RegionIndex)
+            .Select(region => new
+            {
+                region.RegionIndex,
+                Headers = region.Headers.Select(header => header.Trim().ToLowerInvariant()).ToArray(),
+                region.HeaderRowIndex,
+                region.HeaderRowCount,
+                region.DataStartRowIndex,
+                region.DataEndRowIndex,
+                ProjectColumnIndex = region.IsSpecificationOnly ? null : region.ProjectColumnIndex,
+                region.SpecificationColumnIndex,
+                region.AcceptanceColumnIndex,
+                region.RemarkColumnIndex,
+                region.IsSpecificationOnly
+            })
+            .ToList();
+        return ComputeSha256(JsonSerializer.Serialize(normalized));
+    }
+
+    private static bool HasEquivalentRegions(
+        DocumentTemplate template,
+        IReadOnlyList<DocumentTemplateRegionInput> regions)
+    {
+        var persisted = template.Regions.Count > 0
+            ? template.Regions.OrderBy(region => region.RegionIndex).Select(region => new DocumentTemplateRegionInput
+            {
+                RegionIndex = region.RegionIndex,
+                Headers = ReadHeaders(region.HeadersJson),
+                HeaderRowIndex = region.HeaderRowIndex,
+                HeaderRowCount = region.HeaderRowCount,
+                DataStartRowIndex = region.DataStartRowIndex,
+                DataEndRowIndex = region.DataEndRowIndex,
+                ProjectColumnIndex = NormalizeColumn(region.ProjectColumnIndex),
+                SpecificationColumnIndex = NormalizeColumn(region.SpecificationColumnIndex) ?? -1,
+                AcceptanceColumnIndex = NormalizeColumn(region.AcceptanceColumnIndex),
+                RemarkColumnIndex = NormalizeColumn(region.RemarkColumnIndex),
+                IsSpecificationOnly = region.IsSpecificationOnly
+            }).ToList()
+            :
+            [
+                new DocumentTemplateRegionInput
+                {
+                    RegionIndex = 0,
+                    Headers = ReadHeaders(template.HeadersJson),
+                    HeaderRowIndex = template.HeaderRowIndex,
+                    HeaderRowCount = template.HeaderRowCount,
+                    DataStartRowIndex = template.DataStartRowIndex,
+                    DataEndRowIndex = template.DataEndRowIndex,
+                    ProjectColumnIndex = NormalizeColumn(template.ProjectColumnIndex),
+                    SpecificationColumnIndex = NormalizeColumn(template.SpecificationColumnIndex) ?? -1,
+                    AcceptanceColumnIndex = NormalizeColumn(template.AcceptanceColumnIndex),
+                    RemarkColumnIndex = NormalizeColumn(template.RemarkColumnIndex),
+                    IsSpecificationOnly = template.IsSpecificationOnly
+                }
+            ];
+
+        return string.Equals(
+            GenerateStructureFingerprint(persisted),
+            GenerateStructureFingerprint(regions),
+            StringComparison.Ordinal);
+    }
+
+    private static List<string> ReadHeaders(string headersJson) => TryReadHeaders(headersJson) ?? [];
+
+    private static List<string>? TryReadHeaders(string? headersJson)
+    {
+        if (string.IsNullOrWhiteSpace(headersJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            var headers = JsonSerializer.Deserialize<List<string>>(headersJson);
+            return headers?.Any(header => header == null) == true ? null : headers;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool HasReadableRegionHeaders(DocumentTemplate template) =>
+        template.Regions.All(region => TryReadHeaders(region.HeadersJson) != null);
+
+    private static int GetPersistedRegionCount(DocumentTemplate template) =>
+        template.Regions.Count > 0 ? template.Regions.Count : 1;
+
+    private static int? NormalizeColumn(int? columnIndex) =>
+        columnIndex.HasValue && columnIndex.Value >= 0 ? columnIndex.Value : null;
+
+    private static string ComputeSha256(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
     private static string NormalizeMetadata(string? value, string fallback)
     {
@@ -254,6 +457,13 @@ public sealed class DocumentTemplateAppService
             : normalized.Length > 50
                 ? normalized[..50]
                 : normalized;
+    }
+
+    private sealed class NoopTemplateLock : IAsyncDisposable
+    {
+        public static NoopTemplateLock Instance { get; } = new();
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     /// <summary>
@@ -309,7 +519,11 @@ public sealed class DocumentTemplateAppService
         IReadOnlyList<string> currentHeaders,
         string? currentTableName)
     {
-        var templateHeaders = JsonSerializer.Deserialize<List<string>>(template.HeadersJson) ?? [];
+        var templateHeaders = TryReadHeaders(template.HeadersJson);
+        if (templateHeaders == null)
+        {
+            return null;
+        }
         var headerSimilarity = CalculateHeadersSimilarity(currentHeaders, templateHeaders);
         var similarity = CalculateCaseWeight(template, currentTableName, headerSimilarity);
         if (similarity <= 0)
@@ -340,7 +554,9 @@ public sealed class DocumentTemplateAppService
                 AcceptanceColumnIndex = template.AcceptanceColumnIndex < 0
                     ? null
                     : template.AcceptanceColumnIndex,
-                RemarkColumnIndex = template.RemarkColumnIndex,
+                RemarkColumnIndex = template.RemarkColumnIndex < 0
+                    ? null
+                    : template.RemarkColumnIndex,
                 IsSpecificationOnly = template.IsSpecificationOnly,
                 Confidence = 1,
                 Source = DocumentStructureCandidateSource.Template
@@ -445,4 +661,19 @@ public sealed class DocumentTemplateAppService
 
         return previous[s1.Length];
     }
+}
+
+public sealed class DocumentTemplateRegionInput
+{
+    public int RegionIndex { get; init; }
+    public IReadOnlyList<string> Headers { get; init; } = [];
+    public int HeaderRowIndex { get; init; }
+    public int HeaderRowCount { get; init; } = 1;
+    public int DataStartRowIndex { get; init; } = 1;
+    public int? DataEndRowIndex { get; init; }
+    public int? ProjectColumnIndex { get; init; }
+    public int SpecificationColumnIndex { get; init; }
+    public int? AcceptanceColumnIndex { get; init; }
+    public int? RemarkColumnIndex { get; init; }
+    public bool IsSpecificationOnly { get; init; }
 }

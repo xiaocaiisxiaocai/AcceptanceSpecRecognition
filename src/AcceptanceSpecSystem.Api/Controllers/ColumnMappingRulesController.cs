@@ -43,6 +43,10 @@ public class ColumnMappingRulesController : BaseApiController
         [FromBody] CreateColumnMappingRuleRequest request, CancellationToken cancellationToken = default)
     {
         try { return Success(await _appService.CreateAsync(request, cancellationToken), "创建成功"); }
+        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
+        {
+            return Conflict(ApiResponse<ColumnMappingRuleDto>.Error(ex.Code, ex.Message));
+        }
         catch (ApplicationServiceException ex) { return Error<ColumnMappingRuleDto>(ex.Code, ex.Message); }
     }
 
@@ -53,6 +57,10 @@ public class ColumnMappingRulesController : BaseApiController
         int id, [FromBody] UpdateColumnMappingRuleRequest request, CancellationToken cancellationToken = default)
     {
         try { return Success(await _appService.UpdateAsync(id, request, cancellationToken), "更新成功"); }
+        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
+        {
+            return Conflict(ApiResponse<ColumnMappingRuleDto>.Error(ex.Code, ex.Message));
+        }
         catch (ApplicationServiceException ex) { return Error<ColumnMappingRuleDto>(ex.Code, ex.Message); }
     }
 

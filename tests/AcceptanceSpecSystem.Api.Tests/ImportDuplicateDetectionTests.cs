@@ -24,6 +24,90 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
+    public async Task ImportExcel_WithTamperedOrLegacyDifferenceToken_ShouldRejectWithoutOverwrite()
+    {
+        var seeded = await SeedImportScopeAsync();
+        await SeedExistingSpecAsync(
+            seeded.CustomerId,
+            seeded.ProcessId,
+            "TOKEN-P",
+            "TOKEN-S",
+            "TOKEN-OLD",
+            "TOKEN-OLD-R");
+        var fileId = await UploadExcelAsync(CreateExcelBytes(new[]
+        {
+            ("TOKEN-P", "TOKEN-S", "TOKEN-NEW", "TOKEN-NEW-R")
+        }), "tampered-import-token.xlsx");
+
+        var payload = new
+        {
+            fileId,
+            sheetIndex = 0,
+            customerId = seeded.CustomerId,
+            processId = seeded.ProcessId,
+            headerRowStart = 1,
+            headerRowCount = 1,
+            dataStartRow = 2,
+            projectColumn = 1,
+            specificationColumn = 2,
+            acceptanceColumn = 3,
+            remarkColumn = 4
+        };
+        var pendingResponse = await ImportExcelAsync(payload);
+        var pendingJson = await pendingResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        var token = pendingJson.Data.GetProperty("pendingDifferences")[0].GetProperty("key").GetString()!;
+        // Base64Url 最后一个字符可能仅包含填充位，替换后仍解码为相同字节；
+        // 改动令牌主体中部，确保测试真正篡改受保护载荷。
+        var tamperIndex = token.Length / 2;
+        var tampered = token[..tamperIndex] +
+                       (token[tamperIndex] == 'A' ? "B" : "A") +
+                       token[(tamperIndex + 1)..];
+
+        var tamperedResponse = await ImportExcelAsync(new
+        {
+            payload.fileId,
+            payload.sheetIndex,
+            payload.customerId,
+            payload.processId,
+            payload.headerRowStart,
+            payload.headerRowCount,
+            payload.dataStartRow,
+            payload.projectColumn,
+            payload.specificationColumn,
+            payload.acceptanceColumn,
+            payload.remarkColumn,
+            confirmedDifferenceKeys = new[] { tampered }
+        });
+        tamperedResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var legacyUnsigned = Convert.ToBase64String(Encoding.UTF8.GetBytes(
+            "0|1|conflict|1|TOKEN-P|TOKEN-S|TOKEN-NEW|TOKEN-NEW-R"));
+        var legacyResponse = await ImportExcelAsync(new
+        {
+            payload.fileId,
+            payload.sheetIndex,
+            payload.customerId,
+            payload.processId,
+            payload.headerRowStart,
+            payload.headerRowCount,
+            payload.dataStartRow,
+            payload.projectColumn,
+            payload.specificationColumn,
+            payload.acceptanceColumn,
+            payload.remarkColumn,
+            confirmedDifferenceKeys = new[] { legacyUnsigned }
+        });
+        legacyResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var existing = await db.AcceptanceSpecs.SingleAsync(spec =>
+            spec.CustomerId == seeded.CustomerId && spec.ProcessId == seeded.ProcessId);
+        existing.Acceptance.Should().Be("TOKEN-OLD");
+        existing.Remark.Should().Be("TOKEN-OLD-R");
+    }
+
+    [Fact]
     public async Task ImportExcel_WhenDatabaseContainsExactDuplicate_ShouldAutoSkipWithoutOverwritingExisting()
     {
         var seeded = await SeedImportScopeAsync();

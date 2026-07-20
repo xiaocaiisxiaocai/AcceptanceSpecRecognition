@@ -39,24 +39,30 @@ export const mergeImportAggregates = (
 
 export const createSingleTableAggregate = (
   tableIndex: number,
-  result: ImportResult
+  result: ImportResult,
+  regionId?: string
 ): CombinedImportResult => ({
+  tableIndex,
+  regionId,
   successCount: result.successCount,
   failedCount: result.failedCount,
   skippedCount: result.skippedCount,
   totalCount: result.totalCount,
   errors: (result.errors || []).map(error => ({
     tableIndex,
+    regionId,
     ...error
   })),
   skippedRows: (result.skippedRows || []).map(row => ({
     tableIndex,
+    regionId,
     ...row
   })),
   requiresConfirmation: !!result.requiresConfirmation,
   pendingCount: result.pendingCount || 0,
   pendingDifferences: (result.pendingDifferences || []).map(item => ({
     tableIndex,
+    regionId,
     ...item
   }))
 });

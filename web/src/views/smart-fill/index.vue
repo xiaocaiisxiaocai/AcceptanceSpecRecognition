@@ -49,6 +49,7 @@ import { useSmartFillExecution } from "./composables/useSmartFillExecution";
 import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTables";
 import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
 import {
+  applySmartConfigConfirmRequestToTable,
   getSmartStructureImportSelectionDisabledReason,
   shouldShowSmartStructureManualFallback
 } from "@/views/shared/smart-structure-recognition";
@@ -56,7 +57,9 @@ import {
   buildSmartFillConfigsFromRecognizedTables,
   canContinueFromSmartRecognition,
   createSmartFillSmartSteps,
-  getSmartFillPrevStepState
+  getSmartFillPrevStepState,
+  SMART_FILL_ADVANCED_STEP_TABLE_CONFIG,
+  syncSmartFillConfigsToRecognizedTables
 } from "./smartFill.smartRecognition";
 import type { SmartFillScope } from "./smartFillExecution.helpers";
 import { requiredSelectionRule, validateForm } from "@/utils/form-rules";
@@ -318,17 +321,12 @@ const handleScopeChange = (
   processId?: number,
   machineModelId?: number
 ) => {
-  const customerChanged = matchScope.value.customerId !== customerId;
   matchScope.value = {
     customerId,
     processId,
     machineModelId
   };
   selectedCustomerIdForRules.value = customerId;
-
-  if (customerChanged) {
-    void reloadWordColumnMappingRulesForCustomer();
-  }
 };
 
 const clearPreviewDetail = () => {
@@ -424,6 +422,24 @@ watch(currentStep, step => {
   }
 });
 
+watch(
+  () => matchScope.value.customerId,
+  (customerId, previousCustomerId) => {
+    selectedCustomerIdForRules.value = customerId;
+    if (customerId === previousCustomerId) return;
+
+    invalidatePendingPreview();
+    stopLlmStream();
+    resetPreviewState();
+    resetPendingBackfillState();
+    resetExecutionState();
+    batchTableConfigs.value = [];
+    batchPreviewResults.value = [];
+    resetSmartStructure();
+    void reloadWordColumnMappingRulesForCustomer();
+  }
+);
+
 // 计算属性
 const canContinueSmartRecognition = computed(() =>
   canContinueFromSmartRecognition(
@@ -485,16 +501,19 @@ const canGoNext = computed(() => {
   }
 });
 
-const { loadUploadedFileTables, reloadWordColumnMappingRulesForCustomer } =
-  useSmartFillUploadedTables({
-    uploadedFile,
-    isExcelFile,
-    allTables,
-    batchTableConfigs,
-    wordColumnMappingRules,
-    loadingUploadedFileTables,
-    selectedCustomerId: selectedCustomerIdForRules
-  });
+const {
+  loadUploadedFileTables,
+  reloadWordColumnMappingRulesForCustomer,
+  ensureManualTableConfigs
+} = useSmartFillUploadedTables({
+  uploadedFile,
+  isExcelFile,
+  allTables,
+  batchTableConfigs,
+  wordColumnMappingRules,
+  loadingUploadedFileTables,
+  selectedCustomerId: selectedCustomerIdForRules
+});
 
 // 文件上传完成
 const handleFileUploaded = async (file: FileUploadResponse) => {
@@ -504,6 +523,7 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   resetPendingBackfillState();
   resetMatchScope();
   resetExecutionState();
+  allTables.value = [];
   uploadedFile.value = file;
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
@@ -518,6 +538,14 @@ const runSmartStructureRecognition = async () => {
     return;
   }
   if (!(await validateForm(scopeFormRef.value))) return;
+
+  invalidatePendingPreview();
+  stopLlmStream();
+  resetPreviewState();
+  resetPendingBackfillState();
+  resetExecutionState();
+  batchTableConfigs.value = [];
+  batchPreviewResults.value = [];
 
   const result = await recognizeSmartStructure(
     uploadedFile.value.fileId,
@@ -566,25 +594,6 @@ const handleRecognizedTableSelectionChange = (
   );
 };
 
-const replaceRecognizedTableWithConfirmRequest = (
-  table: SmartConfigRecognizedTable,
-  request: SmartConfigConfirmRequest
-): SmartConfigRecognizedTable => ({
-  ...table,
-  tableName: request.templateName || table.tableName,
-  headers: request.headers,
-  projectColumnIndex: request.projectColumnIndex,
-  specificationColumnIndex: request.specificationColumnIndex,
-  acceptanceColumnIndex: request.acceptanceColumnIndex,
-  remarkColumnIndex: request.remarkColumnIndex,
-  headerRowIndex: request.headerRowIndex,
-  headerRowCount: request.headerRowCount,
-  dataStartRowIndex: request.dataStartRowIndex,
-  dataEndRowIndex: request.dataEndRowIndex,
-  isSpecificationOnly: request.isSpecificationOnly,
-  decision: "AutoApply"
-});
-
 const handleSmartStructureConfirm = async (
   table: SmartConfigRecognizedTable,
   request: SmartConfigConfirmRequest
@@ -594,7 +603,7 @@ const handleSmartStructureConfirm = async (
 
   const nextTables = recognizedTables.value.map(item =>
     item.tableIndex === table.tableIndex
-      ? replaceRecognizedTableWithConfirmRequest(item, request)
+      ? applySmartConfigConfirmRequestToTable(item, request)
       : item
   );
   if (!replaceRecognizedTables(nextTables, request.fileId)) {
@@ -609,11 +618,14 @@ const handleSmartStructureConfirm = async (
     tableInfos: allTables.value
   }).map(config => ({
     ...config,
-    selected: selectedState.get(config.tableIndex) ?? config.selected
+    selected:
+      selectedState.get(config.tableIndex) ??
+      (config.tableIndex === table.tableIndex ? true : config.selected)
   }));
 };
 
 const enterAdvancedMode = () => {
+  ensureManualTableConfigs();
   advancedMode.value = true;
   currentStep.value = 1;
 };
@@ -678,6 +690,19 @@ const goNext = () => {
 };
 
 const goPrev = () => {
+  if (
+    advancedMode.value &&
+    currentStep.value === SMART_FILL_ADVANCED_STEP_TABLE_CONFIG
+  ) {
+    replaceRecognizedTables(
+      syncSmartFillConfigsToRecognizedTables({
+        isExcelFile: isExcelFile.value,
+        tables: recognizedTables.value,
+        configs: batchTableConfigs.value
+      }),
+      uploadedFile.value?.fileId
+    );
+  }
   const prevState = getSmartFillPrevStepState({
     advancedMode: advancedMode.value,
     currentStep: currentStep.value
@@ -825,6 +850,8 @@ const handleRestart = () => {
             <SmartStructureConfirmTabs
               v-model:active-table-index="activeSmartStructureTab"
               :tables="recognizedTables"
+              :table-infos="allTables"
+              :is-excel-file="isExcelFile"
               :selected-table-indexes="selectedTableIndexes"
               :selectable-table-indexes="smartFillSelectableTableIndexes"
               :selection-disabled-reasons="smartFillSelectionDisabledReasons"

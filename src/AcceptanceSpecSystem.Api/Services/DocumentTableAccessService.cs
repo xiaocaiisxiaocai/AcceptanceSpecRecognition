@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Interfaces;
@@ -147,6 +147,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         int? headerRowStart = null,
         int? headerRowCount = null,
         int? dataStartRow = null,
+        int? dataEndRow = null,
         bool filterEmptySourceRows = true,
         CancellationToken cancellationToken = default)
     {
@@ -160,6 +161,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         // 后续写回才能继续使用解析器返回的行索引。
         TableData tableData;
         var excelDataStartRowIndexForWriteBack = 1;
+        int? maxDataRowCount = null;
         try
         {
             using var stream = _documentFileAccessService.OpenReadStream(wordFile);
@@ -217,13 +219,47 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                     DataStartRowIndex = Math.Max(0, normalizedDataStartRow - usedStartRow)
                 };
                 excelDataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
+                if (dataEndRow.HasValue)
+                {
+                    var normalizedDataEndRow = Math.Max(normalizedDataStartRow, dataEndRow.Value);
+                    maxDataRowCount = normalizedDataEndRow - normalizedDataStartRow + 1;
+                }
+            }
+            else if (headerRowStart.HasValue || headerRowCount.HasValue || dataStartRow.HasValue || dataEndRow.HasValue)
+            {
+                // Word 的调用契约同样使用 1-based 行号；解析器使用 0-based。
+                // DataEndRow 是闭区间，因此最大行数必须包含首尾两行。
+                var normalizedHeaderRowStart = Math.Max(1, headerRowStart.GetValueOrDefault(1));
+                var normalizedHeaderRowCount = Math.Max(0, headerRowCount.GetValueOrDefault(1));
+                var minDataStartRow = normalizedHeaderRowStart + normalizedHeaderRowCount;
+                var normalizedDataStartRow = Math.Max(
+                    minDataStartRow,
+                    dataStartRow.GetValueOrDefault(minDataStartRow));
+                mapping = new ColumnMapping
+                {
+                    HeaderRowIndex = normalizedHeaderRowStart - 1,
+                    HeaderRowCount = Math.Max(1, normalizedHeaderRowCount == 0 ? 1 : normalizedHeaderRowCount),
+                    DataStartRowIndex = normalizedDataStartRow - 1
+                };
+                if (dataEndRow.HasValue)
+                {
+                    if (dataEndRow.Value < normalizedDataStartRow)
+                    {
+                        throw new ArgumentOutOfRangeException(
+                            nameof(dataEndRow),
+                            "数据结束行不能早于数据起始行");
+                    }
+
+                    maxDataRowCount = dataEndRow.Value - normalizedDataStartRow + 1;
+                }
             }
 
             tableData = await parser.ExtractTableDataAsync(
                 stream,
                 tableIndex,
                 mapping,
-                cancellationToken: cancellationToken);
+                maxDataRowCount,
+                cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -296,6 +332,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
 
         TableData tableData;
         var excelDataStartRowIndexForWriteBack = 1;
+        int? maxDataRowCount = null;
         try
         {
             using var stream = _documentFileAccessService.OpenReadStream(wordFile);
@@ -341,13 +378,19 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                     DataStartRowIndex = Math.Max(0, normalizedDataStartRow - usedStartRow)
                 };
                 excelDataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
+                if (config.DataEndRow.HasValue)
+                {
+                    var normalizedDataEndRow = Math.Max(normalizedDataStartRow, config.DataEndRow.Value);
+                    maxDataRowCount = normalizedDataEndRow - normalizedDataStartRow + 1;
+                }
             }
 
             tableData = await parser.ExtractTableDataAsync(
                 stream,
                 config.TableIndex,
                 mapping,
-                cancellationToken: cancellationToken);
+                maxDataRowCount,
+                cancellationToken);
         }
         catch (OperationCanceledException)
         {

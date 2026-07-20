@@ -190,6 +190,15 @@ const getMatchOriginText = (matchOrigin: string) => {
               {{ row.rowIndex + 1 }}
             </template>
           </el-table-column>
+          <el-table-column label="区域/写入列" width="132">
+            <template #default="{ row }">
+              <span v-if="row.regionIndex !== undefined">
+                区域 {{ row.regionIndex + 1 }} · 验收列
+                {{ (row.acceptanceColumnIndex ?? 0) + 1 }}
+              </span>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column
             prop="sourceProject"
             label="项目"

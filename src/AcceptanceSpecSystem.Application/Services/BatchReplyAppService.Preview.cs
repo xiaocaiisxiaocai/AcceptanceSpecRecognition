@@ -1,4 +1,4 @@
-﻿using System.IO.Compression;
+using System.IO.Compression;
 using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.Extensions.Logging;
@@ -316,6 +316,7 @@ public sealed partial class BatchReplyAppService
             targetConfig.HeaderRowStart,
             targetConfig.HeaderRowCount,
             targetConfig.DataStartRow,
+            targetConfig.DataEndRow,
             targetConfig.FilterEmptySourceRows ?? true,
             cancellationToken);
 
