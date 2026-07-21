@@ -12,14 +12,19 @@ public static class SpecDataScopeHelper
 {
     public static async Task<DataScopeResult?> ResolveScopeAsync(
         ClaimsPrincipal user,
-        IAuthDataScopeService authDataScopeService)
+        IAuthDataScopeService authDataScopeService,
+        CancellationToken cancellationToken = default)
     {
         var userId = AuthClaimHelper.GetUserId(user);
         var companyId = AuthClaimHelper.GetCompanyId(user);
         if (!userId.HasValue || !companyId.HasValue)
             return null;
 
-        return await authDataScopeService.GetScopeAsync(userId.Value, companyId.Value, "spec");
+        return await authDataScopeService.GetScopeAsync(
+            userId.Value,
+            companyId.Value,
+            "spec",
+            cancellationToken);
     }
 
     /// <summary>

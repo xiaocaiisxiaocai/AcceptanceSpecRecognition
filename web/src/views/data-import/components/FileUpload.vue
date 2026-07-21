@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { computed } from "vue";
 import { ElMessage } from "element-plus";
 import { uploadFile, type FileUploadResponse } from "@/api/document";
 import type { UploadRequestOptions } from "element-plus";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import AppUploadZone from "@/components/AppUploadZone.vue";
+import type { AppUploadRequestContext } from "@/components/useAppUploadTask";
+import {
+  isUploadRequestCancelled,
+  throwIfUploadCancelled
+} from "@/utils/upload-request";
 
 const props = defineProps<{
   modelValue?: FileUploadResponse | null;
@@ -17,7 +22,6 @@ const emit = defineEmits<{
   (e: "retryMetadata"): void;
 }>();
 
-const uploading = ref(false);
 const uploadedFile = computed({
   get: () => props.modelValue ?? null,
   set: val => emit("update:modelValue", val)
@@ -47,42 +51,38 @@ const uploadHint = computed(() => {
   return `仅支持 ${extText} 格式，文件大小不超过 50MB`;
 });
 
-const handleUpload = async (options: UploadRequestOptions) => {
+const handleUpload = async (
+  options: UploadRequestOptions,
+  context: AppUploadRequestContext
+) => {
   const file = options.file;
-  const extensions = allowedExtensions.value;
-
-  const lower = file.name.toLowerCase();
-  if (
-    extensions.length === 0 ||
-    !extensions.some(extension => lower.endsWith(extension))
-  ) {
-    ElMessage.error(uploadHint.value);
-    return;
-  }
-
-  if (file.size > 50 * 1024 * 1024) {
-    ElMessage.error("文件大小不能超过50MB");
-    return;
-  }
-
-  uploading.value = true;
   try {
-    const res = await uploadFile(file);
-    if (res.code === 0) {
-      const uploaded: FileUploadResponse = {
-        ...res.data,
-        tableMetadataStatus: res.data.tableCountReady ? "ready" : "loading"
-      };
-      uploadedFile.value = uploaded;
-      emit("uploaded", uploaded);
-      ElMessage.success("文件上传成功");
-    } else {
-      ElMessage.error(res.message || "上传失败");
+    const extensions = allowedExtensions.value;
+    const lower = file.name.toLowerCase();
+    if (
+      extensions.length === 0 ||
+      !extensions.some(extension => lower.endsWith(extension))
+    ) {
+      throw new Error(uploadHint.value);
     }
+
+    if (file.size > 50 * 1024 * 1024) throw new Error("文件大小不能超过50MB");
+
+    const res = await uploadFile(file, context);
+    throwIfUploadCancelled(context.signal);
+    if (res.code !== 0) throw new Error(res.message || "上传失败");
+
+    const uploaded: FileUploadResponse = {
+      ...res.data,
+      tableMetadataStatus: res.data.tableCountReady ? "ready" : "loading"
+    };
+    uploadedFile.value = uploaded;
+    emit("uploaded", uploaded);
+    ElMessage.success("文件上传成功");
   } catch (error) {
+    if (isUploadRequestCancelled(error)) throw error;
     ElMessage.error(getRequestErrorMessage(error, "上传失败，请重试"));
-  } finally {
-    uploading.value = false;
+    throw error;
   }
 };
 
@@ -95,12 +95,11 @@ const clearFile = () => {
   <div class="file-upload">
     <AppUploadZone
       v-if="!uploadedFile"
-      :uploading="uploading"
+      :request="handleUpload"
       :upload-hint="uploadHint"
       :accept="resolvedAccept"
       size="normal"
       drag-text="将 Word/Excel 文件拖到此处或"
-      @upload="handleUpload"
     />
 
     <!-- 已上传文件信息 -->

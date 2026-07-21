@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
@@ -14,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using CoreAiServiceConfigModel = AcceptanceSpecSystem.Core.AI.Models.AiServiceConfigModel;
+using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -58,6 +60,9 @@ public class AiServiceFailureMessageApiTests
         result.Data.GetProperty("success").GetBoolean().Should().BeFalse();
         result.Data.GetProperty("message").GetString()
             .Should().Be("LLM: 快速测试: 远端接口鉴权失败，请检查 ApiKey 是否正确");
+        factory.Services.GetRequiredService<AiServiceReadinessRegistry>()
+            .GetSnapshot(configId, CoreAiServicePurpose.Llm)
+            .State.Should().Be(AiServiceReadinessState.Unavailable);
 
         await serverTask;
     }

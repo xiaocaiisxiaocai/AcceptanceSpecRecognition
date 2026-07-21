@@ -1,15 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  ref,
+  watch
+} from "vue";
 import { useRouter } from "vue-router";
 import {
-  AiServicePurpose,
-  getAiServiceList,
-  sortAiServicesByPriority,
-  type AiServiceConfig
+  getAiServiceSelection,
+  type AiServiceSelection
 } from "@/api/ai-service";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import { hasPerms } from "@/utils/auth";
 import { getDistinctAiServiceModel } from "./ai-service-display";
+import { resolveAiAssistSelectionState } from "./ai-selection-state";
 
 const props = defineProps<{
   enabled: boolean;
@@ -22,28 +29,36 @@ const emit = defineEmits<{
 }>();
 
 const router = useRouter();
-const services = ref<AiServiceConfig[]>([]);
+const selection = ref<AiServiceSelection>({ status: "checking" });
 const loading = ref(true);
 const loadError = ref("");
-const hasServices = computed(() => services.value.length > 0);
-const selectedService = computed(
+let requestController: AbortController | undefined;
+let lastLoadStartedAt = 0;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let checkingAttempts = 0;
+const hasServices = computed(
   () =>
-    services.value.find(service => service.id === props.serviceId) ??
-    services.value[0]
+    selection.value.status === "available" && selection.value.serviceId != null
+);
+const selectedService = computed(() =>
+  selection.value.status === "available" ? selection.value : undefined
 );
 const selectedServiceModel = computed(() =>
   getDistinctAiServiceModel(
     selectedService.value?.name,
-    selectedService.value?.llmModel
+    selectedService.value?.model
   )
 );
 const canConfigureAiServices = computed(() =>
   hasPerms("page:config:ai-services")
 );
 const unavailableTitle = computed(() => {
-  if (loadError.value) {
-    return `${loadError.value}，已使用规则识别`;
+  if (selection.value.status === "checking") {
+    return loadError.value
+      ? `${loadError.value}，正在重试；完成前仍可使用规则识别`
+      : "正在检测 LLM 服务可用性；完成前仍可使用规则识别";
   }
+  if (selection.value.message) return selection.value.message;
   return canConfigureAiServices.value
     ? "当前没有可用的 LLM 服务，请先完成 AI 服务配置"
     : "当前没有可用的 LLM 服务，已使用规则识别；请联系管理员配置";
@@ -52,49 +67,59 @@ const unavailableTitle = computed(() => {
 const goToAiServices = () => router.push("/config/ai-services");
 
 const loadServices = async () => {
+  const startedAt = Date.now();
+  if (startedAt - lastLoadStartedAt < 250) return;
+  lastLoadStartedAt = startedAt;
+  if (retryTimer !== undefined) {
+    globalThis.clearTimeout(retryTimer);
+    retryTimer = undefined;
+  }
+  requestController?.abort();
+  const controller = new AbortController();
+  requestController = controller;
   loading.value = true;
   loadError.value = "";
   try {
-    const response = await getAiServiceList({ page: 1, pageSize: 200 });
+    const response = await getAiServiceSelection("llm", controller.signal);
+    if (requestController !== controller) return;
     if (response.code !== 0) {
-      throw new Error(response.message || "加载 LLM 服务失败");
+      selection.value = {
+        status: "unavailable",
+        message: response.message || "LLM 服务当前不可用"
+      };
+      checkingAttempts = 0;
+      emit("update:serviceId", undefined);
+      if (props.enabled) emit("update:enabled", false);
+      return;
     }
 
-    services.value = sortAiServicesByPriority(
-      response.data.items.filter(
-        service =>
-          !service.isDisabled &&
-          (service.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
-          !!service.llmModel
-      )
-    );
-
-    const defaultService = services.value[0];
-    if (defaultService) {
-      if (!props.enabled) {
-        emit("update:enabled", true);
-      }
-      if (
-        props.serviceId == null ||
-        !services.value.some(service => service.id === props.serviceId)
-      ) {
-        emit("update:serviceId", defaultService.id);
-      }
+    selection.value = response.data;
+    if (response.data.status === "checking" && checkingAttempts < 10) {
+      checkingAttempts += 1;
+      retryTimer = globalThis.setTimeout(() => void loadServices(), 1500);
     } else {
-      if (props.serviceId != null) {
-        emit("update:serviceId", undefined);
-      }
-      if (props.enabled) {
-        emit("update:enabled", false);
-      }
+      checkingAttempts = 0;
+    }
+    const next = resolveAiAssistSelectionState(response.data);
+    if (props.enabled !== next.enabled) emit("update:enabled", next.enabled);
+    if (props.serviceId !== next.serviceId) {
+      emit("update:serviceId", next.serviceId);
     }
   } catch (error) {
-    services.value = [];
+    if (
+      error instanceof Error &&
+      (error.name === "CanceledError" || error.name === "AbortError")
+    ) {
+      return;
+    }
+    selection.value = { status: "checking" };
     loadError.value = getRequestErrorMessage(error, "加载 LLM 服务失败");
-    emit("update:serviceId", undefined);
-    if (props.enabled) emit("update:enabled", false);
+    if (checkingAttempts < 10) {
+      checkingAttempts += 1;
+      retryTimer = globalThis.setTimeout(() => void loadServices(), 1500);
+    }
   } finally {
-    loading.value = false;
+    if (requestController === controller) loading.value = false;
   }
 };
 
@@ -103,13 +128,24 @@ watch([() => props.enabled, () => props.serviceId], ([enabled, serviceId]) => {
     emit("update:serviceId", undefined);
     return;
   }
-  if (enabled && serviceId == null && services.value[0]) {
-    const defaultService = services.value[0];
-    emit("update:serviceId", defaultService.id);
+  if (
+    enabled &&
+    serviceId == null &&
+    selectedService.value?.serviceId != null
+  ) {
+    emit("update:serviceId", selectedService.value.serviceId);
   }
 });
 
 onMounted(loadServices);
+onActivated(loadServices);
+const stopPendingSelection = () => {
+  requestController?.abort();
+  if (retryTimer !== undefined) globalThis.clearTimeout(retryTimer);
+};
+
+onDeactivated(stopPendingSelection);
+onBeforeUnmount(stopPendingSelection);
 </script>
 
 <template>
@@ -140,9 +176,9 @@ onMounted(loadServices);
       </span>
     </div>
 
-    <div v-if="!loading && !hasServices" class="structure-ai-unavailable">
+    <div v-if="!hasServices" class="structure-ai-unavailable">
       <el-alert
-        type="info"
+        :type="selection.status === 'checking' || loading ? 'info' : 'warning'"
         :closable="false"
         :title="unavailableTitle"
         class="structure-ai-alert"
@@ -154,6 +190,14 @@ onMounted(loadServices);
         @click="goToAiServices"
       >
         去配置 AI 服务
+      </el-button>
+      <el-button
+        v-if="canConfigureAiServices && selection.status === 'checking'"
+        link
+        :loading="loading"
+        @click="loadServices"
+      >
+        重新检测
       </el-button>
     </div>
   </div>

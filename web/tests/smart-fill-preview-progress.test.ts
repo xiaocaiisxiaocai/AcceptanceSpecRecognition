@@ -93,7 +93,7 @@ test("batch-preview 控制器与应用服务应透传请求取消令牌，避免
   );
   assert.match(
     appServiceSource,
-    /_matchingService\.BatchMatchAsync\(\s*allSources,\s*processedCandidates,\s*config,\s*CreateBatchMatchProgressReporter\(previewRequestId\),\s*cancellationToken\)/
+    /_matchingService\.BatchMatchAsync\(\s*allSources,\s*processedCandidates,\s*config,\s*CreateBatchMatchProgressReporter\(\s*user,\s*previewRequestId\s*\),\s*cancellationToken\)/
   );
 });
 

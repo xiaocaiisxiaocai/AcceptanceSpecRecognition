@@ -18,6 +18,7 @@ public class FileComparePreviewRequest
 {
     public int FileIdA { get; set; }
     public int FileIdB { get; set; }
+    public bool IncludeUnchanged { get; set; } = true;
 }
 
 /// <summary>

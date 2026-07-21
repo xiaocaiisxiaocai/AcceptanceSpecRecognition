@@ -76,7 +76,7 @@ public sealed class FileCompareAppService : IFileCompareAppService
     {
         var (fileA, fileB) = await LoadPairAsync(scope, request, cancellationToken);
         var result = await _compareService.CompareAsync(fileA, fileB, cancellationToken);
-        return ToPreviewResponse(result);
+        return ToPreviewResponse(result, request.IncludeUnchanged);
     }
 
     public async Task<FileCompareDownloadResult> DownloadAsync(
@@ -84,7 +84,9 @@ public sealed class FileCompareAppService : IFileCompareAppService
         FileComparePreviewRequest request,
         CancellationToken cancellationToken = default)
     {
-        var response = await PreviewAsync(scope, request, cancellationToken);
+        var (fileA, fileB) = await LoadPairAsync(scope, request, cancellationToken);
+        var result = await _compareService.CompareAsync(fileA, fileB, cancellationToken);
+        var response = ToPreviewResponse(result, includeUnchanged: true);
         var content = new MemoryStream();
         try
         {
@@ -193,9 +195,11 @@ public sealed class FileCompareAppService : IFileCompareAppService
         FileType = file.FileType
     };
 
-    private static FileComparePreviewResponse ToPreviewResponse(FileCompareResult result)
+    private static FileComparePreviewResponse ToPreviewResponse(
+        FileCompareResult result,
+        bool includeUnchanged)
     {
-        var items = result.Items.Select(item => new FileCompareDiffItemDto
+        var allItems = result.Items.Select(item => new FileCompareDiffItemDto
         {
             DiffType = item.DiffType.ToString(),
             OriginalText = item.OriginalText,
@@ -211,6 +215,9 @@ public sealed class FileCompareAppService : IFileCompareAppService
                 Address = item.Location.Address
             }
         }).ToList();
+        var items = includeUnchanged
+            ? allItems
+            : allItems.Where(item => item.DiffType != FileCompareDiffType.Unchanged.ToString()).ToList();
         return new FileComparePreviewResponse
         {
             FileType = result.FileType,
@@ -230,11 +237,11 @@ public sealed class FileCompareAppService : IFileCompareAppService
                     CurrentText = line.CurrentText
                 }).ToList()
             }).ToList(),
-            AddedCount = items.Count(item => item.DiffType == FileCompareDiffType.Added.ToString()),
-            RemovedCount = items.Count(item => item.DiffType == FileCompareDiffType.Removed.ToString()),
-            ModifiedCount = items.Count(item => item.DiffType == FileCompareDiffType.Modified.ToString()),
-            UnchangedCount = items.Count(item => item.DiffType == FileCompareDiffType.Unchanged.ToString()),
-            TotalCount = items.Count
+            AddedCount = allItems.Count(item => item.DiffType == FileCompareDiffType.Added.ToString()),
+            RemovedCount = allItems.Count(item => item.DiffType == FileCompareDiffType.Removed.ToString()),
+            ModifiedCount = allItems.Count(item => item.DiffType == FileCompareDiffType.Modified.ToString()),
+            UnchangedCount = allItems.Count(item => item.DiffType == FileCompareDiffType.Unchanged.ToString()),
+            TotalCount = allItems.Count
         };
     }
 }

@@ -81,8 +81,10 @@ public sealed class SmartConfigurationFileAccessService : ISmartConfigurationFil
             return null;
         }
 
-        var scope = await _authDataScopeService.GetScopeAsync(userId.Value, companyId.Value, "spec");
-        cancellationToken.ThrowIfCancellationRequested();
-        return scope;
+        return await _authDataScopeService.GetScopeAsync(
+            userId.Value,
+            companyId.Value,
+            "spec",
+            cancellationToken);
     }
 }

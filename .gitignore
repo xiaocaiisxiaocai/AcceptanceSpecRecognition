@@ -122,8 +122,15 @@ tmp/
 
 # Codex / AI tool logs
 .codex-*
+.codex/
 .playwright-cli/
+.playwright-mcp/
 .runlogs/
+__pycache__/
+*.py[cod]
+
+# Local UI audit captures may contain customer data or internal endpoints
+/audit-*.png
 
 # Large generated artifacts
 backups/

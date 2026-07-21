@@ -32,6 +32,7 @@ public partial class LlmMatchingAssistService
         var sawRawResponse = false;
         foreach (var cfg in candidates)
         {
+            var readinessGeneration = _runtimeStatusReporter.CaptureGeneration(cfg.Id);
             try
             {
                 _logger.LogDebug("调用 LLM 服务: {Name} ({Model})", cfg.Name, cfg.LlmModel);
@@ -46,18 +47,38 @@ public partial class LlmMatchingAssistService
 
                 if (isAcceptablePayload(this, raw))
                 {
+                    _runtimeStatusReporter.ReportAvailableIfCurrent(
+                        cfg.Id,
+                        AiServicePurpose.Llm,
+                        readinessGeneration);
                     return raw;
                 }
 
+                _runtimeStatusReporter.ReportUnavailableIfCurrent(
+                    cfg.Id,
+                    AiServicePurpose.Llm,
+                    readinessGeneration);
                 errors.Add($"{cfg.Name}: invalid_payload");
                 _logger.LogWarning("LLM 输出未通过解析校验，尝试下一个服务: {Name}; 输出摘要: {Summary}",
                     cfg.Name,
                     SensitiveLogFormatter.DescribePayload(raw));
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                errors.Add($"{cfg.Name}: {ex.Message}");
-                _logger.LogWarning(ex, "LLM 调用失败: {Name}", cfg.Name);
+                _runtimeStatusReporter.ReportUnavailableIfCurrent(
+                    cfg.Id,
+                    AiServicePurpose.Llm,
+                    readinessGeneration);
+                errors.Add($"{cfg.Name}: {ex.GetType().Name}");
+                _logger.LogWarning(
+                    "LLM 调用失败: {Name}, exceptionType={ExceptionType}, traceId={TraceId}",
+                    cfg.Name,
+                    ex.GetType().Name,
+                    Activity.Current?.TraceId.ToString());
             }
         }
 
@@ -82,6 +103,7 @@ public partial class LlmMatchingAssistService
         var errors = new List<string>();
         foreach (var cfg in candidates)
         {
+            var readinessGeneration = _runtimeStatusReporter.CaptureGeneration(cfg.Id);
             _logger.LogDebug("流式调用 LLM 服务: {Name} ({Model})", cfg.Name, cfg.LlmModel);
             var produced = false;
             var channel = System.Threading.Channels.Channel.CreateUnbounded<string>();
@@ -126,6 +148,11 @@ public partial class LlmMatchingAssistService
             {
                 while (channel.Reader.TryRead(out var item))
                 {
+                    if (!produced)
+                        _runtimeStatusReporter.ReportAvailableIfCurrent(
+                            cfg.Id,
+                            AiServicePurpose.Llm,
+                            readinessGeneration);
                     produced = true;
                     yield return item;
                 }
@@ -140,12 +167,24 @@ public partial class LlmMatchingAssistService
                 }
 
                 errors.Add($"{cfg.Name}: empty_stream");
+                _runtimeStatusReporter.ReportUnavailableIfCurrent(
+                    cfg.Id,
+                    AiServicePurpose.Llm,
+                    readinessGeneration);
                 _logger.LogWarning("LLM 流式调用返回空流，尝试下一个服务: {Name}", cfg.Name);
             }
             catch (Exception ex)
             {
-                errors.Add($"{cfg.Name}: {ex.Message}");
-                _logger.LogWarning(ex, "LLM 流式调用失败: {Name}", cfg.Name);
+                _runtimeStatusReporter.ReportUnavailableIfCurrent(
+                    cfg.Id,
+                    AiServicePurpose.Llm,
+                    readinessGeneration);
+                errors.Add($"{cfg.Name}: {ex.GetType().Name}");
+                _logger.LogWarning(
+                    "LLM 流式调用失败: {Name}, exceptionType={ExceptionType}, traceId={TraceId}",
+                    cfg.Name,
+                    ex.GetType().Name,
+                    Activity.Current?.TraceId.ToString());
                 if (produced)
                     throw new AiServiceUnavailableException(errorMessage, errors, ex);
             }

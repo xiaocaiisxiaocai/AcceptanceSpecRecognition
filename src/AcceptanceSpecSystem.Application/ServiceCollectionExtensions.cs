@@ -13,6 +13,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddOptions<SmartConfigurationOptions>();
         services.AddOptions<ResourceBudgetOptions>();
+        services.AddOptions<AcceptanceSpecSystem.Application.Options.DashboardOptions>();
         services.AddSingleton<IResourceBudgetGovernor, ResourceBudgetGovernor>();
         services.AddSingleton<IUploadedDocumentPathResolver, UploadedDocumentPathResolver>();
         services.AddScoped<IFileCompareService, FileCompareService>();
@@ -38,6 +39,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDashboardAppService, DashboardAppService>();
         services.AddSingleton<DatabaseBackupManager>();
         services.AddSingleton<BatchPreviewProgressTracker>();
+        services.AddSingleton<AiServiceReadinessRegistry>();
+        services.AddSingleton<IAiServiceRuntimeStatusReporter>(sp =>
+            sp.GetRequiredService<AiServiceReadinessRegistry>());
+        services.AddSingleton<IAiServiceRuntimeAvailability>(sp =>
+            sp.GetRequiredService<AiServiceReadinessRegistry>());
         services.AddScoped<MatchingConfigResolver>();
         services.AddScoped<MatchingCandidateProvider>();
         services.AddScoped<MatchingWorkflowSupportService>();
@@ -60,6 +66,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISmartStructureRoutingRuleAppService, SmartStructureRoutingRuleAppService>();
         services.AddScoped<IPromptTemplateAppService, PromptTemplateAppService>();
         services.AddScoped<IAiServiceConfigurationAppService, AiServiceConfigurationAppService>();
+        services.AddScoped<IAiServiceSelectionAppService, AiServiceSelectionAppService>();
         services.AddScoped<SystemPromptTemplateInitializer>();
         services.AddScoped<ColumnMappingRuleInitializer>();
         services.AddScoped<IDocumentFileAppService, DocumentFileAppService>();

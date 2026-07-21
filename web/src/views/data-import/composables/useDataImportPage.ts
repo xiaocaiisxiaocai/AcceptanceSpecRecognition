@@ -135,8 +135,8 @@ export function useDataImportPage() {
     loadingProcesses,
     loadingMachineModels,
     loadingAiServices,
-    embeddingServices,
-    llmServices,
+    embeddingSelection,
+    llmSelection,
     loadCustomers,
     loadProcesses,
     loadMachineModels,
@@ -155,6 +155,7 @@ export function useDataImportPage() {
   });
 
   onActivated(() => {
+    void loadAiServices();
     if (advancedMode.value && currentStep.value === 2 && !isExcelFile.value) {
       loadMappingRules();
     }
@@ -1152,8 +1153,14 @@ export function useDataImportPage() {
     resetImportFlowState();
     uploadedFile.value = null;
     importDuplicateAiConfig.value = createDefaultImportDuplicateAiConfig({
-      embeddingServiceId: embeddingServices.value[0]?.id,
-      llmServiceId: llmServices.value[0]?.id
+      embeddingServiceId:
+        embeddingSelection.value.status === "available"
+          ? (embeddingSelection.value.serviceId ?? undefined)
+          : undefined,
+      llmServiceId:
+        llmSelection.value.status === "available"
+          ? (llmSelection.value.serviceId ?? undefined)
+          : undefined
     });
   };
 
@@ -1246,6 +1253,44 @@ export function useDataImportPage() {
     );
   });
 
+  const ensureImportRuntimeAiReady = async () => {
+    const semanticDuplicateCheckRequested =
+      importDuplicateAiConfig.value.enableSemanticDuplicateCheck;
+    const llmReviewRequested =
+      semanticDuplicateCheckRequested &&
+      importDuplicateAiConfig.value.enableLlmDuplicateReview;
+    const refresh = await loadAiServices();
+    if (!refresh.current) return false;
+
+    const embedding = refresh.embedding ?? embeddingSelection.value;
+    const llm = refresh.llm ?? llmSelection.value;
+    let message = "";
+    let blocked = false;
+
+    if (semanticDuplicateCheckRequested && embedding.status === "checking") {
+      message =
+        "Embedding 服务仍在检测，请稍后重试；也可关闭 AI 疑似重复检查后仅使用规则导入";
+      blocked = true;
+    } else if (
+      semanticDuplicateCheckRequested &&
+      !importDuplicateAiConfig.value.enableSemanticDuplicateCheck
+    ) {
+      message = "Embedding 服务当前不可用，本次导入将仅使用规则检查";
+    } else if (llmReviewRequested && llm.status === "checking") {
+      message =
+        "LLM 服务仍在检测，请稍后重试；也可关闭 LLM 二次复核后继续 Embedding 检查";
+      blocked = true;
+    } else if (
+      llmReviewRequested &&
+      !importDuplicateAiConfig.value.enableLlmDuplicateReview
+    ) {
+      message = "LLM 服务当前不可用，本次仅执行 Embedding 疑似重复识别";
+    }
+
+    if (message) ElMessage.warning(message);
+    return !blocked;
+  };
+
   const {
     openDifferenceConfirmDialog,
     handleConfirmPendingDifferences,
@@ -1278,10 +1323,13 @@ export function useDataImportPage() {
     currentImportPermissionMessage,
     getExcludedRowIndexes,
     resetPendingDifferenceState,
-    syncDifferenceDecisionMap
+    syncDifferenceDecisionMap,
+    ensureRuntimeAiReady: ensureImportRuntimeAiReady
   });
 
   const handleImport = async () => {
+    if (!(await ensureImportRuntimeAiReady())) return;
+
     smartStageText.value = "正在准备完整导入数据...";
     const loaded = await ensureFullPreviewDataLoaded();
     smartStageText.value = "";
@@ -1398,8 +1446,8 @@ export function useDataImportPage() {
     loadingProcesses,
     loadingMachineModels,
     loadingAiServices,
-    embeddingServices,
-    llmServices,
+    embeddingSelection,
+    llmSelection,
     importPreviewGroups,
     removedPreviewRowCount,
     selectedImportPreviewRowsCount,

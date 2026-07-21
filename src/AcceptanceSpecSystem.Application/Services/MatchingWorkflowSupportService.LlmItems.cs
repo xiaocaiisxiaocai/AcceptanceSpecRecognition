@@ -106,9 +106,15 @@ public sealed partial class MatchingWorkflowSupportService
             : $"行{item.RowIndex + 1}";
     }
 
-    private async Task<DataScopeResult?> ResolveSpecScopeAsync(MatchingUserContext user)
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync(
+        MatchingUserContext user,
+        CancellationToken cancellationToken)
     {
-        return await _authDataScopeService.GetScopeAsync(user.UserId, user.CompanyId, "spec");
+        return await _authDataScopeService.GetScopeAsync(
+            user.UserId,
+            user.CompanyId,
+            "spec",
+            cancellationToken);
     }
 
     private async Task<Dictionary<int, AcceptanceSpec>> GetScopedSpecDictionaryAsync(

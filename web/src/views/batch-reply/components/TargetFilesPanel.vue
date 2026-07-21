@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { UploadInstance, UploadRequestOptions } from "element-plus";
 import type { TableData } from "@/api/document";
 import BatchTableConfigPanel from "@/views/smart-fill/components/BatchTableConfig.vue";
 import type {
@@ -12,6 +11,7 @@ import type {
   BatchReplyTargetState
 } from "../batch-reply-state";
 import AppUploadZone from "@/components/AppUploadZone.vue";
+import type { AppUploadRequest } from "@/components/useAppUploadTask";
 
 defineProps<{
   activeTargetFileId: string;
@@ -31,18 +31,13 @@ defineProps<{
   sourceFile: BatchReplySourceFileState | null;
   targetAccept: ".xlsx" | ".docx";
   targetFiles: BatchReplyTargetState[];
-  targetUploading: boolean;
   targetUploadKey: number;
+  uploadRequest: AppUploadRequest;
 }>();
-
-const targetUploadRef = defineModel<UploadInstance | undefined>(
-  "targetUploadRef"
-);
 
 defineEmits<{
   "update:activeTargetFileId": [value: string];
   configChange: [targetId: string, value: BatchReplyTableConfigItem[]];
-  fileChange: [options: UploadRequestOptions];
   preview: [targetId: string, item: BatchReplyTableConfigItem];
   remove: [targetId: string];
 }>();
@@ -69,18 +64,24 @@ defineEmits<{
 
     <div v-if="canUploadTargetFile">
       <AppUploadZone
-        v-show="targetFiles.length === 0"
-        :uploading="targetUploading"
+        :key="targetUploadKey"
+        :request="uploadRequest"
+        reset-after-success
         :accept="sourceFile ? targetAccept : '.docx,.xlsx'"
-        size="normal"
-        :drag-text="sourceFile ? '将目标文件拖到此处或' : '请先上传来源文件'"
+        :size="targetFiles.length > 0 ? 'small' : 'normal'"
+        :drag-text="
+          sourceFile
+            ? targetFiles.length > 0
+              ? '继续添加目标文件：拖到此处或'
+              : '将目标文件拖到此处或'
+            : '请先上传来源文件'
+        "
         :tip-text="
           sourceFile
-            ? `当前仅接受 ${targetAccept} 格式`
+            ? targetFiles.length > 0
+              ? `可继续添加，当前仅接受 ${targetAccept} 格式`
+              : `当前仅接受 ${targetAccept} 格式`
             : '来源文件确认后自动限定同格式上传'
-        "
-        @upload="
-          (options: UploadRequestOptions) => $emit('fileChange', options)
         "
       />
     </div>

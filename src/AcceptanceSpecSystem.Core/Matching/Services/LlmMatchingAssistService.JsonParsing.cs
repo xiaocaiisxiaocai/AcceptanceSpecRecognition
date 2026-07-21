@@ -32,10 +32,12 @@ public partial class LlmMatchingAssistService
             doc = JsonDocument.Parse(text);
             return true;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogWarning(ex, "LLM 输出 JSON 解析失败，输出摘要: {Summary}",
-                SensitiveLogFormatter.DescribePayload(raw));
+            _logger.LogWarning(
+                "LLM 输出 JSON 解析失败，输出摘要: {Summary}, traceId={TraceId}",
+                SensitiveLogFormatter.DescribePayload(raw),
+                Activity.Current?.TraceId.ToString());
             return false;
         }
     }

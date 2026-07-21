@@ -77,7 +77,6 @@ public sealed class PhaseTwoFinalBoundaryTests
         var servicesRoot = Path.Combine(GetRepositoryRoot(), "src", "AcceptanceSpecSystem.Api", "Services");
         var reviewedAllowlist = new HashSet<string>(StringComparer.Ordinal)
         {
-            "AiConfigHealthCheck.cs",
             "DatabaseHealthCheck.cs",
             "BatchReplyCleanupFileStore.cs",
             "DocumentFileAccessService.cs",

@@ -503,16 +503,32 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void BatchReplyPage_ShouldBatchTargetUploadsInsteadOfPostingEachFileSeparately()
+    public void BatchReplyPage_ShouldDelegateTargetUploadQueueAndPreventConcurrentRequests()
     {
-        var content = File.ReadAllText(Path.Combine(
+        var pageContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/batch-reply/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var composableContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/batch-reply/composables/useBatchReplyTargetUploads.ts"
+                .Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("pendingTargetUploadFiles",
-            "目标文件上传应显式维护待上传队列，避免 on-change 命中时逐文件并发请求");
-        content.Should().Contain("uploadBatchReplyTargets(sourceSessionId.value, pendingFiles)",
-            "目标文件应合并为一次上传请求，避免同一会话清单被逐文件并发写入");
+        pageContent.Should().Contain("useBatchReplyTargetUploads",
+            "页面应把目标文件上传状态交给专用组合式管理");
+        pageContent.Should().Contain("onUploadTargets: (sessionId, pendingFiles, options)",
+            "页面只应注入一次批量上传适配器，而不是在 on-change 中逐文件直调 API");
+        pageContent.Should().Contain("uploadBatchReplyTargets(sessionId, pendingFiles, options)",
+            "批量上传适配器必须把同一上传任务的文件列表一次交给 API");
+
+        composableContent.Should().MatchRegex(
+            @"pendingTargetUploadFiles\s*=\s*ref<File\[\]>\(\[\]\)",
+            "组合式必须显式持有当前上传任务队列");
+        composableContent.Should().Contain("if (targetUploading.value) throw",
+            "同一会话已有上传任务时必须拒绝并发请求");
+        composableContent.Should().Contain("pendingTargetUploadFiles.value = [rawFile]",
+            "当前单文件选择任务也必须先进入统一队列再提交");
+        composableContent.Should().Contain("const res = await (params.onUploadTargets",
+            "每个上传任务应通过单个受等待的批量 API 调用完成");
     }
 
     [Fact]

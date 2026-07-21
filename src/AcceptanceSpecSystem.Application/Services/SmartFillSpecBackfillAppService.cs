@@ -7,7 +7,8 @@ public interface ISmartFillSpecBackfillAppService
 {
     Task<MatchingOperationResult<SmartFillSpecBackfillResponse>> BackfillAsync(
         MatchingUserContext user,
-        SmartFillSpecBackfillRequest request);
+        SmartFillSpecBackfillRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -31,9 +32,14 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
     public async Task<MatchingOperationResult<SmartFillSpecBackfillResponse>> BackfillAsync(
         MatchingUserContext user,
-        SmartFillSpecBackfillRequest request)
+        SmartFillSpecBackfillRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var scope = await _authDataScopeService.GetScopeAsync(user.UserId, user.CompanyId, "spec");
+        var scope = await _authDataScopeService.GetScopeAsync(
+            user.UserId,
+            user.CompanyId,
+            "spec",
+            cancellationToken);
         if (scope == null)
         {
             throw Failure(401, "会话缺少用户上下文");
@@ -49,7 +55,11 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
             throw Failure(400, "回填验收规格必须选择客户");
         }
 
-        await EnsureBackfillScopeExistsAsync(request.CustomerId.Value, request.ProcessId, request.MachineModelId);
+        await EnsureBackfillScopeExistsAsync(
+            request.CustomerId.Value,
+            request.ProcessId,
+            request.MachineModelId,
+            cancellationToken);
 
         // 先完成所有校验，再做写入，避免部分成功造成主数据不一致。
         var normalizedItems = request.Items.Select(NormalizeItem).ToList();
@@ -62,7 +72,9 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
         var specLookup = specIds.Length == 0
             ? new Dictionary<int, AcceptanceSpec>()
-            : (await _unitOfWork.AcceptanceSpecs.FindAsync(spec => specIds.Contains(spec.Id)))
+            : (await _unitOfWork.AcceptanceSpecs.FindAsync(
+                    spec => specIds.Contains(spec.Id),
+                    cancellationToken))
                 .ToDictionary(spec => spec.Id);
 
         foreach (var item in normalizedItems)
@@ -88,7 +100,7 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
         var response = new SmartFillSpecBackfillResponse();
         var manualWordFile = normalizedItems.Any(item => !item.SpecId.HasValue)
-            ? await GetOrCreateManualWordFileAsync(scope)
+            ? await GetOrCreateManualWordFileAsync(scope, cancellationToken)
             : null;
 
         foreach (var item in normalizedItems)
@@ -106,7 +118,7 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                     spec.Remark = item.OverrideRemark;
                 }
                 _unitOfWork.AcceptanceSpecs.Update(spec);
-                await RemoveEmbeddingCachesAsync(spec.Id);
+                await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
                 response.UpdatedCount++;
                 continue;
             }
@@ -124,39 +136,48 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                 CreatedByUserId = scope.UserId,
                 WordFileId = manualWordFile!.Id,
                 ImportedAt = DateTime.UtcNow
-            });
+            }, cancellationToken);
             response.CreatedCount++;
         }
 
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         return new MatchingOperationResult<SmartFillSpecBackfillResponse>(response, "回填验收规格成功");
     }
 
-    private async Task EnsureBackfillScopeExistsAsync(int customerId, int? processId, int? machineModelId)
+    private async Task EnsureBackfillScopeExistsAsync(
+        int customerId,
+        int? processId,
+        int? machineModelId,
+        CancellationToken cancellationToken)
     {
-        if (await _unitOfWork.Customers.GetByIdAsync(customerId) == null)
+        if (await _unitOfWork.Customers.GetByIdAsync(customerId, cancellationToken) == null)
         {
             throw Failure(400, "所选客户不存在");
         }
 
-        if (processId.HasValue && await _unitOfWork.Processes.GetByIdAsync(processId.Value) == null)
+        if (processId.HasValue &&
+            await _unitOfWork.Processes.GetByIdAsync(processId.Value, cancellationToken) == null)
         {
             throw Failure(400, "所选制程不存在");
         }
 
-        if (machineModelId.HasValue && await _unitOfWork.MachineModels.GetByIdAsync(machineModelId.Value) == null)
+        if (machineModelId.HasValue &&
+            await _unitOfWork.MachineModels.GetByIdAsync(machineModelId.Value, cancellationToken) == null)
         {
             throw Failure(400, "所选机型不存在");
         }
     }
 
-    private async Task<WordFile> GetOrCreateManualWordFileAsync(DataScopeResult scope)
+    private async Task<WordFile> GetOrCreateManualWordFileAsync(
+        DataScopeResult scope,
+        CancellationToken cancellationToken)
     {
         var existingFile = await _unitOfWork.WordFiles.FirstOrDefaultAsync(wordFile =>
             wordFile.FileName == ManualFileName &&
             wordFile.CompanyId == scope.CompanyId &&
             wordFile.CreatedByUserId == scope.UserId &&
-            wordFile.OwnerOrgUnitId == scope.OrgUnitId);
+            wordFile.OwnerOrgUnitId == scope.OrgUnitId,
+            cancellationToken);
         if (existingFile != null)
         {
             return existingFile;
@@ -173,14 +194,16 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
             UploadedAt = DateTime.UtcNow
         };
 
-        await _unitOfWork.WordFiles.AddAsync(wordFile);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.WordFiles.AddAsync(wordFile, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         return wordFile;
     }
 
-    private async Task RemoveEmbeddingCachesAsync(int specId)
+    private async Task RemoveEmbeddingCachesAsync(
+        int specId,
+        CancellationToken cancellationToken)
     {
-        var caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdAsync(specId);
+        var caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdAsync(specId, cancellationToken);
         if (caches.Count > 0)
         {
             _unitOfWork.EmbeddingCaches.RemoveRange(caches);

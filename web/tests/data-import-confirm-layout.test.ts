@@ -256,11 +256,17 @@ test("识别失败应保留错误信息并提供重新识别入口", () => {
   );
 });
 
-test("登录失效由全局鉴权统一处理，页面初始化请求不应重复弹错", () => {
+test("登录失效与 AI 状态错误由统一入口处理，页面初始化请求不应重复弹错", () => {
   assert.match(dataImportTargetSource, /isGloballyHandledAuthError\(error\)/);
+  const aiLoaderSource = dataImportTargetSource.slice(
+    dataImportTargetSource.indexOf("const loadAiServicesOnce"),
+    dataImportTargetSource.indexOf("const aiSelectionRetry")
+  );
+  assert.match(aiLoaderSource, /loadRuntimeAiSelectionsSettled/);
+  assert.doesNotMatch(aiLoaderSource, /ElMessage\.(?:error|warning)/);
   assert.match(
-    dataImportTargetSource,
-    /catch \(error\)[\s\S]*!isGloballyHandledAuthError\(error\)[\s\S]*加载 AI 服务失败/
+    dataImportPageSource,
+    /const ensureImportRuntimeAiReady = async[\s\S]*if \(message\) ElMessage\.warning\(message\)/
   );
 });
 

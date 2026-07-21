@@ -66,6 +66,54 @@ done
 
 unset value normalized_value
 
+validate_image_reference() {
+  image_reference="$1"
+  image_tail=${image_reference##*/}
+
+  if [ -z "$image_reference" ] || [ -z "$image_tail" ]; then
+    return 1
+  fi
+
+  case "$image_reference" in
+    *@sha256:*)
+      image_digest=${image_reference##*@sha256:}
+      case "$image_digest" in
+        ""|*[!0-9A-Fa-f]*) return 1 ;;
+      esac
+      [ "${#image_digest}" -eq 64 ] || return 1
+      return 0
+      ;;
+  esac
+
+  case "$image_tail" in
+    *:*) image_tag=${image_tail##*:} ;;
+    *) return 1 ;;
+  esac
+
+  if [ -z "$image_tag" ] || is_placeholder "$image_tag"; then
+    return 1
+  fi
+
+  normalized_image_tag=$(printf "%s" "$image_tag" | tr '[:upper:]' '[:lower:]')
+  [ "$normalized_image_tag" != "latest" ]
+}
+
+for image_key in API_IMAGE WEB_IMAGE
+do
+  if ! image_reference=$(read_env_value "$image_key"); then
+    echo "ERROR: $image_key 必须且只能配置一次" >&2
+    validation_failed=1
+    continue
+  fi
+
+  if ! validate_image_reference "$image_reference"; then
+    echo "ERROR: $image_key 必须使用非 latest 的明确版本标签或 sha256 digest" >&2
+    validation_failed=1
+  fi
+done
+
+unset image_key image_reference image_tail image_tag image_digest normalized_image_tag normalized_value
+
 read_auth_value() {
   auth_key="$1"
   if ! auth_value=$(read_env_value "$auth_key"); then

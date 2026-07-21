@@ -83,6 +83,47 @@ public class EmbeddingDegradationTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    [Fact]
+    public async Task GenerateEmbeddingAsync_ShouldRefreshRuntimeReadinessFromRealCallResult()
+    {
+        var reporter = new RecordingRuntimeStatusReporter();
+        var success = new SemanticKernelEmbeddingService(
+            new StaticAiServiceSelector(),
+            new SuccessEmbeddingFactory(),
+            NullLogger<SemanticKernelEmbeddingService>.Instance,
+            reporter);
+
+        (await success.GenerateEmbeddingAsync("ping")).Should().Equal(0.1f, 0.2f);
+        reporter.Available.Should().Contain((1, AiServicePurpose.Embedding));
+
+        var failure = new SemanticKernelEmbeddingService(
+            new StaticAiServiceSelector(),
+            new FailingEmbeddingFactory(),
+            NullLogger<SemanticKernelEmbeddingService>.Instance,
+            reporter);
+        var action = () => failure.GenerateEmbeddingAsync("ping");
+        await action.Should().ThrowAsync<AiServiceUnavailableException>();
+        reporter.Unavailable.Should().Contain((1, AiServicePurpose.Embedding));
+    }
+
+    [Fact]
+    public async Task GenerateEmbeddingAsync_WhenRuntimeStatusIsUnknown_ShouldNotCallExternalService()
+    {
+        var factory = new CountingEmbeddingFactory();
+        var selector = new AiServiceSelector(
+            new StaticAiServiceConfigProvider(),
+            new NeverAvailableRuntimeStatus());
+        var service = new SemanticKernelEmbeddingService(
+            selector,
+            factory,
+            NullLogger<SemanticKernelEmbeddingService>.Instance);
+
+        var action = () => service.GenerateEmbeddingAsync("ping");
+
+        await action.Should().ThrowAsync<AiServiceUnavailableException>();
+        factory.CreateCount.Should().Be(0);
+    }
+
     /// <summary>
     /// 模拟 Embedding 不可用的服务
     /// </summary>
@@ -128,6 +169,44 @@ public class EmbeddingDegradationTests
         }
     }
 
+    private sealed class StaticAiServiceConfigProvider : IAiServiceConfigProvider
+    {
+        public Task<IReadOnlyList<AiServiceConfigModel>> GetByPurposeAsync(
+            AiServicePurpose purpose,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<AiServiceConfigModel> result =
+            [
+                new AiServiceConfigModel
+                {
+                    Id = 1,
+                    Name = "Embedding-Unknown",
+                    Purpose = AiServicePurpose.Embedding,
+                    EmbeddingModel = "embedding-unknown"
+                }
+            ];
+            return Task.FromResult(result);
+        }
+    }
+
+    private sealed class NeverAvailableRuntimeStatus : IAiServiceRuntimeAvailability
+    {
+        public bool IsAvailable(int serviceId, AiServicePurpose purpose) => false;
+    }
+
+    private sealed class CountingEmbeddingFactory : ISemanticKernelServiceFactory
+    {
+        public int CreateCount { get; private set; }
+
+        public IChatCompletionService CreateChatCompletionService(AiServiceConfigModel config) => throw new NotSupportedException();
+
+        public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfigModel config)
+        {
+            CreateCount++;
+            return new FixedEmbeddingGenerator([0.1f]);
+        }
+    }
+
     private sealed class CancelOnRequestEmbeddingFactory : ISemanticKernelServiceFactory
     {
         public Microsoft.SemanticKernel.ChatCompletion.IChatCompletionService CreateChatCompletionService(AiServiceConfigModel config)
@@ -139,6 +218,63 @@ public class EmbeddingDegradationTests
         {
             return new CancelOnRequestEmbeddingGenerator();
         }
+    }
+
+    private sealed class SuccessEmbeddingFactory : ISemanticKernelServiceFactory
+    {
+        public IChatCompletionService CreateChatCompletionService(AiServiceConfigModel config) => throw new NotSupportedException();
+
+        public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfigModel config) =>
+            new FixedEmbeddingGenerator([0.1f, 0.2f]);
+    }
+
+    private sealed class FailingEmbeddingFactory : ISemanticKernelServiceFactory
+    {
+        public IChatCompletionService CreateChatCompletionService(AiServiceConfigModel config) => throw new NotSupportedException();
+
+        public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(AiServiceConfigModel config) =>
+            new ThrowingEmbeddingGenerator();
+    }
+
+    private sealed class FixedEmbeddingGenerator(float[] vector) : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        public void Dispose()
+        {
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values,
+            EmbeddingGenerationOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new GeneratedEmbeddings<Embedding<float>>([new Embedding<float>(vector)]));
+    }
+
+    private sealed class ThrowingEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        public void Dispose()
+        {
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values,
+            EmbeddingGenerationOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            throw new HttpRequestException("unavailable");
+    }
+
+    private sealed class RecordingRuntimeStatusReporter : IAiServiceRuntimeStatusReporter
+    {
+        public List<(int ServiceId, AiServicePurpose Purpose)> Available { get; } = [];
+        public List<(int ServiceId, AiServicePurpose Purpose)> Unavailable { get; } = [];
+
+        public void ReportAvailable(int serviceId, AiServicePurpose purpose) => Available.Add((serviceId, purpose));
+
+        public void ReportUnavailable(int serviceId, AiServicePurpose purpose, string? message = null) =>
+            Unavailable.Add((serviceId, purpose));
     }
 
     private sealed class CancelOnRequestEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>

@@ -359,7 +359,8 @@ public static class AuthUserSeedAppService
             "api:customer:read",
             "api:process:read",
             "api:machine-model:read",
-            "api:spec:read"
+            "api:spec:read",
+            "api:ai-service:read"
         };
         var commonPermissionIds = commonPermissionCodes
             .Where(permissionMap.ContainsKey)

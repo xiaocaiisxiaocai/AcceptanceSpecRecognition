@@ -76,13 +76,13 @@ public sealed class AuthAccessService : IAuthAccessService
 
     public async Task<AuthAccessContext?> GetByUsernameAsync(string username, CancellationToken cancellationToken = default)
     {
-        var user = await _systemUserRepository.GetByUsernameWithAccessAsync(username);
+        var user = await _systemUserRepository.GetByUsernameWithAccessAsync(username, cancellationToken);
         return user == null ? null : BuildContext(user);
     }
 
     public async Task<AuthAccessContext?> GetByUserIdAsync(int userId, CancellationToken cancellationToken = default)
     {
-        var user = await _systemUserRepository.GetByIdWithAccessAsync(userId);
+        var user = await _systemUserRepository.GetByIdWithAccessAsync(userId, cancellationToken);
         return user == null ? null : BuildContext(user);
     }
 

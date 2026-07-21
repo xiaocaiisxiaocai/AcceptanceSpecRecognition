@@ -19,8 +19,11 @@ public interface IEmbeddingCacheRepository : IRepository<EmbeddingCache>
     /// 根据验收规格ID获取所有缓存
     /// </summary>
     /// <param name="specId">验收规格ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>向量缓存列表</returns>
-    Task<IReadOnlyList<EmbeddingCache>> GetBySpecIdAsync(int specId);
+    Task<IReadOnlyList<EmbeddingCache>> GetBySpecIdAsync(
+        int specId,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 删除指定模型的所有缓存

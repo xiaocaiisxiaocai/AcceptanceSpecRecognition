@@ -84,7 +84,8 @@ async function handleMouse(item) {
   if (!stopMouseEvent.value) active.value = item.path;
 }
 
-function handleTo() {
+function handleTo(item) {
+  active.value = item.path;
   emit("enter");
 }
 
@@ -147,9 +148,14 @@ defineExpose({ handleScroll });
         v-for="(item, index) in historyList"
         :key="item.path"
         :ref="'historyItemRef' + index"
+        role="button"
+        tabindex="0"
         class="history-item dark:bg-[#1d1d1d]"
         :style="itemStyle(item)"
-        @click="handleTo"
+        :aria-current="item.path === active ? 'true' : undefined"
+        @click="handleTo(item)"
+        @keydown.enter.stop.prevent="handleTo(item)"
+        @keydown.space.stop.prevent="handleTo(item)"
         @mouseenter="handleMouse(item)"
       >
         <SearchHistoryItem
@@ -168,9 +174,14 @@ defineExpose({ handleScroll });
           v-for="(item, index) in collectList"
           :key="item.path"
           :ref="'historyItemRef' + (index + historyList.length)"
+          role="button"
+          tabindex="0"
           class="history-item dark:bg-[#1d1d1d]"
           :style="itemStyle(item)"
-          @click="handleTo"
+          :aria-current="item.path === active ? 'true' : undefined"
+          @click="handleTo(item)"
+          @keydown.enter.stop.prevent="handleTo(item)"
+          @keydown.space.stop.prevent="handleTo(item)"
           @mouseenter="handleMouse(item)"
         >
           <SearchHistoryItem :item="item" @delete-item="handleDelete" />
@@ -187,13 +198,23 @@ defineExpose({ handleScroll });
   &-item {
     display: flex;
     align-items: center;
+    width: 100%;
     height: 56px;
     padding: 14px;
     margin: 8px auto 10px;
+    font-family: inherit;
+    color: inherit;
+    text-align: left;
     cursor: pointer;
+    background: transparent;
     border: 0.1px solid #ccc;
     border-radius: 4px;
     transition: font-size 0.16s;
+
+    &:focus-visible {
+      outline: 3px solid var(--el-color-primary-light-5);
+      outline-offset: 2px;
+    }
   }
 }
 </style>

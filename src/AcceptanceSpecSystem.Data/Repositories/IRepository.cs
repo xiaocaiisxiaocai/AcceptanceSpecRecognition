@@ -25,22 +25,25 @@ public interface IRepository<TEntity> where TEntity : class
     /// <summary>
     /// 获取所有实体
     /// </summary>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>实体列表</returns>
-    Task<IReadOnlyList<TEntity>> GetAllAsync();
+    Task<IReadOnlyList<TEntity>> GetAllAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 根据条件查询实体
     /// </summary>
     /// <param name="predicate">查询条件</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>符合条件的实体列表</returns>
-    Task<IReadOnlyList<TEntity>> FindAsync(Expression<Func<TEntity, bool>> predicate);
+    Task<IReadOnlyList<TEntity>> FindAsync(Expression<Func<TEntity, bool>> predicate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 根据条件查询第一个实体
     /// </summary>
     /// <param name="predicate">查询条件</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>实体或null</returns>
-    Task<TEntity?> FirstOrDefaultAsync(Expression<Func<TEntity, bool>> predicate);
+    Task<TEntity?> FirstOrDefaultAsync(Expression<Func<TEntity, bool>> predicate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 添加实体
@@ -79,13 +82,15 @@ public interface IRepository<TEntity> where TEntity : class
     /// 检查是否存在符合条件的实体
     /// </summary>
     /// <param name="predicate">查询条件</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>是否存在</returns>
-    Task<bool> AnyAsync(Expression<Func<TEntity, bool>> predicate);
+    Task<bool> AnyAsync(Expression<Func<TEntity, bool>> predicate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取符合条件的实体数量
     /// </summary>
     /// <param name="predicate">查询条件（可选）</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>数量</returns>
-    Task<int> CountAsync(Expression<Func<TEntity, bool>>? predicate = null);
+    Task<int> CountAsync(Expression<Func<TEntity, bool>>? predicate = null, CancellationToken cancellationToken = default);
 }

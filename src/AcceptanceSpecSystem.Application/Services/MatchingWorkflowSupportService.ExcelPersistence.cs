@@ -72,7 +72,7 @@ public sealed partial class MatchingWorkflowSupportService
         CancellationToken cancellationToken)
     {
         // 先独立提交恢复日志。只有恢复日志可见后，才允许替换物理文件。
-        await _unitOfWork.BeginTransactionAsync();
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
             await _matchingTaskSnapshotService.SaveAsync(
@@ -81,7 +81,7 @@ public sealed partial class MatchingWorkflowSupportService
                 saveImmediately: false,
                 cancellationToken: cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await _unitOfWork.CommitTransactionAsync();
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
         }
         catch
         {
@@ -114,7 +114,7 @@ public sealed partial class MatchingWorkflowSupportService
         CancellationToken cancellationToken)
     {
         var finalCommitConfirmed = false;
-        await _unitOfWork.BeginTransactionAsync();
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
             persistedTaskResult.FileMutationPending = false;
@@ -147,7 +147,7 @@ public sealed partial class MatchingWorkflowSupportService
                 wordFile,
                 renderedContent,
                 cancellationToken);
-            await _unitOfWork.CommitTransactionAsync();
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
             finalCommitConfirmed = true;
             await _matchingTaskSnapshotService.CompleteDeferredExpiredArtifactCleanupAsync(cancellationToken);
         }

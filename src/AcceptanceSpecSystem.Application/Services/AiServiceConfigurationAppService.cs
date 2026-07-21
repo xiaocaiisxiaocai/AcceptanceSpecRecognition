@@ -21,7 +21,15 @@ public interface IAiServiceConfigurationAppService
 public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAppService
 {
     private readonly IUnitOfWork _unitOfWork;
-    public AiServiceConfigurationAppService(IUnitOfWork unitOfWork) => _unitOfWork = unitOfWork;
+    private readonly AiServiceReadinessRegistry _readinessRegistry;
+
+    public AiServiceConfigurationAppService(
+        IUnitOfWork unitOfWork,
+        AiServiceReadinessRegistry readinessRegistry)
+    {
+        _unitOfWork = unitOfWork;
+        _readinessRegistry = readinessRegistry;
+    }
 
     public async Task<PagedResult<AiServiceConfigDto>> GetPagedAsync(int page, int pageSize, string? keyword, AiServiceType? serviceType, CancellationToken cancellationToken = default)
     {
@@ -75,6 +83,7 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
         };
         await _unitOfWork.AiServiceConfigs.AddAsync(entity, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        _readinessRegistry.Invalidate(entity.Id);
         return ToDto(entity);
     }
 
@@ -95,6 +104,7 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
         entity.UpdatedAt = DateTime.UtcNow;
         _unitOfWork.AiServiceConfigs.Update(entity);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        _readinessRegistry.Invalidate(entity.Id);
         return ToDto(entity);
     }
 
@@ -104,6 +114,7 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
         entity.IsDisabled = isDisabled; entity.UpdatedAt = DateTime.UtcNow;
         _unitOfWork.AiServiceConfigs.Update(entity);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        _readinessRegistry.Invalidate(entity.Id);
         return ToDto(entity);
     }
 
@@ -112,6 +123,7 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken) ?? throw Error("配置不存在");
         _unitOfWork.AiServiceConfigs.Remove(entity);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        _readinessRegistry.Invalidate(entity.Id);
     }
 
     private static (string Name, string? Endpoint) Validate(string? name, AiServiceType type, AiServicePurpose purpose, string? endpoint, string? llm, string? embedding)

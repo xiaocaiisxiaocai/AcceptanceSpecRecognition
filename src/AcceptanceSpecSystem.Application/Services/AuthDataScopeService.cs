@@ -31,7 +31,11 @@ public interface IAuthDataScopeService
     /// <summary>
     /// 解析用户在指定资源下的数据范围；无角色或无授权范围时返回空范围，避免默认放大权限。
     /// </summary>
-    Task<DataScopeResult?> GetScopeAsync(int userId, int companyId, string resource);
+    Task<DataScopeResult?> GetScopeAsync(
+        int userId,
+        int companyId,
+        string resource,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -53,15 +57,23 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
     /// <summary>
     /// 解析用户在指定资源下的数据范围；无角色或无授权范围时返回空范围，避免默认放大权限。
     /// </summary>
-    public async Task<DataScopeResult?> GetScopeAsync(int userId, int companyId, string resource)
+    public async Task<DataScopeResult?> GetScopeAsync(
+        int userId,
+        int companyId,
+        string resource,
+        CancellationToken cancellationToken = default)
     {
         var normalizedResource = string.IsNullOrWhiteSpace(resource)
             ? "spec"
             : resource.Trim().ToLowerInvariant();
-        return await ResolveScopeCoreAsync(userId, companyId, normalizedResource);
+        return await ResolveScopeCoreAsync(userId, companyId, normalizedResource, cancellationToken);
     }
 
-    private async Task<DataScopeResult?> ResolveScopeCoreAsync(int userId, int companyId, string normalizedResource)
+    private async Task<DataScopeResult?> ResolveScopeCoreAsync(
+        int userId,
+        int companyId,
+        string normalizedResource,
+        CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
 
@@ -73,7 +85,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
                 u.Id,
                 u.CompanyId
             })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
         if (user == null)
             return null;
 
@@ -86,7 +98,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
                 x.OrgUnit.IsActive &&
                 (!x.StartAt.HasValue || x.StartAt <= now) &&
                 (!x.EndAt.HasValue || x.EndAt >= now))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         var activeOrgLink = AuthUserOrgUnitSingleOrgPolicy.SelectOrgUnitToKeep(activeOrgLinks);
         var orgUnitId = activeOrgLink?.OrgUnitId;
@@ -104,7 +116,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
                 (!x.EndAt.HasValue || x.EndAt >= now))
             .Select(x => x.RoleId)
             .Distinct()
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         if (activeRoleIds.Count == 0)
         {
@@ -125,7 +137,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
             .Where(s =>
                 activeRoleIds.Contains(s.RoleId) &&
                 (s.Resource == normalizedResource || s.Resource == "*"))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         if (scopes.Count == 0)
         {
@@ -156,7 +168,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
         var includeSelf = scopes.Any(s => s.ScopeType == DataScopeType.Self);
         var collectedOrgUnitIds = new HashSet<int>();
 
-        var allOrgUnits = await GetCompanyOrgUnitsAsync(companyId);
+        var allOrgUnits = await GetCompanyOrgUnitsAsync(companyId, cancellationToken);
 
         foreach (var scope in scopes)
         {
@@ -232,7 +244,9 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
         };
     }
 
-    private async Task<IReadOnlyList<CachedOrgUnitNode>> GetCompanyOrgUnitsAsync(int companyId)
+    private async Task<IReadOnlyList<CachedOrgUnitNode>> GetCompanyOrgUnitsAsync(
+        int companyId,
+        CancellationToken cancellationToken)
     {
         // 组织树缓存按公司维度缓存，并用数量与最后更新时间组成版本戳，
         // 避免每次数据范围计算都扫描组织表。
@@ -243,7 +257,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
             .Select(group => new OrgUnitTreeCacheStamp(
                 group.Count(),
                 group.Max(org => org.UpdatedAt ?? org.CreatedAt)))
-            .FirstOrDefaultAsync()
+            .FirstOrDefaultAsync(cancellationToken)
             ?? new OrgUnitTreeCacheStamp(0, DateTime.MinValue);
 
         var cacheKey = $"auth-org-tree:{companyId}:{stamp.Count}:{stamp.LastChangedAtUtc.Ticks}";
@@ -257,7 +271,7 @@ public sealed class AuthDataScopeService : IAuthDataScopeService
             .AsNoTracking()
             .Where(org => org.CompanyId == companyId)
             .Select(org => new CachedOrgUnitNode(org.Id, org.Path))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         _memoryCache.Set(cacheKey, orgUnits, OrgTreeCacheDuration);
         return orgUnits;

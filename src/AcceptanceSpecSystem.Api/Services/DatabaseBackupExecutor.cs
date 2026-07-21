@@ -13,13 +13,16 @@ public sealed class MySqlDumpDatabaseBackupExecutor : IDatabaseBackupExecutor
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<MySqlDumpDatabaseBackupExecutor> _logger;
+    private readonly IMySqlDumpProcessRunner _processRunner;
 
     public MySqlDumpDatabaseBackupExecutor(
         IConfiguration configuration,
-        ILogger<MySqlDumpDatabaseBackupExecutor> logger)
+        ILogger<MySqlDumpDatabaseBackupExecutor> logger,
+        IMySqlDumpProcessRunner processRunner)
     {
         _configuration = configuration;
         _logger = logger;
+        _processRunner = processRunner;
     }
 
     public async Task<DatabaseBackupExecutionResult> BackupAsync(
@@ -35,8 +38,9 @@ public sealed class MySqlDumpDatabaseBackupExecutor : IDatabaseBackupExecutor
         var connection = ParseConnection(connectionString);
         Directory.CreateDirectory(options.BackupDirectory);
 
-        var fileName = $"{SanitizeFileName(connection.Database)}-{DateTime.UtcNow:yyyyMMddHHmmss}.sql.gz";
+        var fileName = $"{SanitizeFileName(connection.Database)}-{DateTime.UtcNow:yyyyMMddHHmmssfff}.sql.gz";
         var filePath = Path.Combine(options.BackupDirectory, fileName);
+        var partialPath = Path.Combine(options.BackupDirectory, $".{fileName}.{Guid.NewGuid():N}.partial");
 
         var startInfo = new ProcessStartInfo
         {
@@ -61,31 +65,42 @@ public sealed class MySqlDumpDatabaseBackupExecutor : IDatabaseBackupExecutor
             startInfo.Environment["MYSQL_PWD"] = connection.Password;
         }
 
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("无法启动 mysqldump，请确认容器内已安装 MySQL 客户端。");
-
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await using (var fileStream = File.Create(filePath))
-        await using (var gzipStream = new GZipStream(fileStream, CompressionLevel.SmallestSize))
+        try
         {
-            await process.StandardOutput.BaseStream.CopyToAsync(gzipStream, cancellationToken);
-        }
+            MySqlDumpProcessResult processResult;
+            await using (var fileStream = new FileStream(
+                             partialPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             81920,
+                             FileOptions.Asynchronous | FileOptions.SequentialScan))
+            await using (var gzipStream = new GZipStream(fileStream, CompressionLevel.SmallestSize))
+            {
+                processResult = await _processRunner.RunAsync(startInfo, gzipStream, cancellationToken);
+            }
 
-        await process.WaitForExitAsync(cancellationToken);
-        var stderr = await stderrTask;
-        if (process.ExitCode != 0)
+            if (processResult.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(processResult.StandardError)
+                        ? $"mysqldump 退出码 {processResult.ExitCode}"
+                        : processResult.StandardError.Trim());
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(partialPath, filePath);
+
+            CleanupOldBackups(options.BackupDirectory, $"{SanitizeFileName(connection.Database)}-*.sql.gz", options.RetentionCount);
+            var fileInfo = new FileInfo(filePath);
+            _logger.LogInformation("数据库备份完成：{FileName}, Size={SizeBytes}", fileInfo.Name, fileInfo.Length);
+            return new DatabaseBackupExecutionResult(fileInfo.Name, fileInfo.Length);
+        }
+        catch
         {
-            TryDeleteFile(filePath);
-            throw new InvalidOperationException(
-                string.IsNullOrWhiteSpace(stderr)
-                    ? $"mysqldump 退出码 {process.ExitCode}"
-                    : stderr.Trim());
+            TryDeleteFile(partialPath, _logger);
+            throw;
         }
-
-        CleanupOldBackups(options.BackupDirectory, $"{SanitizeFileName(connection.Database)}-*.sql.gz", options.RetentionCount);
-        var fileInfo = new FileInfo(filePath);
-        _logger.LogInformation("数据库备份完成：{FileName}, Size={SizeBytes}", fileInfo.Name, fileInfo.Length);
-        return new DatabaseBackupExecutionResult(fileInfo.Name, fileInfo.Length);
     }
 
     private static MySqlConnectionInfo ParseConnection(string connectionString)
@@ -158,10 +173,86 @@ public sealed class MySqlDumpDatabaseBackupExecutor : IDatabaseBackupExecutor
         }
     }
 
+    private static void TryDeleteFile(string filePath, ILogger logger)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "清理未完成数据库备份失败: {FileName}", Path.GetFileName(filePath));
+        }
+    }
+
     private sealed record MySqlConnectionInfo(
         string Host,
         int Port,
         string Database,
         string User,
         string Password);
+}
+
+public sealed record MySqlDumpProcessResult(int ExitCode, string StandardError);
+
+public interface IMySqlDumpProcessRunner
+{
+    Task<MySqlDumpProcessResult> RunAsync(
+        ProcessStartInfo startInfo,
+        Stream standardOutputDestination,
+        CancellationToken cancellationToken);
+}
+
+public sealed class MySqlDumpProcessRunner : IMySqlDumpProcessRunner
+{
+    public async Task<MySqlDumpProcessResult> RunAsync(
+        ProcessStartInfo startInfo,
+        Stream standardOutputDestination,
+        CancellationToken cancellationToken)
+    {
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("无法启动 mysqldump，请确认容器内已安装 MySQL 客户端。");
+
+        using var cancellationRegistration = cancellationToken.Register(() => TryKillProcessTree(process));
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.StandardOutput.BaseStream.CopyToAsync(standardOutputDestination, cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            return new MySqlDumpProcessResult(process.ExitCode, await stderrTask);
+        }
+        catch
+        {
+            TryKillProcessTree(process);
+            await WaitForExitAfterFailureAsync(process);
+            throw;
+        }
+    }
+
+    private static void TryKillProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (NotSupportedException)
+        {
+        }
+    }
+
+    private static async Task WaitForExitAfterFailureAsync(Process process)
+    {
+        try
+        {
+            await process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (TimeoutException)
+        {
+        }
+    }
 }

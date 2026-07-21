@@ -76,6 +76,6 @@ public class MatchingExecutionController : MatchingApiControllerBase
         CancellationToken cancellationToken = default)
     {
         return HandleAsync(() => _smartFillSpecBackfillAppService.BackfillAsync(
-            GetMatchingUserContext(), request));
+            GetMatchingUserContext(), request, cancellationToken));
     }
 }

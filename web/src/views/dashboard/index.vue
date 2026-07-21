@@ -14,6 +14,7 @@ import {
 } from "@/api/execution-history";
 import { formatExecutionHistoryDateTime } from "@/views/other/execution-history/executionHistory.formatters";
 import DashboardSparkline from "./components/DashboardSparkline.vue";
+import { createDashboardRequestGate } from "./dashboard-request-gate";
 
 defineOptions({
   name: "Dashboard"
@@ -32,7 +33,8 @@ const emptySummary: DashboardSummary = {
   smartFillMatchedRows: 0,
   smartFillAdoptedRows: 0,
   matchingRate: 0,
-  adoptionRate: 0
+  adoptionRate: 0,
+  dailyTrend: []
 };
 
 const loading = ref(false);
@@ -41,7 +43,6 @@ const periodPreset = ref<DashboardPeriodPreset>("last7");
 const customRange = ref<[Date, Date] | null>(null);
 const summary = ref<DashboardSummary | null>(null);
 const recentTasks = ref<ExecutionHistoryListItem[]>([]);
-const trendLoading = ref(false);
 const trendLabels = ref<string[]>([]);
 const importTrend = ref<number[]>([]);
 const taskTrend = ref<number[]>([]);
@@ -51,6 +52,19 @@ const datePickerDefaultTime: [Date, Date] = [
 ];
 
 const currentSummary = computed(() => summary.value ?? emptySummary);
+const currentPeriodLabel = computed(() => {
+  if (currentSummary.value.periodPreset === "last30") return "近 30 天";
+  if (currentSummary.value.periodPreset === "custom") return "自定义周期";
+  return "近 7 天";
+});
+const isCanceledRequest = (error: unknown) => {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === "AbortError" ||
+    error.name === "CanceledError" ||
+    (error as Error & { code?: string }).code === "ERR_CANCELED"
+  );
+};
 const periodOptions = [
   { label: "最近7天", value: "last7" },
   { label: "最近30天", value: "last30" },
@@ -66,6 +80,8 @@ const idleScheduler = globalThis as typeof globalThis & {
 };
 let idleCallbackId: number | undefined;
 let loadTimerId: ReturnType<typeof setTimeout> | undefined;
+const summaryRequestGate = createDashboardRequestGate();
+const recentRequestGate = createDashboardRequestGate();
 
 const buildRequest = (): DashboardSummaryRequest => {
   if (periodPreset.value !== "custom") {
@@ -85,80 +101,57 @@ const buildRequest = (): DashboardSummaryRequest => {
 };
 
 const load = async () => {
+  const ticket = summaryRequestGate.begin();
   loading.value = true;
   try {
-    const response = await getDashboardSummary(buildRequest());
-    if (response.code === 0) {
+    const response = await getDashboardSummary(buildRequest(), ticket.signal);
+    if (ticket.isCurrent() && response.code === 0) {
       summary.value = response.data;
       periodPreset.value = response.data.periodPreset;
+      trendLabels.value = response.data.dailyTrend.map(item => item.date);
+      importTrend.value = response.data.dailyTrend.map(
+        item => item.importedSpecCount
+      );
+      taskTrend.value = response.data.dailyTrend.map(
+        item => item.smartFillTaskCount
+      );
+    } else if (ticket.isCurrent()) {
+      ElMessage.error(response.message || "加载首页统计数据失败");
     }
-  } catch {
-    ElMessage.error("加载首页统计数据失败");
+  } catch (error) {
+    if (!isCanceledRequest(error)) {
+      ElMessage.error("加载首页统计数据失败");
+    }
   } finally {
-    loading.value = false;
-  }
-};
-
-const buildDailyTrendRequests = () => {
-  const today = new Date();
-
-  return Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(today);
-    day.setDate(today.getDate() - (6 - index));
-    const from = new Date(day);
-    const to = new Date(day);
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
-
-    return {
-      label: `${day.getMonth() + 1}/${day.getDate()}`,
-      request: getDashboardSummary({
-        range: "custom",
-        from: from.toISOString(),
-        to: to.toISOString()
-      })
-    };
-  });
-};
-
-const loadTrends = async () => {
-  trendLoading.value = true;
-  const dailyRequests = buildDailyTrendRequests();
-
-  try {
-    const responses = await Promise.all(
-      dailyRequests.map(item => item.request)
-    );
-    trendLabels.value = dailyRequests.map(item => item.label);
-    importTrend.value = responses.map(item =>
-      item.code === 0 ? item.data.importedSpecCount : 0
-    );
-    taskTrend.value = responses.map(item =>
-      item.code === 0 ? item.data.smartFillTaskCount : 0
-    );
-  } catch {
-    trendLabels.value = dailyRequests.map(item => item.label);
-    importTrend.value = Array(7).fill(0);
-    taskTrend.value = Array(7).fill(0);
-  } finally {
-    trendLoading.value = false;
+    if (ticket.isCurrent()) {
+      loading.value = false;
+    }
   }
 };
 
 const loadRecentTasks = async () => {
+  const ticket = recentRequestGate.begin();
   recentLoading.value = true;
   try {
-    const response = await getExecutionHistoryList({ page: 1, pageSize: 5 });
+    const response = await getExecutionHistoryList(
+      { page: 1, pageSize: 5 },
+      ticket.signal
+    );
+    if (!ticket.isCurrent()) return;
     if (response.code === 0) {
       recentTasks.value = response.data.items;
       return;
     }
 
     ElMessage.error(response.message || "加载最近执行记录失败");
-  } catch {
-    ElMessage.error("加载最近执行记录失败");
+  } catch (error) {
+    if (!isCanceledRequest(error)) {
+      ElMessage.error("加载最近执行记录失败");
+    }
   } finally {
-    recentLoading.value = false;
+    if (ticket.isCurrent()) {
+      recentLoading.value = false;
+    }
   }
 };
 
@@ -168,7 +161,6 @@ const scheduleLoad = () => {
       () => {
         void load();
         void loadRecentTasks();
-        void loadTrends();
       },
       { timeout: 800 }
     );
@@ -178,7 +170,6 @@ const scheduleLoad = () => {
   loadTimerId = globalThis.setTimeout(() => {
     void load();
     void loadRecentTasks();
-    void loadTrends();
   }, 120);
 };
 
@@ -232,7 +223,6 @@ const formatDateTime = (value: string | undefined) => {
 const refreshDashboard = () => {
   void load();
   void loadRecentTasks();
-  void loadTrends();
 };
 
 onMounted(() => {
@@ -250,6 +240,9 @@ onBeforeUnmount(() => {
   if (loadTimerId !== undefined) {
     globalThis.clearTimeout(loadTimerId);
   }
+
+  summaryRequestGate.cancel();
+  recentRequestGate.cancel();
 });
 </script>
 
@@ -279,11 +272,7 @@ onBeforeUnmount(() => {
           class="period-picker"
           @change="handleCustomRangeChange"
         />
-        <el-button
-          :icon="Refresh"
-          :loading="loading || trendLoading"
-          @click="refreshDashboard"
-        >
+        <el-button :icon="Refresh" :loading="loading" @click="refreshDashboard">
           刷新
         </el-button>
       </div>
@@ -339,12 +328,12 @@ onBeforeUnmount(() => {
                   {{ formatNumber(currentSummary.importedSpecCount) }}
                 </div>
               </div>
-              <span class="stat-period">近 7 天</span>
+              <span class="stat-period">{{ currentPeriodLabel }}</span>
             </div>
             <DashboardSparkline
               :values="importTrend"
               :labels="trendLabels"
-              :loading="trendLoading"
+              :loading="loading"
               color-token="--app-success"
             />
             <div class="stat-note">周期内新增或更新规格</div>
@@ -361,12 +350,12 @@ onBeforeUnmount(() => {
                   {{ formatNumber(currentSummary.smartFillTaskCount) }}
                 </div>
               </div>
-              <span class="stat-period">近 7 天</span>
+              <span class="stat-period">{{ currentPeriodLabel }}</span>
             </div>
             <DashboardSparkline
               :values="taskTrend"
               :labels="trendLabels"
-              :loading="trendLoading"
+              :loading="loading"
             />
             <div class="stat-note">
               规格总量 {{ formatNumber(currentSummary.specTotal) }}

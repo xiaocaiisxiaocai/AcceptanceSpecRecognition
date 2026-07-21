@@ -45,7 +45,7 @@ public sealed class AuthLoginAppService : IAuthLoginAppService
         string password,
         CancellationToken cancellationToken = default)
     {
-        var user = await _users.GetByUsernameAsync(username);
+        var user = await _users.GetByUsernameAsync(username, cancellationToken);
         if (user == null || !user.IsActive || !_passwords.VerifyPassword(user.PasswordHash, password))
             return new(AuthLoginStatus.InvalidCredentials);
 

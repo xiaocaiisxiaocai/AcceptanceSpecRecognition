@@ -101,6 +101,8 @@ public sealed partial class BatchReplyAppService
             throw Failure(400, "请至少上传一个目标文件");
         }
 
+        ValidateUploadBudget(targetFiles);
+
         var session = GetSourceSessionForMatching(owner, sessionId);
         var normalizedConfigs = NormalizeTableConfigs(tableConfigs);
         var sourceFile = CreateTemporaryWordFile(session.SourceFileName, session.SourceFileType, session.SourceFileRelativePath);
@@ -112,36 +114,50 @@ public sealed partial class BatchReplyAppService
             cancellationToken);
 
         var previewFiles = new List<BatchReplyTargetFile>();
-        foreach (var targetFile in targetFiles)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            previewFiles.Add(await BuildPreviewTargetAsync(targetFile, session.SourceFileType, sourceTables, cancellationToken));
-        }
-
-        // 预检只判断“当前配置能否应用”，真正写回仍在执行阶段完成。
-        await _batchReplySessionService.ReplacePreviewAsync(
-            owner.UserId,
-            owner.CompanyId,
-            session.SessionId,
-            sourceTables,
-            previewFiles,
-            cancellationToken);
-
-        return Result(new BatchReplyPreviewResponse
-        {
-            SessionId = session.SessionId,
-            SourceFileName = session.SourceFileName,
-            SourceFileType = session.SourceFileType,
-            Files = previewFiles.Select(file => new BatchReplyPreviewFileResult
+            foreach (var targetFile in targetFiles)
             {
-                TargetId = file.TargetId,
-                FileName = file.FileName,
-                CanApply = file.CanApply,
-                Errors = file.Errors.ToList()
-            }).ToList()
-        }, previewFiles.Any(file => !file.CanApply)
-            ? $"预检完成：可应用{previewFiles.Count(file => file.CanApply)}份，不可应用{previewFiles.Count(file => !file.CanApply)}份"
-            : $"预检完成：可应用{previewFiles.Count}份");
+                cancellationToken.ThrowIfCancellationRequested();
+                previewFiles.Add(await BuildPreviewTargetAsync(targetFile, session.SourceFileType, sourceTables, cancellationToken));
+            }
+
+            // 预检只判断“当前配置能否应用”，真正写回仍在执行阶段完成。
+            await _batchReplySessionService.ReplacePreviewAsync(
+                owner.UserId,
+                owner.CompanyId,
+                session.SessionId,
+                sourceTables,
+                previewFiles,
+                cancellationToken);
+
+            return Result(new BatchReplyPreviewResponse
+            {
+                SessionId = session.SessionId,
+                SourceFileName = session.SourceFileName,
+                SourceFileType = session.SourceFileType,
+                Files = previewFiles.Select(file => new BatchReplyPreviewFileResult
+                {
+                    TargetId = file.TargetId,
+                    FileName = file.FileName,
+                    CanApply = file.CanApply,
+                    Errors = file.Errors.ToList()
+                }).ToList()
+            }, previewFiles.Any(file => !file.CanApply)
+                ? $"预检完成：可应用{previewFiles.Count(file => file.CanApply)}份，不可应用{previewFiles.Count(file => !file.CanApply)}份"
+                : $"预检完成：可应用{previewFiles.Count}份");
+        }
+        catch
+        {
+            // 补偿清理由独立令牌完成，避免客户端取消后遗留未提交的临时文件。
+            await _batchReplySessionService.DeleteTemporaryFilesAsync(
+                previewFiles
+                    .Select(file => file.RelativePath)
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Cast<string>(),
+                CancellationToken.None);
+            throw;
+        }
     }
 
 
@@ -210,7 +226,7 @@ public sealed partial class BatchReplyAppService
             FileName = targetFile.FileName
         };
 
-        if (targetFile.Content.Length == 0)
+        if (targetFile.Length <= 0)
         {
             result.Errors.Add("目标文件为空");
             return result;
@@ -219,23 +235,40 @@ public sealed partial class BatchReplyAppService
         var fileType = targetFile.FileType;
         result.FileType = fileType;
 
-        var relativePath = await _batchReplySessionService.SaveTargetFileAsync(
-            targetFile.FileName,
-            fileType,
-            targetFile.Content,
-            cancellationToken);
-        result.RelativePath = relativePath;
-
         if (fileType != expectedFileType)
         {
             result.Errors.Add("文件类型不一致");
             return result;
         }
 
-        var targetWordFile = CreateTemporaryWordFile(targetFile.FileName, fileType, relativePath!);
-        result.Errors = (await ValidateTargetFileAsync(targetWordFile, sourceTables, cancellationToken)).Errors;
-        result.CanApply = result.Errors.Count == 0;
-        return result;
+        string? relativePath = null;
+        try
+        {
+            await using var content = targetFile.OpenReadStream();
+            relativePath = await _batchReplySessionService.SaveTargetFileAsync(
+                targetFile.FileName,
+                fileType,
+                content,
+                cancellationToken);
+            result.RelativePath = relativePath;
+
+            var targetWordFile = CreateTemporaryWordFile(targetFile.FileName, fileType, relativePath);
+            result.Errors = (await ValidateTargetFileAsync(targetWordFile, sourceTables, cancellationToken)).Errors;
+            result.CanApply = result.Errors.Count == 0;
+            return result;
+        }
+        catch
+        {
+            if (!string.IsNullOrWhiteSpace(relativePath))
+            {
+                // 单文件保存后解析失败时也必须完成补偿，且不受原请求取消影响。
+                await _batchReplySessionService.DeleteTemporaryFilesAsync(
+                    [relativePath],
+                    CancellationToken.None);
+            }
+
+            throw;
+        }
     }
 
     private async Task<BatchReplyTargetValidationResult> ValidateTargetFileAsync(

@@ -13,7 +13,9 @@ public interface IMatchingPreviewAppService
         BatchPreviewRequest request,
         CancellationToken cancellationToken = default);
 
-    MatchingOperationResult<BatchPreviewProgressResponse> GetBatchPreviewProgress(string requestId);
+    MatchingOperationResult<BatchPreviewProgressResponse> GetBatchPreviewProgress(
+        MatchingUserContext user,
+        string requestId);
 }
 
 /// <summary>
@@ -78,7 +80,10 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
     {
         var sw = Stopwatch.StartNew();
         var previewRequestId = request.PreviewRequestId?.Trim();
-        _batchPreviewProgressTracker.Start(previewRequestId, request.Tables?.Count ?? 0);
+        if (!IsValidPreviewRequestId(previewRequestId))
+            throw Failure(400, "预览请求标识格式不正确");
+        if (!_batchPreviewProgressTracker.TryStart(user, previewRequestId, request.Tables?.Count ?? 0))
+            throw Failure(409, "相同预览请求正在运行，请勿重复提交");
 
         try
         {
@@ -101,13 +106,14 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
             }
 
             _batchPreviewProgressTracker.Update(
+                user,
                 previewRequestId,
                 stage: "scope",
                 stageText: "正在加载匹配范围与候选数据",
                 detailText: "正在解析当前用户数据范围与匹配配置",
                 progressPercent: 6);
 
-            var scope = await ResolveSpecScopeAsync(user);
+            var scope = await ResolveSpecScopeAsync(user, cancellationToken);
             if (scope == null)
             {
                 throw Failure(401, "会话缺少用户上下文");
@@ -128,6 +134,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
             var highConfidenceThreshold = NormalizeHighConfidenceThreshold(config.HighConfidenceThreshold);
 
             _batchPreviewProgressTracker.Update(
+                user,
                 previewRequestId,
                 stage: "candidatePreparation",
                 stageText: "候选数据已就绪",
@@ -159,6 +166,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                 }
 
                 _batchPreviewProgressTracker.Update(
+                    user,
                     previewRequestId,
                     stage: "extractingTables",
                     stageText: "正在提取表格源数据",
@@ -221,6 +229,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                 extractedRowCount += extracted.Count;
 
                 _batchPreviewProgressTracker.Update(
+                    user,
                     previewRequestId,
                     stage: "extractingTables",
                     stageText: "表格源数据提取完成",
@@ -240,6 +249,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
             if (allSources.Count > 0)
             {
                 _batchPreviewProgressTracker.Update(
+                    user,
                     previewRequestId,
                     stage: "embedding",
                     stageText: "正在生成向量并启动匹配",
@@ -266,7 +276,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                             allSources,
                             processedCandidates,
                             config,
-                            CreateBatchMatchProgressReporter(previewRequestId),
+                            CreateBatchMatchProgressReporter(user, previewRequestId),
                             cancellationToken);
                     }
                 }
@@ -281,6 +291,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
             }
 
             _batchPreviewProgressTracker.Update(
+                user,
                 previewRequestId,
                 stage: "assembling",
                 stageText: "正在整理预览结果",
@@ -390,6 +401,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
             }
 
             _batchPreviewProgressTracker.Complete(
+                user,
                 previewRequestId,
                 completedItems: allSources.Count,
                 totalItems: allSources.Count,
@@ -408,21 +420,26 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
 
             return Result(response);
         }
-        catch (MatchingApiException ex)
+        catch (MatchingApiException)
         {
-            _batchPreviewProgressTracker.Fail(previewRequestId, ex.Message);
+            _batchPreviewProgressTracker.Fail(user, previewRequestId, "匹配预览失败，请检查输入后重试");
             throw;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _batchPreviewProgressTracker.Fail(previewRequestId, ex.Message);
+            _batchPreviewProgressTracker.Fail(user, previewRequestId, "匹配预览失败，请稍后重试");
             throw;
         }
     }
 
-    public MatchingOperationResult<BatchPreviewProgressResponse> GetBatchPreviewProgress(string requestId)
+    public MatchingOperationResult<BatchPreviewProgressResponse> GetBatchPreviewProgress(
+        MatchingUserContext user,
+        string requestId)
     {
-        var progress = _batchPreviewProgressTracker.GetSnapshot(requestId);
+        if (!IsValidPreviewRequestId(requestId))
+            throw NotFoundFailure("未找到对应的预览进度，请重新发起匹配预览");
+
+        var progress = _batchPreviewProgressTracker.GetSnapshot(user, requestId);
         if (progress == null)
         {
             throw NotFoundFailure("未找到对应的预览进度，请重新发起匹配预览");
@@ -718,12 +735,20 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
         return "low";
     }
 
-    private async Task<DataScopeResult?> ResolveSpecScopeAsync(MatchingUserContext user)
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync(
+        MatchingUserContext user,
+        CancellationToken cancellationToken)
     {
-        return await _authDataScopeService.GetScopeAsync(user.UserId, user.CompanyId, "spec");
+        return await _authDataScopeService.GetScopeAsync(
+            user.UserId,
+            user.CompanyId,
+            "spec",
+            cancellationToken);
     }
 
-    private IProgress<BatchMatchProgress>? CreateBatchMatchProgressReporter(string? previewRequestId)
+    private IProgress<BatchMatchProgress>? CreateBatchMatchProgressReporter(
+        MatchingUserContext user,
+        string? previewRequestId)
     {
         if (string.IsNullOrWhiteSpace(previewRequestId))
         {
@@ -742,6 +767,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                 : 40d + (55d * progress.CompletedItems / progress.TotalItems);
 
             _batchPreviewProgressTracker.Update(
+                user,
                 previewRequestId,
                 stage: progress.Stage,
                 stageText: string.IsNullOrWhiteSpace(progress.StageText)
@@ -754,5 +780,14 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                 totalItems: progress.TotalItems,
                 progressPercent: percent);
         });
+    }
+
+    private static bool IsValidPreviewRequestId(string? requestId)
+    {
+        if (string.IsNullOrWhiteSpace(requestId))
+            return true;
+
+        return requestId.Length <= 80 && requestId.All(character =>
+            char.IsLetterOrDigit(character) || character is '-' or '_' or '.' or ':');
     }
 }

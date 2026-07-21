@@ -46,7 +46,7 @@ public sealed partial class MatchingWorkflowSupportService
         }
 
         // 获取源文件
-        var scope = await ResolveSpecScopeAsync(user);
+        var scope = await ResolveSpecScopeAsync(user, cancellationToken);
         if (scope == null)
         {
             throw Failure(401, "会话缺少用户上下文");
@@ -310,7 +310,8 @@ public sealed partial class MatchingWorkflowSupportService
                     cancellationToken);
                 EnsureWriteBackCompleted(renderedFile.Summary);
 
-                await _unitOfWork.BeginTransactionAsync();
+                var finalCommitConfirmed = false;
+                await _unitOfWork.BeginTransactionAsync(cancellationToken);
                 try
                 {
                     await _matchingTaskSnapshotService.SaveAsync(
@@ -339,21 +340,47 @@ public sealed partial class MatchingWorkflowSupportService
                         saveImmediately: false,
                         cancellationToken: cancellationToken);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
-                    await _unitOfWork.CommitTransactionAsync();
-                    await _matchingTaskSnapshotService.CompleteDeferredExpiredArtifactCleanupAsync(cancellationToken);
-                }
-                catch
-                {
+                    // 文件产物和数据库写入均已准备完成后进入不可取消提交边界，避免客户端取消造成
+                    // “数据库已提交但随后按失败路径删除下载产物”的不一致状态。
+                    await _unitOfWork.CommitTransactionAsync(CancellationToken.None);
+                    finalCommitConfirmed = true;
                     try
                     {
-                        await _unitOfWork.RollbackTransactionAsync();
+                        await _matchingTaskSnapshotService.CompleteDeferredExpiredArtifactCleanupAsync(
+                            CancellationToken.None);
                     }
-                    finally
+                    catch (Exception cleanupException)
+                    {
+                        _logger.LogWarning(
+                            cleanupException,
+                            "Word 填充已提交，但清理过期产物失败: 任务{TaskId}",
+                            taskId);
+                    }
+                }
+                catch (Exception finalizationException)
+                {
+                    await _unitOfWork.RollbackTransactionAsync();
+                    if (!finalCommitConfirmed)
+                    {
+                        var committedTask = await LoadTaskFromFreshScopeAsync(user, taskId);
+                        finalCommitConfirmed = committedTask != null &&
+                                               string.Equals(
+                                                   committedTask.RequestFingerprint,
+                                                   requestFingerprint,
+                                                   StringComparison.Ordinal);
+                    }
+
+                    if (!finalCommitConfirmed)
                     {
                         await DeleteFailedDownloadArtifactAsync(persistedTaskResult);
                         _matchingTaskSnapshotService.DiscardDeferredExpiredArtifactCleanup();
+                        throw;
                     }
-                    throw;
+
+                    _logger.LogWarning(
+                        finalizationException,
+                        "Word 最终提交返回异常，但已从数据库确认提交成功: 任务{TaskId}",
+                        taskId);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

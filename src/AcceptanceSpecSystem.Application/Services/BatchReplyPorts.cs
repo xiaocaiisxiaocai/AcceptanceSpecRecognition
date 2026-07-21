@@ -8,7 +8,26 @@ public sealed record BatchReplyUserContext(int UserId, int CompanyId);
 public sealed record BatchReplyUploadDocument(
     string FileName,
     UploadedFileType FileType,
-    byte[] Content);
+    long Length,
+    Func<Stream> OpenReadStream)
+{
+    public BatchReplyUploadDocument(string fileName, UploadedFileType fileType, byte[] content)
+        : this(
+            fileName,
+            fileType,
+            content?.LongLength ?? 0,
+            () => new MemoryStream(content ?? [], writable: false))
+    {
+    }
+}
+
+public static class BatchReplyUploadLimits
+{
+    public const int MaxFileCount = 10;
+    public const long MaxFileSizeBytes = 50L * 1024 * 1024;
+    public const long MaxBatchSizeBytes = 100L * 1024 * 1024;
+    public const long MultipartBodyLengthLimitBytes = 105L * 1024 * 1024;
+}
 
 public interface IBatchReplyDocumentTablePort
 {

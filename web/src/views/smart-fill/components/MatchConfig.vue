@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  ref,
+  watch
+} from "vue";
 import {
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   MAX_RECALL_TOP_K,
@@ -10,16 +18,23 @@ import {
 import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
 import { getMachineModelList, type MachineModel } from "@/api/machine-model";
-import {
-  getAiServiceList,
-  AiServicePurpose,
-  sortAiServicesByPriority,
-  type AiServiceConfig
-} from "@/api/ai-service";
+import type { AiServiceSelection } from "@/api/ai-service";
 import { ElMessage } from "element-plus";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import { loadAllPagedItems } from "@/utils/paged-options";
 import type { SmartFillScope } from "../smartFillExecution.helpers";
+import { getDistinctAiServiceModel } from "@/views/shared/ai-service-display";
+import { createAiSelectionRetryController } from "@/utils/ai-selection-retry";
+import {
+  getRuntimeAiPurposeResult,
+  loadRuntimeAiSelectionsSettled,
+  type RuntimeAiSelectionRefreshResult
+} from "@/utils/runtime-ai-selection-loader";
+import {
+  getRuntimeAiSelectionStatusText,
+  isRuntimeAiSelectionAvailable
+} from "@/utils/runtime-ai-selection";
+import { applyMatchConfigRuntimeAiSelections } from "./match-config-ai-selection";
 
 const props = defineProps<{
   modelValue?: MatchConfig;
@@ -55,13 +70,33 @@ const loadingAiServices = ref(false);
 let customerOptionsController: AbortController | undefined;
 let processOptionsController: AbortController | undefined;
 let machineModelOptionsController: AbortController | undefined;
-const embeddingServices = ref<AiServiceConfig[]>([]);
-const llmServices = ref<AiServiceConfig[]>([]);
+let aiSelectionController: AbortController | undefined;
+let aiSelectionVersion = 0;
+let aiSelectionRequest: Promise<RuntimeAiSelectionRefreshResult> | undefined;
+const embeddingSelection = ref<AiServiceSelection>({ status: "checking" });
+const llmSelection = ref<AiServiceSelection>({ status: "checking" });
 const allowLlm = computed(() => props.allowLlm !== false);
-const hasAvailableEmbeddingService = computed(
-  () => embeddingServices.value.length > 0
+const hasAvailableEmbeddingService = computed(() =>
+  isRuntimeAiSelectionAvailable(embeddingSelection.value)
 );
-const hasAvailableLlmService = computed(() => llmServices.value.length > 0);
+const hasAvailableLlmService = computed(() =>
+  isRuntimeAiSelectionAvailable(llmSelection.value)
+);
+const embeddingServiceModel = computed(() =>
+  getDistinctAiServiceModel(
+    embeddingSelection.value.name,
+    embeddingSelection.value.model
+  )
+);
+const llmServiceModel = computed(() =>
+  getDistinctAiServiceModel(llmSelection.value.name, llmSelection.value.model)
+);
+const embeddingStatusText = computed(() =>
+  getRuntimeAiSelectionStatusText(embeddingSelection.value, "Embedding")
+);
+const llmStatusText = computed(() =>
+  getRuntimeAiSelectionStatusText(llmSelection.value, "LLM")
+);
 const matchingModeOptions: Array<{
   label: string;
   value: MatchingMode;
@@ -108,18 +143,6 @@ const syncMatchConfigField = <K extends keyof MatchConfig>(
     config.value[key] = source[key];
   }
 };
-
-const hasExplicitMatchingDefaults = computed(() => {
-  const incoming = props.modelValue;
-  if (!incoming) {
-    return false;
-  }
-
-  return (
-    incoming.recallTopK !== undefined &&
-    incoming.recallTopK !== defaultMatchConfig.recallTopK
-  );
-});
 
 // 高级选项展开
 const showMatchingAdvanced = ref(false);
@@ -248,94 +271,70 @@ const loadMachineModels = async () => {
   }
 };
 
-// 加载 AI 服务列表
-const loadAiServices = async () => {
+// 加载运行时可用的 AI 服务
+const loadAiServicesOnce = async () => {
+  aiSelectionController?.abort();
+  const controller = new AbortController();
+  const version = ++aiSelectionVersion;
+  aiSelectionController = controller;
   loadingAiServices.value = true;
+
   try {
-    const res = await getAiServiceList({ page: 1, pageSize: 200 });
-    if (res.code === 0) {
-      const items = res.data.items;
-      const enabledItems = items.filter(item => !item.isDisabled);
-      embeddingServices.value = sortAiServicesByPriority(
-        enabledItems.filter(
-          s =>
-            (s.purpose & AiServicePurpose.Embedding) ===
-              AiServicePurpose.Embedding && !!s.embeddingModel
-        )
-      );
-      llmServices.value = sortAiServicesByPriority(
-        enabledItems.filter(
-          s =>
-            (s.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
-            !!s.llmModel
-        )
-      );
-      if (
-        config.value.embeddingServiceId &&
-        !embeddingServices.value.some(
-          service => service.id === config.value.embeddingServiceId
-        )
-      ) {
-        config.value.embeddingServiceId = undefined;
-      }
-      if (
-        config.value.llmServiceId &&
-        !llmServices.value.some(
-          service => service.id === config.value.llmServiceId
-        )
-      ) {
-        config.value.llmServiceId = undefined;
-      }
-      // 自动选择第一个可用服务（如果尚未选择）
-      if (
-        !config.value.embeddingServiceId &&
-        embeddingServices.value.length > 0
-      ) {
-        config.value.embeddingServiceId = embeddingServices.value[0].id;
-      }
-      if (!config.value.llmServiceId && llmServices.value.length > 0) {
-        config.value.llmServiceId = llmServices.value[0].id;
-      }
-      if (!hasExplicitMatchingDefaults.value) {
-        applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
-      }
-    } else {
-      ElMessage.error(res.message || "加载AI服务失败");
+    const results = await loadRuntimeAiSelectionsSettled(
+      ["embedding", "llm"],
+      controller.signal
+    );
+    if (
+      aiSelectionController !== controller ||
+      version !== aiSelectionVersion ||
+      controller.signal.aborted
+    ) {
+      return { current: false, version };
     }
-  } catch {
-    ElMessage.error("加载AI服务失败");
+
+    const embeddingResult = getRuntimeAiPurposeResult(results, "embedding");
+    const llmResult = getRuntimeAiPurposeResult(results, "llm");
+    if (!embeddingResult || !llmResult) {
+      return { current: false, version };
+    }
+
+    embeddingSelection.value = embeddingResult.selection;
+    llmSelection.value = llmResult.selection;
+    applyMatchConfigRuntimeAiSelections(
+      config.value,
+      embeddingResult.selection,
+      llmResult.selection
+    );
+    aiSelectionRetry.schedule([embeddingResult.selection, llmResult.selection]);
+
+    return {
+      current: true,
+      version,
+      embedding: embeddingResult.selection,
+      llm: llmResult.selection
+    };
   } finally {
-    loadingAiServices.value = false;
+    if (aiSelectionController === controller) {
+      aiSelectionController = undefined;
+      loadingAiServices.value = false;
+    }
   }
 };
 
-const applyEmbeddingServiceDefaults = (serviceId?: number) => {
-  if (!serviceId) return;
-  const selectedService = embeddingServices.value.find(
-    item => item.id === serviceId
-  );
-  if (!selectedService) return;
+const aiSelectionRetry = createAiSelectionRetryController({
+  refresh: () => void loadAiServices(false)
+});
+const loadAiServices = (resetRetry = true) => {
+  if (resetRetry) aiSelectionRetry.cancel();
+  if (aiSelectionRequest) return aiSelectionRequest;
 
-  config.value.recallTopK = Math.min(
-    MAX_RECALL_TOP_K,
-    Math.max(1, selectedService.defaultRecallTopK)
-  );
+  const request = loadAiServicesOnce();
+  aiSelectionRequest = request;
+  void request.finally(() => {
+    if (aiSelectionRequest === request) aiSelectionRequest = undefined;
+  });
+  return request;
 };
-
-watch(
-  () => config.value.embeddingServiceId,
-  (serviceId, previousServiceId) => {
-    if (!serviceId || serviceId === previousServiceId) {
-      return;
-    }
-
-    if (previousServiceId === undefined && hasExplicitMatchingDefaults.value) {
-      return;
-    }
-
-    applyEmbeddingServiceDefaults(serviceId);
-  }
-);
 
 watch(
   () =>
@@ -377,7 +376,6 @@ const resetConfig = () => {
     embeddingServiceId,
     llmServiceId
   };
-  applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
 };
 
 onMounted(() => {
@@ -387,15 +385,30 @@ onMounted(() => {
   loadAiServices();
 });
 
+onActivated(() => {
+  void loadAiServices();
+});
+
 onBeforeUnmount(() => {
   customerOptionsController?.abort();
   processOptionsController?.abort();
   machineModelOptionsController?.abort();
+  stopAiSelectionRequests();
 });
+
+const stopAiSelectionRequests = () => {
+  aiSelectionVersion += 1;
+  aiSelectionController?.abort();
+  aiSelectionRequest = undefined;
+  aiSelectionRetry.cancel();
+};
+
+onDeactivated(stopAiSelectionRequests);
 
 // 暴露方法
 defineExpose({
   resetConfig,
+  refreshAiServices: loadAiServices,
   getScope: () => ({
     customerId: selectedCustomerId.value,
     processId: selectedProcessId.value,
@@ -506,59 +519,62 @@ defineExpose({
           </div>
         </el-form-item>
         <el-form-item label="Embedding 服务">
-          <el-select
-            v-model="config.embeddingServiceId"
-            placeholder="请选择 Embedding 服务"
-            :teleported="true"
-            :loading="loadingAiServices"
-            style="width: 100%; max-width: 400px"
-            popper-class="app-select-popper"
+          <div
+            v-if="hasAvailableEmbeddingService"
+            class="automatic-service"
+            role="status"
+            aria-live="polite"
           >
-            <el-option
-              v-for="service in embeddingServices"
-              :key="service.id"
-              :label="`${service.name}（${service.embeddingModel || '-'}）`"
-              :value="service.id"
-            />
-          </el-select>
+            <span>自动使用</span>
+            <strong>{{ embeddingSelection.name }}</strong>
+            <small v-if="embeddingServiceModel">
+              {{ embeddingServiceModel }}
+            </small>
+          </div>
           <el-alert
-            v-if="!loadingAiServices && !hasAvailableEmbeddingService"
-            type="warning"
+            v-else
+            :type="
+              loadingAiServices || embeddingSelection.status === 'checking'
+                ? 'info'
+                : 'warning'
+            "
             :closable="false"
             show-icon
-            title="未检测到可用 Embedding 服务"
+            :title="embeddingStatusText"
             :description="
               config.exactMatchOnly
                 ? '当前已开启仅精确匹配，可继续预览完全一致命中；如需语义召回，请启用 Embedding 服务。'
-                : '请先在 AI 服务配置中启用至少一个带 Embedding 模型的服务，或开启上方仅精确匹配。'
+                : '运行状态确认可用前不能执行语义匹配；请稍后重试，或开启上方仅精确匹配。'
             "
             class="service-status-alert"
           />
         </el-form-item>
         <el-form-item label="LLM 服务">
-          <el-select
-            v-model="config.llmServiceId"
-            placeholder="请选择 LLM 服务"
-            :teleported="true"
-            :disabled="!allowLlm"
-            :loading="loadingAiServices"
-            style="width: 100%; max-width: 400px"
-            popper-class="app-select-popper"
+          <div
+            v-if="allowLlm && hasAvailableLlmService"
+            class="automatic-service"
+            role="status"
+            aria-live="polite"
           >
-            <el-option
-              v-for="service in llmServices"
-              :key="service.id"
-              :label="`${service.name}（${service.llmModel || '-'}）`"
-              :value="service.id"
-            />
-          </el-select>
+            <span>自动使用</span>
+            <strong>{{ llmSelection.name }}</strong>
+            <small v-if="llmServiceModel">{{ llmServiceModel }}</small>
+          </div>
           <el-alert
-            v-if="allowLlm && !loadingAiServices && !hasAvailableLlmService"
+            v-else-if="allowLlm"
             type="info"
             :closable="false"
             show-icon
-            title="未检测到可用 LLM 服务"
-            description="当前仍可执行 Embedding 召回和证据重排；如需 AI 复核，请先启用至少一个带 LLM 模型的服务。"
+            :title="llmStatusText"
+            description="当前仍可执行 Embedding 召回和证据重排；仅在 LLM 运行状态确认可用后启用 AI 复核。"
+            class="service-status-alert"
+          />
+          <el-alert
+            v-else
+            type="info"
+            :closable="false"
+            show-icon
+            title="当前账号没有 LLM 复核权限"
             class="service-status-alert"
           />
         </el-form-item>
@@ -950,8 +966,6 @@ export default {
 </script>
 
 <style scoped>
-
-
 @media (width <= 720px) {
   .matching-strategy-summary {
     align-items: flex-start;
@@ -1134,6 +1148,34 @@ export default {
 
 .service-status-alert {
   margin-top: 12px;
+}
+
+.automatic-service {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  max-width: 400px;
+  min-height: 40px;
+  padding: 8px 11px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.automatic-service span,
+.automatic-service small {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.automatic-service strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--app-text-primary);
+  white-space: nowrap;
 }
 
 .exact-match-option {

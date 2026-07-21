@@ -42,18 +42,26 @@ const toggleClick = () => {
 
 <template>
   <div class="left-collapse">
-    <IconifyIconOffline
+    <button
       v-tippy="{
         content: isActive ? '点击折叠' : '点击展开',
         theme: tooltipEffect,
         hideOnClick: 'toggle',
         placement: 'right'
       }"
-      :icon="MenuFold"
-      :class="[iconClass, themeColor === 'light' ? '' : 'text-primary']"
+      type="button"
+      class="left-collapse-button"
+      :aria-label="isActive ? '折叠侧边栏' : '展开侧边栏'"
+      :aria-expanded="isActive"
       :style="{ transform: isActive ? 'none' : 'rotateY(180deg)' }"
       @click="toggleClick"
-    />
+    >
+      <IconifyIconOffline
+        :icon="MenuFold"
+        :class="[iconClass, themeColor === 'light' ? '' : 'text-primary']"
+        aria-hidden="true"
+      />
+    </button>
   </div>
 </template>
 
@@ -62,8 +70,18 @@ const toggleClick = () => {
   position: absolute;
   bottom: 0;
   width: 100%;
-  height: 40px;
-  line-height: 40px;
+  height: 44px;
+  line-height: 44px;
   box-shadow: 0 0 6px -3px var(--el-color-primary);
+}
+
+.left-collapse-button {
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
 }
 </style>

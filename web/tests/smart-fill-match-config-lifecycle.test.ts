@@ -9,20 +9,29 @@ const source = readFileSync(
 );
 
 test("智能填充匹配配置组件应在 mounted 生命周期内加载基础数据", () => {
-  assert.match(
-    source,
-    /import \{ computed, onBeforeUnmount, onMounted, ref, watch \} from "vue";/
-  );
+  assert.match(source, /onActivated,[\s\S]*onDeactivated,[\s\S]*onMounted/);
   assert.match(
     source,
     /onMounted\(\(\) => \{\s*loadCustomers\(\);\s*loadProcesses\(\);\s*loadMachineModels\(\);\s*loadAiServices\(\);\s*\}\);/s
   );
 });
 
+test("智能填充匹配配置组件应在缓存页面重新激活时刷新运行时 AI 选择", () => {
+  assert.match(
+    source,
+    /onActivated\(\(\) => \{\s*void loadAiServices\(\);\s*\}\);/
+  );
+  assert.match(source, /createAiSelectionRetryController/);
+  assert.match(
+    source,
+    /const stopAiSelectionRequests = \(\) => \{[\s\S]*aiSelectionController\?\.abort\(\);[\s\S]*aiSelectionRetry\.cancel\(\);[\s\S]*onDeactivated\(stopAiSelectionRequests\);/
+  );
+});
+
 test("智能填充匹配配置组件卸载时应取消主数据选项请求", () => {
   assert.match(
     source,
-    /onBeforeUnmount\(\(\) => \{\s*customerOptionsController\?\.abort\(\);\s*processOptionsController\?\.abort\(\);\s*machineModelOptionsController\?\.abort\(\);\s*\}\);/s
+    /onBeforeUnmount\(\(\) => \{\s*customerOptionsController\?\.abort\(\);\s*processOptionsController\?\.abort\(\);\s*machineModelOptionsController\?\.abort\(\);\s*stopAiSelectionRequests\(\);\s*\}\);/s
   );
 });
 

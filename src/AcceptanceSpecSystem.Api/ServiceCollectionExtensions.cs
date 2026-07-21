@@ -67,6 +67,18 @@ public static class ApiServiceCollectionExtensions
             configuration.GetSection(DatabaseBackupOptions.SectionName));
         services.Configure<AiServiceTestOptions>(
             configuration.GetSection(AiServiceTestOptions.SectionName));
+        services.AddOptions<AiServiceReadinessOptions>()
+            .Bind(configuration.GetSection(AiServiceReadinessOptions.SectionName))
+            .Validate(options => options.StatusTtlSeconds > 0, "AI readiness TTL 必须大于 0")
+            .Validate(options => options.ProbeTimeoutSeconds > 0, "AI readiness 探测超时必须大于 0")
+            .Validate(options => options.MaxConcurrentProbes > 0, "AI readiness 并发必须大于 0")
+            .ValidateOnStart();
+        services.AddOptions<DashboardOptions>()
+            .Bind(configuration.GetSection(DashboardOptions.SectionName))
+            .Validate(options => !string.IsNullOrWhiteSpace(options.TimeZoneId), "Dashboard 时区不能为空")
+            .Validate(options => TryResolveDashboardTimeZone(options.TimeZoneId, out var zone) && !zone.SupportsDaylightSavingTime,
+                "Dashboard 时区必须有效且不能使用夏令时")
+            .ValidateOnStart();
         services.Configure<SmartConfigurationOptions>(
             configuration.GetSection(SmartConfigurationOptions.SectionName));
         services.Configure<RequestTracingOptions>(
@@ -129,12 +141,18 @@ public static class ApiServiceCollectionExtensions
             sp.GetRequiredService<SpecEmbeddingCacheService>());
 
         // ── 数据库备份 ──
+        services.AddSingleton<IMySqlDumpProcessRunner, MySqlDumpProcessRunner>();
         services.AddScoped<IDatabaseBackupExecutor, MySqlDumpDatabaseBackupExecutor>();
 
         // ── 仪表盘与历史 ──
 
         // ── AI / Semantic Kernel ──
         services.AddScoped<IAiServiceSelector, AiServiceSelector>();
+        services.AddSingleton<AiServiceReadinessProbeScheduler>();
+        services.AddSingleton<IAiServiceReadinessProbeScheduler>(sp =>
+            sp.GetRequiredService<AiServiceReadinessProbeScheduler>());
+        services.AddSingleton<IHostedService>(sp =>
+            sp.GetRequiredService<AiServiceReadinessProbeScheduler>());
         services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
         services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();
         services.AddScoped<PromptTemplateValidationService>();
@@ -183,6 +201,24 @@ public static class ApiServiceCollectionExtensions
         services.AddHostedService<OrphanFileInspectionHostedService>();
 
         return services;
+    }
+
+    private static bool TryResolveDashboardTimeZone(string timeZoneId, out TimeZoneInfo timeZone)
+    {
+        try
+        {
+            timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId.Trim());
+            return true;
+        }
+        catch (TimeZoneNotFoundException)
+        {
+        }
+        catch (InvalidTimeZoneException)
+        {
+        }
+
+        timeZone = TimeZoneInfo.Utc;
+        return false;
     }
 
     /// <summary>

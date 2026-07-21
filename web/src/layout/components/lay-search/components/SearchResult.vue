@@ -43,7 +43,8 @@ async function handleMouse(item) {
   active.value = item.path;
 }
 
-function handleTo() {
+function handleTo(item) {
+  active.value = item.path;
   emit("enter");
 }
 
@@ -70,22 +71,24 @@ defineExpose({ handleScroll });
 </script>
 
 <template>
-  <div ref="resultRef" class="result">
-    <div
+  <div ref="resultRef" class="result" role="list" aria-label="菜单搜索结果">
+    <button
       v-for="(item, index) in options"
       :key="item.path"
       :ref="'resultItemRef' + index"
+      type="button"
       class="result-item dark:bg-[#1d1d1d]"
       :style="itemStyle(item)"
-      @click="handleTo"
+      :aria-current="item.path === active ? 'true' : undefined"
+      @click="handleTo(item)"
       @mouseenter="handleMouse(item)"
     >
-      <component :is="useRenderIcon(item.meta?.icon)" />
+      <component :is="useRenderIcon(item.meta?.icon)" aria-hidden="true" />
       <span class="result-item-title">
         {{ item.meta?.title }}
       </span>
-      <EnterOutlined />
-    </div>
+      <EnterOutlined aria-hidden="true" />
+    </button>
   </div>
 </template>
 
@@ -96,13 +99,23 @@ defineExpose({ handleScroll });
   &-item {
     display: flex;
     align-items: center;
+    width: 100%;
     height: 56px;
     padding: 14px;
     margin-top: 8px;
+    font-family: inherit;
+    color: inherit;
+    text-align: left;
     cursor: pointer;
+    background: transparent;
     border: 0.1px solid #ccc;
     border-radius: 4px;
     transition: font-size 0.16s;
+
+    &:focus-visible {
+      outline: 3px solid var(--el-color-primary-light-5);
+      outline-offset: 2px;
+    }
 
     &-title {
       display: flex;

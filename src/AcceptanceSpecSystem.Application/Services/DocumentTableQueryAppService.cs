@@ -7,6 +7,9 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 public interface IDocumentTableQueryAppService
 {
+    const int MaxPreviewWindowRows = 500;
+    const int MaxPreviewWindowColumns = 100;
+
     Task<List<TableInfoDto>> GetTablesAsync(
         SpecAccessContext scope,
         int fileId,
@@ -21,6 +24,9 @@ public interface IDocumentTableQueryAppService
         int headerRowCount,
         int dataStartRowIndex,
         int? dataEndRowIndex,
+        int? rowOffset,
+        int? columnOffset,
+        int? previewColumns,
         CancellationToken cancellationToken = default);
 }
 
@@ -80,11 +86,84 @@ public sealed class DocumentTableQueryAppService : IDocumentTableQueryAppService
         int headerRowCount,
         int dataStartRowIndex,
         int? dataEndRowIndex,
+        int? rowOffset,
+        int? columnOffset,
+        int? previewColumns,
         CancellationToken cancellationToken = default)
     {
         var wordFile = await GetAccessibleFileAsync(scope, fileId, cancellationToken);
         if (dataEndRowIndex.HasValue && dataEndRowIndex.Value < dataStartRowIndex)
             throw new ApplicationServiceException(400, "数据结束行不能早于数据起始行");
+
+        var windowed = rowOffset.HasValue || columnOffset.HasValue || previewColumns.HasValue;
+        var effectiveRowOffset = rowOffset ?? 0;
+        var effectiveColumnOffset = columnOffset ?? 0;
+        ValidateWindow(
+            windowed,
+            effectiveRowOffset,
+            previewRows,
+            effectiveColumnOffset,
+            previewColumns);
+
+        if (!windowed)
+        {
+            return await GetLegacyPreviewAsync(
+                wordFile,
+                tableIndex,
+                previewRows,
+                headerRowIndex,
+                headerRowCount,
+                dataStartRowIndex,
+                dataEndRowIndex,
+                cancellationToken);
+        }
+
+        var tables = await _tableReader.GetTablesAsync(wordFile, cancellationToken);
+        var tableInfo = tables.FirstOrDefault(table => table.Index == tableIndex)
+            ?? throw new ApplicationServiceException(404, "表格不存在");
+        var totalRows = Math.Max(0, tableInfo.RowCount - dataStartRowIndex);
+        if (dataEndRowIndex.HasValue)
+        {
+            totalRows = Math.Min(totalRows, dataEndRowIndex.Value - dataStartRowIndex + 1);
+        }
+        var totalColumns = Math.Max(0, tableInfo.ColumnCount);
+        var boundedRowOffset = Math.Min(effectiveRowOffset, totalRows);
+        var requestedColumns = previewColumns!.Value;
+        var effectiveDataStartRowIndex = dataStartRowIndex + boundedRowOffset;
+        var remainingRows = Math.Max(0, totalRows - boundedRowOffset);
+        var rowCount = Math.Min(previewRows, remainingRows);
+
+        var tableData = await _tableReader.ExtractTableDataAsync(
+            wordFile,
+            tableIndex,
+            new ColumnMapping
+            {
+                HeaderRowIndex = headerRowIndex,
+                HeaderRowCount = headerRowCount,
+                DataStartRowIndex = effectiveDataStartRowIndex
+            },
+            rowCount,
+            cancellationToken);
+
+        return MapWindowPreview(
+            tableData,
+            effectiveRowOffset,
+            effectiveColumnOffset,
+            requestedColumns,
+            totalRows,
+            totalColumns);
+    }
+
+    private async Task<TableDataDto> GetLegacyPreviewAsync(
+        WordFile wordFile,
+        int tableIndex,
+        int previewRows,
+        int headerRowIndex,
+        int headerRowCount,
+        int dataStartRowIndex,
+        int? dataEndRowIndex,
+        CancellationToken cancellationToken)
+    {
         var previewRangeRowCount = dataEndRowIndex.HasValue
             ? dataEndRowIndex.Value - dataStartRowIndex + 1
             : (int?)null;
@@ -111,6 +190,64 @@ public sealed class DocumentTableQueryAppService : IDocumentTableQueryAppService
         return MapPreview(tableData, previewRows, previewRangeRowCount);
     }
 
+    private static void ValidateWindow(
+        bool windowed,
+        int rowOffset,
+        int previewRows,
+        int columnOffset,
+        int? previewColumns)
+    {
+        if (!windowed)
+            return;
+        if (rowOffset < 0)
+            throw new ApplicationServiceException(400, "行偏移不能小于 0");
+        if (columnOffset < 0)
+            throw new ApplicationServiceException(400, "列偏移不能小于 0");
+        if (previewRows <= 0 || previewRows > IDocumentTableQueryAppService.MaxPreviewWindowRows)
+            throw new ApplicationServiceException(400, $"预览行数必须在 1 到 {IDocumentTableQueryAppService.MaxPreviewWindowRows} 之间");
+        if (!previewColumns.HasValue || previewColumns.Value <= 0 ||
+            previewColumns.Value > IDocumentTableQueryAppService.MaxPreviewWindowColumns)
+            throw new ApplicationServiceException(400, $"预览列数必须在 1 到 {IDocumentTableQueryAppService.MaxPreviewWindowColumns} 之间");
+    }
+
+    private static TableDataDto MapWindowPreview(
+        TableData tableData,
+        int rowOffset,
+        int columnOffset,
+        int previewColumns,
+        int totalRows,
+        int totalColumns)
+    {
+        var availableColumns = Math.Max(0, totalColumns - columnOffset);
+        var actualColumnCount = Math.Min(previewColumns, availableColumns);
+        var headers = tableData.Headers
+            .Skip(columnOffset)
+            .Take(actualColumnCount)
+            .ToList();
+        var rows = tableData.Rows.ToList();
+
+        return new TableDataDto
+        {
+            TableIndex = tableData.TableIndex,
+            Headers = headers,
+            Rows = rows.Select(row => row.Cells
+                .Skip(columnOffset)
+                .Take(actualColumnCount)
+                .Select(FormatPreviewCellText)
+                .ToList()).ToList(),
+            StructuredRows = rows.Select(row => row.Cells
+                .Skip(columnOffset)
+                .Take(actualColumnCount)
+                .Select(cell => MapStructuredCellValue(cell.StructuredValue))
+                .ToList()).ToList(),
+            TotalRows = totalRows,
+            ColumnCount = actualColumnCount,
+            RowOffset = rowOffset,
+            ColumnOffset = columnOffset,
+            TotalColumns = totalColumns
+        };
+    }
+
     public static TableDataDto MapPreview(TableData tableData, int previewRows, int? previewRangeRowCount)
     {
         var rows = (previewRows <= 0 ? tableData.Rows : tableData.Rows.Take(previewRows)).ToList();
@@ -125,7 +262,10 @@ public sealed class DocumentTableQueryAppService : IDocumentTableQueryAppService
             Rows = rows.Select(row => row.Cells.Select(FormatPreviewCellText).ToList()).ToList(),
             StructuredRows = rows.Select(row => row.Cells.Select(cell => MapStructuredCellValue(cell.StructuredValue)).ToList()).ToList(),
             TotalRows = totalRows,
-            ColumnCount = tableData.ColumnCount
+            ColumnCount = tableData.ColumnCount,
+            RowOffset = 0,
+            ColumnOffset = 0,
+            TotalColumns = tableData.ColumnCount
         };
     }
 

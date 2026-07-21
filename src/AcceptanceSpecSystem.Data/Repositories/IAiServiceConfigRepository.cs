@@ -25,6 +25,9 @@ public interface IAiServiceConfigRepository : IRepository<AiServiceConfig>
     /// 根据用途获取配置列表
     /// </summary>
     /// <param name="purpose">用途</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>配置列表</returns>
-    Task<IReadOnlyList<AiServiceConfig>> GetByPurposeAsync(AiServicePurpose purpose);
+    Task<IReadOnlyList<AiServiceConfig>> GetByPurposeAsync(
+        AiServicePurpose purpose,
+        CancellationToken cancellationToken = default);
 }

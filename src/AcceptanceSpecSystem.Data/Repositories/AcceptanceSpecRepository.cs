@@ -22,14 +22,15 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
     /// <see cref="AcceptanceSpec.MachineModel"/> 导航属性。
     /// 用途：列表页需要展示客户/制程/机型名称时，避免出现空值。
     /// </summary>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>验收规格列表</returns>
-    public async Task<IReadOnlyList<AcceptanceSpec>> GetAllWithCustomerAndProcessAsync()
+    public async Task<IReadOnlyList<AcceptanceSpec>> GetAllWithCustomerAndProcessAsync(CancellationToken cancellationToken = default)
     {
         return await _dbSet
             .Include(s => s.Customer)
             .Include(s => s.Process)
             .Include(s => s.MachineModel)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
@@ -37,38 +38,41 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
     /// <see cref="AcceptanceSpec.MachineModel"/> 导航属性。
     /// </summary>
     /// <param name="id">验收规格ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>验收规格（包含客户与制程）或 null</returns>
-    public async Task<AcceptanceSpec?> GetByIdWithCustomerAndProcessAsync(int id)
+    public async Task<AcceptanceSpec?> GetByIdWithCustomerAndProcessAsync(int id, CancellationToken cancellationToken = default)
     {
         return await _dbSet
             .Include(s => s.Customer)
             .Include(s => s.Process)
             .Include(s => s.MachineModel)
-            .FirstOrDefaultAsync(s => s.Id == id);
+            .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
     }
 
     /// <summary>
     /// 根据制程ID获取验收规格列表。
     /// </summary>
     /// <param name="processId">制程ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>验收规格列表</returns>
-    public async Task<IReadOnlyList<AcceptanceSpec>> GetByProcessIdAsync(int processId)
+    public async Task<IReadOnlyList<AcceptanceSpec>> GetByProcessIdAsync(int processId, CancellationToken cancellationToken = default)
     {
         return await _dbSet
             .Where(s => s.ProcessId == processId)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
     /// 根据Word文件ID获取验收规格列表。
     /// </summary>
     /// <param name="wordFileId">Word文件ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>验收规格列表</returns>
-    public async Task<IReadOnlyList<AcceptanceSpec>> GetByWordFileIdAsync(int wordFileId)
+    public async Task<IReadOnlyList<AcceptanceSpec>> GetByWordFileIdAsync(int wordFileId, CancellationToken cancellationToken = default)
     {
         return await _dbSet
             .Where(s => s.WordFileId == wordFileId)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
@@ -77,27 +81,29 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
     /// <param name="processId">制程ID</param>
     /// <param name="pageNumber">页码（从1开始）</param>
     /// <param name="pageSize">每页数量</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>验收规格列表</returns>
-    public async Task<IReadOnlyList<AcceptanceSpec>> GetPagedAsync(int processId, int pageNumber, int pageSize)
+    public async Task<IReadOnlyList<AcceptanceSpec>> GetPagedAsync(int processId, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
     {
         return await _dbSet
             .Where(s => s.ProcessId == processId)
             .OrderBy(s => s.Id)
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
     /// 获取验收规格及其来源Word文件信息（包含 <see cref="AcceptanceSpec.WordFile"/> 导航属性）。
     /// </summary>
     /// <param name="id">验收规格ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>验收规格（包含来源Word文件）或 null</returns>
-    public async Task<AcceptanceSpec?> GetWithWordFileAsync(int id)
+    public async Task<AcceptanceSpec?> GetWithWordFileAsync(int id, CancellationToken cancellationToken = default)
     {
         return await _dbSet
             .Include(s => s.WordFile)
-            .FirstOrDefaultAsync(s => s.Id == id);
+            .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
     }
 
     /// <summary>
@@ -105,8 +111,9 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
     /// </summary>
     /// <param name="processId">制程ID</param>
     /// <param name="searchTerm">搜索关键词</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>验收规格列表</returns>
-    public async Task<IReadOnlyList<AcceptanceSpec>> SearchAsync(int processId, string searchTerm)
+    public async Task<IReadOnlyList<AcceptanceSpec>> SearchAsync(int processId, string searchTerm, CancellationToken cancellationToken = default)
     {
         var term = searchTerm.ToLower();
         return await _dbSet
@@ -115,34 +122,43 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
                         s.Specification.ToLower().Contains(term) ||
                         (s.Acceptance != null && s.Acceptance.ToLower().Contains(term)) ||
                         (s.Remark != null && s.Remark.ToLower().Contains(term))))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task<(IReadOnlyList<AcceptanceSpec> Items, int Total)> GetPagedWithFilterAsync(AcceptanceSpecQueryOptions options)
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<AcceptanceSpec> Items, int Total)> GetPagedWithFilterAsync(
+        AcceptanceSpecQueryOptions options,
+        CancellationToken cancellationToken = default)
     {
         var page = options.Page;
         var pageSize = options.PageSize;
 
         var query = CreateFilteredQuery(options, includeNavigation: true);
 
-        var total = await query.CountAsync();
+        var total = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(s => s.ImportedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return (items, total);
     }
 
-    public async Task<IReadOnlyList<AcceptanceSpec>> GetFilteredWithIncludesAsync(AcceptanceSpecQueryOptions options)
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<AcceptanceSpec>> GetFilteredWithIncludesAsync(
+        AcceptanceSpecQueryOptions options,
+        CancellationToken cancellationToken = default)
     {
         return await CreateFilteredQuery(options, includeNavigation: true)
             .OrderByDescending(s => s.ImportedAt)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<AcceptanceSpecGroupSummaryItem>> GetGroupSummaryWithFilterAsync(AcceptanceSpecQueryOptions options)
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<AcceptanceSpecGroupSummaryItem>> GetGroupSummaryWithFilterAsync(
+        AcceptanceSpecQueryOptions options,
+        CancellationToken cancellationToken = default)
     {
         var query = CreateFilteredQuery(options, includeNavigation: false);
 
@@ -169,7 +185,7 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
             .OrderBy(g => g.CustomerName)
             .ThenBy(g => g.MachineModelName)
             .ThenBy(g => g.ProcessName)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     private IQueryable<AcceptanceSpec> CreateFilteredQuery(AcceptanceSpecQueryOptions options, bool includeNavigation)

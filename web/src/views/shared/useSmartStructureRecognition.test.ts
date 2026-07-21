@@ -5,6 +5,9 @@ const apiMocks = vi.hoisted(() => ({
   recognizeSmartConfig: vi.fn(),
   confirmSmartConfig: vi.fn()
 }));
+const aiServiceMocks = vi.hoisted(() => ({
+  getAiServiceSelection: vi.fn()
+}));
 const messageMocks = vi.hoisted(() => ({
   error: vi.fn(),
   warning: vi.fn(),
@@ -12,6 +15,7 @@ const messageMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/api/smart-config", () => apiMocks);
+vi.mock("@/api/ai-service", () => aiServiceMocks);
 vi.mock("element-plus", () => ({
   ElMessage: messageMocks
 }));
@@ -55,6 +59,34 @@ const result = (
 });
 
 describe("useSmartStructureRecognition", () => {
+  it("识别前刷新运行状态，不把过期 LLM 服务继续提交给后端", async () => {
+    aiServiceMocks.getAiServiceSelection.mockResolvedValue({
+      code: 0,
+      data: { status: "unavailable", message: "暂不可用" }
+    });
+    apiMocks.recognizeSmartConfig.mockResolvedValue({
+      code: 0,
+      data: result(9, "规则识别")
+    });
+    const state = useSmartStructureRecognition();
+
+    await state.recognize(9, 1, {
+      enableLlmAssistance: true,
+      llmServiceId: 99
+    });
+
+    expect(aiServiceMocks.getAiServiceSelection).toHaveBeenCalledWith("llm");
+    expect(apiMocks.recognizeSmartConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enableLlmAssistance: false,
+        llmServiceId: undefined
+      })
+    );
+    expect(messageMocks.warning).toHaveBeenCalledWith(
+      "AI 服务尚未就绪，本次先使用规则识别"
+    );
+  });
+
   it("reset 后发起新文件识别时忽略更晚返回的旧请求", async () => {
     const requestA = deferred<any>();
     const requestB = deferred<any>();

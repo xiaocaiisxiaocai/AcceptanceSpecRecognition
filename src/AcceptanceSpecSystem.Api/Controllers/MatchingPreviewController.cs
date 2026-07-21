@@ -34,6 +34,8 @@ public class MatchingPreviewController : MatchingApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<BatchPreviewProgressResponse>), StatusCodes.Status404NotFound)]
     public Task<ActionResult<ApiResponse<BatchPreviewProgressResponse>>> GetBatchPreviewProgress(string requestId)
     {
-        return HandleAsync(() => Task.FromResult(_matchingPreviewAppService.GetBatchPreviewProgress(requestId)));
+        return HandleAsync(() => Task.FromResult(_matchingPreviewAppService.GetBatchPreviewProgress(
+            GetMatchingUserContext(),
+            requestId)));
     }
 }

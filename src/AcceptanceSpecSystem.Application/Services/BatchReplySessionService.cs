@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Data.Entities;
@@ -70,6 +71,42 @@ public sealed class BatchReplySessionService
         return session;
     }
 
+    public async Task<BatchReplySourceSession> CreateSourceSessionAsync(
+        int userId,
+        int companyId,
+        string fileName,
+        UploadedFileType fileType,
+        Stream content,
+        CancellationToken cancellationToken = default)
+    {
+        var relativePath = await SaveTemporaryFileAsync(fileType, fileName, content, cancellationToken);
+        var session = new BatchReplySourceSession
+        {
+            SessionId = Guid.NewGuid().ToString("N"),
+            OwnerUserId = userId,
+            OwnerCompanyId = companyId,
+            SourceFileName = fileName,
+            SourceFileType = fileType,
+            SourceFileRelativePath = relativePath,
+            CreatedAt = UtcNow,
+            UpdatedAt = UtcNow
+        };
+
+        try
+        {
+            session.ManifestRelativePath = BuildSessionManifestRelativePath(session.SessionId);
+            await PersistSessionManifestAsync(session, cancellationToken);
+            SetSession(session, _retentionPolicy.SessionRetention);
+            return session;
+        }
+        catch
+        {
+            // 清理属于失败补偿，不能因原请求已取消而被跳过。
+            await DeleteRelativePathsAsync([relativePath], CancellationToken.None);
+            throw;
+        }
+    }
+
     public BatchReplySourceSession? GetSession(int userId, int companyId, string sessionId)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
@@ -122,6 +159,42 @@ public sealed class BatchReplySessionService
         CancellationToken cancellationToken = default)
     {
         return await SaveTemporaryFileAsync(fileType, fileName, content, cancellationToken);
+    }
+
+    public async Task<string> SaveTargetFileAsync(
+        string fileName,
+        UploadedFileType fileType,
+        Stream content,
+        CancellationToken cancellationToken = default)
+    {
+        return await SaveTemporaryFileAsync(fileType, fileName, content, cancellationToken);
+    }
+
+    public async Task DeleteTemporaryFilesAsync(
+        IEnumerable<string> relativePaths,
+        CancellationToken cancellationToken = default)
+    {
+        await DeleteRelativePathsAsync(relativePaths, cancellationToken);
+    }
+
+    public async Task DeleteSessionAsync(
+        int userId,
+        int companyId,
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        var session = GetSession(userId, companyId, sessionId);
+        if (session == null)
+            return;
+
+        _memoryCache.Remove(BuildSessionCacheKey(sessionId));
+        var paths = session.TargetFiles
+            .Select(file => file.RelativePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Cast<string>()
+            .Append(session.SourceFileRelativePath)
+            .Append(session.ManifestRelativePath ?? string.Empty);
+        await DeleteRelativePathsAsync(paths, cancellationToken);
     }
 
     public async Task<BatchReplySourceSession?> AddTargetFilesAsync(
@@ -314,6 +387,17 @@ public sealed class BatchReplySessionService
             : await _fileStorage.SaveUploadedWordAsync(fileName, content, cancellationToken);
     }
 
+    private async Task<string> SaveTemporaryFileAsync(
+        UploadedFileType fileType,
+        string fileName,
+        Stream content,
+        CancellationToken cancellationToken)
+    {
+        return fileType == UploadedFileType.ExcelXlsx
+            ? await _fileStorage.SaveUploadedExcelAsync(fileName, content, cancellationToken)
+            : await _fileStorage.SaveUploadedWordAsync(fileName, content, cancellationToken);
+    }
+
     private static string BuildSessionManifestRelativePath(string sessionId)
     {
         return $"{SessionManifestBaseRelativeDir}/{sessionId}.json";
@@ -345,15 +429,8 @@ public sealed class BatchReplySessionService
             throw new InvalidOperationException("会话清单路径不能为空");
         }
 
-        var manifestPath = _fileStorage.GetAbsolutePath(session.ManifestRelativePath);
-        var directory = Path.GetDirectoryName(manifestPath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
         var payload = JsonSerializer.Serialize(session, SessionJsonOptions);
-        await File.WriteAllTextAsync(manifestPath, payload, cancellationToken);
+        await PersistManifestAtomicallyAsync(session.ManifestRelativePath, payload, cancellationToken);
     }
 
     private BatchReplySourceSession? LoadSessionManifest(string sessionId)
@@ -397,7 +474,17 @@ public sealed class BatchReplySessionService
                      .Where(path => !string.IsNullOrWhiteSpace(path))
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            await _fileStorage.DeleteIfExistsAsync(relativePath, cancellationToken);
+            try
+            {
+                await _fileStorage.DeleteIfExistsAsync(relativePath, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "清理批量回复临时文件失败，继续清理其余文件: {FileName}",
+                    Path.GetFileName(relativePath));
+            }
         }
     }
 
@@ -464,15 +551,57 @@ public sealed class BatchReplySessionService
             throw new InvalidOperationException("下载产物清单路径不能为空");
         }
 
-        var manifestPath = _fileStorage.GetAbsolutePath(artifact.ManifestRelativePath);
+        var payload = JsonSerializer.Serialize(artifact, ArtifactJsonOptions);
+        await PersistManifestAtomicallyAsync(artifact.ManifestRelativePath, payload, cancellationToken);
+    }
+
+    private async Task PersistManifestAtomicallyAsync(
+        string relativePath,
+        string payload,
+        CancellationToken cancellationToken)
+    {
+        var manifestPath = _fileStorage.GetAbsolutePath(relativePath);
         var directory = Path.GetDirectoryName(manifestPath);
         if (!string.IsNullOrWhiteSpace(directory))
-        {
             Directory.CreateDirectory(directory);
-        }
 
-        var payload = JsonSerializer.Serialize(artifact, ArtifactJsonOptions);
-        await File.WriteAllTextAsync(manifestPath, payload, cancellationToken);
+        var temporaryPath = $"{manifestPath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await using (var stream = new FileStream(
+                             temporaryPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             64 * 1024,
+                             FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                await stream.WriteAsync(bytes, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporaryPath, manifestPath, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
+            }
+            catch (Exception cleanupException)
+            {
+                _logger.LogWarning(
+                    cleanupException,
+                    "清理未发布的批量回复 manifest 临时文件失败: {FileName}",
+                    Path.GetFileName(temporaryPath));
+            }
+
+            throw;
+        }
     }
 
     private BatchReplyDownloadArtifact? LoadArtifactManifest(string taskId)

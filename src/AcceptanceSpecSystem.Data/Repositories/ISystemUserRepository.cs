@@ -10,17 +10,17 @@ public interface ISystemUserRepository : IRepository<SystemUser>
     /// <summary>
     /// 根据用户名查询用户
     /// </summary>
-    Task<SystemUser?> GetByUsernameAsync(string username);
+    Task<SystemUser?> GetByUsernameAsync(string username, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 根据用户名查询用户并加载鉴权所需关系（角色、权限、组织）
     /// </summary>
-    Task<SystemUser?> GetByUsernameWithAccessAsync(string username);
+    Task<SystemUser?> GetByUsernameWithAccessAsync(string username, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 根据用户ID查询用户并加载鉴权所需关系（角色、权限、组织）
     /// </summary>
-    Task<SystemUser?> GetByIdWithAccessAsync(int userId);
+    Task<SystemUser?> GetByIdWithAccessAsync(int userId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 分页查询系统用户
@@ -30,10 +30,11 @@ public interface ISystemUserRepository : IRepository<SystemUser>
         int pageSize,
         int? companyId = null,
         string? keyword = null,
-        bool? isActive = null);
+        bool? isActive = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 统计启用中的 admin 用户数量
     /// </summary>
-    Task<int> CountActiveAdminUsersAsync(int companyId);
+    Task<int> CountActiveAdminUsersAsync(int companyId, CancellationToken cancellationToken = default);
 }

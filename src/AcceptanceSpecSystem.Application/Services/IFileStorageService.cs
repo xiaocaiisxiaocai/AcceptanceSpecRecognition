@@ -10,10 +10,16 @@ public interface IFileStorageService
     /// </summary>
     Task<string> SaveUploadedWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);
 
+    Task<string> SaveUploadedWordAsync(string originalFileName, Stream content, CancellationToken cancellationToken = default)
+        => Task.FromException<string>(new NotSupportedException("当前文件存储实现不支持流式 Word 上传"));
+
     /// <summary>
     /// 保存上传的 Excel 文件到 uploads/excel-files/{yyyy-MM-dd}/{guid}.xlsx，返回相对路径
     /// </summary>
     Task<string> SaveUploadedExcelAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);
+
+    Task<string> SaveUploadedExcelAsync(string originalFileName, Stream content, CancellationToken cancellationToken = default)
+        => Task.FromException<string>(new NotSupportedException("当前文件存储实现不支持流式 Excel 上传"));
 
     /// <summary>
     /// 保存填充后的Word文件到 uploads/filled-files/{yyyy-MM-dd}/{guid}.docx，返回相对路径

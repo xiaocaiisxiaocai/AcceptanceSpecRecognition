@@ -34,13 +34,21 @@ public sealed class DashboardController : BaseApiController
         if (!userId.HasValue || !companyId.HasValue)
             return Error<DashboardSummaryDto>(401, "会话缺少用户上下文");
 
-        var result = await _dashboardAppService.GetSummaryAsync(
-            userId.Value,
-            companyId.Value,
-            range,
-            from,
-            to,
-            cancellationToken);
+        DashboardSummaryDto? result;
+        try
+        {
+            result = await _dashboardAppService.GetSummaryAsync(
+                userId.Value,
+                companyId.Value,
+                range,
+                from,
+                to,
+                cancellationToken);
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<DashboardSummaryDto>(ex.Code, ex.Message);
+        }
         if (result == null)
         {
             return Error<DashboardSummaryDto>(401, "会话缺少用户上下文");

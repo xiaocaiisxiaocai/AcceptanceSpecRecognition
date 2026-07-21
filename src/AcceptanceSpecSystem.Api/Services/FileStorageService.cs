@@ -40,7 +40,17 @@ public class FileStorageService : IFileStorageService
         return await SaveAsync("uploads/word-files", originalFileName, content, cancellationToken);
     }
 
+    public async Task<string> SaveUploadedWordAsync(string originalFileName, Stream content, CancellationToken cancellationToken = default)
+    {
+        return await SaveAsync("uploads/word-files", originalFileName, content, cancellationToken);
+    }
+
     public async Task<string> SaveUploadedExcelAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
+    {
+        return await SaveAsync("uploads/excel-files", originalFileName, content, cancellationToken);
+    }
+
+    public async Task<string> SaveUploadedExcelAsync(string originalFileName, Stream content, CancellationToken cancellationToken = default)
     {
         return await SaveAsync("uploads/excel-files", originalFileName, content, cancellationToken);
     }
@@ -157,6 +167,59 @@ public class FileStorageService : IFileStorageService
             catch
             {
                 // 临时文件清理失败不能遮蔽原始写入/移动异常。
+            }
+
+            throw;
+        }
+
+        return relativePath;
+    }
+
+    private async Task<string> SaveAsync(
+        string baseRelativeDir,
+        string originalFileName,
+        Stream content,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (!content.CanRead)
+            throw new ArgumentException("content必须可读", nameof(content));
+
+        var ext = Path.GetExtension(originalFileName);
+        if (string.IsNullOrWhiteSpace(ext))
+            ext = ".docx";
+
+        var dateDir = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var fileName = $"{Guid.NewGuid():N}{ext}";
+        var relativePath = $"{baseRelativeDir}/{dateDir}/{fileName}";
+        var fullPath = GetAbsolutePath(relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+
+        var tempPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await using (var output = new FileStream(
+                             tempPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             64 * 1024,
+                             FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                await content.CopyToAsync(output, cancellationToken);
+            }
+
+            MoveFile(tempPath, fullPath, overwrite: false);
+        }
+        catch
+        {
+            try
+            {
+                if (FileExists(tempPath))
+                    DeleteFile(tempPath);
+            }
+            catch
+            {
             }
 
             throw;

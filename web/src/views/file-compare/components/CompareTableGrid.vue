@@ -21,6 +21,12 @@ const isExcel = computed(() => props.fileType === 1);
 
 const startRow = computed(() => props.tableInfo?.usedRangeStartRow ?? 1);
 const startCol = computed(() => props.tableInfo?.usedRangeStartColumn ?? 1);
+const windowStartRow = computed(
+  () => startRow.value + (props.tableData?.rowOffset ?? 0)
+);
+const windowStartCol = computed(
+  () => startCol.value + (props.tableData?.columnOffset ?? 0)
+);
 
 const columnCount = computed(() => props.tableData?.columnCount ?? 0);
 const rows = computed(() => props.tableData?.rows ?? []);
@@ -45,13 +51,15 @@ const toExcelColumnName = (columnNumber: number) => {
 const columnLabels = computed(() => {
   if (!isExcel.value) return [] as string[];
   return Array.from({ length: columnCount.value }, (_, idx) =>
-    toExcelColumnName(startCol.value + idx)
+    toExcelColumnName(windowStartCol.value + idx)
   );
 });
 
 const getDiffType = (rowIndex: number, columnIndex: number) => {
-  const absRow = isExcel.value ? startRow.value + rowIndex : rowIndex;
-  const absCol = isExcel.value ? startCol.value + columnIndex : columnIndex;
+  const absRow = isExcel.value ? windowStartRow.value + rowIndex : rowIndex;
+  const absCol = isExcel.value
+    ? windowStartCol.value + columnIndex
+    : columnIndex;
   const key = `${props.tableIndex}-${absRow}-${absCol}`;
   return props.diffMap.get(key)?.diffType ?? "Unchanged";
 };
@@ -143,7 +151,7 @@ defineExpose({
       @scroll="handleScroll"
     >
       <div class="table-toolbar">
-        <span>总行数：{{ rows.length }}</span>
+        <span>当前窗口：{{ rows.length }} 行</span>
         <span v-if="onlyDiff">差异行：{{ visibleRows.length }}</span>
       </div>
       <table class="grid-table">
@@ -166,7 +174,7 @@ defineExpose({
             :class="{ 'row-has-diff': item.hasDiff }"
           >
             <th v-if="isExcel" class="row-header">
-              {{ startRow + item.rowIndex }}
+              {{ windowStartRow + item.rowIndex }}
             </th>
             <td
               v-for="colIndex in columnCount"

@@ -24,7 +24,7 @@ public sealed partial class MatchingWorkflowSupportService
 
         EnsureDistinctLlmStreamItems(request.Items);
 
-        var scope = await ResolveSpecScopeAsync(user);
+        var scope = await ResolveSpecScopeAsync(user, cancellationToken);
         if (scope == null)
         {
             throw Failure(401, "会话缺少用户上下文");
@@ -253,9 +253,12 @@ public sealed partial class MatchingWorkflowSupportService
         }
 
         _logger.LogDebug(
-            "[LLM复核] {Location}: 源=[{SrcProj}/{SrcSpec}] 匹配=[{MatchProj}/{MatchSpec}] 基础得分={Score:P1}",
-            location, item.SourceProject, item.SourceSpecification,
-            spec.Project, spec.Specification, item.BestMatchScore ?? 0);
+            "[LLM复核] {Location}: sourceRow={RowIndex}, candidateSpecId={SpecId}, baseScore={Score:P1}, traceId={TraceId}",
+            location,
+            item.RowIndex,
+            specId,
+            item.BestMatchScore ?? 0,
+            Activity.Current?.TraceId.ToString());
 
         var reviewRequest = new LlmReviewRequest
         {
@@ -316,8 +319,12 @@ public sealed partial class MatchingWorkflowSupportService
                         machineModelId,
                         config)
                     : null;
-                _logger.LogDebug("[LLM复核] {Location}: 完成, score={Score}, reason={Reason}",
-                    location, normalizedScore, result.Reason);
+                _logger.LogDebug(
+                    "[LLM复核] {Location}: 完成, score={Score}, decision={Decision}, traceId={TraceId}",
+                    location,
+                    normalizedScore,
+                    passed ? "autoApply" : "manualReview",
+                    Activity.Current?.TraceId.ToString());
                 await WriteSseEventLockedAsync(response, sseWriteLock, "review.done", new
                 {
                     tableIndex = item.TableIndex,
@@ -352,12 +359,18 @@ public sealed partial class MatchingWorkflowSupportService
         }
         catch (AiServiceUnavailableException ex)
         {
-            _logger.LogWarning(ex, "LLM复核失败");
+            _logger.LogWarning(
+                "LLM复核失败: exceptionType={ExceptionType}, traceId={TraceId}",
+                ex.GetType().Name,
+                Activity.Current?.TraceId.ToString());
             throw new LlmStepFailureException(ex.Reason, "manualReview", ex);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "LLM复核失败");
+            _logger.LogWarning(
+                "LLM复核失败: exceptionType={ExceptionType}, traceId={TraceId}",
+                ex.GetType().Name,
+                Activity.Current?.TraceId.ToString());
             if (ex is LlmStepFailureException)
             {
                 throw;

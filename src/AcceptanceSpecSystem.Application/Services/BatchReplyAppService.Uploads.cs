@@ -12,17 +12,35 @@ public sealed partial class BatchReplyAppService
         CancellationToken cancellationToken = default)
     {
         var owner = ResolveOwnerForApplication(user);
-        var tableCount = await _documentTableAccessService.CountTablesAsync(
-            file.FileType,
-            file.Content,
-            cancellationToken);
+        ValidateUploadBudget([file]);
+        await using var sourceStream = file.OpenReadStream();
         var session = await _batchReplySessionService.CreateSourceSessionAsync(
             owner.UserId,
             owner.CompanyId,
             file.FileName,
             file.FileType,
-            file.Content,
+            sourceStream,
             cancellationToken);
+
+        int tableCount;
+        try
+        {
+            var sourceFile = CreateTemporaryWordFile(
+                session.SourceFileName,
+                session.SourceFileType,
+                session.SourceFileRelativePath);
+            tableCount = (await _documentTableAccessService.GetTablesAsync(sourceFile, cancellationToken)).Count;
+        }
+        catch
+        {
+            // 会话尚未返回给客户端，取消后仍需完成临时文件与 manifest 补偿。
+            await _batchReplySessionService.DeleteSessionAsync(
+                owner.UserId,
+                owner.CompanyId,
+                session.SessionId,
+                CancellationToken.None);
+            throw;
+        }
 
         return new BatchReplySourceUploadResponse
         {
@@ -77,62 +95,93 @@ public sealed partial class BatchReplyAppService
             throw new ApplicationServiceException(400, "请至少上传一个目标文件");
         }
 
+        ValidateUploadBudget(targetFiles);
+
         var session = GetSourceSessionForApplication(user, sessionId);
         var uploadedTargets = new List<BatchReplyTargetFile>();
-        foreach (var targetFile in targetFiles)
+        var pendingRelativePaths = new List<string>();
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (targetFile.Content.Length == 0)
+            foreach (var targetFile in targetFiles)
             {
-                throw new ApplicationServiceException(400, "目标文件不能为空");
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (targetFile.Length <= 0)
+                    throw new ApplicationServiceException(400, "目标文件不能为空");
 
-            if (targetFile.FileType != session.SourceFileType)
-            {
-                throw new ApplicationServiceException(400, "目标文件必须与来源文件保持同格式");
-            }
+                if (targetFile.FileType != session.SourceFileType)
+                    throw new ApplicationServiceException(400, "目标文件必须与来源文件保持同格式");
 
-            var relativePath = await _batchReplySessionService.SaveTargetFileAsync(
-                targetFile.FileName,
-                targetFile.FileType,
-                targetFile.Content,
-                cancellationToken);
-
-            uploadedTargets.Add(new BatchReplyTargetFile
-            {
-                TargetId = Guid.NewGuid().ToString("N"),
-                FileName = targetFile.FileName,
-                FileType = targetFile.FileType,
-                RelativePath = relativePath,
-                TableCount = await _documentTableAccessService.CountTablesAsync(
+                await using var targetStream = targetFile.OpenReadStream();
+                var relativePath = await _batchReplySessionService.SaveTargetFileAsync(
+                    targetFile.FileName,
                     targetFile.FileType,
-                    targetFile.Content,
-                    cancellationToken)
-            });
-        }
+                    targetStream,
+                    cancellationToken);
+                pendingRelativePaths.Add(relativePath);
 
-        var updatedSession = await _batchReplySessionService.AddTargetFilesAsync(
-            owner.UserId,
-            owner.CompanyId,
-            sessionId,
-            uploadedTargets,
-            cancellationToken);
-        if (updatedSession == null)
-        {
-            throw new ApplicationServiceException(404, "来源会话不存在或已过期");
-        }
+                var targetWordFile = CreateTemporaryWordFile(
+                    targetFile.FileName,
+                    targetFile.FileType,
+                    relativePath);
+                uploadedTargets.Add(new BatchReplyTargetFile
+                {
+                    TargetId = Guid.NewGuid().ToString("N"),
+                    FileName = targetFile.FileName,
+                    FileType = targetFile.FileType,
+                    RelativePath = relativePath,
+                    TableCount = (await _documentTableAccessService.GetTablesAsync(targetWordFile, cancellationToken)).Count
+                });
+            }
 
-        return new BatchReplyTargetUploadResponse
-        {
-            SessionId = updatedSession.SessionId,
-            Files = uploadedTargets.Select(file => new BatchReplyUploadedTargetFileDto
+            var updatedSession = await _batchReplySessionService.AddTargetFilesAsync(
+                owner.UserId,
+                owner.CompanyId,
+                sessionId,
+                uploadedTargets,
+                cancellationToken);
+            if (updatedSession == null)
+                throw new ApplicationServiceException(404, "来源会话不存在或已过期");
+
+            pendingRelativePaths.Clear();
+            return new BatchReplyTargetUploadResponse
             {
-                TargetId = file.TargetId,
-                FileName = file.FileName,
-                FileType = file.FileType ?? session.SourceFileType,
-                TableCount = file.TableCount
-            }).ToList()
-        };
+                SessionId = updatedSession.SessionId,
+                Files = uploadedTargets.Select(file => new BatchReplyUploadedTargetFileDto
+                {
+                    TargetId = file.TargetId,
+                    FileName = file.FileName,
+                    FileType = file.FileType ?? session.SourceFileType,
+                    TableCount = file.TableCount
+                }).ToList()
+            };
+        }
+        catch
+        {
+            // manifest 未提交前必须脱离请求取消完成已落盘文件补偿。
+            await _batchReplySessionService.DeleteTemporaryFilesAsync(
+                pendingRelativePaths,
+                CancellationToken.None);
+            throw;
+        }
+    }
+
+    private static void ValidateUploadBudget(IReadOnlyCollection<BatchReplyUploadDocument> files)
+    {
+        if (files.Count == 0 || files.Count > BatchReplyUploadLimits.MaxFileCount)
+            throw new ApplicationServiceException(400, $"单次最多上传 {BatchReplyUploadLimits.MaxFileCount} 个文件");
+
+        long totalBytes = 0;
+        foreach (var file in files)
+        {
+            if (file.Length <= 0)
+                throw new ApplicationServiceException(400, "文件不能为空");
+            if (file.Length > BatchReplyUploadLimits.MaxFileSizeBytes)
+                throw new ApplicationServiceException(400, "单个文件大小不能超过 50MB");
+            totalBytes = checked(totalBytes + file.Length);
+        }
+
+        if (totalBytes > BatchReplyUploadLimits.MaxBatchSizeBytes)
+            throw new ApplicationServiceException(400, "单次上传文件总大小不能超过 100MB");
     }
 
     public async Task<List<TableInfoDto>> GetTargetTablesAsync(

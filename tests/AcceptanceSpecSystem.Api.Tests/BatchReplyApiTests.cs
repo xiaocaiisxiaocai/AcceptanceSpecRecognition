@@ -2,6 +2,9 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Application.Contracts;
+using AcceptanceSpecSystem.Application.Services;
+using AcceptanceSpecSystem.Data.Entities;
 using ClosedXML.Excel;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -89,6 +92,118 @@ public class BatchReplyApiTests : IClassFixture<ApiWebApplicationFactory>
         previewJson.Code.Should().Be(0);
         previewJson.Data.GetProperty("readyCount").GetInt32().Should().Be(1);
         previewJson.Data.GetProperty("files")[0].GetProperty("canApply").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task UploadTargets_WhenFileCountExceedsBudget_ShouldRejectBeforeParsing()
+    {
+        var sourceSessionId = await UploadSourceAsync(
+            CreateDocxBytes(new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "AC-1", "RM-1" }
+            }),
+            "batch-reply-budget-source.docx");
+
+        using var uploadContent = new MultipartFormDataContent
+        {
+            { new StringContent(sourceSessionId), "sessionId" }
+        };
+        for (var index = 0; index < BatchReplyUploadLimits.MaxFileCount + 1; index++)
+        {
+            uploadContent.Add(new ByteArrayContent([1]), "targetFiles", $"target-{index}.docx");
+        }
+
+        using var response = await _client.PostAsync("/api/batch-reply/targets/upload", uploadContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.ReadAsAsync<ApiResponse<JsonElement>>()).Message.Should().Contain("最多上传");
+    }
+
+    [Fact]
+    public async Task UploadTargets_WhenLaterStreamFails_ShouldCompensateEarlierTemporaryFile()
+    {
+        var targetBytes = CreateDocxBytes(new[]
+        {
+            new[] { "项目", "规格", "验收", "备注" },
+            new[] { "P1", "S1", "", "" }
+        });
+        var sourceSessionId = await UploadSourceAsync(targetBytes, "batch-reply-compensation-source.docx");
+
+        using var scope = _factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IBatchReplyAppService>();
+        var sessionService = scope.ServiceProvider.GetRequiredService<BatchReplySessionService>();
+        var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
+        var wordDirectory = storage.GetAbsolutePath("uploads/word-files");
+        var fileCountBefore = Directory.EnumerateFiles(wordDirectory, "*.docx", SearchOption.AllDirectories).Count();
+        var files = new BatchReplyUploadDocument[]
+        {
+            new("target-ok.docx", UploadedFileType.WordDocx, targetBytes),
+            new("target-fail.docx", UploadedFileType.WordDocx, 1, () => throw new IOException("injected stream failure"))
+        };
+
+        var action = () => service.UploadTargetsAsync(
+            new BatchReplyUserContext(1, 1),
+            sourceSessionId,
+            files,
+            CancellationToken.None);
+
+        await action.Should().ThrowAsync<IOException>().WithMessage("*injected stream failure*");
+        Directory.EnumerateFiles(wordDirectory, "*.docx", SearchOption.AllDirectories).Count()
+            .Should().Be(fileCountBefore);
+        sessionService.GetSession(1, 1, sourceSessionId)!.TargetFiles.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task LegacyPreview_WhenCancelledAfterPartialSave_ShouldCompensateTemporaryFile()
+    {
+        var targetBytes = CreateDocxBytes(new[]
+        {
+            new[] { "项目", "规格", "验收", "备注" },
+            new[] { "P1", "S1", "AC-1", "RM-1" }
+        });
+        var sourceSessionId = await UploadSourceAsync(targetBytes, "batch-reply-preview-cancel-source.docx");
+
+        using var scope = _factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IBatchReplyAppService>();
+        var sessionService = scope.ServiceProvider.GetRequiredService<BatchReplySessionService>();
+        var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
+        var wordDirectory = storage.GetAbsolutePath("uploads/word-files");
+        var fileCountBefore = Directory.EnumerateFiles(wordDirectory, "*.docx", SearchOption.AllDirectories).Count();
+        using var cancellation = new CancellationTokenSource();
+        var files = new BatchReplyUploadDocument[]
+        {
+            new("preview-ok.docx", UploadedFileType.WordDocx, targetBytes),
+            new("preview-cancel.docx", UploadedFileType.WordDocx, 1, () =>
+            {
+                cancellation.Cancel();
+                throw new OperationCanceledException(cancellation.Token);
+            })
+        };
+        var tableConfigs = new[]
+        {
+            new BatchTableConfig
+            {
+                TableIndex = 0,
+                ProjectColumnIndex = 0,
+                SpecificationColumnIndex = 1,
+                AcceptanceColumnIndex = 2,
+                RemarkColumnIndex = 3,
+                FilterEmptySourceRows = true
+            }
+        };
+
+        var action = () => service.PreviewAsync(
+            new BatchReplyUserContext(1, 1),
+            sourceSessionId,
+            tableConfigs,
+            files,
+            cancellation.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
+        Directory.EnumerateFiles(wordDirectory, "*.docx", SearchOption.AllDirectories).Count()
+            .Should().Be(fileCountBefore);
+        sessionService.GetSession(1, 1, sourceSessionId)!.TargetFiles.Should().BeEmpty();
     }
 
     [Fact]

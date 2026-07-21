@@ -58,6 +58,8 @@ public interface ISystemUserAppService
 /// </summary>
 public sealed class SystemUserAppService : ISystemUserAppService
 {
+    private const int MinimumNewPasswordLength = 12;
+
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuthPasswordService _authPasswordService;
     private readonly AppDbContext _dbContext;
@@ -88,7 +90,8 @@ public sealed class SystemUserAppService : ISystemUserAppService
             pageSize,
             companyId,
             keyword,
-            isActive);
+            isActive,
+            cancellationToken);
 
         return new PagedData<SystemUserDto>
         {
@@ -123,10 +126,9 @@ public sealed class SystemUserAppService : ISystemUserAppService
         if (!IsValidUsername(normalizedUsername))
             throw new ApplicationServiceException(400, "用户名仅支持字母、数字、点、下划线、中划线，且长度为3-64");
 
-        if (string.IsNullOrWhiteSpace(request.Password))
-            throw new ApplicationServiceException(400, "密码不能为空");
+        ValidateNewPassword(request.Password, "密码");
 
-        if (await _unitOfWork.SystemUsers.AnyAsync(u => u.Username == normalizedUsername))
+        if (await _unitOfWork.SystemUsers.AnyAsync(u => u.Username == normalizedUsername, cancellationToken))
             throw new ApplicationServiceException(400, "用户名已存在");
 
         var roleCode = NormalizeCode(request.RoleCode);
@@ -137,6 +139,9 @@ public sealed class SystemUserAppService : ISystemUserAppService
             .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.IsActive && r.Code == roleCode, cancellationToken);
         if (role == null)
             throw new ApplicationServiceException(400, "存在无效角色编码");
+
+        ValidateRoleInterval(request.RoleStartAt, request.RoleEndAt);
+        ValidateOrgInterval(request.OrgStartAt, request.OrgEndAt);
 
         var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId, request.OrgUnitId, cancellationToken);
         if (!assignedOrgUnitId.HasValue)
@@ -172,8 +177,8 @@ public sealed class SystemUserAppService : ISystemUserAppService
             CreatedAt = now
         });
 
-        await _unitOfWork.SystemUsers.AddAsync(user);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SystemUsers.AddAsync(user, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("创建系统用户成功: {Username}", user.Username);
         return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
@@ -186,6 +191,10 @@ public sealed class SystemUserAppService : ISystemUserAppService
         string currentUsername,
         CancellationToken cancellationToken = default)
     {
+        await using var adminBoundaryLock = await _unitOfWork.AcquireOperationLockAsync(
+            BuildAdminBoundaryLockKey(companyId),
+            cancellationToken);
+
         var user = await LoadUserWithAccessAsync(id, cancellationToken);
         if (user == null || user.CompanyId != companyId)
             throw new ApplicationServiceException(400, "用户不存在");
@@ -199,8 +208,19 @@ public sealed class SystemUserAppService : ISystemUserAppService
         if (role == null)
             throw new ApplicationServiceException(400, "存在无效角色编码");
 
-        if (!await ValidateAdminBoundaryAsync(companyId, user, request.IsActive, roleCode, "更新用户", cancellationToken))
-            throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户");
+        ValidateRoleInterval(request.RoleStartAt, request.RoleEndAt);
+        ValidateOrgInterval(request.OrgStartAt, request.OrgEndAt);
+
+        if (!await ValidateAdminBoundaryAsync(
+                companyId,
+                user,
+                request.IsActive,
+                roleCode,
+                request.RoleStartAt,
+                request.RoleEndAt,
+                "更新用户",
+                cancellationToken))
+            throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户，且管理员覆盖区间必须连续");
 
         if (!request.IsActive &&
             string.Equals(user.Username, currentUsername, StringComparison.OrdinalIgnoreCase))
@@ -241,7 +261,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
         }, cancellationToken);
 
         _unitOfWork.SystemUsers.Update(user);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
     }
@@ -253,6 +273,10 @@ public sealed class SystemUserAppService : ISystemUserAppService
         string currentUsername,
         CancellationToken cancellationToken = default)
     {
+        await using var adminBoundaryLock = await _unitOfWork.AcquireOperationLockAsync(
+            BuildAdminBoundaryLockKey(companyId),
+            cancellationToken);
+
         var user = await LoadUserWithAccessAsync(id, cancellationToken);
         if (user == null || user.CompanyId != companyId)
             throw new ApplicationServiceException(400, "用户不存在");
@@ -262,9 +286,11 @@ public sealed class SystemUserAppService : ISystemUserAppService
                 user,
                 request.IsActive,
                 GetEffectiveRoleCode(user),
+                user.UserRoles.SingleOrDefault()?.StartAt,
+                user.UserRoles.SingleOrDefault()?.EndAt,
                 "更新状态",
                 cancellationToken))
-            throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户");
+            throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户，且管理员覆盖区间必须连续");
 
         if (!request.IsActive &&
             string.Equals(user.Username, currentUsername, StringComparison.OrdinalIgnoreCase))
@@ -277,7 +303,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
         user.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.SystemUsers.Update(user);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
     }
@@ -288,19 +314,18 @@ public sealed class SystemUserAppService : ISystemUserAppService
         ResetSystemUserPasswordRequest request,
         CancellationToken cancellationToken = default)
     {
-        var user = await _unitOfWork.SystemUsers.GetByIdAsync(id);
+        var user = await _unitOfWork.SystemUsers.GetByIdAsync(id, cancellationToken);
         if (user == null || user.CompanyId != companyId)
             throw new ApplicationServiceException(400, "用户不存在");
 
-        if (string.IsNullOrWhiteSpace(request.NewPassword))
-            throw new ApplicationServiceException(400, "新密码不能为空");
+        ValidateNewPassword(request.NewPassword, "新密码");
 
         user.PasswordHash = _authPasswordService.HashPassword(request.NewPassword);
         user.PermissionVersion += 1;
         user.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.SystemUsers.Update(user);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("重置用户密码成功: {Username}", user.Username);
     }
@@ -311,18 +336,22 @@ public sealed class SystemUserAppService : ISystemUserAppService
         string currentUsername,
         CancellationToken cancellationToken = default)
     {
+        await using var adminBoundaryLock = await _unitOfWork.AcquireOperationLockAsync(
+            BuildAdminBoundaryLockKey(companyId),
+            cancellationToken);
+
         var user = await LoadUserWithAccessAsync(id, cancellationToken);
         if (user == null || user.CompanyId != companyId)
             throw new ApplicationServiceException(400, "用户不存在");
 
-        if (!await ValidateAdminBoundaryAsync(companyId, user, false, null, "删除用户", cancellationToken))
-            throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户");
+        if (!await ValidateAdminBoundaryAsync(companyId, user, false, null, null, null, "删除用户", cancellationToken))
+            throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户，且管理员覆盖区间必须连续");
 
         if (string.Equals(user.Username, currentUsername, StringComparison.OrdinalIgnoreCase))
             throw new ApplicationServiceException(400, "不能删除当前登录账号");
 
         _unitOfWork.SystemUsers.Remove(user);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("删除系统用户成功: {Username}", user.Username);
     }
@@ -381,24 +410,112 @@ public sealed class SystemUserAppService : ISystemUserAppService
         SystemUser targetUser,
         bool nextIsActive,
         string? nextRoleCode,
+        DateTime? nextRoleStartAt,
+        DateTime? nextRoleEndAt,
         string operationName,
         CancellationToken cancellationToken = default)
     {
-        var currentIsActiveAdmin = targetUser.IsActive && HasAdminRole(GetEffectiveRoleCode(targetUser));
+        var now = DateTime.UtcNow;
+        var targetHasCurrentOrFutureAdminCoverage = targetUser.IsActive && targetUser.UserRoles.Any(link =>
+            link.Role.IsActive &&
+            HasAdminRole(link.Role.Code) &&
+            (!link.EndAt.HasValue || link.EndAt.Value >= now));
         var nextIsActiveAdmin = nextIsActive && HasAdminRole(nextRoleCode);
 
-        if (!currentIsActiveAdmin || nextIsActiveAdmin)
+        if (!targetHasCurrentOrFutureAdminCoverage && !nextIsActiveAdmin)
             return true;
 
-        var activeAdminCount = await _unitOfWork.SystemUsers.CountActiveAdminUsersAsync(companyId);
-        if (activeAdminCount <= 1)
+        var intervals = await _dbContext.SystemUsers
+            .AsNoTracking()
+            .Where(user => user.CompanyId == companyId && user.Id != targetUser.Id && user.IsActive)
+            .SelectMany(user => user.UserRoles)
+            .Where(link => link.Role.IsActive && link.Role.Code == "admin")
+            .Select(link => new AdminCoverageInterval(link.StartAt, link.EndAt))
+            .ToListAsync(cancellationToken);
+
+        if (nextIsActiveAdmin)
         {
-            _logger.LogWarning("{Operation}被拒绝：尝试移除最后一个启用的admin用户 {Username}", operationName, targetUser.Username);
+            intervals.Add(new AdminCoverageInterval(nextRoleStartAt, nextRoleEndAt));
+        }
+
+        if (!HasContinuousAdminCoverage(intervals, now))
+        {
+            _logger.LogWarning(
+                "{Operation}被拒绝：变更会使公司 {CompanyId} 的 admin 覆盖区间出现空档，目标用户 {Username}",
+                operationName,
+                companyId,
+                targetUser.Username);
             return false;
         }
 
         return true;
     }
+
+    private static bool HasContinuousAdminCoverage(
+        IEnumerable<AdminCoverageInterval> intervals,
+        DateTime now)
+    {
+        var candidates = intervals
+            .Select(interval => new
+            {
+                Start = interval.StartAt ?? DateTime.MinValue,
+                End = interval.EndAt ?? DateTime.MaxValue
+            })
+            .Where(interval => interval.End >= now)
+            .OrderBy(interval => interval.Start)
+            .ThenByDescending(interval => interval.End)
+            .ToList();
+
+        var coveringNow = candidates
+            .Where(interval => interval.Start <= now && interval.End >= now)
+            .ToList();
+        if (coveringNow.Count == 0)
+            return false;
+
+        var coverageEnd = coveringNow.Max(interval => interval.End);
+        if (coverageEnd == DateTime.MaxValue)
+            return true;
+
+        foreach (var interval in candidates.Where(interval => interval.Start > now))
+        {
+            var nextAllowedStart = coverageEnd == DateTime.MaxValue
+                ? DateTime.MaxValue
+                : coverageEnd.AddTicks(1);
+            if (interval.Start > nextAllowedStart)
+                break;
+
+            if (interval.End > coverageEnd)
+                coverageEnd = interval.End;
+            if (coverageEnd == DateTime.MaxValue)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static void ValidateNewPassword(string? password, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+            throw new ApplicationServiceException(400, $"{fieldName}不能为空");
+        if (password.Length < MinimumNewPasswordLength || password.Length > 200)
+            throw new ApplicationServiceException(400, $"{fieldName}长度必须在12到200个字符之间");
+    }
+
+    private static void ValidateRoleInterval(DateTime? startAt, DateTime? endAt)
+    {
+        if (startAt.HasValue && endAt.HasValue && startAt.Value > endAt.Value)
+            throw new ApplicationServiceException(400, "角色生效时间不能晚于失效时间");
+    }
+
+    private static void ValidateOrgInterval(DateTime? startAt, DateTime? endAt)
+    {
+        if (startAt.HasValue && endAt.HasValue && startAt.Value > endAt.Value)
+            throw new ApplicationServiceException(400, "组织生效时间不能晚于失效时间");
+    }
+
+    private static string BuildAdminBoundaryLockKey(int companyId) => $"system-user-admin-boundary:{companyId}";
+
+    private sealed record AdminCoverageInterval(DateTime? StartAt, DateTime? EndAt);
 
     private static string? GetEffectiveRoleCode(SystemUser user)
     {

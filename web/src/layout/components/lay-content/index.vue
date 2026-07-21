@@ -70,21 +70,21 @@ const getSectionStyle = computed(() => {
     hideTabs.value && layout ? "padding-top: 48px;" : "",
     !hideTabs.value && layout
       ? showModel.value == "chrome"
-        ? "padding-top: 85px;"
-        : "padding-top: 81px;"
+        ? "padding-top: 96px;"
+        : "padding-top: 92px;"
       : "",
     hideTabs.value && !layout.value ? "padding-top: 48px;" : "",
     !hideTabs.value && !layout.value
       ? showModel.value == "chrome"
-        ? "padding-top: 85px;"
-        : "padding-top: 81px;"
+        ? "padding-top: 96px;"
+        : "padding-top: 92px;"
       : "",
     props.fixedHeader
       ? ""
       : `padding-top: 0;${
           hideTabs.value
             ? "min-height: calc(100vh - 48px);"
-            : "min-height: calc(100vh - 86px);"
+            : "min-height: calc(100vh - 96px);"
         }`
   ];
 });

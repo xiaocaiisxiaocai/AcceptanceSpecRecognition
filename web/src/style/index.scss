@@ -71,6 +71,11 @@
   --el-fill-color-blank: var(--app-bg-card);
 }
 
+:where(button, a[href], [role="button"], [role="tab"]):focus-visible {
+  outline: 3px solid var(--el-color-primary-light-5);
+  outline-offset: 2px;
+}
+
 .page {
   display: flex;
   flex-direction: column;

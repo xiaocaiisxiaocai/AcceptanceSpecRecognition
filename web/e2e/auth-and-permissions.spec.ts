@@ -34,12 +34,19 @@ async function refreshFromBrowser(page: Page) {
   });
 }
 
+async function expectDashboardReady(page: Page) {
+  await expect(page).toHaveURL(/#\/dashboard$/);
+  await expect(
+    page.getByRole("button", { name: "刷新", exact: true })
+  ).toBeVisible();
+}
+
 test("登录写入 HttpOnly 会话 Cookie，并能在清空浏览器存储后恢复", async ({
   context,
   page
 }) => {
   await loginFromUi(page, "admin");
-  await expect(page.getByText("系统概览", { exact: true })).toBeVisible();
+  await expectDashboardReady(page);
 
   const refreshCookie = (await context.cookies()).find(cookie =>
     cookie.name.includes("acceptance-refresh")
@@ -58,8 +65,7 @@ test("登录写入 HttpOnly 会话 Cookie，并能在清空浏览器存储后恢
   );
   await page.reload();
   expect((await refreshResponse).ok()).toBeTruthy();
-  await expect(page).toHaveURL(/#\/dashboard$/);
-  await expect(page.getByText("系统概览", { exact: true })).toBeVisible();
+  await expectDashboardReady(page);
 });
 
 test("普通用户看不到 RBAC 页面，受限 API 返回 403", async ({ page }) => {
@@ -143,9 +149,9 @@ test("两个标签页会同步用户主动登出并清除服务端会话 Cookie"
   await loginFromUi(page, "admin");
   const secondPage = await context.newPage();
   await secondPage.goto("/#/dashboard");
-  await expect(secondPage.getByText("系统概览", { exact: true })).toBeVisible();
+  await expectDashboardReady(secondPage);
 
-  await page.getByRole("button", { name: "管理员", exact: true }).click();
+  await page.getByRole("button", { name: "管理员账户菜单" }).click();
   await page.getByText("退出系统", { exact: true }).click();
 
   await expect(page).toHaveURL(/#\/login/);
@@ -165,7 +171,7 @@ test("服务端判定会话重放后，一个标签页的恢复失败会使另�
   const original = await getSessionCookies(context);
   const secondPage = await context.newPage();
   await secondPage.goto("/#/dashboard");
-  await expect(secondPage.getByText("系统概览", { exact: true })).toBeVisible();
+  await expectDashboardReady(secondPage);
   const replacement = await getSessionCookies(context);
   expect(replacement.refresh.value).not.toBe(original.refresh.value);
 

@@ -28,8 +28,11 @@ public partial class LlmMatchingAssistService :
     private readonly IAiServiceSelector _selector;
     private readonly ISemanticKernelServiceFactory _factory;
     private readonly ILogger<LlmMatchingAssistService> _logger;
+    private readonly IAiServiceRuntimeStatusReporter _runtimeStatusReporter;
+    private readonly IAiServiceRuntimeAvailability? _runtimeAvailability;
+    private readonly TimeProvider _timeProvider;
     private readonly ConcurrentDictionary<string, PromptTemplateModel> _promptTemplateCache = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<AiServicePurpose, IReadOnlyList<AiServiceConfigModel>> _aiServiceCandidateCache = [];
+    private readonly ConcurrentDictionary<AiServicePurpose, CandidateCacheEntry> _aiServiceCandidateCache = [];
     private readonly SemaphoreSlim _promptTemplateCacheLock = new(1, 1);
     private readonly SemaphoreSlim _aiServiceCandidateCacheLock = new(1, 1);
     private readonly SemaphoreSlim _dbBackedCacheInitializationLock = new(1, 1);
@@ -38,13 +41,24 @@ public partial class LlmMatchingAssistService :
         IPromptTemplateProvider promptTemplateProvider,
         IAiServiceSelector selector,
         ISemanticKernelServiceFactory factory,
-        ILogger<LlmMatchingAssistService> logger)
+        ILogger<LlmMatchingAssistService> logger,
+        IAiServiceRuntimeStatusReporter? runtimeStatusReporter = null,
+        IAiServiceRuntimeAvailability? runtimeAvailability = null,
+        TimeProvider? timeProvider = null)
     {
         _promptTemplateProvider = promptTemplateProvider;
         _selector = selector;
         _factory = factory;
         _logger = logger;
+        _runtimeStatusReporter = runtimeStatusReporter ?? NullAiServiceRuntimeStatusReporter.Instance;
+        _runtimeAvailability = runtimeAvailability;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
+
+    private sealed record CandidateCacheEntry(
+        IReadOnlyList<AiServiceConfigModel> Candidates,
+        DateTime ExpiresAt,
+        long ConfigurationVersion);
 
     public async Task<LlmReviewResult?> ReviewAsync(LlmReviewRequest request, CancellationToken cancellationToken = default)
     {
@@ -57,11 +71,12 @@ public partial class LlmMatchingAssistService :
             cancellationToken);
         var prompt = BuildReviewPrompt(template.Content, request);
 
-        _logger.LogInformation("[LLM复核] 源: {Src} | 匹配: {Match} | 基础得分: {Score}",
-            $"{request.SourceProject}/{request.SourceSpecification}",
-            $"{request.BestMatchProject}/{request.BestMatchSpecification}",
-            request.BaseScore?.ToString("0.#") ?? "N/A");
-        _logger.LogDebug("[LLM复核] 完整Prompt:\n{Prompt}", prompt);
+        _logger.LogInformation(
+            "[LLM复核] scene={Scene}, prompt={PromptSummary}, baseScore={Score}, traceId={TraceId}",
+            request.ReviewScene,
+            SensitiveLogFormatter.DescribePayload(prompt),
+            request.BaseScore?.ToString("0.#") ?? "N/A",
+            Activity.Current?.TraceId.ToString() ?? "none");
 
         var sw = Stopwatch.StartNew();
         var raw = await GenerateWithFallbackAsync(
@@ -82,7 +97,7 @@ public partial class LlmMatchingAssistService :
 
         if (TryParseReviewResult(raw, out var result))
         {
-            _logger.LogInformation("[LLM复核] 解析结果: score={Score}, reason={Reason}", result.Score, result.Reason);
+            _logger.LogInformation("[LLM复核] 解析结果: score={Score}", result.Score);
             return result;
         }
 
@@ -104,11 +119,12 @@ public partial class LlmMatchingAssistService :
             cancellationToken);
         var prompt = BuildReviewPrompt(template.Content, request);
 
-        _logger.LogInformation("[LLM复核-Stream] 源: {Src} | 匹配: {Match} | 基础得分: {Score}",
-            $"{request.SourceProject}/{request.SourceSpecification}",
-            $"{request.BestMatchProject}/{request.BestMatchSpecification}",
-            request.BaseScore?.ToString("0.#") ?? "N/A");
-        _logger.LogDebug("[LLM复核-Stream] 完整Prompt:\n{Prompt}", prompt);
+        _logger.LogInformation(
+            "[LLM复核-Stream] scene={Scene}, prompt={PromptSummary}, baseScore={Score}, traceId={TraceId}",
+            request.ReviewScene,
+            SensitiveLogFormatter.DescribePayload(prompt),
+            request.BaseScore?.ToString("0.#") ?? "N/A",
+            Activity.Current?.TraceId.ToString() ?? "none");
 
         await foreach (var chunk in GenerateStreamWithFallbackAsync(prompt, request.LlmServiceId, "LLM 复核失败", cancellationToken))
         {
@@ -157,11 +173,10 @@ public partial class LlmMatchingAssistService :
         var prompt = BuildEquivalenceAdjudicationPrompt(template.Content, request);
 
         _logger.LogInformation(
-            "[LLM等价裁决] 源: {Source} | 候选: {Candidate} | 当前决策: {Decision}",
-            $"{request.SourceProject}/{request.SourceSpecification}",
-            $"{request.CandidateProject}/{request.CandidateSpecification}",
-            request.CurrentDecision);
-        _logger.LogDebug("[LLM等价裁决] 完整Prompt:\n{Prompt}", prompt);
+            "[LLM等价裁决] prompt={PromptSummary}, currentDecision={Decision}, traceId={TraceId}",
+            SensitiveLogFormatter.DescribePayload(prompt),
+            request.CurrentDecision,
+            Activity.Current?.TraceId.ToString() ?? "none");
 
         var sw = Stopwatch.StartNew();
         var raw = await GenerateWithFallbackAsync(
@@ -209,11 +224,11 @@ public partial class LlmMatchingAssistService :
         var prompt = BuildCandidateRerankPrompt(template.Content, request);
 
         _logger.LogInformation(
-            "[LLM候选重排] 源: {Source} | 当前Top1: {Top1SpecId} | 候选数: {Count}",
-            $"{request.SourceProject}/{request.SourceSpecification}",
+            "[LLM候选重排] prompt={PromptSummary}, currentTop1={Top1SpecId}, candidateCount={Count}, traceId={TraceId}",
+            SensitiveLogFormatter.DescribePayload(prompt),
             request.CurrentTopCandidateSpecId,
-            request.Candidates.Count);
-        _logger.LogDebug("[LLM候选重排] 完整Prompt:\n{Prompt}", prompt);
+            request.Candidates.Count,
+            Activity.Current?.TraceId.ToString() ?? "none");
 
         var sw = Stopwatch.StartNew();
         var raw = await GenerateWithFallbackAsync(

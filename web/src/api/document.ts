@@ -1,5 +1,6 @@
 import { http } from "@/utils/http";
 import type { ApiResponse, PagedData, PagedRequest } from "./customer";
+import type { UploadTransportOptions } from "@/utils/upload-request";
 
 /** Word文件信息 */
 export interface WordFile {
@@ -47,6 +48,13 @@ export interface TableData {
   structuredRows?: StructuredCellValue[][];
   totalRows: number;
   columnCount: number;
+  rowOffset?: number;
+  columnOffset?: number;
+  totalColumns?: number;
+}
+
+export interface RequestSignalOptions {
+  signal?: AbortSignal;
 }
 
 /** 结构化单元格值 */
@@ -175,7 +183,7 @@ export const getFileList = (params?: PagedRequest) => {
 };
 
 /** 上传Word文件 */
-export const uploadFile = (file: File) => {
+export const uploadFile = (file: File, options?: UploadTransportOptions) => {
   const formData = new FormData();
   formData.append("file", file);
   return http.request<ApiResponse<FileUploadResponse>>(
@@ -186,17 +194,22 @@ export const uploadFile = (file: File) => {
       headers: {
         "Content-Type": "multipart/form-data"
       },
-      timeout: uploadRequestTimeout
+      timeout: uploadRequestTimeout,
+      signal: options?.signal,
+      onUploadProgress: options?.onUploadProgress
     }
   );
 };
 
 /** 获取文件中的表格列表 */
-export const getFileTables = (fileId: number) => {
+export const getFileTables = (
+  fileId: number,
+  options?: RequestSignalOptions
+) => {
   return http.request<ApiResponse<TableInfo[]>>(
     "get",
     `${baseUrl}/${fileId}/tables`,
-    { timeout: tableMetadataRequestTimeout }
+    { timeout: tableMetadataRequestTimeout, signal: options?.signal }
   );
 };
 
@@ -210,13 +223,18 @@ export const getTablePreview = (
     headerRowCount?: number;
     dataStartRowIndex?: number;
     dataEndRowIndex?: number;
-  }
+    rowOffset?: number;
+    columnOffset?: number;
+    previewColumns?: number;
+  },
+  requestOptions?: RequestSignalOptions
 ) => {
   return http.request<ApiResponse<TableData>>(
     "get",
     `${baseUrl}/${fileId}/tables/${tableIndex}/preview`,
     {
-      params: options
+      params: options,
+      signal: requestOptions?.signal
     }
   );
 };

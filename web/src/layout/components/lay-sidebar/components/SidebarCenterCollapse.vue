@@ -32,14 +32,17 @@ const toggleClick = () => {
 </script>
 
 <template>
-  <div
+  <button
     v-tippy="{
       content: isActive ? '点击折叠' : '点击展开',
       theme: tooltipEffect,
       hideOnClick: 'toggle',
       placement: 'right'
     }"
+    type="button"
     class="center-collapse"
+    :aria-label="isActive ? '折叠侧边栏' : '展开侧边栏'"
+    :aria-expanded="isActive"
     @click="toggleClick"
   >
     <IconifyIconOffline
@@ -47,7 +50,7 @@ const toggleClick = () => {
       :class="[iconClass, themeColor === 'light' ? '' : 'text-primary']"
       :style="{ transform: isActive ? 'none' : 'rotateY(180deg)' }"
     />
-  </div>
+  </button>
 </template>
 
 <style lang="scss" scoped>
@@ -59,12 +62,12 @@ const toggleClick = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   cursor: pointer;
   background: var(--el-bg-color);
   border: 1px solid var(--pure-border-color);
   border-radius: 4px;
-  transform: translate(12px, -50%);
+  transform: translate(22px, -50%);
 }
 </style>

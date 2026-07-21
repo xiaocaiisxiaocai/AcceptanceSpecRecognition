@@ -10,19 +10,21 @@ public sealed class BatchPreviewProgressTracker
     private static readonly TimeSpan EntrySlidingExpiration = TimeSpan.FromMinutes(20);
 
     private readonly IMemoryCache _memoryCache;
+    private readonly object _startSyncRoot = new();
 
     public BatchPreviewProgressTracker(IMemoryCache memoryCache)
     {
         _memoryCache = memoryCache;
     }
 
-    public void Start(string? requestId, int totalTables)
+    public bool TryStart(MatchingUserContext owner, string? requestId, int totalTables)
     {
         if (string.IsNullOrWhiteSpace(requestId))
         {
-            return;
+            return true;
         }
 
+        var key = BuildKey(owner, requestId);
         var now = DateTime.UtcNow;
         var entry = new ProgressEntry
         {
@@ -36,10 +38,21 @@ public sealed class BatchPreviewProgressTracker
             UpdatedAt = now
         };
 
-        SetEntry(entry);
+        lock (_startSyncRoot)
+        {
+            if (_memoryCache.TryGetValue<ProgressEntry>(key, out var existing) &&
+                existing?.Status == "running")
+            {
+                return false;
+            }
+
+            SetEntry(key, entry);
+            return true;
+        }
     }
 
     public void Update(
+        MatchingUserContext owner,
         string? requestId,
         string stage,
         string stageText,
@@ -54,7 +67,8 @@ public sealed class BatchPreviewProgressTracker
             return;
         }
 
-        var entry = GetOrCreateEntry(requestId.Trim());
+        var key = BuildKey(owner, requestId);
+        var entry = GetOrCreateEntry(key, requestId.Trim());
         lock (entry.SyncRoot)
         {
             // completed/failed 属于终态，不允许被后续异步进度回调回写成运行中阶段。
@@ -83,12 +97,18 @@ public sealed class BatchPreviewProgressTracker
             entry.UpdatedAt = DateTime.UtcNow;
         }
 
-        SetEntry(entry);
+        SetEntry(key, entry);
     }
 
-    public void Complete(string? requestId, int completedItems, int totalItems, string? detailText = null)
+    public void Complete(
+        MatchingUserContext owner,
+        string? requestId,
+        int completedItems,
+        int totalItems,
+        string? detailText = null)
     {
         Update(
+            owner,
             requestId,
             stage: "completed",
             stageText: "匹配预览已完成",
@@ -99,25 +119,28 @@ public sealed class BatchPreviewProgressTracker
             status: "completed");
     }
 
-    public void Fail(string? requestId, string? message)
+    public void Fail(MatchingUserContext owner, string? requestId, string? message)
     {
         Update(
+            owner,
             requestId,
             stage: "failed",
             stageText: "匹配预览失败",
-            detailText: string.IsNullOrWhiteSpace(message) ? "请稍后重试" : message,
+            // 进度缓存可能被轮询接口直接返回，禁止写入原始异常或外部服务响应。
+            detailText: "匹配预览失败，请稍后重试",
             progressPercent: 100,
             status: "failed");
     }
 
-    public BatchPreviewProgressResponse? GetSnapshot(string requestId)
+    public BatchPreviewProgressResponse? GetSnapshot(MatchingUserContext owner, string requestId)
     {
         if (string.IsNullOrWhiteSpace(requestId))
         {
             return null;
         }
 
-        if (!_memoryCache.TryGetValue<ProgressEntry>(requestId.Trim(), out var entry) || entry == null)
+        var key = BuildKey(owner, requestId);
+        if (!_memoryCache.TryGetValue<ProgressEntry>(key, out var entry) || entry == null)
         {
             return null;
         }
@@ -142,10 +165,10 @@ public sealed class BatchPreviewProgressTracker
         }
     }
 
-    private ProgressEntry GetOrCreateEntry(string requestId)
+    private ProgressEntry GetOrCreateEntry(ProgressCacheKey key, string requestId)
     {
         return _memoryCache.GetOrCreate(
-            requestId,
+            key,
             cacheEntry =>
             {
                 cacheEntry.SetSlidingExpiration(EntrySlidingExpiration);
@@ -163,10 +186,10 @@ public sealed class BatchPreviewProgressTracker
             })!;
     }
 
-    private void SetEntry(ProgressEntry entry)
+    private void SetEntry(ProgressCacheKey key, ProgressEntry entry)
     {
         _memoryCache.Set(
-            entry.RequestId,
+            key,
             entry,
             new MemoryCacheEntryOptions
             {
@@ -178,6 +201,13 @@ public sealed class BatchPreviewProgressTracker
     {
         return Math.Clamp(Math.Round(percent, 1), 0, 100);
     }
+
+    private static ProgressCacheKey BuildKey(MatchingUserContext owner, string requestId)
+    {
+        return new ProgressCacheKey(owner.CompanyId, owner.UserId, requestId.Trim());
+    }
+
+    private sealed record ProgressCacheKey(int CompanyId, int UserId, string RequestId);
 
     private sealed class ProgressEntry
     {

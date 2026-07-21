@@ -14,7 +14,13 @@ public sealed class TestFileStorageService : IFileStorageService
     public Task<string> SaveUploadedWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
         => SaveAsync("uploads/word-files", originalFileName, content, cancellationToken);
 
+    public Task<string> SaveUploadedWordAsync(string originalFileName, Stream content, CancellationToken cancellationToken = default)
+        => SaveAsync("uploads/word-files", originalFileName, content, cancellationToken);
+
     public Task<string> SaveUploadedExcelAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
+        => SaveAsync("uploads/excel-files", originalFileName, content, cancellationToken);
+
+    public Task<string> SaveUploadedExcelAsync(string originalFileName, Stream content, CancellationToken cancellationToken = default)
         => SaveAsync("uploads/excel-files", originalFileName, content, cancellationToken);
 
     public Task<string> SaveFilledWordAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
@@ -69,6 +75,29 @@ public sealed class TestFileStorageService : IFileStorageService
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
 
         await File.WriteAllBytesAsync(fullPath, content, cancellationToken);
+        return relativePath;
+    }
+
+    private async Task<string> SaveAsync(string baseRelativeDir, string originalFileName, Stream content, CancellationToken cancellationToken)
+    {
+        var ext = Path.GetExtension(originalFileName);
+        if (string.IsNullOrWhiteSpace(ext))
+            ext = ".docx";
+
+        var dateDir = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var fileName = $"{Guid.NewGuid():N}{ext}";
+        var relativePath = $"{baseRelativeDir}/{dateDir}/{fileName}";
+        var fullPath = GetAbsolutePath(relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+
+        await using var output = new FileStream(
+            fullPath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await content.CopyToAsync(output, cancellationToken);
         return relativePath;
     }
 }

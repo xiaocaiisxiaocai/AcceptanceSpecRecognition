@@ -46,9 +46,13 @@ public sealed partial class DocumentImportAppService
         }
     }
 
-    private async Task ValidateImportTargetAsync(int customerId, int? processId, int? machineModelId)
+    private async Task ValidateImportTargetAsync(
+        int customerId,
+        int? processId,
+        int? machineModelId,
+        CancellationToken cancellationToken)
     {
-        var customer = await _unitOfWork.Customers.GetByIdAsync(customerId);
+        var customer = await _unitOfWork.Customers.GetByIdAsync(customerId, cancellationToken);
         if (customer == null)
         {
             throw new ApplicationServiceException(400, "客户不存在");
@@ -56,7 +60,7 @@ public sealed partial class DocumentImportAppService
 
         if (processId.HasValue)
         {
-            var process = await _unitOfWork.Processes.GetByIdAsync(processId.Value);
+            var process = await _unitOfWork.Processes.GetByIdAsync(processId.Value, cancellationToken);
             if (process == null)
             {
                 throw new ApplicationServiceException(400, "制程不存在");
@@ -65,7 +69,7 @@ public sealed partial class DocumentImportAppService
 
         if (machineModelId.HasValue)
         {
-            var machineModel = await _unitOfWork.MachineModels.GetByIdAsync(machineModelId.Value);
+            var machineModel = await _unitOfWork.MachineModels.GetByIdAsync(machineModelId.Value, cancellationToken);
             if (machineModel == null)
             {
                 throw new ApplicationServiceException(400, "机型不存在");
@@ -101,7 +105,11 @@ public sealed partial class DocumentImportAppService
                     : "该文件为 Excel，请使用 Excel 导入接口");
         }
 
-        await ValidateImportTargetAsync(customerId, processId, machineModelId);
+        await ValidateImportTargetAsync(
+            customerId,
+            processId,
+            machineModelId,
+            cancellationToken);
         return file;
     }
 
@@ -228,7 +236,7 @@ public sealed partial class DocumentImportAppService
             var pendingMessage = $"检测到{result.PendingCount}条重复或疑似重复数据，请逐条确认后再导入";
             if (executionContext.OverwriteCount > 0 || idempotency != null)
             {
-                await _unitOfWork.BeginTransactionAsync();
+                await _unitOfWork.BeginTransactionAsync(cancellationToken);
                 await AddImportExecutionSnapshotAsync(
                     idempotency,
                     scope,
@@ -237,7 +245,7 @@ public sealed partial class DocumentImportAppService
                     pendingMessage,
                     cleanupRequested: false);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-                await _unitOfWork.CommitTransactionAsync();
+                await _unitOfWork.CommitTransactionAsync(cancellationToken);
             }
             return new DocumentImportAppResult(
                 result,
@@ -250,7 +258,7 @@ public sealed partial class DocumentImportAppService
         {
             // 解析、Embedding 与 AI 重复判断均已在事务外完成。这里只用短事务提交
             // 最终规格变更和幂等快照，避免慢外部调用长期占用数据库事务。
-            await _unitOfWork.BeginTransactionAsync();
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
             if (executionContext.SpecsToInsert.Count > 0)
             {
                 await _unitOfWork.AcceptanceSpecs.AddRangeAsync(
@@ -268,7 +276,7 @@ public sealed partial class DocumentImportAppService
                 completedMessage,
                 cleanupSourceFile);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await _unitOfWork.CommitTransactionAsync();
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
         }
 
         if (cleanupSourceFile && result.FailedCount == 0)

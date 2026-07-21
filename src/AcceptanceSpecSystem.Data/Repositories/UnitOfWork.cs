@@ -339,15 +339,19 @@ public class UnitOfWork : IUnitOfWork
     /// <summary>
     /// 开始数据库事务（异步）。
     /// </summary>
-    public async Task BeginTransactionAsync()
+    public Task BeginTransactionAsync() => BeginTransactionAsync(CancellationToken.None);
+
+    public async Task BeginTransactionAsync(CancellationToken cancellationToken)
     {
-        _transaction = await _context.Database.BeginTransactionAsync();
+        _transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
     }
 
     /// <summary>
     /// 提交事务（异步）。若当前无事务则不执行。
     /// </summary>
-    public async Task CommitTransactionAsync()
+    public Task CommitTransactionAsync() => CommitTransactionAsync(CancellationToken.None);
+
+    public async Task CommitTransactionAsync(CancellationToken cancellationToken)
     {
         if (_transaction == null)
         {
@@ -358,7 +362,7 @@ public class UnitOfWork : IUnitOfWork
         _transaction = null;
         try
         {
-            await transaction.CommitAsync();
+            await transaction.CommitAsync(cancellationToken);
         }
         finally
         {
@@ -376,7 +380,9 @@ public class UnitOfWork : IUnitOfWork
     /// <summary>
     /// 回滚事务（异步）。若当前无事务则不执行。
     /// </summary>
-    public async Task RollbackTransactionAsync()
+    public Task RollbackTransactionAsync() => RollbackTransactionAsync(CancellationToken.None);
+
+    public async Task RollbackTransactionAsync(CancellationToken cancellationToken)
     {
         if (_transaction == null)
         {
@@ -387,7 +393,7 @@ public class UnitOfWork : IUnitOfWork
         _transaction = null;
         try
         {
-            await transaction.RollbackAsync();
+            await transaction.RollbackAsync(cancellationToken);
         }
         catch
         {

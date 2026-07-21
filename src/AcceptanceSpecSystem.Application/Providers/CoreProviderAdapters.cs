@@ -20,7 +20,9 @@ public sealed class AiServiceConfigProvider : IAiServiceConfigProvider
         AiServicePurpose purpose,
         CancellationToken cancellationToken = default)
     {
-        var entities = await _repository.GetByPurposeAsync(AiServiceConfigMapper.ToDataPurpose(purpose));
+        var entities = await _repository.GetByPurposeAsync(
+            AiServiceConfigMapper.ToDataPurpose(purpose),
+            cancellationToken);
         return entities.Select(AiServiceConfigMapper.ToCoreModel).ToList();
     }
 }
@@ -47,8 +49,9 @@ public sealed class PromptTemplateProvider : IPromptTemplateProvider
             PromptTemplateMapper.ToDataScene(scene),
             name,
             displayName,
-            defaultContent);
-        await _unitOfWork.SaveChangesAsync();
+            defaultContent,
+            cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new PromptTemplateModel
         {
@@ -62,13 +65,13 @@ public sealed class PromptTemplateProvider : IPromptTemplateProvider
         string content,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _repository.GetByIdAsync(id)
+        var entity = await _repository.GetByIdAsync(id, cancellationToken)
             ?? throw new InvalidOperationException($"Prompt 模板不存在: {id}");
 
         entity.Content = content;
         entity.UpdatedAt = DateTime.UtcNow;
         _repository.Update(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 }
 

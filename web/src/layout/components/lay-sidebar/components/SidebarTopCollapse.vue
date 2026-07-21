@@ -20,14 +20,16 @@ const toggleClick = () => {
 </script>
 
 <template>
-  <div
+  <button
+    type="button"
     class="px-3 mr-1 navbar-bg-hover"
-    :title="isActive ? '点击折叠' : '点击展开'"
+    :aria-label="isActive ? '折叠侧边栏' : '展开侧边栏'"
+    :aria-expanded="isActive"
     @click="toggleClick"
   >
     <IconifyIconOffline
       :icon="isActive ? MenuFold : MenuUnfold"
       class="inline-block! align-middle hover:text-primary dark:hover:text-white!"
     />
-  </div>
+  </button>
 </template>

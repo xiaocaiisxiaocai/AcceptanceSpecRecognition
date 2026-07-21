@@ -45,10 +45,19 @@ const {
       <LaySidebarFullScreen id="full-screen" />
       <!-- 退出登录 -->
       <el-dropdown trigger="click">
-        <span class="el-dropdown-link navbar-bg-hover select-none">
-          <img :src="userAvatar" :style="avatarsStyle" />
+        <button
+          type="button"
+          class="el-dropdown-link navbar-bg-hover select-none"
+          aria-haspopup="menu"
+          :aria-label="`${username || '当前用户'}账户菜单`"
+        >
+          <img
+            :src="userAvatar"
+            :style="avatarsStyle"
+            :alt="`${username || '当前用户'}头像`"
+          />
           <p v-if="username" class="dark:text-white">{{ username }}</p>
-        </span>
+        </button>
         <template #dropdown>
           <el-dropdown-menu class="logout">
             <el-dropdown-item @click="logout">
@@ -61,13 +70,14 @@ const {
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-      <span
+      <button
+        type="button"
         class="set-icon navbar-bg-hover"
-        title="打开系统配置"
+        aria-label="打开系统配置"
         @click="onPanel"
       >
-        <IconifyIconOffline :icon="Setting" />
-      </span>
+        <IconifyIconOffline :icon="Setting" aria-hidden="true" />
+      </button>
     </div>
   </div>
 </template>
@@ -80,9 +90,14 @@ const {
 
   .hamburger-container {
     float: left;
+    min-width: 44px;
     height: 100%;
+    padding: 0;
     line-height: 48px;
+    color: inherit;
     cursor: pointer;
+    background: transparent;
+    border: 0;
   }
 
   .vertical-header-right {
@@ -99,8 +114,11 @@ const {
       justify-content: space-around;
       height: 48px;
       padding: 10px;
+      font-family: inherit;
       color: #000000d9;
       cursor: pointer;
+      background: transparent;
+      border: 0;
 
       p {
         font-size: 14px;

@@ -18,8 +18,9 @@ const { title, getLogo } = useNav();
         :title="title"
         class="sidebar-logo-link"
         :to="getTopMenu()?.path ?? '/'"
+        :aria-label="`返回${title}首页`"
       >
-        <img :src="getLogo()" alt="logo" />
+        <img :src="getLogo()" alt="" />
       </router-link>
       <router-link
         v-else
@@ -27,8 +28,9 @@ const { title, getLogo } = useNav();
         :title="title"
         class="sidebar-logo-link"
         :to="getTopMenu()?.path ?? '/'"
+        :aria-label="`返回${title}首页`"
       >
-        <img :src="getLogo()" alt="logo" />
+        <img :src="getLogo()" alt="" />
         <span class="sidebar-title">{{ title }}</span>
       </router-link>
     </transition>

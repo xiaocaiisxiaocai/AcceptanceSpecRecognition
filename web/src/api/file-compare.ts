@@ -10,6 +10,11 @@ export interface FileCompareUploadResponse {
 export interface FileComparePreviewRequest {
   fileIdA: number;
   fileIdB: number;
+  includeUnchanged?: boolean;
+}
+
+export interface FileCompareRequestOptions {
+  signal?: AbortSignal;
 }
 
 export interface FileCompareLocation {
@@ -58,7 +63,11 @@ export interface FileComparePreviewResponse {
 
 const baseUrl = "/api/file-compare";
 
-export const uploadCompareFiles = (fileA: File, fileB: File) => {
+export const uploadCompareFiles = (
+  fileA: File,
+  fileB: File,
+  options?: FileCompareRequestOptions
+) => {
   const form = new FormData();
   form.append("fileA", fileA);
   form.append("fileB", fileB);
@@ -69,17 +78,22 @@ export const uploadCompareFiles = (fileA: File, fileB: File) => {
       data: form,
       headers: {
         "Content-Type": "multipart/form-data"
-      }
+      },
+      signal: options?.signal
     }
   );
 };
 
-export const previewCompare = (data: FileComparePreviewRequest) => {
+export const previewCompare = (
+  data: FileComparePreviewRequest,
+  options?: FileCompareRequestOptions
+) => {
   return http.request<ApiResponse<FileComparePreviewResponse>>(
     "post",
     `${baseUrl}/preview`,
     {
-      data
+      data,
+      signal: options?.signal
     }
   );
 };

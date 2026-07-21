@@ -53,12 +53,12 @@ public class SystemUserPasswordValidationTests
     }
 
     [Fact]
-    public void CreateSystemUserRequest_WhenPasswordHasFourCharacters_ShouldPassValidation()
+    public void CreateSystemUserRequest_WhenPasswordHasElevenCharacters_ShouldFailValidation()
     {
         var request = new CreateSystemUserRequest
         {
             Username = "admin",
-            Password = "admin",
+            Password = "User@123456",
             Nickname = "管理员",
             RoleCode = "admin",
             OrgUnitId = 1
@@ -66,15 +66,15 @@ public class SystemUserPasswordValidationTests
 
         var errors = Validate(request);
 
-        errors.Should().NotContain(item => item.MemberNames.Contains(nameof(CreateSystemUserRequest.Password)));
+        errors.Should().Contain(item => item.MemberNames.Contains(nameof(CreateSystemUserRequest.Password)));
     }
 
     [Fact]
-    public void ResetSystemUserPasswordRequest_WhenPasswordHasFourCharacters_ShouldPassValidation()
+    public void ResetSystemUserPasswordRequest_WhenPasswordHasTwelveCharacters_ShouldPassValidation()
     {
         var request = new ResetSystemUserPasswordRequest
         {
-            NewPassword = "admin"
+            NewPassword = "User@1234567"
         };
 
         var errors = Validate(request);

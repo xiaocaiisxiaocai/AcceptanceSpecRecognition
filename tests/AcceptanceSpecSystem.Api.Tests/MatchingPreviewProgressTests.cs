@@ -7,16 +7,43 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
 public class MatchingPreviewProgressTests : IClassFixture<DelayedPreviewProgressApiWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly DelayedPreviewProgressApiWebApplicationFactory _factory;
 
     public MatchingPreviewProgressTests(DelayedPreviewProgressApiWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public void ProgressTracker_ShouldIsolateOwnerRejectDuplicateAndRedactFailure()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var tracker = new AcceptanceSpecSystem.Application.Services.BatchPreviewProgressTracker(cache);
+        var owner = new AcceptanceSpecSystem.Application.Services.MatchingUserContext(1, 10);
+        var otherUser = new AcceptanceSpecSystem.Application.Services.MatchingUserContext(2, 10);
+        var otherCompany = new AcceptanceSpecSystem.Application.Services.MatchingUserContext(1, 20);
+        const string requestId = "shared-request-id";
+
+        tracker.TryStart(owner, requestId, 2).Should().BeTrue();
+        tracker.TryStart(owner, requestId, 2).Should().BeFalse();
+        tracker.GetSnapshot(otherUser, requestId).Should().BeNull();
+        tracker.GetSnapshot(otherCompany, requestId).Should().BeNull();
+
+        tracker.Fail(owner, requestId, "Server=mysql; Password=secret; C:\\private\\dump.sql");
+
+        var snapshot = tracker.GetSnapshot(owner, requestId);
+        snapshot.Should().NotBeNull();
+        snapshot!.Status.Should().Be("failed");
+        snapshot.DetailText.Should().Be("匹配预览失败，请稍后重试");
+        snapshot.DetailText.Should().NotContain("mysql").And.NotContain("secret").And.NotContain("private");
     }
 
     [Fact]
@@ -74,6 +101,20 @@ public class MatchingPreviewProgressTests : IClassFixture<DelayedPreviewProgress
         runningJson.Data.GetProperty("stage").GetString().Should().NotBeNullOrWhiteSpace();
         runningJson.Data.GetProperty("stageText").GetString().Should().NotBeNullOrWhiteSpace();
 
+        using var crossOwnerRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/matching/batch-preview-progress/{requestId}");
+        crossOwnerRequest.Headers.Add("X-Test-User-Id", "2");
+        using var crossOwnerResponse = await _client.SendAsync(crossOwnerRequest);
+        crossOwnerResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        using var crossCompanyRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/matching/batch-preview-progress/{requestId}");
+        crossCompanyRequest.Headers.Add("X-Test-Company-Id", "2");
+        using var crossCompanyResponse = await _client.SendAsync(crossCompanyRequest);
+        crossCompanyResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
         using var previewResponse = await previewTask;
         previewResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -85,6 +126,25 @@ public class MatchingPreviewProgressTests : IClassFixture<DelayedPreviewProgress
         completedJson.Data.GetProperty("progressPercent").GetDouble().Should().BeGreaterThanOrEqualTo(100);
         completedJson.Data.GetProperty("completedItems").GetInt32().Should().Be(3);
         completedJson.Data.GetProperty("totalItems").GetInt32().Should().Be(3);
+    }
+
+    [Fact]
+    public async Task BatchPreviewProgress_WhenFailed_ShouldReturnOnlySafeErrorText()
+    {
+        var requestId = Guid.NewGuid().ToString("N");
+        using var scope = _factory.Services.CreateScope();
+        var tracker = scope.ServiceProvider.GetRequiredService<AcceptanceSpecSystem.Application.Services.BatchPreviewProgressTracker>();
+        var owner = new AcceptanceSpecSystem.Application.Services.MatchingUserContext(1, 1);
+        tracker.TryStart(owner, requestId, 1).Should().BeTrue();
+        tracker.Fail(owner, requestId, "Server=mysql; Password=secret; C:\\private\\dump.sql");
+
+        using var response = await _client.GetAsync($"/api/matching/batch-preview-progress/{requestId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var detailText = json.Data.GetProperty("detailText").GetString();
+        detailText.Should().Be("匹配预览失败，请稍后重试");
+        detailText.Should().NotContain("mysql").And.NotContain("secret").And.NotContain("private");
     }
 
     private async Task<HttpResponseMessage> WaitForProgressResponseAsync(string requestId)

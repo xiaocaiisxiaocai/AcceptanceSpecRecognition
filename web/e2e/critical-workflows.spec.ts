@@ -102,7 +102,10 @@ test("合成 Word 完成上传、智能填充确认与结果下载契约", async
   });
   const upload = await readApi<{ fileId: number }>(await uploadResponse);
   await expect(
-    page.getByText(`synthetic-smart-fill-${suffix}.docx`)
+    page
+      .locator(".file-name")
+      .filter({ hasText: `synthetic-smart-fill-${suffix}.docx` })
+      .first()
   ).toBeVisible();
   const customer = await readApi<{ id: number }>(
     await page.request.post("/api/customers", {

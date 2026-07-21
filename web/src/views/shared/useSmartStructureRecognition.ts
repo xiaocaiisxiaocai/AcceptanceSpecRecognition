@@ -9,6 +9,8 @@ import {
   type SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import { getRequestErrorMessage } from "@/utils/error-message";
+import { getAiServiceSelection } from "@/api/ai-service";
+import { isRuntimeAiSelectionAvailable } from "@/utils/runtime-ai-selection";
 import {
   buildSmartConfigConfirmRequest,
   createSmartStructureSummary
@@ -57,13 +59,35 @@ export function useSmartStructureRecognition() {
       activeRecognitionCustomerId.value === (customerId ?? null);
 
     try {
+      let enableLlmAssistance = options.enableLlmAssistance === true;
+      let llmServiceId = options.llmServiceId;
+      if (enableLlmAssistance) {
+        try {
+          const selection = await getAiServiceSelection("llm");
+          if (!isCurrentRequest()) return null;
+          if (
+            selection.code === 0 &&
+            isRuntimeAiSelectionAvailable(selection.data)
+          ) {
+            llmServiceId = selection.data.serviceId;
+          } else {
+            enableLlmAssistance = false;
+            llmServiceId = undefined;
+            ElMessage.warning("AI 服务尚未就绪，本次先使用规则识别");
+          }
+        } catch {
+          if (!isCurrentRequest()) return null;
+          enableLlmAssistance = false;
+          llmServiceId = undefined;
+          ElMessage.warning("AI 服务状态检查失败，本次先使用规则识别");
+        }
+      }
+
       const res = await recognizeSmartConfig({
         fileId,
         customerId,
-        enableLlmAssistance: options.enableLlmAssistance === true,
-        llmServiceId: options.enableLlmAssistance
-          ? options.llmServiceId
-          : undefined
+        enableLlmAssistance,
+        llmServiceId: enableLlmAssistance ? llmServiceId : undefined
       });
       if (res.code !== 0) {
         throw new Error(res.message || "智能结构识别失败");

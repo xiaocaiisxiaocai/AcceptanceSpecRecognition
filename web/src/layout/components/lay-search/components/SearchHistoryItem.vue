@@ -31,17 +31,27 @@ function handleDelete(item) {
   <span class="history-item-title">
     {{ item.meta?.title }}
   </span>
-  <IconifyIconOffline
+  <button
     v-show="item.type === 'history'"
-    :icon="StarIcon"
-    class="w-[18px] h-[18px] mr-2 hover:text-[#d7d5d4]"
+    type="button"
+    class="history-item-action mr-2 hover:text-[#d7d5d4]"
+    :aria-label="`收藏${item.meta?.title ?? '菜单'}`"
+    @keydown.enter.stop
+    @keydown.space.stop
     @click.stop="handleCollect(item)"
-  />
-  <IconifyIconOffline
-    :icon="CloseIcon"
-    class="w-[18px] h-[18px] hover:text-[#d7d5d4] cursor-pointer"
+  >
+    <IconifyIconOffline :icon="StarIcon" aria-hidden="true" />
+  </button>
+  <button
+    type="button"
+    class="history-item-action hover:text-[#d7d5d4]"
+    :aria-label="`删除${item.meta?.title ?? '菜单'}记录`"
+    @keydown.enter.stop
+    @keydown.space.stop
     @click.stop="handleDelete(item)"
-  />
+  >
+    <IconifyIconOffline :icon="CloseIcon" aria-hidden="true" />
+  </button>
 </template>
 
 <style lang="scss" scoped>
@@ -49,5 +59,29 @@ function handleDelete(item) {
   display: flex;
   flex: 1;
   margin-left: 5px;
+}
+
+.history-item-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+
+.history-item-action svg {
+  width: 18px;
+  height: 18px;
+}
+
+.history-item-action:focus-visible {
+  outline: 3px solid var(--el-color-primary-light-5);
+  outline-offset: 1px;
 }
 </style>

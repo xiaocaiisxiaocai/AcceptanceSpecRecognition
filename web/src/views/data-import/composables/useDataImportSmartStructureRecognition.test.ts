@@ -8,7 +8,8 @@ import type {
 const apiMocks = vi.hoisted(() => ({
   recognizeSmartConfig: vi.fn(),
   confirmSmartConfig: vi.fn(),
-  getFileTables: vi.fn()
+  getFileTables: vi.fn(),
+  getAiServiceSelection: vi.fn()
 }));
 
 vi.mock("@/api/smart-config", () => ({
@@ -16,6 +17,9 @@ vi.mock("@/api/smart-config", () => ({
   confirmSmartConfig: apiMocks.confirmSmartConfig
 }));
 vi.mock("@/api/document", () => ({ getFileTables: apiMocks.getFileTables }));
+vi.mock("@/api/ai-service", () => ({
+  getAiServiceSelection: apiMocks.getAiServiceSelection
+}));
 vi.mock("element-plus", () => ({
   ElMessage: {
     error: vi.fn(),
@@ -75,6 +79,10 @@ describe("useDataImportSmartStructureRecognition", () => {
           hasMergedCells: false
         }
       ]
+    });
+    apiMocks.getAiServiceSelection.mockReset().mockResolvedValue({
+      code: 0,
+      data: { status: "available", serviceId: 3 }
     });
   });
 

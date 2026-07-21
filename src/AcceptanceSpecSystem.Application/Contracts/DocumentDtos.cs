@@ -170,6 +170,21 @@ public class TableDataDto
     /// 列数
     /// </summary>
     public int ColumnCount { get; set; }
+
+    /// <summary>
+    /// 当前窗口相对于数据起始行的偏移量（0-based）。
+    /// </summary>
+    public int RowOffset { get; set; }
+
+    /// <summary>
+    /// 当前窗口相对于表格起始列的偏移量（0-based）。
+    /// </summary>
+    public int ColumnOffset { get; set; }
+
+    /// <summary>
+    /// 表格总列数。ColumnCount 仅表示当前响应窗口的列数。
+    /// </summary>
+    public int TotalColumns { get; set; }
 }
 
 /// <summary>

@@ -15,4 +15,12 @@ public sealed class DashboardSummaryDto
     public int SmartFillAdoptedRows { get; set; }
     public double MatchingRate { get; set; }
     public double AdoptionRate { get; set; }
+    public IReadOnlyList<DashboardDailyTrendDto> DailyTrend { get; set; } = [];
+}
+
+public sealed class DashboardDailyTrendDto
+{
+    public DateOnly Date { get; set; }
+    public int ImportedSpecCount { get; set; }
+    public int SmartFillTaskCount { get; set; }
 }

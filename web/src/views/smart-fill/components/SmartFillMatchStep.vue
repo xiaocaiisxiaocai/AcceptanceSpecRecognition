@@ -3,6 +3,7 @@ import { ref } from "vue";
 import MatchConfig from "./MatchConfig.vue";
 import type { MatchConfig as MatchConfigType } from "@/api/matching";
 import type { SmartFillScope } from "../smartFillExecution.helpers";
+import type { RuntimeAiSelectionRefreshResult } from "@/utils/runtime-ai-selection-loader";
 
 defineProps<{
   matchConfig: MatchConfigType;
@@ -27,6 +28,7 @@ const matchConfigRef = ref<InstanceType<typeof MatchConfig> | null>(null);
 
 defineExpose<{
   resetConfig?: () => void;
+  refreshAiServices?: () => Promise<RuntimeAiSelectionRefreshResult>;
   getScope?: () => {
     customerId?: number;
     processId?: number;
@@ -38,6 +40,9 @@ defineExpose<{
   };
 }>({
   resetConfig: () => matchConfigRef.value?.resetConfig?.(),
+  refreshAiServices: () =>
+    matchConfigRef.value?.refreshAiServices?.() ??
+    Promise.resolve({ current: false, version: 0 }),
   getScope: () =>
     matchConfigRef.value?.getScope?.() ?? {
       customerId: undefined,
@@ -46,8 +51,8 @@ defineExpose<{
     },
   getServiceStatus: () =>
     matchConfigRef.value?.getServiceStatus?.() ?? {
-      hasAvailableEmbeddingService: true,
-      hasAvailableLlmService: true
+      hasAvailableEmbeddingService: false,
+      hasAvailableLlmService: false
     }
 });
 

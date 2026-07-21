@@ -60,6 +60,7 @@ type UseDataImportBatchExecutionOptions = {
   syncDifferenceDecisionMap: (
     items: ImportPendingDifferenceWithTable[]
   ) => void;
+  ensureRuntimeAiReady: () => Promise<boolean>;
 };
 
 type CompleteExcelImportMapping = Pick<
@@ -496,6 +497,10 @@ export function useDataImportBatchExecution(
       ElMessage.warning(
         `请先逐条确认重复项（仍有 ${options.pendingUndecidedCount.value} 条未确认）`
       );
+      return;
+    }
+
+    if (!(await options.ensureRuntimeAiReady())) {
       return;
     }
 

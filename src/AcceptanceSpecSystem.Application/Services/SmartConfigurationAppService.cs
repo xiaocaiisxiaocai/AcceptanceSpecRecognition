@@ -1548,7 +1548,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             await using var templateOperationLock = await _unitOfWork.AcquireOperationLockAsync(
                 $"document-template:{command.CustomerId}",
                 cancellationToken);
-            await _unitOfWork.BeginTransactionAsync();
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
             try
             {
                 var template = await _templateService.SaveTemplateAsync(
@@ -1584,7 +1584,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     effectiveLearnedColumns,
                     cancellationToken);
 
-                await _unitOfWork.CommitTransactionAsync();
+                await _unitOfWork.CommitTransactionAsync(cancellationToken);
                 return new SmartConfigurationConfirmResult
                 {
                     TemplateSaved = true,

@@ -51,6 +51,7 @@ type UseSmartFillExecutionOptions = {
   ) => void;
   setBackfillingSpecs: (value: boolean) => void;
   clearPendingExecuteRequest: () => void;
+  ensureRuntimeAiReady: () => Promise<boolean>;
   /** 由调用方提供的文件下载触发器，默认使用 triggerBrowserDownload */
   onDownload?: (blob: Blob, fileName: string) => void;
 };
@@ -72,6 +73,7 @@ export function useSmartFillExecution({
   openBackfillDialog,
   setBackfillingSpecs,
   clearPendingExecuteRequest,
+  ensureRuntimeAiReady,
   onDownload
 }: UseSmartFillExecutionOptions) {
   const executing = ref(false);
@@ -222,9 +224,26 @@ export function useSmartFillExecution({
     }
   };
 
+  const withCurrentRuntimeAiConfig = (
+    request: BatchExecuteFillRequest
+  ): BatchExecuteFillRequest => ({
+    ...request,
+    config: {
+      ...request.config,
+      embeddingServiceId: matchConfig.value.embeddingServiceId,
+      llmServiceId: matchConfig.value.llmServiceId,
+      enableLlmEquivalenceAdjudication:
+        matchConfig.value.enableLlmEquivalenceAdjudication,
+      enableLlmSemanticPriority: matchConfig.value.enableLlmSemanticPriority
+    }
+  });
+
   const executePendingWithoutBackfill = async () => {
-    const request = pendingExecuteRequest.value;
-    if (!request) return;
+    if (!pendingExecuteRequest.value) return;
+    if (!(await ensureRuntimeAiReady())) return;
+    const pendingRequest = pendingExecuteRequest.value;
+    if (!pendingRequest) return;
+    const request = withCurrentRuntimeAiConfig(pendingRequest);
 
     closeBackfillDialog();
     executing.value = true;
@@ -239,17 +258,21 @@ export function useSmartFillExecution({
   };
 
   const confirmBackfillAndExecute = async () => {
-    const request = pendingExecuteRequest.value;
-    if (!request) return;
+    const initialRequest = pendingExecuteRequest.value;
+    if (!initialRequest) return;
 
     const selected = selectedBackfillCandidates.value;
     if (
       selected.some(item => item.actionType === "create") &&
-      !request.customerId
+      !initialRequest.customerId
     ) {
       ElMessage.warning("回填新增规格前，请先选择客户范围");
       return;
     }
+    if (!(await ensureRuntimeAiReady())) return;
+    const pendingRequest = pendingExecuteRequest.value;
+    if (!pendingRequest) return;
+    const request = withCurrentRuntimeAiConfig(pendingRequest);
 
     setBackfillingSpecs(true);
     executing.value = true;
@@ -309,6 +332,7 @@ export function useSmartFillExecution({
       ElMessage.warning("请至少选择一项匹配结果");
       return;
     }
+    if (!(await ensureRuntimeAiReady())) return;
 
     const executeRequest = buildExecuteFillRequest(
       getScope(),

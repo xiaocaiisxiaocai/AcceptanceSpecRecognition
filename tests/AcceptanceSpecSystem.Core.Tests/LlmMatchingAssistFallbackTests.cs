@@ -49,11 +49,13 @@ public class LlmMatchingAssistFallbackTests
             [11] = firstChat,
             [12] = secondChat
         });
+        var reporter = new RecordingRuntimeStatusReporter();
         var service = new LlmMatchingAssistService(
             promptProvider,
             selector,
             factory,
-            NullLogger<LlmMatchingAssistService>.Instance);
+            NullLogger<LlmMatchingAssistService>.Instance,
+            reporter);
 
         var result = await service.AdjudicateAsync(new LlmEquivalenceAdjudicationRequest
         {
@@ -83,6 +85,8 @@ public class LlmMatchingAssistFallbackTests
         secondChat.LastPrompt.Should().Contain("\"Numeric\":0.15");
         secondChat.LastPrompt.Should().Contain("voltage evidence matched");
         secondChat.LastPrompt.Should().Contain("22V vs 220V");
+        reporter.Unavailable.Should().Contain((11, AiServicePurpose.Llm));
+        reporter.Available.Should().Contain((12, AiServicePurpose.Llm));
     }
 
     [Fact]
@@ -684,5 +688,16 @@ public class LlmMatchingAssistFallbackTests
             yield return new StreamingChatMessageContent(AuthorRole.Assistant, _response);
             await Task.CompletedTask;
         }
+    }
+
+    private sealed class RecordingRuntimeStatusReporter : IAiServiceRuntimeStatusReporter
+    {
+        public List<(int ServiceId, AiServicePurpose Purpose)> Available { get; } = [];
+        public List<(int ServiceId, AiServicePurpose Purpose)> Unavailable { get; } = [];
+
+        public void ReportAvailable(int serviceId, AiServicePurpose purpose) => Available.Add((serviceId, purpose));
+
+        public void ReportUnavailable(int serviceId, AiServicePurpose purpose, string? message = null) =>
+            Unavailable.Add((serviceId, purpose));
     }
 }

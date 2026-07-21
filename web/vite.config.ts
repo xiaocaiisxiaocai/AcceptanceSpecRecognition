@@ -93,8 +93,10 @@ export default async ({
       // https://cn.vitejs.dev/guide/build.html#browser-compatibility
       target: "es2015",
       sourcemap: false,
-      // 消除打包大小超过500kb警告
-      chunkSizeWarningLimit: 4000,
+      // 包体积门禁通过稳定的源模块键定位主入口和关键异步页面，避免依赖 hash 文件名。
+      manifest: true,
+      // 让异常的大块重新可见；CI 另以 gzip 预算做阻断校验。
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
         input: {
           index: pathResolve("./index.html", import.meta.url)

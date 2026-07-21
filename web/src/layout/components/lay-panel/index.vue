@@ -1,18 +1,19 @@
 <script setup lang="ts">
 // @ts-nocheck
 import { emitter } from "@/utils/mitt";
-import { onClickOutside } from "@vueuse/core";
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { onClickOutside, onKeyStroke } from "@vueuse/core";
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useDataThemeChange } from "@/layout/hooks/useDataThemeChange";
 import CloseIcon from "~icons/ep/close";
 
 const target = ref(null);
+const closeButtonRef = ref<HTMLButtonElement>();
 const show = ref<Boolean>(false);
 
 const iconClass = computed(() => {
   return [
-    "w-[22px]",
-    "h-[22px]",
+    "w-[44px]",
+    "h-[44px]",
     "flex",
     "justify-center",
     "items-center",
@@ -33,9 +34,14 @@ onClickOutside(target, (event: any) => {
   show.value = false;
 });
 
+onKeyStroke("Escape", () => {
+  if (show.value) show.value = false;
+});
+
 onMounted(() => {
   emitter.on("openPanel", () => {
     show.value = true;
+    nextTick(() => closeButtonRef.value?.focus());
   });
 });
 
@@ -48,27 +54,39 @@ onBeforeUnmount(() => {
 <template>
   <div :class="{ show }">
     <div class="right-panel-background" />
-    <div ref="target" class="right-panel bg-bg_color">
+    <div
+      ref="target"
+      class="right-panel bg-bg_color"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="system-settings-title"
+      :aria-hidden="!show"
+      :inert="!show"
+    >
       <div
         class="project-configuration border-0 border-b-[1px] border-solid border-[var(--pure-border-color)]"
       >
-        <h4 class="dark:text-white">系统配置</h4>
-        <span
+        <h4 id="system-settings-title" class="dark:text-white">系统配置</h4>
+        <button
+          ref="closeButtonRef"
           v-tippy="{
             content: '关闭配置',
             placement: 'bottom-start',
             zIndex: 41000
           }"
+          type="button"
           :class="iconClass"
+          aria-label="关闭系统配置"
+          @click="show = false"
         >
           <IconifyIconOffline
             class="dark:text-white"
             width="18px"
             height="18px"
             :icon="CloseIcon"
-            @click="show = !show"
+            aria-hidden="true"
           />
-        </span>
+        </button>
       </div>
       <el-scrollbar>
         <slot />
@@ -142,5 +160,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px;
+}
+
+.project-configuration button {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
 }
 </style>

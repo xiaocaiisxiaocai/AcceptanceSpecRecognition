@@ -10,12 +10,16 @@ function handleSearch() {
 
 <template>
   <div>
-    <div
-      class="search-container w-[40px] h-[48px] flex-c cursor-pointer navbar-bg-hover"
+    <button
+      type="button"
+      class="search-container h-[48px] flex-c navbar-bg-hover"
+      aria-label="搜索菜单"
+      aria-haspopup="dialog"
+      :aria-expanded="show"
       @click="handleSearch"
     >
-      <IconifyIconOffline icon="ri/search-line" />
-    </div>
+      <IconifyIconOffline icon="ri/search-line" aria-hidden="true" />
+    </button>
     <SearchModal v-model:value="show" />
   </div>
 </template>

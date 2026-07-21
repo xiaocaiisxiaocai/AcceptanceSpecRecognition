@@ -70,6 +70,17 @@ export interface AiServiceModelsResult {
   message?: string | null;
 }
 
+export type AiServiceSelectionStatus = "available" | "checking" | "unavailable";
+
+export interface AiServiceSelection {
+  status: AiServiceSelectionStatus;
+  serviceId?: number | null;
+  name?: string | null;
+  model?: string | null;
+  checkedAt?: string | null;
+  message?: string | null;
+}
+
 export interface AiServiceListRequest extends PagedRequest {
   serviceType?: AiServiceType;
 }
@@ -89,6 +100,15 @@ export const sortAiServicesByPriority = (services: AiServiceConfig[]) =>
   });
 
 const baseUrl = "/api/ai-services";
+
+export const getAiServiceSelection = (
+  purpose: "llm" | "embedding",
+  signal?: AbortSignal
+) =>
+  http.request<ApiResponse<AiServiceSelection>>("get", `${baseUrl}/selection`, {
+    params: { purpose },
+    signal
+  });
 
 export const getAiServiceList = (params?: AiServiceListRequest) => {
   return http.request<ApiResponse<PagedData<AiServiceConfig>>>("get", baseUrl, {

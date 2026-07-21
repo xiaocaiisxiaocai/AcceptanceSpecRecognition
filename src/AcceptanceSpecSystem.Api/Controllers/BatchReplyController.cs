@@ -34,7 +34,8 @@ public class BatchReplyController : MatchingApiControllerBase
     {
         try
         {
-            var upload = await ToUploadDocumentAsync(file, cancellationToken);
+            ValidateBatchUploadFiles([file]);
+            var upload = ToUploadDocument(file);
             var result = await _batchReplyAppService.UploadSourceAsync(RequireBatchReplyUser(), upload, cancellationToken);
             return Success(result, "来源文件上传成功");
         }
@@ -62,7 +63,8 @@ public class BatchReplyController : MatchingApiControllerBase
     {
         try
         {
-            var uploads = await Task.WhenAll(targetFiles.Select(file => ToUploadDocumentAsync(file, cancellationToken)));
+            ValidateBatchUploadFiles(targetFiles);
+            var uploads = targetFiles.Select(ToUploadDocument).ToArray();
             var result = await _batchReplyAppService.UploadTargetsAsync(
                 RequireBatchReplyUser(),
                 sessionId,
@@ -219,7 +221,8 @@ public class BatchReplyController : MatchingApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var tableConfigs = ParseTableConfigs(tableConfigsJson);
-        var uploads = await Task.WhenAll(targetFiles.Select(file => ToUploadDocumentAsync(file, cancellationToken)));
+        ValidateBatchUploadFiles(targetFiles);
+        var uploads = targetFiles.Select(ToUploadDocument).ToArray();
         return await HandleAsync(() => _batchReplyAppService.PreviewAsync(
             RequireBatchReplyUser(),
             sessionId,
@@ -276,15 +279,32 @@ public class BatchReplyController : MatchingApiControllerBase
         return new BatchReplyUserContext(userId.Value, companyId.Value);
     }
 
-    private static async Task<BatchReplyUploadDocument> ToUploadDocumentAsync(
-        IFormFile file,
-        CancellationToken cancellationToken)
+    private static BatchReplyUploadDocument ToUploadDocument(IFormFile file)
     {
         if (file == null || file.Length == 0)
             throw new ApplicationServiceException(400, "文件不能为空");
         var fileType = UploadFileValidation.ValidateOfficeDocument(file, allowExcel: true, allowWord: true);
-        using var stream = new MemoryStream();
-        await file.CopyToAsync(stream, cancellationToken);
-        return new BatchReplyUploadDocument(file.FileName, fileType, stream.ToArray());
+        return new BatchReplyUploadDocument(file.FileName, fileType, file.Length, file.OpenReadStream);
+    }
+
+    private static void ValidateBatchUploadFiles(IReadOnlyCollection<IFormFile> files)
+    {
+        if (files.Count == 0)
+            throw new ApplicationServiceException(400, "请至少上传一个文件");
+        if (files.Count > BatchReplyUploadLimits.MaxFileCount)
+            throw new ApplicationServiceException(400, $"单次最多上传 {BatchReplyUploadLimits.MaxFileCount} 个文件");
+
+        long totalBytes = 0;
+        foreach (var file in files)
+        {
+            if (file == null || file.Length <= 0)
+                throw new ApplicationServiceException(400, "文件不能为空");
+            if (file.Length > BatchReplyUploadLimits.MaxFileSizeBytes)
+                throw new ApplicationServiceException(400, "单个文件大小不能超过 50MB");
+            totalBytes = checked(totalBytes + file.Length);
+        }
+
+        if (totalBytes > BatchReplyUploadLimits.MaxBatchSizeBytes)
+            throw new ApplicationServiceException(400, "单次上传文件总大小不能超过 100MB");
     }
 }

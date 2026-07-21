@@ -2,6 +2,7 @@ import { authorizedFetch, http } from "@/utils/http";
 import type { PureHttpRequestConfig } from "@/utils/http/types.d";
 import type { ApiResponse } from "./customer";
 import type { TableData, TableInfo } from "./document";
+import type { UploadTransportOptions } from "@/utils/upload-request";
 
 export const DEFAULT_MIN_SCORE_THRESHOLD = 0.9;
 export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.95;
@@ -771,7 +772,10 @@ export interface BatchReplyTablePreviewResponse {
 
 const batchReplyBaseUrl = "/api/batch-reply";
 
-export const uploadBatchReplySource = (file: File) => {
+export const uploadBatchReplySource = (
+  file: File,
+  options?: UploadTransportOptions
+) => {
   const formData = new FormData();
   formData.append("file", file);
   return http.request<ApiResponse<BatchReplySourceUploadResponse>>(
@@ -781,7 +785,9 @@ export const uploadBatchReplySource = (file: File) => {
       data: formData,
       headers: {
         "Content-Type": "multipart/form-data"
-      }
+      },
+      signal: options?.signal,
+      onUploadProgress: options?.onUploadProgress
     }
   );
 };
@@ -812,7 +818,11 @@ export const getBatchReplyTablePreview = (
   );
 };
 
-export const uploadBatchReplyTargets = (sessionId: string, files: File[]) => {
+export const uploadBatchReplyTargets = (
+  sessionId: string,
+  files: File[],
+  options?: UploadTransportOptions
+) => {
   const formData = new FormData();
   formData.append("sessionId", sessionId);
   files.forEach(file => formData.append("targetFiles", file));
@@ -824,7 +834,9 @@ export const uploadBatchReplyTargets = (sessionId: string, files: File[]) => {
       data: formData,
       headers: {
         "Content-Type": "multipart/form-data"
-      }
+      },
+      signal: options?.signal,
+      onUploadProgress: options?.onUploadProgress
     }
   );
 };

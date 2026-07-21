@@ -106,15 +106,21 @@ public interface IUnitOfWork : IDisposable
     /// </summary>
     Task BeginTransactionAsync();
 
+    Task BeginTransactionAsync(CancellationToken cancellationToken) => BeginTransactionAsync();
+
     /// <summary>
     /// 提交事务
     /// </summary>
     Task CommitTransactionAsync();
 
+    Task CommitTransactionAsync(CancellationToken cancellationToken) => CommitTransactionAsync();
+
     /// <summary>
     /// 回滚事务
     /// </summary>
     Task RollbackTransactionAsync();
+
+    Task RollbackTransactionAsync(CancellationToken cancellationToken) => RollbackTransactionAsync();
 }
 
 internal sealed class NoopOperationLockLease : IAsyncDisposable

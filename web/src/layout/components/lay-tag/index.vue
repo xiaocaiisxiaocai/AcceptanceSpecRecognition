@@ -519,6 +519,61 @@ function tagOnClick(item) {
   emitter.emit("tagOnClick", item);
 }
 
+function getTabElement(index: number): HTMLElement | undefined {
+  const reference = instance.refs["dynamic" + index];
+  return (Array.isArray(reference) ? reference[0] : reference) as
+    | HTMLElement
+    | undefined;
+}
+
+function focusTabAt(index: number) {
+  nextTick(() => getTabElement(index)?.focus());
+}
+
+function onTabKeydown(event: KeyboardEvent, index: number, item) {
+  const lastIndex = multiTags.value.length - 1;
+  let nextIndex: number | undefined;
+
+  switch (event.key) {
+    case "ArrowLeft":
+      nextIndex = index === 0 ? lastIndex : index - 1;
+      break;
+    case "ArrowRight":
+      nextIndex = index === lastIndex ? 0 : index + 1;
+      break;
+    case "Home":
+      nextIndex = 0;
+      break;
+    case "End":
+      nextIndex = lastIndex;
+      break;
+    case "Delete":
+      if (!unref(isFixedTag)(item) && index !== 0) {
+        event.preventDefault();
+        deleteMenu(item);
+        setTimeout(
+          () => focusTabAt(Math.min(index, multiTags.value.length - 1)),
+          0
+        );
+      }
+      return;
+    case "Enter":
+    case " ":
+      event.preventDefault();
+      tagOnClick(item);
+      return;
+    default:
+      return;
+  }
+
+  event.preventDefault();
+  const nextItem = multiTags.value[nextIndex];
+  if (nextItem) {
+    tagOnClick(nextItem);
+    focusTabAt(nextIndex);
+  }
+}
+
 onClickOutside(contextmenuRef, closeMenu, {
   detectIframe: true
 });
@@ -567,16 +622,28 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="!showTags" ref="containerDom" class="tags-view">
-    <span v-show="isShowArrow" class="arrow-left">
-      <IconifyIconOffline :icon="ArrowLeftSLine" @click="handleScroll(200)" />
-    </span>
+    <button
+      v-show="isShowArrow"
+      type="button"
+      class="arrow-left"
+      aria-label="向左滚动页面标签"
+      @click="handleScroll(200)"
+    >
+      <IconifyIconOffline :icon="ArrowLeftSLine" aria-hidden="true" />
+    </button>
     <div
       ref="scrollbarDom"
       class="scroll-container"
       :class="showModel === 'chrome' && 'chrome-scroll-container'"
       @wheel.prevent="handleWheel"
     >
-      <div ref="tabDom" class="tab select-none" :style="getTabStyle">
+      <div
+        ref="tabDom"
+        class="tab select-none"
+        role="tablist"
+        aria-label="已打开页面"
+        :style="getTabStyle"
+      >
         <div
           v-for="(item, index) in multiTags"
           :ref="'dynamic' + index"
@@ -587,10 +654,14 @@ onBeforeUnmount(() => {
             showModel === 'chrome' && 'chrome-item',
             isFixedTag(item) && 'fixed-tag'
           ]"
+          role="tab"
+          :aria-selected="Boolean(linkIsActive(item))"
+          :tabindex="linkIsActive(item) ? 0 : -1"
           @contextmenu.prevent="openMenu(item, $event)"
           @mouseenter.prevent="onMouseenter(index)"
           @mouseleave.prevent="onMouseleave(index)"
           @click="tagOnClick(item)"
+          @keydown="onTabKeydown($event, index, item)"
         >
           <template v-if="showModel !== 'chrome'">
             <span
@@ -598,18 +669,21 @@ onBeforeUnmount(() => {
             >
               {{ item.meta.title }}
             </span>
-            <span
+            <button
               v-if="
                 isFixedTag(item)
                   ? false
                   : iconIsActive(item, index) ||
                     (index === activeIndex && index !== 0)
               "
+              type="button"
               class="el-icon-close"
+              :aria-label="`关闭${item.meta.title}标签`"
+              @keydown.stop
               @click.stop="deleteMenu(item)"
             >
-              <IconifyIconOffline :icon="Close" />
-            </span>
+              <IconifyIconOffline :icon="Close" aria-hidden="true" />
+            </button>
             <span
               v-if="showModel !== 'card'"
               :ref="'schedule' + index"
@@ -623,21 +697,30 @@ onBeforeUnmount(() => {
             <span class="tag-title">
               {{ item.meta.title }}
             </span>
-            <span
+            <button
               v-if="isFixedTag(item) ? false : index !== 0"
+              type="button"
               class="chrome-close-btn"
+              :aria-label="`关闭${item.meta.title}标签`"
+              @keydown.stop
               @click.stop="deleteMenu(item)"
             >
-              <IconifyIconOffline :icon="Close" />
-            </span>
+              <IconifyIconOffline :icon="Close" aria-hidden="true" />
+            </button>
             <span class="chrome-tab-divider" />
           </div>
         </div>
       </div>
     </div>
-    <span v-show="isShowArrow" class="arrow-right">
-      <IconifyIconOffline :icon="ArrowRightSLine" @click="handleScroll(-200)" />
-    </span>
+    <button
+      v-show="isShowArrow"
+      type="button"
+      class="arrow-right"
+      aria-label="向右滚动页面标签"
+      @click="handleScroll(-200)"
+    >
+      <IconifyIconOffline :icon="ArrowRightSLine" aria-hidden="true" />
+    </button>
     <!-- 右键菜单按钮 -->
     <transition name="el-zoom-in-top">
       <ul
@@ -652,9 +735,11 @@ onBeforeUnmount(() => {
           :key="key"
           style="display: flex; align-items: center"
         >
-          <li v-if="item.show" @click="selectTag(key, item)">
-            <IconifyIconOffline :icon="item.icon" />
-            {{ item.text }}
+          <li v-if="item.show">
+            <button type="button" @click="selectTag(key, item)">
+              <IconifyIconOffline :icon="item.icon" aria-hidden="true" />
+              {{ item.text }}
+            </button>
           </li>
         </div>
       </ul>
@@ -665,9 +750,13 @@ onBeforeUnmount(() => {
       placement="bottom-end"
       @command="handleCommand"
     >
-      <span class="arrow-down">
-        <IconifyIconOffline :icon="ArrowDown" class="dark:text-white" />
-      </span>
+      <button type="button" class="arrow-down" aria-label="页面标签操作菜单">
+        <IconifyIconOffline
+          :icon="ArrowDown"
+          class="dark:text-white"
+          aria-hidden="true"
+        />
+      </button>
       <template #dropdown>
         <el-dropdown-menu>
           <el-dropdown-item

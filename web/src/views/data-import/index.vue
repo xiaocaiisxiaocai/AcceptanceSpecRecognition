@@ -88,8 +88,8 @@ const {
   loadingProcesses,
   loadingMachineModels,
   loadingAiServices,
-  embeddingServices,
-  llmServices,
+  embeddingSelection,
+  llmSelection,
   importPreviewGroups,
   removedPreviewRowCount,
   selectedImportPreviewRowsCount,
@@ -699,8 +699,8 @@ const activeSmartStructureScopeDescription = computed(() => {
             :preview-load-state="previewLoadState"
             :import-duplicate-ai-config="importDuplicateAiConfig"
             :loading-ai-services="loadingAiServices"
-            :embedding-services="embeddingServices"
-            :llm-services="llmServices"
+            :embedding-selection="embeddingSelection"
+            :llm-selection="llmSelection"
             :removed-preview-row-count="removedPreviewRowCount"
             :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
             :import-preview-groups="importPreviewGroups"
@@ -764,8 +764,8 @@ const activeSmartStructureScopeDescription = computed(() => {
             :preview-load-state="previewLoadState"
             :import-duplicate-ai-config="importDuplicateAiConfig"
             :loading-ai-services="loadingAiServices"
-            :embedding-services="embeddingServices"
-            :llm-services="llmServices"
+            :embedding-selection="embeddingSelection"
+            :llm-selection="llmSelection"
             :removed-preview-row-count="removedPreviewRowCount"
             :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
             :import-preview-groups="importPreviewGroups"

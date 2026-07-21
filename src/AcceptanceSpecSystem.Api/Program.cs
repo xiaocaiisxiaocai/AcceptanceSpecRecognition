@@ -138,7 +138,7 @@ builder.Services.AddDataProtection()
 builder.Services.AddMemoryCache();
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = UploadFileValidation.MaxAllowedFileSizeBytes * 10;
+    options.MultipartBodyLengthLimit = BatchReplyUploadLimits.MultipartBodyLengthLimitBytes;
 });
 
 builder.Services.AddRateLimiter(options =>
@@ -391,10 +391,22 @@ app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks
     ResponseWriter = async (context, report) =>
     {
         context.Response.ContentType = "application/json";
+        var hasAiComponent = report.Entries.TryGetValue("aiConfig", out var aiComponent);
         var payload = new
         {
             status = report.Status.ToString(),
-            totalDurationMs = report.TotalDuration.TotalMilliseconds
+            totalDurationMs = report.TotalDuration.TotalMilliseconds,
+            components = new
+            {
+                aiConfig = hasAiComponent
+                    ? new
+                {
+                    status = aiComponent.Status.ToString(),
+                    message = aiComponent.Description,
+                    data = aiComponent.Data
+                }
+                    : null
+            }
         };
         await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
     }

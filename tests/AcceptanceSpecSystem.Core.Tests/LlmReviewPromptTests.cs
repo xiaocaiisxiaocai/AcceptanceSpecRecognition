@@ -6,6 +6,7 @@ using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using FluentAssertions;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
@@ -14,6 +15,41 @@ namespace AcceptanceSpecSystem.Core.Tests;
 
 public class LlmReviewPromptTests
 {
+    [Fact]
+    public async Task ReviewAsync_ShouldLogOnlyRedactedMetadata()
+    {
+        const string sensitiveProject = "绝密客户项目-LOG-UNIQUE";
+        const string sensitiveSpecification = "绝密验收规格-LOG-UNIQUE";
+        const string sensitiveReason = "模型自由文本-LOG-UNIQUE";
+        var logger = new RecordingLogger<LlmMatchingAssistService>();
+        var promptProvider = new RecordingPromptTemplateProvider(
+            "源项目：{{sourceProject}}\n源规格：{{sourceSpecification}}\n仅返回严格 JSON");
+        var chatService = new RecordingChatCompletionService(
+            $"{{\"score\":88,\"reason\":\"{sensitiveReason}\",\"commentary\":\"已比较\"}}");
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            new StubAiServiceSelector(),
+            new StubSemanticKernelServiceFactory(chatService),
+            logger);
+
+        await service.ReviewAsync(new LlmReviewRequest
+        {
+            SourceProject = sensitiveProject,
+            SourceSpecification = sensitiveSpecification,
+            BestMatchProject = "候选项目-LOG-UNIQUE",
+            BestMatchSpecification = "候选规格-LOG-UNIQUE"
+        });
+
+        var logs = string.Join("\n", logger.Messages);
+        logs.Should().Contain("sha256=");
+        logs.Should().NotContain(sensitiveProject);
+        logs.Should().NotContain(sensitiveSpecification);
+        logs.Should().NotContain(sensitiveReason);
+        logs.Should().NotContain("候选项目-LOG-UNIQUE");
+        logs.Should().NotContain("候选规格-LOG-UNIQUE");
+        logs.Should().NotContain("完整Prompt");
+    }
+
     [Fact]
     public async Task ReviewAsync_WhenImportDuplicateScene_ShouldUseDedicatedTemplateAndInjectWorkflowScene()
     {
@@ -339,6 +375,25 @@ public class LlmReviewPromptTests
             LastPrompt = chatHistory.Last().Content ?? string.Empty;
             yield return new StreamingChatMessageContent(AuthorRole.Assistant, _response);
             await Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Messages.Add(formatter(state, exception));
         }
     }
 }

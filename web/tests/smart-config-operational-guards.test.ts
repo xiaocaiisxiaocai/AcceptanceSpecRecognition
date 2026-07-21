@@ -53,10 +53,15 @@ test("两个智能结构识别入口应默认启用并自动采用首个可用 L
 
   assert.match(dataImportSource, /enableStructureLlmAssistance = ref\(true\)/);
   assert.match(smartFillSource, /enableStructureLlmAssistance = ref\(true\)/);
-  assert.match(controlSource, /const defaultService = services\.value\[0\]/);
-  assert.match(controlSource, /emit\("update:serviceId", defaultService\.id\)/);
-  assert.match(controlSource, /emit\("update:enabled", true\)/);
-  assert.match(controlSource, /emit\("update:enabled", false\)/);
+  assert.match(controlSource, /getAiServiceSelection\("llm"/);
+  assert.match(
+    controlSource,
+    /resolveAiAssistSelectionState\(response\.data\)/
+  );
+  assert.match(controlSource, /emit\("update:enabled", next\.enabled\)/);
+  assert.match(controlSource, /emit\("update:serviceId", next\.serviceId\)/);
+  assert.doesNotMatch(controlSource, /services\.value\[0\]/);
+  assert.doesNotMatch(controlSource, /getAiServiceList/);
   assert.doesNotMatch(controlSource, /<el-select/);
   assert.match(controlSource, /AI 辅助疑难识别/);
   assert.match(controlSource, /关闭后仍可识别，确认后仍会学习/);

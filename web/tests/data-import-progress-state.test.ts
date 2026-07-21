@@ -118,7 +118,7 @@ test("导入页 AI 疑似重复默认配置应复用共享 helper", () => {
   );
   assert.match(
     pageComposableSource,
-    /createDefaultImportDuplicateAiConfig\(\{\s*embeddingServiceId: embeddingServices\.value\[0\]\?\.id,\s*llmServiceId: llmServices\.value\[0\]\?\.id\s*\}\)/
+    /createDefaultImportDuplicateAiConfig\(\{[\s\S]*embeddingSelection\.value\.status === "available"[\s\S]*llmSelection\.value\.status === "available"/
   );
   assert.doesNotMatch(
     pageComposableSource,

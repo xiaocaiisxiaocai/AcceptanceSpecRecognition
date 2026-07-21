@@ -133,14 +133,28 @@ public partial class LlmMatchingAssistService
         int? preferredId,
         CancellationToken cancellationToken)
     {
-        if (!_aiServiceCandidateCache.TryGetValue(purpose, out var cachedCandidates))
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var configurationVersion = _runtimeAvailability?.ConfigurationVersion ?? 0;
+        if (!_aiServiceCandidateCache.TryGetValue(purpose, out var cacheEntry) ||
+            cacheEntry.ExpiresAt <= now ||
+            cacheEntry.ConfigurationVersion != configurationVersion ||
+            cacheEntry.Candidates.Count == 0)
         {
             await _dbBackedCacheInitializationLock.WaitAsync(cancellationToken);
             try
             {
-                if (!_aiServiceCandidateCache.TryGetValue(purpose, out cachedCandidates))
+                now = _timeProvider.GetUtcNow().UtcDateTime;
+                configurationVersion = _runtimeAvailability?.ConfigurationVersion ?? 0;
+                if (!_aiServiceCandidateCache.TryGetValue(purpose, out cacheEntry) ||
+                    cacheEntry.ExpiresAt <= now ||
+                    cacheEntry.ConfigurationVersion != configurationVersion ||
+                    cacheEntry.Candidates.Count == 0)
                 {
-                    cachedCandidates = await GetCachedCandidatesCoreAsync(purpose, cancellationToken);
+                    cacheEntry = await RefreshCandidateCacheAsync(
+                        purpose,
+                        now,
+                        configurationVersion,
+                        cancellationToken);
                 }
             }
             finally
@@ -149,23 +163,33 @@ public partial class LlmMatchingAssistService
             }
         }
 
-        return FilterCandidatesForPreferredService(cachedCandidates, preferredId);
+        var candidates = cacheEntry.Candidates;
+        if (_runtimeAvailability != null)
+        {
+            candidates = candidates
+                .Where(candidate => _runtimeAvailability.IsAvailable(candidate.Id, purpose))
+                .ToList();
+        }
+
+        return FilterCandidatesForPreferredService(candidates, preferredId);
     }
 
-    private async Task<IReadOnlyList<AiServiceConfigModel>> GetCachedCandidatesCoreAsync(
+    private async Task<CandidateCacheEntry> RefreshCandidateCacheAsync(
         AiServicePurpose purpose,
+        DateTime now,
+        long configurationVersion,
         CancellationToken cancellationToken)
     {
         await _aiServiceCandidateCacheLock.WaitAsync(cancellationToken);
         try
         {
-            if (!_aiServiceCandidateCache.TryGetValue(purpose, out var cachedCandidates))
-            {
-                cachedCandidates = await _selector.GetCandidatesAsync(purpose, preferredId: null, cancellationToken);
-                _aiServiceCandidateCache[purpose] = cachedCandidates;
-            }
-
-            return cachedCandidates;
+            var candidates = await _selector.GetCandidatesAsync(purpose, preferredId: null, cancellationToken);
+            var entry = new CandidateCacheEntry(
+                candidates,
+                now.AddSeconds(5),
+                configurationVersion);
+            _aiServiceCandidateCache[purpose] = entry;
+            return entry;
         }
         finally
         {

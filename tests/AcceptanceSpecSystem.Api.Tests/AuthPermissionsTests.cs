@@ -538,6 +538,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("api:smart-config:create");
         permissions.Should().Contain("btn:smart-config:create");
         permissions.Should().Contain("api:machine-model:read");
+        permissions.Should().Contain("api:ai-service:read");
         permissions.Should().Contain("btn:file-compare:upload");
         permissions.Should().Contain("btn:file-compare:preview");
         permissions.Should().Contain("btn:file-compare:download");

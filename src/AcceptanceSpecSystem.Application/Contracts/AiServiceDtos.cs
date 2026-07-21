@@ -74,3 +74,12 @@ public sealed record AiServiceProbeConfig(
     string? ApiKey, string? Endpoint, string? EmbeddingModel, string? LlmModel,
     bool DisableThinking, bool IsDisabled, DateTime CreatedAt, DateTime? UpdatedAt);
 
+public sealed class AiServiceSelectionDto
+{
+    public string Status { get; set; } = "unavailable";
+    public int? ServiceId { get; set; }
+    public string? Name { get; set; }
+    public string? Model { get; set; }
+    public DateTime? CheckedAt { get; set; }
+    public string Message { get; set; } = string.Empty;
+}

@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   openspec:
     name: OpenSpec Strict Validation
@@ -42,16 +45,32 @@ jobs:
       - name: Restore
         run: dotnet restore AcceptanceSpecSystem.sln
 
-      - name: Audit NuGet dependencies
+      - name: Check repository hygiene
         run: |
-          mkdir -p artifacts
-          dotnet list AcceptanceSpecSystem.sln package --vulnerable --include-transitive --no-restore --format json > artifacts/nuget-audit.json
-          python tools/assert_nuget_audit.py artifacts/nuget-audit.json
-          printf '%s' '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"audit-gate-fixture","vulnerabilities":[{"severity":"High","advisoryurl":"https://example.invalid/advisory"}]}]}]}]}' > /tmp/nuget-vulnerable-fixture.json
-          if python tools/assert_nuget_audit.py /tmp/nuget-vulnerable-fixture.json; then
-            echo 'NuGet audit parser must reject vulnerable package reports'
-            exit 1
-          fi
+          python tools/test_assert_repository_hygiene.py
+          python tools/assert_repository_hygiene.py
+
+      - name: Audit NuGet dependencies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          $auditPath = Join-Path $PWD "artifacts/nuget-audit.json"
+          dotnet list AcceptanceSpecSystem.sln package --vulnerable --include-transitive --no-restore --format json |
+            Out-File -FilePath $auditPath -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          python tools/assert_nuget_audit.py $auditPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $fixturePath = Join-Path $env:RUNNER_TEMP "nuget-vulnerable-fixture.json"
+          $fixture = '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"audit-gate-fixture","vulnerabilities":[{"severity":"High","advisoryurl":"https://example.invalid/advisory"}]}]}]}]}'
+          Set-Content -LiteralPath $fixturePath -Value $fixture -Encoding utf8 -NoNewline
+          $fixtureResult = Start-Process python `
+            -ArgumentList @("tools/assert_nuget_audit.py", $fixturePath) `
+            -Wait -NoNewWindow -PassThru
+          if ($fixtureResult.ExitCode -eq 0) {
+            throw "NuGet audit parser must reject vulnerable package reports"
+          }
 
       - name: Test
         run: dotnet test AcceptanceSpecSystem.sln --no-restore -m:1 --collect:"XPlat Code Coverage" --results-directory artifacts/backend-coverage
@@ -151,6 +170,12 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Test frontend gzip budget guard
+        run: pnpm test:bundle-budget
+
+      - name: Enforce frontend gzip budget
+        run: pnpm check:bundle-budget
 
   browser-e2e:
     name: Browser E2E
@@ -317,6 +342,8 @@ jobs:
           JWT_SIGNING_KEY=CiOnlySigningKey_AtLeast32Characters_2026!
           AUTH_SEED_ADMIN_PASSWORD=CiAdminPassword_2026!
           AUTH_SEED_COMMON_PASSWORD=CiCommonPassword_2026!
+          API_IMAGE=acceptance-api:ci-20260721
+          WEB_IMAGE=acceptance-web:ci-20260721
           CORS_ALLOWED_ORIGIN=https://ci.example.invalid
           BROWSER_AUTH_ALLOW_INSECURE_HTTP=false
           BROWSER_AUTH_REFRESH_COOKIE_NAME=__Host-acceptance-refresh
@@ -325,6 +352,13 @@ jobs:
           BROWSER_AUTH_COOKIE_DOMAIN=
           EOF
           sh deploy/validate-production-env.sh /tmp/production-valid.env
+
+          sed 's|API_IMAGE=acceptance-api:ci-20260721|API_IMAGE=acceptance-api:latest|' \
+            /tmp/production-valid.env > /tmp/production-latest-image.env
+          if sh deploy/validate-production-env.sh /tmp/production-latest-image.env; then
+            echo 'mutable latest image tag unexpectedly passed validation'
+            exit 1
+          fi
 
           sed \
             -e 's|CORS_ALLOWED_ORIGIN=https://ci.example.invalid|CORS_ALLOWED_ORIGIN=http://acceptance-web-ci:8080|' \

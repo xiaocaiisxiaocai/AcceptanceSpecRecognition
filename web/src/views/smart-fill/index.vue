@@ -272,8 +272,8 @@ const getCurrentScope = () =>
 
 const getMatchConfigServiceStatus = () =>
   matchConfigRef.value?.getServiceStatus?.() ?? {
-    hasAvailableEmbeddingService: true,
-    hasAvailableLlmService: true
+    hasAvailableEmbeddingService: false,
+    hasAvailableLlmService: false
   };
 
 const {
@@ -344,6 +344,32 @@ const clearPreviewDetail = () => {
   detailVisible.value = false;
 };
 
+const refreshRuntimeAiSelection = async () => {
+  const llmRequested =
+    matchConfig.value.enableLlmEquivalenceAdjudication === true ||
+    matchConfig.value.enableLlmSemanticPriority === true;
+  const refresh = await matchConfigRef.value?.refreshAiServices?.();
+  if (!refresh?.current) return false;
+
+  const blockingMessage = getPrePreviewBlockingMessage();
+  if (blockingMessage) {
+    ElMessage.warning(blockingMessage);
+    return false;
+  }
+  if (llmRequested && refresh.llm?.status === "checking") {
+    ElMessage.warning("LLM 服务仍在检测，请稍后重试");
+    return false;
+  }
+  if (
+    llmRequested &&
+    !matchConfig.value.enableLlmEquivalenceAdjudication &&
+    !matchConfig.value.enableLlmSemanticPriority
+  ) {
+    ElMessage.warning("LLM 服务当前不可用，本次将关闭 AI 复核后继续");
+  }
+  return true;
+};
+
 const {
   executing,
   downloadingResult,
@@ -373,6 +399,7 @@ const {
   openBackfillDialog,
   setBackfillingSpecs,
   clearPendingExecuteRequest,
+  ensureRuntimeAiReady: refreshRuntimeAiSelection,
   onDownload: (blob: Blob, fileName: string) => {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -420,6 +447,11 @@ const { doPreview, invalidatePendingPreview, previewAbortController } =
       return batchPreviewMatch(data, { signal: controller.signal });
     }
   });
+
+const retryPreview = async () => {
+  if (!(await refreshRuntimeAiSelection())) return;
+  await doPreview();
+};
 
 // 页面卸载时清理进行中的预览/流式请求，防止离页后继续占用资源
 onBeforeUnmount(() => {
@@ -742,7 +774,7 @@ const toggleBackfillCandidates = (checked: boolean) => {
 };
 
 // 步骤切换
-const goNext = () => {
+const goNext = async () => {
   if (
     !advancedMode.value &&
     currentStep.value === SMART_FILL_STEP_UPLOAD_SCOPE
@@ -771,9 +803,7 @@ const goNext = () => {
     ) {
       return;
     }
-    const prePreviewBlockingMessage = getPrePreviewBlockingMessage();
-    if (prePreviewBlockingMessage) {
-      ElMessage.warning(prePreviewBlockingMessage);
+    if (!(await refreshRuntimeAiSelection())) {
       return;
     }
   }
@@ -1109,7 +1139,7 @@ const retryTableMetadata = () => {
         @go-prev="goPrev"
         @select="handleSelect"
         @show-detail="handleShowDetail"
-        @preview="doPreview"
+        @preview="retryPreview"
         @execute="handleExecute"
         @download-last-result="handleDownloadLastResult"
         @restart="handleRestart"

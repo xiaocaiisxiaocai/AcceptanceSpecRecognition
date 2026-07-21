@@ -4,6 +4,9 @@ using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Repositories;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -305,6 +308,96 @@ public sealed class MatchingFillAmbiguousCommitTests : IClassFixture<AmbiguousCo
     }
 }
 
+public sealed class MatchingWordFillAmbiguousCommitTests : IClassFixture<WordAmbiguousCommitApiWebApplicationFactory>
+{
+    private readonly WordAmbiguousCommitApiWebApplicationFactory _factory;
+    private readonly HttpClient _client;
+
+    public MatchingWordFillAmbiguousCommitTests(WordAmbiguousCommitApiWebApplicationFactory factory)
+    {
+        _factory = factory;
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task BatchExecuteWord_WhenCommitSucceedsButReturnsError_ShouldKeepCommittedArtifact()
+    {
+        using var uploadContent = new MultipartFormDataContent();
+        uploadContent.Add(
+            new ByteArrayContent(CreateDocxBytes([
+                ["项目", "规格", "验收"],
+                ["P1", "S1", ""]
+            ])),
+            "file",
+            "ambiguous-commit.docx");
+        var upload = await _client.PostAsync("/api/documents/upload", uploadContent);
+        upload.StatusCode.Should().Be(HttpStatusCode.OK);
+        var fileId = (await upload.ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("fileId").GetInt32();
+
+        var execute = await _client.PostAsync("/api/matching/batch-execute", ApiClientJson.ToJsonContent(new
+        {
+            executionRequestId = Guid.NewGuid().ToString("N"),
+            fileId,
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    mappings = new[]
+                    {
+                        new
+                        {
+                            rowIndex = 1,
+                            manualFill = true,
+                            overrideAcceptance = "WORD-COMMITTED"
+                        }
+                    }
+                }
+            }
+        }));
+
+        execute.StatusCode.Should().Be(HttpStatusCode.OK);
+        var response = await execute.ReadAsAsync<ApiResponse<JsonElement>>();
+        var taskId = response.Data.GetProperty("taskId").GetString();
+        taskId.Should().NotBeNullOrWhiteSpace();
+        (await _client.GetAsync($"/api/matching/download/{taskId}"))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.MatchingFillTasks.CountAsync(item => item.SourceFileId == fileId)).Should().Be(1);
+        (await db.ExecutionHistoryRecords.CountAsync(item => item.SourceFileId == fileId)).Should().Be(1);
+    }
+
+    private static byte[] CreateDocxBytes(string[][] rows)
+    {
+        using var stream = new MemoryStream();
+        using (var document = WordprocessingDocument.Create(
+                   stream,
+                   WordprocessingDocumentType.Document,
+                   true))
+        {
+            var main = document.AddMainDocumentPart();
+            main.Document = new Document(new Body());
+            var table = new Table();
+            foreach (var row in rows)
+            {
+                table.AppendChild(new TableRow(row
+                    .Select(value => new TableCell(new Paragraph(new Run(new Text(value ?? string.Empty)))))
+                    .ToArray()));
+            }
+
+            main.Document.Body!.Append(table);
+            main.Document.Save();
+        }
+
+        return stream.ToArray();
+    }
+}
+
 public sealed class AmbiguousCommitApiWebApplicationFactory : ApiWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -320,12 +413,33 @@ public sealed class AmbiguousCommitApiWebApplicationFactory : ApiWebApplicationF
     }
 }
 
+public sealed class WordAmbiguousCommitApiWebApplicationFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll(typeof(IUnitOfWork));
+            services.AddScoped<IUnitOfWork>(serviceProvider =>
+                new AmbiguousCommitUnitOfWork(
+                    new UnitOfWork(serviceProvider.GetRequiredService<AppDbContext>(), serviceProvider),
+                    throwOnCommitCount: 1));
+        });
+    }
+}
+
 internal sealed class AmbiguousCommitUnitOfWork : IUnitOfWork
 {
     private readonly IUnitOfWork _inner;
+    private readonly int _throwOnCommitCount;
     private int _commitCount;
 
-    public AmbiguousCommitUnitOfWork(IUnitOfWork inner) => _inner = inner;
+    public AmbiguousCommitUnitOfWork(IUnitOfWork inner, int throwOnCommitCount = 2)
+    {
+        _inner = inner;
+        _throwOnCommitCount = throwOnCommitCount;
+    }
 
     public ICustomerRepository Customers => _inner.Customers;
     public IProcessRepository Processes => _inner.Processes;
@@ -350,7 +464,7 @@ internal sealed class AmbiguousCommitUnitOfWork : IUnitOfWork
     public async Task CommitTransactionAsync()
     {
         await _inner.CommitTransactionAsync();
-        if (Interlocked.Increment(ref _commitCount) == 2)
+        if (Interlocked.Increment(ref _commitCount) == _throwOnCommitCount)
         {
             throw new InvalidOperationException("模拟提交已成功但客户端收到连接错误");
         }

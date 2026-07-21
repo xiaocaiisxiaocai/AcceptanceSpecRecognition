@@ -8,10 +8,14 @@ namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 public class AiServiceSelector : IAiServiceSelector
 {
     private readonly IAiServiceConfigProvider _configProvider;
+    private readonly IAiServiceRuntimeAvailability? _runtimeAvailability;
 
-    public AiServiceSelector(IAiServiceConfigProvider configProvider)
+    public AiServiceSelector(
+        IAiServiceConfigProvider configProvider,
+        IAiServiceRuntimeAvailability? runtimeAvailability = null)
     {
         _configProvider = configProvider;
+        _runtimeAvailability = runtimeAvailability;
     }
 
     public async Task<IReadOnlyList<AiServiceConfigModel>> GetCandidatesAsync(
@@ -21,7 +25,8 @@ public class AiServiceSelector : IAiServiceSelector
     {
         var all = await _configProvider.GetByPurposeAsync(purpose, cancellationToken);
         var list = all
-            .Where(c => IsConfigUsable(c, purpose))
+            .Where(c => IsConfigUsable(c, purpose) &&
+                        (_runtimeAvailability?.IsAvailable(c.Id, purpose) ?? true))
             .OrderBy(c => c.Priority)
             .ThenByDescending(c => c.UpdatedAt ?? c.CreatedAt)
             .ToList();

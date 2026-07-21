@@ -1,11 +1,18 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { UploadFilled } from "@element-plus/icons-vue";
+import { computed, onBeforeUnmount } from "vue";
+import {
+  CircleCheckFilled,
+  CircleCloseFilled,
+  Loading,
+  UploadFilled
+} from "@element-plus/icons-vue";
 import type { UploadRequestOptions } from "element-plus";
+import { useAppUploadTask, type AppUploadRequest } from "./useAppUploadTask";
 
 const props = withDefaults(
   defineProps<{
-    uploading?: boolean;
+    request: AppUploadRequest;
+    disabled?: boolean;
     uploadHint?: string;
     accept?: string;
     size?: "small" | "normal" | "large";
@@ -13,20 +20,33 @@ const props = withDefaults(
     dragText?: string;
     tipText?: string;
     showHeader?: boolean;
+    resetAfterSuccess?: boolean;
   }>(),
   {
-    uploading: false,
+    disabled: false,
     accept: ".docx,.xlsx",
     size: "normal",
     dragText: "将文件拖到此处，或 ",
     tipText: "仅支持 .docx / .xlsx，文件大小不超过 50MB",
-    showHeader: false
+    showHeader: false,
+    resetAfterSuccess: false
   }
 );
 
 const emit = defineEmits<{
-  upload: [options: UploadRequestOptions];
+  cancel: [];
 }>();
+
+const {
+  phase,
+  active,
+  progressPercent,
+  progressText,
+  errorMessage,
+  execute,
+  cancel,
+  reset
+} = useAppUploadTask((options, context) => props.request(options, context));
 
 const minHeightClass = computed(() => {
   const map = { small: "120px", normal: "200px", large: "280px" };
@@ -38,10 +58,25 @@ const iconSizeValue = computed(() => {
   return map[props.size];
 });
 
-const handleUpload = (options: UploadRequestOptions) => {
-  emit("upload", options);
-  return Promise.resolve();
+const handleUpload = async (options: UploadRequestOptions) => {
+  await execute(options);
+  if (props.resetAfterSuccess) reset();
 };
+
+const handleCancel = () => {
+  cancel();
+  emit("cancel");
+};
+
+const statusTitle = computed(() => {
+  if (phase.value === "uploading") return "正在上传文件";
+  if (phase.value === "processing") return "文件已上传，正在解析结构";
+  if (phase.value === "success") return "上传和处理完成";
+  if (phase.value === "failure") return "上传失败，可以重新选择文件";
+  return "";
+});
+
+onBeforeUnmount(cancel);
 </script>
 
 <template>
@@ -55,14 +90,50 @@ const handleUpload = (options: UploadRequestOptions) => {
       :show-file-list="false"
       :http-request="handleUpload"
       :accept="accept"
-      :disabled="uploading"
+      :disabled="disabled || active"
     >
-      <el-icon class="el-icon--upload" :size="iconSizeValue">
-        <UploadFilled />
+      <el-icon
+        class="el-icon--upload"
+        :class="{ 'is-processing': phase === 'processing' }"
+        :size="iconSizeValue"
+      >
+        <Loading v-if="phase === 'uploading' || phase === 'processing'" />
+        <CircleCheckFilled v-else-if="phase === 'success'" />
+        <CircleCloseFilled v-else-if="phase === 'failure'" />
+        <UploadFilled v-else />
       </el-icon>
-      <div class="el-upload__text">
-        <span v-if="uploading">上传中...</span>
-        <span v-else> {{ dragText }}<em>点击上传</em> </span>
+      <div v-if="phase === 'idle'" class="el-upload__text">
+        {{ dragText }}<em>点击上传</em>
+      </div>
+      <div v-else class="upload-status" aria-live="polite">
+        <strong>{{ statusTitle }}</strong>
+        <span v-if="phase === 'uploading'" class="upload-status__detail">
+          {{ progressText }}
+        </span>
+        <span v-else-if="phase === 'processing'" class="upload-status__detail">
+          服务端正在读取工作表或表格，请稍候
+        </span>
+        <span v-else-if="phase === 'failure'" class="upload-status__error">
+          {{ errorMessage }}
+        </span>
+      </div>
+      <div v-if="active" class="upload-progress" @click.stop>
+        <el-progress
+          v-if="progressPercent !== null && phase === 'uploading'"
+          :percentage="progressPercent"
+          :stroke-width="8"
+        />
+        <el-progress
+          v-else
+          :percentage="100"
+          :show-text="false"
+          :indeterminate="true"
+          :duration="1.8"
+          :stroke-width="8"
+        />
+        <el-button type="primary" link @click.stop.prevent="handleCancel">
+          {{ phase === "processing" ? "停止等待" : "取消上传" }}
+        </el-button>
       </div>
       <template #tip>
         <div class="el-upload__tip">{{ uploadHint || tipText }}</div>
@@ -105,5 +176,46 @@ const handleUpload = (options: UploadRequestOptions) => {
 .app-upload-area :deep(.el-upload-dragger:hover) {
   border-color: var(--app-primary);
   box-shadow: var(--shadow-sm);
+}
+
+.el-icon--upload.is-processing {
+  animation: upload-spin 1.2s linear infinite;
+}
+
+.upload-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  color: var(--app-text-primary);
+}
+
+.upload-status__detail {
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+
+.upload-status__error {
+  max-width: 520px;
+  font-size: 13px;
+  color: var(--el-color-danger);
+}
+
+.upload-progress {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: min(520px, 80%);
+  margin-top: 16px;
+}
+
+.upload-progress :deep(.el-progress) {
+  flex: 1;
+}
+
+@keyframes upload-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

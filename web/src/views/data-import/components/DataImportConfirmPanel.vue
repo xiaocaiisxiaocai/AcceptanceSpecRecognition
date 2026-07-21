@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { ArrowRight, InfoFilled } from "@element-plus/icons-vue";
-import type { AiServiceConfig } from "@/api/ai-service";
+import type { AiServiceSelection } from "@/api/ai-service";
 import type { Customer } from "@/api/customer";
 import type { Process } from "@/api/process";
+import { getDistinctAiServiceModel } from "@/views/shared/ai-service-display";
+import {
+  getRuntimeAiSelectionStatusText,
+  isRuntimeAiSelectionAvailable
+} from "@/utils/runtime-ai-selection";
 import type {
   CombinedImportResult,
   ImportDuplicateAiConfig,
@@ -43,8 +48,8 @@ const props = withDefaults(
     previewDataCount: number;
     importDuplicateAiConfig: ImportDuplicateAiConfig;
     loadingAiServices: boolean;
-    embeddingServices: AiServiceConfig[];
-    llmServices: AiServiceConfig[];
+    embeddingSelection: AiServiceSelection;
+    llmSelection: AiServiceSelection;
     removedPreviewRowCount: number;
     selectedImportPreviewRowsCount: number;
     importPreviewGroups: ImportPreviewGroup[];
@@ -83,15 +88,26 @@ const emit = defineEmits<{
 const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 const activeCollapseNames = ref<string[]>([]);
 const showDuplicateAdvanced = ref(false);
-const selectedEmbeddingService = computed(() =>
-  props.embeddingServices.find(
-    service => service.id === duplicateAiConfig.value.embeddingServiceId
+const hasAvailableEmbeddingService = computed(() =>
+  isRuntimeAiSelectionAvailable(props.embeddingSelection)
+);
+const hasAvailableLlmService = computed(() =>
+  isRuntimeAiSelectionAvailable(props.llmSelection)
+);
+const embeddingServiceModel = computed(() =>
+  getDistinctAiServiceModel(
+    props.embeddingSelection.name,
+    props.embeddingSelection.model
   )
 );
-const selectedLlmService = computed(() =>
-  props.llmServices.find(
-    service => service.id === duplicateAiConfig.value.llmServiceId
-  )
+const llmServiceModel = computed(() =>
+  getDistinctAiServiceModel(props.llmSelection.name, props.llmSelection.model)
+);
+const embeddingStatusText = computed(() =>
+  getRuntimeAiSelectionStatusText(props.embeddingSelection, "Embedding")
+);
+const llmStatusText = computed(() =>
+  getRuntimeAiSelectionStatusText(props.llmSelection, "LLM")
 );
 const duplicateCheckSummary = computed(() => {
   if (!duplicateAiConfig.value.enableSemanticDuplicateCheck) {
@@ -362,9 +378,11 @@ const effectivePendingSelectedSheetCount = computed(
               }"
             >
               疑似重复检查{{
-                duplicateAiConfig.enableSemanticDuplicateCheck
-                  ? "已开启"
-                  : "未开启"
+                loadingAiServices || embeddingSelection.status === "checking"
+                  ? "检测中"
+                  : duplicateAiConfig.enableSemanticDuplicateCheck
+                    ? "已开启"
+                    : "未开启"
               }}
             </span>
           </div>
@@ -383,13 +401,16 @@ const effectivePendingSelectedSheetCount = computed(
             </div>
             <div class="duplicate-ai-panel__control">
               <span>{{
-                duplicateAiConfig.enableSemanticDuplicateCheck
-                  ? "已开启"
-                  : "已关闭"
+                loadingAiServices || embeddingSelection.status === "checking"
+                  ? "检测中"
+                  : duplicateAiConfig.enableSemanticDuplicateCheck
+                    ? "已开启"
+                    : "已关闭"
               }}</span>
               <el-switch
                 v-model="duplicateAiConfig.enableSemanticDuplicateCheck"
                 aria-label="启用 AI 疑似重复识别"
+                :disabled="loadingAiServices || !hasAvailableEmbeddingService"
               />
             </div>
           </div>
@@ -399,29 +420,32 @@ const effectivePendingSelectedSheetCount = computed(
           >
             AI
             疑似重复检查当前关闭，本次导入仅使用完全相同、同项目同规格等规则判断。
+            <span class="duplicate-ai-panel__runtime-status">
+              {{ embeddingStatusText }}
+            </span>
           </div>
           <el-form v-else label-position="top" class="duplicate-ai-form">
             <el-row :gutter="16">
               <el-col :xs="24" :md="12">
                 <el-form-item label="Embedding 服务">
-                  <el-select
-                    v-model="duplicateAiConfig.embeddingServiceId"
-                    placeholder="请选择 Embedding 服务"
-                    :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
-                    :loading="loadingAiServices"
-                    style="width: 100%"
-                    filterable
-                    clearable
-                    :teleported="true"
-                    popper-class="app-select-popper"
+                  <div
+                    v-if="hasAvailableEmbeddingService"
+                    class="duplicate-ai-service"
+                    role="status"
+                    aria-live="polite"
                   >
-                    <el-option
-                      v-for="service in embeddingServices"
-                      :key="service.id"
-                      :label="`${service.name}（${service.embeddingModel || '-'}）`"
-                      :value="service.id"
-                    />
-                  </el-select>
+                    <span>自动使用</span>
+                    <strong>{{ embeddingSelection.name }}</strong>
+                    <small v-if="embeddingServiceModel">
+                      {{ embeddingServiceModel }}
+                    </small>
+                  </div>
+                  <el-alert
+                    v-else
+                    type="info"
+                    :closable="false"
+                    :title="embeddingStatusText"
+                  />
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :md="12">
@@ -433,13 +457,16 @@ const effectivePendingSelectedSheetCount = computed(
                     </div>
                     <div class="llm-toggle__control">
                       <span>{{
-                        duplicateAiConfig.enableLlmDuplicateReview
-                          ? "已开启"
-                          : "未开启"
+                        loadingAiServices || llmSelection.status === "checking"
+                          ? "检测中"
+                          : duplicateAiConfig.enableLlmDuplicateReview
+                            ? "已开启"
+                            : "未开启"
                       }}</span>
                       <el-switch
                         v-model="duplicateAiConfig.enableLlmDuplicateReview"
                         aria-label="启用 LLM 二次复核"
+                        :disabled="loadingAiServices || !hasAvailableLlmService"
                       />
                     </div>
                   </div>
@@ -451,27 +478,22 @@ const effectivePendingSelectedSheetCount = computed(
                 :md="12"
               >
                 <el-form-item label="LLM 服务">
-                  <el-select
-                    v-model="duplicateAiConfig.llmServiceId"
-                    placeholder="请选择 LLM 服务"
-                    :disabled="
-                      !duplicateAiConfig.enableSemanticDuplicateCheck ||
-                      !duplicateAiConfig.enableLlmDuplicateReview
-                    "
-                    :loading="loadingAiServices"
-                    style="width: 100%"
-                    filterable
-                    clearable
-                    :teleported="true"
-                    popper-class="app-select-popper"
+                  <div
+                    v-if="hasAvailableLlmService"
+                    class="duplicate-ai-service"
+                    role="status"
+                    aria-live="polite"
                   >
-                    <el-option
-                      v-for="service in llmServices"
-                      :key="service.id"
-                      :label="`${service.name}（${service.llmModel || '-'}）`"
-                      :value="service.id"
-                    />
-                  </el-select>
+                    <span>自动使用</span>
+                    <strong>{{ llmSelection.name }}</strong>
+                    <small v-if="llmServiceModel">{{ llmServiceModel }}</small>
+                  </div>
+                  <el-alert
+                    v-else
+                    type="info"
+                    :closable="false"
+                    :title="llmStatusText"
+                  />
                 </el-form-item>
               </el-col>
             </el-row>
@@ -483,12 +505,10 @@ const effectivePendingSelectedSheetCount = computed(
               </div>
               <div class="duplicate-ai-summary__services">
                 <span>
-                  Embedding：{{
-                    selectedEmbeddingService?.embeddingModel || "未选择"
-                  }}
+                  Embedding：{{ embeddingSelection.model || "运行时自动选择" }}
                 </span>
                 <span v-if="duplicateAiConfig.enableLlmDuplicateReview">
-                  LLM：{{ selectedLlmService?.llmModel || "未选择" }}
+                  LLM：{{ llmSelection.model || llmStatusText }}
                 </span>
               </div>
             </div>
@@ -955,6 +975,40 @@ const effectivePendingSelectedSheetCount = computed(
   line-height: 1.6;
   color: var(--app-text-secondary);
   background: var(--el-fill-color-extra-light);
+}
+
+.duplicate-ai-panel__runtime-status {
+  display: block;
+  margin-top: 4px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.duplicate-ai-service {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 11px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.duplicate-ai-service span,
+.duplicate-ai-service small {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.duplicate-ai-service strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--app-text-primary);
+  white-space: nowrap;
 }
 
 .duplicate-ai-form {

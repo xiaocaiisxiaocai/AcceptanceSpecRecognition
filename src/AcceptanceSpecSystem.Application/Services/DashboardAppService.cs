@@ -1,7 +1,9 @@
 using AcceptanceSpecSystem.Application.Contracts;
+using AcceptanceSpecSystem.Application.Options;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -22,13 +24,22 @@ public interface IDashboardAppService
 public sealed class DashboardAppService : IDashboardAppService
 {
     private const string SmartFillTaskType = "smart-fill";
+    private const int MaximumTrendDays = 366;
     private readonly AppDbContext _dbContext;
     private readonly IAuthDataScopeService _authDataScopeService;
+    private readonly TimeProvider _timeProvider;
+    private readonly TimeZoneInfo _businessTimeZone;
 
-    public DashboardAppService(AppDbContext dbContext, IAuthDataScopeService authDataScopeService)
+    public DashboardAppService(
+        AppDbContext dbContext,
+        IAuthDataScopeService authDataScopeService,
+        TimeProvider timeProvider,
+        IOptions<DashboardOptions> options)
     {
         _dbContext = dbContext;
         _authDataScopeService = authDataScopeService;
+        _timeProvider = timeProvider;
+        _businessTimeZone = ResolveTimeZone(options.Value.TimeZoneId);
     }
 
     public async Task<DashboardSummaryDto?> GetSummaryAsync(
@@ -39,14 +50,22 @@ public sealed class DashboardAppService : IDashboardAppService
         DateTime? to,
         CancellationToken cancellationToken = default)
     {
-        var scope = await _authDataScopeService.GetScopeAsync(userId, companyId, "spec");
+        var scope = await _authDataScopeService.GetScopeAsync(
+            userId,
+            companyId,
+            "spec",
+            cancellationToken);
         if (scope == null)
         {
             return null;
         }
 
         var period = ResolvePeriod(range, from, to);
-        var scopedSpecs = ApplyScope(_dbContext.AcceptanceSpecs.AsNoTracking(), scope);
+        var scopedSpecs = ApplyScope(
+            _dbContext.AcceptanceSpecs
+                .AsNoTracking()
+                .Where(spec => spec.WordFile.CompanyId == scope.CompanyId),
+            scope);
 
         var smartFillRecords = _dbContext.ExecutionHistoryRecords
             .AsNoTracking()
@@ -76,6 +95,17 @@ public sealed class DashboardAppService : IDashboardAppService
         // 首页“匹配度”只统计最终完整执行且已采用的行；预览候选、中途取消或卡住的任务不计入成功匹配。
         var smartFillMatchedRows = await smartFillRecords.SumAsync(record => (int?)record.AdoptedRowCount, cancellationToken) ?? 0;
         var smartFillAdoptedRows = await smartFillRecords.SumAsync(record => (int?)record.AdoptedRowCount, cancellationToken) ?? 0;
+        var offsetMinutes = (int)_businessTimeZone.GetUtcOffset(period.End).TotalMinutes;
+        var importedByDay = await scopedSpecs
+            .Where(spec => spec.ImportedAt >= period.Start && spec.ImportedAt <= period.End)
+            .GroupBy(spec => spec.ImportedAt.AddMinutes(offsetMinutes).Date)
+            .Select(group => new { Date = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => DateOnly.FromDateTime(item.Date), item => item.Count, cancellationToken);
+        var smartFillByDay = await smartFillRecords
+            .GroupBy(record => record.CreatedAt.AddMinutes(offsetMinutes).Date)
+            .Select(group => new { Date = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => DateOnly.FromDateTime(item.Date), item => item.Count, cancellationToken);
+        var dailyTrend = BuildDailyTrend(period, importedByDay, smartFillByDay);
 
         return new DashboardSummaryDto
         {
@@ -91,27 +121,63 @@ public sealed class DashboardAppService : IDashboardAppService
             SmartFillMatchedRows = smartFillMatchedRows,
             SmartFillAdoptedRows = smartFillAdoptedRows,
             MatchingRate = CalculateRate(smartFillMatchedRows, smartFillTotalRows),
-            AdoptionRate = CalculateRate(smartFillAdoptedRows, smartFillTotalRows)
+            AdoptionRate = CalculateRate(smartFillAdoptedRows, smartFillTotalRows),
+            DailyTrend = dailyTrend
         };
     }
 
-    private static DashboardPeriod ResolvePeriod(string? range, DateTime? from, DateTime? to)
+    private DashboardPeriod ResolvePeriod(string? range, DateTime? from, DateTime? to)
     {
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.GetUtcNow();
+        var localNow = TimeZoneInfo.ConvertTime(now, _businessTimeZone);
         var normalizedRange = string.IsNullOrWhiteSpace(range)
             ? "last7"
             : range.Trim().ToLowerInvariant();
 
         return normalizedRange switch
         {
-            "last30" => new DashboardPeriod("last30", now.AddDays(-30), now),
+            "last30" => CreateCalendarPeriod("last30", localNow.Date.AddDays(-29), now.UtcDateTime),
             "custom" when from.HasValue && to.HasValue =>
                 NormalizeCustomPeriod(from.Value, to.Value),
-            _ => new DashboardPeriod("last7", now.AddDays(-7), now)
+            _ => CreateCalendarPeriod("last7", localNow.Date.AddDays(-6), now.UtcDateTime)
         };
     }
 
-    private static DashboardPeriod NormalizeCustomPeriod(DateTime from, DateTime to)
+    private DashboardPeriod CreateCalendarPeriod(string preset, DateTime localStart, DateTime utcEnd)
+    {
+        var unspecifiedStart = DateTime.SpecifyKind(localStart, DateTimeKind.Unspecified);
+        var utcStart = TimeZoneInfo.ConvertTimeToUtc(unspecifiedStart, _businessTimeZone);
+        return new DashboardPeriod(
+            preset,
+            utcStart,
+            utcEnd,
+            DateOnly.FromDateTime(localStart),
+            DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(utcEnd, _businessTimeZone)));
+    }
+
+    private static IReadOnlyList<DashboardDailyTrendDto> BuildDailyTrend(
+        DashboardPeriod period,
+        IReadOnlyDictionary<DateOnly, int> importedByDay,
+        IReadOnlyDictionary<DateOnly, int> smartFillByDay)
+    {
+        var start = period.StartDate;
+        var end = period.EndDate;
+        var result = new List<DashboardDailyTrendDto>(end.DayNumber - start.DayNumber + 1);
+
+        for (var date = start; date <= end; date = date.AddDays(1))
+        {
+            result.Add(new DashboardDailyTrendDto
+            {
+                Date = date,
+                ImportedSpecCount = importedByDay.GetValueOrDefault(date),
+                SmartFillTaskCount = smartFillByDay.GetValueOrDefault(date)
+            });
+        }
+
+        return result;
+    }
+
+    private DashboardPeriod NormalizeCustomPeriod(DateTime from, DateTime to)
     {
         var start = ToUtc(from);
         var end = ToUtc(to);
@@ -120,7 +186,43 @@ public sealed class DashboardAppService : IDashboardAppService
             (start, end) = (end, start);
         }
 
-        return new DashboardPeriod("custom", start, end);
+        if ((end.Date - start.Date).TotalDays >= MaximumTrendDays)
+            throw new ApplicationServiceException(400, $"仪表盘自定义周期不能超过 {MaximumTrendDays} 天");
+
+        return new DashboardPeriod(
+            "custom",
+            start,
+            end,
+            ToBusinessDate(start),
+            ToBusinessDate(end));
+    }
+
+    private DateOnly ToBusinessDate(DateTime utc) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(utc, _businessTimeZone));
+
+    private static TimeZoneInfo ResolveTimeZone(string? configuredId)
+    {
+        var candidates = new[] { configuredId, "Asia/Shanghai", "China Standard Time", "UTC" }
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+            .Select(candidate => candidate!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var zone = TimeZoneInfo.FindSystemTimeZoneById(candidate);
+                if (!zone.SupportsDaylightSavingTime)
+                    return zone;
+            }
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
+        }
+
+        return TimeZoneInfo.Utc;
     }
 
     private static DateTime ToUtc(DateTime value)
@@ -160,5 +262,10 @@ public sealed class DashboardAppService : IDashboardAppService
         return query.Where(_ => false);
     }
 
-    private sealed record DashboardPeriod(string Preset, DateTime Start, DateTime End);
+    private sealed record DashboardPeriod(
+        string Preset,
+        DateTime Start,
+        DateTime End,
+        DateOnly StartDate,
+        DateOnly EndDate);
 }

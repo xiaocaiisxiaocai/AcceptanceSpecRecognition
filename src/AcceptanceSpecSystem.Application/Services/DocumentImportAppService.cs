@@ -101,7 +101,8 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
             var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(
                 request.FileId,
                 scope,
-                includeScopedSpecs: true);
+                includeScopedSpecs: true,
+                cancellationToken);
             if (wordFile == null)
             {
                 throw new ApplicationServiceException(400, "文件不存在");
@@ -112,7 +113,11 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 throw new ApplicationServiceException(400, "该文件为 Excel，请使用 Excel 导入接口");
             }
 
-            await ValidateImportTargetAsync(request.CustomerId, request.ProcessId, request.MachineModelId);
+            await ValidateImportTargetAsync(
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                cancellationToken);
 
             if (!request.Mapping.SpecificationColumn.HasValue ||
                 !request.Mapping.AcceptanceColumn.HasValue ||
@@ -259,7 +264,8 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
             var file = await _documentFileAccessService.GetAccessibleWordFileAsync(
                 request.FileId,
                 scope,
-                includeScopedSpecs: true);
+                includeScopedSpecs: true,
+                cancellationToken);
             if (file == null)
             {
                 throw new ApplicationServiceException(400, "文件不存在");
@@ -270,7 +276,11 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 throw new ApplicationServiceException(400, "该文件不是 Excel（.xlsx）");
             }
 
-            await ValidateImportTargetAsync(request.CustomerId, request.ProcessId, request.MachineModelId);
+            await ValidateImportTargetAsync(
+                request.CustomerId,
+                request.ProcessId,
+                request.MachineModelId,
+                cancellationToken);
 
             if (request.SpecificationColumn <= 0)
             {

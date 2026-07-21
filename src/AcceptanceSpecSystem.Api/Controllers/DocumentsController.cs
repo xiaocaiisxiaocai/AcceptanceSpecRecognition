@@ -129,6 +129,9 @@ public class DocumentsController : BaseApiController
         [FromQuery] int headerRowCount = 1,
         [FromQuery] int dataStartRowIndex = 1,
         [FromQuery] int? dataEndRowIndex = null,
+        [FromQuery] int? rowOffset = null,
+        [FromQuery] int? columnOffset = null,
+        [FromQuery] int? previewColumns = null,
         CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
@@ -148,6 +151,9 @@ public class DocumentsController : BaseApiController
                 headerRowCount,
                 dataStartRowIndex,
                 dataEndRowIndex,
+                rowOffset,
+                columnOffset,
+                previewColumns,
                 cancellationToken);
             return Success(result);
         }

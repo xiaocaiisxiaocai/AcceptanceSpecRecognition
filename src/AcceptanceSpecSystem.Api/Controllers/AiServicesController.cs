@@ -16,6 +16,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel.ChatCompletion;
 using CoreAiServiceConfigModel = AcceptanceSpecSystem.Core.AI.Models.AiServiceConfigModel;
+using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -27,6 +28,8 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 public class AiServicesController : BaseApiController
 {
     private readonly IAiServiceConfigurationAppService _configuration;
+    private readonly IAiServiceSelectionAppService _selection;
+    private readonly AiServiceReadinessRegistry _readinessRegistry;
     private readonly ISemanticKernelServiceFactory _semanticKernelFactory;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AiServicesController> _logger;
@@ -38,6 +41,8 @@ public class AiServicesController : BaseApiController
 
     public AiServicesController(
         IAiServiceConfigurationAppService configuration,
+        IAiServiceSelectionAppService selection,
+        AiServiceReadinessRegistry readinessRegistry,
         ISemanticKernelServiceFactory semanticKernelFactory,
         IHttpClientFactory httpClientFactory,
         IOptions<AiServiceTestOptions> aiServiceTestOptions,
@@ -45,6 +50,8 @@ public class AiServicesController : BaseApiController
         ILogger<AiServicesController> logger)
     {
         _configuration = configuration;
+        _selection = selection;
+        _readinessRegistry = readinessRegistry;
         _semanticKernelFactory = semanticKernelFactory;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
@@ -55,6 +62,26 @@ public class AiServicesController : BaseApiController
         _azureOpenAiApiVersion = string.IsNullOrWhiteSpace(semanticKernelOptions.Value.AzureOpenAIApiVersion)
             ? new SemanticKernelOptions().AzureOpenAIApiVersion
             : semanticKernelOptions.Value.AzureOpenAIApiVersion.Trim();
+    }
+
+    /// <summary>
+    /// 按用途返回当前运行可用的自动选择结果。响应不包含 Endpoint 或 ApiKey。
+    /// </summary>
+    [HttpGet("selection")]
+    [ProducesResponseType(typeof(ApiResponse<AiServiceSelectionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<AiServiceSelectionDto>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<AiServiceSelectionDto>>> GetSelection(
+        [FromQuery] AiServicePurpose purpose,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return Success(await _selection.GetSelectionAsync(purpose, cancellationToken));
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AiServiceSelectionDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -186,6 +213,7 @@ public class AiServicesController : BaseApiController
         if (purposeError != null)
             return Error<AiServiceTestResultDto>(400, purposeError);
 
+        var readinessGeneration = _readinessRegistry.CaptureGeneration(entity.Id);
         var sw = Stopwatch.StartNew();
         try
         {
@@ -329,6 +357,11 @@ public class AiServicesController : BaseApiController
             }
 
             sw.Stop();
+            var runtimePurpose = ToCorePurpose(effectivePurpose);
+            if (success)
+                _readinessRegistry.ReportAvailableIfCurrent(entity.Id, runtimePurpose, readinessGeneration);
+            else
+                _readinessRegistry.ReportUnavailableIfCurrent(entity.Id, runtimePurpose, readinessGeneration);
             return Success(new AiServiceTestResultDto
             {
                 Success = success,
@@ -348,6 +381,10 @@ public class AiServicesController : BaseApiController
         catch (Exception ex)
         {
             sw.Stop();
+            _readinessRegistry.ReportUnavailableIfCurrent(
+                entity.Id,
+                ToCorePurpose(effectivePurpose),
+                readinessGeneration);
             _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}", entity.Id, entity.Name);
             return Success(new AiServiceTestResultDto
             {
@@ -943,5 +980,12 @@ public class AiServicesController : BaseApiController
             UpdatedAt = entity.UpdatedAt
         };
     }
+
+    private static CoreAiServicePurpose ToCorePurpose(AiServicePurpose purpose) => purpose switch
+    {
+        AiServicePurpose.Llm => CoreAiServicePurpose.Llm,
+        AiServicePurpose.Embedding => CoreAiServicePurpose.Embedding,
+        _ => CoreAiServicePurpose.None
+    };
 
 }

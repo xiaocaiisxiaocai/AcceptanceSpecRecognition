@@ -94,7 +94,7 @@ public sealed class AcceptanceSpecAppService
         int id,
         CancellationToken cancellationToken = default)
     {
-        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdWithCustomerAndProcessAsync(id);
+        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdWithCustomerAndProcessAsync(id, cancellationToken);
         if (spec == null)
             return null;
 
@@ -135,10 +135,10 @@ public sealed class AcceptanceSpecAppService
             ImportedAt = DateTime.UtcNow
         };
 
-        await _unitOfWork.AcceptanceSpecs.AddAsync(spec);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.AcceptanceSpecs.AddAsync(spec, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("创建验收规格成功: {SpecId} - {Project}", spec.Id, spec.Project);
+        _logger.LogInformation("创建验收规格成功: {SpecId}", spec.Id);
 
         return new AcceptanceSpecSummary
         {
@@ -168,7 +168,7 @@ public sealed class AcceptanceSpecAppService
         string? remark,
         CancellationToken cancellationToken = default)
     {
-        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdWithCustomerAndProcessAsync(id);
+        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdWithCustomerAndProcessAsync(id, cancellationToken);
         if (spec == null)
             return null;
 
@@ -182,9 +182,9 @@ public sealed class AcceptanceSpecAppService
 
         _unitOfWork.AcceptanceSpecs.Update(spec);
         await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("更新验收规格成功: {SpecId} - {Project}", spec.Id, spec.Project);
+        _logger.LogInformation("更新验收规格成功: {SpecId}", spec.Id);
         return AcceptanceSpecQueryService.MapDto(spec);
     }
 
@@ -193,7 +193,7 @@ public sealed class AcceptanceSpecAppService
         int id,
         CancellationToken cancellationToken = default)
     {
-        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(id);
+        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(id, cancellationToken);
         if (spec == null)
             return false;
 
@@ -201,9 +201,9 @@ public sealed class AcceptanceSpecAppService
             throw new ApplicationServiceException(403, "无权操作该规格");
 
         _unitOfWork.AcceptanceSpecs.Remove(spec);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("删除验收规格成功: {SpecId} - {Project}", spec.Id, spec.Project);
+        _logger.LogInformation("删除验收规格成功: {SpecId}", spec.Id);
         return true;
     }
 
@@ -220,7 +220,7 @@ public sealed class AcceptanceSpecAppService
         await RequireProcessAsync(processId, cancellationToken);
         await RequireMachineModelAsync(machineModelId, cancellationToken);
 
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(wordFileId);
+        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(wordFileId, cancellationToken);
         if (wordFile == null)
             throw new ApplicationServiceException(400, "Word文件不存在");
 
@@ -250,7 +250,7 @@ public sealed class AcceptanceSpecAppService
                     CreatedByUserId = scope.UserId,
                     WordFileId = wordFileId,
                     ImportedAt = DateTime.UtcNow
-                });
+                }, cancellationToken);
 
                 successCount++;
             }
@@ -260,7 +260,7 @@ public sealed class AcceptanceSpecAppService
             }
         }
 
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("批量导入验收规格完成: 成功{Success}, 失败{Failed}", successCount, failedCount);
 
@@ -307,7 +307,7 @@ public sealed class AcceptanceSpecAppService
         int customerId,
         CancellationToken cancellationToken = default)
     {
-        var customer = await _unitOfWork.Customers.GetByIdAsync(customerId);
+        var customer = await _unitOfWork.Customers.GetByIdAsync(customerId, cancellationToken);
         return customer ?? throw new ApplicationServiceException(400, "所选客户不存在");
     }
 
@@ -318,7 +318,7 @@ public sealed class AcceptanceSpecAppService
         if (!processId.HasValue)
             return null;
 
-        var process = await _unitOfWork.Processes.GetByIdAsync(processId.Value);
+        var process = await _unitOfWork.Processes.GetByIdAsync(processId.Value, cancellationToken);
         return process ?? throw new ApplicationServiceException(400, "所选制程不存在");
     }
 
@@ -329,7 +329,7 @@ public sealed class AcceptanceSpecAppService
         if (!machineModelId.HasValue)
             return null;
 
-        var machineModel = await _unitOfWork.MachineModels.GetByIdAsync(machineModelId.Value);
+        var machineModel = await _unitOfWork.MachineModels.GetByIdAsync(machineModelId.Value, cancellationToken);
         return machineModel ?? throw new ApplicationServiceException(400, "所选机型不存在");
     }
 
@@ -341,7 +341,8 @@ public sealed class AcceptanceSpecAppService
             wordFile.FileName == ManualFileName &&
             wordFile.CompanyId == scope.CompanyId &&
             wordFile.CreatedByUserId == scope.UserId &&
-            wordFile.OwnerOrgUnitId == scope.OrgUnitId);
+            wordFile.OwnerOrgUnitId == scope.OrgUnitId,
+            cancellationToken);
         if (existingFile != null)
             return existingFile;
 
@@ -356,14 +357,14 @@ public sealed class AcceptanceSpecAppService
             UploadedAt = DateTime.UtcNow
         };
 
-        await _unitOfWork.WordFiles.AddAsync(wordFile);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.WordFiles.AddAsync(wordFile, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         return wordFile;
     }
 
     private async Task RemoveEmbeddingCachesAsync(int specId, CancellationToken cancellationToken = default)
     {
-        var caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdAsync(specId);
+        var caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdAsync(specId, cancellationToken);
         if (caches.Count > 0)
         {
             _unitOfWork.EmbeddingCaches.RemoveRange(caches);

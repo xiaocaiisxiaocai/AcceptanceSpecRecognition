@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import type { UploadRequestOptions } from "element-plus";
 import type { BatchReplySourceFileState } from "../batch-reply-state";
 import AppUploadZone from "@/components/AppUploadZone.vue";
+import type { AppUploadRequest } from "@/components/useAppUploadTask";
 
 defineProps<{
   sourceFile: BatchReplySourceFileState | null;
   sourceIsExcel: boolean;
   canUploadSourceFile: boolean;
-  sourceUploading: boolean;
-  uploadRequest: (options: UploadRequestOptions) => Promise<void>;
+  uploadRequest: AppUploadRequest;
 }>();
 
 defineEmits<{
@@ -29,12 +28,11 @@ defineEmits<{
 
     <div v-if="canUploadSourceFile && !sourceFile">
       <AppUploadZone
-        :uploading="sourceUploading"
+        :request="uploadRequest"
         accept=".docx,.xlsx"
         size="normal"
         drag-text="将来源文件拖到此处或"
         tip-text="仅支持 .docx / .xlsx，文件大小不超过 50MB"
-        @upload="uploadRequest"
       />
     </div>
 

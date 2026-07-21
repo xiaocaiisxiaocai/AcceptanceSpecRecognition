@@ -369,15 +369,15 @@ public sealed class FilePersistenceCompensationTests
 
         public IQueryable<WordFile> Query(bool asNoTracking = true) => Array.Empty<WordFile>().AsQueryable();
         public Task<WordFile?> GetByIdAsync(int id, CancellationToken cancellationToken = default) => Task.FromResult<WordFile?>(null);
-        public Task<IReadOnlyList<WordFile>> GetAllAsync() => Task.FromResult<IReadOnlyList<WordFile>>([]);
-        public Task<IReadOnlyList<WordFile>> FindAsync(Expression<Func<WordFile, bool>> predicate) => Task.FromResult<IReadOnlyList<WordFile>>([]);
-        public Task<WordFile?> FirstOrDefaultAsync(Expression<Func<WordFile, bool>> predicate) => Task.FromResult<WordFile?>(null);
+        public Task<IReadOnlyList<WordFile>> GetAllAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WordFile>>([]);
+        public Task<IReadOnlyList<WordFile>> FindAsync(Expression<Func<WordFile, bool>> predicate, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WordFile>>([]);
+        public Task<WordFile?> FirstOrDefaultAsync(Expression<Func<WordFile, bool>> predicate, CancellationToken cancellationToken = default) => Task.FromResult<WordFile?>(null);
         public Task AddRangeAsync(IEnumerable<WordFile> entities, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public void Update(WordFile entity) => throw new NotSupportedException();
         public void Remove(WordFile entity) => throw new NotSupportedException();
         public void RemoveRange(IEnumerable<WordFile> entities) => throw new NotSupportedException();
-        public Task<bool> AnyAsync(Expression<Func<WordFile, bool>> predicate) => Task.FromResult(false);
-        public Task<int> CountAsync(Expression<Func<WordFile, bool>>? predicate = null) => Task.FromResult(0);
+        public Task<bool> AnyAsync(Expression<Func<WordFile, bool>> predicate, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<int> CountAsync(Expression<Func<WordFile, bool>>? predicate = null, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<WordFile?> GetByHashAsync(string fileHash) => Task.FromResult<WordFile?>(null);
         public Task<bool> ExistsByHashAsync(string fileHash) => Task.FromResult(false);
         public Task<IReadOnlyList<WordFile>> GetAllWithoutContentAsync() => Task.FromResult<IReadOnlyList<WordFile>>([]);

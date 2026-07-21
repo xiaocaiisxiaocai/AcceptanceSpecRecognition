@@ -97,7 +97,7 @@ const createFormRules: FormRules<typeof createForm> = {
   ],
   password: [
     { required: true, message: "请输入密码", trigger: ["blur", "change"] },
-    { min: 4, message: "密码长度至少4位", trigger: ["blur", "change"] }
+    { min: 12, message: "密码长度至少12位", trigger: ["blur", "change"] }
   ],
   nickname: [requiredTrimmedRule("请输入昵称")],
   roleCode: [requiredSelectionRule("请选择一个角色")],
@@ -113,7 +113,7 @@ const editFormRules: FormRules<typeof editForm> = {
 const resetPasswordFormRules: FormRules<typeof resetPasswordForm> = {
   newPassword: [
     { required: true, message: "请输入新密码", trigger: ["blur", "change"] },
-    { min: 4, message: "新密码长度至少4位", trigger: ["blur", "change"] }
+    { min: 12, message: "新密码长度至少12位", trigger: ["blur", "change"] }
   ],
   confirmPassword: [
     {
