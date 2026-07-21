@@ -9,6 +9,7 @@ import {
 } from "@/api/ai-service";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import { hasPerms } from "@/utils/auth";
+import { getDistinctAiServiceModel } from "./ai-service-display";
 
 const props = defineProps<{
   enabled: boolean;
@@ -29,6 +30,12 @@ const selectedService = computed(
   () =>
     services.value.find(service => service.id === props.serviceId) ??
     services.value[0]
+);
+const selectedServiceModel = computed(() =>
+  getDistinctAiServiceModel(
+    selectedService.value?.name,
+    selectedService.value?.llmModel
+  )
 );
 const canConfigureAiServices = computed(() =>
   hasPerms("page:config:ai-services")
@@ -128,8 +135,8 @@ onMounted(loadServices);
     >
       <span class="structure-ai-service-label">自动使用</span>
       <span class="structure-ai-service-name">{{ selectedService.name }}</span>
-      <span class="structure-ai-service-model">
-        {{ selectedService.llmModel }}
+      <span v-if="selectedServiceModel" class="structure-ai-service-model">
+        {{ selectedServiceModel }}
       </span>
     </div>
 

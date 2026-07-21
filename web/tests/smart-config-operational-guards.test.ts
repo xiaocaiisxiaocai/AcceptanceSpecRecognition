@@ -59,6 +59,7 @@ test("两个智能结构识别入口应默认启用并自动采用首个可用 L
   assert.match(controlSource, /emit\("update:enabled", false\)/);
   assert.doesNotMatch(controlSource, /<el-select/);
   assert.match(controlSource, /自动使用/);
+  assert.match(controlSource, /v-if="selectedServiceModel"/);
   assert.match(controlSource, /\/config\/ai-services/);
   assert.match(controlSource, /去配置 AI 服务/);
   assert.doesNotMatch(smartFillSource, /请先选择一个可用的 LLM 服务/);
