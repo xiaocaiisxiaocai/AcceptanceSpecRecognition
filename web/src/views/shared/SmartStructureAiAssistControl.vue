@@ -116,9 +116,9 @@ onMounted(loadServices);
   <div class="structure-ai-control">
     <div class="structure-ai-header">
       <div>
-        <div class="structure-ai-title">AI 增强结构识别</div>
+        <div class="structure-ai-title">AI 辅助疑难识别</div>
         <div class="structure-ai-description">
-          默认使用可用 AI 服务增强识别；关闭后仅使用本地规则。
+          仅在模板和规则难以判断时调用 AI；关闭后仍可识别，确认后仍会学习。
         </div>
       </div>
       <el-switch

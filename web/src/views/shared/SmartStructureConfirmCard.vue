@@ -483,6 +483,38 @@ const emitConfirm = () => {
       </div>
     </div>
 
+    <div v-if="showAdvancedFallback || showConfirmAction" class="card-actions">
+      <el-button
+        v-if="showAdvancedFallback"
+        type="primary"
+        link
+        :disabled="controlsLocked"
+        @click="emit('advanced', table)"
+      >
+        手动处理
+      </el-button>
+      <el-button
+        v-if="showConfirmAction"
+        type="primary"
+        :disabled="!canConfirm"
+        :loading="confirming"
+        :title="confirmDisabledReason || undefined"
+        :aria-describedby="
+          confirmDisabledReason ? confirmDisabledReasonId : undefined
+        "
+        @click="emitConfirm"
+      >
+        {{ confirmActionLabel }}
+      </el-button>
+      <span
+        v-if="showConfirmAction && confirmDisabledReason"
+        :id="confirmDisabledReasonId"
+        class="sr-only"
+      >
+        {{ confirmDisabledReason }}
+      </span>
+    </div>
+
     <el-alert
       v-if="structureValidationError"
       type="warning"
@@ -564,38 +596,6 @@ const emitConfirm = () => {
         {{ field.header || "-" }}
         {{ formatSmartStructurePercent(field.confidence) }}
       </el-tag>
-    </div>
-
-    <div v-if="showAdvancedFallback || showConfirmAction" class="card-actions">
-      <el-button
-        v-if="showAdvancedFallback"
-        type="primary"
-        link
-        :disabled="controlsLocked"
-        @click="emit('advanced', table)"
-      >
-        手动处理
-      </el-button>
-      <el-button
-        v-if="showConfirmAction"
-        type="primary"
-        :disabled="!canConfirm"
-        :loading="confirming"
-        :title="confirmDisabledReason || undefined"
-        :aria-describedby="
-          confirmDisabledReason ? confirmDisabledReasonId : undefined
-        "
-        @click="emitConfirm"
-      >
-        {{ confirmActionLabel }}
-      </el-button>
-      <span
-        v-if="showConfirmAction && confirmDisabledReason"
-        :id="confirmDisabledReasonId"
-        class="sr-only"
-      >
-        {{ confirmDisabledReason }}
-      </span>
     </div>
 
     <SmartStructureRangeEditorDrawer

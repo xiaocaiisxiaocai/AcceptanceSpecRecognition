@@ -14,7 +14,12 @@ export type SmartFillSmartStep = {
 };
 
 export const SMART_FILL_STEP_UPLOAD_SCOPE = 0;
+export const SMART_FILL_STEP_RECOGNITION_REVIEW = 1;
+export const SMART_FILL_STEP_MATCH_CONFIG = 2;
+export const SMART_FILL_STEP_PREVIEW = 3;
 export const SMART_FILL_ADVANCED_STEP_TABLE_CONFIG = 1;
+export const SMART_FILL_ADVANCED_STEP_MATCH_CONFIG = 2;
+export const SMART_FILL_ADVANCED_STEP_PREVIEW = 3;
 
 export type SmartFillStepState = {
   advancedMode: boolean;
@@ -25,18 +30,26 @@ export const canContinueFromSmartRecognition = (
   tables: SmartConfigRecognizedTable[],
   selectedTableIndexes: number[]
 ) => {
+  return (
+    selectedTableIndexes.length > 0 &&
+    getSelectedSmartRecognitionPendingCount(tables, selectedTableIndexes) === 0
+  );
+};
+
+export const getSelectedSmartRecognitionPendingCount = (
+  tables: SmartConfigRecognizedTable[],
+  selectedTableIndexes: number[]
+) => {
   const tableByIndex = new Map(tables.map(table => [table.tableIndex, table]));
   const selectedTableIndexSet = new Set(selectedTableIndexes);
-  return (
-    selectedTableIndexSet.size > 0 &&
-    [...selectedTableIndexSet].every(
-      tableIndex => tableByIndex.get(tableIndex)?.decision === "AutoApply"
-    )
-  );
+  return [...selectedTableIndexSet].filter(
+    tableIndex => tableByIndex.get(tableIndex)?.decision !== "AutoApply"
+  ).length;
 };
 
 export const createSmartFillSmartSteps = (): SmartFillSmartStep[] => [
   { title: "上传/归属" },
+  { title: "识别确认" },
   { title: "匹配配置" },
   { title: "预览确认" }
 ];

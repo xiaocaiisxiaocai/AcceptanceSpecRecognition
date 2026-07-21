@@ -3,7 +3,15 @@ import {
   buildSmartFillConfigsFromRecognizedTables,
   canContinueFromSmartRecognition,
   createSmartFillSmartSteps,
+  getSelectedSmartRecognitionPendingCount,
   getSmartFillPrevStepState,
+  SMART_FILL_ADVANCED_STEP_MATCH_CONFIG,
+  SMART_FILL_ADVANCED_STEP_PREVIEW,
+  SMART_FILL_ADVANCED_STEP_TABLE_CONFIG,
+  SMART_FILL_STEP_MATCH_CONFIG,
+  SMART_FILL_STEP_PREVIEW,
+  SMART_FILL_STEP_RECOGNITION_REVIEW,
+  SMART_FILL_STEP_UPLOAD_SCOPE,
   shouldSelectSmartFillTableByDefault,
   syncSmartFillConfigsToRecognizedTables
 } from "./smartFill.smartRecognition";
@@ -45,12 +53,24 @@ const recognizedTable = (
 });
 
 describe("smartFill.smartRecognition", () => {
-  it("创建上传/归属、匹配配置、预览确认三步", () => {
+  it("创建上传/归属、识别确认、匹配配置、预览确认四步", () => {
     expect(createSmartFillSmartSteps()).toEqual([
       { title: "上传/归属" },
+      { title: "识别确认" },
       { title: "匹配配置" },
       { title: "预览确认" }
     ]);
+    expect({
+      upload: SMART_FILL_STEP_UPLOAD_SCOPE,
+      review: SMART_FILL_STEP_RECOGNITION_REVIEW,
+      match: SMART_FILL_STEP_MATCH_CONFIG,
+      preview: SMART_FILL_STEP_PREVIEW
+    }).toEqual({ upload: 0, review: 1, match: 2, preview: 3 });
+    expect({
+      table: SMART_FILL_ADVANCED_STEP_TABLE_CONFIG,
+      match: SMART_FILL_ADVANCED_STEP_MATCH_CONFIG,
+      preview: SMART_FILL_ADVANCED_STEP_PREVIEW
+    }).toEqual({ table: 1, match: 2, preview: 3 });
   });
 
   it("Word 识别结果转为智能填充表格配置", () => {
@@ -167,7 +187,7 @@ describe("smartFill.smartRecognition", () => {
     });
   });
 
-  it("识别结果应留在当前页复核，只有全部无需确认时才允许进入匹配配置", () => {
+  it("只有识别确认页中的已选表全部无需确认时才允许进入匹配配置", () => {
     expect(canContinueFromSmartRecognition([recognizedTable({})], [0])).toBe(
       true
     );
@@ -192,6 +212,28 @@ describe("smartFill.smartRecognition", () => {
         [0]
       )
     ).toBe(true);
+  });
+
+  it("应准确统计仍阻塞进入匹配配置的已选 Sheet", () => {
+    expect(
+      getSelectedSmartRecognitionPendingCount(
+        [
+          recognizedTable({ tableIndex: 0 }),
+          recognizedTable({ tableIndex: 1, decision: "NeedConfirm" }),
+          recognizedTable({ tableIndex: 2, decision: "Reject" })
+        ],
+        [0, 1, 2]
+      )
+    ).toBe(2);
+    expect(
+      getSelectedSmartRecognitionPendingCount(
+        [
+          recognizedTable({ tableIndex: 0 }),
+          recognizedTable({ tableIndex: 1, decision: "NeedConfirm" })
+        ],
+        [0]
+      )
+    ).toBe(0);
   });
 
   it("旧配置中的表索引不在当前识别结果时不能继续", () => {

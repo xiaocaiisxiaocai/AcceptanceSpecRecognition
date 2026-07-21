@@ -66,6 +66,56 @@
   margin-top: 12px;
 }
 
+.smart-fill-retained-recognition {
+  margin-top: 14px;
+}
+
+.smart-fill-retained-recognition__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+}
+
+.smart-fill-recognition-review {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.smart-fill-recognition-context {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.smart-fill-recognition-context__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+}
+
+.smart-fill-recognition-context__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 5px;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+
+@media (width <= 640px) {
+  .smart-fill-recognition-context {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .preview-blocking-alert {
   margin-top: 16px;
 }

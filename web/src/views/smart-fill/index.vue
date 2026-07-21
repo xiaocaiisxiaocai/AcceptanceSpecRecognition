@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount, watch } from "vue";
+import { ref, computed, nextTick, onBeforeUnmount, watch } from "vue";
 import { useEventListener } from "@vueuse/core";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
@@ -58,8 +58,15 @@ import {
   buildSmartFillConfigsFromRecognizedTables,
   canContinueFromSmartRecognition,
   createSmartFillSmartSteps,
+  getSelectedSmartRecognitionPendingCount,
   getSmartFillPrevStepState,
+  SMART_FILL_ADVANCED_STEP_MATCH_CONFIG,
+  SMART_FILL_ADVANCED_STEP_PREVIEW,
   SMART_FILL_ADVANCED_STEP_TABLE_CONFIG,
+  SMART_FILL_STEP_MATCH_CONFIG,
+  SMART_FILL_STEP_PREVIEW,
+  SMART_FILL_STEP_RECOGNITION_REVIEW,
+  SMART_FILL_STEP_UPLOAD_SCOPE,
   syncSmartFillConfigsToRecognizedTables
 } from "./smartFill.smartRecognition";
 import type { SmartFillScope } from "./smartFillExecution.helpers";
@@ -68,7 +75,7 @@ import { requiredSelectionRule, validateForm } from "@/utils/form-rules";
 defineOptions({ name: "FillData" });
 
 // 步骤
-const currentStep = ref(0);
+const currentStep = ref(SMART_FILL_STEP_UPLOAD_SCOPE);
 const advancedMode = ref(false);
 const legacySteps = [
   { title: "上传文件" },
@@ -402,7 +409,11 @@ const { doPreview, invalidatePendingPreview, previewAbortController } =
     resetPreviewProgress,
     markPreviewProgressCompleted,
     getCurrentPreviewRequestId: () => currentPreviewRequestId.value,
-    isPreviewStep: () => currentStep.value === (advancedMode.value ? 3 : 2),
+    isPreviewStep: () =>
+      currentStep.value ===
+      (advancedMode.value
+        ? SMART_FILL_ADVANCED_STEP_PREVIEW
+        : SMART_FILL_STEP_PREVIEW),
     clearPreviewDetail,
     onSendPreview: (data, controller) => {
       // 透传取消信号，确保用户切换步骤时可及时中止进行中的预览请求
@@ -418,7 +429,9 @@ onBeforeUnmount(() => {
 });
 
 watch(currentStep, step => {
-  const previewStep = advancedMode.value ? 3 : 2;
+  const previewStep = advancedMode.value
+    ? SMART_FILL_ADVANCED_STEP_PREVIEW
+    : SMART_FILL_STEP_PREVIEW;
   if (step !== previewStep) {
     invalidatePendingPreview();
     stopLlmStream();
@@ -439,6 +452,9 @@ watch(
     batchTableConfigs.value = [];
     batchPreviewResults.value = [];
     resetSmartStructure();
+    activeSmartStructureTab.value = undefined;
+    advancedMode.value = false;
+    currentStep.value = SMART_FILL_STEP_UPLOAD_SCOPE;
     void reloadWordColumnMappingRulesForCustomer();
   }
 );
@@ -450,11 +466,33 @@ const canContinueSmartRecognition = computed(() =>
     selectedTableIndexes.value
   )
 );
+const pendingSelectedSmartRecognitionCount = computed(() =>
+  getSelectedSmartRecognitionPendingCount(
+    recognizedTables.value,
+    selectedTableIndexes.value
+  )
+);
+const hasRetainedSmartRecognition = computed(
+  () => recognizedTables.value.length > 0
+);
 const smartFillPrimaryActionText = computed(() => {
-  if (advancedMode.value || currentStep.value !== 0) return "下一步";
-  if (recognizedTables.value.length === 0) return "识别并配置";
-  if (!canContinueSmartRecognition.value) return "请先确认列配置";
-  return "下一步：匹配配置";
+  if (advancedMode.value) return "下一步";
+  switch (currentStep.value) {
+    case SMART_FILL_STEP_UPLOAD_SCOPE:
+      return hasRetainedSmartRecognition.value
+        ? "查看识别结果"
+        : "识别并进入确认";
+    case SMART_FILL_STEP_RECOGNITION_REVIEW:
+      if (selectedTableCount.value === 0) return "请至少选择 1 个 Sheet";
+      if (pendingSelectedSmartRecognitionCount.value > 0) {
+        return `还有 ${pendingSelectedSmartRecognitionCount.value} 个已选 Sheet 待确认`;
+      }
+      return "下一步：匹配配置";
+    case SMART_FILL_STEP_MATCH_CONFIG:
+      return "下一步：预览确认";
+    default:
+      return "下一步";
+  }
 });
 const showManualFallback = computed(() =>
   shouldShowSmartStructureManualFallback({
@@ -467,7 +505,7 @@ const showManualFallback = computed(() =>
 const canGoNext = computed(() => {
   if (!advancedMode.value) {
     switch (currentStep.value) {
-      case 0:
+      case SMART_FILL_STEP_UPLOAD_SCOPE:
         if (
           !(
             uploadedFile.value !== null &&
@@ -481,13 +519,12 @@ const canGoNext = computed(() => {
         ) {
           return false;
         }
-        return (
-          recognizedTables.value.length === 0 ||
-          canContinueSmartRecognition.value
-        );
-      case 1:
+        return true;
+      case SMART_FILL_STEP_RECOGNITION_REVIEW:
+        return canContinueSmartRecognition.value;
+      case SMART_FILL_STEP_MATCH_CONFIG:
         return selectedTableCount.value > 0;
-      case 2:
+      case SMART_FILL_STEP_PREVIEW:
         return allPreviewItems.value.length > 0;
       default:
         return false;
@@ -495,13 +532,13 @@ const canGoNext = computed(() => {
   }
 
   switch (currentStep.value) {
-    case 0:
+    case SMART_FILL_STEP_UPLOAD_SCOPE:
       return uploadedFile.value !== null && !loadingUploadedFileTables.value;
-    case 1:
+    case SMART_FILL_ADVANCED_STEP_TABLE_CONFIG:
       return selectedTableCount.value > 0;
-    case 2:
+    case SMART_FILL_ADVANCED_STEP_MATCH_CONFIG:
       return true;
-    case 3:
+    case SMART_FILL_ADVANCED_STEP_PREVIEW:
       return allPreviewItems.value.length > 0;
     default:
       return false;
@@ -538,7 +575,25 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   batchPreviewResults.value = [];
   resetSmartStructure();
   advancedMode.value = false;
+  currentStep.value = SMART_FILL_STEP_UPLOAD_SCOPE;
   await loadUploadedFileTables(file);
+};
+
+const handleUploadedFileChange = (file: FileUploadResponse | null) => {
+  uploadedFile.value = file;
+  if (file) return;
+
+  invalidatePendingPreview();
+  stopLlmStream();
+  resetPreviewState();
+  resetPendingBackfillState();
+  resetExecutionState();
+  allTables.value = [];
+  batchTableConfigs.value = [];
+  batchPreviewResults.value = [];
+  resetSmartStructure();
+  advancedMode.value = false;
+  currentStep.value = SMART_FILL_STEP_UPLOAD_SCOPE;
 };
 
 const runSmartStructureRecognition = async () => {
@@ -568,6 +623,7 @@ const runSmartStructureRecognition = async () => {
   resetExecutionState();
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
+  currentStep.value = SMART_FILL_STEP_UPLOAD_SCOPE;
 
   const result = await recognizeSmartStructure(
     uploadedFile.value.fileId,
@@ -587,11 +643,22 @@ const runSmartStructureRecognition = async () => {
     tableInfos: allTables.value
   });
   if (configs.length === 0) {
-    ElMessage.warning("未识别到可填充表格，请使用手动处理");
-    return;
+    ElMessage.warning("识别结果需要补充列配置，请在确认页手动处理");
   }
 
   batchTableConfigs.value = configs;
+  activeSmartStructureTab.value =
+    configs.find(config => {
+      const table = result.tables.find(
+        item => item.tableIndex === config.tableIndex
+      );
+      return config.selected && table?.decision !== "AutoApply";
+    })?.tableIndex ??
+    configs[0]?.tableIndex ??
+    result.tables[0]?.tableIndex;
+  currentStep.value = SMART_FILL_STEP_RECOGNITION_REVIEW;
+  await nextTick();
+  document.querySelector(".smart-fill")?.scrollIntoView({ block: "start" });
 };
 
 const activeSmartStructureTab = ref<number | undefined>();
@@ -650,7 +717,7 @@ const handleSmartStructureConfirm = async (
 const enterAdvancedMode = () => {
   ensureManualTableConfigs();
   advancedMode.value = true;
-  currentStep.value = 1;
+  currentStep.value = SMART_FILL_ADVANCED_STEP_TABLE_CONFIG;
 };
 
 // 显示详情
@@ -676,19 +743,24 @@ const toggleBackfillCandidates = (checked: boolean) => {
 
 // 步骤切换
 const goNext = () => {
-  if (!advancedMode.value && currentStep.value === 0) {
-    if (recognizedTables.value.length === 0) {
+  if (
+    !advancedMode.value &&
+    currentStep.value === SMART_FILL_STEP_UPLOAD_SCOPE
+  ) {
+    if (!hasRetainedSmartRecognition.value) {
       void runSmartStructureRecognition();
       return;
     }
-    if (canContinueSmartRecognition.value) {
-      currentStep.value = 1;
-    }
+    currentStep.value = SMART_FILL_STEP_RECOGNITION_REVIEW;
     return;
   }
 
-  const configStep = advancedMode.value ? 2 : 1;
-  const previewStep = advancedMode.value ? 3 : 2;
+  const configStep = advancedMode.value
+    ? SMART_FILL_ADVANCED_STEP_MATCH_CONFIG
+    : SMART_FILL_STEP_MATCH_CONFIG;
+  const previewStep = advancedMode.value
+    ? SMART_FILL_ADVANCED_STEP_PREVIEW
+    : SMART_FILL_STEP_PREVIEW;
 
   if (currentStep.value === configStep) {
     if (
@@ -743,7 +815,7 @@ const handleRestart = () => {
   resetMatchScope();
   resetExecutionState();
   loadingUploadedFileTables.value = false;
-  currentStep.value = 0;
+  currentStep.value = SMART_FILL_STEP_UPLOAD_SCOPE;
   advancedMode.value = false;
   uploadedFile.value = null;
   enableStructureLlmAssistance.value = true;
@@ -771,10 +843,11 @@ const retryTableMetadata = () => {
     <!-- 步骤内容 -->
     <el-card class="step-content">
       <SmartFillUploadStep
-        v-show="currentStep === 0"
-        v-model:uploaded-file="uploadedFile"
+        v-show="currentStep === SMART_FILL_STEP_UPLOAD_SCOPE"
+        :uploaded-file="uploadedFile"
         :loading-uploaded-file-tables="loadingUploadedFileTables"
         :can-upload-source-file="canUploadSourceFile"
+        @update:uploaded-file="handleUploadedFileChange"
         @uploaded="handleFileUploaded"
         @retry-metadata="retryTableMetadata"
       >
@@ -877,33 +950,36 @@ const retryTableMetadata = () => {
               v-model:service-id="structureLlmServiceId"
             />
             <SmartStructureSummaryBanner
-              v-if="recognizedTables.length > 0 || smartRecognitionError"
+              v-if="smartRecognitionError"
               :tables="recognizedTables"
               :loading="smartRecognizing"
               :error="smartRecognitionError"
               @retry="runSmartStructureRecognition"
             />
-            <SmartStructureConfirmTabs
-              v-model:active-table-index="activeSmartStructureTab"
-              :tables="recognizedTables"
-              :table-infos="allTables"
-              :is-excel-file="isExcelFile"
-              :selected-table-indexes="selectedTableIndexes"
-              :selectable-table-indexes="smartFillSelectableTableIndexes"
-              :selection-disabled-reasons="smartFillSelectionDisabledReasons"
-              :file-id="uploadedFile?.fileId"
-              :customer-id="matchScope.customerId"
-              :confirming-table-index="smartConfirmingTableIndex"
-              @confirm="handleSmartStructureConfirm"
-              @advanced="enterAdvancedMode"
-              @update:table-selected="
-                (table, selected) =>
-                  handleRecognizedTableSelectionChange(
-                    table.tableIndex,
-                    selected
-                  )
-              "
-            />
+            <el-alert
+              v-if="hasRetainedSmartRecognition"
+              type="success"
+              :closable="false"
+              show-icon
+              title="结构识别结果已保留"
+              class="smart-fill-retained-recognition"
+            >
+              <template #default>
+                <div class="smart-fill-retained-recognition__body">
+                  <span>
+                    可直接返回识别确认；调整 AI 设置后，也可以主动重新识别。
+                  </span>
+                  <el-button
+                    type="primary"
+                    link
+                    :loading="smartRecognizing"
+                    @click="runSmartStructureRecognition"
+                  >
+                    重新识别
+                  </el-button>
+                </div>
+              </template>
+            </el-alert>
             <div class="smart-fill-entry-actions">
               <el-button
                 v-if="showManualFallback"
@@ -918,8 +994,64 @@ const retryTableMetadata = () => {
       </SmartFillUploadStep>
       <!-- 上传后表格结构读取期间的提示由 SmartFillUploadStep 内部的 el-alert 展示：正在读取表格结构，请稍候 -->
 
+      <section
+        v-show="
+          !advancedMode && currentStep === SMART_FILL_STEP_RECOGNITION_REVIEW
+        "
+        class="step-panel smart-fill-recognition-review"
+      >
+        <div class="smart-fill-recognition-context">
+          <div>
+            <div class="smart-fill-recognition-context__title">
+              结构识别结果
+            </div>
+            <div class="smart-fill-recognition-context__meta">
+              <span>{{ uploadedFile?.fileName }}</span>
+              <span v-if="selectedScopeSummary">{{
+                selectedScopeSummary
+              }}</span>
+            </div>
+          </div>
+        </div>
+        <SmartStructureSummaryBanner
+          :tables="recognizedTables"
+          :loading="smartRecognizing"
+          :error="smartRecognitionError"
+          @retry="runSmartStructureRecognition"
+        />
+        <SmartStructureConfirmTabs
+          v-model:active-table-index="activeSmartStructureTab"
+          :tables="recognizedTables"
+          :table-infos="allTables"
+          :is-excel-file="isExcelFile"
+          :selected-table-indexes="selectedTableIndexes"
+          :selectable-table-indexes="smartFillSelectableTableIndexes"
+          :selection-disabled-reasons="smartFillSelectionDisabledReasons"
+          :file-id="uploadedFile?.fileId"
+          :customer-id="matchScope.customerId"
+          :confirming-table-index="smartConfirmingTableIndex"
+          @confirm="handleSmartStructureConfirm"
+          @advanced="enterAdvancedMode"
+          @update:table-selected="
+            (table, selected) =>
+              handleRecognizedTableSelectionChange(table.tableIndex, selected)
+          "
+        />
+        <div class="smart-fill-entry-actions">
+          <el-button
+            v-if="showManualFallback"
+            :disabled="!uploadedFile"
+            @click="enterAdvancedMode"
+          >
+            手动处理
+          </el-button>
+        </div>
+      </section>
+
       <SmartFillTableStep
-        v-show="advancedMode && currentStep === 1"
+        v-show="
+          advancedMode && currentStep === SMART_FILL_ADVANCED_STEP_TABLE_CONFIG
+        "
         v-model:batch-table-configs="batchTableConfigs"
         :uploaded-file-id="uploadedFile?.fileId"
         :is-excel-file="isExcelFile"
@@ -929,8 +1061,9 @@ const retryTableMetadata = () => {
 
       <SmartFillMatchStep
         v-show="
-          (!advancedMode && currentStep === 1) ||
-          (advancedMode && currentStep === 2)
+          (!advancedMode && currentStep === SMART_FILL_STEP_MATCH_CONFIG) ||
+          (advancedMode &&
+            currentStep === SMART_FILL_ADVANCED_STEP_MATCH_CONFIG)
         "
         ref="matchConfigRef"
         v-model:match-config="matchConfig"
@@ -944,8 +1077,8 @@ const retryTableMetadata = () => {
 
       <SmartFillPreviewStep
         v-show="
-          (!advancedMode && currentStep === 2) ||
-          (advancedMode && currentStep === 3)
+          (!advancedMode && currentStep === SMART_FILL_STEP_PREVIEW) ||
+          (advancedMode && currentStep === SMART_FILL_ADVANCED_STEP_PREVIEW)
         "
         ref="batchPreviewTabsRef"
         :llm-streaming="llmStreaming"
@@ -992,10 +1125,16 @@ const retryTableMetadata = () => {
           type="primary"
           :disabled="
             !canGoNext ||
-            ((advancedMode ? currentStep === 2 : currentStep === 1) &&
+            ((advancedMode
+              ? currentStep === SMART_FILL_ADVANCED_STEP_MATCH_CONFIG
+              : currentStep === SMART_FILL_STEP_MATCH_CONFIG) &&
               !canPreviewMatching)
           "
-          :loading="!advancedMode && currentStep === 0 && smartRecognizing"
+          :loading="
+            !advancedMode &&
+            currentStep === SMART_FILL_STEP_UPLOAD_SCOPE &&
+            smartRecognizing
+          "
           @click="goNext"
         >
           {{ smartFillPrimaryActionText }}
