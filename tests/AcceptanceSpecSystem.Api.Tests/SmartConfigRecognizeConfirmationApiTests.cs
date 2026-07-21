@@ -267,7 +267,9 @@ public class SmartConfigRecognizeLlmRequiredColumnsApiTests : IClassFixture<LlmF
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -320,7 +322,9 @@ public class SmartConfigRecognizeLlmIncompleteApiTests : IClassFixture<LlmIncomp
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -372,7 +376,9 @@ public class SmartConfigRecognizeLlmTimeoutApiTests : IClassFixture<LlmStructure
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);

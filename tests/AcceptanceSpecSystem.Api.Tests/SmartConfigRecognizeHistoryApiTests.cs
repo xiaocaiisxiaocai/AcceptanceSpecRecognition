@@ -45,7 +45,9 @@ public class SmartConfigRecognizeHistoryFewShotApiTests : IClassFixture<LlmRecor
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
             fileId,
-            customerId
+            customerId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -67,7 +69,9 @@ public class SmartConfigRecognizeHistoryFewShotApiTests : IClassFixture<LlmRecor
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -83,7 +87,9 @@ public class SmartConfigRecognizeHistoryFewShotApiTests : IClassFixture<LlmRecor
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -349,7 +355,9 @@ public class SmartConfigRecognizeOffsetRowCoordinateApiTests : IClassFixture<Llm
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);

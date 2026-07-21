@@ -63,6 +63,10 @@ public sealed class SmartConfigRecognizeRequest
     public int FileId { get; set; }
 
     public int? CustomerId { get; set; }
+
+    public bool EnableLlmAssistance { get; set; }
+
+    public int? LlmServiceId { get; set; }
 }
 
 public sealed class SmartConfigLearnedColumnRequest

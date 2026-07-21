@@ -143,7 +143,9 @@ public class SmartConfigRecognizeLlmFusionApiTests : IClassFixture<LlmFillsMissi
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
         var responseText = await response.Content.ReadAsStringAsync();
 
@@ -165,7 +167,9 @@ public class SmartConfigRecognizeLlmFusionApiTests : IClassFixture<LlmFillsMissi
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -226,7 +230,9 @@ public class SmartConfigRecognizeLlmHeaderAdjudicationApiTests : IClassFixture<L
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
         var responseText = await response.Content.ReadAsStringAsync();
 
@@ -260,7 +266,9 @@ public class SmartConfigRecognizeLlmHeaderAdjudicationApiTests : IClassFixture<L
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
         var responseText = await response.Content.ReadAsStringAsync();
 
@@ -331,7 +339,9 @@ public class SmartConfigRecognizeInvalidLlmHeaderAdjudicationApiTests : IClassFi
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
         var responseText = await response.Content.ReadAsStringAsync();
 

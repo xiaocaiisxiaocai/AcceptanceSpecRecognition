@@ -182,26 +182,32 @@ defineExpose({
         />
         <div class="control-grid">
           <div class="control-item">
-            <span>TopK</span>
+            <span>每条最多候选数</span>
             <el-input-number
               v-model="form.topK"
               :min="1"
               :max="20"
+              aria-label="每条搜索内容最多返回的候选数"
               controls-position="right"
             />
           </div>
           <div class="control-item">
-            <span>最小分数</span>
+            <span>最低相似度</span>
             <el-input-number
               v-model="form.minScore"
               :min="0"
               :max="1"
               :step="0.05"
               :precision="2"
+              aria-label="候选最低相似度"
               controls-position="right"
             />
           </div>
         </div>
+        <p class="control-hint">
+          当前设置：每条最多返回 {{ form.topK }} 个候选，仅展示相似度达到
+          {{ (form.minScore * 100).toFixed(0) }}% 的结果。
+        </p>
         <div class="control-actions">
           <el-button @click="resetSearch">清空</el-button>
           <el-button type="primary" :loading="loading" @click="executeSearch">
@@ -421,6 +427,13 @@ defineExpose({
   color: var(--app-text-secondary);
 }
 
+.control-hint {
+  margin: -4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+}
+
 .control-actions {
   display: flex;
   gap: 8px;
@@ -530,6 +543,18 @@ defineExpose({
 
   .result-scroll {
     max-height: 56vh;
+  }
+}
+
+@media (width <= 560px) {
+  .control-grid,
+  .summary-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .control-actions :deep(.el-button) {
+    flex: 1;
+    min-height: 40px;
   }
 }
 </style>

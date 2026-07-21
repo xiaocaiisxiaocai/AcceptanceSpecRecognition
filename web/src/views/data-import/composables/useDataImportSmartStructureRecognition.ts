@@ -1,10 +1,8 @@
 import { computed, ref, type Ref } from "vue";
 import { ElMessage } from "element-plus";
-import {
-  getFileTables,
-  type FileUploadResponse,
-  type TableInfo
-} from "@/api/document";
+import type { FileUploadResponse, TableInfo } from "@/api/document";
+import { loadFileTablesOnce } from "@/views/shared/file-table-metadata";
+import { getRequestErrorMessage } from "@/utils/error-message";
 import type {
   SmartConfigConfirmRequest,
   SmartConfigRecognizedTable
@@ -44,6 +42,8 @@ export function useDataImportSmartStructureRecognition({
   excludedRowIndexMap,
   smartStageText,
   selectedSmartTableIndexes,
+  enableLlmAssistance = ref(false),
+  llmServiceId = ref<number | undefined>(),
   ensurePreviewDataLoaded
 }: {
   uploadedFile: Ref<FileUploadResponse | null>;
@@ -58,6 +58,8 @@ export function useDataImportSmartStructureRecognition({
   excludedRowIndexMap: Ref<Record<number, number[]>>;
   smartStageText: Ref<string>;
   selectedSmartTableIndexes: Ref<number[]>;
+  enableLlmAssistance?: Ref<boolean>;
+  llmServiceId?: Ref<number | undefined>;
   ensurePreviewDataLoaded: EnsurePreviewDataLoaded;
 }) {
   const {
@@ -74,6 +76,8 @@ export function useDataImportSmartStructureRecognition({
   } = useSmartStructureRecognition();
   const smartTableInfos = ref<TableInfo[]>([]);
   const smartApplyError = ref("");
+  const tableMetadataLoading = ref(false);
+  const tableMetadataError = ref("");
   const activeSmartFlowVersion = ref<number | null>(null);
   const smartRecognizing = computed(
     () => structureRecognizing.value || activeSmartFlowVersion.value != null
@@ -94,27 +98,54 @@ export function useDataImportSmartStructureRecognition({
     smartApplyError.value = "";
   };
 
-  const loadTablesForSmartRecognition = async (
-    file: FileUploadResponse,
-    flowVersion: number
-  ) => {
-    const res = await getFileTables(file.fileId);
-    if (!isCurrentSmartFlow(file.fileId, flowVersion)) {
-      return null;
-    }
-    if (res.code !== 0 || !res.data?.length) {
-      throw new Error(res.message || "获取表格列表失败");
-    }
+  const loadUploadedFileMetadata = async (
+    file = uploadedFile.value,
+    options: { force?: boolean } = {}
+  ): Promise<TableInfo[] | null> => {
+    if (!file) return null;
 
-    if (uploadedFile.value?.fileId === file.fileId) {
+    const fileId = file.fileId;
+    tableMetadataLoading.value = true;
+    tableMetadataError.value = "";
+    if (uploadedFile.value?.fileId === fileId) {
       uploadedFile.value = {
         ...uploadedFile.value,
-        tableCount: res.data.length,
-        tableCountReady: true
+        tableCountReady: false,
+        tableMetadataStatus: "loading",
+        tableMetadataError: undefined
       };
     }
 
-    return res.data;
+    try {
+      const tables = await loadFileTablesOnce(fileId, options);
+      if (uploadedFile.value?.fileId !== fileId) return null;
+
+      smartTableInfos.value = tables;
+      uploadedFile.value = {
+        ...uploadedFile.value,
+        tableCount: tables.length,
+        tableCountReady: true,
+        tableMetadataStatus: "ready",
+        tableMetadataError: undefined
+      };
+      return tables;
+    } catch (error) {
+      if (uploadedFile.value?.fileId !== fileId) return null;
+
+      const message = getRequestErrorMessage(error, "读取表格结构失败");
+      tableMetadataError.value = message;
+      uploadedFile.value = {
+        ...uploadedFile.value,
+        tableCountReady: false,
+        tableMetadataStatus: "error",
+        tableMetadataError: message
+      };
+      return null;
+    } finally {
+      if (uploadedFile.value?.fileId === fileId) {
+        tableMetadataLoading.value = false;
+      }
+    }
   };
 
   const applySmartRecognizedTables = async (
@@ -126,16 +157,19 @@ export function useDataImportSmartStructureRecognition({
       ElMessage.warning("请先上传文件");
       return false;
     }
+    if (enableLlmAssistance.value && !llmServiceId.value) {
+      ElMessage.warning("当前没有可用的 LLM 服务，请先完成 AI 服务配置");
+      return false;
+    }
 
     const sourceFileId = sourceFile.fileId;
 
     try {
       smartApplyError.value = "";
-      smartStageText.value = "正在读取工作表列表...";
-      const tableInfos = await loadTablesForSmartRecognition(
-        sourceFile,
-        flowVersion
-      );
+      const tableInfos =
+        smartTableInfos.value.length > 0
+          ? smartTableInfos.value
+          : await loadUploadedFileMetadata(sourceFile);
       if (!tableInfos || !isCurrentSmartFlow(sourceFileId, flowVersion)) {
         return false;
       }
@@ -216,9 +250,26 @@ export function useDataImportSmartStructureRecognition({
 
     smartStageText.value = "正在读取工作表结构...";
     try {
+      const tableInfos = await loadUploadedFileMetadata(sourceFile);
+      if (!tableInfos || tableInfos.length === 0) {
+        if (isCurrentSmartFlow(sourceFileId, flowVersion)) {
+          ElMessage.warning(
+            tableMetadataError.value || "文件中未检测到可识别的表格"
+          );
+        }
+        return false;
+      }
+
+      smartStageText.value = "正在识别文档结构...";
       const result = await recognizeSmartStructure(
         sourceFileId,
-        selectedCustomerId.value
+        selectedCustomerId.value,
+        {
+          enableLlmAssistance: enableLlmAssistance.value,
+          llmServiceId: enableLlmAssistance.value
+            ? llmServiceId.value
+            : undefined
+        }
       );
       if (!result || !isCurrentSmartFlow(sourceFileId, flowVersion)) {
         return false;
@@ -355,6 +406,8 @@ export function useDataImportSmartStructureRecognition({
 
   return {
     smartRecognizing,
+    tableMetadataLoading,
+    tableMetadataError,
     smartRecognitionAttempted,
     smartRecognitionError,
     smartApplyError,
@@ -362,6 +415,7 @@ export function useDataImportSmartStructureRecognition({
     smartTableInfos,
     recognizedTables,
     smartStructureSummary,
+    loadUploadedFileMetadata,
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
     applyCurrentSmartRecognizedTables,

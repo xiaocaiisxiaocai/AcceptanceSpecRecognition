@@ -35,7 +35,9 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -54,7 +56,9 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -82,7 +86,9 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -107,7 +113,9 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -132,7 +140,9 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -154,7 +164,9 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -176,7 +188,9 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);

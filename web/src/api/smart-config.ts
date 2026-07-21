@@ -35,6 +35,8 @@ export type SmartConfigRecognizedFieldName =
 export interface SmartConfigRecognizeRequest {
   fileId: number;
   customerId?: number;
+  enableLlmAssistance?: boolean;
+  llmServiceId?: number;
 }
 
 export interface SmartConfigRecognizedField {

@@ -130,7 +130,7 @@ test("导入页上传新文件与重新开始应复用统一的流程重置 help
   assert.match(pageComposableSource, /const resetImportFlowState = \(/);
   assert.match(
     pageComposableSource,
-    /const handleFileUploaded = \(file: FileUploadResponse\) => \{\s*resetImportFlowState\(\{ preserveTargetSelection: true \}\);/s
+    /const handleFileUploaded = async \(file: FileUploadResponse\) => \{\s*resetImportFlowState\(\{ preserveTargetSelection: true \}\);/s
   );
   assert.match(
     pageComposableSource,

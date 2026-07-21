@@ -33,10 +33,10 @@ public class SmartConfigRecognizeLlmBudgetApiTests : IClassFixture<LlmStructureB
     }
 
     [Fact]
-    public async Task Recognize_WhenStructureAdjudicationBudgetIsOne_ShouldCallLlmAtMostOnce()
+    public async Task Recognize_WhenLlmAssistanceIsNotEnabled_ShouldNeverCallLlm()
     {
         CountingStructureAdjudicationService.Reset();
-        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-llm-budget.xlsx");
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-rules-only.xlsx");
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
@@ -44,9 +44,27 @@ public class SmartConfigRecognizeLlmBudgetApiTests : IClassFixture<LlmStructureB
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        CountingStructureAdjudicationService.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Recognize_WhenStructureAdjudicationBudgetIsOne_ShouldCallLlmAtMostOnce()
+    {
+        CountingStructureAdjudicationService.Reset();
+        var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-llm-budget.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         body.Data.GetProperty("tables").EnumerateArray().Should().HaveCount(2);
         CountingStructureAdjudicationService.CallCount.Should().Be(1);
+        CountingStructureAdjudicationService.LastServiceId.Should().Be(321);
     }
 
     private Task<int> UploadExcelAsync(byte[] bytes, string fileName) =>
@@ -60,6 +78,59 @@ public class SmartConfigRecognizeLlmBudgetApiTests : IClassFixture<LlmStructureB
             var worksheet = workbook.AddWorksheet($"验收表{sheet}");
             worksheet.Cell(1, 1).Value = "项目";
             worksheet.Cell(1, 2).Value = "验收标准";
+            worksheet.Cell(2, 1).Value = $"外观{sheet}";
+            worksheet.Cell(2, 2).Value = "目视 OK";
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+}
+
+public class SmartConfigRecognizeLlmCircuitBreakerApiTests : IClassFixture<LlmStructureCircuitBreakerApiFactory>
+{
+    private readonly HttpClient _client;
+
+    public SmartConfigRecognizeLlmCircuitBreakerApiTests(LlmStructureCircuitBreakerApiFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Recognize_WhenSelectedLlmFails_ShouldStopCallingItForRemainingTables()
+    {
+        FailingStructureAdjudicationService.Reset();
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateDifferentHeaderExcelBytes(),
+            "smart-recognize-llm-circuit.xlsx");
+
+        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 654
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        FailingStructureAdjudicationService.CallCount.Should().Be(1);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var tables = body.Data.GetProperty("tables").EnumerateArray().ToList();
+        tables.Should().HaveCount(2);
+        tables.Should().OnlyContain(table =>
+            table.GetProperty("issues").EnumerateArray().Any(issue =>
+                issue.GetProperty("code").GetString() == "LlmAssistanceUnavailable"));
+    }
+
+    private static byte[] CreateDifferentHeaderExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        for (var sheet = 1; sheet <= 2; sheet++)
+        {
+            var worksheet = workbook.AddWorksheet($"验收表{sheet}");
+            worksheet.Cell(1, 1).Value = "项目";
+            worksheet.Cell(1, 2).Value = $"待裁决字段{sheet}";
             worksheet.Cell(2, 1).Value = $"外观{sheet}";
             worksheet.Cell(2, 2).Value = "目视 OK";
         }
@@ -87,7 +158,9 @@ public class SmartConfigRecognizeLlmStructureCacheApiTests : IClassFixture<LlmSt
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -109,7 +182,9 @@ public class SmartConfigRecognizeLlmStructureCacheApiTests : IClassFixture<LlmSt
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -184,7 +259,9 @@ public class SmartConfigRecognizeLlmSharedBudgetApiTests
 
         var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -238,7 +315,9 @@ public class SmartConfigRecognizeLlmRoutingBudgetApiTests : IClassFixture<LlmRou
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -261,7 +340,9 @@ public class SmartConfigRecognizeLlmRoutingBudgetApiTests : IClassFixture<LlmRou
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
-            fileId
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);

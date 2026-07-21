@@ -1,10 +1,8 @@
 import type { ComputedRef, Ref } from "vue";
 import { ElMessage } from "element-plus";
-import {
-  getFileTables,
-  type FileUploadResponse,
-  type TableInfo
-} from "@/api/document";
+import type { FileUploadResponse, TableInfo } from "@/api/document";
+import { loadFileTablesOnce } from "@/views/shared/file-table-metadata";
+import { getRequestErrorMessage } from "@/utils/error-message";
 import {
   getEffectiveColumnMappingRules,
   type ColumnMappingRule
@@ -163,30 +161,64 @@ export function useSmartFillUploadedTables({
     }
   };
 
-  const loadUploadedFileTables = async (file: FileUploadResponse) => {
+  const loadUploadedFileTables = async (
+    file: FileUploadResponse,
+    options: { force?: boolean } = {}
+  ) => {
     const requestVersion = ++tableLoadVersion;
     ruleLoadVersion += 1;
     loadingUploadedFileTables.value = true;
     allTables.value = [];
     batchTableConfigs.value = [];
+    if (uploadedFile.value?.fileId === file.fileId) {
+      uploadedFile.value = {
+        ...uploadedFile.value,
+        tableCountReady: false,
+        tableMetadataStatus: "loading",
+        tableMetadataError: undefined
+      };
+    }
 
     let tables: TableInfo[] = [];
-    let tableMetaLoaded = false;
     try {
-      const tablesRes = await getFileTables(file.fileId);
+      tables = await loadFileTablesOnce(file.fileId, options);
       if (
         requestVersion !== tableLoadVersion ||
         uploadedFile.value?.fileId !== file.fileId
       ) {
-        return;
+        return false;
       }
-      if (tablesRes.code === 0) {
-        tables = tablesRes.data;
-        tableMetaLoaded = true;
-      } else {
-        throw new Error(tablesRes.message || "获取表格列表失败");
+    } catch (error) {
+      if (
+        requestVersion === tableLoadVersion &&
+        uploadedFile.value?.fileId === file.fileId
+      ) {
+        const message = getRequestErrorMessage(error, "获取表格列表失败");
+        uploadedFile.value = {
+          ...uploadedFile.value,
+          tableCountReady: false,
+          tableMetadataStatus: "error",
+          tableMetadataError: message
+        };
+        ElMessage.warning(message);
       }
+      if (requestVersion === tableLoadVersion) {
+        loadingUploadedFileTables.value = false;
+      }
+      return false;
+    }
 
+    if (uploadedFile.value?.fileId !== file.fileId) return false;
+
+    uploadedFile.value = {
+      ...uploadedFile.value,
+      tableCount: tables.length,
+      tableCountReady: true,
+      tableMetadataStatus: "ready",
+      tableMetadataError: undefined
+    };
+
+    try {
       if (file.fileType !== 1) {
         await refreshWordColumnMappingRules(
           selectedCustomerId?.value,
@@ -200,28 +232,21 @@ export function useSmartFillUploadedTables({
         requestVersion === tableLoadVersion &&
         uploadedFile.value?.fileId === file.fileId
       ) {
-        ElMessage.warning("获取表格列表失败");
+        ElMessage.warning("加载列映射规则失败，已按默认列位初始化");
       }
     } finally {
-      if (uploadedFile.value?.fileId === file.fileId) {
-        uploadedFile.value = {
-          ...uploadedFile.value,
-          tableCount: tables.length,
-          tableCountReady: true
-        };
-      }
       if (requestVersion === tableLoadVersion) {
         loadingUploadedFileTables.value = false;
       }
     }
 
-    if (uploadedFile.value?.fileId !== file.fileId) return;
-    if (!tableMetaLoaded) return;
+    if (uploadedFile.value?.fileId !== file.fileId) return false;
 
     allTables.value = tables;
     batchTableConfigs.value = tables.map(t =>
       buildDefaultTableConfig(t, tables.length === 1)
     );
+    return true;
   };
 
   const ensureManualTableConfigs = () => {

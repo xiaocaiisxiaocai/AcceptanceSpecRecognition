@@ -17,6 +17,7 @@ const emit = defineEmits<{
   (e: "update:modelValue", value: FileUploadResponse | null): void;
   (e: "uploaded", value: FileUploadResponse): void;
   (e: "retry"): void;
+  (e: "retryMetadata"): void;
 }>();
 </script>
 
@@ -28,6 +29,7 @@ const emit = defineEmits<{
       :accept="uploadAccept"
       @update:model-value="value => emit('update:modelValue', value)"
       @uploaded="value => emit('uploaded', value)"
+      @retry-metadata="emit('retryMetadata')"
     />
     <el-alert
       v-else

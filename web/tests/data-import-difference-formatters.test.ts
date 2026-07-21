@@ -53,8 +53,12 @@ test("差异弹窗字段定义应覆盖项目、规格、验收和备注，并�
     ["project", "specification", "acceptance", "remark"]
   );
 
-  const acceptanceColumn = differenceColumnDefs.find(column => column.key === "acceptance");
-  const projectColumn = differenceColumnDefs.find(column => column.key === "project");
+  const acceptanceColumn = differenceColumnDefs.find(
+    column => column.key === "acceptance"
+  );
+  const projectColumn = differenceColumnDefs.find(
+    column => column.key === "project"
+  );
   assert.ok(acceptanceColumn);
   assert.ok(projectColumn);
   assert.equal(isDifferenceColumnChanged(item, acceptanceColumn), true);
@@ -62,8 +66,35 @@ test("差异弹窗字段定义应覆盖项目、规格、验收和备注，并�
 });
 
 test("差异弹窗只在 AI 疑似重复且带复核信息时展示 AI 元信息", () => {
-  assert.equal(hasAiDifferenceMeta(createDifference({ matchType: "semantic", embeddingScore: 0.9 })), true);
-  assert.equal(hasAiDifferenceMeta(createDifference({ matchType: "semantic", reviewReason: "相似" })), true);
-  assert.equal(hasAiDifferenceMeta(createDifference({ matchType: "semantic" })), false);
-  assert.equal(hasAiDifferenceMeta(createDifference({ matchType: "conflict", embeddingScore: 0.9 })), false);
+  assert.equal(
+    hasAiDifferenceMeta(
+      createDifference({ matchType: "semantic", embeddingScore: 0.9 })
+    ),
+    true
+  );
+  assert.equal(
+    hasAiDifferenceMeta(
+      createDifference({ matchType: "semantic", reviewReason: "相似" })
+    ),
+    true
+  );
+  assert.equal(
+    hasAiDifferenceMeta(
+      createDifference({
+        matchType: "semantic",
+        reviewCommentary: "项目与规格语义一致"
+      })
+    ),
+    true
+  );
+  assert.equal(
+    hasAiDifferenceMeta(createDifference({ matchType: "semantic" })),
+    false
+  );
+  assert.equal(
+    hasAiDifferenceMeta(
+      createDifference({ matchType: "conflict", embeddingScore: 0.9 })
+    ),
+    false
+  );
 });

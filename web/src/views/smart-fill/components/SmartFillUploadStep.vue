@@ -11,6 +11,7 @@ defineProps<{
 const emit = defineEmits<{
   (e: "update:uploadedFile", value: FileUploadResponse | null): void;
   (e: "uploaded", value: FileUploadResponse): void;
+  (e: "retryMetadata"): void;
 }>();
 </script>
 
@@ -21,6 +22,7 @@ const emit = defineEmits<{
       :model-value="uploadedFile"
       @update:model-value="emit('update:uploadedFile', $event)"
       @uploaded="emit('uploaded', $event)"
+      @retry-metadata="emit('retryMetadata')"
     />
     <el-alert
       v-if="canUploadSourceFile && uploadedFile && loadingUploadedFileTables"

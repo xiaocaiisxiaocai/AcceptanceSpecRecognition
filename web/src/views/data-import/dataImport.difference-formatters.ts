@@ -43,7 +43,8 @@ export const hasAiDifferenceMeta = (item: ImportPendingDifferenceWithTable) => {
     (item.embeddingScore !== undefined ||
       item.llmScore !== undefined ||
       item.finalScore !== undefined ||
-      !!item.reviewReason)
+      !!item.reviewReason ||
+      !!item.reviewCommentary)
   );
 };
 

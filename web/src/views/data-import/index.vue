@@ -18,6 +18,7 @@ import {
 } from "./dataImport.confirmImport";
 import SmartStructureConfirmTabs from "@/views/shared/SmartStructureConfirmTabs.vue";
 import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
+import SmartStructureAiAssistControl from "@/views/shared/SmartStructureAiAssistControl.vue";
 import type {
   SmartConfigConfirmRequest,
   SmartConfigRecognizedTable
@@ -52,6 +53,8 @@ const {
   importDuplicateAiConfig,
   steps,
   smartRecognizing,
+  enableStructureLlmAssistance,
+  structureLlmServiceId,
   smartRecognitionAttempted,
   smartRecognitionError,
   smartApplyError,
@@ -97,6 +100,7 @@ const {
   getExcelPreviewOptions,
   nextDisabled,
   handleFileUploaded,
+  loadUploadedFileMetadata,
   runSmartStructureRecognition,
   handleSmartStructureConfirm,
   applyCurrentSmartRecognizedTables,
@@ -141,6 +145,12 @@ const {
   handleTabRemove,
   restoreSelectedTablesForMapping
 } = useDataImportPage();
+
+const retryTableMetadata = () => {
+  if (uploadedFile.value) {
+    void loadUploadedFileMetadata(uploadedFile.value, { force: true });
+  }
+};
 
 const activeTableTabModel = computed({
   get: () => activeTableIndex.value ?? undefined,
@@ -442,6 +452,7 @@ const activeSmartStructureScopeDescription = computed(() => {
           :smart-recognition-error="smartEntryError"
           :smart-recognizing="smartRecognizing"
           @uploaded="handleFileUploaded"
+          @retry-metadata="retryTableMetadata"
           @retry="runSmartStructureRecognition"
         >
           <template #extra>
@@ -467,6 +478,10 @@ const activeSmartStructureScopeDescription = computed(() => {
                   value => (selectedMachineModelId = value)
                 "
               />
+              <SmartStructureAiAssistControl
+                v-model:enabled="enableStructureLlmAssistance"
+                v-model:service-id="structureLlmServiceId"
+              />
               <div class="smart-entry-actions">
                 <el-button
                   v-if="showManualFallback"
@@ -481,7 +496,7 @@ const activeSmartStructureScopeDescription = computed(() => {
 
         <!-- 高级模式步骤2: 选择表格 -->
         <DataImportStepTableSelect
-          v-show="advancedMode && currentStep === 1"
+          v-if="advancedMode && currentStep === 1"
           v-model="selectedTableIndexes"
           :uploaded-file="uploadedFile"
           :is-excel-file="isExcelFile"

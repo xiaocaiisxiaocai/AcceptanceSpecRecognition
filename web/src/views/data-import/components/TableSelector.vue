@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { getFileTables, type TableInfo } from "@/api/document";
+import type { TableInfo } from "@/api/document";
+import { loadFileTablesOnce } from "@/views/shared/file-table-metadata";
 import { getRequestErrorMessage } from "@/utils/error-message";
 
 const props = defineProps<{
@@ -101,14 +102,9 @@ const loadTables = async () => {
 
   loading.value = true;
   try {
-    const res = await getFileTables(props.fileId);
-    if (res.code === 0) {
-      tables.value = res.data;
-      // 根据外部 modelValue 同步本地选中态
-      syncLocalSelectionFromModel();
-    } else {
-      ElMessage.error(res.message || "加载表格列表失败");
-    }
+    tables.value = await loadFileTablesOnce(props.fileId);
+    // 根据外部 modelValue 同步本地选中态
+    syncLocalSelectionFromModel();
   } catch (error) {
     ElMessage.error(getRequestErrorMessage(error, "加载表格列表失败"));
   } finally {

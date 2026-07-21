@@ -174,6 +174,15 @@ public sealed class LlmStructureCacheApiFactory : SmartConfigRecognizeApiFactory
     }
 }
 
+public sealed class LlmStructureCircuitBreakerApiFactory : SmartConfigRecognizeApiFactoryBase
+{
+    protected override void ConfigureTestServices(IServiceCollection services)
+    {
+        ReplaceScoped<IDocumentIntelligenceService, MissingSpecificationColumnIntelligenceService>(services);
+        ReplaceScoped<ILlmDocumentStructureAdjudicationService, FailingStructureAdjudicationService>(services);
+    }
+}
+
 public sealed class LlmStructureCacheFusedRangeApiFactory : SmartConfigRecognizeApiFactoryBase
 {
     protected override void ConfigureTestServices(IServiceCollection services)

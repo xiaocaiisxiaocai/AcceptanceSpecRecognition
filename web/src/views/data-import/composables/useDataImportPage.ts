@@ -112,6 +112,8 @@ export function useDataImportPage() {
   let mappingRulesRequestVersion = 0;
   const smartStageText = ref("");
   const selectedSmartTableIndexes = ref<number[]>([]);
+  const enableStructureLlmAssistance = ref(true);
+  const structureLlmServiceId = ref<number | undefined>();
 
   const {
     importing,
@@ -170,7 +172,11 @@ export function useDataImportPage() {
         case SMART_STEP_UPLOAD_TARGET:
           return (
             uploadedFile.value !== null &&
-            selectedCustomerId.value !== undefined
+            uploadedFile.value.tableCountReady &&
+            uploadedFile.value.tableCount > 0 &&
+            selectedCustomerId.value !== undefined &&
+            (!enableStructureLlmAssistance.value ||
+              structureLlmServiceId.value != null)
           );
         case SMART_STEP_CONFIRM_PREVIEW:
           return tableConfigs.value.length > 0;
@@ -264,6 +270,8 @@ export function useDataImportPage() {
     resetPendingDifferenceState();
     resetSmartStructureState();
     advancedMode.value = false;
+    enableStructureLlmAssistance.value = true;
+    structureLlmServiceId.value = undefined;
 
     if (!preserveTargetSelection) {
       resetTargetSelection();
@@ -271,9 +279,12 @@ export function useDataImportPage() {
   };
 
   // 文件上传完成
-  const handleFileUploaded = (file: FileUploadResponse) => {
+  const handleFileUploaded = async (file: FileUploadResponse) => {
     resetImportFlowState({ preserveTargetSelection: true });
+    enableStructureLlmAssistance.value = true;
+    structureLlmServiceId.value = undefined;
     uploadedFile.value = file;
+    await loadUploadedFileMetadata(file);
   };
 
   const applyRulesToConfig = (cfg: TableImportConfig, overwrite: boolean) => {
@@ -750,6 +761,8 @@ export function useDataImportPage() {
 
   const {
     smartRecognizing,
+    tableMetadataLoading,
+    tableMetadataError,
     smartRecognitionAttempted,
     smartRecognitionError,
     smartApplyError,
@@ -757,6 +770,7 @@ export function useDataImportPage() {
     smartTableInfos,
     recognizedTables,
     smartStructureSummary,
+    loadUploadedFileMetadata,
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
     applyCurrentSmartRecognizedTables,
@@ -777,6 +791,8 @@ export function useDataImportPage() {
     excludedRowIndexMap,
     smartStageText,
     selectedSmartTableIndexes,
+    enableLlmAssistance: enableStructureLlmAssistance,
+    llmServiceId: structureLlmServiceId,
     ensurePreviewDataLoaded
   });
 
@@ -1344,6 +1360,10 @@ export function useDataImportPage() {
     importDuplicateAiConfig,
     steps,
     smartRecognizing,
+    tableMetadataLoading,
+    tableMetadataError,
+    enableStructureLlmAssistance,
+    structureLlmServiceId,
     smartRecognitionAttempted,
     smartRecognitionError,
     smartApplyError,
@@ -1390,6 +1410,7 @@ export function useDataImportPage() {
     getExcelPreviewOptions,
     nextDisabled,
     handleFileUploaded,
+    loadUploadedFileMetadata,
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
     applyCurrentSmartRecognizedTables,

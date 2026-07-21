@@ -20,6 +20,9 @@ export interface FileUploadResponse {
   isDuplicate: boolean;
   tableCount: number;
   tableCountReady: boolean;
+  /** 前端表结构加载阶段；与文件保存结果分离。 */
+  tableMetadataStatus?: "loading" | "ready" | "error";
+  tableMetadataError?: string;
 }
 
 /** 表格信息 */
@@ -161,6 +164,8 @@ export interface ImportPendingDifference {
 
 const baseUrl = "/api/documents";
 const importRequestTimeout = 300000;
+const uploadRequestTimeout = 120000;
+const tableMetadataRequestTimeout = 60000;
 
 /** 获取已上传的文件列表 */
 export const getFileList = (params?: PagedRequest) => {
@@ -180,7 +185,8 @@ export const uploadFile = (file: File) => {
       data: formData,
       headers: {
         "Content-Type": "multipart/form-data"
-      }
+      },
+      timeout: uploadRequestTimeout
     }
   );
 };
@@ -189,7 +195,8 @@ export const uploadFile = (file: File) => {
 export const getFileTables = (fileId: number) => {
   return http.request<ApiResponse<TableInfo[]>>(
     "get",
-    `${baseUrl}/${fileId}/tables`
+    `${baseUrl}/${fileId}/tables`,
+    { timeout: tableMetadataRequestTimeout }
   );
 };
 

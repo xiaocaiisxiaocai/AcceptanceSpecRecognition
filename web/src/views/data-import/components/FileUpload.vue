@@ -14,6 +14,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:modelValue", value: FileUploadResponse | null): void;
   (e: "uploaded", value: FileUploadResponse): void;
+  (e: "retryMetadata"): void;
 }>();
 
 const uploading = ref(false);
@@ -24,7 +25,13 @@ const uploadedFile = computed({
 
 const isExcel = computed(() => uploadedFile.value?.fileType === 1);
 const isTableCountPending = computed(
-  () => uploadedFile.value?.tableCountReady === false
+  () =>
+    uploadedFile.value?.tableMetadataStatus === "loading" ||
+    (uploadedFile.value?.tableMetadataStatus == null &&
+      uploadedFile.value?.tableCountReady === false)
+);
+const isTableMetadataError = computed(
+  () => uploadedFile.value?.tableMetadataStatus === "error"
 );
 const resolvedAccept = computed(() =>
   (props.accept?.trim() || ".docx,.xlsx").toLowerCase()
@@ -62,8 +69,12 @@ const handleUpload = async (options: UploadRequestOptions) => {
   try {
     const res = await uploadFile(file);
     if (res.code === 0) {
-      uploadedFile.value = res.data;
-      emit("uploaded", res.data);
+      const uploaded: FileUploadResponse = {
+        ...res.data,
+        tableMetadataStatus: res.data.tableCountReady ? "ready" : "loading"
+      };
+      uploadedFile.value = uploaded;
+      emit("uploaded", uploaded);
       ElMessage.success("文件上传成功");
     } else {
       ElMessage.error(res.message || "上传失败");
@@ -108,7 +119,13 @@ const clearFile = () => {
           <div class="file-name">{{ uploadedFile.fileName }}</div>
           <div class="file-meta">
             <span v-if="isTableCountPending">
-              正在读取{{ isExcel ? "工作表" : "表格" }}结构...
+              文件已上传，正在读取{{ isExcel ? "工作表" : "表格" }}结构...
+            </span>
+            <span v-else-if="isTableMetadataError" class="metadata-error">
+              {{ uploadedFile.tableMetadataError || "表结构读取失败" }}
+              <el-button type="primary" link @click="emit('retryMetadata')">
+                重试
+              </el-button>
             </span>
             <span v-else-if="uploadedFile.tableCount > 0">
               包含 {{ uploadedFile.tableCount }} 个{{
@@ -166,5 +183,9 @@ const clearFile = () => {
 
 .file-actions {
   flex-shrink: 0;
+}
+
+.metadata-error {
+  color: var(--el-color-danger);
 }
 </style>

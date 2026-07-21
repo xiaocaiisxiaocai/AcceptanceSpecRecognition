@@ -36,5 +36,34 @@ test("智能识别读取表格列表后应回写上传文件表格状态", () =>
   );
 
   assert.match(source, /tableCountReady:\s*true/);
-  assert.match(source, /tableCount:\s*res\.data\.length/);
+  assert.match(source, /tableCount:\s*tables\.length/);
+});
+
+test("两个智能结构识别入口应默认启用并自动采用首个可用 LLM", () => {
+  const dataImportSource = readProjectFile(
+    "web/src/views/data-import/composables/useDataImportPage.ts"
+  );
+  const smartFillSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const dataImportRecognitionSource = readProjectFile(
+    "web/src/views/data-import/composables/useDataImportSmartStructureRecognition.ts"
+  );
+  const controlSource = readProjectFile(
+    "web/src/views/shared/SmartStructureAiAssistControl.vue"
+  );
+
+  assert.match(dataImportSource, /enableStructureLlmAssistance = ref\(true\)/);
+  assert.match(smartFillSource, /enableStructureLlmAssistance = ref\(true\)/);
+  assert.match(controlSource, /const defaultService = services\.value\[0\]/);
+  assert.match(controlSource, /emit\("update:serviceId", defaultService\.id\)/);
+  assert.match(controlSource, /emit\("update:enabled", true\)/);
+  assert.match(controlSource, /emit\("update:enabled", false\)/);
+  assert.doesNotMatch(controlSource, /<el-select/);
+  assert.match(controlSource, /自动使用/);
+  assert.match(controlSource, /\/config\/ai-services/);
+  assert.match(controlSource, /去配置 AI 服务/);
+  assert.doesNotMatch(smartFillSource, /请先选择一个可用的 LLM 服务/);
+  assert.doesNotMatch(
+    dataImportRecognitionSource,
+    /请先选择一个可用的 LLM 服务/
+  );
 });

@@ -54,6 +54,29 @@ public sealed class CountingStructureAdjudicationService : ILlmDocumentStructure
     private static int _callCount;
 
     public static int CallCount => _callCount;
+    public static int? LastServiceId { get; private set; }
+
+    public static void Reset()
+    {
+        Interlocked.Exchange(ref _callCount, 0);
+        LastServiceId = null;
+    }
+
+    public Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _callCount);
+        LastServiceId = request.LlmServiceId;
+        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(null);
+    }
+}
+
+public sealed class FailingStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    private static int _callCount;
+
+    public static int CallCount => _callCount;
 
     public static void Reset()
     {
@@ -65,7 +88,7 @@ public sealed class CountingStructureAdjudicationService : ILlmDocumentStructure
         CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _callCount);
-        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(null);
+        throw new InvalidOperationException("测试替身模拟所选 LLM 连接失败");
     }
 }
 

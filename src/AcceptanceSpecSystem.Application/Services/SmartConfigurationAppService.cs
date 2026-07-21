@@ -5,6 +5,7 @@ using AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Documents.Interfaces;
 using AcceptanceSpecSystem.Core.Documents.Models;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -121,9 +122,33 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             cancellationToken);
         var headerKeywordMatcher = HeaderKeywordMatcher.FromRules(columnHeaderRules);
         var tables = new List<SmartConfigurationRecognizedTable>();
-        var llmCallBudget = Math.Max(0, _options.MaxLlmCallsPerRecognizeDocument);
-        var structureAdjudicationBudget = Math.Max(0, _options.MaxStructureAdjudicationCallsPerDocument);
-        var columnSemanticRecallBudget = Math.Max(0, _options.MaxColumnSemanticRecallCallsPerDocument);
+        var llmAssistanceEnabled = command.EnableLlmAssistance && command.LlmServiceId.HasValue;
+        var llmCallBudget = llmAssistanceEnabled
+            ? Math.Max(0, _options.MaxLlmCallsPerRecognizeDocument)
+            : 0;
+        var structureAdjudicationBudget = llmAssistanceEnabled
+            ? Math.Max(0, _options.MaxStructureAdjudicationCallsPerDocument)
+            : 0;
+        var columnSemanticRecallBudget = llmAssistanceEnabled
+            ? Math.Max(0, _options.MaxColumnSemanticRecallCallsPerDocument)
+            : 0;
+        var llmCircuitOpen = false;
+        string? llmAssistanceIssue = command.EnableLlmAssistance && !command.LlmServiceId.HasValue
+            ? "AI 增强未执行：请选择一个可用的 LLM 服务"
+            : null;
+        void OpenLlmCircuit(Exception exception)
+        {
+            if (llmCircuitOpen)
+            {
+                return;
+            }
+
+            llmCircuitOpen = true;
+            llmCallBudget = 0;
+            structureAdjudicationBudget = 0;
+            columnSemanticRecallBudget = 0;
+            llmAssistanceIssue = BuildLlmAssistanceFailureMessage(exception);
+        }
         var structureAdjudicationCache =
             new Dictionary<string, DocumentStructureCandidate?>(
                 StringComparer.Ordinal);
@@ -166,12 +191,15 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 headerKeywordMatcher,
                 columnHeaderRules,
                 routingRules,
-                () => TryConsumeLlmBudget(ref llmCallBudget, ref structureAdjudicationBudget),
-                () => TryConsumeLlmBudget(ref llmCallBudget, ref columnSemanticRecallBudget),
+                command.LlmServiceId,
+                () => !llmCircuitOpen && TryConsumeLlmBudget(ref llmCallBudget, ref structureAdjudicationBudget),
+                () => !llmCircuitOpen && TryConsumeLlmBudget(ref llmCallBudget, ref columnSemanticRecallBudget),
+                OpenLlmCircuit,
                 structureAdjudicationCache,
                 columnSemanticRecallCache,
                 cancellationToken);
-            tables.Add(DetectLogicalRegions(fullTableData, recognizedTable, headerKeywordMatcher));
+            recognizedTable = DetectLogicalRegions(fullTableData, recognizedTable, headerKeywordMatcher);
+            tables.Add(AddLlmAssistanceIssue(recognizedTable, llmAssistanceIssue));
         }
 
         return new SmartConfigurationRecognizeResult
@@ -1903,8 +1931,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         HeaderKeywordMatcher headerKeywordMatcher,
         IReadOnlyList<ColumnHeaderMappingRule> columnHeaderRules,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
+        int? llmServiceId,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
+        Action<Exception> onLlmFailure,
         Dictionary<string, DocumentStructureCandidate?> structureAdjudicationCache,
         Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
@@ -1982,8 +2012,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 headerKeywordMatcher,
                 columnHeaderRules,
                 routingRules,
+                llmServiceId,
                 tryConsumeStructureAdjudicationBudget,
                 tryConsumeColumnSemanticRecallBudget,
+                onLlmFailure,
                 structureAdjudicationCache,
                 columnSemanticRecallCache,
                 cancellationToken);
@@ -2021,8 +2053,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         HeaderKeywordMatcher headerKeywordMatcher,
         IReadOnlyList<ColumnHeaderMappingRule> columnHeaderRules,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
+        int? llmServiceId,
         Func<bool> tryConsumeStructureAdjudicationBudget,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
+        Action<Exception> onLlmFailure,
         Dictionary<string, DocumentStructureCandidate?> structureAdjudicationCache,
         Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
@@ -2052,7 +2086,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             healthCheck,
             ruleRecognized,
             routingRules,
+            llmServiceId,
             tryConsumeColumnSemanticRecallBudget,
+            onLlmFailure,
             columnSemanticRecallCache,
             cancellationToken);
         if (!healthCheck.CanAutoApply &&
@@ -2074,7 +2110,14 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             }
             else if (tryConsumeStructureAdjudicationBudget())
             {
-                fused = await TryFuseWithLlmStructureAsync(customerId, tableInfo, tableData, mapping, cancellationToken);
+                fused = await TryFuseWithLlmStructureAsync(
+                    customerId,
+                    tableInfo,
+                    tableData,
+                    mapping,
+                    llmServiceId,
+                    onLlmFailure,
+                    cancellationToken);
                 structureAdjudicationCache[structureCacheKey] = fused;
             }
             else
@@ -2188,7 +2231,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         DocumentStructureHealthCheckResult healthCheck,
         SmartConfigurationRecognizedTable ruleRecognized,
         IReadOnlyList<SmartStructureRoutingRule> routingRules,
+        int? llmServiceId,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
+        Action<Exception> onLlmFailure,
         Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
     {
@@ -2238,6 +2283,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     Headers = tableData.Headers.ToList(),
                     UnmappedHeaders = unmappedHeaders,
                     MappedFields = BuildMappedFields(mapping),
+                    LlmServiceId = llmServiceId,
                     SampleRows = tableData.Rows
                         .Take(5)
                         .Select(row => (IReadOnlyList<string>)row.Cells
@@ -2263,6 +2309,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
         catch (Exception ex)
         {
+            onLlmFailure(ex);
             columnSemanticRecallCache[cacheKey] = [];
             _logger.LogWarning(
                 ex,
@@ -2454,6 +2501,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         TableInfo? tableInfo,
         TableData tableData,
         ColumnMappingResult mapping,
+        int? llmServiceId,
+        Action<Exception> onLlmFailure,
         CancellationToken cancellationToken)
     {
         try
@@ -2468,7 +2517,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 {
                     RuleCandidates = [ruleCandidate],
                     DocumentTablesJson = SerializeTableForStructureAdjudication(tableInfo, tableData, ruleCandidate),
-                    ReferenceCases = await BuildReferenceCasesAsync(customerId, tableInfo?.Name, tableData.Headers.ToList(), cancellationToken)
+                    ReferenceCases = await BuildReferenceCasesAsync(customerId, tableInfo?.Name, tableData.Headers.ToList(), cancellationToken),
+                    LlmServiceId = llmServiceId
                 },
                 timeoutCts.Token);
             var llmCandidate = adjudication?.Tables.FirstOrDefault(table => table.TableIndex == tableData.TableIndex);
@@ -2491,6 +2541,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
         catch (Exception ex)
         {
+            onLlmFailure(ex);
             _logger.LogWarning(
                 ex,
                 "表格 {TableIndex} LLM 结构裁决失败，保留规则识别待确认状态",
@@ -2755,6 +2806,42 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         remainingGlobalBudget--;
         remainingChannelBudget--;
         return true;
+    }
+
+    private static SmartConfigurationRecognizedTable AddLlmAssistanceIssue(
+        SmartConfigurationRecognizedTable table,
+        string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message) ||
+            table.Issues.Any(issue =>
+                string.Equals(issue.Code, "LlmAssistanceUnavailable", StringComparison.Ordinal)))
+        {
+            return table;
+        }
+
+        return table with
+        {
+            Issues =
+            [
+                .. table.Issues,
+                new SmartConfigurationRecognitionIssue
+                {
+                    Code = "LlmAssistanceUnavailable",
+                    Severity = "Warning",
+                    Message = message
+                }
+            ]
+        };
+    }
+
+    private static string BuildLlmAssistanceFailureMessage(Exception exception)
+    {
+        return exception switch
+        {
+            OperationCanceledException => "所选 AI 增强服务响应超时，已停止本次文档后续 AI 调用并保留规则识别结果",
+            AiServiceUnavailableException => "所选 AI 增强服务不可用，已停止本次文档后续 AI 调用并保留规则识别结果",
+            _ => "所选 AI 增强服务调用失败，已停止本次文档后续 AI 调用并保留规则识别结果"
+        };
     }
 
     private static bool IsSpecificationOnlyCandidate(

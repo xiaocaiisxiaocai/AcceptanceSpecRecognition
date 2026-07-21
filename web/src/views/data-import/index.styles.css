@@ -287,12 +287,25 @@
 }
 
 .difference-card__reason {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--app-info-bg);
   font-size: 12px;
   line-height: 1.6;
   color: var(--app-text-secondary);
+}
+
+.difference-card__reason strong {
+  color: var(--app-text-primary);
+  white-space: nowrap;
+}
+
+.difference-card__reason--commentary {
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--app-border-light);
 }
 
 .difference-sheet {

@@ -33,7 +33,14 @@ export function useSmartStructureRecognition() {
   let recognitionRequestVersion = 0;
   let contextVersion = 0;
 
-  const recognize = async (fileId: number, customerId?: number) => {
+  const recognize = async (
+    fileId: number,
+    customerId?: number,
+    options: {
+      enableLlmAssistance?: boolean;
+      llmServiceId?: number;
+    } = {}
+  ) => {
     const requestVersion = ++recognitionRequestVersion;
     contextVersion += 1;
     activeRecognitionFileId.value = fileId;
@@ -50,7 +57,14 @@ export function useSmartStructureRecognition() {
       activeRecognitionCustomerId.value === (customerId ?? null);
 
     try {
-      const res = await recognizeSmartConfig({ fileId, customerId });
+      const res = await recognizeSmartConfig({
+        fileId,
+        customerId,
+        enableLlmAssistance: options.enableLlmAssistance === true,
+        llmServiceId: options.enableLlmAssistance
+          ? options.llmServiceId
+          : undefined
+      });
       if (res.code !== 0) {
         throw new Error(res.message || "智能结构识别失败");
       }

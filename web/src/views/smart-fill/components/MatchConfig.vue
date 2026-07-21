@@ -122,6 +122,7 @@ const hasExplicitMatchingDefaults = computed(() => {
 });
 
 // 高级选项展开
+const showMatchingAdvanced = ref(false);
 const showAdvanced = ref(false);
 
 // 标记：正在从内部更新到外部，避免回写时触发整体替换
@@ -562,7 +563,7 @@ defineExpose({
           />
         </el-form-item>
         <el-row :gutter="20">
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item label="匹配链路">
               <div class="fixed-mode">
                 <el-tag type="success">证据裁决</el-tag>
@@ -572,7 +573,7 @@ defineExpose({
               </div>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item label="匹配方式">
               <el-radio-group
                 v-model="config.matchingMode"
@@ -595,40 +596,7 @@ defineExpose({
               </div>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="最小得分阈值">
-              <el-slider
-                v-model="config.minScoreThreshold"
-                :min="0"
-                :max="1"
-                :step="0.05"
-                :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
-                show-input
-                :show-input-controls="false"
-              />
-              <div class="form-inline-tip">
-                该阈值仅用于保留候选，不决定自动采用
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="高置信阈值">
-              <el-slider
-                v-model="config.highConfidenceThreshold"
-                :min="0.5"
-                :max="1"
-                :step="0.01"
-                :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
-                show-input
-                :show-input-controls="false"
-              />
-              <div class="form-inline-tip">
-                高置信阈值会参与确定性自动通过与结果分层；默认值为
-                {{ (DEFAULT_HIGH_CONFIDENCE_THRESHOLD * 100).toFixed(0) }}%
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item label="过滤空行">
               <el-switch
                 v-model="config.filterEmptySourceRows"
@@ -640,131 +608,220 @@ defineExpose({
               </div>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="确定性自动通过">
-              <el-switch
-                v-model="config.enableDeterministicAutoApply"
-                active-text="开启"
-                inactive-text="关闭"
-                :disabled="config.exactMatchOnly"
-              />
-              <div class="form-inline-tip">
-                无硬冲突且达到高置信阈值时直接采用，不进入同步 AI
-                裁决。仅精确匹配模式下无效。
-              </div>
-            </el-form-item>
-          </el-col>
         </el-row>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="LLM 语义优先">
-              <el-switch
-                v-model="config.enableLlmSemanticPriority"
-                active-text="开启"
-                inactive-text="关闭"
-                :disabled="
-                  config.exactMatchOnly || !allowLlm || !hasAvailableLlmService
-                "
-              />
-              <div class="form-inline-tip">
-                开启后 LLM
-                裁决具有最高权威：扩大召回范围、覆盖未知单位/品牌、忽略硬冲突拦截。速度变慢但命中率更高。
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col v-if="config.enableLlmSemanticPriority" :span="12">
-            <el-form-item label="语义召回下限">
-              <el-slider
-                v-model="config.llmSemanticRecallThreshold"
-                :min="0.1"
-                :max="0.9"
-                :step="0.05"
-                show-input
-                :show-input-controls="false"
-                style="width: 200px"
-              />
-              <div class="form-inline-tip">
-                Embedding 分 ≥ 此值的候选进入 LLM 视野（默认
-                0.5），越低召回越多但 LLM 调用越多。
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="高Emb自动通过">
-              <el-input-number
-                v-model="config.embeddingSemanticAutoApplyThreshold"
-                :min="0"
-                :max="1"
-                :step="0.01"
-                :precision="2"
-                controls-position="right"
-              />
-              <div class="form-inline-tip">
-                候选 Embedding≥此值且无硬冲突时直接自动通过（即使 AI
-                不确定）；0=关闭。越高越严。
-              </div>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="召回候选数">
-              <el-input-number
-                v-model="config.recallTopK"
-                :min="1"
-                :max="MAX_RECALL_TOP_K"
-                :step="1"
-                controls-position="right"
-              />
-              <div class="form-inline-tip">
-                第一阶段最多保留多少个候选进入重排
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="歧义分差阈值">
-              <el-input-number
-                v-model="config.ambiguityMargin"
-                :min="0"
-                :max="1"
-                :step="0.01"
-                :precision="2"
-                controls-position="right"
-              />
-              <div class="form-inline-tip">
-                Top1 与 Top2 分差不超过该值时标记为高歧义
-              </div>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-alert
-          type="info"
-          :closable="false"
-          show-icon
-          :title="`默认先完成快速预览，不在同步阶段逐行调用 AI 等价裁决；需要精度优先时可在高级选项中开启。高置信阈值 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 会参与确定性自动通过与结果分层。`"
-        />
+
+        <div class="matching-strategy-summary">
+          <div>
+            <span>当前策略</span>
+            <strong>
+              {{ config.exactMatchOnly ? "仅精确匹配" : "Embedding 证据匹配" }}
+            </strong>
+          </div>
+          <div class="matching-strategy-summary__metrics">
+            <span>最多 {{ config.recallTopK }} 个候选</span>
+            <span>
+              最低得分
+              {{ ((config.minScoreThreshold ?? 0) * 100).toFixed(0) }}%
+            </span>
+            <span>
+              高置信
+              {{
+                (
+                  (config.highConfidenceThreshold ??
+                    DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100
+                ).toFixed(0)
+              }}%
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="section-header section-header--button"
+          :aria-expanded="showMatchingAdvanced"
+          aria-controls="matching-advanced-options"
+          @click="showMatchingAdvanced = !showMatchingAdvanced"
+        >
+          <span>
+            <span class="section-title">高级匹配参数</span>
+            <small>阈值、自动通过、语义优先与候选控制</small>
+          </span>
+          <el-icon :class="{ rotated: showMatchingAdvanced }">
+            <ArrowRight />
+          </el-icon>
+        </button>
+
+        <el-collapse-transition>
+          <div
+            v-show="showMatchingAdvanced"
+            id="matching-advanced-options"
+            class="advanced-options matching-advanced-options"
+          >
+            <el-row :gutter="20">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="最低候选得分">
+                  <el-slider
+                    v-model="config.minScoreThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :format-tooltip="
+                      (val: number) => `${(val * 100).toFixed(0)}%`
+                    "
+                    show-input
+                    :show-input-controls="false"
+                  />
+                  <div class="form-inline-tip">
+                    仅用于过滤候选，不直接决定是否自动采用。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="高置信阈值">
+                  <el-slider
+                    v-model="config.highConfidenceThreshold"
+                    :min="0.5"
+                    :max="1"
+                    :step="0.01"
+                    :format-tooltip="
+                      (val: number) => `${(val * 100).toFixed(0)}%`
+                    "
+                    show-input
+                    :show-input-controls="false"
+                  />
+                  <div class="form-inline-tip">
+                    高置信阈值会参与确定性自动通过与结果分层；默认
+                    {{
+                      (DEFAULT_HIGH_CONFIDENCE_THRESHOLD * 100).toFixed(0)
+                    }}%。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="确定性自动通过">
+                  <el-switch
+                    v-model="config.enableDeterministicAutoApply"
+                    active-text="开启"
+                    inactive-text="关闭"
+                    :disabled="config.exactMatchOnly"
+                  />
+                  <div class="form-inline-tip">
+                    无硬冲突且达到高置信阈值时直接采用。仅精确匹配模式下无效。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="LLM 语义优先">
+                  <el-switch
+                    v-model="config.enableLlmSemanticPriority"
+                    active-text="开启"
+                    inactive-text="关闭"
+                    :disabled="
+                      config.exactMatchOnly ||
+                      !allowLlm ||
+                      !hasAvailableLlmService
+                    "
+                  />
+                  <div class="form-inline-tip">
+                    扩大语义召回并提高 LLM 裁决权重，命中范围更广但处理更慢。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col v-if="config.enableLlmSemanticPriority" :xs="24" :md="12">
+                <el-form-item label="语义召回下限">
+                  <el-slider
+                    v-model="config.llmSemanticRecallThreshold"
+                    :min="0.1"
+                    :max="0.9"
+                    :step="0.05"
+                    show-input
+                    :show-input-controls="false"
+                  />
+                  <div class="form-inline-tip">
+                    达到该分数的候选进入 LLM 视野，越低调用越多。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="高相似自动通过">
+                  <el-input-number
+                    v-model="config.embeddingSemanticAutoApplyThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.01"
+                    :precision="2"
+                    controls-position="right"
+                  />
+                  <div class="form-inline-tip">
+                    无硬冲突且 Embedding 达到该值时自动通过；0 表示关闭。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="每条最多候选数">
+                  <el-input-number
+                    v-model="config.recallTopK"
+                    :min="1"
+                    :max="MAX_RECALL_TOP_K"
+                    :step="1"
+                    controls-position="right"
+                  />
+                  <div class="form-inline-tip">
+                    第一阶段最多保留多少个候选进入证据重排。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="歧义分差阈值">
+                  <el-input-number
+                    v-model="config.ambiguityMargin"
+                    :min="0"
+                    :max="1"
+                    :step="0.01"
+                    :precision="2"
+                    controls-position="right"
+                  />
+                  <div class="form-inline-tip">
+                    第一和第二候选分差不超过该值时标记为高歧义。
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-alert
+              type="info"
+              :closable="false"
+              show-icon
+              title="默认策略优先快速预览；高级参数会影响候选范围、自动通过和 AI 调用量。"
+            />
+          </div>
+        </el-collapse-transition>
       </el-form>
     </div>
 
     <!-- 高级选项 -->
     <div class="config-section">
-      <div
-        class="section-header"
-        role="button"
-        tabindex="0"
+      <button
+        type="button"
+        class="section-header section-header--button"
         :aria-expanded="showAdvanced"
+        aria-controls="llm-review-options"
         @click="showAdvanced = !showAdvanced"
-        @keydown.enter="showAdvanced = !showAdvanced"
-        @keydown.space.prevent="showAdvanced = !showAdvanced"
       >
-        <span class="section-title">LLM 复核</span>
+        <span>
+          <span class="section-title">同步 LLM 复核</span>
+          <small>等价裁决、调用预算与并行控制</small>
+        </span>
         <el-icon :class="{ rotated: showAdvanced }">
           <ArrowRight />
         </el-icon>
-      </div>
+      </button>
 
       <el-collapse-transition>
-        <div v-show="showAdvanced" class="advanced-options">
+        <div
+          v-show="showAdvanced"
+          id="llm-review-options"
+          class="advanced-options"
+        >
           <el-form label-width="140px">
             <el-alert
               v-if="!allowLlm"
@@ -775,7 +832,7 @@ defineExpose({
               class="mb-4"
             />
             <el-row :gutter="20" align="middle" class="llm-row">
-              <el-col :span="8">
+              <el-col :xs="24" :md="8">
                 <el-form-item label="AI 等价裁决">
                   <el-switch
                     v-model="config.enableLlmEquivalenceAdjudication"
@@ -789,7 +846,7 @@ defineExpose({
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="16">
+              <el-col :xs="24" :md="16">
                 <span class="parallelism-hint">
                   默认关闭以优先保证预览速度；开启后，达到最小得分阈值的当前最佳候选会在同步匹配阶段进入
                   AI 等价裁决。
@@ -805,7 +862,7 @@ defineExpose({
               align="middle"
               class="llm-row"
             >
-              <el-col :span="8">
+              <el-col :xs="24" :md="8">
                 <el-form-item label="等价置信下限">
                   <el-input-number
                     v-model="config.llmEquivalenceMinConfidence"
@@ -819,7 +876,7 @@ defineExpose({
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="16">
+              <el-col :xs="24" :md="16">
                 <span class="parallelism-hint">
                   LLM 判定等价但自评置信度低于此值时转人工确认；设为 0
                   表示不设门槛。语义优先模式下，该值是覆盖硬冲突的关键护栏。
@@ -828,7 +885,7 @@ defineExpose({
             </el-row>
             <!-- LLM并行度 -->
             <el-row :gutter="20" align="middle">
-              <el-col :span="8">
+              <el-col :xs="24" :md="8">
                 <el-form-item label="LLM并行数">
                   <el-input-number
                     v-model="config.llmParallelism"
@@ -841,7 +898,7 @@ defineExpose({
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="16">
+              <el-col :xs="24" :md="16">
                 <span class="parallelism-hint">
                   同时处理的行数，值越大速度越快但占用资源越多；本地 Ollama 建议
                   1-4
@@ -849,7 +906,7 @@ defineExpose({
               </el-col>
             </el-row>
             <el-row :gutter="20" align="middle">
-              <el-col :span="8">
+              <el-col :xs="24" :md="8">
                 <el-form-item label="LLM调用上限">
                   <el-input-number
                     v-model="config.llmMaxCallsPerBatch"
@@ -862,7 +919,7 @@ defineExpose({
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="16">
+              <el-col :xs="24" :md="16">
                 <span class="parallelism-hint">
                   同一批次内重排和等价裁决共享该预算；设为 0 时不调用同步 LLM。
                 </span>
@@ -893,6 +950,41 @@ export default {
 </script>
 
 <style scoped>
+
+
+@media (width <= 720px) {
+  .matching-strategy-summary {
+    align-items: flex-start;
+  }
+
+  .matching-strategy-summary__metrics {
+    flex-direction: column;
+    gap: 2px;
+    text-align: right;
+  }
+
+  .parallelism-hint {
+    line-height: 1.6;
+  }
+}
+
+@media (width <= 520px) {
+  .matching-strategy-summary {
+    flex-direction: column;
+  }
+
+  .matching-strategy-summary__metrics {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-header--button,
+  .section-header .el-icon {
+    transition: none;
+  }
+}
+
 .match-config {
   width: 100%;
 }
@@ -923,6 +1015,49 @@ export default {
   user-select: none;
 }
 
+.section-header--button {
+  gap: 16px;
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--color-text);
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.section-header--button:hover {
+  color: var(--app-primary);
+  background: var(--el-fill-color-extra-light);
+  border-color: var(--el-color-primary-light-5);
+}
+
+.section-header--button:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+
+.section-header--button > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.section-header--button .section-title {
+  margin-bottom: 0;
+}
+
+.section-header--button small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-secondary);
+}
+
 .section-header .el-icon {
   transition: transform 0.3s;
 }
@@ -945,6 +1080,56 @@ export default {
 
 .advanced-options {
   padding-top: 16px;
+}
+
+.matching-strategy-summary {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 13px;
+  margin: 2px 0 10px;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 8px;
+}
+
+.matching-strategy-summary > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.matching-strategy-summary span {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.matching-strategy-summary strong {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--app-text-primary);
+}
+
+.matching-strategy-summary__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  justify-content: flex-end;
+}
+
+.matching-advanced-options {
+  padding: 14px 14px 12px;
+  margin-top: 10px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.matching-advanced-options .form-inline-tip {
+  width: 100%;
+  margin-left: 0;
+  line-height: 1.5;
 }
 
 .service-status-alert {

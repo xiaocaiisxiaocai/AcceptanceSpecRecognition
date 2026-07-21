@@ -11,6 +11,7 @@ import SmartFillTableStep from "./components/SmartFillTableStep.vue";
 import SmartFillUploadStep from "./components/SmartFillUploadStep.vue";
 import SmartStructureConfirmTabs from "@/views/shared/SmartStructureConfirmTabs.vue";
 import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
+import SmartStructureAiAssistControl from "@/views/shared/SmartStructureAiAssistControl.vue";
 import type { BatchTableConfigItem } from "./components/batchTableConfig.types";
 import {
   type MatchPreviewItem,
@@ -81,6 +82,8 @@ const steps = computed(() =>
 
 // 文件上传
 const uploadedFile = ref<FileUploadResponse | null>(null);
+const enableStructureLlmAssistance = ref(true);
+const structureLlmServiceId = ref<number | undefined>();
 const isExcelFile = computed(() => uploadedFile.value?.fileType === 1);
 const canUploadSourceFile = computed(() => hasPerms("btn:document:upload"));
 const canPreviewMatching = computed(() =>
@@ -469,7 +472,11 @@ const canGoNext = computed(() => {
           !(
             uploadedFile.value !== null &&
             !!matchScope.value.customerId &&
-            !loadingUploadedFileTables.value
+            !loadingUploadedFileTables.value &&
+            uploadedFile.value.tableCountReady &&
+            uploadedFile.value.tableCount > 0 &&
+            (!enableStructureLlmAssistance.value ||
+              structureLlmServiceId.value != null)
           )
         ) {
           return false;
@@ -524,6 +531,8 @@ const handleFileUploaded = async (file: FileUploadResponse) => {
   resetMatchScope();
   resetExecutionState();
   allTables.value = [];
+  enableStructureLlmAssistance.value = true;
+  structureLlmServiceId.value = undefined;
   uploadedFile.value = file;
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
@@ -538,6 +547,19 @@ const runSmartStructureRecognition = async () => {
     return;
   }
   if (!(await validateForm(scopeFormRef.value))) return;
+  if (
+    !uploadedFile.value.tableCountReady ||
+    uploadedFile.value.tableCount <= 0
+  ) {
+    ElMessage.warning(
+      uploadedFile.value.tableMetadataError || "请先等待表格结构读取完成"
+    );
+    return;
+  }
+  if (enableStructureLlmAssistance.value && !structureLlmServiceId.value) {
+    ElMessage.warning("当前没有可用的 LLM 服务，请先完成 AI 服务配置");
+    return;
+  }
 
   invalidatePendingPreview();
   stopLlmStream();
@@ -549,7 +571,13 @@ const runSmartStructureRecognition = async () => {
 
   const result = await recognizeSmartStructure(
     uploadedFile.value.fileId,
-    matchScope.value.customerId
+    matchScope.value.customerId,
+    {
+      enableLlmAssistance: enableStructureLlmAssistance.value,
+      llmServiceId: enableStructureLlmAssistance.value
+        ? structureLlmServiceId.value
+        : undefined
+    }
   );
   if (!result) return;
 
@@ -718,11 +746,19 @@ const handleRestart = () => {
   currentStep.value = 0;
   advancedMode.value = false;
   uploadedFile.value = null;
+  enableStructureLlmAssistance.value = true;
+  structureLlmServiceId.value = undefined;
   allTables.value = [];
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
   matchConfig.value = { ...defaultMatchConfig };
   resetSmartStructure();
+};
+
+const retryTableMetadata = () => {
+  if (uploadedFile.value) {
+    void loadUploadedFileTables(uploadedFile.value, { force: true });
+  }
 };
 </script>
 
@@ -740,6 +776,7 @@ const handleRestart = () => {
         :loading-uploaded-file-tables="loadingUploadedFileTables"
         :can-upload-source-file="canUploadSourceFile"
         @uploaded="handleFileUploaded"
+        @retry-metadata="retryTableMetadata"
       >
         <template #extra>
           <div class="smart-fill-scope-panel">
@@ -835,6 +872,10 @@ const handleRestart = () => {
                 </el-col>
               </el-row>
             </el-form>
+            <SmartStructureAiAssistControl
+              v-model:enabled="enableStructureLlmAssistance"
+              v-model:service-id="structureLlmServiceId"
+            />
             <SmartStructureSummaryBanner
               v-if="recognizedTables.length > 0 || smartRecognitionError"
               :tables="recognizedTables"

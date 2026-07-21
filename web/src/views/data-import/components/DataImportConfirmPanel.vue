@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { InfoFilled } from "@element-plus/icons-vue";
+import { ArrowRight, InfoFilled } from "@element-plus/icons-vue";
 import type { AiServiceConfig } from "@/api/ai-service";
 import type { Customer } from "@/api/customer";
 import type { Process } from "@/api/process";
@@ -82,6 +82,31 @@ const emit = defineEmits<{
 // mutation 经同一引用回传父组件，行为与直接改 prop 一致，同时规避 vue/no-mutating-props。
 const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 const activeCollapseNames = ref<string[]>([]);
+const showDuplicateAdvanced = ref(false);
+const selectedEmbeddingService = computed(() =>
+  props.embeddingServices.find(
+    service => service.id === duplicateAiConfig.value.embeddingServiceId
+  )
+);
+const selectedLlmService = computed(() =>
+  props.llmServices.find(
+    service => service.id === duplicateAiConfig.value.llmServiceId
+  )
+);
+const duplicateCheckSummary = computed(() => {
+  if (!duplicateAiConfig.value.enableSemanticDuplicateCheck) {
+    return "仅使用规则检查";
+  }
+
+  const parts = [
+    `每条最多 ${duplicateAiConfig.value.semanticTopK} 个候选`,
+    `最低相似度 ${(duplicateAiConfig.value.semanticMinScore * 100).toFixed(0)}%`
+  ];
+  if (duplicateAiConfig.value.enableLlmDuplicateReview) {
+    parts.push("LLM 复核已开启");
+  }
+  return parts.join(" · ");
+});
 const handleCollapseChange = (
   activeNames: string | number | Array<string | number>
 ) => {
@@ -336,7 +361,7 @@ const effectivePendingSelectedSheetCount = computed(
                 active: duplicateAiConfig.enableSemanticDuplicateCheck
               }"
             >
-              AI 去重{{
+              疑似重复检查{{
                 duplicateAiConfig.enableSemanticDuplicateCheck
                   ? "已开启"
                   : "未开启"
@@ -349,16 +374,17 @@ const effectivePendingSelectedSheetCount = computed(
             <div class="duplicate-ai-panel__heading">
               <div class="duplicate-ai-panel__mark" aria-hidden="true">AI</div>
               <div>
-                <div class="duplicate-ai-panel__title">疑似重复识别</div>
+                <div class="duplicate-ai-panel__title">AI 疑似重复检查</div>
                 <div class="duplicate-ai-panel__desc">
-                  规则优先，未命中时使用 Embedding 召回，并可追加 LLM 复核。
+                  先按规则检查；未命中时比较“项目 +
+                  规格”的语义相似度。命中结果只会进入人工确认，不会自动覆盖。
                 </div>
               </div>
             </div>
             <div class="duplicate-ai-panel__control">
               <span>{{
                 duplicateAiConfig.enableSemanticDuplicateCheck
-                  ? "运行中"
+                  ? "已开启"
                   : "已关闭"
               }}</span>
               <el-switch
@@ -371,11 +397,12 @@ const effectivePendingSelectedSheetCount = computed(
             v-if="!duplicateAiConfig.enableSemanticDuplicateCheck"
             class="duplicate-ai-panel__inactive"
           >
-            AI 去重当前关闭，本次导入仅使用已有规则判断重复数据。
+            AI
+            疑似重复检查当前关闭，本次导入仅使用完全相同、同项目同规格等规则判断。
           </div>
           <el-form v-else label-position="top" class="duplicate-ai-form">
             <el-row :gutter="16">
-              <el-col :xs="24" :lg="12">
+              <el-col :xs="24" :md="12">
                 <el-form-item label="Embedding 服务">
                   <el-select
                     v-model="duplicateAiConfig.embeddingServiceId"
@@ -397,118 +424,172 @@ const effectivePendingSelectedSheetCount = computed(
                   </el-select>
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :lg="12">
-                <el-form-item label="候选数量 TopK">
-                  <el-input-number
-                    v-model="duplicateAiConfig.semanticTopK"
-                    :min="1"
-                    :max="10"
-                    :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
+              <el-col :xs="24" :md="12">
+                <div class="duplicate-ai-panel__llm">
+                  <div class="llm-toggle">
+                    <div>
+                      <strong>LLM 二次复核</strong>
+                      <span>对语义候选进一步判断是否为同一条规格</span>
+                    </div>
+                    <div class="llm-toggle__control">
+                      <span>{{
+                        duplicateAiConfig.enableLlmDuplicateReview
+                          ? "已开启"
+                          : "未开启"
+                      }}</span>
+                      <el-switch
+                        v-model="duplicateAiConfig.enableLlmDuplicateReview"
+                        aria-label="启用 LLM 二次复核"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </el-col>
+              <el-col
+                v-if="duplicateAiConfig.enableLlmDuplicateReview"
+                :xs="24"
+                :md="12"
+              >
+                <el-form-item label="LLM 服务">
+                  <el-select
+                    v-model="duplicateAiConfig.llmServiceId"
+                    placeholder="请选择 LLM 服务"
+                    :disabled="
+                      !duplicateAiConfig.enableSemanticDuplicateCheck ||
+                      !duplicateAiConfig.enableLlmDuplicateReview
+                    "
+                    :loading="loadingAiServices"
                     style="width: 100%"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :lg="12">
-                <el-form-item label="召回阈值">
-                  <el-slider
-                    v-model="duplicateAiConfig.semanticMinScore"
-                    :min="0"
-                    :max="1"
-                    :step="0.01"
-                    :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
-                    :format-tooltip="
-                      (val: number) => `${(val * 100).toFixed(0)}%`
-                    "
-                    show-input
-                    :show-input-controls="false"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :lg="12">
-                <el-form-item label="高置信阈值">
-                  <el-slider
-                    v-model="duplicateAiConfig.highConfidenceThreshold"
-                    :min="0.5"
-                    :max="1"
-                    :step="0.01"
-                    :disabled="!duplicateAiConfig.enableSemanticDuplicateCheck"
-                    :format-tooltip="
-                      (val: number) => `${(val * 100).toFixed(0)}%`
-                    "
-                    show-input
-                    :show-input-controls="false"
-                  />
+                    filterable
+                    clearable
+                    :teleported="true"
+                    popper-class="app-select-popper"
+                  >
+                    <el-option
+                      v-for="service in llmServices"
+                      :key="service.id"
+                      :label="`${service.name}（${service.llmModel || '-'}）`"
+                      :value="service.id"
+                    />
+                  </el-select>
                 </el-form-item>
               </el-col>
             </el-row>
-            <div class="duplicate-ai-panel__llm">
-              <div class="llm-toggle">
-                <div>
-                  <strong>LLM 二次复核</strong>
-                  <span>仅对 Embedding 召回的疑似项进行进一步判断</span>
-                </div>
-                <div class="llm-toggle__control">
-                  <span>{{
-                    duplicateAiConfig.enableLlmDuplicateReview
-                      ? "已开启"
-                      : "未开启"
-                  }}</span>
-                  <el-switch
-                    v-model="duplicateAiConfig.enableLlmDuplicateReview"
-                    aria-label="启用 LLM 二次复核"
-                  />
-                </div>
+
+            <div class="duplicate-ai-summary">
+              <div>
+                <span>当前策略</span>
+                <strong>{{ duplicateCheckSummary }}</strong>
               </div>
-              <el-row
-                v-if="duplicateAiConfig.enableLlmDuplicateReview"
-                :gutter="16"
-              >
-                <el-col :xs="24" :lg="12">
-                  <el-form-item label="LLM 服务">
-                    <el-select
-                      v-model="duplicateAiConfig.llmServiceId"
-                      placeholder="请选择 LLM 服务"
-                      :disabled="
-                        !duplicateAiConfig.enableSemanticDuplicateCheck ||
-                        !duplicateAiConfig.enableLlmDuplicateReview
-                      "
-                      :loading="loadingAiServices"
-                      style="width: 100%"
-                      filterable
-                      clearable
-                      :teleported="true"
-                      popper-class="app-select-popper"
-                    >
-                      <el-option
-                        v-for="service in llmServices"
-                        :key="service.id"
-                        :label="`${service.name}（${service.llmModel || '-'}）`"
-                        :value="service.id"
-                      />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :lg="12">
-                  <el-form-item label="LLM 通过阈值">
-                    <el-slider
-                      v-model="duplicateAiConfig.llmPassScore"
-                      :min="0"
-                      :max="1"
-                      :step="0.01"
-                      :disabled="
-                        !duplicateAiConfig.enableSemanticDuplicateCheck ||
-                        !duplicateAiConfig.enableLlmDuplicateReview
-                      "
-                      :format-tooltip="
-                        (val: number) => `${(val * 100).toFixed(0)}%`
-                      "
-                      show-input
-                      :show-input-controls="false"
-                    />
-                  </el-form-item>
-                </el-col>
-              </el-row>
+              <div class="duplicate-ai-summary__services">
+                <span>
+                  Embedding：{{
+                    selectedEmbeddingService?.embeddingModel || "未选择"
+                  }}
+                </span>
+                <span v-if="duplicateAiConfig.enableLlmDuplicateReview">
+                  LLM：{{ selectedLlmService?.llmModel || "未选择" }}
+                </span>
+              </div>
             </div>
+
+            <button
+              type="button"
+              class="duplicate-ai-advanced-toggle"
+              :aria-expanded="showDuplicateAdvanced"
+              aria-controls="duplicate-ai-advanced-options"
+              @click="showDuplicateAdvanced = !showDuplicateAdvanced"
+            >
+              <span>
+                <strong>高级参数</strong>
+                <small>候选数量、相似度门槛与置信标签</small>
+              </span>
+              <el-icon :class="{ rotated: showDuplicateAdvanced }">
+                <ArrowRight />
+              </el-icon>
+            </button>
+
+            <el-collapse-transition>
+              <div
+                v-show="showDuplicateAdvanced"
+                id="duplicate-ai-advanced-options"
+                class="duplicate-ai-advanced"
+              >
+                <el-row :gutter="16">
+                  <el-col :xs="24" :md="12">
+                    <el-form-item label="每条最多候选数">
+                      <el-input-number
+                        v-model="duplicateAiConfig.semanticTopK"
+                        :min="1"
+                        :max="10"
+                        style="width: 100%"
+                      />
+                      <div class="duplicate-ai-field-tip">
+                        规则未命中后，每条数据最多保留多少个语义候选。
+                      </div>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :xs="24" :md="12">
+                    <el-form-item label="最低相似度">
+                      <el-slider
+                        v-model="duplicateAiConfig.semanticMinScore"
+                        :min="0"
+                        :max="1"
+                        :step="0.01"
+                        :format-tooltip="
+                          (val: number) => `${(val * 100).toFixed(0)}%`
+                        "
+                        show-input
+                        :show-input-controls="false"
+                      />
+                      <div class="duplicate-ai-field-tip">
+                        低于该分数的候选不会进入疑似重复清单。
+                      </div>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :xs="24" :md="12">
+                    <el-form-item label="高置信标签阈值">
+                      <el-slider
+                        v-model="duplicateAiConfig.highConfidenceThreshold"
+                        :min="0.5"
+                        :max="1"
+                        :step="0.01"
+                        :format-tooltip="
+                          (val: number) => `${(val * 100).toFixed(0)}%`
+                        "
+                        show-input
+                        :show-input-controls="false"
+                      />
+                      <div class="duplicate-ai-field-tip">
+                        仅控制确认弹窗中的“高置信”标签，不会自动覆盖数据。
+                      </div>
+                    </el-form-item>
+                  </el-col>
+                  <el-col
+                    v-if="duplicateAiConfig.enableLlmDuplicateReview"
+                    :xs="24"
+                    :md="12"
+                  >
+                    <el-form-item label="LLM 通过阈值">
+                      <el-slider
+                        v-model="duplicateAiConfig.llmPassScore"
+                        :min="0"
+                        :max="1"
+                        :step="0.01"
+                        :format-tooltip="
+                          (val: number) => `${(val * 100).toFixed(0)}%`
+                        "
+                        show-input
+                        :show-input-controls="false"
+                      />
+                      <div class="duplicate-ai-field-tip">
+                        LLM 评分达到该值后，候选才会进入人工确认。
+                      </div>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+              </div>
+            </el-collapse-transition>
           </el-form>
         </div>
       </el-collapse-item>
@@ -898,8 +979,8 @@ const effectivePendingSelectedSheetCount = computed(
 }
 
 .duplicate-ai-panel__llm {
-  padding: 13px 14px 0;
-  margin-bottom: 14px;
+  padding: 11px 12px;
+  margin-bottom: 16px;
   background: var(--el-fill-color-extra-light);
   border: 1px solid var(--app-border);
   border-radius: 8px;
@@ -908,7 +989,6 @@ const effectivePendingSelectedSheetCount = computed(
 .llm-toggle {
   gap: 16px;
   justify-content: space-between;
-  padding-bottom: 12px;
 }
 
 .llm-toggle > div:first-child {
@@ -926,6 +1006,124 @@ const effectivePendingSelectedSheetCount = computed(
 
 .llm-toggle > div:first-child span {
   font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.duplicate-ai-summary {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 11px 13px;
+  margin-bottom: 10px;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 8px;
+}
+
+.duplicate-ai-summary > div:first-child,
+.duplicate-ai-summary__services {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.duplicate-ai-summary span,
+.duplicate-ai-summary strong {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.duplicate-ai-summary span {
+  color: var(--app-text-secondary);
+}
+
+.duplicate-ai-summary strong {
+  font-weight: 650;
+  color: var(--app-text-primary);
+}
+
+.duplicate-ai-summary__services {
+  min-width: 0;
+  text-align: right;
+}
+
+.duplicate-ai-summary__services span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.duplicate-ai-advanced-toggle {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  font: inherit;
+  color: var(--app-text-primary);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.duplicate-ai-advanced-toggle:hover {
+  color: var(--app-primary);
+  background: var(--el-fill-color-extra-light);
+  border-color: var(--el-color-primary-light-5);
+}
+
+.duplicate-ai-advanced-toggle:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+
+.duplicate-ai-advanced-toggle > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.duplicate-ai-advanced-toggle strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.duplicate-ai-advanced-toggle small {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.duplicate-ai-advanced-toggle .el-icon {
+  flex: 0 0 auto;
+  transition: transform 180ms ease;
+}
+
+.duplicate-ai-advanced-toggle .el-icon.rotated {
+  transform: rotate(90deg);
+}
+
+.duplicate-ai-advanced {
+  padding: 14px 14px 0;
+  margin-bottom: 14px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.duplicate-ai-field-tip {
+  width: 100%;
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--app-text-secondary);
 }
 
@@ -1103,8 +1301,24 @@ const effectivePendingSelectedSheetCount = computed(
     padding-left: 48px;
   }
 
+  .duplicate-ai-summary {
+    flex-direction: column;
+  }
+
+  .duplicate-ai-summary__services {
+    width: 100%;
+    text-align: left;
+  }
+
   .preview-metric {
     padding: 0 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .duplicate-ai-advanced-toggle,
+  .duplicate-ai-advanced-toggle .el-icon {
+    transition: none;
   }
 }
 </style>

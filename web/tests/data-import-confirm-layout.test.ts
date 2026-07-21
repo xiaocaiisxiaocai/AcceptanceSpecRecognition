@@ -82,10 +82,10 @@ test("数据导入确认页应把导入设置和待导入清单折叠，避免�
   assert.match(confirmPanelSource, /待导入清单/);
 });
 
-test("AI 去重关闭时应收起无效配置，并由确认组件自身承载样式", () => {
+test("AI 疑似重复检查关闭时应收起无效配置，并由确认组件自身承载样式", () => {
   assert.match(
     confirmPanelSource,
-    /v-if="!duplicateAiConfig\.enableSemanticDuplicateCheck"[\s\S]*AI 去重当前关闭/
+    /v-if="!duplicateAiConfig\.enableSemanticDuplicateCheck"[\s\S]*AI\s*疑似重复检查当前\s*关闭/
   );
   assert.match(
     confirmPanelSource,
@@ -93,6 +93,20 @@ test("AI 去重关闭时应收起无效配置，并由确认组件自身承载�
   );
   assert.match(confirmPanelSource, /\.duplicate-ai-panel__mark/);
   assert.doesNotMatch(dataImportStyleSource, /\.duplicate-ai-panel/);
+});
+
+test("AI 疑似重复检查应使用业务文案、响应式双列和渐进披露", () => {
+  assert.match(confirmPanelSource, /AI 疑似重复检查/);
+  assert.match(confirmPanelSource, /命中结果只会进入人工确认，不会自动覆盖/);
+  assert.doesNotMatch(confirmPanelSource, />运行中</);
+  assert.match(confirmPanelSource, /class="duplicate-ai-advanced-toggle"/);
+  assert.match(
+    confirmPanelSource,
+    /aria-controls="duplicate-ai-advanced-options"/
+  );
+  assert.match(confirmPanelSource, /<el-col :xs="24" :md="12">/);
+  assert.match(confirmPanelSource, /高置信标签阈值/);
+  assert.match(confirmPanelSource, /仅控制确认弹窗中的“高置信”标签/);
 });
 
 test("待导入清单应使用数量概览和移出语义，避免重复标题与删除歧义", () => {

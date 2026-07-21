@@ -106,6 +106,12 @@ describe("useDataImportSmartStructureRecognition", () => {
     });
 
     await state.runSmartStructureRecognition();
+    expect(apiMocks.recognizeSmartConfig).toHaveBeenCalledWith({
+      fileId: 7,
+      customerId: 1,
+      enableLlmAssistance: false,
+      llmServiceId: undefined
+    });
     const request: SmartConfigConfirmRequest = {
       customerId: 1,
       fileId: 7,

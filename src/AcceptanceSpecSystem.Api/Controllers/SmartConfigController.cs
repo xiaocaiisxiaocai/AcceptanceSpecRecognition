@@ -33,7 +33,9 @@ public class SmartConfigController : BaseApiController
                 new SmartConfigurationRecognizeCommand
                 {
                     FileId = request.FileId,
-                    CustomerId = request.CustomerId
+                    CustomerId = request.CustomerId,
+                    EnableLlmAssistance = request.EnableLlmAssistance,
+                    LlmServiceId = request.LlmServiceId
                 },
                 cancellationToken);
 

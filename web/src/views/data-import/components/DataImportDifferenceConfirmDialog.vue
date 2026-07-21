@@ -166,7 +166,15 @@ const emit = defineEmits<{
             </span>
           </div>
           <div v-if="item.reviewReason" class="difference-card__reason">
-            {{ item.reviewReason }}
+            <strong>复核结论</strong>
+            <span>{{ item.reviewReason }}</span>
+          </div>
+          <div
+            v-if="item.reviewCommentary"
+            class="difference-card__reason difference-card__reason--commentary"
+          >
+            <strong>判断说明</strong>
+            <span>{{ item.reviewCommentary }}</span>
           </div>
           <div class="difference-sheet">
             <div class="difference-sheet__panel">

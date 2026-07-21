@@ -5,6 +5,10 @@ public sealed class SmartConfigurationRecognizeCommand
     public int FileId { get; init; }
 
     public int? CustomerId { get; init; }
+
+    public bool EnableLlmAssistance { get; init; }
+
+    public int? LlmServiceId { get; init; }
 }
 
 public sealed class SmartConfigurationRecognizeResult
