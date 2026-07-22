@@ -1,8 +1,8 @@
 import { computed, ref, type Ref } from "vue";
 import { ElMessage } from "element-plus";
+import { getRequestErrorMessage } from "@/utils/error-message";
 import type { FileUploadResponse, TableInfo } from "@/api/document";
 import { loadFileTablesOnce } from "@/views/shared/file-table-metadata";
-import { getRequestErrorMessage } from "@/utils/error-message";
 import type {
   SmartConfigConfirmRequest,
   SmartConfigRecognizedTable
@@ -225,8 +225,10 @@ export function useDataImportSmartStructureRecognition({
       if (!isCurrentSmartFlow(sourceFileId, flowVersion)) {
         return false;
       }
-      smartApplyError.value =
-        error instanceof Error ? error.message : "应用智能识别结果失败";
+      smartApplyError.value = getRequestErrorMessage(
+        error,
+        "应用智能识别结果失败"
+      );
       ElMessage.error(smartApplyError.value);
       return false;
     }

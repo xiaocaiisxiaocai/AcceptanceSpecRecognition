@@ -8,6 +8,7 @@ import {
   type ImportDuplicateCheckOptions
 } from "@/api/document";
 import { ensurePermission } from "@/utils/permission-guard";
+import { getRequestErrorMessage } from "@/utils/error-message";
 import {
   defaultExcelMapping,
   normalizeExcelMappingByTable,
@@ -556,7 +557,7 @@ export function useDataImportBatchExecution(
     } catch (error) {
       options.differenceConfirmDialogVisible.value = true;
       ElMessage.error(
-        error instanceof Error ? error.message : "继续导入失败，请稍后重试"
+        getRequestErrorMessage(error, "继续导入失败，请稍后重试")
       );
     } finally {
       options.importing.value = false;
@@ -642,9 +643,7 @@ export function useDataImportBatchExecution(
         return;
       }
 
-      ElMessage.error(
-        error instanceof Error ? error.message : "导入失败，请稍后重试"
-      );
+      ElMessage.error(getRequestErrorMessage(error, "导入失败，请稍后重试"));
     } finally {
       options.importing.value = false;
       clearImportProgress();

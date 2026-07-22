@@ -41,6 +41,7 @@ import {
   type TableData
 } from "@/api/document";
 import { hasPerms } from "@/utils/auth";
+import { getRequestErrorMessage } from "@/utils/error-message";
 import {
   buildDataImportPreviewStageText,
   createDataImportSmartSteps,
@@ -62,6 +63,10 @@ import {
   replaceExcelRegionMapping,
   resolveExcludedCombinedIndexes
 } from "../dataImport.regions";
+import {
+  DATA_IMPORT_PREVIEW_WINDOW_COLUMNS,
+  loadBoundedFullTablePreview
+} from "../dataImport.preview";
 
 const MAPPING_PREVIEW_ROWS = 50;
 
@@ -526,6 +531,47 @@ export function useDataImportPage() {
         throw new Error("预览配置已更新，已忽略旧预览结果");
       }
     };
+    const requestPreview = async (
+      options: NonNullable<Parameters<typeof getTablePreview>[2]>,
+      fallbackMessage: string
+    ) => {
+      const readResponse = async (
+        requestOptions: NonNullable<Parameters<typeof getTablePreview>[2]>
+      ) => {
+        const response = await getTablePreview(
+          sourceFileId!,
+          cfg.tableIndex,
+          requestOptions
+        );
+        if (uploadedFile.value?.fileId !== sourceFileId) {
+          throw new Error("源文件已变更，已取消旧文件预览");
+        }
+        if (response.code !== 0 || !response.data) {
+          throw new Error(response.message || fallbackMessage);
+        }
+        ensureCurrentRequest();
+        return response.data;
+      };
+
+      if (previewRows > 0) {
+        return await readResponse(options);
+      }
+
+      const previewColumns = Math.min(
+        DATA_IMPORT_PREVIEW_WINDOW_COLUMNS,
+        Math.max(1, cfg.tableInfo?.columnCount ?? 1)
+      );
+      return await loadBoundedFullTablePreview({
+        loadWindow: ({ rowOffset, previewRows: windowRows }) =>
+          readResponse({
+            ...options,
+            previewRows: windowRows,
+            rowOffset,
+            columnOffset: 0,
+            previewColumns
+          })
+      });
+    };
     if (sourceFileId == null || uploadedFile.value?.fileId !== sourceFileId) {
       throw new Error("源文件不存在，无法加载预览");
     }
@@ -538,20 +584,12 @@ export function useDataImportPage() {
         ? cfg.recognizedWordMappings
         : null;
     if (!regionMappings) {
-      const res = await getTablePreview(
-        sourceFileId,
-        cfg.tableIndex,
-        buildPreviewQuery(cfg, previewRows)
+      const preview = await requestPreview(
+        buildPreviewQuery(cfg, previewRows),
+        "加载预览失败"
       );
-      if (uploadedFile.value?.fileId !== sourceFileId) {
-        throw new Error("源文件已变更，已取消旧文件预览");
-      }
-      if (res.code !== 0 || !res.data) {
-        throw new Error(res.message || "加载预览失败");
-      }
-      ensureCurrentRequest();
       cfg.excelPreviewRowLocations = undefined;
-      return res.data;
+      return preview;
     }
 
     const regionPreviews: Array<{
@@ -574,21 +612,11 @@ export function useDataImportPage() {
             dataStartRowIndex: (mapping as WordRegionMapping).dataStartRowIndex,
             dataEndRowIndex: (mapping as WordRegionMapping).dataEndRowIndex
           };
-      const res = await getTablePreview(
-        sourceFileId,
-        cfg.tableIndex,
-        previewOptions
+      const preview = await requestPreview(
+        previewOptions,
+        `区域 ${mapping.regionIndex + 1} 预览失败`
       );
-      if (uploadedFile.value?.fileId !== sourceFileId) {
-        throw new Error("源文件已变更，已取消旧文件预览");
-      }
-      if (res.code !== 0 || !res.data) {
-        throw new Error(
-          res.message || `区域 ${mapping.regionIndex + 1} 预览失败`
-        );
-      }
-      ensureCurrentRequest();
-      regionPreviews.push({ mapping, preview: res.data });
+      regionPreviews.push({ mapping, preview });
     }
 
     const merged = isExcelFile.value
@@ -703,9 +731,7 @@ export function useDataImportPage() {
       if (uploadedFile.value?.fileId !== sourceFileId) {
         return false;
       }
-      ElMessage.error(
-        error instanceof Error ? error.message : "加载导入预览失败"
-      );
+      ElMessage.error(getRequestErrorMessage(error, "加载导入预览失败"));
       return false;
     }
   };
@@ -737,9 +763,7 @@ export function useDataImportPage() {
       }
       return true;
     } catch (error) {
-      ElMessage.error(
-        error instanceof Error ? error.message : "加载导入预览失败"
-      );
+      ElMessage.error(getRequestErrorMessage(error, "加载导入预览失败"));
       return false;
     } finally {
       loading.close();

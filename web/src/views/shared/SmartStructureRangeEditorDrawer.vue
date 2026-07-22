@@ -10,7 +10,9 @@ import type {
 import {
   findNearestSmartStructureHeaderRowIndex,
   parseExcelA1ColumnRange,
-  toExcelColumnLabel
+  toExcelColumnLabel,
+  validateSmartStructureExcelRanges,
+  type SmartStructureExcelRangeField
 } from "./smart-structure-recognition";
 
 const props = withDefaults(
@@ -434,19 +436,84 @@ const normalizeRangeInput = (draft: RegionDraft, field: ExcelRangeField) => {
   if (parsed) draft[field] = parsed.normalized;
 };
 
+const excelRangeValidations = computed(() =>
+  drafts.value.map(draft =>
+    validateSmartStructureExcelRanges(
+      {
+        projectRange: draft.projectRange,
+        specificationRange: draft.specificationRange,
+        acceptanceRange: draft.acceptanceRange,
+        remarkRange: draft.remarkRange
+      },
+      {
+        baseColumn: baseColumn.value,
+        columnCount: columnCount.value,
+        baseRow: baseRow.value,
+        maximumRow: maximumRow.value
+      }
+    )
+  )
+);
+
+const getRangeFieldError = (
+  regionIndex: number,
+  field: SmartStructureExcelRangeField
+) => excelRangeValidations.value[regionIndex]?.fieldErrors[field] ?? "";
+
+const getRangeFieldErrorId = (
+  regionIndex: number,
+  field: SmartStructureExcelRangeField
+) => `region-${regionIndex}-${field}-error`;
+
+const liveExcelValidationError = computed(() => {
+  for (const [index, validation] of excelRangeValidations.value.entries()) {
+    const error = Object.values(validation.fieldErrors)[0];
+    if (error) return `区域 ${index + 1}：${error}`;
+  }
+
+  const intervals = excelRangeValidations.value
+    .map((validation, index) => {
+      const parsed =
+        validation.parsedRanges.projectRange ??
+        validation.parsedRanges.specificationRange ??
+        validation.parsedRanges.acceptanceRange ??
+        validation.parsedRanges.remarkRange;
+      return parsed
+        ? {
+            regionIndex: index,
+            startRow: parsed.startRow,
+            endRow: parsed.endRow
+          }
+        : undefined;
+    })
+    .filter((value): value is NonNullable<typeof value> => value != null)
+    .sort((left, right) => left.startRow - right.startRow);
+
+  for (let index = 1; index < intervals.length; index += 1) {
+    if (intervals[index].startRow <= intervals[index - 1].endRow) {
+      return `区域 ${intervals[index - 1].regionIndex + 1}与区域 ${intervals[index].regionIndex + 1}的数据范围不能重叠`;
+    }
+  }
+  return "";
+});
+
+const saveDisabled = computed(
+  () =>
+    saving.value ||
+    (props.isExcelFile && liveExcelValidationError.value.length > 0)
+);
+
 const applyExcelRanges = (draft: RegionDraft, regionIndex: number) => {
   draft.rangeError = "";
   draft.isSpecificationOnly = draft.projectRange.trim().length === 0;
   const definitions: Array<{
     field: ExcelRangeField;
     label: string;
-    required: boolean;
     setColumnIndex: (value: number | undefined) => void;
   }> = [
     {
       field: "projectRange",
       label: "项目范围",
-      required: !draft.isSpecificationOnly,
       setColumnIndex: value => {
         draft.projectColumnIndex = value;
       }
@@ -454,7 +521,6 @@ const applyExcelRanges = (draft: RegionDraft, regionIndex: number) => {
     {
       field: "specificationRange",
       label: "规格范围",
-      required: true,
       setColumnIndex: value => {
         draft.specificationColumnIndex = value;
       }
@@ -462,7 +528,6 @@ const applyExcelRanges = (draft: RegionDraft, regionIndex: number) => {
     {
       field: "acceptanceRange",
       label: "验收范围",
-      required: true,
       setColumnIndex: value => {
         draft.acceptanceColumnIndex = value;
       }
@@ -470,67 +535,49 @@ const applyExcelRanges = (draft: RegionDraft, regionIndex: number) => {
     {
       field: "remarkRange",
       label: "备注范围",
-      required: false,
       setColumnIndex: value => {
         draft.remarkColumnIndex = value;
       }
     }
   ];
-  const parsedRanges: Array<{
-    label: string;
-    startRow: number;
-    endRow: number;
-  }> = [];
+  const validation = validateSmartStructureExcelRanges(
+    {
+      projectRange: draft.projectRange,
+      specificationRange: draft.specificationRange,
+      acceptanceRange: draft.acceptanceRange,
+      remarkRange: draft.remarkRange
+    },
+    {
+      baseColumn: baseColumn.value,
+      columnCount: columnCount.value,
+      baseRow: baseRow.value,
+      maximumRow: maximumRow.value
+    }
+  );
+  const invalidDefinition = definitions.find(
+    definition => validation.fieldErrors[definition.field]
+  );
+  if (invalidDefinition) {
+    draft.rangeError = validation.fieldErrors[invalidDefinition.field] ?? "";
+    return `区域 ${regionIndex + 1}的${draft.rangeError}`;
+  }
 
   for (const definition of definitions) {
-    if (definition.field === "projectRange" && draft.isSpecificationOnly) {
+    const parsed = validation.parsedRanges[definition.field];
+    if (!parsed) {
       definition.setColumnIndex(undefined);
       continue;
     }
-    const value = draft[definition.field].trim();
-    if (!value) {
-      definition.setColumnIndex(undefined);
-      if (!definition.required) continue;
-      draft.rangeError = `${definition.label}不能为空`;
-      return `区域 ${regionIndex + 1}的${draft.rangeError}`;
-    }
-
-    const parsed = parseExcelA1ColumnRange(value);
-    if (!parsed) {
-      draft.rangeError = `${definition.label}格式无效，请输入单列范围，例如 C9:C112`;
-      return `区域 ${regionIndex + 1}的${draft.rangeError}`;
-    }
-    const relativeColumnIndex = parsed.columnNumber - baseColumn.value;
-    if (relativeColumnIndex < 0 || relativeColumnIndex >= columnCount.value) {
-      draft.rangeError = `${definition.label}超出当前工作表列范围`;
-      return `区域 ${regionIndex + 1}的${draft.rangeError}`;
-    }
-    if (parsed.startRow < baseRow.value || parsed.endRow > maximumRow.value) {
-      draft.rangeError = `${definition.label}超出当前工作表行范围`;
-      return `区域 ${regionIndex + 1}的${draft.rangeError}`;
-    }
-
     draft[definition.field] = parsed.normalized;
-    definition.setColumnIndex(relativeColumnIndex);
-    parsedRanges.push({
-      label: definition.label,
-      startRow: parsed.startRow,
-      endRow: parsed.endRow
-    });
+    definition.setColumnIndex(parsed.columnNumber - baseColumn.value);
   }
 
-  const firstRange = parsedRanges[0];
-  const inconsistentRange = parsedRanges.find(
-    range =>
-      range.startRow !== firstRange.startRow ||
-      range.endRow !== firstRange.endRow
-  );
-  if (inconsistentRange) {
-    draft.rangeError = `${inconsistentRange.label}的起止行需与其他范围一致`;
-    return `区域 ${regionIndex + 1}的${draft.rangeError}`;
-  }
-  draft.dataStartRow = firstRange.startRow;
-  draft.dataEndRow = firstRange.endRow;
+  const primaryRange =
+    validation.parsedRanges.projectRange ??
+    validation.parsedRanges.specificationRange;
+  if (!primaryRange) return `区域 ${regionIndex + 1}的数据范围无效`;
+  draft.dataStartRow = primaryRange.startRow;
+  draft.dataEndRow = primaryRange.endRow;
   return "";
 };
 
@@ -786,9 +833,23 @@ const saveRanges = async () => {
                 v-model="draft.projectRange"
                 placeholder="例如 C9:C112"
                 clearable
+                :aria-invalid="!!getRangeFieldError(index, 'projectRange')"
+                :aria-describedby="
+                  getRangeFieldError(index, 'projectRange')
+                    ? getRangeFieldErrorId(index, 'projectRange')
+                    : undefined
+                "
                 @input="draft.rangeError = ''"
                 @blur="normalizeRangeInput(draft, 'projectRange')"
               />
+              <span
+                v-if="getRangeFieldError(index, 'projectRange')"
+                :id="getRangeFieldErrorId(index, 'projectRange')"
+                class="range-field-error"
+                role="alert"
+              >
+                {{ getRangeFieldError(index, "projectRange") }}
+              </span>
             </label>
             <label>
               <span>规格范围</span>
@@ -796,9 +857,25 @@ const saveRanges = async () => {
                 v-model="draft.specificationRange"
                 placeholder="例如 D9:D112"
                 clearable
+                :aria-invalid="
+                  !!getRangeFieldError(index, 'specificationRange')
+                "
+                :aria-describedby="
+                  getRangeFieldError(index, 'specificationRange')
+                    ? getRangeFieldErrorId(index, 'specificationRange')
+                    : undefined
+                "
                 @input="draft.rangeError = ''"
                 @blur="normalizeRangeInput(draft, 'specificationRange')"
               />
+              <span
+                v-if="getRangeFieldError(index, 'specificationRange')"
+                :id="getRangeFieldErrorId(index, 'specificationRange')"
+                class="range-field-error"
+                role="alert"
+              >
+                {{ getRangeFieldError(index, "specificationRange") }}
+              </span>
             </label>
             <label>
               <span>验收范围</span>
@@ -806,9 +883,23 @@ const saveRanges = async () => {
                 v-model="draft.acceptanceRange"
                 placeholder="例如 I9:I112"
                 clearable
+                :aria-invalid="!!getRangeFieldError(index, 'acceptanceRange')"
+                :aria-describedby="
+                  getRangeFieldError(index, 'acceptanceRange')
+                    ? getRangeFieldErrorId(index, 'acceptanceRange')
+                    : undefined
+                "
                 @input="draft.rangeError = ''"
                 @blur="normalizeRangeInput(draft, 'acceptanceRange')"
               />
+              <span
+                v-if="getRangeFieldError(index, 'acceptanceRange')"
+                :id="getRangeFieldErrorId(index, 'acceptanceRange')"
+                class="range-field-error"
+                role="alert"
+              >
+                {{ getRangeFieldError(index, "acceptanceRange") }}
+              </span>
             </label>
             <label>
               <span>备注范围（可选）</span>
@@ -816,9 +907,23 @@ const saveRanges = async () => {
                 v-model="draft.remarkRange"
                 placeholder="例如 J9:J112"
                 clearable
+                :aria-invalid="!!getRangeFieldError(index, 'remarkRange')"
+                :aria-describedby="
+                  getRangeFieldError(index, 'remarkRange')
+                    ? getRangeFieldErrorId(index, 'remarkRange')
+                    : undefined
+                "
                 @input="draft.rangeError = ''"
                 @blur="normalizeRangeInput(draft, 'remarkRange')"
               />
+              <span
+                v-if="getRangeFieldError(index, 'remarkRange')"
+                :id="getRangeFieldErrorId(index, 'remarkRange')"
+                class="range-field-error"
+                role="alert"
+              >
+                {{ getRangeFieldError(index, "remarkRange") }}
+              </span>
             </label>
           </div>
           <p v-if="draft.rangeError" class="range-error" role="alert">
@@ -953,16 +1058,29 @@ const saveRanges = async () => {
     </div>
 
     <template #footer>
-      <div class="drawer-actions">
-        <el-button @click="visible = false">取消</el-button>
-        <el-button
-          type="primary"
-          :loading="saving"
-          :disabled="saving"
-          @click="saveRanges"
+      <div class="drawer-footer">
+        <p
+          v-if="isExcelFile && liveExcelValidationError"
+          class="drawer-validation-summary"
+          role="alert"
         >
-          保存范围
-        </el-button>
+          {{ liveExcelValidationError }}
+        </p>
+        <div class="drawer-actions">
+          <el-button @click="visible = false">取消</el-button>
+          <el-button
+            type="primary"
+            :loading="saving"
+            :disabled="saveDisabled"
+            :title="
+              liveExcelValidationError ||
+              (saving ? '正在保存范围' : '保存当前范围')
+            "
+            @click="saveRanges"
+          >
+            保存范围
+          </el-button>
+        </div>
       </div>
     </template>
   </el-drawer>
@@ -1089,6 +1207,17 @@ const saveRanges = async () => {
   color: var(--el-color-danger);
 }
 
+.range-field-error {
+  min-height: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-color-danger);
+}
+
+.a1-range-grid :deep(.el-input[aria-invalid="true"] .el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--el-color-danger) inset;
+}
+
 .region-editor-foot {
   justify-content: flex-end;
   margin-top: 12px;
@@ -1117,6 +1246,21 @@ const saveRanges = async () => {
   justify-content: flex-end;
 }
 
+.drawer-footer {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.drawer-validation-summary {
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  color: var(--el-color-danger);
+  text-align: left;
+}
+
 @media (width <= 720px) {
   .row-editor-grid,
   .column-editor-grid,
@@ -1130,6 +1274,11 @@ const saveRanges = async () => {
 
   .region-editor-header code {
     display: none;
+  }
+
+  .drawer-footer {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

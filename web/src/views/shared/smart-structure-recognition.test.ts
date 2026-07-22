@@ -22,6 +22,7 @@ import {
   toActualColumnNumber,
   toActualRowNumber,
   toExcelColumnLabel,
+  validateSmartStructureExcelRanges,
   validateSmartStructureRegions
 } from "./smart-structure-recognition";
 import type { SmartConfigRecognizedTable } from "@/api/smart-config";
@@ -537,6 +538,57 @@ describe("smart-structure-recognition", () => {
     expect(parseExcelA1ColumnRange("C9:D112")).toBeUndefined();
     expect(parseExcelA1ColumnRange("C112:C9")).toBeUndefined();
     expect(parseExcelA1ColumnRange("C9")).toBeUndefined();
+  });
+
+  it("即时校验应同时指出倒序范围、必填范围和行号不一致", () => {
+    const invalid = validateSmartStructureExcelRanges(
+      {
+        projectRange: "C9:C1",
+        specificationRange: "N4:N4",
+        acceptanceRange: "",
+        remarkRange: ""
+      },
+      { baseColumn: 1, columnCount: 14, baseRow: 1, maximumRow: 200 }
+    );
+
+    expect(invalid.fieldErrors.projectRange).toContain("起止行正序");
+    expect(invalid.fieldErrors.acceptanceRange).toBe("验收范围不能为空");
+  });
+
+  it("即时校验应指出字段行号不一致、重复列和工作表越界", () => {
+    const invalid = validateSmartStructureExcelRanges(
+      {
+        projectRange: "C9:C112",
+        specificationRange: "D10:D112",
+        acceptanceRange: "C9:C112",
+        remarkRange: "Z9:Z112"
+      },
+      { baseColumn: 1, columnCount: 10, baseRow: 2, maximumRow: 150 }
+    );
+
+    expect(invalid.fieldErrors.specificationRange).toContain(
+      "需与项目范围一致"
+    );
+    expect(invalid.fieldErrors.acceptanceRange).toBe(
+      "验收范围不能与项目范围使用同一列"
+    );
+    expect(invalid.fieldErrors.remarkRange).toBe(
+      "备注范围超出当前工作表列范围"
+    );
+  });
+
+  it("即时校验接受仅规格模式及同起止行的有效范围", () => {
+    const valid = validateSmartStructureExcelRanges(
+      {
+        projectRange: "",
+        specificationRange: "D9:D112",
+        acceptanceRange: "I9:I112",
+        remarkRange: "J9:J112"
+      },
+      { baseColumn: 1, columnCount: 10, baseRow: 1, maximumRow: 200 }
+    );
+
+    expect(valid.fieldErrors).toEqual({});
   });
 
   it("按表格实际使用区域换算识别出的行列位置", () => {

@@ -301,6 +301,117 @@ export const parseExcelA1ColumnRange = (
   };
 };
 
+export type SmartStructureExcelRangeField =
+  | "projectRange"
+  | "specificationRange"
+  | "acceptanceRange"
+  | "remarkRange";
+
+export type SmartStructureExcelRangeValidation = {
+  fieldErrors: Partial<Record<SmartStructureExcelRangeField, string>>;
+  parsedRanges: Partial<
+    Record<SmartStructureExcelRangeField, ExcelA1ColumnRange>
+  >;
+};
+
+export const validateSmartStructureExcelRanges = (
+  ranges: Record<SmartStructureExcelRangeField, string>,
+  bounds: {
+    baseColumn: number;
+    columnCount: number;
+    baseRow: number;
+    maximumRow: number;
+  }
+): SmartStructureExcelRangeValidation => {
+  const definitions: Array<{
+    field: SmartStructureExcelRangeField;
+    label: string;
+    required: boolean;
+  }> = [
+    {
+      field: "projectRange",
+      label: "项目范围",
+      required: false
+    },
+    {
+      field: "specificationRange",
+      label: "规格范围",
+      required: true
+    },
+    {
+      field: "acceptanceRange",
+      label: "验收范围",
+      required: true
+    },
+    {
+      field: "remarkRange",
+      label: "备注范围",
+      required: false
+    }
+  ];
+  const fieldErrors: SmartStructureExcelRangeValidation["fieldErrors"] = {};
+  const parsedRanges: SmartStructureExcelRangeValidation["parsedRanges"] = {};
+
+  for (const definition of definitions) {
+    const value = ranges[definition.field].trim();
+    if (!value) {
+      if (definition.required) {
+        fieldErrors[definition.field] = `${definition.label}不能为空`;
+      }
+      continue;
+    }
+
+    const parsed = parseExcelA1ColumnRange(value);
+    if (!parsed) {
+      fieldErrors[definition.field] =
+        `${definition.label}格式无效，请输入同一列且起止行正序的范围，例如 C9:C112`;
+      continue;
+    }
+    if (
+      parsed.columnNumber < bounds.baseColumn ||
+      parsed.columnNumber >= bounds.baseColumn + bounds.columnCount
+    ) {
+      fieldErrors[definition.field] = `${definition.label}超出当前工作表列范围`;
+      continue;
+    }
+    if (parsed.startRow < bounds.baseRow || parsed.endRow > bounds.maximumRow) {
+      fieldErrors[definition.field] = `${definition.label}超出当前工作表行范围`;
+      continue;
+    }
+    parsedRanges[definition.field] = parsed;
+  }
+
+  const validEntries = definitions.flatMap(definition => {
+    const parsed = parsedRanges[definition.field];
+    return parsed ? [{ ...definition, parsed }] : [];
+  });
+  const reference = validEntries[0];
+  if (reference) {
+    for (const entry of validEntries.slice(1)) {
+      if (
+        entry.parsed.startRow !== reference.parsed.startRow ||
+        entry.parsed.endRow !== reference.parsed.endRow
+      ) {
+        fieldErrors[entry.field] =
+          `${entry.label}的起止行需与${reference.label}一致（${reference.parsed.startRow}–${reference.parsed.endRow} 行）`;
+      }
+    }
+  }
+
+  const firstFieldByColumn = new Map<number, (typeof validEntries)[number]>();
+  for (const entry of validEntries) {
+    const previous = firstFieldByColumn.get(entry.parsed.columnNumber);
+    if (!previous) {
+      firstFieldByColumn.set(entry.parsed.columnNumber, entry);
+      continue;
+    }
+    fieldErrors[entry.field] =
+      `${entry.label}不能与${previous.label}使用同一列`;
+  }
+
+  return { fieldErrors, parsedRanges };
+};
+
 export const formatDisplayRowRange = ({
   headerRowIndex,
   dataStartRowIndex
