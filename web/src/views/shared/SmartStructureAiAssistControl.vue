@@ -15,6 +15,7 @@ import {
 } from "@/api/ai-service";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import { hasPerms } from "@/utils/auth";
+import { createAiSelectionRetryController } from "@/utils/ai-selection-retry";
 import { getDistinctAiServiceModel } from "./ai-service-display";
 import { resolveAiAssistSelectionState } from "./ai-selection-state";
 
@@ -34,8 +35,6 @@ const loading = ref(true);
 const loadError = ref("");
 let requestController: AbortController | undefined;
 let lastLoadStartedAt = 0;
-let retryTimer: ReturnType<typeof setTimeout> | undefined;
-let checkingAttempts = 0;
 const hasServices = computed(
   () =>
     selection.value.status === "available" && selection.value.serviceId != null
@@ -66,14 +65,11 @@ const unavailableTitle = computed(() => {
 
 const goToAiServices = () => router.push("/config/ai-services");
 
-const loadServices = async () => {
+const loadServices = async (resetRetry = true) => {
   const startedAt = Date.now();
   if (startedAt - lastLoadStartedAt < 250) return;
   lastLoadStartedAt = startedAt;
-  if (retryTimer !== undefined) {
-    globalThis.clearTimeout(retryTimer);
-    retryTimer = undefined;
-  }
+  if (resetRetry) aiSelectionRetry.cancel();
   requestController?.abort();
   const controller = new AbortController();
   requestController = controller;
@@ -83,23 +79,19 @@ const loadServices = async () => {
     const response = await getAiServiceSelection("llm", controller.signal);
     if (requestController !== controller) return;
     if (response.code !== 0) {
-      selection.value = {
+      const unavailableSelection: AiServiceSelection = {
         status: "unavailable",
         message: response.message || "LLM 服务当前不可用"
       };
-      checkingAttempts = 0;
+      selection.value = unavailableSelection;
+      aiSelectionRetry.schedule([unavailableSelection]);
       emit("update:serviceId", undefined);
       if (props.enabled) emit("update:enabled", false);
       return;
     }
 
     selection.value = response.data;
-    if (response.data.status === "checking" && checkingAttempts < 10) {
-      checkingAttempts += 1;
-      retryTimer = globalThis.setTimeout(() => void loadServices(), 1500);
-    } else {
-      checkingAttempts = 0;
-    }
+    aiSelectionRetry.schedule([response.data]);
     const next = resolveAiAssistSelectionState(response.data);
     if (props.enabled !== next.enabled) emit("update:enabled", next.enabled);
     if (props.serviceId !== next.serviceId) {
@@ -114,14 +106,18 @@ const loadServices = async () => {
     }
     selection.value = { status: "checking" };
     loadError.value = getRequestErrorMessage(error, "加载 LLM 服务失败");
-    if (checkingAttempts < 10) {
-      checkingAttempts += 1;
-      retryTimer = globalThis.setTimeout(() => void loadServices(), 1500);
-    }
+    aiSelectionRetry.schedule([selection.value]);
   } finally {
     if (requestController === controller) loading.value = false;
   }
 };
+
+const aiSelectionRetry = createAiSelectionRetryController({
+  refresh: () => void loadServices(false),
+  maxAttempts: 10,
+  retryStatuses: ["checking", "unavailable"],
+  delayMsByStatus: { unavailable: 5000 }
+});
 
 watch([() => props.enabled, () => props.serviceId], ([enabled, serviceId]) => {
   if (!enabled && props.serviceId != null) {
@@ -141,7 +137,7 @@ onMounted(loadServices);
 onActivated(loadServices);
 const stopPendingSelection = () => {
   requestController?.abort();
-  if (retryTimer !== undefined) globalThis.clearTimeout(retryTimer);
+  aiSelectionRetry.cancel();
 };
 
 onDeactivated(stopPendingSelection);
@@ -192,10 +188,10 @@ onBeforeUnmount(stopPendingSelection);
         去配置 AI 服务
       </el-button>
       <el-button
-        v-if="canConfigureAiServices && selection.status === 'checking'"
+        v-if="canConfigureAiServices"
         link
         :loading="loading"
-        @click="loadServices"
+        @click="() => loadServices()"
       >
         重新检测
       </el-button>

@@ -146,6 +146,12 @@ const {
   restoreSelectedTablesForMapping
 } = useDataImportPage();
 
+const isCompletionStep = computed(
+  () =>
+    (!advancedMode.value && currentStep.value === 2) ||
+    (advancedMode.value && currentStep.value === 4)
+);
+
 const retryTableMetadata = () => {
   if (uploadedFile.value) {
     void loadUploadedFileMetadata(uploadedFile.value, { force: true });
@@ -425,7 +431,10 @@ const activeSmartStructureScopeDescription = computed(() => {
 </script>
 
 <template>
-  <div class="page data-import">
+  <div
+    class="page data-import"
+    :class="{ 'data-import--complete': isCompletionStep }"
+  >
     <div class="page-header">
       <div class="wizard-steps">
         <el-steps :active="currentStep" finish-status="success">
@@ -709,7 +718,7 @@ const activeSmartStructureScopeDescription = computed(() => {
             :import-progress-description="smartBatchProgressDescription"
             :import-primary-button-text="smartBatchImportButtonText"
             :skipped-rows-groups="skippedRowsGroups"
-            :show-import-action="true"
+            :show-import-action="false"
             :allow-empty-preview-action="
               selectedSmartTablesRequiringConfirmationCount > 0
             "
@@ -788,7 +797,7 @@ const activeSmartStructureScopeDescription = computed(() => {
         </DataImportStepConfirm>
 
         <!-- 步骤按钮 -->
-        <div class="step-actions">
+        <div v-if="!isCompletionStep" class="step-actions">
           <el-button
             v-if="
               currentStep > 0 &&
@@ -798,6 +807,25 @@ const activeSmartStructureScopeDescription = computed(() => {
             @click="goPrev"
           >
             上一步
+          </el-button>
+          <el-button
+            v-if="
+              !advancedMode &&
+              currentStep === 1 &&
+              !importResult &&
+              canImportCurrentFile
+            "
+            type="primary"
+            :loading="importing || batchConfirmImportRunning"
+            :disabled="
+              pendingSelectedSmartTableCount > 0 ||
+              (selectedSmartTablesRequiringConfirmationCount === 0 &&
+                !hasPendingDifferenceConfirmation &&
+                previewDataCount === 0)
+            "
+            @click="handleSmartStructureBatchConfirmImport"
+          >
+            {{ smartBatchImportButtonText }}
           </el-button>
           <el-button
             v-if="!advancedMode && currentStep === 0"

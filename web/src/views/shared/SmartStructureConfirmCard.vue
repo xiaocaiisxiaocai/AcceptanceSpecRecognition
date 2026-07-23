@@ -4,6 +4,7 @@ import { ElMessage } from "element-plus";
 import type { TableInfo } from "@/api/document";
 import type {
   SmartConfigConfirmRequest,
+  SmartConfigRecognitionIssue,
   SmartConfigRecognizedRegion,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
@@ -128,9 +129,6 @@ const formatColumnCoordinate = (index: number) =>
     : `第 ${index + 1} 列`;
 
 const activeRegions = computed(() => editableRegions.value);
-const displayHeaders = computed(
-  () => activeRegions.value[0]?.headers ?? props.table.headers
-);
 
 const handleRangesSave = (regions: SmartConfigRecognizedRegion[]) => {
   if (regions.length === 0) return;
@@ -204,6 +202,56 @@ const regionSummaryItems = computed(() =>
   })
 );
 
+const regionFieldSummaries = computed(() =>
+  activeRegions.value.map(region => {
+    const regionSummary = regionSummaryItems.value.find(
+      item => item.id === region.regionId
+    );
+    const mappings = [
+      {
+        field: "Project",
+        label: "项目",
+        columnIndex: region.isSpecificationOnly
+          ? null
+          : region.projectColumnIndex
+      },
+      {
+        field: "Specification",
+        label: "规格",
+        columnIndex: region.specificationColumnIndex
+      },
+      {
+        field: "Acceptance",
+        label: "验收",
+        columnIndex: region.acceptanceColumnIndex
+      },
+      {
+        field: "Remark",
+        label: "备注",
+        columnIndex: region.remarkColumnIndex
+      }
+    ]
+      .filter(mapping => mapping.columnIndex != null)
+      .map(mapping => {
+        const recognizedField = region.fields?.find(
+          field => field.field === mapping.field
+        );
+        return {
+          ...mapping,
+          header: region.headers[mapping.columnIndex!] || "-",
+          confidence: recognizedField?.confidence ?? region.confidence
+        };
+      });
+
+    return {
+      id: region.regionId,
+      label: regionSummary?.label ?? `区域 ${region.regionIndex + 1}`,
+      headerRange: regionSummary?.headerRange ?? "",
+      mappings
+    };
+  })
+);
+
 const effectiveRowCount = computed(() =>
   countSmartStructureRegionRows(activeRegions.value, props.tableInfo)
 );
@@ -232,20 +280,89 @@ const importSwitchText = computed(() =>
   props.importSelected ? "参与导入" : "不导入"
 );
 
-const visibleIssues = computed(() => {
+const isCoveredHeaderIssue = (issue: SmartConfigRecognitionIssue) => {
+  if (issue.code !== "UncoveredRegionHeader") return false;
+  const absoluteRow = Number(issue.message.match(/第\s*(\d+)\s*行/)?.[1]);
+  if (!Number.isInteger(absoluteRow)) return false;
+  const rowIndex = absoluteRow - (props.tableInfo?.usedRangeStartRow ?? 1);
+  return activeRegions.value.some(
+    region =>
+      rowIndex === region.dataStartRowIndex - 1 ||
+      (rowIndex >= region.headerRowIndex &&
+        rowIndex < region.headerRowIndex + Math.max(1, region.headerRowCount))
+  );
+};
+
+const allIssues = computed(() => {
   const seen = new Set<string>();
   return [
     ...(props.table.issues ?? []),
     ...activeRegions.value.flatMap(region => region.issues ?? [])
-  ]
-    .filter(issue => {
-      const key = `${issue.code}-${issue.field ?? ""}-${issue.message}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 4);
+  ].filter(issue => {
+    if (isCoveredHeaderIssue(issue)) return false;
+    const key = `${issue.code}-${issue.field ?? ""}-${issue.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 });
+const structureRecoveryIssueCodes = new Set([
+  "TemplateRegionDataChanged",
+  "TemplateRegionOutOfRange",
+  "TemplateHeaderChanged",
+  "TemplateRegionOverlap",
+  "TemplateRegionStructureChanged",
+  "UnhealthyRegionData",
+  "UnassignedDataAfterGap",
+  "UncoveredBusinessRows",
+  "UncoveredRegionHeader"
+]);
+const structureRecoveryIssues = computed(() =>
+  allIssues.value.filter(issue => structureRecoveryIssueCodes.has(issue.code))
+);
+const visibleIssues = computed(() =>
+  allIssues.value
+    .filter(issue => !structureRecoveryIssueCodes.has(issue.code))
+    .slice(0, 4)
+);
+const formatStructureRecoveryDetail = (issue: SmartConfigRecognitionIssue) => {
+  if (issue.code === "TemplateRegionDataChanged") {
+    return "历史模板范围内未找到足够的有效数据，行列位置可能已经变化";
+  }
+  if (issue.code === "TemplateRegionOutOfRange") {
+    return "历史模板记录的范围已超出当前表格";
+  }
+  if (issue.code === "TemplateHeaderChanged") {
+    return "当前文件表头与历史模板不一致，列位置可能已经变化";
+  }
+  if (issue.code === "TemplateRegionOverlap") {
+    return "历史模板中的数据区域在当前文件中发生重叠";
+  }
+  if (issue.code === "UnhealthyRegionData") {
+    return "当前范围内的有效数据不足，可能需要重新选择数据行";
+  }
+  if (issue.code === "UnassignedDataAfterGap") {
+    return "空白行之后仍检测到疑似业务数据，可能需要扩大数据范围";
+  }
+  if (issue.code === "UncoveredRegionHeader") {
+    const row = issue.message.match(/第\s*(\d+)\s*行/)?.[1];
+    return row
+      ? `第 ${row} 行可能是新的表头，当前范围尚未包含该区域`
+      : "发现可能的新表头，当前范围尚未包含该区域";
+  }
+  if (issue.code === "UncoveredBusinessRows") {
+    return issue.message
+      .replace(
+        "存在未被任何区域覆盖的疑似业务数据",
+        "的疑似业务数据未包含在当前范围内"
+      )
+      .replace("请确认范围", "请调整范围");
+  }
+  return issue.message;
+};
+const structureRecoveryDetails = computed(() =>
+  structureRecoveryIssues.value.map(formatStructureRecoveryDetail)
+);
 const semanticRecallSuggestions = computed(
   () => props.table.semanticRecallSuggestions?.slice(0, 6) ?? []
 );
@@ -253,7 +370,7 @@ const showRecognitionEvidence = computed(
   () =>
     props.table.decision !== "AutoApply" ||
     props.table.confidence < 0.8 ||
-    visibleIssues.value.length > 0 ||
+    allIssues.value.length > 0 ||
     semanticRecallSuggestions.value.length > 0
 );
 const showAdvancedFallback = computed(() =>
@@ -454,7 +571,7 @@ const emitConfirm = () => {
             </el-tag>
           </div>
           <el-button
-            v-if="!readonly"
+            v-if="!readonly && structureRecoveryIssues.length === 0"
             type="primary"
             plain
             size="small"
@@ -524,6 +641,34 @@ const emitConfirm = () => {
       class="structure-validation-alert"
     />
 
+    <section
+      v-if="structureRecoveryIssues.length > 0"
+      class="structure-recovery-alert"
+      role="alert"
+      aria-live="polite"
+    >
+      <div class="structure-recovery-alert__content">
+        <strong>文件结构与历史模板不一致，需要重新确认</strong>
+        <span>
+          当前文件的表头或数据位置可能发生变化。请调整范围，确认表头、数据行以及项目、规格、验收、备注列。
+        </span>
+        <ul class="structure-recovery-alert__details">
+          <li v-for="detail in structureRecoveryDetails" :key="detail">
+            {{ detail }}
+          </li>
+        </ul>
+      </div>
+      <el-button
+        v-if="!readonly"
+        type="primary"
+        :disabled="controlsLocked"
+        :aria-label="'调整 ' + tableTitle + ' 的识别范围'"
+        @click="rangeEditorVisible = true"
+      >
+        调整范围
+      </el-button>
+    </section>
+
     <div v-if="table.skipReason || visibleIssues.length > 0" class="issue-list">
       <el-tag
         v-for="issue in visibleIssues"
@@ -542,21 +687,6 @@ const emitConfirm = () => {
       >
         {{ table.skipReason }}
       </el-tag>
-    </div>
-
-    <div v-if="showRecognitionEvidence" class="headers-preview">
-      <span class="headers-label">表头</span>
-      <el-tag
-        v-for="(header, index) in displayHeaders.slice(0, 10)"
-        :key="`${table.tableIndex}-${index}`"
-        size="small"
-        type="info"
-        effect="plain"
-      >
-        [{{ formatColumnCoordinate(index) }}]
-        {{ header || `列${index + 1}` }}
-      </el-tag>
-      <span v-if="displayHeaders.length > 10" class="more">...</span>
     </div>
 
     <div
@@ -582,20 +712,27 @@ const emitConfirm = () => {
       </el-tag>
     </div>
 
-    <div
-      v-if="showRecognitionEvidence && table.fields?.length > 0"
-      class="field-list"
-    >
-      <el-tag
-        v-for="field in table.fields"
-        :key="`${field.field}-${field.columnIndex}`"
-        size="small"
-        effect="plain"
+    <div v-if="showRecognitionEvidence" class="region-field-list">
+      <div
+        v-for="region in regionFieldSummaries"
+        :key="region.id"
+        class="region-field-row"
       >
-        {{ getSmartStructureFieldLabel(field.field) }}:
-        {{ field.header || "-" }}
-        {{ formatSmartStructurePercent(field.confidence) }}
-      </el-tag>
+        <span class="region-field-label">
+          {{ region.label }}表头 {{ region.headerRange }}
+        </span>
+        <div class="field-list">
+          <el-tag
+            v-for="mapping in region.mappings"
+            :key="`${region.id}-${mapping.field}-${mapping.columnIndex}`"
+            size="small"
+            effect="plain"
+          >
+            {{ mapping.label }}: {{ mapping.header }}
+            {{ formatSmartStructurePercent(mapping.confidence) }}
+          </el-tag>
+        </div>
+      </div>
     </div>
 
     <SmartStructureRangeEditorDrawer
@@ -760,7 +897,44 @@ const emitConfirm = () => {
   color: var(--app-text-secondary);
 }
 
-.headers-preview,
+.structure-recovery-alert {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 11px 12px;
+  margin: 10px 0;
+  color: var(--app-text-primary);
+  background: var(--app-warning-bg);
+  border: 1px solid color-mix(in srgb, var(--app-warning) 35%, transparent);
+  border-radius: 8px;
+}
+
+.structure-recovery-alert__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.structure-recovery-alert__content strong {
+  font-size: 13px;
+  color: var(--app-warning);
+}
+
+.structure-recovery-alert__details {
+  padding-left: 18px;
+  margin: 2px 0 0;
+  color: var(--app-text-secondary);
+}
+
+.structure-recovery-alert :deep(.el-button) {
+  flex: none;
+  min-height: 44px;
+}
+
 .field-list,
 .semantic-recall-list,
 .issue-list {
@@ -772,11 +946,35 @@ const emitConfirm = () => {
   margin-bottom: 10px;
 }
 
-.headers-label,
 .semantic-recall-label,
 .more {
   font-size: 12px;
   color: var(--app-text-secondary);
+}
+
+.region-field-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.region-field-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.region-field-label {
+  flex: 0 0 auto;
+  min-width: 132px;
+  padding-top: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-secondary);
+}
+
+.region-field-row .field-list {
+  margin: 0;
 }
 
 .card-actions {
@@ -787,7 +985,8 @@ const emitConfirm = () => {
 
 @media (width <= 768px) {
   .card-header,
-  .card-actions {
+  .card-actions,
+  .structure-recovery-alert {
     flex-direction: column;
     align-items: stretch;
   }
@@ -808,6 +1007,11 @@ const emitConfirm = () => {
     grid-template-columns: 1fr;
   }
 
+  .region-field-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+
   .card-meta {
     justify-content: flex-start;
   }
@@ -823,6 +1027,11 @@ const emitConfirm = () => {
   }
 
   .card-actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .structure-recovery-alert :deep(.el-button) {
     width: 100%;
     margin-left: 0;
   }

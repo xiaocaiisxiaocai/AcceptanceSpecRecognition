@@ -146,7 +146,7 @@ test("待导入清单不应使用内部纵向滚动，避免鼠标滚轮被表�
   assert.doesNotMatch(confirmPanelSource, /max-height="280"/);
 });
 
-test("未导入详情应折叠重复多行表头并保持单行显示", () => {
+test("未导入详情只展示行号、原因和四个业务字段", () => {
   assert.match(confirmPanelSource, /class="skipped-rows-table"/);
   assert.match(
     confirmPanelSource,
@@ -154,10 +154,105 @@ test("未导入详情应折叠重复多行表头并保持单行显示", () => {
   );
   assert.match(
     dataImportHelpersSource,
+    /\{ key: "projectColumn", label: "项目" \}/
+  );
+  assert.match(
+    dataImportHelpersSource,
+    /\{ key: "specificationColumn", label: "规格" \}/
+  );
+  assert.match(
+    dataImportHelpersSource,
+    /\{ key: "acceptanceColumn", label: "验收" \}/
+  );
+  assert.match(
+    dataImportHelpersSource,
+    /\{ key: "remarkColumn", label: "备注" \}/
+  );
+  assert.doesNotMatch(
+    dataImportHelpersSource,
     /buildSkippedPreviewColumns\(headers, maxColumnCount\)/
   );
-  assert.match(confirmPanelSource, /col\.indexes\.join\('-'\)/);
   assert.match(confirmPanelSource, /mergeSkippedPreviewCellValues/);
+});
+
+test("导入完成页应按真实结果展示紧凑摘要，不能把全量跳过称为导入成功", () => {
+  assert.match(confirmPanelSource, /const importResultPresentation = computed/);
+  assert.match(confirmPanelSource, /title: "本次没有新增数据"/);
+  assert.match(confirmPanelSource, /class="result-overview"/);
+  assert.match(confirmPanelSource, /class="result-metrics"/);
+  assert.doesNotMatch(
+    confirmPanelSource,
+    /\{\{ importResultPresentation\.description \}\}/
+  );
+  assert.doesNotMatch(confirmPanelSource, /<el-result/);
+  assert.doesNotMatch(confirmPanelSource, /failedCount === 0 \? '导入成功'/);
+});
+
+test("跳过明细应按 Sheet 合并区域，无分页展示并在明细区内滚动", () => {
+  assert.match(
+    confirmPanelSource,
+    /class="result-detail result-detail--skipped"/
+  );
+  assert.doesNotMatch(confirmPanelSource, /<h3>跳过明细<\/h3>/);
+  assert.doesNotMatch(confirmPanelSource, />未写入数据库</);
+  assert.match(confirmPanelSource, /const skippedSheetGroups = computed/);
+  assert.match(confirmPanelSource, /v-model="activeSkippedSheetKey"/);
+  assert.match(confirmPanelSource, /v-for="sheet in skippedSheetGroups"/);
+  assert.match(
+    confirmPanelSource,
+    /:name="getSkippedSheetKey\(sheet\.tableIndex\)"/
+  );
+  assert.match(confirmPanelSource, /class="skipped-tab-label"/);
+  assert.match(
+    confirmPanelSource,
+    /<strong>\{\{ sheet\.dataCount \}\}<\/strong>/
+  );
+  assert.match(confirmPanelSource, /:data="sheet\.rows"/);
+  assert.match(confirmPanelSource, /height="100%"/);
+  assert.match(confirmPanelSource, /:row-class-name="getSkippedRowClassName"/);
+  assert.match(confirmPanelSource, /:span-method="getSkippedSpanMethod"/);
+  assert.match(
+    confirmPanelSource,
+    /\.skipped-tabs--single :deep\(\.el-tabs__header\)[\s\S]*display:\s*none/
+  );
+  assert.match(
+    confirmPanelSource,
+    /\.skipped-region-separator td[\s\S]*background:\s*var\(--el-color-primary-light-9\)/
+  );
+  assert.match(confirmPanelSource, /区域 \$\{regionNumber\} · 从第/);
+  assert.doesNotMatch(confirmPanelSource, /<el-pagination/);
+  assert.doesNotMatch(confirmPanelSource, /skippedRowsPageSize/);
+  assert.doesNotMatch(confirmPanelSource, /class="skipped-pagination"/);
+  assert.doesNotMatch(confirmPanelSource, /返回上传步骤，开始处理下一个文件/);
+  assert.doesNotMatch(confirmPanelSource, /max-height="360"/);
+  assert.equal(
+    confirmPanelSource.match(
+      /<el-table-column prop="tableIndex" label="表格" width="80">/g
+    )?.length,
+    1,
+    "表格列只应保留在失败明细，跳过分区不应重复展示"
+  );
+});
+
+test("导入完成页应解除旧宽度限制并取消无用的底部操作栏占位", () => {
+  assert.match(dataImportSource, /'data-import--complete': isCompletionStep/);
+  assert.match(
+    dataImportSource,
+    /<div v-if="!isCompletionStep" class="step-actions">/
+  );
+  assert.match(
+    dataImportStyleSource,
+    /\.data-import--complete \.data-import-body\s*\{[\s\S]*?padding-bottom:\s*0;/
+  );
+  assert.match(
+    dataImportStyleSource,
+    /\.data-import--complete\s*\{[\s\S]*?height:\s*100%;[\s\S]*?overflow:\s*hidden;/
+  );
+  assert.match(
+    dataImportStyleSource,
+    /\.import-result\s*\{[\s\S]*?max-width:\s*none;/
+  );
+  assert.doesNotMatch(dataImportStyleSource, /max-width:\s*1200px/);
 });
 
 test("智能结构确认卡片应常驻展示多区域范围，并移除重复高级字段", () => {
@@ -182,16 +277,21 @@ test("智能结构确认卡片应把项目列放在规格列之前", () => {
   assert.ok(projectIndex < specificationIndex, "项目列必须位于规格列之前");
 });
 
-test("确认卡应避免重复展示映射，并仅在需要时展示识别依据", () => {
+test("确认卡应移除冗余表头标签，并按区域分别展示字段映射", () => {
   assert.doesNotMatch(confirmCardSource, /card-summary-strip/);
   assert.match(confirmCardSource, /const showRecognitionEvidence = computed/);
+  assert.doesNotMatch(confirmCardSource, /class="headers-preview"/);
+  assert.match(confirmCardSource, /const regionFieldSummaries = computed/);
+  assert.match(confirmCardSource, /v-for="region in regionFieldSummaries"/);
+  assert.match(confirmCardSource, /region\.label.*表头.*region\.headerRange/s);
+});
+
+test("已被当前区域覆盖的表头不应继续显示未覆盖警告", () => {
+  assert.match(confirmCardSource, /const isCoveredHeaderIssue/);
+  assert.match(confirmCardSource, /rowIndex === region\.dataStartRowIndex - 1/);
   assert.match(
     confirmCardSource,
-    /v-if="showRecognitionEvidence"[\s\S]*class="headers-preview"/
-  );
-  assert.match(
-    confirmCardSource,
-    /v-if="showRecognitionEvidence && table\.fields/
+    /if \(isCoveredHeaderIssue\(issue\)\) return false/
   );
 });
 
@@ -355,13 +455,10 @@ test("数据导入应隐藏逐 Sheet 确认并只保留一个文件级确认学�
     1,
     "数据导入确认页只能声明一个文件级主操作"
   );
+  assert.match(dataImportSource, /:show-import-action="false"/);
   assert.match(
     dataImportSource,
-    /:import-primary-button-text="smartBatchImportButtonText"/
-  );
-  assert.match(
-    dataImportSource,
-    /@import="handleSmartStructureBatchConfirmImport"/
+    /class="step-actions"[\s\S]*@click="handleSmartStructureBatchConfirmImport"[\s\S]*\{\{ smartBatchImportButtonText \}\}/
   );
 });
 
@@ -519,6 +616,11 @@ test("待确认卡片应展示区域级问题，避免只显示状态而不说�
     confirmCardSource,
     /activeRegions\.value\.flatMap\(region => region\.issues \?\? \[\]\)/
   );
+  assert.match(confirmCardSource, /const structureRecoveryIssues = computed/);
+  assert.match(confirmCardSource, /文件结构与历史模板不一致，需要重新确认/);
+  assert.match(confirmCardSource, /role="alert"/);
+  assert.match(confirmCardSource, /v-for="detail in structureRecoveryDetails"/);
+  assert.match(confirmCardSource, /@click="rangeEditorVisible = true"/);
   assert.match(confirmCardSource, /const visibleIssues = computed/);
   assert.match(confirmCardSource, /v-for="issue in visibleIssues"/);
 });

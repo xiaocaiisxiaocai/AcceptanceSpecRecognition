@@ -31,6 +31,41 @@
   padding-top: 0;
 }
 
+.data-import--complete .data-import-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.data-import--complete {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.data-import--complete .step-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.data-import--complete .step-content :deep(.el-card__body) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.data-import--complete .step-panel--complete {
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 .step-content {
   min-height: 0;
 }
@@ -132,7 +167,7 @@
 
 .import-result {
   width: 100%;
-  max-width: 1200px;
+  max-width: none;
   margin: 0 auto;
 }
 

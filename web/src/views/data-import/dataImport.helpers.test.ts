@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSkippedPreviewColumns,
+  buildSkippedRowsGroups,
   getSkippedPreviewHeaderGroupLabel,
   mergeSkippedPreviewCellValues
 } from "./dataImport.helpers";
@@ -46,5 +47,41 @@ describe("跳过详情表头合并", () => {
         [1, 2, 3, 4, 5]
       )
     ).toBe("说明:；OK；备注");
+  });
+
+  it("跳过明细只按映射输出四个业务字段", () => {
+    const [group] = buildSkippedRowsGroups(
+      [
+        {
+          tableIndex: 0,
+          rowIndex: 8,
+          message: "数据库中已存在相同内容",
+          rowValues: ["分类", "项目值", "规格值", "验收值", "备注值", "其它"]
+        }
+      ],
+      [
+        {
+          tableIndex: 0,
+          excelMapping: {
+            projectColumn: 2,
+            specificationColumn: 3,
+            acceptanceColumn: 4,
+            remarkColumn: 5,
+            headerRowStart: 1,
+            headerRowCount: 1,
+            dataStartRow: 2,
+            dataEndRow: 8
+          },
+          previewData: null
+        }
+      ]
+    );
+
+    expect(group.columns).toEqual([
+      { indexes: [1], label: "项目" },
+      { indexes: [2], label: "规格" },
+      { indexes: [3], label: "验收" },
+      { indexes: [4], label: "备注" }
+    ]);
   });
 });

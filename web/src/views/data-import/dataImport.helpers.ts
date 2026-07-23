@@ -279,6 +279,37 @@ export const mergeSkippedPreviewCellValues = (
   return [...new Set(values)].join("；");
 };
 
+const buildSkippedSemanticPreviewColumns = (
+  tableCfg: TableImportConfig | undefined,
+  regionLocation:
+    | NonNullable<TableImportConfig["excelPreviewRowLocations"]>[number]
+    | undefined
+): SkippedPreviewColumn[] => {
+  const mapping = regionLocation?.mapping;
+  const indexes = mapping
+    ? "headerRowStart" in mapping
+      ? getExcelPreviewColumnIndexes({ ...tableCfg!, excelMapping: mapping })
+      : getWordPreviewColumnIndexes({ ...tableCfg!, wordMapping: mapping })
+    : tableCfg?.excelMapping
+      ? getExcelPreviewColumnIndexes(tableCfg)
+      : tableCfg
+        ? getWordPreviewColumnIndexes(tableCfg)
+        : {};
+
+  return [
+    { key: "projectColumn", label: "项目" },
+    { key: "specificationColumn", label: "规格" },
+    { key: "acceptanceColumn", label: "验收" },
+    { key: "remarkColumn", label: "备注" }
+  ].map(({ key, label }) => {
+    const index = indexes[key as keyof typeof indexes];
+    return {
+      indexes: typeof index === "number" ? [index] : [],
+      label
+    };
+  });
+};
+
 export const buildSkippedRowsGroups = (
   rows: ImportSkippedRowWithTable[],
   tableConfigs: TableImportConfig[]
@@ -309,15 +340,10 @@ export const buildSkippedRowsGroups = (
       const regionLocation = tableCfg?.excelPreviewRowLocations?.find(
         item => item.regionId === regionId
       );
-      const headers = regionLocation?.headers?.length
-        ? regionLocation.headers
-        : tableCfg?.previewData?.headers || tableCfg?.tableInfo?.headers || [];
-      const maxColumnCount = groupRows.reduce(
-        (max, row) => Math.max(max, row.rowValues?.length || 0),
-        0
+      const columns = buildSkippedSemanticPreviewColumns(
+        tableCfg,
+        regionLocation
       );
-
-      const columns = buildSkippedPreviewColumns(headers, maxColumnCount);
 
       return {
         tableIndex,

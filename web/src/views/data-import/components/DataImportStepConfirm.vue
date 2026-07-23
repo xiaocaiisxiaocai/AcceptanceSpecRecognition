@@ -7,7 +7,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="step-panel">
+  <div class="step-panel step-panel--complete">
     <slot />
   </div>
 </template>

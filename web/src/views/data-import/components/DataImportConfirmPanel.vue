@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { ArrowRight, InfoFilled } from "@element-plus/icons-vue";
+import { computed, ref, watch } from "vue";
+import {
+  ArrowRight,
+  CircleCheckFilled,
+  InfoFilled,
+  WarningFilled
+} from "@element-plus/icons-vue";
 import type { AiServiceSelection } from "@/api/ai-service";
 import type { Customer } from "@/api/customer";
 import type { Process } from "@/api/process";
@@ -88,6 +93,114 @@ const emit = defineEmits<{
 const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 const activeCollapseNames = ref<string[]>([]);
 const showDuplicateAdvanced = ref(false);
+type SkippedSheetRow = SkippedRowsGroup["rows"][number] & {
+  projectValue: string;
+  specificationValue: string;
+  acceptanceValue: string;
+  remarkValue: string;
+  isRegionSeparator: boolean;
+  separatorLabel: string;
+};
+const getSkippedBusinessValue = (
+  group: SkippedRowsGroup,
+  row: SkippedRowsGroup["rows"][number],
+  label: string
+) => {
+  const column = group.columns.find(item => item.label === label);
+  return column
+    ? mergeSkippedPreviewCellValues(row.rowValues, column.indexes)
+    : "";
+};
+const skippedSheetGroups = computed(() => {
+  const groupsBySheet = new Map<number, SkippedRowsGroup[]>();
+  props.skippedRowsGroups.forEach(group => {
+    const groups = groupsBySheet.get(group.tableIndex) ?? [];
+    groups.push(group);
+    groupsBySheet.set(group.tableIndex, groups);
+  });
+
+  return Array.from(groupsBySheet.entries())
+    .sort(
+      ([firstTableIndex], [secondTableIndex]) =>
+        firstTableIndex - secondTableIndex
+    )
+    .map(([tableIndex, regionGroups]) => {
+      const orderedRegionGroups = [...regionGroups].sort((first, second) => {
+        const firstRow = Math.min(...first.rows.map(row => row.rowIndex));
+        const secondRow = Math.min(...second.rows.map(row => row.rowIndex));
+        return firstRow - secondRow;
+      });
+      const rows: SkippedSheetRow[] = orderedRegionGroups.flatMap(
+        (group, regionPosition) => {
+          const dataRows = [...group.rows]
+            .sort((first, second) => first.rowIndex - second.rowIndex)
+            .map(row => ({
+              ...row,
+              projectValue: getSkippedBusinessValue(group, row, "项目"),
+              specificationValue: getSkippedBusinessValue(group, row, "规格"),
+              acceptanceValue: getSkippedBusinessValue(group, row, "验收"),
+              remarkValue: getSkippedBusinessValue(group, row, "备注"),
+              isRegionSeparator: false,
+              separatorLabel: ""
+            }));
+          const firstRow = dataRows[0];
+          if (regionPosition === 0 || !firstRow) return dataRows;
+
+          const regionNumber = (group.regionIndex ?? regionPosition) + 1;
+          const displayRowNumber = props.isExcelFile
+            ? firstRow.rowIndex
+            : firstRow.rowIndex + 1;
+          const separatorLabel = `区域 ${regionNumber} · 从第 ${displayRowNumber} 行开始`;
+          return [
+            {
+              ...firstRow,
+              message: separatorLabel,
+              projectValue: "",
+              specificationValue: "",
+              acceptanceValue: "",
+              remarkValue: "",
+              isRegionSeparator: true,
+              separatorLabel
+            },
+            ...dataRows
+          ];
+        }
+      );
+      const dataCount = regionGroups.reduce(
+        (total, group) => total + group.rows.length,
+        0
+      );
+      return { tableIndex, rows, dataCount };
+    });
+});
+const activeSkippedSheetKey = ref("");
+const getSkippedSheetKey = (tableIndex: number) => String(tableIndex);
+const getSkippedRowClassName = ({ row }: { row: SkippedSheetRow }) =>
+  row.isRegionSeparator ? "skipped-region-separator" : "";
+const getSkippedSpanMethod = ({
+  row,
+  columnIndex
+}: {
+  row: SkippedSheetRow;
+  columnIndex: number;
+}) => {
+  if (!row.isRegionSeparator) return undefined;
+  return columnIndex === 0
+    ? ([1, 6] as [number, number])
+    : ([0, 0] as [number, number]);
+};
+watch(
+  () => skippedSheetGroups.value.map(group => group.tableIndex).join("|"),
+  () => {
+    const keys = skippedSheetGroups.value.map(group =>
+      getSkippedSheetKey(group.tableIndex)
+    );
+    if (!keys.includes(activeSkippedSheetKey.value)) {
+      activeSkippedSheetKey.value = keys[0] ?? "";
+    }
+  },
+  { immediate: true }
+);
 const hasAvailableEmbeddingService = computed(() =>
   isRuntimeAiSelectionAvailable(props.embeddingSelection)
 );
@@ -145,45 +258,126 @@ const effectiveSelectedSheetCount = computed(
 const effectivePendingSelectedSheetCount = computed(
   () => props.pendingSelectedSheetCount ?? 0
 );
+const importResultPresentation = computed(() => {
+  const result = props.importResult;
+  if (!result) {
+    return {
+      tone: "info",
+      icon: InfoFilled,
+      title: "导入结果",
+      description: "尚无导入结果",
+      total: 0
+    };
+  }
+
+  const total = result.successCount + result.skippedCount + result.failedCount;
+  if (result.failedCount > 0) {
+    return {
+      tone: "warning",
+      icon: WarningFilled,
+      title: "导入完成，部分数据处理失败",
+      description: `本次处理 ${total} 条数据，请优先查看失败与跳过明细。`,
+      total
+    };
+  }
+  if (result.successCount > 0) {
+    return {
+      tone: "success",
+      icon: CircleCheckFilled,
+      title: "导入完成",
+      description: `已新增 ${result.successCount} 条数据，其余未写入记录可在下方查看。`,
+      total
+    };
+  }
+  if (result.skippedCount > 0) {
+    return {
+      tone: "info",
+      icon: InfoFilled,
+      title: "本次没有新增数据",
+      description: `${result.skippedCount} 条数据已存在或不符合导入条件，均未写入新记录。`,
+      total
+    };
+  }
+  return {
+    tone: "info",
+    icon: InfoFilled,
+    title: "没有可导入的数据",
+    description: "本次未处理任何数据，可以返回后重新选择文件或调整范围。",
+    total
+  };
+});
 </script>
 
 <template>
   <!-- 导入结果 -->
   <div v-if="importResult" class="import-result">
-    <el-result
-      :icon="importResult.failedCount === 0 ? 'success' : 'warning'"
-      :title="importResult.failedCount === 0 ? '导入成功' : '导入完成'"
+    <section
+      class="result-overview"
+      :class="`result-overview--${importResultPresentation.tone}`"
+      role="status"
+      aria-live="polite"
     >
-      <template #sub-title>
-        <div class="result-stats">
-          <div class="stat-item success">
-            <span class="stat-value">{{ importResult.successCount }}</span>
-            <span class="stat-label">成功</span>
-          </div>
-          <div class="stat-item warning">
-            <span class="stat-value">{{ importResult.skippedCount }}</span>
-            <span class="stat-label">跳过</span>
-          </div>
-          <div class="stat-item danger">
-            <span class="stat-value">{{ importResult.failedCount }}</span>
-            <span class="stat-label">失败</span>
-          </div>
+      <div class="result-overview__main">
+        <div class="result-overview__icon" aria-hidden="true">
+          <el-icon><component :is="importResultPresentation.icon" /></el-icon>
         </div>
-      </template>
-      <template #extra>
+        <div class="result-overview__copy">
+          <span class="result-overview__eyebrow">
+            本次共处理 {{ importResultPresentation.total }} 条
+          </span>
+          <h2>{{ importResultPresentation.title }}</h2>
+        </div>
+      </div>
+
+      <div class="result-metrics" aria-label="导入结果统计">
+        <div class="result-metric result-metric--success">
+          <span>新增成功</span>
+          <strong>{{ importResult.successCount }}</strong>
+          <small>条</small>
+        </div>
+        <div class="result-metric result-metric--skipped">
+          <span>未写入</span>
+          <strong>{{ importResult.skippedCount }}</strong>
+          <small>条</small>
+        </div>
+        <div class="result-metric result-metric--failed">
+          <span>处理失败</span>
+          <strong>{{ importResult.failedCount }}</strong>
+          <small>条</small>
+        </div>
+      </div>
+
+      <div class="result-overview__action">
         <el-button
           v-if="canUploadSourceFile && canImportAny"
           type="primary"
+          size="large"
           @click="emit('restart')"
         >
           继续导入
         </el-button>
-      </template>
-    </el-result>
+      </div>
+    </section>
 
-    <div v-if="importResult.errors.length > 0" class="error-list">
-      <h4>错误详情</h4>
-      <el-table :data="importResult.errors" max-height="200" size="small">
+    <section
+      v-if="importResult.errors.length > 0"
+      class="result-detail result-detail--danger"
+    >
+      <header class="result-detail__header">
+        <div>
+          <span class="result-detail__kicker">需要处理</span>
+          <h3>失败明细</h3>
+          <p>以下数据未完成处理，请根据错误信息修正后重新导入。</p>
+        </div>
+        <strong>{{ importResult.failedCount }} 条</strong>
+      </header>
+      <el-table
+        :data="importResult.errors"
+        max-height="320"
+        size="small"
+        stripe
+        class="result-detail__table"
+      >
         <el-table-column prop="tableIndex" label="表格" width="80">
           <template #default="{ row }">
             {{ row.tableIndex + 1 }}
@@ -196,10 +390,12 @@ const effectivePendingSelectedSheetCount = computed(
         </el-table-column>
         <el-table-column prop="message" label="错误信息" />
       </el-table>
-    </div>
+    </section>
 
-    <div v-if="importResult.skippedCount > 0" class="error-list">
-      <h4>未导入（跳过）详情</h4>
+    <section
+      v-if="importResult.skippedCount > 0"
+      class="result-detail result-detail--skipped"
+    >
       <el-alert
         v-if="!importResult.skippedRows.length"
         type="info"
@@ -208,61 +404,80 @@ const effectivePendingSelectedSheetCount = computed(
         title="已跳过部分数据，但未返回可展示的行明细"
         description="请查看导入日志或重新导入；系统已默认请求保留未导入明细。"
       />
-      <div v-else>
-        <div
-          v-for="group in skippedRowsGroups"
-          :key="`skip-group-${group.tableIndex}-${group.regionId ?? 'default'}`"
-          class="skipped-group"
+      <el-tabs
+        v-else
+        v-model="activeSkippedSheetKey"
+        class="skipped-tabs"
+        :class="{ 'skipped-tabs--single': skippedSheetGroups.length === 1 }"
+      >
+        <el-tab-pane
+          v-for="sheet in skippedSheetGroups"
+          :key="getSkippedSheetKey(sheet.tableIndex)"
+          :name="getSkippedSheetKey(sheet.tableIndex)"
+          lazy
         >
-          <div v-if="skippedRowsGroups.length > 1" class="skipped-group-title">
-            表格 {{ group.tableIndex + 1
-            }}<template v-if="group.regionIndex !== undefined"
-              >，区域 {{ group.regionIndex + 1 }}</template
-            >
-          </div>
+          <template #label>
+            <span class="skipped-tab-label">
+              表格 {{ sheet.tableIndex + 1 }}
+              <strong>{{ sheet.dataCount }}</strong>
+            </span>
+          </template>
           <el-table
-            :data="group.rows"
-            max-height="220"
+            :data="sheet.rows"
+            height="100%"
             size="small"
+            stripe
             class="skipped-rows-table"
+            :row-class-name="getSkippedRowClassName"
+            :span-method="getSkippedSpanMethod"
           >
-            <el-table-column prop="tableIndex" label="表格" width="80">
+            <el-table-column label="行号" width="88">
               <template #default="{ row }">
-                {{ row.tableIndex + 1 }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="行号"
-              width="min(100px, calc(100vw - 32px))"
-            >
-              <template #default="{ row }">
-                {{ formatResultRowNumber(row.rowIndex) }}
+                <span
+                  v-if="row.isRegionSeparator"
+                  class="skipped-region-separator__label"
+                >
+                  {{ row.separatorLabel }}
+                </span>
+                <template v-else>
+                  {{ formatResultRowNumber(row.rowIndex) }}
+                </template>
               </template>
             </el-table-column>
             <el-table-column
               prop="message"
               label="跳过原因"
-              min-width="min(220px, calc(100vw - 32px))"
+              min-width="220"
               show-overflow-tooltip
             />
             <el-table-column
-              v-for="col in group.columns"
-              :key="`skip-col-${group.tableIndex}-${col.indexes.join('-')}`"
-              :label="col.label"
-              min-width="min(140px, calc(100vw - 32px))"
-            >
-              <template #default="{ row }">
-                <div class="skipped-cell-value">
-                  {{
-                    mergeSkippedPreviewCellValues(row.rowValues, col.indexes)
-                  }}
-                </div>
-              </template>
-            </el-table-column>
+              prop="projectValue"
+              label="项目"
+              min-width="150"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              prop="specificationValue"
+              label="规格"
+              min-width="280"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              prop="acceptanceValue"
+              label="验收"
+              min-width="150"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              prop="remarkValue"
+              label="备注"
+              min-width="180"
+              show-overflow-tooltip
+            />
           </el-table>
-        </div>
-      </div>
-    </div>
+        </el-tab-pane>
+      </el-tabs>
+    </section>
   </div>
 
   <!-- 导入确认 -->
@@ -713,7 +928,7 @@ const effectivePendingSelectedSheetCount = computed(
                 <el-table-column
                   prop="project"
                   label="项目"
-                  min-width="min(140px, calc(100vw - 32px))"
+                  min-width="140"
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
@@ -723,7 +938,7 @@ const effectivePendingSelectedSheetCount = computed(
                 <el-table-column
                   prop="specification"
                   label="规格"
-                  min-width="min(260px, calc(100vw - 32px))"
+                  min-width="260"
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
@@ -733,7 +948,7 @@ const effectivePendingSelectedSheetCount = computed(
                 <el-table-column
                   prop="acceptance"
                   label="验收"
-                  min-width="min(160px, calc(100vw - 32px))"
+                  min-width="160"
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
@@ -743,18 +958,14 @@ const effectivePendingSelectedSheetCount = computed(
                 <el-table-column
                   prop="remark"
                   label="备注"
-                  min-width="min(160px, calc(100vw - 32px))"
+                  min-width="160"
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
                     {{ row.remark || "-" }}
                   </template>
                 </el-table-column>
-                <el-table-column
-                  label="操作"
-                  width="min(100px, calc(100vw - 32px))"
-                  fixed="right"
-                >
+                <el-table-column label="操作" width="100" fixed="right">
                   <template #default="{ row }">
                     <el-button
                       type="danger"
@@ -780,11 +991,348 @@ const effectivePendingSelectedSheetCount = computed(
 </template>
 
 <style scoped>
+.import-result {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 1600px);
+  height: 100%;
+  min-height: 0;
+  padding: 16px 12px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.result-overview {
+  --result-accent: var(--app-primary);
+  --result-soft: var(--app-info-bg);
+
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(320px, 1.2fr) minmax(360px, 0.9fr) auto;
+  gap: 28px;
+  align-items: center;
+  min-height: 116px;
+  padding: 16px 24px;
+  overflow: hidden;
+  background:
+    linear-gradient(115deg, var(--result-soft) 0%, transparent 46%),
+    var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgb(15 46 82 / 6%);
+}
+
+.result-overview::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  content: "";
+  background: var(--result-accent);
+}
+
+.result-overview--success {
+  --result-accent: var(--el-color-success);
+  --result-soft: var(--el-color-success-light-9);
+}
+
+.result-overview--warning {
+  --result-accent: var(--el-color-warning);
+  --result-soft: var(--el-color-warning-light-9);
+}
+
+.result-overview__main,
+.result-overview__action,
+.result-metrics {
+  display: flex;
+  align-items: center;
+}
+
+.result-overview__main {
+  gap: 16px;
+  min-width: 0;
+}
+
+.result-overview__icon {
+  display: grid;
+  flex: 0 0 54px;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  color: var(--result-accent);
+  background: color-mix(in srgb, var(--result-accent) 10%, white);
+  border: 1px solid color-mix(in srgb, var(--result-accent) 28%, transparent);
+  border-radius: 14px;
+}
+
+.result-overview__icon :deep(.el-icon) {
+  font-size: 28px;
+}
+
+.result-overview__copy {
+  min-width: 0;
+}
+
+.result-overview__eyebrow,
+.result-detail__kicker {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--result-accent);
+  letter-spacing: 0.08em;
+}
+
+.result-overview h2 {
+  margin: 5px 0 4px;
+  font-size: clamp(20px, 2vw, 27px);
+  font-weight: 720;
+  line-height: 1.2;
+  color: var(--app-text-primary);
+  letter-spacing: -0.02em;
+}
+
+.result-detail__header p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--app-text-secondary);
+}
+
+.result-metrics {
+  justify-content: center;
+  min-width: 0;
+  padding: 8px 0;
+  background: color-mix(in srgb, var(--app-bg-card) 82%, transparent);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+}
+
+.result-metric {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 1px 4px;
+  align-items: baseline;
+  min-width: 104px;
+  padding: 2px 18px;
+  border-right: 1px solid var(--app-border);
+}
+
+.result-metric:last-child {
+  border-right: 0;
+}
+
+.result-metric span {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--app-text-secondary);
+}
+
+.result-metric strong {
+  font-size: 25px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: var(--app-text-primary);
+}
+
+.result-metric small {
+  font-size: 11px;
+  color: var(--app-text-secondary);
+}
+
+.result-metric--success strong {
+  color: var(--el-color-success-dark-2);
+}
+
+.result-metric--skipped strong {
+  color: var(--el-color-warning-dark-2);
+}
+
+.result-metric--failed strong {
+  color: var(--el-color-danger);
+}
+
+.result-overview__action {
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 122px;
+  text-align: center;
+}
+
+.result-detail {
+  margin-top: 18px;
+  overflow: hidden;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+}
+
+.result-detail--skipped {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.result-detail__header {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  background: var(--el-fill-color-extra-light);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.result-detail__header h3 {
+  margin: 2px 0;
+  font-size: 17px;
+  font-weight: 680;
+  color: var(--app-text-primary);
+}
+
+.result-detail__header > strong {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--app-text-primary);
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+}
+
+.result-detail--danger .result-detail__kicker {
+  color: var(--el-color-danger);
+}
+
+.result-detail--skipped .result-detail__kicker {
+  color: var(--el-color-warning-dark-2);
+}
+
+.result-detail > :deep(.el-alert),
+.result-detail__table {
+  margin: 14px;
+}
+
+.result-detail :deep(.el-table) {
+  --el-table-border-color: var(--app-border);
+  --el-table-header-bg-color: var(--el-fill-color-extra-light);
+
+  width: calc(100% - 28px);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.result-detail :deep(.el-table__inner-wrapper::before) {
+  display: none;
+}
+
+.skipped-tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 14px 14px;
+}
+
+.skipped-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.skipped-tabs :deep(.el-tab-pane) {
+  height: 100%;
+}
+
+.skipped-tabs :deep(.el-tabs__header) {
+  margin: 0 0 12px;
+}
+
+.skipped-tabs--single {
+  padding-top: 14px;
+}
+
+.skipped-tabs--single :deep(.el-tabs__header) {
+  display: none;
+}
+
+.skipped-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+  background: var(--app-border);
+}
+
+.skipped-tabs :deep(.el-tabs__item) {
+  height: 48px;
+  padding: 0 18px;
+  font-weight: 600;
+  color: var(--app-text-secondary);
+}
+
+.skipped-tabs :deep(.el-tabs__item.is-active) {
+  color: var(--app-primary);
+}
+
+.skipped-tabs :deep(.el-tabs__active-bar) {
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+}
+
+.skipped-tab-label {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.skipped-tab-label strong {
+  min-width: 24px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  color: inherit;
+  text-align: center;
+  background: var(--el-fill-color);
+  border-radius: 999px;
+}
+
+.skipped-rows-table {
+  width: 100% !important;
+  height: 100%;
+  margin: 0;
+}
+
 .skipped-rows-table :deep(.el-table__header .cell) {
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: keep-all;
   white-space: nowrap;
+}
+
+.skipped-rows-table :deep(.skipped-region-separator td) {
+  padding: 0 !important;
+  background: var(--el-color-primary-light-9) !important;
+  border-top: 1px solid var(--el-color-primary-light-7);
+  border-bottom: 1px solid var(--el-color-primary-light-7);
+}
+
+.skipped-region-separator__label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--app-primary);
+}
+
+.skipped-region-separator__label::before {
+  width: 3px;
+  height: 14px;
+  content: "";
+  background: var(--app-primary);
+  border-radius: 999px;
 }
 
 .import-summary-bar {
@@ -1306,6 +1854,26 @@ const effectivePendingSelectedSheetCount = computed(
 }
 
 @media (width <= 900px) {
+  .result-overview {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .result-metrics {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .result-metric {
+    flex: 1;
+  }
+
+  .result-overview__action {
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
+  }
+
   .import-summary-bar {
     grid-template-columns: 1fr;
   }
@@ -1341,6 +1909,63 @@ const effectivePendingSelectedSheetCount = computed(
 }
 
 @media (width <= 560px) {
+  .import-result {
+    padding: 14px 10px 28px;
+  }
+
+  .result-overview {
+    padding: 20px 16px;
+  }
+
+  .result-overview__main {
+    align-items: flex-start;
+  }
+
+  .result-overview__icon {
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .result-metrics {
+    align-items: stretch;
+  }
+
+  .result-metric {
+    min-width: 0;
+    padding: 2px 10px;
+  }
+
+  .result-metric strong {
+    font-size: 21px;
+  }
+
+  .result-overview__action,
+  .result-detail__header {
+    align-items: stretch;
+  }
+
+  .result-overview__action {
+    flex-direction: column;
+  }
+
+  .result-detail__header {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .result-detail__header > strong {
+    align-self: flex-start;
+  }
+
+  .skipped-tabs {
+    padding-inline: 10px;
+  }
+
+  .skipped-tabs :deep(.el-tabs__item) {
+    padding: 0 12px;
+  }
+
   .collapse-subtitle {
     display: none;
   }
