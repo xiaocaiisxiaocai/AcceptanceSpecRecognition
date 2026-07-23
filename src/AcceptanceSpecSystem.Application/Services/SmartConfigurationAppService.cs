@@ -242,6 +242,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var detectionTable = BuildHeaderDetectionTableData(fullTableData);
         var regions = table.Regions.Select(region =>
         {
+            region = PreferPerRowWritableTargetColumns(detectionTable, region, matcher);
             var conflicts = BuildFieldConflicts(detectionTable, region, matcher);
             if (conflicts.Count == 0)
             {
@@ -284,6 +285,127 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             FieldConflicts = regions.SelectMany(region => region.FieldConflicts).ToList(),
             Regions = regions
         };
+    }
+
+    private static SmartConfigurationRecognizedRegion PreferPerRowWritableTargetColumns(
+        TableData detectionTable,
+        SmartConfigurationRecognizedRegion region,
+        HeaderKeywordMatcher matcher)
+    {
+        var acceptanceColumnIndex = SelectPerRowWritableTargetColumn(
+            detectionTable,
+            region,
+            matcher,
+            ColumnType.Acceptance,
+            region.AcceptanceColumnIndex);
+        var remarkColumnIndex = SelectPerRowWritableTargetColumn(
+            detectionTable,
+            region,
+            matcher,
+            ColumnType.Remark,
+            region.RemarkColumnIndex);
+        if (acceptanceColumnIndex == region.AcceptanceColumnIndex &&
+            remarkColumnIndex == region.RemarkColumnIndex)
+        {
+            return region;
+        }
+
+        var fields = region.Fields.Select(field =>
+        {
+            var columnIndex = field.Field switch
+            {
+                "Acceptance" => acceptanceColumnIndex,
+                "Remark" => remarkColumnIndex,
+                _ => field.ColumnIndex
+            };
+            return new SmartConfigurationRecognizedField
+            {
+                Field = field.Field,
+                ColumnIndex = columnIndex,
+                Header = field.Field is "Acceptance" or "Remark"
+                    ? GetHeader(region.Headers, columnIndex)
+                    : field.Header,
+                Confidence = field.Confidence,
+                Source = field.Source
+            };
+        }).ToList();
+
+        return region with
+        {
+            AcceptanceColumnIndex = acceptanceColumnIndex,
+            RemarkColumnIndex = remarkColumnIndex,
+            Fields = fields
+        };
+    }
+
+    private static int? SelectPerRowWritableTargetColumn(
+        TableData detectionTable,
+        SmartConfigurationRecognizedRegion region,
+        HeaderKeywordMatcher matcher,
+        ColumnType columnType,
+        int? selectedColumnIndex)
+    {
+        if (!selectedColumnIndex.HasValue ||
+            !HasDominantVerticalMergeAcrossDataRows(
+                detectionTable,
+                region,
+                selectedColumnIndex.Value))
+        {
+            return selectedColumnIndex;
+        }
+
+        const double highConfidenceThreshold = 0.95;
+        return region.Headers
+            .Select((header, columnIndex) => new
+            {
+                ColumnIndex = columnIndex,
+                Rank = matcher.GetRank(columnType, header)
+            })
+            .Where(item =>
+                item.Rank.Confidence >= highConfidenceThreshold &&
+                !HasDominantVerticalMergeAcrossDataRows(
+                    detectionTable,
+                    region,
+                    item.ColumnIndex))
+            .OrderByDescending(item => item.Rank.Confidence)
+            .ThenByDescending(item => item.Rank.IsCustomerSpecific)
+            .ThenByDescending(item => item.Rank.Priority)
+            .ThenBy(item => item.ColumnIndex)
+            .Select(item => (int?)item.ColumnIndex)
+            .FirstOrDefault();
+    }
+
+    private static bool HasDominantVerticalMergeAcrossDataRows(
+        TableData detectionTable,
+        SmartConfigurationRecognizedRegion region,
+        int columnIndex)
+    {
+        var dataEndRowIndex = region.DataEndRowIndex ??
+                              Math.Max(region.DataStartRowIndex, detectionTable.Rows.Count - 1);
+        var dataRowCount = Math.Max(1, dataEndRowIndex - region.DataStartRowIndex + 1);
+        return detectionTable.MergedCells.Any(merged =>
+        {
+            if (!merged.IsVerticalMerge ||
+                columnIndex < merged.StartColumn ||
+                columnIndex > merged.EndColumn)
+            {
+                return false;
+            }
+
+            var overlapStart = Math.Max(region.DataStartRowIndex, merged.StartRow);
+            var overlapEnd = Math.Min(dataEndRowIndex, merged.EndRow);
+            var overlapRowCount = overlapEnd - overlapStart + 1;
+            return overlapRowCount > 1 && overlapRowCount * 2 >= dataRowCount;
+        });
+    }
+
+    private static string? GetHeader(IReadOnlyList<string> headers, int? columnIndex)
+    {
+        return columnIndex.HasValue &&
+               columnIndex.Value >= 0 &&
+               columnIndex.Value < headers.Count
+            ? headers[columnIndex.Value]
+            : null;
     }
 
     private static List<SmartConfigurationFieldConflict> BuildFieldConflicts(
@@ -1761,7 +1883,16 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             Headers = tableData.Headers,
             Rows = rows,
             TotalDataRowCount = tableData.TotalDataRowCount,
-            OriginalRowCount = tableData.OriginalRowCount
+            OriginalRowCount = tableData.OriginalRowCount,
+            MergedCells = tableData.MergedCells
+                .Select(merged => new MergedCellInfo
+                {
+                    StartRow = merged.StartRow,
+                    StartColumn = merged.StartColumn,
+                    EndRow = merged.EndRow,
+                    EndColumn = merged.EndColumn
+                })
+                .ToList()
         };
     }
 

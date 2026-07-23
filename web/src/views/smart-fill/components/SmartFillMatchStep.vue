@@ -2,7 +2,6 @@
 import { ref } from "vue";
 import MatchConfig from "./MatchConfig.vue";
 import type { MatchConfig as MatchConfigType } from "@/api/matching";
-import type { SmartFillScope } from "../smartFillExecution.helpers";
 import type { RuntimeAiSelectionRefreshResult } from "@/utils/runtime-ai-selection-loader";
 
 defineProps<{
@@ -10,18 +9,10 @@ defineProps<{
   canLlmStream: boolean;
   previewBlockingMessage: string;
   previewBlockingHint: string;
-  scopeSummary?: string;
-  scope?: SmartFillScope;
 }>();
 
 const emit = defineEmits<{
   (e: "update:matchConfig", value: MatchConfigType): void;
-  (
-    e: "scopeChange",
-    customerId?: number,
-    processId?: number,
-    machineModelId?: number
-  ): void;
 }>();
 
 const matchConfigRef = ref<InstanceType<typeof MatchConfig> | null>(null);
@@ -29,11 +20,6 @@ const matchConfigRef = ref<InstanceType<typeof MatchConfig> | null>(null);
 defineExpose<{
   resetConfig?: () => void;
   refreshAiServices?: () => Promise<RuntimeAiSelectionRefreshResult>;
-  getScope?: () => {
-    customerId?: number;
-    processId?: number;
-    machineModelId?: number;
-  };
   getServiceStatus?: () => {
     hasAvailableEmbeddingService: boolean;
     hasAvailableLlmService: boolean;
@@ -43,45 +29,21 @@ defineExpose<{
   refreshAiServices: () =>
     matchConfigRef.value?.refreshAiServices?.() ??
     Promise.resolve({ current: false, version: 0 }),
-  getScope: () =>
-    matchConfigRef.value?.getScope?.() ?? {
-      customerId: undefined,
-      processId: undefined,
-      machineModelId: undefined
-    },
   getServiceStatus: () =>
     matchConfigRef.value?.getServiceStatus?.() ?? {
       hasAvailableEmbeddingService: false,
       hasAvailableLlmService: false
     }
 });
-
-const handleScopeChange = (
-  customerId?: number,
-  processId?: number,
-  machineModelId?: number
-) => {
-  emit("scopeChange", customerId, processId, machineModelId);
-};
 </script>
 
 <template>
   <div class="step-panel">
-    <el-alert
-      v-if="scopeSummary"
-      type="info"
-      :closable="false"
-      show-icon
-      :title="scopeSummary"
-      class="scope-summary-alert"
-    />
     <MatchConfig
       ref="matchConfigRef"
       :model-value="matchConfig"
       :allow-llm="canLlmStream"
-      :scope="scope"
       @update:model-value="emit('update:matchConfig', $event)"
-      @scope-change="handleScopeChange"
     />
     <el-alert
       v-if="previewBlockingMessage"
@@ -94,9 +56,3 @@ const handleScopeChange = (
     />
   </div>
 </template>
-
-<style scoped>
-.scope-summary-alert {
-  margin-bottom: 12px;
-}
-</style>

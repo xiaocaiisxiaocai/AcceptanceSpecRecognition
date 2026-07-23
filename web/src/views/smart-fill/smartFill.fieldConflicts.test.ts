@@ -6,7 +6,8 @@ import type {
 import {
   applySmartFillFieldSelectionsToDraft,
   applySmartFillFieldSelectionsToTable,
-  collectSmartFillFieldConflicts
+  collectSmartFillFieldConflicts,
+  getSmartFillRecommendedColumnIndex
 } from "./smartFill.fieldConflicts";
 
 const table = (): SmartConfigRecognizedTable => ({
@@ -128,6 +129,22 @@ const draft = (): SmartConfigConfirmRequest => ({
 });
 
 describe("smartFill.fieldConflicts", () => {
+  it("字段冲突默认采用系统推荐列，仍允许用户随后改选", () => {
+    const conflict = collectSmartFillFieldConflicts([table()], [0])[0];
+
+    expect(getSmartFillRecommendedColumnIndex(conflict)).toBe(3);
+    expect(
+      getSmartFillRecommendedColumnIndex({
+        ...conflict,
+        recommendedColumnIndex: null,
+        candidates: conflict.candidates.map(candidate => ({
+          ...candidate,
+          isRecommended: candidate.columnIndex === 4
+        }))
+      })
+    ).toBe(4);
+  });
+
   it("只收集已选 Sheet 的未解决字段冲突", () => {
     const ignored = { ...table(), tableIndex: 1, tableName: "工作表2" };
 

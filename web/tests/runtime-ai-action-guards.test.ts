@@ -78,6 +78,14 @@ test("every smart-fill execution path guards before side effects", () => {
     /ensureRuntimeAiReady:\s*refreshRuntimeAiSelection/
   );
   assert.match(smartFillPageSource, /if \(!refresh\?\.current\) return false;/);
+  assert.match(
+    matchConfigSource,
+    /const refreshAiServicesForAction = \(\) => \{\s*stopAiSelectionRequests\(\);\s*return loadAiServices\(true, true\);\s*\};/s
+  );
+  assert.match(
+    matchConfigSource,
+    /waitForRuntimeAiSelection\(purpose, \{ signal \}\)/
+  );
 
   const withoutBackfill = functionSection(
     smartFillExecutionSource,
@@ -115,5 +123,13 @@ test("every smart-fill execution path guards before side effects", () => {
   assert.ok(
     directExecute.indexOf("await ensureRuntimeAiReady()") <
       directExecute.indexOf("runExecuteFill(")
+  );
+  assert.doesNotMatch(
+    smartFillExecutionSource,
+    /catch\s*\{\s*ElMessage\.error\("填充失败"\)/
+  );
+  assert.match(
+    smartFillExecutionSource,
+    /getRequestErrorMessage\(error,\s*"填充失败"\)/
   );
 });

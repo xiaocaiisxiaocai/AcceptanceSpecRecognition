@@ -68,4 +68,35 @@ public class ExcelDocumentParserTests
 
         tableData.Headers.Should().ContainInOrder("细项", "规格", "OK/NG", "Remark");
     }
+
+    [Fact]
+    public async Task ExtractTableDataAsync_WithVerticalMerge_ShouldExposeRelativeMergedCellCoordinates()
+    {
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.AddWorksheet("工作表1");
+        sheet.Cell(5, 2).Value = "项目";
+        sheet.Cell(5, 3).Value = "规格";
+        sheet.Cell(5, 4).Value = "Remark";
+        sheet.Cell(5, 5).Value = "備註";
+        sheet.Cell(6, 2).Value = "外观";
+        sheet.Cell(6, 3).Value = "无划伤";
+        sheet.Range("D6:D8").Merge();
+        sheet.Cell(6, 5).Value = "逐行备注";
+        sheet.Cell(8, 3).Value = "尺寸";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        stream.Position = 0;
+
+        var tableData = await _parser.ExtractTableDataAsync(stream, 0);
+
+        tableData.MergedCells.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new MergedCellInfo
+            {
+                StartRow = 1,
+                StartColumn = 2,
+                EndRow = 3,
+                EndColumn = 2
+            });
+    }
 }

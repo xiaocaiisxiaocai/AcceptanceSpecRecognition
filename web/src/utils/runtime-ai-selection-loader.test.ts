@@ -84,4 +84,38 @@ describe("runtime AI selection loader", () => {
     ).resolves.toEqual({ status: "available", serviceId: 19 });
     expect(request).toHaveBeenCalledTimes(2);
   });
+
+  it("waits for checking to settle instead of returning a stale warning", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        code: 0,
+        data: {
+          status: "checking",
+          serviceId: 23,
+          name: "qwen2.5:14b"
+        }
+      })
+      .mockResolvedValueOnce({
+        code: 0,
+        data: {
+          status: "available",
+          serviceId: 23,
+          name: "qwen2.5:14b"
+        }
+      });
+
+    await expect(
+      waitForRuntimeAiSelection("llm", {
+        request,
+        retryDelayMs: 0,
+        maxAttempts: 2
+      })
+    ).resolves.toMatchObject({
+      status: "available",
+      serviceId: 23,
+      name: "qwen2.5:14b"
+    });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
 });

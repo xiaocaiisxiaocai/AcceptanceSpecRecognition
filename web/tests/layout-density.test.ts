@@ -33,20 +33,23 @@ const smartFillUploadStepSource = readSource(
 const smartFillTableStepSource = readSource(
   "web/src/views/smart-fill/components/SmartFillTableStep.vue"
 );
-const smartFillMatchStepSource = readSource(
-  "web/src/views/smart-fill/components/SmartFillMatchStep.vue"
-);
 const smartFillPreviewStepSource = readSource(
   "web/src/views/smart-fill/components/SmartFillPreviewStep.vue"
+);
+const batchPreviewTabsSource = readSource(
+  "web/src/views/smart-fill/components/BatchPreviewTabs.vue"
 );
 const matchPreviewDataTableSource = readSource(
   "web/src/views/smart-fill/components/MatchPreviewDataTable.vue"
 );
-const matchPreviewTableSource = readSource(
-  "web/src/views/smart-fill/components/MatchPreviewTable.vue"
-);
 const matchPreviewTableStyleSource = readSource(
   "web/src/views/smart-fill/components/MatchPreviewTable.styles.css"
+);
+const smartFillMatchStepSource = readSource(
+  "web/src/views/smart-fill/components/SmartFillMatchStep.vue"
+);
+const matchPreviewTableSource = readSource(
+  "web/src/views/smart-fill/components/MatchPreviewTable.vue"
 );
 const scoreDetailCandidateListSource = readSource(
   "web/src/views/smart-fill/components/ScoreDetailCandidateList.vue"
@@ -150,9 +153,6 @@ const databaseBackupSource = readSource(
 const embeddingCacheWarmupSource = readSource(
   "web/src/views/config/embedding-cache-warmup/index.vue"
 );
-const smartFillMatchConfigSource = readSource(
-  "web/src/views/smart-fill/components/MatchConfig.vue"
-);
 const promptTemplatesPageSource = promptTemplatesSource;
 const authRolesPageSource = authRolesSource;
 const permissionsPageSource = permissionsSource;
@@ -176,8 +176,7 @@ const filterFormPages = [
   authRolesSource,
   permissionsSource,
   executionHistorySource,
-  auditLogsSource,
-  smartFillMatchConfigSource
+  auditLogsSource
 ];
 const headerFilterPages = [
   systemUsersSource,
@@ -429,6 +428,90 @@ test("向导页内容区不应通过固定 500px 最小高度空撑", () => {
   }
 });
 
+test("智能填充应固定步骤条并仅滚动下方内容卡片", () => {
+  assert.match(
+    smartFillStyleSource,
+    /\.smart-fill\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
+  );
+  assert.match(
+    smartFillStyleSource,
+    /\.smart-fill \.page-header\s*\{[^}]*flex-shrink:\s*0;/s
+  );
+  assert.match(
+    smartFillStyleSource,
+    /\.step-content\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
+  );
+  assert.match(
+    smartFillStyleSource,
+    /\.step-content :deep\(\.el-card__body\)\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s
+  );
+});
+
+test("智能填充预览应固定工作表统计筛选区和表头并仅滚动数据行", () => {
+  assert.match(
+    smartFillSource,
+    /'smart-fill--preview':[\s\S]*currentStep === SMART_FILL_STEP_PREVIEW[\s\S]*currentStep === SMART_FILL_ADVANCED_STEP_PREVIEW/
+  );
+  assert.match(
+    smartFillStyleSource,
+    /\.smart-fill--preview \.step-content :deep\(\.el-card__body\)\s*\{[^}]*display:\s*flex;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
+  );
+  assert.match(
+    smartFillPreviewStepSource,
+    /\.smart-fill-preview-step\s*\{[^}]*display:\s*flex;[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
+  );
+  assert.match(
+    batchPreviewTabsSource,
+    /\.batch-preview-tabs\s*\{[^}]*display:\s*flex;[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
+  );
+  assert.match(
+    batchPreviewTabsSource,
+    /\.active-preview-table\s*\{[^}]*display:\s*flex;[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
+  );
+  assert.match(
+    batchPreviewTabsSource,
+    /\.batch-preview-tabs > :deep\(\.el-tabs \.el-tabs__content\)\s*\{[^}]*display:\s*none;/s
+  );
+  assert.match(
+    matchPreviewTableStyleSource,
+    /\.match-preview-data-table\s*\{[^}]*display:\s*flex;[^}]*flex:\s*1;[^}]*min-height:\s*0;/s
+  );
+  assert.match(
+    matchPreviewDataTableSource,
+    /\.match-preview-data-table__body\s*\{[^}]*flex:\s*1 1 0;[^}]*height:\s*0;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
+  );
+  assert.match(
+    matchPreviewDataTableSource,
+    /\.table-pagination\s*\{[^}]*flex:\s*0 0 auto;[^}]*justify-content:\s*flex-end;[^}]*min-height:\s*32px;/s
+  );
+  assert.match(
+    matchPreviewDataTableSource,
+    /\.match-preview-data-table__body :deep\(\.el-table \.el-table__cell\)\s*\{[^}]*padding:\s*4px 0;/s
+  );
+  assert.match(
+    smartFillPreviewStepSource,
+    /<template #pagination-actions>[\s\S]*重新匹配[\s\S]*执行填充/
+  );
+  assert.match(
+    batchPreviewTabsSource,
+    /<template #pagination-actions>[\s\S]*<slot name="pagination-actions"/
+  );
+  assert.match(
+    matchPreviewDataTableSource,
+    /class="table-pagination"[\s\S]*class="table-pagination__actions"[\s\S]*<slot name="pagination-actions"/
+  );
+  assert.match(
+    matchPreviewDataTableSource,
+    /\.table-pagination__actions\s*\{[^}]*flex:\s*1 1 auto;/s
+  );
+  assert.doesNotMatch(smartFillPreviewStepSource, /class="action-bar"/);
+  assert.match(
+    matchPreviewDataTableSource,
+    /class="match-preview-data-table__body"[\s\S]*<el-table[\s\S]*height="100%"[\s\S]*class="table-pagination"/
+  );
+  assert.match(matchPreviewDataTableSource, /<el-table[\s\S]*height="100%"/);
+});
+
 test("向导页操作区应采用固定底栏、为可选页脚让位并提供足够触控高度", () => {
   assert.doesNotMatch(
     smartFillStyleSource,
@@ -540,10 +623,10 @@ test("数据库备份页应在页脚上方保留可滚动的文件列表区域",
   );
 });
 
-test("智能填充预览应使用页面单一纵向滚动，避免内外滚动区冲突", () => {
+test("智能填充预览应使用表格数据区单一纵向滚动，避免内外滚动冲突", () => {
   assert.doesNotMatch(matchPreviewDataTableSource, /max-height="500"/);
   assert.doesNotMatch(tablePreviewSource, /max-height="400"/);
-  assert.doesNotMatch(matchPreviewDataTableSource, /height="100%"/);
+  assert.match(matchPreviewDataTableSource, /height="100%"/);
   assert.doesNotMatch(
     matchPreviewTableStyleSource,
     /height:\s*calc\(100vh|max-height:\s*calc\(100vh|min-height:\s*(420|560)px/

@@ -557,7 +557,11 @@ defineExpose({
       @edit="openEditDialog"
       @select-best="handleSelectBest"
       @clear-selection="handleClearSelection"
-    />
+    >
+      <template #pagination-actions>
+        <slot name="pagination-actions" />
+      </template>
+    </MatchPreviewDataTable>
 
     <MatchPreviewEditDialog
       v-model:visible="editDialogVisible"

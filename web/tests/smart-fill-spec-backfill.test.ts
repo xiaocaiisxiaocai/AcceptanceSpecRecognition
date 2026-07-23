@@ -66,9 +66,9 @@ test("smart-fill 应缓存匹配范围并在执行回填时复用", () => {
   assert.match(smartFillSource, /const handleScopeChange = \(/);
   assert.match(
     smartFillSource,
-    /matchConfigRef\.value\?\.getScope\?\.\(\) \?\? matchScope\.value/
+    /const getCurrentScope = \(\) => matchScope\.value/
   );
-  assert.match(smartFillSource, /@scope-change="handleScopeChange"/);
+  assert.doesNotMatch(smartFillSource, /@scope-change="handleScopeChange"/);
 });
 
 test("smart-fill 重新开始或重新上传文件时应清空回填待执行状态和范围缓存", () => {

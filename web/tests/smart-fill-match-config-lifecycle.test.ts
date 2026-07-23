@@ -8,11 +8,11 @@ const source = readFileSync(
   "utf8"
 );
 
-test("智能填充匹配配置组件应在 mounted 生命周期内加载基础数据", () => {
+test("智能填充匹配配置组件应在 mounted 生命周期内加载运行时 AI 选择", () => {
   assert.match(source, /onActivated,[\s\S]*onDeactivated,[\s\S]*onMounted/);
   assert.match(
     source,
-    /onMounted\(\(\) => \{\s*loadCustomers\(\);\s*loadProcesses\(\);\s*loadMachineModels\(\);\s*loadAiServices\(\);\s*\}\);/s
+    /onMounted\(\(\) => \{\s*void loadAiServices\(\);\s*\}\);/s
   );
 });
 
@@ -28,24 +28,27 @@ test("智能填充匹配配置组件应在缓存页面重新激活时刷新运�
   );
 });
 
-test("智能填充匹配配置组件卸载时应取消主数据选项请求", () => {
+test("智能填充匹配配置组件卸载时应取消 AI 请求和延迟滚动", () => {
   assert.match(
     source,
-    /onBeforeUnmount\(\(\) => \{\s*customerOptionsController\?\.abort\(\);\s*processOptionsController\?\.abort\(\);\s*machineModelOptionsController\?\.abort\(\);\s*stopAiSelectionRequests\(\);\s*\}\);/s
+    /onBeforeUnmount\(\(\) => \{\s*stopAiSelectionRequests\(\);\s*cancelExpandedSectionReveal\(\);\s*\}\);/s
   );
 });
 
-test("智能填充匹配配置组件不应在模块顶层直接触发加载请求", () => {
+test("智能填充业务动作应等待 checking 状态收敛后再返回", () => {
+  assert.match(source, /waitForRuntimeAiSelection/);
+  assert.match(
+    source,
+    /const refreshAiServicesForAction = \(\) => \{\s*stopAiSelectionRequests\(\);\s*return loadAiServices\(true, true\);\s*\};/s
+  );
+  assert.match(source, /refreshAiServices:\s*refreshAiServicesForAction/);
+});
+
+test("智能填充匹配配置不应重复加载或编辑第一步已确认的范围", () => {
   assert.doesNotMatch(
     source,
-    /\nloadCustomers\(\);\s*\nloadProcesses\(\);\s*\nloadMachineModels\(\);\s*\nloadAiServices\(\);/
+    /getCustomerList|getProcessList|getMachineModelList/
   );
-});
-
-test("智能填充匹配配置应由父页面同步客户、制程和机型范围", () => {
-  assert.match(source, /scope\?: SmartFillScope/);
-  assert.match(source, /props\.scope\?\.customerId/);
-  assert.match(source, /props\.scope\?\.processId/);
-  assert.match(source, /props\.scope\?\.machineModelId/);
-  assert.match(source, /syncingScopeFromParent/);
+  assert.doesNotMatch(source, /scope\?: SmartFillScope|scopeChange/);
+  assert.doesNotMatch(source, />匹配范围</);
 });

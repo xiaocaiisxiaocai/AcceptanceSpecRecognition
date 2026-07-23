@@ -54,7 +54,9 @@ public partial class LlmMatchingAssistService
                     return raw;
                 }
 
-                _runtimeStatusReporter.ReportUnavailableIfCurrent(
+                // 服务已成功返回内容，说明端点和模型可用；这里只是本次输出未满足
+                // 场景 JSON 契约，不能污染运行时可用性缓存。
+                _runtimeStatusReporter.ReportAvailableIfCurrent(
                     cfg.Id,
                     AiServicePurpose.Llm,
                     readinessGeneration);
@@ -167,7 +169,8 @@ public partial class LlmMatchingAssistService
                 }
 
                 errors.Add($"{cfg.Name}: empty_stream");
-                _runtimeStatusReporter.ReportUnavailableIfCurrent(
+                // 空流属于本次生成结果不可采用，不代表服务端点不可访问。
+                _runtimeStatusReporter.ReportAvailableIfCurrent(
                     cfg.Id,
                     AiServicePurpose.Llm,
                     readinessGeneration);

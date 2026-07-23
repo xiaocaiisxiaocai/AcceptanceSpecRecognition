@@ -327,23 +327,52 @@ defineExpose({ getAllSelections, getAllEditedBackfillItems });
         "
         @select="handleSelect"
         @show-detail="item => emit('showDetail', item)"
-      />
+      >
+        <template #pagination-actions>
+          <slot name="pagination-actions" />
+        </template>
+      </MatchPreviewTable>
     </div>
   </div>
 </template>
 
 <style scoped>
 .batch-preview-tabs {
-  margin-top: 12px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.batch-preview-tabs > :deep(.el-tabs) {
+  flex: 0 0 auto;
+}
+
+.batch-preview-tabs > :deep(.el-tabs .el-tabs__content) {
+  display: none;
 }
 
 .table-stats {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .active-preview-table {
-  margin-top: 12px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.active-preview-table :deep(.match-preview-table) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 </style>

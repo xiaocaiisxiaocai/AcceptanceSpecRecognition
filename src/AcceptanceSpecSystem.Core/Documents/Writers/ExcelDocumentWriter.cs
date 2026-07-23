@@ -176,7 +176,7 @@ public class ExcelDocumentWriter : IDocumentWriter
             : BuildMergedLookup(sheet, usedRange, cancellationToken);
 
         var successCount = 0;
-        var writtenTargets = new HashSet<(int Row, int Col)>();
+        var writtenTargets = new Dictionary<(int Row, int Col), string>();
         foreach (var operation in operations)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -189,13 +189,21 @@ public class ExcelDocumentWriter : IDocumentWriter
                     operation,
                     out var target))
             {
-                if (!writtenTargets.Add(target))
+                var value = operation.Value ?? string.Empty;
+                if (writtenTargets.TryGetValue(target, out var writtenValue))
                 {
+                    if (string.Equals(writtenValue, value, StringComparison.Ordinal))
+                    {
+                        successCount++;
+                        continue;
+                    }
+
                     throw new InvalidOperationException(
                         $"多个写入操作指向同一单元格 {sheet.Name}!R{target.Row}C{target.Col}，请检查合并单元格和列映射");
                 }
 
-                sheet.Cell(target.Row, target.Col).Value = operation.Value ?? string.Empty;
+                writtenTargets[target] = value;
+                sheet.Cell(target.Row, target.Col).Value = value;
                 successCount++;
             }
         }

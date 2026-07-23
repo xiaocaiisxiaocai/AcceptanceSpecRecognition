@@ -79,7 +79,7 @@ const loadingHintText = computed(() => {
 </script>
 
 <template>
-  <div class="step-panel">
+  <div class="step-panel smart-fill-preview-step">
     <!-- LLM 流式处理提示 -->
     <el-alert
       v-if="llmStreaming"
@@ -179,7 +179,41 @@ const loadingHintText = computed(() => {
           emit('select', tableIndex, rowIndex, spec)
       "
       @show-detail="emit('showDetail', $event)"
-    />
+    >
+      <template #pagination-actions>
+        <div v-if="allPreviewItemsCount > 0" class="preview-pagination-actions">
+          <el-button
+            v-if="canPreviewMatching"
+            :loading="loading"
+            @click="emit('preview')"
+          >
+            重新匹配
+          </el-button>
+          <el-button
+            v-if="canExecuteFill"
+            type="primary"
+            :loading="executing"
+            :disabled="!!taskId || llmStreaming || loading"
+            @click="emit('execute')"
+          >
+            执行填充
+          </el-button>
+          <el-button
+            v-if="taskId && canDownloadFillResult"
+            :loading="downloadingResult"
+            @click="emit('downloadLastResult')"
+          >
+            重新下载结果
+          </el-button>
+          <el-button
+            v-if="taskId && canUploadSourceFile"
+            @click="emit('restart')"
+          >
+            继续填充其他文档
+          </el-button>
+        </div>
+      </template>
+    </BatchPreviewTabs>
 
     <!-- 填充完成提示（紧凑内联） -->
     <el-alert
@@ -201,40 +235,25 @@ const loadingHintText = computed(() => {
       closable
       class="fill-done-alert"
     />
-
-    <!-- 操作按钮 -->
-    <div v-if="allPreviewItemsCount > 0" class="action-bar">
-      <el-button
-        v-if="canPreviewMatching"
-        :loading="loading"
-        @click="emit('preview')"
-      >
-        重新匹配
-      </el-button>
-      <el-button
-        v-if="canExecuteFill"
-        type="primary"
-        :loading="executing"
-        :disabled="!!taskId || llmStreaming || loading"
-        @click="emit('execute')"
-      >
-        执行填充
-      </el-button>
-      <el-button
-        v-if="taskId && canDownloadFillResult"
-        :loading="downloadingResult"
-        @click="emit('downloadLastResult')"
-      >
-        重新下载结果
-      </el-button>
-      <el-button v-if="taskId && canUploadSourceFile" @click="emit('restart')">
-        继续填充其他文档
-      </el-button>
-    </div>
   </div>
 </template>
 
 <style scoped>
+.smart-fill-preview-step {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.preview-pagination-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .matching-loading {
   display: flex;
   justify-content: center;

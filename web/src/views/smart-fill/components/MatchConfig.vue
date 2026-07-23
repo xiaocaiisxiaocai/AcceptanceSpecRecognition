@@ -16,19 +16,13 @@ import {
   type MatchConfig,
   defaultMatchConfig
 } from "@/api/matching";
-import { getCustomerList, type Customer } from "@/api/customer";
-import { getProcessList, type Process } from "@/api/process";
-import { getMachineModelList, type MachineModel } from "@/api/machine-model";
 import type { AiServiceSelection } from "@/api/ai-service";
-import { ElMessage } from "element-plus";
-import { getRequestErrorMessage } from "@/utils/error-message";
-import { loadAllPagedItems } from "@/utils/paged-options";
-import type { SmartFillScope } from "../smartFillExecution.helpers";
 import { getDistinctAiServiceModel } from "@/views/shared/ai-service-display";
 import { createAiSelectionRetryController } from "@/utils/ai-selection-retry";
 import {
   getRuntimeAiPurposeResult,
   loadRuntimeAiSelectionsSettled,
+  waitForRuntimeAiSelection,
   type RuntimeAiSelectionRefreshResult
 } from "@/utils/runtime-ai-selection-loader";
 import {
@@ -40,37 +34,16 @@ import { applyMatchConfigRuntimeAiSelections } from "./match-config-ai-selection
 const props = defineProps<{
   modelValue?: MatchConfig;
   allowLlm?: boolean;
-  scope?: SmartFillScope;
 }>();
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: MatchConfig): void;
-  (
-    e: "scopeChange",
-    customerId?: number,
-    processId?: number,
-    machineModelId?: number
-  ): void;
 }>();
 
 // 匹配配置
 const config = ref<MatchConfig>({ ...defaultMatchConfig });
 
-// 范围选择
-const customers = ref<Customer[]>([]);
-const processes = ref<Process[]>([]);
-const machineModels = ref<MachineModel[]>([]);
-const selectedCustomerId = ref<number | undefined>(undefined);
-const selectedProcessId = ref<number | undefined>(undefined);
-const selectedMachineModelId = ref<number | undefined>(undefined);
-let syncingScopeFromParent = false;
-const loadingCustomers = ref(false);
-const loadingProcesses = ref(false);
-const loadingMachineModels = ref(false);
 const loadingAiServices = ref(false);
-let customerOptionsController: AbortController | undefined;
-let processOptionsController: AbortController | undefined;
-let machineModelOptionsController: AbortController | undefined;
 let aiSelectionController: AbortController | undefined;
 let aiSelectionVersion = 0;
 let aiSelectionRequest: Promise<RuntimeAiSelectionRefreshResult> | undefined;
@@ -232,85 +205,8 @@ watch(
   { immediate: true }
 );
 
-// 加载客户列表
-const loadCustomers = async () => {
-  customerOptionsController?.abort();
-  const controller = new AbortController();
-  customerOptionsController = controller;
-  loadingCustomers.value = true;
-  try {
-    const items = await loadAllPagedItems(
-      (page, pageSize, signal) =>
-        getCustomerList({ page, pageSize }, { signal }),
-      { getKey: item => item.id, signal: controller.signal }
-    );
-    if (customerOptionsController === controller) customers.value = items;
-  } catch (error) {
-    if (!controller.signal.aborted) {
-      ElMessage.error(getRequestErrorMessage(error, "加载客户列表失败"));
-    }
-  } finally {
-    if (customerOptionsController === controller) {
-      customerOptionsController = undefined;
-      loadingCustomers.value = false;
-    }
-  }
-};
-
-// 加载制程列表
-const loadProcesses = async () => {
-  processOptionsController?.abort();
-  const controller = new AbortController();
-  processOptionsController = controller;
-  loadingProcesses.value = true;
-  try {
-    const items = await loadAllPagedItems(
-      (page, pageSize, signal) =>
-        getProcessList({ page, pageSize }, { signal }),
-      { getKey: item => item.id, signal: controller.signal }
-    );
-    if (processOptionsController === controller) processes.value = items;
-  } catch (error) {
-    if (!controller.signal.aborted) {
-      ElMessage.error(getRequestErrorMessage(error, "加载制程列表失败"));
-    }
-  } finally {
-    if (processOptionsController === controller) {
-      processOptionsController = undefined;
-      loadingProcesses.value = false;
-    }
-  }
-};
-
-// 加载机型列表
-const loadMachineModels = async () => {
-  machineModelOptionsController?.abort();
-  const controller = new AbortController();
-  machineModelOptionsController = controller;
-  loadingMachineModels.value = true;
-  try {
-    const items = await loadAllPagedItems(
-      (page, pageSize, signal) =>
-        getMachineModelList({ page, pageSize }, { signal }),
-      { getKey: item => item.id, signal: controller.signal }
-    );
-    if (machineModelOptionsController === controller) {
-      machineModels.value = items;
-    }
-  } catch (error) {
-    if (!controller.signal.aborted) {
-      ElMessage.error(getRequestErrorMessage(error, "加载机型列表失败"));
-    }
-  } finally {
-    if (machineModelOptionsController === controller) {
-      machineModelOptionsController = undefined;
-      loadingMachineModels.value = false;
-    }
-  }
-};
-
 // 加载运行时可用的 AI 服务
-const loadAiServicesOnce = async () => {
+const loadAiServicesOnce = async (waitForChecking = false) => {
   aiSelectionController?.abort();
   const controller = new AbortController();
   const version = ++aiSelectionVersion;
@@ -318,10 +214,18 @@ const loadAiServicesOnce = async () => {
   loadingAiServices.value = true;
 
   try {
-    const results = await loadRuntimeAiSelectionsSettled(
-      ["embedding", "llm"],
-      controller.signal
-    );
+    const purposes = ["embedding", "llm"] as const;
+    const results = waitForChecking
+      ? await loadRuntimeAiSelectionsSettled(
+          purposes,
+          controller.signal,
+          async (purpose, signal) => ({
+            code: 0,
+            message: "",
+            data: await waitForRuntimeAiSelection(purpose, { signal })
+          })
+        )
+      : await loadRuntimeAiSelectionsSettled(purposes, controller.signal);
     if (
       aiSelectionController !== controller ||
       version !== aiSelectionVersion ||
@@ -362,48 +266,17 @@ const loadAiServicesOnce = async () => {
 const aiSelectionRetry = createAiSelectionRetryController({
   refresh: () => void loadAiServices(false)
 });
-const loadAiServices = (resetRetry = true) => {
+const loadAiServices = (resetRetry = true, waitForChecking = false) => {
   if (resetRetry) aiSelectionRetry.cancel();
   if (aiSelectionRequest) return aiSelectionRequest;
 
-  const request = loadAiServicesOnce();
+  const request = loadAiServicesOnce(waitForChecking);
   aiSelectionRequest = request;
   void request.finally(() => {
     if (aiSelectionRequest === request) aiSelectionRequest = undefined;
   });
   return request;
 };
-
-watch(
-  () =>
-    [
-      props.scope?.customerId,
-      props.scope?.processId,
-      props.scope?.machineModelId
-    ] as const,
-  ([customerId, processId, machineModelId]) => {
-    syncingScopeFromParent = true;
-    selectedCustomerId.value = customerId;
-    selectedProcessId.value = processId;
-    selectedMachineModelId.value = machineModelId;
-    syncingScopeFromParent = false;
-  },
-  { immediate: true, flush: "sync" }
-);
-
-watch(
-  [selectedCustomerId, selectedProcessId, selectedMachineModelId],
-  () => {
-    if (syncingScopeFromParent) return;
-    emit(
-      "scopeChange",
-      selectedCustomerId.value,
-      selectedProcessId.value,
-      selectedMachineModelId.value
-    );
-  },
-  { flush: "sync" }
-);
 
 // 重置配置
 const resetConfig = () => {
@@ -417,10 +290,7 @@ const resetConfig = () => {
 };
 
 onMounted(() => {
-  loadCustomers();
-  loadProcesses();
-  loadMachineModels();
-  loadAiServices();
+  void loadAiServices();
 });
 
 onActivated(() => {
@@ -428,9 +298,6 @@ onActivated(() => {
 });
 
 onBeforeUnmount(() => {
-  customerOptionsController?.abort();
-  processOptionsController?.abort();
-  machineModelOptionsController?.abort();
   stopAiSelectionRequests();
   cancelExpandedSectionReveal();
 });
@@ -444,15 +311,15 @@ const stopAiSelectionRequests = () => {
 
 onDeactivated(stopAiSelectionRequests);
 
+const refreshAiServicesForAction = () => {
+  stopAiSelectionRequests();
+  return loadAiServices(true, true);
+};
+
 // 暴露方法
 defineExpose({
   resetConfig,
-  refreshAiServices: loadAiServices,
-  getScope: () => ({
-    customerId: selectedCustomerId.value,
-    processId: selectedProcessId.value,
-    machineModelId: selectedMachineModelId.value
-  }),
+  refreshAiServices: refreshAiServicesForAction,
   getServiceStatus: () => ({
     hasAvailableEmbeddingService: hasAvailableEmbeddingService.value,
     hasAvailableLlmService: hasAvailableLlmService.value
@@ -462,74 +329,6 @@ defineExpose({
 
 <template>
   <div class="match-config">
-    <!-- 匹配范围 -->
-    <div class="config-section">
-      <div class="section-title">匹配范围</div>
-      <el-form :inline="true" class="scope-form filter-form">
-        <el-form-item label="客户">
-          <el-select
-            v-model="selectedCustomerId"
-            placeholder="全部客户"
-            :loading="loadingCustomers"
-            filterable
-            clearable
-            :teleported="true"
-            class="search-select search-select--200"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="customer in customers"
-              :key="customer.id"
-              :label="customer.name"
-              :value="customer.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="制程">
-          <el-select
-            v-model="selectedProcessId"
-            placeholder="全部制程"
-            :loading="loadingProcesses"
-            filterable
-            clearable
-            :teleported="true"
-            class="search-select search-select--200"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="process in processes"
-              :key="process.id"
-              :label="process.name"
-              :value="process.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="机型">
-          <el-select
-            v-model="selectedMachineModelId"
-            placeholder="全部机型"
-            :loading="loadingMachineModels"
-            filterable
-            clearable
-            :teleported="true"
-            class="search-select search-select--200"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="model in machineModels"
-              :key="model.id"
-              :label="model.name"
-              :value="model.id"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <div class="scope-tip">
-        <el-icon><InfoFilled /></el-icon>
-        <span>不选择则匹配所有验收规格</span>
-      </div>
-    </div>
-
     <!-- 基础配置 -->
     <div class="config-section">
       <div class="section-title">匹配设置</div>
@@ -998,9 +797,9 @@ defineExpose({
 </template>
 
 <script lang="ts">
-import { InfoFilled, ArrowRight } from "@element-plus/icons-vue";
+import { ArrowRight } from "@element-plus/icons-vue";
 export default {
-  components: { InfoFilled, ArrowRight }
+  components: { ArrowRight }
 };
 </script>
 
@@ -1117,18 +916,6 @@ export default {
 
 .section-header .el-icon.rotated {
   transform: rotate(90deg);
-}
-
-.scope-form {
-  margin-bottom: 8px;
-}
-
-.scope-tip {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--app-text-secondary);
 }
 
 .advanced-options {

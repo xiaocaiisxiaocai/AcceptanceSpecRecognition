@@ -29,6 +29,14 @@ export type SmartFillFieldConflictSelection = {
   columnIndex: number;
 };
 
+export const getSmartFillRecommendedColumnIndex = (
+  conflict: SmartFillFieldConflictItem
+) =>
+  conflict.candidates.find(
+    candidate => candidate.columnIndex === conflict.recommendedColumnIndex
+  )?.columnIndex ??
+  conflict.candidates.find(candidate => candidate.isRecommended)?.columnIndex;
+
 const fieldLabels: Record<string, string> = {
   Project: "项目列",
   Specification: "规格列",

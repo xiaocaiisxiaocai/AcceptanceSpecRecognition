@@ -202,6 +202,36 @@ public class ExcelDocumentWriterTests
     }
 
     [Fact]
+    public async Task WriteTableDataAsync_ShouldCoalesceIdenticalOperationsForSameMergedCell()
+    {
+        using var stream = CreateWorkbook(("Sheet1", new[]
+        {
+            new[] { "项目", "验收" },
+            new[] { "P1", "" },
+            new[] { "P1", "" }
+        }));
+
+        using (var workbook = new XLWorkbook(stream))
+        {
+            workbook.Worksheet("Sheet1").Range(2, 2, 3, 2).Merge();
+            stream.Position = 0;
+            stream.SetLength(0);
+            workbook.SaveAs(stream);
+            stream.Position = 0;
+        }
+
+        var count = await _writer.WriteTableDataAsync(stream, 0, new[]
+        {
+            CellWriteOperation.Create(1, 1, "OK"),
+            CellWriteOperation.Create(2, 1, "OK")
+        });
+
+        count.Should().Be(2);
+        using var result = new XLWorkbook(stream);
+        result.Worksheet("Sheet1").Cell(2, 2).GetString().Should().Be("OK");
+    }
+
+    [Fact]
     public void DocumentType_ShouldBeExcel()
     {
         _writer.DocumentType.Should().Be(DocumentType.Excel);

@@ -5,6 +5,7 @@ import type {
   SmartFillFieldConflictItem,
   SmartFillFieldConflictSelection
 } from "../smartFill.fieldConflicts";
+import { getSmartFillRecommendedColumnIndex } from "../smartFill.fieldConflicts";
 
 const props = withDefaults(
   defineProps<{
@@ -33,7 +34,8 @@ watch(
     if (!visible) return;
     Object.keys(selectedColumns).forEach(key => delete selectedColumns[key]);
     conflicts.forEach(conflict => {
-      selectedColumns[conflict.key] = undefined;
+      selectedColumns[conflict.key] =
+        getSmartFillRecommendedColumnIndex(conflict);
     });
   },
   { deep: true }

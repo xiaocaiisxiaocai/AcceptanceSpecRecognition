@@ -253,6 +253,38 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
     }
 
     [Fact]
+    public async Task Recognize_WhenRecommendedRemarkColumnIsVerticallyMerged_ShouldPreferPerRowColumn()
+    {
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateVerticallyMergedRemarkCandidateExcelBytes(),
+            "smart-recognize-vertical-merged-remark.xlsx");
+
+        var table = await RecognizeSingleTableAsync(fileId);
+        var region = table.GetProperty("regions").EnumerateArray().Single();
+
+        region.GetProperty("remarkColumnIndex").GetInt32().Should().Be(
+            4,
+            "纵向合并的备注列无法逐行写回，应自动选择未跨行合并的同义列");
+    }
+
+    [Fact]
+    public async Task Recognize_WhenAcceptanceColumnHasOnlyLocalVerticalMerge_ShouldKeepAcceptanceColumn()
+    {
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateLocallyMergedAcceptanceColumnExcelBytes(),
+            "smart-recognize-local-merged-acceptance.xlsx");
+
+        var table = await RecognizeSingleTableAsync(fileId);
+        var region = table.GetProperty("regions").EnumerateArray().Single();
+
+        region.GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(
+            2,
+            "局部逻辑合并不应导致整列验收字段被清空");
+    }
+
+    [Fact]
     public async Task Recognize_WhenWordHasGroupedRepeatedLeafHeader_ShouldPreferSingleLeafHeader()
     {
         var bytes = SmartConfigRecognizeTestFiles.CreateWordBytes(
@@ -543,6 +575,48 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
         worksheet.Cell(2, 3).Value = "OK";
         worksheet.Cell(2, 4).Value = "J列内容";
         worksheet.Cell(2, 5).Value = "O列内容";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateVerticallyMergedRemarkCandidateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "OK/NG";
+        worksheet.Cell(1, 4).Value = "Remark";
+        worksheet.Cell(1, 5).Value = "備註";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(3, 1).Value = "尺寸";
+        worksheet.Cell(3, 2).Value = "10±1mm";
+        worksheet.Range("D2:D3").Merge();
+        worksheet.Cell(2, 5).Value = "逐行备注1";
+        worksheet.Cell(3, 5).Value = "逐行备注2";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateLocallyMergedAcceptanceColumnExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "OK/NG";
+        worksheet.Cell(1, 4).Value = "Remark";
+        for (var row = 2; row <= 7; row++)
+        {
+            worksheet.Cell(row, 1).Value = $"项目{row}";
+            worksheet.Cell(row, 2).Value = $"规格{row}";
+        }
+        worksheet.Range("C6:C7").Merge();
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

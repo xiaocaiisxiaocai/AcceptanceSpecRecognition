@@ -258,8 +258,38 @@ public class ExcelDocumentParser : IDocumentParser
             Headers = headers,
             Rows = rows,
             TotalDataRowCount = totalDataRowCount,
-            OriginalRowCount = rowCount
+            OriginalRowCount = rowCount,
+            MergedCells = BuildMergedCells(sheet, used, cancellationToken)
         };
+    }
+
+    private static List<MergedCellInfo> BuildMergedCells(
+        IXLWorksheet sheet,
+        IXLRange usedRange,
+        CancellationToken cancellationToken)
+    {
+        var usedStart = usedRange.RangeAddress.FirstAddress;
+        var usedEnd = usedRange.RangeAddress.LastAddress;
+        var mergedCells = new List<MergedCellInfo>();
+
+        foreach (var merged in sheet.MergedRanges)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!merged.Intersects(usedRange))
+                continue;
+
+            var first = merged.RangeAddress.FirstAddress;
+            var last = merged.RangeAddress.LastAddress;
+            mergedCells.Add(new MergedCellInfo
+            {
+                StartRow = Math.Max(first.RowNumber, usedStart.RowNumber) - usedStart.RowNumber,
+                StartColumn = Math.Max(first.ColumnNumber, usedStart.ColumnNumber) - usedStart.ColumnNumber,
+                EndRow = Math.Min(last.RowNumber, usedEnd.RowNumber) - usedStart.RowNumber,
+                EndColumn = Math.Min(last.ColumnNumber, usedEnd.ColumnNumber) - usedStart.ColumnNumber
+            });
+        }
+
+        return mergedCells;
     }
 
     private static Dictionary<(int Row, int Col), (int MasterRow, int MasterCol)> BuildMergedLookup(

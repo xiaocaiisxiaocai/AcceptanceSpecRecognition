@@ -249,8 +249,8 @@ export function useSmartFillExecution({
     executing.value = true;
     try {
       await runExecuteFill(request);
-    } catch {
-      ElMessage.error("填充失败");
+    } catch (error) {
+      ElMessage.error(getRequestErrorMessage(error, "填充失败"));
     } finally {
       clearPendingExecuteRequest();
       executing.value = false;
@@ -359,8 +359,8 @@ export function useSmartFillExecution({
     executing.value = true;
     try {
       await runExecuteFill(executeRequest);
-    } catch {
-      ElMessage.error("填充失败");
+    } catch (error) {
+      ElMessage.error(getRequestErrorMessage(error, "填充失败"));
     } finally {
       executing.value = false;
     }

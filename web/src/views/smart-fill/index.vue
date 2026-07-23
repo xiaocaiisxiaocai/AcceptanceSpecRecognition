@@ -290,12 +290,7 @@ const allPreviewItems = computed(() =>
   batchPreviewResults.value.flatMap(t => t.items)
 );
 
-const getCurrentScope = () =>
-  matchScope.value.customerId ||
-  matchScope.value.processId ||
-  matchScope.value.machineModelId
-    ? matchScope.value
-    : (matchConfigRef.value?.getScope?.() ?? matchScope.value);
+const getCurrentScope = () => matchScope.value;
 
 const getMatchConfigServiceStatus = () =>
   matchConfigRef.value?.getServiceStatus?.() ?? {
@@ -1031,7 +1026,10 @@ const retryTableMetadata = () => {
     class="page smart-fill"
     :class="{
       'smart-fill--recognition-review':
-        !advancedMode && currentStep === SMART_FILL_STEP_RECOGNITION_REVIEW
+        !advancedMode && currentStep === SMART_FILL_STEP_RECOGNITION_REVIEW,
+      'smart-fill--preview':
+        (!advancedMode && currentStep === SMART_FILL_STEP_PREVIEW) ||
+        (advancedMode && currentStep === SMART_FILL_ADVANCED_STEP_PREVIEW)
     }"
   >
     <div class="page-header">
@@ -1270,9 +1268,6 @@ const retryTableMetadata = () => {
         :can-llm-stream="canLlmStream"
         :preview-blocking-message="previewBlockingMessage"
         :preview-blocking-hint="previewBlockingHint"
-        :scope-summary="selectedScopeSummary"
-        :scope="matchScope"
-        @scope-change="handleScopeChange"
       />
 
       <SmartFillPreviewStep
