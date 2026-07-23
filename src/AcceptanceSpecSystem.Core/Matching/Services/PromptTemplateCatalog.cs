@@ -81,7 +81,8 @@ public static partial class PromptTemplateCatalog
                 MatchingEquivalenceAdjudicationV1Content,
                 MatchingEquivalenceAdjudicationV2Content,
                 MatchingEquivalenceAdjudicationV3Content,
-                MatchingEquivalenceAdjudicationV4Content
+                MatchingEquivalenceAdjudicationV4Content,
+                GetMatchingEquivalenceAdjudicationV5Content()
             ]),
         new(
             PromptTemplateScene.MatchingCandidateRerank,

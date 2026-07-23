@@ -97,15 +97,18 @@ public class LlmReviewPromptTests
             .GetSystemTemplates()
             .Single(template => template.Scene == PromptTemplateScene.MatchingEquivalenceAdjudication);
 
-        // 新默认内容含 few-shot 示例段，且含"整句同义复述"长文本改写引导
+        // 新默认内容含 few-shot、整句同义复述，以及辅助字段不得单独否定匹配键的约束。
         definition.DefaultContent.Should().Contain("【判定示例】");
         definition.DefaultContent.Should().Contain("整句同义复述");
+        definition.DefaultContent.Should().Contain("源项未提供验收标准或备注只表示该字段未知");
+        definition.DefaultContent.Should().Contain("different 的具体冲突必须来自项目或规格本身");
 
-        // 升级链保留历次旧默认，且旧内容都不含"整句同义复述"段
-        // （V4 已含 few-shot 但缺整句同义复述引导，故不再以 few-shot 作为新旧分界）
+        // 升级链保留历次旧默认，并包含本次修复前已经带整句同义复述的上一版。
         definition.AdditionalLegacyContents.Should().NotBeNull();
-        definition.AdditionalLegacyContents!.Should().HaveCountGreaterThanOrEqualTo(4);
-        definition.AdditionalLegacyContents!.Should().OnlyContain(content => !content.Contains("整句同义复述"));
+        definition.AdditionalLegacyContents!.Should().HaveCountGreaterThanOrEqualTo(5);
+        definition.AdditionalLegacyContents.Should().Contain(content =>
+            content.Contains("整句同义复述") &&
+            content.Contains("仅作为辅助上下文（如确认电压档位"));
     }
 
     [Fact]

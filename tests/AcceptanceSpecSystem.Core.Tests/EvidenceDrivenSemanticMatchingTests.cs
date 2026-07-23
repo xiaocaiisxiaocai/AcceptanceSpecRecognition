@@ -2991,6 +2991,140 @@ public class EvidenceDrivenSemanticMatchingTests
         equivalenceService.Requests.Should().ContainSingle();
     }
 
+    [Fact]
+    public async Task BatchMatch_WhenRangeConnectorUsesChineseAndEnglish_ShouldTreatSpecificationAsEquivalent()
+    {
+        var source = new MatchSource
+        {
+            Project = "基板厚度",
+            Specification = "0.03mm 到2.0mm. 常用0.04mm 到 2.0mm."
+        };
+        var candidate = new MatchCandidate
+        {
+            SpecId = 9920,
+            Project = "基板厚度",
+            Specification = "0.03mm to 2.0mm. 常用 0.04mm to 2.0mm.",
+            Acceptance = "NG",
+            Remark = "0.05不含铜-2mm 板弯翘±15mm内",
+            Embedding = [1f]
+        };
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Different,
+            ReasonType = LlmEquivalenceReasonType.SemanticDifference,
+            Confidence = 0.9,
+            Reason = "候选新增了验收标准和备注约束"
+        });
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [0.982f], defaultCandidateEmbedding: [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            [candidate],
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95,
+                EnableDeterministicAutoApply = true,
+                EnableLlmEquivalenceAdjudication = true
+            });
+
+        var match = result.Results.Should().ContainSingle().Subject;
+        match.MatchedSpecId.Should().Be(9920);
+        match.ScoreDetails["SpecificationText"].Should().Be(1);
+        match.Score.Should().BeGreaterThan(0.95);
+        match.Decision.Should().Be(MatchDecision.AutoApply);
+        equivalenceService.Requests.Should().BeEmpty(
+            "中英文区间连接词归一化后已达到确定性高置信，不应再交给 AI 误判");
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenAiRejectsSameNormalizedKeyBecauseOfAuxiliaryFields_ShouldCorrectToEquivalent()
+    {
+        var source = new MatchSource
+        {
+            Project = "基板厚度",
+            Specification = "0.03mm 到2.0mm"
+        };
+        var candidate = new MatchCandidate
+        {
+            SpecId = 9920,
+            Project = "基板厚度",
+            Specification = "0.03mm to 2.0mm",
+            Acceptance = "NG",
+            Remark = "候选备注仅用于回填",
+            Embedding = [1f]
+        };
+        var equivalenceService = new FixedLlmEquivalenceAdjudicationService(new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Different,
+            ReasonType = LlmEquivalenceReasonType.SemanticDifference,
+            Confidence = 0.95,
+            Reason = "候选存在源项没有提供的验收标准和备注"
+        });
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [0.9f], defaultCandidateEmbedding: [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance,
+            llmEquivalenceAdjudicationService: equivalenceService);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            [candidate],
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95,
+                EnableDeterministicAutoApply = false,
+                EnableLlmEquivalenceAdjudication = true
+            });
+
+        var match = result.Results.Should().ContainSingle().Subject;
+        equivalenceService.Requests.Should().ContainSingle();
+        match.LlmEquivalence!.Verdict.Should().Be(LlmEquivalenceVerdict.Equivalent);
+        match.LlmEquivalence.Reason.Should().Contain("仅作为回填上下文");
+        match.Decision.Should().Be(MatchDecision.AutoApply);
+    }
+
+    [Fact]
+    public async Task BatchMatch_WhenRangeBoundaryDiffers_ShouldKeepHardConflictManualReview()
+    {
+        var source = new MatchSource
+        {
+            Project = "基板厚度",
+            Specification = "0.03mm 到2.0mm"
+        };
+        var candidate = new MatchCandidate
+        {
+            SpecId = 9921,
+            Project = "基板厚度",
+            Specification = "0.03mm to 2.1mm",
+            Acceptance = "NG",
+            Remark = "候选备注",
+            Embedding = [1f]
+        };
+        var service = new SemanticKernelMatchingService(
+            new FixedSourceEmbeddingService(source.CombinedText, [0.98f], defaultCandidateEmbedding: [1f]),
+            NullLogger<SemanticKernelMatchingService>.Instance);
+
+        var result = await service.BatchMatchAsync(
+            [source],
+            [candidate],
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0,
+                RecallTopK = 1,
+                HighConfidenceThreshold = 0.95
+            });
+
+        var match = result.Results.Should().ContainSingle().Subject;
+        match.Decision.Should().Be(MatchDecision.ManualReview);
+        match.Issues.Should().Contain(issue => issue.Code == "numeric_unit_conflict");
+    }
+
     private sealed class FixedSourceEmbeddingService : IEmbeddingService
     {
         private readonly string _sourceText;

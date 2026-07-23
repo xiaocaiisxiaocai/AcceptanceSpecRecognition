@@ -428,6 +428,26 @@ public partial class SemanticKernelMatchingService : IMatchingService
         return normalized;
     }
 
+    private static string NormalizeSpecificationComparableText(string? value)
+    {
+        var normalized = NormalizeComparableText(value);
+        if (string.IsNullOrEmpty(normalized))
+            return normalized;
+
+        // 中英文资料常混用“到 / 至 / to”表示相同数值区间。
+        // 仅在连接符左侧为数值或单位字符、右侧为数字时归一化，避免误改普通英文单词。
+        normalized = Regex.Replace(
+            normalized,
+            @"(?<=[\dA-Za-z%℃°μµ])\s*(?:到|至|to)\s*(?=\d)",
+            "~",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        return Regex.Replace(
+            normalized,
+            @"(?<=[\p{IsCJKUnifiedIdeographs}])\s+(?=\d)",
+            string.Empty,
+            RegexOptions.CultureInvariant);
+    }
+
     private static void EnsureEmbeddingBatchPayload(IReadOnlyList<float[]> embeddings, int expectedCount, string targetName)
     {
         if (embeddings.Count != expectedCount)

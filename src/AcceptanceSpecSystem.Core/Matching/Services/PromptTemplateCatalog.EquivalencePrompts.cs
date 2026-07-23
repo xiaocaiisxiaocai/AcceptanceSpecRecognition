@@ -135,9 +135,10 @@ public static partial class PromptTemplateCatalog
         3. verdict 为 equivalent 时，reasonType 只能是 format_only、punctuation_only、equivalent_expression、symbol_equivalent
         4. verdict 为 different 时，reasonType 只能是 semantic_difference、symbol_conflict
         5. verdict 为 uncertain 时，reasonType 必须是 uncertain
-        6. 候选的"验收标准/备注"仅作为辅助上下文（如确认电压档位、确认是否同一验收对象），裁决对象始终是双方的项目+规格本身
-        7. 约等于/≈/不大于/≤ 这类表达，只有在语义和边界完全一致时才算等价；不能只看字面接近
-        8. confidence 取值 0~1
+        6. 候选的"验收标准/备注"仅作为辅助上下文，裁决对象始终是双方的项目+规格本身；源项未提供验收标准或备注只表示该字段未知，不表示候选新增了规格约束
+        7. 禁止仅因候选存在验收标准/备注、源项未提供对应字段，或双方辅助字段内容不同而判 different；different 的具体冲突必须来自项目或规格本身
+        8. 约等于/≈/不大于/≤ 这类表达，只有在语义和边界完全一致时才算等价；不能只看字面接近
+        9. confidence 取值 0~1
 
         【等价判定条件】——满足以下任一情形可判 equivalent：
         - 差异仅为换行、空格、全半角、普通标点符号
@@ -216,6 +217,27 @@ public static partial class PromptTemplateCatalog
         仅返回严格 JSON：
         {"verdict":"uncertain","reasonType":"uncertain","reason":"...","confidence":0.0}
         """;
+
+    internal static string GetMatchingEquivalenceAdjudicationV5Content()
+    {
+        const string currentRules =
+            """
+            6. 候选的"验收标准/备注"仅作为辅助上下文，裁决对象始终是双方的项目+规格本身；源项未提供验收标准或备注只表示该字段未知，不表示候选新增了规格约束
+            7. 禁止仅因候选存在验收标准/备注、源项未提供对应字段，或双方辅助字段内容不同而判 different；different 的具体冲突必须来自项目或规格本身
+            8. 约等于/≈/不大于/≤ 这类表达，只有在语义和边界完全一致时才算等价；不能只看字面接近
+            9. confidence 取值 0~1
+            """;
+        const string previousRules =
+            """
+            6. 候选的"验收标准/备注"仅作为辅助上下文（如确认电压档位、确认是否同一验收对象），裁决对象始终是双方的项目+规格本身
+            7. 约等于/≈/不大于/≤ 这类表达，只有在语义和边界完全一致时才算等价；不能只看字面接近
+            8. confidence 取值 0~1
+            """;
+        return MatchingEquivalenceAdjudicationDefaultContent.Replace(
+            currentRules,
+            previousRules,
+            StringComparison.Ordinal);
+    }
 
     // 等价裁决第四版（含 9 条 few-shot，但缺"整句同义复述"长文本改写引导），
     // 作为 AdditionalLegacyContents 用于启动时自动升级到含整句同义复述的新默认。

@@ -188,8 +188,8 @@ public partial class SemanticKernelMatchingService : IMatchingService
     /// </summary>
     private double ComputeNumericScore(MatchSource source, EvaluatedCandidate candidate)
     {
-        var sourceText = NormalizeComparableText(source.Specification);
-        var candidateText = NormalizeComparableText(candidate.Candidate.Specification);
+        var sourceText = NormalizeSpecificationComparableText(source.Specification);
+        var candidateText = NormalizeSpecificationComparableText(candidate.Candidate.Specification);
 
         if (string.IsNullOrWhiteSpace(sourceText) && string.IsNullOrWhiteSpace(candidateText))
             return 1.0;
@@ -222,8 +222,8 @@ public partial class SemanticKernelMatchingService : IMatchingService
 
     private static double ComputeSpecificationTextScore(string sourceSpecification, string candidateSpecification)
     {
-        var source = NormalizeComparableText(sourceSpecification);
-        var candidate = NormalizeComparableText(candidateSpecification);
+        var source = NormalizeSpecificationComparableText(sourceSpecification);
+        var candidate = NormalizeSpecificationComparableText(candidateSpecification);
 
         if (string.IsNullOrWhiteSpace(source) && string.IsNullOrWhiteSpace(candidate))
             return 1.0;

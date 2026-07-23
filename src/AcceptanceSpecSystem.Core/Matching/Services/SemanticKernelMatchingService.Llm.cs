@@ -306,7 +306,10 @@ public partial class SemanticKernelMatchingService : IMatchingService
                 llmCircuitBreaker,
                 token => _llmEquivalenceAdjudicationService.AdjudicateAsync(request, token),
                 cancellationToken);
-            var result = execution.Result;
+            var result = ProtectNormalizedMatchingKeyFromAuxiliaryContextMisjudgment(
+                source,
+                best,
+                execution.Result);
 
             if (execution.BudgetExhausted)
             {
@@ -344,6 +347,38 @@ public partial class SemanticKernelMatchingService : IMatchingService
             };
             best.RerankSummary = AppendEquivalenceSummary(best.RerankSummary, best.LlmEquivalence);
         }
+    }
+
+    private static LlmEquivalenceAdjudicationResult? ProtectNormalizedMatchingKeyFromAuxiliaryContextMisjudgment(
+        MatchSource source,
+        EvaluatedCandidate candidate,
+        LlmEquivalenceAdjudicationResult? result)
+    {
+        if (result == null ||
+            result.Verdict == LlmEquivalenceVerdict.Equivalent ||
+            HasHardConflict(candidate.Issues))
+        {
+            return result;
+        }
+
+        var sameProject = string.Equals(
+            NormalizeComparableText(source.Project),
+            NormalizeComparableText(candidate.Candidate.Project),
+            StringComparison.Ordinal);
+        var sameSpecification = string.Equals(
+            NormalizeSpecificationComparableText(source.Specification),
+            NormalizeSpecificationComparableText(candidate.Candidate.Specification),
+            StringComparison.Ordinal);
+        if (!sameProject || !sameSpecification)
+            return result;
+
+        return new LlmEquivalenceAdjudicationResult
+        {
+            Verdict = LlmEquivalenceVerdict.Equivalent,
+            ReasonType = LlmEquivalenceReasonType.EquivalentExpression,
+            Confidence = 1,
+            Reason = "项目与规格规范化后完全一致；候选验收标准和备注仅作为回填上下文，不构成匹配键差异"
+        };
     }
 
 }
