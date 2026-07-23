@@ -161,6 +161,135 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Execute_ManuallyConfirmedCurrentBest_ShouldWriteOverridesDespiteAiReject()
+    {
+        var originalXlsx = CreateExcelBytes(
+        [
+            ["项目", "规格", "验收", "备注"],
+            ["装机前验机", "装机前验机", "", ""]
+        ]);
+
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(originalXlsx);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", "manual-confirmed-ai-reject.xlsx");
+
+        var uploadResp = await _client.PostAsync("/api/documents/upload", content);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var customerId = (await (await _client.PostAsync(
+                "/api/customers",
+                ApiClientJson.ToJsonContent(new { name = $"ManualConfirmedExcel-C-{suffix}" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+        var processId = (await (await _client.PostAsync(
+                "/api/processes",
+                ApiClientJson.ToJsonContent(new { name = $"ManualConfirmedExcel-P-{suffix}" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            processId,
+            project = "设备安装",
+            specification = "装机前验机",
+            acceptance = "历史验收标准",
+            remark = "历史备注"
+        }));
+        specResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var specJson = await specResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var specId = specJson.Data.GetProperty("id").GetInt32();
+
+        var config = new
+        {
+            minScoreThreshold = 0.0,
+            highConfidenceThreshold = 1.0,
+            useLlmEntityResolution = false
+        };
+        var previewResp = await _client.PostAsync("/api/matching/batch-preview", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId,
+            processId,
+            config,
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3
+                }
+            }
+        }));
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var bestMatch = previewJson.Data.GetProperty("tables")[0].GetProperty("items")[0]
+            .GetProperty("bestMatch");
+        bestMatch.GetProperty("specId").GetInt32().Should().Be(specId);
+        bestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
+        bestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString()
+            .Should().Be("different");
+
+        var execResp = await _client.PostAsync("/api/matching/batch-execute", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId,
+            processId,
+            config,
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3,
+                    mappings = new[]
+                    {
+                        new
+                        {
+                            rowIndex = 1,
+                            specId,
+                            manualConfirmed = true,
+                            overrideAcceptance = "业务回复11",
+                            overrideRemark = "业务回复22"
+                        }
+                    }
+                }
+            }
+        }));
+        execResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var execJson = await execResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        execJson.Data.GetProperty("filledCount").GetInt32().Should().Be(1);
+        execJson.Data.GetProperty("skippedCount").GetInt32().Should().Be(0);
+        var taskId = execJson.Data.GetProperty("taskId").GetString();
+        taskId.Should().NotBeNullOrWhiteSpace();
+
+        var downloadResp = await _client.GetAsync($"/api/matching/download/{taskId}");
+        downloadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        await using var downloadStream = await downloadResp.Content.ReadAsStreamAsync();
+        using var downloadedWorkbook = new XLWorkbook(downloadStream);
+        var downloadedRow = downloadedWorkbook.Worksheet(1).Row(2);
+        downloadedRow.Cell(3).GetString().Should().Be("业务回复11");
+        downloadedRow.Cell(4).GetString().Should().Be("业务回复22");
+
+        var previewAfterFillResp = await _client.GetAsync(
+            $"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+        previewAfterFillResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewAfterFillJson = await previewAfterFillResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var filledRow = previewAfterFillJson.Data.GetProperty("rows")[0];
+        filledRow[2].GetString().Should().Be("业务回复11");
+        filledRow[3].GetString().Should().Be("业务回复22");
+    }
+
+    [Fact]
     public async Task MultiRegionExcel_WithDifferentTargetColumns_ShouldWriteEachRegionToItsOwnColumns()
     {
         var originalXlsx = CreateExcelBytes(

@@ -49,6 +49,14 @@ public sealed partial class MatchingWorkflowSupportService
             return false;
         }
 
+        // 人工确认表示用户已经复核并接受服务器当前重新计算出的最佳匹配。
+        // 规格 ID 一致性检查必须先保留，避免客户端伪造确认其他候选；
+        // 但确认后不应再被 AI 的拒绝/不确定结论阻止写入 Excel。
+        if (mapping.ManualConfirmed)
+        {
+            return true;
+        }
+
         if (currentMatch.Decision == MatchDecision.Reject)
         {
             return false;
@@ -57,11 +65,6 @@ public sealed partial class MatchingWorkflowSupportService
         if (RequiresManualReviewByEquivalenceVerdict(currentMatch.LlmEquivalence?.Verdict.ToString()))
         {
             return false;
-        }
-
-        if (mapping.ManualConfirmed)
-        {
-            return true;
         }
 
         if (currentMatch.Decision == MatchDecision.AutoApply)
