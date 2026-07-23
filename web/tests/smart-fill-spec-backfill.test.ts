@@ -32,6 +32,7 @@ test("smart-fill 执行填充前应弹出编辑值回填确认框", () => {
   assert.match(matchPreviewTableSource, /getEditedBackfillItems/);
   assert.match(batchPreviewTabsSource, /getAllEditedBackfillItems/);
   assert.match(backfillDialogSource, /回填验收规格/);
+  assert.match(backfillDialogSource, /align-center/);
   assert.match(backfillDialogSource, /不回填，仅执行填充/);
   assert.match(backfillDialogSource, /确认回填并执行填充/);
   assert.match(backfillDialogSource, /getBackfillCandidateRowKey/);

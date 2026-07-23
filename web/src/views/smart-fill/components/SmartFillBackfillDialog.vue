@@ -29,6 +29,7 @@ const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
     :model-value="visible"
     title="回填验收规格"
     width="1080px"
+    align-center
     :close-on-click-modal="false"
     @update:model-value="emit('update:visible', $event)"
   >
