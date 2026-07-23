@@ -202,19 +202,16 @@ const getMatchOriginText = (matchOrigin: string) => {
           <el-table-column
             prop="sourceProject"
             label="项目"
-            min-width="min(140px, calc(100vw - 32px))"
+            min-width="140"
             show-overflow-tooltip
           />
           <el-table-column
             prop="sourceSpecification"
             label="规格"
-            min-width="min(180px, calc(100vw - 32px))"
+            min-width="180"
             show-overflow-tooltip
           />
-          <el-table-column
-            label="匹配来源"
-            width="min(110px, calc(100vw - 32px))"
-          >
+          <el-table-column label="匹配来源" width="110">
             <template #default="{ row }">
               {{ getMatchOriginText(row.matchOrigin) }}
             </template>
@@ -222,19 +219,16 @@ const getMatchOriginText = (matchOrigin: string) => {
           <el-table-column
             prop="executionSnapshot.finalAcceptance"
             label="最终验收"
-            min-width="min(180px, calc(100vw - 32px))"
+            min-width="180"
             show-overflow-tooltip
           />
           <el-table-column
             prop="executionSnapshot.finalRemark"
             label="最终备注"
-            min-width="min(160px, calc(100vw - 32px))"
+            min-width="160"
             show-overflow-tooltip
           />
-          <el-table-column
-            label="标签"
-            min-width="min(220px, calc(100vw - 32px))"
-          >
+          <el-table-column label="标签" min-width="220">
             <template #default="{ row }">
               <div class="tag-list">
                 <el-tag
@@ -248,7 +242,7 @@ const getMatchOriginText = (matchOrigin: string) => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="min(100px, calc(100vw - 32px))">
+          <el-table-column label="状态" width="100">
             <template #default="{ row }">
               <el-tag :type="getStatusType(row.status)">
                 {{ getStatusText(row.status) }}

@@ -128,30 +128,27 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                     <el-table-column
                       prop="project"
                       label="项目"
-                      min-width="min(140px, calc(100vw - 32px))"
+                      min-width="140"
                     />
                     <el-table-column
                       prop="specification"
                       label="规格内容"
-                      min-width="min(280px, calc(100vw - 32px))"
+                      min-width="280"
                       show-overflow-tooltip
                     />
                     <el-table-column
                       prop="acceptance"
                       label="验收标准"
-                      min-width="min(180px, calc(100vw - 32px))"
+                      min-width="180"
                       show-overflow-tooltip
                     />
                     <el-table-column
                       prop="remark"
                       label="备注"
-                      min-width="min(160px, calc(100vw - 32px))"
+                      min-width="160"
                       show-overflow-tooltip
                     />
-                    <el-table-column
-                      label="导入时间"
-                      width="min(180px, calc(100vw - 32px))"
-                    >
+                    <el-table-column label="导入时间" width="180">
                       <template #default="{ row }">
                         {{ formatImportedAt(row.importedAt) }}
                       </template>
@@ -207,30 +204,27 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                     <el-table-column
                       prop="project"
                       label="项目"
-                      min-width="min(140px, calc(100vw - 32px))"
+                      min-width="140"
                     />
                     <el-table-column
                       prop="specification"
                       label="规格内容"
-                      min-width="min(280px, calc(100vw - 32px))"
+                      min-width="280"
                       show-overflow-tooltip
                     />
                     <el-table-column
                       prop="acceptance"
                       label="验收标准"
-                      min-width="min(180px, calc(100vw - 32px))"
+                      min-width="180"
                       show-overflow-tooltip
                     />
                     <el-table-column
                       prop="remark"
                       label="备注"
-                      min-width="min(160px, calc(100vw - 32px))"
+                      min-width="160"
                       show-overflow-tooltip
                     />
-                    <el-table-column
-                      label="导入时间"
-                      width="min(180px, calc(100vw - 32px))"
-                    >
+                    <el-table-column label="导入时间" width="180">
                       <template #default="{ row }">
                         {{ formatImportedAt(row.importedAt) }}
                       </template>

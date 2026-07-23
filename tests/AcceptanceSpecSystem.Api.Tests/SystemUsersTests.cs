@@ -47,7 +47,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
             ApiClientJson.ToJsonContent(new
             {
                 username = "test_user_01",
-                password = "User@1234567",
+                password = "1234",
                 nickname = "测试用户",
                 avatar = "",
                 roleCode = "common",
@@ -61,18 +61,33 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
         created.Data!.GetProperty("roleCode").GetString().Should().Be("common");
         var userId = created.Data!.GetProperty("id").GetInt32();
 
+        using var initialLoginRequest = AuthCookieTestHelper.CreateLoginRequest(
+            "test_user_01", "1234");
+        using var initialLoginResp = await _client.SendAsync(initialLoginRequest);
+        initialLoginResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
         var resetResp = await _client.PutAsync(
             $"/api/system-users/{userId}/password",
-            ApiClientJson.ToJsonContent(new { newPassword = "User@6543217" }));
+            ApiClientJson.ToJsonContent(new { newPassword = "5678" }));
         resetResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var sessions = await dbContext.AuthRefreshSessions
+                .Where(session => session.UserId == userId)
+                .ToListAsync();
+            sessions.Should().NotBeEmpty();
+            sessions.Should().OnlyContain(session => session.Status == AuthRefreshSessionStatus.Revoked);
+        }
+
         using var oldLoginRequest = AuthCookieTestHelper.CreateLoginRequest(
-            "test_user_01", "User@1234567");
+            "test_user_01", "1234");
         var oldLoginResp = await _client.SendAsync(oldLoginRequest);
         oldLoginResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         using var newLoginRequest = AuthCookieTestHelper.CreateLoginRequest(
-            "test_user_01", "User@6543217");
+            "test_user_01", "5678");
         var newLoginResp = await _client.SendAsync(newLoginRequest);
         newLoginResp.StatusCode.Should().Be(HttpStatusCode.OK);
     }

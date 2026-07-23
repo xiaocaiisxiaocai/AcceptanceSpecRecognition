@@ -443,42 +443,28 @@ onMounted(initPage);
 
       <el-table v-loading="loading" :data="roles" stripe>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column
-          prop="code"
-          label="角色编码"
-          min-width="min(160px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          prop="name"
-          label="角色名称"
-          min-width="min(140px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          label="内置角色"
-          width="min(110px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="code" label="角色编码" min-width="160" />
+        <el-table-column prop="name" label="角色名称" min-width="140" />
+        <el-table-column label="内置角色" width="110">
           <template #default="{ row }">
             <el-tag :type="row.isBuiltIn ? 'warning' : 'info'">
               {{ row.isBuiltIn ? "是" : "否" }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="min(100px, calc(100vw - 32px))">
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.isActive ? 'success' : 'info'">
               {{ row.isActive ? "启用" : "停用" }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="权限数" width="min(100px, calc(100vw - 32px))">
+        <el-table-column label="权限数" width="100">
           <template #default="{ row }">
             {{ row.permissionCodes?.length ?? 0 }}
           </template>
         </el-table-column>
-        <el-table-column
-          label="验收规格数据范围"
-          min-width="min(280px, calc(100vw - 32px))"
-        >
+        <el-table-column label="验收规格数据范围" min-width="280">
           <template #default="{ row }">
             {{ formatScopeSummary(row) }}
           </template>
@@ -486,14 +472,10 @@ onMounted(initPage);
         <el-table-column
           prop="description"
           label="描述"
-          min-width="min(220px, calc(100vw - 32px))"
+          min-width="220"
           show-overflow-tooltip
         />
-        <el-table-column
-          label="操作"
-          width="min(220px, calc(100vw - 32px))"
-          fixed="right"
-        >
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button
               v-perms="'btn:auth-role:update'"

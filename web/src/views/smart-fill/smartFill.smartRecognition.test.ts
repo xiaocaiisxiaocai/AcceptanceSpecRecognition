@@ -139,7 +139,7 @@ describe("smartFill.smartRecognition", () => {
     expect(synced.regions?.[1].regionId).toBe("region-1");
   });
 
-  it("仅后端明确判定可直达且推荐的表才默认勾选", () => {
+  it("推荐且可处理的表默认勾选，待确认表交由批量主操作确认学习", () => {
     expect(
       shouldSelectSmartFillTableByDefault(
         recognizedTable({
@@ -153,8 +153,26 @@ describe("smartFill.smartRecognition", () => {
       shouldSelectSmartFillTableByDefault(
         recognizedTable({
           decision: "NeedConfirm",
+          recommendation: "Recommended",
+          confidence: 0.8
+        })
+      )
+    ).toBe(true);
+    expect(
+      shouldSelectSmartFillTableByDefault(
+        recognizedTable({
+          decision: "NeedConfirm",
           recommendation: "Optional",
-          confidence: 0
+          confidence: 0.8
+        })
+      )
+    ).toBe(false);
+    expect(
+      shouldSelectSmartFillTableByDefault(
+        recognizedTable({
+          decision: "Reject",
+          recommendation: "Recommended",
+          confidence: 0.9
         })
       )
     ).toBe(false);

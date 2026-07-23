@@ -97,7 +97,8 @@ public class AuthController : ControllerBase
             Username = access.Username,
             PermissionVersion = access.PermissionVersion,
             RoleCode = access.RoleCode,
-            Permissions = permissions
+            Permissions = permissions,
+            AuthorizationValidUntil = access.AuthorizationValidUntil
         };
         var pair = _authTokenService.CreateTokenPair(tokenUser);
         await _refreshSessions.CreateAsync(
@@ -152,7 +153,10 @@ public class AuthController : ControllerBase
         var access = await _authAccessService.GetByUserIdAsync(rotation.UserId.Value, cancellationToken);
         HttpContext.Items["AuditUsername"] = access?.Username;
 
-        if (access == null || !access.IsActive)
+        if (access == null || !access.IsActive ||
+            string.IsNullOrWhiteSpace(access.RoleCode) || !access.OrgUnitId.HasValue ||
+            (access.AuthorizationValidUntil.HasValue &&
+             access.AuthorizationValidUntil.Value <= DateTime.UtcNow))
         {
             await _refreshSessions.RevokeByTokenAsync(rotation.ReplacementToken, "access-context-invalid", cancellationToken);
             _browserSecurity.ClearSessionCookies(Response);
@@ -166,7 +170,8 @@ public class AuthController : ControllerBase
             Username = access.Username,
             PermissionVersion = access.PermissionVersion,
             RoleCode = access.RoleCode,
-            Permissions = access.Permissions.ToList()
+            Permissions = access.Permissions.ToList(),
+            AuthorizationValidUntil = access.AuthorizationValidUntil
         });
         _browserSecurity.WriteSessionCookies(Response, rotation.ReplacementToken, rotation.ReplacementExpiresAt.Value);
         return Ok(new FrontendAuthResponse<RefreshTokenSuccessData>

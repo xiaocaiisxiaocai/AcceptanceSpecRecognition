@@ -14,6 +14,9 @@ public interface IAuthRefreshSessionService
     Task<RefreshSessionRotationResult> RotateAsync(string refreshToken, CancellationToken cancellationToken);
     Task RevokeByTokenAsync(string refreshToken, string reason, CancellationToken cancellationToken);
     Task RevokeUserSessionsAsync(int userId, string reason, CancellationToken cancellationToken);
+    Task RevokeUserSessionsAsync(IReadOnlyCollection<int> userIds, string reason, CancellationToken cancellationToken);
+    Task<int> DeleteExpiredBeforeAsync(DateTime beforeTime, int batchSize, CancellationToken cancellationToken);
+    Task<int> DeleteOverflowAsync(int maxRecordCount, int batchSize, CancellationToken cancellationToken);
 }
 
 public sealed record RefreshSessionRotationResult(
@@ -161,6 +164,63 @@ public sealed class AuthRefreshSessionService : IAuthRefreshSessionService
                 .SetProperty(item => item.Status, AuthRefreshSessionStatus.Revoked)
                 .SetProperty(item => item.RevokedAt, now)
                 .SetProperty(item => item.RevocationReason, reason), cancellationToken);
+    }
+
+    public Task RevokeUserSessionsAsync(
+        IReadOnlyCollection<int> userIds,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        if (userIds.Count == 0)
+            return Task.CompletedTask;
+
+        var now = DateTime.UtcNow;
+        return _db.AuthRefreshSessions
+            .Where(item => userIds.Contains(item.UserId) && item.Status == AuthRefreshSessionStatus.Active)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.Status, AuthRefreshSessionStatus.Revoked)
+                .SetProperty(item => item.RevokedAt, now)
+                .SetProperty(item => item.RevocationReason, reason), cancellationToken);
+    }
+
+    public async Task<int> DeleteExpiredBeforeAsync(
+        DateTime beforeTime,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        batchSize = Math.Clamp(batchSize, 1, 1000);
+        var expired = await _db.AuthRefreshSessions
+            .Where(item => item.ExpiresAt < beforeTime)
+            .OrderBy(item => item.Id)
+            .Take(batchSize)
+            .ToListAsync(cancellationToken);
+        if (expired.Count == 0)
+            return 0;
+
+        _db.AuthRefreshSessions.RemoveRange(expired);
+        await _db.SaveChangesAsync(cancellationToken);
+        return expired.Count;
+    }
+
+    public async Task<int> DeleteOverflowAsync(
+        int maxRecordCount,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        maxRecordCount = Math.Max(1, maxRecordCount);
+        batchSize = Math.Clamp(batchSize, 1, 1000);
+        var total = await _db.AuthRefreshSessions.CountAsync(cancellationToken);
+        if (total <= maxRecordCount)
+            return 0;
+
+        var overflow = await _db.AuthRefreshSessions
+            .OrderBy(item => item.CreatedAt)
+            .ThenBy(item => item.Id)
+            .Take(Math.Min(batchSize, total - maxRecordCount))
+            .ToListAsync(cancellationToken);
+        _db.AuthRefreshSessions.RemoveRange(overflow);
+        await _db.SaveChangesAsync(cancellationToken);
+        return overflow.Count;
     }
 
     private Task RevokeFamilyCoreAsync(string familyId, string reason, CancellationToken cancellationToken)

@@ -57,27 +57,15 @@ defineEmits<{
       />
 
       <el-table class="preview-table" :data="resultFiles" border>
-        <el-table-column
-          prop="fileName"
-          label="文件名"
-          min-width="min(280px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          label="结果"
-          width="min(120px, calc(100vw - 32px))"
-          align="center"
-        >
+        <el-table-column prop="fileName" label="文件名" min-width="280" />
+        <el-table-column label="结果" width="120" align="center">
           <template #default="{ row }">
             <el-tag :type="row.success ? 'success' : 'danger'">
               {{ row.success ? "成功" : "失败" }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column
-          prop="message"
-          label="说明"
-          min-width="min(320px, calc(100vw - 32px))"
-        />
+        <el-table-column prop="message" label="说明" min-width="320" />
       </el-table>
     </template>
   </el-card>

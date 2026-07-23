@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import {
   CircleCheckFilled,
   CircleCloseFilled,
   Loading,
   UploadFilled
 } from "@element-plus/icons-vue";
-import type { UploadRequestOptions } from "element-plus";
+import type { UploadInstance, UploadRequestOptions } from "element-plus";
 import { useAppUploadTask, type AppUploadRequest } from "./useAppUploadTask";
 
 const props = withDefaults(
@@ -36,6 +36,12 @@ const props = withDefaults(
 const emit = defineEmits<{
   cancel: [];
 }>();
+
+type UploadInstanceWithElement = UploadInstance & {
+  $el?: HTMLElement;
+};
+
+const uploadRef = ref<UploadInstanceWithElement | null>(null);
 
 const {
   phase,
@@ -68,6 +74,16 @@ const handleCancel = () => {
   emit("cancel");
 };
 
+const openFileDialog = () => {
+  const root = uploadRef.value?.$el as HTMLElement | undefined;
+  const input = root?.querySelector<HTMLInputElement>('input[type="file"]');
+  if (!input || input.disabled) return;
+
+  // 允许用户连续选择同一个文件；否则浏览器不会再次触发 change。
+  input.value = "";
+  input.click();
+};
+
 const statusTitle = computed(() => {
   if (phase.value === "uploading") return "正在上传文件";
   if (phase.value === "processing") return "文件已上传，正在解析结构";
@@ -85,6 +101,7 @@ onBeforeUnmount(cancel);
       <span>{{ headerTitle }}</span>
     </div>
     <el-upload
+      ref="uploadRef"
       class="app-upload-area"
       drag
       :show-file-list="false"
@@ -103,7 +120,16 @@ onBeforeUnmount(cancel);
         <UploadFilled v-else />
       </el-icon>
       <div v-if="phase === 'idle'" class="el-upload__text">
-        {{ dragText }}<em>点击上传</em>
+        <span>{{ dragText }}</span>
+        <el-button
+          class="upload-select-button"
+          type="primary"
+          link
+          aria-label="选择文件"
+          @click.stop="openFileDialog"
+        >
+          选择文件
+        </el-button>
       </div>
       <div v-else class="upload-status" aria-live="polite">
         <strong>{{ statusTitle }}</strong>
@@ -165,12 +191,26 @@ onBeforeUnmount(cancel);
   justify-content: center;
   width: 100%;
   min-height: v-bind(minHeightClass);
+  cursor: pointer;
+  user-select: none;
   background: var(--app-bg-card);
   border-color: var(--app-border);
   border-radius: 12px;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
+}
+
+.el-upload__text {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.upload-select-button {
+  padding: 0;
+  font: inherit;
+  vertical-align: baseline;
 }
 
 .app-upload-area :deep(.el-upload-dragger:hover) {

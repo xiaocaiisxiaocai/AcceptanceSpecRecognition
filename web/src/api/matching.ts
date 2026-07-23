@@ -623,10 +623,14 @@ export const backfillSmartFillSpecs = (data: SmartFillSpecBackfillRequest) => {
   );
 };
 
-export const getBatchPreviewProgress = (requestId: string) => {
+export const getBatchPreviewProgress = (
+  requestId: string,
+  options: { signal?: AbortSignal } = {}
+) => {
   return http.request<ApiResponse<BatchPreviewProgressResponse>>(
     "get",
-    `${baseUrl}/batch-preview-progress/${requestId}`
+    `${baseUrl}/batch-preview-progress/${requestId}`,
+    options
   );
 };
 

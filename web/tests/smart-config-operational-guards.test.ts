@@ -60,6 +60,19 @@ test("两个智能结构识别入口应默认启用并自动采用首个可用 L
   );
   assert.match(controlSource, /emit\("update:enabled", next\.enabled\)/);
   assert.match(controlSource, /emit\("update:serviceId", next\.serviceId\)/);
+  assert.match(controlSource, /createAiSelectionRetryController/);
+  assert.match(
+    controlSource,
+    /retryStatuses:\s*\["checking",\s*"unavailable"\]/
+  );
+  assert.match(
+    controlSource,
+    /delayMsByStatus:\s*\{\s*unavailable:\s*5000\s*\}/
+  );
+  assert.doesNotMatch(
+    controlSource,
+    /v-if="canConfigureAiServices && selection\.status === 'checking'"/
+  );
   assert.doesNotMatch(controlSource, /services\.value\[0\]/);
   assert.doesNotMatch(controlSource, /getAiServiceList/);
   assert.doesNotMatch(controlSource, /<el-select/);

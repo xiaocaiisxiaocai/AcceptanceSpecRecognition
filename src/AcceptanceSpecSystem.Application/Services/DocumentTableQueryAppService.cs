@@ -95,6 +95,7 @@ public sealed class DocumentTableQueryAppService : IDocumentTableQueryAppService
         if (dataEndRowIndex.HasValue && dataEndRowIndex.Value < dataStartRowIndex)
             throw new ApplicationServiceException(400, "数据结束行不能早于数据起始行");
 
+        ValidatePreviewSize(previewRows, previewColumns);
         var windowed = rowOffset.HasValue || columnOffset.HasValue || previewColumns.HasValue;
         var effectiveRowOffset = rowOffset ?? 0;
         var effectiveColumnOffset = columnOffset ?? 0;
@@ -203,10 +204,16 @@ public sealed class DocumentTableQueryAppService : IDocumentTableQueryAppService
             throw new ApplicationServiceException(400, "行偏移不能小于 0");
         if (columnOffset < 0)
             throw new ApplicationServiceException(400, "列偏移不能小于 0");
+        if (!previewColumns.HasValue)
+            throw new ApplicationServiceException(400, $"预览列数必须在 1 到 {IDocumentTableQueryAppService.MaxPreviewWindowColumns} 之间");
+    }
+
+    public static void ValidatePreviewSize(int previewRows, int? previewColumns = null)
+    {
         if (previewRows <= 0 || previewRows > IDocumentTableQueryAppService.MaxPreviewWindowRows)
             throw new ApplicationServiceException(400, $"预览行数必须在 1 到 {IDocumentTableQueryAppService.MaxPreviewWindowRows} 之间");
-        if (!previewColumns.HasValue || previewColumns.Value <= 0 ||
-            previewColumns.Value > IDocumentTableQueryAppService.MaxPreviewWindowColumns)
+        if (previewColumns.HasValue && (previewColumns.Value <= 0 ||
+            previewColumns.Value > IDocumentTableQueryAppService.MaxPreviewWindowColumns))
             throw new ApplicationServiceException(400, $"预览列数必须在 1 到 {IDocumentTableQueryAppService.MaxPreviewWindowColumns} 之间");
     }
 
@@ -250,7 +257,8 @@ public sealed class DocumentTableQueryAppService : IDocumentTableQueryAppService
 
     public static TableDataDto MapPreview(TableData tableData, int previewRows, int? previewRangeRowCount)
     {
-        var rows = (previewRows <= 0 ? tableData.Rows : tableData.Rows.Take(previewRows)).ToList();
+        ValidatePreviewSize(previewRows);
+        var rows = tableData.Rows.Take(previewRows).ToList();
         var totalRows = tableData.TotalDataRowCount ?? tableData.Rows.Count;
         if (previewRangeRowCount.HasValue)
             totalRows = Math.Max(0, Math.Min(totalRows, previewRangeRowCount.Value));
@@ -258,11 +266,11 @@ public sealed class DocumentTableQueryAppService : IDocumentTableQueryAppService
         return new TableDataDto
         {
             TableIndex = tableData.TableIndex,
-            Headers = tableData.Headers.ToList(),
-            Rows = rows.Select(row => row.Cells.Select(FormatPreviewCellText).ToList()).ToList(),
-            StructuredRows = rows.Select(row => row.Cells.Select(cell => MapStructuredCellValue(cell.StructuredValue)).ToList()).ToList(),
+            Headers = tableData.Headers.Take(IDocumentTableQueryAppService.MaxPreviewWindowColumns).ToList(),
+            Rows = rows.Select(row => row.Cells.Take(IDocumentTableQueryAppService.MaxPreviewWindowColumns).Select(FormatPreviewCellText).ToList()).ToList(),
+            StructuredRows = rows.Select(row => row.Cells.Take(IDocumentTableQueryAppService.MaxPreviewWindowColumns).Select(cell => MapStructuredCellValue(cell.StructuredValue)).ToList()).ToList(),
             TotalRows = totalRows,
-            ColumnCount = tableData.ColumnCount,
+            ColumnCount = Math.Min(tableData.ColumnCount, IDocumentTableQueryAppService.MaxPreviewWindowColumns),
             RowOffset = 0,
             ColumnOffset = 0,
             TotalColumns = tableData.ColumnCount

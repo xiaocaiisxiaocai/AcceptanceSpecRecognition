@@ -68,13 +68,20 @@ public class FileCompareService : IFileCompareService
 {
     private const long MaxLcsMatrixCells = 250_000;
     private const int ChunkLookAhead = 80;
+    private const int MaxCompareRowsPerSheet = 20_000;
+    private const int MaxCompareColumnsPerSheet = 100;
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IFileStorageService _fileStorage;
+    private readonly IResourceBudgetGovernor _resourceBudgetGovernor;
 
-    public FileCompareService(DocumentServiceFactory documentServiceFactory, IFileStorageService fileStorage)
+    public FileCompareService(
+        DocumentServiceFactory documentServiceFactory,
+        IFileStorageService fileStorage,
+        IResourceBudgetGovernor resourceBudgetGovernor)
     {
         _documentServiceFactory = documentServiceFactory;
         _fileStorage = fileStorage;
+        _resourceBudgetGovernor = resourceBudgetGovernor;
     }
 
     public async Task<FileCompareResult> CompareAsync(WordFile fileA, WordFile fileB, CancellationToken cancellationToken = default)
@@ -82,43 +89,51 @@ public class FileCompareService : IFileCompareService
         if (fileA.FileType != fileB.FileType)
             throw new InvalidOperationException("仅支持同类型文件对比");
 
+        await using var documentA = await MaterializedDocument.CreateAsync(
+            fileA, _fileStorage, _resourceBudgetGovernor, cancellationToken);
+        await using var documentB = await MaterializedDocument.CreateAsync(
+            fileB, _fileStorage, _resourceBudgetGovernor, cancellationToken);
+        using var parseLease = await _resourceBudgetGovernor.AcquireAsync(
+            ResourceWorkload.DocumentParsing,
+            cancellationToken);
+
         return fileA.FileType switch
         {
-            UploadedFileType.WordDocx => await CompareWordAsync(fileA, fileB, cancellationToken),
-            UploadedFileType.ExcelXlsx => await CompareExcelAsync(fileA, fileB, cancellationToken),
+            UploadedFileType.WordDocx => await CompareWordAsync(documentA.Path, documentB.Path, cancellationToken),
+            UploadedFileType.ExcelXlsx => await CompareExcelAsync(documentA.Path, documentB.Path, cancellationToken),
             _ => throw new InvalidOperationException("不支持的文件类型")
         };
     }
 
-    private async Task<FileCompareResult> CompareWordAsync(WordFile fileA, WordFile fileB, CancellationToken cancellationToken)
+    private static Task<FileCompareResult> CompareWordAsync(
+        string pathA,
+        string pathB,
+        CancellationToken cancellationToken)
     {
-        var bytesA = await ReadFileBytesAsync(fileA, cancellationToken);
-        var bytesB = await ReadFileBytesAsync(fileB, cancellationToken);
-
-        var paragraphsA = ExtractWordParagraphs(bytesA);
-        var paragraphsB = ExtractWordParagraphs(bytesB);
+        cancellationToken.ThrowIfCancellationRequested();
+        var paragraphsA = ExtractWordParagraphs(pathA, cancellationToken);
+        var paragraphsB = ExtractWordParagraphs(pathB, cancellationToken);
         var ops = BuildParagraphDiff(paragraphsA, paragraphsB);
         var items = BuildWordDiffItems(ops);
 
-        return new FileCompareResult
+        return Task.FromResult(new FileCompareResult
         {
             FileType = UploadedFileType.WordDocx,
             Items = items,
             Hunks = BuildDiffHunks(items)
-        };
+        });
     }
 
-    private async Task<FileCompareResult> CompareExcelAsync(WordFile fileA, WordFile fileB, CancellationToken cancellationToken)
+    private async Task<FileCompareResult> CompareExcelAsync(string pathA, string pathB, CancellationToken cancellationToken)
     {
         var parser = _documentServiceFactory.GetParser(CoreDocumentType.Excel);
         if (parser == null)
             throw new InvalidOperationException("文档解析器不可用");
 
-        var bytesA = await ReadFileBytesAsync(fileA, cancellationToken);
-        var bytesB = await ReadFileBytesAsync(fileB, cancellationToken);
-
-        var sheetsA = await parser.GetTablesAsync(new MemoryStream(bytesA), cancellationToken);
-        var sheetsB = await parser.GetTablesAsync(new MemoryStream(bytesB), cancellationToken);
+        var sheetsA = await parser.GetTablesAsync(pathA, cancellationToken);
+        var sheetsB = await parser.GetTablesAsync(pathB, cancellationToken);
+        ValidateCompareDimensions(sheetsA);
+        ValidateCompareDimensions(sheetsB);
         var max = Math.Max(sheetsA.Count, sheetsB.Count);
 
         var mapping = new ColumnMapping
@@ -141,15 +156,17 @@ public class FileCompareService : IFileCompareService
 
             if (infoA != null)
                 tableA = await parser.ExtractTableDataAsync(
-                    new MemoryStream(bytesA),
+                    pathA,
                     sheetIndex,
                     mapping,
+                    MaxCompareRowsPerSheet,
                     cancellationToken: cancellationToken);
             if (infoB != null)
                 tableB = await parser.ExtractTableDataAsync(
-                    new MemoryStream(bytesB),
+                    pathB,
                     sheetIndex,
                     mapping,
+                    MaxCompareRowsPerSheet,
                     cancellationToken: cancellationToken);
 
             var mapA = BuildExcelCellMap(tableA, infoA);
@@ -198,18 +215,25 @@ public class FileCompareService : IFileCompareService
         };
     }
 
-    private async Task<byte[]> ReadFileBytesAsync(WordFile file, CancellationToken cancellationToken)
+    private static void ValidateCompareDimensions(IReadOnlyList<TableInfo> sheets)
     {
-        if (!string.IsNullOrWhiteSpace(file.FilePath))
+        foreach (var sheet in sheets)
         {
-            var fullPath = _fileStorage.GetAbsolutePath(file.FilePath);
-            if (File.Exists(fullPath))
+            if (sheet.RowCount > MaxCompareRowsPerSheet)
             {
-                return await File.ReadAllBytesAsync(fullPath, cancellationToken);
+                throw new ResourceBudgetExceededException(
+                    "file_compare_sheet_rows",
+                    sheet.RowCount,
+                    MaxCompareRowsPerSheet);
+            }
+            if (sheet.ColumnCount > MaxCompareColumnsPerSheet)
+            {
+                throw new ResourceBudgetExceededException(
+                    "file_compare_sheet_columns",
+                    sheet.ColumnCount,
+                    MaxCompareColumnsPerSheet);
             }
         }
-
-        return file.FileContent ?? Array.Empty<byte>();
     }
 
     private static Dictionary<WordCellKey, string> BuildCellMap(TableData? tableData)
@@ -234,11 +258,10 @@ public class FileCompareService : IFileCompareService
         return map;
     }
 
-    private static List<string> ExtractWordParagraphs(byte[] bytes)
+    private static List<string> ExtractWordParagraphs(string path, CancellationToken cancellationToken)
     {
         var list = new List<string>();
-        using var stream = new MemoryStream(bytes);
-        using var doc = WordprocessingDocument.Open(stream, false);
+        using var doc = WordprocessingDocument.Open(path, false);
         var body = doc.MainDocumentPart?.Document?.Body;
         if (body == null)
             return list;
@@ -247,6 +270,7 @@ public class FileCompareService : IFileCompareService
 
         foreach (var paragraph in body.Descendants<Paragraph>())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var text = GetParagraphPlainText(paragraph).Trim();
             if (string.IsNullOrWhiteSpace(text))
                 continue;
@@ -725,4 +749,61 @@ public class FileCompareService : IFileCompareService
     }
 
     private readonly record struct WordCellKey(int RowIndex, int ColumnIndex);
+
+    private sealed class MaterializedDocument : IAsyncDisposable
+    {
+        private readonly bool _ownsPath;
+
+        private MaterializedDocument(string path, bool ownsPath)
+        {
+            Path = path;
+            _ownsPath = ownsPath;
+        }
+
+        public string Path { get; }
+
+        public static async Task<MaterializedDocument> CreateAsync(
+            WordFile file,
+            IFileStorageService fileStorage,
+            IResourceBudgetGovernor resourceBudgetGovernor,
+            CancellationToken cancellationToken)
+        {
+            if (!string.IsNullOrWhiteSpace(file.FilePath))
+            {
+                var storedPath = fileStorage.GetAbsolutePath(file.FilePath);
+                if (File.Exists(storedPath))
+                {
+                    resourceBudgetGovernor.ValidateDocumentSize(new FileInfo(storedPath).Length);
+                    return new MaterializedDocument(storedPath, ownsPath: false);
+                }
+            }
+
+            var content = file.FileContent ?? Array.Empty<byte>();
+            resourceBudgetGovernor.ValidateDocumentSize(content.LongLength);
+            var extension = file.FileType == UploadedFileType.ExcelXlsx ? ".xlsx" : ".docx";
+            var temporaryPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"acceptance-file-compare-{Guid.NewGuid():N}{extension}");
+            try
+            {
+                await File.WriteAllBytesAsync(temporaryPath, content, cancellationToken);
+                return new MaterializedDocument(temporaryPath, ownsPath: true);
+            }
+            catch
+            {
+                File.Delete(temporaryPath);
+                throw;
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            if (_ownsPath)
+            {
+                File.Delete(Path);
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
 }

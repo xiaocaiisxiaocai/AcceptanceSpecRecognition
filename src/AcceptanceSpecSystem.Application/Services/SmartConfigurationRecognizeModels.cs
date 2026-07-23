@@ -62,6 +62,8 @@ public sealed record SmartConfigurationRecognizedTable
 
     public List<SmartConfigurationRecognizedField> Fields { get; init; } = [];
 
+    public List<SmartConfigurationFieldConflict> FieldConflicts { get; init; } = [];
+
     public List<SmartConfigurationColumnSemanticRecallSuggestion> SemanticRecallSuggestions { get; init; } = [];
 
     public List<SmartConfigurationRecognizedRegion> Regions { get; init; } = [];
@@ -102,6 +104,8 @@ public sealed record SmartConfigurationRecognizedRegion
     public List<SmartConfigurationRecognitionIssue> Issues { get; init; } = [];
 
     public List<SmartConfigurationRecognizedField> Fields { get; init; } = [];
+
+    public List<SmartConfigurationFieldConflict> FieldConflicts { get; init; } = [];
 }
 public sealed class SmartConfigurationRecognitionIssue
 {
@@ -125,6 +129,28 @@ public sealed class SmartConfigurationRecognizedField
     public double Confidence { get; init; }
 
     public string Source { get; init; } = string.Empty;
+}
+
+public sealed class SmartConfigurationFieldConflict
+{
+    public string Field { get; init; } = string.Empty;
+
+    public int? RecommendedColumnIndex { get; init; }
+
+    public List<SmartConfigurationFieldCandidate> Candidates { get; init; } = [];
+}
+
+public sealed class SmartConfigurationFieldCandidate
+{
+    public int ColumnIndex { get; init; }
+
+    public string Header { get; init; } = string.Empty;
+
+    public double Confidence { get; init; }
+
+    public bool IsRecommended { get; init; }
+
+    public List<string> Samples { get; init; } = [];
 }
 
 public sealed class SmartConfigurationColumnSemanticRecallSuggestion

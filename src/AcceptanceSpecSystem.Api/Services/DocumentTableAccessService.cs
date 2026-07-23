@@ -108,13 +108,14 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         int? dataEndRowIndex = null,
         CancellationToken cancellationToken = default)
     {
+        DocumentTableQueryAppService.ValidatePreviewSize(previewRows);
         if (dataEndRowIndex.HasValue && dataEndRowIndex.Value < dataStartRowIndex)
             throw new ApplicationServiceException(400, "数据结束行不能早于数据起始行");
 
         var previewRangeRowCount = dataEndRowIndex.HasValue
             ? dataEndRowIndex.Value - dataStartRowIndex + 1
             : (int?)null;
-        var maxDataRowCount = previewRows > 0 ? previewRows : (int?)null;
+        int? maxDataRowCount = previewRows;
         if (previewRangeRowCount.HasValue)
         {
             maxDataRowCount = maxDataRowCount.HasValue

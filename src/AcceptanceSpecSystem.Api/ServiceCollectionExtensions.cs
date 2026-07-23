@@ -37,6 +37,10 @@ public static class ApiServiceCollectionExtensions
             configuration.GetSection(BrowserAuthOptions.SectionName));
         services.Configure<AuditLogOptions>(
             configuration.GetSection(AuditLogOptions.SectionName));
+        services.Configure<ExecutionHistoryRetentionOptions>(
+            configuration.GetSection(ExecutionHistoryRetentionOptions.SectionName));
+        services.Configure<AuthRefreshSessionRetentionOptions>(
+            configuration.GetSection(AuthRefreshSessionRetentionOptions.SectionName));
         services.Configure<EmbeddingCacheCleanupOptions>(
             configuration.GetSection(EmbeddingCacheCleanupOptions.SectionName));
         services.Configure<EmbeddingCacheWarmupOptions>(
@@ -76,8 +80,8 @@ public static class ApiServiceCollectionExtensions
         services.AddOptions<DashboardOptions>()
             .Bind(configuration.GetSection(DashboardOptions.SectionName))
             .Validate(options => !string.IsNullOrWhiteSpace(options.TimeZoneId), "Dashboard 时区不能为空")
-            .Validate(options => TryResolveDashboardTimeZone(options.TimeZoneId, out var zone) && !zone.SupportsDaylightSavingTime,
-                "Dashboard 时区必须有效且不能使用夏令时")
+            .Validate(options => DashboardTimeZoneResolver.TryResolveFixedOffset(options.TimeZoneId, out _),
+                "Dashboard 时区必须有效，且当前业务统计窗口内 UTC 偏移必须保持稳定")
             .ValidateOnStart();
         services.Configure<SmartConfigurationOptions>(
             configuration.GetSection(SmartConfigurationOptions.SectionName));
@@ -193,6 +197,8 @@ public static class ApiServiceCollectionExtensions
 
         // ── 后台服务 ──
         services.AddHostedService<AuditLogCleanupService>();
+        services.AddHostedService<ExecutionHistoryCleanupService>();
+        services.AddHostedService<AuthRefreshSessionCleanupService>();
         services.AddHostedService<EmbeddingCacheCleanupService>();
         services.AddHostedService<EmbeddingCacheWarmupService>();
         services.AddHostedService<DatabaseBackupService>();
@@ -201,24 +207,6 @@ public static class ApiServiceCollectionExtensions
         services.AddHostedService<OrphanFileInspectionHostedService>();
 
         return services;
-    }
-
-    private static bool TryResolveDashboardTimeZone(string timeZoneId, out TimeZoneInfo timeZone)
-    {
-        try
-        {
-            timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId.Trim());
-            return true;
-        }
-        catch (TimeZoneNotFoundException)
-        {
-        }
-        catch (InvalidTimeZoneException)
-        {
-        }
-
-        timeZone = TimeZoneInfo.Utc;
-        return false;
     }
 
     /// <summary>

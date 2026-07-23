@@ -121,11 +121,6 @@ export function useSmartFillPreviewRequest({
       return;
     }
 
-    resetPreviewState();
-    batchPreviewResults.value = [];
-    clearPreviewDetail();
-    taskId.value = null;
-    lastDownloadFailed.value = false;
     loading.value = true;
     const previewRequestId = createPreviewRequestId();
     startPreviewProgressPolling(previewRequestId, () => loading.value);
@@ -174,6 +169,9 @@ export function useSmartFillPreviewRequest({
         }
 
         markPreviewProgressCompleted();
+        clearPreviewDetail();
+        taskId.value = null;
+        lastDownloadFailed.value = false;
         batchPreviewResults.value = res.data.tables;
         const hasPreviewRows = res.data.tables.some(
           table => table.items.length > 0

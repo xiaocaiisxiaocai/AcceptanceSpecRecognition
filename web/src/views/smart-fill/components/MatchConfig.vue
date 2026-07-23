@@ -5,6 +5,7 @@ import {
   onBeforeUnmount,
   onDeactivated,
   onMounted,
+  nextTick,
   ref,
   watch
 } from "vue";
@@ -147,6 +148,43 @@ const syncMatchConfigField = <K extends keyof MatchConfig>(
 // 高级选项展开
 const showMatchingAdvanced = ref(false);
 const showAdvanced = ref(false);
+let revealExpandedSectionTimer: number | undefined;
+
+const cancelExpandedSectionReveal = () => {
+  if (revealExpandedSectionTimer == null) return;
+  window.clearTimeout(revealExpandedSectionTimer);
+  revealExpandedSectionTimer = undefined;
+};
+
+const revealExpandedSection = async (elementId: string) => {
+  await nextTick();
+  cancelExpandedSectionReveal();
+  revealExpandedSectionTimer = window.setTimeout(() => {
+    document.getElementById(elementId)?.scrollIntoView({
+      block: "start",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth"
+    });
+    revealExpandedSectionTimer = undefined;
+  }, 320);
+};
+
+const toggleMatchingAdvanced = () => {
+  cancelExpandedSectionReveal();
+  showMatchingAdvanced.value = !showMatchingAdvanced.value;
+  if (showMatchingAdvanced.value) {
+    void revealExpandedSection("matching-advanced-options");
+  }
+};
+
+const toggleLlmAdvanced = () => {
+  cancelExpandedSectionReveal();
+  showAdvanced.value = !showAdvanced.value;
+  if (showAdvanced.value) {
+    void revealExpandedSection("llm-review-options");
+  }
+};
 
 // 标记：正在从内部更新到外部，避免回写时触发整体替换
 let isInternalUpdate = false;
@@ -394,6 +432,7 @@ onBeforeUnmount(() => {
   processOptionsController?.abort();
   machineModelOptionsController?.abort();
   stopAiSelectionRequests();
+  cancelExpandedSectionReveal();
 });
 
 const stopAiSelectionRequests = () => {
@@ -656,7 +695,7 @@ defineExpose({
           class="section-header section-header--button"
           :aria-expanded="showMatchingAdvanced"
           aria-controls="matching-advanced-options"
-          @click="showMatchingAdvanced = !showMatchingAdvanced"
+          @click="toggleMatchingAdvanced"
         >
           <span>
             <span class="section-title">高级匹配参数</span>
@@ -821,7 +860,7 @@ defineExpose({
         class="section-header section-header--button"
         :aria-expanded="showAdvanced"
         aria-controls="llm-review-options"
-        @click="showAdvanced = !showAdvanced"
+        @click="toggleLlmAdvanced"
       >
         <span>
           <span class="section-title">同步 LLM 复核</span>
@@ -1094,6 +1133,8 @@ export default {
 
 .advanced-options {
   padding-top: 16px;
+  scroll-margin-top: 112px;
+  scroll-margin-bottom: calc(var(--smart-fill-action-bar-height, 72px) + 16px);
 }
 
 .matching-strategy-summary {

@@ -9,8 +9,8 @@ import {
   type SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import { getRequestErrorMessage } from "@/utils/error-message";
-import { getAiServiceSelection } from "@/api/ai-service";
 import { isRuntimeAiSelectionAvailable } from "@/utils/runtime-ai-selection";
+import { waitForRuntimeAiSelection } from "@/utils/runtime-ai-selection-loader";
 import {
   buildSmartConfigConfirmRequest,
   createSmartStructureSummary
@@ -34,6 +34,7 @@ export function useSmartStructureRecognition() {
   );
   let recognitionRequestVersion = 0;
   let contextVersion = 0;
+  let selectionController: AbortController | undefined;
 
   const recognize = async (
     fileId: number,
@@ -44,6 +45,9 @@ export function useSmartStructureRecognition() {
     } = {}
   ) => {
     const requestVersion = ++recognitionRequestVersion;
+    selectionController?.abort();
+    const currentSelectionController = new AbortController();
+    selectionController = currentSelectionController;
     contextVersion += 1;
     activeRecognitionFileId.value = fileId;
     activeRecognitionCustomerId.value = customerId ?? null;
@@ -63,20 +67,29 @@ export function useSmartStructureRecognition() {
       let llmServiceId = options.llmServiceId;
       if (enableLlmAssistance) {
         try {
-          const selection = await getAiServiceSelection("llm");
+          const selection = await waitForRuntimeAiSelection("llm", {
+            signal: currentSelectionController.signal
+          });
           if (!isCurrentRequest()) return null;
-          if (
-            selection.code === 0 &&
-            isRuntimeAiSelectionAvailable(selection.data)
-          ) {
-            llmServiceId = selection.data.serviceId;
+          if (isRuntimeAiSelectionAvailable(selection)) {
+            llmServiceId = selection.serviceId;
           } else {
             enableLlmAssistance = false;
             llmServiceId = undefined;
-            ElMessage.warning("AI 服务尚未就绪，本次先使用规则识别");
+            ElMessage.warning(
+              selection.status === "checking"
+                ? "AI 服务仍在检测中，本次先使用规则识别"
+                : "AI 服务当前不可用，本次先使用规则识别"
+            );
           }
-        } catch {
+        } catch (error) {
           if (!isCurrentRequest()) return null;
+          if (
+            currentSelectionController.signal.aborted ||
+            (error instanceof Error && error.name === "AbortError")
+          ) {
+            return null;
+          }
           enableLlmAssistance = false;
           llmServiceId = undefined;
           ElMessage.warning("AI 服务状态检查失败，本次先使用规则识别");
@@ -109,6 +122,9 @@ export function useSmartStructureRecognition() {
       ElMessage.error(recognitionError.value);
       return null;
     } finally {
+      if (selectionController === currentSelectionController) {
+        selectionController = undefined;
+      }
       if (isCurrentRequest()) {
         recognizing.value = false;
         recognitionAttempted.value = true;
@@ -209,6 +225,8 @@ export function useSmartStructureRecognition() {
   const reset = () => {
     recognitionRequestVersion += 1;
     contextVersion += 1;
+    selectionController?.abort();
+    selectionController = undefined;
     activeRecognitionFileId.value = null;
     activeRecognitionCustomerId.value = null;
     recognizing.value = false;

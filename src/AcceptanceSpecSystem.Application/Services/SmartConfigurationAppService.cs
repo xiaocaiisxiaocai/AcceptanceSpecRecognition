@@ -199,6 +199,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 columnSemanticRecallCache,
                 cancellationToken);
             recognizedTable = DetectLogicalRegions(fullTableData, recognizedTable, headerKeywordMatcher);
+            recognizedTable = AttachFieldConflicts(
+                fullTableData,
+                recognizedTable,
+                headerKeywordMatcher);
             tables.Add(AddLlmAssistanceIssue(recognizedTable, llmAssistanceIssue));
         }
 
@@ -224,6 +228,196 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             recognizedTable,
             headerKeywordMatcher);
     }
+
+    private static SmartConfigurationRecognizedTable AttachFieldConflicts(
+        TableData fullTableData,
+        SmartConfigurationRecognizedTable table,
+        HeaderKeywordMatcher matcher)
+    {
+        if (table.Regions.Count == 0)
+        {
+            return table;
+        }
+
+        var detectionTable = BuildHeaderDetectionTableData(fullTableData);
+        var regions = table.Regions.Select(region =>
+        {
+            var conflicts = BuildFieldConflicts(detectionTable, region, matcher);
+            if (conflicts.Count == 0)
+            {
+                return region;
+            }
+
+            var issues = region.Issues.ToList();
+            foreach (var conflict in conflicts)
+            {
+                if (issues.Any(issue =>
+                        issue.Code == "AmbiguousFieldCandidates" &&
+                        string.Equals(issue.Field, conflict.Field, StringComparison.Ordinal)))
+                {
+                    continue;
+                }
+
+                issues.Add(new SmartConfigurationRecognitionIssue
+                {
+                    Code = "AmbiguousFieldCandidates",
+                    Severity = "Warning",
+                    Field = conflict.Field,
+                    Message = $"{GetFieldDisplayName(conflict.Field)}存在多个同分高置信候选，请选择最终列"
+                });
+            }
+
+            return region with
+            {
+                Decision = "NeedConfirm",
+                Issues = issues,
+                FieldConflicts = conflicts
+            };
+        }).ToList();
+        var primary = regions[0];
+        return table with
+        {
+            Decision = regions.Any(region => region.FieldConflicts.Count > 0)
+                ? "NeedConfirm"
+                : table.Decision,
+            Fields = primary.Fields,
+            FieldConflicts = regions.SelectMany(region => region.FieldConflicts).ToList(),
+            Regions = regions
+        };
+    }
+
+    private static List<SmartConfigurationFieldConflict> BuildFieldConflicts(
+        TableData detectionTable,
+        SmartConfigurationRecognizedRegion region,
+        HeaderKeywordMatcher matcher)
+    {
+        const double highConfidenceThreshold = 0.95;
+        const double ambiguityMargin = 0.02;
+        var fieldDefinitions = new[]
+        {
+            (Field: "Project", Type: ColumnType.Project, Selected: region.ProjectColumnIndex),
+            (Field: "Specification", Type: ColumnType.Specification, Selected: region.SpecificationColumnIndex),
+            (Field: "Acceptance", Type: ColumnType.Acceptance, Selected: region.AcceptanceColumnIndex),
+            (Field: "Remark", Type: ColumnType.Remark, Selected: region.RemarkColumnIndex)
+        };
+        var conflicts = new List<SmartConfigurationFieldConflict>();
+        foreach (var definition in fieldDefinitions)
+        {
+            if (definition.Field == "Project" && region.IsSpecificationOnly)
+            {
+                continue;
+            }
+
+            var rankedCandidates = region.Headers
+                .Select((header, columnIndex) =>
+                {
+                    var rank = matcher.GetRank(definition.Type, header);
+                    return new
+                    {
+                        Rank = rank,
+                        Candidate = new SmartConfigurationFieldCandidate
+                        {
+                            ColumnIndex = columnIndex,
+                            Header = header?.Trim() ?? string.Empty,
+                            Confidence = rank.Confidence,
+                            IsRecommended = columnIndex == definition.Selected,
+                            Samples = GetFieldCandidateSamples(
+                                detectionTable,
+                                region,
+                                columnIndex)
+                        }
+                    };
+                })
+                .Where(item =>
+                    item.Candidate.Header.Length > 0 &&
+                    item.Rank.Confidence >= highConfidenceThreshold)
+                .OrderByDescending(item => item.Rank.Confidence)
+                .ThenByDescending(item => item.Rank.IsCustomerSpecific)
+                .ThenByDescending(item => item.Rank.Priority)
+                .ThenBy(item => item.Candidate.ColumnIndex)
+                .ToList();
+            if (rankedCandidates.Count < 2)
+            {
+                continue;
+            }
+
+            var bestRank = rankedCandidates[0].Rank;
+            var ambiguous = rankedCandidates
+                .Where(item =>
+                    bestRank.Confidence - item.Rank.Confidence <= ambiguityMargin &&
+                    item.Rank.IsCustomerSpecific == bestRank.IsCustomerSpecific &&
+                    item.Rank.Priority == bestRank.Priority)
+                .Select(item => item.Candidate)
+                .GroupBy(
+                    candidate => BuildCandidateEquivalenceKey(candidate),
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                    group.FirstOrDefault(candidate => candidate.IsRecommended) ??
+                    group.OrderBy(candidate => candidate.ColumnIndex).First())
+                .OrderByDescending(candidate => candidate.Confidence)
+                .ThenBy(candidate => candidate.ColumnIndex)
+                .Take(4)
+                .ToList();
+            if (ambiguous.Count < 2)
+            {
+                continue;
+            }
+
+            conflicts.Add(new SmartConfigurationFieldConflict
+            {
+                Field = definition.Field,
+                RecommendedColumnIndex = definition.Selected,
+                Candidates = ambiguous
+            });
+        }
+
+        return conflicts;
+    }
+
+    private static string BuildCandidateEquivalenceKey(
+        SmartConfigurationFieldCandidate candidate)
+    {
+        var header = string.Concat(candidate.Header
+            .Where(character => !char.IsWhiteSpace(character)))
+            .ToLowerInvariant();
+        var samples = string.Join("\u001f", candidate.Samples.Select(sample =>
+            string.Concat(sample.Where(character => !char.IsWhiteSpace(character)))
+                .ToLowerInvariant()));
+        return $"{header}\u001e{samples}";
+    }
+
+    private static List<string> GetFieldCandidateSamples(
+        TableData detectionTable,
+        SmartConfigurationRecognizedRegion region,
+        int columnIndex)
+    {
+        var endRowIndex = Math.Min(
+            region.DataEndRowIndex ?? region.DataStartRowIndex + 30,
+            detectionTable.Rows.Count - 1);
+        if (endRowIndex < region.DataStartRowIndex)
+        {
+            return [];
+        }
+
+        return Enumerable.Range(
+                region.DataStartRowIndex,
+                endRowIndex - region.DataStartRowIndex + 1)
+            .Select(rowIndex => detectionTable.Rows[rowIndex].GetValue(columnIndex)?.Trim())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Length <= 80 ? value : $"{value[..77]}…")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToList();
+    }
+
+    private static string GetFieldDisplayName(string field) => field switch
+    {
+        "Project" => "项目列",
+        "Specification" => "规格列",
+        "Acceptance" => "验收列",
+        "Remark" => "备注列",
+        _ => field
+    };
 
     private SmartConfigurationRecognizedTable DetectLogicalRegionsFromCurrentStructure(
         TableData fullTableData,
@@ -256,7 +450,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 recognizedTable.DataStartRowIndex,
                 firstDataEnd);
 
-        var regions = new List<SmartConfigurationRecognizedRegion> { firstRegion };
+        var regions = new List<SmartConfigurationRecognizedRegion>
+        {
+            NormalizeRegionToLeafHeader(detectionTable, firstRegion)
+        };
 
         var scanRow = Math.Max(firstDataEnd + 1, recognizedTable.DataStartRowIndex + 1);
         var maxHeaderRowCount = Math.Clamp(_options.MaxHeaderRowCount, 1, 20);
@@ -293,8 +490,11 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 headerStart,
                 maxHeaderRowCount,
                 headerKeywordMatcher);
-            var headers = BuildRegionHeaders(detectionTable, headerStart, headerRowCount);
-            var regionTable = ApplyRegionHeaderMappings(recognizedTable, headers, headerKeywordMatcher);
+            var compositeHeaders = BuildRegionHeaders(detectionTable, headerStart, headerRowCount);
+            var regionTable = ApplyRegionHeaderMappings(
+                recognizedTable,
+                compositeHeaders,
+                headerKeywordMatcher);
             var dataStart = FindNextRegionDataStart(
                 detectionTable,
                 headerStart + headerRowCount,
@@ -311,12 +511,16 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 dataStart.Value,
                 regionTable,
                 headerKeywordMatcher);
+            // 重复数据区域统一以首条数据的上一行作为唯一表头。前面的分组标题
+            // 只用于辅助定位，不进入最终确认范围和后续学习模板。
+            var leafHeaderRowIndex = dataStart.Value - 1;
+            var leafHeaders = BuildRegionHeaders(detectionTable, leafHeaderRowIndex, 1);
             var candidateRegion = CreateRegion(
                 regionTable,
                 regions.Count,
-                headers,
-                headerStart,
-                headerRowCount,
+                leafHeaders,
+                leafHeaderRowIndex,
+                1,
                 dataStart.Value,
                 dataEnd);
             if (candidateRegion.Issues.Any(issue =>
@@ -378,6 +582,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 recognizedTable.HeaderRowCount,
                 recognizedTable.DataStartRowIndex,
                 recognizedTable.DataEndRowIndex.Value);
+            preservedRegion = NormalizeRegionToLeafHeader(detectionTable, preservedRegion);
             preservedRegion = AddRegionIssue(
                 preservedRegion,
                 "UnassignedDataAfterGap",
@@ -389,8 +594,19 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             };
         }
 
+        var primaryRegion = regions[0];
         return recognizedTable with
         {
+            Headers = primaryRegion.Headers,
+            HeaderRowIndex = primaryRegion.HeaderRowIndex,
+            HeaderRowCount = primaryRegion.HeaderRowCount,
+            DataStartRowIndex = primaryRegion.DataStartRowIndex,
+            ProjectColumnIndex = primaryRegion.ProjectColumnIndex,
+            SpecificationColumnIndex = primaryRegion.SpecificationColumnIndex,
+            AcceptanceColumnIndex = primaryRegion.AcceptanceColumnIndex,
+            RemarkColumnIndex = primaryRegion.RemarkColumnIndex,
+            IsSpecificationOnly = primaryRegion.IsSpecificationOnly,
+            Fields = primaryRegion.Fields,
             DataEndRowIndex = firstDataEnd,
             Regions = regions,
             Decision = regions.Count > 1 || regions.Any(HasErrorIssue)
@@ -462,10 +678,12 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 validated = AddRegionIssue(
                     validated,
                     "TemplateRegionDataChanged",
-                    "当前文件中的已学习区域未通过有效数据检查，请重新确认范围");
+                    "历史模板范围内的有效数据不足，行列位置可能已经变化");
             }
 
-            validatedRegions.Add(validated);
+            validatedRegions.Add(NormalizeRegionToLeafHeader(
+                detectionTable,
+                validated));
         }
 
         for (var index = 1; index < validatedRegions.Count; index++)
@@ -506,7 +724,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             validatedRegions[0] = AddRegionIssue(
                 validatedRegions[0],
                 "UncoveredRegionHeader",
-                $"第 {shiftedRegionHeader.Value + 1} 行发现未被模板覆盖的新区域表头，请确认区域和列映射");
+                $"第 {shiftedRegionHeader.Value + 1} 行可能是新的表头，当前范围尚未包含该区域");
         }
 
         // 早期版本可能把整张工作表保存成一个过宽的单区域。即使后续重复表头
@@ -521,11 +739,19 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             var rediscoveredRegions = rediscovered.Regions
                 .OrderBy(region => region.RegionIndex)
                 .ToList();
+            var shiftedHeaderNowCovered = shiftedRegionHeader.HasValue &&
+                rediscoveredRegions.Any(region =>
+                    shiftedRegionHeader.Value == region.DataStartRowIndex - 1 ||
+                    (shiftedRegionHeader.Value >= region.HeaderRowIndex &&
+                     shiftedRegionHeader.Value < region.HeaderRowIndex + region.HeaderRowCount));
             var existingIssueCodes = rediscoveredRegions[0].Issues
                 .Select(issue => issue.Code)
                 .ToHashSet(StringComparer.Ordinal);
             var preservedTemplateIssues = validatedRegions
                 .SelectMany(region => region.Issues)
+                // 当前结构识别已经把该表头及其数据纳入新区域时，旧模板审计产生的
+                // “未覆盖表头”已失效，继续展示会与页面上的区域范围相互矛盾。
+                .Where(issue => issue.Code != "UncoveredRegionHeader" || !shiftedHeaderNowCovered)
                 .Where(issue => existingIssueCodes.Add(issue.Code))
                 .ToList();
             if (preservedTemplateIssues.Count > 0)
@@ -575,6 +801,44 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                                NormalizeConfirmedHeader(region.Headers[column]),
                                NormalizeConfirmedHeader(actualHeaders[column]),
                                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static SmartConfigurationRecognizedRegion NormalizeRegionToLeafHeader(
+        TableData detectionTable,
+        SmartConfigurationRecognizedRegion region)
+    {
+        if (region.DataStartRowIndex <= 0)
+        {
+            return region;
+        }
+
+        var leafHeaderRowIndex = region.DataStartRowIndex - 1;
+        if (leafHeaderRowIndex >= detectionTable.Rows.Count)
+        {
+            return region;
+        }
+
+        var leafHeaders = BuildRegionHeaders(detectionTable, leafHeaderRowIndex, 1);
+        var fields = region.Fields.Select(field => new SmartConfigurationRecognizedField
+        {
+            Field = field.Field,
+            ColumnIndex = field.ColumnIndex,
+            Header = field.ColumnIndex.HasValue &&
+                     field.ColumnIndex.Value >= 0 &&
+                     field.ColumnIndex.Value < leafHeaders.Count
+                ? leafHeaders[field.ColumnIndex.Value]
+                : null,
+            Confidence = field.Confidence,
+            Source = field.Source
+        }).ToList();
+
+        return region with
+        {
+            HeaderRowIndex = leafHeaderRowIndex,
+            HeaderRowCount = 1,
+            Headers = leafHeaders.ToList(),
+            Fields = fields
+        };
     }
 
     private static SmartConfigurationRecognizedRegion AddRegionIssue(
@@ -643,6 +907,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             var covered = regions.Any(region =>
                 (rowIndex >= region.HeaderRowIndex &&
                  rowIndex < region.HeaderRowIndex + region.HeaderRowCount) ||
+                // 数据起始行的上一行是用户确认范围时采用的末级表头位置；即使
+                // 复合表头探测只记录了前面的分组行，也不能再把它报告为未覆盖。
+                rowIndex == region.DataStartRowIndex - 1 ||
                 (region.DataEndRowIndex.HasValue &&
                  rowIndex >= region.DataStartRowIndex &&
                  rowIndex <= region.DataEndRowIndex.Value));
@@ -693,12 +960,41 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             return;
         }
 
-        var firstRow = uncoveredRows.Min(item => item.RowIndex) + 1;
-        var lastRow = uncoveredRows.Max(item => item.RowIndex) + 1;
+        var rowRanges = FormatOneBasedRowRanges(uncoveredRows.Select(item => item.RowIndex));
         regions[0] = AddRegionIssue(
             regions[0],
             "UncoveredBusinessRows",
-            $"第 {firstRow}-{lastRow} 行存在未被任何区域覆盖的疑似业务数据，请确认范围");
+            $"发现 {uncoveredRows.Count} 行疑似业务数据未包含在当前范围内（{rowRanges}），请调整范围");
+    }
+
+    private static string FormatOneBasedRowRanges(IEnumerable<int> zeroBasedRows)
+    {
+        var rows = zeroBasedRows.Distinct().OrderBy(row => row).Select(row => row + 1).ToList();
+        if (rows.Count == 0)
+            return string.Empty;
+
+        var ranges = new List<string>();
+        var start = rows[0];
+        var end = start;
+        foreach (var row in rows.Skip(1))
+        {
+            if (row == end + 1)
+            {
+                end = row;
+                continue;
+            }
+
+            ranges.Add(start == end ? $"第 {start} 行" : $"第 {start}-{end} 行");
+            start = row;
+            end = row;
+        }
+
+        ranges.Add(start == end ? $"第 {start} 行" : $"第 {start}-{end} 行");
+        const int maxDisplayedRanges = 4;
+        if (ranges.Count <= maxDisplayedRanges)
+            return string.Join("、", ranges);
+
+        return $"{string.Join("、", ranges.Take(maxDisplayedRanges))}等 {ranges.Count} 个区间";
     }
 
     private static int? FindUncoveredShiftedRegionHeader(
@@ -712,6 +1008,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             var covered = regions.Any(region =>
                 (rowIndex >= region.HeaderRowIndex &&
                  rowIndex < region.HeaderRowIndex + region.HeaderRowCount) ||
+                rowIndex == region.DataStartRowIndex - 1 ||
                 (region.DataEndRowIndex.HasValue &&
                  rowIndex >= region.DataStartRowIndex &&
                  rowIndex <= region.DataEndRowIndex.Value));
@@ -735,6 +1032,16 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 continue;
             }
 
+            var leafHeaderRowIndex = dataStart.Value - 1;
+            var leafHeaderCovered = regions.Any(region =>
+                leafHeaderRowIndex == region.DataStartRowIndex - 1 ||
+                (leafHeaderRowIndex >= region.HeaderRowIndex &&
+                 leafHeaderRowIndex < region.HeaderRowIndex + region.HeaderRowCount));
+            if (leafHeaderCovered)
+            {
+                continue;
+            }
+
             var dataEnd = FindRegionDataEnd(
                 detectionTable,
                 dataStart.Value,
@@ -747,7 +1054,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     dataEnd,
                     headerKeywordMatcher))
             {
-                return rowIndex;
+                // 复合表头可能从分组标题行开始，但用户调整范围时需要定位的是
+                // 首条数据正上方的末级表头行，而不是整个表头块的起始行。
+                return leafHeaderRowIndex;
             }
         }
 
@@ -889,17 +1198,35 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         SmartConfigurationRecognizedTable table,
         HeaderKeywordMatcher matcher)
     {
-        var matchedCount = 0;
+        var matchedValues = new List<string>();
+        void AddMatchedValue(int? columnIndex, ColumnType columnType)
+        {
+            if (!columnIndex.HasValue ||
+                !matcher.Matches(columnType, row.GetValue(columnIndex.Value)))
+            {
+                return;
+            }
+
+            var normalizedValue = string.Concat(
+                (row.GetValue(columnIndex.Value) ?? string.Empty)
+                .Where(character => !char.IsWhiteSpace(character)));
+            if (normalizedValue.Length > 0)
+            {
+                matchedValues.Add(normalizedValue);
+            }
+        }
+
         var specificationMatched = MatchesMappedHeader(
             row,
             table.SpecificationColumnIndex,
             ColumnType.Specification,
             matcher);
-        if (specificationMatched) matchedCount++;
-        if (MatchesMappedHeader(row, table.ProjectColumnIndex, ColumnType.Project, matcher)) matchedCount++;
-        if (MatchesMappedHeader(row, table.AcceptanceColumnIndex, ColumnType.Acceptance, matcher)) matchedCount++;
-        if (MatchesMappedHeader(row, table.RemarkColumnIndex, ColumnType.Remark, matcher)) matchedCount++;
-        return specificationMatched && matchedCount >= 2;
+        AddMatchedValue(table.SpecificationColumnIndex, ColumnType.Specification);
+        AddMatchedValue(table.ProjectColumnIndex, ColumnType.Project);
+        AddMatchedValue(table.AcceptanceColumnIndex, ColumnType.Acceptance);
+        AddMatchedValue(table.RemarkColumnIndex, ColumnType.Remark);
+        return specificationMatched &&
+               matchedValues.Distinct(StringComparer.OrdinalIgnoreCase).Take(2).Count() >= 2;
     }
 
     private static bool LooksLikeCompositeHeaderStart(
@@ -951,9 +1278,66 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             {
                 return rowIndex;
             }
+
+            // Excel 横向合并会把左上角值展开到项目列和规格列。第二数据段的
+            // 首条分类数据因此可能出现“项目 == 规格”，但它仍然属于业务范围。
+            // 只有紧随其后的行已经是健康数据时才保留该锚点，避免把孤立标题
+            // 或真正的重复表头误纳入数据区。
+            if (rowIndex + 1 < end &&
+                LooksLikeMergedRegionOpeningDataRow(
+                    tableData.Rows[rowIndex],
+                    mapping,
+                    matcher) &&
+                LooksLikeRegionDataRow(
+                    tableData.Rows[rowIndex + 1],
+                    mapping,
+                    matcher))
+            {
+                return rowIndex;
+            }
         }
 
         return null;
+    }
+
+    private static bool LooksLikeMergedRegionOpeningDataRow(
+        RowData row,
+        SmartConfigurationRecognizedTable mapping,
+        HeaderKeywordMatcher matcher)
+    {
+        if (mapping.IsSpecificationOnly ||
+            !mapping.ProjectColumnIndex.HasValue ||
+            !mapping.SpecificationColumnIndex.HasValue ||
+            mapping.ProjectColumnIndex.Value == mapping.SpecificationColumnIndex.Value)
+        {
+            return false;
+        }
+
+        var project = row.GetValue(mapping.ProjectColumnIndex.Value)?.Trim() ?? string.Empty;
+        var specification = row.GetValue(mapping.SpecificationColumnIndex.Value)?.Trim() ?? string.Empty;
+        var hasAcceptanceHeaderEvidence = MatchesMappedHeader(
+            row,
+            mapping.AcceptanceColumnIndex,
+            ColumnType.Acceptance,
+            matcher);
+        var hasRemarkHeaderEvidence = MatchesMappedHeader(
+            row,
+            mapping.RemarkColumnIndex,
+            ColumnType.Remark,
+            matcher);
+        if (project.Length == 0 ||
+            !string.Equals(project, specification, StringComparison.OrdinalIgnoreCase) ||
+            LooksLikeSectionHeaderRow(row, matcher) ||
+            hasAcceptanceHeaderEvidence ||
+            hasRemarkHeaderEvidence)
+        {
+            return false;
+        }
+
+        return row.Cells.Count(cell => string.Equals(
+            cell.Value?.Trim(),
+            specification,
+            StringComparison.OrdinalIgnoreCase)) >= 2;
     }
 
     private static int FindRegionDataEnd(
@@ -1138,7 +1522,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             issues.Add(new SmartConfigurationRecognitionIssue
             {
                 Code = "ConflictingMappedHeaders",
-                Severity = "Error",
+                Severity = "Warning",
                 Message = "该区域多个字段落在同一合并表头，请调整后确认"
             });
         }
@@ -1236,8 +1620,18 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             }
 
             var firstCandidate = candidates.Min();
-            return firstCandidate == anchorRowIndex + 1 &&
-                   CountRepeatedValueGroups(tableData.Rows[anchorRowIndex]) >= 2
+            if (firstCandidate != anchorRowIndex + 1)
+            {
+                return null;
+            }
+
+            var hasGroupedHeaderContext =
+                CountRepeatedValueGroups(tableData.Rows[anchorRowIndex]) >= 2;
+            var followingRowIndex = firstCandidate + 1;
+            var followedByBusinessData =
+                followingRowIndex < tableData.Rows.Count &&
+                !headerKeywordMatcher.IsCompleteHeader(tableData.Rows[followingRowIndex]);
+            return hasGroupedHeaderContext || followedByBusinessData
                 ? AdvanceAcrossIdenticalCandidates(tableData, candidates, firstCandidate)
                 : null;
         }
@@ -1260,7 +1654,25 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     tableData.Rows[nextRowIndex]) ||
                 anchorGroupCount > nextGroupCount)
             {
-                return AdvanceAcrossIdenticalCandidates(tableData, candidates, nextRowIndex);
+                var resolvedRowIndex = AdvanceAcrossIdenticalCandidates(
+                    tableData,
+                    candidates,
+                    nextRowIndex);
+                var trailingLeafRowIndex = resolvedRowIndex + 1;
+                var followingDataRowIndex = trailingLeafRowIndex + 1;
+                if (candidates.Contains(trailingLeafRowIndex) &&
+                    CountRepeatedValueGroups(tableData.Rows[resolvedRowIndex]) >
+                    CountRepeatedValueGroups(tableData.Rows[trailingLeafRowIndex]) &&
+                    followingDataRowIndex < tableData.Rows.Count &&
+                    !headerKeywordMatcher.IsCompleteHeader(tableData.Rows[followingDataRowIndex]))
+                {
+                    return AdvanceAcrossIdenticalCandidates(
+                        tableData,
+                        candidates,
+                        trailingLeafRowIndex);
+                }
+
+                return resolvedRowIndex;
             }
         }
 
@@ -1940,6 +2352,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         CancellationToken cancellationToken)
     {
         var headers = tableData.Headers.ToList();
+        SmartConfigurationRecognizedTable? degradedTemplateFallback = null;
         if (customerId.HasValue && headers.Count > 0)
         {
             var templateCandidates = await _templateService.FindMatchingTemplatesAsync(
@@ -1985,10 +2398,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             {
                 var bestDegradedTemplate =
                     SelectBestDegradedTemplateCandidate(degradedTemplateCandidates);
-                await _templateService.IncrementUsageAsync(
-                    bestDegradedTemplate.Template.Id,
-                    cancellationToken);
-                return bestDegradedTemplate.Table;
+                // 历史模板只在当前文件的区域坐标、列映射和数据健康检查都通过时
+                // 才能成为执行真相。已降级模板仅保留为规则识别失败时的兜底，
+                // 不能继续覆盖当前文件重新识别出的 A1 数据范围。
+                degradedTemplateFallback = bestDegradedTemplate.Table;
             }
         }
 
@@ -2002,7 +2415,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             mapping.Mapping.HeaderRowCount = headerProfile.HeaderRowCount;
             mapping.Mapping.DataStartRowIndex = headerProfile.HeaderRowIndex + headerProfile.HeaderRowCount;
 
-            return await BuildRecognizedTableFromMappingAsync(
+            var recognizedCurrentStructure = await BuildRecognizedTableFromMappingAsync(
                 customerId,
                 parser,
                 absolutePath,
@@ -2019,6 +2432,29 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 structureAdjudicationCache,
                 columnSemanticRecallCache,
                 cancellationToken);
+            if (degradedTemplateFallback is null)
+            {
+                return recognizedCurrentStructure;
+            }
+
+            var currentIssues = recognizedCurrentStructure.Issues.ToList();
+            if (!currentIssues.Any(issue => string.Equals(
+                    issue.Code,
+                    "TemplateRegionStructureChanged",
+                    StringComparison.Ordinal)))
+            {
+                currentIssues.Add(new SmartConfigurationRecognitionIssue
+                {
+                    Code = "TemplateRegionStructureChanged",
+                    Severity = "Error",
+                    Message = "历史模板与当前文件结构不一致，已按当前文件重新识别，请确认范围"
+                });
+            }
+            return recognizedCurrentStructure with
+            {
+                Decision = "NeedConfirm",
+                Issues = currentIssues
+            };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -2026,6 +2462,15 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
         catch (Exception ex)
         {
+            if (degradedTemplateFallback is not null)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "表格 {TableIndex} 当前结构重新识别失败，降级返回待确认的历史模板",
+                    tableData.TableIndex);
+                return degradedTemplateFallback;
+            }
+
             _logger.LogWarning(
                 ex,
                 "表格 {TableIndex} 结构识别失败，返回待确认状态",
@@ -2876,6 +3321,11 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
 internal readonly record struct HeaderProfile(int HeaderRowIndex, int HeaderRowCount);
 
+internal readonly record struct HeaderCandidateRank(
+    double Confidence,
+    bool IsCustomerSpecific,
+    int Priority);
+
 internal sealed class HeaderKeywordMatcher
 {
     private readonly IReadOnlyList<ColumnHeaderMappingRule> _rules;
@@ -2907,6 +3357,36 @@ internal sealed class HeaderKeywordMatcher
                 _rules
                     .Where(rule => rule.ColumnType == columnType)
                     .Any(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched));
+    }
+
+    public HeaderCandidateRank GetRank(ColumnType columnType, string? value)
+    {
+        return ExpandCompositeHeaderValues(value)
+            .Select(candidate =>
+                ColumnHeaderRuleMatcher.TryNormalizeHeader(candidate, out var normalizedHeader)
+                    ? _rules
+                        .Where(rule => rule.ColumnType == columnType)
+                        .Select(rule => new
+                        {
+                            Rule = rule,
+                            Match = ColumnHeaderRuleMatcher.MatchNormalizedHeader(
+                                normalizedHeader,
+                                rule)
+                        })
+                        .Where(item => item.Match.Matched)
+                        .Select(item => new HeaderCandidateRank(
+                            item.Match.Confidence,
+                            item.Rule.IsCustomerSpecific,
+                            item.Rule.Priority))
+                        .OrderByDescending(rank => rank.Confidence)
+                        .ThenByDescending(rank => rank.IsCustomerSpecific)
+                        .ThenByDescending(rank => rank.Priority)
+                        .FirstOrDefault()
+                    : default)
+            .OrderByDescending(rank => rank.Confidence)
+            .ThenByDescending(rank => rank.IsCustomerSpecific)
+            .ThenByDescending(rank => rank.Priority)
+            .FirstOrDefault();
     }
 
     private static IEnumerable<string> ExpandCompositeHeaderValues(string? value)

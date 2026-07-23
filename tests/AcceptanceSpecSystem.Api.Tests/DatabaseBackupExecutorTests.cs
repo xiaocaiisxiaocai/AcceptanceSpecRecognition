@@ -63,6 +63,42 @@ public sealed class DatabaseBackupExecutorTests
         Directory.EnumerateFiles(directory.Path).Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task BackupAsync_ShouldDisableTablespaceDump_ForRestrictedApplicationAccount()
+    {
+        using var directory = new TemporaryDirectory();
+        ProcessStartInfo? capturedStartInfo = null;
+        var runner = new StubProcessRunner((startInfo, _, _) =>
+        {
+            capturedStartInfo = startInfo;
+            return Task.FromResult(new MySqlDumpProcessResult(0, string.Empty));
+        });
+        var executor = CreateExecutor(runner);
+
+        await executor.BackupAsync(CreateOptions(directory.Path), CancellationToken.None);
+
+        capturedStartInfo.Should().NotBeNull();
+        capturedStartInfo!.ArgumentList.Should().Contain("--no-tablespaces");
+    }
+
+    [Fact]
+    public async Task BackupAsync_WhenProcessWritesStandardErrorWithZeroExitCode_ShouldFailClosed()
+    {
+        using var directory = new TemporaryDirectory();
+        var runner = new StubProcessRunner(async (output, cancellationToken) =>
+        {
+            await output.WriteAsync("partial"u8.ToArray(), cancellationToken);
+            return new MySqlDumpProcessResult(0, "mysqldump: Error: PROCESS privilege required");
+        });
+        var executor = CreateExecutor(runner);
+
+        var action = () => executor.BackupAsync(CreateOptions(directory.Path), CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*PROCESS privilege required*");
+        Directory.EnumerateFiles(directory.Path).Should().BeEmpty();
+    }
+
     private static MySqlDumpDatabaseBackupExecutor CreateExecutor(IMySqlDumpProcessRunner runner)
     {
         var configuration = new ConfigurationBuilder()
@@ -86,9 +122,14 @@ public sealed class DatabaseBackupExecutorTests
 
     private sealed class StubProcessRunner : IMySqlDumpProcessRunner
     {
-        private readonly Func<Stream, CancellationToken, Task<MySqlDumpProcessResult>> _run;
+        private readonly Func<ProcessStartInfo, Stream, CancellationToken, Task<MySqlDumpProcessResult>> _run;
 
         public StubProcessRunner(Func<Stream, CancellationToken, Task<MySqlDumpProcessResult>> run)
+            : this((_, output, cancellationToken) => run(output, cancellationToken))
+        {
+        }
+
+        public StubProcessRunner(Func<ProcessStartInfo, Stream, CancellationToken, Task<MySqlDumpProcessResult>> run)
         {
             _run = run;
         }
@@ -97,7 +138,7 @@ public sealed class DatabaseBackupExecutorTests
             ProcessStartInfo startInfo,
             Stream standardOutputDestination,
             CancellationToken cancellationToken)
-            => _run(standardOutputDestination, cancellationToken);
+            => _run(startInfo, standardOutputDestination, cancellationToken);
     }
 
     private sealed class TemporaryDirectory : IDisposable

@@ -200,7 +200,7 @@ public sealed class MatchingFillCommitCompensationTests : IClassFixture<CommitFa
 
         execute.IsSuccessStatusCode.Should().BeFalse();
         var after = await _client.GetAsync(
-            $"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+            $"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var afterBody = await after.ReadAsAsync<ApiResponse<JsonElement>>();
         afterBody.Data.GetProperty("rows")[0][2].GetString().Should().BeEmpty();
 
@@ -296,7 +296,7 @@ public sealed class MatchingFillAmbiguousCommitTests : IClassFixture<AmbiguousCo
 
         execute.StatusCode.Should().Be(HttpStatusCode.OK);
         var after = await _client.GetAsync(
-            $"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+            $"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var afterBody = await after.ReadAsAsync<ApiResponse<JsonElement>>();
         afterBody.Data.GetProperty("rows")[0][2].GetString().Should().Be("AC-COMMITTED");
 

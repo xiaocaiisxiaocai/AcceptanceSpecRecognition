@@ -75,6 +75,8 @@ public sealed class AuditTrailAppService : IAuditTrailAppService
         int? maxStatusCode,
         CancellationToken cancellationToken = default)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, AuditLogRepository.MaxPageSize);
         var (items, total) = await _unitOfWork.AuditLogs.GetPagedAsync(
             page, pageSize, source, level, username, requestMethod, keyword, from, to,
             minStatusCode, maxStatusCode, cancellationToken);

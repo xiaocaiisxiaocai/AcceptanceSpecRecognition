@@ -50,7 +50,10 @@ public sealed class AuthLoginAppService : IAuthLoginAppService
             return new(AuthLoginStatus.InvalidCredentials);
 
         var access = await _access.GetByUsernameAsync(username, cancellationToken);
-        return access == null || !access.IsActive
+        return access == null || !access.IsActive ||
+               string.IsNullOrWhiteSpace(access.RoleCode) || !access.OrgUnitId.HasValue ||
+               (access.AuthorizationValidUntil.HasValue &&
+                access.AuthorizationValidUntil.Value <= DateTime.UtcNow)
             ? new(AuthLoginStatus.AccessDenied)
             : new(AuthLoginStatus.Success, access);
     }

@@ -67,6 +67,83 @@ public sealed class SmartConfigTemplatePersistenceHardeningTests : IClassFixture
     }
 
     [Fact]
+    public void NormalizeRegionToLeafHeader_ShouldAlsoNormalizeFirstRegion()
+    {
+        var table = new TableData
+        {
+            Rows =
+            [
+                new RowData
+                {
+                    Cells =
+                    [
+                        new CellData { ColumnIndex = 0, Value = "功能项目" },
+                        new CellData { ColumnIndex = 1, Value = "规格" }
+                    ]
+                },
+                new RowData
+                {
+                    Cells =
+                    [
+                        new CellData { ColumnIndex = 0, Value = "具体项目" },
+                        new CellData { ColumnIndex = 1, Value = "规格" }
+                    ]
+                },
+                new RowData
+                {
+                    Cells =
+                    [
+                        new CellData { ColumnIndex = 0, Value = "基板厚度" },
+                        new CellData { ColumnIndex = 1, Value = "0.03mm to 2.0mm" }
+                    ]
+                }
+            ]
+        };
+        var region = new SmartConfigurationRecognizedRegion
+        {
+            RegionId = "table-0-region-0",
+            RegionIndex = 0,
+            HeaderRowIndex = 0,
+            HeaderRowCount = 2,
+            DataStartRowIndex = 2,
+            DataEndRowIndex = 2,
+            Headers = ["功能项目", "规格"],
+            Fields =
+            [
+                new SmartConfigurationRecognizedField
+                {
+                    Field = "Project",
+                    ColumnIndex = 0,
+                    Header = "功能项目",
+                    Confidence = 1,
+                    Source = "Template"
+                },
+                new SmartConfigurationRecognizedField
+                {
+                    Field = "Specification",
+                    ColumnIndex = 1,
+                    Header = "规格",
+                    Confidence = 1,
+                    Source = "Template"
+                }
+            ]
+        };
+        var method = typeof(SmartConfigurationAppService).GetMethod(
+            "NormalizeRegionToLeafHeader",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        method.Should().NotBeNull();
+        var normalized = (SmartConfigurationRecognizedRegion)method!.Invoke(null, [table, region])!;
+
+        normalized.HeaderRowIndex.Should().Be(1, "首个区域也应取数据行的上一行");
+        normalized.HeaderRowCount.Should().Be(1);
+        normalized.DataStartRowIndex.Should().Be(2, "表头的下一行才是首条数据");
+        normalized.Headers.Should().ContainInOrder("具体项目", "规格");
+        normalized.Fields.Single(field => field.Field == "Project").Header
+            .Should().Be("具体项目", "字段映射必须使用末级表头，而不是分组标题");
+    }
+
+    [Fact]
     public async Task SaveTemplate_WhenTwoServiceScopesPersistSameStructure_ShouldReturnSingleTemplate()
     {
         var customerId = await CreateCustomerAsync("智能识别-模板并发幂等客户");
@@ -98,7 +175,7 @@ public sealed class SmartConfigTemplatePersistenceHardeningTests : IClassFixture
     }
 
     [Fact]
-    public async Task Recognize_WhenOldSingleRegionTemplateMissesShiftedSecondRegion_ShouldNeedConfirm()
+    public async Task Recognize_WhenOldSingleRegionTemplateMissesShiftedSecondRegion_ShouldRemoveCoveredHeaderWarning()
     {
         var customerId = await CreateCustomerAsync("智能识别-旧模板移列新增区域客户");
         var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
@@ -167,12 +244,20 @@ public sealed class SmartConfigTemplatePersistenceHardeningTests : IClassFixture
         response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         var table = body.Data.GetProperty("tables").EnumerateArray().Single();
-        table.GetProperty("source").GetString().Should().Be("Template");
+        table.GetProperty("source").GetString().Should().NotBe(
+            "Template",
+            "失效历史模板不得继续覆盖当前文件重新识别出的数据范围");
         table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
-        table.GetProperty("regions").EnumerateArray()
-            .SelectMany(region => region.GetProperty("issues").EnumerateArray())
-            .Should().Contain(issue =>
-                issue.GetProperty("code").GetString() == "UncoveredRegionHeader");
+        var regions = table.GetProperty("regions").EnumerateArray().ToList();
+        regions.Should().HaveCount(2);
+        regions[1].GetProperty("dataStartRowIndex").GetInt32().Should().Be(8);
+        var issues = table.GetProperty("issues").EnumerateArray()
+            .Concat(regions.SelectMany(region => region.GetProperty("issues").EnumerateArray()))
+            .ToList();
+        issues.Should().NotContain(issue =>
+            issue.GetProperty("code").GetString() == "UncoveredRegionHeader");
+        issues.Should().Contain(issue =>
+            issue.GetProperty("code").GetString() == "TemplateRegionStructureChanged");
     }
 
     [Fact]
@@ -248,12 +333,15 @@ public sealed class SmartConfigTemplatePersistenceHardeningTests : IClassFixture
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         var table = body.Data.GetProperty("tables").EnumerateArray().Single();
         var regions = table.GetProperty("regions").EnumerateArray().ToList();
-        table.GetProperty("source").GetString().Should().Be("Template");
+        table.GetProperty("source").GetString().Should().NotBe(
+            "Template",
+            "结构变化时应采用当前文件重新识别出的区域");
         table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
         regions.Should().HaveCount(2);
         ReadRegionCoordinates(regions[0]).Should().Be((0, 1, 1, 2));
-        ReadRegionCoordinates(regions[1]).Should().Be((5, 2, 8, 9));
-        regions[0].GetProperty("issues").EnumerateArray()
+        ReadRegionCoordinates(regions[1]).Should().Be((7, 1, 8, 9));
+        table.GetProperty("issues").EnumerateArray()
+            .Concat(regions[0].GetProperty("issues").EnumerateArray())
             .Should().Contain(issue =>
                 issue.GetProperty("code").GetString() == "TemplateRegionStructureChanged");
     }
@@ -297,11 +385,21 @@ public sealed class SmartConfigTemplatePersistenceHardeningTests : IClassFixture
         var templateRegions = baselineRegions.Select((region, index) => new DocumentTemplateRegionInput
         {
             RegionIndex = index,
-            Headers = region.GetProperty("headers").EnumerateArray()
-                .Select(item => item.GetString() ?? string.Empty)
-                .ToArray(),
-            HeaderRowIndex = region.GetProperty("headerRowIndex").GetInt32(),
-            HeaderRowCount = region.GetProperty("headerRowCount").GetInt32(),
+            Headers = index == 1
+                ?
+                [
+                    "三、安装需求：", "项目", "细项", "规格", "", "", "", "",
+                    "厂商确认 / OK/NG", "Remark"
+                ]
+                : region.GetProperty("headers").EnumerateArray()
+                    .Select(item => item.GetString() ?? string.Empty)
+                    .ToArray(),
+            HeaderRowIndex = index == 1
+                ? 5
+                : region.GetProperty("headerRowIndex").GetInt32(),
+            HeaderRowCount = index == 1
+                ? 2
+                : region.GetProperty("headerRowCount").GetInt32(),
             DataStartRowIndex = region.GetProperty("dataStartRowIndex").GetInt32(),
             DataEndRowIndex = ReadNullableInt(region, "dataEndRowIndex"),
             ProjectColumnIndex = ReadNullableInt(region, "projectColumnIndex"),
@@ -336,10 +434,12 @@ public sealed class SmartConfigTemplatePersistenceHardeningTests : IClassFixture
         var learnedTable = learned.Data.GetProperty("tables").EnumerateArray().Single();
         learnedTable.GetProperty("source").GetString().Should().Be("Template");
         learnedTable.GetProperty("decision").GetString().Should().Be("AutoApply");
-        learnedTable.GetProperty("regions").EnumerateArray().Should().HaveCount(2);
-        learnedTable.GetProperty("regions").EnumerateArray().Should().OnlyContain(region =>
+        var learnedRegions = learnedTable.GetProperty("regions").EnumerateArray().ToList();
+        learnedRegions.Should().HaveCount(2);
+        learnedRegions.Should().OnlyContain(region =>
             region.GetProperty("decision").GetString() == "AutoApply" &&
             !region.GetProperty("issues").EnumerateArray().Any());
+        ReadRegionCoordinates(learnedRegions[1]).Should().Be((7, 1, 8, 9));
     }
 
     [Fact]
@@ -468,14 +568,18 @@ public sealed class SmartConfigTemplatePersistenceHardeningTests : IClassFixture
             worksheet.Cell(row, 10).Value = "抽检";
         }
 
-        worksheet.Cell(6, 5).Value = "项目";
+        worksheet.Cell(6, 5).Value = "功能项目";
         worksheet.Cell(6, 6).Value = "规格";
-        worksheet.Cell(6, 11).Value = "验收";
+        worksheet.Cell(6, 11).Value = "厂商确认";
         worksheet.Cell(6, 12).Value = "备注";
-        for (var row = 7; row <= 8; row++)
+        worksheet.Cell(8, 5).Value = "项目";
+        worksheet.Cell(8, 6).Value = "规格";
+        worksheet.Cell(8, 11).Value = "验收";
+        worksheet.Cell(8, 12).Value = "备注";
+        for (var row = 9; row <= 10; row++)
         {
-            worksheet.Cell(row, 5).Value = row == 7 ? "功能" : "安全";
-            worksheet.Cell(row, 6).Value = row == 7 ? "运行正常" : "保护有效";
+            worksheet.Cell(row, 5).Value = row == 9 ? "功能" : "安全";
+            worksheet.Cell(row, 6).Value = row == 9 ? "运行正常" : "保护有效";
             worksheet.Cell(row, 11).Value = "OK";
             worksheet.Cell(row, 12).Value = "复验";
         }

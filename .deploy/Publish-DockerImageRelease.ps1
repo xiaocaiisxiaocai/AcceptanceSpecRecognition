@@ -199,7 +199,7 @@ sh validate-production-env.sh .env
 已有数据库首次升级到本版本时，在启动新 API 前：
 1. 停止全部 API 副本并完成备份/恢复抽检。
 2. 执行 preflight-collation-migration.sql，确认没有活动事务、锁等待、唯一键冲突，并核对可用磁盘空间。
-3. 只运行一个 `docker compose run --rm --no-deps api --migrate-only`。
+3. 备份恢复验证完成后，只运行一个 `docker compose run --rm --no-deps api --apply-destructive-migrations --backup-verified`。
 4. 成功后再执行下面的 up -d；失败时排除原因后重复 migrate-only，禁止跳过迁移强行启动。
 
 sed -i 's#^API_IMAGE=.*#API_IMAGE=$apiImage#' .env

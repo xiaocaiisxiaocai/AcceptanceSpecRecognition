@@ -122,7 +122,7 @@ public partial class SemanticKernelMatchingService : IMatchingService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "批量生成源文本 Embedding 失败");
+            _logger.LogWarning("批量生成源文本 Embedding 失败: exceptionType={ExceptionType}", ex.GetType().Name);
             throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
         }
 
@@ -235,7 +235,7 @@ public partial class SemanticKernelMatchingService : IMatchingService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "批量生成候选 Embedding 失败");
+            _logger.LogWarning("批量生成候选 Embedding 失败: exceptionType={ExceptionType}", ex.GetType().Name);
             throw new AiServiceUnavailableException("Embedding 服务不可用", innerException: ex);
         }
 

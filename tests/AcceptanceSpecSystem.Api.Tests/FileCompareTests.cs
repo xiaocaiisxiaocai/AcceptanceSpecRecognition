@@ -185,6 +185,10 @@ public class FileCompareTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Theory]
+    [InlineData("previewRows=0")]
+    [InlineData("previewRows=501")]
+    [InlineData("previewRows=10&previewColumns=0")]
+    [InlineData("previewRows=10&previewColumns=101")]
     [InlineData("rowOffset=-1&previewRows=200&columnOffset=0&previewColumns=60")]
     [InlineData("rowOffset=0&previewRows=501&columnOffset=0&previewColumns=60")]
     [InlineData("rowOffset=0&previewRows=200&columnOffset=-1&previewColumns=60")]

@@ -90,7 +90,7 @@ public class ExcelImportTests : IClassFixture<ApiWebApplicationFactory>
         first.GetProperty("usedRangeStartColumn").GetInt32().Should().Be(3);
 
         // 5) 预览：表头起始=第2行，表头2行 => 对后端是 headerRowIndex=0, headerRowCount=2；数据起始=第4行 => dataStartRowIndex=2
-        var previewResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=2&dataStartRowIndex=2");
+        var previewResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=2&dataStartRowIndex=2");
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
         previewJson.Code.Should().Be(0);

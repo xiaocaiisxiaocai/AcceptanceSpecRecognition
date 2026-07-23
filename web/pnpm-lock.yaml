@@ -20,14 +20,15 @@ overrides:
   minimatch@>=10.0.0 <10.2.3: 10.2.3
   ajv@<6.14.0: 6.14.0
   ajv@>=7.0.0-alpha.0 <8.18.0: 8.18.0
-  svgo@>=3.0.0 <3.3.3: 3.3.3
+  svgo@>=3.0.0 <3.3.4: 3.3.4
+  svgo@>=4.0.0 <4.0.2: 4.0.2
   flatted@<3.4.2: 3.4.2
   brace-expansion@<1.1.16: 1.1.16
   brace-expansion@>=2.0.0 <2.0.3: 2.0.3
   yaml@>=2.0.0 <2.8.3: 2.8.3
   path-to-regexp@>=8.0.0 <8.4.0: 8.4.0
-  immutable@>=5.0.0 <5.1.5: 5.1.5
-  fast-uri@<=3.1.1: 3.1.2
+  immutable@>=5.0.0 <5.1.8: 5.1.8
+  fast-uri@<=3.1.3: 3.1.4
   form-data@>=4.0.0 <4.0.6: 4.0.6
   '@babel/core@<=7.29.0': 7.29.6
 
@@ -247,8 +248,8 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(prettier@3.6.2)(stylelint@16.25.0(typescript@5.9.3))
       svgo:
-        specifier: ^4.0.1
-        version: 4.0.1
+        specifier: 4.0.2
+        version: 4.0.2
       tailwindcss:
         specifier: ^4.1.16
         version: 4.1.16
@@ -2407,8 +2408,8 @@ packages:
   fast-levenshtein@2.0.6:
     resolution: {integrity: sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==}
 
-  fast-uri@3.1.2:
-    resolution: {integrity: sha512-rVjf7ArG3LTk+FS6Yw81V1DLuZl1bRbNrev6Tmd/9RaroeeRRJhAt7jg/6YFxbvAQXUCavSoZhPPj6oOx+5KjQ==}
+  fast-uri@3.1.4:
+    resolution: {integrity: sha512-8JnbkQ4juDyvYs4mgFGQqg4yCYtFDtUtmp2QIQq11ZZe5CFQ5wcqm1rqDgAh/QdMySuBnPzMUiJUNZG5N/AiQw==}
 
   fastest-levenshtein@1.0.16:
     resolution: {integrity: sha512-eRnCtTTtGZFpQCwhJiUOuxPQWRXVKYDn0b2PeHfXL6/Zi53SLAzAHfVhVWK2AryC/WH05kGfxhFIPvTF0SXQzg==}
@@ -2638,8 +2639,8 @@ packages:
   immediate@3.0.6:
     resolution: {integrity: sha512-XXOFtyqDjNDAQxVfYxuF7g9Il/IbWmmlQg2MYKOH8ExIT1qg6xc4zyS3HaEEATgs1btfzxq15ciUiY7gjSXRGQ==}
 
-  immutable@5.1.5:
-    resolution: {integrity: sha512-t7xcm2siw+hlUM68I+UEOK+z84RzmN59as9DZ7P1l0994DKUWV7UXBMQZVxaoMSRQ+PBZbHCOoBt7a2wxOMt+A==}
+  immutable@5.1.8:
+    resolution: {integrity: sha512-TM5YqrGeTsVIPPpILzeqZ8D2Zc2TvNgSDi88zPF2a4cyqQdWV/wVWBDRDbNzzrLeRWScrFcOX9lW2iX6GOtUDw==}
 
   import-fresh@3.3.1:
     resolution: {integrity: sha512-TR3KfrTZTYLPB6jUjfx6MF9WcWrHL9su5TObK4ZkYgBdWKPOFoSoQIdEuTuR82pmtxH2spWG9h6etwfr1pLBqQ==}
@@ -3894,13 +3895,13 @@ packages:
   svg-tags@1.0.0:
     resolution: {integrity: sha512-ovssysQTa+luh7A5Weu3Rta6FJlFBBbInjOh722LIt6klpU2/HtdUbszju/G4devcvk8PGt7FCLv5wftu3THUA==}
 
-  svgo@3.3.3:
-    resolution: {integrity: sha512-+wn7I4p7YgJhHs38k2TNjy1vCfPIfLIJWR5MnCStsN8WuuTcBnRKcMHQLMM2ijxGZmDoZwNv8ipl5aTTen62ng==}
+  svgo@3.3.4:
+    resolution: {integrity: sha512-GsNRis4e8jxn2Y9ENz/8lbJ93CstG8svtMnuRaHbiF2LTJ5tK0/q3t/URPq9Zc7zVWBJnNnJMIp6bevK7bSmNg==}
     engines: {node: '>=14.0.0'}
     hasBin: true
 
-  svgo@4.0.1:
-    resolution: {integrity: sha512-XDpWUOPC6FEibaLzjfe0ucaV0YrOjYotGJO1WpF0Zd+n6ZGEQUsSugaoLq9QkEZtAfQIxT42UChcssDVPP3+/w==}
+  svgo@4.0.2:
+    resolution: {integrity: sha512-ekx94z1rRc5LDi6oSUaeRnYhd0UOJxdtQCL2rF8xpWxD3TPAsISWOrxezqGovqS38GRZOdpDfvQe3ts6F7nsng==}
     engines: {node: '>=16'}
     hasBin: true
 
@@ -5783,7 +5784,7 @@ snapshots:
   ajv@8.18.0:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.2
+      fast-uri: 3.1.4
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -6460,7 +6461,7 @@ snapshots:
 
   fast-levenshtein@2.0.6: {}
 
-  fast-uri@3.1.2: {}
+  fast-uri@3.1.4: {}
 
   fastest-levenshtein@1.0.16: {}
 
@@ -6690,7 +6691,7 @@ snapshots:
 
   immediate@3.0.6: {}
 
-  immutable@5.1.5: {}
+  immutable@5.1.8: {}
 
   import-fresh@3.3.1:
     dependencies:
@@ -7453,7 +7454,7 @@ snapshots:
     dependencies:
       postcss: 8.5.15
       postcss-value-parser: 4.2.0
-      svgo: 4.0.1
+      svgo: 4.0.2
 
   postcss-unique-selectors@7.0.4(postcss@8.5.15):
     dependencies:
@@ -7604,7 +7605,7 @@ snapshots:
   sass@1.93.2:
     dependencies:
       chokidar: 4.0.3
-      immutable: 5.1.5
+      immutable: 5.1.8
       source-map-js: 1.2.1
     optionalDependencies:
       '@parcel/watcher': 2.5.1
@@ -7864,7 +7865,7 @@ snapshots:
 
   svg-tags@1.0.0: {}
 
-  svgo@3.3.3:
+  svgo@3.3.4:
     dependencies:
       commander: 7.2.0
       css-select: 5.2.2
@@ -7874,7 +7875,7 @@ snapshots:
       picocolors: 1.1.1
       sax: 1.6.0
 
-  svgo@4.0.1:
+  svgo@4.0.2:
     dependencies:
       commander: 11.1.0
       css-select: 5.2.2
@@ -8081,7 +8082,7 @@ snapshots:
 
   vite-svg-loader@5.1.0(vue@3.5.22(typescript@5.9.3)):
     dependencies:
-      svgo: 3.3.3
+      svgo: 3.3.4
       vue: 3.5.22(typescript@5.9.3)
 
   vite@7.3.6(@types/node@20.19.23)(jiti@2.6.1)(lightningcss@1.32.0)(sass@1.93.2)(yaml@2.8.3):

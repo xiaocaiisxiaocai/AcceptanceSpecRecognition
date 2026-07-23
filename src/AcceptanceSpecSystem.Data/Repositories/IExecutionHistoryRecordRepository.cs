@@ -27,4 +27,11 @@ public interface IExecutionHistoryRecordRepository : IRepository<ExecutionHistor
     /// 按任务ID获取归属于指定用户与公司的执行记录
     /// </summary>
     Task<ExecutionHistoryRecord?> GetOwnedByTaskIdAsync(string taskId, int companyId, int userId);
+
+    /// <summary>
+    /// 分批删除指定时间之前的执行记录，避免单次事务无界增长。
+    /// </summary>
+    Task<int> DeleteBeforeAsync(DateTime beforeTime, int batchSize, CancellationToken cancellationToken = default);
+
+    Task<int> DeleteOverflowAsync(int maxRecordCount, int batchSize, CancellationToken cancellationToken = default);
 }

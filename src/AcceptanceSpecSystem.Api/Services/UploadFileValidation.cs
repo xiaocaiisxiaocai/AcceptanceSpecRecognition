@@ -2,6 +2,7 @@
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Application;
 using Microsoft.AspNetCore.Http;
+using System.Xml;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
@@ -15,6 +16,10 @@ public static class UploadFileValidation
     public const int MaxAllowedZipEntryCount = 1_500;
     public const long MaxAllowedUncompressedSizeBytes = 200L * 1024L * 1024L;
     public const long MaxAllowedEntrySizeBytes = 100L * 1024L * 1024L;
+    public const int MaxAllowedWorksheetCount = 100;
+    public const int MaxAllowedWorksheetRows = 100_000;
+    public const int MaxAllowedWorksheetColumns = 512;
+    public const long MaxAllowedWorksheetCells = 2_000_000;
 
     public static UploadedFileType ValidateOfficeDocument(
         IFormFile file,
@@ -69,12 +74,17 @@ public static class UploadFileValidation
             {
                 throw new ApplicationServiceException(400, "文件内容与扩展名不匹配或文件已损坏");
             }
+
+            if (fileType.Value == UploadedFileType.ExcelXlsx)
+            {
+                EnsureWorksheetDimensionsWithinLimits(archive);
+            }
         }
         catch (ApplicationServiceException)
         {
             throw;
         }
-        catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IOException)
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IOException or XmlException)
         {
             throw new ApplicationServiceException(400, "文件内容与扩展名不匹配或文件已损坏");
         }
@@ -114,5 +124,112 @@ public static class UploadFileValidation
     private static ApplicationServiceException OfficeZipTooLarge()
     {
         return new ApplicationServiceException(400, "文件结构过大，请拆分后重新上传");
+    }
+
+    private static void EnsureWorksheetDimensionsWithinLimits(ZipArchive archive)
+    {
+        var worksheets = archive.Entries
+            .Where(entry => entry.FullName.Replace('\\', '/').StartsWith(
+                "xl/worksheets/", StringComparison.OrdinalIgnoreCase) &&
+                entry.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (worksheets.Count > MaxAllowedWorksheetCount)
+        {
+            throw WorksheetDimensionTooLarge();
+        }
+
+        foreach (var worksheet in worksheets)
+        {
+            using var stream = worksheet.Open();
+            using var reader = XmlReader.Create(stream, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+                IgnoreComments = true,
+                IgnoreWhitespace = true
+            });
+            var rowElementCount = 0;
+            long cellElementCount = 0;
+            while (reader.Read())
+            {
+                if (reader.NodeType != XmlNodeType.Element)
+                {
+                    continue;
+                }
+
+                if (reader.LocalName.Equals("dimension", StringComparison.OrdinalIgnoreCase))
+                {
+                    ValidateDimensionReference(reader.GetAttribute("ref"));
+                    continue;
+                }
+
+                if (reader.LocalName.Equals("row", StringComparison.OrdinalIgnoreCase))
+                {
+                    rowElementCount++;
+                    var rowReference = reader.GetAttribute("r");
+                    var rowIndex = int.TryParse(rowReference, out var parsedRow) ? parsedRow : rowElementCount;
+                    if (rowIndex > MaxAllowedWorksheetRows || rowElementCount > MaxAllowedWorksheetRows)
+                    {
+                        throw WorksheetDimensionTooLarge();
+                    }
+                    continue;
+                }
+
+                if (reader.LocalName.Equals("c", StringComparison.OrdinalIgnoreCase))
+                {
+                    cellElementCount++;
+                    if (cellElementCount > MaxAllowedWorksheetCells)
+                    {
+                        throw WorksheetDimensionTooLarge();
+                    }
+                    ValidateDimensionReference(reader.GetAttribute("r"));
+                }
+            }
+        }
+    }
+
+    private static void ValidateDimensionReference(string? reference)
+    {
+        if (TryParseDimension(reference, out var rows, out var columns) &&
+            (rows > MaxAllowedWorksheetRows ||
+             columns > MaxAllowedWorksheetColumns ||
+             (long)rows * columns > MaxAllowedWorksheetCells))
+        {
+            throw WorksheetDimensionTooLarge();
+        }
+    }
+
+    private static bool TryParseDimension(string? reference, out int rows, out int columns)
+    {
+        rows = 0;
+        columns = 0;
+        if (string.IsNullOrWhiteSpace(reference))
+        {
+            return false;
+        }
+
+        var lastCell = reference.Split(':', 2, StringSplitOptions.TrimEntries)[^1]
+            .Replace("$", string.Empty, StringComparison.Ordinal);
+        var letterCount = 0;
+        while (letterCount < lastCell.Length && char.IsLetter(lastCell[letterCount]))
+        {
+            var value = char.ToUpperInvariant(lastCell[letterCount]) - 'A' + 1;
+            if (value is < 1 or > 26 || columns > (int.MaxValue - value) / 26)
+            {
+                return false;
+            }
+            columns = columns * 26 + value;
+            letterCount++;
+        }
+
+        return letterCount > 0 &&
+               letterCount < lastCell.Length &&
+               int.TryParse(lastCell.AsSpan(letterCount), out rows) &&
+               rows > 0;
+    }
+
+    private static ApplicationServiceException WorksheetDimensionTooLarge()
+    {
+        return new ApplicationServiceException(400, "工作表维度超过系统预算，请拆分后重新上传");
     }
 }

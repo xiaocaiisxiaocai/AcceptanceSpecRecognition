@@ -7,6 +7,10 @@ const source = readFileSync(
   resolve(process.cwd(), "web/src/views/smart-fill/index.vue"),
   "utf8"
 );
+const styleSource = readFileSync(
+  resolve(process.cwd(), "web/src/views/smart-fill/index.styles.css"),
+  "utf8"
+);
 const sharedTabsSource = readFileSync(
   resolve(process.cwd(), "web/src/views/shared/SmartStructureConfirmTabs.vue"),
   "utf8"
@@ -88,15 +92,38 @@ test("删除上传文件必须让旧识别和匹配结果失效并返回上传�
   );
 });
 
-test("识别确认步骤应明确展示剩余待确认 Sheet 数并阻止跳过", () => {
-  assert.match(source, /pendingSelectedSmartRecognitionCount/);
+test("识别确认步骤应明确展示剩余待配置 Sheet 数并阻止跳过", () => {
+  assert.match(source, /pendingSelectedSmartDraftCount/);
   assert.match(
     source,
-    /还有 \$\{pendingSelectedSmartRecognitionCount\.value\} 个已选 Sheet 待确认/
+    /还有 \$\{pendingSelectedSmartDraftCount\.value\} 个已选 Sheet 待配置/
   );
   assert.match(
     source,
-    /case SMART_FILL_STEP_RECOGNITION_REVIEW:[\s\S]*return canContinueSmartRecognition\.value/
+    /case SMART_FILL_STEP_RECOGNITION_REVIEW:[\s\S]*selectedTableCount\.value > 0[\s\S]*pendingSelectedSmartDraftCount\.value === 0[\s\S]*!smartBatchConfirmRunning\.value/
+  );
+});
+
+test("识别确认步骤应在框架剩余高度内独立滚动且避开底部操作栏", () => {
+  assert.match(
+    source,
+    /'smart-fill--recognition-review':[\s\S]*currentStep === SMART_FILL_STEP_RECOGNITION_REVIEW/
+  );
+  assert.match(
+    styleSource,
+    /\.smart-fill--recognition-review\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
+  );
+  assert.match(
+    styleSource,
+    /\.smart-fill--recognition-review \.step-content\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
+  );
+  assert.match(
+    styleSource,
+    /\.smart-fill--recognition-review \.smart-fill-recognition-review\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s
+  );
+  assert.match(
+    styleSource,
+    /\.step-actions\s*\{[^}]*bottom:\s*var\(--app-layout-footer-height,\s*0px\)/s
   );
 });
 

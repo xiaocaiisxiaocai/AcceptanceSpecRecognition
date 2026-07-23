@@ -6,7 +6,8 @@ vi.mock("@/api/ai-service", () => ({
 
 import {
   getRuntimeAiPurposeResult,
-  loadRuntimeAiSelectionsSettled
+  loadRuntimeAiSelectionsSettled,
+  waitForRuntimeAiSelection
 } from "./runtime-ai-selection-loader";
 
 describe("runtime AI selection loader", () => {
@@ -63,5 +64,24 @@ describe("runtime AI selection loader", () => {
       kind: "cancelled",
       selection: { status: "checking" }
     });
+  });
+
+  it("retries a transient status error before accepting an available service", async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("temporary network error"))
+      .mockResolvedValueOnce({
+        code: 0,
+        data: { status: "available", serviceId: 19 }
+      });
+
+    await expect(
+      waitForRuntimeAiSelection("llm", {
+        request,
+        retryDelayMs: 0,
+        maxAttempts: 2
+      })
+    ).resolves.toEqual({ status: "available", serviceId: 19 });
+    expect(request).toHaveBeenCalledTimes(2);
   });
 });

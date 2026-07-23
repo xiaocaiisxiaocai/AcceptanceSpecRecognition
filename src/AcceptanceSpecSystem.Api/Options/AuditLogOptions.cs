@@ -21,4 +21,10 @@ public class AuditLogOptions
     /// 清理间隔（小时）
     /// </summary>
     public int CleanupIntervalHours { get; set; } = 24;
+
+    public int MaxRecordCount { get; set; } = 1_000_000;
+
+    public int CleanupBatchSize { get; set; } = 1000;
+
+    public int MaxBatchesPerRun { get; set; } = 10;
 }

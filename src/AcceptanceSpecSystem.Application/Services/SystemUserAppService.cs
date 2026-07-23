@@ -58,22 +58,25 @@ public interface ISystemUserAppService
 /// </summary>
 public sealed class SystemUserAppService : ISystemUserAppService
 {
-    private const int MinimumNewPasswordLength = 12;
+    private const int MinimumNewPasswordLength = 4;
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuthPasswordService _authPasswordService;
     private readonly AppDbContext _dbContext;
+    private readonly IAuthRefreshSessionService _refreshSessions;
     private readonly ILogger<SystemUserAppService> _logger;
 
     public SystemUserAppService(
         IUnitOfWork unitOfWork,
         IAuthPasswordService authPasswordService,
         AppDbContext dbContext,
+        IAuthRefreshSessionService refreshSessions,
         ILogger<SystemUserAppService> logger)
     {
         _unitOfWork = unitOfWork;
         _authPasswordService = authPasswordService;
         _dbContext = dbContext;
+        _refreshSessions = refreshSessions;
         _logger = logger;
     }
 
@@ -262,6 +265,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
 
         _unitOfWork.SystemUsers.Update(user);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _refreshSessions.RevokeUserSessionsAsync(user.Id, "security-context-changed", cancellationToken);
 
         return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
     }
@@ -304,6 +308,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
 
         _unitOfWork.SystemUsers.Update(user);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _refreshSessions.RevokeUserSessionsAsync(user.Id, "account-status-changed", cancellationToken);
 
         return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
     }
@@ -326,6 +331,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
 
         _unitOfWork.SystemUsers.Update(user);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _refreshSessions.RevokeUserSessionsAsync(user.Id, "password-reset", cancellationToken);
 
         _logger.LogInformation("重置用户密码成功: {Username}", user.Username);
     }
@@ -498,7 +504,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
         if (string.IsNullOrWhiteSpace(password))
             throw new ApplicationServiceException(400, $"{fieldName}不能为空");
         if (password.Length < MinimumNewPasswordLength || password.Length > 200)
-            throw new ApplicationServiceException(400, $"{fieldName}长度必须在12到200个字符之间");
+            throw new ApplicationServiceException(400, $"{fieldName}长度必须在4到200个字符之间");
     }
 
     private static void ValidateRoleInterval(DateTime? startAt, DateTime? endAt)

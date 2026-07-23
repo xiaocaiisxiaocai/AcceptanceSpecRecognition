@@ -3,6 +3,7 @@ using AcceptanceSpecSystem.Application;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using System.IO.Compression;
+using System.Text;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -66,6 +67,35 @@ public class UploadValidationTests
             .WithMessage("文件结构过大，请拆分后重新上传");
     }
 
+    [Fact]
+    public void ValidateOfficeDocument_WhenExcelWorksheetDimensionExceedsBudget_ShouldRejectBeforeParsing()
+    {
+        var payload = CreateExcelZip("A1:XFD1048576");
+        using var stream = new MemoryStream(payload);
+        IFormFile file = new FormFile(stream, 0, payload.Length, "file", "oversized-dimension.xlsx");
+
+        var action = () => UploadFileValidation.ValidateOfficeDocument(file, allowExcel: true, allowWord: true);
+
+        action.Should().Throw<ApplicationServiceException>()
+            .Where(ex => ex.Code == 400)
+            .WithMessage("工作表维度超过系统预算，请拆分后重新上传");
+    }
+
+    [Fact]
+    public void ValidateOfficeDocument_WhenWorksheetOmitsDimensionButCellReferenceExceedsBudget_ShouldReject()
+    {
+        var payload = CreateExcelZipWithWorksheet(
+            "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData><row r=\"100001\"><c r=\"A100001\" /></row></sheetData></worksheet>");
+        using var stream = new MemoryStream(payload);
+        IFormFile file = new FormFile(stream, 0, payload.Length, "file", "missing-dimension.xlsx");
+
+        var action = () => UploadFileValidation.ValidateOfficeDocument(file, allowExcel: true, allowWord: true);
+
+        action.Should().Throw<ApplicationServiceException>()
+            .Where(ex => ex.Code == 400)
+            .WithMessage("工作表维度超过系统预算，请拆分后重新上传");
+    }
+
     private static byte[] CreateOfficeZip(
         int entryCount = 2,
         IReadOnlyCollection<(string Name, long Length)>? extraEntries = null)
@@ -88,6 +118,28 @@ public class UploadValidationTests
                     WriteEntry(archive, name, length);
                 }
             }
+        }
+
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateExcelZip(string dimension)
+    {
+        return CreateExcelZipWithWorksheet(
+            $"<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><dimension ref=\"{dimension}\" /></worksheet>");
+    }
+
+    private static byte[] CreateExcelZipWithWorksheet(string worksheetXml)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            WriteEntry(archive, "[Content_Types].xml", "<Types />"u8.ToArray());
+            WriteEntry(archive, "xl/workbook.xml", "<workbook />"u8.ToArray());
+            WriteEntry(
+                archive,
+                "xl/worksheets/sheet1.xml",
+                Encoding.UTF8.GetBytes(worksheetXml));
         }
 
         return stream.ToArray();

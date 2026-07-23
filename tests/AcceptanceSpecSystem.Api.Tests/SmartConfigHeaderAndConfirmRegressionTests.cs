@@ -69,8 +69,12 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
 
         regions.Should().HaveCount(2);
         table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
-        regions.SelectMany(region => region.GetProperty("issues").EnumerateArray())
-            .Should().Contain(issue => issue.GetProperty("code").GetString() == "UncoveredBusinessRows");
+        var coverageIssue = regions.SelectMany(region => region.GetProperty("issues").EnumerateArray())
+            .Single(issue => issue.GetProperty("code").GetString() == "UncoveredBusinessRows");
+        coverageIssue.GetProperty("message").GetString().Should()
+            .Contain("发现 2 行")
+            .And.Contain("第 11 行、第 13 行")
+            .And.NotContain("第 11-13 行");
     }
 
     [Fact]
@@ -85,8 +89,11 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
         var regions = table.GetProperty("regions").EnumerateArray().ToList();
 
         regions.Should().HaveCount(2);
-        regions.SelectMany(region => region.GetProperty("issues").EnumerateArray())
-            .Should().Contain(issue => issue.GetProperty("code").GetString() == "UncoveredBusinessRows");
+        var coverageIssue = regions.SelectMany(region => region.GetProperty("issues").EnumerateArray())
+            .Single(issue => issue.GetProperty("code").GetString() == "UncoveredBusinessRows");
+        coverageIssue.GetProperty("message").GetString().Should()
+            .Contain("发现 1 行")
+            .And.Contain("第 11 行");
     }
 
     [Fact]
@@ -192,6 +199,57 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
         table.GetProperty("headerRowIndex").GetInt32().Should().Be(0);
         table.GetProperty("headerRowCount").GetInt32().Should().Be(1);
         table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Recognize_WhenSecondRegionStartsWithMergedBusinessAnchor_ShouldNotDropAnchorRow()
+    {
+        var customerId = await CreateCustomerAsync($"合并业务首行-{Guid.NewGuid():N}");
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateSecondRegionWithMergedBusinessAnchorExcelBytes(),
+            "smart-recognize-merged-business-anchor.xlsx");
+
+        var table = await RecognizeSingleTableAsync(fileId, customerId);
+        var regions = table.GetProperty("regions").EnumerateArray().ToList();
+
+        regions.Should().HaveCount(2);
+        regions[1].GetProperty("headerRowIndex").GetInt32().Should().Be(5);
+        regions[1].GetProperty("headerRowCount").GetInt32().Should().Be(1);
+        regions[1].GetProperty("dataStartRowIndex").GetInt32().Should().Be(
+            6,
+            "横向合并造成项目列与规格列同值时，该行仍可能是第二段首条业务数据");
+        regions[1].GetProperty("dataEndRowIndex").GetInt32().Should().Be(7);
+    }
+
+    [Fact]
+    public async Task Recognize_WhenRemarkHasDistinctEqualConfidenceCandidates_ShouldRequireUserSelection()
+    {
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateEqualConfidenceRemarkCandidatesExcelBytes(),
+            "smart-recognize-remark-conflict.xlsx");
+
+        var table = await RecognizeSingleTableAsync(fileId);
+
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        var region = table.GetProperty("regions").EnumerateArray().Single();
+        var conflict = region.GetProperty("fieldConflicts").EnumerateArray()
+            .Single(item => item.GetProperty("field").GetString() == "Remark");
+        conflict.GetProperty("recommendedColumnIndex").GetInt32().Should().Be(3);
+        var candidates = conflict.GetProperty("candidates").EnumerateArray().ToList();
+        candidates.Select(item => item.GetProperty("columnIndex").GetInt32())
+            .Should().Equal(3, 4);
+        candidates.Select(item => item.GetProperty("header").GetString())
+            .Should().Equal("Remark", "備註");
+        candidates.Should().OnlyContain(item =>
+            item.GetProperty("confidence").GetDouble() >= 0.95);
+        candidates[0].GetProperty("samples").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().Contain("J列内容");
+        candidates[1].GetProperty("samples").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().Contain("O列内容");
     }
 
     [Fact]
@@ -361,7 +419,7 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
         WriteData(11, "噪声", "低于标准");
         if (includeSecondTailRow)
         {
-            WriteData(12, "温升", "低于限值");
+            WriteData(13, "温升", "低于限值");
         }
 
         using var stream = new MemoryStream();
@@ -435,6 +493,56 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
             worksheet.Cell(row, 4).Value = "验收结果";
             worksheet.Cell(row, 5).Value = "补充说明";
         }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateSecondRegionWithMergedBusinessAnchorExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 3).Value = "项目";
+        worksheet.Cell(1, 4).Value = "规格";
+        worksheet.Cell(1, 5).Value = "OK/NG";
+        worksheet.Cell(1, 6).Value = "备注";
+        worksheet.Cell(2, 3).Value = "外观";
+        worksheet.Cell(2, 4).Value = "无划伤";
+        worksheet.Cell(2, 5).Value = "OK";
+        worksheet.Cell(3, 3).Value = "尺寸";
+        worksheet.Cell(3, 4).Value = "10±1mm";
+        worksheet.Cell(3, 5).Value = "OK";
+
+        worksheet.Cell(6, 3).Value = "项目";
+        worksheet.Cell(6, 4).Value = "规格";
+        worksheet.Cell(6, 5).Value = "OK/NG";
+        worksheet.Cell(6, 6).Value = "备注";
+        worksheet.Cell(7, 2).Value = "设备装机";
+        worksheet.Range(7, 3, 7, 4).Merge();
+        worksheet.Cell(7, 3).Value = "装机前验机";
+        worksheet.Cell(8, 3).Value = "供电";
+        worksheet.Cell(8, 4).Value = "220V";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateEqualConfidenceRemarkCandidatesExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "OK/NG";
+        worksheet.Cell(1, 4).Value = "Remark";
+        worksheet.Cell(1, 5).Value = "備註";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(2, 4).Value = "J列内容";
+        worksheet.Cell(2, 5).Value = "O列内容";
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

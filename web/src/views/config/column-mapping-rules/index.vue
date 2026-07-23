@@ -423,12 +423,9 @@ onMounted(load);
                 <el-table-column
                   prop="pattern"
                   label="匹配词"
-                  min-width="min(200px, calc(100vw - 32px))"
+                  min-width="200"
                 />
-                <el-table-column
-                  label="匹配模式"
-                  min-width="min(160px, calc(100vw - 32px))"
-                >
+                <el-table-column label="匹配模式" min-width="160">
                   <template #default="{ row }">
                     <el-select
                       v-model="row.matchMode"
@@ -447,10 +444,7 @@ onMounted(load);
                     </el-select>
                   </template>
                 </el-table-column>
-                <el-table-column
-                  label="来源"
-                  width="min(110px, calc(100vw - 32px))"
-                >
+                <el-table-column label="来源" width="110">
                   <template #default="{ row }">
                     <el-tag
                       :type="getSourceOption(row.source).type"
@@ -461,10 +455,7 @@ onMounted(load);
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column
-                  label="客户域"
-                  width="min(120px, calc(100vw - 32px))"
-                >
+                <el-table-column label="客户域" width="120">
                   <template #default="{ row }">
                     <el-tag
                       :type="row.customerId ? 'success' : 'info'"
@@ -475,10 +466,7 @@ onMounted(load);
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column
-                  label="优先级"
-                  width="min(140px, calc(100vw - 32px))"
-                >
+                <el-table-column label="优先级" width="140">
                   <template #default="{ row }">
                     <el-input-number
                       v-model="row.priority"
@@ -504,7 +492,7 @@ onMounted(load);
                 <el-table-column
                   v-if="hasOperationActions"
                   label="操作"
-                  width="min(150px, calc(100vw - 32px))"
+                  width="150"
                   fixed="right"
                 >
                   <template #default="{ row }">

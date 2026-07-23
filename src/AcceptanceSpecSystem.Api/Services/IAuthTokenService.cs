@@ -27,6 +27,8 @@ public class AuthTokenUser
     public string RoleCode { get; set; } = string.Empty;
 
     public List<string> Permissions { get; set; } = [];
+
+    public DateTime? AuthorizationValidUntil { get; set; }
 }
 
 /// <summary>

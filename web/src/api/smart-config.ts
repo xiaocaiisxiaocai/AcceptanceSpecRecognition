@@ -47,6 +47,20 @@ export interface SmartConfigRecognizedField {
   source: SmartConfigSource;
 }
 
+export interface SmartConfigFieldCandidate {
+  columnIndex: number;
+  header: string;
+  confidence: number;
+  isRecommended: boolean;
+  samples: string[];
+}
+
+export interface SmartConfigFieldConflict {
+  field: SmartConfigRecognizedFieldName;
+  recommendedColumnIndex?: number | null;
+  candidates: SmartConfigFieldCandidate[];
+}
+
 export interface SmartConfigColumnSemanticRecallSuggestion {
   columnIndex: number;
   header: string;
@@ -81,6 +95,7 @@ export interface SmartConfigRecognizedRegion {
   decision: SmartConfigDecision;
   issues?: SmartConfigRecognitionIssue[];
   fields: SmartConfigRecognizedField[];
+  fieldConflicts?: SmartConfigFieldConflict[];
 }
 export interface SmartConfigRecognizedTable {
   tableIndex: number;
@@ -105,6 +120,7 @@ export interface SmartConfigRecognizedTable {
   issues?: SmartConfigRecognitionIssue[];
   semanticRecallSuggestions?: SmartConfigColumnSemanticRecallSuggestion[];
   fields: SmartConfigRecognizedField[];
+  fieldConflicts?: SmartConfigFieldConflict[];
   regions?: SmartConfigRecognizedRegion[];
 }
 

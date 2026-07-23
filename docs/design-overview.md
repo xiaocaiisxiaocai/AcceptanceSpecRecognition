@@ -60,7 +60,7 @@ graph TB
     end
 
     subgraph 后端
-        API[ASP.NET Core 8<br/>IIS 子应用 /api]
+        API[ASP.NET Core 8<br/>IIS 站点根应用]
     end
 
     subgraph 数据层
@@ -91,9 +91,9 @@ graph TB
   Vite (:5173) ──proxy /api──▶ ASP.NET Core (:5291) ──▶ MySQL (:3306)
 
 生产环境 (IIS 内网):
-  IIS 站点 (/) ──/api──▶ IIS 子应用 (ASP.NET Core API) ──▶ MySQL (:3306)
-  │                                            │
-  └── 静态资源 (Vue dist)                       └── FileStorage:BasePath
+  IIS 站点根应用 (ASP.NET Core API) ──▶ MySQL (:3306)
+  │                         │
+  └── wwwroot (Vue dist)    └── FileStorage:BasePath
 ```
 
 ---
@@ -1133,12 +1133,10 @@ classDiagram
 
 ```mermaid
 graph LR
-    USER["内网用户浏览器"] --> IIS["IIS 站点<br/>前端静态资源 /"]
-    IIS --> API["IIS 子应用 /api<br/>ASP.NET Core API"]
+    USER["内网用户浏览器"] --> API["IIS 站点根应用<br/>ASP.NET Core API + wwwroot"]
     API --> MYSQL["MySQL 8.0"]
     API --> FS["文件存储目录<br/>FileStorage:BasePath"]
 
-    style IIS fill:#4CAF50,color:#fff
     style API fill:#2196F3,color:#fff
     style MYSQL fill:#FF9800,color:#fff
     style FS fill:#607D8B,color:#fff
@@ -1148,8 +1146,8 @@ graph LR
 
 ```mermaid
 graph TD
-  A1["dotnet publish Api -c Release"] --> A2["发布到 IIS 子应用 /api"]
-  W1["pnpm build (web)"] --> W2["发布 dist 到 IIS 站点根路径"]
+  A1["dotnet publish Api -c Release"] --> A2["发布到 IIS 站点根应用，Web dist 复制到 wwwroot"]
+  W1["pnpm build (web)"] --> W2["复制 dist 到 API 发布目录 wwwroot"]
   C1["配置 appsettings.Production.json"] --> A2
   C1 --> F1["设置 FileStorage:BasePath 目录权限"]
 ```
@@ -1159,11 +1157,11 @@ graph TD
 | 配置项 | 开发环境 | 生产环境 (IIS) |
 |--------|---------|----------------|
 | 前端端口 | Vite :5173 | IIS :80 / :443 |
-| 后端端口 | :5291 | IIS 子应用 `/api` |
+| 后端端口 | :5291 | IIS 站点根应用 |
 | 数据库 | localhost:3306 | 内网 MySQL |
 | API 路径 | Vite proxy `/api` | 同站点 `/api` |
 | 文件存储 | 项目目录 `uploads/` | `FileStorage:BasePath` 指定目录 |
-| 迁移 | 自动应用 | 自动应用（或发布前手工执行） |
+| 迁移 | 自动应用 | 安全迁移自动；破坏性迁移显式批准 |
 | Swagger | 启用 | 可启用（按内网策略） |
 
 ---

@@ -47,7 +47,7 @@ public class CreateSystemUserRequest
     public string Username { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "密码不能为空")]
-    [StringLength(200, MinimumLength = 12, ErrorMessage = "密码长度必须在12到200个字符之间")]
+    [StringLength(200, MinimumLength = 4, ErrorMessage = "密码长度必须在4到200个字符之间")]
     public string Password { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "昵称不能为空")]
@@ -111,7 +111,7 @@ public class UpdateSystemUserRequest
 public class ResetSystemUserPasswordRequest
 {
     [Required(ErrorMessage = "新密码不能为空")]
-    [StringLength(200, MinimumLength = 12, ErrorMessage = "新密码长度必须在12到200个字符之间")]
+    [StringLength(200, MinimumLength = 4, ErrorMessage = "新密码长度必须在4到200个字符之间")]
     public string NewPassword { get; set; } = string.Empty;
 }
 

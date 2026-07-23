@@ -124,7 +124,7 @@ public class DocumentsController : BaseApiController
     public async Task<ActionResult<ApiResponse<TableDataDto>>> GetTablePreview(
         int id,
         int tableIndex,
-        [FromQuery] int previewRows = 0,
+        [FromQuery] int previewRows = 100,
         [FromQuery] int headerRowIndex = 0,
         [FromQuery] int headerRowCount = 1,
         [FromQuery] int dataStartRowIndex = 1,

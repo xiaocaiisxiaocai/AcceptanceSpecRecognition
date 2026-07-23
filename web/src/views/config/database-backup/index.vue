@@ -348,20 +348,13 @@ onMounted(load);
       </template>
 
       <el-table :data="info?.files ?? []" height="100%" stripe>
-        <el-table-column
-          prop="fileName"
-          label="文件名"
-          min-width="min(260px, calc(100vw - 32px))"
-        />
-        <el-table-column label="大小" width="min(120px, calc(100vw - 32px))">
+        <el-table-column prop="fileName" label="文件名" min-width="260" />
+        <el-table-column label="大小" width="120">
           <template #default="{ row }">
             {{ formatFileSize(row.sizeBytes) }}
           </template>
         </el-table-column>
-        <el-table-column
-          label="创建时间"
-          width="min(220px, calc(100vw - 32px))"
-        >
+        <el-table-column label="创建时间" width="220">
           <template #default="{ row }">
             {{ formatDateTime(row.createdAt) }}
           </template>

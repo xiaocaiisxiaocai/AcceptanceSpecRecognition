@@ -285,10 +285,7 @@ defineExpose({
                   size="small"
                   max-height="280"
                 >
-                  <el-table-column
-                    label="相似度"
-                    width="min(110px, calc(100vw - 32px))"
-                  >
+                  <el-table-column label="相似度" width="110">
                     <template #default="{ row }">
                       <el-tag :type="scoreTagType(row.score)" effect="light">
                         {{ formatScore(row.score) }}
@@ -298,30 +295,27 @@ defineExpose({
                   <el-table-column
                     prop="project"
                     label="项目"
-                    min-width="min(150px, calc(100vw - 32px))"
+                    min-width="150"
                   />
                   <el-table-column
                     prop="specification"
                     label="规格内容"
-                    min-width="min(260px, calc(100vw - 32px))"
+                    min-width="260"
                     show-overflow-tooltip
                   />
                   <el-table-column
                     prop="acceptance"
                     label="验收标准"
-                    min-width="min(200px, calc(100vw - 32px))"
+                    min-width="200"
                     show-overflow-tooltip
                   />
                   <el-table-column
                     prop="remark"
                     label="备注"
-                    min-width="min(160px, calc(100vw - 32px))"
+                    min-width="160"
                     show-overflow-tooltip
                   />
-                  <el-table-column
-                    label="导入时间"
-                    width="min(180px, calc(100vw - 32px))"
-                  >
+                  <el-table-column label="导入时间" width="180">
                     <template #default="{ row }">
                       {{ formatImportedAt(row.importedAt) }}
                     </template>

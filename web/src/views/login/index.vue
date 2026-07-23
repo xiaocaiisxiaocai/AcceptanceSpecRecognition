@@ -4,9 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { message } from "@/utils/message";
 import { loginRules } from "./utils/rule";
 import { ref, reactive } from "vue";
-import { debounce } from "@pureadmin/utils";
 import { useNav } from "@/layout/hooks/useNav";
-import { useEventListener } from "@vueuse/core";
 import type { FormInstance } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import { initRouter, getTopMenu } from "@/router/utils";
@@ -107,20 +105,10 @@ const onLogin = async (formEl: FormInstance | undefined) => {
   });
 };
 
-const immediateDebounce: any = debounce(
-  formRef => onLogin(formRef),
-  1000,
-  true
-);
-
-useEventListener(document, "keydown", ({ code }) => {
-  if (
-    ["Enter", "NumpadEnter"].includes(code) &&
-    !disabled.value &&
-    !loading.value
-  )
-    immediateDebounce(ruleFormRef.value);
-});
+const onSubmit = () => {
+  if (disabled.value || loading.value) return;
+  void onLogin(ruleFormRef.value);
+};
 </script>
 
 <template>
@@ -132,6 +120,7 @@ useEventListener(document, "keydown", ({ code }) => {
         inline-prompt
         :active-icon="dayIcon"
         :inactive-icon="darkIcon"
+        :aria-label="dataTheme ? '切换为浅色主题' : '切换为深色主题'"
         @change="
           (val: string | number | boolean) => dataThemeChange(String(val))
         "
@@ -150,6 +139,7 @@ useEventListener(document, "keydown", ({ code }) => {
             :model="ruleForm"
             :rules="loginRules"
             size="large"
+            @submit.prevent="onSubmit"
           >
             <Motion :delay="100">
               <el-form-item
@@ -162,7 +152,9 @@ useEventListener(document, "keydown", ({ code }) => {
                 ]"
                 prop="username"
               >
+                <label class="sr-only" for="login-username">账号</label>
                 <el-input
+                  id="login-username"
                   v-model="ruleForm.username"
                   clearable
                   placeholder="账号"
@@ -173,7 +165,9 @@ useEventListener(document, "keydown", ({ code }) => {
 
             <Motion :delay="150">
               <el-form-item prop="password">
+                <label class="sr-only" for="login-password">密码</label>
                 <el-input
+                  id="login-password"
                   v-model="ruleForm.password"
                   clearable
                   :type="passwordVisible ? 'text' : 'password'"
@@ -203,7 +197,7 @@ useEventListener(document, "keydown", ({ code }) => {
                 type="primary"
                 :loading="loading"
                 :disabled="disabled"
-                @click="onLogin(ruleFormRef)"
+                native-type="submit"
               >
                 登录
               </el-button>

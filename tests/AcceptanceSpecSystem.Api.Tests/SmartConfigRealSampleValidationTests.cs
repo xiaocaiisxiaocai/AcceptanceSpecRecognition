@@ -52,7 +52,6 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
 
         var usableTable = tables.Single(table =>
             table.GetProperty("tableIndex").GetInt32() == 0);
-
         var headers = usableTable.GetProperty("headers")
             .EnumerateArray()
             .Select(item => item.GetString() ?? string.Empty)
@@ -82,11 +81,22 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
         var regions = usableTable.GetProperty("regions").EnumerateArray().ToList();
         regions.Should().HaveCount(2);
         ReadRegionCoordinates(regions[0]).Should().Be((7, 1, 8, 111));
-        ReadRegionCoordinates(regions[1]).Should().Be((124, 2, 127, 142));
+        ReadRegionCoordinates(regions[1]).Should().Be(
+            (125, 1, 126, 142),
+            "第 126 行是第二段末级表头，第 127 行已经是业务数据，不能静默丢弃首行");
         regions[1].GetProperty("projectColumnIndex").GetInt32().Should().Be(2);
         regions[1].GetProperty("specificationColumnIndex").GetInt32().Should().Be(3);
         regions[1].GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(8);
         regions[1].GetProperty("remarkColumnIndex").GetInt32().Should().Be(9);
+        var remarkConflict = regions[0].GetProperty("fieldConflicts")
+            .EnumerateArray()
+            .Single(conflict => conflict.GetProperty("field").GetString() == "Remark");
+        remarkConflict.GetProperty("recommendedColumnIndex").GetInt32().Should().Be(9);
+        remarkConflict.GetProperty("candidates").EnumerateArray()
+            .Select(candidate => (
+                candidate.GetProperty("columnIndex").GetInt32(),
+                candidate.GetProperty("header").GetString()))
+            .Should().Equal((9, "Remark"), (14, "備註"));
         regions[1].GetProperty("headers")[2].GetString().Should().NotBe(headers[2], "第二段未录入的项目表头应独立参与学习");
         headers[projectColumnIndex!.Value].Should().Be("具體項目");
         headers[specificationColumnIndex!.Value].Should().Be("規格");
@@ -142,6 +152,8 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
             item.GetProperty("pattern").GetString() == secondProjectHeader &&
             item.GetProperty("customerId").GetInt32() == customerId);
 
+        await CreateColumnRuleAsync(customerId, "裝機前驗機", targetField: 1);
+        await CreateColumnRuleAsync(customerId, "裝機前驗機", targetField: 2);
         var reuseResponse = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
             fileId,
@@ -152,7 +164,8 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
         var reuseBody = await reuseResponse.ReadAsAsync<ApiResponse<JsonElement>>();
         var reusedTable = reuseBody.Data!.GetProperty("tables").EnumerateArray()
             .Single(table => table.GetProperty("tableIndex").GetInt32() == 0);
-        reusedTable.GetProperty("source").GetString().Should().Be("Template");
+        reusedTable.GetProperty("source").GetString().Should().NotBe("Template",
+            "存在未覆盖业务行时，历史模板不能覆盖当前文件重新识别出的范围");
         reusedTable.GetProperty("regions").EnumerateArray()
             .Select(ReadRegionCoordinates)
             .Should().Equal(regions.Select(ReadRegionCoordinates));
@@ -188,6 +201,24 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
 
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         return json.Data!.GetProperty("id").GetInt32();
+    }
+
+    private async Task CreateColumnRuleAsync(int customerId, string pattern, int targetField)
+    {
+        var response = await _client.PostAsync(
+            "/api/column-mapping-rules",
+            ApiClientJson.ToJsonContent(new
+            {
+                pattern,
+                targetField,
+                matchMode = 2,
+                priority = 200,
+                enabled = true,
+                source = 2,
+                customerId
+            }));
+        var text = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.OK, text);
     }
 
     private async Task<int> UploadSampleAsync(string path)

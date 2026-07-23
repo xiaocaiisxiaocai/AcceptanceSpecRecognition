@@ -126,12 +126,8 @@ const getRowKey = (row: AiServiceConfig) => String(row.id);
           </template>
         </el-table-column>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column
-          prop="name"
-          label="名称"
-          min-width="min(180px, calc(100vw - 32px))"
-        />
-        <el-table-column label="状态" width="min(100px, calc(100vw - 32px))">
+        <el-table-column prop="name" label="名称" min-width="180" />
+        <el-table-column label="状态" width="100">
           <template #default="{ row }: { row: AiServiceConfig }">
             <el-tag
               :type="row.isDisabled ? 'info' : 'success'"
@@ -142,43 +138,24 @@ const getRowKey = (row: AiServiceConfig) => String(row.id);
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column
-          prop="serviceType"
-          label="类型"
-          width="min(160px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="serviceType" label="类型" width="160">
           <template #default="{ row }: { row: AiServiceConfig }">
             {{ getServiceTypeLabel(row.serviceType) }}
           </template>
         </el-table-column>
-        <el-table-column
-          prop="purpose"
-          label="用途"
-          width="min(160px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="purpose" label="用途" width="160">
           <template #default="{ row }: { row: AiServiceConfig }">
             {{ formatPurpose(row.purpose) }}
           </template>
         </el-table-column>
-        <el-table-column
-          prop="endpoint"
-          label="Endpoint"
-          min-width="min(240px, calc(100vw - 32px))"
-        />
+        <el-table-column prop="endpoint" label="Endpoint" min-width="240" />
         <el-table-column
           prop="embeddingModel"
           label="EmbeddingModel"
-          min-width="min(160px, calc(100vw - 32px))"
+          min-width="160"
         />
-        <el-table-column
-          prop="llmModel"
-          label="LLMModel"
-          min-width="min(160px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          label="关闭思考模式"
-          width="min(140px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="llmModel" label="LLMModel" min-width="160" />
+        <el-table-column label="关闭思考模式" width="140">
           <template #default="{ row }: { row: AiServiceConfig }">
             {{ row.disableThinking ? "是" : "否" }}
           </template>

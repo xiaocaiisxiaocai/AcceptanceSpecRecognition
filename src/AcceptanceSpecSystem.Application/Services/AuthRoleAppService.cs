@@ -35,10 +35,12 @@ public interface IAuthRoleAppService
 public sealed class AuthRoleAppService : IAuthRoleAppService
 {
     private readonly AppDbContext _dbContext;
+    private readonly IAuthRefreshSessionService _refreshSessions;
 
-    public AuthRoleAppService(AppDbContext dbContext)
+    public AuthRoleAppService(AppDbContext dbContext, IAuthRefreshSessionService refreshSessions)
     {
         _dbContext = dbContext;
+        _refreshSessions = refreshSessions;
     }
 
     public async Task<List<AuthRoleDto>> GetListAsync(
@@ -161,7 +163,15 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
         if (!string.IsNullOrWhiteSpace(syncError))
             throw new ApplicationServiceException(400, syncError);
 
+        var affectedUserIds = await _dbContext.SystemUsers
+            .Where(user => user.UserRoles.Any(userRole => userRole.RoleId == role.Id))
+            .Select(user => user.Id)
+            .ToListAsync(cancellationToken);
         await TouchUsersByRoleAsync(role.Id, cancellationToken);
+        await _refreshSessions.RevokeUserSessionsAsync(
+            affectedUserIds,
+            "role-security-context-changed",
+            cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

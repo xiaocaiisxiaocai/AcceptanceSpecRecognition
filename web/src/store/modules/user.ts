@@ -141,15 +141,13 @@ export const useUserStore = defineStore("pure-user", {
     },
     /** 撤销服务端会话后清理当前页面。 */
     async logout(redirectPath?: string) {
-      let revoked = true;
       try {
         await logoutApi();
       } catch {
-        revoked = false;
-      } finally {
-        this.logOut(redirectPath);
+        return false;
       }
-      return revoked;
+      this.logOut(redirectPath);
+      return true;
     },
     /** 刷新`token` */
     async handRefreshToken() {

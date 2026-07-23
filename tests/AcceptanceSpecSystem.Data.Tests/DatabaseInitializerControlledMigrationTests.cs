@@ -7,6 +7,31 @@ namespace AcceptanceSpecSystem.Data.Tests;
 public sealed class DatabaseInitializerControlledMigrationTests
 {
     [Fact]
+    public void MigrationCatalog_ShouldClassifyKnownDataRewritesAsDestructive()
+    {
+        DatabaseInitializer.ClassifyMigration(DatabaseInitializer.ControlledCollationMigrationId)
+            .Should().Be(DatabaseMigrationRisk.Destructive);
+        DatabaseInitializer.ClassifyMigration("20260719170000_BackfillDocumentTemplateRegions")
+            .Should().Be(DatabaseMigrationRisk.Destructive);
+        DatabaseInitializer.ClassifyMigration("20260719074136_AddDocumentTemplateRegions")
+            .Should().Be(DatabaseMigrationRisk.Safe);
+        DatabaseInitializer.ClassifyMigration("20990101000000_UnreviewedMigration")
+            .Should().Be(DatabaseMigrationRisk.Unclassified);
+    }
+
+    [Fact]
+    public void UnclassifiedMigration_ShouldFailClosedOnExistingDatabase()
+    {
+        var action = () => DatabaseInitializer.EnsureControlledMigrationPolicy(
+            ["20260719074136_AddDocumentTemplateRegions"],
+            ["20990101000000_UnreviewedMigration"],
+            allowControlledMigrations: false);
+
+        action.Should().Throw<ControlledDatabaseMigrationRequiredException>()
+            .WithMessage("*20990101000000_UnreviewedMigration*");
+    }
+
+    [Fact]
     public void ExistingDatabase_ShouldRejectControlledMigrationDuringNormalStartup()
     {
         var action = () => DatabaseInitializer.EnsureControlledMigrationPolicy(
@@ -15,7 +40,7 @@ public sealed class DatabaseInitializerControlledMigrationTests
             allowControlledMigrations: false);
 
         action.Should().Throw<ControlledDatabaseMigrationRequiredException>()
-            .WithMessage("*--migrate-only*");
+            .WithMessage("*--apply-destructive-migrations --backup-verified*");
     }
 
     [Fact]
@@ -24,7 +49,41 @@ public sealed class DatabaseInitializerControlledMigrationTests
         var action = () => DatabaseInitializer.EnsureControlledMigrationPolicy(
             ["20260710144805_AddAuthRefreshSessions"],
             [DatabaseInitializer.ControlledCollationMigrationId],
-            allowControlledMigrations: true);
+            allowControlledMigrations: true,
+            backupVerified: true);
+
+        action.Should().NotThrow();
+    }
+
+    [Fact]
+    public void DestructiveMigration_ShouldRequireExplicitCommandAndVerifiedBackup()
+    {
+        var withoutBackup = () => DatabaseInitializer.EnsureControlledMigrationPolicy(
+            ["20260710144805_AddAuthRefreshSessions"],
+            [DatabaseInitializer.ControlledCollationMigrationId],
+            allowControlledMigrations: true,
+            backupVerified: false);
+
+        withoutBackup.Should().Throw<ControlledDatabaseMigrationRequiredException>()
+            .WithMessage("*--backup-verified*");
+
+        var explicitlyApproved = () => DatabaseInitializer.EnsureControlledMigrationPolicy(
+            ["20260710144805_AddAuthRefreshSessions"],
+            [DatabaseInitializer.ControlledCollationMigrationId],
+            allowControlledMigrations: true,
+            backupVerified: true);
+
+        explicitlyApproved.Should().NotThrow();
+    }
+
+    [Fact]
+    public void SafeMigration_ShouldRemainAutomaticForExistingDatabase()
+    {
+        var action = () => DatabaseInitializer.EnsureControlledMigrationPolicy(
+            ["20260719190000_AddColumnMappingRuleNormalizedUniqueKey"],
+            ["20260719074136_AddDocumentTemplateRegions"],
+            allowControlledMigrations: false,
+            backupVerified: false);
 
         action.Should().NotThrow();
     }

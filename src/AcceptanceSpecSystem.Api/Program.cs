@@ -148,8 +148,10 @@ builder.Services.AddRateLimiter(options =>
         httpContext,
         builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:Login").Get<RateLimitPolicyOptions>()
             ?? new ApiRateLimitOptions().Login));
-    options.AddPolicy("refresh-token", httpContext => CreateFixedWindowLimiter(
+    options.AddPolicy("refresh-token", httpContext => CreateRefreshTokenLimiter(
         httpContext,
+        builder.Configuration[$"{BrowserAuthOptions.SectionName}:RefreshCookieName"]?.Trim()
+            ?? new BrowserAuthOptions().RefreshCookieName,
         builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:RefreshToken").Get<RateLimitPolicyOptions>()
             ?? new ApiRateLimitOptions().RefreshToken));
     options.AddPolicy("upload", httpContext => CreateFixedWindowLimiter(
@@ -187,10 +189,14 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
     options.AddInterceptors(serviceProvider.GetRequiredService<SlowQueryLoggingInterceptor>());
 });
 
+builder.Services.AddSingleton<MigrationReadinessState>();
+builder.Services.AddSingleton<SingleCompanyReadinessState>();
 builder.Services.AddHealthChecks()
-    .AddCheck<DatabaseHealthCheck>("database")
-    .AddCheck<FileStorageHealthCheck>("fileStorage")
-    .AddCheck<AiConfigHealthCheck>("aiConfig");
+    .AddCheck<DatabaseHealthCheck>("database", tags: ["ready"])
+    .AddCheck<FileStorageHealthCheck>("fileStorage", tags: ["ready"])
+    .AddCheck<MigrationReadinessHealthCheck>("migrations", tags: ["ready"])
+    .AddCheck<SingleCompanyHealthCheck>("singleCompany", tags: ["ready"])
+    .AddCheck<AiConfigHealthCheck>("aiConfig", tags: ["ai-capability"]);
 
 // 模块化服务注册
 builder.Services.AddDataRepositories();
@@ -304,7 +310,19 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
-var migrateOnly = args.Any(argument => string.Equals(argument, "--migrate-only", StringComparison.OrdinalIgnoreCase));
+var applyDestructiveMigrations = args.Any(argument =>
+    string.Equals(argument, "--apply-destructive-migrations", StringComparison.OrdinalIgnoreCase));
+var backupVerified = args.Any(argument =>
+    string.Equals(argument, "--backup-verified", StringComparison.OrdinalIgnoreCase));
+var legacyMigrateOnly = args.Any(argument =>
+    string.Equals(argument, "--migrate-only", StringComparison.OrdinalIgnoreCase));
+var migrationCommand = applyDestructiveMigrations || legacyMigrateOnly;
+
+if (backupVerified && !applyDestructiveMigrations)
+{
+    throw new InvalidOperationException(
+        "--backup-verified 只能与 --apply-destructive-migrations 一起使用，避免误报备份审批状态。");
+}
 
 if (forwardedHeadersOptions is not null)
 {
@@ -329,17 +347,34 @@ if (!app.Environment.IsEnvironment("Testing"))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await DatabaseInitializer.InitializeAsync(db, allowControlledMigrations: migrateOnly);
+    try
+    {
+        await DatabaseInitializer.InitializeAsync(
+            db,
+            allowControlledMigrations: applyDestructiveMigrations,
+            backupVerified: backupVerified);
+    }
+    catch (ControlledDatabaseMigrationRequiredException) when (!migrationCommand)
+    {
+        var blocked = (await db.Database.GetPendingMigrationsAsync())
+            .Where(migration => DatabaseInitializer.ClassifyMigration(migration) != DatabaseMigrationRisk.Safe)
+            .ToArray();
+        app.Services.GetRequiredService<MigrationReadinessState>().Block(blocked);
+        app.Logger.LogWarning(
+            "检测到未批准的破坏性迁移，API 仅开放健康诊断，MigrationIds={MigrationIds}",
+            blocked);
+    }
 }
 
-if (migrateOnly)
+if (migrationCommand)
 {
-    app.Logger.LogInformation("数据库受控迁移已完成；--migrate-only 模式不会启动 HTTP 服务");
+    app.Logger.LogInformation("数据库迁移命令已完成；迁移模式不会启动 HTTP 服务");
     return;
 }
 
-using (var scope = app.Services.CreateScope())
+if (app.Services.GetRequiredService<MigrationReadinessState>().IsReady)
 {
+    using var scope = app.Services.CreateScope();
     var promptInitializer = scope.ServiceProvider.GetRequiredService<SystemPromptTemplateInitializer>();
     await promptInitializer.EnsureAsync();
     var columnMappingInitializer = scope.ServiceProvider.GetRequiredService<ColumnMappingRuleInitializer>();
@@ -349,6 +384,34 @@ using (var scope = app.Services.CreateScope())
 // 使用异常处理中间件
 app.UseExceptionHandling();
 app.UseMiddleware<RequestTracingMiddleware>();
+
+app.Use(async (context, next) =>
+{
+    var migrationState = context.RequestServices.GetRequiredService<MigrationReadinessState>();
+    var companyState = context.RequestServices.GetRequiredService<SingleCompanyReadinessState>();
+    var isHealthPath = context.Request.Path.StartsWithSegments("/health") ||
+                       context.Request.Path.StartsWithSegments("/api/health");
+    if ((!migrationState.IsReady || !companyState.IsReady) && !isHealthPath)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            success = false,
+            message = !migrationState.IsReady
+                ? "服务存在待批准的破坏性数据库迁移，当前未就绪"
+                : "单公司根数据不变量不满足，当前未就绪"
+        });
+        return;
+    }
+
+    await next();
+});
+
+// IIS 单根应用部署时，Web 构建产物位于 API 发布目录的 wwwroot。
+// Docker 中 Web 仍由独立 Nginx 提供；API 镜像没有 wwwroot 时此配置不会改变 API 行为。
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // 配置HTTP请求管道
 if (app.Environment.IsDevelopment())
@@ -383,37 +446,59 @@ app.UseMiddleware<ApiPermissionMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 
-await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
-
-// 健康检查端点
-app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+if (app.Services.GetRequiredService<MigrationReadinessState>().IsReady)
 {
-    ResponseWriter = async (context, report) =>
+    await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
+    await using var companyScope = app.Services.CreateAsyncScope();
+    var companyDb = companyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var companyCount = await companyDb.OrgCompanies.CountAsync();
+    app.Services.GetRequiredService<SingleCompanyReadinessState>().Report(companyCount);
+    if (companyCount != 1)
     {
-        context.Response.ContentType = "application/json";
-        var hasAiComponent = report.Entries.TryGetValue("aiConfig", out var aiComponent);
-        var payload = new
-        {
-            status = report.Status.ToString(),
-            totalDurationMs = report.TotalDuration.TotalMilliseconds,
-            components = new
-            {
-                aiConfig = hasAiComponent
-                    ? new
-                {
-                    status = aiComponent.Status.ToString(),
-                    message = aiComponent.Description,
-                    data = aiComponent.Data
-                }
-                    : null
-            }
-        };
-        await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
+        app.Logger.LogError(
+            "单公司根数据不变量不满足，API 仅开放健康诊断，ExpectedCount=1, ActualCount={ActualCount}",
+            companyCount);
     }
-})
+}
+
+var legacyHealthOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = WriteHealthReportAsync
+};
+var liveHealthOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false,
+    ResponseWriter = WriteHealthReportAsync
+};
+var readyHealthOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready"),
+    ResponseWriter = WriteHealthReportAsync
+};
+var aiCapabilityOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ai-capability"),
+    ResponseWriter = WriteAiCapabilityReportAsync
+};
+
+app.MapHealthChecks("/health", legacyHealthOptions)
     .WithName("HealthCheck")
     .WithTags("System")
     .AllowAnonymous();
+app.MapHealthChecks("/api/health", legacyHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/health/live", liveHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/api/health/live", liveHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/health/ready", readyHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/api/health/ready", readyHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/health/capabilities/ai", aiCapabilityOptions).AllowAnonymous();
+app.MapHealthChecks("/api/health/capabilities/ai", aiCapabilityOptions).AllowAnonymous();
+
+// 单根 IIS 应用的 Vue History 回退。仅处理未命中端点的非文件 GET/HEAD 请求；
+// /api、认证和健康端点已经在上方映射，不会被静态页面掩盖。
+if (File.Exists(Path.Combine(app.Environment.WebRootPath ?? string.Empty, "index.html")))
+{
+    app.MapFallbackToFile("index.html").AllowAnonymous();
+}
 
 app.Run();
 
@@ -422,6 +507,59 @@ static RateLimitPartition<string> CreateFixedWindowLimiter(
     RateLimitPolicyOptions options)
 {
     var partitionKey = RateLimitPartitionKeyResolver.Resolve(httpContext);
+
+    return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+    {
+        PermitLimit = Math.Max(1, options.PermitLimit),
+        Window = TimeSpan.FromSeconds(Math.Max(1, options.WindowSeconds)),
+        QueueLimit = Math.Max(0, options.QueueLimit),
+        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+        AutoReplenishment = true
+    });
+}
+
+static async Task WriteHealthReportAsync(HttpContext context, HealthReport report)
+{
+    context.Response.ContentType = "application/json";
+    var components = report.Entries.ToDictionary(
+        entry => entry.Key,
+        entry => new
+        {
+            status = entry.Value.Status.ToString(),
+            message = entry.Value.Description,
+            data = entry.Value.Data
+        });
+    await context.Response.WriteAsync(JsonSerializer.Serialize(new
+    {
+        status = report.Status.ToString(),
+        totalDurationMs = report.TotalDuration.TotalMilliseconds,
+        components
+    }));
+}
+
+static async Task WriteAiCapabilityReportAsync(HttpContext context, HealthReport report)
+{
+    context.Response.ContentType = "application/json";
+    var hasAi = report.Entries.TryGetValue("aiConfig", out var ai);
+    var runtimeStatus = hasAi && ai.Data.TryGetValue("runtimeStatus", out var value)
+        ? value?.ToString()
+        : "checking";
+    await context.Response.WriteAsync(JsonSerializer.Serialize(new
+    {
+        capability = "ai",
+        runtimeStatus,
+        llm = hasAi ? ai.Data.GetValueOrDefault("llm")?.ToString() : null,
+        embedding = hasAi ? ai.Data.GetValueOrDefault("embedding")?.ToString() : null,
+        checkedEntries = hasAi ? ai.Data.GetValueOrDefault("checkedEntries") : null
+    }));
+}
+
+static RateLimitPartition<string> CreateRefreshTokenLimiter(
+    HttpContext httpContext,
+    string refreshCookieName,
+    RateLimitPolicyOptions options)
+{
+    var partitionKey = RateLimitPartitionKeyResolver.ResolveRefreshSession(httpContext, refreshCookieName);
 
     return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
     {

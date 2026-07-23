@@ -79,17 +79,13 @@ export const router: Router = createRouter({
   routes: constantRoutes.concat(...(remainingRouter as RouteRecordRaw[])),
   strict: true,
   scrollBehavior(to, from, savedPosition) {
-    return new Promise(resolve => {
-      if (savedPosition) {
-        return savedPosition;
-      } else {
-        if (from.meta.saveSrollTop) {
-          const top: number =
-            document.documentElement.scrollTop || document.body.scrollTop;
-          resolve({ left: 0, top });
-        }
-      }
-    });
+    if (savedPosition) return savedPosition;
+    if (from.meta.saveSrollTop) {
+      const top: number =
+        document.documentElement.scrollTop || document.body.scrollTop;
+      return { left: 0, top };
+    }
+    return { left: 0, top: 0 };
   }
 });
 
@@ -162,7 +158,7 @@ router.beforeEach((to: ToRouteType, _from, next) => {
   }
   /** 如果已经登录并存在登录信息后不能跳转到路由白名单，而是继续保持在当前页面 */
   function toCorrectRoute() {
-    whiteList.includes(to.fullPath) ? next(_from.fullPath) : next();
+    whiteList.includes(to.path) ? next(_from.fullPath) : next();
   }
 
   function hasRoutePermission() {

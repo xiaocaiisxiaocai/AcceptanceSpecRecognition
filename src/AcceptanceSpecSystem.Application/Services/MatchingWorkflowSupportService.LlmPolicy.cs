@@ -96,13 +96,13 @@ public sealed partial class MatchingWorkflowSupportService
             {
                 if (attempt < retryCount)
                 {
-                    _logger.LogWarning(ex, "[LLM-Stream] {Location}: {Step} 第 {Attempt} 次失败，准备重试",
-                        FormatStreamItemLocation(item), stepName, attempt + 1);
+                    _logger.LogWarning("[LLM-Stream] {Location}: {Step} 第 {Attempt} 次失败，准备重试, exceptionType={ExceptionType}",
+                        FormatStreamItemLocation(item), stepName, attempt + 1, ex.GetType().Name);
                     continue;
                 }
 
-                _logger.LogWarning(ex, "[LLM-Stream] {Location}: {Step} 重试后仍失败",
-                    FormatStreamItemLocation(item), stepName);
+                _logger.LogWarning("[LLM-Stream] {Location}: {Step} 重试后仍失败, exceptionType={ExceptionType}",
+                    FormatStreamItemLocation(item), stepName, ex.GetType().Name);
                 await WriteSseEventLockedAsync(response, sseWriteLock, $"{stepName}.error", new
                 {
                     tableIndex = item.TableIndex,
@@ -119,13 +119,13 @@ public sealed partial class MatchingWorkflowSupportService
             {
                 if (attempt < retryCount)
                 {
-                    _logger.LogWarning(ex, "[LLM-Stream] {Location}: {Step} 第 {Attempt} 次异常，准备重试",
-                        FormatStreamItemLocation(item), stepName, attempt + 1);
+                    _logger.LogWarning("[LLM-Stream] {Location}: {Step} 第 {Attempt} 次异常，准备重试, exceptionType={ExceptionType}",
+                        FormatStreamItemLocation(item), stepName, attempt + 1, ex.GetType().Name);
                     continue;
                 }
 
-                _logger.LogWarning(ex, "[LLM-Stream] {Location}: {Step} 重试后仍失败",
-                    FormatStreamItemLocation(item), stepName);
+                _logger.LogWarning("[LLM-Stream] {Location}: {Step} 重试后仍失败, exceptionType={ExceptionType}",
+                    FormatStreamItemLocation(item), stepName, ex.GetType().Name);
                 await WriteSseEventLockedAsync(response, sseWriteLock, $"{stepName}.error", new
                 {
                     tableIndex = item.TableIndex,

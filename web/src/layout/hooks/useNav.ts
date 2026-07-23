@@ -15,6 +15,7 @@ import { useGlobal, isAllEmpty } from "@pureadmin/utils";
 import { usePermissionStoreHook } from "@/store/modules/permission";
 import ExitFullscreen from "~icons/ri/fullscreen-exit-fill";
 import Fullscreen from "~icons/ri/fullscreen-fill";
+import { message } from "@/utils/message";
 
 const errorInfo =
   "The current routing configuration is incorrect, please check the configuration";
@@ -81,8 +82,11 @@ export function useNav() {
   }
 
   /** 退出登录 */
-  function logout() {
-    void useUserStoreHook().logout();
+  async function logout() {
+    const revoked = await useUserStoreHook().logout();
+    if (!revoked) {
+      message("退出失败，当前会话仍然有效，请稍后重试", { type: "error" });
+    }
   }
 
   function backTopMenu() {

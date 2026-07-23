@@ -81,7 +81,7 @@ export const getSmartFillPrevStepState = ({
 export const shouldSelectSmartFillTableByDefault = (
   table: SmartConfigRecognizedTable
 ) =>
-  table.decision === "AutoApply" &&
+  table.decision !== "Reject" &&
   table.recommendation === "Recommended" &&
   table.confidence > 0;
 

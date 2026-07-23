@@ -529,7 +529,7 @@ const groupLabel = () => {
           v-if="queryParams.globalSearch"
           prop="machineModelName"
           label="机型"
-          min-width="min(120px, calc(100vw - 32px))"
+          min-width="120"
         >
           <template #default="{ row }">
             <span
@@ -545,7 +545,7 @@ const groupLabel = () => {
           v-if="queryParams.globalSearch"
           prop="processName"
           label="制程"
-          min-width="min(120px, calc(100vw - 32px))"
+          min-width="120"
         >
           <template #default="{ row }">
             <span
@@ -581,11 +581,7 @@ const groupLabel = () => {
             }}</span>
           </template>
         </el-table-column>
-        <el-table-column
-          prop="acceptance"
-          label="验收标准"
-          min-width="min(150px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="acceptance" label="验收标准" min-width="150">
           <template #default="{ row }">
             <span
               v-if="row.acceptance"
@@ -596,11 +592,7 @@ const groupLabel = () => {
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
-        <el-table-column
-          prop="remark"
-          label="备注"
-          min-width="min(150px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="remark" label="备注" min-width="150">
           <template #default="{ row }">
             <span v-if="row.remark" class="line-clamp-1" :title="row.remark">{{
               row.remark

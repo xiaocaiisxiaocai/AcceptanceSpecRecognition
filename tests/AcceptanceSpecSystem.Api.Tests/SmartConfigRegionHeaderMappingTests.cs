@@ -7,6 +7,43 @@ namespace AcceptanceSpecSystem.Api.Tests;
 public class SmartConfigRegionHeaderMappingTests
 {
     [Fact]
+    public void HeaderCandidateRank_WhenConfidenceTies_ShouldPreferCustomerLearnedRule()
+    {
+        var matcherType = typeof(SmartConfigurationAppService).Assembly.GetType(
+            "AcceptanceSpecSystem.Application.Services.HeaderKeywordMatcher")!;
+        var matcher = matcherType.GetMethod("FromRules")!.Invoke(null,
+        [
+            new[]
+            {
+                new ColumnHeaderMappingRule(
+                    ColumnType.Remark,
+                    ColumnHeaderMatchMode.Equals,
+                    "Remark"),
+                new ColumnHeaderMappingRule(
+                    ColumnType.Remark,
+                    ColumnHeaderMatchMode.Equals,
+                    "備註",
+                    Priority: 200,
+                    IsCustomerSpecific: true)
+            }
+        ])!;
+        var getRank = matcherType.GetMethod("GetRank")!;
+
+        var builtInRank = getRank.Invoke(matcher, [ColumnType.Remark, "Remark"])!;
+        var learnedRank = getRank.Invoke(matcher, [ColumnType.Remark, "備註"])!;
+        var rankType = learnedRank.GetType();
+
+        rankType.GetProperty("Confidence")!.GetValue(learnedRank)
+            .Should().Be(rankType.GetProperty("Confidence")!.GetValue(builtInRank));
+        rankType.GetProperty("IsCustomerSpecific")!.GetValue(builtInRank)
+            .Should().Be(false);
+        rankType.GetProperty("IsCustomerSpecific")!.GetValue(learnedRank)
+            .Should().Be(true);
+        rankType.GetProperty("Priority")!.GetValue(learnedRank)
+            .Should().Be(200);
+    }
+
+    [Fact]
     public void RegionHeaderMapping_ShouldDistinguishProjectDetailHierarchyFromARealLeftColumnMove()
     {
         var serviceType = typeof(SmartConfigurationAppService);

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using System.Threading.Channels;
 using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Application.Options;
@@ -25,6 +26,7 @@ public sealed class AiServiceReadinessProbeScheduler :
 {
     private readonly AiServiceReadinessRegistry _registry;
     private readonly ISemanticKernelServiceFactory _factory;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly IHostApplicationLifetime _applicationLifetime;
     private readonly ILogger<AiServiceReadinessProbeScheduler> _logger;
     private readonly TimeSpan _probeTimeout;
@@ -40,12 +42,14 @@ public sealed class AiServiceReadinessProbeScheduler :
     public AiServiceReadinessProbeScheduler(
         AiServiceReadinessRegistry registry,
         ISemanticKernelServiceFactory factory,
+        IHttpClientFactory httpClientFactory,
         IHostApplicationLifetime applicationLifetime,
         IOptions<AiServiceReadinessOptions> options,
         ILogger<AiServiceReadinessProbeScheduler> logger)
     {
         _registry = registry;
         _factory = factory;
+        _httpClientFactory = httpClientFactory;
         _applicationLifetime = applicationLifetime;
         _logger = logger;
         _workerCount = Math.Clamp(options.Value.MaxConcurrentProbes, 1, 16);
@@ -164,7 +168,11 @@ public sealed class AiServiceReadinessProbeScheduler :
             timeout.CancelAfter(_probeTimeout);
 
             var coreConfig = ToCoreModel(request.Config);
-            if (request.Purpose == CoreAiServicePurpose.Llm)
+            if (request.Config.ServiceType == DataAiServiceType.Ollama)
+            {
+                await ProbeOllamaModelAsync(request.Config, request.Purpose, timeout.Token);
+            }
+            else if (request.Purpose == CoreAiServicePurpose.Llm)
             {
                 var chat = _factory.CreateChatCompletionService(coreConfig);
                 var history = new ChatHistory();
@@ -207,6 +215,52 @@ public sealed class AiServiceReadinessProbeScheduler :
         {
             _running.TryRemove(request.Key, out _);
         }
+    }
+
+    private async Task ProbeOllamaModelAsync(
+        AiServiceProbeConfig config,
+        CoreAiServicePurpose purpose,
+        CancellationToken cancellationToken)
+    {
+        var endpoint = AiEndpointNormalizer.NormalizeRequiredEndpoint(
+            config.Endpoint,
+            allowPrivateNetwork: true).TrimEnd('/');
+        if (endpoint.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
+            endpoint = endpoint[..^4];
+
+        var configuredModel = purpose == CoreAiServicePurpose.Llm
+            ? config.LlmModel
+            : config.EmbeddingModel;
+        if (string.IsNullOrWhiteSpace(configuredModel))
+            throw new InvalidOperationException("AI 模型未配置");
+
+        using var client = _httpClientFactory.CreateClient();
+        using var response = await client.GetAsync($"{endpoint}/api/tags", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
+
+        if (!document.RootElement.TryGetProperty("models", out var models) ||
+            models.ValueKind != JsonValueKind.Array ||
+            !models.EnumerateArray().Any(model => IsConfiguredOllamaModel(model, configuredModel)))
+        {
+            throw new InvalidOperationException("Ollama 未返回已配置模型");
+        }
+    }
+
+    private static bool IsConfiguredOllamaModel(JsonElement model, string configuredModel)
+    {
+        foreach (var propertyName in new[] { "name", "model" })
+        {
+            if (model.TryGetProperty(propertyName, out var value) &&
+                value.ValueKind == JsonValueKind.String &&
+                string.Equals(value.GetString(), configuredModel.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public async ValueTask DisposeAsync()

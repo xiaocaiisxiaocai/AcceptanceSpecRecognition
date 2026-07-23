@@ -35,6 +35,10 @@ public class AuthTokenService : IAuthTokenService
     {
         var now = DateTime.UtcNow;
         var accessExpires = now.AddMinutes(Math.Max(5, _options.AccessTokenMinutes));
+        if (user.AuthorizationValidUntil.HasValue && user.AuthorizationValidUntil.Value < accessExpires)
+        {
+            accessExpires = user.AuthorizationValidUntil.Value;
+        }
         var refreshExpires = now.AddDays(Math.Max(1, _options.RefreshTokenDays));
 
         var commonClaims = new List<Claim>

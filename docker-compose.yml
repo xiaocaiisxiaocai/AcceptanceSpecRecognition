@@ -80,7 +80,8 @@ services:
       - /var/cache/nginx:size=32m,mode=0755,uid=101,gid=101
       - /var/run:size=8m,mode=0755,uid=101,gid=101
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
       - "80:8080"
 

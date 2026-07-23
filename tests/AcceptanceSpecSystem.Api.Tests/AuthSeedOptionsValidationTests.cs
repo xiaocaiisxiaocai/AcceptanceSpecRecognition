@@ -18,12 +18,48 @@ public class AuthSeedOptionsValidationTests
 
         var result = validator.Validate(AuthSeedOptions.SectionName, new AuthSeedOptions
         {
-            AdminPassword = "short",
+            AdminPassword = "abc",
             CommonPassword = "CommonPassword!2026"
         });
 
         result.Failed.Should().BeTrue();
         result.Failures.Should().Contain(failure => failure.Contains("AdminPassword", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_WhenProductionPasswordHasExactlyFourCharacters_ShouldSucceed()
+    {
+        var validator = new AuthSeedOptionsValidator(new FakeHostEnvironment
+        {
+            EnvironmentName = Environments.Production
+        });
+
+        var result = validator.Validate(AuthSeedOptions.SectionName, new AuthSeedOptions
+        {
+            AdminPassword = "adm1",
+            CommonPassword = "com1"
+        });
+
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_WhenProductionPasswordExceedsTwoHundredCharacters_ShouldFail()
+    {
+        var validator = new AuthSeedOptionsValidator(new FakeHostEnvironment
+        {
+            EnvironmentName = Environments.Production
+        });
+
+        var result = validator.Validate(AuthSeedOptions.SectionName, new AuthSeedOptions
+        {
+            AdminPassword = new string('a', 201),
+            CommonPassword = "com1"
+        });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().Contain(failure =>
+            failure.Contains("4 到 200", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -73,7 +109,7 @@ public class AuthSeedOptionsValidationTests
     }
 
     [Theory]
-    [InlineData("replace_with_at_least_12_chars_admin_password")]
+    [InlineData("replace_with_at_least_4_chars_admin_password")]
     [InlineData("ChangeThisAdminPassword_2026")]
     [InlineData("__REQUIRED_ADMIN_PASSWORD__")]
     public void Validate_WhenProductionPasswordIsKnownPlaceholder_ShouldFail(string placeholder)

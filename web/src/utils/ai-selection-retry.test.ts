@@ -49,4 +49,41 @@ describe("AI selection checking retry", () => {
     expect(refresh).not.toHaveBeenCalled();
     expect(retry.attempts).toBe(0);
   });
+
+  it("can retry unavailable with a longer status-specific delay", async () => {
+    const refresh = vi.fn();
+    const retry = createAiSelectionRetryController({
+      refresh,
+      delayMs: 1500,
+      retryStatuses: ["checking", "unavailable"],
+      delayMsByStatus: { unavailable: 5000 }
+    });
+
+    retry.schedule([{ status: "unavailable" }]);
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(refresh).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps unavailable retries bounded", async () => {
+    const refresh = vi.fn();
+    const retry = createAiSelectionRetryController({
+      refresh,
+      delayMs: 10,
+      maxAttempts: 2,
+      retryStatuses: ["checking", "unavailable"]
+    });
+
+    retry.schedule([{ status: "unavailable" }]);
+    await vi.advanceTimersByTimeAsync(10);
+    retry.schedule([{ status: "unavailable" }]);
+    await vi.advanceTimersByTimeAsync(10);
+    retry.schedule([{ status: "unavailable" }]);
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(retry.attempts).toBe(2);
+  });
 });

@@ -250,16 +250,8 @@ onMounted(() => {
         >
           <el-table-column v-if="canDelete" type="selection" width="50" />
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column
-            prop="name"
-            label="制程名称"
-            min-width="min(200px, calc(100vw - 32px))"
-          />
-          <el-table-column
-            prop="createdAt"
-            label="创建时间"
-            width="min(180px, calc(100vw - 32px))"
-          >
+          <el-table-column prop="name" label="制程名称" min-width="200" />
+          <el-table-column prop="createdAt" label="创建时间" width="180">
             <template #default="{ row }">{{
               new Date(row.createdAt).toLocaleString()
             }}</template>
@@ -267,7 +259,7 @@ onMounted(() => {
           <el-table-column
             v-if="hasOperationActions"
             label="操作"
-            width="min(150px, calc(100vw - 32px))"
+            width="150"
             fixed="right"
           >
             <template #default="{ row }">

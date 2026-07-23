@@ -6,12 +6,16 @@ interface AiSelectionRetryOptions {
   refresh: () => void | Promise<void>;
   delayMs?: number;
   maxAttempts?: number;
+  retryStatuses?: readonly AiServiceSelection["status"][];
+  delayMsByStatus?: Partial<Record<AiServiceSelection["status"], number>>;
 }
 
 export const createAiSelectionRetryController = ({
   refresh,
   delayMs = 1500,
-  maxAttempts = 10
+  maxAttempts = 10,
+  retryStatuses = ["checking"],
+  delayMsByStatus = {}
 }: AiSelectionRetryOptions) => {
   let timer: RetryTimer | undefined;
   let attempts = 0;
@@ -24,17 +28,21 @@ export const createAiSelectionRetryController = ({
 
   const schedule = (selections: readonly AiServiceSelection[]) => {
     clearTimer();
-    if (!selections.some(selection => selection.status === "checking")) {
+    const retryableSelection = selections.find(selection =>
+      retryStatuses.includes(selection.status)
+    );
+    if (!retryableSelection) {
       attempts = 0;
       return;
     }
     if (attempts >= maxAttempts) return;
 
     attempts += 1;
+    const retryDelayMs = delayMsByStatus[retryableSelection.status] ?? delayMs;
     timer = globalThis.setTimeout(() => {
       timer = undefined;
       void refresh();
-    }, delayMs);
+    }, retryDelayMs);
   };
 
   const cancel = () => {

@@ -83,6 +83,43 @@
   gap: 14px;
 }
 
+/*
+ * 识别确认的内容可能远高于一屏。这里把页面约束在框架分配的剩余高度内，
+ * 再由确认面板自身滚动，避免固定操作栏和框架页脚遮住最后一张 Sheet。
+ */
+.smart-fill--recognition-review {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.smart-fill--recognition-review .step-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.smart-fill--recognition-review .step-content :deep(.el-card__body) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.smart-fill--recognition-review .smart-fill-recognition-review {
+  flex: 1;
+  min-height: 0;
+  padding-right: 4px;
+  padding-bottom: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 .smart-fill-recognition-context {
   display: flex;
   gap: 16px;

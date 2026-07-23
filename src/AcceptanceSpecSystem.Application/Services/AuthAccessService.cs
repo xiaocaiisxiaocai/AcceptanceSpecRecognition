@@ -27,6 +27,8 @@ public sealed class AuthAccessContext
     public IReadOnlyList<string> Permissions { get; init; } = [];
 
     public int? OrgUnitId { get; init; }
+
+    public DateTime? AuthorizationValidUntil { get; init; }
 }
 
 /// <summary>
@@ -145,8 +147,16 @@ public sealed class AuthAccessService : IAuthAccessService
             PermissionVersion = user.PermissionVersion,
             RoleCode = activeRole?.Code ?? string.Empty,
             Permissions = permissions,
-            OrgUnitId = activeOrgLink?.OrgUnitId
+            OrgUnitId = activeOrgLink?.OrgUnitId,
+            AuthorizationValidUntil = MinDate(activeRoleLink?.EndAt, activeOrgLink?.EndAt)
         };
+    }
+
+    private static DateTime? MinDate(DateTime? first, DateTime? second)
+    {
+        if (!first.HasValue) return second;
+        if (!second.HasValue) return first;
+        return first.Value <= second.Value ? first : second;
     }
 
     private static bool IsActive(DateTime now, DateTime? startAt, DateTime? endAt)

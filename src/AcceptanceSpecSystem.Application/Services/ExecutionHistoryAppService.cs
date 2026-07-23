@@ -201,6 +201,8 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         CancellationToken cancellationToken = default)
     {
         var owner = ResolveOwner(user);
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, ExecutionHistoryRecordRepository.MaxPageSize);
         var (items, total) = await _unitOfWork.ExecutionHistoryRecords.GetPagedOwnedAsync(
             owner.CompanyId,
             owner.UserId,
@@ -213,8 +215,8 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         {
             Items = items.Select(entity => ToListDto(entity, TryDeserializeDetail(entity))).ToList(),
             Total = total,
-            Page = page <= 0 ? 1 : page,
-            PageSize = pageSize <= 0 ? 20 : pageSize
+            Page = page,
+            PageSize = pageSize
         };
     }
 

@@ -61,6 +61,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<DocumentTemplateAppService>();
         services.AddScoped<IAuditTrailAppService, AuditTrailAppService>();
         services.AddScoped<IAuditLogRetentionAppService, AuditLogRetentionAppService>();
+        services.AddScoped<IExecutionHistoryRetentionAppService, ExecutionHistoryRetentionAppService>();
         services.AddScoped<IEmbeddingCacheRetentionAppService, EmbeddingCacheRetentionAppService>();
         services.AddScoped<IColumnMappingRuleAppService, ColumnMappingRuleAppService>();
         services.AddScoped<ISmartStructureRoutingRuleAppService, SmartStructureRoutingRuleAppService>();

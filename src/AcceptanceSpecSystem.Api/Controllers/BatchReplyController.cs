@@ -113,7 +113,7 @@ public class BatchReplyController : MatchingApiControllerBase
     public async Task<ActionResult<ApiResponse<TableDataDto>>> GetTablePreview(
         string sessionId,
         int tableIndex,
-        [FromQuery] int previewRows = 0,
+        [FromQuery] int previewRows = 100,
         [FromQuery] int headerRowIndex = 0,
         [FromQuery] int headerRowCount = 1,
         [FromQuery] int dataStartRowIndex = 1,
@@ -172,7 +172,7 @@ public class BatchReplyController : MatchingApiControllerBase
         string sessionId,
         string targetId,
         int tableIndex,
-        [FromQuery] int previewRows = 0,
+        [FromQuery] int previewRows = 100,
         [FromQuery] int headerRowIndex = 0,
         [FromQuery] int headerRowCount = 1,
         [FromQuery] int dataStartRowIndex = 1,

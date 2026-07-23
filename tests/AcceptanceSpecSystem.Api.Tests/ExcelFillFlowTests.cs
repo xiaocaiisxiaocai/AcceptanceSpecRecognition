@@ -139,7 +139,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         execJson.Data.GetProperty("downloadUrl").GetString().Should().BeEmpty();
 
         // 6) 通过预览接口验证源 Excel 已被原地写回
-        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         previewAfterFillResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewAfterFillJson = await previewAfterFillResp.ReadAsAsync<ApiResponse<JsonElement>>();
         previewAfterFillJson.Code.Should().Be(0);
@@ -326,7 +326,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         changedPayloadBody.Message.Should().Contain("不同的填充请求");
 
         var after = await _client.GetAsync(
-            $"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+            $"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var afterBody = await after.ReadAsAsync<ApiResponse<JsonElement>>();
         var rows = afterBody.Data.GetProperty("rows");
         rows[0][2].GetString().Should().Be("AC-1");
@@ -525,7 +525,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
 
         execute.StatusCode.Should().Be(HttpStatusCode.OK);
         var after = await _client.GetAsync(
-            $"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+            $"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var afterBody = await after.ReadAsAsync<ApiResponse<JsonElement>>();
         var row = afterBody.Data.GetProperty("rows")[0];
         row[2].GetString().Should().Be("MANUAL");
@@ -611,7 +611,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         }));
         execResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var previewAfterFillJson = await previewAfterFillResp.ReadAsAsync<ApiResponse<JsonElement>>();
         var rows = previewAfterFillJson.Data.GetProperty("rows");
         rows[0][2].GetString().Should().Be("AC-1");
@@ -771,7 +771,7 @@ public class ExcelFillSnapshotFailureOrderTests : IClassFixture<FinalSaveFailure
 
     private async Task<JsonElement> PreviewExcelRowsAsync(int fileId)
     {
-        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var previewAfterFillJson = await previewAfterFillResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return previewAfterFillJson.Data.GetProperty("rows");
     }
@@ -898,7 +898,7 @@ public class ExcelFillExecutionHistoryFailureOrderTests : IClassFixture<FinalSav
 
     private async Task<JsonElement> PreviewExcelRowsAsync(int fileId)
     {
-        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var previewAfterFillJson = await previewAfterFillResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return previewAfterFillJson.Data.GetProperty("rows");
     }
@@ -1025,7 +1025,7 @@ public class BatchExcelFillSnapshotFailureOrderTests : IClassFixture<FinalSaveFa
 
     private async Task<JsonElement> PreviewExcelRowsAsync(int fileId)
     {
-        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var previewAfterFillJson = await previewAfterFillResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return previewAfterFillJson.Data.GetProperty("rows");
     }
@@ -1152,7 +1152,7 @@ public class BatchExcelFillExecutionHistoryFailureOrderTests : IClassFixture<Fin
 
     private async Task<JsonElement> PreviewExcelRowsAsync(int fileId)
     {
-        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+        var previewAfterFillResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var previewAfterFillJson = await previewAfterFillResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return previewAfterFillJson.Data.GetProperty("rows");
     }

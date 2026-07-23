@@ -124,7 +124,7 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
                     AiServicePurpose.Embedding,
                     readinessGeneration);
                 errors.Add($"{cfg.Name}: {ex.Message}");
-                _logger.LogWarning(ex, "Embedding 生成失败: {Name}", cfg.Name);
+                _logger.LogWarning("Embedding 生成失败: {Name}, exceptionType={ExceptionType}", cfg.Name, ex.GetType().Name);
             }
         }
 
@@ -205,7 +205,7 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
                     AiServicePurpose.Embedding,
                     readinessGeneration);
                 errors.Add($"{cfg.Name}: {ex.Message}");
-                _logger.LogWarning(ex, "Embedding 生成失败: {Name}", cfg.Name);
+                _logger.LogWarning("Embedding 生成失败: {Name}, exceptionType={ExceptionType}", cfg.Name, ex.GetType().Name);
             }
         }
 

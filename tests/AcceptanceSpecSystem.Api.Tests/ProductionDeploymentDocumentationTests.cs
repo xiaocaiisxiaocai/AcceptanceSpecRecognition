@@ -14,10 +14,24 @@ public sealed class ProductionDeploymentDocumentationTests
 
         dockerDoc.Should().Contain("http://localhost:5290/health");
         dockerDoc.Should().NotContain("/swagger");
-        iisDoc.Should().Contain("/api/health");
+        iisDoc.Should().Contain("/api/health/ready");
         iisDoc.Should().NotContain("/api/swagger");
         windowsDockerDoc.Should().Contain("/health");
         windowsDockerDoc.Should().NotContain("/swagger");
+    }
+
+    [Fact]
+    public void IisDeployment_ShouldUseOneRootApplicationAndNeverAnApiChildApplication()
+    {
+        var iisDoc = ReadFile("docs/DEPLOY-IIS.md");
+
+        iisDoc.Should().Contain("站点根应用");
+        iisDoc.Should().Contain("wwwroot");
+        iisDoc.Should().NotContain("API 子应用");
+        iisDoc.Should().NotContain("别名：`api`");
+        iisDoc.Should().Contain("POST /login");
+        iisDoc.Should().Contain("POST /refresh-token");
+        iisDoc.Should().Contain("POST /logout");
     }
 
     [Fact]
@@ -117,6 +131,14 @@ public sealed class ProductionDeploymentDocumentationTests
         nginx.Should().Contain("listen 8080;");
         nginx.Should().Contain("location = /logout");
         nginx.Should().Contain("proxy_pass http://api:8080/logout;");
+        nginx.Should().Contain("location = /health");
+        nginx.Should().Contain("location = /api/health");
+        Regex.Matches(nginx, @"proxy_pass http://api:8080/health;")
+            .Should().HaveCount(2, "公开健康端点和 API 兼容健康端点都必须命中后端 /health");
+        nginx.Should().Contain("location = /health/ready");
+        nginx.Should().Contain("location = /api/health/ready");
+        nginx.Should().Contain("proxy_pass http://api:8080/health/ready;");
+        nginx.Should().NotContain("get-async-routes", "已删除的运行时路由接口不应保留 Nginx 空壳代理");
 
         foreach (var compose in new[] { localCompose, releaseCompose })
         {
@@ -144,6 +166,20 @@ public sealed class ProductionDeploymentDocumentationTests
         windowsDeploymentGuide.Should().Contain("BROWSER_AUTH_ALLOW_INSECURE_HTTP=true");
         releaseCompose.Should().Contain("BrowserAuth__AllowInsecureHttp");
         releaseCompose.Should().Contain("127.0.0.1:${API_HOST_PORT}:8080");
+    }
+
+    [Fact]
+    public void ApiDockerBuildContext_ShouldExcludeGeneratedAndUploadedContent()
+    {
+        var dockerIgnore = ReadFile("src/AcceptanceSpecSystem.Api/Dockerfile.dockerignore")
+            .Replace('\\', '/');
+
+        dockerIgnore.Should().Contain("**/.testbin*");
+        dockerIgnore.Should().Contain("**/.testobj*");
+        dockerIgnore.Should().Contain("**/uploads");
+        dockerIgnore.Should().Contain("**/uploads/**");
+        dockerIgnore.Should().Contain("**/bin");
+        dockerIgnore.Should().Contain("**/obj");
     }
 
     [Fact]

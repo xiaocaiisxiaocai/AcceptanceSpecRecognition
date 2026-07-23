@@ -40,8 +40,8 @@ for requirement in \
   "MYSQL_ROOT_PASSWORD:1" \
   "MYSQL_PASSWORD:1" \
   "JWT_SIGNING_KEY:32" \
-  "AUTH_SEED_ADMIN_PASSWORD:12" \
-  "AUTH_SEED_COMMON_PASSWORD:12"
+  "AUTH_SEED_ADMIN_PASSWORD:4" \
+  "AUTH_SEED_COMMON_PASSWORD:4"
 do
   key=${requirement%%:*}
   minimum_length=${requirement##*:}

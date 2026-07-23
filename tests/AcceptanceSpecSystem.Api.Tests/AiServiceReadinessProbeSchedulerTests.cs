@@ -4,6 +4,8 @@ using AcceptanceSpecSystem.Application.Options;
 using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using FluentAssertions;
+using System.Net;
+using System.Text;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -34,6 +36,7 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         await using var scheduler = new AiServiceReadinessProbeScheduler(
             registry,
             new BlockingSemanticKernelServiceFactory(chat),
+            new StubHttpClientFactory(),
             lifetime,
             options,
             NullLogger<AiServiceReadinessProbeScheduler>.Instance);
@@ -85,6 +88,7 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         await using var scheduler = new AiServiceReadinessProbeScheduler(
             registry,
             new BlockingSemanticKernelServiceFactory(new BlockingChatCompletionService()),
+            new StubHttpClientFactory(),
             lifetime,
             options,
             NullLogger<AiServiceReadinessProbeScheduler>.Instance);
@@ -121,6 +125,62 @@ public sealed class AiServiceReadinessProbeSchedulerTests
             .Should().OnlyContain(state => state != AiServiceReadinessState.Checking);
     }
 
+    [Fact]
+    public async Task RequestProbe_ForOllamaLlm_ShouldUseModelListWithoutStartingGeneration()
+    {
+        var options = Microsoft.Extensions.Options.Options.Create(new AiServiceReadinessOptions
+        {
+            MaxConcurrentProbes = 1,
+            ProbeTimeoutSeconds = 2,
+            StatusTtlSeconds = 60
+        });
+        var registry = new AiServiceReadinessRegistry(TimeProvider.System, options);
+        var chat = new BlockingChatCompletionService();
+        var lifetime = new TestHostApplicationLifetime();
+        await using var scheduler = new AiServiceReadinessProbeScheduler(
+            registry,
+            new BlockingSemanticKernelServiceFactory(chat),
+            new StubHttpClientFactory("{\"models\":[{\"name\":\"qwen2.5:14b\"}]}"),
+            lifetime,
+            options,
+            NullLogger<AiServiceReadinessProbeScheduler>.Instance);
+        await scheduler.StartAsync(CancellationToken.None);
+
+        registry.TryMarkChecking(101, CoreAiServicePurpose.Llm, out var generation)
+            .Should().BeTrue();
+        scheduler.RequestProbe(CreateOllamaConfig(101), CoreAiServicePurpose.Llm, generation);
+
+        await WaitForStateAsync(registry, 101, AiServiceReadinessState.Available);
+        chat.Started.Task.IsCompleted.Should().BeFalse("轻量探测不应触发大模型冷启动生成");
+    }
+
+    [Fact]
+    public async Task RequestProbe_ForOllamaLlmWithoutConfiguredModel_ShouldReportUnavailable()
+    {
+        var options = Microsoft.Extensions.Options.Options.Create(new AiServiceReadinessOptions
+        {
+            MaxConcurrentProbes = 1,
+            ProbeTimeoutSeconds = 2,
+            StatusTtlSeconds = 60
+        });
+        var registry = new AiServiceReadinessRegistry(TimeProvider.System, options);
+        var lifetime = new TestHostApplicationLifetime();
+        await using var scheduler = new AiServiceReadinessProbeScheduler(
+            registry,
+            new BlockingSemanticKernelServiceFactory(new BlockingChatCompletionService()),
+            new StubHttpClientFactory("{\"models\":[{\"name\":\"another-model\"}]}"),
+            lifetime,
+            options,
+            NullLogger<AiServiceReadinessProbeScheduler>.Instance);
+        await scheduler.StartAsync(CancellationToken.None);
+
+        registry.TryMarkChecking(102, CoreAiServicePurpose.Llm, out var generation)
+            .Should().BeTrue();
+        scheduler.RequestProbe(CreateOllamaConfig(102), CoreAiServicePurpose.Llm, generation);
+
+        await WaitForStateAsync(registry, 102, AiServiceReadinessState.Unavailable);
+    }
+
     private static AiServiceProbeConfig CreateConfig(int serviceId) => new(
         serviceId,
         $"probe-{serviceId}",
@@ -135,6 +195,56 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         false,
         DateTime.UtcNow,
         null);
+
+    private static AiServiceProbeConfig CreateOllamaConfig(int serviceId) => new(
+        serviceId,
+        $"ollama-{serviceId}",
+        DataAiServiceType.Ollama,
+        DataAiServicePurpose.Llm,
+        0,
+        null,
+        "http://192.168.1.20:11434/api",
+        null,
+        "qwen2.5:14b",
+        true,
+        false,
+        DateTime.UtcNow,
+        null);
+
+    private static async Task WaitForStateAsync(
+        AiServiceReadinessRegistry registry,
+        int serviceId,
+        AiServiceReadinessState expected)
+    {
+        var timeoutAt = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < timeoutAt)
+        {
+            if (registry.GetSnapshot(serviceId, CoreAiServicePurpose.Llm).State == expected)
+                return;
+            await Task.Delay(20);
+        }
+
+        registry.GetSnapshot(serviceId, CoreAiServicePurpose.Llm).State.Should().Be(expected);
+    }
+
+    private sealed class StubHttpClientFactory(string modelsJson = "{\"models\":[]}") : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(new StubHandler(modelsJson));
+
+        private sealed class StubHandler(string modelsJson) : HttpMessageHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                request.RequestUri!.AbsolutePath.Should().Be("/api/tags");
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(modelsJson, Encoding.UTF8, "application/json")
+                });
+            }
+        }
+    }
 
     private sealed class BlockingSemanticKernelServiceFactory(BlockingChatCompletionService chat)
         : ISemanticKernelServiceFactory

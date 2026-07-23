@@ -51,7 +51,7 @@ docker compose run --rm --no-deps --user 0 --entrypoint sh api -c \
 ```bash
 docker compose stop api
 docker compose exec -T mysql sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < deploy/preflight-collation-migration.sql
-docker compose run --rm --no-deps api --migrate-only
+docker compose run --rm --no-deps api --apply-destructive-migrations --backup-verified
 docker compose up -d api
 ```
 
@@ -77,20 +77,20 @@ finally {
 }
 if ($cleanupExit -ne 0) { throw "failed to clean collation preflight" }
 
-docker compose --env-file .env.docker run --rm --no-deps api --migrate-only
+docker compose --env-file .env.docker run --rm --no-deps api --apply-destructive-migrations --backup-verified
 if ($LASTEXITCODE -ne 0) { throw "controlled migration failed" }
 
 docker compose --env-file .env.docker up -d api
 if ($LASTEXITCODE -ne 0) { throw "failed to start api" }
 ```
 
-预检读取全局活动事务和锁等待，因此必须在 MySQL 容器内使用具备 `PROCESS` 权限的管理账号；不要给日常应用账号追加该权限。预检会拒绝存在活动事务、锁等待或目标排序规则唯一键冲突的数据库，并输出数据库估算字节数。宿主机/MySQL 表空间可用空间仍须由运维确认至少覆盖数据库当前体积与备份；空间不足时不得执行。`--migrate-only` 会将数据库命令超时临时提高到 30 分钟，正常 API 运行仍保持默认短超时。迁移使用持久化进度标记，非事务性 DDL 中断后可在排除磁盘、锁或数据冲突后重复运行同一条 `--migrate-only` 命令恢复。不要同时启动多个迁移容器。
+预检读取全局活动事务和锁等待，因此必须在 MySQL 容器内使用具备 `PROCESS` 权限的管理账号；不要给日常应用账号追加该权限。预检会拒绝存在活动事务、锁等待或目标排序规则唯一键冲突的数据库，并输出数据库估算字节数。宿主机/MySQL 表空间可用空间仍须由运维确认至少覆盖数据库当前体积与备份；空间不足时不得执行。`--apply-destructive-migrations --backup-verified` 会显式批准破坏性迁移，并将数据库命令超时临时提高到 30 分钟；正常 API 运行仍保持默认短超时。迁移使用持久化进度标记，非事务性 DDL 中断后可在排除磁盘、锁或数据冲突后重复运行同一命令恢复。不要同时启动多个迁移容器。
 
 ## 4. 访问地址
 
 - 前端：`http://localhost`
 - API（直连排障）：`http://localhost:5290`
-- API 健康检查：`http://localhost:5290/health`
+- API 接流量就绪检查：`http://localhost:5290/health/ready`
 
 当前支持无 SSO 的内网同站 HTTP 部署。局域网用户应始终通过一个固定的 Web 主机名或 IP 访问，由 Nginx 同站代理 API；API 直连端口只用于部署主机排障，不应开放给局域网用户或公网。必须显式开启受控内网 HTTP 模式，并将该 HTTP 入口的精确来源配置到 CORS 与 BrowserAuth。
 

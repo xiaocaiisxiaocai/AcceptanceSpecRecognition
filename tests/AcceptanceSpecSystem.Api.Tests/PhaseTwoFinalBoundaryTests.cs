@@ -81,6 +81,7 @@ public sealed class PhaseTwoFinalBoundaryTests
             "BatchReplyCleanupFileStore.cs",
             "DocumentFileAccessService.cs",
             "MySqlBatchReplyDistributedLockProvider.cs",
+            "SingleCompanyHealthCheck.cs",
             "SmartConfigurationFileAccessService.cs",
             "SpecEmbeddingCacheService.cs"
         };

@@ -86,7 +86,7 @@ public sealed class MatchingFileMutationRecoveryTests : IClassFixture<ApiWebAppl
         }
 
         var preview = await _client.GetAsync(
-            $"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
+            $"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1");
         var previewBody = await preview.ReadAsAsync<ApiResponse<JsonElement>>();
         previewBody.Data.GetProperty("rows")[0][2].GetString().Should().BeEmpty();
 

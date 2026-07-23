@@ -264,34 +264,16 @@ onMounted(loadData);
       </template>
 
       <el-table v-loading="loading" :data="tableData" stripe>
-        <el-table-column
-          prop="name"
-          label="系统键"
-          min-width="min(180px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          prop="displayName"
-          label="显示名称"
-          min-width="min(160px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          label="系统模板"
-          width="min(100px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="name" label="系统键" min-width="180" />
+        <el-table-column prop="displayName" label="显示名称" min-width="160" />
+        <el-table-column label="系统模板" width="100">
           <template #default="{ row }">
             <el-tag v-if="row.isSystem" type="success">系统</el-tag>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column
-          prop="usageDescription"
-          label="用途"
-          min-width="min(220px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          label="占位符"
-          min-width="min(280px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="usageDescription" label="用途" min-width="220" />
+        <el-table-column label="占位符" min-width="280">
           <template #default="{ row }">
             <div class="tag-list">
               <el-tag
@@ -305,11 +287,7 @@ onMounted(loadData);
             </div>
           </template>
         </el-table-column>
-        <el-table-column
-          prop="updatedAt"
-          label="更新时间"
-          width="min(180px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="updatedAt" label="更新时间" width="180">
           <template #default="{ row }">
             {{
               new Date(
@@ -321,7 +299,7 @@ onMounted(loadData);
         <el-table-column
           v-if="hasOperationActions"
           label="操作"
-          width="min(180px, calc(100vw - 32px))"
+          width="180"
           fixed="right"
         >
           <template #default="{ row }">

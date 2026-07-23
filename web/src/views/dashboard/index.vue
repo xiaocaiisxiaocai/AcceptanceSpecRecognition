@@ -383,19 +383,16 @@ onBeforeUnmount(() => {
         <el-table-column
           prop="sourceFileName"
           label="来源文件"
-          min-width="min(220px, calc(100vw - 32px))"
+          min-width="220"
           show-overflow-tooltip
         />
-        <el-table-column
-          label="采用/总行"
-          width="min(110px, calc(100vw - 32px))"
-        >
+        <el-table-column label="采用/总行" width="110">
           <template #default="{ row }">
             {{ formatNumber(row.adoptedRowCount) }} /
             {{ formatNumber(row.totalRowCount) }}
           </template>
         </el-table-column>
-        <el-table-column label="时间" width="min(160px, calc(100vw - 32px))">
+        <el-table-column label="时间" width="160">
           <template #default="{ row }">
             {{ formatExecutionHistoryDateTime(row.createdAt) }}
           </template>

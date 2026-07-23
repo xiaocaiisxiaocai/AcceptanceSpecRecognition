@@ -4,7 +4,8 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 public interface IAuditLogRetentionAppService
 {
-    Task<int> DeleteBeforeAsync(DateTime beforeTime, CancellationToken cancellationToken = default);
+    Task<int> DeleteBeforeAsync(DateTime beforeTime, int batchSize, CancellationToken cancellationToken = default);
+    Task<int> DeleteOverflowAsync(int maxRecordCount, int batchSize, CancellationToken cancellationToken = default);
 }
 
 public sealed class AuditLogRetentionAppService : IAuditLogRetentionAppService
@@ -16,8 +17,42 @@ public sealed class AuditLogRetentionAppService : IAuditLogRetentionAppService
         _unitOfWork = unitOfWork;
     }
 
-    public Task<int> DeleteBeforeAsync(DateTime beforeTime, CancellationToken cancellationToken = default) =>
-        _unitOfWork.AuditLogs.DeleteBeforeAsync(beforeTime, cancellationToken);
+    public Task<int> DeleteBeforeAsync(DateTime beforeTime, int batchSize, CancellationToken cancellationToken = default) =>
+        _unitOfWork.AuditLogs.DeleteBeforeAsync(beforeTime, cancellationToken, batchSize);
+
+    public Task<int> DeleteOverflowAsync(int maxRecordCount, int batchSize, CancellationToken cancellationToken = default) =>
+        _unitOfWork.AuditLogs.DeleteOverflowAsync(maxRecordCount, batchSize, cancellationToken);
+}
+
+public interface IExecutionHistoryRetentionAppService
+{
+    Task<int> DeleteBeforeAsync(
+        DateTime beforeTime,
+        int batchSize,
+        CancellationToken cancellationToken = default);
+    Task<int> DeleteOverflowAsync(int maxRecordCount, int batchSize, CancellationToken cancellationToken = default);
+}
+
+public sealed class ExecutionHistoryRetentionAppService : IExecutionHistoryRetentionAppService
+{
+    private readonly IUnitOfWork _unitOfWork;
+
+    public ExecutionHistoryRetentionAppService(IUnitOfWork unitOfWork)
+    {
+        _unitOfWork = unitOfWork;
+    }
+
+    public Task<int> DeleteBeforeAsync(
+        DateTime beforeTime,
+        int batchSize,
+        CancellationToken cancellationToken = default) =>
+        _unitOfWork.ExecutionHistoryRecords.DeleteBeforeAsync(beforeTime, batchSize, cancellationToken);
+
+    public Task<int> DeleteOverflowAsync(
+        int maxRecordCount,
+        int batchSize,
+        CancellationToken cancellationToken = default) =>
+        _unitOfWork.ExecutionHistoryRecords.DeleteOverflowAsync(maxRecordCount, batchSize, cancellationToken);
 }
 
 public interface IEmbeddingCacheRetentionAppService

@@ -55,7 +55,7 @@ public class ExcelImportEndRowTests : IClassFixture<ApiWebApplicationFactory>
         var fileId = await UploadExcelAsync(xlsxBytes, "end-row.xlsx");
 
         var previewResp = await _client.GetAsync(
-            $"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1&dataEndRowIndex=2");
+            $"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=1&dataStartRowIndex=1&dataEndRowIndex=2");
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
         previewJson.Code.Should().Be(0);

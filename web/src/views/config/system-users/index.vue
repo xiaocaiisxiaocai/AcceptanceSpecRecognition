@@ -97,7 +97,7 @@ const createFormRules: FormRules<typeof createForm> = {
   ],
   password: [
     { required: true, message: "请输入密码", trigger: ["blur", "change"] },
-    { min: 12, message: "密码长度至少12位", trigger: ["blur", "change"] }
+    { min: 4, message: "密码长度至少4位", trigger: ["blur", "change"] }
   ],
   nickname: [requiredTrimmedRule("请输入昵称")],
   roleCode: [requiredSelectionRule("请选择一个角色")],
@@ -113,7 +113,7 @@ const editFormRules: FormRules<typeof editForm> = {
 const resetPasswordFormRules: FormRules<typeof resetPasswordForm> = {
   newPassword: [
     { required: true, message: "请输入新密码", trigger: ["blur", "change"] },
-    { min: 12, message: "新密码长度至少12位", trigger: ["blur", "change"] }
+    { min: 4, message: "新密码长度至少4位", trigger: ["blur", "change"] }
   ],
   confirmPassword: [
     {
@@ -487,20 +487,9 @@ onMounted(initPage);
 
       <el-table v-loading="loading" :data="tableData" stripe>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column
-          prop="username"
-          label="用户名"
-          min-width="min(140px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          prop="nickname"
-          label="昵称"
-          min-width="min(120px, calc(100vw - 32px))"
-        />
-        <el-table-column
-          label="角色"
-          min-width="min(220px, calc(100vw - 32px))"
-        >
+        <el-table-column prop="username" label="用户名" min-width="140" />
+        <el-table-column prop="nickname" label="昵称" min-width="120" />
+        <el-table-column label="角色" min-width="220">
           <template #default="{ row }">
             <el-tag
               v-if="row.roleCode"
@@ -513,10 +502,7 @@ onMounted(initPage);
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column
-          label="组织"
-          min-width="min(240px, calc(100vw - 32px))"
-        >
+        <el-table-column label="组织" min-width="240">
           <template #default="{ row }">
             <el-tag
               v-if="row.orgUnitId"
@@ -529,7 +515,7 @@ onMounted(initPage);
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="min(120px, calc(100vw - 32px))">
+        <el-table-column label="状态" width="120">
           <template #default="{ row }">
             <el-switch
               :model-value="row.isActive"
@@ -543,19 +529,12 @@ onMounted(initPage);
             />
           </template>
         </el-table-column>
-        <el-table-column
-          label="更新时间"
-          width="min(180px, calc(100vw - 32px))"
-        >
+        <el-table-column label="更新时间" width="180">
           <template #default="{ row }">
             {{ formatDateTime(row.updatedAt ?? row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column
-          label="操作"
-          width="min(300px, calc(100vw - 32px))"
-          fixed="right"
-        >
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button
               v-perms="'btn:system-user:update'"

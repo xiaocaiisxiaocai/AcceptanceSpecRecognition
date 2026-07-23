@@ -178,36 +178,33 @@ const formatConfidence = (confidencePercent: number) =>
           <el-table-column
             prop="project"
             label="项目"
-            min-width="min(140px, calc(100vw - 32px))"
+            min-width="140"
             show-overflow-tooltip
           />
           <el-table-column
             prop="specification"
             label="规格"
-            min-width="min(180px, calc(100vw - 32px))"
+            min-width="180"
             show-overflow-tooltip
           />
           <el-table-column
             prop="acceptance"
             label="验收"
-            min-width="min(180px, calc(100vw - 32px))"
+            min-width="180"
             show-overflow-tooltip
           />
           <el-table-column
             prop="remark"
             label="备注"
-            min-width="min(160px, calc(100vw - 32px))"
+            min-width="160"
             show-overflow-tooltip
           />
-          <el-table-column
-            label="置信度"
-            width="min(100px, calc(100vw - 32px))"
-          >
+          <el-table-column label="置信度" width="100">
             <template #default="{ row }">
               {{ formatConfidence(row.confidencePercent) }}
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="min(100px, calc(100vw - 32px))">
+          <el-table-column label="状态" width="100">
             <template #default="{ row }">
               <el-tag :type="getStatusType(row.status)">
                 {{ getStatusText(row.status) }}

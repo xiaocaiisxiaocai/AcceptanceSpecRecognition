@@ -4,6 +4,7 @@ import { useEventListener } from "@vueuse/core";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
 import SmartFillBackfillDialog from "./components/SmartFillBackfillDialog.vue";
+import SmartFillFieldConflictDialog from "./components/SmartFillFieldConflictDialog.vue";
 import SmartFillMatchStep from "./components/SmartFillMatchStep.vue";
 import SmartFillPreviewStep from "./components/SmartFillPreviewStep.vue";
 import SmartFillSteps from "./components/SmartFillSteps.vue";
@@ -56,9 +57,7 @@ import {
 } from "@/views/shared/smart-structure-recognition";
 import {
   buildSmartFillConfigsFromRecognizedTables,
-  canContinueFromSmartRecognition,
   createSmartFillSmartSteps,
-  getSelectedSmartRecognitionPendingCount,
   getSmartFillPrevStepState,
   SMART_FILL_ADVANCED_STEP_MATCH_CONFIG,
   SMART_FILL_ADVANCED_STEP_PREVIEW,
@@ -69,6 +68,14 @@ import {
   SMART_FILL_STEP_UPLOAD_SCOPE,
   syncSmartFillConfigsToRecognizedTables
 } from "./smartFill.smartRecognition";
+import { runSmartFillConfirmSelection } from "./smartFill.confirmSelection";
+import {
+  applySmartFillFieldSelectionsToDraft,
+  applySmartFillFieldSelectionsToTable,
+  collectSmartFillFieldConflicts,
+  type SmartFillFieldConflictItem,
+  type SmartFillFieldConflictSelection
+} from "./smartFill.fieldConflicts";
 import type { SmartFillScope } from "./smartFillExecution.helpers";
 import { requiredSelectionRule, validateForm } from "@/utils/form-rules";
 
@@ -190,6 +197,26 @@ const {
   confirm: confirmSmartStructure,
   reset: resetSmartStructure
 } = useSmartStructureRecognition();
+const smartConfirmDrafts = ref<
+  Record<number, SmartConfigConfirmRequest | null>
+>({});
+const smartBatchConfirmRunning = ref(false);
+const smartBatchConfirmingTableIndex = ref<number | null>(null);
+const smartBatchConfirmProgress = ref({ completed: 0, total: 0 });
+const smartFieldConflictDialogVisible = ref(false);
+const pendingSmartFieldConflicts = ref<SmartFillFieldConflictItem[]>([]);
+
+watch(
+  () => uploadedFile.value?.fileId,
+  () => {
+    smartConfirmDrafts.value = {};
+    smartBatchConfirmRunning.value = false;
+    smartBatchConfirmingTableIndex.value = null;
+    smartBatchConfirmProgress.value = { completed: 0, total: 0 };
+    smartFieldConflictDialogVisible.value = false;
+    pendingSmartFieldConflicts.value = [];
+  }
+);
 
 const resetMatchScope = () => {
   matchScope.value = {
@@ -492,17 +519,16 @@ watch(
 );
 
 // 计算属性
-const canContinueSmartRecognition = computed(() =>
-  canContinueFromSmartRecognition(
-    recognizedTables.value,
-    selectedTableIndexes.value
-  )
-);
-const pendingSelectedSmartRecognitionCount = computed(() =>
-  getSelectedSmartRecognitionPendingCount(
-    recognizedTables.value,
-    selectedTableIndexes.value
-  )
+const pendingSelectedSmartDraftCount = computed(
+  () =>
+    recognizedTables.value.filter(table => {
+      if (!selectedTableIndexes.value.includes(table.tableIndex)) return false;
+      const draft = smartConfirmDrafts.value[table.tableIndex];
+      return (
+        (table.decision !== "AutoApply" || draft?.userModifiedStructure) &&
+        draft == null
+      );
+    }).length
 );
 const hasRetainedSmartRecognition = computed(
   () => recognizedTables.value.length > 0
@@ -516,10 +542,15 @@ const smartFillPrimaryActionText = computed(() => {
         : "识别并进入确认";
     case SMART_FILL_STEP_RECOGNITION_REVIEW:
       if (selectedTableCount.value === 0) return "请至少选择 1 个 Sheet";
-      if (pendingSelectedSmartRecognitionCount.value > 0) {
-        return `还有 ${pendingSelectedSmartRecognitionCount.value} 个已选 Sheet 待确认`;
+      if (smartBatchConfirmRunning.value) {
+        return smartBatchConfirmProgress.value.total > 0
+          ? `正在确认 ${Math.min(smartBatchConfirmProgress.value.completed + 1, smartBatchConfirmProgress.value.total)}/${smartBatchConfirmProgress.value.total}`
+          : "正在确认所选 Sheet";
       }
-      return "下一步：匹配配置";
+      if (pendingSelectedSmartDraftCount.value > 0) {
+        return `还有 ${pendingSelectedSmartDraftCount.value} 个已选 Sheet 待配置`;
+      }
+      return "确认所选 Sheet、学习并进入匹配配置";
     case SMART_FILL_STEP_MATCH_CONFIG:
       return "下一步：预览确认";
     default:
@@ -553,7 +584,11 @@ const canGoNext = computed(() => {
         }
         return true;
       case SMART_FILL_STEP_RECOGNITION_REVIEW:
-        return canContinueSmartRecognition.value;
+        return (
+          selectedTableCount.value > 0 &&
+          pendingSelectedSmartDraftCount.value === 0 &&
+          !smartBatchConfirmRunning.value
+        );
       case SMART_FILL_STEP_MATCH_CONFIG:
         return selectedTableCount.value > 0;
       case SMART_FILL_STEP_PREVIEW:
@@ -719,9 +754,9 @@ const handleRecognizedTableSelectionChange = (
 const handleSmartStructureConfirm = async (
   table: SmartConfigRecognizedTable,
   request: SmartConfigConfirmRequest
-) => {
+): Promise<boolean> => {
   const result = await confirmSmartStructure(request);
-  if (!result) return;
+  if (!result) return false;
 
   const nextTables = recognizedTables.value.map(item =>
     item.tableIndex === table.tableIndex
@@ -729,7 +764,7 @@ const handleSmartStructureConfirm = async (
       : item
   );
   if (!replaceRecognizedTables(nextTables, request.fileId)) {
-    return;
+    return false;
   }
   const selectedState = new Map(
     batchTableConfigs.value.map(config => [config.tableIndex, config.selected])
@@ -744,6 +779,125 @@ const handleSmartStructureConfirm = async (
       selectedState.get(config.tableIndex) ??
       (config.tableIndex === table.tableIndex ? true : config.selected)
   }));
+  return true;
+};
+
+const effectiveSmartConfirmingTableIndex = computed(
+  () => smartBatchConfirmingTableIndex.value ?? smartConfirmingTableIndex.value
+);
+
+const handleSmartStructureDraftChange = (
+  table: SmartConfigRecognizedTable,
+  request: SmartConfigConfirmRequest | null
+) => {
+  smartConfirmDrafts.value = {
+    ...smartConfirmDrafts.value,
+    [table.tableIndex]: request
+  };
+};
+
+const executeSelectedSmartStructureConfirmation = async () => {
+  if (smartBatchConfirmRunning.value) return;
+
+  const drafts = new Map<number, SmartConfigConfirmRequest>();
+  Object.entries(smartConfirmDrafts.value).forEach(([tableIndex, request]) => {
+    if (request) drafts.set(Number(tableIndex), request);
+  });
+
+  smartBatchConfirmRunning.value = true;
+  smartBatchConfirmProgress.value = { completed: 0, total: 0 };
+  try {
+    const result = await runSmartFillConfirmSelection({
+      tables: recognizedTables.value,
+      selectedTableIndexes: selectedTableIndexes.value,
+      draftRequests: drafts,
+      confirm: handleSmartStructureConfirm,
+      onProgress: progress => {
+        smartBatchConfirmingTableIndex.value =
+          progress.currentTableIndex ?? null;
+        smartBatchConfirmProgress.value = {
+          completed: progress.completed,
+          total: progress.total
+        };
+      }
+    });
+
+    if (result.success) {
+      currentStep.value = SMART_FILL_STEP_MATCH_CONFIG;
+      return;
+    }
+
+    if (result.failedTableIndex != null) {
+      activeSmartStructureTab.value = result.failedTableIndex;
+    }
+    const failedTable = recognizedTables.value.find(
+      table => table.tableIndex === result.failedTableIndex
+    );
+    const failedTableName =
+      failedTable?.tableName ||
+      (result.failedTableIndex == null
+        ? ""
+        : `工作表 ${result.failedTableIndex + 1}`);
+    if (result.failure === "no-selected-tables") {
+      ElMessage.warning("请至少选择 1 个 Sheet");
+    } else if (
+      result.failure === "missing-draft" ||
+      result.failure === "table-not-found"
+    ) {
+      ElMessage.warning(`${failedTableName}配置不完整，请补齐后重试`);
+    } else {
+      ElMessage.error(`${failedTableName}确认学习失败，已停止后续处理`);
+    }
+  } finally {
+    smartBatchConfirmRunning.value = false;
+    smartBatchConfirmingTableIndex.value = null;
+  }
+};
+
+const confirmSelectedSmartStructuresAndContinue = async () => {
+  if (smartBatchConfirmRunning.value) return;
+  const conflicts = collectSmartFillFieldConflicts(
+    recognizedTables.value,
+    selectedTableIndexes.value
+  );
+  if (conflicts.length > 0) {
+    pendingSmartFieldConflicts.value = conflicts;
+    smartFieldConflictDialogVisible.value = true;
+    return;
+  }
+
+  await executeSelectedSmartStructureConfirmation();
+};
+
+const handleSmartFieldConflictCancel = () => {
+  smartFieldConflictDialogVisible.value = false;
+  pendingSmartFieldConflicts.value = [];
+};
+
+const handleSmartFieldConflictConfirm = async (
+  selections: SmartFillFieldConflictSelection[]
+) => {
+  const previousTables = recognizedTables.value;
+  const nextTables = previousTables.map(table =>
+    applySmartFillFieldSelectionsToTable(table, selections)
+  );
+  const nextDrafts = { ...smartConfirmDrafts.value };
+  nextTables.forEach(table => {
+    const request = nextDrafts[table.tableIndex];
+    if (!request) return;
+    nextDrafts[table.tableIndex] = applySmartFillFieldSelectionsToDraft(
+      request,
+      table,
+      selections
+    );
+  });
+
+  smartFieldConflictDialogVisible.value = false;
+  pendingSmartFieldConflicts.value = [];
+  smartConfirmDrafts.value = nextDrafts;
+  replaceRecognizedTables(nextTables, uploadedFile.value?.fileId);
+  await nextTick();
+  await executeSelectedSmartStructureConfirmation();
 };
 
 const enterAdvancedMode = () => {
@@ -784,6 +938,14 @@ const goNext = async () => {
       return;
     }
     currentStep.value = SMART_FILL_STEP_RECOGNITION_REVIEW;
+    return;
+  }
+
+  if (
+    !advancedMode.value &&
+    currentStep.value === SMART_FILL_STEP_RECOGNITION_REVIEW
+  ) {
+    await confirmSelectedSmartStructuresAndContinue();
     return;
   }
 
@@ -865,7 +1027,13 @@ const retryTableMetadata = () => {
 </script>
 
 <template>
-  <div class="page smart-fill">
+  <div
+    class="page smart-fill"
+    :class="{
+      'smart-fill--recognition-review':
+        !advancedMode && currentStep === SMART_FILL_STEP_RECOGNITION_REVIEW
+    }"
+  >
     <div class="page-header">
       <SmartFillSteps :steps="steps" :current-step="currentStep" />
     </div>
@@ -1059,8 +1227,10 @@ const retryTableMetadata = () => {
           :selection-disabled-reasons="smartFillSelectionDisabledReasons"
           :file-id="uploadedFile?.fileId"
           :customer-id="matchScope.customerId"
-          :confirming-table-index="smartConfirmingTableIndex"
-          @confirm="handleSmartStructureConfirm"
+          :confirming-table-index="effectiveSmartConfirmingTableIndex"
+          :show-confirm-action="false"
+          :interaction-locked="smartBatchConfirmRunning"
+          @draft-change="handleSmartStructureDraftChange"
           @advanced="enterAdvancedMode"
           @update:table-selected="
             (table, selected) =>
@@ -1162,8 +1332,10 @@ const retryTableMetadata = () => {
           "
           :loading="
             !advancedMode &&
-            currentStep === SMART_FILL_STEP_UPLOAD_SCOPE &&
-            smartRecognizing
+            ((currentStep === SMART_FILL_STEP_UPLOAD_SCOPE &&
+              smartRecognizing) ||
+              (currentStep === SMART_FILL_STEP_RECOGNITION_REVIEW &&
+                smartBatchConfirmRunning))
           "
           @click="goNext"
         >
@@ -1181,6 +1353,15 @@ const retryTableMetadata = () => {
       @toggle-all="toggleBackfillCandidates"
       @execute-without-backfill="executePendingWithoutBackfill"
       @confirm-backfill="confirmBackfillAndExecute"
+    />
+
+    <SmartFillFieldConflictDialog
+      v-model:visible="smartFieldConflictDialogVisible"
+      :conflicts="pendingSmartFieldConflicts"
+      :table-infos="allTables"
+      :is-excel-file="isExcelFile"
+      @confirm="handleSmartFieldConflictConfirm"
+      @cancel="handleSmartFieldConflictCancel"
     />
 
     <!-- 详情弹窗 -->

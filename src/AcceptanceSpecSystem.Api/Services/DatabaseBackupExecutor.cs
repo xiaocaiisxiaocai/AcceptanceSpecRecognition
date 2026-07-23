@@ -55,6 +55,7 @@ public sealed class MySqlDumpDatabaseBackupExecutor : IDatabaseBackupExecutor
         startInfo.ArgumentList.Add($"--user={connection.User}");
         startInfo.ArgumentList.Add("--single-transaction");
         startInfo.ArgumentList.Add("--quick");
+        startInfo.ArgumentList.Add("--no-tablespaces");
         startInfo.ArgumentList.Add("--routines");
         startInfo.ArgumentList.Add("--events");
         startInfo.ArgumentList.Add("--default-character-set=utf8mb4");
@@ -80,7 +81,7 @@ public sealed class MySqlDumpDatabaseBackupExecutor : IDatabaseBackupExecutor
                 processResult = await _processRunner.RunAsync(startInfo, gzipStream, cancellationToken);
             }
 
-            if (processResult.ExitCode != 0)
+            if (processResult.ExitCode != 0 || !string.IsNullOrWhiteSpace(processResult.StandardError))
             {
                 throw new InvalidOperationException(
                     string.IsNullOrWhiteSpace(processResult.StandardError)

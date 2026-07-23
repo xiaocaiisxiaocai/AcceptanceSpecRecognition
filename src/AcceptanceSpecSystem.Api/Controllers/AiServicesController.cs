@@ -283,7 +283,7 @@ public class AiServicesController : BaseApiController
                 catch (Exception ex)
                 {
                     success = false;
-                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=LLM, mode={Mode}", entity.Id, entity.Name, isFullMode ? "full" : "quick");
+                    _logger.LogWarning("AI服务连接测试失败: {Id} {Name}, service=LLM, mode={Mode}, exceptionType={ExceptionType}", entity.Id, entity.Name, isFullMode ? "full" : "quick", ex.GetType().Name);
                     messages.Add(BuildTestFailureMessage("LLM", ex, isFullMode));
                 }
                 finally
@@ -346,7 +346,7 @@ public class AiServicesController : BaseApiController
                 catch (Exception ex)
                 {
                     success = false;
-                    _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}, service=Embedding, mode={Mode}", entity.Id, entity.Name, isFullMode ? "full" : "quick");
+                    _logger.LogWarning("AI服务连接测试失败: {Id} {Name}, service=Embedding, mode={Mode}, exceptionType={ExceptionType}", entity.Id, entity.Name, isFullMode ? "full" : "quick", ex.GetType().Name);
                     messages.Add(BuildTestFailureMessage("Embedding", ex, isFullMode));
                 }
                 finally
@@ -385,7 +385,7 @@ public class AiServicesController : BaseApiController
                 entity.Id,
                 ToCorePurpose(effectivePurpose),
                 readinessGeneration);
-            _logger.LogWarning(ex, "AI服务连接测试失败: {Id} {Name}", entity.Id, entity.Name);
+            _logger.LogWarning("AI服务连接测试失败: {Id} {Name}, exceptionType={ExceptionType}", entity.Id, entity.Name, ex.GetType().Name);
             return Success(new AiServiceTestResultDto
             {
                 Success = false,
@@ -699,7 +699,7 @@ public class AiServicesController : BaseApiController
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "远端模型探测失败: {Id} {Name}", config.Id, config.Name);
+            _logger.LogWarning("远端模型探测失败: {Id} {Name}, exceptionType={ExceptionType}", config.Id, config.Name, ex.GetType().Name);
             return new AiServiceModelsResultDto
             {
                 Message = "远端模型探测失败，请稍后重试或联系管理员"

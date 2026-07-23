@@ -91,7 +91,7 @@ docker compose logs -f mysql
 启动成功后可访问：
 
 - 前端：`http://localhost`
-- API 健康检查：`http://localhost:5290/health`
+- API 接流量就绪检查：`http://localhost:5290/health/ready`
 
 当前支持无 SSO 的内网同站 HTTP 部署。局域网用户应始终通过一个固定的 Web 主机名或 IP 访问，由 Nginx 同站代理 API，并把该 HTTP 入口的精确来源写入 CORS/BrowserAuth。必须显式开启受控内网 HTTP 模式；不要把 `5290` API 端口直接开放给局域网用户或公网。
 
@@ -112,7 +112,7 @@ HTTP 是明文传输。HttpOnly、SameSite、CSRF 和精确 Origin 不能阻止�
 在 PowerShell 中也可以直接验证：
 
 ```powershell
-Invoke-WebRequest http://localhost:5290/health
+Invoke-WebRequest http://localhost:5290/health/ready
 ```
 
 ## 6. 默认容器说明
@@ -230,7 +230,7 @@ netstat -ano | findstr :5290
 2. 切换到 `main` 并使用 `git pull --ff-only origin main` 更新代码
 3. 执行 `docker compose --env-file .env.docker up -d --build`
 4. 执行 `docker compose ps`
-5. 执行 `Invoke-WebRequest http://localhost:5290/health`
+5. 执行 `Invoke-WebRequest http://localhost:5290/health/ready`
 6. 浏览器使用配置好的固定内网 HTTP 主机名或 IP 验收，并确认所有 API 请求都经同站 Web 入口代理
 
 ## 12. 相关文件

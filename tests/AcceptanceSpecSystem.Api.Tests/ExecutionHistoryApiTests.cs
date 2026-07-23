@@ -30,6 +30,17 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task GetExecutionHistory_WhenPageSizeIsUnbounded_ShouldReturnBoundedPageContract()
+    {
+        var response = await _client.GetAsync("/api/execution-history?page=1&pageSize=2147483647");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        body.Data!.PageSize.Should().Be(200);
+        body.Data.Items.Should().HaveCountLessThanOrEqualTo(200);
+    }
+
+    [Fact]
     public async Task SmartFillExecute_ShouldPersistPlaybackSummary_AndExposeSmartFillPlaybackDetail()
     {
         var docxBytes = CreateDocxBytes(new[]

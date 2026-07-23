@@ -85,16 +85,16 @@ public partial class SemanticKernelMatchingService : IMatchingService
                 if (attempt >= retryCount)
                 {
                     circuitBreaker.RecordFailure();
-                    _logger.LogWarning(ex, "{StepName} 重试后仍失败: {Location}", stepName, location);
+                    _logger.LogWarning("{StepName} 重试后仍失败: {Location}, exceptionType={ExceptionType}", stepName, location, ex.GetType().Name);
                     return new LlmCallExecution<T>(default, Failed: true, BudgetExhausted: false);
                 }
 
                 _logger.LogWarning(
-                    ex,
-                    "{StepName} 第 {Attempt} 次失败，准备重试: {Location}",
+                    "{StepName} 第 {Attempt} 次失败，准备重试: {Location}, exceptionType={ExceptionType}",
                     stepName,
                     attempt + 1,
-                    location);
+                    location,
+                    ex.GetType().Name);
             }
         }
 
@@ -206,7 +206,7 @@ public partial class SemanticKernelMatchingService : IMatchingService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AI 候选重排失败，已沿用本地 Top1");
+            _logger.LogWarning("AI 候选重排失败，已沿用本地 Top1: exceptionType={ExceptionType}", ex.GetType().Name);
             localBest.SelectionSummary = "AI 重排失败，已沿用本地 Top1";
             return localBest;
         }
@@ -334,7 +334,7 @@ public partial class SemanticKernelMatchingService : IMatchingService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AI 等价裁决失败，按 uncertain 回退");
+            _logger.LogWarning("AI 等价裁决失败，按 uncertain 回退: exceptionType={ExceptionType}", ex.GetType().Name);
             best.LlmEquivalence = new LlmEquivalenceAdjudicationResult
             {
                 Verdict = LlmEquivalenceVerdict.Uncertain,

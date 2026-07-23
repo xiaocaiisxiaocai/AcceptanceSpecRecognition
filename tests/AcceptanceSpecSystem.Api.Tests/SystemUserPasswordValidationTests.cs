@@ -53,12 +53,12 @@ public class SystemUserPasswordValidationTests
     }
 
     [Fact]
-    public void CreateSystemUserRequest_WhenPasswordHasElevenCharacters_ShouldFailValidation()
+    public void CreateSystemUserRequest_WhenPasswordHasThreeCharacters_ShouldFailValidation()
     {
         var request = new CreateSystemUserRequest
         {
             Username = "admin",
-            Password = "User@123456",
+            Password = "123",
             Nickname = "管理员",
             RoleCode = "admin",
             OrgUnitId = 1
@@ -70,11 +70,11 @@ public class SystemUserPasswordValidationTests
     }
 
     [Fact]
-    public void ResetSystemUserPasswordRequest_WhenPasswordHasTwelveCharacters_ShouldPassValidation()
+    public void ResetSystemUserPasswordRequest_WhenPasswordHasFourCharacters_ShouldPassValidation()
     {
         var request = new ResetSystemUserPasswordRequest
         {
-            NewPassword = "User@1234567"
+            NewPassword = "1234"
         };
 
         var errors = Validate(request);

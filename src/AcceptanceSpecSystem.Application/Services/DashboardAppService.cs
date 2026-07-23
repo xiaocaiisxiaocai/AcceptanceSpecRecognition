@@ -208,18 +208,8 @@ public sealed class DashboardAppService : IDashboardAppService
             .Distinct(StringComparer.OrdinalIgnoreCase);
         foreach (var candidate in candidates)
         {
-            try
-            {
-                var zone = TimeZoneInfo.FindSystemTimeZoneById(candidate);
-                if (!zone.SupportsDaylightSavingTime)
-                    return zone;
-            }
-            catch (TimeZoneNotFoundException)
-            {
-            }
-            catch (InvalidTimeZoneException)
-            {
-            }
+            if (DashboardTimeZoneResolver.TryResolveFixedOffset(candidate, out var zone))
+                return zone;
         }
 
         return TimeZoneInfo.Utc;
@@ -268,4 +258,55 @@ public sealed class DashboardAppService : IDashboardAppService
         DateTime End,
         DateOnly StartDate,
         DateOnly EndDate);
+}
+
+/// <summary>
+/// 将配置的业务时区解析为固定偏移时区，避免 IANA 历史夏令时规则影响当前仪表盘统计。
+/// </summary>
+public static class DashboardTimeZoneResolver
+{
+    private const int DashboardWindowDays = 366;
+
+    public static bool TryResolveFixedOffset(string? timeZoneId, out TimeZoneInfo timeZone)
+    {
+        if (string.IsNullOrWhiteSpace(timeZoneId))
+        {
+            timeZone = TimeZoneInfo.Utc;
+            return false;
+        }
+
+        TimeZoneInfo sourceTimeZone;
+        try
+        {
+            sourceTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId.Trim());
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            timeZone = TimeZoneInfo.Utc;
+            return false;
+        }
+        catch (InvalidTimeZoneException)
+        {
+            timeZone = TimeZoneInfo.Utc;
+            return false;
+        }
+
+        var referenceDate = DateTime.UtcNow.Date;
+        var fixedOffset = sourceTimeZone.GetUtcOffset(referenceDate);
+        for (var dayOffset = -DashboardWindowDays; dayOffset <= DashboardWindowDays; dayOffset++)
+        {
+            if (sourceTimeZone.GetUtcOffset(referenceDate.AddDays(dayOffset)) != fixedOffset)
+            {
+                timeZone = TimeZoneInfo.Utc;
+                return false;
+            }
+        }
+
+        timeZone = TimeZoneInfo.CreateCustomTimeZone(
+            sourceTimeZone.Id,
+            fixedOffset,
+            sourceTimeZone.DisplayName,
+            sourceTimeZone.StandardName);
+        return true;
+    }
 }
