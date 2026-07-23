@@ -19,6 +19,7 @@ import {
   countSmartStructureRegionRows,
   resolveSmartStructureRegionEndRowIndex,
   shouldShowSmartStructureManualFallback,
+  sortSmartStructureTablesByIndex,
   toActualColumnNumber,
   toActualRowNumber,
   toExcelColumnLabel,
@@ -61,6 +62,22 @@ const tableInfo = (overrides: Partial<TableInfo> = {}): TableInfo => ({
   usedRangeStartRow: 3,
   usedRangeStartColumn: 2,
   ...overrides
+});
+
+describe("sortSmartStructureTablesByIndex", () => {
+  it("识别确认 Tab 始终按原始工作表编号升序排列", () => {
+    const tables = [
+      table({ tableIndex: 10, rankingScore: 0.99 }),
+      table({ tableIndex: 1, rankingScore: 0.2 }),
+      table({ tableIndex: 0, rankingScore: 0.8 }),
+      table({ tableIndex: 8, rankingScore: 0.95 })
+    ];
+
+    expect(
+      sortSmartStructureTablesByIndex(tables).map(item => item.tableIndex)
+    ).toEqual([0, 1, 8, 10]);
+    expect(tables.map(item => item.tableIndex)).toEqual([10, 1, 0, 8]);
+  });
 });
 
 describe("smart-structure-recognition", () => {

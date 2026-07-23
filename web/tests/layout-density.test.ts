@@ -506,6 +506,10 @@ test("智能填充预览应固定工作表统计筛选区和表头并仅滚动�
   );
   assert.match(
     smartFillPreviewStepSource,
+    /hasPostFillChanges[\s\S]*修改待重新填充[\s\S]*当前文档仍是上次填充结果[\s\S]*重新填充/
+  );
+  assert.match(
+    smartFillPreviewStepSource,
     /v-if="!taskId && canPreviewMatching"[\s\S]*v-if="!taskId && canExecuteFill"/
   );
   assert.doesNotMatch(smartFillPreviewStepSource, /class="fill-done-alert"/);

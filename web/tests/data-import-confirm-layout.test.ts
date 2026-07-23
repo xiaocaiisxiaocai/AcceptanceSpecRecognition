@@ -439,7 +439,7 @@ test("数据导入与智能填充应复用同一套识别结果 Tab", () => {
 
   assert.match(dataImportSource, /<SmartStructureConfirmTabs/);
   assert.match(smartFillSource, /<SmartStructureConfirmTabs/);
-  assert.match(confirmTabsSource, /createSmartStructureDisplayGroups/);
+  assert.match(confirmTabsSource, /sortSmartStructureTablesByIndex/);
 });
 
 test("数据导入应隐藏逐 Sheet 确认并只保留一个文件级确认学习导入按钮", () => {

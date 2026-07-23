@@ -711,6 +711,10 @@ export const createSmartStructureDisplayGroups = (
   return groups.filter(group => group.tables.length > 0);
 };
 
+export const sortSmartStructureTablesByIndex = (
+  tables: SmartConfigRecognizedTable[]
+) => [...tables].sort((a, b) => a.tableIndex - b.tableIndex);
+
 const buildLearnedColumns = (fields: SmartConfigRecognizedField[]) => {
   const seen = new Set<string>();
 

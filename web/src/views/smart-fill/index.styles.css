@@ -217,18 +217,7 @@
 }
 
 .backfill-change {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   line-height: 1.5;
-}
-
-.backfill-change__old {
-  color: var(--app-text-disabled);
-  text-decoration: line-through;
-}
-
-.backfill-change__new {
   color: var(--app-text-primary);
   font-weight: 500;
 }

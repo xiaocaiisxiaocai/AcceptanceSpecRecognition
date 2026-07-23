@@ -924,6 +924,12 @@ test("智能填充预览页应提供编辑弹窗、保存并采用和已编辑�
   assert.match(dataTableSource, />\s*编辑\s*<\/el-button>/);
   assert.match(editDialogSource, /保存并采用/);
   assert.match(editDialogSource, /仅本次导出使用/);
+  assert.match(editDialogSource, /完整替换原值，不会与旧值叠加/);
+  assert.match(editDialogSource, /target\.select\(\)/);
+  assert.equal(
+    (editDialogSource.match(/@focus="selectExistingValue"/g) ?? []).length,
+    2
+  );
   assert.match(textCellSource, /已编辑/);
 });
 

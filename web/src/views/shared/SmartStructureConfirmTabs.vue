@@ -6,7 +6,7 @@ import type {
 } from "@/api/smart-config";
 import SmartStructureConfirmCard from "./SmartStructureConfirmCard.vue";
 import type { TableInfo } from "@/api/document";
-import { createSmartStructureDisplayGroups } from "./smart-structure-recognition";
+import { sortSmartStructureTablesByIndex } from "./smart-structure-recognition";
 
 const props = withDefaults(
   defineProps<{
@@ -56,9 +56,7 @@ const emit = defineEmits<{
   ];
 }>();
 
-const tabItems = computed(() =>
-  createSmartStructureDisplayGroups(props.tables).flatMap(group => group.tables)
-);
+const tabItems = computed(() => sortSmartStructureTablesByIndex(props.tables));
 const selectedTableIndexSet = computed(
   () => new Set(props.selectedTableIndexes)
 );

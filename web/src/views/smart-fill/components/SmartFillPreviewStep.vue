@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   CircleCheckFilled,
   DocumentAdd,
@@ -61,6 +61,25 @@ const emit = defineEmits<{
 const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
   null
 );
+const hasPostFillChanges = ref(false);
+
+watch(
+  () => props.taskId,
+  () => {
+    hasPostFillChanges.value = false;
+  }
+);
+
+const handleSelect = (
+  tableIndex: number,
+  rowIndex: number,
+  spec: MatchPreviewItem["bestMatch"] | null
+) => {
+  if (props.taskId) {
+    hasPostFillChanges.value = true;
+  }
+  emit("select", tableIndex, rowIndex, spec);
+};
 
 defineExpose<{
   getAllSelections: NonNullable<
@@ -182,10 +201,7 @@ const loadingHintText = computed(() => {
         :ambiguity-margin="ambiguityMargin"
         :llm-streaming="llmStreaming"
         :table-names="previewTableNames"
-        @select="
-          (tableIndex, rowIndex, spec) =>
-            emit('select', tableIndex, rowIndex, spec)
-        "
+        @select="handleSelect"
         @show-detail="emit('showDetail', $event)"
       >
         <template #pagination-actions>
@@ -196,23 +212,34 @@ const loadingHintText = computed(() => {
             <div
               v-if="taskId"
               class="fill-complete-status"
-              :class="{ 'fill-complete-status--warning': lastDownloadFailed }"
+              :class="{
+                'fill-complete-status--warning':
+                  lastDownloadFailed || hasPostFillChanges
+              }"
             >
               <el-icon :size="17">
-                <WarningFilled v-if="lastDownloadFailed" />
+                <WarningFilled
+                  v-if="lastDownloadFailed || hasPostFillChanges"
+                />
                 <CircleCheckFilled v-else />
               </el-icon>
               <div class="fill-complete-status__copy">
                 <strong>{{
-                  lastDownloadFailed ? "填充完成，下载未完成" : "填充完成"
+                  hasPostFillChanges
+                    ? "修改待重新填充"
+                    : lastDownloadFailed
+                      ? "填充完成，下载未完成"
+                      : "填充完成"
                 }}</strong>
                 <span>
                   {{
-                    lastDownloadFailed
-                      ? "请重新下载结果"
-                      : isExcelFile
-                        ? "已回写当前文档"
-                        : "已生成结果文档"
+                    hasPostFillChanges
+                      ? "当前文档仍是上次填充结果"
+                      : lastDownloadFailed
+                        ? "请重新下载结果"
+                        : isExcelFile
+                          ? "已回写当前文档"
+                          : "已生成结果文档"
                   }}
                 </span>
               </div>
@@ -235,6 +262,15 @@ const loadingHintText = computed(() => {
                 @click="emit('execute')"
               >
                 执行填充
+              </el-button>
+              <el-button
+                v-if="taskId && hasPostFillChanges && canExecuteFill"
+                type="primary"
+                :loading="executing"
+                :disabled="llmStreaming || loading"
+                @click="emit('execute')"
+              >
+                重新填充
               </el-button>
               <el-button
                 v-if="taskId && canDownloadFillResult"

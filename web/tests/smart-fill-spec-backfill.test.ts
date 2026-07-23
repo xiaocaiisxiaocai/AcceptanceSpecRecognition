@@ -41,6 +41,18 @@ test("smart-fill 执行填充前应弹出编辑值回填确认框", () => {
     /`\$\{row\.tableIndex\}:\$\{row\.rowIndex\}`/
   );
   assert.match(backfillDialogSource, /label="表格\/行"/);
+  assert.match(backfillDialogSource, /label="替换后验收标准"/);
+  assert.match(backfillDialogSource, /label="替换后备注"/);
+  assert.match(
+    backfillDialogSource,
+    /row\.overrideAcceptance \?\? row\.originalAcceptance/
+  );
+  assert.match(
+    backfillDialogSource,
+    /row\.overrideRemark \?\? row\.originalRemark/
+  );
+  assert.doesNotMatch(backfillDialogSource, /backfill-change__old/);
+  assert.doesNotMatch(backfillDialogSource, /backfill-change__new/);
   assert.match(executionSource, /backfillSmartFillSpecs/);
 });
 
