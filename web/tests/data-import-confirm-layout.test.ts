@@ -735,3 +735,38 @@ test("Word 客户规则和预览失败状态应具备陈旧响应与手动兜底
   assert.match(recognitionSource, /smartApplyError/);
   assert.match(dataImportSource, /!!smartApplyError\.value/);
 });
+
+test("数据导入应在批量学习前确认已选 Sheet 的字段候选冲突", () => {
+  assert.match(
+    dataImportSource,
+    /collectSmartStructureFieldConflicts\(\s*recognizedTables\.value,\s*selectedSmartTableIndexes\.value\s*\)/
+  );
+  assert.match(
+    dataImportSource,
+    /if \(conflicts\.length > 0\) \{[\s\S]*fieldConflictDialogVisible\.value = true;[\s\S]*return;/
+  );
+  assert.match(
+    dataImportSource,
+    /applySmartStructureFieldSelectionsToTable\(table, selections\)/
+  );
+  assert.match(
+    dataImportSource,
+    /applySmartStructureFieldSelectionsToDraft\(\s*request,\s*table,\s*selections\s*\)/
+  );
+  assert.match(
+    dataImportSource,
+    /replaceRecognizedTables\(nextTables, uploadedFile\.value\?\.fileId\)/
+  );
+  assert.match(
+    dataImportSource,
+    /await nextTick\(\);[\s\S]*await executeSmartStructureBatchConfirmImport\(\);/
+  );
+  assert.match(
+    dataImportSource,
+    /const handleFieldConflictCancel = \(\) => \{[\s\S]*fieldConflictDialogVisible\.value = false;[\s\S]*pendingFieldConflicts\.value = \[\];/
+  );
+  assert.match(
+    dataImportSource,
+    /<SmartStructureFieldConflictDialog[\s\S]*:conflicts="pendingFieldConflicts"[\s\S]*@cancel="handleFieldConflictCancel"[\s\S]*@confirm="handleFieldConflictConfirm"/
+  );
+});

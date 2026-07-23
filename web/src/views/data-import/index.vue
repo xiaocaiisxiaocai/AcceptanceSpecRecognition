@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
@@ -19,10 +19,18 @@ import {
 import SmartStructureConfirmTabs from "@/views/shared/SmartStructureConfirmTabs.vue";
 import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
 import SmartStructureAiAssistControl from "@/views/shared/SmartStructureAiAssistControl.vue";
+import SmartStructureFieldConflictDialog from "@/views/shared/SmartStructureFieldConflictDialog.vue";
 import type {
   SmartConfigConfirmRequest,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
+import {
+  applySmartStructureFieldSelectionsToDraft,
+  applySmartStructureFieldSelectionsToTable,
+  collectSmartStructureFieldConflicts,
+  type SmartStructureFieldConflictItem,
+  type SmartStructureFieldConflictSelection
+} from "@/views/shared/smart-structure-field-conflicts";
 import {
   canSelectSmartStructureTable,
   getSmartStructureImportReadinessReason,
@@ -63,6 +71,7 @@ const {
   smartConfirmingTableIndex,
   smartTableInfos,
   recognizedTables,
+  replaceRecognizedTables,
   canUploadSourceFile,
   canImportAny,
   canImportCurrentFile,
@@ -170,6 +179,8 @@ const smartConfirmDrafts = ref<
   Record<number, SmartConfigConfirmRequest | null>
 >({});
 const batchConfirmImportRunning = ref(false);
+const fieldConflictDialogVisible = ref(false);
+const pendingFieldConflicts = ref<SmartStructureFieldConflictItem[]>([]);
 const batchConfirmingTableIndex = ref<number | null>(null);
 const batchConfirmProgress = ref<{
   phase: SmartStructureBatchConfirmProgress["phase"];
@@ -182,6 +193,8 @@ watch(
   () => uploadedFile.value?.fileId,
   () => {
     smartConfirmDrafts.value = {};
+    fieldConflictDialogVisible.value = false;
+    pendingFieldConflicts.value = [];
     batchConfirmImportRunning.value = false;
     batchConfirmingTableIndex.value = null;
     batchConfirmProgress.value = {
@@ -301,7 +314,7 @@ const updateBatchConfirmProgress = (
       table?.tableName || (table ? `工作表 ${table.tableIndex + 1}` : "")
   };
 };
-const handleSmartStructureBatchConfirmImport = async () => {
+const executeSmartStructureBatchConfirmImport = async () => {
   if (batchConfirmImportRunning.value || importing.value) return;
 
   if (pendingSelectedSmartTableCount.value > 0) {
@@ -377,6 +390,61 @@ const handleSmartStructureBatchConfirmImport = async () => {
     batchConfirmImportRunning.value = false;
     batchConfirmingTableIndex.value = null;
   }
+};
+const handleSmartStructureBatchConfirmImport = async () => {
+  if (batchConfirmImportRunning.value || importing.value) return;
+
+  if (pendingSelectedSmartTableCount.value > 0) {
+    const pendingTable = recognizedTables.value.find(
+      table =>
+        selectedSmartTableIndexes.value.includes(table.tableIndex) &&
+        smartConfirmDrafts.value[table.tableIndex] == null
+    );
+    if (pendingTable) activeSmartStructureTab.value = pendingTable.tableIndex;
+    ElMessage.warning("请先补齐已勾选 Sheet 的必填列或有效范围");
+    return;
+  }
+
+  const conflicts = collectSmartStructureFieldConflicts(
+    recognizedTables.value,
+    selectedSmartTableIndexes.value
+  );
+  if (conflicts.length > 0) {
+    pendingFieldConflicts.value = conflicts;
+    fieldConflictDialogVisible.value = true;
+    return;
+  }
+
+  await executeSmartStructureBatchConfirmImport();
+};
+const handleFieldConflictCancel = () => {
+  fieldConflictDialogVisible.value = false;
+  pendingFieldConflicts.value = [];
+};
+const handleFieldConflictConfirm = async (
+  selections: SmartStructureFieldConflictSelection[]
+) => {
+  const currentTables = recognizedTables.value;
+  const nextTables = currentTables.map(table =>
+    applySmartStructureFieldSelectionsToTable(table, selections)
+  );
+  const nextDrafts = { ...smartConfirmDrafts.value };
+  currentTables.forEach(table => {
+    const request = nextDrafts[table.tableIndex];
+    if (!request) return;
+    nextDrafts[table.tableIndex] = applySmartStructureFieldSelectionsToDraft(
+      request,
+      table,
+      selections
+    );
+  });
+
+  smartConfirmDrafts.value = nextDrafts;
+  replaceRecognizedTables(nextTables, uploadedFile.value?.fileId);
+  fieldConflictDialogVisible.value = false;
+  pendingFieldConflicts.value = [];
+  await nextTick();
+  await executeSmartStructureBatchConfirmImport();
 };
 const showManualFallback = computed(
   () =>
@@ -868,6 +936,14 @@ const activeSmartStructureScopeDescription = computed(() => {
             (key, decision) => (differenceDecisionMap[key] = decision)
           "
           @confirm="handleConfirmPendingDifferences"
+        />
+        <SmartStructureFieldConflictDialog
+          v-model:visible="fieldConflictDialogVisible"
+          :conflicts="pendingFieldConflicts"
+          :table-infos="smartTableInfos"
+          :is-excel-file="isExcelFile"
+          @cancel="handleFieldConflictCancel"
+          @confirm="handleFieldConflictConfirm"
         />
       </el-card>
     </div>

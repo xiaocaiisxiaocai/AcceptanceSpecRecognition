@@ -416,6 +416,7 @@ export function useDataImportSmartStructureRecognition({
     smartConfirmingTableIndex,
     smartTableInfos,
     recognizedTables,
+    replaceRecognizedTables,
     smartStructureSummary,
     loadUploadedFileMetadata,
     runSmartStructureRecognition,

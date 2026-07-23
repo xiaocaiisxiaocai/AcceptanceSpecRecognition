@@ -2,15 +2,15 @@
 import { computed, reactive, watch } from "vue";
 import type { TableInfo } from "@/api/document";
 import type {
-  SmartFillFieldConflictItem,
-  SmartFillFieldConflictSelection
-} from "../smartFill.fieldConflicts";
-import { getSmartFillRecommendedColumnIndex } from "../smartFill.fieldConflicts";
+  SmartStructureFieldConflictItem,
+  SmartStructureFieldConflictSelection
+} from "./smart-structure-field-conflicts";
+import { getSmartStructureRecommendedColumnIndex } from "./smart-structure-field-conflicts";
 
 const props = withDefaults(
   defineProps<{
     visible: boolean;
-    conflicts: SmartFillFieldConflictItem[];
+    conflicts: SmartStructureFieldConflictItem[];
     tableInfos?: TableInfo[];
     isExcelFile?: boolean;
   }>(),
@@ -22,7 +22,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   "update:visible": [value: boolean];
-  confirm: [selections: SmartFillFieldConflictSelection[]];
+  confirm: [selections: SmartStructureFieldConflictSelection[]];
   cancel: [];
 }>();
 
@@ -35,7 +35,7 @@ watch(
     Object.keys(selectedColumns).forEach(key => delete selectedColumns[key]);
     conflicts.forEach(conflict => {
       selectedColumns[conflict.key] =
-        getSmartFillRecommendedColumnIndex(conflict);
+        getSmartStructureRecommendedColumnIndex(conflict);
     });
   },
   { deep: true }
@@ -66,7 +66,7 @@ const getTableInfo = (tableIndex: number) =>
   props.tableInfos.find(table => table.index === tableIndex);
 
 const formatColumnLabel = (
-  conflict: SmartFillFieldConflictItem,
+  conflict: SmartStructureFieldConflictItem,
   columnIndex: number
 ) => {
   const info = getTableInfo(conflict.tableIndex);
@@ -76,7 +76,7 @@ const formatColumnLabel = (
 };
 
 const formatRange = (
-  conflict: SmartFillFieldConflictItem,
+  conflict: SmartStructureFieldConflictItem,
   columnIndex: number
 ) => {
   const info = getTableInfo(conflict.tableIndex);

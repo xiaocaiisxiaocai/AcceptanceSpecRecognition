@@ -6,7 +6,7 @@ import type {
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
 
-export type SmartFillFieldConflictItem = {
+export type SmartStructureFieldConflictItem = {
   key: string;
   tableIndex: number;
   tableName: string;
@@ -20,7 +20,7 @@ export type SmartFillFieldConflictItem = {
   candidates: SmartConfigFieldCandidate[];
 };
 
-export type SmartFillFieldConflictSelection = {
+export type SmartStructureFieldConflictSelection = {
   key: string;
   tableIndex: number;
   regionId: string;
@@ -29,8 +29,8 @@ export type SmartFillFieldConflictSelection = {
   columnIndex: number;
 };
 
-export const getSmartFillRecommendedColumnIndex = (
-  conflict: SmartFillFieldConflictItem
+export const getSmartStructureRecommendedColumnIndex = (
+  conflict: SmartStructureFieldConflictItem
 ) =>
   conflict.candidates.find(
     candidate => candidate.columnIndex === conflict.recommendedColumnIndex
@@ -70,10 +70,10 @@ const buildConflictKey = (
   field: string
 ) => `${tableIndex}:${regionId}:${field}`;
 
-export const collectSmartFillFieldConflicts = (
+export const collectSmartStructureFieldConflicts = (
   tables: readonly SmartConfigRecognizedTable[],
   selectedTableIndexes: readonly number[]
-): SmartFillFieldConflictItem[] => {
+): SmartStructureFieldConflictItem[] => {
   const selected = new Set(selectedTableIndexes);
   return tables
     .filter(table => selected.has(table.tableIndex))
@@ -103,9 +103,9 @@ export const collectSmartFillFieldConflicts = (
     );
 };
 
-export const applySmartFillFieldSelectionsToTable = (
+export const applySmartStructureFieldSelectionsToTable = (
   table: SmartConfigRecognizedTable,
-  selections: readonly SmartFillFieldConflictSelection[]
+  selections: readonly SmartStructureFieldConflictSelection[]
 ): SmartConfigRecognizedTable => {
   const tableSelections = selections.filter(
     selection => selection.tableIndex === table.tableIndex
@@ -187,10 +187,10 @@ export const applySmartFillFieldSelectionsToTable = (
   };
 };
 
-export const applySmartFillFieldSelectionsToDraft = (
+export const applySmartStructureFieldSelectionsToDraft = (
   request: SmartConfigConfirmRequest,
   table: SmartConfigRecognizedTable,
-  selections: readonly SmartFillFieldConflictSelection[]
+  selections: readonly SmartStructureFieldConflictSelection[]
 ): SmartConfigConfirmRequest => {
   const tableSelections = selections.filter(
     selection => selection.tableIndex === table.tableIndex

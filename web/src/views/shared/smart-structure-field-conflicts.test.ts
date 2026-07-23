@@ -4,11 +4,11 @@ import type {
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import {
-  applySmartFillFieldSelectionsToDraft,
-  applySmartFillFieldSelectionsToTable,
-  collectSmartFillFieldConflicts,
-  getSmartFillRecommendedColumnIndex
-} from "./smartFill.fieldConflicts";
+  applySmartStructureFieldSelectionsToDraft,
+  applySmartStructureFieldSelectionsToTable,
+  collectSmartStructureFieldConflicts,
+  getSmartStructureRecommendedColumnIndex
+} from "./smart-structure-field-conflicts";
 
 const table = (): SmartConfigRecognizedTable => ({
   tableIndex: 0,
@@ -128,13 +128,13 @@ const draft = (): SmartConfigConfirmRequest => ({
   ]
 });
 
-describe("smartFill.fieldConflicts", () => {
+describe("smart-structure-field-conflicts", () => {
   it("字段冲突默认采用系统推荐列，仍允许用户随后改选", () => {
-    const conflict = collectSmartFillFieldConflicts([table()], [0])[0];
+    const conflict = collectSmartStructureFieldConflicts([table()], [0])[0];
 
-    expect(getSmartFillRecommendedColumnIndex(conflict)).toBe(3);
+    expect(getSmartStructureRecommendedColumnIndex(conflict)).toBe(3);
     expect(
-      getSmartFillRecommendedColumnIndex({
+      getSmartStructureRecommendedColumnIndex({
         ...conflict,
         recommendedColumnIndex: null,
         candidates: conflict.candidates.map(candidate => ({
@@ -148,7 +148,10 @@ describe("smartFill.fieldConflicts", () => {
   it("只收集已选 Sheet 的未解决字段冲突", () => {
     const ignored = { ...table(), tableIndex: 1, tableName: "工作表2" };
 
-    const conflicts = collectSmartFillFieldConflicts([table(), ignored], [0]);
+    const conflicts = collectSmartStructureFieldConflicts(
+      [table(), ignored],
+      [0]
+    );
 
     expect(conflicts).toHaveLength(1);
     expect(conflicts[0]).toMatchObject({
@@ -182,7 +185,7 @@ describe("smartFill.fieldConflicts", () => {
       }))
     };
 
-    const conflicts = collectSmartFillFieldConflicts(
+    const conflicts = collectSmartStructureFieldConflicts(
       [first, second, resolved],
       [0, 1, 2]
     );
@@ -204,7 +207,9 @@ describe("smartFill.fieldConflicts", () => {
       columnIndex: 4
     };
 
-    const updated = applySmartFillFieldSelectionsToTable(table(), [selection]);
+    const updated = applySmartStructureFieldSelectionsToTable(table(), [
+      selection
+    ]);
 
     expect(updated.remarkColumnIndex).toBe(4);
     expect(updated.regions?.[0].remarkColumnIndex).toBe(4);
@@ -227,9 +232,11 @@ describe("smartFill.fieldConflicts", () => {
       columnIndex: 4
     };
 
-    const updated = applySmartFillFieldSelectionsToDraft(draft(), table(), [
-      selection
-    ]);
+    const updated = applySmartStructureFieldSelectionsToDraft(
+      draft(),
+      table(),
+      [selection]
+    );
 
     expect(updated.remarkColumnIndex).toBe(4);
     expect(updated.regions?.[0].remarkColumnIndex).toBe(4);

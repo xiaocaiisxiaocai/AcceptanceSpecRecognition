@@ -4,7 +4,7 @@ import { useEventListener } from "@vueuse/core";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
 import SmartFillBackfillDialog from "./components/SmartFillBackfillDialog.vue";
-import SmartFillFieldConflictDialog from "./components/SmartFillFieldConflictDialog.vue";
+import SmartStructureFieldConflictDialog from "@/views/shared/SmartStructureFieldConflictDialog.vue";
 import SmartFillMatchStep from "./components/SmartFillMatchStep.vue";
 import SmartFillPreviewStep from "./components/SmartFillPreviewStep.vue";
 import SmartFillSteps from "./components/SmartFillSteps.vue";
@@ -70,12 +70,12 @@ import {
 } from "./smartFill.smartRecognition";
 import { runSmartFillConfirmSelection } from "./smartFill.confirmSelection";
 import {
-  applySmartFillFieldSelectionsToDraft,
-  applySmartFillFieldSelectionsToTable,
-  collectSmartFillFieldConflicts,
-  type SmartFillFieldConflictItem,
-  type SmartFillFieldConflictSelection
-} from "./smartFill.fieldConflicts";
+  applySmartStructureFieldSelectionsToDraft,
+  applySmartStructureFieldSelectionsToTable,
+  collectSmartStructureFieldConflicts,
+  type SmartStructureFieldConflictItem,
+  type SmartStructureFieldConflictSelection
+} from "@/views/shared/smart-structure-field-conflicts";
 import type { SmartFillScope } from "./smartFillExecution.helpers";
 import { requiredSelectionRule, validateForm } from "@/utils/form-rules";
 
@@ -204,7 +204,7 @@ const smartBatchConfirmRunning = ref(false);
 const smartBatchConfirmingTableIndex = ref<number | null>(null);
 const smartBatchConfirmProgress = ref({ completed: 0, total: 0 });
 const smartFieldConflictDialogVisible = ref(false);
-const pendingSmartFieldConflicts = ref<SmartFillFieldConflictItem[]>([]);
+const pendingSmartFieldConflicts = ref<SmartStructureFieldConflictItem[]>([]);
 
 watch(
   () => uploadedFile.value?.fileId,
@@ -851,7 +851,7 @@ const executeSelectedSmartStructureConfirmation = async () => {
 
 const confirmSelectedSmartStructuresAndContinue = async () => {
   if (smartBatchConfirmRunning.value) return;
-  const conflicts = collectSmartFillFieldConflicts(
+  const conflicts = collectSmartStructureFieldConflicts(
     recognizedTables.value,
     selectedTableIndexes.value
   );
@@ -870,17 +870,17 @@ const handleSmartFieldConflictCancel = () => {
 };
 
 const handleSmartFieldConflictConfirm = async (
-  selections: SmartFillFieldConflictSelection[]
+  selections: SmartStructureFieldConflictSelection[]
 ) => {
   const previousTables = recognizedTables.value;
   const nextTables = previousTables.map(table =>
-    applySmartFillFieldSelectionsToTable(table, selections)
+    applySmartStructureFieldSelectionsToTable(table, selections)
   );
   const nextDrafts = { ...smartConfirmDrafts.value };
   nextTables.forEach(table => {
     const request = nextDrafts[table.tableIndex];
     if (!request) return;
-    nextDrafts[table.tableIndex] = applySmartFillFieldSelectionsToDraft(
+    nextDrafts[table.tableIndex] = applySmartStructureFieldSelectionsToDraft(
       request,
       table,
       selections
@@ -1350,7 +1350,7 @@ const retryTableMetadata = () => {
       @confirm-backfill="confirmBackfillAndExecute"
     />
 
-    <SmartFillFieldConflictDialog
+    <SmartStructureFieldConflictDialog
       v-model:visible="smartFieldConflictDialogVisible"
       :conflicts="pendingSmartFieldConflicts"
       :table-infos="allTables"
