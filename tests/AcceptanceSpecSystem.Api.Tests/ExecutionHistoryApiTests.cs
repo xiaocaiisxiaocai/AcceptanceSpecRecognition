@@ -1,6 +1,9 @@
 ﻿using System.Net;
 using System.Net.Http.Headers;
+using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
@@ -24,6 +27,17 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
     {
         _factory = factory;
         _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task GetExecutionHistory_WhenPageSizeIsUnbounded_ShouldReturnBoundedPageContract()
+    {
+        var response = await _client.GetAsync("/api/execution-history?page=1&pageSize=2147483647");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        body.Data!.PageSize.Should().Be(200);
+        body.Data.Items.Should().HaveCountLessThanOrEqualTo(200);
     }
 
     [Fact]
@@ -252,8 +266,8 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         record.GetProperty("totalRowCount").GetInt32().Should().Be(4);
         record.GetProperty("adoptedRowCount").GetInt32().Should().Be(3);
         record.GetProperty("unmatchedRowCount").GetInt32().Should().Be(1);
-        record.GetProperty("smartFillSummary").GetProperty("exactMatchedRowCount").GetInt32().Should().Be(1);
-        record.GetProperty("smartFillSummary").GetProperty("aiMatchedRowCount").GetInt32().Should().Be(1);
+        record.GetProperty("smartFillSummary").GetProperty("exactMatchedRowCount").GetInt32().Should().Be(2);
+        record.GetProperty("smartFillSummary").GetProperty("aiMatchedRowCount").GetInt32().Should().Be(0);
         record.GetProperty("smartFillSummary").GetProperty("manualConfirmedRowCount").GetInt32().Should().Be(1);
         record.GetProperty("smartFillSummary").GetProperty("manualEditedRowCount").GetInt32().Should().Be(2);
         record.GetProperty("smartFillSummary").GetProperty("notUsedRowCount").GetInt32().Should().Be(1);
@@ -279,23 +293,22 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         rows[0].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates").GetArrayLength().Should().Be(1, "完整回放归档保留完全一致行的候选上下文，超大记录才由 Slimmer 精简");
         rows[0].GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be("AC-1");
 
-        rows[1].GetProperty("matchOrigin").GetString().Should().Be("ai");
-        rows[1].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("AI匹配", "人工确认", "人工写入");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("aiRerank");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("matchBasis").GetString().Should().Be("specification");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewScore").GetDouble().Should().Be(91.5);
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewReason").GetString().Should().Be("复核判定语义等价");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewCommentary").GetString().Should().Be("仅格式差异，可人工确认采用");
+        rows[1].GetProperty("matchOrigin").GetString().Should().Be("exact");
+        rows[1].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("完全匹配", "人工确认", "人工写入");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("selectionMode").GetString().Should().Be("exactShortcut");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("matchBasis").GetString().Should().Be("projectSpecification");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewScore").ValueKind.Should().Be(JsonValueKind.Null);
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewReason").ValueKind.Should().Be(JsonValueKind.Null);
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("reviewCommentary").ValueKind.Should().Be(JsonValueKind.Null);
         rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates").GetArrayLength().Should().Be(1, "非完全一致的归档仍需保留候选上下文");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates")[0].GetProperty("matchBasis").GetString().Should().Be("specification");
-        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("equivalent");
+        rows[1].GetProperty("previewSnapshot").GetProperty("bestMatch").GetProperty("topCandidates")[0].GetProperty("matchBasis").GetString().Should().Be("projectSpecification");
         rows[1].GetProperty("executionSnapshot").GetProperty("manualConfirmed").GetBoolean().Should().BeTrue();
         rows[1].GetProperty("executionSnapshot").GetProperty("manualEdited").GetBoolean().Should().BeTrue();
         rows[1].GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be("AC-2-人工");
         rows[1].GetProperty("executionSnapshot").GetProperty("finalRemark").GetString().Should().Be("RM-2-人工");
 
         rows[2].GetProperty("displayTags").EnumerateArray().Select(item => item.GetString()).Should().Equal("未采用/未匹配");
-        rows[2].GetProperty("previewSnapshot").GetProperty("noMatchReason").GetString().Should().Be("未找到可采用候选");
+        rows[2].GetProperty("previewSnapshot").GetProperty("noMatchReason").GetString().Should().Be("执行时未匹配到可用规格");
         rows[2].GetProperty("executionSnapshot").GetProperty("status").GetString().Should().Be("unmatched");
 
         rows[3].GetProperty("status").GetString().Should().Be("adopted");
@@ -767,6 +780,27 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         legacyFiles[0].GetProperty("sheets")[0].GetProperty("rows")[0].GetProperty("status").GetString().Should().Be("adopted");
     }
 
+    [Fact]
+    public async Task LegacySmartFillExecutionHistory_WithFullArchive_ShouldReturnArchivedPlaybackRows()
+    {
+        var recordId = await InsertLegacySmartFillExecutionHistoryWithFullArchiveAsync();
+
+        var detailResp = await _client.GetAsync($"/api/execution-history/{recordId}");
+        detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        detailJson.Code.Should().Be(0);
+
+        var playback = detailJson.Data.GetProperty("smartFillPlayback");
+        playback.GetProperty("isLegacy").GetBoolean().Should().BeFalse("已有完整归档时应恢复为可展示回放");
+
+        var rows = playback.GetProperty("files")[0].GetProperty("sheets")[0].GetProperty("rows");
+        rows.GetArrayLength().Should().Be(2);
+        rows[0].GetProperty("rowIndex").GetInt32().Should().Be(1);
+        rows[0].GetProperty("status").GetString().Should().Be("adopted");
+        rows[1].GetProperty("rowIndex").GetInt32().Should().Be(2);
+        rows[1].GetProperty("status").GetString().Should().Be("unmatched");
+    }
+
     private async Task<int> UploadDocumentAsync(byte[] bytes, string fileName)
     {
         using var content = new MultipartFormDataContent();
@@ -903,6 +937,137 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         db.ExecutionHistoryRecords.Add(entity);
         await db.SaveChangesAsync();
         return entity.Id;
+    }
+
+    private async Task<int> InsertLegacySmartFillExecutionHistoryWithFullArchiveAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var taskId = Guid.NewGuid().ToString("N");
+        var fullDetailJson = JsonSerializer.Serialize(new
+        {
+            taskId,
+            taskType = "smart-fill",
+            sourceFileName = "legacy-archive-smart-fill.xlsx",
+            fileCount = 1,
+            totalRowCount = 2,
+            matchedRowCount = 1,
+            adoptedRowCount = 1,
+            unmatchedRowCount = 1,
+            skippedRowCount = 0,
+            notAdoptedRowCount = 1,
+            manualSelectedRowCount = 0,
+            smartFillPlayback = new
+            {
+                payloadVersion = 1,
+                isLegacy = false,
+                files = new[]
+                {
+                    new
+                    {
+                        fileName = "legacy-archive-smart-fill.xlsx",
+                        sheets = new[]
+                        {
+                            new
+                            {
+                                sheetIndex = 0,
+                                sheetName = "Sheet1",
+                                rows = new object[]
+                                {
+                                    new
+                                    {
+                                        rowIndex = 1,
+                                        sourceProject = "P1",
+                                        sourceSpecification = "S1",
+                                        status = "adopted",
+                                        matchOrigin = "exact",
+                                        isManualConfirmed = false,
+                                        isManualEdited = false,
+                                        displayTags = new[] { "完全匹配" },
+                                        previewSnapshot = new { confidenceLevel = "high" },
+                                        executionSnapshot = new { selectedSpecId = 1, manualConfirmed = false, manualEdited = false, status = "adopted" }
+                                    },
+                                    new
+                                    {
+                                        rowIndex = 2,
+                                        sourceProject = "P2",
+                                        sourceSpecification = "S2",
+                                        status = "unmatched",
+                                        matchOrigin = "none",
+                                        isManualConfirmed = false,
+                                        isManualEdited = false,
+                                        displayTags = new[] { "未采用/未匹配" },
+                                        previewSnapshot = new { confidenceLevel = "none", noMatchReason = "未匹配" },
+                                        executionSnapshot = new { manualConfirmed = false, manualEdited = false, status = "unmatched" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        var archivePath = await storage.SaveSmartFillPlaybackArchiveAsync(
+            $"{taskId}-smart-fill-playback.json.gz",
+            CompressUtf8(fullDetailJson));
+
+        var entity = new ExecutionHistoryRecord
+        {
+            TaskId = taskId,
+            TaskType = "smart-fill",
+            SourceFileId = null,
+            SourceFileName = "legacy-archive-smart-fill.xlsx",
+            SourceFileType = UploadedFileType.ExcelXlsx,
+            FileCount = 1,
+            TotalRowCount = 2,
+            MatchedRowCount = 1,
+            AdoptedRowCount = 1,
+            UnmatchedRowCount = 1,
+            SkippedRowCount = 0,
+            NotAdoptedRowCount = 1,
+            ManualSelectedRowCount = 0,
+            CreatedByUserId = 1,
+            CompanyId = 1,
+            CreatedAt = DateTime.UtcNow,
+            DetailJson = JsonSerializer.Serialize(new
+            {
+                taskId,
+                taskType = "smart-fill",
+                sourceFileName = "legacy-archive-smart-fill.xlsx",
+                fileCount = 1,
+                totalRowCount = 2,
+                matchedRowCount = 1,
+                adoptedRowCount = 1,
+                unmatchedRowCount = 1,
+                notAdoptedRowCount = 1,
+                smartFillPlayback = new
+                {
+                    payloadVersion = 1,
+                    isLegacy = true,
+                    hasFullArchive = true,
+                    fullArchiveRelativePath = archivePath,
+                    legacyMessage = "执行记录过大，已自动压缩，仅保留汇总信息。",
+                    files = Array.Empty<object>()
+                }
+            })
+        };
+
+        db.ExecutionHistoryRecords.Add(entity);
+        await db.SaveChangesAsync();
+        return entity.Id;
+    }
+
+    private static byte[] CompressUtf8(string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            gzip.Write(bytes, 0, bytes.Length);
+        }
+
+        return output.ToArray();
     }
 
     private static byte[] CreateDocxBytes(params string[][] rows)

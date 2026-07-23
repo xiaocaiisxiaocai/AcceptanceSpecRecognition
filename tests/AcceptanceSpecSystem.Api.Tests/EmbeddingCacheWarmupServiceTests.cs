@@ -1,4 +1,4 @@
-﻿using AcceptanceSpecSystem.Api.Options;
+using AcceptanceSpecSystem.Application.Options;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
@@ -79,6 +79,60 @@ public class EmbeddingCacheWarmupServiceTests
 
         await action.Should().NotThrowAsync();
         logger.WarningMessages.Should().Contain(message => message.Contains("向量缓存预热失败", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Trigger_WhenSeveralRequestsArePending_ShouldMergeIntoOneWarmup()
+    {
+        var executor = new RecordingWarmupExecutor();
+        using var trigger = new EmbeddingCacheWarmupTrigger();
+        var service = CreateService(new EmbeddingCacheWarmupOptions
+        {
+            Enabled = false,
+            IntervalHours = 24
+        }, executor, trigger, out _);
+
+        trigger.Request().Should().BeTrue();
+        trigger.Request().Should().BeFalse();
+        await service.StartAsync(CancellationToken.None);
+
+        (await executor.WaitForCallsAsync(1, TimeSpan.FromSeconds(2))).Should().BeTrue();
+        await Task.Delay(100);
+        await service.StopAsync(CancellationToken.None);
+
+        executor.Calls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task StopAsync_WhenTriggeredWarmupIsRunning_ShouldCancelWithHostToken()
+    {
+        var executor = new CancellationAwareWarmupExecutor();
+        using var trigger = new EmbeddingCacheWarmupTrigger();
+        var service = CreateService(new EmbeddingCacheWarmupOptions
+        {
+            Enabled = false,
+            IntervalHours = 24
+        }, executor, trigger, out _);
+
+        await service.StartAsync(CancellationToken.None);
+        trigger.Request().Should().BeTrue();
+        await executor.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await service.StopAsync(CancellationToken.None);
+
+        (await executor.CancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(2))).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Trigger_WaitShouldObserveCancellation()
+    {
+        using var trigger = new EmbeddingCacheWarmupTrigger();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var action = async () => await trigger.WaitAsync(cts.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
     }
 
     [Fact]
@@ -210,6 +264,38 @@ public class EmbeddingCacheWarmupServiceTests
 
         return new EmbeddingCacheWarmupService(
             manager,
+            new EmbeddingCacheWarmupTrigger(),
+            new CollectingLogger<EmbeddingCacheWarmupService>());
+    }
+
+    private static EmbeddingCacheWarmupService CreateService(
+        EmbeddingCacheWarmupOptions options,
+        IEmbeddingCacheWarmupExecutor executor,
+        IEmbeddingCacheWarmupTrigger trigger,
+        out CollectingLogger<EmbeddingCacheWarmupManager> logger)
+    {
+        var services = new ServiceCollection();
+        services.AddOptions();
+        services.Configure<EmbeddingCacheWarmupOptions>(current =>
+        {
+            current.Enabled = options.Enabled;
+            current.RunOnStartup = options.RunOnStartup;
+            current.RunAtLocalTime = options.RunAtLocalTime;
+            current.IntervalHours = options.IntervalHours;
+            current.BatchSize = options.BatchSize;
+            current.MaxItemsPerRun = options.MaxItemsPerRun;
+        });
+        services.AddSingleton(executor);
+
+        var provider = services.BuildServiceProvider();
+        logger = new CollectingLogger<EmbeddingCacheWarmupManager>();
+        var manager = new EmbeddingCacheWarmupManager(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            provider.GetRequiredService<IOptions<EmbeddingCacheWarmupOptions>>(),
+            logger);
+        return new EmbeddingCacheWarmupService(
+            manager,
+            trigger,
             new CollectingLogger<EmbeddingCacheWarmupService>());
     }
 
@@ -274,6 +360,26 @@ public class EmbeddingCacheWarmupServiceTests
             }
 
             return Calls >= expectedCalls;
+        }
+    }
+
+    private sealed class CancellationAwareWarmupExecutor : IEmbeddingCacheWarmupExecutor
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> CancellationObserved { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task WarmupAsync(int batchSize, int maxItemsPerRun, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                CancellationObserved.TrySetResult(true);
+                throw;
+            }
         }
     }
 

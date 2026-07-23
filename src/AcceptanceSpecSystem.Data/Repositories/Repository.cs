@@ -52,30 +52,33 @@ public class Repository<TEntity> : IRepository<TEntity> where TEntity : class
     /// <summary>
     /// 获取全部实体列表。
     /// </summary>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>实体列表</returns>
-    public virtual async Task<IReadOnlyList<TEntity>> GetAllAsync()
+    public virtual async Task<IReadOnlyList<TEntity>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        return await Query().ToListAsync();
+        return await Query().ToListAsync(cancellationToken);
     }
 
     /// <summary>
     /// 按条件查询实体列表。
     /// </summary>
     /// <param name="predicate">查询条件</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>实体列表</returns>
-    public virtual async Task<IReadOnlyList<TEntity>> FindAsync(Expression<Func<TEntity, bool>> predicate)
+    public virtual async Task<IReadOnlyList<TEntity>> FindAsync(Expression<Func<TEntity, bool>> predicate, CancellationToken cancellationToken = default)
     {
-        return await Query().Where(predicate).ToListAsync();
+        return await Query().Where(predicate).ToListAsync(cancellationToken);
     }
 
     /// <summary>
     /// 按条件获取第一条实体，若不存在返回 null。
     /// </summary>
     /// <param name="predicate">查询条件</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>实体或 null</returns>
-    public virtual async Task<TEntity?> FirstOrDefaultAsync(Expression<Func<TEntity, bool>> predicate)
+    public virtual async Task<TEntity?> FirstOrDefaultAsync(Expression<Func<TEntity, bool>> predicate, CancellationToken cancellationToken = default)
     {
-        return await _dbSet.FirstOrDefaultAsync(predicate);
+        return await _dbSet.FirstOrDefaultAsync(predicate, cancellationToken);
     }
 
     /// <summary>
@@ -131,21 +134,23 @@ public class Repository<TEntity> : IRepository<TEntity> where TEntity : class
     /// 判断是否存在满足条件的实体。
     /// </summary>
     /// <param name="predicate">查询条件</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>是否存在</returns>
-    public virtual async Task<bool> AnyAsync(Expression<Func<TEntity, bool>> predicate)
+    public virtual async Task<bool> AnyAsync(Expression<Func<TEntity, bool>> predicate, CancellationToken cancellationToken = default)
     {
-        return await _dbSet.AnyAsync(predicate);
+        return await _dbSet.AnyAsync(predicate, cancellationToken);
     }
 
     /// <summary>
     /// 统计实体数量。
     /// </summary>
     /// <param name="predicate">查询条件（可选）</param>
+    /// <param name="cancellationToken">请求取消令牌</param>
     /// <returns>数量</returns>
-    public virtual async Task<int> CountAsync(Expression<Func<TEntity, bool>>? predicate = null)
+    public virtual async Task<int> CountAsync(Expression<Func<TEntity, bool>>? predicate = null, CancellationToken cancellationToken = default)
     {
         return predicate == null
-            ? await _dbSet.CountAsync()
-            : await _dbSet.CountAsync(predicate);
+            ? await _dbSet.CountAsync(cancellationToken)
+            : await _dbSet.CountAsync(predicate, cancellationToken);
     }
 }

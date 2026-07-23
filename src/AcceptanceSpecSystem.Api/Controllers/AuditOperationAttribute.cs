@@ -2,9 +2,10 @@
 using System.Security.Claims;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Middleware;
+using AcceptanceSpecSystem.Application.Contracts;
+using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.Diagnostics;
 using AcceptanceSpecSystem.Data.Entities;
-using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 
@@ -40,12 +41,12 @@ public sealed class AuditOperationFilter : IAsyncActionFilter
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly IAuditTrailAppService _auditTrail;
     private readonly ILogger<AuditOperationFilter> _logger;
 
-    public AuditOperationFilter(IUnitOfWork unitOfWork, ILogger<AuditOperationFilter> logger)
+    public AuditOperationFilter(IAuditTrailAppService auditTrail, ILogger<AuditOperationFilter> logger)
     {
-        _unitOfWork = unitOfWork;
+        _auditTrail = auditTrail;
         _logger = logger;
     }
 
@@ -107,30 +108,23 @@ public sealed class AuditOperationFilter : IAsyncActionFilter
 
             var username = ResolveAuditUsername(httpContext, context.ActionArguments);
 
-            var entity = new AuditLog
-            {
-                Source = AuditLogSource.BackendRequest,
-                Level = level,
-                EventType = $"controller.{attr.Operation}",
-                Username = TrimToLength(username, 64),
-                RequestMethod = httpContext.Request.Method,
-                RequestPath = httpContext.Request.Path.Value,
-                QueryString = httpContext.Request.QueryString.HasValue
-                    ? TrimToLength(httpContext.Request.QueryString.Value, 1024)
-                    : null,
-                StatusCode = statusCode,
-                DurationMs = durationMs,
-                ClientIp = httpContext.Connection.RemoteIpAddress?.ToString(),
-                UserAgent = TrimToLength(httpContext.Request.Headers.UserAgent.ToString(), 512),
-                ClientTraceId = TrimToLength(ResolveTraceId(httpContext), 64),
-                ClientId = TrimToLength(httpContext.Request.Headers["X-Client-Id"].FirstOrDefault(), 64),
-                FrontendRoute = TrimToLength(httpContext.Request.Headers["X-Frontend-Route"].FirstOrDefault(), 512),
-                Details = TrimToLength(JsonSerializer.Serialize(detailsPayload, JsonOptions), 4000),
-                CreatedAt = DateTime.UtcNow
-            };
-
-            await _unitOfWork.AuditLogs.AddAsync(entity);
-            await _unitOfWork.SaveChangesAsync();
+            await _auditTrail.WriteAsync(new AuditTrailWriteCommand(
+                AuditLogSource.BackendRequest,
+                level,
+                $"controller.{attr.Operation}",
+                username,
+                httpContext.Request.Method,
+                httpContext.Request.Path.Value,
+                httpContext.Request.QueryString.HasValue ? httpContext.Request.QueryString.Value : null,
+                statusCode,
+                durationMs,
+                httpContext.Connection.RemoteIpAddress?.ToString(),
+                httpContext.Request.Headers.UserAgent.ToString(),
+                ResolveTraceId(httpContext),
+                httpContext.Request.Headers["X-Client-Id"].FirstOrDefault(),
+                httpContext.Request.Headers["X-Frontend-Route"].FirstOrDefault(),
+                JsonSerializer.Serialize(detailsPayload, JsonOptions),
+                DateTime.UtcNow));
         }
         catch (Exception ex)
         {
@@ -185,13 +179,6 @@ public sealed class AuditOperationFilter : IAsyncActionFilter
         return user.FindFirstValue(ClaimTypes.NameIdentifier)
                ?? user.FindFirstValue(ClaimTypes.Name)
                ?? user.FindFirstValue("sub");
-    }
-
-    private static string? TrimToLength(string? value, int maxLength)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return value;
-        return value.Length <= maxLength ? value : value[..maxLength];
     }
 
     private static string? ResolveTraceId(HttpContext httpContext)

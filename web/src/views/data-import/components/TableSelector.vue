@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { getFileTables, type TableInfo } from "@/api/document";
+import type { TableInfo } from "@/api/document";
+import { loadFileTablesOnce } from "@/views/shared/file-table-metadata";
 import { getRequestErrorMessage } from "@/utils/error-message";
 
 const props = defineProps<{
@@ -101,14 +102,9 @@ const loadTables = async () => {
 
   loading.value = true;
   try {
-    const res = await getFileTables(props.fileId);
-    if (res.code === 0) {
-      tables.value = res.data;
-      // 根据外部 modelValue 同步本地选中态
-      syncLocalSelectionFromModel();
-    } else {
-      ElMessage.error(res.message || "加载表格列表失败");
-    }
+    tables.value = await loadFileTablesOnce(props.fileId);
+    // 根据外部 modelValue 同步本地选中态
+    syncLocalSelectionFromModel();
   } catch (error) {
     ElMessage.error(getRequestErrorMessage(error, "加载表格列表失败"));
   } finally {
@@ -211,7 +207,11 @@ watch(
             ? selectedIndexes.includes(table.index)
             : selectedIndex === table.index
         }"
+        role="button"
+        tabindex="0"
         @click="handleSelect(table)"
+        @keydown.enter="handleSelect(table)"
+        @keydown.space.prevent="handleSelect(table)"
       >
         <div class="table-header">
           <div class="table-title">
@@ -288,33 +288,33 @@ watch(
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
-  background: #f9f5ff;
-  border: 1px solid #e7dbff;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
 }
 
 .bulk-tip {
   margin-right: auto;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .table-item {
   position: relative;
   padding: 16px;
   cursor: pointer;
-  border: 2px solid #ede7f6;
+  border: 2px solid var(--app-border);
   border-radius: 12px;
   transition: all 0.2s;
 }
 
 .table-item:hover {
-  background-color: #f8f5ff;
-  border-color: #c4b5fd;
+  background-color: var(--app-fill-hover);
+  border-color: var(--app-primary);
 }
 
 .table-item.selected {
-  background-color: #f4efff;
+  background-color: var(--app-primary-light);
   border-color: var(--color-primary);
 }
 
@@ -359,7 +359,7 @@ watch(
 .table-name {
   margin-left: 4px;
   font-weight: 400;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .table-title {
@@ -371,7 +371,7 @@ watch(
 
 .table-meta {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   white-space: nowrap;
 }
 
@@ -385,7 +385,7 @@ watch(
   align-items: flex-start;
   margin-bottom: 8px;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .table-headers .label {

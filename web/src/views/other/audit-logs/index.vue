@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   AuditLogLevel,
   AuditLogSource,
@@ -11,7 +16,13 @@ import {
   type AuditLogListItem
 } from "@/api/audit-log";
 import { hasPerms } from "@/utils/auth";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
+import { requiredSelectionRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "AuditLogs"
@@ -22,7 +33,11 @@ const deleting = ref(false);
 const tableData = ref<AuditLogListItem[]>([]);
 const total = ref(0);
 const queryRange = ref<string[]>([]);
-const deleteRange = ref<string[]>([]);
+const deleteForm = reactive({ range: [] as string[] });
+const deleteFormRef = ref<FormInstance>();
+const deleteFormRules: FormRules<typeof deleteForm> = {
+  range: [requiredSelectionRule("请选择删除时间范围")]
+};
 
 const queryParams = reactive({
   page: 1,
@@ -125,38 +140,36 @@ const handleDeleteByRange = async () => {
   ) {
     return;
   }
-  const [from, to] = deleteRange.value ?? [];
-  if (!from && !to) {
-    ElMessage.warning("请选择删除时间范围");
-    return;
-  }
+  if (!(await validateForm(deleteFormRef.value))) return;
+  const [from, to] = deleteForm.range ?? [];
 
-  await ElMessageBox.confirm(
-    "删除后不可恢复，确认删除该时间范围内的审计日志吗？",
-    "确认删除",
-    {
-      type: "warning",
-      confirmButtonText: "确认删除",
-      cancelButtonText: "取消"
-    }
-  );
-
-  deleting.value = true;
   try {
+    await ElMessageBox.confirm(
+      "删除后不可恢复，确认删除该时间范围内的审计日志吗？",
+      "确认删除",
+      {
+        type: "warning",
+        confirmButtonText: "确认删除",
+        cancelButtonText: "取消"
+      }
+    );
+
+    deleting.value = true;
     const res = await deleteAuditLogsByRange({
       from: from || undefined,
       to: to || undefined
     });
     if (res.code === 0) {
       ElMessage.success(res.message || "删除成功");
-      deleteRange.value = [];
+      deleteForm.range = [];
       queryParams.page = 1;
       await loadData();
     } else {
       ElMessage.error(res.message || "删除失败");
     }
-  } catch {
-    ElMessage.error("删除失败");
+  } catch (error) {
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   } finally {
     deleting.value = false;
   }
@@ -195,106 +208,115 @@ onMounted(loadData);
 </script>
 
 <template>
-  <div class="page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">审计日志</div>
-        <div class="page-subtitle">仅记录控制器增删改动作，不记录查询请求</div>
-      </div>
-    </div>
+  <div class="page page--fill audit-logs-page">
+    <el-card class="table-card audit-table-card" shadow="never">
+      <template #header>
+        <div class="list-card-toolbar">
+          <div class="list-card-toolbar__right">
+            <el-form :inline="true" class="filter-form audit-filter-form">
+              <el-form-item label="来源">
+                <el-select
+                  v-model="queryParams.source"
+                  clearable
+                  placeholder="全部"
+                  class="search-select search-select--160"
+                  popper-class="app-select-popper"
+                >
+                  <el-option
+                    v-for="opt in sourceOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+              </el-form-item>
 
-    <el-card class="toolbar-card">
-      <el-form :inline="true">
-        <el-form-item label="来源">
-          <el-select
-            v-model="queryParams.source"
-            clearable
-            placeholder="全部"
-            class="search-select search-select--300"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="opt in sourceOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </el-form-item>
+              <el-form-item label="级别">
+                <el-select
+                  v-model="queryParams.level"
+                  clearable
+                  placeholder="全部"
+                  class="search-select search-select--160"
+                  popper-class="app-select-popper"
+                >
+                  <el-option
+                    v-for="opt in levelOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+              </el-form-item>
 
-        <el-form-item label="级别">
-          <el-select
-            v-model="queryParams.level"
-            clearable
-            placeholder="全部"
-            class="search-select search-select--300"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="opt in levelOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </el-form-item>
+              <el-form-item label="用户">
+                <el-input
+                  v-model="queryParams.username"
+                  class="audit-user-filter"
+                  clearable
+                  placeholder="用户名"
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
 
-        <el-form-item label="用户">
-          <el-input
-            v-model="queryParams.username"
-            clearable
-            placeholder="用户名"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
+              <el-form-item label="方法">
+                <el-select
+                  v-model="queryParams.requestMethod"
+                  clearable
+                  placeholder="全部"
+                  class="search-select search-select--160"
+                  popper-class="app-select-popper"
+                >
+                  <el-option
+                    v-for="method in methodOptions"
+                    :key="method"
+                    :label="method"
+                    :value="method"
+                  />
+                </el-select>
+              </el-form-item>
 
-        <el-form-item label="方法">
-          <el-select
-            v-model="queryParams.requestMethod"
-            clearable
-            placeholder="全部"
-            class="search-select search-select--300"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="method in methodOptions"
-              :key="method"
-              :label="method"
-              :value="method"
-            />
-          </el-select>
-        </el-form-item>
+              <el-form-item label="查询时间">
+                <el-date-picker
+                  v-model="queryRange"
+                  class="audit-date-filter"
+                  type="datetimerange"
+                  unlink-panels
+                  value-format="YYYY-MM-DDTHH:mm:ss"
+                  start-placeholder="开始时间"
+                  end-placeholder="结束时间"
+                />
+              </el-form-item>
 
-        <el-form-item label="查询时间">
+              <el-form-item label="关键词">
+                <el-input
+                  v-model="queryParams.keyword"
+                  class="audit-keyword-filter"
+                  clearable
+                  placeholder="路径 / 事件 / 详情"
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+        </div>
+      </template>
+
+      <el-form
+        v-if="canDeleteRange"
+        ref="deleteFormRef"
+        :model="deleteForm"
+        :rules="deleteFormRules"
+        :inline="true"
+        class="delete-row filter-form"
+      >
+        <el-form-item label="删除时间" prop="range">
           <el-date-picker
-            v-model="queryRange"
-            type="datetimerange"
-            unlink-panels
-            value-format="YYYY-MM-DDTHH:mm:ss"
-            start-placeholder="开始时间"
-            end-placeholder="结束时间"
-          />
-        </el-form-item>
-
-        <el-form-item label="关键词">
-          <el-input
-            v-model="queryParams.keyword"
-            clearable
-            placeholder="路径 / 事件 / 详情"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-
-      <el-form v-if="canDeleteRange" :inline="true" class="delete-row">
-        <el-form-item label="删除时间">
-          <el-date-picker
-            v-model="deleteRange"
+            v-model="deleteForm.range"
             type="datetimerange"
             unlink-panels
             value-format="YYYY-MM-DDTHH:mm:ss"
@@ -313,17 +335,8 @@ onMounted(loadData);
           </el-button>
         </el-form-item>
       </el-form>
-    </el-card>
 
-    <el-card class="audit-table-card">
-      <template #header>
-        <div class="flex justify-between items-center">
-          <span>审计日志</span>
-          <span class="text-sm text-gray-500">详情可点击“查看”展开</span>
-        </div>
-      </template>
-
-      <div class="table-wrap">
+      <div class="table-region">
         <el-table v-loading="loading" :data="tableData" stripe height="100%">
           <el-table-column prop="id" label="ID" width="80" />
           <el-table-column label="级别" width="100">
@@ -365,7 +378,7 @@ onMounted(loadData);
         </el-table>
       </div>
 
-      <div class="pager-wrap">
+      <div class="pagination-bar">
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
@@ -418,45 +431,27 @@ onMounted(loadData);
 </template>
 
 <style scoped>
-.page {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: calc(100vh - 104px);
-  padding: 24px;
-  overflow: hidden;
-}
-
-.toolbar-card {
-  flex-shrink: 0;
-}
-
 .delete-row {
   padding-top: 8px;
 }
 
-.audit-table-card {
+.audit-filter-form {
   flex: 1;
+  flex-wrap: nowrap;
+  min-width: 0;
   min-height: 0;
 }
 
-.audit-table-card :deep(.el-card__body) {
-  display: flex;
-  flex-direction: column;
-  height: calc(100% - 0px);
-  min-height: 0;
+.audit-user-filter {
+  width: 130px;
 }
 
-.table-wrap {
-  flex: 1;
-  min-height: 0;
+.audit-date-filter {
+  width: 300px;
 }
 
-.pager-wrap {
-  display: flex;
-  flex-shrink: 0;
-  justify-content: flex-end;
-  padding-top: 12px;
+.audit-keyword-filter {
+  width: 180px;
 }
 
 .detail-content {
@@ -479,5 +474,11 @@ pre {
   color: var(--el-text-color-primary);
   background: var(--el-fill-color-light);
   border-radius: 6px;
+}
+
+@media (width <= 1750px) {
+  .audit-filter-form {
+    flex-wrap: wrap;
+  }
 }
 </style>

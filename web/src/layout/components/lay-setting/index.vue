@@ -341,58 +341,77 @@ onUnmounted(() => removeMatchMedia);
           v-for="(item, index) in themeColors"
           v-show="showThemeColors(item.themeColor)"
           :key="index"
-          :style="getThemeColorStyle(item.color)"
-          @click="setLayoutThemeColor(item.themeColor)"
         >
-          <el-icon
-            style="margin: 0.1em 0.1em 0 0"
-            :size="17"
-            :color="getThemeColor(item.themeColor)"
+          <button
+            type="button"
+            :style="getThemeColorStyle(item.color)"
+            :aria-label="`选择${item.themeColor}主题色`"
+            :aria-pressed="layoutTheme.theme === item.themeColor"
+            @click="setLayoutThemeColor(item.themeColor)"
           >
-            <IconifyIconOffline :icon="Check" />
-          </el-icon>
+            <el-icon
+              style="margin: 0.1em 0.1em 0 0"
+              :size="17"
+              :color="getThemeColor(item.themeColor)"
+            >
+              <IconifyIconOffline :icon="Check" aria-hidden="true" />
+            </el-icon>
+          </button>
         </li>
       </ul>
 
       <p :class="['mt-5!', pClass]">导航模式</p>
       <ul class="pure-theme">
-        <li
-          ref="verticalRef"
-          v-tippy="{
-            content: '左侧菜单，亲切熟悉',
-            zIndex: 41000
-          }"
-          :class="layoutTheme.layout === 'vertical' ? 'is-select' : ''"
-          @click="setLayoutModel('vertical')"
-        >
-          <div />
-          <div />
+        <li>
+          <button
+            ref="verticalRef"
+            v-tippy="{
+              content: '左侧菜单，亲切熟悉',
+              zIndex: 41000
+            }"
+            type="button"
+            aria-label="使用左侧导航"
+            :aria-pressed="layoutTheme.layout === 'vertical'"
+            :class="layoutTheme.layout === 'vertical' ? 'is-select' : ''"
+            @click="setLayoutModel('vertical')"
+          >
+            <span />
+            <span />
+          </button>
         </li>
-        <li
-          v-if="device !== 'mobile'"
-          ref="horizontalRef"
-          v-tippy="{
-            content: '顶部菜单，简洁概览',
-            zIndex: 41000
-          }"
-          :class="layoutTheme.layout === 'horizontal' ? 'is-select' : ''"
-          @click="setLayoutModel('horizontal')"
-        >
-          <div />
-          <div />
+        <li v-if="device !== 'mobile'">
+          <button
+            ref="horizontalRef"
+            v-tippy="{
+              content: '顶部菜单，简洁概览',
+              zIndex: 41000
+            }"
+            type="button"
+            aria-label="使用顶部导航"
+            :aria-pressed="layoutTheme.layout === 'horizontal'"
+            :class="layoutTheme.layout === 'horizontal' ? 'is-select' : ''"
+            @click="setLayoutModel('horizontal')"
+          >
+            <span />
+            <span />
+          </button>
         </li>
-        <li
-          v-if="device !== 'mobile'"
-          ref="mixRef"
-          v-tippy="{
-            content: '混合菜单，灵活多变',
-            zIndex: 41000
-          }"
-          :class="layoutTheme.layout === 'mix' ? 'is-select' : ''"
-          @click="setLayoutModel('mix')"
-        >
-          <div />
-          <div />
+        <li v-if="device !== 'mobile'">
+          <button
+            ref="mixRef"
+            v-tippy="{
+              content: '混合菜单，灵活多变',
+              zIndex: 41000
+            }"
+            type="button"
+            aria-label="使用混合导航"
+            :aria-pressed="layoutTheme.layout === 'mix'"
+            :class="layoutTheme.layout === 'mix' ? 'is-select' : ''"
+            @click="setLayoutModel('mix')"
+          >
+            <span />
+            <span />
+          </button>
         </li>
       </ul>
 
@@ -534,17 +553,29 @@ onUnmounted(() => removeMatchMedia);
 }
 
 .theme-color {
-  height: 20px;
+  display: flex;
+  gap: 8px;
+  min-height: 44px;
 
   li {
-    float: left;
-    height: 20px;
-    margin-right: 8px;
-    cursor: pointer;
-    border-radius: 4px;
+    list-style: none;
+
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      cursor: pointer;
+      border: 6px solid var(--el-bg-color);
+      border-radius: 10px;
+      box-shadow: 0 0 0 1px var(--pure-border-color);
+    }
 
     &:nth-child(1) {
-      border: 1px solid #ddd;
+      button {
+        box-shadow: 0 0 0 1px #ddd;
+      }
     }
   }
 }
@@ -554,64 +585,73 @@ onUnmounted(() => removeMatchMedia);
   gap: 12px;
 
   li {
+    list-style: none;
+  }
+
+  button {
     position: relative;
-    width: 46px;
-    height: 36px;
+    width: 52px;
+    height: 44px;
+    padding: 0;
     overflow: hidden;
     cursor: pointer;
     background: #f0f2f5;
     border-radius: 4px;
     box-shadow: 0 1px 2.5px 0 rgb(0 0 0 / 18%);
 
-    &:nth-child(1) {
-      div {
-        &:nth-child(1) {
-          width: 30%;
-          height: 100%;
-          background: #1b2a47;
-        }
+    span {
+      display: block;
+    }
+  }
 
-        &:nth-child(2) {
-          position: absolute;
-          top: 0;
-          right: 0;
-          width: 70%;
-          height: 30%;
-          background: #fff;
-          box-shadow: 0 0 1px #888;
-        }
+  li:nth-child(1) button {
+    span {
+      &:nth-child(1) {
+        width: 30%;
+        height: 100%;
+        background: #1b2a47;
+      }
+
+      &:nth-child(2) {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 70%;
+        height: 30%;
+        background: #fff;
+        box-shadow: 0 0 1px #888;
       }
     }
+  }
 
-    &:nth-child(2) {
-      div {
-        &:nth-child(1) {
-          width: 100%;
-          height: 30%;
-          background: #1b2a47;
-          box-shadow: 0 0 1px #888;
-        }
+  li:nth-child(2) button {
+    span {
+      &:nth-child(1) {
+        width: 100%;
+        height: 30%;
+        background: #1b2a47;
+        box-shadow: 0 0 1px #888;
       }
     }
+  }
 
-    &:nth-child(3) {
-      div {
-        &:nth-child(1) {
-          width: 100%;
-          height: 30%;
-          background: #1b2a47;
-          box-shadow: 0 0 1px #888;
-        }
+  li:nth-child(3) button {
+    span {
+      &:nth-child(1) {
+        width: 100%;
+        height: 30%;
+        background: #1b2a47;
+        box-shadow: 0 0 1px #888;
+      }
 
-        &:nth-child(2) {
-          position: absolute;
-          bottom: 0;
-          left: 0;
-          width: 30%;
-          height: 70%;
-          background: #fff;
-          box-shadow: 0 0 1px #888;
-        }
+      &:nth-child(2) {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 30%;
+        height: 70%;
+        background: #fff;
+        box-shadow: 0 0 1px #888;
       }
     }
   }

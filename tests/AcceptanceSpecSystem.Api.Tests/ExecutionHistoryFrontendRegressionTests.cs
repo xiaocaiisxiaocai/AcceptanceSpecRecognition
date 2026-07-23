@@ -39,15 +39,23 @@ public class ExecutionHistoryFrontendRegressionTests
         pageContent.Should().Contain("getExecutionHistoryList");
         pageContent.Should().Contain("getExecutionHistoryDetail");
 
-        var smartFillContent = ReadRepositoryFile(
+        var smartFillPlaybackContent = ReadRepositoryFile(
             "web/src/views/other/execution-history/components/ExecutionHistorySmartFillPlayback.vue");
-        smartFillContent.Should().Contain("ScoreDetailDecisionSummarySection");
-        smartFillContent.Should().Contain("ScoreDetailBestMatchSection");
-        smartFillContent.Should().Contain("ScoreDetailCandidateList");
+        smartFillPlaybackContent.Should().Contain("statusOptions");
+        smartFillPlaybackContent.Should().Contain("getMatchOriginText");
+        smartFillPlaybackContent.Should().Contain("完全匹配");
+        smartFillPlaybackContent.Should().Contain("AI匹配");
+        smartFillPlaybackContent.Should().Contain("未采用");
+        smartFillPlaybackContent.Should().Contain("未匹配");
+        smartFillPlaybackContent.Should().Contain("executionSnapshot.finalAcceptance");
+        smartFillPlaybackContent.Should().Contain("executionSnapshot.finalRemark");
 
         var batchReplyContent = ReadRepositoryFile(
             "web/src/views/other/execution-history/components/ExecutionHistoryBatchReplyDetail.vue");
-        batchReplyContent.Should().Contain("批量回复仅保留简化结果");
+        batchReplyContent.Should().Contain("formatConfidence");
+        batchReplyContent.Should().Contain("confidencePercent");
+        batchReplyContent.Should().Contain("prop=\"acceptance\"");
+        batchReplyContent.Should().Contain("prop=\"remark\"");
     }
 
     private static string ReadRepositoryFile(string relativePath)

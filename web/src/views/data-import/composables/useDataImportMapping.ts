@@ -73,8 +73,11 @@ export function useDataImportMapping(options: UseDataImportMappingOptions) {
       .map(cfg => ({
         tableIndex: cfg.tableIndex,
         missing: options.isExcelFile.value
-          ? getMissingExcelMappingFields(cfg.excelMapping)
-          : getMissingMappingFields(cfg.wordMapping!)
+          ? getMissingExcelMappingFields(
+              cfg.excelMapping,
+              cfg.isSpecificationOnly
+            )
+          : getMissingMappingFields(cfg.wordMapping!, cfg.isSpecificationOnly)
       }))
       .filter(item => item.missing.length > 0);
 

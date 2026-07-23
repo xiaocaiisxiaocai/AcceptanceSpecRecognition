@@ -15,6 +15,17 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task GetAuditLogs_WhenPageSizeIsUnbounded_ShouldReturnBoundedPageContract()
+    {
+        var response = await _client.GetAsync("/api/audit-logs?page=1&pageSize=2147483647");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        body.Data!.PageSize.Should().Be(200);
+        body.Data.Items.Should().HaveCountLessThanOrEqualTo(200);
+    }
+
+    [Fact]
     public async Task CreateCustomer_ShouldGenerateControllerAuditLog()
     {
         using var createReq = new HttpRequestMessage(HttpMethod.Post, "/api/customers");

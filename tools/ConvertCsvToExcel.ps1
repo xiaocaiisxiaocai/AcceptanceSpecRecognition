@@ -1,7 +1,7 @@
 # 将 CSV 转换为 Excel 格式
 param(
-    [string]$InputCsv = "huaian_gray_zone_samples.csv",
-    [string]$OutputExcel = "huaian_gray_zone_samples.xlsx"
+    [string]$InputCsv = "generated_gray_zone_samples.csv",
+    [string]$OutputExcel = "generated_gray_zone_samples.xlsx"
 )
 
 $ErrorActionPreference = "Stop"

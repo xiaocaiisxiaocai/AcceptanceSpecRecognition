@@ -157,6 +157,14 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
                 RoleId = role.Id,
                 CreatedAt = DateTime.UtcNow
             });
+            await dbContext.AuthRefreshSessions.AddAsync(new AuthRefreshSession
+            {
+                FamilyId = Guid.NewGuid().ToString("N"),
+                UserId = assignedUser.Id,
+                PermissionVersion = assignedUser.PermissionVersion,
+                TokenHash = Guid.NewGuid().ToString("N"),
+                ExpiresAt = DateTime.UtcNow.AddDays(1)
+            });
             await dbContext.SaveChangesAsync();
             roleId = role.Id;
             testUserId = assignedUser.Id;
@@ -188,6 +196,9 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
         var verifyDbContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
         var testUserAfterUpdate = await verifyDbContext.SystemUsers.FirstAsync(user => user.Id == testUserId);
         testUserAfterUpdate.PermissionVersion.Should().Be(originalPermissionVersion + 1);
+        var refreshSession = await verifyDbContext.AuthRefreshSessions
+            .SingleAsync(session => session.UserId == testUserId);
+        refreshSession.Status.Should().Be(AuthRefreshSessionStatus.Revoked);
     }
 
     [Fact]

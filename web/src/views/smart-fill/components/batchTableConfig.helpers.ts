@@ -62,3 +62,29 @@ export const applyExcelBatchTableRowFieldChange = <
 
   return normalizedDraft;
 };
+
+/** 将旧版表级编辑值投影到主区域，同时保留其余离散区域。 */
+export const syncPrimaryBatchTableRegion = <T extends BatchTableConfig>(
+  item: T
+): T => {
+  if (!item.regions?.length) return item;
+
+  return {
+    ...item,
+    regions: item.regions.map((region, regionIndex) =>
+      regionIndex === 0
+        ? {
+            ...region,
+            projectColumnIndex: item.projectColumnIndex,
+            specificationColumnIndex: item.specificationColumnIndex,
+            acceptanceColumnIndex: item.acceptanceColumnIndex,
+            remarkColumnIndex: item.remarkColumnIndex,
+            headerRowStart: item.headerRowStart,
+            headerRowCount: item.headerRowCount,
+            dataStartRow: item.dataStartRow,
+            dataEndRow: item.dataEndRow
+          }
+        : region
+    )
+  };
+};

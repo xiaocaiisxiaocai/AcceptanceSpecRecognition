@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   getDatabaseBackupInfo,
   runDatabaseBackup,
@@ -10,6 +15,7 @@ import {
 } from "@/api/database-backup";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
+import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "DatabaseBackup"
@@ -26,6 +32,18 @@ const form = reactive<DatabaseBackupOptions>({
   backupDirectory: "/app/backups",
   retentionCount: 7
 });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<DatabaseBackupOptions> = {
+  backupDirectory: [requiredTrimmedRule("备份目录不能为空")],
+  retentionCount: [
+    {
+      type: "number",
+      min: 1,
+      message: "保留份数必须大于 0",
+      trigger: ["blur", "change"]
+    }
+  ]
+};
 
 const canUpdate = computed(() => hasPerms("btn:database-backup:update"));
 const canExecute = computed(() => hasPerms("btn:database-backup:execute"));
@@ -90,18 +108,6 @@ const buildPayload = (): DatabaseBackupOptions => ({
   retentionCount: Number(form.retentionCount) || 7
 });
 
-const validate = () => {
-  if (!form.backupDirectory?.trim()) {
-    ElMessage.warning("备份目录不能为空");
-    return false;
-  }
-  if (form.retentionCount < 1) {
-    ElMessage.warning("保留份数必须大于 0");
-    return false;
-  }
-  return true;
-};
-
 const save = async () => {
   if (
     !ensurePermission(
@@ -111,7 +117,7 @@ const save = async () => {
   ) {
     return;
   }
-  if (!validate()) return;
+  if (!(await validateForm(formRef.value))) return;
 
   saving.value = true;
   try {
@@ -139,7 +145,7 @@ const runNow = async () => {
   ) {
     return;
   }
-  if (!validate()) return;
+  if (!(await validateForm(formRef.value))) return;
 
   try {
     await ElMessageBox.confirm(
@@ -192,14 +198,8 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="page config-page database-backup-page">
+  <div class="page page--fill config-page database-backup-page">
     <div class="page-header">
-      <div>
-        <div class="page-title">数据库备份</div>
-        <div class="page-subtitle">
-          配置 MySQL 自动备份计划，并将备份文件保存到服务器挂载目录。
-        </div>
-      </div>
       <div class="header-actions">
         <el-button :loading="loading" @click="load">刷新</el-button>
         <el-button
@@ -249,7 +249,7 @@ onMounted(load);
       </el-col>
     </el-row>
 
-    <el-row :gutter="16">
+    <el-row :gutter="16" class="config-row">
       <el-col :xs="24" :lg="14">
         <el-card v-loading="loading" shadow="never">
           <template #header>
@@ -266,7 +266,14 @@ onMounted(load);
             </div>
           </template>
 
-          <el-form label-width="120px" class="backup-form">
+          <el-form
+            ref="formRef"
+            :model="form"
+            :rules="formRules"
+            label-width="120px"
+            class="backup-form"
+            status-icon
+          >
             <el-form-item label="启用自动备份">
               <el-switch v-model="form.enabled" />
             </el-form-item>
@@ -279,14 +286,14 @@ onMounted(load);
                 clearable
               />
             </el-form-item>
-            <el-form-item label="备份目录">
+            <el-form-item label="备份目录" prop="backupDirectory">
               <el-input
                 v-model="form.backupDirectory"
                 placeholder="/app/backups"
                 clearable
               />
             </el-form-item>
-            <el-form-item label="保留份数">
+            <el-form-item label="保留份数" prop="retentionCount">
               <el-input-number
                 v-model="form.retentionCount"
                 :min="1"
@@ -340,7 +347,7 @@ onMounted(load);
         <span>备份文件</span>
       </template>
 
-      <el-table :data="info?.files ?? []" stripe>
+      <el-table :data="info?.files ?? []" height="100%" stripe>
         <el-table-column prop="fileName" label="文件名" min-width="260" />
         <el-table-column label="大小" width="120">
           <template #default="{ row }">
@@ -361,27 +368,18 @@ onMounted(load);
 </template>
 
 <style scoped>
-.database-backup-page {
-  padding: 24px;
+.database-backup-page.page--fill {
+  padding: 0;
+  overflow: hidden auto !important;
+}
+
+.database-backup-page :deep(.el-row) {
+  margin-right: 0 !important;
+  margin-left: 0 !important;
 }
 
 .page-header {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-}
-
-.page-subtitle {
-  margin: 6px 0 0;
-  color: var(--el-text-color-secondary);
+  justify-content: flex-end;
 }
 
 .header-actions,
@@ -392,13 +390,14 @@ onMounted(load);
   justify-content: space-between;
 }
 
-.summary-row {
-  margin-bottom: 16px;
+.summary-row,
+.config-row {
+  flex: 0 0 auto;
+  row-gap: 12px;
 }
 
 .metric-card {
   height: 100%;
-  margin-bottom: 16px;
 }
 
 .metric-label {
@@ -427,9 +426,27 @@ onMounted(load);
   word-break: break-word;
 }
 
-.file-card,
 .mt-4 {
   margin-top: 16px;
+}
+
+.file-card {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  min-height: 260px;
+}
+
+.file-card :deep(.el-card__body) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.file-card :deep(.el-table) {
+  flex: 1;
+  min-height: 0;
 }
 
 @media (width <= 768px) {

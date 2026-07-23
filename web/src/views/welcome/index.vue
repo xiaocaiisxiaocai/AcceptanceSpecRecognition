@@ -20,6 +20,6 @@ onMounted(() => {
 <style scoped>
 .welcome {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 </style>

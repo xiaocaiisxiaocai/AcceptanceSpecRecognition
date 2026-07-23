@@ -159,6 +159,7 @@ function updatePathAndScroll(newIndex, isResultOptions) {
 
 /** key up */
 function handleUp() {
+  if (!show.value) return;
   const { options, currentPath, isResultOptions } = getCurrentOptionsAndPath();
   if (options.length === 0) return;
   const index = options.findIndex(item => item.path === currentPath);
@@ -168,6 +169,7 @@ function handleUp() {
 
 /** key down */
 function handleDown() {
+  if (!show.value) return;
   const { options, currentPath, isResultOptions } = getCurrentOptionsAndPath();
   if (options.length === 0) return;
   const index = options.findIndex(item => item.path === currentPath);
@@ -177,6 +179,7 @@ function handleDown() {
 
 /** key enter */
 function handleEnter() {
+  if (!show.value) return;
   const { options, currentPath, isResultOptions } = getCurrentOptionsAndPath();
   if (options.length === 0 || currentPath === "") return;
   const index = options.findIndex(item => item.path === currentPath);
@@ -265,7 +268,7 @@ function handleDrag(item: dragItem) {
   historyPath.value = reorderedItem.path;
 }
 
-onKeyStroke("Enter", handleEnter);
+onKeyStroke("Enter", handleEnter, { eventName: "keyup" });
 onKeyStroke("ArrowUp", handleUp);
 onKeyStroke("ArrowDown", handleDown);
 </script>
@@ -308,7 +311,7 @@ onKeyStroke("ArrowDown", handleDown);
           ref="historyRef"
           v-model:value="historyPath"
           :options="historyOptions"
-          @click="handleEnter"
+          @enter="handleEnter"
           @delete="handleDelete"
           @collect="handleCollect"
           @drag="handleDrag"
@@ -318,7 +321,7 @@ onKeyStroke("ArrowDown", handleDown);
           ref="resultRef"
           v-model:value="activePath"
           :options="resultOptions"
-          @click="handleEnter"
+          @enter="handleEnter"
         />
       </el-scrollbar>
     </div>

@@ -15,13 +15,4 @@
     <ProjectReference Include="..\AcceptanceSpecSystem.Data\AcceptanceSpecSystem.Data.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Include="..\AcceptanceSpecSystem.Data\Providers\CoreProviderAdapters.cs" Link="Providers\CoreProviderAdapters.cs" />
-    <Compile Include="..\AcceptanceSpecSystem.Api\DTOs\AuthRoleDtos.cs" Link="DTOs\AuthRoleDtos.cs" />
-    <Compile Include="..\AcceptanceSpecSystem.Api\DTOs\OrgUnitDtos.cs" Link="DTOs\OrgUnitDtos.cs" />
-    <Compile Include="..\AcceptanceSpecSystem.Api\DTOs\SystemUserDtos.cs" Link="DTOs\SystemUserDtos.cs" />
-    <Compile Include="..\AcceptanceSpecSystem.Api\DTOs\DocumentDtos.cs" Link="DTOs\DocumentDtos.cs" />
-    <Compile Include="..\AcceptanceSpecSystem.Api\DTOs\ExcelImportDtos.cs" Link="DTOs\ExcelImportDtos.cs" />
-  </ItemGroup>
-
 </Project>

@@ -124,6 +124,21 @@ public class WordDocumentWriterTests
     }
 
     [Fact]
+    public async Task WriteTableDataAsync_ShouldRejectOperationsThatCollapseToSameMergedCell()
+    {
+        using var stream = TestWordDocumentHelper.CreateHorizontalMergedTableDocument();
+
+        var act = () => _writer.WriteTableDataAsync(stream, 0, new[]
+        {
+            CellWriteOperation.Create(1, 0, "FIRST"),
+            CellWriteOperation.Create(1, 1, "SECOND")
+        });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*同一合并单元格*");
+    }
+
+    [Fact]
     public async Task WriteTableDataAsync_ShouldHandleInvalidCellPosition()
     {
         // Arrange

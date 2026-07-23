@@ -8,7 +8,7 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// <summary>
 /// 文档文件访问协作组件。
 /// </summary>
-public sealed class DocumentFileAccessService
+public sealed class DocumentFileAccessService : IDocumentFileAccessService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _fileStorage;
@@ -91,12 +91,44 @@ public sealed class DocumentFileAccessService
             .ToDictionaryAsync(item => item.FileId, item => item.Count, cancellationToken);
     }
 
+    public IQueryable<WordFile> ApplyScopedQuery(
+        IQueryable<WordFile> query,
+        SpecAccessContext scope,
+        bool includeScopedSpecs = true)
+    {
+        var ownershipQuery = scope.ApplyWordFileScopeToQuery(query);
+        if (!includeScopedSpecs || scope.IsAll)
+            return ownershipQuery;
+
+        var scopedSpecFileIds = scope.ApplySpecScopeToQuery(_unitOfWork.AcceptanceSpecs.Query())
+            .Select(spec => spec.WordFileId)
+            .Distinct();
+        return ownershipQuery.Union(query.Where(file => scopedSpecFileIds.Contains(file.Id)));
+    }
+
+    public async Task<Dictionary<int, int>> BuildSpecCountByFileAsync(
+        IReadOnlyCollection<int> fileIds,
+        SpecAccessContext scope,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedIds = fileIds.Where(id => id > 0).Distinct().ToArray();
+        if (normalizedIds.Length == 0)
+            return [];
+
+        return await scope.ApplySpecScopeToQuery(_unitOfWork.AcceptanceSpecs.Query())
+            .Where(spec => normalizedIds.Contains(spec.WordFileId))
+            .GroupBy(spec => spec.WordFileId)
+            .Select(group => new { FileId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.FileId, item => item.Count, cancellationToken);
+    }
+
     public async Task<WordFile?> GetAccessibleWordFileAsync(
         int fileId,
         DataScopeResult scope,
-        bool includeScopedSpecs = false)
+        bool includeScopedSpecs = false,
+        CancellationToken cancellationToken = default)
     {
-        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId);
+        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId, cancellationToken);
         if (wordFile == null)
         {
             return null;
@@ -115,8 +147,27 @@ public sealed class DocumentFileAccessService
         var hasScopedSpec = await SpecDataScopeHelper.ApplyScopeToQuery(
                 _unitOfWork.AcceptanceSpecs.Query(),
                 scope)
-            .AnyAsync(spec => spec.WordFileId == fileId);
+            .AnyAsync(spec => spec.WordFileId == fileId, cancellationToken);
 
+        return hasScopedSpec ? wordFile : null;
+    }
+
+    public async Task<WordFile?> GetAccessibleWordFileAsync(
+        int fileId,
+        SpecAccessContext scope,
+        bool includeScopedSpecs = false,
+        CancellationToken cancellationToken = default)
+    {
+        var wordFile = await _unitOfWork.WordFiles.GetByIdAsync(fileId, cancellationToken);
+        if (wordFile == null)
+            return null;
+        if (scope.CanAccess(wordFile))
+            return wordFile;
+        if (!includeScopedSpecs)
+            return null;
+
+        var hasScopedSpec = await scope.ApplySpecScopeToQuery(_unitOfWork.AcceptanceSpecs.Query())
+            .AnyAsync(spec => spec.WordFileId == fileId, cancellationToken);
         return hasScopedSpec ? wordFile : null;
     }
 

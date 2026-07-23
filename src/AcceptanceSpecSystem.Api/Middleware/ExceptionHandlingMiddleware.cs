@@ -72,7 +72,10 @@ public class ExceptionHandlingMiddleware
 
     private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
-        _logger.LogError(exception, "发生未处理的异常: {Message}", exception.Message);
+        _logger.LogError(
+            "发生未处理的异常: exceptionType={ExceptionType}, traceId={TraceId}",
+            exception.GetType().Name,
+            System.Diagnostics.Activity.Current?.TraceId.ToString());
 
         // 响应已开始写入（如 SSE），无法再修改 Header / StatusCode
         if (context.Response.HasStarted)

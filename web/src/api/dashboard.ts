@@ -23,14 +23,24 @@ export interface DashboardSummary {
   smartFillAdoptedRows: number;
   matchingRate: number;
   adoptionRate: number;
+  dailyTrend: DashboardDailyTrend[];
+}
+
+export interface DashboardDailyTrend {
+  date: string;
+  importedSpecCount: number;
+  smartFillTaskCount: number;
 }
 
 const baseUrl = "/api/dashboard";
 
-export const getDashboardSummary = (params?: DashboardSummaryRequest) => {
+export const getDashboardSummary = (
+  params?: DashboardSummaryRequest,
+  signal?: AbortSignal
+) => {
   return http.request<ApiResponse<DashboardSummary>>(
     "get",
     `${baseUrl}/summary`,
-    { params }
+    { params, signal }
   );
 };

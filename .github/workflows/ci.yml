@@ -4,13 +4,32 @@ on:
   pull_request:
     branches:
       - main
-      - feat/add-ai-equivalence-adjudication
   push:
     branches:
       - main
-      - feat/add-ai-equivalence-adjudication
+
+permissions:
+  contents: read
 
 jobs:
+  openspec:
+    name: OpenSpec Strict Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install OpenSpec
+        run: npm install --global @fission-ai/openspec@1.5.0
+
+      - name: Validate all specifications
+        run: openspec validate --all --strict --no-interactive
+
   backend:
     name: Backend
     runs-on: windows-latest
@@ -26,8 +45,77 @@ jobs:
       - name: Restore
         run: dotnet restore AcceptanceSpecSystem.sln
 
+      - name: Check repository hygiene
+        run: |
+          python tools/test_assert_repository_hygiene.py
+          python tools/assert_repository_hygiene.py
+
+      - name: Audit NuGet dependencies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          $auditPath = Join-Path $PWD "artifacts/nuget-audit.json"
+          dotnet list AcceptanceSpecSystem.sln package --vulnerable --include-transitive --no-restore --format json |
+            Out-File -FilePath $auditPath -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          python tools/assert_nuget_audit.py $auditPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $fixturePath = Join-Path $env:RUNNER_TEMP "nuget-vulnerable-fixture.json"
+          $fixture = '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"audit-gate-fixture","vulnerabilities":[{"severity":"High","advisoryurl":"https://example.invalid/advisory"}]}]}]}]}'
+          Set-Content -LiteralPath $fixturePath -Value $fixture -Encoding utf8 -NoNewline
+          $fixtureResult = Start-Process python `
+            -ArgumentList @("tools/assert_nuget_audit.py", $fixturePath) `
+            -Wait -NoNewWindow -PassThru
+          if ($fixtureResult.ExitCode -eq 0) {
+            throw "NuGet audit parser must reject vulnerable package reports"
+          }
+
       - name: Test
-        run: dotnet test AcceptanceSpecSystem.sln --no-restore -m:1
+        run: dotnet test AcceptanceSpecSystem.sln --no-restore -m:1 --collect:"XPlat Code Coverage" --results-directory artifacts/backend-coverage
+
+      - name: Upload backend coverage baseline
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: artifacts/backend-coverage
+          if-no-files-found: error
+
+  mysql-contract:
+    name: MySQL 8 Migration and Repository Contract
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
+        env:
+          MYSQL_ROOT_PASSWORD: CiMySqlRootPassword_2026!
+          TZ: UTC
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pCiMySqlRootPassword_2026!"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore AcceptanceSpecSystem.sln
+
+      - name: Run real MySQL contracts
+        env:
+          ACCEPTANCE_SPEC_ENABLE_MYSQL_MIGRATION_SMOKE_TESTS: "true"
+          ACCEPTANCE_SPEC_MYSQL_MIGRATION_BASE_CONNECTION: Server=127.0.0.1;Port=3306;User ID=root;Password=CiMySqlRootPassword_2026!;SslMode=None;AllowPublicKeyRetrieval=True;
+        run: dotnet test tests/AcceptanceSpecSystem.Data.Tests/AcceptanceSpecSystem.Data.Tests.csproj -c Release --no-restore --nologo -m:1
 
   frontend:
     name: Frontend
@@ -54,14 +142,172 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Audit pnpm dependencies
+        run: pnpm audit --audit-level high
+
+      - name: ESLint check
+        run: pnpm lint:check
+
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Prettier check
+        run: pnpm format:check
+
+      - name: Stylelint check
+        run: pnpm stylelint:check
+
       - name: Test
-        run: pnpm test
+        run: pnpm test:coverage
+
+      - name: Upload frontend coverage baseline
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: web/coverage
+          if-no-files-found: error
 
       - name: Build
         run: pnpm build
+
+      - name: Test frontend gzip budget guard
+        run: pnpm test:bundle-budget
+
+      - name: Enforce frontend gzip budget
+        run: pnpm check:bundle-budget
+
+  browser-e2e:
+    name: Browser E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
+        env:
+          MYSQL_ROOT_PASSWORD: E2eMySqlRootPassword_2026!
+          MYSQL_DATABASE: acceptance_spec_e2e
+          TZ: UTC
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pE2eMySqlRootPassword_2026!"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Generate ephemeral browser-test credentials
+        shell: bash
+        run: |
+          admin_password="E2eAdmin_$(openssl rand -hex 16)!"
+          common_password="E2eCommon_$(openssl rand -hex 16)!"
+          signing_key="E2eJwt_$(openssl rand -hex 32)"
+          echo "::add-mask::$admin_password"
+          echo "::add-mask::$common_password"
+          echo "::add-mask::$signing_key"
+          echo "E2E_ADMIN_PASSWORD=$admin_password" >> "$GITHUB_ENV"
+          echo "E2E_COMMON_PASSWORD=$common_password" >> "$GITHUB_ENV"
+          echo "E2E_JWT_SIGNING_KEY=$signing_key" >> "$GITHUB_ENV"
+
+      - name: Restore and build API
+        run: |
+          dotnet restore AcceptanceSpecSystem.sln
+          dotnet build src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj -c Release --no-restore --nologo
+
+      - name: Start API against real MySQL
+        shell: bash
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ASPNETCORE_URLS: http://127.0.0.1:5291
+          ConnectionStrings__DefaultConnection: Server=127.0.0.1;Port=3306;Database=acceptance_spec_e2e;User ID=root;Password=E2eMySqlRootPassword_2026!;SslMode=None;AllowPublicKeyRetrieval=True;
+          BrowserAuth__RefreshCookieName: acceptance-refresh-e2e
+          BrowserAuth__CookieSecure: "false"
+          BrowserAuth__AllowInsecureHttp: "true"
+          Cors__AllowedOrigins__0: http://127.0.0.1:8849
+          ApiRateLimits__Login__PermitLimit: "1000"
+          ApiRateLimits__RefreshToken__PermitLimit: "1000"
+          FileStorage__BasePath: ${{ runner.temp }}/acceptance-e2e-files
+        run: |
+          mkdir -p artifacts/e2e "$RUNNER_TEMP/acceptance-e2e-files"
+          export JwtAuth__SigningKey="$E2E_JWT_SIGNING_KEY"
+          export AuthSeed__AdminPassword="$E2E_ADMIN_PASSWORD"
+          export AuthSeed__CommonPassword="$E2E_COMMON_PASSWORD"
+          nohup dotnet run \
+            --project src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj \
+            -c Release --no-build \
+            > artifacts/e2e/api.log 2>&1 &
+          echo $! > artifacts/e2e/api.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:5291/health >/dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat artifacts/e2e/api.pid)" 2>/dev/null; then
+              cat artifacts/e2e/api.log
+              exit 1
+            fi
+            sleep 2
+          done
+          cat artifacts/e2e/api.log
+          exit 1
+
+      - name: Install frontend and Chromium
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Run synthetic browser E2E
+        working-directory: web
+        env:
+          VITE_API_PROXY_TARGET: http://127.0.0.1:5291
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8849
+        run: |
+          pnpm test:e2e:typecheck
+          pnpm test:e2e
+
+      - name: Sanitize API diagnostic log
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f artifacts/e2e/api.log ]; then
+            sed -i \
+              -e "s/${E2E_ADMIN_PASSWORD}/[REDACTED]/g" \
+              -e "s/${E2E_COMMON_PASSWORD}/[REDACTED]/g" \
+              -e "s/${E2E_JWT_SIGNING_KEY}/[REDACTED]/g" \
+              artifacts/e2e/api.log
+          fi
+
+      - name: Upload browser diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-diagnostics
+          path: |
+            web/playwright-report
+            web/test-results
+            artifacts/e2e/api.log
+          if-no-files-found: warn
+          retention-days: 14
 
   docker-build:
     name: Docker Build
@@ -70,8 +316,207 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate production deployment guard
+        shell: bash
+        run: |
+          if sh deploy/validate-production-env.sh .deploy/production.env.example; then
+            echo "production.env.example must never pass production secret validation"
+            exit 1
+          fi
+
+          cat > /tmp/production-placeholder.env <<'EOF'
+          MYSQL_ROOT_PASSWORD=replace_with_root_password
+          MYSQL_PASSWORD=replace_with_app_password
+          JWT_SIGNING_KEY=replace_with_at_least_32_chars_random_key
+          AUTH_SEED_ADMIN_PASSWORD=replace_with_at_least_12_chars_admin_password
+          AUTH_SEED_COMMON_PASSWORD=replace_with_at_least_12_chars_common_password
+          EOF
+          if sh deploy/validate-production-env.sh /tmp/production-placeholder.env; then
+            echo "known placeholders must never pass production secret validation"
+            exit 1
+          fi
+
+          cat > /tmp/production-valid.env <<'EOF'
+          MYSQL_ROOT_PASSWORD=CiRootPassword_2026!
+          MYSQL_PASSWORD=CiAppPassword_2026!
+          JWT_SIGNING_KEY=CiOnlySigningKey_AtLeast32Characters_2026!
+          AUTH_SEED_ADMIN_PASSWORD=CiAdminPassword_2026!
+          AUTH_SEED_COMMON_PASSWORD=CiCommonPassword_2026!
+          API_IMAGE=acceptance-api:ci-20260721
+          WEB_IMAGE=acceptance-web:ci-20260721
+          CORS_ALLOWED_ORIGIN=https://ci.example.invalid
+          BROWSER_AUTH_ALLOW_INSECURE_HTTP=false
+          BROWSER_AUTH_REFRESH_COOKIE_NAME=__Host-acceptance-refresh
+          BROWSER_AUTH_COOKIE_SECURE=true
+          BROWSER_AUTH_COOKIE_SAME_SITE=Strict
+          BROWSER_AUTH_COOKIE_DOMAIN=
+          EOF
+          sh deploy/validate-production-env.sh /tmp/production-valid.env
+
+          sed 's|API_IMAGE=acceptance-api:ci-20260721|API_IMAGE=acceptance-api:latest|' \
+            /tmp/production-valid.env > /tmp/production-latest-image.env
+          if sh deploy/validate-production-env.sh /tmp/production-latest-image.env; then
+            echo 'mutable latest image tag unexpectedly passed validation'
+            exit 1
+          fi
+
+          sed \
+            -e 's|CORS_ALLOWED_ORIGIN=https://ci.example.invalid|CORS_ALLOWED_ORIGIN=http://acceptance-web-ci:8080|' \
+            -e 's|BROWSER_AUTH_ALLOW_INSECURE_HTTP=false|BROWSER_AUTH_ALLOW_INSECURE_HTTP=true|' \
+            -e 's|BROWSER_AUTH_REFRESH_COOKIE_NAME=__Host-acceptance-refresh|BROWSER_AUTH_REFRESH_COOKIE_NAME=acceptance-refresh|' \
+            -e 's|BROWSER_AUTH_COOKIE_SECURE=true|BROWSER_AUTH_COOKIE_SECURE=false|' \
+            /tmp/production-valid.env > /tmp/production-valid-http.env
+          sh deploy/validate-production-env.sh /tmp/production-valid-http.env
+
+          for invalid_origin in 'https://:443' 'https://host:abc' 'https://host:70000' 'https://host:'; do
+            sed "s|CORS_ALLOWED_ORIGIN=https://ci.example.invalid|CORS_ALLOWED_ORIGIN=$invalid_origin|" \
+              /tmp/production-valid.env > /tmp/production-invalid-origin.env
+            if sh deploy/validate-production-env.sh /tmp/production-invalid-origin.env; then
+              echo "invalid Origin unexpectedly passed validation: $invalid_origin"
+              exit 1
+            fi
+          done
+
+          MYSQL_ROOT_PASSWORD=CiRootPassword_2026! \
+          MYSQL_PASSWORD=CiAppPassword_2026! \
+          JWT_SIGNING_KEY=CiOnlySigningKey_AtLeast32Characters_2026! \
+          AUTH_SEED_ADMIN_PASSWORD=CiAdminPassword_2026! \
+          AUTH_SEED_COMMON_PASSWORD=CiCommonPassword_2026! \
+          docker compose --env-file .deploy/production.env.example \
+            -f .deploy/docker-compose.images.yml config --quiet
+
       - name: Build API image
         run: docker build -f src/AcceptanceSpecSystem.Api/Dockerfile -t acceptance-spec-api:ci .
 
       - name: Build Web image
         run: docker build -f web/Dockerfile -t acceptance-spec-web:ci .
+
+      - name: Verify immutable bases and non-root runtime
+        shell: bash
+        run: |
+          api_from_count=$(grep -Ec '^FROM [^ ]+@sha256:[0-9a-f]{64}' src/AcceptanceSpecSystem.Api/Dockerfile)
+          web_from_count=$(grep -Ec '^FROM [^ ]+@sha256:[0-9a-f]{64}' web/Dockerfile)
+          test "$api_from_count" -eq 2
+          test "$web_from_count" -eq 2
+
+          api_user=$(docker image inspect acceptance-spec-api:ci --format '{{.Config.User}}')
+          web_user=$(docker image inspect acceptance-spec-web:ci --format '{{.Config.User}}')
+          test -n "$api_user"
+          test "$api_user" != "0"
+          test "$api_user" != "root"
+          test -n "$web_user"
+          test "$web_user" != "0"
+          test "$web_user" != "root"
+
+          docker network create --subnet 172.31.250.0/24 acceptance-smoke-ci
+          docker volume create acceptance-api-files-ci
+          docker volume create acceptance-api-dpkeys-ci
+          docker volume create acceptance-api-backups-ci
+          cleanup() {
+            docker rm -f acceptance-api-image-ci acceptance-mysql-image-ci acceptance-web-ci >/dev/null 2>&1 || true
+            docker network rm acceptance-smoke-ci >/dev/null 2>&1 || true
+            docker volume rm acceptance-api-files-ci acceptance-api-dpkeys-ci acceptance-api-backups-ci >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run --rm \
+            --read-only \
+            --tmpfs /tmp:size=64m,mode=1777 \
+            -v acceptance-api-files-ci:/data/files \
+            -v acceptance-api-dpkeys-ci:/data/dp-keys \
+            -v acceptance-api-backups-ci:/app/backups \
+            --entrypoint sh \
+            acceptance-spec-api:ci \
+            -c 'test "$(id -u)" -ne 0 && touch /data/files/.write-test /data/dp-keys/.write-test /app/backups/.write-test'
+
+          docker run -d \
+            --name acceptance-mysql-image-ci \
+            --network acceptance-smoke-ci \
+            -e MYSQL_ROOT_PASSWORD='G7v!9qL2xR4mT8cK' \
+            -e MYSQL_DATABASE=acceptance_spec_image_ci \
+            mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b \
+            --character-set-server=utf8mb4 \
+            --collation-server=utf8mb4_unicode_ci
+          for attempt in $(seq 1 60); do
+            if docker exec acceptance-mysql-image-ci mysqladmin ping -h 127.0.0.1 -uroot -p'G7v!9qL2xR4mT8cK' --silent; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              docker logs acceptance-mysql-image-ci
+              exit 1
+            fi
+            sleep 2
+          done
+
+          docker run -d \
+            --name acceptance-api-image-ci \
+            --network acceptance-smoke-ci \
+            --network-alias api \
+            --read-only \
+            --tmpfs /tmp:size=64m,mode=1777 \
+            -v acceptance-api-files-ci:/data/files \
+            -v acceptance-api-dpkeys-ci:/data/dp-keys \
+            -v acceptance-api-backups-ci:/app/backups \
+            -e ASPNETCORE_ENVIRONMENT=Production \
+            -e 'ConnectionStrings__DefaultConnection=Server=acceptance-mysql-image-ci;Port=3306;Database=acceptance_spec_image_ci;User ID=root;Password=G7v!9qL2xR4mT8cK;SslMode=None;AllowPublicKeyRetrieval=True;' \
+            -e 'FileStorage__BasePath=/data/files' \
+            -e 'DataProtection__KeysPath=/data/dp-keys' \
+            -e 'DatabaseBackup__BackupDirectory=/app/backups' \
+            -e 'JwtAuth__SigningKey=K9r!4xQ7mV2pL8sN6cT3wY5bH1dF0zA2' \
+            -e 'AuthSeed__AdminPassword=R8m!2vQ5kL9xT4cN' \
+            -e 'AuthSeed__CommonPassword=H6p!3zW8nB1yF7dS' \
+            -e 'Cors__AllowedOrigins__0=http://acceptance-web-ci:8080' \
+            -e 'BrowserAuth__AllowInsecureHttp=true' \
+            -e 'BrowserAuth__RefreshCookieName=acceptance-refresh' \
+            -e 'BrowserAuth__CookieSecure=false' \
+            -e 'BrowserAuth__CookieSameSite=Strict' \
+            -e 'ProxyForwarding__Enabled=true' \
+            -e 'ProxyForwarding__ForwardLimit=1' \
+            -e 'ProxyForwarding__KnownNetworks__0=172.31.250.0/24' \
+            acceptance-spec-api:ci
+          for attempt in $(seq 1 90); do
+            api_health=$(docker inspect acceptance-api-image-ci --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')
+            if [ "$api_health" = "healthy" ]; then
+              break
+            fi
+            if [ "$api_health" = "unhealthy" ] || [ "$attempt" -eq 90 ]; then
+              docker inspect acceptance-api-image-ci
+              docker logs acceptance-api-image-ci
+              exit 1
+            fi
+            sleep 2
+          done
+
+          docker run -d \
+            --name acceptance-web-ci \
+            --network acceptance-smoke-ci \
+            --read-only \
+            --tmpfs /tmp:size=32m,mode=1777 \
+            --tmpfs /var/cache/nginx:size=32m,mode=0755,uid=101,gid=101 \
+            --tmpfs /var/run:size=8m,mode=0755,uid=101,gid=101 \
+            acceptance-spec-web:ci
+          for attempt in $(seq 1 20); do
+            if docker exec acceptance-web-ci wget -qO- http://127.0.0.1:8080/ >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              docker logs acceptance-web-ci
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec acceptance-web-ci sh -c \
+            "echo 'eyJ1c2VybmFtZSI6ImFkbWluIiwicGFzc3dvcmQiOiJSOG0hMnZRNWtMOXhUNGNOIn0=' | base64 -d > /tmp/login-request.json"
+          docker exec acceptance-web-ci sh -c \
+            "wget -S -qO /tmp/login.json --header='Origin: http://acceptance-web-ci:8080' --header='Content-Type: application/json' --post-file=/tmp/login-request.json http://127.0.0.1:8080/login 2>/tmp/login.headers"
+          docker exec acceptance-web-ci sh -c "grep -i 'Set-Cookie: acceptance-refresh=' /tmp/login.headers | grep -qi 'HttpOnly'"
+          docker exec acceptance-web-ci sh -c "grep -i 'Set-Cookie: acceptance-refresh=' /tmp/login.headers | grep -qi 'SameSite=Strict'"
+          if docker exec acceptance-web-ci sh -c "grep -i 'Set-Cookie: acceptance-refresh=' /tmp/login.headers | grep -qi 'Secure'"; then
+            echo 'intranet HTTP refresh cookie must not be Secure'
+            exit 1
+          fi
+          if docker exec acceptance-web-ci grep -qi 'refreshToken' /tmp/login.json; then
+            echo 'browser login JSON must not expose refreshToken'
+            exit 1
+          fi

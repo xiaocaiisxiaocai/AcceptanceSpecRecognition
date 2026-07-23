@@ -154,6 +154,35 @@ public class WordDocumentParserTests
     }
 
     [Fact]
+    public async Task ExtractTableDataAsync_WithMultiHeaderColumnMapping_ShouldJoinHeaderRows()
+    {
+        var data = new string[,]
+        {
+            { "基本信息", "判定依据", "回复信息", "回复信息" },
+            { "检查对象", "管制条件", "供应商确认", "补充说明" },
+            { "外观", "表面不得有明显划伤", "OK", "抽检" }
+        };
+        using var stream = TestWordDocumentHelper.CreateSimpleTableDocument(data);
+
+        var mapping = new ColumnMapping
+        {
+            HeaderRowIndex = 0,
+            HeaderRowCount = 2,
+            DataStartRowIndex = 2
+        };
+
+        var tableData = await _parser.ExtractTableDataAsync(stream, 0, mapping);
+
+        tableData.Headers.Should().Equal(
+            "基本信息 / 检查对象",
+            "判定依据 / 管制条件",
+            "回复信息 / 供应商确认",
+            "回复信息 / 补充说明");
+        tableData.Rows.Should().HaveCount(1);
+        tableData.Rows[0].GetValue(0).Should().Be("外观");
+    }
+
+    [Fact]
     public async Task ExtractTableDataAsync_ShouldHandleHorizontalMergedCells()
     {
         // Arrange

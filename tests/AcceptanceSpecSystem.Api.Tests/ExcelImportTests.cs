@@ -3,17 +3,23 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Entities;
 using ClosedXML.Excel;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
 public class ExcelImportTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly ApiWebApplicationFactory _factory;
 
     public ExcelImportTests(ApiWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -84,7 +90,7 @@ public class ExcelImportTests : IClassFixture<ApiWebApplicationFactory>
         first.GetProperty("usedRangeStartColumn").GetInt32().Should().Be(3);
 
         // 5) 预览：表头起始=第2行，表头2行 => 对后端是 headerRowIndex=0, headerRowCount=2；数据起始=第4行 => dataStartRowIndex=2
-        var previewResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=0&headerRowIndex=0&headerRowCount=2&dataStartRowIndex=2");
+        var previewResp = await _client.GetAsync($"/api/documents/{fileId}/tables/0/preview?previewRows=500&headerRowIndex=0&headerRowCount=2&dataStartRowIndex=2");
         previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
         previewJson.Code.Should().Be(0);
@@ -114,6 +120,14 @@ public class ExcelImportTests : IClassFixture<ApiWebApplicationFactory>
         importJson.Code.Should().Be(0);
         importJson.Data.GetProperty("successCount").GetInt32().Should().Be(2);
         importJson.Data.GetProperty("failedCount").GetInt32().Should().Be(0);
+
+        await AssertLearnedColumnMappingRulesAsync(customerId, new[]
+        {
+            ("基本信息 / 项目", ColumnMappingTargetField.Project),
+            ("基本信息 / 规格内容", ColumnMappingTargetField.Specification),
+            ("要求 / 验收标准", ColumnMappingTargetField.Acceptance),
+            ("要求 / 备注", ColumnMappingTargetField.Remark)
+        });
     }
 
     [Fact]
@@ -200,5 +214,26 @@ public class ExcelImportTests : IClassFixture<ApiWebApplicationFactory>
         var json = await resp.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(0);
         return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private async Task AssertLearnedColumnMappingRulesAsync(
+        int customerId,
+        IEnumerable<(string Pattern, ColumnMappingTargetField TargetField)> expectedRules)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        foreach (var (pattern, targetField) in expectedRules)
+        {
+            var rule = await db.ColumnMappingRules.SingleOrDefaultAsync(item =>
+                item.CustomerId == customerId &&
+                item.Pattern == pattern &&
+                item.TargetField == targetField);
+
+            rule.Should().NotBeNull();
+            rule!.Source.Should().Be(ColumnMappingRuleSource.Learned);
+            rule.MatchMode.Should().Be(ColumnMappingMatchMode.Equals);
+            rule.Priority.Should().BeGreaterThanOrEqualTo(100);
+            rule.Enabled.Should().BeTrue();
+        }
     }
 }

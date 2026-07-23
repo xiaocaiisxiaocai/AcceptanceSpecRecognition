@@ -11,6 +11,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
@@ -86,6 +87,57 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         // 每个表格应各有 1 个匹配项
         tables[0].GetProperty("items").GetArrayLength().Should().Be(1);
         tables[1].GetProperty("items").GetArrayLength().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task BatchPreview_WordDataEndRow_ShouldUseInclusiveRange()
+    {
+        var docxBytes = CreateMultiTableDocxBytes(
+            new[]
+            {
+                new[] { "项目", "规格", "验收", "备注" },
+                new[] { "P1", "S1", "", "" },
+                new[] { "P2", "S2", "", "" },
+                new[] { "P3", "S3", "", "" }
+            });
+        var fileId = await UploadDocxAsync(docxBytes, "word-inclusive-end.docx");
+        var customerId = await CreateCustomerAsync($"WordEnd-C-{Guid.NewGuid():N}");
+        var processId = await CreateProcessAsync($"WordEnd-P-{Guid.NewGuid():N}");
+        await CreateSpecAsync(customerId, processId, "P1", "S1", "A1", "");
+        await CreateSpecAsync(customerId, processId, "P2", "S2", "A2", "");
+        await CreateSpecAsync(customerId, processId, "P3", "S3", "A3", "");
+
+        var response = await _client.PostAsync(
+            "/api/matching/batch-preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                fileId,
+                customerId,
+                processId,
+                config = new { minScoreThreshold = 0.0 },
+                tables = new[]
+                {
+                    new
+                    {
+                        tableIndex = 0,
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = 3,
+                        headerRowStart = 1,
+                        headerRowCount = 1,
+                        dataStartRow = 2,
+                        dataEndRow = 3
+                    }
+                }
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var items = body.Data.GetProperty("tables")[0].GetProperty("items");
+        items.GetArrayLength().Should().Be(2);
+        items[0].GetProperty("sourceProject").GetString().Should().Be("P1");
+        items[1].GetProperty("sourceProject").GetString().Should().Be("P2");
     }
 
     [Fact]
@@ -220,6 +272,14 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         // 表格2 行1
         GetCellText(filledBytes, 1, 1, 2).Should().Be("FILL-B");
         GetCellText(filledBytes, 1, 1, 3).Should().Be("REM-B");
+
+        await AssertLearnedColumnMappingRulesAsync(customerId, new[]
+        {
+            ("项目", ColumnMappingTargetField.Project),
+            ("规格", ColumnMappingTargetField.Specification),
+            ("验收", ColumnMappingTargetField.Acceptance),
+            ("备注", ColumnMappingTargetField.Remark)
+        });
     }
 
     /// <summary>
@@ -565,6 +625,27 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(0);
         return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private async Task AssertLearnedColumnMappingRulesAsync(
+        int customerId,
+        IEnumerable<(string Pattern, ColumnMappingTargetField TargetField)> expectedRules)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        foreach (var (pattern, targetField) in expectedRules)
+        {
+            var rule = await db.ColumnMappingRules.SingleOrDefaultAsync(item =>
+                item.CustomerId == customerId &&
+                item.Pattern == pattern &&
+                item.TargetField == targetField);
+
+            rule.Should().NotBeNull();
+            rule!.Source.Should().Be(ColumnMappingRuleSource.Learned);
+            rule.MatchMode.Should().Be(ColumnMappingMatchMode.Equals);
+            rule.Priority.Should().BeGreaterThanOrEqualTo(100);
+            rule.Enabled.Should().BeTrue();
+        }
     }
 
     private async Task SeedSpecsAsync(int wordFileId, int customerId, int processId, int count)

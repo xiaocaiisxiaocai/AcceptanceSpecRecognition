@@ -9,6 +9,7 @@ using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Application;
+using AcceptanceSpecSystem.Application.Options;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
@@ -17,12 +18,12 @@ using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Core.TextProcessing.Services;
 using AcceptanceSpecSystem.Data;
 using AcceptanceSpecSystem.Data.Context;
-using AcceptanceSpecSystem.Data.Providers;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -33,6 +34,14 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var proxyForwarding = builder.Configuration.GetSection(ProxyForwardingOptions.SectionName)
+    .Get<ProxyForwardingOptions>() ?? new ProxyForwardingOptions();
+ForwardedHeadersOptions? forwardedHeadersOptions = null;
+if (proxyForwarding.Enabled)
+{
+    forwardedHeadersOptions = ProxyForwardingConfiguration.Create(proxyForwarding);
+}
 
 builder.Services.AddScoped<AuditOperationFilter>();
 builder.Services.AddHttpContextAccessor();
@@ -129,7 +138,7 @@ builder.Services.AddDataProtection()
 builder.Services.AddMemoryCache();
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = UploadFileValidation.MaxAllowedFileSizeBytes * 10;
+    options.MultipartBodyLengthLimit = BatchReplyUploadLimits.MultipartBodyLengthLimitBytes;
 });
 
 builder.Services.AddRateLimiter(options =>
@@ -139,8 +148,10 @@ builder.Services.AddRateLimiter(options =>
         httpContext,
         builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:Login").Get<RateLimitPolicyOptions>()
             ?? new ApiRateLimitOptions().Login));
-    options.AddPolicy("refresh-token", httpContext => CreateFixedWindowLimiter(
+    options.AddPolicy("refresh-token", httpContext => CreateRefreshTokenLimiter(
         httpContext,
+        builder.Configuration[$"{BrowserAuthOptions.SectionName}:RefreshCookieName"]?.Trim()
+            ?? new BrowserAuthOptions().RefreshCookieName,
         builder.Configuration.GetSection($"{ApiRateLimitOptions.SectionName}:RefreshToken").Get<RateLimitPolicyOptions>()
             ?? new ApiRateLimitOptions().RefreshToken));
     options.AddPolicy("upload", httpContext => CreateFixedWindowLimiter(
@@ -160,6 +171,14 @@ if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("ConnectionStrings:DefaultConnection 未配置，当前分支禁止回退到硬编码默认数据库。");
 }
 
+var requiresProductionSecrets =
+    !builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing");
+if (requiresProductionSecrets &&
+    ProductionSecretGuard.HasKnownPlaceholderPassword(connectionString))
+{
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection 不能使用示例密码或已知占位符");
+}
+
 builder.Services.AddScoped<SlowQueryLoggingInterceptor>();
 // ServerVersion.AutoDetect 每次调用都会额外建立一次 MySQL 连接探测版本，
 // 用 Lazy 保证整个进程只探测一次；保持惰性以便 Testing 环境（SQLite 替换 DbContext）不触发连接。
@@ -170,10 +189,14 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
     options.AddInterceptors(serviceProvider.GetRequiredService<SlowQueryLoggingInterceptor>());
 });
 
+builder.Services.AddSingleton<MigrationReadinessState>();
+builder.Services.AddSingleton<SingleCompanyReadinessState>();
 builder.Services.AddHealthChecks()
-    .AddCheck<DatabaseHealthCheck>("database")
-    .AddCheck<FileStorageHealthCheck>("fileStorage")
-    .AddCheck<AiConfigHealthCheck>("aiConfig");
+    .AddCheck<DatabaseHealthCheck>("database", tags: ["ready"])
+    .AddCheck<FileStorageHealthCheck>("fileStorage", tags: ["ready"])
+    .AddCheck<MigrationReadinessHealthCheck>("migrations", tags: ["ready"])
+    .AddCheck<SingleCompanyHealthCheck>("singleCompany", tags: ["ready"])
+    .AddCheck<AiConfigHealthCheck>("aiConfig", tags: ["ai-capability"]);
 
 // 模块化服务注册
 builder.Services.AddDataRepositories();
@@ -185,6 +208,10 @@ var jwtOptions = builder.Configuration.GetSection(JwtAuthOptions.SectionName).Ge
 if (string.IsNullOrWhiteSpace(jwtOptions.SigningKey) || jwtOptions.SigningKey.Length < 32)
 {
     throw new InvalidOperationException("JwtAuth:SigningKey 至少需要 32 个字符");
+}
+if (requiresProductionSecrets && ProductionSecretGuard.IsKnownPlaceholder(jwtOptions.SigningKey))
+{
+    throw new InvalidOperationException("JwtAuth:SigningKey 不能使用示例值或已知占位符");
 }
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey));
 
@@ -210,8 +237,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 var validationService = context.HttpContext.RequestServices
                     .GetRequiredService<IAuthSessionValidationService>();
+                var principal = context.Principal;
                 var result = await validationService.ValidateAccessTokenAsync(
-                    context.Principal,
+                    new AuthAccessTokenContext(
+                        principal?.Identity?.IsAuthenticated == true,
+                        principal?.FindFirst("token_type")?.Value,
+                        ParseIntClaim(principal, "user_id"),
+                        ParseIntClaim(principal, "company_id"),
+                        ParseIntClaim(principal, "permission_version")),
                     context.HttpContext.RequestAborted);
                 if (!result.IsValid)
                 {
@@ -220,6 +253,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             }
         };
     });
+
+static int? ParseIntClaim(System.Security.Claims.ClaimsPrincipal? principal, string claimType)
+{
+    return int.TryParse(principal?.FindFirst(claimType)?.Value, out var value) ? value : null;
+}
 
 builder.Services.AddAuthorization(options =>
 {
@@ -248,17 +286,60 @@ if (allowedOrigins.Length == 0 || allowedOrigins.Contains("*", StringComparer.Or
     }
 }
 
+var configuredBrowserAuth = builder.Configuration.GetSection(BrowserAuthOptions.SectionName).Get<BrowserAuthOptions>()
+    ?? new BrowserAuthOptions();
+if (configuredBrowserAuth.AllowedOrigins.Length > 0 &&
+    !configuredBrowserAuth.AllowedOrigins.Select(origin => origin.TrimEnd('/')).ToHashSet(StringComparer.OrdinalIgnoreCase)
+        .SetEquals(allowedOrigins.Select(origin => origin.TrimEnd('/'))))
+    throw new InvalidOperationException("BrowserAuth:AllowedOrigins 必须与 Cors:AllowedOrigins 完全一致，避免凭据来源策略分叉");
+var browserAllowedOrigins = configuredBrowserAuth.AllowedOrigins.Length > 0
+    ? configuredBrowserAuth.AllowedOrigins
+    : allowedOrigins;
+BrowserAuthConfigurationGuard.Validate(configuredBrowserAuth, browserAllowedOrigins, requiresProductionSecrets);
+builder.Services.PostConfigure<BrowserAuthOptions>(options => options.AllowedOrigins = browserAllowedOrigins);
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowVueFrontend", policy =>
     {
         policy.WithOrigins(allowedOrigins)
+              .AllowCredentials()
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
 });
 
 var app = builder.Build();
+var applyDestructiveMigrations = args.Any(argument =>
+    string.Equals(argument, "--apply-destructive-migrations", StringComparison.OrdinalIgnoreCase));
+var backupVerified = args.Any(argument =>
+    string.Equals(argument, "--backup-verified", StringComparison.OrdinalIgnoreCase));
+var legacyMigrateOnly = args.Any(argument =>
+    string.Equals(argument, "--migrate-only", StringComparison.OrdinalIgnoreCase));
+var migrationCommand = applyDestructiveMigrations || legacyMigrateOnly;
+
+if (backupVerified && !applyDestructiveMigrations)
+{
+    throw new InvalidOperationException(
+        "--backup-verified 只能与 --apply-destructive-migrations 一起使用，避免误报备份审批状态。");
+}
+
+if (forwardedHeadersOptions is not null)
+{
+    // 必须位于请求跟踪、审计、认证和限流之前，使这些组件只读取可信代理还原后的客户端地址。
+    app.UseForwardedHeaders(forwardedHeadersOptions);
+    app.Logger.LogInformation(
+        "已启用可信代理转发头，ForwardLimit={ForwardLimit}，KnownProxies={KnownProxyCount}，KnownNetworks={KnownNetworkCount}",
+        forwardedHeadersOptions.ForwardLimit,
+        forwardedHeadersOptions.KnownProxies.Count,
+        forwardedHeadersOptions.KnownNetworks.Count);
+}
+
+if (configuredBrowserAuth.AllowInsecureHttp)
+{
+    app.Logger.LogWarning(
+        "BrowserAuth 正在使用显式内网 HTTP 模式：传输未加密，仅允许固定同站内网入口；不得暴露到公网或不可信网络");
+}
 
 // 启动时应用数据库迁移（避免运行期出现字段缺失）
 // 测试环境下由测试工厂自行控制数据库初始化方式（例如 SQLite in-memory）
@@ -266,18 +347,71 @@ if (!app.Environment.IsEnvironment("Testing"))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await DatabaseInitializer.InitializeAsync(db);
+    try
+    {
+        await DatabaseInitializer.InitializeAsync(
+            db,
+            allowControlledMigrations: applyDestructiveMigrations,
+            backupVerified: backupVerified);
+    }
+    catch (ControlledDatabaseMigrationRequiredException) when (!migrationCommand)
+    {
+        var blocked = (await db.Database.GetPendingMigrationsAsync())
+            .Where(migration => DatabaseInitializer.ClassifyMigration(migration) != DatabaseMigrationRisk.Safe)
+            .ToArray();
+        app.Services.GetRequiredService<MigrationReadinessState>().Block(blocked);
+        app.Logger.LogWarning(
+            "检测到未批准的破坏性迁移，API 仅开放健康诊断，MigrationIds={MigrationIds}",
+            blocked);
+    }
 }
 
-using (var scope = app.Services.CreateScope())
+if (migrationCommand)
 {
-    var initializer = scope.ServiceProvider.GetRequiredService<SystemPromptTemplateInitializer>();
-    await initializer.EnsureAsync();
+    app.Logger.LogInformation("数据库迁移命令已完成；迁移模式不会启动 HTTP 服务");
+    return;
+}
+
+if (app.Services.GetRequiredService<MigrationReadinessState>().IsReady)
+{
+    using var scope = app.Services.CreateScope();
+    var promptInitializer = scope.ServiceProvider.GetRequiredService<SystemPromptTemplateInitializer>();
+    await promptInitializer.EnsureAsync();
+    var columnMappingInitializer = scope.ServiceProvider.GetRequiredService<ColumnMappingRuleInitializer>();
+    await columnMappingInitializer.EnsureAsync();
 }
 
 // 使用异常处理中间件
 app.UseExceptionHandling();
 app.UseMiddleware<RequestTracingMiddleware>();
+
+app.Use(async (context, next) =>
+{
+    var migrationState = context.RequestServices.GetRequiredService<MigrationReadinessState>();
+    var companyState = context.RequestServices.GetRequiredService<SingleCompanyReadinessState>();
+    var isHealthPath = context.Request.Path.StartsWithSegments("/health") ||
+                       context.Request.Path.StartsWithSegments("/api/health");
+    if ((!migrationState.IsReady || !companyState.IsReady) && !isHealthPath)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            success = false,
+            message = !migrationState.IsReady
+                ? "服务存在待批准的破坏性数据库迁移，当前未就绪"
+                : "单公司根数据不变量不满足，当前未就绪"
+        });
+        return;
+    }
+
+    await next();
+});
+
+// IIS 单根应用部署时，Web 构建产物位于 API 发布目录的 wwwroot。
+// Docker 中 Web 仍由独立 Nginx 提供；API 镜像没有 wwwroot 时此配置不会改变 API 行为。
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // 配置HTTP请求管道
 if (app.Environment.IsDevelopment())
@@ -306,31 +440,65 @@ app.UseRouting();
 app.UseCors("AllowVueFrontend");
 
 // 使用路由和控制器
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseMiddleware<ApiPermissionMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 
-await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
-
-// 健康检查端点
-app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+if (app.Services.GetRequiredService<MigrationReadinessState>().IsReady)
 {
-    ResponseWriter = async (context, report) =>
+    await AuthUserSeedService.EnsureSeedUsersAsync(app.Services, app.Logger);
+    await using var companyScope = app.Services.CreateAsyncScope();
+    var companyDb = companyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var companyCount = await companyDb.OrgCompanies.CountAsync();
+    app.Services.GetRequiredService<SingleCompanyReadinessState>().Report(companyCount);
+    if (companyCount != 1)
     {
-        context.Response.ContentType = "application/json";
-        var payload = new
-        {
-            status = report.Status.ToString(),
-            totalDurationMs = report.TotalDuration.TotalMilliseconds
-        };
-        await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
+        app.Logger.LogError(
+            "单公司根数据不变量不满足，API 仅开放健康诊断，ExpectedCount=1, ActualCount={ActualCount}",
+            companyCount);
     }
-})
+}
+
+var legacyHealthOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = WriteHealthReportAsync
+};
+var liveHealthOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false,
+    ResponseWriter = WriteHealthReportAsync
+};
+var readyHealthOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready"),
+    ResponseWriter = WriteHealthReportAsync
+};
+var aiCapabilityOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ai-capability"),
+    ResponseWriter = WriteAiCapabilityReportAsync
+};
+
+app.MapHealthChecks("/health", legacyHealthOptions)
     .WithName("HealthCheck")
     .WithTags("System")
     .AllowAnonymous();
+app.MapHealthChecks("/api/health", legacyHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/health/live", liveHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/api/health/live", liveHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/health/ready", readyHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/api/health/ready", readyHealthOptions).AllowAnonymous();
+app.MapHealthChecks("/health/capabilities/ai", aiCapabilityOptions).AllowAnonymous();
+app.MapHealthChecks("/api/health/capabilities/ai", aiCapabilityOptions).AllowAnonymous();
+
+// 单根 IIS 应用的 Vue History 回退。仅处理未命中端点的非文件 GET/HEAD 请求；
+// /api、认证和健康端点已经在上方映射，不会被静态页面掩盖。
+if (File.Exists(Path.Combine(app.Environment.WebRootPath ?? string.Empty, "index.html")))
+{
+    app.MapFallbackToFile("index.html").AllowAnonymous();
+}
 
 app.Run();
 
@@ -338,11 +506,60 @@ static RateLimitPartition<string> CreateFixedWindowLimiter(
     HttpContext httpContext,
     RateLimitPolicyOptions options)
 {
-    var partitionKey =
-        httpContext.User?.Identity?.IsAuthenticated == true
-            ? httpContext.User.Identity.Name
-            : httpContext.Connection.RemoteIpAddress?.ToString();
-    partitionKey = string.IsNullOrWhiteSpace(partitionKey) ? "anonymous" : partitionKey;
+    var partitionKey = RateLimitPartitionKeyResolver.Resolve(httpContext);
+
+    return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+    {
+        PermitLimit = Math.Max(1, options.PermitLimit),
+        Window = TimeSpan.FromSeconds(Math.Max(1, options.WindowSeconds)),
+        QueueLimit = Math.Max(0, options.QueueLimit),
+        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+        AutoReplenishment = true
+    });
+}
+
+static async Task WriteHealthReportAsync(HttpContext context, HealthReport report)
+{
+    context.Response.ContentType = "application/json";
+    var components = report.Entries.ToDictionary(
+        entry => entry.Key,
+        entry => new
+        {
+            status = entry.Value.Status.ToString(),
+            message = entry.Value.Description,
+            data = entry.Value.Data
+        });
+    await context.Response.WriteAsync(JsonSerializer.Serialize(new
+    {
+        status = report.Status.ToString(),
+        totalDurationMs = report.TotalDuration.TotalMilliseconds,
+        components
+    }));
+}
+
+static async Task WriteAiCapabilityReportAsync(HttpContext context, HealthReport report)
+{
+    context.Response.ContentType = "application/json";
+    var hasAi = report.Entries.TryGetValue("aiConfig", out var ai);
+    var runtimeStatus = hasAi && ai.Data.TryGetValue("runtimeStatus", out var value)
+        ? value?.ToString()
+        : "checking";
+    await context.Response.WriteAsync(JsonSerializer.Serialize(new
+    {
+        capability = "ai",
+        runtimeStatus,
+        llm = hasAi ? ai.Data.GetValueOrDefault("llm")?.ToString() : null,
+        embedding = hasAi ? ai.Data.GetValueOrDefault("embedding")?.ToString() : null,
+        checkedEntries = hasAi ? ai.Data.GetValueOrDefault("checkedEntries") : null
+    }));
+}
+
+static RateLimitPartition<string> CreateRefreshTokenLimiter(
+    HttpContext httpContext,
+    string refreshCookieName,
+    RateLimitPolicyOptions options)
+{
+    var partitionKey = RateLimitPartitionKeyResolver.ResolveRefreshSession(httpContext, refreshCookieName);
 
     return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
     {

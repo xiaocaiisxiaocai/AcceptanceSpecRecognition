@@ -1,6 +1,11 @@
 ﻿<script setup lang="ts">
 import { computed, ref, onMounted, reactive } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   getCustomerList,
   createCustomer,
@@ -10,7 +15,12 @@ import {
   type Customer
 } from "@/api/customer";
 import { hasPerms } from "@/utils/auth";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
+import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "Customers"
@@ -20,11 +30,12 @@ defineOptions({
 const tableData = ref<Customer[]>([]);
 const loading = ref(false);
 const total = ref(0);
+const tableRef = ref();
 
 // 查询参数
 const queryParams = reactive({
   page: 1,
-  pageSize: 20,
+  pageSize: 50,
   keyword: ""
 });
 
@@ -44,6 +55,10 @@ const formData = reactive({
   id: 0,
   name: ""
 });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<typeof formData> = {
+  name: [requiredTrimmedRule("请输入客户名称")]
+};
 
 const canCreate = computed(() => hasPerms("btn:customer:create"));
 const canUpdate = computed(() => hasPerms("btn:customer:update"));
@@ -129,8 +144,9 @@ const handleDelete = async (row: Customer) => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
 
@@ -162,8 +178,9 @@ const handleBatchDelete = async () => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "批量删除失败"));
   }
 };
 
@@ -173,10 +190,7 @@ const handleSubmit = async () => {
     ElMessage.error("权限不足，无法提交当前操作");
     return;
   }
-  if (!formData.name.trim()) {
-    ElMessage.warning("请输入客户名称");
-    return;
-  }
+  if (!(await validateForm(formRef.value))) return;
   try {
     const res = isEdit.value
       ? await updateCustomer(formData.id, { name: formData.name })
@@ -212,96 +226,91 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">客户管理</div>
-        <div class="page-subtitle">维护客户信息，支持搜索与编辑</div>
-      </div>
-    </div>
-    <!-- 搜索栏 -->
-    <el-card class="mb-4">
-      <el-form :inline="true">
-        <el-form-item label="客户名称">
-          <el-input
-            v-model="queryParams.keyword"
-            placeholder="请输入客户名称"
-            clearable
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
+  <div class="page page--fill simple-crud-page">
     <!-- 数据表格 -->
-    <el-card>
+    <el-card class="table-card" shadow="never">
       <template #header>
-        <div class="flex justify-between items-center">
-          <span>客户列表</span>
-          <div class="flex gap-2">
-            <el-button
-              v-if="canDelete && hasSelected"
-              type="danger"
-              @click="handleBatchDelete"
-            >
-              批量删除 ({{ selectedIds.length }})
-            </el-button>
-            <el-button v-if="canCreate" type="primary" @click="handleAdd">
-              新增客户
-            </el-button>
+        <div class="simple-crud-toolbar">
+          <div class="simple-crud-toolbar__right">
+            <el-form class="simple-crud-search" :inline="true">
+              <el-form-item label="客户名称">
+                <el-input
+                  v-model="queryParams.keyword"
+                  placeholder="请输入客户名称"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+            <div class="simple-crud-actions">
+              <el-button
+                v-if="canDelete && hasSelected"
+                type="danger"
+                @click="handleBatchDelete"
+              >
+                批量删除 ({{ selectedIds.length }})
+              </el-button>
+              <el-button v-if="canCreate" type="primary" @click="handleAdd">
+                新增客户
+              </el-button>
+            </div>
           </div>
         </div>
       </template>
 
-      <el-table
-        v-loading="loading"
-        :data="tableData"
-        stripe
-        @selection-change="handleSelectionChange"
-      >
-        <el-table-column v-if="canDelete" type="selection" width="50" />
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="客户名称" min-width="200" />
-        <el-table-column prop="createdAt" label="创建时间" width="180">
-          <template #default="{ row }">
-            {{ new Date(row.createdAt).toLocaleString() }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          v-if="hasOperationActions"
-          label="操作"
-          width="150"
-          fixed="right"
+      <div class="table-region">
+        <el-table
+          ref="tableRef"
+          v-loading="loading"
+          :data="tableData"
+          height="100%"
+          stripe
+          @selection-change="handleSelectionChange"
         >
-          <template #default="{ row }">
-            <el-button
-              v-if="canUpdate"
-              type="primary"
-              link
-              @click="handleEdit(row)"
-              >编辑</el-button
-            >
-            <el-button
-              v-if="canDelete"
-              type="danger"
-              link
-              @click="handleDelete(row)"
-              >删除</el-button
-            >
-          </template>
-        </el-table-column>
-      </el-table>
+          <el-table-column v-if="canDelete" type="selection" width="50" />
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="name" label="客户名称" min-width="200" />
+          <el-table-column prop="createdAt" label="创建时间" width="180">
+            <template #default="{ row }">
+              {{ new Date(row.createdAt).toLocaleString() }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-if="hasOperationActions"
+            label="操作"
+            width="150"
+            fixed="right"
+          >
+            <template #default="{ row }">
+              <el-button
+                v-if="canUpdate"
+                type="primary"
+                link
+                @click="handleEdit(row)"
+                >编辑</el-button
+              >
+              <el-button
+                v-if="canDelete"
+                type="danger"
+                link
+                @click="handleDelete(row)"
+                >删除</el-button
+              >
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
 
       <!-- 分页 -->
-      <div class="mt-4 flex justify-end">
+      <div class="pagination-bar">
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
+          :page-sizes="[20, 50, 100, 200]"
           :total="total"
           layout="total, sizes, prev, pager, next, jumper"
           @size-change="handleSizeChange"
@@ -311,9 +320,19 @@ onMounted(() => {
     </el-card>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="500">
-      <el-form label-width="80px">
-        <el-form-item label="客户名称" required>
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="min(480px, calc(100vw - 32px))"
+    >
+      <el-form
+        ref="formRef"
+        :model="formData"
+        :rules="formRules"
+        label-width="80px"
+        status-icon
+      >
+        <el-form-item label="客户名称" prop="name">
           <el-input
             v-model="formData.name"
             placeholder="请输入客户名称"
@@ -330,12 +349,3 @@ onMounted(() => {
     </el-dialog>
   </div>
 </template>
-
-<style scoped>
-.page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 24px;
-}
-</style>

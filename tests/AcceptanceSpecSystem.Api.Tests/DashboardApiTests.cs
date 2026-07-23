@@ -40,6 +40,13 @@ public class DashboardApiTests : IClassFixture<ApiWebApplicationFactory>
         data.GetProperty("smartFillAdoptedRows").GetInt32().Should().Be(6);
         data.GetProperty("matchingRate").GetDouble().Should().Be(0.6);
         data.GetProperty("adoptionRate").GetDouble().Should().Be(0.6);
+
+        var trend = data.GetProperty("dailyTrend").EnumerateArray().ToArray();
+        trend.Should().HaveCount(7);
+        trend.Select(item => item.GetProperty("date").GetString())
+            .Should().BeInAscendingOrder();
+        trend.Sum(item => item.GetProperty("importedSpecCount").GetInt32()).Should().Be(2);
+        trend.Sum(item => item.GetProperty("smartFillTaskCount").GetInt32()).Should().Be(1);
     }
 
     [Fact]
@@ -63,6 +70,12 @@ public class DashboardApiTests : IClassFixture<ApiWebApplicationFactory>
         data.GetProperty("smartFillTotalRows").GetInt32().Should().Be(5);
         data.GetProperty("smartFillMatchedRows").GetInt32().Should().Be(1);
         data.GetProperty("matchingRate").GetDouble().Should().Be(0.2);
+
+        var trend = data.GetProperty("dailyTrend").EnumerateArray().ToArray();
+        trend.Should().HaveCountGreaterThanOrEqualTo(10);
+        trend.Should().Contain(item =>
+            item.GetProperty("importedSpecCount").GetInt32() == 1 &&
+            item.GetProperty("smartFillTaskCount").GetInt32() == 1);
     }
 
     [Fact]
@@ -95,6 +108,64 @@ public class DashboardApiTests : IClassFixture<ApiWebApplicationFactory>
         data.GetProperty("matchingRate").GetDouble().Should().Be(0.6);
     }
 
+    [Fact]
+    public async Task Summary_WithOversizedCustomPeriod_ShouldRejectBoundedTrend()
+    {
+        var from = Uri.EscapeDataString(DateTime.UtcNow.AddYears(-2).ToString("O"));
+        var to = Uri.EscapeDataString(DateTime.UtcNow.ToString("O"));
+
+        var response = await _client.GetAsync($"/api/dashboard/summary?range=custom&from={from}&to={to}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Summary_ShouldGroupTrendByConfiguredBusinessTimeZone()
+    {
+        var importedAt = new DateTime(2026, 1, 1, 16, 30, 0, DateTimeKind.Utc);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var customer = new Customer { Name = $"时区客户-{Guid.NewGuid():N}", CreatedAt = importedAt };
+            var process = new Data.Entities.Process { Name = $"时区制程-{Guid.NewGuid():N}", CreatedAt = importedAt };
+            db.Customers.Add(customer);
+            db.Processes.Add(process);
+            await db.SaveChangesAsync();
+            var wordFile = new WordFile
+            {
+                FileName = $"dashboard-timezone-{Guid.NewGuid():N}.docx",
+                FilePath = "dashboard-timezone.docx",
+                FileHash = Guid.NewGuid().ToString("N"),
+                FileType = UploadedFileType.WordDocx,
+                FileContent = [1],
+                CreatedByUserId = 1,
+                CompanyId = 1,
+                OwnerOrgUnitId = 1,
+                UploadedAt = importedAt
+            };
+            db.WordFiles.Add(wordFile);
+            await db.SaveChangesAsync();
+            db.AcceptanceSpecs.Add(CreateSpec(
+                customer.Id,
+                process.Id,
+                wordFile.Id,
+                $"Dashboard-TimeZone-{Guid.NewGuid():N}",
+                importedAt));
+            await db.SaveChangesAsync();
+        }
+
+        var from = Uri.EscapeDataString(new DateTime(2026, 1, 1, 16, 0, 0, DateTimeKind.Utc).ToString("O"));
+        var to = Uri.EscapeDataString(new DateTime(2026, 1, 2, 15, 59, 59, DateTimeKind.Utc).ToString("O"));
+        var response = await _client.GetAsync($"/api/dashboard/summary?range=custom&from={from}&to={to}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var trend = json.Data.GetProperty("dailyTrend").EnumerateArray().ToArray();
+        trend.Should().ContainSingle();
+        trend[0].GetProperty("date").GetString().Should().Be("2026-01-02");
+        trend[0].GetProperty("importedSpecCount").GetInt32().Should().Be(1);
+    }
+
     private async Task SeedDashboardDataAsync(DateTime now)
     {
         using var scope = _factory.Services.CreateScope();
@@ -102,6 +173,10 @@ public class DashboardApiTests : IClassFixture<ApiWebApplicationFactory>
 
         db.ExecutionHistoryRecords.RemoveRange(db.ExecutionHistoryRecords.Where(record => record.SourceFileName.StartsWith("dashboard-test-")));
         db.AcceptanceSpecs.RemoveRange(db.AcceptanceSpecs.Where(spec => spec.Project.StartsWith("Dashboard-")));
+        await db.SaveChangesAsync();
+        db.WordFiles.RemoveRange(db.WordFiles.Where(file => file.FileName.StartsWith("dashboard-foreign-")));
+        await db.SaveChangesAsync();
+        db.OrgCompanies.RemoveRange(db.OrgCompanies.Where(company => company.Code.StartsWith("dashboard-foreign-")));
         await db.SaveChangesAsync();
 
         var customer = new Customer { Name = $"首页客户-{Guid.NewGuid():N}", CreatedAt = now };
@@ -130,6 +205,35 @@ public class DashboardApiTests : IClassFixture<ApiWebApplicationFactory>
             CreateSpec(customer.Id, process.Id, wordFile.Id, "Dashboard-7-2", now.AddDays(-6)),
             CreateSpec(customer.Id, process.Id, wordFile.Id, "Dashboard-30", now.AddDays(-15)),
             CreateSpec(customer.Id, process.Id, wordFile.Id, "Dashboard-old", now.AddDays(-40)));
+
+        var foreignCompany = new OrgCompany
+        {
+            Code = $"dashboard-foreign-{Guid.NewGuid():N}",
+            Name = $"首页隔离公司-{Guid.NewGuid():N}",
+            IsActive = true,
+            CreatedAt = now
+        };
+        db.OrgCompanies.Add(foreignCompany);
+        await db.SaveChangesAsync();
+        var foreignWordFile = new WordFile
+        {
+            FileName = $"dashboard-foreign-{Guid.NewGuid():N}.docx",
+            FilePath = "dashboard-foreign.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileType = UploadedFileType.WordDocx,
+            FileContent = [1],
+            CreatedByUserId = 1,
+            CompanyId = foreignCompany.Id,
+            UploadedAt = now
+        };
+        db.WordFiles.Add(foreignWordFile);
+        await db.SaveChangesAsync();
+        db.AcceptanceSpecs.Add(CreateSpec(
+            customer.Id,
+            process.Id,
+            foreignWordFile.Id,
+            "Dashboard-foreign-company",
+            now.AddDays(-1)));
 
         db.ExecutionHistoryRecords.AddRange(
             CreateExecutionHistory("smart-fill", now.AddDays(-1), totalRows: 10, matchedRows: 8, adoptedRows: 6),

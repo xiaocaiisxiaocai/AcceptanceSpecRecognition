@@ -158,7 +158,7 @@ defineExpose({
   <el-dialog
     v-model="visible"
     title="AI搜索"
-    width="1280"
+    width="min(1200px, calc(100vw - 32px))"
     top="4vh"
     append-to-body
     :close-on-click-modal="false"
@@ -182,26 +182,32 @@ defineExpose({
         />
         <div class="control-grid">
           <div class="control-item">
-            <span>TopK</span>
+            <span>每条最多候选数</span>
             <el-input-number
               v-model="form.topK"
               :min="1"
               :max="20"
+              aria-label="每条搜索内容最多返回的候选数"
               controls-position="right"
             />
           </div>
           <div class="control-item">
-            <span>最小分数</span>
+            <span>最低相似度</span>
             <el-input-number
               v-model="form.minScore"
               :min="0"
               :max="1"
               :step="0.05"
               :precision="2"
+              aria-label="候选最低相似度"
               controls-position="right"
             />
           </div>
         </div>
+        <p class="control-hint">
+          当前设置：每条最多返回 {{ form.topK }} 个候选，仅展示相似度达到
+          {{ (form.minScore * 100).toFixed(0) }}% 的结果。
+        </p>
         <div class="control-actions">
           <el-button @click="resetSearch">清空</el-button>
           <el-button type="primary" :loading="loading" @click="executeSearch">
@@ -359,8 +365,8 @@ defineExpose({
 .control-panel,
 .result-panel {
   min-height: 0;
-  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
-  border: 1px solid var(--el-border-color-light);
+  background: linear-gradient(180deg, #fff 0%, var(--app-info-bg) 100%);
+  border: 1px solid var(--app-border-light);
   border-radius: 16px;
 }
 
@@ -380,13 +386,13 @@ defineExpose({
 .panel-header h3 {
   margin: 0;
   font-size: 18px;
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
 }
 
 .panel-header span,
 .group-label-title {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .group-label {
@@ -394,7 +400,7 @@ defineExpose({
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px;
-  background: #f5f7fa;
+  background: var(--app-info-bg);
   border-radius: 12px;
 }
 
@@ -412,7 +418,14 @@ defineExpose({
 
 .control-item span {
   font-size: 13px;
-  color: var(--el-text-color-regular);
+  color: var(--app-text-secondary);
+}
+
+.control-hint {
+  margin: -4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
 }
 
 .control-actions {
@@ -440,19 +453,19 @@ defineExpose({
   gap: 6px;
   padding: 14px 16px;
   background: #fff;
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid var(--app-border-light);
   border-radius: 12px;
 }
 
 .summary-label {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .summary-value {
   font-size: 18px;
   line-height: 1.4;
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
 }
 
 .result-scroll {
@@ -494,13 +507,13 @@ defineExpose({
 
 .group-index {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-secondary);
 }
 
 .group-query {
   margin: 0;
   line-height: 1.7;
-  color: var(--el-text-color-primary);
+  color: var(--app-text-primary);
   white-space: pre-wrap;
 }
 
@@ -524,6 +537,18 @@ defineExpose({
 
   .result-scroll {
     max-height: 56vh;
+  }
+}
+
+@media (width <= 560px) {
+  .control-grid,
+  .summary-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .control-actions :deep(.el-button) {
+    flex: 1;
+    min-height: 40px;
   }
 }
 </style>

@@ -18,6 +18,16 @@ defineEmits<{
 // 父组件以引用方式传入编辑表单，子组件通过该代理直接编辑其字段；
 // mutation 经同一引用回传父组件，行为与直接改 prop 一致，同时规避 vue/no-mutating-props。
 const editForm = computed(() => props.form);
+
+const selectExistingValue = (event: FocusEvent) => {
+  const target = event.target;
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement
+  ) {
+    target.select();
+  }
+};
 </script>
 
 <template>
@@ -29,7 +39,7 @@ const editForm = computed(() => props.form);
   >
     <div v-if="item" class="edit-dialog">
       <div class="edit-dialog__hint">
-        修改仅本次导出使用，执行填充前可选择是否回填到验收规格。
+        输入新内容会完整替换原值，不会与旧值叠加；修改仅本次导出使用，执行填充前可选择是否回填到验收规格。
       </div>
       <el-form label-position="top">
         <el-form-item label="项目">
@@ -49,6 +59,7 @@ const editForm = computed(() => props.form);
             type="textarea"
             :rows="3"
             placeholder="请输入本次导出的验收标准"
+            @focus="selectExistingValue"
           />
         </el-form-item>
         <el-form-item label="备注">
@@ -57,6 +68,7 @@ const editForm = computed(() => props.form);
             type="textarea"
             :rows="3"
             placeholder="请输入本次导出的备注"
+            @focus="selectExistingValue"
           />
         </el-form-item>
       </el-form>

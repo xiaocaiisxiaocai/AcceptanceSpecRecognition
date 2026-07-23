@@ -5,7 +5,8 @@ import {
   getExcelPreviewColumnIndexes,
   getPreviewCellValue,
   getWordPreviewColumnIndexes,
-  normalizeExcelMappingByTable
+  normalizeExcelMappingByTable,
+  shouldBackfillProjectFromSpecification
 } from "../dataImport.helpers";
 import type {
   ImportPreviewGroup,
@@ -69,32 +70,55 @@ export function useDataImportPreviewSelection(
       }
 
       const excludedRowIndexes = getExcludedRowIndexSet(cfg.tableIndex);
-      const columnIndexes = options.isExcelFile.value
-        ? getExcelPreviewColumnIndexes(cfg)
-        : getWordPreviewColumnIndexes(cfg);
-      const excelMapping = options.isExcelFile.value
-        ? normalizeExcelMappingByTable(cfg.tableInfo, cfg.excelMapping)
-        : null;
-
       const rows = previewData.rows
-        .map((rowValues, rowIndex) => ({
-          key: `${cfg.tableIndex}:${rowIndex}`,
-          tableIndex: cfg.tableIndex,
-          rowIndex,
-          displayRowNumber: options.isExcelFile.value
-            ? (excelMapping?.dataStartRow ?? 1) + rowIndex
-            : rowIndex + 1,
-          project: getPreviewCellValue(rowValues, columnIndexes.projectColumn),
-          specification: getPreviewCellValue(
+        .map((rowValues, rowIndex) => {
+          const rowLocation = cfg.excelPreviewRowLocations?.[rowIndex];
+          const rowConfig = rowLocation
+            ? options.isExcelFile.value &&
+              "headerRowStart" in rowLocation.mapping
+              ? { ...cfg, excelMapping: rowLocation.mapping }
+              : !options.isExcelFile.value &&
+                  "headerRowIndex" in rowLocation.mapping
+                ? { ...cfg, wordMapping: rowLocation.mapping }
+                : cfg
+            : cfg;
+          const columnIndexes = options.isExcelFile.value
+            ? getExcelPreviewColumnIndexes(rowConfig)
+            : getWordPreviewColumnIndexes(rowConfig);
+          const excelMapping = options.isExcelFile.value
+            ? normalizeExcelMappingByTable(
+                cfg.tableInfo,
+                rowConfig.excelMapping
+              )
+            : null;
+          const specification = getPreviewCellValue(
             rowValues,
             columnIndexes.specificationColumn
-          ),
-          acceptance: getPreviewCellValue(
-            rowValues,
-            columnIndexes.acceptanceColumn
-          ),
-          remark: getPreviewCellValue(rowValues, columnIndexes.remarkColumn)
-        }))
+          );
+          return {
+            key: `${cfg.tableIndex}:${rowLocation?.regionId ?? "default"}:${rowIndex}`,
+            tableIndex: cfg.tableIndex,
+            regionId: rowLocation?.regionId,
+            regionIndex: rowLocation?.regionIndex,
+            relativeRowIndex: rowLocation?.relativeRowIndex,
+            rowIndex,
+            displayRowNumber: options.isExcelFile.value
+              ? (rowLocation?.displayRowNumber ??
+                (excelMapping?.dataStartRow ?? 1) + rowIndex)
+              : (cfg.wordMapping?.dataStartRowIndex ?? 0) + rowIndex + 1,
+            project:
+              (rowLocation?.mapping.isSpecificationOnly ??
+              shouldBackfillProjectFromSpecification(cfg))
+                ? specification
+                : getPreviewCellValue(rowValues, columnIndexes.projectColumn),
+            specification,
+            acceptance: getPreviewCellValue(
+              rowValues,
+              columnIndexes.acceptanceColumn
+            ),
+            remark: getPreviewCellValue(rowValues, columnIndexes.remarkColumn)
+          };
+        })
         .filter(row => !excludedRowIndexes.has(row.rowIndex));
 
       return {

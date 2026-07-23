@@ -1,6 +1,7 @@
 ﻿using AcceptanceSpecSystem.Api.Options;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,7 @@ public class AuthUserSeedServiceDevelopmentPasswordTests
         var services = new ServiceCollection();
         services.AddDbContext<AppDbContext>(options => options.UseSqlite(connection));
         services.AddSingleton<IAuthPasswordService, AuthPasswordService>();
+        services.AddSingleton<IAuthPermissionSeedCatalog, DeterministicPermissionSeedCatalog>();
         services.AddSingleton<IHostEnvironment>(new FakeHostEnvironment
         {
             EnvironmentName = Environments.Development
@@ -58,6 +60,7 @@ public class AuthUserSeedServiceDevelopmentPasswordTests
         var services = new ServiceCollection();
         services.AddDbContext<AppDbContext>(options => options.UseSqlite(connection));
         services.AddSingleton<IAuthPasswordService, AuthPasswordService>();
+        services.AddSingleton<IAuthPermissionSeedCatalog, DeterministicPermissionSeedCatalog>();
         services.AddSingleton<IHostEnvironment>(new FakeHostEnvironment
         {
             EnvironmentName = Environments.Development
@@ -91,6 +94,14 @@ public class AuthUserSeedServiceDevelopmentPasswordTests
         public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
 
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class DeterministicPermissionSeedCatalog : IAuthPermissionSeedCatalog
+    {
+        public IReadOnlyCollection<AuthPermissionSeedDefinition> GetSeeds() =>
+        [
+            new("page:test:index", "测试页面", PermissionType.Page, "test", "read", RoutePath: "/test")
+        ];
     }
 
     private sealed class CollectingLogger : ILogger

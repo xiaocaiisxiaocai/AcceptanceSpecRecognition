@@ -27,6 +27,22 @@ const props = defineProps<{
 
 const bestMatch = computed(() => props.item.bestMatch);
 const bestMatchIssues = computed(() => bestMatch.value?.issues ?? []);
+const isAiConfirmedEquivalent = computed(
+  () =>
+    bestMatch.value?.decision === "autoApply" &&
+    bestMatch.value?.selectionMode !== "exactShortcut" &&
+    bestMatch.value?.llmEquivalence?.verdict === "equivalent"
+);
+const overviewScore = computed(() =>
+  isAiConfirmedEquivalent.value
+    ? (bestMatch.value?.llmEquivalence?.confidence ??
+      bestMatch.value?.score ??
+      0)
+    : (bestMatch.value?.score ?? 0)
+);
+const overviewScoreLabel = computed(() =>
+  isAiConfirmedEquivalent.value ? "AI确认等价" : "规则基础分"
+);
 const effectiveAmbiguityMargin = computed(
   () => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN
 );
@@ -42,9 +58,9 @@ type TagType = "success" | "info" | "warning" | "danger";
 const metricCards = computed(() => {
   if (!bestMatch.value) return [];
 
-  return [
+  const metrics = [
     {
-      label: "最终得分",
+      label: "规则基础分",
       value: formatScore(bestMatch.value.score)
     },
     {
@@ -64,12 +80,36 @@ const metricCards = computed(() => {
       value: bestMatch.value.recalledCandidateCount?.toString() || "-"
     }
   ];
+
+  if (bestMatch.value.llmEquivalence) {
+    metrics.splice(1, 0, {
+      label:
+        bestMatch.value.llmEquivalence.verdict === "equivalent"
+          ? "AI等价置信度"
+          : "AI裁决置信度",
+      value: formatScore(bestMatch.value.llmEquivalence.confidence)
+    });
+  }
+
+  return metrics;
 });
 
 const explanationRows = computed(() => {
   if (!bestMatch.value) return [];
 
   const rows = [];
+  if (bestMatch.value.llmEquivalence) {
+    const equivalence = bestMatch.value.llmEquivalence;
+    rows.push({
+      label: "判定口径",
+      value:
+        equivalence.verdict === "equivalent"
+          ? `规则基础分为 ${formatScore(bestMatch.value.score)}；AI 以 ${formatScore(equivalence.confidence)} 的置信度确认语义等价，最终按系统决策采用。`
+          : `规则基础分为 ${formatScore(bestMatch.value.score)}；AI 裁决为${equivalence.verdict === "different" ? "不同" : "不确定"}，裁决置信度 ${formatScore(equivalence.confidence)}，最终以系统决策为准。`
+    });
+    return rows;
+  }
+
   const thresholdReached =
     bestMatch.value.score >= effectiveHighConfidenceThreshold.value;
 
@@ -195,8 +235,8 @@ const summaryRows = computed(() => {
             <div class="overview-spec">{{ bestMatch.specification }}</div>
           </div>
           <div class="overview-score">
-            <strong>{{ formatScore(bestMatch.score) }}</strong>
-            <span>当前最佳</span>
+            <strong>{{ formatScore(overviewScore) }}</strong>
+            <span>{{ overviewScoreLabel }}</span>
           </div>
         </div>
 
@@ -310,13 +350,17 @@ const summaryRows = computed(() => {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .overview-card {
   padding: 16px;
-  background: linear-gradient(180deg, #fcfdff 0%, #f7f9fc 100%);
-  border: 1px solid #e5e7eb;
+  background: linear-gradient(
+    180deg,
+    var(--app-info-bg) 0%,
+    var(--app-info-bg) 100%
+  );
+  border: 1px solid var(--app-border);
   border-radius: 14px;
 }
 
@@ -333,7 +377,7 @@ const summaryRows = computed(() => {
 
 .overview-caption {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .overview-title {
@@ -341,14 +385,14 @@ const summaryRows = computed(() => {
   font-size: 15px;
   font-weight: 700;
   line-height: 1.6;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .overview-spec {
   margin-top: 6px;
   font-size: 13px;
   line-height: 1.7;
-  color: #374151;
+  color: var(--app-text-secondary);
   word-break: break-word;
 }
 
@@ -361,13 +405,13 @@ const summaryRows = computed(() => {
 
 .overview-score strong {
   font-size: 24px;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .overview-score span {
   margin-top: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .meta-tag-list {
@@ -390,18 +434,18 @@ const summaryRows = computed(() => {
   gap: 6px;
   padding: 10px 12px;
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-border);
   border-radius: 12px;
 }
 
 .metric-card span {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .metric-card strong {
   font-size: 15px;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .reference-grid {
@@ -417,31 +461,31 @@ const summaryRows = computed(() => {
   gap: 6px;
   padding: 10px 12px;
   background: rgb(255 255 255 / 86%);
-  border: 1px solid #eef2f7;
+  border: 1px solid var(--app-info-bg);
   border-radius: 12px;
 }
 
 .reference-row span,
 .info-label {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .reference-row strong {
   font-size: 13px;
   line-height: 1.6;
-  color: #374151;
+  color: var(--app-text-secondary);
   word-break: break-word;
 }
 
 .info-block {
   padding: 12px 14px;
-  background: #f8fafc;
+  background: var(--app-info-bg);
   border-radius: 12px;
 }
 
 .info-block--issue {
-  background: #fff9f5;
+  background: var(--app-info-bg);
 }
 
 .compact-list,
@@ -455,7 +499,7 @@ const summaryRows = computed(() => {
 .compact-row {
   padding: 10px 12px;
   background: rgb(255 255 255 / 92%);
-  border: 1px solid #eef2f7;
+  border: 1px solid var(--app-info-bg);
   border-radius: 10px;
 }
 
@@ -470,18 +514,18 @@ const summaryRows = computed(() => {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.6;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .compact-row__meta {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.6;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .summary-panel {
-  background: #f8fafc;
+  background: var(--app-info-bg);
 }
 
 .summary-row {
@@ -494,28 +538,28 @@ const summaryRows = computed(() => {
 }
 
 .summary-row--danger {
-  background: #fff4f4;
+  background: var(--app-danger-bg);
 }
 
 .summary-row--warning {
-  background: #fff8eb;
+  background: var(--app-warning-bg);
 }
 
 .summary-row--muted {
-  background: #f3f4f6;
+  background: var(--app-border-light);
 }
 
 .summary-row__label {
   font-size: 12px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .summary-row__value {
   min-width: 0;
   font-size: 13px;
   line-height: 1.6;
-  color: #374151;
+  color: var(--app-text-secondary);
   word-break: break-word;
   white-space: pre-wrap;
 }

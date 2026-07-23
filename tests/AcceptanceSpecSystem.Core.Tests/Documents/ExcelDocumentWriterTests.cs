@@ -166,10 +166,69 @@ public class ExcelDocumentWriterTests
         count.Should().Be(dataRowCount * 2);
         using var workbook = new XLWorkbook(stream);
         var sheet = workbook.Worksheet("Sheet1");
+        sheet.Tables.Should().ContainSingle(table => table.Name == "TargetFillTable");
         sheet.Cell(2, 4).GetString().Should().Be("AC-1");
         sheet.Cell(2, 5).GetString().Should().Be("RM-1");
         sheet.Cell(1001, 4).GetString().Should().Be("AC-1000");
         sheet.Cell(1001, 5).GetString().Should().Be("RM-1000");
+    }
+
+    [Fact]
+    public async Task WriteTableDataAsync_ShouldRejectOperationsThatCollapseToSameMergedCell()
+    {
+        using var stream = CreateWorkbook(("Sheet1", new[]
+        {
+            new[] { "项目", "验收", "备注" },
+            new[] { "P1", "", "" }
+        }));
+
+        using (var workbook = new XLWorkbook(stream))
+        {
+            workbook.Worksheet("Sheet1").Range(2, 2, 2, 3).Merge();
+            stream.Position = 0;
+            stream.SetLength(0);
+            workbook.SaveAs(stream);
+            stream.Position = 0;
+        }
+
+        var act = () => _writer.WriteTableDataAsync(stream, 0, new[]
+        {
+            CellWriteOperation.Create(1, 1, "OK"),
+            CellWriteOperation.Create(1, 2, "Remark")
+        });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*同一单元格*");
+    }
+
+    [Fact]
+    public async Task WriteTableDataAsync_ShouldCoalesceIdenticalOperationsForSameMergedCell()
+    {
+        using var stream = CreateWorkbook(("Sheet1", new[]
+        {
+            new[] { "项目", "验收" },
+            new[] { "P1", "" },
+            new[] { "P1", "" }
+        }));
+
+        using (var workbook = new XLWorkbook(stream))
+        {
+            workbook.Worksheet("Sheet1").Range(2, 2, 3, 2).Merge();
+            stream.Position = 0;
+            stream.SetLength(0);
+            workbook.SaveAs(stream);
+            stream.Position = 0;
+        }
+
+        var count = await _writer.WriteTableDataAsync(stream, 0, new[]
+        {
+            CellWriteOperation.Create(1, 1, "OK"),
+            CellWriteOperation.Create(2, 1, "OK")
+        });
+
+        count.Should().Be(2);
+        using var result = new XLWorkbook(stream);
+        result.Worksheet("Sheet1").Cell(2, 2).GetString().Should().Be("OK");
     }
 
     [Fact]

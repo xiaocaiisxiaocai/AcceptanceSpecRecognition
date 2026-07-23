@@ -54,6 +54,50 @@ public class ExecutionHistoryRecordRepositoryTests : TestBase
         otherUser.Should().BeNull();
     }
 
+    [Fact]
+    public async Task GetPagedOwnedAsync_WhenPageSizeIsUnbounded_ShouldClampToRepositoryMaximum()
+    {
+        var now = DateTime.UtcNow;
+        Context.ExecutionHistoryRecords.AddRange(Enumerable.Range(1, 201).Select(index =>
+            CreateRecord($"task-{index}", "smart-fill", $"{index}.xlsx", 1, 10, now.AddSeconds(-index))));
+        await Context.SaveChangesAsync();
+
+        var result = await _repository.GetPagedOwnedAsync(1, 10, 1, int.MaxValue);
+
+        result.Total.Should().Be(201);
+        result.Items.Should().HaveCount(ExecutionHistoryRecordRepository.MaxPageSize);
+    }
+
+    [Fact]
+    public async Task DeleteBeforeAsync_ShouldDeleteOnlyOneBoundedBatch()
+    {
+        var now = DateTime.UtcNow;
+        Context.ExecutionHistoryRecords.AddRange(Enumerable.Range(1, 5).Select(index =>
+            CreateRecord($"old-{index}", "smart-fill", $"{index}.xlsx", 1, 10, now.AddDays(-10).AddSeconds(index))));
+        Context.ExecutionHistoryRecords.Add(CreateRecord("new", "smart-fill", "new.xlsx", 1, 10, now));
+        await Context.SaveChangesAsync();
+
+        var deleted = await _repository.DeleteBeforeAsync(now.AddDays(-1), batchSize: 2);
+
+        deleted.Should().Be(2);
+        Context.ExecutionHistoryRecords.Count().Should().Be(4);
+    }
+
+    [Fact]
+    public async Task DeleteOverflowAsync_ShouldKeepNewestRecordsAndDeleteBoundedBatch()
+    {
+        var now = DateTime.UtcNow;
+        Context.ExecutionHistoryRecords.AddRange(Enumerable.Range(1, 5).Select(index =>
+            CreateRecord($"task-{index}", "smart-fill", $"{index}.xlsx", 1, 10, now.AddSeconds(index))));
+        await Context.SaveChangesAsync();
+
+        var deleted = await _repository.DeleteOverflowAsync(maxRecordCount: 3, batchSize: 1);
+
+        deleted.Should().Be(1);
+        Context.ExecutionHistoryRecords.Should().HaveCount(4);
+        Context.ExecutionHistoryRecords.Should().NotContain(item => item.TaskId == "task-1");
+    }
+
     private static ExecutionHistoryRecord CreateRecord(
         string taskId,
         string taskType,

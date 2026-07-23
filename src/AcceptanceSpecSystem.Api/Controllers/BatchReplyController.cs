@@ -34,7 +34,9 @@ public class BatchReplyController : MatchingApiControllerBase
     {
         try
         {
-            var result = await _batchReplyAppService.UploadSourceAsync(User, file, cancellationToken);
+            ValidateBatchUploadFiles([file]);
+            var upload = ToUploadDocument(file);
+            var result = await _batchReplyAppService.UploadSourceAsync(RequireBatchReplyUser(), upload, cancellationToken);
             return Success(result, "来源文件上传成功");
         }
         catch (ApplicationServiceException ex)
@@ -42,6 +44,10 @@ public class BatchReplyController : MatchingApiControllerBase
             return ex.Code == 404
                 ? NotFoundResult<BatchReplySourceUploadResponse>(ex.Message)
                 : Error<BatchReplySourceUploadResponse>(ex.Code, ex.Message);
+        }
+        catch (MatchingApiException ex)
+        {
+            return Error<BatchReplySourceUploadResponse>(ex.Code, ex.Message);
         }
     }
 
@@ -57,10 +63,12 @@ public class BatchReplyController : MatchingApiControllerBase
     {
         try
         {
+            ValidateBatchUploadFiles(targetFiles);
+            var uploads = targetFiles.Select(ToUploadDocument).ToArray();
             var result = await _batchReplyAppService.UploadTargetsAsync(
-                User,
+                RequireBatchReplyUser(),
                 sessionId,
-                targetFiles,
+                uploads,
                 cancellationToken);
             return Success(result, "目标文件上传成功");
         }
@@ -69,6 +77,10 @@ public class BatchReplyController : MatchingApiControllerBase
             return ex.Code == 404
                 ? NotFoundResult<BatchReplyTargetUploadResponse>(ex.Message)
                 : Error<BatchReplyTargetUploadResponse>(ex.Code, ex.Message);
+        }
+        catch (MatchingApiException ex)
+        {
+            return Error<BatchReplyTargetUploadResponse>(ex.Code, ex.Message);
         }
     }
 
@@ -81,7 +93,10 @@ public class BatchReplyController : MatchingApiControllerBase
     {
         try
         {
-            var result = await _batchReplyAppService.GetSourceTablesAsync(User, sessionId);
+            var result = await _batchReplyAppService.GetSourceTablesAsync(
+                RequireBatchReplyUser(),
+                sessionId,
+                cancellationToken);
             return Success(result);
         }
         catch (ApplicationServiceException ex)
@@ -98,7 +113,7 @@ public class BatchReplyController : MatchingApiControllerBase
     public async Task<ActionResult<ApiResponse<TableDataDto>>> GetTablePreview(
         string sessionId,
         int tableIndex,
-        [FromQuery] int previewRows = 0,
+        [FromQuery] int previewRows = 100,
         [FromQuery] int headerRowIndex = 0,
         [FromQuery] int headerRowCount = 1,
         [FromQuery] int dataStartRowIndex = 1,
@@ -107,13 +122,14 @@ public class BatchReplyController : MatchingApiControllerBase
         try
         {
             var result = await _batchReplyAppService.GetSourceTablePreviewAsync(
-                User,
+                RequireBatchReplyUser(),
                 sessionId,
                 tableIndex,
                 previewRows,
                 headerRowIndex,
                 headerRowCount,
-                dataStartRowIndex);
+                dataStartRowIndex,
+                cancellationToken);
             return Success(result);
         }
         catch (ApplicationServiceException ex)
@@ -134,7 +150,11 @@ public class BatchReplyController : MatchingApiControllerBase
     {
         try
         {
-            var result = await _batchReplyAppService.GetTargetTablesAsync(User, sessionId, targetId);
+            var result = await _batchReplyAppService.GetTargetTablesAsync(
+                RequireBatchReplyUser(),
+                sessionId,
+                targetId,
+                cancellationToken);
             return Success(result);
         }
         catch (ApplicationServiceException ex)
@@ -152,7 +172,7 @@ public class BatchReplyController : MatchingApiControllerBase
         string sessionId,
         string targetId,
         int tableIndex,
-        [FromQuery] int previewRows = 0,
+        [FromQuery] int previewRows = 100,
         [FromQuery] int headerRowIndex = 0,
         [FromQuery] int headerRowCount = 1,
         [FromQuery] int dataStartRowIndex = 1,
@@ -161,14 +181,15 @@ public class BatchReplyController : MatchingApiControllerBase
         try
         {
             var result = await _batchReplyAppService.GetTargetTablePreviewAsync(
-                User,
+                RequireBatchReplyUser(),
                 sessionId,
                 targetId,
                 tableIndex,
                 previewRows,
                 headerRowIndex,
                 headerRowCount,
-                dataStartRowIndex);
+                dataStartRowIndex,
+                cancellationToken);
             return Success(result);
         }
         catch (ApplicationServiceException ex)
@@ -186,25 +207,27 @@ public class BatchReplyController : MatchingApiControllerBase
         [FromBody] BatchReplyTablePreviewRequest request,
         CancellationToken cancellationToken = default)
     {
-        return HandleAsync(() => _batchReplyAppService.TablePreviewAsync(User, request, cancellationToken));
+        return HandleAsync(() => _batchReplyAppService.TablePreviewAsync(RequireBatchReplyUser(), request, cancellationToken));
     }
 
     [HttpPost("preview")]
     [EnableRateLimiting("ai-heavy")]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyPreviewResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchReplyPreviewResponse>), StatusCodes.Status400BadRequest)]
-    public Task<ActionResult<ApiResponse<BatchReplyPreviewResponse>>> Preview(
+    public async Task<ActionResult<ApiResponse<BatchReplyPreviewResponse>>> Preview(
         [FromForm] string sessionId,
         [FromForm] string tableConfigsJson,
         [FromForm] List<IFormFile> targetFiles,
         CancellationToken cancellationToken = default)
     {
         var tableConfigs = ParseTableConfigs(tableConfigsJson);
-        return HandleAsync(() => _batchReplyAppService.PreviewAsync(
-            User,
+        ValidateBatchUploadFiles(targetFiles);
+        var uploads = targetFiles.Select(ToUploadDocument).ToArray();
+        return await HandleAsync(() => _batchReplyAppService.PreviewAsync(
+            RequireBatchReplyUser(),
             sessionId,
             tableConfigs,
-            targetFiles,
+            uploads,
             cancellationToken));
     }
 
@@ -217,17 +240,17 @@ public class BatchReplyController : MatchingApiControllerBase
         [FromBody] BatchReplyExecuteRequest request,
         CancellationToken cancellationToken = default)
     {
-        return HandleAsync(() => _batchReplyAppService.ExecuteAsync(User, request, cancellationToken));
+        return HandleAsync(() => _batchReplyAppService.ExecuteAsync(RequireBatchReplyUser(), request, cancellationToken));
     }
 
     [HttpGet("download/{taskId}")]
-    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public Task<IActionResult> Download(
         string taskId,
         CancellationToken cancellationToken = default)
     {
-        return HandleFileAsync(() => _batchReplyAppService.DownloadAsync(User, taskId, cancellationToken));
+        return HandleFileAsync(() => _batchReplyAppService.DownloadAsync(RequireBatchReplyUser(), taskId, cancellationToken));
     }
 
     private static List<BatchTableConfig> ParseTableConfigs(string tableConfigsJson)
@@ -245,5 +268,43 @@ public class BatchReplyController : MatchingApiControllerBase
         {
             throw new MatchingApiException(400, "表格配置格式不正确");
         }
+    }
+
+    private BatchReplyUserContext RequireBatchReplyUser()
+    {
+        var userId = AuthClaimHelper.GetUserId(User);
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        if (!userId.HasValue || !companyId.HasValue)
+            throw new MatchingApiException(401, "会话缺少用户上下文");
+        return new BatchReplyUserContext(userId.Value, companyId.Value);
+    }
+
+    private static BatchReplyUploadDocument ToUploadDocument(IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            throw new ApplicationServiceException(400, "文件不能为空");
+        var fileType = UploadFileValidation.ValidateOfficeDocument(file, allowExcel: true, allowWord: true);
+        return new BatchReplyUploadDocument(file.FileName, fileType, file.Length, file.OpenReadStream);
+    }
+
+    private static void ValidateBatchUploadFiles(IReadOnlyCollection<IFormFile> files)
+    {
+        if (files.Count == 0)
+            throw new ApplicationServiceException(400, "请至少上传一个文件");
+        if (files.Count > BatchReplyUploadLimits.MaxFileCount)
+            throw new ApplicationServiceException(400, $"单次最多上传 {BatchReplyUploadLimits.MaxFileCount} 个文件");
+
+        long totalBytes = 0;
+        foreach (var file in files)
+        {
+            if (file == null || file.Length <= 0)
+                throw new ApplicationServiceException(400, "文件不能为空");
+            if (file.Length > BatchReplyUploadLimits.MaxFileSizeBytes)
+                throw new ApplicationServiceException(400, "单个文件大小不能超过 50MB");
+            totalBytes = checked(totalBytes + file.Length);
+        }
+
+        if (totalBytes > BatchReplyUploadLimits.MaxBatchSizeBytes)
+            throw new ApplicationServiceException(400, "单次上传文件总大小不能超过 100MB");
     }
 }

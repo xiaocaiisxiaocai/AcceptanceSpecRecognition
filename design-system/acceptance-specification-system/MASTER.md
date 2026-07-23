@@ -1,5 +1,10 @@
 # Design System Master File
 
+> **已废弃 / Deprecated**
+>
+> 不要再把本文件接入前端运行样式。本文件是早期自动生成的活动页风格模板，包含淡紫背景和深紫正文等已被废弃的规则。
+> 当前系统的唯一前端设计令牌来源是 `web/src/style/tokens.scss`，具体规范见 `docs/ui-guidelines.md`。
+
 > **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.
 > If that file exists, its rules **override** this Master file.
 > If not, strictly follow the rules below.

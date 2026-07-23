@@ -1,5 +1,6 @@
 ﻿using System.Security.Claims;
 using AcceptanceSpecSystem.Api.DTOs;
+using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -33,7 +34,8 @@ public class SystemUsersController : BaseApiController
         [FromQuery] bool? isActive = null,
         CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(
+            AuthClaimHelper.GetCompanyId(User), cancellationToken);
         if (!companyId.HasValue)
             return Error<PagedData<SystemUserDto>>(401, "当前会话缺少公司上下文");
 
@@ -54,7 +56,8 @@ public class SystemUsersController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(
+            AuthClaimHelper.GetCompanyId(User), cancellationToken);
         if (!companyId.HasValue)
             return Error<SystemUserDto>(401, "当前会话缺少公司上下文");
 
@@ -76,7 +79,8 @@ public class SystemUsersController : BaseApiController
         [FromBody] CreateSystemUserRequest request,
         CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(
+            AuthClaimHelper.GetCompanyId(User), cancellationToken);
         if (!companyId.HasValue)
             return Error<SystemUserDto>(401, "当前会话缺少公司上下文");
 
@@ -103,7 +107,8 @@ public class SystemUsersController : BaseApiController
         [FromBody] UpdateSystemUserRequest request,
         CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(
+            AuthClaimHelper.GetCompanyId(User), cancellationToken);
         if (!companyId.HasValue)
             return Error<SystemUserDto>(401, "当前会话缺少公司上下文");
 
@@ -135,7 +140,8 @@ public class SystemUsersController : BaseApiController
         [FromBody] UpdateSystemUserStatusRequest request,
         CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(
+            AuthClaimHelper.GetCompanyId(User), cancellationToken);
         if (!companyId.HasValue)
             return Error<SystemUserDto>(401, "当前会话缺少公司上下文");
 
@@ -167,7 +173,8 @@ public class SystemUsersController : BaseApiController
         [FromBody] ResetSystemUserPasswordRequest request,
         CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(
+            AuthClaimHelper.GetCompanyId(User), cancellationToken);
         if (!companyId.HasValue)
             return Error(401, "当前会话缺少公司上下文");
 
@@ -193,7 +200,8 @@ public class SystemUsersController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(User, cancellationToken);
+        var companyId = await _systemUserAppService.ResolveCurrentCompanyIdAsync(
+            AuthClaimHelper.GetCompanyId(User), cancellationToken);
         if (!companyId.HasValue)
             return Error(401, "当前会话缺少公司上下文");
 

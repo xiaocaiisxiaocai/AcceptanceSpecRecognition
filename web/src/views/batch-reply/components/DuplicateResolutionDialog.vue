@@ -24,7 +24,7 @@ defineEmits<{
   <el-dialog
     :model-value="modelValue"
     title="重复项处理"
-    width="960px"
+    width="min(960px, calc(100vw - 32px))"
     destroy-on-close
     @close="$emit('close')"
   >

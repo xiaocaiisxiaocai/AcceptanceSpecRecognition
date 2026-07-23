@@ -22,6 +22,15 @@ const handleToggleAll = (checked: string | number | boolean) => {
 
 const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
   `${row.tableIndex}:${row.rowIndex}`;
+
+const formatFinalValue = (value: string | undefined) =>
+  value === "" ? "（清空）" : value || "-";
+
+const getFinalAcceptance = (row: SmartFillBackfillCandidate) =>
+  formatFinalValue(row.overrideAcceptance ?? row.originalAcceptance);
+
+const getFinalRemark = (row: SmartFillBackfillCandidate) =>
+  formatFinalValue(row.overrideRemark ?? row.originalRemark);
 </script>
 
 <template>
@@ -29,6 +38,7 @@ const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
     :model-value="visible"
     title="回填验收规格"
     width="1080px"
+    align-center
     :close-on-click-modal="false"
     @update:model-value="emit('update:visible', $event)"
   >
@@ -82,27 +92,17 @@ const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="验收标准" min-width="260">
+        <el-table-column label="替换后验收标准" min-width="260">
           <template #default="{ row }">
             <div class="backfill-change">
-              <div class="backfill-change__old">
-                {{ row.originalAcceptance || "-" }}
-              </div>
-              <div class="backfill-change__new">
-                {{ row.overrideAcceptance || "-" }}
-              </div>
+              {{ getFinalAcceptance(row) }}
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="备注" min-width="220">
+        <el-table-column label="替换后备注" min-width="220">
           <template #default="{ row }">
             <div class="backfill-change">
-              <div class="backfill-change__old">
-                {{ row.originalRemark || "-" }}
-              </div>
-              <div class="backfill-change__new">
-                {{ row.overrideRemark || "-" }}
-              </div>
+              {{ getFinalRemark(row) }}
             </div>
           </template>
         </el-table-column>

@@ -83,7 +83,13 @@ public sealed class PromptTemplateValidationService
             ["candidateSpecification"] = "平台平面度不超过0.05mm",
             ["currentTopCandidateSpecId"] = "101",
             ["candidatesJson"] =
-                "[{\"rank\":1,\"specId\":101,\"project\":\"平台吸附精度\",\"specification\":\"平台平面度控制在0.08mm以内\",\"embeddingScore\":0.98,\"finalScore\":0.87,\"scoreDetails\":{\"Embedding\":0.98,\"Final\":0.87},\"evidenceSummary\":[\"项目一致\"],\"conflictSummary\":[\"边界条件疑似偏宽\"]},{\"rank\":2,\"specId\":102,\"project\":\"平台吸附精度\",\"specification\":\"平台平面度控制在0.05mm以内\",\"embeddingScore\":0.95,\"finalScore\":0.85,\"scoreDetails\":{\"Embedding\":0.95,\"Final\":0.85},\"evidenceSummary\":[\"项目一致\",\"规格更接近\"],\"conflictSummary\":[]}]"
+                "[{\"rank\":1,\"specId\":101,\"project\":\"平台吸附精度\",\"specification\":\"平台平面度控制在0.08mm以内\",\"embeddingScore\":0.98,\"finalScore\":0.87,\"scoreDetails\":{\"Embedding\":0.98,\"Final\":0.87},\"evidenceSummary\":[\"项目一致\"],\"conflictSummary\":[\"边界条件疑似偏宽\"]},{\"rank\":2,\"specId\":102,\"project\":\"平台吸附精度\",\"specification\":\"平台平面度控制在0.05mm以内\",\"embeddingScore\":0.95,\"finalScore\":0.85,\"scoreDetails\":{\"Embedding\":0.95,\"Final\":0.85},\"evidenceSummary\":[\"项目一致\",\"规格更接近\"],\"conflictSummary\":[]}]",
+            ["documentTablesJson"] =
+                "[{\"tableIndex\":0,\"tableName\":\"表1\",\"rows\":[[\"项目\",\"规格\",\"验收标准\",\"备注\"],[\"平台吸附精度\",\"平面度需控制在0.05mm以内\",\"实测不超过0.05mm\",\"\"]]}]",
+            ["ruleCandidatesJson"] =
+                "[{\"tableIndex\":0,\"projectColumnIndex\":0,\"specificationColumnIndex\":1,\"acceptanceColumnIndex\":2,\"remarkColumnIndex\":3,\"confidence\":0.92}]",
+            ["inputJson"] =
+                "{\"TableIndex\":0,\"TableName\":\"验收表\",\"Headers\":[\"项目\",\"管控要求\"],\"MappedFields\":{\"Project\":0,\"Specification\":null},\"UnmappedHeaders\":[{\"ColumnIndex\":1,\"Header\":\"管控要求\"}],\"SampleRows\":[[\"外观\",\"无划伤\"]]}"
         };
 
         return PromptTemplatePlaceholderRenderer.ReplacePlaceholders(template, sampleValues);

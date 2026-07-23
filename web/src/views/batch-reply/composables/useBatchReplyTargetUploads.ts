@@ -1,6 +1,6 @@
 import { ref, type ComputedRef, type Ref } from "vue";
 import { ElMessage } from "element-plus";
-import type { UploadFile, UploadFiles, UploadInstance } from "element-plus";
+import type { UploadRequestOptions } from "element-plus";
 import {
   getBatchReplyTargetTables,
   uploadBatchReplyTargets,
@@ -20,6 +20,12 @@ import {
   createTargetFileSignature,
   decideTargetUpload
 } from "../target-upload";
+import type { AppUploadRequestContext } from "@/components/useAppUploadTask";
+import {
+  isUploadRequestCancelled,
+  throwIfUploadCancelled,
+  type UploadTransportOptions
+} from "@/utils/upload-request";
 
 type UseBatchReplyTargetUploadsParams = {
   sourceFile: Ref<BatchReplySourceFileState | null>;
@@ -31,7 +37,8 @@ type UseBatchReplyTargetUploadsParams = {
   /** 由调用方提供的目标文件上传执行函数，接收 sourceSessionId 和待上传文件列表 */
   onUploadTargets?: (
     sessionId: string,
-    files: File[]
+    files: File[],
+    options: UploadTransportOptions
   ) => Promise<Awaited<ReturnType<typeof uploadBatchReplyTargets>>>;
 };
 
@@ -40,20 +47,29 @@ export const useBatchReplyTargetUploads = (
 ) => {
   const targetUploading = ref(false);
   const targetUploadKey = ref(0);
-  const targetUploadRef = ref<UploadInstance>();
   const activeTargetFileId = ref("");
   const pendingTargetUploadFiles = ref<File[]>([]);
-  const pendingTargetUploadSignatures = ref<string[]>([]);
-  let targetUploadFlushTimer: number | undefined;
+  let targetUploadVersion = 0;
+
+  const throwIfTargetUploadStale = (uploadVersion: number) => {
+    if (uploadVersion === targetUploadVersion) return;
+    throw new DOMException("目标文件上传状态已重置", "AbortError");
+  };
 
   const appendUploadedTarget = async (
     uploadedFile: BatchReplyUploadedTargetFile,
-    rawFile: File
+    rawFile: File,
+    signal: AbortSignal,
+    uploadVersion: number
   ) => {
+    throwIfTargetUploadStale(uploadVersion);
+    throwIfUploadCancelled(signal);
     const tablesResp = await getBatchReplyTargetTables(
       params.sourceSessionId.value,
       uploadedFile.targetId
     );
+    throwIfTargetUploadStale(uploadVersion);
+    throwIfUploadCancelled(signal);
     if (tablesResp.code !== 0) {
       throw new Error(tablesResp.message || "加载目标表格失败");
     }
@@ -80,85 +96,27 @@ export const useBatchReplyTargetUploads = (
       previewResults: {}
     };
 
+    throwIfTargetUploadStale(uploadVersion);
+    throwIfUploadCancelled(signal);
     params.targetFiles.value = [...params.targetFiles.value, targetState];
     if (!activeTargetFileId.value) {
       activeTargetFileId.value = uploadedFile.targetId;
     }
   };
 
-  const schedulePendingTargetUploadFlush = () => {
-    if (targetUploadFlushTimer !== undefined) {
-      return;
-    }
-
-    targetUploadFlushTimer = window.setTimeout(() => {
-      targetUploadFlushTimer = undefined;
-      void flushPendingTargetUploads();
-    }, 0);
-  };
-
-  const flushPendingTargetUploads = async () => {
-    if (targetUploading.value || pendingTargetUploadFiles.value.length === 0) {
-      return;
-    }
-
-    const pendingFiles = [...pendingTargetUploadFiles.value];
-    pendingTargetUploadFiles.value = [];
-    pendingTargetUploadSignatures.value = [];
-
-    targetUploading.value = true;
-    try {
-      const res = await (params.onUploadTargets
-        ? params.onUploadTargets(params.sourceSessionId.value, pendingFiles)
-        : uploadBatchReplyTargets(params.sourceSessionId.value, pendingFiles));
-      if (res.code !== 0 || res.data.files.length === 0) {
-        ElMessage.error(res.message || "目标文件上传失败");
-        return;
-      }
-
-      for (let index = 0; index < res.data.files.length; index++) {
-        const uploadedFile = res.data.files[index];
-        const rawFile = pendingFiles[index];
-        if (!uploadedFile || !rawFile) {
-          continue;
-        }
-
-        await appendUploadedTarget(uploadedFile, rawFile);
-      }
-
-      params.activeRootTab.value = "target";
-      ElMessage.success(
-        pendingFiles.length === 1
-          ? `${pendingFiles[0].name} 上传成功`
-          : `已上传 ${pendingFiles.length} 个目标文件`
-      );
-    } catch {
-      ElMessage.error("目标文件上传失败");
-    } finally {
-      targetUploading.value = false;
-      if (pendingTargetUploadFiles.value.length > 0) {
-        schedulePendingTargetUploadFlush();
-      }
-    }
-  };
-
-  const handleTargetFileChange = (
-    uploadFile: UploadFile,
-    _uploadFiles: UploadFiles
+  const handleTargetFileChange = async (
+    options: UploadRequestOptions,
+    context: AppUploadRequestContext
   ) => {
-    const rawFile = uploadFile.raw;
+    const rawFile = options.file;
     if (!rawFile) {
-      targetUploadRef.value?.handleRemove(uploadFile);
-      return;
+      throw new Error("未读取到目标文件");
     }
 
     const decision = decideTargetUpload({
       hasSourceFile: !!params.sourceFile.value,
       accept: params.targetAccept.value,
-      existingSignatures: [
-        ...params.targetFiles.value.map(item => item.signature),
-        ...pendingTargetUploadSignatures.value
-      ],
+      existingSignatures: params.targetFiles.value.map(item => item.signature),
       file: rawFile
     });
 
@@ -168,37 +126,81 @@ export const useBatchReplyTargetUploads = (
       } else {
         ElMessage.error(decision.message);
       }
-      targetUploadRef.value?.handleRemove(uploadFile);
-      return;
+      throw new Error(decision.message);
     }
 
     if (
       !ensurePermission("api:batch-reply:upload", "权限不足，无法上传目标文件")
     ) {
-      targetUploadRef.value?.handleRemove(uploadFile);
-      return;
+      throw new Error("权限不足，无法上传目标文件");
     }
 
-    pendingTargetUploadFiles.value = [
-      ...pendingTargetUploadFiles.value,
-      rawFile
-    ];
-    pendingTargetUploadSignatures.value = [
-      ...pendingTargetUploadSignatures.value,
-      createTargetFileSignature(rawFile)
-    ];
-    schedulePendingTargetUploadFlush();
-    targetUploadRef.value?.handleRemove(uploadFile);
+    if (targetUploading.value) throw new Error("已有目标文件正在上传");
+
+    const uploadVersion = ++targetUploadVersion;
+    const releaseCancelledUpload = () => {
+      if (uploadVersion !== targetUploadVersion) return;
+      targetUploading.value = false;
+      pendingTargetUploadFiles.value = [];
+    };
+    context.signal.addEventListener("abort", releaseCancelledUpload, {
+      once: true
+    });
+    pendingTargetUploadFiles.value = [rawFile];
+    targetUploading.value = true;
+    try {
+      throwIfTargetUploadStale(uploadVersion);
+      throwIfUploadCancelled(context.signal);
+      const transportOptions = {
+        signal: context.signal,
+        onUploadProgress: context.onUploadProgress
+      };
+      const res = await (params.onUploadTargets
+        ? params.onUploadTargets(
+            params.sourceSessionId.value,
+            [rawFile],
+            transportOptions
+          )
+        : uploadBatchReplyTargets(
+            params.sourceSessionId.value,
+            [rawFile],
+            transportOptions
+          ));
+      throwIfTargetUploadStale(uploadVersion);
+      throwIfUploadCancelled(context.signal);
+      if (res.code !== 0 || res.data.files.length === 0)
+        throw new Error(res.message || "目标文件上传失败");
+
+      const uploadedFile = res.data.files[0];
+      throwIfTargetUploadStale(uploadVersion);
+      await appendUploadedTarget(
+        uploadedFile,
+        rawFile,
+        context.signal,
+        uploadVersion
+      );
+      throwIfTargetUploadStale(uploadVersion);
+      throwIfUploadCancelled(context.signal);
+      params.activeRootTab.value = "target";
+      ElMessage.success(`${rawFile.name} 上传成功`);
+    } catch (error) {
+      if (isUploadRequestCancelled(error)) throw error;
+      ElMessage.error("目标文件上传失败");
+      throw error;
+    } finally {
+      context.signal.removeEventListener("abort", releaseCancelledUpload);
+      if (uploadVersion === targetUploadVersion) {
+        targetUploading.value = false;
+        pendingTargetUploadFiles.value = [];
+      }
+    }
   };
 
   const resetTargetUploadState = () => {
+    targetUploadVersion += 1;
+    targetUploading.value = false;
     activeTargetFileId.value = "";
     pendingTargetUploadFiles.value = [];
-    pendingTargetUploadSignatures.value = [];
-    if (targetUploadFlushTimer !== undefined) {
-      window.clearTimeout(targetUploadFlushTimer);
-      targetUploadFlushTimer = undefined;
-    }
     targetUploadKey.value++;
   };
 
@@ -206,7 +208,6 @@ export const useBatchReplyTargetUploads = (
     activeTargetFileId,
     targetUploading,
     targetUploadKey,
-    targetUploadRef,
     handleTargetFileChange,
     resetTargetUploadState,
     pendingTargetUploadFiles

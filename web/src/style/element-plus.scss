@@ -1,6 +1,6 @@
 .el-form-item__label {
   font-weight: 700;
-  color: var(--color-text);
+  color: var(--app-text-primary);
 }
 
 .el-breadcrumb__inner,
@@ -19,26 +19,20 @@
 /* 卡片与表格统一风格 */
 .el-card {
   border-color: var(--el-card-border-color);
-  border-radius: 12px;
-  box-shadow: var(--shadow-sm);
-  transition:
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
-}
-
-.el-card:hover {
-  box-shadow: var(--shadow-md);
+  border-radius: var(--app-radius-md);
+  box-shadow: var(--app-shadow-card);
+  transition: border-color 0.2s ease;
 }
 
 .el-card__header {
   font-weight: 600;
-  color: var(--color-text);
-  background: #f8f5ff;
+  color: var(--app-text-primary);
+  background: var(--app-info-bg);
   border-bottom-color: var(--el-card-border-color);
 }
 
 .el-card__body {
-  padding: 16px;
+  padding: 12px;
 }
 
 .el-form-item {
@@ -50,13 +44,18 @@
 }
 
 .el-table {
-  --el-table-header-text-color: var(--color-text);
+  --el-table-header-text-color: var(--app-text-primary);
 
   font-size: 13px;
 }
 
 .el-table .el-table__cell {
-  padding: 8px 0;
+  padding: 6px 0;
+}
+
+.el-table th.el-table__cell,
+.el-table td.el-table__cell {
+  text-align: center;
 }
 
 .el-table__header th {
@@ -65,11 +64,11 @@
 
 .el-table .cell {
   line-height: 1.4;
-  color: var(--color-text);
+  color: var(--app-text-primary);
 }
 
 .el-table--striped .el-table__body tr.el-table__row--striped td {
-  background: #faf7ff;
+  background: var(--app-info-bg);
 }
 
 .el-table__row {
@@ -91,12 +90,12 @@
 }
 
 .el-button--default {
-  border-color: #e4d7fb;
+  border-color: var(--app-border);
 }
 
 .el-button--default:hover {
-  color: var(--color-primary);
-  border-color: var(--color-primary);
+  color: var(--app-primary);
+  border-color: var(--app-primary);
 }
 
 .el-button.is-text,
@@ -116,7 +115,7 @@
 }
 
 .el-empty__description {
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .el-pagination {

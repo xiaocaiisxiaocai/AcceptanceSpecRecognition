@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { computed } from "vue";
 import { ElMessage } from "element-plus";
-import { UploadFilled } from "@element-plus/icons-vue";
 import { uploadFile, type FileUploadResponse } from "@/api/document";
 import type { UploadRequestOptions } from "element-plus";
 import { getRequestErrorMessage } from "@/utils/error-message";
+import AppUploadZone from "@/components/AppUploadZone.vue";
+import type { AppUploadRequestContext } from "@/components/useAppUploadTask";
+import {
+  isUploadRequestCancelled,
+  throwIfUploadCancelled
+} from "@/utils/upload-request";
 
 const props = defineProps<{
   modelValue?: FileUploadResponse | null;
@@ -14,9 +19,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:modelValue", value: FileUploadResponse | null): void;
   (e: "uploaded", value: FileUploadResponse): void;
+  (e: "retryMetadata"): void;
 }>();
 
-const uploading = ref(false);
 const uploadedFile = computed({
   get: () => props.modelValue ?? null,
   set: val => emit("update:modelValue", val)
@@ -24,7 +29,13 @@ const uploadedFile = computed({
 
 const isExcel = computed(() => uploadedFile.value?.fileType === 1);
 const isTableCountPending = computed(
-  () => uploadedFile.value?.tableCountReady === false
+  () =>
+    uploadedFile.value?.tableMetadataStatus === "loading" ||
+    (uploadedFile.value?.tableMetadataStatus == null &&
+      uploadedFile.value?.tableCountReady === false)
+);
+const isTableMetadataError = computed(
+  () => uploadedFile.value?.tableMetadataStatus === "error"
 );
 const resolvedAccept = computed(() =>
   (props.accept?.trim() || ".docx,.xlsx").toLowerCase()
@@ -40,45 +51,41 @@ const uploadHint = computed(() => {
   return `仅支持 ${extText} 格式，文件大小不超过 50MB`;
 });
 
-// 自定义上传
-const handleUpload = async (options: UploadRequestOptions) => {
+const handleUpload = async (
+  options: UploadRequestOptions,
+  context: AppUploadRequestContext
+) => {
   const file = options.file;
-  const extensions = allowedExtensions.value;
-
-  // 检查文件类型
-  const lower = file.name.toLowerCase();
-  if (
-    extensions.length === 0 ||
-    !extensions.some(extension => lower.endsWith(extension))
-  ) {
-    ElMessage.error(uploadHint.value);
-    return;
-  }
-
-  // 检查文件大小（最大50MB）
-  if (file.size > 50 * 1024 * 1024) {
-    ElMessage.error("文件大小不能超过50MB");
-    return;
-  }
-
-  uploading.value = true;
   try {
-    const res = await uploadFile(file);
-    if (res.code === 0) {
-      uploadedFile.value = res.data;
-      emit("uploaded", res.data);
-      ElMessage.success("文件上传成功");
-    } else {
-      ElMessage.error(res.message || "上传失败");
+    const extensions = allowedExtensions.value;
+    const lower = file.name.toLowerCase();
+    if (
+      extensions.length === 0 ||
+      !extensions.some(extension => lower.endsWith(extension))
+    ) {
+      throw new Error(uploadHint.value);
     }
+
+    if (file.size > 50 * 1024 * 1024) throw new Error("文件大小不能超过50MB");
+
+    const res = await uploadFile(file, context);
+    throwIfUploadCancelled(context.signal);
+    if (res.code !== 0) throw new Error(res.message || "上传失败");
+
+    const uploaded: FileUploadResponse = {
+      ...res.data,
+      tableMetadataStatus: res.data.tableCountReady ? "ready" : "loading"
+    };
+    uploadedFile.value = uploaded;
+    emit("uploaded", uploaded);
+    ElMessage.success("文件上传成功");
   } catch (error) {
+    if (isUploadRequestCancelled(error)) throw error;
     ElMessage.error(getRequestErrorMessage(error, "上传失败，请重试"));
-  } finally {
-    uploading.value = false;
+    throw error;
   }
 };
 
-// 清除文件
 const clearFile = () => {
   uploadedFile.value = null;
 };
@@ -86,35 +93,20 @@ const clearFile = () => {
 
 <template>
   <div class="file-upload">
-    <el-upload
+    <AppUploadZone
       v-if="!uploadedFile"
-      class="upload-area"
-      drag
-      :show-file-list="false"
-      :http-request="handleUpload"
+      :request="handleUpload"
+      :upload-hint="uploadHint"
       :accept="resolvedAccept"
-      :disabled="uploading"
-    >
-      <el-icon class="el-icon--upload" :size="60">
-        <UploadFilled />
-      </el-icon>
-      <div class="el-upload__text">
-        <span v-if="uploading">上传中...</span>
-        <span v-else>
-          将 Word/Excel 文件拖到此处，或
-          <em>点击上传</em>
-        </span>
-      </div>
-      <template #tip>
-        <div class="el-upload__tip">{{ uploadHint }}</div>
-      </template>
-    </el-upload>
+      size="normal"
+      drag-text="将 Word/Excel 文件拖到此处或"
+    />
 
     <!-- 已上传文件信息 -->
     <el-card v-else class="uploaded-info">
       <div class="file-info">
         <div class="file-icon">
-          <el-icon :size="48" color="#409EFF">
+          <el-icon :size="48" color="var(--el-color-primary)">
             <svg viewBox="0 0 24 24" fill="currentColor">
               <path
                 d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"
@@ -126,7 +118,13 @@ const clearFile = () => {
           <div class="file-name">{{ uploadedFile.fileName }}</div>
           <div class="file-meta">
             <span v-if="isTableCountPending">
-              正在读取{{ isExcel ? "工作表" : "表格" }}结构...
+              文件已上传，正在读取{{ isExcel ? "工作表" : "表格" }}结构...
+            </span>
+            <span v-else-if="isTableMetadataError" class="metadata-error">
+              {{ uploadedFile.tableMetadataError || "表结构读取失败" }}
+              <el-button type="primary" link @click="emit('retryMetadata')">
+                重试
+              </el-button>
             </span>
             <span v-else-if="uploadedFile.tableCount > 0">
               包含 {{ uploadedFile.tableCount }} 个{{
@@ -147,30 +145,6 @@ const clearFile = () => {
 <style scoped>
 .file-upload {
   width: 100%;
-}
-
-.upload-area {
-  width: 100%;
-}
-
-.upload-area :deep(.el-upload-dragger) {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 200px;
-  background: #fff;
-  border-color: #e4d7fb;
-  border-radius: 12px;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.upload-area :deep(.el-upload-dragger:hover) {
-  border-color: var(--color-primary);
-  box-shadow: var(--shadow-sm);
 }
 
 .uploaded-info {
@@ -203,10 +177,14 @@ const clearFile = () => {
   align-items: center;
   margin-top: 4px;
   font-size: 14px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .file-actions {
   flex-shrink: 0;
+}
+
+.metadata-error {
+  color: var(--el-color-danger);
 }
 </style>

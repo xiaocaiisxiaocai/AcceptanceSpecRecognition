@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   decideTargetUpload,
@@ -74,4 +75,19 @@ test("有效目标文件会生成待添加项", () => {
   assert.equal(result.status, "accepted");
   assert.equal(result.item?.id, createTargetFileSignature(file));
   assert.equal(result.item?.file, file);
+});
+
+test("已有目标文件后仍保留继续添加入口并通过 key 重建上传任务", () => {
+  const panelSource = readFileSync(
+    new URL(
+      "../src/views/batch-reply/components/TargetFilesPanel.vue",
+      import.meta.url
+    ),
+    "utf8"
+  );
+
+  assert.match(panelSource, /:key="targetUploadKey"/);
+  assert.match(panelSource, /reset-after-success/);
+  assert.match(panelSource, /继续添加目标文件/);
+  assert.doesNotMatch(panelSource, /v-show="targetFiles\.length === 0"/);
 });

@@ -1,4 +1,4 @@
-import { computed, type ComputedRef, type Ref } from "vue";
+import { computed, watch, type ComputedRef, type Ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   importData,
@@ -8,12 +8,13 @@ import {
   type ImportDuplicateCheckOptions
 } from "@/api/document";
 import { ensurePermission } from "@/utils/permission-guard";
+import { getRequestErrorMessage } from "@/utils/error-message";
 import {
   defaultExcelMapping,
-  normalizeExcelMappingByTable
+  normalizeExcelMappingByTable,
+  shouldBackfillProjectFromSpecification
 } from "../dataImport.helpers";
 import {
-  buildEmptyImportAggregate,
   createSingleTableAggregate,
   mergeImportAggregates,
   splitBatchAggregates
@@ -26,6 +27,11 @@ import type {
   ImportPendingDifferenceWithTable,
   TableImportConfig
 } from "../dataImport.types";
+import {
+  buildImportDifferenceDecisionKey,
+  buildImportRegionKey,
+  getExcludedRowIndexesForRegion
+} from "../dataImport.regions";
 
 type UseDataImportBatchExecutionOptions = {
   isExcelFile: ComputedRef<boolean>;
@@ -38,7 +44,6 @@ type UseDataImportBatchExecutionOptions = {
   importResult: Ref<CombinedImportResult | null>;
   pendingImportAggregate: Ref<CombinedImportResult | null>;
   committedImportAggregate: Ref<CombinedImportResult | null>;
-  previewSkippedRows: Ref<boolean>;
   differenceDecisionMap: Ref<Record<string, DifferenceDecision | undefined>>;
   differenceConfirmDialogVisible: Ref<boolean>;
   importDuplicateAiConfig: Ref<ImportDuplicateAiConfig>;
@@ -46,6 +51,7 @@ type UseDataImportBatchExecutionOptions = {
   pendingDifferences: ComputedRef<ImportPendingDifferenceWithTable[]>;
   pendingUndecidedCount: ComputedRef<number>;
   pendingTableIndexes: ComputedRef<number[]>;
+  pendingRegionKeys: ComputedRef<string[]>;
   previewDataCount: ComputedRef<number>;
   hasPendingDifferenceConfirmation: ComputedRef<boolean>;
   currentImportPermissionCode: ComputedRef<string>;
@@ -55,6 +61,7 @@ type UseDataImportBatchExecutionOptions = {
   syncDifferenceDecisionMap: (
     items: ImportPendingDifferenceWithTable[]
   ) => void;
+  ensureRuntimeAiReady: () => Promise<boolean>;
 };
 
 type CompleteExcelImportMapping = Pick<
@@ -63,15 +70,51 @@ type CompleteExcelImportMapping = Pick<
   | "headerRowCount"
   | "dataStartRow"
   | "dataEndRow"
-  | "projectColumn"
   | "specificationColumn"
   | "acceptanceColumn"
   | "remarkColumn"
->;
+> & {
+  projectColumn?: number;
+};
 
 export function useDataImportBatchExecution(
   options: UseDataImportBatchExecutionOptions
 ) {
+  const completedRequestAggregates = new Map<string, CombinedImportResult>();
+
+  const buildExecutionRequestId = (checkpointKey: string) => {
+    // 稳定且无需异步 WebCrypto：同一文件/范围在刷新页面后仍生成同一幂等键；
+    // 服务端会再用完整 SHA-256 请求指纹校验，散列碰撞只会被拒绝，不会误复用结果。
+    let first = 0x811c9dc5;
+    let second = 0x9e3779b9;
+    for (let index = 0; index < checkpointKey.length; index += 1) {
+      const code = checkpointKey.charCodeAt(index);
+      first = Math.imul(first ^ code, 0x01000193) >>> 0;
+      second = Math.imul(second ^ code, 0x85ebca6b) >>> 0;
+    }
+    return `import_${first.toString(16).padStart(8, "0")}${second.toString(16).padStart(8, "0")}`;
+  };
+
+  const clearCompletedRequestCheckpoints = (fileId?: number) => {
+    if (fileId == null) {
+      completedRequestAggregates.clear();
+      return;
+    }
+    const prefix = `${fileId}:`;
+    for (const key of completedRequestAggregates.keys()) {
+      if (key.startsWith(prefix)) completedRequestAggregates.delete(key);
+    }
+  };
+
+  watch(
+    () => options.uploadedFile.value?.fileId,
+    (currentFileId, previousFileId) => {
+      if (previousFileId !== currentFileId) {
+        clearCompletedRequestCheckpoints(previousFileId);
+      }
+    }
+  );
+
   const buildDuplicateCheckOptions = (): ImportDuplicateCheckOptions => {
     const config = options.importDuplicateAiConfig.value;
     return {
@@ -113,13 +156,23 @@ export function useDataImportBatchExecution(
     return true;
   };
 
-  const buildDifferenceKeysByTable = (tableIndex: number) => {
+  const buildDifferenceKeysByRegion = (
+    tableIndex: number,
+    regionId?: string
+  ) => {
     const confirmed: string[] = [];
     const partial: string[] = [];
     const skipped: string[] = [];
     for (const item of options.pendingDifferences.value) {
-      if (item.tableIndex !== tableIndex) continue;
-      const decision = options.differenceDecisionMap.value[item.key];
+      if (
+        item.tableIndex !== tableIndex ||
+        (item.regionId ?? "default") !== (regionId ?? "default")
+      )
+        continue;
+      const decision =
+        options.differenceDecisionMap.value[
+          buildImportDifferenceDecisionKey(item)
+        ];
       if (decision === "import") confirmed.push(item.key);
       if (decision === "partial") partial.push(item.key);
       if (decision === "skip") skipped.push(item.key);
@@ -156,11 +209,39 @@ export function useDataImportBatchExecution(
 
   const executeImportBatch = async (
     configs: TableImportConfig[],
-    includeDifferenceDecisions: boolean
+    includeDifferenceDecisions: boolean,
+    allowedRegionKeys?: ReadonlySet<string>
   ): Promise<ImportBatchExecutionResult> => {
     const tableAggregates: CombinedImportResult[] = [];
-    let hasPendingEncountered = false;
     const duplicateCheckOptions = buildDuplicateCheckOptions();
+    const plannedRegionKeys = configs.flatMap(cfg => {
+      if (!options.isExcelFile.value) {
+        const mappings = cfg.recognizedWordMappings?.length
+          ? cfg.recognizedWordMappings
+          : [];
+        return (
+          mappings.length
+            ? mappings.map(mapping =>
+                buildImportRegionKey(cfg.tableIndex, mapping.regionId)
+              )
+            : [buildImportRegionKey(cfg.tableIndex)]
+        ).filter(key => !allowedRegionKeys || allowedRegionKeys.has(key));
+      }
+      const mappings = cfg.recognizedExcelMappings?.length
+        ? cfg.recognizedExcelMappings
+        : [cfg.excelMapping ?? defaultExcelMapping()];
+      return mappings
+        .map(mapping =>
+          buildImportRegionKey(
+            cfg.tableIndex,
+            "regionId" in mapping && typeof mapping.regionId === "string"
+              ? mapping.regionId
+              : undefined
+          )
+        )
+        .filter(key => !allowedRegionKeys || allowedRegionKeys.has(key));
+    });
+    const lastPlannedRegionKey = plannedRegionKeys.at(-1);
 
     for (const [idx, cfg] of configs.entries()) {
       options.importProgressText.value = buildImportProgressText(
@@ -171,93 +252,226 @@ export function useDataImportBatchExecution(
         duplicateCheckOptions
       );
 
-      const cleanupSourceFile =
-        !hasPendingEncountered && idx === configs.length - 1;
       const fileId = options.uploadedFile.value?.fileId;
       const customerId = options.selectedCustomerId.value;
       if (fileId === undefined || customerId === undefined) {
         throw new Error("导入上下文已失效，请重新选择文件和目标客户");
       }
 
-      const { confirmed, partial, skipped } = includeDifferenceDecisions
-        ? buildDifferenceKeysByTable(cfg.tableIndex)
-        : {
-            confirmed: [] as string[],
-            partial: [] as string[],
-            skipped: [] as string[]
-          };
-      const excludedRowIndexes = options.getExcludedRowIndexes(cfg.tableIndex);
-      const normalizedExcelMapping = normalizeExcelMappingByTable(
-        cfg.tableInfo,
-        cfg.excelMapping ?? defaultExcelMapping()
-      );
+      const normalizedExcelMappings = options.isExcelFile.value
+        ? (cfg.recognizedExcelMappings?.length
+            ? cfg.recognizedExcelMappings
+            : [cfg.excelMapping ?? defaultExcelMapping()]
+          ).map((mapping, mappingIndex) => {
+            const recognized = cfg.recognizedExcelMappings?.[mappingIndex];
+            return {
+              ...normalizeExcelMappingByTable(cfg.tableInfo, mapping),
+              ...(recognized
+                ? {
+                    regionId: recognized.regionId,
+                    regionIndex: recognized.regionIndex,
+                    isSpecificationOnly: recognized.isSpecificationOnly
+                  }
+                : {})
+            };
+          })
+        : [];
       if (
         options.isExcelFile.value &&
-        (normalizedExcelMapping.projectColumn === undefined ||
-          normalizedExcelMapping.specificationColumn === undefined)
+        normalizedExcelMappings.some(
+          mapping =>
+            (!("isSpecificationOnly" in mapping
+              ? mapping.isSpecificationOnly
+              : cfg.isSpecificationOnly) &&
+              mapping.projectColumn === undefined) ||
+            mapping.specificationColumn === undefined
+        )
       ) {
         throw new Error(`工作表 ${cfg.tableIndex + 1} 缺少项目列或规格列映射`);
       }
-      const excelImportMapping: CompleteExcelImportMapping = {
-        ...normalizedExcelMapping,
-        projectColumn: normalizedExcelMapping.projectColumn ?? 0,
-        specificationColumn: normalizedExcelMapping.specificationColumn ?? 0
+      const shouldBackfillProject = shouldBackfillProjectFromSpecification(cfg);
+      const buildCheckpointKey = (
+        regionKey: string,
+        mapping: unknown,
+        excludedRowIndexes: readonly number[],
+        decisions: { confirmed: string[]; partial: string[]; skipped: string[] }
+      ) =>
+        [
+          fileId,
+          customerId,
+          options.selectedProcessId.value ?? "",
+          options.selectedMachineModelId.value ?? "",
+          regionKey,
+          JSON.stringify(mapping),
+          excludedRowIndexes.join(","),
+          JSON.stringify(duplicateCheckOptions),
+          "with-skipped-detail",
+          includeDifferenceDecisions ? "confirmation" : "initial",
+          JSON.stringify(decisions)
+        ].join(":");
+      const appendResponse = (
+        response: Awaited<ReturnType<typeof importExcelData>>,
+        regionId: string | undefined,
+        checkpointKey: string
+      ) => {
+        if (response.code !== 0) {
+          // 任一分区失败后必须立即中止。继续请求后续分区会造成部分提交，且最后
+          // 一个分区还可能清理源文件，使用户无法按已完成 checkpoint 安全重试。
+          throw new Error(response.message || "导入失败，请稍后重试");
+        }
+        const aggregate: CombinedImportResult = createSingleTableAggregate(
+          cfg.tableIndex,
+          response.data,
+          regionId
+        );
+        tableAggregates.push(aggregate);
+        if (response.data.failedCount > 0) {
+          const firstError = response.data.errors?.[0]?.message;
+          throw new Error(
+            firstError
+              ? `当前区域有 ${response.data.failedCount} 条导入失败：${firstError}`
+              : `当前区域有 ${response.data.failedCount} 条导入失败，请修正后重试`
+          );
+        }
+        if (
+          !response.data.requiresConfirmation ||
+          (response.data.pendingCount || 0) === 0
+        ) {
+          completedRequestAggregates.set(checkpointKey, aggregate);
+          if (completedRequestAggregates.size > 500) {
+            const oldestKey = completedRequestAggregates.keys().next().value;
+            if (oldestKey) completedRequestAggregates.delete(oldestKey);
+          }
+        }
       };
 
-      const res = options.isExcelFile.value
-        ? await importExcelData({
+      if (options.isExcelFile.value) {
+        for (const [
+          regionIndex,
+          mapping
+        ] of normalizedExcelMappings.entries()) {
+          const regionId = "regionId" in mapping ? mapping.regionId : undefined;
+          const regionKey = buildImportRegionKey(cfg.tableIndex, regionId);
+          if (allowedRegionKeys && !allowedRegionKeys.has(regionKey)) {
+            continue;
+          }
+          const { confirmed, partial, skipped } = includeDifferenceDecisions
+            ? buildDifferenceKeysByRegion(cfg.tableIndex, regionId)
+            : { confirmed: [], partial: [], skipped: [] };
+          const excludedRowIndexes = getExcludedRowIndexesForRegion(
+            options.getExcludedRowIndexes(cfg.tableIndex),
+            cfg.excelPreviewRowLocations ?? [],
+            ("regionIndex" in mapping ? mapping.regionIndex : undefined) ??
+              regionIndex,
+            regionId
+          );
+          const excelImportMapping: CompleteExcelImportMapping = {
+            ...mapping,
+            projectColumn: mapping.projectColumn,
+            specificationColumn: mapping.specificationColumn ?? 0
+          };
+          const checkpointKey = buildCheckpointKey(
+            regionKey,
+            excelImportMapping,
+            excludedRowIndexes,
+            { confirmed, partial, skipped }
+          );
+          const completedAggregate =
+            completedRequestAggregates.get(checkpointKey);
+          if (completedAggregate) {
+            tableAggregates.push(completedAggregate);
+            continue;
+          }
+          const response = await importExcelData({
+            executionRequestId: buildExecutionRequestId(checkpointKey),
             ...excelImportMapping,
             fileId,
             sheetIndex: cfg.tableIndex,
             customerId,
             processId: options.selectedProcessId.value || undefined,
             machineModelId: options.selectedMachineModelId.value || undefined,
-            cleanupSourceFile,
-            previewSkippedRows: options.previewSkippedRows.value,
-            confirmedDifferenceKeys: confirmed,
-            partiallyConfirmedDifferenceKeys: partial,
-            skippedDifferenceKeys: skipped,
-            excludedRowIndexes,
-            duplicateCheckOptions
-          })
-        : await importData({
-            fileId,
-            tableIndex: cfg.tableIndex,
-            customerId,
-            processId: options.selectedProcessId.value || undefined,
-            machineModelId: options.selectedMachineModelId.value || undefined,
-            cleanupSourceFile,
-            previewSkippedRows: options.previewSkippedRows.value,
+            cleanupSourceFile: regionKey === lastPlannedRegionKey,
+            previewSkippedRows: true,
             confirmedDifferenceKeys: confirmed,
             partiallyConfirmedDifferenceKeys: partial,
             skippedDifferenceKeys: skipped,
             excludedRowIndexes,
             duplicateCheckOptions,
-            mapping: cfg.wordMapping!
+            isSpecificationOnly:
+              "isSpecificationOnly" in mapping
+                ? mapping.isSpecificationOnly
+                : shouldBackfillProject
           });
-
-      if (res.code !== 0) {
-        tableAggregates.push({
-          ...buildEmptyImportAggregate(),
-          failedCount: 1,
-          errors: [
-            {
-              tableIndex: cfg.tableIndex,
-              rowIndex: 0,
-              message: res.message || "导入失败"
+          appendResponse(response, regionId, checkpointKey);
+        }
+      } else {
+        const wordMappings = cfg.recognizedWordMappings?.length
+          ? cfg.recognizedWordMappings
+          : [
+              {
+                ...cfg.wordMapping!,
+                regionId: undefined,
+                regionIndex: 0,
+                headerRowCount: 1,
+                dataEndRowIndex: undefined,
+                isSpecificationOnly: shouldBackfillProject
+              }
+            ];
+        for (const [regionIndex, mapping] of wordMappings.entries()) {
+          const regionId = mapping.regionId;
+          const regionKey = buildImportRegionKey(cfg.tableIndex, regionId);
+          if (allowedRegionKeys && !allowedRegionKeys.has(regionKey)) continue;
+          const { confirmed, partial, skipped } = includeDifferenceDecisions
+            ? buildDifferenceKeysByRegion(cfg.tableIndex, regionId)
+            : { confirmed: [], partial: [], skipped: [] };
+          const excludedRowIndexes = getExcludedRowIndexesForRegion(
+            options.getExcludedRowIndexes(cfg.tableIndex),
+            cfg.excelPreviewRowLocations ?? [],
+            mapping.regionIndex ?? regionIndex,
+            regionId
+          );
+          const checkpointKey = buildCheckpointKey(
+            regionKey,
+            mapping,
+            excludedRowIndexes,
+            { confirmed, partial, skipped }
+          );
+          const completedAggregate =
+            completedRequestAggregates.get(checkpointKey);
+          if (completedAggregate) {
+            tableAggregates.push(completedAggregate);
+            continue;
+          }
+          const response = await importData({
+            executionRequestId: buildExecutionRequestId(checkpointKey),
+            fileId,
+            tableIndex: cfg.tableIndex,
+            customerId,
+            processId: options.selectedProcessId.value || undefined,
+            machineModelId: options.selectedMachineModelId.value || undefined,
+            cleanupSourceFile: regionKey === lastPlannedRegionKey,
+            previewSkippedRows: true,
+            confirmedDifferenceKeys: confirmed,
+            partiallyConfirmedDifferenceKeys: partial,
+            skippedDifferenceKeys: skipped,
+            excludedRowIndexes,
+            duplicateCheckOptions,
+            regionId,
+            headerRowCount: mapping.headerRowCount,
+            dataEndRowIndex: mapping.dataEndRowIndex,
+            isSpecificationOnly: mapping.isSpecificationOnly,
+            mapping: {
+              projectColumn: mapping.projectColumn,
+              specificationColumn: mapping.specificationColumn,
+              acceptanceColumn: mapping.acceptanceColumn,
+              remarkColumn: mapping.remarkColumn,
+              headerRowIndex: mapping.headerRowIndex,
+              dataStartRowIndex: mapping.dataStartRowIndex
             }
-          ]
-        });
-        continue;
+          });
+          appendResponse(response, regionId, checkpointKey);
+        }
       }
-
-      if (res.data.requiresConfirmation && (res.data.pendingCount || 0) > 0) {
-        hasPendingEncountered = true;
-      }
-
-      tableAggregates.push(
-        createSingleTableAggregate(cfg.tableIndex, res.data)
-      );
     }
 
     return {
@@ -287,6 +501,10 @@ export function useDataImportBatchExecution(
       return;
     }
 
+    if (!(await options.ensureRuntimeAiReady())) {
+      return;
+    }
+
     options.importing.value = true;
     // 先收起旧弹窗并清空旧提示，避免大批量确认时残留旧状态造成“重复确认循环”的错觉。
     options.differenceConfirmDialogVisible.value = false;
@@ -294,12 +512,17 @@ export function useDataImportBatchExecution(
     try {
       const previousCommittedAggregate = options.committedImportAggregate.value;
       const pendingSet = new Set(options.pendingTableIndexes.value);
+      const pendingRegionSet = new Set(options.pendingRegionKeys.value);
       const pendingConfigs = options.tableConfigs.value.filter(cfg =>
         pendingSet.has(cfg.tableIndex)
       );
       options.importProgressText.value = `正在按确认结果继续导入 ${pendingConfigs.length} 个${options.isExcelFile.value ? "工作表" : "表格"}`;
 
-      const batch = await executeImportBatch(pendingConfigs, true);
+      const batch = await executeImportBatch(
+        pendingConfigs,
+        true,
+        pendingRegionSet
+      );
       const splitResult = splitBatchAggregates(batch.tableAggregates);
 
       if (splitResult.pending.pendingDifferences.length > 0) {
@@ -326,6 +549,7 @@ export function useDataImportBatchExecution(
 
       options.importResult.value = finalAggregate;
       options.resetPendingDifferenceState();
+      clearCompletedRequestCheckpoints(options.uploadedFile.value?.fileId);
       ElMessage.closeAll();
       ElMessage.success(
         `导入完成：成功${finalAggregate.successCount}条，失败${finalAggregate.failedCount}条`
@@ -333,7 +557,7 @@ export function useDataImportBatchExecution(
     } catch (error) {
       options.differenceConfirmDialogVisible.value = true;
       ElMessage.error(
-        error instanceof Error ? error.message : "继续导入失败，请稍后重试"
+        getRequestErrorMessage(error, "继续导入失败，请稍后重试")
       );
     } finally {
       options.importing.value = false;
@@ -409,6 +633,7 @@ export function useDataImportBatchExecution(
 
       options.importResult.value = batch.aggregate;
       options.resetPendingDifferenceState();
+      clearCompletedRequestCheckpoints(options.uploadedFile.value?.fileId);
       ElMessage.closeAll();
       ElMessage.success(
         `导入完成：成功${batch.aggregate.successCount}条，失败${batch.aggregate.failedCount}条`
@@ -418,9 +643,7 @@ export function useDataImportBatchExecution(
         return;
       }
 
-      ElMessage.error(
-        error instanceof Error ? error.message : "导入失败，请稍后重试"
-      );
+      ElMessage.error(getRequestErrorMessage(error, "导入失败，请稍后重试"));
     } finally {
       options.importing.value = false;
       clearImportProgress();

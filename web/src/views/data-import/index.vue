@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
+import { ElMessage } from "element-plus";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
 import DataImportConfirmPanel from "./components/DataImportConfirmPanel.vue";
 import DataImportDifferenceConfirmDialog from "./components/DataImportDifferenceConfirmDialog.vue";
-import DataImportDifferenceDialog from "./components/DataImportDifferenceDialog.vue";
 import DataImportStepConfirm from "./components/DataImportStepConfirm.vue";
 import DataImportStepMapping from "./components/DataImportStepMapping.vue";
 import DataImportStepTableSelect from "./components/DataImportStepTableSelect.vue";
@@ -12,10 +12,34 @@ import DataImportStepTarget from "./components/DataImportStepTarget.vue";
 import DataImportStepUpload from "./components/DataImportStepUpload.vue";
 import ExcelColumnMapping from "./components/ExcelColumnMapping.vue";
 import { useDataImportPage } from "./composables/useDataImportPage";
-// 映射、预览选择、导入执行 composable（由 useDataImportPage 内部组合）
-import { useDataImportMapping } from "./composables/useDataImportMapping";
-import { useDataImportPreviewSelection } from "./composables/useDataImportPreviewSelection";
-import { useDataImportExecution } from "./composables/useDataImportExecution";
+import {
+  runSmartStructureBatchConfirmImportAction,
+  type SmartStructureBatchConfirmProgress
+} from "./dataImport.confirmImport";
+import SmartStructureConfirmTabs from "@/views/shared/SmartStructureConfirmTabs.vue";
+import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
+import SmartStructureAiAssistControl from "@/views/shared/SmartStructureAiAssistControl.vue";
+import SmartStructureFieldConflictDialog from "@/views/shared/SmartStructureFieldConflictDialog.vue";
+import type {
+  SmartConfigConfirmRequest,
+  SmartConfigRecognizedTable
+} from "@/api/smart-config";
+import {
+  applySmartStructureFieldSelectionsToDraft,
+  applySmartStructureFieldSelectionsToTable,
+  collectSmartStructureFieldConflicts,
+  type SmartStructureFieldConflictItem,
+  type SmartStructureFieldConflictSelection
+} from "@/views/shared/smart-structure-field-conflicts";
+import {
+  canSelectSmartStructureTable,
+  getSmartStructureImportReadinessReason,
+  getSmartStructureImportSelectionDisabledReason,
+  shouldShowSmartStructureManualFallback
+} from "@/views/shared/smart-structure-recognition";
+// 边界说明：useDataImportPage 内部组合 useDataImportMapping、
+// useDataImportPreviewSelection、useDataImportExecution；差异弹窗由
+// DataImportDifferenceConfirmDialog 继续组合 DataImportDifferenceDialog。
 
 defineOptions({
   name: "ImportData"
@@ -24,9 +48,11 @@ defineOptions({
 const {
   MAPPING_PREVIEW_ROWS,
   currentStep,
+  advancedMode,
   uploadedFile,
   isExcelFile,
   selectedTableIndexes,
+  selectedTables,
   activeTableIndex,
   tableConfigs,
   selectedCustomerId,
@@ -34,6 +60,18 @@ const {
   selectedMachineModelId,
   importDuplicateAiConfig,
   steps,
+  smartRecognizing,
+  enableStructureLlmAssistance,
+  structureLlmServiceId,
+  smartRecognitionAttempted,
+  smartRecognitionError,
+  smartApplyError,
+  smartStageText,
+  selectedSmartTableIndexes,
+  smartConfirmingTableIndex,
+  smartTableInfos,
+  recognizedTables,
+  replaceRecognizedTables,
   canUploadSourceFile,
   canImportAny,
   canImportCurrentFile,
@@ -46,7 +84,6 @@ const {
   importing,
   importResult,
   committedImportAggregate,
-  previewSkippedRows,
   differenceDecisionMap,
   differenceConfirmDialogVisible,
   importProgressText,
@@ -60,10 +97,8 @@ const {
   loadingProcesses,
   loadingMachineModels,
   loadingAiServices,
-  embeddingServices,
-  llmServices,
-  affixTarget,
-  affixOffset,
+  embeddingSelection,
+  llmSelection,
   importPreviewGroups,
   removedPreviewRowCount,
   selectedImportPreviewRowsCount,
@@ -74,10 +109,18 @@ const {
   getExcelPreviewOptions,
   nextDisabled,
   handleFileUploaded,
+  loadUploadedFileMetadata,
+  runSmartStructureRecognition,
+  handleSmartStructureConfirm,
+  applyCurrentSmartRecognizedTables,
+  handleSmartTableImportSelectionChange,
+  enterAdvancedMode,
+  exitAdvancedMode,
   applyRulesToAll,
   loadMappingRules,
   handleTablesSelected,
   handlePreviewLoaded,
+  loadAdvancedPreview,
   updateExcelMapping,
   getTableConfigTabLabel,
   canPasteClipboard,
@@ -87,6 +130,8 @@ const {
   goPrev,
   handleRestart,
   previewDataCount,
+  previewLoadState,
+  ensureFullPreviewDataLoaded,
   pendingDifferences,
   pagedPendingDifferences,
   pendingUndecidedCount,
@@ -110,76 +155,434 @@ const {
   restoreSelectedTablesForMapping
 } = useDataImportPage();
 
+const isCompletionStep = computed(
+  () =>
+    (!advancedMode.value && currentStep.value === 2) ||
+    (advancedMode.value && currentStep.value === 4)
+);
+
+const retryTableMetadata = () => {
+  if (uploadedFile.value) {
+    void loadUploadedFileMetadata(uploadedFile.value, { force: true });
+  }
+};
+
 const activeTableTabModel = computed({
   get: () => activeTableIndex.value ?? undefined,
   set: value => {
     activeTableIndex.value = typeof value === "number" ? value : Number(value);
   }
 });
+
+const activeSmartStructureTab = ref<number | undefined>();
+const smartConfirmDrafts = ref<
+  Record<number, SmartConfigConfirmRequest | null>
+>({});
+const batchConfirmImportRunning = ref(false);
+const fieldConflictDialogVisible = ref(false);
+const pendingFieldConflicts = ref<SmartStructureFieldConflictItem[]>([]);
+const batchConfirmingTableIndex = ref<number | null>(null);
+const batchConfirmProgress = ref<{
+  phase: SmartStructureBatchConfirmProgress["phase"];
+  current: number;
+  total: number;
+  tableName: string;
+}>({ phase: "validating", current: 0, total: 0, tableName: "" });
+
+watch(
+  () => uploadedFile.value?.fileId,
+  () => {
+    smartConfirmDrafts.value = {};
+    fieldConflictDialogVisible.value = false;
+    pendingFieldConflicts.value = [];
+    batchConfirmImportRunning.value = false;
+    batchConfirmingTableIndex.value = null;
+    batchConfirmProgress.value = {
+      phase: "validating",
+      current: 0,
+      total: 0,
+      tableName: ""
+    };
+  }
+);
+const smartStructureSelectableTableIndexes = computed(() =>
+  recognizedTables.value
+    .filter(canSelectSmartStructureTable)
+    .map(table => table.tableIndex)
+);
+const smartStructureSelectionDisabledReasons = computed(() =>
+  Object.fromEntries(
+    recognizedTables.value.map(table => [
+      table.tableIndex,
+      getSmartStructureImportSelectionDisabledReason(table)
+    ])
+  )
+);
+const smartStructureSelectionPendingReasons = computed(() =>
+  Object.fromEntries(
+    recognizedTables.value.map(table => [
+      table.tableIndex,
+      getSmartStructureImportReadinessReason(table)
+    ])
+  )
+);
+const pendingSelectedSmartTableCount = computed(
+  () =>
+    recognizedTables.value.filter(table => {
+      if (!selectedSmartTableIndexes.value.includes(table.tableIndex)) {
+        return false;
+      }
+      const hasDraftState = Object.prototype.hasOwnProperty.call(
+        smartConfirmDrafts.value,
+        table.tableIndex
+      );
+      const draft = smartConfirmDrafts.value[table.tableIndex];
+      return (
+        (hasDraftState && draft == null) ||
+        (table.decision !== "AutoApply" && draft == null)
+      );
+    }).length
+);
+const selectedSmartTablesRequiringConfirmationCount = computed(
+  () =>
+    recognizedTables.value.filter(table => {
+      if (!selectedSmartTableIndexes.value.includes(table.tableIndex)) {
+        return false;
+      }
+      const draft = smartConfirmDrafts.value[table.tableIndex];
+      return (
+        table.decision !== "AutoApply" || Boolean(draft?.userModifiedStructure)
+      );
+    }).length
+);
+const effectiveSmartConfirmingTableIndex = computed(
+  () => batchConfirmingTableIndex.value ?? smartConfirmingTableIndex.value
+);
+const handleSmartStructureDraftChange = (
+  table: SmartConfigRecognizedTable,
+  request: SmartConfigConfirmRequest | null
+) => {
+  smartConfirmDrafts.value = {
+    ...smartConfirmDrafts.value,
+    [table.tableIndex]: request
+  };
+};
+const smartBatchImportButtonText = computed(() =>
+  !batchConfirmImportRunning.value
+    ? "确认所选 Sheet、学习并开始导入"
+    : batchConfirmProgress.value.phase === "confirming"
+      ? `正在确认 ${batchConfirmProgress.value.current}/${batchConfirmProgress.value.total}`
+      : batchConfirmProgress.value.phase === "refreshing"
+        ? "正在刷新配置"
+        : batchConfirmProgress.value.phase === "importing"
+          ? "正在开始导入"
+          : "正在检查配置"
+);
+const smartBatchProgressText = computed(() => {
+  if (!batchConfirmImportRunning.value) return importProgressText.value;
+  if (batchConfirmProgress.value.phase === "confirming") {
+    return `正在确认第 ${batchConfirmProgress.value.current}/${batchConfirmProgress.value.total} 张 Sheet`;
+  }
+  if (batchConfirmProgress.value.phase === "refreshing") {
+    return "正在统一刷新导入配置";
+  }
+  if (batchConfirmProgress.value.phase === "importing") {
+    return "确认完成，正在开始导入";
+  }
+  return "正在检查所选 Sheet 配置";
+});
+const smartBatchProgressDescription = computed(() =>
+  batchConfirmImportRunning.value && batchConfirmProgress.value.tableName
+    ? `当前：${batchConfirmProgress.value.tableName}。全部确认成功后将自动开始导入。`
+    : importProgressDescription.value
+);
+const updateBatchConfirmProgress = (
+  progress: SmartStructureBatchConfirmProgress
+) => {
+  const table = recognizedTables.value.find(
+    item => item.tableIndex === progress.currentTableIndex
+  );
+  batchConfirmingTableIndex.value = progress.currentTableIndex ?? null;
+  batchConfirmProgress.value = {
+    phase: progress.phase,
+    current:
+      progress.phase === "confirming"
+        ? Math.min(progress.total, progress.completed + 1)
+        : progress.completed,
+    total: progress.total,
+    tableName:
+      table?.tableName || (table ? `工作表 ${table.tableIndex + 1}` : "")
+  };
+};
+const executeSmartStructureBatchConfirmImport = async () => {
+  if (batchConfirmImportRunning.value || importing.value) return;
+
+  if (pendingSelectedSmartTableCount.value > 0) {
+    const pendingTable = recognizedTables.value.find(
+      table =>
+        selectedSmartTableIndexes.value.includes(table.tableIndex) &&
+        smartConfirmDrafts.value[table.tableIndex] == null
+    );
+    if (pendingTable) activeSmartStructureTab.value = pendingTable.tableIndex;
+    ElMessage.warning("请先补齐已勾选 Sheet 的必填列或有效范围");
+    return;
+  }
+
+  batchConfirmImportRunning.value = true;
+  batchConfirmProgress.value = {
+    phase: "validating",
+    current: 0,
+    total: 0,
+    tableName: ""
+  };
+
+  try {
+    const drafts = new Map<number, SmartConfigConfirmRequest>();
+    Object.entries(smartConfirmDrafts.value).forEach(
+      ([tableIndex, request]) => {
+        if (request) drafts.set(Number(tableIndex), request);
+      }
+    );
+
+    const result = await runSmartStructureBatchConfirmImportAction({
+      tables: recognizedTables.value,
+      selectedTableIndexes: selectedSmartTableIndexes.value,
+      draftRequests: drafts,
+      requiresConfirmation: (table, request) =>
+        table.decision !== "AutoApply" ||
+        Boolean(request?.userModifiedStructure),
+      confirm: (table, request) =>
+        handleSmartStructureConfirm(table, request, {
+          refreshPreview: false
+        }),
+      refresh: applyCurrentSmartRecognizedTables,
+      importData: handleImport,
+      onProgress: updateBatchConfirmProgress
+    });
+
+    if (result.success) return;
+
+    if (result.failedTableIndex != null) {
+      activeSmartStructureTab.value = result.failedTableIndex;
+    }
+    const failedTable = recognizedTables.value.find(
+      table => table.tableIndex === result.failedTableIndex
+    );
+    const failedTableName =
+      failedTable?.tableName ||
+      (result.failedTableIndex == null
+        ? ""
+        : `工作表 ${result.failedTableIndex + 1}`);
+    if (result.failure === "missing-draft") {
+      ElMessage.warning(`${failedTableName}配置不完整，请补齐后重试`);
+    } else if (result.failure === "no-selected-tables") {
+      ElMessage.warning("请至少勾选一张需要导入的 Sheet");
+    } else if (result.failure === "confirm-failed") {
+      ElMessage.error(`${failedTableName}确认学习失败，已停止本次导入`);
+    } else if (result.failure === "refresh-failed") {
+      ElMessage.error("全部 Sheet 已确认，但刷新导入配置失败，请重试");
+    } else if (result.failure === "import-failed") {
+      ElMessage.error("确认学习已完成，但开始导入失败，请重试");
+    } else {
+      ElMessage.error("批量确认未完成，请检查 Sheet 配置后重试");
+    }
+  } finally {
+    batchConfirmImportRunning.value = false;
+    batchConfirmingTableIndex.value = null;
+  }
+};
+const handleSmartStructureBatchConfirmImport = async () => {
+  if (batchConfirmImportRunning.value || importing.value) return;
+
+  if (pendingSelectedSmartTableCount.value > 0) {
+    const pendingTable = recognizedTables.value.find(
+      table =>
+        selectedSmartTableIndexes.value.includes(table.tableIndex) &&
+        smartConfirmDrafts.value[table.tableIndex] == null
+    );
+    if (pendingTable) activeSmartStructureTab.value = pendingTable.tableIndex;
+    ElMessage.warning("请先补齐已勾选 Sheet 的必填列或有效范围");
+    return;
+  }
+
+  const conflicts = collectSmartStructureFieldConflicts(
+    recognizedTables.value,
+    selectedSmartTableIndexes.value
+  );
+  if (conflicts.length > 0) {
+    pendingFieldConflicts.value = conflicts;
+    fieldConflictDialogVisible.value = true;
+    return;
+  }
+
+  await executeSmartStructureBatchConfirmImport();
+};
+const handleFieldConflictCancel = () => {
+  fieldConflictDialogVisible.value = false;
+  pendingFieldConflicts.value = [];
+};
+const handleFieldConflictConfirm = async (
+  selections: SmartStructureFieldConflictSelection[]
+) => {
+  const currentTables = recognizedTables.value;
+  const nextTables = currentTables.map(table =>
+    applySmartStructureFieldSelectionsToTable(table, selections)
+  );
+  const nextDrafts = { ...smartConfirmDrafts.value };
+  currentTables.forEach(table => {
+    const request = nextDrafts[table.tableIndex];
+    if (!request) return;
+    nextDrafts[table.tableIndex] = applySmartStructureFieldSelectionsToDraft(
+      request,
+      table,
+      selections
+    );
+  });
+
+  smartConfirmDrafts.value = nextDrafts;
+  replaceRecognizedTables(nextTables, uploadedFile.value?.fileId);
+  fieldConflictDialogVisible.value = false;
+  pendingFieldConflicts.value = [];
+  await nextTick();
+  await executeSmartStructureBatchConfirmImport();
+};
+const showManualFallback = computed(
+  () =>
+    !!smartApplyError.value ||
+    shouldShowSmartStructureManualFallback({
+      recognitionAttempted: smartRecognitionAttempted.value,
+      recognizing: smartRecognizing.value,
+      error: smartRecognitionError.value,
+      tables: recognizedTables.value
+    })
+);
+const smartEntryError = computed(
+  () => smartRecognitionError.value || smartApplyError.value
+);
+const activeSmartStructureTable = computed(() =>
+  recognizedTables.value.find(
+    table => table.tableIndex === activeSmartStructureTab.value
+  )
+);
+const activeSmartStructureTableSelected = computed(
+  () =>
+    activeSmartStructureTable.value != null &&
+    selectedSmartTableIndexes.value.includes(
+      activeSmartStructureTable.value.tableIndex
+    )
+);
+const activeSmartStructureReadinessReason = computed(() => {
+  const table = activeSmartStructureTable.value;
+  return table ? getSmartStructureImportReadinessReason(table) : "";
+});
+const activeSmartStructureScopeTitle = computed(() =>
+  activeSmartStructureTableSelected.value &&
+  activeSmartStructureReadinessReason.value
+    ? "当前表已勾选，仍需配置"
+    : "当前表未参与本次导入"
+);
+const activeSmartStructureScopeDescription = computed(() => {
+  const table = activeSmartStructureTable.value;
+  if (!table) return "";
+
+  if (
+    activeSmartStructureTableSelected.value &&
+    activeSmartStructureReadinessReason.value
+  ) {
+    return `${activeSmartStructureReadinessReason.value}。补齐并确认前不计入下方导入汇总，也不能开始导入。`;
+  }
+
+  const reason = getSmartStructureImportSelectionDisabledReason(table);
+  const reasonText = reason ? `${reason}。` : "";
+  return `${reasonText}下方“已配置 Sheet 合计”只统计其他已勾选且完成配置的 Sheet，不包含当前表。`;
+});
 </script>
 
 <template>
-  <div class="page data-import">
+  <div
+    class="page data-import"
+    :class="{ 'data-import--complete': isCompletionStep }"
+  >
     <div class="page-header">
-      <div>
-        <div class="page-title">数据导入</div>
-        <div class="page-subtitle">导入验收规格数据，支持 Word/Excel</div>
-      </div>
-    </div>
-    <!-- 步骤条 -->
-    <el-affix v-if="affixTarget" :offset="affixOffset" :target="affixTarget">
-      <div class="steps-affix">
-        <el-card class="steps-card">
-          <el-steps :active="currentStep" finish-status="success">
-            <el-step
-              v-for="(step, index) in steps"
-              :key="index"
-              :title="step.title"
-              :description="step.description"
-            />
-          </el-steps>
-        </el-card>
-      </div>
-    </el-affix>
-    <div v-else class="steps-affix">
-      <el-card class="steps-card">
+      <div class="wizard-steps">
         <el-steps :active="currentStep" finish-status="success">
           <el-step
             v-for="(step, index) in steps"
             :key="index"
             :title="step.title"
-            :description="step.description"
           />
         </el-steps>
-      </el-card>
+      </div>
     </div>
 
     <div class="data-import-body">
       <!-- 步骤内容 -->
       <el-card class="step-content">
-        <!-- 步骤1: 上传文件 -->
+        <!-- 智能流程步骤1: 上传文件与选择目标 -->
         <DataImportStepUpload
-          v-show="currentStep === 0"
+          v-show="!advancedMode && currentStep === 0"
           v-model="uploadedFile"
           :can-upload-source-file="canUploadSourceFile"
           :can-import-any="canImportAny"
           :upload-accept="uploadAccept"
           :upload-blocked-message="uploadBlockedMessage"
+          :smart-recognition-error="smartEntryError"
+          :smart-recognizing="smartRecognizing"
           @uploaded="handleFileUploaded"
-        />
+          @retry-metadata="retryTableMetadata"
+          @retry="runSmartStructureRecognition"
+        >
+          <template #extra>
+            <div class="upload-target-panel">
+              <DataImportStepTarget
+                :customers="customers"
+                :processes="processes"
+                :machine-models="machineModels"
+                :selected-customer-id="selectedCustomerId"
+                :selected-process-id="selectedProcessId"
+                :selected-machine-model-id="selectedMachineModelId"
+                :loading-customers="loadingCustomers"
+                :loading-processes="loadingProcesses"
+                :loading-machine-models="loadingMachineModels"
+                compact
+                @update:selected-customer-id="
+                  value => (selectedCustomerId = value)
+                "
+                @update:selected-process-id="
+                  value => (selectedProcessId = value)
+                "
+                @update:selected-machine-model-id="
+                  value => (selectedMachineModelId = value)
+                "
+              />
+              <SmartStructureAiAssistControl
+                v-model:enabled="enableStructureLlmAssistance"
+                v-model:service-id="structureLlmServiceId"
+              />
+              <div class="smart-entry-actions">
+                <el-button
+                  v-if="showManualFallback"
+                  @click="enterAdvancedMode('tableSelect')"
+                >
+                  手动处理
+                </el-button>
+              </div>
+            </div>
+          </template>
+        </DataImportStepUpload>
 
-        <!-- 步骤2: 选择表格 -->
+        <!-- 高级模式步骤2: 选择表格 -->
         <DataImportStepTableSelect
-          v-show="currentStep === 1"
+          v-if="advancedMode && currentStep === 1"
           v-model="selectedTableIndexes"
           :uploaded-file="uploadedFile"
           :is-excel-file="isExcelFile"
           @selected-multiple="handleTablesSelected"
         />
 
-        <!-- 步骤3: 配置映射 -->
+        <!-- 高级模式步骤3: 配置映射 -->
         <DataImportStepMapping
-          v-show="currentStep === 2"
+          v-if="advancedMode && currentStep === 2"
           :is-excel-file="isExcelFile"
           :uploaded-file="uploadedFile"
           :table-configs="tableConfigs"
@@ -198,6 +601,11 @@ const activeTableTabModel = computed({
           @restore-tables="restoreSelectedTablesForMapping"
           @go-prev="goPrev"
         >
+          <div class="advanced-mode-toolbar">
+            <el-button type="primary" plain @click="exitAdvancedMode">
+              返回智能确认
+            </el-button>
+          </div>
           <el-tabs
             v-if="uploadedFile && tableConfigs.length > 0"
             v-model="activeTableTabModel"
@@ -238,6 +646,7 @@ const activeTableTabModel = computed({
                       : undefined
                   "
                   :mapping="isExcelFile ? undefined : cfg.wordMapping"
+                  :preview-loader="loadAdvancedPreview"
                   @loaded="data => handlePreviewLoaded(cfg.tableIndex, data)"
                 />
               </div>
@@ -247,6 +656,8 @@ const activeTableTabModel = computed({
                 <ExcelColumnMapping
                   v-if="isExcelFile"
                   :model-value="cfg.excelMapping"
+                  :detected-mapping="cfg.recognizedExcelMapping"
+                  :preview-data="cfg.previewData"
                   :used-range-start-row="cfg.tableInfo?.usedRangeStartRow"
                   :used-range-end-row="
                     cfg.tableInfo?.usedRangeStartRow !== undefined
@@ -270,9 +681,9 @@ const activeTableTabModel = computed({
           </el-tabs>
         </DataImportStepMapping>
 
-        <!-- 步骤4: 选择目标 -->
+        <!-- 高级模式步骤4: 选择目标 -->
         <DataImportStepTarget
-          v-show="currentStep === 3"
+          v-show="advancedMode && currentStep === 3"
           :customers="customers"
           :processes="processes"
           :machine-models="machineModels"
@@ -289,14 +700,120 @@ const activeTableTabModel = computed({
           "
         />
 
-        <!-- 步骤5: 确认导入 -->
+        <!-- 智能流程步骤2: 确认结构与预览 -->
+        <div
+          v-show="!advancedMode && currentStep === 1"
+          class="step-panel smart-confirm-step"
+        >
+          <SmartStructureSummaryBanner
+            :tables="recognizedTables"
+            :loading="smartRecognizing"
+            :error="smartRecognitionError"
+            @retry="runSmartStructureRecognition"
+          />
+          <SmartStructureConfirmTabs
+            v-model:active-table-index="activeSmartStructureTab"
+            :tables="recognizedTables"
+            :table-infos="smartTableInfos"
+            :is-excel-file="isExcelFile"
+            :selected-table-indexes="selectedSmartTableIndexes"
+            :selectable-table-indexes="smartStructureSelectableTableIndexes"
+            :selection-disabled-reasons="smartStructureSelectionDisabledReasons"
+            :selection-pending-reasons="smartStructureSelectionPendingReasons"
+            :file-id="uploadedFile?.fileId"
+            :customer-id="selectedCustomerId"
+            :confirming-table-index="effectiveSmartConfirmingTableIndex"
+            :show-confirm-action="false"
+            :interaction-locked="batchConfirmImportRunning || importing"
+            ready-label="可导入"
+            unavailable-label="跳过"
+            @draft-change="handleSmartStructureDraftChange"
+            @advanced="table => enterAdvancedMode('mapping', table.tableIndex)"
+            @update:table-selected="handleSmartTableImportSelectionChange"
+          />
+          <el-alert
+            v-if="
+              activeSmartStructureTable &&
+              (!activeSmartStructureTableSelected ||
+                activeSmartStructureReadinessReason)
+            "
+            :type="activeSmartStructureTableSelected ? 'warning' : 'info'"
+            :closable="false"
+            show-icon
+            :title="activeSmartStructureScopeTitle"
+            :description="activeSmartStructureScopeDescription"
+            class="smart-import-scope-alert"
+          />
+          <DataImportConfirmPanel
+            :import-result="importResult"
+            :is-excel-file="isExcelFile"
+            :can-upload-source-file="canUploadSourceFile"
+            :can-import-any="canImportAny"
+            :can-import-current-file="canImportCurrentFile"
+            :current-import-permission-message="currentImportPermissionMessage"
+            :has-pending-difference-confirmation="
+              hasPendingDifferenceConfirmation
+            "
+            :pending-differences-count="pendingDifferences.length"
+            :has-committed-import-progress="hasCommittedImportProgress"
+            :committed-success-count="
+              committedImportAggregate?.successCount || 0
+            "
+            :committed-skipped-count="
+              committedImportAggregate?.skippedCount || 0
+            "
+            :committed-failed-count="committedImportAggregate?.failedCount || 0"
+            :uploaded-file-name="uploadedFile?.fileName"
+            :table-configs="tableConfigs"
+            :selected-sheet-count="selectedSmartTableIndexes.length"
+            :pending-selected-sheet-count="pendingSelectedSmartTableCount"
+            :customers="customers"
+            :processes="processes"
+            :selected-customer-id="selectedCustomerId"
+            :selected-process-id="selectedProcessId"
+            :selected-machine-model-name="selectedMachineModelName"
+            :preview-data-count="previewDataCount"
+            :preview-load-state="previewLoadState"
+            :import-duplicate-ai-config="importDuplicateAiConfig"
+            :loading-ai-services="loadingAiServices"
+            :embedding-selection="embeddingSelection"
+            :llm-selection="llmSelection"
+            :removed-preview-row-count="removedPreviewRowCount"
+            :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
+            :import-preview-groups="importPreviewGroups"
+            :importing="importing || batchConfirmImportRunning"
+            :import-progress-text="smartBatchProgressText"
+            :import-progress-description="smartBatchProgressDescription"
+            :import-primary-button-text="smartBatchImportButtonText"
+            :skipped-rows-groups="skippedRowsGroups"
+            :show-import-action="false"
+            :allow-empty-preview-action="
+              selectedSmartTablesRequiringConfirmationCount > 0
+            "
+            @restart="handleRestart"
+            @open-difference-confirm-dialog="openDifferenceConfirmDialog"
+            @remove-selected-preview-rows="handleRemoveSelectedPreviewRows"
+            @restore-removed-preview-rows="handleRestoreRemovedPreviewRows"
+            @import-preview-selection-change="
+              handleImportPreviewSelectionChange
+            "
+            @remove-single-preview-row="handleRemoveSinglePreviewRow"
+            @load-full-preview="ensureFullPreviewDataLoaded"
+            @import="handleSmartStructureBatchConfirmImport"
+          />
+        </div>
+
+        <!-- 智能流程步骤3 / 高级模式步骤5: 完成 -->
         <DataImportStepConfirm
-          v-show="currentStep === 4"
+          v-show="
+            (!advancedMode && currentStep === 2) ||
+            (advancedMode && currentStep === 4)
+          "
           :import-result="importResult"
         >
           <DataImportConfirmPanel
-            v-model:preview-skipped-rows="previewSkippedRows"
             :import-result="importResult"
+            :is-excel-file="isExcelFile"
             :can-upload-source-file="canUploadSourceFile"
             :can-import-any="canImportAny"
             :can-import-current-file="canImportCurrentFile"
@@ -321,10 +838,11 @@ const activeTableTabModel = computed({
             :selected-process-id="selectedProcessId"
             :selected-machine-model-name="selectedMachineModelName"
             :preview-data-count="previewDataCount"
+            :preview-load-state="previewLoadState"
             :import-duplicate-ai-config="importDuplicateAiConfig"
             :loading-ai-services="loadingAiServices"
-            :embedding-services="embeddingServices"
-            :llm-services="llmServices"
+            :embedding-selection="embeddingSelection"
+            :llm-selection="llmSelection"
             :removed-preview-row-count="removedPreviewRowCount"
             :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
             :import-preview-groups="importPreviewGroups"
@@ -341,12 +859,13 @@ const activeTableTabModel = computed({
               handleImportPreviewSelectionChange
             "
             @remove-single-preview-row="handleRemoveSinglePreviewRow"
+            @load-full-preview="ensureFullPreviewDataLoaded"
             @import="handleImport"
           />
         </DataImportStepConfirm>
 
         <!-- 步骤按钮 -->
-        <div class="step-actions">
+        <div v-if="!isCompletionStep" class="step-actions">
           <el-button
             v-if="
               currentStep > 0 &&
@@ -358,7 +877,35 @@ const activeTableTabModel = computed({
             上一步
           </el-button>
           <el-button
-            v-if="currentStep < steps.length - 1"
+            v-if="
+              !advancedMode &&
+              currentStep === 1 &&
+              !importResult &&
+              canImportCurrentFile
+            "
+            type="primary"
+            :loading="importing || batchConfirmImportRunning"
+            :disabled="
+              pendingSelectedSmartTableCount > 0 ||
+              (selectedSmartTablesRequiringConfirmationCount === 0 &&
+                !hasPendingDifferenceConfirmation &&
+                previewDataCount === 0)
+            "
+            @click="handleSmartStructureBatchConfirmImport"
+          >
+            {{ smartBatchImportButtonText }}
+          </el-button>
+          <el-button
+            v-if="!advancedMode && currentStep === 0"
+            type="primary"
+            :disabled="nextDisabled"
+            :loading="smartRecognizing"
+            @click="goNext"
+          >
+            {{ smartStageText || "识别并进入确认" }}
+          </el-button>
+          <el-button
+            v-else-if="advancedMode && currentStep < steps.length - 1"
             type="primary"
             :disabled="nextDisabled"
             @click="goNext"
@@ -371,6 +918,7 @@ const activeTableTabModel = computed({
           v-model="differenceConfirmDialogVisible"
           v-model:pending-difference-page="pendingDifferencePage"
           v-model:pending-difference-page-size="pendingDifferencePageSize"
+          :is-excel-file="isExcelFile"
           :pending-differences="pendingDifferences"
           :paged-pending-differences="pagedPendingDifferences"
           :difference-decision-map="differenceDecisionMap"
@@ -388,6 +936,14 @@ const activeTableTabModel = computed({
             (key, decision) => (differenceDecisionMap[key] = decision)
           "
           @confirm="handleConfirmPendingDifferences"
+        />
+        <SmartStructureFieldConflictDialog
+          v-model:visible="fieldConflictDialogVisible"
+          :conflicts="pendingFieldConflicts"
+          :table-infos="smartTableInfos"
+          :is-excel-file="isExcelFile"
+          @cancel="handleFieldConflictCancel"
+          @confirm="handleFieldConflictConfirm"
         />
       </el-card>
     </div>

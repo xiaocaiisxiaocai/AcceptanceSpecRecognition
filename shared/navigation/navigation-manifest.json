@@ -25,6 +25,8 @@
     { "id": "config-database-backup", "code": "page:config:database-backup", "title": "数据库备份", "resource": "config", "action": "database-backup", "path": "/config/database-backup" },
     { "id": "config-prompt-templates", "code": "page:config:prompt-templates", "title": "Prompt模板", "resource": "config", "action": "prompt-templates", "path": "/config/prompt-templates" },
     { "id": "config-column-mapping-rules", "code": "page:config:column-mapping-rules", "title": "列映射规则", "resource": "config", "action": "column-mapping-rules", "path": "/config/column-mapping-rules" },
+    { "id": "config-document-templates", "code": "page:config:document-templates", "title": "结构模板", "resource": "config", "action": "document-templates", "path": "/config/document-templates" },
+    { "id": "config-smart-structure-routing-rules", "code": "page:config:smart-structure-routing-rules", "title": "表格路由规则", "resource": "config", "action": "smart-structure-routing-rules", "path": "/config/smart-structure-routing-rules" },
     { "id": "config-system-users", "code": "page:config:system-users", "title": "系统用户", "resource": "config", "action": "system-users", "path": "/rbac/system-users" },
     { "id": "config-org-units", "code": "page:config:org-units", "title": "组织管理", "resource": "config", "action": "org-units", "path": "/rbac/org-units" },
     { "id": "config-auth-roles", "code": "page:config:auth-roles", "title": "角色管理", "resource": "config", "action": "auth-roles", "path": "/rbac/auth-roles" },

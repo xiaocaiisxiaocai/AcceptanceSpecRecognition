@@ -13,7 +13,10 @@ test("预览表应禁用自动压缩列宽，避免宽表被挤到不可读", ()
 });
 
 test("预览表容器应显式开启横向滚动", () => {
-  assert.match(tablePreviewSource, /\.table-container\s*\{[\s\S]*overflow-x:\s*auto;/);
+  assert.match(
+    tablePreviewSource,
+    /\.table-container\s*\{[\s\S]*overflow:\s*auto hidden;/
+  );
 });
 
 test("预览表列头不应支持手动拖拽改列宽", () => {

@@ -6,6 +6,14 @@
 public interface IUnitOfWork : IDisposable
 {
     /// <summary>
+    /// 获取跨实例操作锁。调用方必须释放返回的租约。
+    /// </summary>
+    Task<IAsyncDisposable> AcquireOperationLockAsync(
+        string operationKey,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IAsyncDisposable>(NoopOperationLockLease.Instance);
+
+    /// <summary>
     /// 客户Repository
     /// </summary>
     ICustomerRepository Customers { get; }
@@ -51,6 +59,16 @@ public interface IUnitOfWork : IDisposable
     IColumnMappingRuleRepository ColumnMappingRules { get; }
 
     /// <summary>
+    /// 智能结构识别表格路由规则 Repository
+    /// </summary>
+    ISmartStructureRoutingRuleRepository SmartStructureRoutingRules { get; }
+
+    /// <summary>
+    /// 文档结构模板 Repository
+    /// </summary>
+    IDocumentTemplateRepository DocumentTemplates { get; }
+
+    /// <summary>
     /// 系统用户Repository
     /// </summary>
     ISystemUserRepository SystemUsers { get; }
@@ -70,6 +88,7 @@ public interface IUnitOfWork : IDisposable
     /// </summary>
     IExecutionHistoryRecordRepository ExecutionHistoryRecords { get; }
 
+
     /// <summary>
     /// 保存所有更改
     /// </summary>
@@ -87,13 +106,26 @@ public interface IUnitOfWork : IDisposable
     /// </summary>
     Task BeginTransactionAsync();
 
+    Task BeginTransactionAsync(CancellationToken cancellationToken) => BeginTransactionAsync();
+
     /// <summary>
     /// 提交事务
     /// </summary>
     Task CommitTransactionAsync();
 
+    Task CommitTransactionAsync(CancellationToken cancellationToken) => CommitTransactionAsync();
+
     /// <summary>
     /// 回滚事务
     /// </summary>
     Task RollbackTransactionAsync();
+
+    Task RollbackTransactionAsync(CancellationToken cancellationToken) => RollbackTransactionAsync();
+}
+
+internal sealed class NoopOperationLockLease : IAsyncDisposable
+{
+    public static NoopOperationLockLease Instance { get; } = new();
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

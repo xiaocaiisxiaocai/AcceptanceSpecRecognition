@@ -20,7 +20,8 @@ public sealed class AuthSeedOptions
 /// </summary>
 public sealed class AuthSeedOptionsValidator : IValidateOptions<AuthSeedOptions>
 {
-    private const int MinimumPasswordLength = 12;
+    private const int MinimumPasswordLength = 4;
+    private const int MaximumPasswordLength = 200;
 
     private readonly IHostEnvironment _hostEnvironment;
 
@@ -64,9 +65,16 @@ public sealed class AuthSeedOptionsValidator : IValidateOptions<AuthSeedOptions>
             return;
         }
 
-        if (password.Trim().Length < MinimumPasswordLength)
+        var passwordLength = password.Trim().Length;
+        if (passwordLength < MinimumPasswordLength || passwordLength > MaximumPasswordLength)
         {
-            failures.Add($"{AuthSeedOptions.SectionName}:{optionName} 长度至少需要 {MinimumPasswordLength} 位");
+            failures.Add(
+                $"{AuthSeedOptions.SectionName}:{optionName} 长度必须在 {MinimumPasswordLength} 到 {MaximumPasswordLength} 位之间");
+        }
+
+        if (ProductionSecretGuard.IsKnownPlaceholder(password))
+        {
+            failures.Add($"{AuthSeedOptions.SectionName}:{optionName} 不能使用示例值或已知占位符");
         }
     }
 }

@@ -9,6 +9,9 @@
 **/obj
 **/node_modules
 **/dist
+**/coverage
+**/test-results
+**/playwright-report
 **/.vite
 **/.turbo
 **/.nuxt
@@ -18,16 +21,45 @@
 .DS_Store
 Thumbs.db
 publish
-outputs
+/output
+/outputs
+**/output
+**/outputs
 coverage
 .claude
 .worktrees
 .codex*.log
+.playwright-cli
+.playwright-mcp
+.runlogs
+.ace-tool
+.codex-db-backups
+.cursor
+.superpowers
+.testbin
 *.log
 *.user
 *.suo
 *.bak
 *.tmp
+
+# 本地环境、凭据与运行数据（保留可提交的示例配置）
+/.env*
+!/.env*.example
+secrets.json
+*.pfx
+*.key
+*.sql
+**/*.sql
+/backups
+**/backups
+**/data-protection-keys
+/uploads
+**/uploads
+
+# 本地真实业务样本不得进入 Docker build context
+/huaian*
+/淮安庆鼎*
 
 tests
 tools
@@ -35,3 +67,10 @@ design-system
 docs
 openspec
 README.md
+/artifacts
+/screenshots
+/scripts
+/todo
+/提供测试的文档
+/.deploy
+/.github

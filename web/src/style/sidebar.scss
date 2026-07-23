@@ -34,16 +34,29 @@
   }
 
   .set-icon,
-  .fullscreen-icon {
+  .fullscreen-icon,
+  .search-container {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
+    width: 44px;
+    min-width: 44px;
     height: 48px;
+    padding: 0;
+    color: inherit;
     cursor: pointer;
+    background: transparent;
+    border: 0;
+
+    &:focus-visible {
+      outline: 3px solid var(--el-color-primary-light-5);
+      outline-offset: -3px;
+    }
   }
 
   .main-container {
+    --app-content-left: #{$sideBarWidth};
+
     position: relative;
     height: 100vh;
     min-height: 100%;
@@ -71,6 +84,8 @@
   }
 
   .main-hidden {
+    --app-content-left: 0px !important;
+
     margin-left: 0 !important;
 
     .fixed-header {
@@ -410,7 +425,11 @@
       min-width: 200px;
       height: 100%;
       padding-left: 10px;
+      font-family: inherit;
+      text-align: left;
       cursor: pointer;
+      background: transparent;
+      border: 0;
       transition: all var(--pure-transition-duration) ease;
 
       img {
@@ -465,8 +484,11 @@
         justify-content: space-around;
         height: 48px;
         padding: 10px;
+        font-family: inherit;
         color: var(--pure-theme-sub-menu-active-text);
         cursor: pointer;
+        background: transparent;
+        border: 0;
 
         p {
           font-size: 14px;
@@ -531,6 +553,8 @@
     }
 
     .main-container {
+      --app-content-left: 0px !important;
+
       margin-left: 0 !important;
     }
 
@@ -579,6 +603,8 @@ body[layout="vertical"] {
     }
 
     .main-container {
+      --app-content-left: 54px;
+
       margin-left: 54px;
     }
 
@@ -672,6 +698,8 @@ body[layout="mix"] {
     }
 
     .main-container {
+      --app-content-left: 54px;
+
       margin-left: 54px;
     }
 

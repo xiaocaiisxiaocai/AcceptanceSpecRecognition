@@ -58,15 +58,18 @@ public class PromptTemplateRepository : Repository<PromptTemplate>, IPromptTempl
     /// <param name="name">系统键</param>
     /// <param name="displayName">展示名称</param>
     /// <param name="defaultContent">默认内容</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>模板</returns>
     public async Task<PromptTemplate> GetOrCreateSystemAsync(
         PromptTemplateScene scene,
         string name,
         string displayName,
-        string defaultContent)
+        string defaultContent,
+        CancellationToken cancellationToken = default)
     {
         var template = await _dbSet.FirstOrDefaultAsync(p =>
-            (p.IsSystem && p.Scene == scene) || p.Name == name);
+            (p.IsSystem && p.Scene == scene) || p.Name == name,
+            cancellationToken);
 
         if (template == null)
         {
@@ -80,7 +83,7 @@ public class PromptTemplateRepository : Repository<PromptTemplate>, IPromptTempl
                 CreatedAt = DateTime.UtcNow
             };
 
-            await _dbSet.AddAsync(template);
+            await _dbSet.AddAsync(template, cancellationToken);
             return template;
         }
 

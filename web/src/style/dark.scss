@@ -8,14 +8,48 @@ html.dark {
   /* 自定义深色背景颜色 */
   // --el-bg-color: #020409;
 
-  --color-background: #0b0c12;
-  --color-text: #e5e7eb;
-  --el-bg-color: #0b0c12;
-  --el-card-bg-color: #0f1117;
-  --el-card-border-color: #232633;
-  --el-table-border-color: #232633;
-  --el-table-header-bg-color: #1f2432;
-  --el-table-row-hover-bg-color: #141824;
+  --app-bg-page: #0b0c12;
+  --app-bg-card: #0f1117;
+  --app-text-primary: #e5e7eb;
+  --app-text-secondary: #a1a1aa;
+  --app-text-disabled: #71717a;
+  --app-border: #232633;
+  --app-border-light: #1f2432;
+  --app-fill-hover: #141824;
+
+  /* 品牌与语义色（暗色版） */
+  --app-primary: #6ea8e6;
+  --app-primary-light: rgb(6 71 144 / 35%);
+  --app-success: #4ade80;
+  --app-success-bg: rgb(22 163 74 / 16%);
+  --app-warning: #fbbf24;
+  --app-warning-bg: rgb(217 119 6 / 18%);
+  --app-danger: #ef4444;
+  --app-danger-bg: rgb(220 38 38 / 16%);
+  --app-info: #a1a1aa;
+  --app-info-bg: #151924;
+
+  /* 业务决策语义色（暗色版） */
+  --app-decision-auto: var(--app-success);
+  --app-decision-review: var(--app-warning);
+  --app-decision-reject: var(--app-danger);
+  --app-decision-ai: var(--app-primary);
+
+  /* diff 配色（暗色版） */
+  --app-diff-add-bg: rgb(46 160 67 / 15%);
+  --app-diff-add-emphasis: rgb(46 160 67 / 32%);
+  --app-diff-add-text: #7ee787;
+  --app-diff-del-bg: rgb(248 81 73 / 15%);
+  --app-diff-del-emphasis: rgb(248 81 73 / 32%);
+  --app-diff-del-text: #ff7b72;
+  --color-background: var(--app-bg-page);
+  --color-text: var(--app-text-primary);
+  --el-bg-color: var(--app-bg-page);
+  --el-card-bg-color: var(--app-bg-card);
+  --el-card-border-color: var(--app-border);
+  --el-table-border-color: var(--app-border);
+  --el-table-header-bg-color: var(--app-border-light);
+  --el-table-row-hover-bg-color: var(--app-fill-hover);
 
   /* 常用border-color 需要时可取用 */
   --pure-border-color: rgb(253 253 253 / 12%);
@@ -36,7 +70,7 @@ html.dark {
 
   .app-main,
   .app-main-nofixed-header {
-    background: #020409 !important;
+    background: var(--app-bg-page) !important;
   }
 
   /* 标签页 */
@@ -89,12 +123,12 @@ html.dark {
   }
 
   .el-card {
-    --el-card-bg-color: var(--el-bg-color);
+    --el-card-bg-color: var(--app-bg-card);
   }
 
   .el-card__header {
-    background: #151924;
-    border-bottom-color: #232633;
+    background: var(--app-info-bg);
+    border-bottom-color: var(--app-border);
   }
 
   .el-button--default {

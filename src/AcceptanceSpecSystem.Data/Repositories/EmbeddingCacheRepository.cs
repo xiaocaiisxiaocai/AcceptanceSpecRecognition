@@ -36,12 +36,15 @@ public class EmbeddingCacheRepository : Repository<EmbeddingCache>, IEmbeddingCa
     /// 根据规格ID获取该规格的所有向量缓存记录。
     /// </summary>
     /// <param name="specId">验收规格ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>向量缓存列表</returns>
-    public async Task<IReadOnlyList<EmbeddingCache>> GetBySpecIdAsync(int specId)
+    public async Task<IReadOnlyList<EmbeddingCache>> GetBySpecIdAsync(
+        int specId,
+        CancellationToken cancellationToken = default)
     {
         return await _dbSet
             .Where(e => e.SpecId == specId)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>

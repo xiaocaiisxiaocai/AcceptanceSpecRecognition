@@ -2,6 +2,7 @@
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Services;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.Authentication;
@@ -13,6 +14,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
@@ -38,22 +40,36 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
                 ["ApiRateLimits:Login:PermitLimit"] = "10000",
                 ["ApiRateLimits:RefreshToken:PermitLimit"] = "10000",
                 ["ApiRateLimits:Upload:PermitLimit"] = "10000",
-                ["ApiRateLimits:AiHeavy:PermitLimit"] = "10000"
+                ["ApiRateLimits:AiHeavy:PermitLimit"] = "10000",
+                ["BrowserAuth:RefreshCookieName"] = "__Host-acceptance-refresh",
+                ["BrowserAuth:CookieSecure"] = "true",
+                ["BrowserAuth:AllowInsecureHttp"] = "false",
+                ["BrowserAuth:AllowedOrigins:0"] = AuthCookieTestHelper.AllowedOrigin
             });
         });
 
         builder.ConfigureServices(services =>
         {
+            // 集成测试逐请求共享同一条 SQLite 内存连接，后台周期任务若同时访问该连接会制造
+            // 与业务行为无关的 database locked/连接释放竞态。后台服务各自有独立生命周期测试，
+            // API 工厂只验证请求路径，因此在此统一移除宿主后台任务。
+            services.RemoveAll<IHostedService>();
+
             // Replace AppDbContext (MySQL) with SQLite in-memory
             services.RemoveAll(typeof(DbContextOptions<AppDbContext>));
             services.RemoveAll(typeof(AppDbContext));
 
-            _connection = new SqliteConnection("DataSource=:memory:");
+            // 使用唯一命名的共享内存库：锚连接负责数据库生命周期，每个 DbContext
+            // 通过相同连接字符串创建独立连接，才能真实覆盖并发 HTTP scope。
+            // 直接复用同一个 DbConnection 会让两个并发 refresh 在测试基础设施层偶发 500。
+            var databaseName = $"AcceptanceSpecSystemTests-{Guid.NewGuid():N}";
+            var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared;Default Timeout=30";
+            _connection = new SqliteConnection(connectionString);
             _connection.Open();
 
             services.AddDbContext<AppDbContext>(options =>
             {
-                options.UseSqlite(_connection);
+                options.UseSqlite(connectionString);
             });
 
             // Replace file storage with an isolated temp directory
@@ -66,10 +82,14 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll(typeof(ILlmReviewService));
             services.RemoveAll(typeof(ILlmEquivalenceAdjudicationService));
             services.RemoveAll(typeof(ILlmCandidateRerankService));
+            services.RemoveAll(typeof(ILlmDocumentStructureAdjudicationService));
+            services.RemoveAll(typeof(ILlmColumnSemanticRecallService));
             services.RemoveAll(typeof(IEmbeddingService));
             services.AddScoped<ILlmReviewService, TestLlmReviewService>();
             services.AddScoped<ILlmEquivalenceAdjudicationService, TestLlmEquivalenceAdjudicationService>();
             services.AddScoped<ILlmCandidateRerankService, TestLlmCandidateRerankService>();
+            services.AddScoped<ILlmDocumentStructureAdjudicationService, TestLlmDocumentStructureAdjudicationService>();
+            services.AddScoped<ILlmColumnSemanticRecallService, TestLlmColumnSemanticRecallService>();
             services.AddScoped<IEmbeddingService, TestEmbeddingService>();
 
             // 使用测试鉴权（默认 admin），避免真实 JWT 依赖影响集成测试
@@ -250,3 +270,24 @@ public sealed class RealJwtApiWebApplicationFactory : ApiWebApplicationFactory
     protected override bool UseTestAuthentication => false;
 }
 
+public sealed class InsecureHttpRealJwtApiWebApplicationFactory : ApiWebApplicationFactory
+{
+    protected override bool UseTestAuthentication => false;
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["BrowserAuth:RefreshCookieName"] = AuthCookieTestHelper.InsecureRefreshCookieName,
+                ["BrowserAuth:CsrfCookieName"] = AuthCookieTestHelper.CsrfCookieName,
+                ["BrowserAuth:CookieSecure"] = "false",
+                ["BrowserAuth:CookieSameSite"] = "Strict",
+                ["BrowserAuth:CookiePath"] = "/",
+                ["BrowserAuth:CookieDomain"] = null,
+                ["BrowserAuth:AllowInsecureHttp"] = "true",
+                ["BrowserAuth:AllowedOrigins:0"] = AuthCookieTestHelper.AllowedOrigin
+            }));
+    }
+}

@@ -145,7 +145,9 @@ public sealed class AcceptanceSpecQueryService
             page,
             pageSize);
 
-        var (items, total) = await _unitOfWork.AcceptanceSpecs.GetPagedWithFilterAsync(options);
+        var (items, total) = await _unitOfWork.AcceptanceSpecs.GetPagedWithFilterAsync(
+            options,
+            cancellationToken);
 
         return new PagedResult<AcceptanceSpecSummary>
         {
@@ -160,7 +162,9 @@ public sealed class AcceptanceSpecQueryService
         SpecAccessContext scope,
         CancellationToken cancellationToken = default)
     {
-        var groups = await _unitOfWork.AcceptanceSpecs.GetGroupSummaryWithFilterAsync(BuildQueryOptions(scope));
+        var groups = await _unitOfWork.AcceptanceSpecs.GetGroupSummaryWithFilterAsync(
+            BuildQueryOptions(scope),
+            cancellationToken);
         return groups
             .Select(group => new SpecGroupSummary
             {
@@ -195,7 +199,8 @@ public sealed class AcceptanceSpecQueryService
                 processId,
                 machineModelId,
                 processIdIsNull,
-                machineModelIdIsNull));
+                machineModelIdIsNull),
+            cancellationToken);
 
         return SpecDuplicateDetectionService.Detect(allSpecs, minSimilarity, maxGroups);
     }

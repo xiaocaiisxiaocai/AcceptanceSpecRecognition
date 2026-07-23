@@ -39,6 +39,7 @@ type UseSmartFillPreviewRequestOptions = {
   resetPreviewProgress: () => void;
   markPreviewProgressCompleted: () => void;
   getCurrentPreviewRequestId: () => string | null;
+  isPreviewStep?: () => boolean;
   clearPreviewDetail: () => void;
   /** 由调用方提供的预览请求发起函数，接收 data 和 controller（AbortController），返回请求 Promise */
   onSendPreview?: (
@@ -70,6 +71,7 @@ export function useSmartFillPreviewRequest({
   resetPreviewProgress,
   markPreviewProgressCompleted,
   getCurrentPreviewRequestId,
+  isPreviewStep,
   clearPreviewDetail,
   onSendPreview
 }: UseSmartFillPreviewRequestOptions) {
@@ -119,11 +121,6 @@ export function useSmartFillPreviewRequest({
       return;
     }
 
-    resetPreviewState();
-    batchPreviewResults.value = [];
-    clearPreviewDetail();
-    taskId.value = null;
-    lastDownloadFailed.value = false;
     loading.value = true;
     const previewRequestId = createPreviewRequestId();
     startPreviewProgressPolling(previewRequestId, () => loading.value);
@@ -145,6 +142,8 @@ export function useSmartFillPreviewRequest({
           headerRowStart: t.headerRowStart,
           headerRowCount: t.headerRowCount,
           dataStartRow: t.dataStartRow,
+          dataEndRow: t.dataEndRow,
+          regions: t.regions,
           filterEmptySourceRows: getEffectiveFilterEmptySourceRows(t)
         })),
         customerId: scope.customerId,
@@ -162,7 +161,7 @@ export function useSmartFillPreviewRequest({
       if (res.code === 0) {
         if (
           requestVersion !== previewRequestVersion ||
-          currentStep.value !== 3 ||
+          (isPreviewStep ? !isPreviewStep() : currentStep.value !== 3) ||
           uploadedFile.value?.fileId !== fileId ||
           previewAbortController.value !== controller
         ) {
@@ -170,6 +169,9 @@ export function useSmartFillPreviewRequest({
         }
 
         markPreviewProgressCompleted();
+        clearPreviewDetail();
+        taskId.value = null;
+        lastDownloadFailed.value = false;
         batchPreviewResults.value = res.data.tables;
         const hasPreviewRows = res.data.tables.some(
           table => table.items.length > 0

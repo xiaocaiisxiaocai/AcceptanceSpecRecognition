@@ -1,5 +1,10 @@
 import { http } from "@/utils/http";
-import type { ApiResponse, PagedData, PagedRequest } from "./customer";
+import type {
+  ApiResponse,
+  PagedData,
+  PagedListRequestOptions,
+  PagedRequest
+} from "./customer";
 
 /** 制程类型 */
 export interface Process {
@@ -41,9 +46,13 @@ export interface AcceptanceSpec {
 const baseUrl = "/api/processes";
 
 /** 获取制程列表 */
-export const getProcessList = (params?: ProcessListRequest) => {
+export const getProcessList = (
+  params?: ProcessListRequest,
+  options?: PagedListRequestOptions
+) => {
   return http.request<ApiResponse<PagedData<Process>>>("get", baseUrl, {
-    params
+    params,
+    signal: options?.signal
   });
 };
 

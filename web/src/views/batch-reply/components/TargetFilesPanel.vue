@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { UploadFilled } from "@element-plus/icons-vue";
-import type { UploadFile, UploadFiles, UploadInstance } from "element-plus";
 import type { TableData } from "@/api/document";
 import BatchTableConfigPanel from "@/views/smart-fill/components/BatchTableConfig.vue";
 import type {
@@ -12,6 +10,8 @@ import type {
   BatchReplySourceFileState,
   BatchReplyTargetState
 } from "../batch-reply-state";
+import AppUploadZone from "@/components/AppUploadZone.vue";
+import type { AppUploadRequest } from "@/components/useAppUploadTask";
 
 defineProps<{
   activeTargetFileId: string;
@@ -31,18 +31,13 @@ defineProps<{
   sourceFile: BatchReplySourceFileState | null;
   targetAccept: ".xlsx" | ".docx";
   targetFiles: BatchReplyTargetState[];
-  targetUploading: boolean;
   targetUploadKey: number;
+  uploadRequest: AppUploadRequest;
 }>();
-
-const targetUploadRef = defineModel<UploadInstance | undefined>(
-  "targetUploadRef"
-);
 
 defineEmits<{
   "update:activeTargetFileId": [value: string];
   configChange: [targetId: string, value: BatchReplyTableConfigItem[]];
-  fileChange: [uploadFile: UploadFile, uploadFiles: UploadFiles];
   preview: [targetId: string, item: BatchReplyTableConfigItem];
   remove: [targetId: string];
 }>();
@@ -64,41 +59,32 @@ defineEmits<{
       type="warning"
       :closable="false"
       show-icon
-      title="请先在“来源文件”步骤里至少保留一个来源表"
+      title="请先在来源文件步骤里至少保留一个来源表"
     />
 
-    <el-upload
-      ref="targetUploadRef"
-      :key="targetUploadKey"
-      class="upload-area"
-      drag
-      multiple
-      :auto-upload="false"
-      :show-file-list="false"
-      :on-change="
-        (uploadFile, uploadFiles) =>
-          $emit('fileChange', uploadFile, uploadFiles)
-      "
-      :accept="sourceFile ? targetAccept : '.docx,.xlsx'"
-      :disabled="!sourceFile || !canUploadTargetFile || targetUploading"
-    >
-      <el-icon class="el-icon--upload" :size="52">
-        <UploadFilled />
-      </el-icon>
-      <div class="el-upload__text">
-        <span v-if="!sourceFile">请先上传来源文件</span>
-        <span v-else>将目标文件拖到此处，或 <em>点击添加</em></span>
-      </div>
-      <template #tip>
-        <div class="el-upload__tip">
-          {{
-            sourceFile
-              ? `当前仅接受 ${targetAccept} 格式`
-              : "来源文件确认后自动限定同格式上传"
-          }}
-        </div>
-      </template>
-    </el-upload>
+    <div v-if="canUploadTargetFile">
+      <AppUploadZone
+        :key="targetUploadKey"
+        :request="uploadRequest"
+        reset-after-success
+        :accept="sourceFile ? targetAccept : '.docx,.xlsx'"
+        :size="targetFiles.length > 0 ? 'small' : 'normal'"
+        :drag-text="
+          sourceFile
+            ? targetFiles.length > 0
+              ? '继续添加目标文件：拖到此处或'
+              : '将目标文件拖到此处或'
+            : '请先上传来源文件'
+        "
+        :tip-text="
+          sourceFile
+            ? targetFiles.length > 0
+              ? `可继续添加，当前仅接受 ${targetAccept} 格式`
+              : `当前仅接受 ${targetAccept} 格式`
+            : '来源文件确认后自动限定同格式上传'
+        "
+      />
+    </div>
 
     <el-empty
       v-if="targetFiles.length === 0"

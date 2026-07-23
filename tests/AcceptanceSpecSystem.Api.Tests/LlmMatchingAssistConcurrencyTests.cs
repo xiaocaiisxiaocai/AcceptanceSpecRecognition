@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
@@ -28,6 +29,9 @@ public class LlmMatchingAssistConcurrencyTests : IClassFixture<LlmAssistConcurre
     public async Task ScopedLlmAssistServices_ShouldShareInstanceAndSerializeDbBackedCacheInitialization()
     {
         using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider
+            .GetRequiredService<AiServiceReadinessRegistry>()
+            .ReportAvailable(71, AiServicePurpose.Llm);
         var reviewService = scope.ServiceProvider.GetRequiredService<ILlmReviewService>();
         var adjudicationService = scope.ServiceProvider.GetRequiredService<ILlmEquivalenceAdjudicationService>();
         var rerankService = scope.ServiceProvider.GetRequiredService<ILlmCandidateRerankService>();

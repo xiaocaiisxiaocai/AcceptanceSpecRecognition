@@ -15,15 +15,18 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
     private readonly IAiServiceSelector _selector;
     private readonly ISemanticKernelServiceFactory _factory;
     private readonly ILogger<SemanticKernelEmbeddingService> _logger;
+    private readonly IAiServiceRuntimeStatusReporter _runtimeStatusReporter;
 
     public SemanticKernelEmbeddingService(
         IAiServiceSelector selector,
         ISemanticKernelServiceFactory factory,
-        ILogger<SemanticKernelEmbeddingService> logger)
+        ILogger<SemanticKernelEmbeddingService> logger,
+        IAiServiceRuntimeStatusReporter? runtimeStatusReporter = null)
     {
         _selector = selector;
         _factory = factory;
         _logger = logger;
+        _runtimeStatusReporter = runtimeStatusReporter ?? NullAiServiceRuntimeStatusReporter.Instance;
     }
 
     public bool IsAvailable => true;
@@ -66,6 +69,7 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
         var errors = new List<string>();
         foreach (var cfg in candidates)
         {
+            var readinessGeneration = _runtimeStatusReporter.CaptureGeneration(cfg.Id);
             try
             {
                 var sw = Stopwatch.StartNew();
@@ -102,6 +106,10 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
                 _logger.LogInformation(
                     "批量生成 {UniqueCount} 个 Embedding 完成（原始 {Total} 个，去重 {Dedup} 个），耗时 {Elapsed}ms",
                     uniqueTexts.Count, textList.Count, dedupCount, sw.ElapsedMilliseconds);
+                _runtimeStatusReporter.ReportAvailableIfCurrent(
+                    cfg.Id,
+                    AiServicePurpose.Embedding,
+                    readinessGeneration);
                 return results;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -111,8 +119,12 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
             }
             catch (Exception ex)
             {
+                _runtimeStatusReporter.ReportUnavailableIfCurrent(
+                    cfg.Id,
+                    AiServicePurpose.Embedding,
+                    readinessGeneration);
                 errors.Add($"{cfg.Name}: {ex.Message}");
-                _logger.LogWarning(ex, "Embedding 生成失败: {Name}", cfg.Name);
+                _logger.LogWarning("Embedding 生成失败: {Name}, exceptionType={ExceptionType}", cfg.Name, ex.GetType().Name);
             }
         }
 
@@ -170,10 +182,15 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
         var errors = new List<string>();
         foreach (var cfg in candidates)
         {
+            var readinessGeneration = _runtimeStatusReporter.CaptureGeneration(cfg.Id);
             try
             {
                 var generator = _factory.CreateEmbeddingGenerator(cfg);
                 var vector = await generator.GenerateVectorAsync(text, cancellationToken: cancellationToken);
+                _runtimeStatusReporter.ReportAvailableIfCurrent(
+                    cfg.Id,
+                    AiServicePurpose.Embedding,
+                    readinessGeneration);
                 return vector.ToArray();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -183,8 +200,12 @@ public class SemanticKernelEmbeddingService : IEmbeddingService
             }
             catch (Exception ex)
             {
+                _runtimeStatusReporter.ReportUnavailableIfCurrent(
+                    cfg.Id,
+                    AiServicePurpose.Embedding,
+                    readinessGeneration);
                 errors.Add($"{cfg.Name}: {ex.Message}");
-                _logger.LogWarning(ex, "Embedding 生成失败: {Name}", cfg.Name);
+                _logger.LogWarning("Embedding 生成失败: {Name}, exceptionType={ExceptionType}", cfg.Name, ex.GetType().Name);
             }
         }
 

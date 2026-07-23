@@ -68,6 +68,27 @@ export default {
         title: getPageTitle("config-column-mapping-rules"),
         permissions: getPagePermission("config-column-mapping-rules")
       }
+    },
+    {
+      path: "/config/document-templates",
+      name: "DocumentTemplates",
+      component: () => import("@/views/config/document-templates/index.vue"),
+      meta: {
+        icon: "ri:file-search-line",
+        title: getPageTitle("config-document-templates"),
+        permissions: getPagePermission("config-document-templates")
+      }
+    },
+    {
+      path: "/config/smart-structure-routing-rules",
+      name: "SmartStructureRoutingRules",
+      component: () =>
+        import("@/views/config/smart-structure-routing-rules/index.vue"),
+      meta: {
+        icon: "ri:git-branch-line",
+        title: getPageTitle("config-smart-structure-routing-rules"),
+        permissions: getPagePermission("config-smart-structure-routing-rules")
+      }
     }
   ]
 } satisfies RouteConfigsTable;

@@ -1,5 +1,6 @@
 import type {
   ColumnMapping as ColumnMappingType,
+  TableData,
   TableInfo
 } from "@/api/document";
 import type {
@@ -64,6 +65,60 @@ export const normalizeExcelMappingByTable = (
   };
 };
 
+export type ExcelColumnOption = {
+  value: number;
+  label: string;
+  letter: string;
+  localIndex: number;
+  header: string;
+};
+
+export const toExcelColumnLetter = (columnNumber?: number) => {
+  if (!columnNumber || columnNumber <= 0) {
+    return "";
+  }
+
+  let current = columnNumber;
+  let result = "";
+  while (current > 0) {
+    current -= 1;
+    result = String.fromCharCode(65 + (current % 26)) + result;
+    current = Math.floor(current / 26);
+  }
+  return result;
+};
+
+export const buildExcelColumnOptions = (
+  tableInfo: TableInfo | undefined,
+  previewData?: TableData | null
+): ExcelColumnOption[] => {
+  const usedStartColumn = tableInfo?.usedRangeStartColumn ?? 1;
+  const displayHeaders = previewData?.headers || tableInfo?.headers || [];
+  const rowMaxColumnCount = Math.max(
+    0,
+    ...(previewData?.rows || []).map(row => row.length)
+  );
+  const columnCount = Math.max(
+    tableInfo?.columnCount ?? 0,
+    previewData?.columnCount ?? 0,
+    displayHeaders.length,
+    rowMaxColumnCount
+  );
+
+  return Array.from({ length: columnCount }, (_, index) => {
+    const value = usedStartColumn + index;
+    const header = (displayHeaders[index] || "").trim();
+    const letter = toExcelColumnLetter(value);
+    return {
+      value,
+      label: `第 ${index + 1} 列（${letter}）${header}`,
+      letter,
+      localIndex: index,
+      header
+    };
+  });
+};
+
 export type ExcelMappingRowField =
   | "headerRowStart"
   | "headerRowCount"
@@ -106,25 +161,48 @@ export const createDefaultExcelMapping = (
     )
   });
 
-export const getMissingMappingFields = (mapping: ColumnMappingType) => {
+export const getMissingMappingFields = (
+  mapping: ColumnMappingType,
+  isSpecificationOnly = false
+) => {
   const missing: string[] = [];
-  if (mapping.projectColumn === undefined) missing.push("项目名称列");
-  if (mapping.specificationColumn === undefined) missing.push("规格内容列");
-  if (mapping.acceptanceColumn === undefined) missing.push("验收标准列");
-  if (mapping.remarkColumn === undefined) missing.push("备注列");
+  if (!isSpecificationOnly && mapping.projectColumn == null) {
+    missing.push("项目名称列");
+  }
+  if (mapping.specificationColumn == null) missing.push("规格内容列");
+  if (mapping.acceptanceColumn == null) missing.push("验收标准列");
+  if (mapping.remarkColumn == null) missing.push("备注列");
   return missing;
 };
 
-export const getMissingExcelMappingFields = (mapping?: ExcelSheetMapping) => {
+export const getMissingExcelMappingFields = (
+  mapping?: ExcelSheetMapping,
+  isSpecificationOnly = false
+) => {
   const missing: string[] = [];
   if (!mapping) return ["Excel 映射未配置"];
-  if (!mapping.projectColumn) missing.push("项目列");
+  if (!isSpecificationOnly && !mapping.projectColumn) missing.push("项目列");
   if (!mapping.specificationColumn) missing.push("规格列");
   if (mapping.headerRowStart < 1) missing.push("表头起始行");
   if (mapping.headerRowCount < 0) missing.push("表头行数");
   if (mapping.dataStartRow < 1) missing.push("数据起始行");
   if (mapping.dataEndRow < mapping.dataStartRow) missing.push("数据结束行");
   return missing;
+};
+
+export const shouldBackfillProjectFromSpecification = (
+  cfg: TableImportConfig
+) => {
+  if (!cfg.isSpecificationOnly) {
+    return false;
+  }
+
+  const projectColumn = cfg.excelMapping
+    ? normalizeExcelMappingByTable(cfg.tableInfo, cfg.excelMapping)
+        .projectColumn
+    : cfg.wordMapping?.projectColumn;
+
+  return projectColumn == null;
 };
 
 export const getWordPreviewColumnIndexes = (cfg: TableImportConfig) => {
@@ -157,43 +235,120 @@ export const getPreviewCellValue = (row: string[], columnIndex?: number) => {
   return typeof value === "string" ? value.trim() : "";
 };
 
+export const getSkippedPreviewHeaderGroupLabel = (label: string) => {
+  const normalizedLabel = label.trim();
+  const levels = normalizedLabel
+    .split(/\s+[\/／]\s+/)
+    .map(level => level.trim())
+    .filter(Boolean);
+
+  return levels[0] || normalizedLabel;
+};
+
+export const buildSkippedPreviewColumns = (
+  headers: string[],
+  columnCount: number
+): SkippedPreviewColumn[] => {
+  const columns: SkippedPreviewColumn[] = [];
+
+  for (let index = 0; index < columnCount; index += 1) {
+    const sourceHeader = (headers[index] || "").trim();
+    const label = sourceHeader
+      ? getSkippedPreviewHeaderGroupLabel(sourceHeader)
+      : `列${index + 1}`;
+    const previous = columns[columns.length - 1];
+
+    if (sourceHeader && previous?.label === label) {
+      previous.indexes.push(index);
+    } else {
+      columns.push({ indexes: [index], label });
+    }
+  }
+
+  return columns;
+};
+
+export const mergeSkippedPreviewCellValues = (
+  rowValues: string[] | null | undefined,
+  indexes: number[]
+) => {
+  const values = indexes
+    .map(index => rowValues?.[index]?.trim() || "")
+    .filter(Boolean);
+
+  return [...new Set(values)].join("；");
+};
+
+const buildSkippedSemanticPreviewColumns = (
+  tableCfg: TableImportConfig | undefined,
+  regionLocation:
+    | NonNullable<TableImportConfig["excelPreviewRowLocations"]>[number]
+    | undefined
+): SkippedPreviewColumn[] => {
+  const mapping = regionLocation?.mapping;
+  const indexes = mapping
+    ? "headerRowStart" in mapping
+      ? getExcelPreviewColumnIndexes({ ...tableCfg!, excelMapping: mapping })
+      : getWordPreviewColumnIndexes({ ...tableCfg!, wordMapping: mapping })
+    : tableCfg?.excelMapping
+      ? getExcelPreviewColumnIndexes(tableCfg)
+      : tableCfg
+        ? getWordPreviewColumnIndexes(tableCfg)
+        : {};
+
+  return [
+    { key: "projectColumn", label: "项目" },
+    { key: "specificationColumn", label: "规格" },
+    { key: "acceptanceColumn", label: "验收" },
+    { key: "remarkColumn", label: "备注" }
+  ].map(({ key, label }) => {
+    const index = indexes[key as keyof typeof indexes];
+    return {
+      indexes: typeof index === "number" ? [index] : [],
+      label
+    };
+  });
+};
+
 export const buildSkippedRowsGroups = (
   rows: ImportSkippedRowWithTable[],
   tableConfigs: TableImportConfig[]
 ): SkippedRowsGroup[] => {
   if (rows.length === 0) return [];
 
-  const grouped = new Map<number, ImportSkippedRowWithTable[]>();
+  const grouped = new Map<string, ImportSkippedRowWithTable[]>();
   for (const row of rows) {
-    const list = grouped.get(row.tableIndex) || [];
+    const groupKey = `${row.tableIndex}:${row.regionId ?? "default"}`;
+    const list = grouped.get(groupKey) || [];
     list.push(row);
-    grouped.set(row.tableIndex, list);
+    grouped.set(groupKey, list);
   }
 
   return Array.from(grouped.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([tableIndex, groupRows]) => {
-      const tableCfg = tableConfigs.find(cfg => cfg.tableIndex === tableIndex);
-      const headers =
-        tableCfg?.previewData?.headers || tableCfg?.tableInfo?.headers || [];
-      const maxColumnCount = groupRows.reduce(
-        (max, row) => Math.max(max, row.rowValues?.length || 0),
-        0
+    .sort((a, b) => {
+      const first = a[1][0];
+      const second = b[1][0];
+      return (
+        first.tableIndex - second.tableIndex ||
+        (first.regionId ?? "").localeCompare(second.regionId ?? "")
       );
-
-      const columns: SkippedPreviewColumn[] = Array.from(
-        { length: maxColumnCount },
-        (_, i) => {
-          const header = (headers[i] || "").trim();
-          return {
-            index: i,
-            label: header || `列${i + 1}`
-          };
-        }
+    })
+    .map(([, groupRows]) => {
+      const tableIndex = groupRows[0].tableIndex;
+      const regionId = groupRows[0].regionId;
+      const tableCfg = tableConfigs.find(cfg => cfg.tableIndex === tableIndex);
+      const regionLocation = tableCfg?.excelPreviewRowLocations?.find(
+        item => item.regionId === regionId
+      );
+      const columns = buildSkippedSemanticPreviewColumns(
+        tableCfg,
+        regionLocation
       );
 
       return {
         tableIndex,
+        regionId,
+        regionIndex: regionLocation?.regionIndex,
         rows: groupRows,
         columns
       };

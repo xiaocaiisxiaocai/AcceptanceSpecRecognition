@@ -45,4 +45,15 @@ public class ProcessRepositoryTests : TestBase
         result.Should().NotBeNull();
         result!.AcceptanceSpecs.Should().HaveCount(1);
     }
+
+    [Fact]
+    public async Task GenericRepositoryQuery_WithCancelledToken_ShouldStopBeforeDatabaseWork()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var action = () => _repository.GetAllAsync(cancellation.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
+    }
 }

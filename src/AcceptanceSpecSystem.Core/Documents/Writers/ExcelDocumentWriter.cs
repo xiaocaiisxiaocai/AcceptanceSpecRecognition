@@ -23,21 +23,37 @@ public class ExcelDocumentWriter : IDocumentWriter
         return SupportedExtensions.Contains(extension);
     }
 
-    public Task<int> WriteTableDataAsync(string filePath, int tableIndex, IEnumerable<CellWriteOperation> operations)
+    public Task<int> WriteTableDataAsync(
+        string filePath,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
             using var stream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-            return WriteTableDataInternal(stream, tableIndex, operations);
-        });
+            return WriteTableDataInternal(stream, tableIndex, operations, cancellationToken);
+        }, cancellationToken);
     }
 
-    public Task<int> WriteTableDataAsync(Stream stream, int tableIndex, IEnumerable<CellWriteOperation> operations)
+    public Task<int> WriteTableDataAsync(
+        Stream stream,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => WriteTableDataInternal(stream, tableIndex, operations));
+        return Task.Run(
+            () => WriteTableDataInternal(stream, tableIndex, operations, cancellationToken),
+            cancellationToken);
     }
 
-    public Task<bool> WriteCellAsync(Stream stream, int tableIndex, int rowIndex, int columnIndex, string value)
+    public Task<bool> WriteCellAsync(
+        Stream stream,
+        int tableIndex,
+        int rowIndex,
+        int columnIndex,
+        string value,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
@@ -48,56 +64,86 @@ public class ExcelDocumentWriter : IDocumentWriter
                 Value = value
             };
 
-            var count = WriteTableDataInternal(stream, tableIndex, new[] { operation });
+            var count = WriteTableDataInternal(stream, tableIndex, new[] { operation }, cancellationToken);
             return count > 0;
-        });
+        }, cancellationToken);
     }
 
-    public Task<int> WriteToNewFileAsync(string sourceFilePath, string targetFilePath, int tableIndex, IEnumerable<CellWriteOperation> operations)
+    public Task<int> WriteToNewFileAsync(
+        string sourceFilePath,
+        string targetFilePath,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
-            File.Copy(sourceFilePath, targetFilePath, overwrite: true);
-            using var stream = File.Open(targetFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-            return WriteTableDataInternal(stream, tableIndex, operations);
-        });
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Copy(sourceFilePath, targetFilePath, overwrite: true);
+                cancellationToken.ThrowIfCancellationRequested();
+                using var stream = File.Open(targetFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                return WriteTableDataInternal(stream, tableIndex, operations, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                File.Delete(targetFilePath);
+                throw;
+            }
+        }, cancellationToken);
     }
 
-    public Task<int> WriteMultipleTablesAsync(Stream stream, Dictionary<int, List<CellWriteOperation>> tableOperations)
+    public Task<int> WriteMultipleTablesAsync(
+        Stream stream,
+        Dictionary<int, List<CellWriteOperation>> tableOperations,
+        CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => WriteMultipleTablesInternal(stream, tableOperations));
+        return Task.Run(
+            () => WriteMultipleTablesInternal(stream, tableOperations, cancellationToken),
+            cancellationToken);
     }
 
-    private int WriteTableDataInternal(Stream stream, int tableIndex, IEnumerable<CellWriteOperation> operations)
+    private int WriteTableDataInternal(
+        Stream stream,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken)
     {
         var operationsList = operations?.ToList() ?? [];
+        cancellationToken.ThrowIfCancellationRequested();
         if (operationsList.Count == 0)
             return 0;
 
         using var workbook = new XLWorkbook(stream);
+        cancellationToken.ThrowIfCancellationRequested();
         var sheets = workbook.Worksheets.ToList();
         if (tableIndex < 0 || tableIndex >= sheets.Count)
             throw new ArgumentOutOfRangeException(nameof(tableIndex), $"工作表索引超出范围。文档共有 {sheets.Count} 个工作表。");
 
         var sheet = sheets[tableIndex];
-        var successCount = WriteSheetOperations(sheet, operationsList);
-        RemoveWorksheetTables(sheet);
+        var successCount = WriteSheetOperations(sheet, operationsList, cancellationToken);
 
-        SaveWorkbookToStream(workbook, stream);
+        SaveWorkbookToStream(workbook, stream, cancellationToken);
         return successCount;
     }
 
-    private int WriteMultipleTablesInternal(Stream stream, Dictionary<int, List<CellWriteOperation>> tableOperations)
+    private int WriteMultipleTablesInternal(
+        Stream stream,
+        Dictionary<int, List<CellWriteOperation>> tableOperations,
+        CancellationToken cancellationToken)
     {
         if (tableOperations == null || tableOperations.Count == 0)
             return 0;
 
         using var workbook = new XLWorkbook(stream);
+        cancellationToken.ThrowIfCancellationRequested();
         var sheets = workbook.Worksheets.ToList();
         var totalSuccess = 0;
 
         foreach (var (tableIndex, operations) in tableOperations)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (operations == null || operations.Count == 0)
                 continue;
 
@@ -108,15 +154,17 @@ public class ExcelDocumentWriter : IDocumentWriter
             }
 
             var sheet = sheets[tableIndex];
-            totalSuccess += WriteSheetOperations(sheet, operations);
-            RemoveWorksheetTables(sheet);
+            totalSuccess += WriteSheetOperations(sheet, operations, cancellationToken);
         }
 
-        SaveWorkbookToStream(workbook, stream);
+        SaveWorkbookToStream(workbook, stream, cancellationToken);
         return totalSuccess;
     }
 
-    private static int WriteSheetOperations(IXLWorksheet sheet, List<CellWriteOperation> operations)
+    private static int WriteSheetOperations(
+        IXLWorksheet sheet,
+        List<CellWriteOperation> operations,
+        CancellationToken cancellationToken)
     {
         var usedRange = sheet.RangeUsed();
         var startRow = usedRange?.RangeAddress.FirstAddress.RowNumber ?? 1;
@@ -125,13 +173,37 @@ public class ExcelDocumentWriter : IDocumentWriter
         var endCol = usedRange?.RangeAddress.LastAddress.ColumnNumber ?? int.MaxValue;
         var mergedLookup = usedRange == null
             ? null
-            : BuildMergedLookup(sheet, usedRange);
+            : BuildMergedLookup(sheet, usedRange, cancellationToken);
 
         var successCount = 0;
+        var writtenTargets = new Dictionary<(int Row, int Col), string>();
         foreach (var operation in operations)
         {
-            if (TryWriteCell(sheet, startRow, startCol, endRow, endCol, mergedLookup, operation))
+            cancellationToken.ThrowIfCancellationRequested();
+            if (TryResolveTarget(
+                    startRow,
+                    startCol,
+                    endRow,
+                    endCol,
+                    mergedLookup,
+                    operation,
+                    out var target))
             {
+                var value = operation.Value ?? string.Empty;
+                if (writtenTargets.TryGetValue(target, out var writtenValue))
+                {
+                    if (string.Equals(writtenValue, value, StringComparison.Ordinal))
+                    {
+                        successCount++;
+                        continue;
+                    }
+
+                    throw new InvalidOperationException(
+                        $"多个写入操作指向同一单元格 {sheet.Name}!R{target.Row}C{target.Col}，请检查合并单元格和列映射");
+                }
+
+                writtenTargets[target] = value;
+                sheet.Cell(target.Row, target.Col).Value = value;
                 successCount++;
             }
         }
@@ -139,28 +211,16 @@ public class ExcelDocumentWriter : IDocumentWriter
         return successCount;
     }
 
-    private static void RemoveWorksheetTables(IXLWorksheet sheet)
-    {
-        var tableNames = sheet.Tables.Select(table => table.Name).ToList();
-        if (tableNames.Count == 0)
-            return;
-
-        // 部分外部生成的 Excel Table 关系会让 ClosedXML 保存时报关系 id 异常；写回只依赖单元格内容，移除表元数据保留数据。
-        foreach (var tableName in tableNames)
-        {
-            sheet.Tables.Remove(tableName);
-        }
-    }
-
-    private static bool TryWriteCell(
-        IXLWorksheet sheet,
+    private static bool TryResolveTarget(
         int startRow,
         int startCol,
         int endRow,
         int endCol,
         Dictionary<(int Row, int Col), (int MasterRow, int MasterCol)>? mergedLookup,
-        CellWriteOperation operation)
+        CellWriteOperation operation,
+        out (int Row, int Col) target)
     {
+        target = default;
         if (operation.RowIndex < 0 || operation.ColumnIndex < 0)
             return false;
 
@@ -176,16 +236,20 @@ public class ExcelDocumentWriter : IDocumentWriter
             absCol = master.MasterCol;
         }
 
-        sheet.Cell(absRow, absCol).Value = operation.Value ?? string.Empty;
+        target = (absRow, absCol);
         return true;
     }
 
-    private static Dictionary<(int Row, int Col), (int MasterRow, int MasterCol)> BuildMergedLookup(IXLWorksheet sheet, IXLRange usedRange)
+    private static Dictionary<(int Row, int Col), (int MasterRow, int MasterCol)> BuildMergedLookup(
+        IXLWorksheet sheet,
+        IXLRange usedRange,
+        CancellationToken cancellationToken)
     {
         var dict = new Dictionary<(int Row, int Col), (int MasterRow, int MasterCol)>();
 
         foreach (var merged in sheet.MergedRanges)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!merged.Intersects(usedRange))
                 continue;
 
@@ -200,6 +264,7 @@ public class ExcelDocumentWriter : IDocumentWriter
 
             for (var r = r1; r <= r2; r++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 for (var c = c1; c <= c2; c++)
                 {
                     dict[(r, c)] = (masterRow, masterCol);
@@ -210,11 +275,22 @@ public class ExcelDocumentWriter : IDocumentWriter
         return dict;
     }
 
-    private static void SaveWorkbookToStream(XLWorkbook workbook, Stream stream)
+    private static void SaveWorkbookToStream(
+        XLWorkbook workbook,
+        Stream stream,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        // ClosedXML 在从同一个可写流加载工作簿后，保存期间仍会读取原包中的
+        // Structured Table 关系。先截断原流会让这些关系失效，因此必须先完整
+        // 序列化到独立缓冲区，再替换调用方流。
+        using var output = new MemoryStream();
+        workbook.SaveAs(output);
+        cancellationToken.ThrowIfCancellationRequested();
+        output.Position = 0;
         stream.Position = 0;
         stream.SetLength(0);
-        workbook.SaveAs(stream);
+        output.CopyTo(stream);
         stream.Position = 0;
     }
 }

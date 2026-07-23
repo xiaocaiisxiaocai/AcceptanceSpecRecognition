@@ -13,14 +13,17 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Route("api/matching")]
 public class MatchingExecutionController : MatchingApiControllerBase
 {
-    private readonly IMatchingExecutionAppService _matchingExecutionAppService;
+    private readonly IMatchingLlmStreamAppService _matchingLlmStreamAppService;
+    private readonly IMatchingFillExecutionAppService _matchingFillExecutionAppService;
     private readonly ISmartFillSpecBackfillAppService _smartFillSpecBackfillAppService;
 
     public MatchingExecutionController(
-        IMatchingExecutionAppService matchingExecutionAppService,
+        IMatchingLlmStreamAppService matchingLlmStreamAppService,
+        IMatchingFillExecutionAppService matchingFillExecutionAppService,
         ISmartFillSpecBackfillAppService smartFillSpecBackfillAppService)
     {
-        _matchingExecutionAppService = matchingExecutionAppService;
+        _matchingLlmStreamAppService = matchingLlmStreamAppService;
+        _matchingFillExecutionAppService = matchingFillExecutionAppService;
         _smartFillSpecBackfillAppService = smartFillSpecBackfillAppService;
     }
 
@@ -33,7 +36,11 @@ public class MatchingExecutionController : MatchingApiControllerBase
     {
         try
         {
-            await _matchingExecutionAppService.LlmStreamAsync(User, Response, request, cancellationToken);
+            await _matchingLlmStreamAppService.LlmStreamAsync(
+                GetMatchingUserContext(),
+                new HttpMatchingEventStream(Response),
+                request,
+                cancellationToken);
             return new EmptyResult();
         }
         catch (MatchingApiException ex) when (ex.IsNotFound)
@@ -55,7 +62,8 @@ public class MatchingExecutionController : MatchingApiControllerBase
         [FromBody] BatchExecuteFillRequest request,
         CancellationToken cancellationToken = default)
     {
-        return HandleAsync(() => _matchingExecutionAppService.BatchExecuteFillAsync(User, request, cancellationToken));
+        return HandleAsync(() => _matchingFillExecutionAppService.BatchExecuteFillAsync(
+            GetMatchingUserContext(), request, cancellationToken));
     }
 
     [HttpPost("spec-backfill")]
@@ -67,6 +75,7 @@ public class MatchingExecutionController : MatchingApiControllerBase
         [FromBody] SmartFillSpecBackfillRequest request,
         CancellationToken cancellationToken = default)
     {
-        return HandleAsync(() => _smartFillSpecBackfillAppService.BackfillAsync(User, request));
+        return HandleAsync(() => _smartFillSpecBackfillAppService.BackfillAsync(
+            GetMatchingUserContext(), request, cancellationToken));
     }
 }

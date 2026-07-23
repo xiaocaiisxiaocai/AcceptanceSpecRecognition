@@ -1,6 +1,7 @@
 import type {
   BatchExecuteFillRequest,
   BatchTablePreviewResult,
+  BatchTableRegionConfig,
   MatchConfig,
   MatchPreviewItem,
   MatchResult
@@ -31,6 +32,8 @@ export type SmartFillExecuteTableConfig = {
   headerRowStart?: number;
   headerRowCount?: number;
   dataStartRow?: number;
+  dataEndRow?: number;
+  regions?: BatchTableRegionConfig[];
   filterEmptySourceRows?: boolean;
 };
 
@@ -41,6 +44,51 @@ export type SmartFillBackfilledItem = {
   overrideAcceptance?: string;
   overrideRemark?: string;
   actionType: "update" | "create";
+};
+
+export const applyBackfilledItemsToPreviewResults = (
+  results: BatchTablePreviewResult[],
+  backfilledItems: SmartFillBackfilledItem[]
+): BatchTablePreviewResult[] => {
+  const updatedBySpecId = new Map(
+    backfilledItems
+      .filter(
+        (
+          item
+        ): item is SmartFillBackfilledItem & {
+          specId: number;
+          actionType: "update";
+        } => item.actionType === "update" && !!item.specId
+      )
+      .map(item => [item.specId, item])
+  );
+
+  if (updatedBySpecId.size === 0) {
+    return results;
+  }
+
+  return results.map(table => ({
+    ...table,
+    items: table.items.map(item => {
+      const updatedItem = item.bestMatch?.specId
+        ? updatedBySpecId.get(item.bestMatch.specId)
+        : undefined;
+      if (!item.bestMatch || !updatedItem) {
+        return item;
+      }
+
+      return {
+        ...item,
+        bestMatch: {
+          ...item.bestMatch,
+          acceptance:
+            updatedItem.overrideAcceptance ?? item.bestMatch.acceptance,
+          remark: updatedItem.overrideRemark ?? item.bestMatch.remark,
+          reviewApprovalToken: undefined
+        }
+      };
+    })
+  }));
 };
 
 const cloneMatchResultForExecutionHistory = (
@@ -86,6 +134,10 @@ export const buildExecutionHistoryPreviewTables = (
     .map(result => ({
       tableIndex: result.tableIndex,
       items: result.items.map((item: MatchPreviewItem) => ({
+        regionId: item.regionId,
+        regionIndex: item.regionIndex,
+        acceptanceColumnIndex: item.acceptanceColumnIndex,
+        remarkColumnIndex: item.remarkColumnIndex,
         rowIndex: item.rowIndex,
         sourceProject: item.sourceProject,
         sourceSpecification: item.sourceSpecification,
@@ -135,6 +187,8 @@ export const buildSmartFillExecuteRequest = ({
         headerRowStart: config.headerRowStart,
         headerRowCount: config.headerRowCount,
         dataStartRow: config.dataStartRow,
+        dataEndRow: config.dataEndRow,
+        regions: config.regions,
         filterEmptySourceRows: resolveFilterEmptySourceRows(config),
         mappings: selections.map(s => ({
           rowIndex: s.rowIndex,

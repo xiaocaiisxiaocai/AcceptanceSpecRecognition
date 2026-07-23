@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  nextTick,
+  ref,
+  watch
+} from "vue";
 import {
   DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
   MAX_RECALL_TOP_K,
@@ -7,16 +16,20 @@ import {
   type MatchConfig,
   defaultMatchConfig
 } from "@/api/matching";
-import { getCustomerList, type Customer } from "@/api/customer";
-import { getProcessList, type Process } from "@/api/process";
-import { getMachineModelList, type MachineModel } from "@/api/machine-model";
+import type { AiServiceSelection } from "@/api/ai-service";
+import { getDistinctAiServiceModel } from "@/views/shared/ai-service-display";
+import { createAiSelectionRetryController } from "@/utils/ai-selection-retry";
 import {
-  getAiServiceList,
-  AiServicePurpose,
-  sortAiServicesByPriority,
-  type AiServiceConfig
-} from "@/api/ai-service";
-import { ElMessage } from "element-plus";
+  getRuntimeAiPurposeResult,
+  loadRuntimeAiSelectionsSettled,
+  waitForRuntimeAiSelection,
+  type RuntimeAiSelectionRefreshResult
+} from "@/utils/runtime-ai-selection-loader";
+import {
+  getRuntimeAiSelectionStatusText,
+  isRuntimeAiSelectionAvailable
+} from "@/utils/runtime-ai-selection";
+import { applyMatchConfigRuntimeAiSelections } from "./match-config-ai-selection";
 
 const props = defineProps<{
   modelValue?: MatchConfig;
@@ -25,35 +38,39 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: MatchConfig): void;
-  (
-    e: "scopeChange",
-    customerId?: number,
-    processId?: number,
-    machineModelId?: number
-  ): void;
 }>();
 
 // 匹配配置
 const config = ref<MatchConfig>({ ...defaultMatchConfig });
 
-// 范围选择
-const customers = ref<Customer[]>([]);
-const processes = ref<Process[]>([]);
-const machineModels = ref<MachineModel[]>([]);
-const selectedCustomerId = ref<number | undefined>(undefined);
-const selectedProcessId = ref<number | undefined>(undefined);
-const selectedMachineModelId = ref<number | undefined>(undefined);
-const loadingCustomers = ref(false);
-const loadingProcesses = ref(false);
-const loadingMachineModels = ref(false);
 const loadingAiServices = ref(false);
-const embeddingServices = ref<AiServiceConfig[]>([]);
-const llmServices = ref<AiServiceConfig[]>([]);
+let aiSelectionController: AbortController | undefined;
+let aiSelectionVersion = 0;
+let aiSelectionRequest: Promise<RuntimeAiSelectionRefreshResult> | undefined;
+const embeddingSelection = ref<AiServiceSelection>({ status: "checking" });
+const llmSelection = ref<AiServiceSelection>({ status: "checking" });
 const allowLlm = computed(() => props.allowLlm !== false);
-const hasAvailableEmbeddingService = computed(
-  () => embeddingServices.value.length > 0
+const hasAvailableEmbeddingService = computed(() =>
+  isRuntimeAiSelectionAvailable(embeddingSelection.value)
 );
-const hasAvailableLlmService = computed(() => llmServices.value.length > 0);
+const hasAvailableLlmService = computed(() =>
+  isRuntimeAiSelectionAvailable(llmSelection.value)
+);
+const embeddingServiceModel = computed(() =>
+  getDistinctAiServiceModel(
+    embeddingSelection.value.name,
+    embeddingSelection.value.model
+  )
+);
+const llmServiceModel = computed(() =>
+  getDistinctAiServiceModel(llmSelection.value.name, llmSelection.value.model)
+);
+const embeddingStatusText = computed(() =>
+  getRuntimeAiSelectionStatusText(embeddingSelection.value, "Embedding")
+);
+const llmStatusText = computed(() =>
+  getRuntimeAiSelectionStatusText(llmSelection.value, "LLM")
+);
 const matchingModeOptions: Array<{
   label: string;
   value: MatchingMode;
@@ -101,20 +118,46 @@ const syncMatchConfigField = <K extends keyof MatchConfig>(
   }
 };
 
-const hasExplicitMatchingDefaults = computed(() => {
-  const incoming = props.modelValue;
-  if (!incoming) {
-    return false;
-  }
-
-  return (
-    incoming.recallTopK !== undefined &&
-    incoming.recallTopK !== defaultMatchConfig.recallTopK
-  );
-});
-
 // 高级选项展开
+const showMatchingAdvanced = ref(false);
 const showAdvanced = ref(false);
+let revealExpandedSectionTimer: number | undefined;
+
+const cancelExpandedSectionReveal = () => {
+  if (revealExpandedSectionTimer == null) return;
+  window.clearTimeout(revealExpandedSectionTimer);
+  revealExpandedSectionTimer = undefined;
+};
+
+const revealExpandedSection = async (elementId: string) => {
+  await nextTick();
+  cancelExpandedSectionReveal();
+  revealExpandedSectionTimer = window.setTimeout(() => {
+    document.getElementById(elementId)?.scrollIntoView({
+      block: "start",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth"
+    });
+    revealExpandedSectionTimer = undefined;
+  }, 320);
+};
+
+const toggleMatchingAdvanced = () => {
+  cancelExpandedSectionReveal();
+  showMatchingAdvanced.value = !showMatchingAdvanced.value;
+  if (showMatchingAdvanced.value) {
+    void revealExpandedSection("matching-advanced-options");
+  }
+};
+
+const toggleLlmAdvanced = () => {
+  cancelExpandedSectionReveal();
+  showAdvanced.value = !showAdvanced.value;
+  if (showAdvanced.value) {
+    void revealExpandedSection("llm-review-options");
+  }
+};
 
 // 标记：正在从内部更新到外部，避免回写时触发整体替换
 let isInternalUpdate = false;
@@ -162,169 +205,78 @@ watch(
   { immediate: true }
 );
 
-// 加载客户列表
-const loadCustomers = async () => {
-  loadingCustomers.value = true;
-  try {
-    const res = await getCustomerList({ page: 1, pageSize: 100 });
-    if (res.code === 0) {
-      customers.value = res.data.items;
-    }
-  } catch {
-    ElMessage.error("加载客户列表失败");
-  } finally {
-    loadingCustomers.value = false;
-  }
-};
-
-// 加载制程列表
-const loadProcesses = async () => {
-  loadingProcesses.value = true;
-  try {
-    const res = await getProcessList({ page: 1, pageSize: 1000 });
-    if (res.code === 0) {
-      processes.value = res.data.items;
-    }
-  } catch {
-    ElMessage.error("加载制程列表失败");
-  } finally {
-    loadingProcesses.value = false;
-  }
-};
-
-// 加载机型列表
-const loadMachineModels = async () => {
-  loadingMachineModels.value = true;
-  try {
-    const res = await getMachineModelList({ page: 1, pageSize: 1000 });
-    if (res.code === 0) {
-      machineModels.value = res.data.items;
-    }
-  } catch {
-    ElMessage.error("加载机型列表失败");
-  } finally {
-    loadingMachineModels.value = false;
-  }
-};
-
-// 加载 AI 服务列表
-const loadAiServices = async () => {
+// 加载运行时可用的 AI 服务
+const loadAiServicesOnce = async (waitForChecking = false) => {
+  aiSelectionController?.abort();
+  const controller = new AbortController();
+  const version = ++aiSelectionVersion;
+  aiSelectionController = controller;
   loadingAiServices.value = true;
+
   try {
-    const res = await getAiServiceList({ page: 1, pageSize: 200 });
-    if (res.code === 0) {
-      const items = res.data.items;
-      const enabledItems = items.filter(item => !item.isDisabled);
-      embeddingServices.value = sortAiServicesByPriority(
-        enabledItems.filter(
-          s =>
-            (s.purpose & AiServicePurpose.Embedding) ===
-              AiServicePurpose.Embedding && !!s.embeddingModel
+    const purposes = ["embedding", "llm"] as const;
+    const results = waitForChecking
+      ? await loadRuntimeAiSelectionsSettled(
+          purposes,
+          controller.signal,
+          async (purpose, signal) => ({
+            code: 0,
+            message: "",
+            data: await waitForRuntimeAiSelection(purpose, { signal })
+          })
         )
-      );
-      llmServices.value = sortAiServicesByPriority(
-        enabledItems.filter(
-          s =>
-            (s.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
-            !!s.llmModel
-        )
-      );
-      if (
-        config.value.embeddingServiceId &&
-        !embeddingServices.value.some(
-          service => service.id === config.value.embeddingServiceId
-        )
-      ) {
-        config.value.embeddingServiceId = undefined;
-      }
-      if (
-        config.value.llmServiceId &&
-        !llmServices.value.some(
-          service => service.id === config.value.llmServiceId
-        )
-      ) {
-        config.value.llmServiceId = undefined;
-      }
-      // 自动选择第一个可用服务（如果尚未选择）
-      if (
-        !config.value.embeddingServiceId &&
-        embeddingServices.value.length > 0
-      ) {
-        config.value.embeddingServiceId = embeddingServices.value[0].id;
-      }
-      if (!config.value.llmServiceId && llmServices.value.length > 0) {
-        config.value.llmServiceId = llmServices.value[0].id;
-      }
-      if (!hasExplicitMatchingDefaults.value) {
-        applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
-      }
-    } else {
-      ElMessage.error(res.message || "加载AI服务失败");
+      : await loadRuntimeAiSelectionsSettled(purposes, controller.signal);
+    if (
+      aiSelectionController !== controller ||
+      version !== aiSelectionVersion ||
+      controller.signal.aborted
+    ) {
+      return { current: false, version };
     }
-  } catch {
-    ElMessage.error("加载AI服务失败");
+
+    const embeddingResult = getRuntimeAiPurposeResult(results, "embedding");
+    const llmResult = getRuntimeAiPurposeResult(results, "llm");
+    if (!embeddingResult || !llmResult) {
+      return { current: false, version };
+    }
+
+    embeddingSelection.value = embeddingResult.selection;
+    llmSelection.value = llmResult.selection;
+    applyMatchConfigRuntimeAiSelections(
+      config.value,
+      embeddingResult.selection,
+      llmResult.selection
+    );
+    aiSelectionRetry.schedule([embeddingResult.selection, llmResult.selection]);
+
+    return {
+      current: true,
+      version,
+      embedding: embeddingResult.selection,
+      llm: llmResult.selection
+    };
   } finally {
-    loadingAiServices.value = false;
+    if (aiSelectionController === controller) {
+      aiSelectionController = undefined;
+      loadingAiServices.value = false;
+    }
   }
 };
 
-const applyEmbeddingServiceDefaults = (serviceId?: number) => {
-  if (!serviceId) return;
-  const selectedService = embeddingServices.value.find(
-    item => item.id === serviceId
-  );
-  if (!selectedService) return;
+const aiSelectionRetry = createAiSelectionRetryController({
+  refresh: () => void loadAiServices(false)
+});
+const loadAiServices = (resetRetry = true, waitForChecking = false) => {
+  if (resetRetry) aiSelectionRetry.cancel();
+  if (aiSelectionRequest) return aiSelectionRequest;
 
-  config.value.recallTopK = Math.min(
-    MAX_RECALL_TOP_K,
-    Math.max(1, selectedService.defaultRecallTopK)
-  );
+  const request = loadAiServicesOnce(waitForChecking);
+  aiSelectionRequest = request;
+  void request.finally(() => {
+    if (aiSelectionRequest === request) aiSelectionRequest = undefined;
+  });
+  return request;
 };
-
-watch(
-  () => config.value.embeddingServiceId,
-  (serviceId, previousServiceId) => {
-    if (!serviceId || serviceId === previousServiceId) {
-      return;
-    }
-
-    if (previousServiceId === undefined && hasExplicitMatchingDefaults.value) {
-      return;
-    }
-
-    applyEmbeddingServiceDefaults(serviceId);
-  }
-);
-
-// 监听客户变化
-watch(selectedCustomerId, () => {
-  emit(
-    "scopeChange",
-    selectedCustomerId.value,
-    selectedProcessId.value,
-    selectedMachineModelId.value
-  );
-});
-
-// 监听制程变化
-watch(selectedProcessId, () => {
-  emit(
-    "scopeChange",
-    selectedCustomerId.value,
-    selectedProcessId.value,
-    selectedMachineModelId.value
-  );
-});
-
-// 监听机型变化
-watch(selectedMachineModelId, () => {
-  emit(
-    "scopeChange",
-    selectedCustomerId.value,
-    selectedProcessId.value,
-    selectedMachineModelId.value
-  );
-});
 
 // 重置配置
 const resetConfig = () => {
@@ -335,24 +287,39 @@ const resetConfig = () => {
     embeddingServiceId,
     llmServiceId
   };
-  applyEmbeddingServiceDefaults(config.value.embeddingServiceId);
 };
 
 onMounted(() => {
-  loadCustomers();
-  loadProcesses();
-  loadMachineModels();
-  loadAiServices();
+  void loadAiServices();
 });
+
+onActivated(() => {
+  void loadAiServices();
+});
+
+onBeforeUnmount(() => {
+  stopAiSelectionRequests();
+  cancelExpandedSectionReveal();
+});
+
+const stopAiSelectionRequests = () => {
+  aiSelectionVersion += 1;
+  aiSelectionController?.abort();
+  aiSelectionRequest = undefined;
+  aiSelectionRetry.cancel();
+};
+
+onDeactivated(stopAiSelectionRequests);
+
+const refreshAiServicesForAction = () => {
+  stopAiSelectionRequests();
+  return loadAiServices(true, true);
+};
 
 // 暴露方法
 defineExpose({
   resetConfig,
-  getScope: () => ({
-    customerId: selectedCustomerId.value,
-    processId: selectedProcessId.value,
-    machineModelId: selectedMachineModelId.value
-  }),
+  refreshAiServices: refreshAiServicesForAction,
   getServiceStatus: () => ({
     hasAvailableEmbeddingService: hasAvailableEmbeddingService.value,
     hasAvailableLlmService: hasAvailableLlmService.value
@@ -362,74 +329,6 @@ defineExpose({
 
 <template>
   <div class="match-config">
-    <!-- 匹配范围 -->
-    <div class="config-section">
-      <div class="section-title">匹配范围</div>
-      <el-form :inline="true" class="scope-form">
-        <el-form-item label="客户">
-          <el-select
-            v-model="selectedCustomerId"
-            placeholder="全部客户"
-            :loading="loadingCustomers"
-            filterable
-            clearable
-            :teleported="true"
-            class="search-select search-select--200"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="customer in customers"
-              :key="customer.id"
-              :label="customer.name"
-              :value="customer.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="制程">
-          <el-select
-            v-model="selectedProcessId"
-            placeholder="全部制程"
-            :loading="loadingProcesses"
-            filterable
-            clearable
-            :teleported="true"
-            class="search-select search-select--200"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="process in processes"
-              :key="process.id"
-              :label="process.name"
-              :value="process.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="机型">
-          <el-select
-            v-model="selectedMachineModelId"
-            placeholder="全部机型"
-            :loading="loadingMachineModels"
-            filterable
-            clearable
-            :teleported="true"
-            class="search-select search-select--200"
-            popper-class="app-select-popper"
-          >
-            <el-option
-              v-for="model in machineModels"
-              :key="model.id"
-              :label="model.name"
-              :value="model.id"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <div class="scope-tip">
-        <el-icon><InfoFilled /></el-icon>
-        <span>不选择则匹配所有验收规格</span>
-      </div>
-    </div>
-
     <!-- 基础配置 -->
     <div class="config-section">
       <div class="section-title">匹配设置</div>
@@ -458,64 +357,67 @@ defineExpose({
           </div>
         </el-form-item>
         <el-form-item label="Embedding 服务">
-          <el-select
-            v-model="config.embeddingServiceId"
-            placeholder="请选择 Embedding 服务"
-            :teleported="true"
-            :loading="loadingAiServices"
-            style="width: 100%; max-width: 400px"
-            popper-class="app-select-popper"
+          <div
+            v-if="hasAvailableEmbeddingService"
+            class="automatic-service"
+            role="status"
+            aria-live="polite"
           >
-            <el-option
-              v-for="service in embeddingServices"
-              :key="service.id"
-              :label="`${service.name}（${service.embeddingModel || '-'}）`"
-              :value="service.id"
-            />
-          </el-select>
+            <span>自动使用</span>
+            <strong>{{ embeddingSelection.name }}</strong>
+            <small v-if="embeddingServiceModel">
+              {{ embeddingServiceModel }}
+            </small>
+          </div>
           <el-alert
-            v-if="!loadingAiServices && !hasAvailableEmbeddingService"
-            type="warning"
+            v-else
+            :type="
+              loadingAiServices || embeddingSelection.status === 'checking'
+                ? 'info'
+                : 'warning'
+            "
             :closable="false"
             show-icon
-            title="未检测到可用 Embedding 服务"
+            :title="embeddingStatusText"
             :description="
               config.exactMatchOnly
                 ? '当前已开启仅精确匹配，可继续预览完全一致命中；如需语义召回，请启用 Embedding 服务。'
-                : '请先在 AI 服务配置中启用至少一个带 Embedding 模型的服务，或开启上方仅精确匹配。'
+                : '运行状态确认可用前不能执行语义匹配；请稍后重试，或开启上方仅精确匹配。'
             "
             class="service-status-alert"
           />
         </el-form-item>
         <el-form-item label="LLM 服务">
-          <el-select
-            v-model="config.llmServiceId"
-            placeholder="请选择 LLM 服务"
-            :teleported="true"
-            :disabled="!allowLlm"
-            :loading="loadingAiServices"
-            style="width: 100%; max-width: 400px"
-            popper-class="app-select-popper"
+          <div
+            v-if="allowLlm && hasAvailableLlmService"
+            class="automatic-service"
+            role="status"
+            aria-live="polite"
           >
-            <el-option
-              v-for="service in llmServices"
-              :key="service.id"
-              :label="`${service.name}（${service.llmModel || '-'}）`"
-              :value="service.id"
-            />
-          </el-select>
+            <span>自动使用</span>
+            <strong>{{ llmSelection.name }}</strong>
+            <small v-if="llmServiceModel">{{ llmServiceModel }}</small>
+          </div>
           <el-alert
-            v-if="allowLlm && !loadingAiServices && !hasAvailableLlmService"
+            v-else-if="allowLlm"
             type="info"
             :closable="false"
             show-icon
-            title="未检测到可用 LLM 服务"
-            description="当前仍可执行 Embedding 召回和证据重排；如需 AI 复核，请先启用至少一个带 LLM 模型的服务。"
+            :title="llmStatusText"
+            description="当前仍可执行 Embedding 召回和证据重排；仅在 LLM 运行状态确认可用后启用 AI 复核。"
+            class="service-status-alert"
+          />
+          <el-alert
+            v-else
+            type="info"
+            :closable="false"
+            show-icon
+            title="当前账号没有 LLM 复核权限"
             class="service-status-alert"
           />
         </el-form-item>
         <el-row :gutter="20">
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item label="匹配链路">
               <div class="fixed-mode">
                 <el-tag type="success">证据裁决</el-tag>
@@ -525,7 +427,7 @@ defineExpose({
               </div>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item label="匹配方式">
               <el-radio-group
                 v-model="config.matchingMode"
@@ -548,40 +450,7 @@ defineExpose({
               </div>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="最小得分阈值">
-              <el-slider
-                v-model="config.minScoreThreshold"
-                :min="0"
-                :max="1"
-                :step="0.05"
-                :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
-                show-input
-                :show-input-controls="false"
-              />
-              <div class="form-inline-tip">
-                该阈值仅用于保留候选，不决定自动采用
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="高置信阈值">
-              <el-slider
-                v-model="config.highConfidenceThreshold"
-                :min="0.5"
-                :max="1"
-                :step="0.01"
-                :format-tooltip="(val: number) => `${(val * 100).toFixed(0)}%`"
-                show-input
-                :show-input-controls="false"
-              />
-              <div class="form-inline-tip">
-                高置信阈值会参与确定性自动通过与结果分层；默认值为
-                {{ (DEFAULT_HIGH_CONFIDENCE_THRESHOLD * 100).toFixed(0) }}%
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item label="过滤空行">
               <el-switch
                 v-model="config.filterEmptySourceRows"
@@ -593,123 +462,220 @@ defineExpose({
               </div>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="确定性自动通过">
-              <el-switch
-                v-model="config.enableDeterministicAutoApply"
-                active-text="开启"
-                inactive-text="关闭"
-                :disabled="config.exactMatchOnly"
-              />
-              <div class="form-inline-tip">
-                无硬冲突且达到高置信阈值时直接采用，不进入同步 AI
-                裁决。仅精确匹配模式下无效。
-              </div>
-            </el-form-item>
-          </el-col>
         </el-row>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="LLM 语义优先">
-              <el-switch
-                v-model="config.enableLlmSemanticPriority"
-                active-text="开启"
-                inactive-text="关闭"
-                :disabled="
-                  config.exactMatchOnly || !allowLlm || !hasAvailableLlmService
-                "
-              />
-              <div class="form-inline-tip">
-                开启后 LLM
-                裁决具有最高权威：扩大召回范围、覆盖未知单位/品牌、忽略硬冲突拦截。速度变慢但命中率更高。
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col v-if="config.enableLlmSemanticPriority" :span="12">
-            <el-form-item label="语义召回下限">
-              <el-slider
-                v-model="config.llmSemanticRecallThreshold"
-                :min="0.1"
-                :max="0.9"
-                :step="0.05"
-                show-input
-                :show-input-controls="false"
-                style="width: 200px"
-              />
-              <div class="form-inline-tip">
-                Embedding 分 ≥ 此值的候选进入 LLM 视野（默认
-                0.5），越低召回越多但 LLM 调用越多。
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="高Emb自动通过">
-              <el-input-number
-                v-model="config.embeddingSemanticAutoApplyThreshold"
-                :min="0"
-                :max="1"
-                :step="0.01"
-                :precision="2"
-                controls-position="right"
-              />
-              <div class="form-inline-tip">
-                候选 Embedding≥此值且无硬冲突时直接自动通过（即使 AI
-                不确定）；0=关闭。越高越严。
-              </div>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="召回候选数">
-              <el-input-number
-                v-model="config.recallTopK"
-                :min="1"
-                :max="MAX_RECALL_TOP_K"
-                :step="1"
-                controls-position="right"
-              />
-              <div class="form-inline-tip">
-                第一阶段最多保留多少个候选进入重排
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="歧义分差阈值">
-              <el-input-number
-                v-model="config.ambiguityMargin"
-                :min="0"
-                :max="1"
-                :step="0.01"
-                :precision="2"
-                controls-position="right"
-              />
-              <div class="form-inline-tip">
-                Top1 与 Top2 分差不超过该值时标记为高歧义
-              </div>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-alert
-          type="info"
-          :closable="false"
-          show-icon
-          :title="`默认先完成快速预览，不在同步阶段逐行调用 AI 等价裁决；需要精度优先时可在高级选项中开启。高置信阈值 ${((config.highConfidenceThreshold ?? DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100).toFixed(0)}% 会参与确定性自动通过与结果分层。`"
-        />
+
+        <div class="matching-strategy-summary">
+          <div>
+            <span>当前策略</span>
+            <strong>
+              {{ config.exactMatchOnly ? "仅精确匹配" : "Embedding 证据匹配" }}
+            </strong>
+          </div>
+          <div class="matching-strategy-summary__metrics">
+            <span>最多 {{ config.recallTopK }} 个候选</span>
+            <span>
+              最低得分
+              {{ ((config.minScoreThreshold ?? 0) * 100).toFixed(0) }}%
+            </span>
+            <span>
+              高置信
+              {{
+                (
+                  (config.highConfidenceThreshold ??
+                    DEFAULT_HIGH_CONFIDENCE_THRESHOLD) * 100
+                ).toFixed(0)
+              }}%
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="section-header section-header--button"
+          :aria-expanded="showMatchingAdvanced"
+          aria-controls="matching-advanced-options"
+          @click="toggleMatchingAdvanced"
+        >
+          <span>
+            <span class="section-title">高级匹配参数</span>
+            <small>阈值、自动通过、语义优先与候选控制</small>
+          </span>
+          <el-icon :class="{ rotated: showMatchingAdvanced }">
+            <ArrowRight />
+          </el-icon>
+        </button>
+
+        <el-collapse-transition>
+          <div
+            v-show="showMatchingAdvanced"
+            id="matching-advanced-options"
+            class="advanced-options matching-advanced-options"
+          >
+            <el-row :gutter="20">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="最低候选得分">
+                  <el-slider
+                    v-model="config.minScoreThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :format-tooltip="
+                      (val: number) => `${(val * 100).toFixed(0)}%`
+                    "
+                    show-input
+                    :show-input-controls="false"
+                  />
+                  <div class="form-inline-tip">
+                    仅用于过滤候选，不直接决定是否自动采用。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="高置信阈值">
+                  <el-slider
+                    v-model="config.highConfidenceThreshold"
+                    :min="0.5"
+                    :max="1"
+                    :step="0.01"
+                    :format-tooltip="
+                      (val: number) => `${(val * 100).toFixed(0)}%`
+                    "
+                    show-input
+                    :show-input-controls="false"
+                  />
+                  <div class="form-inline-tip">
+                    高置信阈值会参与确定性自动通过与结果分层；默认
+                    {{
+                      (DEFAULT_HIGH_CONFIDENCE_THRESHOLD * 100).toFixed(0)
+                    }}%。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="确定性自动通过">
+                  <el-switch
+                    v-model="config.enableDeterministicAutoApply"
+                    active-text="开启"
+                    inactive-text="关闭"
+                    :disabled="config.exactMatchOnly"
+                  />
+                  <div class="form-inline-tip">
+                    无硬冲突且达到高置信阈值时直接采用。仅精确匹配模式下无效。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="LLM 语义优先">
+                  <el-switch
+                    v-model="config.enableLlmSemanticPriority"
+                    active-text="开启"
+                    inactive-text="关闭"
+                    :disabled="
+                      config.exactMatchOnly ||
+                      !allowLlm ||
+                      !hasAvailableLlmService
+                    "
+                  />
+                  <div class="form-inline-tip">
+                    扩大语义召回并提高 LLM 裁决权重，命中范围更广但处理更慢。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col v-if="config.enableLlmSemanticPriority" :xs="24" :md="12">
+                <el-form-item label="语义召回下限">
+                  <el-slider
+                    v-model="config.llmSemanticRecallThreshold"
+                    :min="0.1"
+                    :max="0.9"
+                    :step="0.05"
+                    show-input
+                    :show-input-controls="false"
+                  />
+                  <div class="form-inline-tip">
+                    达到该分数的候选进入 LLM 视野，越低调用越多。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="高相似自动通过">
+                  <el-input-number
+                    v-model="config.embeddingSemanticAutoApplyThreshold"
+                    :min="0"
+                    :max="1"
+                    :step="0.01"
+                    :precision="2"
+                    controls-position="right"
+                  />
+                  <div class="form-inline-tip">
+                    无硬冲突且 Embedding 达到该值时自动通过；0 表示关闭。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="每条最多候选数">
+                  <el-input-number
+                    v-model="config.recallTopK"
+                    :min="1"
+                    :max="MAX_RECALL_TOP_K"
+                    :step="1"
+                    controls-position="right"
+                  />
+                  <div class="form-inline-tip">
+                    第一阶段最多保留多少个候选进入证据重排。
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="歧义分差阈值">
+                  <el-input-number
+                    v-model="config.ambiguityMargin"
+                    :min="0"
+                    :max="1"
+                    :step="0.01"
+                    :precision="2"
+                    controls-position="right"
+                  />
+                  <div class="form-inline-tip">
+                    第一和第二候选分差不超过该值时标记为高歧义。
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-alert
+              type="info"
+              :closable="false"
+              show-icon
+              title="默认策略优先快速预览；高级参数会影响候选范围、自动通过和 AI 调用量。"
+            />
+          </div>
+        </el-collapse-transition>
       </el-form>
     </div>
 
     <!-- 高级选项 -->
     <div class="config-section">
-      <div class="section-header" @click="showAdvanced = !showAdvanced">
-        <span class="section-title">LLM 复核</span>
+      <button
+        type="button"
+        class="section-header section-header--button"
+        :aria-expanded="showAdvanced"
+        aria-controls="llm-review-options"
+        @click="toggleLlmAdvanced"
+      >
+        <span>
+          <span class="section-title">同步 LLM 复核</span>
+          <small>等价裁决、调用预算与并行控制</small>
+        </span>
         <el-icon :class="{ rotated: showAdvanced }">
           <ArrowRight />
         </el-icon>
-      </div>
+      </button>
 
       <el-collapse-transition>
-        <div v-show="showAdvanced" class="advanced-options">
+        <div
+          v-show="showAdvanced"
+          id="llm-review-options"
+          class="advanced-options"
+        >
           <el-form label-width="140px">
             <el-alert
               v-if="!allowLlm"
@@ -720,7 +686,7 @@ defineExpose({
               class="mb-4"
             />
             <el-row :gutter="20" align="middle" class="llm-row">
-              <el-col :span="8">
+              <el-col :xs="24" :md="8">
                 <el-form-item label="AI 等价裁决">
                   <el-switch
                     v-model="config.enableLlmEquivalenceAdjudication"
@@ -734,7 +700,7 @@ defineExpose({
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="16">
+              <el-col :xs="24" :md="16">
                 <span class="parallelism-hint">
                   默认关闭以优先保证预览速度；开启后，达到最小得分阈值的当前最佳候选会在同步匹配阶段进入
                   AI 等价裁决。
@@ -750,7 +716,7 @@ defineExpose({
               align="middle"
               class="llm-row"
             >
-              <el-col :span="8">
+              <el-col :xs="24" :md="8">
                 <el-form-item label="等价置信下限">
                   <el-input-number
                     v-model="config.llmEquivalenceMinConfidence"
@@ -764,7 +730,7 @@ defineExpose({
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="16">
+              <el-col :xs="24" :md="16">
                 <span class="parallelism-hint">
                   LLM 判定等价但自评置信度低于此值时转人工确认；设为 0
                   表示不设门槛。语义优先模式下，该值是覆盖硬冲突的关键护栏。
@@ -773,7 +739,7 @@ defineExpose({
             </el-row>
             <!-- LLM并行度 -->
             <el-row :gutter="20" align="middle">
-              <el-col :span="8">
+              <el-col :xs="24" :md="8">
                 <el-form-item label="LLM并行数">
                   <el-input-number
                     v-model="config.llmParallelism"
@@ -786,7 +752,7 @@ defineExpose({
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="16">
+              <el-col :xs="24" :md="16">
                 <span class="parallelism-hint">
                   同时处理的行数，值越大速度越快但占用资源越多；本地 Ollama 建议
                   1-4
@@ -794,7 +760,7 @@ defineExpose({
               </el-col>
             </el-row>
             <el-row :gutter="20" align="middle">
-              <el-col :span="8">
+              <el-col :xs="24" :md="8">
                 <el-form-item label="LLM调用上限">
                   <el-input-number
                     v-model="config.llmMaxCallsPerBatch"
@@ -807,7 +773,7 @@ defineExpose({
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="16">
+              <el-col :xs="24" :md="16">
                 <span class="parallelism-hint">
                   同一批次内重排和等价裁决共享该预算；设为 0 时不调用同步 LLM。
                 </span>
@@ -831,13 +797,46 @@ defineExpose({
 </template>
 
 <script lang="ts">
-import { InfoFilled, ArrowRight } from "@element-plus/icons-vue";
+import { ArrowRight } from "@element-plus/icons-vue";
 export default {
-  components: { InfoFilled, ArrowRight }
+  components: { ArrowRight }
 };
 </script>
 
 <style scoped>
+@media (width <= 720px) {
+  .matching-strategy-summary {
+    align-items: flex-start;
+  }
+
+  .matching-strategy-summary__metrics {
+    flex-direction: column;
+    gap: 2px;
+    text-align: right;
+  }
+
+  .parallelism-hint {
+    line-height: 1.6;
+  }
+}
+
+@media (width <= 520px) {
+  .matching-strategy-summary {
+    flex-direction: column;
+  }
+
+  .matching-strategy-summary__metrics {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-header--button,
+  .section-header .el-icon {
+    transition: none;
+  }
+}
+
 .match-config {
   width: 100%;
 }
@@ -868,6 +867,49 @@ export default {
   user-select: none;
 }
 
+.section-header--button {
+  gap: 16px;
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--color-text);
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.section-header--button:hover {
+  color: var(--app-primary);
+  background: var(--el-fill-color-extra-light);
+  border-color: var(--el-color-primary-light-5);
+}
+
+.section-header--button:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+
+.section-header--button > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.section-header--button .section-title {
+  margin-bottom: 0;
+}
+
+.section-header--button small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-secondary);
+}
+
 .section-header .el-icon {
   transition: transform 0.3s;
 }
@@ -876,24 +918,92 @@ export default {
   transform: rotate(90deg);
 }
 
-.scope-form {
-  margin-bottom: 8px;
-}
-
-.scope-tip {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  font-size: 12px;
-  color: #6b7280;
-}
-
 .advanced-options {
   padding-top: 16px;
+  scroll-margin-top: 112px;
+  scroll-margin-bottom: calc(var(--smart-fill-action-bar-height, 72px) + 16px);
+}
+
+.matching-strategy-summary {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 13px;
+  margin: 2px 0 10px;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 8px;
+}
+
+.matching-strategy-summary > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.matching-strategy-summary span {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.matching-strategy-summary strong {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--app-text-primary);
+}
+
+.matching-strategy-summary__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  justify-content: flex-end;
+}
+
+.matching-advanced-options {
+  padding: 14px 14px 12px;
+  margin-top: 10px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.matching-advanced-options .form-inline-tip {
+  width: 100%;
+  margin-left: 0;
+  line-height: 1.5;
 }
 
 .service-status-alert {
   margin-top: 12px;
+}
+
+.automatic-service {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  max-width: 400px;
+  min-height: 40px;
+  padding: 8px 11px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.automatic-service span,
+.automatic-service small {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.automatic-service strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--app-text-primary);
+  white-space: nowrap;
 }
 
 .exact-match-option {
@@ -916,23 +1026,53 @@ export default {
 .llm-hint {
   margin-top: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .parallelism-hint {
   font-size: 12px;
   line-height: 32px;
-  color: #9ca3af;
+  color: var(--app-text-disabled);
 }
 
 .form-inline-tip {
   margin-left: 8px;
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--app-text-disabled);
 }
 
 .reset-btn {
   margin-top: 12px;
   text-align: right;
+}
+
+/* P1-1: 优化表单密度 */
+.match-config .el-form-item {
+  margin-bottom: 12px !important;
+}
+
+.match-config .el-row {
+  row-gap: 8px !important;
+}
+
+.match-config .el-col {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 减少alert与相邻元素的间距 */
+.match-config .service-status-alert {
+  margin-top: 4px !important;
+  margin-bottom: 0 !important;
+}
+
+.match-config .exact-match-option__title {
+  margin-bottom: 2px !important;
+}
+
+/* 减少form-inline-tip的上方间距 */
+.match-config .form-inline-tip {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
 }
 </style>

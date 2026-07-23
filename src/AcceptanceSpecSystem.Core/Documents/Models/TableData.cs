@@ -26,6 +26,11 @@ public class TableData
     public int? TotalDataRowCount { get; set; }
 
     /// <summary>
+    /// 原始表格总行数（含所有表头和数据行）。用于校验保留原始坐标系的行范围。
+    /// </summary>
+    public int? OriginalRowCount { get; set; }
+
+    /// <summary>
     /// 总行数（含表头）
     /// </summary>
     public int TotalRowCount => (TotalDataRowCount ?? Rows.Count) + (Headers.Count > 0 ? 1 : 0);

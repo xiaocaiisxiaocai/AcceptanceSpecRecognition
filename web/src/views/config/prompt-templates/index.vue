@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   getPromptTemplateList,
   previewPromptTemplate,
@@ -10,7 +15,13 @@ import {
   type PromptTemplatePreviewResponse
 } from "@/api/prompt-template";
 import { hasPerms } from "@/utils/auth";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 import { ensurePermission } from "@/utils/permission-guard";
+import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
 
 defineOptions({
   name: "PromptTemplates"
@@ -24,7 +35,7 @@ const previewResult = ref<PromptTemplatePreviewResponse | null>(null);
 
 const queryParams = reactive({
   page: 1,
-  pageSize: 20,
+  pageSize: 50,
   keyword: ""
 });
 
@@ -48,6 +59,11 @@ const formData = reactive({
   usageDescription: "",
   availableVariables: [] as string[]
 });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<typeof formData> = {
+  displayName: [requiredTrimmedRule("请输入显示名称")],
+  content: [requiredTrimmedRule("请输入内容")]
+};
 
 const loadData = async () => {
   loading.value = true;
@@ -114,10 +130,10 @@ const handlePreview = async () => {
   ) {
     return;
   }
-  if (!formData.content.trim()) {
-    ElMessage.warning("请输入内容");
-    return;
-  }
+  const contentValid = Boolean(
+    await formRef.value?.validateField("content").catch(() => false)
+  );
+  if (!contentValid) return;
 
   previewLoading.value = true;
   try {
@@ -147,14 +163,7 @@ const handleSubmit = async () => {
   ) {
     return;
   }
-  if (!formData.displayName.trim()) {
-    ElMessage.warning("请输入显示名称");
-    return;
-  }
-  if (!formData.content.trim()) {
-    ElMessage.warning("请输入内容");
-    return;
-  }
+  if (!(await validateForm(formRef.value))) return;
 
   try {
     const res = await updatePromptTemplate(formData.id, {
@@ -207,8 +216,9 @@ const handleResetSystem = async (row: PromptTemplate) => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "恢复系统默认模板失败"));
   }
 };
 
@@ -228,37 +238,28 @@ onMounted(loadData);
 
 <template>
   <div class="page config-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">Prompt 模板</div>
-        <div class="page-subtitle">按系统场景维护 LLM 提示词模板</div>
-      </div>
-    </div>
-
-    <el-card class="mb-4">
-      <el-form :inline="true">
-        <el-form-item label="关键词">
-          <el-input
-            v-model="queryParams.keyword"
-            placeholder="系统键 / 显示名称 / 内容"
-            clearable
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <el-card>
+    <el-card class="full-height-table-wrapper">
       <template #header>
-        <div class="flex justify-between items-center">
-          <span>系统模板</span>
-          <span class="text-sm text-gray-500">
-            页面只维护运行时实际使用的系统模板，不再提供设默认和任意新增。
-          </span>
+        <div class="list-card-toolbar">
+          <div class="list-card-toolbar__right">
+            <span class="text-sm text-gray-500">
+              页面只维护运行时实际使用的系统模板，不再提供设默认和任意新增。
+            </span>
+            <el-form :inline="true" class="filter-form">
+              <el-form-item label="关键词">
+                <el-input
+                  v-model="queryParams.keyword"
+                  placeholder="系统键 / 显示名称 / 内容"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
         </div>
       </template>
 
@@ -335,15 +336,25 @@ onMounted(loadData);
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="980">
-      <el-form label-width="100px">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="min(960px, calc(100vw - 32px))"
+    >
+      <el-form
+        ref="formRef"
+        :model="formData"
+        :rules="formRules"
+        label-width="100px"
+        status-icon
+      >
         <el-form-item label="系统键">
           <el-input :model-value="formData.name" readonly />
         </el-form-item>
         <el-form-item label="用途说明">
           <el-input :model-value="formData.usageDescription" readonly />
         </el-form-item>
-        <el-form-item label="显示名称" required>
+        <el-form-item label="显示名称" prop="displayName">
           <el-input v-model="formData.displayName" maxlength="100" />
         </el-form-item>
         <el-form-item label="占位符">
@@ -358,7 +369,7 @@ onMounted(loadData);
             </el-tag>
           </div>
         </el-form-item>
-        <el-form-item label="内容" required>
+        <el-form-item label="内容" prop="content">
           <el-input
             v-model="formData.content"
             type="textarea"
@@ -434,8 +445,8 @@ onMounted(loadData);
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 24px;
+  gap: 12px;
+  padding: 0;
 }
 
 .tag-list {
@@ -445,14 +456,14 @@ onMounted(loadData);
 }
 
 .preview-card {
-  background: #fafafa;
+  background: var(--app-bg-page);
 }
 
 .preview-title {
   margin-bottom: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: #606266;
+  color: var(--app-text-secondary);
 }
 
 .preview-block {
@@ -460,16 +471,16 @@ onMounted(loadData);
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #f9fafb;
+  color: var(--app-bg-card);
   word-break: break-word;
   white-space: pre-wrap;
-  background: #111827;
+  background: var(--app-text-primary);
   border-radius: 8px;
 }
 
 .preview-errors {
   padding-left: 18px;
   margin: 0;
-  color: #dc2626;
+  color: var(--app-danger);
 }
 </style>

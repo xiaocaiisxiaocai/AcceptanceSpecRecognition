@@ -112,10 +112,21 @@ watch(
         :key="item.path"
         class="inline! items-stretch!"
       >
-        <a @click.prevent="handleLink(item)">
+        <button type="button" class="breadcrumb-link" @click="handleLink(item)">
           {{ item.meta.title }}
-        </a>
+        </button>
       </el-breadcrumb-item>
     </transition-group>
   </el-breadcrumb>
 </template>
+
+<style scoped>
+.breadcrumb-link {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+</style>

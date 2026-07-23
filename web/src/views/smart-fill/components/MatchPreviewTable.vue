@@ -38,6 +38,7 @@ import {
   cloneMatchPreviewOverride,
   collectEditedBackfillItems,
   collectMatchPreviewSelections,
+  discardCommittedMatchPreviewOverride,
   hasManualFillOverrideValue,
   hasMatchPreviewOverrideValue
 } from "./matchPreviewTable.selection";
@@ -66,6 +67,7 @@ const emit = defineEmits<{
     spec: MatchPreviewItem["bestMatch"] | null
   ): void;
   (e: "showDetail", item: MatchPreviewItem): void;
+  (e: "selectionChange", selections: PersistedSelection[]): void;
 }>();
 
 export type { EditedBackfillItem } from "./matchPreviewTable.types";
@@ -76,8 +78,8 @@ const manualClearedRows = ref<Set<number>>(new Set());
 const editDialogVisible = ref(false);
 const editingItem = ref<MatchPreviewItem | null>(null);
 const currentPage = ref(1);
-const pageSize = ref(100);
-const pageSizeOptions = [50, 100, 200, 500];
+const pageSize = ref(50);
+const pageSizeOptions = [20, 50, 100, 200];
 const editForm = ref({
   overrideAcceptance: "",
   overrideRemark: ""
@@ -129,6 +131,18 @@ const initSelections = () => {
 };
 
 const hasOverrideValue = hasMatchPreviewOverrideValue;
+
+const getCurrentSelections = (): PersistedSelection[] =>
+  collectMatchPreviewSelections(
+    props.items,
+    selectedSpecs.value,
+    editedOverrides.value,
+    manualClearedRows.value
+  );
+
+const emitSelectionChange = () => {
+  emit("selectionChange", getCurrentSelections());
+};
 
 const persistedStateMap = computed(
   () =>
@@ -263,6 +277,7 @@ const handleSaveEditedSelection = () => {
     reviewApprovalToken: item.bestMatch?.reviewApprovalToken
   });
   manualClearedRows.value.delete(item.rowIndex);
+  emitSelectionChange();
   emit("select", item.rowIndex, item.bestMatch ?? null);
   closeEditDialog();
 };
@@ -291,7 +306,10 @@ const syncSelectionsWithItems = () => {
   props.items.forEach(item => {
     const existing = getExistingSelection(item.rowIndex);
     const existingManualCleared = getExistingManualCleared(item.rowIndex);
-    const existingOverride = getOverride(item.rowIndex);
+    const existingOverride = discardCommittedMatchPreviewOverride(
+      item,
+      getOverride(item.rowIndex)
+    );
 
     if (existingOverride) {
       nextOverrides.set(item.rowIndex, existingOverride);
@@ -376,18 +394,21 @@ const handleSelectBest = (item: MatchPreviewItem) => {
     reviewApprovalToken: item.bestMatch?.reviewApprovalToken
   });
   manualClearedRows.value.delete(item.rowIndex);
+  emitSelectionChange();
   emit("select", item.rowIndex, item.bestMatch ?? null);
 };
 
 const handleClearSelection = (item: MatchPreviewItem) => {
   selectedSpecs.value.set(item.rowIndex, null);
   manualClearedRows.value.add(item.rowIndex);
+  emitSelectionChange();
   emit("select", item.rowIndex, null);
 };
 
 const clearSelectionByRow = (rowIndex: number) => {
   selectedSpecs.value.set(rowIndex, null);
   manualClearedRows.value.add(rowIndex);
+  emitSelectionChange();
 };
 
 const getConfidenceClass = getPreviewConfidenceClass;
@@ -487,13 +508,7 @@ const handlePageSizeChange = (size: number) => {
 };
 
 defineExpose({
-  getSelections: () =>
-    collectMatchPreviewSelections(
-      props.items,
-      selectedSpecs.value,
-      editedOverrides.value,
-      manualClearedRows.value
-    ),
+  getSelections: getCurrentSelections,
   getEditedBackfillItems: (): EditedBackfillItem[] =>
     collectEditedBackfillItems(
       props.items,
@@ -557,7 +572,11 @@ defineExpose({
       @edit="openEditDialog"
       @select-best="handleSelectBest"
       @clear-selection="handleClearSelection"
-    />
+    >
+      <template #pagination-actions>
+        <slot name="pagination-actions" />
+      </template>
+    </MatchPreviewDataTable>
 
     <MatchPreviewEditDialog
       v-model:visible="editDialogVisible"

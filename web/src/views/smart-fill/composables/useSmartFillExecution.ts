@@ -16,6 +16,7 @@ import { getRequestErrorMessage } from "@/utils/error-message";
 import type { BatchTableConfigItem } from "../components/batchTableConfig.types";
 import type SmartFillPreviewStep from "../components/SmartFillPreviewStep.vue";
 import {
+  applyBackfilledItemsToPreviewResults,
   buildSmartFillExecuteRequest,
   refreshBackfilledExecuteRequest,
   type SmartFillScope,
@@ -51,6 +52,7 @@ type UseSmartFillExecutionOptions = {
   ) => void;
   setBackfillingSpecs: (value: boolean) => void;
   clearPendingExecuteRequest: () => void;
+  ensureRuntimeAiReady: () => Promise<boolean>;
   /** 由调用方提供的文件下载触发器，默认使用 triggerBrowserDownload */
   onDownload?: (blob: Blob, fileName: string) => void;
 };
@@ -72,12 +74,22 @@ export function useSmartFillExecution({
   openBackfillDialog,
   setBackfillingSpecs,
   clearPendingExecuteRequest,
+  ensureRuntimeAiReady,
   onDownload
 }: UseSmartFillExecutionOptions) {
   const executing = ref(false);
   const downloadingResult = ref(false);
   const taskId = ref<string | null>(null);
   const lastDownloadFailed = ref(false);
+  let lastExecutionIdentity: { fingerprint: string; requestId: string } | null =
+    null;
+
+  const createExecutionRequestId = () => {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+      return globalThis.crypto.randomUUID().replaceAll("-", "");
+    }
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  };
 
   const getHighConfidenceThreshold = () =>
     Math.min(
@@ -146,7 +158,7 @@ export function useSmartFillExecution({
     selectedConfigs: BatchTableConfigItem[],
     allSelections: SmartFillPreviewSelections
   ): BatchExecuteFillRequest | null => {
-    return buildSmartFillExecuteRequest({
+    const request = buildSmartFillExecuteRequest({
       uploadedFileId: uploadedFile.value?.fileId,
       scope,
       selectedConfigs,
@@ -156,6 +168,24 @@ export function useSmartFillExecution({
       previewResults: batchPreviewResults.value,
       resolveFilterEmptySourceRows: getEffectiveFilterEmptySourceRows
     });
+    if (!request) return null;
+
+    const fingerprint = JSON.stringify({
+      fileId: request.fileId,
+      customerId: request.customerId,
+      processId: request.processId,
+      machineModelId: request.machineModelId,
+      config: request.config,
+      tables: request.tables
+    });
+    if (lastExecutionIdentity?.fingerprint !== fingerprint) {
+      lastExecutionIdentity = {
+        fingerprint,
+        requestId: createExecutionRequestId()
+      };
+    }
+    request.executionRequestId = lastExecutionIdentity.requestId;
+    return request;
   };
 
   const runExecuteFill = async (request: BatchExecuteFillRequest) => {
@@ -195,16 +225,33 @@ export function useSmartFillExecution({
     }
   };
 
+  const withCurrentRuntimeAiConfig = (
+    request: BatchExecuteFillRequest
+  ): BatchExecuteFillRequest => ({
+    ...request,
+    config: {
+      ...request.config,
+      embeddingServiceId: matchConfig.value.embeddingServiceId,
+      llmServiceId: matchConfig.value.llmServiceId,
+      enableLlmEquivalenceAdjudication:
+        matchConfig.value.enableLlmEquivalenceAdjudication,
+      enableLlmSemanticPriority: matchConfig.value.enableLlmSemanticPriority
+    }
+  });
+
   const executePendingWithoutBackfill = async () => {
-    const request = pendingExecuteRequest.value;
-    if (!request) return;
+    if (!pendingExecuteRequest.value) return;
+    if (!(await ensureRuntimeAiReady())) return;
+    const pendingRequest = pendingExecuteRequest.value;
+    if (!pendingRequest) return;
+    const request = withCurrentRuntimeAiConfig(pendingRequest);
 
     closeBackfillDialog();
     executing.value = true;
     try {
       await runExecuteFill(request);
-    } catch {
-      ElMessage.error("填充失败");
+    } catch (error) {
+      ElMessage.error(getRequestErrorMessage(error, "填充失败"));
     } finally {
       clearPendingExecuteRequest();
       executing.value = false;
@@ -212,17 +259,21 @@ export function useSmartFillExecution({
   };
 
   const confirmBackfillAndExecute = async () => {
-    const request = pendingExecuteRequest.value;
-    if (!request) return;
+    const initialRequest = pendingExecuteRequest.value;
+    if (!initialRequest) return;
 
     const selected = selectedBackfillCandidates.value;
     if (
       selected.some(item => item.actionType === "create") &&
-      !request.customerId
+      !initialRequest.customerId
     ) {
       ElMessage.warning("回填新增规格前，请先选择客户范围");
       return;
     }
+    if (!(await ensureRuntimeAiReady())) return;
+    const pendingRequest = pendingExecuteRequest.value;
+    if (!pendingRequest) return;
+    const request = withCurrentRuntimeAiConfig(pendingRequest);
 
     setBackfillingSpecs(true);
     executing.value = true;
@@ -244,6 +295,10 @@ export function useSmartFillExecution({
           ElMessage.error(res.message || "回填验收规格失败");
           return;
         }
+        batchPreviewResults.value = applyBackfilledItemsToPreviewResults(
+          batchPreviewResults.value,
+          selected
+        );
         ElMessage.success(`已回填 ${res.data.totalCount} 条验收规格`);
       }
 
@@ -282,6 +337,7 @@ export function useSmartFillExecution({
       ElMessage.warning("请至少选择一项匹配结果");
       return;
     }
+    if (!(await ensureRuntimeAiReady())) return;
 
     const executeRequest = buildExecuteFillRequest(
       getScope(),
@@ -308,8 +364,8 @@ export function useSmartFillExecution({
     executing.value = true;
     try {
       await runExecuteFill(executeRequest);
-    } catch {
-      ElMessage.error("填充失败");
+    } catch (error) {
+      ElMessage.error(getRequestErrorMessage(error, "填充失败"));
     } finally {
       executing.value = false;
     }

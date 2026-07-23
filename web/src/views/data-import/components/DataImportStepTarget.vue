@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import type { FormRules } from "element-plus";
 import type { Customer } from "@/api/customer";
 import type { MachineModel } from "@/api/machine-model";
 import type { Process } from "@/api/process";
 
-defineProps<{
+const props = defineProps<{
   customers: Customer[];
   processes: Process[];
   machineModels: MachineModel[];
@@ -13,7 +15,19 @@ defineProps<{
   loadingCustomers: boolean;
   loadingProcesses: boolean;
   loadingMachineModels: boolean;
+  compact?: boolean;
 }>();
+
+const formModel = computed(() => ({
+  customerId: props.selectedCustomerId,
+  processId: props.selectedProcessId,
+  machineModelId: props.selectedMachineModelId
+}));
+const formRules: FormRules = {
+  customerId: [
+    { required: true, message: "请选择客户", trigger: ["blur", "change"] }
+  ]
+};
 
 const emit = defineEmits<{
   (e: "update:selectedCustomerId", value: number | undefined): void;
@@ -23,12 +37,15 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="step-panel">
-    <h3 class="step-title">选择导入目标</h3>
-    <p class="step-desc">请选择数据要导入的客户、制程与机型（制程/机型可选）</p>
-
-    <el-form label-width="100px" class="target-form">
-      <el-form-item label="选择客户" required>
+  <div :class="['step-panel', { 'step-panel--compact': compact }]">
+    <el-form
+      :model="formModel"
+      :rules="formRules"
+      label-width="100px"
+      class="target-form"
+      status-icon
+    >
+      <el-form-item label="选择客户" prop="customerId">
         <el-select
           :model-value="selectedCustomerId"
           placeholder="请选择客户"

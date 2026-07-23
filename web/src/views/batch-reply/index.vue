@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import type { UploadRequestOptions } from "element-plus";
 import type { BatchTableConfigItem } from "@/views/smart-fill/components/batchTableConfig.types";
@@ -36,6 +36,11 @@ import { useBatchReplyPreview } from "./composables/useBatchReplyPreview";
 import { useBatchReplyTargetUploads } from "./composables/useBatchReplyTargetUploads";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
+import type { AppUploadRequestContext } from "@/components/useAppUploadTask";
+import {
+  isUploadRequestCancelled,
+  throwIfUploadCancelled
+} from "@/utils/upload-request";
 
 defineOptions({ name: "BatchReplyPage" });
 
@@ -45,7 +50,6 @@ const sourceFile = ref<BatchReplySourceFileState | null>(null);
 const sourceTables = ref<TableInfo[]>([]);
 const sourceConfigs = ref<BatchTableConfigItem[]>([]);
 const targetFiles = ref<BatchReplyTargetState[]>([]);
-const sourceUploading = ref(false);
 
 const permissionState = computed(() =>
   buildBatchReplyPermissionState(hasPerms)
@@ -87,12 +91,9 @@ const executeDisabled = computed(() => batchReplyState.value.executeDisabled);
 
 const {
   activeTargetFileId,
-  targetUploading,
   targetUploadKey,
-  targetUploadRef,
   handleTargetFileChange,
-  resetTargetUploadState,
-  pendingTargetUploadFiles
+  resetTargetUploadState
 } = useBatchReplyTargetUploads({
   sourceFile,
   targetFiles,
@@ -100,8 +101,8 @@ const {
   targetAccept,
   selectedSourceTableOptions,
   activeRootTab,
-  onUploadTargets: (sessionId, pendingFiles) =>
-    uploadBatchReplyTargets(sourceSessionId.value, pendingFiles)
+  onUploadTargets: (sessionId, pendingFiles, options) =>
+    uploadBatchReplyTargets(sessionId, pendingFiles, options)
 });
 
 const {
@@ -128,18 +129,6 @@ const { executeResult, executing, executeReadyTargets } =
   });
 const resultFiles = computed(() =>
   getBatchReplyResultFiles(executeResult.value)
-);
-
-// 页面级权限检查，对应导航权限：btn:batch-reply:preview / btn:batch-reply:execute
-// 目标文件待上传队列变化时，触发批量上传（与 composable 内部的 schedule 协同）
-watch(
-  pendingTargetUploadFiles,
-  async pendingFiles => {
-    if (!pendingFiles.length || !sourceSessionId.value) return;
-    // 实际上传由 composable 内部负责调度，此处仅声明依赖关系：
-    // uploadBatchReplyTargets(sourceSessionId.value, pendingFiles)
-  },
-  { deep: false }
 );
 
 const formatFileSize = (size: number) => {
@@ -202,16 +191,18 @@ const resetAllState = () => {
   resetTargetState();
 };
 
-const loadSourceTables = async (sessionId: string, fileType: number) => {
+const fetchSourceTableState = async (sessionId: string, fileType: number) => {
   const res = await getBatchReplyTables(sessionId);
   if (res.code !== 0) {
     throw new Error(res.message || "加载来源表格失败");
   }
 
-  sourceTables.value = res.data;
-  sourceConfigs.value = res.data.map(table =>
-    buildTableConfig(table, fileType === 1, true)
-  );
+  return {
+    tables: res.data,
+    configs: res.data.map(table =>
+      buildTableConfig(table, fileType === 1, true)
+    )
+  };
 };
 
 const handleSourceConfigChange = (value: BatchTableConfigItem[]) => {
@@ -239,41 +230,48 @@ const handleTargetConfigChange = (
   );
 };
 
-const handleSourceUpload = async (options: UploadRequestOptions) => {
+const handleSourceUpload = async (
+  options: UploadRequestOptions,
+  context: AppUploadRequestContext
+) => {
   if (
     !ensurePermission(
       "api:batch-reply:upload-source",
       "权限不足，无法上传来源文件"
     )
   ) {
-    return;
+    throw new Error("权限不足，无法上传来源文件");
   }
 
   const file = options.file as File;
   const sourceFileError = validateBatchReplySourceFile(file);
   if (sourceFileError) {
     ElMessage.error(sourceFileError);
-    return;
+    throw new Error(sourceFileError);
   }
 
-  sourceUploading.value = true;
   try {
-    const res = await uploadBatchReplySource(file);
-    if (res.code !== 0) {
-      ElMessage.error(res.message || "来源文件上传失败");
-      return;
-    }
+    const res = await uploadBatchReplySource(file, context);
+    throwIfUploadCancelled(context.signal);
+    if (res.code !== 0) throw new Error(res.message || "来源文件上传失败");
+
+    const sourceTableState = await fetchSourceTableState(
+      res.data.sessionId,
+      res.data.sourceFileType
+    );
+    throwIfUploadCancelled(context.signal);
 
     resetAllState();
     sourceFile.value = res.data;
     activeSourceFileTab.value = res.data.sessionId;
-    await loadSourceTables(res.data.sessionId, res.data.sourceFileType);
+    sourceTables.value = sourceTableState.tables;
+    sourceConfigs.value = sourceTableState.configs;
     activeRootTab.value = "source";
     ElMessage.success("来源文件上传成功");
-  } catch {
+  } catch (error) {
+    if (isUploadRequestCancelled(error)) throw error;
     ElMessage.error("来源文件上传失败");
-  } finally {
-    sourceUploading.value = false;
+    throw error;
   }
 };
 
@@ -292,16 +290,8 @@ const removeTargetFile = (targetId: string) => {
 </script>
 
 <template>
-  <div class="batch-reply-page page-shell">
+  <div class="page page--fill page-shell batch-reply-page">
     <div class="page-header">
-      <div class="page-header__main">
-        <div class="page-header__eyebrow">批量工作台</div>
-        <h1>批量回复</h1>
-        <p>
-          以来源文件为基准，按文件和
-          Sheet/表格配置映射关系，统一完成同模板文档的回复回写。
-        </p>
-      </div>
       <div class="page-header__stats">
         <div class="header-stat">
           <span class="header-stat__label">来源表</span>
@@ -336,7 +326,6 @@ const removeTargetFile = (targetId: string) => {
               :source-file="sourceFile"
               :source-is-excel="sourceIsExcel"
               :can-upload-source-file="canUploadSourceFile"
-              :source-uploading="sourceUploading"
               :upload-request="handleSourceUpload"
               @reset="resetAllState"
             />
@@ -349,7 +338,6 @@ const removeTargetFile = (targetId: string) => {
               :source-file="sourceFile"
               :source-is-excel="sourceIsExcel"
               :can-upload-source-file="canUploadSourceFile"
-              :source-uploading="sourceUploading"
               :upload-request="handleSourceUpload"
               @reset="resetAllState"
             />
@@ -373,7 +361,6 @@ const removeTargetFile = (targetId: string) => {
         <el-tab-pane label="目标文件" name="target" :disabled="!sourceFile">
           <div class="content-grid">
             <TargetFilesPanel
-              v-model:target-upload-ref="targetUploadRef"
               v-model:active-target-file-id="activeTargetFileId"
               :can-preview-batch-reply="canPreviewBatchReply"
               :can-upload-target-file="canUploadTargetFile"
@@ -383,10 +370,9 @@ const removeTargetFile = (targetId: string) => {
               :source-file="sourceFile"
               :target-accept="targetAccept"
               :target-files="targetFiles"
-              :target-uploading="targetUploading"
               :target-upload-key="targetUploadKey"
+              :upload-request="handleTargetFileChange"
               @config-change="handleTargetConfigChange"
-              @file-change="handleTargetFileChange"
               @preview="handleTargetTablePreview"
               @remove="removeTargetFile"
             />

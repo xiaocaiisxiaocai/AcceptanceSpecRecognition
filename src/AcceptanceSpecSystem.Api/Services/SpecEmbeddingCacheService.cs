@@ -13,7 +13,7 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// <summary>
 /// 规格向量缓存服务：按用途和文本指纹隔离缓存，保留实时懒生成兜底。
 /// </summary>
-public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor
+public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor, IImportEmbeddingCache, IMatchingEmbeddingCache, ISpecSemanticEmbeddingCache
 {
     private const int EmbeddingGenerationBatchSize = 200;
 
@@ -113,6 +113,19 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor
         {
             _unitOfWork.EmbeddingCaches.RemoveRange(caches);
         }
+    }
+
+    public async Task<IReadOnlyDictionary<int, float[]>> GetImportDuplicateEmbeddingsAsync(
+        IReadOnlyCollection<AcceptanceSpec> specs,
+        int? embeddingServiceId,
+        CancellationToken cancellationToken = default)
+    {
+        var results = await GetOrCreateForSpecsAsync(
+            specs,
+            EmbeddingCacheUsages.ImportDuplicateDetection,
+            embeddingServiceId,
+            cancellationToken);
+        return results.ToDictionary(item => item.SpecId, item => item.Embedding);
     }
 
     public async Task RemoveSpecCachesAsync(IEnumerable<int> specIds)
@@ -454,5 +467,3 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor
         public int GetEmbeddingLength() => _embedding.Length;
     }
 }
-
-public sealed record SpecEmbeddingResult(int SpecId, string Text, float[] Embedding);

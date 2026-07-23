@@ -1,6 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { Loading } from "@element-plus/icons-vue";
+import { computed, ref, watch } from "vue";
+import {
+  CircleCheckFilled,
+  DocumentAdd,
+  Download,
+  Loading,
+  Refresh,
+  WarningFilled
+} from "@element-plus/icons-vue";
 import BatchPreviewTabs from "./BatchPreviewTabs.vue";
 import type {
   BatchPreviewProgressResponse,
@@ -54,6 +61,25 @@ const emit = defineEmits<{
 const batchPreviewTabsRef = ref<InstanceType<typeof BatchPreviewTabs> | null>(
   null
 );
+const hasPostFillChanges = ref(false);
+
+watch(
+  () => props.taskId,
+  () => {
+    hasPostFillChanges.value = false;
+  }
+);
+
+const handleSelect = (
+  tableIndex: number,
+  rowIndex: number,
+  spec: MatchPreviewItem["bestMatch"] | null
+) => {
+  if (props.taskId) {
+    hasPostFillChanges.value = true;
+  }
+  emit("select", tableIndex, rowIndex, spec);
+};
 
 defineExpose<{
   getAllSelections: NonNullable<
@@ -79,10 +105,7 @@ const loadingHintText = computed(() => {
 </script>
 
 <template>
-  <div class="step-panel">
-    <h3 class="step-title">匹配预览</h3>
-    <p class="step-desc">确认匹配结果，可手动调整选择</p>
-
+  <div class="step-panel smart-fill-preview-step">
     <!-- LLM 流式处理提示 -->
     <el-alert
       v-if="llmStreaming"
@@ -135,113 +158,219 @@ const loadingHintText = computed(() => {
       </div>
     </div>
 
-    <el-empty
-      v-if="!loading && previewBlockingMessage"
-      :description="previewBlockingMessage"
-      class="preview-empty-state"
-    >
-      <template #description>
-        <div class="preview-empty-state__body">
-          <div class="preview-empty-state__title">
-            {{ previewBlockingMessage }}
+    <template v-else>
+      <el-empty
+        v-if="previewBlockingMessage"
+        :description="previewBlockingMessage"
+        class="preview-empty-state"
+      >
+        <template #description>
+          <div class="preview-empty-state__body">
+            <div class="preview-empty-state__title">
+              {{ previewBlockingMessage }}
+            </div>
+            <div v-if="previewBlockingHint" class="preview-empty-state__hint">
+              {{ previewBlockingHint }}
+            </div>
           </div>
-          <div v-if="previewBlockingHint" class="preview-empty-state__hint">
-            {{ previewBlockingHint }}
+        </template>
+      </el-empty>
+
+      <el-empty
+        v-else-if="batchPreviewResults.length === 0"
+        description="当前没有预览结果"
+        class="preview-empty-state"
+      >
+        <template #description>
+          <div class="preview-empty-state__body">
+            <div class="preview-empty-state__title">当前没有预览结果</div>
+            <div class="preview-empty-state__hint">
+              页面状态可能已失效，请返回上一步重新匹配。
+            </div>
           </div>
-        </div>
-      </template>
-    </el-empty>
+        </template>
+        <el-button v-if="!taskId" @click="emit('goPrev')">返回上一步</el-button>
+      </el-empty>
 
-    <el-empty
-      v-else-if="!loading && batchPreviewResults.length === 0"
-      description="当前没有预览结果"
-      class="preview-empty-state"
-    >
-      <template #description>
-        <div class="preview-empty-state__body">
-          <div class="preview-empty-state__title">当前没有预览结果</div>
-          <div class="preview-empty-state__hint">
-            页面状态可能已失效，请返回上一步重新匹配。
-          </div>
-        </div>
-      </template>
-      <el-button v-if="!taskId" @click="emit('goPrev')">返回上一步</el-button>
-    </el-empty>
-
-    <BatchPreviewTabs
-      v-else
-      ref="batchPreviewTabsRef"
-      :results="batchPreviewResults"
-      :loading="loading"
-      :high-confidence-threshold="highConfidenceThreshold"
-      :ambiguity-margin="ambiguityMargin"
-      :llm-streaming="llmStreaming"
-      :table-names="previewTableNames"
-      @select="
-        (tableIndex, rowIndex, spec) =>
-          emit('select', tableIndex, rowIndex, spec)
-      "
-      @show-detail="emit('showDetail', $event)"
-    />
-
-    <!-- 填充完成提示（紧凑内联） -->
-    <el-alert
-      v-if="taskId"
-      :title="
-        isExcelFile
-          ? '填充完成 — 内容已回写到当前上传文档'
-          : '填充完成 — 已生成结果文档（源文档保持不变）'
-      "
-      :description="
-        lastDownloadFailed
-          ? '本次自动下载未完成，请使用下方入口重新下载结果。'
-          : canDownloadFillResult
-            ? '如需再次获取结果文件，可使用下方下载入口。'
-            : '当前账号没有下载权限，可稍后由有权限用户下载结果。'
-      "
-      type="success"
-      show-icon
-      closable
-      class="fill-done-alert"
-    />
-
-    <!-- 操作按钮 -->
-    <div v-if="allPreviewItemsCount > 0" class="action-bar">
-      <el-button
-        v-if="canPreviewMatching"
+      <BatchPreviewTabs
+        v-else
+        ref="batchPreviewTabsRef"
+        :results="batchPreviewResults"
         :loading="loading"
-        @click="emit('preview')"
+        :high-confidence-threshold="highConfidenceThreshold"
+        :ambiguity-margin="ambiguityMargin"
+        :llm-streaming="llmStreaming"
+        :table-names="previewTableNames"
+        @select="handleSelect"
+        @show-detail="emit('showDetail', $event)"
       >
-        重新匹配
-      </el-button>
-      <el-button
-        v-if="canExecuteFill"
-        type="primary"
-        :loading="executing"
-        :disabled="!!taskId || llmStreaming || loading"
-        @click="emit('execute')"
-      >
-        执行填充
-      </el-button>
-      <el-button
-        v-if="taskId && canDownloadFillResult"
-        :loading="downloadingResult"
-        @click="emit('downloadLastResult')"
-      >
-        重新下载结果
-      </el-button>
-      <el-button v-if="taskId && canUploadSourceFile" @click="emit('restart')">
-        继续填充其他文档
-      </el-button>
-    </div>
+        <template #pagination-actions>
+          <div
+            v-if="allPreviewItemsCount > 0"
+            class="preview-pagination-actions"
+          >
+            <div
+              v-if="taskId"
+              class="fill-complete-status"
+              :class="{
+                'fill-complete-status--warning':
+                  lastDownloadFailed || hasPostFillChanges
+              }"
+            >
+              <el-icon :size="17">
+                <WarningFilled
+                  v-if="lastDownloadFailed || hasPostFillChanges"
+                />
+                <CircleCheckFilled v-else />
+              </el-icon>
+              <div class="fill-complete-status__copy">
+                <strong>{{
+                  hasPostFillChanges
+                    ? "修改待重新填充"
+                    : lastDownloadFailed
+                      ? "填充完成，下载未完成"
+                      : "填充完成"
+                }}</strong>
+                <span>
+                  {{
+                    hasPostFillChanges
+                      ? "当前文档仍是上次填充结果"
+                      : lastDownloadFailed
+                        ? "请重新下载结果"
+                        : isExcelFile
+                          ? "已回写当前文档"
+                          : "已生成结果文档"
+                  }}
+                </span>
+              </div>
+            </div>
+
+            <div class="preview-pagination-actions__buttons">
+              <el-button
+                v-if="!taskId && canPreviewMatching"
+                :icon="Refresh"
+                :loading="loading"
+                @click="emit('preview')"
+              >
+                重新匹配
+              </el-button>
+              <el-button
+                v-if="!taskId && canExecuteFill"
+                type="primary"
+                :loading="executing"
+                :disabled="llmStreaming || loading"
+                @click="emit('execute')"
+              >
+                执行填充
+              </el-button>
+              <el-button
+                v-if="taskId && hasPostFillChanges && canExecuteFill"
+                type="primary"
+                :loading="executing"
+                :disabled="llmStreaming || loading"
+                @click="emit('execute')"
+              >
+                重新填充
+              </el-button>
+              <el-button
+                v-if="taskId && canDownloadFillResult"
+                :icon="Download"
+                :loading="downloadingResult"
+                @click="emit('downloadLastResult')"
+              >
+                重新下载
+              </el-button>
+              <el-button
+                v-if="taskId && canUploadSourceFile"
+                type="primary"
+                plain
+                :icon="DocumentAdd"
+                @click="emit('restart')"
+              >
+                继续填充
+              </el-button>
+            </div>
+          </div>
+        </template>
+      </BatchPreviewTabs>
+    </template>
   </div>
 </template>
 
 <style scoped>
+.smart-fill-preview-step {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.preview-pagination-actions {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.preview-pagination-actions__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preview-pagination-actions__buttons :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
+.fill-complete-status {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 10px;
+  color: var(--app-success);
+  background: var(--app-success-bg);
+  border: 1px solid color-mix(in srgb, var(--app-success) 24%, transparent);
+  border-radius: 6px;
+}
+
+.fill-complete-status--warning {
+  color: var(--el-color-warning-dark-2);
+  background: var(--app-warning-bg);
+  border-color: color-mix(in srgb, var(--el-color-warning) 28%, transparent);
+}
+
+.fill-complete-status__copy {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.fill-complete-status__copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fill-complete-status__copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
 .matching-loading {
   display: flex;
+  flex: 1;
+  align-items: center;
   justify-content: center;
-  padding: 32px 0;
+  min-height: 0;
+  padding: 24px 0;
 }
 
 .matching-loading__card {
@@ -250,8 +379,8 @@ const loadingHintText = computed(() => {
   gap: 14px;
   width: min(560px, 100%);
   padding: 24px;
-  background: #f8fbff;
-  border: 1px solid #dbeafe;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-bg);
   border-radius: 12px;
 }
 
@@ -277,8 +406,8 @@ const loadingHintText = computed(() => {
   padding: 2px 8px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
-  color: #9ca3af;
-  background: #f3f4f6;
+  color: var(--app-text-disabled);
+  background: var(--app-border-light);
   border-radius: 20px;
 }
 
@@ -297,7 +426,7 @@ const loadingHintText = computed(() => {
   gap: 8px;
   justify-content: space-between;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .matching-loading__detail {
@@ -308,8 +437,8 @@ const loadingHintText = computed(() => {
   padding: 1px 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #374151;
-  background: #ede9fe;
+  color: var(--app-text-secondary);
+  background: var(--app-primary-light);
   border-radius: 10px;
 }
 
@@ -317,7 +446,13 @@ const loadingHintText = computed(() => {
   padding-top: 10px;
   font-size: 12px;
   line-height: 1.6;
-  color: #9ca3af;
-  border-top: 1px solid #e5e7eb;
+  color: var(--app-text-disabled);
+  border-top: 1px solid var(--app-border);
+}
+
+@media (width <= 960px) {
+  .fill-complete-status {
+    flex: 1 1 100%;
+  }
 }
 </style>

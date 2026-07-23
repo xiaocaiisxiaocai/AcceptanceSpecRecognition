@@ -20,22 +20,27 @@ export function useSmartFillPreviewProgress(
   const previewProgressPollTimer = ref<number | null>(null);
   const previewElapsedTimer = ref<number | null>(null);
   const currentPreviewRequestId = ref<string | null>(null);
+  let pollingGeneration = 0;
+  let progressAbortController: AbortController | null = null;
 
   const clearPreviewProgressTimers = () => {
     if (
       previewProgressPollTimer.value !== null &&
       typeof window !== "undefined"
     ) {
-      window.clearInterval(previewProgressPollTimer.value);
+      window.clearTimeout(previewProgressPollTimer.value);
     }
     if (previewElapsedTimer.value !== null && typeof window !== "undefined") {
       window.clearInterval(previewElapsedTimer.value);
     }
     previewProgressPollTimer.value = null;
     previewElapsedTimer.value = null;
+    progressAbortController?.abort();
+    progressAbortController = null;
   };
 
   const stopPreviewProgressPolling = () => {
+    pollingGeneration++;
     clearPreviewProgressTimers();
     currentPreviewRequestId.value = null;
   };
@@ -57,11 +62,21 @@ export function useSmartFillPreviewProgress(
 
   const fetchBatchPreviewProgress = async (
     requestId: string,
-    isLoading: () => boolean
+    isLoading: () => boolean,
+    generation: number,
+    scheduleNext: () => void
   ) => {
+    const controller = new AbortController();
+    progressAbortController = controller;
     try {
-      const res = await getBatchPreviewProgress(requestId);
-      if (currentPreviewRequestId.value !== requestId || res.code !== 0) {
+      const res = await getBatchPreviewProgress(requestId, {
+        signal: controller.signal
+      });
+      if (
+        pollingGeneration !== generation ||
+        currentPreviewRequestId.value !== requestId ||
+        res.code !== 0
+      ) {
         return;
       }
       previewProgress.value = res.data;
@@ -69,7 +84,13 @@ export function useSmartFillPreviewProgress(
         stopPreviewProgressPolling();
       }
     } catch (error: unknown) {
-      if (currentPreviewRequestId.value !== requestId) return;
+      if (
+        controller.signal.aborted ||
+        pollingGeneration !== generation ||
+        currentPreviewRequestId.value !== requestId
+      ) {
+        return;
+      }
       if (!isLoading()) {
         stopPreviewProgressPolling();
         return;
@@ -78,6 +99,20 @@ export function useSmartFillPreviewProgress(
       if (axiosError?.response?.status === 404) {
         stopPreviewProgressPolling();
       }
+    } finally {
+      if (progressAbortController === controller) {
+        progressAbortController = null;
+      }
+      if (
+        pollingGeneration === generation &&
+        currentPreviewRequestId.value === requestId
+      ) {
+        if (isLoading()) {
+          scheduleNext();
+        } else {
+          stopPreviewProgressPolling();
+        }
+      }
     }
   };
 
@@ -85,7 +120,9 @@ export function useSmartFillPreviewProgress(
     requestId: string,
     isLoading: () => boolean
   ) => {
+    pollingGeneration++;
     clearPreviewProgressTimers();
+    const generation = pollingGeneration;
     previewProgress.value = {
       requestId,
       status: "running",
@@ -108,9 +145,24 @@ export function useSmartFillPreviewProgress(
       previewElapsedSeconds.value += 1;
     }, 1000);
 
-    previewProgressPollTimer.value = window.setInterval(() => {
-      void fetchBatchPreviewProgress(requestId, isLoading);
-    }, 900);
+    const scheduleNext = () => {
+      if (
+        pollingGeneration !== generation ||
+        currentPreviewRequestId.value !== requestId
+      ) {
+        return;
+      }
+      previewProgressPollTimer.value = window.setTimeout(() => {
+        previewProgressPollTimer.value = null;
+        void fetchBatchPreviewProgress(
+          requestId,
+          isLoading,
+          generation,
+          scheduleNext
+        );
+      }, 900);
+    };
+    scheduleNext();
   };
 
   const markPreviewProgressCompleted = () => {

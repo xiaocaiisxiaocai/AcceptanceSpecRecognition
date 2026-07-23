@@ -24,6 +24,8 @@ bld/
 .tmp-req*-response.json
 .tmp*.log
 .tmp*.json
+tmp-*.log
+tmp-*.out
 
 # Visual Studio files
 .vs/
@@ -48,6 +50,7 @@ bld/
 [Bb]uild[Ll]og.*
 TestResult.xml
 nunit-*.xml
+**/.testbin*/
 
 # Coverage Results
 *.coverage
@@ -108,6 +111,10 @@ docs/design-overview.pdf
 tmp/
 提供测试的文档/
 
+# Local real-world samples (keep outside version control)
+/huaian*
+/淮安庆鼎*
+
 # DataProtection key ring (runtime generated)
 **/data-protection-keys/
 .ace-tool/
@@ -115,11 +122,26 @@ tmp/
 
 # Codex / AI tool logs
 .codex-*
+.codex/
+.playwright-cli/
+.playwright-mcp/
+.runlogs/
+__pycache__/
+*.py[cod]
+
+# Local UI audit captures may contain customer data or internal endpoints
+/audit-*.png
 
 # Large generated artifacts
 backups/
+output/
 outputs/
 *.sql
+!deploy/preflight-collation-migration.sql
 
 # Node modules (root-level scratch / tooling installs)
 node_modules/
+
+# Puppeteer check scripts output
+web/smart-fill-check.png
+smart-fill-check.png

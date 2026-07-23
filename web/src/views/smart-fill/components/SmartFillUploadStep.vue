@@ -11,18 +11,18 @@ defineProps<{
 const emit = defineEmits<{
   (e: "update:uploadedFile", value: FileUploadResponse | null): void;
   (e: "uploaded", value: FileUploadResponse): void;
+  (e: "retryMetadata"): void;
 }>();
 </script>
 
 <template>
   <div class="step-panel">
-    <h3 class="step-title">上传目标文档</h3>
-    <p class="step-desc">请选择需要填充验收标准的 Word/Excel 文档</p>
     <FileUpload
       v-if="canUploadSourceFile"
       :model-value="uploadedFile"
       @update:model-value="emit('update:uploadedFile', $event)"
       @uploaded="emit('uploaded', $event)"
+      @retry-metadata="emit('retryMetadata')"
     />
     <el-alert
       v-if="canUploadSourceFile && uploadedFile && loadingUploadedFileTables"
@@ -39,5 +39,6 @@ const emit = defineEmits<{
       show-icon
       title="当前账号没有文档上传权限"
     />
+    <slot name="extra" />
   </div>
 </template>

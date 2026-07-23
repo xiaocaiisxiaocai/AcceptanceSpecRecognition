@@ -14,7 +14,6 @@ import {
   getSmartFillTableState,
   getSelectionModeDescription,
   getSelectionModeText,
-  getSortedScoreDetails,
   applyMatchLlmStreamEventToPreviewItem,
   applyMatchLlmStreamDisconnectToPreviewItem,
   shouldStreamMatchReview
@@ -238,19 +237,19 @@ test("主表与详情区不应再用本地风险信号覆盖 authoritative decis
     decisionSummarySource,
     /description: "存在差异，请先确认"/
   );
-  assert.doesNotMatch(
-    decisionSummarySource,
-    /return "核对差异后再填充";/
-  );
+  assert.doesNotMatch(decisionSummarySource, /return "核对差异后再填充";/);
 });
 
 test("llm-stream 非2xx或无 body 时应先收口中断行，且 filterEmptySourceRows helper 不应重复声明", () => {
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const smartFillPageSource = readProjectFile(
+    "web/src/views/smart-fill/index.vue"
+  );
   const llmStreamSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillLlmStream.ts"
   );
   const helperCount = (
-    smartFillPageSource.match(/const getEffectiveFilterEmptySourceRows =/g) ?? []
+    smartFillPageSource.match(/const getEffectiveFilterEmptySourceRows =/g) ??
+    []
   ).length;
 
   assert.equal(helperCount, 1);
@@ -309,13 +308,19 @@ test("需要确认和不建议填充行应支持人工编辑，需要确认行�
   const dataTableSource = readProjectFile(
     "web/src/views/smart-fill/components/MatchPreviewDataTable.vue"
   );
+  const previewTableSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchPreviewTable.vue"
+  );
 
   assert.equal(canUsePreviewBestMatch(review, "manual"), false);
   assert.equal(canManuallyAcceptMatchPreviewBestMatch(review, "manual"), true);
   assert.equal(canEditMatchPreviewRow(review, "manual"), true);
   assert.equal(canEditMatchPreviewRow(blocked, "blocked"), true);
-  assert.match(dataTableSource, /can-manually-accept-best-match/);
-  assert.match(dataTableSource, /can-show-clear-selection/);
+  assert.match(
+    previewTableSource,
+    /:can-manually-accept-best-match="canManuallyAcceptBestMatch"/
+  );
+  assert.match(dataTableSource, /canShowClearSelection/);
 });
 
 test("llm-stream 收口只应处理本次仍待完成的复核行", () => {
@@ -330,7 +335,7 @@ test("llm-stream 收口只应处理本次仍待完成的复核行", () => {
   );
   assert.match(
     llmStreamSource,
-    /if \(!pendingRowKeys\.has\(buildLlmStreamRowKey\(tableResult\.tableIndex, item\.rowIndex\)\)\)/
+    /!pendingRowKeys\.has\(\s*buildLlmStreamRowKey\(tableResult\.tableIndex, item\.rowIndex\)\s*\)/
   );
 });
 
@@ -338,9 +343,10 @@ test("主动停止 llm-stream 时应先收口 pending 行再清理状态", () =>
   const llmStreamSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillLlmStream.ts"
   );
-  const stopBlock = llmStreamSource.match(
-    /const stopLlmStream = \(\) => \{[\s\S]*?\n  \};/
-  )?.[0] ?? "";
+  const stopBlock =
+    llmStreamSource.match(
+      /const stopLlmStream = \(\) => \{[\s\S]*?\n  \};/
+    )?.[0] ?? "";
 
   assert.match(stopBlock, /finalizeInterruptedLlmStreamRows\(/);
   assert.ok(
@@ -477,9 +483,12 @@ const getInterfaceBlock = (source: string, interfaceName: string) => {
 
 const getLlmStreamPayloadBlock = (llmStreamSource: string) => {
   const match = llmStreamSource.match(
-    /const buildPayload = buildLlmStreamPayload[\s\S]*?createMatchLlmStreamRequest\(\{[\s\S]*?\}\)[\s\S]*?const payload = buildPayload\(scope, llmItems, matchConfig\.value\)/
+    /const buildPayload =[\s\S]*?buildLlmStreamPayload[\s\S]*?createMatchLlmStreamRequest\(\{[\s\S]*?\}\)\);[\s\S]*?const payload = buildPayload\(scope, llmItems, matchConfig\.value\)/
   );
-  assert.ok(match, "应能定位 startLlmStream 中发送 llm-stream 的 payload 代码块");
+  assert.ok(
+    match,
+    "应能定位 startLlmStream 中发送 llm-stream 的 payload 代码块"
+  );
   return match[0];
 };
 
@@ -488,11 +497,14 @@ test("批量预览 Tab 应维护本地可切换状态，而不是把只读 compu
     "web/src/views/smart-fill/components/BatchPreviewTabs.vue"
   );
 
-  assert.match(previewTabsSource, /import\s+\{\s*computed,\s*ref,\s*watch\s*\}\s+from "vue";/);
+  assert.match(
+    previewTabsSource,
+    /import\s+\{\s*computed,\s*ref,\s*watch\s*\}\s+from "vue";/
+  );
   assert.match(previewTabsSource, /const activeTab = ref\(/);
   assert.match(
     previewTabsSource,
-    /watch\(\s*\(\)\s*=>\s*props\.results,\s*\(results\)\s*=>[\s\S]*activeTab\.value/
+    /watch\(\s*\(\)\s*=>\s*props\.results,\s*results =>[\s\S]*activeTab\.value/
   );
   assert.doesNotMatch(previewTabsSource, /const activeTab = computed\(/);
 });
@@ -653,11 +665,23 @@ test("说明列应只保留异常原因，不再重复展示最佳匹配中的�
 
   assert.match(previewTableSource, /const hasReasonColumn = computed\(/);
   assert.match(reasonPredicateBlock, /!!item\.noMatchReason/);
-  assert.match(reasonPredicateBlock, /!!item\.bestMatch\?\.conflictSummary\?\.length/);
+  assert.match(
+    reasonPredicateBlock,
+    /!!item\.bestMatch\?\.conflictSummary\?\.length/
+  );
   assert.match(reasonPredicateBlock, /!!item\.llmReviewError/);
-  assert.doesNotMatch(reasonPredicateBlock, /!!item\.bestMatch\?\.issues\?\.length/);
-  assert.doesNotMatch(reasonPredicateBlock, /!!item\.bestMatch\?\.evidenceSummary\?\.length/);
-  assert.doesNotMatch(reasonPredicateBlock, /!!item\.bestMatch\?\.llmEquivalence/);
+  assert.doesNotMatch(
+    reasonPredicateBlock,
+    /!!item\.bestMatch\?\.issues\?\.length/
+  );
+  assert.doesNotMatch(
+    reasonPredicateBlock,
+    /!!item\.bestMatch\?\.evidenceSummary\?\.length/
+  );
+  assert.doesNotMatch(
+    reasonPredicateBlock,
+    /!!item\.bestMatch\?\.llmEquivalence/
+  );
 
   assert.doesNotMatch(reasonCellSource, /问题：/);
   assert.doesNotMatch(reasonCellSource, /建议：/);
@@ -679,12 +703,24 @@ test("顶部筛选应区分 100%可填充 与低于100%的可填充，行内仍�
 
   assert.match(formatterSource, /export const isExactFillable = \(/);
   assert.match(formatterSource, /export const isPartialFillable = \(/);
-  assert.match(formatterSource, /item\.bestMatch\?\.selectionMode === "exactShortcut"/);
-  assert.match(formatterSource, /item\.bestMatch\.selectionMode !== "exactShortcut"/);
+  assert.match(
+    formatterSource,
+    /item\.bestMatch\?\.selectionMode === "exactShortcut"/
+  );
+  assert.match(
+    formatterSource,
+    /item\.bestMatch\.selectionMode !== "exactShortcut"/
+  );
   assert.doesNotMatch(formatterSource, /item\.bestMatch\?\.score === 1/);
   assert.match(formatterSource, /return "可直接填充";/);
-  assert.match(statsBarSource, /100%精确直达 \(\{\{ stats\.exactFillable \}\}\)/);
-  assert.match(statsBarSource, /AI\/普通可填充 \(\{\{ stats\.partialFillable \}\}\)/);
+  assert.match(
+    statsBarSource,
+    /100%精确直达 \(\{\{ stats\.exactFillable \}\}\)/
+  );
+  assert.match(
+    statsBarSource,
+    /AI\/普通可填充 \(\{\{ stats\.partialFillable \}\}\)/
+  );
   assert.doesNotMatch(statsBarSource, /可填充 \(\{\{ stats\.fillable \}\}\)/);
 });
 
@@ -711,7 +747,9 @@ test("selectionMode 文案应明确区分精确直达、本地 Top1 与 AI 改�
 
 test("匹配 API 应暴露 AI 等价裁决结果，但执行填充不再透传旧客户端决策字段", () => {
   const matchingApiSource = readProjectFile("web/src/api/matching.ts");
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const smartFillPageSource = readProjectFile(
+    "web/src/views/smart-fill/index.vue"
+  );
   const previewTabsSource = readProjectFile(
     "web/src/views/smart-fill/components/BatchPreviewTabs.vue"
   );
@@ -734,7 +772,10 @@ test("匹配 API 应暴露 AI 等价裁决结果，但执行填充不再透传�
   assert.doesNotMatch(previewTabsSource, /llmReviewScore\?: number;/);
   assert.doesNotMatch(previewTableSource, /llmReviewScore\?: number;/);
   assert.doesNotMatch(previewTableSource, /llmReviewScore:/);
-  assert.doesNotMatch(smartFillPageSource, /llmReviewScore:\s*s\.llmReviewScore/);
+  assert.doesNotMatch(
+    smartFillPageSource,
+    /llmReviewScore:\s*s\.llmReviewScore/
+  );
   assert.doesNotMatch(smartFillPageSource, /llmReviewScore\?: number;/);
   assert.doesNotMatch(smartFillPageSource, /decision:\s*s\.decision/);
   assert.match(
@@ -769,7 +810,10 @@ test("AI 复核放行令牌应透传到执行填充请求，避免客户端布�
     `${previewTableSource}\n${selectionSource}`,
     /reviewApprovalToken:\s*item\.bestMatch\?\.reviewApprovalToken/
   );
-  assert.match(executionHelperSource, /reviewApprovalToken:\s*s\.reviewApprovalToken/);
+  assert.match(
+    executionHelperSource,
+    /reviewApprovalToken:\s*s\.reviewApprovalToken/
+  );
 });
 
 test("智能填充执行请求应透传本次导出覆盖值，而不是只发送规格ID", () => {
@@ -797,9 +841,18 @@ test("智能填充执行请求应透传本次导出覆盖值，而不是只发�
   assert.match(previewTabsSource, /overrideRemark\?: string;/);
   assert.match(previewTableTypesSource, /overrideAcceptance\?: string;/);
   assert.match(previewTableTypesSource, /overrideRemark\?: string;/);
-  assert.match(`${previewTableSource}\n${selectionSource}`, /overrideAcceptance:\s*.*overrideAcceptance/);
-  assert.match(`${previewTableSource}\n${selectionSource}`, /overrideRemark:\s*.*overrideRemark/);
-  assert.match(executionHelperSource, /overrideAcceptance:\s*s\.overrideAcceptance/);
+  assert.match(
+    `${previewTableSource}\n${selectionSource}`,
+    /overrideAcceptance:\s*.*overrideAcceptance/
+  );
+  assert.match(
+    `${previewTableSource}\n${selectionSource}`,
+    /overrideRemark:\s*.*overrideRemark/
+  );
+  assert.match(
+    executionHelperSource,
+    /overrideAcceptance:\s*s\.overrideAcceptance/
+  );
   assert.match(executionHelperSource, /overrideRemark:\s*s\.overrideRemark/);
 });
 
@@ -871,6 +924,12 @@ test("智能填充预览页应提供编辑弹窗、保存并采用和已编辑�
   assert.match(dataTableSource, />\s*编辑\s*<\/el-button>/);
   assert.match(editDialogSource, /保存并采用/);
   assert.match(editDialogSource, /仅本次导出使用/);
+  assert.match(editDialogSource, /完整替换原值，不会与旧值叠加/);
+  assert.match(editDialogSource, /target\.select\(\)/);
+  assert.equal(
+    (editDialogSource.match(/@focus="selectExistingValue"/g) ?? []).length,
+    2
+  );
   assert.match(textCellSource, /已编辑/);
 });
 
@@ -892,13 +951,12 @@ test("详情区域应展示 AI 裁决与提示型\/决策型差异说明", () =>
 });
 
 test("主表应以后端 decision 加 confidenceLevel 判定高置信直填，且流式复核请求应走类型化 API", () => {
-  const previewTableSource = readProjectFile(
-    "web/src/views/smart-fill/components/MatchPreviewTable.vue"
-  );
   const formatterSource = readProjectFile(
     "web/src/views/smart-fill/components/matchPreviewTable.formatters.ts"
   );
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const smartFillPageSource = readProjectFile(
+    "web/src/views/smart-fill/index.vue"
+  );
   const llmStreamSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillLlmStream.ts"
   );
@@ -921,12 +979,24 @@ test("主表应以后端 decision 加 confidenceLevel 判定高置信直填，�
     llmStreamSource,
     /const shouldStreamReview = \(item: MatchPreviewItem\) =>[\s\S]*?llmEquivalence/
   );
-  assert.doesNotMatch(`${smartFillPageSource}\n${llmStreamSource}`, /authorizedFetch\(/);
+  assert.doesNotMatch(
+    `${smartFillPageSource}\n${llmStreamSource}`,
+    /authorizedFetch\(/
+  );
   assert.match(matchingApiSource, /export interface MatchLlmStreamRequest \{/);
   assert.match(matchingApiSource, /export type MatchLlmStreamEvent =/);
-  assert.match(matchingApiSource, /export const createMatchLlmStreamRequest = \(/);
-  assert.match(matchingApiSource, /export const requestMatchLlmStream = (async )?\(/);
-  assert.match(`${smartFillPageSource}\n${llmStreamSource}`, /requestMatchLlmStream,\s*createMatchLlmStreamRequest|createMatchLlmStreamRequest,[\s\S]*requestMatchLlmStream/);
+  assert.match(
+    matchingApiSource,
+    /export const createMatchLlmStreamRequest = \(/
+  );
+  assert.match(
+    matchingApiSource,
+    /export const requestMatchLlmStream = (async )?\(/
+  );
+  assert.match(
+    `${smartFillPageSource}\n${llmStreamSource}`,
+    /requestMatchLlmStream,\s*createMatchLlmStreamRequest|createMatchLlmStreamRequest,[\s\S]*requestMatchLlmStream/
+  );
   assert.doesNotMatch(matchingApiSource, /MatchingStrategy/);
   assert.doesNotMatch(matchingApiSource, /matchingStrategy/);
   assert.match(
@@ -945,7 +1015,10 @@ test("预览表应在 decision、token、review stage 变化后同步选择状�
     previewTableSource,
     /item\.bestMatch\?\.decision[\s\S]*item\.bestMatch\?\.reviewApprovalToken[\s\S]*item\.llmReviewStage/
   );
-  assert.match(previewTableSource, /const syncSelectionsWithItems = \(\) => \{/);
+  assert.match(
+    previewTableSource,
+    /const syncSelectionsWithItems = \(\) => \{/
+  );
   assert.match(
     previewTableSource,
     /watch\(\s*selectionSyncKey,\s*\(\)\s*=>\s*syncSelectionsWithItems\(\),\s*\{\s*immediate:\s*true\s*\}\s*\)/
@@ -1225,7 +1298,9 @@ test("SSE 事件缺少 tableIndex 时应直接丢弃，不能再跨表按 rowInd
 });
 
 test("批量链路应让表级 filterEmptySourceRows 回退到全局配置", () => {
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const smartFillPageSource = readProjectFile(
+    "web/src/views/smart-fill/index.vue"
+  );
   const previewRequestSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillPreviewRequest.ts"
   );
@@ -1235,7 +1310,7 @@ test("批量链路应让表级 filterEmptySourceRows 回退到全局配置", () 
 
   assert.match(
     smartFillPageSource,
-    /const getEffectiveFilterEmptySourceRows = \(\s*tableConfig:\s*\{[\s\S]*?filterEmptySourceRows\?: boolean;[\s\S]*?\}\s*\) =>[\s\S]*tableConfig\.filterEmptySourceRows \?\? matchConfig\.value\.filterEmptySourceRows \?\? true/
+    /const getEffectiveFilterEmptySourceRows = \(\s*tableConfig:\s*\{[\s\S]*?filterEmptySourceRows\?: boolean;[\s\S]*?\}\s*\) =>[\s\S]*tableConfig\.filterEmptySourceRows \?\?[\s\S]*matchConfig\.value\.filterEmptySourceRows \?\?[\s\S]*true/
   );
   assert.match(
     previewRequestSource,
@@ -1278,7 +1353,9 @@ test("智能填充前端应清理旧的 llmScore 及相关展示字段，统一�
   const formatterSource = readProjectFile(
     "web/src/views/smart-fill/components/scoreDetail.formatters.ts"
   );
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const smartFillPageSource = readProjectFile(
+    "web/src/views/smart-fill/index.vue"
+  );
 
   assert.doesNotMatch(matchingApiSource, /\bllmScore\??:/);
   assert.doesNotMatch(matchingApiSource, /\bllmReason\??:/);
@@ -1306,8 +1383,26 @@ test("智能填充前端应清理旧的 llmScore 及相关展示字段，统一�
   assert.doesNotMatch(smartFillPageSource, /isLlmReviewed\s*=/);
 });
 
+test("AI 已确认等价时应突出 AI 裁决置信度，并把综合分明确标注为规则基础分", () => {
+  const bestMatchCellSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchPreviewBestMatchCell.vue"
+  );
+  const bestMatchSectionSource = readProjectFile(
+    "web/src/views/smart-fill/components/ScoreDetailBestMatchSection.vue"
+  );
+
+  assert.match(bestMatchCellSource, /AI确认等价/);
+  assert.match(bestMatchCellSource, /规则基础/);
+  assert.match(bestMatchCellSource, /llmEquivalence\.value\?\.confidence/);
+  assert.match(bestMatchSectionSource, /AI确认等价/);
+  assert.match(bestMatchSectionSource, /规则基础分/);
+  assert.doesNotMatch(bestMatchSectionSource, /label:\s*"最终得分"/);
+});
+
 test("智能填充页在浏览器离线时应主动收口 streaming 复核行", () => {
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const smartFillPageSource = readProjectFile(
+    "web/src/views/smart-fill/index.vue"
+  );
   const llmStreamSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillLlmStream.ts"
   );
@@ -1323,7 +1418,9 @@ test("智能填充页在浏览器离线时应主动收口 streaming 复核行", 
 });
 
 test("smart-fill 页面不应再依赖 strict reuse，但应恢复 Word 列映射规则预填", () => {
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const smartFillPageSource = readProjectFile(
+    "web/src/views/smart-fill/index.vue"
+  );
   const uploadedTablesSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillUploadedTables.ts"
   );
@@ -1369,14 +1466,8 @@ test("配置路由与导航应恢复暴露 column-mapping-rules", () => {
 
   assert.match(configRouteSource, /\/config\/column-mapping-rules/);
   assert.match(configRouteSource, /ColumnMappingRules/);
-  assert.match(
-    navigationManifestSource,
-    /config-column-mapping-rules/
-  );
-  assert.match(
-    navigationManifestSource,
-    /page:config:column-mapping-rules/
-  );
+  assert.match(navigationManifestSource, /config-column-mapping-rules/);
+  assert.match(navigationManifestSource, /page:config:column-mapping-rules/);
 });
 
 test("前端应恢复 column-mapping-rules API、配置页与共享 helper 文件", () => {
@@ -1386,20 +1477,28 @@ test("前端应恢复 column-mapping-rules API、配置页与共享 helper 文�
   );
   assert.equal(
     existsSync(
-      resolve(repositoryRoot, "web/src/views/config/column-mapping-rules/index.vue")
+      resolve(
+        repositoryRoot,
+        "web/src/views/config/column-mapping-rules/index.vue"
+      )
     ),
     true
   );
   assert.equal(
     existsSync(
-      resolve(repositoryRoot, "web/src/views/shared/word-column-mapping-rules.ts")
+      resolve(
+        repositoryRoot,
+        "web/src/views/shared/word-column-mapping-rules.ts"
+      )
     ),
     true
   );
 });
 
 test("data-import 页面与映射步骤应恢复 Word 自动预填，但 Excel 仍保持手工配置", () => {
-  const dataImportSource = readProjectFile("web/src/views/data-import/index.vue");
+  const dataImportSource = readProjectFile(
+    "web/src/views/data-import/index.vue"
+  );
   const dataImportPageSource = readProjectFile(
     "web/src/views/data-import/composables/useDataImportPage.ts"
   );
@@ -1414,8 +1513,14 @@ test("data-import 页面与映射步骤应恢复 Word 自动预填，但 Excel �
   assert.match(dataImportPageSource, /getEffectiveColumnMappingRules/);
   assert.match(dataImportPageSource, /applyWordRulesToWordMapping/);
   assert.match(dataImportPageSource, /mappingRules\.value/);
-  assert.match(`${dataImportSource}\n${dataImportPageSource}`, /loadingMappingRules/);
-  assert.match(`${dataImportSource}\n${dataImportPageSource}`, /loadMappingRules/);
+  assert.match(
+    `${dataImportSource}\n${dataImportPageSource}`,
+    /loadingMappingRules/
+  );
+  assert.match(
+    `${dataImportSource}\n${dataImportPageSource}`,
+    /loadMappingRules/
+  );
   assert.match(dataImportPageSource, /applyRulesToConfig/);
 
   assert.match(mappingStepSource, /列映射规则/);
@@ -1426,7 +1531,9 @@ test("data-import 页面与映射步骤应恢复 Word 自动预填，但 Excel �
 });
 
 test("smart-fill 页面应解耦执行与下载权限，并在下载失败后保留恢复入口", () => {
-  const smartFillPageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const smartFillPageSource = readProjectFile(
+    "web/src/views/smart-fill/index.vue"
+  );
   const executionSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillExecution.ts"
   );
@@ -1434,16 +1541,22 @@ test("smart-fill 页面应解耦执行与下载权限，并在下载失败后保
     "web/src/views/smart-fill/components/SmartFillPreviewStep.vue"
   );
 
-  assert.doesNotMatch(`${smartFillPageSource}\n${executionSource}\n${previewStepSource}`, /const canExecuteAction = computed/);
+  assert.doesNotMatch(
+    `${smartFillPageSource}\n${executionSource}\n${previewStepSource}`,
+    /const canExecuteAction = computed/
+  );
   assert.doesNotMatch(
     executionSource,
     /const handleExecute = async \(\) => \{[\s\S]*ensurePermission\("btn:matching:download"/
   );
   assert.doesNotMatch(previewStepSource, /v-if="canExecuteAction"/);
-  assert.match(previewStepSource, /v-if="canExecuteFill"/);
-  assert.match(executionSource, /const handleDownloadLastResult = async \(\) => \{/);
+  assert.match(previewStepSource, /v-if="!taskId && canExecuteFill"/);
+  assert.match(
+    executionSource,
+    /const handleDownloadLastResult = async \(\) => \{/
+  );
   assert.match(executionSource, /downloadTaskResult\(taskId\.value\)/);
-  assert.match(previewStepSource, /重新下载结果/);
+  assert.match(previewStepSource, /重新下载/);
   assert.match(previewStepSource, /v-if="taskId && canDownloadFillResult"/);
 });
 
@@ -1458,53 +1571,53 @@ test("smart-fill 页面应在预览前给出 Embedding 与范围空态引导", (
     "web/src/views/smart-fill/components/MatchConfig.vue"
   );
 
-  assert.match(matchConfigSource, /未检测到可用 Embedding 服务/);
-  assert.match(matchConfigSource, /未检测到可用 LLM 服务/);
+  assert.match(matchConfigSource, /embeddingStatusText/);
+  assert.match(matchConfigSource, /llmStatusText/);
   assert.doesNotMatch(matchConfigSource, /本地规则拦截/);
   assert.doesNotMatch(matchConfigSource, /品牌配置/);
 
-  assert.match(previewBlockingSource, /const previewBlockingMessage = computed\(\(\) => \{/);
+  assert.match(
+    previewBlockingSource,
+    /const previewBlockingMessage = computed\(\(\) => \{/
+  );
   assert.match(previewBlockingSource, /请先配置可用的 Embedding 服务/);
   assert.match(previewBlockingSource, /当前范围内没有可用于匹配的验收规格/);
   assert.match(previewBlockingSource, /范围内无候选数据/);
   assert.match(previewBlockingSource, /Embedding 服务不可用/);
-  assert.match(previewStepSource, /v-if="!loading && previewBlockingMessage"/);
+  assert.match(
+    previewStepSource,
+    /<template v-else>[\s\S]*v-if="previewBlockingMessage"/
+  );
 });
 
-test("智能填充服务下拉应过滤禁用的 AI 服务，并清空已禁用选中项", () => {
+test("智能填充应按运行可用性自动选择 AI 服务", () => {
   const matchConfigSource = readProjectFile(
     "web/src/views/smart-fill/components/MatchConfig.vue"
   );
 
-  assert.match(matchConfigSource, /const enabledItems = items\.filter\(item => !item\.isDisabled\);/);
-  assert.match(matchConfigSource, /sortAiServicesByPriority[\s\S]*from "@\/api\/ai-service"/);
-  assert.doesNotMatch(matchConfigSource, /const sortAiServicesByPriority = \(services: AiServiceConfig\[\]\) =>/);
-  assert.match(matchConfigSource, /embeddingServices\.value = sortAiServicesByPriority\(/);
-  assert.match(matchConfigSource, /llmServices\.value = sortAiServicesByPriority\(/);
-  assert.match(matchConfigSource, /config\.value\.embeddingServiceId = undefined;/);
-  assert.match(matchConfigSource, /config\.value\.llmServiceId = undefined;/);
+  assert.match(matchConfigSource, /loadRuntimeAiSelectionsSettled/);
+  assert.match(matchConfigSource, /\["embedding", "llm"\]/);
+  assert.match(matchConfigSource, /applyMatchConfigRuntimeAiSelections/);
+  assert.match(matchConfigSource, /createAiSelectionRetryController/);
+  assert.match(matchConfigSource, /onActivated/);
+  assert.doesNotMatch(matchConfigSource, /getAiServiceList/);
   assert.doesNotMatch(
     matchConfigSource,
-    /embeddingServices\.value = items\.filter\([\s\S]*llmServices\.value = items\.filter/
+    /v-model="config\.(?:embedding|llm)ServiceId"/
   );
 });
 
-test("导入数据页疑似重复识别下拉应过滤禁用的 AI 服务，并清空已禁用选中项", () => {
+test("导入数据页应按运行可用性自动选择 AI 服务", () => {
   const dataImportTargetSource = readProjectFile(
     "web/src/views/data-import/composables/useDataImportTarget.ts"
   );
 
-  assert.match(dataImportTargetSource, /const enabledItems = items\.filter\(item => !item\.isDisabled\);/);
-  assert.match(dataImportTargetSource, /sortAiServicesByPriority[\s\S]*from "@\/api\/ai-service"/);
-  assert.doesNotMatch(dataImportTargetSource, /const sortAiServicesByPriority = \(services: AiServiceConfig\[\]\) =>/);
-  assert.match(dataImportTargetSource, /embeddingServices\.value = sortAiServicesByPriority\(/);
-  assert.match(dataImportTargetSource, /llmServices\.value = sortAiServicesByPriority\(/);
-  assert.match(dataImportTargetSource, /importDuplicateAiConfig\.value\.embeddingServiceId = undefined;/);
-  assert.match(dataImportTargetSource, /importDuplicateAiConfig\.value\.llmServiceId = undefined;/);
-  assert.doesNotMatch(
-    dataImportTargetSource,
-    /embeddingServices\.value = items\.filter\([\s\S]*llmServices\.value = items\.filter/
-  );
+  assert.match(dataImportTargetSource, /loadRuntimeAiSelectionsSettled/);
+  assert.match(dataImportTargetSource, /\["embedding", "llm"\]/);
+  assert.match(dataImportTargetSource, /applyDataImportRuntimeAiSelections/);
+  assert.match(dataImportTargetSource, /createAiSelectionRetryController/);
+  assert.match(dataImportTargetSource, /onDeactivated/);
+  assert.doesNotMatch(dataImportTargetSource, /getAiServiceList/);
 });
 
 test("仅精确匹配模式不应被 Embedding 空态阻塞，并应给出明显入口", () => {
@@ -1521,7 +1634,10 @@ test("仅精确匹配模式不应被 Embedding 空态阻塞，并应给出明显
     "仅精确匹配开启后，前端不应再要求可用 Embedding 服务"
   );
   assert.match(matchConfigSource, /仅匹配项目\+规格完全一致/);
-  assert.match(matchConfigSource, /无需 AI\/Embedding/);
+  assert.match(
+    matchConfigSource,
+    /无需 AI\/Embedding|无需配置可用 Embedding|无需 AI\/Embedding。|即使未配置可用 Embedding/
+  );
   assert.match(matchConfigSource, /即使未配置可用 Embedding/);
 });
 
@@ -1532,7 +1648,7 @@ test("预览零命中但存在源行时应展示未命中行，不能直接进�
 
   assert.match(
     previewRequestSource,
-    /const hasPreviewRows = res\.data\.tables\.some\(table => table\.items\.length > 0\);/
+    /const hasPreviewRows = res\.data\.tables\.some\(\s*table => table\.items\.length > 0\s*\);/
   );
   assert.match(previewRequestSource, /if \(!hasPreviewRows\) \{/);
   assert.doesNotMatch(

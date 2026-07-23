@@ -49,11 +49,13 @@ public class LlmMatchingAssistFallbackTests
             [11] = firstChat,
             [12] = secondChat
         });
+        var reporter = new RecordingRuntimeStatusReporter();
         var service = new LlmMatchingAssistService(
             promptProvider,
             selector,
             factory,
-            NullLogger<LlmMatchingAssistService>.Instance);
+            NullLogger<LlmMatchingAssistService>.Instance,
+            reporter);
 
         var result = await service.AdjudicateAsync(new LlmEquivalenceAdjudicationRequest
         {
@@ -83,6 +85,9 @@ public class LlmMatchingAssistFallbackTests
         secondChat.LastPrompt.Should().Contain("\"Numeric\":0.15");
         secondChat.LastPrompt.Should().Contain("voltage evidence matched");
         secondChat.LastPrompt.Should().Contain("22V vs 220V");
+        reporter.Available.Should().Contain((11, AiServicePurpose.Llm));
+        reporter.Unavailable.Should().NotContain((11, AiServicePurpose.Llm));
+        reporter.Available.Should().Contain((12, AiServicePurpose.Llm));
     }
 
     [Fact]
@@ -102,11 +107,13 @@ public class LlmMatchingAssistFallbackTests
             [21] = firstChat,
             [22] = secondChat
         });
+        var reporter = new RecordingRuntimeStatusReporter();
         var service = new LlmMatchingAssistService(
             promptProvider,
             selector,
             factory,
-            NullLogger<LlmMatchingAssistService>.Instance);
+            NullLogger<LlmMatchingAssistService>.Instance,
+            reporter);
 
         var result = await service.ReviewAsync(new LlmReviewRequest
         {
@@ -127,6 +134,8 @@ public class LlmMatchingAssistFallbackTests
         secondChat.LastPrompt.Should().Contain("【业务场景】导入重复复核");
         secondChat.LastPrompt.Should().Contain("源项目：导入项目");
         secondChat.LastPrompt.Should().Contain("当前决策：manualReview");
+        reporter.Available.Should().Contain((21, AiServicePurpose.Llm));
+        reporter.Unavailable.Should().NotContain((21, AiServicePurpose.Llm));
     }
 
     [Fact]
@@ -143,11 +152,13 @@ public class LlmMatchingAssistFallbackTests
             [21] = firstChat,
             [22] = secondChat
         });
+        var reporter = new RecordingRuntimeStatusReporter();
         var service = new LlmMatchingAssistService(
             promptProvider,
             selector,
             factory,
-            NullLogger<LlmMatchingAssistService>.Instance);
+            NullLogger<LlmMatchingAssistService>.Instance,
+            reporter);
 
         var result = await service.ReviewAsync(new LlmReviewRequest
         {
@@ -163,6 +174,8 @@ public class LlmMatchingAssistFallbackTests
         result.Should().BeNull();
         firstChat.CallCount.Should().Be(1);
         secondChat.CallCount.Should().Be(0);
+        reporter.Available.Should().Contain((21, AiServicePurpose.Llm));
+        reporter.Unavailable.Should().NotContain((21, AiServicePurpose.Llm));
     }
 
     [Fact]
@@ -181,11 +194,13 @@ public class LlmMatchingAssistFallbackTests
             [41] = firstChat,
             [42] = secondChat
         });
+        var reporter = new RecordingRuntimeStatusReporter();
         var service = new LlmMatchingAssistService(
             promptProvider,
             selector,
             factory,
-            NullLogger<LlmMatchingAssistService>.Instance);
+            NullLogger<LlmMatchingAssistService>.Instance,
+            reporter);
 
         var chunks = new List<string>();
         await foreach (var chunk in service.ReviewStreamAsync(new LlmReviewRequest
@@ -203,6 +218,8 @@ public class LlmMatchingAssistFallbackTests
         string.Concat(chunks).Should().Contain("\"score\":92");
         firstChat.CallCount.Should().Be(1);
         secondChat.CallCount.Should().Be(1);
+        reporter.Available.Should().Contain((41, AiServicePurpose.Llm));
+        reporter.Unavailable.Should().NotContain((41, AiServicePurpose.Llm));
     }
 
     [Fact]
@@ -219,11 +236,13 @@ public class LlmMatchingAssistFallbackTests
             [41] = firstChat,
             [42] = secondChat
         });
+        var reporter = new RecordingRuntimeStatusReporter();
         var service = new LlmMatchingAssistService(
             promptProvider,
             selector,
             factory,
-            NullLogger<LlmMatchingAssistService>.Instance);
+            NullLogger<LlmMatchingAssistService>.Instance,
+            reporter);
 
         var act = async () =>
         {
@@ -242,6 +261,8 @@ public class LlmMatchingAssistFallbackTests
         await act.Should().ThrowAsync<AiServiceUnavailableException>();
         firstChat.CallCount.Should().Be(1);
         secondChat.CallCount.Should().Be(0);
+        reporter.Available.Should().Contain((41, AiServicePurpose.Llm));
+        reporter.Unavailable.Should().NotContain((41, AiServicePurpose.Llm));
     }
 
     [Fact]
@@ -684,5 +705,16 @@ public class LlmMatchingAssistFallbackTests
             yield return new StreamingChatMessageContent(AuthorRole.Assistant, _response);
             await Task.CompletedTask;
         }
+    }
+
+    private sealed class RecordingRuntimeStatusReporter : IAiServiceRuntimeStatusReporter
+    {
+        public List<(int ServiceId, AiServicePurpose Purpose)> Available { get; } = [];
+        public List<(int ServiceId, AiServicePurpose Purpose)> Unavailable { get; } = [];
+
+        public void ReportAvailable(int serviceId, AiServicePurpose purpose) => Available.Add((serviceId, purpose));
+
+        public void ReportUnavailable(int serviceId, AiServicePurpose purpose, string? message = null) =>
+            Unavailable.Add((serviceId, purpose));
     }
 }

@@ -44,8 +44,11 @@ public class AiServiceConfigRepository : Repository<AiServiceConfig>, IAiService
     /// 根据用途获取配置列表。
     /// </summary>
     /// <param name="purpose">用途</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>配置列表</returns>
-    public async Task<IReadOnlyList<AiServiceConfig>> GetByPurposeAsync(AiServicePurpose purpose)
+    public async Task<IReadOnlyList<AiServiceConfig>> GetByPurposeAsync(
+        AiServicePurpose purpose,
+        CancellationToken cancellationToken = default)
     {
         return purpose switch
         {
@@ -57,7 +60,7 @@ public class AiServiceConfigRepository : Repository<AiServiceConfig>, IAiService
                       c.LlmModel != null &&
                       c.LlmModel != "" &&
                       (c.EmbeddingModel == null || c.EmbeddingModel == ""))))
-                .ToListAsync(),
+                .ToListAsync(cancellationToken),
             AiServicePurpose.Embedding => await _dbSet
                 .Where(c =>
                     !c.IsDisabled &&
@@ -66,7 +69,7 @@ public class AiServiceConfigRepository : Repository<AiServiceConfig>, IAiService
                       c.EmbeddingModel != null &&
                       c.EmbeddingModel != "" &&
                       (c.LlmModel == null || c.LlmModel == ""))))
-                .ToListAsync(),
+                .ToListAsync(cancellationToken),
             _ => []
         };
     }

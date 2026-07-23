@@ -1,5 +1,6 @@
 import { http } from "@/utils/http";
 import type { ApiResponse, PagedData, PagedRequest } from "./customer";
+import type { UploadTransportOptions } from "@/utils/upload-request";
 
 /** Word文件信息 */
 export interface WordFile {
@@ -20,6 +21,9 @@ export interface FileUploadResponse {
   isDuplicate: boolean;
   tableCount: number;
   tableCountReady: boolean;
+  /** 前端表结构加载阶段；与文件保存结果分离。 */
+  tableMetadataStatus?: "loading" | "ready" | "error";
+  tableMetadataError?: string;
 }
 
 /** 表格信息 */
@@ -44,6 +48,13 @@ export interface TableData {
   structuredRows?: StructuredCellValue[][];
   totalRows: number;
   columnCount: number;
+  rowOffset?: number;
+  columnOffset?: number;
+  totalColumns?: number;
+}
+
+export interface RequestSignalOptions {
+  signal?: AbortSignal;
 }
 
 /** 结构化单元格值 */
@@ -86,12 +97,20 @@ export interface ImportDuplicateCheckOptions {
 }
 
 export interface ImportDataRequest {
+  executionRequestId?: string;
   fileId: number;
   tableIndex: number;
   customerId: number;
   processId?: number;
   machineModelId?: number;
   mapping: ColumnMapping;
+  /** 多区域导入的稳定区域标识 */
+  regionId?: string;
+  /** Word 多行表头行数 */
+  headerRowCount?: number;
+  /** Word 数据结束行（表格内 0-based，闭区间） */
+  dataEndRowIndex?: number;
+  isSpecificationOnly?: boolean;
   cleanupSourceFile?: boolean;
   previewSkippedRows?: boolean;
   confirmedDifferenceKeys?: string[];
@@ -112,6 +131,7 @@ export interface ImportResult {
   requiresConfirmation?: boolean;
   pendingCount?: number;
   pendingDifferences?: ImportPendingDifference[];
+  projectBackfilledFromSpecification?: boolean;
 }
 
 /** 导入错误详情 */
@@ -152,6 +172,8 @@ export interface ImportPendingDifference {
 
 const baseUrl = "/api/documents";
 const importRequestTimeout = 300000;
+const uploadRequestTimeout = 120000;
+const tableMetadataRequestTimeout = 60000;
 
 /** 获取已上传的文件列表 */
 export const getFileList = (params?: PagedRequest) => {
@@ -161,7 +183,7 @@ export const getFileList = (params?: PagedRequest) => {
 };
 
 /** 上传Word文件 */
-export const uploadFile = (file: File) => {
+export const uploadFile = (file: File, options?: UploadTransportOptions) => {
   const formData = new FormData();
   formData.append("file", file);
   return http.request<ApiResponse<FileUploadResponse>>(
@@ -171,16 +193,23 @@ export const uploadFile = (file: File) => {
       data: formData,
       headers: {
         "Content-Type": "multipart/form-data"
-      }
+      },
+      timeout: uploadRequestTimeout,
+      signal: options?.signal,
+      onUploadProgress: options?.onUploadProgress
     }
   );
 };
 
 /** 获取文件中的表格列表 */
-export const getFileTables = (fileId: number) => {
+export const getFileTables = (
+  fileId: number,
+  options?: RequestSignalOptions
+) => {
   return http.request<ApiResponse<TableInfo[]>>(
     "get",
-    `${baseUrl}/${fileId}/tables`
+    `${baseUrl}/${fileId}/tables`,
+    { timeout: tableMetadataRequestTimeout, signal: options?.signal }
   );
 };
 
@@ -194,13 +223,18 @@ export const getTablePreview = (
     headerRowCount?: number;
     dataStartRowIndex?: number;
     dataEndRowIndex?: number;
-  }
+    rowOffset?: number;
+    columnOffset?: number;
+    previewColumns?: number;
+  },
+  requestOptions?: RequestSignalOptions
 ) => {
   return http.request<ApiResponse<TableData>>(
     "get",
     `${baseUrl}/${fileId}/tables/${tableIndex}/preview`,
     {
-      params: options
+      params: options,
+      signal: requestOptions?.signal
     }
   );
 };
@@ -215,6 +249,7 @@ export const importData = (data: ImportDataRequest) => {
 
 /** Excel 导入请求（列号/行号均为 1-based） */
 export interface ExcelImportDataRequest {
+  executionRequestId?: string;
   fileId: number;
   sheetIndex: number;
   customerId: number;
@@ -224,7 +259,7 @@ export interface ExcelImportDataRequest {
   headerRowCount: number;
   dataStartRow: number;
   dataEndRow?: number;
-  projectColumn: number;
+  projectColumn?: number;
   specificationColumn: number;
   acceptanceColumn?: number;
   remarkColumn?: number;
@@ -235,6 +270,7 @@ export interface ExcelImportDataRequest {
   skippedDifferenceKeys?: string[];
   excludedRowIndexes?: number[];
   duplicateCheckOptions?: ImportDuplicateCheckOptions;
+  isSpecificationOnly?: boolean;
 }
 
 /** Excel 导入（按列序号） */

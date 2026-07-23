@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
+import type { FormRules } from "element-plus";
 import type { ColumnMapping, TableData } from "@/api/document";
 
 const props = defineProps<{
@@ -22,6 +23,18 @@ const defaultMapping: ColumnMapping = {
 };
 
 const mapping = ref<ColumnMapping>({ ...defaultMapping });
+const formRules: FormRules<ColumnMapping> = {
+  projectColumn: [
+    { required: true, message: "请选择项目名称列", trigger: "change" }
+  ],
+  specificationColumn: [
+    { required: true, message: "请选择规格内容列", trigger: "change" }
+  ],
+  acceptanceColumn: [
+    { required: true, message: "请选择验收标准列", trigger: "change" }
+  ],
+  remarkColumn: [{ required: true, message: "请选择备注列", trigger: "change" }]
+};
 
 // 列选项
 const columnOptions = computed(() => {
@@ -70,10 +83,16 @@ defineExpose({
       </div>
     </div>
 
-    <el-form label-width="120px" class="mapping-form">
+    <el-form
+      :model="mapping"
+      :rules="formRules"
+      label-width="120px"
+      class="mapping-form"
+      status-icon
+    >
       <el-row :gutter="20">
         <el-col :span="12">
-          <el-form-item label="项目名称列" required>
+          <el-form-item label="项目名称列" prop="projectColumn">
             <el-select
               v-model="mapping.projectColumn"
               placeholder="请选择"
@@ -92,7 +111,7 @@ defineExpose({
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="规格内容列" required>
+          <el-form-item label="规格内容列" prop="specificationColumn">
             <el-select
               v-model="mapping.specificationColumn"
               placeholder="请选择"
@@ -114,7 +133,7 @@ defineExpose({
 
       <el-row :gutter="20">
         <el-col :span="12">
-          <el-form-item label="验收标准列" required>
+          <el-form-item label="验收标准列" prop="acceptanceColumn">
             <el-select
               v-model="mapping.acceptanceColumn"
               placeholder="请选择"
@@ -133,7 +152,7 @@ defineExpose({
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="备注列" required>
+          <el-form-item label="备注列" prop="remarkColumn">
             <el-select
               v-model="mapping.remarkColumn"
               placeholder="请选择"
@@ -217,6 +236,6 @@ defineExpose({
 .form-tip {
   margin-top: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 </style>

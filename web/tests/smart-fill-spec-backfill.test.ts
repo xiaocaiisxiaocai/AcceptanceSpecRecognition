@@ -32,11 +32,27 @@ test("smart-fill 执行填充前应弹出编辑值回填确认框", () => {
   assert.match(matchPreviewTableSource, /getEditedBackfillItems/);
   assert.match(batchPreviewTabsSource, /getAllEditedBackfillItems/);
   assert.match(backfillDialogSource, /回填验收规格/);
+  assert.match(backfillDialogSource, /align-center/);
   assert.match(backfillDialogSource, /不回填，仅执行填充/);
   assert.match(backfillDialogSource, /确认回填并执行填充/);
   assert.match(backfillDialogSource, /getBackfillCandidateRowKey/);
-  assert.match(backfillDialogSource, /`\$\{row\.tableIndex\}:\$\{row\.rowIndex\}`/);
+  assert.match(
+    backfillDialogSource,
+    /`\$\{row\.tableIndex\}:\$\{row\.rowIndex\}`/
+  );
   assert.match(backfillDialogSource, /label="表格\/行"/);
+  assert.match(backfillDialogSource, /label="替换后验收标准"/);
+  assert.match(backfillDialogSource, /label="替换后备注"/);
+  assert.match(
+    backfillDialogSource,
+    /row\.overrideAcceptance \?\? row\.originalAcceptance/
+  );
+  assert.match(
+    backfillDialogSource,
+    /row\.overrideRemark \?\? row\.originalRemark/
+  );
+  assert.doesNotMatch(backfillDialogSource, /backfill-change__old/);
+  assert.doesNotMatch(backfillDialogSource, /backfill-change__new/);
   assert.match(executionSource, /backfillSmartFillSpecs/);
 });
 
@@ -45,7 +61,10 @@ test("smart-fill 回填前应校验新增规格范围并透出真实错误", () 
     "web/src/views/smart-fill/composables/useSmartFillExecution.ts"
   );
 
-  assert.match(executionSource, /selected\.some\(item => item\.actionType === "create"\)/);
+  assert.match(
+    executionSource,
+    /selected\.some\(item => item\.actionType === "create"\)/
+  );
   assert.match(executionSource, /回填新增规格前，请先选择客户范围/);
   assert.match(
     executionSource,
@@ -56,10 +75,13 @@ test("smart-fill 回填前应校验新增规格范围并透出真实错误", () 
 test("smart-fill 应缓存匹配范围并在执行回填时复用", () => {
   const smartFillSource = readProjectFile("web/src/views/smart-fill/index.vue");
 
-  assert.match(smartFillSource, /const matchScope = ref<\{/);
+  assert.match(smartFillSource, /const matchScope = ref<SmartFillScope>\(/);
   assert.match(smartFillSource, /const handleScopeChange = \(/);
-  assert.match(smartFillSource, /matchConfigRef\.value\?\.getScope\?\.\(\) \?\? matchScope\.value/);
-  assert.match(smartFillSource, /@scope-change="handleScopeChange"/);
+  assert.match(
+    smartFillSource,
+    /const getCurrentScope = \(\) => matchScope\.value/
+  );
+  assert.doesNotMatch(smartFillSource, /@scope-change="handleScopeChange"/);
 });
 
 test("smart-fill 重新开始或重新上传文件时应清空回填待执行状态和范围缓存", () => {
@@ -68,7 +90,10 @@ test("smart-fill 重新开始或重新上传文件时应清空回填待执行状
     "web/src/views/smart-fill/composables/useSmartFillBackfillState.ts"
   );
 
-  assert.match(backfillStateSource, /const resetPendingBackfillState = \(\) => \{/);
+  assert.match(
+    backfillStateSource,
+    /const resetPendingBackfillState = \(\) => \{/
+  );
   assert.match(backfillStateSource, /pendingExecuteRequest\.value = null;/);
   assert.match(backfillStateSource, /backfillCandidates\.value = \[\];/);
   assert.match(backfillStateSource, /backfillDialogVisible\.value = false;/);

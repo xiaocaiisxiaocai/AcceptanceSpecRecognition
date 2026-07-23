@@ -116,6 +116,94 @@ public class FileCompareTests : IClassFixture<ApiWebApplicationFactory>
         hunks.GetArrayLength().Should().BeGreaterThan(0, "有差异时应返回差异块");
     }
 
+    [Fact]
+    public async Task Preview_ExcludeUnchanged_ShouldKeepCompleteStatistics()
+    {
+        var xlsxA = CreateExcelBytes(("A1", "项目"), ("B1", "规格"), ("A2", "P1"), ("B2", "S1"));
+        var xlsxB = CreateExcelBytes(("A1", "项目"), ("B1", "规格"), ("A2", "P1"), ("B2", "S2"));
+        var (fileIdA, fileIdB) = await UploadCompareFilesAsync(xlsxA, "a.xlsx", xlsxB, "b.xlsx");
+
+        var response = await _client.PostAsync(
+            "/api/file-compare/preview",
+            ApiClientJson.ToJsonContent(new { fileIdA, fileIdB, includeUnchanged = false }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var items = json.Data.GetProperty("items").EnumerateArray().ToList();
+        items.Should().OnlyContain(item => item.GetProperty("diffType").GetString() != "Unchanged");
+        json.Data.GetProperty("unchangedCount").GetInt32().Should().BeGreaterThan(0);
+        json.Data.GetProperty("totalCount").GetInt32().Should().BeGreaterThan(items.Count);
+    }
+
+    [Fact]
+    public async Task TablePreview_Window_ShouldReturnOffsetsTotalsAndAlignedCells()
+    {
+        var cells = Enumerable.Range(1, 6)
+            .SelectMany(row => Enumerable.Range(1, 5)
+                .Select(column => ($"{ToExcelColumnName(column)}{row}", $"R{row}C{column}")))
+            .ToArray();
+        var bytes = CreateExcelBytes(cells);
+        var (fileId, _) = await UploadCompareFilesAsync(bytes, "window-a.xlsx", bytes, "window-b.xlsx");
+
+        var response = await _client.GetAsync(
+            $"/api/documents/{fileId}/tables/0/preview?headerRowIndex=0&headerRowCount=1&dataStartRowIndex=0&rowOffset=2&previewRows=2&columnOffset=1&previewColumns=2");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Data.GetProperty("rowOffset").GetInt32().Should().Be(2);
+        json.Data.GetProperty("columnOffset").GetInt32().Should().Be(1);
+        json.Data.GetProperty("totalRows").GetInt32().Should().Be(6);
+        json.Data.GetProperty("totalColumns").GetInt32().Should().Be(5);
+        json.Data.GetProperty("columnCount").GetInt32().Should().Be(2);
+
+        var rows = json.Data.GetProperty("rows");
+        var structuredRows = json.Data.GetProperty("structuredRows");
+        rows.GetArrayLength().Should().Be(2);
+        structuredRows.GetArrayLength().Should().Be(rows.GetArrayLength());
+        rows[0].GetArrayLength().Should().Be(2);
+        structuredRows[0].GetArrayLength().Should().Be(rows[0].GetArrayLength());
+        rows[0][0].GetString().Should().Be("R3C2");
+    }
+
+    [Fact]
+    public async Task TablePreview_TailWindow_ShouldReturnOnlyRemainingCells()
+    {
+        var bytes = CreateExcelBytes(
+            ("A1", "A1"), ("B1", "B1"), ("C1", "C1"),
+            ("A2", "A2"), ("B2", "B2"), ("C2", "C2"),
+            ("A3", "A3"), ("B3", "B3"), ("C3", "C3"));
+        var (fileId, _) = await UploadCompareFilesAsync(bytes, "tail-a.xlsx", bytes, "tail-b.xlsx");
+
+        var response = await _client.GetAsync(
+            $"/api/documents/{fileId}/tables/0/preview?dataStartRowIndex=0&rowOffset=2&previewRows=200&columnOffset=2&previewColumns=60");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Data.GetProperty("rows").GetArrayLength().Should().Be(1);
+        json.Data.GetProperty("rows")[0].GetArrayLength().Should().Be(1);
+        json.Data.GetProperty("rows")[0][0].GetString().Should().Be("C3");
+    }
+
+    [Theory]
+    [InlineData("previewRows=0")]
+    [InlineData("previewRows=501")]
+    [InlineData("previewRows=10&previewColumns=0")]
+    [InlineData("previewRows=10&previewColumns=101")]
+    [InlineData("rowOffset=-1&previewRows=200&columnOffset=0&previewColumns=60")]
+    [InlineData("rowOffset=0&previewRows=501&columnOffset=0&previewColumns=60")]
+    [InlineData("rowOffset=0&previewRows=200&columnOffset=-1&previewColumns=60")]
+    [InlineData("rowOffset=0&previewRows=200&columnOffset=0&previewColumns=101")]
+    public async Task TablePreview_InvalidWindow_ShouldReturn400(string query)
+    {
+        var bytes = CreateExcelBytes(("A1", "value"));
+        var (fileId, _) = await UploadCompareFilesAsync(bytes, "invalid-a.xlsx", bytes, "invalid-b.xlsx");
+
+        var response = await _client.GetAsync(
+            $"/api/documents/{fileId}/tables/0/preview?dataStartRowIndex=0&{query}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     /// <summary>
     /// 验证校验：不同类型文件（.docx + .xlsx）应返回 400
     /// </summary>
@@ -168,6 +256,23 @@ public class FileCompareTests : IClassFixture<ApiWebApplicationFactory>
         var body = await downloadResp.Content.ReadAsStringAsync();
         var doc = JsonDocument.Parse(body);
         doc.RootElement.GetProperty("items").GetArrayLength().Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Download_ShouldIgnorePreviewFilterAndContainUnchangedItems()
+    {
+        var docxA = CreateWordDocxBytes("Same", "Old");
+        var docxB = CreateWordDocxBytes("Same", "New");
+        var (fileIdA, fileIdB) = await UploadCompareFilesAsync(docxA, "full-a.docx", docxB, "full-b.docx");
+
+        var response = await _client.PostAsync(
+            "/api/file-compare/download",
+            ApiClientJson.ToJsonContent(new { fileIdA, fileIdB, includeUnchanged = false }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.GetProperty("items").EnumerateArray()
+            .Should().Contain(item => item.GetProperty("diffType").GetString() == "Unchanged");
     }
 
     #region 辅助方法
@@ -242,6 +347,19 @@ public class FileCompareTests : IClassFixture<ApiWebApplicationFactory>
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
         return ms.ToArray();
+    }
+
+    private static string ToExcelColumnName(int columnNumber)
+    {
+        var dividend = columnNumber;
+        var columnName = string.Empty;
+        while (dividend > 0)
+        {
+            var modulo = (dividend - 1) % 26;
+            columnName = (char)('A' + modulo) + columnName;
+            dividend = (dividend - modulo) / 26;
+        }
+        return columnName;
     }
 
     #endregion

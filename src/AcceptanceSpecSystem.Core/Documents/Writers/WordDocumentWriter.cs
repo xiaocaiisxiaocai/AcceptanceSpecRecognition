@@ -52,14 +52,19 @@ public class WordDocumentWriter : IDocumentWriter
     /// <param name="filePath">文件路径</param>
     /// <param name="tableIndex">表格索引（从0开始）</param>
     /// <param name="operations">写入操作集合</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功写入的单元格数量</returns>
-    public Task<int> WriteTableDataAsync(string filePath, int tableIndex, IEnumerable<CellWriteOperation> operations)
+    public Task<int> WriteTableDataAsync(
+        string filePath,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
             using var stream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite);
-            return WriteTableDataInternal(stream, tableIndex, operations);
-        });
+            return WriteTableDataInternal(stream, tableIndex, operations, cancellationToken);
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -68,10 +73,17 @@ public class WordDocumentWriter : IDocumentWriter
     /// <param name="stream">输入流（可读写）</param>
     /// <param name="tableIndex">表格索引（从0开始）</param>
     /// <param name="operations">写入操作集合</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功写入的单元格数量</returns>
-    public Task<int> WriteTableDataAsync(Stream stream, int tableIndex, IEnumerable<CellWriteOperation> operations)
+    public Task<int> WriteTableDataAsync(
+        Stream stream,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => WriteTableDataInternal(stream, tableIndex, operations));
+        return Task.Run(
+            () => WriteTableDataInternal(stream, tableIndex, operations, cancellationToken),
+            cancellationToken);
     }
 
     /// <summary>
@@ -82,8 +94,15 @@ public class WordDocumentWriter : IDocumentWriter
     /// <param name="rowIndex">行索引（从0开始）</param>
     /// <param name="columnIndex">列索引（从0开始）</param>
     /// <param name="value">写入值</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>是否写入成功</returns>
-    public Task<bool> WriteCellAsync(Stream stream, int tableIndex, int rowIndex, int columnIndex, string value)
+    public Task<bool> WriteCellAsync(
+        Stream stream,
+        int tableIndex,
+        int rowIndex,
+        int columnIndex,
+        string value,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
@@ -94,9 +113,9 @@ public class WordDocumentWriter : IDocumentWriter
                 Value = value
             };
 
-            var count = WriteTableDataInternal(stream, tableIndex, new[] { operation });
+            var count = WriteTableDataInternal(stream, tableIndex, new[] { operation }, cancellationToken);
             return count > 0;
-        });
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -106,37 +125,59 @@ public class WordDocumentWriter : IDocumentWriter
     /// <param name="targetFilePath">目标文件路径</param>
     /// <param name="tableIndex">表格索引（从0开始）</param>
     /// <param name="operations">写入操作集合</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功写入的单元格数量</returns>
-    public Task<int> WriteToNewFileAsync(string sourceFilePath, string targetFilePath, int tableIndex, IEnumerable<CellWriteOperation> operations)
+    public Task<int> WriteToNewFileAsync(
+        string sourceFilePath,
+        string targetFilePath,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
-            // 复制源文件到目标路径
-            File.Copy(sourceFilePath, targetFilePath, overwrite: true);
-
-            // 在新文件上执行写入操作
-            using var stream = File.Open(targetFilePath, FileMode.Open, FileAccess.ReadWrite);
-            return WriteTableDataInternal(stream, tableIndex, operations);
-        });
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Copy(sourceFilePath, targetFilePath, overwrite: true);
+                cancellationToken.ThrowIfCancellationRequested();
+                using var stream = File.Open(targetFilePath, FileMode.Open, FileAccess.ReadWrite);
+                return WriteTableDataInternal(stream, tableIndex, operations, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                File.Delete(targetFilePath);
+                throw;
+            }
+        }, cancellationToken);
     }
 
     /// <summary>
     /// 批量写入多个表格（一次 Open / Save）
     /// </summary>
-    public Task<int> WriteMultipleTablesAsync(Stream stream, Dictionary<int, List<CellWriteOperation>> tableOperations)
+    public Task<int> WriteMultipleTablesAsync(
+        Stream stream,
+        Dictionary<int, List<CellWriteOperation>> tableOperations,
+        CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => WriteMultipleTablesInternal(stream, tableOperations));
+        return Task.Run(
+            () => WriteMultipleTablesInternal(stream, tableOperations, cancellationToken),
+            cancellationToken);
     }
 
     /// <summary>
     /// 多表写入内部实现
     /// </summary>
-    private int WriteMultipleTablesInternal(Stream stream, Dictionary<int, List<CellWriteOperation>> tableOperations)
+    private int WriteMultipleTablesInternal(
+        Stream stream,
+        Dictionary<int, List<CellWriteOperation>> tableOperations,
+        CancellationToken cancellationToken)
     {
         if (tableOperations == null || tableOperations.Count == 0)
             return 0;
 
-        using var doc = WordprocessingDocument.Open(stream, true);
+        using var doc = WordprocessingDocument.Open(stream, true, new OpenSettings { AutoSave = false });
+        cancellationToken.ThrowIfCancellationRequested();
         var mainDocument = GetRequiredMainDocument(doc);
         var body = mainDocument.Body ?? throw new InvalidOperationException("文档为空或格式无效");
 
@@ -145,6 +186,7 @@ public class WordDocumentWriter : IDocumentWriter
 
         foreach (var (tableIndex, operations) in tableOperations)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (operations == null || operations.Count == 0)
                 continue;
 
@@ -154,17 +196,21 @@ public class WordDocumentWriter : IDocumentWriter
 
             var table = tables[tableIndex];
             var rows = table.Elements<TableRow>().ToList();
-            var cellMap = BuildCellMap(rows);
+            var cellMap = BuildCellMap(rows, cancellationToken);
+            var writtenCells = new HashSet<TableCell>(ReferenceEqualityComparer.Instance);
 
             foreach (var operation in operations)
             {
-                if (TryWriteCell(cellMap, rows, operation))
+                cancellationToken.ThrowIfCancellationRequested();
+                EnsureUniqueWriteTarget(cellMap, operation, writtenCells, tableIndex);
+                if (TryWriteCell(cellMap, rows, operation, cancellationToken))
                 {
                     totalSuccess++;
                 }
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         mainDocument.Save();
         return totalSuccess;
     }
@@ -172,13 +218,19 @@ public class WordDocumentWriter : IDocumentWriter
     /// <summary>
     /// 内部写入实现
     /// </summary>
-    private int WriteTableDataInternal(Stream stream, int tableIndex, IEnumerable<CellWriteOperation> operations)
+    private int WriteTableDataInternal(
+        Stream stream,
+        int tableIndex,
+        IEnumerable<CellWriteOperation> operations,
+        CancellationToken cancellationToken)
     {
         var operationsList = operations.ToList();
+        cancellationToken.ThrowIfCancellationRequested();
         if (operationsList.Count == 0)
             return 0;
 
-        using var doc = WordprocessingDocument.Open(stream, true);
+        using var doc = WordprocessingDocument.Open(stream, true, new OpenSettings { AutoSave = false });
+        cancellationToken.ThrowIfCancellationRequested();
         var mainDocument = GetRequiredMainDocument(doc);
         var body = mainDocument.Body ?? throw new InvalidOperationException("文档为空或格式无效");
 
@@ -190,34 +242,55 @@ public class WordDocumentWriter : IDocumentWriter
         var rows = table.Elements<TableRow>().ToList();
 
         // 构建单元格位置映射
-        var cellMap = BuildCellMap(rows);
+        var cellMap = BuildCellMap(rows, cancellationToken);
 
         int successCount = 0;
+        var writtenCells = new HashSet<TableCell>(ReferenceEqualityComparer.Instance);
 
         foreach (var operation in operationsList)
         {
-            if (TryWriteCell(cellMap, rows, operation))
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureUniqueWriteTarget(cellMap, operation, writtenCells, tableIndex);
+            if (TryWriteCell(cellMap, rows, operation, cancellationToken))
             {
                 successCount++;
             }
         }
 
         // 保存更改
+        cancellationToken.ThrowIfCancellationRequested();
         mainDocument.Save();
 
         return successCount;
     }
 
+    private static void EnsureUniqueWriteTarget(
+        IReadOnlyDictionary<(int row, int col), TableCell> cellMap,
+        CellWriteOperation operation,
+        HashSet<TableCell> writtenCells,
+        int tableIndex)
+    {
+        if (cellMap.TryGetValue((operation.RowIndex, operation.ColumnIndex), out var cell) &&
+            !writtenCells.Add(cell))
+        {
+            throw new InvalidOperationException(
+                $"多个写入操作指向表格{tableIndex + 1}中的同一合并单元格，请检查行列映射");
+        }
+    }
+
     /// <summary>
     /// 构建单元格位置映射
     /// </summary>
-    private Dictionary<(int row, int col), TableCell> BuildCellMap(List<TableRow> rows)
+    private Dictionary<(int row, int col), TableCell> BuildCellMap(
+        List<TableRow> rows,
+        CancellationToken cancellationToken)
     {
         var map = new Dictionary<(int row, int col), TableCell>();
         var verticalMergeStarts = new Dictionary<int, (TableCell cell, int startRow)>();
 
         for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var row = rows[rowIndex];
             var cells = row.Elements<TableCell>().ToList();
             int colIndex = 0;
@@ -270,7 +343,11 @@ public class WordDocumentWriter : IDocumentWriter
     /// <summary>
     /// 尝试写入单个单元格
     /// </summary>
-    private bool TryWriteCell(Dictionary<(int row, int col), TableCell> cellMap, List<TableRow> rows, CellWriteOperation operation)
+    private bool TryWriteCell(
+        Dictionary<(int row, int col), TableCell> cellMap,
+        List<TableRow> rows,
+        CellWriteOperation operation,
+        CancellationToken cancellationToken)
     {
         if (!cellMap.TryGetValue((operation.RowIndex, operation.ColumnIndex), out var cell))
         {
@@ -282,15 +359,19 @@ public class WordDocumentWriter : IDocumentWriter
             if (operation.PreserveFormatting)
             {
                 // 保留格式，只修改文本内容
-                SetCellTextPreserveFormat(cell, operation.Value);
+                SetCellTextPreserveFormat(cell, operation.Value, cancellationToken);
             }
             else
             {
                 // 直接设置文本
-                SetCellText(cell, operation.Value);
+                SetCellText(cell, operation.Value, cancellationToken);
             }
 
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {
@@ -301,7 +382,10 @@ public class WordDocumentWriter : IDocumentWriter
     /// <summary>
     /// 设置单元格文本（保留格式）
     /// </summary>
-    private void SetCellTextPreserveFormat(TableCell cell, string value)
+    private void SetCellTextPreserveFormat(
+        TableCell cell,
+        string value,
+        CancellationToken cancellationToken)
     {
         var paragraphs = cell.Elements<Paragraph>().ToList();
 
@@ -329,6 +413,7 @@ public class WordDocumentWriter : IDocumentWriter
             // 清除所有runs
             foreach (var run in firstParagraph.Elements<Run>().ToList())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 run.Remove();
             }
         }
@@ -345,6 +430,7 @@ public class WordDocumentWriter : IDocumentWriter
         // 移除多余的段落
         for (int i = 1; i < paragraphs.Count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             paragraphs[i].Remove();
         }
 
@@ -352,6 +438,7 @@ public class WordDocumentWriter : IDocumentWriter
         var firstParaProps = firstParagraph.ParagraphProperties?.CloneNode(true) as ParagraphProperties;
         for (int i = 1; i < lines.Length; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // CloneNode(false) 仅拷贝段落节点本身，不含子元素；
             // 手动补回 ParagraphProperties，否则字体/缩进/对齐等格式全部丢失。
             var newParagraph = firstParagraph.CloneNode(false) as Paragraph;
@@ -375,11 +462,15 @@ public class WordDocumentWriter : IDocumentWriter
     /// <summary>
     /// 设置单元格文本（不保留格式）
     /// </summary>
-    private void SetCellText(TableCell cell, string value)
+    private void SetCellText(
+        TableCell cell,
+        string value,
+        CancellationToken cancellationToken)
     {
         // 移除所有现有段落
         foreach (var paragraph in cell.Elements<Paragraph>().ToList())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             paragraph.Remove();
         }
 
@@ -388,6 +479,7 @@ public class WordDocumentWriter : IDocumentWriter
 
         foreach (var line in lines)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var paragraph = new Paragraph(
                 new Run(
                     new Text(line) { Space = DocumentFormat.OpenXml.SpaceProcessingModeValues.Preserve }

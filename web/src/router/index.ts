@@ -1,5 +1,3 @@
-// import "@/utils/sso";
-import Cookies from "js-cookie";
 import { getConfig } from "@/config";
 import NProgress from "@/utils/progress";
 import { buildHierarchyTree } from "@/utils/tree";
@@ -32,12 +30,7 @@ import {
   type RouteRecordName,
   createRouter
 } from "vue-router";
-import {
-  type DataInfo,
-  userKey,
-  removeToken,
-  multipleTabsKey
-} from "@/utils/auth";
+import { type DataInfo, userKey, removeToken, getToken } from "@/utils/auth";
 
 /** 自动导入全部静态路由，无需再手动引入！匹配 src/router/modules 目录（任何嵌套级别）中具有 .ts 扩展名的所有文件，除了 remaining.ts 文件
  * 如何匹配所有文件请看：https://github.com/mrmlnc/fast-glob#basic-syntax
@@ -86,17 +79,13 @@ export const router: Router = createRouter({
   routes: constantRoutes.concat(...(remainingRouter as RouteRecordRaw[])),
   strict: true,
   scrollBehavior(to, from, savedPosition) {
-    return new Promise(resolve => {
-      if (savedPosition) {
-        return savedPosition;
-      } else {
-        if (from.meta.saveSrollTop) {
-          const top: number =
-            document.documentElement.scrollTop || document.body.scrollTop;
-          resolve({ left: 0, top });
-        }
-      }
-    });
+    if (savedPosition) return savedPosition;
+    if (from.meta.saveSrollTop) {
+      const top: number =
+        document.documentElement.scrollTop || document.body.scrollTop;
+      return { left: 0, top };
+    }
+    return { left: 0, top: 0 };
   }
 });
 
@@ -169,7 +158,7 @@ router.beforeEach((to: ToRouteType, _from, next) => {
   }
   /** 如果已经登录并存在登录信息后不能跳转到路由白名单，而是继续保持在当前页面 */
   function toCorrectRoute() {
-    whiteList.includes(to.fullPath) ? next(_from.fullPath) : next();
+    whiteList.includes(to.path) ? next(_from.fullPath) : next();
   }
 
   function hasRoutePermission() {
@@ -206,7 +195,7 @@ router.beforeEach((to: ToRouteType, _from, next) => {
     NProgress.done();
   }
 
-  if (Cookies.get(multipleTabsKey) && userInfo) {
+  if (getToken().accessToken && userInfo) {
     if (!externalLink && to.path !== "/login" && !hasRoutePermission()) {
       redirectToFirstAuthorizedRoute();
       return;

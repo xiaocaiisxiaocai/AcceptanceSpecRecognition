@@ -29,15 +29,6 @@ export default {
         permissions: getPagePermission("home-dashboard"),
         showLink: VITE_HIDE_HOME === "true" ? false : true
       }
-    },
-    {
-      path: "/welcome",
-      name: "Welcome",
-      redirect: "/dashboard",
-      meta: {
-        title: "欢迎页",
-        showLink: false
-      }
     }
   ]
 } satisfies RouteConfigsTable;

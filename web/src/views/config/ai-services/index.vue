@@ -14,10 +14,15 @@ import {
 } from "@/api/ai-service";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
-import { getRequestErrorMessage } from "@/utils/error-message";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 import {
   buildAiServiceConfigSummary,
-  getDefaultPriority
+  getDefaultPriority,
+  shouldShowAllConfigsByDefault
 } from "./config-selection";
 import AiServiceConfigsTable from "./components/AiServiceConfigsTable.vue";
 import AiServiceEditDialog from "./components/AiServiceEditDialog.vue";
@@ -32,8 +37,7 @@ import {
   createNewAiServiceFormData,
   getAiServiceDialogTitle,
   getAiServiceSubmitPermission,
-  getAiServiceSubmitSuccessMessage,
-  validateAiServiceFormData
+  getAiServiceSubmitSuccessMessage
 } from "./form";
 import { useAiServiceModelsProbe } from "./composables/useAiServiceModelsProbe";
 import {
@@ -77,6 +81,9 @@ const loadData = async () => {
     const res = await getAiServiceList({ page: 1, pageSize: 100 });
     if (res.code === 0) {
       tableData.value = res.data.items;
+      if (shouldShowAllConfigsByDefault(res.data.items)) {
+        showAllConfigs.value = true;
+      }
       if (
         activeTestResult.value &&
         !res.data.items.some(item => item.id === activeTestResult.value?.rowId)
@@ -215,8 +222,9 @@ const handleDelete = async (row: AiServiceConfig) => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
 
@@ -253,9 +261,8 @@ const handleToggleDisabled = async (row: AiServiceConfig) => {
       ElMessage.error(res.message || "操作失败");
     }
   } catch (error) {
-    if (error !== "cancel" && error !== "close") {
-      ElMessage.error(extractErrorMessage(error, "操作失败"));
-    }
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "操作失败"));
   } finally {
     setRowLoading(disabledState, row.id, false);
   }
@@ -324,12 +331,6 @@ const handleSubmit = async () => {
   if (!ensurePermission(submitPermission.code, submitPermission.message)) {
     return;
   }
-  const validateMessage = validateAiServiceFormData(formData);
-  if (validateMessage) {
-    ElMessage.warning(validateMessage);
-    return;
-  }
-
   try {
     const res = await (async () => {
       if (isEdit.value) {
@@ -358,20 +359,7 @@ onMounted(loadData);
 </script>
 
 <template>
-  <div class="page config-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">AI 服务配置</div>
-        <div class="page-subtitle">管理 LLM 与 Embedding 服务连接</div>
-        <!-- 当前匹配模式采用证据裁决，LLM 服务用于等价裁决与候选重排，Embedding 服务用于向量相似度检索 -->
-      </div>
-      <el-button
-        v-if="tableData.length"
-        @click="showAllConfigs = !showAllConfigs"
-      >
-        {{ showAllConfigs ? "收起全部" : "查看全部" }}
-      </el-button>
-    </div>
+  <div class="page page--fill config-page ai-services-page">
     <el-alert
       v-if="llmCount > 1 || embeddingCount > 1"
       type="warning"
@@ -429,7 +417,8 @@ onMounted(loadData);
     </div>
 
     <AiServiceConfigsTable
-      v-if="showAllConfigs"
+      v-if="tableData.length"
+      :expanded="showAllConfigs"
       :table-data="tableData"
       :expanded-test-row-keys="expandedTestRowKeys"
       :active-test-result="activeTestResult"
@@ -441,7 +430,7 @@ onMounted(loadData);
       :disabled-state="disabledState"
       :testing-state="testingState"
       :probing-state="probingState"
-      @collapse="showAllConfigs = false"
+      @toggle="showAllConfigs = !showAllConfigs"
       @clear-test-result="clearInlineTestResult"
       @edit="handleEdit"
       @toggle-disabled="handleToggleDisabled"

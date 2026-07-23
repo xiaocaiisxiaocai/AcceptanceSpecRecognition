@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import { storageLocal } from "@pureadmin/utils";
 import { hasPerms, userKey, type DataInfo } from "@/utils/auth";
 import {
@@ -16,6 +21,16 @@ import {
 } from "@/api/system-user";
 import { getAuthRoleList, type AuthRole } from "@/api/auth-role";
 import { getOrgUnitFlat, type OrgUnit } from "@/api/org-unit";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
+import {
+  requiredSelectionRule,
+  requiredTrimmedRule,
+  validateForm
+} from "@/utils/form-rules";
 
 defineOptions({
   name: "SystemUsersConfig"
@@ -31,7 +46,7 @@ const orgUnitOptions = ref<OrgUnit[]>([]);
 
 const queryParams = reactive({
   page: 1,
-  pageSize: 20,
+  pageSize: 50,
   keyword: "",
   status: "all" as StatusFilter
 });
@@ -66,6 +81,52 @@ const resetPasswordForm = reactive({
   newPassword: "",
   confirmPassword: ""
 });
+
+const createFormRef = ref<FormInstance>();
+const editFormRef = ref<FormInstance>();
+const resetPasswordFormRef = ref<FormInstance>();
+
+const createFormRules: FormRules<typeof createForm> = {
+  username: [
+    requiredTrimmedRule("请输入用户名"),
+    {
+      pattern: /^[A-Za-z0-9._-]{3,64}$/,
+      message: "用户名仅支持字母、数字、点、下划线、中划线，长度3-64",
+      trigger: ["blur", "change"]
+    }
+  ],
+  password: [
+    { required: true, message: "请输入密码", trigger: ["blur", "change"] },
+    { min: 4, message: "密码长度至少4位", trigger: ["blur", "change"] }
+  ],
+  nickname: [requiredTrimmedRule("请输入昵称")],
+  roleCode: [requiredSelectionRule("请选择一个角色")],
+  orgUnitId: [requiredSelectionRule("请选择一个组织")]
+};
+
+const editFormRules: FormRules<typeof editForm> = {
+  nickname: [requiredTrimmedRule("请输入昵称")],
+  roleCode: [requiredSelectionRule("请选择一个角色")],
+  orgUnitId: [requiredSelectionRule("请选择一个组织")]
+};
+
+const resetPasswordFormRules: FormRules<typeof resetPasswordForm> = {
+  newPassword: [
+    { required: true, message: "请输入新密码", trigger: ["blur", "change"] },
+    { min: 4, message: "新密码长度至少4位", trigger: ["blur", "change"] }
+  ],
+  confirmPassword: [
+    {
+      validator: (_rule, value, callback) => {
+        if (!value) callback(new Error("请再次输入新密码"));
+        else if (value !== resetPasswordForm.newPassword) {
+          callback(new Error("两次输入的密码不一致"));
+        } else callback();
+      },
+      trigger: ["blur", "change"]
+    }
+  ]
+};
 
 const currentUsername = computed(() => {
   const userInfo = storageLocal().getItem<DataInfo<number>>(userKey);
@@ -102,9 +163,6 @@ const activeOrgUnitOptions = computed(() => {
 const orgUnitMap = computed(() => {
   return new Map(orgUnitOptions.value.map(item => [item.id, item]));
 });
-
-const isValidUsername = (username: string) =>
-  /^[A-Za-z0-9._-]{3,64}$/.test(username);
 
 const getDefaultRoleCode = () => {
   const preferred = activeRoleOptions.value.find(
@@ -182,7 +240,7 @@ const handleSearch = () => {
 
 const handleReset = () => {
   queryParams.page = 1;
-  queryParams.pageSize = 20;
+  queryParams.pageSize = 50;
   queryParams.keyword = "";
   queryParams.status = "all";
   loadData();
@@ -223,32 +281,12 @@ const openEditDialog = (row: SystemUser) => {
 };
 
 const handleCreate = async () => {
+  if (!(await validateForm(createFormRef.value))) return;
+
   const username = createForm.username.trim();
   const password = createForm.password;
   const nickname = createForm.nickname.trim();
   const roleCode = createForm.roleCode.trim();
-
-  if (!isValidUsername(username)) {
-    ElMessage.warning("用户名仅支持字母、数字、点、下划线、中划线，长度3-64");
-    return;
-  }
-  if (!password || password.length < 4) {
-    ElMessage.warning("密码长度至少4位");
-    return;
-  }
-  if (!nickname) {
-    ElMessage.warning("请输入昵称");
-    return;
-  }
-  if (!roleCode) {
-    ElMessage.warning("请选择一个角色");
-    return;
-  }
-
-  if (!createForm.orgUnitId) {
-    ElMessage.warning("请选择一个组织");
-    return;
-  }
 
   const payload: CreateSystemUserRequest = {
     username,
@@ -275,22 +313,10 @@ const handleCreate = async () => {
 };
 
 const handleUpdate = async () => {
+  if (!(await validateForm(editFormRef.value))) return;
+
   const nickname = editForm.nickname.trim();
   const roleCode = editForm.roleCode.trim();
-  if (!nickname) {
-    ElMessage.warning("请输入昵称");
-    return;
-  }
-  if (!roleCode) {
-    ElMessage.warning("请选择一个角色");
-    return;
-  }
-
-  if (!editForm.orgUnitId) {
-    ElMessage.warning("请选择一个组织");
-    return;
-  }
-
   const payload: UpdateSystemUserRequest = {
     nickname,
     avatar: editForm.avatar.trim() || "",
@@ -322,16 +348,9 @@ const openResetPasswordDialog = (row: SystemUser) => {
 };
 
 const handleResetPassword = async () => {
+  if (!(await validateForm(resetPasswordFormRef.value))) return;
+
   const newPassword = resetPasswordForm.newPassword;
-  const confirmPassword = resetPasswordForm.confirmPassword;
-  if (!newPassword || newPassword.length < 4) {
-    ElMessage.warning("新密码长度至少4位");
-    return;
-  }
-  if (newPassword !== confirmPassword) {
-    ElMessage.warning("两次输入的密码不一致");
-    return;
-  }
 
   try {
     const res = await resetSystemUserPassword(resetPasswordForm.userId, {
@@ -363,8 +382,9 @@ const handleDelete = async (row: SystemUser) => {
     } else {
       ElMessage.error(res.message || "删除用户失败");
     }
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除用户失败"));
   }
 };
 
@@ -425,52 +445,43 @@ onMounted(initPage);
 
 <template>
   <div class="page config-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">系统用户管理</div>
-        <div class="page-subtitle">管理登录账号、角色、所属组织与启用状态</div>
-      </div>
-    </div>
-
-    <el-card class="mb-4">
-      <el-form :inline="true">
-        <el-form-item label="关键词">
-          <el-input
-            v-model="queryParams.keyword"
-            placeholder="用户名/昵称"
-            clearable
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select
-            v-model="queryParams.status"
-            class="w-[180px]"
-            popper-class="config-select-popper"
-          >
-            <el-option label="全部" value="all" />
-            <el-option label="启用" value="active" />
-            <el-option label="禁用" value="inactive" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <el-card>
+    <el-card class="full-height-table-wrapper">
       <template #header>
-        <div class="flex justify-between items-center">
-          <span>系统用户</span>
-          <el-button
-            v-perms="'btn:system-user:create'"
-            type="primary"
-            @click="openCreateDialog"
-          >
-            新增用户
-          </el-button>
+        <div class="list-card-toolbar">
+          <div class="list-card-toolbar__right">
+            <el-form :inline="true" class="filter-form">
+              <el-form-item label="关键词">
+                <el-input
+                  v-model="queryParams.keyword"
+                  placeholder="用户名/昵称"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </el-form-item>
+              <el-form-item label="状态">
+                <el-select
+                  v-model="queryParams.status"
+                  class="search-select search-select--200"
+                  popper-class="config-select-popper"
+                >
+                  <el-option label="全部" value="all" />
+                  <el-option label="启用" value="active" />
+                  <el-option label="禁用" value="inactive" />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleSearch">搜索</el-button>
+                <el-button @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+            <el-button
+              v-perms="'btn:system-user:create'"
+              type="primary"
+              @click="openCreateDialog"
+            >
+              新增用户
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -567,16 +578,26 @@ onMounted(initPage);
       </div>
     </el-card>
 
-    <el-dialog v-model="createDialogVisible" title="新增用户" width="660">
-      <el-form label-width="110px">
-        <el-form-item label="用户名" required>
+    <el-dialog
+      v-model="createDialogVisible"
+      title="新增用户"
+      width="min(640px, calc(100vw - 32px))"
+    >
+      <el-form
+        ref="createFormRef"
+        :model="createForm"
+        :rules="createFormRules"
+        label-width="110px"
+        status-icon
+      >
+        <el-form-item label="用户名" prop="username">
           <el-input
             v-model="createForm.username"
             maxlength="64"
             placeholder="3-64位，支持字母/数字/._-"
           />
         </el-form-item>
-        <el-form-item label="密码" required>
+        <el-form-item label="密码" prop="password">
           <el-input
             v-model="createForm.password"
             type="password"
@@ -584,13 +605,13 @@ onMounted(initPage);
             placeholder="至少4位"
           />
         </el-form-item>
-        <el-form-item label="昵称" required>
+        <el-form-item label="昵称" prop="nickname">
           <el-input v-model="createForm.nickname" maxlength="100" />
         </el-form-item>
         <el-form-item label="头像">
           <el-input v-model="createForm.avatar" maxlength="500" />
         </el-form-item>
-        <el-form-item label="角色" required>
+        <el-form-item label="角色" prop="roleCode">
           <el-select
             v-model="createForm.roleCode"
             filterable
@@ -605,7 +626,7 @@ onMounted(initPage);
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="所属组织" required>
+        <el-form-item label="所属组织" prop="orgUnitId">
           <el-select
             v-model="createForm.orgUnitId"
             filterable
@@ -635,18 +656,28 @@ onMounted(initPage);
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editDialogVisible" title="编辑用户" width="660">
-      <el-form label-width="110px">
+    <el-dialog
+      v-model="editDialogVisible"
+      title="编辑用户"
+      width="min(640px, calc(100vw - 32px))"
+    >
+      <el-form
+        ref="editFormRef"
+        :model="editForm"
+        :rules="editFormRules"
+        label-width="110px"
+        status-icon
+      >
         <el-form-item label="用户名">
           <el-input :model-value="editForm.username" disabled />
         </el-form-item>
-        <el-form-item label="昵称" required>
+        <el-form-item label="昵称" prop="nickname">
           <el-input v-model="editForm.nickname" maxlength="100" />
         </el-form-item>
         <el-form-item label="头像">
           <el-input v-model="editForm.avatar" maxlength="500" />
         </el-form-item>
-        <el-form-item label="角色" required>
+        <el-form-item label="角色" prop="roleCode">
           <el-select
             v-model="editForm.roleCode"
             filterable
@@ -661,7 +692,7 @@ onMounted(initPage);
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="所属组织" required>
+        <el-form-item label="所属组织" prop="orgUnitId">
           <el-select
             v-model="editForm.orgUnitId"
             filterable
@@ -694,13 +725,19 @@ onMounted(initPage);
     <el-dialog
       v-model="resetPasswordDialogVisible"
       title="重置密码"
-      width="500"
+      width="min(480px, calc(100vw - 32px))"
     >
-      <el-form label-width="100px">
+      <el-form
+        ref="resetPasswordFormRef"
+        :model="resetPasswordForm"
+        :rules="resetPasswordFormRules"
+        label-width="100px"
+        status-icon
+      >
         <el-form-item label="用户名">
           <el-input :model-value="resetPasswordForm.username" disabled />
         </el-form-item>
-        <el-form-item label="新密码" required>
+        <el-form-item label="新密码" prop="newPassword">
           <el-input
             v-model="resetPasswordForm.newPassword"
             type="password"
@@ -708,7 +745,7 @@ onMounted(initPage);
             placeholder="至少4位"
           />
         </el-form-item>
-        <el-form-item label="确认密码" required>
+        <el-form-item label="确认密码" prop="confirmPassword">
           <el-input
             v-model="resetPasswordForm.confirmPassword"
             type="password"
@@ -735,7 +772,7 @@ onMounted(initPage);
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 24px;
+  gap: 12px;
+  padding: 0;
 }
 </style>

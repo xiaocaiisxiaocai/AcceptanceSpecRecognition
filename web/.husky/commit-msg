@@ -1,8 +1,15 @@
 #!/bin/sh
 
-# shellcheck source=./_/husky.sh
-. "$(dirname "$0")/_/husky.sh"
+commit_msg_file="$1"
+case "$commit_msg_file" in
+  /*|[A-Za-z]:*) ;;
+  *)
+    repo_root="$(git rev-parse --show-toplevel)"
+    commit_msg_file="$repo_root/$commit_msg_file"
+    ;;
+esac
 
 PATH="/usr/local/bin:$PATH"
+cd "$(dirname "$0")/.."
 
-npx --no-install commitlint --edit "$1"
+pnpm exec commitlint --edit "$commit_msg_file"

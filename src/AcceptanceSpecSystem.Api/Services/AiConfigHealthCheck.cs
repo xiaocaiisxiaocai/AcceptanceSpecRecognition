@@ -1,61 +1,52 @@
-﻿using AcceptanceSpecSystem.Data.Context;
-using AcceptanceSpecSystem.Data.Entities;
-using Microsoft.EntityFrameworkCore;
+using AcceptanceSpecSystem.Application.Services;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 
 namespace AcceptanceSpecSystem.Api.Services;
 
 public sealed class AiConfigHealthCheck : IHealthCheck
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly AiServiceReadinessRegistry _readinessRegistry;
 
-    public AiConfigHealthCheck(IServiceScopeFactory scopeFactory)
+    public AiConfigHealthCheck(AiServiceReadinessRegistry readinessRegistry)
     {
-        _scopeFactory = scopeFactory;
+        _readinessRegistry = readinessRegistry;
     }
 
-    public async Task<HealthCheckResult> CheckHealthAsync(
+    public Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var enabledConfigs = await db.AiServiceConfigs
-                .AsNoTracking()
-                .Where(config => !config.IsDisabled)
-                .Select(config => new
-                {
-                    config.Purpose,
-                    config.LlmModel,
-                    config.EmbeddingModel
-                })
-                .ToListAsync(cancellationToken);
+        // 健康请求只读取短期缓存，不在此路径同步调用任何外部 AI 端点。
+        var snapshots = _readinessRegistry.GetCurrentSnapshots();
+        var llm = Aggregate(snapshots.Where(snapshot => snapshot.Purpose == CoreAiServicePurpose.Llm));
+        var embedding = Aggregate(snapshots.Where(snapshot => snapshot.Purpose == CoreAiServicePurpose.Embedding));
+        var degraded = llm == "unavailable" || embedding == "unavailable";
+        var runtimeStatus = degraded
+            ? "degraded"
+            : llm == "checking" || embedding == "checking"
+                ? "checking"
+                : "available";
+        return Task.FromResult(HealthCheckResult.Healthy(
+            degraded ? "核心服务正常，部分 AI 能力暂不可用" : "核心服务正常，AI 运行状态来自缓存",
+            new Dictionary<string, object>
+            {
+                ["runtimeStatus"] = runtimeStatus,
+                ["llm"] = llm,
+                ["embedding"] = embedding,
+                ["checkedEntries"] = snapshots.Count
+            }));
+    }
 
-            var llmCount = enabledConfigs.Count(config =>
-                config.Purpose == AiServicePurpose.Llm ||
-                (config.Purpose != AiServicePurpose.Embedding &&
-                 !string.IsNullOrWhiteSpace(config.LlmModel) &&
-                 string.IsNullOrWhiteSpace(config.EmbeddingModel)));
-            var embeddingCount = enabledConfigs.Count(config =>
-                config.Purpose == AiServicePurpose.Embedding ||
-                (config.Purpose != AiServicePurpose.Llm &&
-                 !string.IsNullOrWhiteSpace(config.EmbeddingModel) &&
-                 string.IsNullOrWhiteSpace(config.LlmModel)));
-
-            return HealthCheckResult.Healthy(
-                "AI 配置表可读取",
-                new Dictionary<string, object>
-                {
-                    ["enabled"] = enabledConfigs.Count,
-                    ["llm"] = llmCount,
-                    ["embedding"] = embeddingCount
-                });
-        }
-        catch (Exception ex)
-        {
-            return HealthCheckResult.Unhealthy("AI 配置表不可读取", ex);
-        }
+    private static string Aggregate(IEnumerable<AiServiceReadinessSnapshot> snapshots)
+    {
+        var states = snapshots.Select(snapshot => snapshot.State).ToList();
+        if (states.Any(state => state == AiServiceReadinessState.Available))
+            return "available";
+        if (states.Any(state => state == AiServiceReadinessState.Checking))
+            return "checking";
+        if (states.Any(state => state == AiServiceReadinessState.Unavailable))
+            return "unavailable";
+        return "checking";
     }
 }

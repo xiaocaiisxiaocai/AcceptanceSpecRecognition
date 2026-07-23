@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import MatchConfig from "./MatchConfig.vue";
 import type { MatchConfig as MatchConfigType } from "@/api/matching";
+import type { RuntimeAiSelectionRefreshResult } from "@/utils/runtime-ai-selection-loader";
 
 defineProps<{
   matchConfig: MatchConfigType;
@@ -12,61 +13,37 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: "update:matchConfig", value: MatchConfigType): void;
-  (
-    e: "scopeChange",
-    customerId?: number,
-    processId?: number,
-    machineModelId?: number
-  ): void;
 }>();
 
 const matchConfigRef = ref<InstanceType<typeof MatchConfig> | null>(null);
 
 defineExpose<{
   resetConfig?: () => void;
-  getScope?: () => {
-    customerId?: number;
-    processId?: number;
-    machineModelId?: number;
-  };
+  refreshAiServices?: () => Promise<RuntimeAiSelectionRefreshResult>;
   getServiceStatus?: () => {
     hasAvailableEmbeddingService: boolean;
     hasAvailableLlmService: boolean;
   };
 }>({
   resetConfig: () => matchConfigRef.value?.resetConfig?.(),
-  getScope: () =>
-    matchConfigRef.value?.getScope?.() ?? {
-      customerId: undefined,
-      processId: undefined,
-      machineModelId: undefined
-    },
+  refreshAiServices: () =>
+    matchConfigRef.value?.refreshAiServices?.() ??
+    Promise.resolve({ current: false, version: 0 }),
   getServiceStatus: () =>
     matchConfigRef.value?.getServiceStatus?.() ?? {
-      hasAvailableEmbeddingService: true,
-      hasAvailableLlmService: true
+      hasAvailableEmbeddingService: false,
+      hasAvailableLlmService: false
     }
 });
-
-const handleScopeChange = (
-  customerId?: number,
-  processId?: number,
-  machineModelId?: number
-) => {
-  emit("scopeChange", customerId, processId, machineModelId);
-};
 </script>
 
 <template>
   <div class="step-panel">
-    <h3 class="step-title">配置匹配参数</h3>
-    <p class="step-desc">设置匹配范围和算法参数</p>
     <MatchConfig
       ref="matchConfigRef"
       :model-value="matchConfig"
       :allow-llm="canLlmStream"
       @update:model-value="emit('update:matchConfig', $event)"
-      @scope-change="handleScopeChange"
     />
     <el-alert
       v-if="previewBlockingMessage"

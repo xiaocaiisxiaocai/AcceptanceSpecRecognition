@@ -13,8 +13,10 @@ import type {
   DifferenceDecision,
   ImportPendingDifferenceWithTable
 } from "../dataImport.types";
+import { buildImportDifferenceDecisionKey } from "../dataImport.regions";
 
-defineProps<{
+const props = defineProps<{
+  isExcelFile: boolean;
   pendingDifferences: ImportPendingDifferenceWithTable[];
   pagedPendingDifferences: ImportPendingDifferenceWithTable[];
   differenceDecisionMap: Record<string, DifferenceDecision | undefined>;
@@ -30,6 +32,9 @@ defineProps<{
   confirmDifferenceButtonText: string;
   importing: boolean;
 }>();
+
+const formatPendingRowNumber = (rowIndex: number) =>
+  props.isExcelFile ? rowIndex : rowIndex + 1;
 
 const visible = defineModel<boolean>({ required: true });
 
@@ -86,13 +91,16 @@ const emit = defineEmits<{
     <div class="difference-dialog__list">
       <div
         v-for="item in pagedPendingDifferences"
-        :key="item.key"
+        :key="buildImportDifferenceDecisionKey(item)"
         class="difference-card"
       >
         <div class="difference-card__header">
           <div class="difference-card__meta">
-            <span>表格 {{ item.tableIndex + 1 }}</span>
-            <span>行号 {{ item.rowIndex }}</span>
+            <span>
+              {{ isExcelFile ? "工作表" : "表格" }}
+              {{ item.tableIndex + 1 }}
+            </span>
+            <span>行号 {{ formatPendingRowNumber(item.rowIndex) }}</span>
             <el-tag
               :type="getDifferenceMatchTypeTagType(item.matchType)"
               effect="light"
@@ -110,21 +118,30 @@ const emit = defineEmits<{
             </el-tag>
           </div>
           <el-tag
-            v-if="differenceDecisionMap[item.key] === 'import'"
+            v-if="
+              differenceDecisionMap[buildImportDifferenceDecisionKey(item)] ===
+              'import'
+            "
             type="warning"
             size="small"
           >
             已选择覆盖
           </el-tag>
           <el-tag
-            v-else-if="differenceDecisionMap[item.key] === 'partial'"
+            v-else-if="
+              differenceDecisionMap[buildImportDifferenceDecisionKey(item)] ===
+              'partial'
+            "
             type="primary"
             size="small"
           >
             已选择部分覆盖
           </el-tag>
           <el-tag
-            v-else-if="differenceDecisionMap[item.key] === 'skip'"
+            v-else-if="
+              differenceDecisionMap[buildImportDifferenceDecisionKey(item)] ===
+              'skip'
+            "
             type="info"
             size="small"
           >
@@ -149,7 +166,15 @@ const emit = defineEmits<{
             </span>
           </div>
           <div v-if="item.reviewReason" class="difference-card__reason">
-            {{ item.reviewReason }}
+            <strong>复核结论</strong>
+            <span>{{ item.reviewReason }}</span>
+          </div>
+          <div
+            v-if="item.reviewCommentary"
+            class="difference-card__reason difference-card__reason--commentary"
+          >
+            <strong>判断说明</strong>
+            <span>{{ item.reviewCommentary }}</span>
           </div>
           <div class="difference-sheet">
             <div class="difference-sheet__panel">
@@ -204,11 +229,17 @@ const emit = defineEmits<{
 
         <div class="difference-card__footer">
           <el-radio-group
-            :model-value="differenceDecisionMap[item.key]"
+            :model-value="
+              differenceDecisionMap[buildImportDifferenceDecisionKey(item)]
+            "
             size="small"
             @update:model-value="
               value =>
-                emit('updateDecision', item.key, value as DifferenceDecision)
+                emit(
+                  'updateDecision',
+                  buildImportDifferenceDecisionKey(item),
+                  value as DifferenceDecision
+                )
             "
           >
             <el-radio-button label="import">覆盖已有</el-radio-button>

@@ -6,8 +6,9 @@ import type { BatchTablePreviewResult, MatchPreviewItem } from "@/api/matching";
 import { isLlmEquivalenceDecisionRisk } from "./scoreDetail.llmEquivalence.ts";
 import {
   hasManualFillOverrideValue,
-  reconcileMatchPreviewSelectionCache
+  reconcileBatchPreviewSelectionCache
 } from "./matchPreviewTable.selection";
+import type { PersistedSelection } from "./matchPreviewTable.types";
 
 const props = defineProps<{
   /** 各表格预览结果 */
@@ -37,20 +38,7 @@ const emit = defineEmits<{
 /** 活跃的 Tab */
 const activeTab = ref("0");
 const activeTableRef = ref<InstanceType<typeof MatchPreviewTable> | null>(null);
-const selectionCache = new Map<
-  number,
-  Array<{
-    rowIndex: number;
-    selected?: boolean;
-    specId?: number;
-    manualConfirmed?: boolean;
-    manualFill?: boolean;
-    manualCleared?: boolean;
-    reviewApprovalToken?: string;
-    overrideAcceptance?: string;
-    overrideRemark?: string;
-  }>
->();
+const selectionCache = new Map<number, PersistedSelection[]>();
 
 const activeTableResult = computed(
   () =>
@@ -132,11 +120,13 @@ const buildDefaultSelections = (
 watch(
   () => props.results,
   results => {
-    selectionCache.clear();
     if (results.length === 0) {
+      selectionCache.clear();
       activeTab.value = "0";
       return;
     }
+
+    reconcileBatchPreviewSelectionCache(results, selectionCache);
 
     const hasActiveTab = results.some(
       result => String(result.tableIndex) === activeTab.value
@@ -145,15 +135,16 @@ watch(
       activeTab.value = String(results[0].tableIndex);
     }
   },
-  { immediate: true }
+  { deep: true, immediate: true }
 );
 
 watch(
-  () => props.results,
-  results => {
-    reconcileMatchPreviewSelectionCache(results, selectionCache);
-  },
-  { deep: true }
+  () => props.loading,
+  (loading, wasLoading) => {
+    if (loading && !wasLoading) {
+      selectionCache.clear();
+    }
+  }
 );
 
 watch(activeTab, (_newTab, oldTab) => {
@@ -195,6 +186,18 @@ const handleSelect = (
 
   syncTableSelections(currentTable.tableIndex);
   emit("select", currentTable.tableIndex, rowIndex, spec);
+};
+
+const handleSelectionChange = (selections: PersistedSelection[]) => {
+  const currentTableIndex = activeTableResult.value?.tableIndex;
+  if (currentTableIndex === undefined) {
+    return;
+  }
+
+  selectionCache.set(
+    currentTableIndex,
+    selections.map(selection => ({ ...selection }))
+  );
 };
 
 /** 获取所有表格的选择结果（按表格分组） */
@@ -326,24 +329,54 @@ defineExpose({ getAllSelections, getAllEditedBackfillItems });
           getPersistedSelections(activeTableResult.tableIndex)
         "
         @select="handleSelect"
+        @selection-change="handleSelectionChange"
         @show-detail="item => emit('showDetail', item)"
-      />
+      >
+        <template #pagination-actions>
+          <slot name="pagination-actions" />
+        </template>
+      </MatchPreviewTable>
     </div>
   </div>
 </template>
 
 <style scoped>
 .batch-preview-tabs {
-  margin-top: 12px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.batch-preview-tabs > :deep(.el-tabs) {
+  flex: 0 0 auto;
+}
+
+.batch-preview-tabs > :deep(.el-tabs .el-tabs__content) {
+  display: none;
 }
 
 .table-stats {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .active-preview-table {
-  margin-top: 12px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.active-preview-table :deep(.match-preview-table) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 </style>

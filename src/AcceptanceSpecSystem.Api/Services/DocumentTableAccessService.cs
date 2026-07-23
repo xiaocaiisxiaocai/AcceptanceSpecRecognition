@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Interfaces;
@@ -10,24 +10,34 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// <summary>
 /// 文档表格访问协作组件。
 /// </summary>
-public sealed class DocumentTableAccessService
+public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBatchReplyDocumentTablePort
 {
-    private static readonly Regex ListPrefixRegex =
-        new(@"^(?<indent>\s*)(?<num>\d+)\s*(?<sep>[、:：])(?<space>\s*)(?<rest>.*)$", RegexOptions.Compiled);
-
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly DocumentFileAccessService _documentFileAccessService;
+    private readonly IResourceBudgetGovernor _resourceBudgetGovernor;
+    private readonly ILogger<DocumentTableAccessService> _logger;
 
     public DocumentTableAccessService(
         DocumentServiceFactory documentServiceFactory,
-        DocumentFileAccessService documentFileAccessService)
+        DocumentFileAccessService documentFileAccessService,
+        IResourceBudgetGovernor resourceBudgetGovernor,
+        ILogger<DocumentTableAccessService> logger)
     {
         _documentServiceFactory = documentServiceFactory;
         _documentFileAccessService = documentFileAccessService;
+        _resourceBudgetGovernor = resourceBudgetGovernor;
+        _logger = logger;
     }
 
-    public async Task<int> CountTablesAsync(UploadedFileType fileType, byte[] fileContent)
+    public async Task<int> CountTablesAsync(
+        UploadedFileType fileType,
+        byte[] fileContent,
+        CancellationToken cancellationToken = default)
     {
+        _resourceBudgetGovernor.ValidateDocumentSize(fileContent.LongLength);
+        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+            ResourceWorkload.DocumentParsing,
+            cancellationToken);
         var parser = _documentServiceFactory.GetParser(GetDocumentType(fileType));
         if (parser == null)
         {
@@ -35,46 +45,52 @@ public sealed class DocumentTableAccessService
         }
 
         using var stream = new MemoryStream(fileContent);
-        var tables = await parser.GetTablesAsync(stream);
+        var tables = await parser.GetTablesAsync(stream, cancellationToken);
         return tables.Count;
     }
 
-    public async Task<List<TableInfoDto>> GetTableInfoDtosAsync(WordFile wordFile)
+    public async Task<List<TableInfoDto>> GetTableInfoDtosAsync(
+        WordFile wordFile,
+        CancellationToken cancellationToken = default)
     {
-        var tables = await GetTablesAsync(wordFile);
-        return tables.Select(table => new TableInfoDto
-        {
-            Index = table.Index,
-            Name = table.Name,
-            RowCount = table.RowCount,
-            ColumnCount = table.ColumnCount,
-            IsNested = table.IsNested,
-            PreviewText = table.PreviewText,
-            Headers = table.Headers?.ToList() ?? [],
-            HasMergedCells = table.HasMergedCells,
-            UsedRangeStartRow = table.UsedRangeStartRow,
-            UsedRangeStartColumn = table.UsedRangeStartColumn
-        }).ToList();
+        var tables = await GetTablesAsync(wordFile, cancellationToken);
+        return DocumentTableQueryAppService.MapTableInfos(tables);
     }
 
-    public async Task<IReadOnlyList<TableInfo>> GetTablesAsync(WordFile wordFile)
+    public async Task<IReadOnlyList<TableInfo>> GetTablesAsync(
+        WordFile wordFile,
+        CancellationToken cancellationToken = default)
     {
         var parser = GetRequiredParser(wordFile.FileType);
         using var stream = _documentFileAccessService.OpenReadStream(wordFile);
-        return await parser.GetTablesAsync(stream);
+        ValidateDocumentStreamSize(stream);
+        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+            ResourceWorkload.DocumentParsing,
+            cancellationToken);
+        return await parser.GetTablesAsync(stream, cancellationToken);
     }
 
     public async Task<TableData> ExtractTableDataAsync(
         WordFile wordFile,
         int tableIndex,
         ColumnMapping mapping,
-        int? maxDataRowCount = null)
+        int? maxDataRowCount = null,
+        CancellationToken cancellationToken = default)
     {
         var parser = GetRequiredParser(wordFile.FileType);
         using var stream = _documentFileAccessService.OpenReadStream(wordFile);
+        ValidateDocumentStreamSize(stream);
+        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+            ResourceWorkload.DocumentParsing,
+            cancellationToken);
         try
         {
-            return await parser.ExtractTableDataAsync(stream, tableIndex, mapping, maxDataRowCount);
+            return await parser.ExtractTableDataAsync(
+                stream,
+                tableIndex,
+                mapping,
+                maxDataRowCount,
+                cancellationToken);
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -89,19 +105,17 @@ public sealed class DocumentTableAccessService
         int headerRowIndex,
         int headerRowCount,
         int dataStartRowIndex,
-        int? dataEndRowIndex = null)
+        int? dataEndRowIndex = null,
+        CancellationToken cancellationToken = default)
     {
+        DocumentTableQueryAppService.ValidatePreviewSize(previewRows);
         if (dataEndRowIndex.HasValue && dataEndRowIndex.Value < dataStartRowIndex)
-        {
             throw new ApplicationServiceException(400, "数据结束行不能早于数据起始行");
-        }
 
         var previewRangeRowCount = dataEndRowIndex.HasValue
             ? dataEndRowIndex.Value - dataStartRowIndex + 1
             : (int?)null;
-        var maxDataRowCount = previewRows > 0
-            ? previewRows
-            : (int?)null;
+        int? maxDataRowCount = previewRows;
         if (previewRangeRowCount.HasValue)
         {
             maxDataRowCount = maxDataRowCount.HasValue
@@ -118,24 +132,9 @@ public sealed class DocumentTableAccessService
                 HeaderRowCount = headerRowCount,
                 DataStartRowIndex = dataStartRowIndex
             },
-            maxDataRowCount);
-
-        var rowSource = previewRows <= 0 ? tableData.Rows : tableData.Rows.Take(previewRows);
-        var totalRows = tableData.TotalDataRowCount ?? tableData.Rows.Count;
-        if (previewRangeRowCount.HasValue)
-        {
-            totalRows = Math.Max(0, Math.Min(totalRows, previewRangeRowCount.Value));
-        }
-
-        return new TableDataDto
-        {
-            TableIndex = tableData.TableIndex,
-            Headers = tableData.Headers.ToList(),
-            Rows = rowSource.Select(row => row.Cells.Select(FormatPreviewCellText).ToList()).ToList(),
-            StructuredRows = rowSource.Select(row => row.Cells.Select(cell => MapStructuredCellValue(cell.StructuredValue)).ToList()).ToList(),
-            TotalRows = totalRows,
-            ColumnCount = tableData.ColumnCount
-        };
+            maxDataRowCount,
+            cancellationToken);
+        return DocumentTableQueryAppService.MapPreview(tableData, previewRows, previewRangeRowCount);
     }
 
     /// <summary>
@@ -149,7 +148,9 @@ public sealed class DocumentTableAccessService
         int? headerRowStart = null,
         int? headerRowCount = null,
         int? dataStartRow = null,
-        bool filterEmptySourceRows = true)
+        int? dataEndRow = null,
+        bool filterEmptySourceRows = true,
+        CancellationToken cancellationToken = default)
     {
         var parser = _documentServiceFactory.GetParser(GetDocumentType(wordFile.FileType));
         if (parser == null)
@@ -157,13 +158,18 @@ public sealed class DocumentTableAccessService
             return [];
         }
 
-        using var stream = _documentFileAccessService.OpenReadStream(wordFile);
         // Excel 与 Word 的表格坐标口径不同：Excel 需要先按已用区域换算相对行号，
         // 后续写回才能继续使用解析器返回的行索引。
         TableData tableData;
         var excelDataStartRowIndexForWriteBack = 1;
+        int? maxDataRowCount = null;
         try
         {
+            using var stream = _documentFileAccessService.OpenReadStream(wordFile);
+            ValidateDocumentStreamSize(stream);
+            using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+                ResourceWorkload.DocumentParsing,
+                cancellationToken);
             var mapping = new ColumnMapping
             {
                 HeaderRowIndex = 0,
@@ -176,7 +182,7 @@ public sealed class DocumentTableAccessService
                 IReadOnlyList<TableInfo> tables;
                 using (var metaStream = _documentFileAccessService.OpenReadStream(wordFile))
                 {
-                    tables = await parser.GetTablesAsync(metaStream);
+                    tables = await parser.GetTablesAsync(metaStream, cancellationToken);
                 }
 
                 if (tableIndex < 0 || tableIndex >= tables.Count)
@@ -214,13 +220,63 @@ public sealed class DocumentTableAccessService
                     DataStartRowIndex = Math.Max(0, normalizedDataStartRow - usedStartRow)
                 };
                 excelDataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
+                if (dataEndRow.HasValue)
+                {
+                    var normalizedDataEndRow = Math.Max(normalizedDataStartRow, dataEndRow.Value);
+                    maxDataRowCount = normalizedDataEndRow - normalizedDataStartRow + 1;
+                }
+            }
+            else if (headerRowStart.HasValue || headerRowCount.HasValue || dataStartRow.HasValue || dataEndRow.HasValue)
+            {
+                // Word 的调用契约同样使用 1-based 行号；解析器使用 0-based。
+                // DataEndRow 是闭区间，因此最大行数必须包含首尾两行。
+                var normalizedHeaderRowStart = Math.Max(1, headerRowStart.GetValueOrDefault(1));
+                var normalizedHeaderRowCount = Math.Max(0, headerRowCount.GetValueOrDefault(1));
+                var minDataStartRow = normalizedHeaderRowStart + normalizedHeaderRowCount;
+                var normalizedDataStartRow = Math.Max(
+                    minDataStartRow,
+                    dataStartRow.GetValueOrDefault(minDataStartRow));
+                mapping = new ColumnMapping
+                {
+                    HeaderRowIndex = normalizedHeaderRowStart - 1,
+                    HeaderRowCount = Math.Max(1, normalizedHeaderRowCount == 0 ? 1 : normalizedHeaderRowCount),
+                    DataStartRowIndex = normalizedDataStartRow - 1
+                };
+                if (dataEndRow.HasValue)
+                {
+                    if (dataEndRow.Value < normalizedDataStartRow)
+                    {
+                        throw new ArgumentOutOfRangeException(
+                            nameof(dataEndRow),
+                            "数据结束行不能早于数据起始行");
+                    }
+
+                    maxDataRowCount = dataEndRow.Value - normalizedDataStartRow + 1;
+                }
             }
 
-            tableData = await parser.ExtractTableDataAsync(stream, tableIndex, mapping);
+            tableData = await parser.ExtractTableDataAsync(
+                stream,
+                tableIndex,
+                mapping,
+                maxDataRowCount,
+                cancellationToken);
         }
-        catch
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (ArgumentOutOfRangeException)
         {
             return [];
+        }
+        catch (NotSupportedException)
+        {
+            return [];
+        }
+        catch (Exception ex)
+        {
+            throw CreateDocumentParsingException(wordFile, tableIndex, ex);
         }
 
         if (tableData.ColumnCount < 2 ||
@@ -233,6 +289,7 @@ public sealed class DocumentTableAccessService
         var items = new List<MatchSourceItem>();
         foreach (var row in tableData.Rows)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var project = row.GetValue(projectColumnIndex) ?? string.Empty;
             var specification = row.GetValue(specificationColumnIndex) ?? string.Empty;
 
@@ -263,9 +320,10 @@ public sealed class DocumentTableAccessService
     /// <summary>
     /// 按批量回复表配置提取来源回复数据；返回的 RowIndex 必须与目标写回坐标一致。
     /// </summary>
-    internal async Task<List<ReplySourceItem>> ExtractReplySourceItemsAsync(
+    public async Task<List<ReplySourceItem>> ExtractReplySourceItemsAsync(
         WordFile wordFile,
-        BatchTableConfig config)
+        BatchTableConfig config,
+        CancellationToken cancellationToken = default)
     {
         var parser = _documentServiceFactory.GetParser(GetDocumentType(wordFile.FileType));
         if (parser == null)
@@ -273,11 +331,16 @@ public sealed class DocumentTableAccessService
             return [];
         }
 
-        using var stream = _documentFileAccessService.OpenReadStream(wordFile);
         TableData tableData;
         var excelDataStartRowIndexForWriteBack = 1;
+        int? maxDataRowCount = null;
         try
         {
+            using var stream = _documentFileAccessService.OpenReadStream(wordFile);
+            ValidateDocumentStreamSize(stream);
+            using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+                ResourceWorkload.DocumentParsing,
+                cancellationToken);
             var mapping = new ColumnMapping
             {
                 HeaderRowIndex = 0,
@@ -290,7 +353,7 @@ public sealed class DocumentTableAccessService
                 IReadOnlyList<TableInfo> tables;
                 using (var metaStream = _documentFileAccessService.OpenReadStream(wordFile))
                 {
-                    tables = await parser.GetTablesAsync(metaStream);
+                    tables = await parser.GetTablesAsync(metaStream, cancellationToken);
                 }
 
                 if (config.TableIndex < 0 || config.TableIndex >= tables.Count)
@@ -316,13 +379,35 @@ public sealed class DocumentTableAccessService
                     DataStartRowIndex = Math.Max(0, normalizedDataStartRow - usedStartRow)
                 };
                 excelDataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
+                if (config.DataEndRow.HasValue)
+                {
+                    var normalizedDataEndRow = Math.Max(normalizedDataStartRow, config.DataEndRow.Value);
+                    maxDataRowCount = normalizedDataEndRow - normalizedDataStartRow + 1;
+                }
             }
 
-            tableData = await parser.ExtractTableDataAsync(stream, config.TableIndex, mapping);
+            tableData = await parser.ExtractTableDataAsync(
+                stream,
+                config.TableIndex,
+                mapping,
+                maxDataRowCount,
+                cancellationToken);
         }
-        catch
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (ArgumentOutOfRangeException)
         {
             return [];
+        }
+        catch (NotSupportedException)
+        {
+            return [];
+        }
+        catch (Exception ex)
+        {
+            throw CreateDocumentParsingException(wordFile, config.TableIndex, ex);
         }
 
         var requiredColumns = new[]
@@ -341,6 +426,7 @@ public sealed class DocumentTableAccessService
         var items = new List<ReplySourceItem>();
         foreach (var row in tableData.Rows)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var project = row.GetValue(config.ProjectColumnIndex) ?? string.Empty;
             var specification = row.GetValue(config.SpecificationColumnIndex) ?? string.Empty;
             if (filterEmptySourceRows &&
@@ -371,6 +457,32 @@ public sealed class DocumentTableAccessService
         return items;
     }
 
+    private ApplicationServiceException CreateDocumentParsingException(
+        WordFile wordFile,
+        int tableIndex,
+        Exception exception)
+    {
+        _logger.LogError(
+            exception,
+            "文档解析失败: FileId={FileId}, FileType={FileType}, TableIndex={TableIndex}, ExceptionType={ExceptionType}",
+            wordFile.Id,
+            wordFile.FileType,
+            tableIndex,
+            exception.GetType().Name);
+
+        return new ApplicationServiceException(
+            400,
+            "文档解析失败，请确认文件完整且未被占用");
+    }
+
+    private void ValidateDocumentStreamSize(Stream stream)
+    {
+        if (stream.CanSeek)
+        {
+            _resourceBudgetGovernor.ValidateDocumentSize(stream.Length);
+        }
+    }
+
     private IDocumentParser GetRequiredParser(UploadedFileType fileType)
     {
         var parser = _documentServiceFactory.GetParser(GetDocumentType(fileType));
@@ -389,125 +501,4 @@ public sealed class DocumentTableAccessService
             : DocumentType.Word;
     }
 
-    private static StructuredCellValueDto MapStructuredCellValue(StructuredCellValue? value)
-    {
-        var dto = new StructuredCellValueDto();
-        if (value?.Parts == null || value.Parts.Count == 0)
-        {
-            return dto;
-        }
-
-        dto.Parts = value.Parts.Select(MapStructuredPart).ToList();
-        return dto;
-    }
-
-    private static StructuredCellPartDto MapStructuredPart(StructuredCellPart part)
-    {
-        return new StructuredCellPartDto
-        {
-            Type = part.Type,
-            Text = part.Text,
-            Table = part.Table == null ? null : MapStructuredTable(part.Table)
-        };
-    }
-
-    private static StructuredTableValueDto MapStructuredTable(StructuredTableValue table)
-    {
-        return new StructuredTableValueDto
-        {
-            RowCount = table.RowCount,
-            ColumnCount = table.ColumnCount,
-            Rows = table.Rows.Select(row => row.Select(MapStructuredCellValue).ToList()).ToList()
-        };
-    }
-
-    private static string FormatPreviewCellText(CellData cell)
-    {
-        var structuredText = ExtractStructuredText(cell.StructuredValue);
-        var rawText = string.IsNullOrWhiteSpace(structuredText)
-            ? cell.Value ?? string.Empty
-            : structuredText;
-        return AlignListPrefixes(rawText);
-    }
-
-    private static string ExtractStructuredText(StructuredCellValue? value)
-    {
-        if (value?.Parts == null || value.Parts.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var texts = value.Parts
-            .Where(part => part.Type == "text" && !string.IsNullOrWhiteSpace(part.Text))
-            .Select(part => part.Text!.TrimEnd());
-
-        return string.Join("\n", texts);
-    }
-
-    private static string AlignListPrefixes(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return string.Empty;
-        }
-
-        var normalized = text.Replace("\r\n", "\n").Replace("\r", "\n");
-        var lines = normalized.Split('\n');
-        if (lines.Length < 2)
-        {
-            return normalized;
-        }
-
-        var items = new List<(bool HasPrefix, string Original, string Indent, string Num, string Sep, string Space, string Tail)>();
-        foreach (var line in lines)
-        {
-            var match = ListPrefixRegex.Match(line);
-            if (match.Success)
-            {
-                items.Add((
-                    true,
-                    line,
-                    match.Groups["indent"].Value,
-                    match.Groups["num"].Value,
-                    match.Groups["sep"].Value,
-                    match.Groups["space"].Value,
-                    match.Groups["rest"].Value));
-            }
-            else
-            {
-                items.Add((false, line, "", "", "", "", ""));
-            }
-        }
-
-        var listItems = items.Where(item => item.HasPrefix).ToList();
-        if (listItems.Count < 2)
-        {
-            return normalized;
-        }
-
-        var maxDigits = listItems.Max(item => item.Num.Length);
-        return string.Join("\n", items.Select(item =>
-        {
-            if (!item.HasPrefix)
-            {
-                return item.Original;
-            }
-
-            var paddedNum = item.Num.PadLeft(maxDigits);
-            return $"{item.Indent}{paddedNum}{item.Sep}{item.Space}{item.Tail}";
-        }));
-    }
-}
-
-internal sealed class ReplySourceItem
-{
-    public int RowIndex { get; set; }
-
-    public string Project { get; set; } = string.Empty;
-
-    public string Specification { get; set; } = string.Empty;
-
-    public string Acceptance { get; set; } = string.Empty;
-
-    public string? Remark { get; set; }
 }

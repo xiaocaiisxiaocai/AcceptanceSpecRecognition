@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { UploadFilled } from "@element-plus/icons-vue";
-import type { UploadRequestOptions } from "element-plus";
 import type { BatchReplySourceFileState } from "../batch-reply-state";
+import AppUploadZone from "@/components/AppUploadZone.vue";
+import type { AppUploadRequest } from "@/components/useAppUploadTask";
 
 defineProps<{
   sourceFile: BatchReplySourceFileState | null;
   sourceIsExcel: boolean;
   canUploadSourceFile: boolean;
-  sourceUploading: boolean;
-  uploadRequest: (options: UploadRequestOptions) => Promise<void>;
+  uploadRequest: AppUploadRequest;
 }>();
 
 defineEmits<{
@@ -27,27 +26,15 @@ defineEmits<{
       </div>
     </template>
 
-    <el-upload
-      v-if="canUploadSourceFile && !sourceFile"
-      class="upload-area"
-      drag
-      :show-file-list="false"
-      :http-request="uploadRequest"
-      accept=".docx,.xlsx"
-      :disabled="sourceUploading"
-    >
-      <el-icon class="el-icon--upload" :size="56">
-        <UploadFilled />
-      </el-icon>
-      <div class="el-upload__text">
-        将已回复文档拖到此处，或 <em>点击上传</em>
-      </div>
-      <template #tip>
-        <div class="el-upload__tip">
-          仅支持 .docx / .xlsx，文件大小不超过 50MB
-        </div>
-      </template>
-    </el-upload>
+    <div v-if="canUploadSourceFile && !sourceFile">
+      <AppUploadZone
+        :request="uploadRequest"
+        accept=".docx,.xlsx"
+        size="normal"
+        drag-text="将来源文件拖到此处或"
+        tip-text="仅支持 .docx / .xlsx，文件大小不超过 50MB"
+      />
+    </div>
 
     <el-alert
       v-else-if="!sourceFile"

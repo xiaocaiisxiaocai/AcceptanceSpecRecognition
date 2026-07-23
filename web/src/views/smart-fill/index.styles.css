@@ -1,47 +1,185 @@
 .smart-fill {
-  padding: 24px;
+  --smart-fill-action-bar-height: 72px;
+
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  padding-bottom: calc(
+    var(--smart-fill-action-bar-height) + env(safe-area-inset-bottom, 0px)
+  );
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+  overflow: hidden;
 }
 
-.mb-4 {
-  margin-bottom: 16px;
+.smart-fill .page-header {
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.wizard-steps {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+}
+
+.wizard-steps :deep(.el-step__title) {
+  font-size: 13px;
+  line-height: 24px;
 }
 
 .step-content {
-  min-height: 500px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.step-content :deep(.el-card__body) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .step-panel {
-  padding: 20px 0;
-}
-
-.step-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 8px;
-}
-
-.step-desc {
-  font-size: 14px;
-  color: #6b7280;
-  margin-bottom: 24px;
+  padding: 12px 0;
 }
 
 .upload-meta-alert {
   margin-top: 16px;
 }
 
-.preview-blocking-alert {
-  margin-top: 16px;
+.smart-fill-scope-panel {
+  padding: 16px;
+  margin-top: 18px;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
 }
 
-.action-bar {
-  margin-top: 20px;
+.smart-fill-scope-form :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.smart-fill-scope-form :deep(.el-row) {
+  flex-direction: column;
+}
+
+.smart-fill-scope-form :deep(.el-col) {
+  width: 100%;
+  max-width: 560px;
+}
+
+.smart-fill-entry-actions {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.smart-fill-retained-recognition {
+  margin-top: 14px;
+}
+
+.smart-fill-retained-recognition__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+}
+
+.smart-fill-recognition-review {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/*
+ * 识别确认的内容可能远高于一屏。这里把页面约束在框架分配的剩余高度内，
+ * 再由确认面板自身滚动，避免固定操作栏和框架页脚遮住最后一张 Sheet。
+ */
+.smart-fill--recognition-review {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.smart-fill--recognition-review .step-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.smart-fill--recognition-review .step-content :deep(.el-card__body) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.smart-fill--recognition-review .smart-fill-recognition-review {
+  flex: 1;
+  min-height: 0;
+  padding-right: 4px;
+  padding-bottom: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.smart-fill--preview .step-content :deep(.el-card__body) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.smart-fill-recognition-context {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.smart-fill-recognition-context__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+}
+
+.smart-fill-recognition-context__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 5px;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+
+@media (width <= 640px) {
+  .smart-fill-recognition-context {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.preview-blocking-alert {
+  margin-top: 16px;
 }
 
 .fill-done-alert {
@@ -56,8 +194,8 @@
 
 .backfill-summary {
   display: flex;
-  gap: 16px;
-  color: #4b5563;
+  gap: 12px;
+  color: var(--app-text-secondary);
   font-size: 13px;
 }
 
@@ -74,24 +212,13 @@
 }
 
 .backfill-source > div:last-child {
-  color: #6b7280;
+  color: var(--app-text-secondary);
   font-size: 12px;
 }
 
 .backfill-change {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   line-height: 1.5;
-}
-
-.backfill-change__old {
-  color: #9ca3af;
-  text-decoration: line-through;
-}
-
-.backfill-change__new {
-  color: #111827;
+  color: var(--app-text-primary);
   font-weight: 500;
 }
 
@@ -123,15 +250,41 @@
 
 .preview-empty-state__hint {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   line-height: 1.6;
 }
 
 .step-actions {
-  margin-top: 32px;
-  padding-top: 16px;
-  border-top: 1px solid var(--el-border-color-lighter);
+  position: fixed;
+  right: 0;
+  bottom: var(--app-layout-footer-height, 0px);
+  left: var(--app-content-left, 0px);
+  z-index: 1000;
+  box-sizing: border-box;
+  min-height: var(--smart-fill-action-bar-height);
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  margin-top: 0;
+  background: var(--el-bg-color);
+  border-top: 1px solid var(--app-border);
   display: flex;
   justify-content: center;
   gap: 16px;
+  transition: left var(--pure-transition-duration);
+}
+
+.step-actions :deep(.el-button) {
+  min-height: 44px;
+}
+
+@media (width <= 1100px) {
+  .smart-fill .page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wizard-steps {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
 }

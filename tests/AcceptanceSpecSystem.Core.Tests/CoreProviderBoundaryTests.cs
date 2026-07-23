@@ -82,6 +82,36 @@ public class CoreProviderBoundaryTests
         candidates.Select(item => item.Id).Should().Equal(2, 1);
     }
 
+    [Fact]
+    public async Task AiServiceSelector_WithRuntimeRegistry_ShouldRejectUnknownAndWrongPurposeStatus()
+    {
+        var configs = new[]
+        {
+            new AiServiceConfigModel
+            {
+                Id = 1,
+                Name = "Unknown-Llm",
+                Purpose = AiServicePurpose.Llm,
+                LlmModel = "llm-unknown"
+            },
+            new AiServiceConfigModel
+            {
+                Id = 2,
+                Name = "Ready-Llm",
+                Purpose = AiServicePurpose.Llm,
+                LlmModel = "llm-ready"
+            }
+        };
+        var availability = new StubRuntimeAvailability(
+            (2, AiServicePurpose.Llm),
+            (1, AiServicePurpose.Embedding));
+        var selector = new AiServiceSelector(new StubAiServiceConfigProvider(configs), availability);
+
+        var candidates = await selector.GetCandidatesAsync(AiServicePurpose.Llm);
+
+        candidates.Select(item => item.Id).Should().Equal(2);
+    }
+
     private sealed class StubAiServiceConfigProvider : IAiServiceConfigProvider
     {
         private readonly IReadOnlyList<AiServiceConfigModel> _configs;
@@ -97,5 +127,14 @@ public class CoreProviderBoundaryTests
         {
             return Task.FromResult(_configs.Where(config => (config.Purpose & purpose) != AiServicePurpose.None).ToList() as IReadOnlyList<AiServiceConfigModel>);
         }
+    }
+
+    private sealed class StubRuntimeAvailability(params (int ServiceId, AiServicePurpose Purpose)[] available)
+        : IAiServiceRuntimeAvailability
+    {
+        private readonly HashSet<(int ServiceId, AiServicePurpose Purpose)> _available = available.ToHashSet();
+
+        public bool IsAvailable(int serviceId, AiServicePurpose purpose) =>
+            _available.Contains((serviceId, purpose));
     }
 }

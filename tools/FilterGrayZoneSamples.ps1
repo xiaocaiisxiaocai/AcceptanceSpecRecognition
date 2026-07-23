@@ -1,10 +1,10 @@
-# 从淮安数据中筛选真正需要 LLM 裁决的灰区样本
+# 从合成数据中筛选真正需要 LLM 裁决的灰区样本
 # 排除：1) 项目+规格完全一致  2) 规范化后完全一致  3) Embedding 过高/过低
 # 保留：需要 LLM 语义判断的中间地带
 
 param(
-    [string]$InputJson = "huaian_specs.json",
-    [string]$OutputCsv = "huaian_gray_zone_samples.csv",
+    [string]$InputJson = "tools/Fixtures/synthetic_specs.json",
+    [string]$OutputCsv = "generated_gray_zone_samples.csv",
     [int]$MinPairs = 50,
     [double]$MinEmbedding = 0.75,  # Embedding 下限：太低的不是语义等价
     [double]$MaxEmbedding = 0.92   # Embedding 上限：太高的规范化就能搞定
@@ -13,7 +13,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot\..
 
-Write-Host "🔍 加载淮安规格数据..." -ForegroundColor Cyan
+Write-Host "🔍 加载合成规格数据..." -ForegroundColor Cyan
 $json = Get-Content $InputJson -Raw -Encoding UTF8 | ConvertFrom-Json
 $specs = $json.data.items
 

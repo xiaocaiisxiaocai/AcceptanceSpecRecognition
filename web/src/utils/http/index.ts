@@ -10,7 +10,7 @@ import type {
   PureHttpRequestConfig
 } from "./types.d";
 import { stringify } from "qs";
-import { getToken, formatToken } from "@/utils/auth";
+import { getToken, formatToken, hasBrowserRefreshSession } from "@/utils/auth";
 import { useUserStoreHook } from "@/store/modules/user";
 import { router } from "@/router";
 import {
@@ -19,6 +19,7 @@ import {
   getCurrentFrontendRoute
 } from "@/utils/audit-context";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { isRefreshSessionInvalidError } from "@/utils/auth-refresh-error";
 
 // 相关配置请参考：www.axios-js.com/zh-cn/docs/#axios-request-config-1
 const defaultConfig: AxiosRequestConfig = {
@@ -29,6 +30,13 @@ const defaultConfig: AxiosRequestConfig = {
     "Content-Type": "application/json",
     "X-Requested-With": "XMLHttpRequest"
   },
+  // Refresh/logout authentication is carried by a constrained HttpOnly cookie.
+  // Axios copies the non-secret XSRF cookie to this header for same-origin and
+  // explicitly configured cross-origin deployments.
+  withCredentials: true,
+  withXSRFToken: true,
+  xsrfCookieName: "acceptance-csrf",
+  xsrfHeaderName: "X-CSRF-Token",
   // 数组格式参数序列化（https://github.com/axios/axios/issues/5142）
   paramsSerializer: {
     serialize: stringify as unknown as CustomParamsSerializer
@@ -130,18 +138,56 @@ class PureHttp {
     PureHttp.requests = [];
   }
 
+  private static startTokenRefresh() {
+    if (PureHttp.isRefreshing) {
+      return;
+    }
+
+    PureHttp.isRefreshing = true;
+    void useUserStoreHook()
+      .handRefreshToken()
+      .then(res => {
+        PureHttp.resolvePendingRequests(res.data.accessToken);
+      })
+      .catch(error => {
+        PureHttp.rejectPendingRequests(error);
+      })
+      .finally(() => {
+        PureHttp.isRefreshing = false;
+      });
+  }
+
+  private static waitForTokenRefresh(config: PureHttpRequestConfig) {
+    PureHttp.startTokenRefresh();
+    return PureHttp.retryOriginalRequest(config);
+  }
+
+  public static refreshAuthorization(config: PureHttpRequestConfig) {
+    return PureHttp.waitForTokenRefresh(config);
+  }
+
   public static async ensureAuthorization(
     config: PureHttpRequestConfig
   ): Promise<PureHttpRequestConfig> {
     const requestUrl = String(config.url ?? "");
-    const whiteList = ["/refresh-token", "/login"];
+    const whiteList = ["/refresh-token", "/login", "/logout"];
     if (whiteList.some(url => requestUrl.endsWith(url))) {
       return config;
     }
 
     config.headers = config.headers ?? {};
     const data = getToken();
-    if (!data?.accessToken || !data?.refreshToken) {
+    if (!data?.accessToken) {
+      if (hasBrowserRefreshSession()) {
+        try {
+          return await PureHttp.waitForTokenRefresh(config);
+        } catch (error) {
+          if (isRefreshSessionInvalidError(error)) {
+            PureHttp.handleAuthFailure(401, requestUrl);
+          }
+          throw error;
+        }
+      }
       return config;
     }
 
@@ -152,22 +198,14 @@ class PureHttp {
       return config;
     }
 
-    if (!PureHttp.isRefreshing) {
-      PureHttp.isRefreshing = true;
-      useUserStoreHook()
-        .handRefreshToken({ refreshToken: data.refreshToken })
-        .then(res => {
-          PureHttp.resolvePendingRequests(res.data.accessToken);
-        })
-        .catch(error => {
-          PureHttp.rejectPendingRequests(error);
-        })
-        .finally(() => {
-          PureHttp.isRefreshing = false;
-        });
+    try {
+      return await PureHttp.waitForTokenRefresh(config);
+    } catch (error) {
+      if (isRefreshSessionInvalidError(error)) {
+        PureHttp.handleAuthFailure(401, requestUrl);
+      }
+      throw error;
     }
-
-    return PureHttp.retryOriginalRequest(config);
   }
 
   public static handleAuthFailure(
@@ -175,7 +213,9 @@ class PureHttp {
     requestUrl = "",
     responseData?: unknown
   ) {
-    const skipAuthHandler = requestUrl.endsWith("/login");
+    const skipAuthHandler = ["/login", "/refresh-token", "/logout"].some(url =>
+      requestUrl.endsWith(url)
+    );
     if (!skipAuthHandler && status === 401) {
       if (!PureHttp.isAuthRedirecting) {
         PureHttp.isAuthRedirecting = true;
@@ -251,15 +291,44 @@ class PureHttp {
         }
         return response.data;
       },
-      (error: PureHttpError) => {
+      async (error: PureHttpError) => {
         const $error = error;
         $error.isCancelRequest = Axios.isCancel($error);
 
-        PureHttp.handleAuthFailure(
-          $error?.response?.status,
-          String($error?.config?.url ?? ""),
-          $error?.response?.data
-        );
+        const status = $error?.response?.status;
+        const requestUrl = String($error?.config?.url ?? "");
+        const requestConfig = $error?.config as
+          | PureHttpRequestConfig
+          | undefined;
+        const token = getToken();
+        const canRefresh =
+          status === 401 &&
+          requestConfig != null &&
+          !requestConfig.authRetryAttempted &&
+          (Boolean(token?.accessToken) || hasBrowserRefreshSession()) &&
+          !requestUrl.endsWith("/login") &&
+          !requestUrl.endsWith("/refresh-token") &&
+          !requestUrl.endsWith("/logout");
+
+        if (canRefresh) {
+          requestConfig.authRetryAttempted = true;
+          try {
+            const retryConfig =
+              await PureHttp.waitForTokenRefresh(requestConfig);
+            return await PureHttp.axiosInstance.request(retryConfig);
+          } catch (refreshError) {
+            if (isRefreshSessionInvalidError(refreshError)) {
+              PureHttp.handleAuthFailure(
+                status,
+                requestUrl,
+                $error?.response?.data
+              );
+            }
+            return Promise.reject(refreshError);
+          }
+        }
+
+        PureHttp.handleAuthFailure(status, requestUrl, $error?.response?.data);
 
         // 所有的响应异常 区分来源为取消请求/非取消请求
         return Promise.reject($error);
@@ -328,6 +397,7 @@ export async function createAuthorizedFetchInit(
 
   return {
     ...init,
+    credentials: init.credentials ?? "include",
     headers: authorizedConfig.headers as HeadersInit
   };
 }
@@ -355,7 +425,30 @@ export async function authorizedFetch(
   init: RequestInit = {},
   options: { handleAuthFailure?: boolean } = {}
 ): Promise<Response> {
-  const response = await fetch(url, await createAuthorizedFetchInit(url, init));
+  const authorizedInit = await createAuthorizedFetchInit(url, init);
+  let response = await fetch(url, authorizedInit);
+
+  if (response.status === 401) {
+    try {
+      const retryConfig = await PureHttp.refreshAuthorization({
+        url,
+        headers: normalizeFetchHeaders(authorizedInit.headers)
+      });
+      response = await fetch(url, {
+        ...authorizedInit,
+        headers: retryConfig.headers as HeadersInit
+      });
+    } catch (refreshError) {
+      if (
+        options.handleAuthFailure !== false &&
+        isRefreshSessionInvalidError(refreshError)
+      ) {
+        PureHttp.handleAuthFailure(401, url);
+      }
+      throw refreshError;
+    }
+  }
+
   if (options.handleAuthFailure !== false) {
     await ensureFetchResponseAuthHandled(response, url);
   }

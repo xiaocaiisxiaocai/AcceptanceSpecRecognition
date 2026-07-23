@@ -21,6 +21,12 @@ const isExcel = computed(() => props.fileType === 1);
 
 const startRow = computed(() => props.tableInfo?.usedRangeStartRow ?? 1);
 const startCol = computed(() => props.tableInfo?.usedRangeStartColumn ?? 1);
+const windowStartRow = computed(
+  () => startRow.value + (props.tableData?.rowOffset ?? 0)
+);
+const windowStartCol = computed(
+  () => startCol.value + (props.tableData?.columnOffset ?? 0)
+);
 
 const columnCount = computed(() => props.tableData?.columnCount ?? 0);
 const rows = computed(() => props.tableData?.rows ?? []);
@@ -45,13 +51,15 @@ const toExcelColumnName = (columnNumber: number) => {
 const columnLabels = computed(() => {
   if (!isExcel.value) return [] as string[];
   return Array.from({ length: columnCount.value }, (_, idx) =>
-    toExcelColumnName(startCol.value + idx)
+    toExcelColumnName(windowStartCol.value + idx)
   );
 });
 
 const getDiffType = (rowIndex: number, columnIndex: number) => {
-  const absRow = isExcel.value ? startRow.value + rowIndex : rowIndex;
-  const absCol = isExcel.value ? startCol.value + columnIndex : columnIndex;
+  const absRow = isExcel.value ? windowStartRow.value + rowIndex : rowIndex;
+  const absCol = isExcel.value
+    ? windowStartCol.value + columnIndex
+    : columnIndex;
   const key = `${props.tableIndex}-${absRow}-${absCol}`;
   return props.diffMap.get(key)?.diffType ?? "Unchanged";
 };
@@ -143,7 +151,7 @@ defineExpose({
       @scroll="handleScroll"
     >
       <div class="table-toolbar">
-        <span>总行数：{{ rows.length }}</span>
+        <span>当前窗口：{{ rows.length }} 行</span>
         <span v-if="onlyDiff">差异行：{{ visibleRows.length }}</span>
       </div>
       <table class="grid-table">
@@ -166,7 +174,7 @@ defineExpose({
             :class="{ 'row-has-diff': item.hasDiff }"
           >
             <th v-if="isExcel" class="row-header">
-              {{ startRow + item.rowIndex }}
+              {{ windowStartRow + item.rowIndex }}
             </th>
             <td
               v-for="colIndex in columnCount"
@@ -202,9 +210,9 @@ defineExpose({
   justify-content: space-between;
   padding: 8px 10px;
   font-size: 12px;
-  color: #6b7280;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
+  color: var(--app-text-secondary);
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
   border-bottom: none;
 }
 
@@ -217,7 +225,7 @@ defineExpose({
   width: 100%;
   min-width: max-content;
   border-collapse: collapse;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-border);
 }
 
 .grid-table th,
@@ -226,8 +234,8 @@ defineExpose({
   font-size: 13px;
   line-height: 1.5;
   vertical-align: top;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
 }
 
 .grid-table .corner {
@@ -236,7 +244,7 @@ defineExpose({
   left: 0;
   z-index: 3;
   width: 44px;
-  background: #f3f4f6;
+  background: var(--app-border-light);
 }
 
 .grid-table .col-header {
@@ -245,7 +253,7 @@ defineExpose({
   z-index: 2;
   min-width: 120px;
   text-align: center;
-  background: #f3f4f6;
+  background: var(--app-border-light);
 }
 
 .grid-table .row-header {
@@ -254,7 +262,7 @@ defineExpose({
   z-index: 1;
   min-width: 44px;
   text-align: center;
-  background: #f9fafb;
+  background: var(--app-info-bg);
 }
 
 .cell-text {
@@ -266,35 +274,35 @@ defineExpose({
 
 .cell-placeholder {
   font-style: italic;
-  color: #9ca3af;
+  color: var(--app-text-disabled);
 }
 
 .cell-added {
-  color: #047857;
-  background: rgb(16 185 129 / 12%);
+  color: var(--app-diff-add-text);
+  background: var(--app-diff-add-bg);
 }
 
 .cell-removed {
-  color: #b91c1c;
-  background: rgb(239 68 68 / 12%);
+  color: var(--app-diff-del-text);
+  background: var(--app-diff-del-bg);
 }
 
 .cell-modified {
-  color: #92400e;
-  background: rgb(245 158 11 / 14%);
+  color: var(--app-warning);
+  background: var(--app-warning-bg);
 }
 
 .cell-unchanged {
-  background: #fff;
+  background: var(--app-bg-card);
 }
 
 .cell-dim .cell-text {
-  color: #9ca3af;
+  color: var(--app-text-disabled);
 }
 
 .row-has-diff .row-header {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--app-text-primary);
 }
 
 .empty-container {

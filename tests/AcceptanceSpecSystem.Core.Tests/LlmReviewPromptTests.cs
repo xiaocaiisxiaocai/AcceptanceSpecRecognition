@@ -1,10 +1,12 @@
 ﻿using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using FluentAssertions;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
@@ -13,6 +15,41 @@ namespace AcceptanceSpecSystem.Core.Tests;
 
 public class LlmReviewPromptTests
 {
+    [Fact]
+    public async Task ReviewAsync_ShouldLogOnlyRedactedMetadata()
+    {
+        const string sensitiveProject = "绝密客户项目-LOG-UNIQUE";
+        const string sensitiveSpecification = "绝密验收规格-LOG-UNIQUE";
+        const string sensitiveReason = "模型自由文本-LOG-UNIQUE";
+        var logger = new RecordingLogger<LlmMatchingAssistService>();
+        var promptProvider = new RecordingPromptTemplateProvider(
+            "源项目：{{sourceProject}}\n源规格：{{sourceSpecification}}\n仅返回严格 JSON");
+        var chatService = new RecordingChatCompletionService(
+            $"{{\"score\":88,\"reason\":\"{sensitiveReason}\",\"commentary\":\"已比较\"}}");
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            new StubAiServiceSelector(),
+            new StubSemanticKernelServiceFactory(chatService),
+            logger);
+
+        await service.ReviewAsync(new LlmReviewRequest
+        {
+            SourceProject = sensitiveProject,
+            SourceSpecification = sensitiveSpecification,
+            BestMatchProject = "候选项目-LOG-UNIQUE",
+            BestMatchSpecification = "候选规格-LOG-UNIQUE"
+        });
+
+        var logs = string.Join("\n", logger.Messages);
+        logs.Should().Contain("sha256=");
+        logs.Should().NotContain(sensitiveProject);
+        logs.Should().NotContain(sensitiveSpecification);
+        logs.Should().NotContain(sensitiveReason);
+        logs.Should().NotContain("候选项目-LOG-UNIQUE");
+        logs.Should().NotContain("候选规格-LOG-UNIQUE");
+        logs.Should().NotContain("完整Prompt");
+    }
+
     [Fact]
     public async Task ReviewAsync_WhenImportDuplicateScene_ShouldUseDedicatedTemplateAndInjectWorkflowScene()
     {
@@ -60,15 +97,18 @@ public class LlmReviewPromptTests
             .GetSystemTemplates()
             .Single(template => template.Scene == PromptTemplateScene.MatchingEquivalenceAdjudication);
 
-        // 新默认内容含 few-shot 示例段，且含"整句同义复述"长文本改写引导
+        // 新默认内容含 few-shot、整句同义复述，以及辅助字段不得单独否定匹配键的约束。
         definition.DefaultContent.Should().Contain("【判定示例】");
         definition.DefaultContent.Should().Contain("整句同义复述");
+        definition.DefaultContent.Should().Contain("源项未提供验收标准或备注只表示该字段未知");
+        definition.DefaultContent.Should().Contain("different 的具体冲突必须来自项目或规格本身");
 
-        // 升级链保留历次旧默认，且旧内容都不含"整句同义复述"段
-        // （V4 已含 few-shot 但缺整句同义复述引导，故不再以 few-shot 作为新旧分界）
+        // 升级链保留历次旧默认，并包含本次修复前已经带整句同义复述的上一版。
         definition.AdditionalLegacyContents.Should().NotBeNull();
-        definition.AdditionalLegacyContents!.Should().HaveCountGreaterThanOrEqualTo(4);
-        definition.AdditionalLegacyContents!.Should().OnlyContain(content => !content.Contains("整句同义复述"));
+        definition.AdditionalLegacyContents!.Should().HaveCountGreaterThanOrEqualTo(5);
+        definition.AdditionalLegacyContents.Should().Contain(content =>
+            content.Contains("整句同义复述") &&
+            content.Contains("仅作为辅助上下文（如确认电压档位"));
     }
 
     [Fact]
@@ -97,6 +137,142 @@ public class LlmReviewPromptTests
         chatService.LastPrompt.Should().Contain("源项目：导入{{currentDecision}}");
         chatService.LastPrompt.Should().Contain("当前决策：manualReview");
         chatService.LastPrompt.Should().NotContain("源项目：导入manualReview");
+    }
+
+    [Fact]
+    public async Task AdjudicateStructureAsync_ShouldUseDedicatedSmartConfigTemplate()
+    {
+        var promptProvider = new RecordingPromptTemplateProvider(
+            "【文档表格摘要 JSON】{{documentTablesJson}}\n【规则识别结果 JSON】{{ruleCandidatesJson}}\n仅返回严格 JSON：\n{\"tables\":[{\"tableIndex\":0,\"specificationColumnIndex\":1,\"confidence\":0.86}],\"confidence\":0.86,\"decision\":\"needConfirm\",\"reason\":\"已补规格列\"}");
+        var selector = new StubAiServiceSelector();
+        var chatService = new RecordingChatCompletionService(
+            "{\"tables\":[{\"tableIndex\":0,\"specificationColumnIndex\":1,\"confidence\":0.86}],\"confidence\":0.86,\"decision\":\"needConfirm\",\"reason\":\"已补规格列\"}");
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            selector,
+            new StubSemanticKernelServiceFactory(chatService),
+            NullLogger<LlmMatchingAssistService>.Instance);
+
+        var result = await service.AdjudicateAsync(new LlmDocumentStructureAdjudicationRequest
+        {
+            DocumentTablesJson = "[{\"tableIndex\":0}]",
+            RuleCandidates =
+            [
+                new DocumentStructureCandidate
+                {
+                    TableIndex = 0,
+                    ProjectColumnIndex = 0,
+                    SpecificationColumnIndex = null,
+                    Confidence = 0.7,
+                    Source = DocumentStructureCandidateSource.Rule
+                }
+            ]
+        });
+
+        result.Should().NotBeNull();
+        result!.Tables.Should().ContainSingle();
+        result.Tables[0].SpecificationColumnIndex.Should().Be(1);
+        promptProvider.LastScene.Should().Be(PromptTemplateScene.SmartConfigStructureRecognition);
+        chatService.LastPrompt.Should().Contain("【文档表格摘要 JSON】[{\"tableIndex\":0}]");
+        chatService.LastPrompt.Should().Contain("\"ProjectColumnIndex\":0");
+    }
+
+    [Fact]
+    public async Task AdjudicateStructureAsync_ShouldRenderReferenceCasesIntoPrompt()
+    {
+        var promptProvider = new RecordingPromptTemplateProvider(
+            "【历史结构案例 JSON】{{referenceCasesJson}}\n【文档表格摘要 JSON】{{documentTablesJson}}\n【规则识别结果 JSON】{{ruleCandidatesJson}}\n仅返回严格 JSON：\n{\"tables\":[{\"tableIndex\":0,\"specificationColumnIndex\":1,\"confidence\":0.86}],\"confidence\":0.86,\"decision\":\"needConfirm\",\"reason\":\"参考历史案例\"}");
+        var selector = new StubAiServiceSelector();
+        var chatService = new RecordingChatCompletionService(
+            "{\"tables\":[{\"tableIndex\":0,\"specificationColumnIndex\":1,\"confidence\":0.86}],\"confidence\":0.86,\"decision\":\"needConfirm\",\"reason\":\"参考历史案例\"}");
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            selector,
+            new StubSemanticKernelServiceFactory(chatService),
+            NullLogger<LlmMatchingAssistService>.Instance);
+
+        await service.AdjudicateAsync(new LlmDocumentStructureAdjudicationRequest
+        {
+            DocumentTablesJson = "[{\"tableIndex\":0}]",
+            RuleCandidates =
+            [
+                new DocumentStructureCandidate
+                {
+                    TableIndex = 0,
+                    ProjectColumnIndex = 0,
+                    Confidence = 0.7,
+                    Source = DocumentStructureCandidateSource.Rule
+                }
+            ],
+            ReferenceCases =
+            [
+                new DocumentStructureReferenceCase
+                {
+                    TemplateName = "历史模板",
+                    Headers = ["检查对象", "管制条件", "供应商回复", "补充说明"],
+                    UsageCount = 7,
+                    Similarity = 0.92,
+                    Mapping = new DocumentStructureCandidate
+                    {
+                        TableIndex = 0,
+                        ProjectColumnIndex = 0,
+                        SpecificationColumnIndex = 1,
+                        AcceptanceColumnIndex = 2,
+                        RemarkColumnIndex = 3,
+                        HeaderRowIndex = 0,
+                        HeaderRowCount = 1,
+                        DataStartRowIndex = 1,
+                        IsSpecificationOnly = false,
+                        Confidence = 1,
+                        Source = DocumentStructureCandidateSource.Template
+                    }
+                }
+            ]
+        });
+
+        chatService.LastPrompt.Should().Contain("【历史结构案例 JSON】");
+        chatService.LastPrompt.Should().Contain("历史模板");
+        chatService.LastPrompt.Should().Contain("检查对象");
+        chatService.LastPrompt.Should().Contain("\"SpecificationColumnIndex\":1");
+        chatService.LastPrompt.Should().NotContain("{{referenceCasesJson}}");
+    }
+
+    [Fact]
+    public async Task RecallColumnsAsync_ShouldUseDedicatedTemplateAndRenderInputJson()
+    {
+        var promptProvider = new RecordingPromptTemplateProvider(
+            "【输入 JSON】{{inputJson}}\n仅返回严格 JSON：\n{\"suggestions\":[{\"columnIndex\":1,\"header\":\"管控要求\",\"targetField\":\"Specification\",\"confidence\":0.88,\"reason\":\"规格约束\"}]}");
+        var selector = new StubAiServiceSelector();
+        var chatService = new RecordingChatCompletionService(
+            "{\"suggestions\":[{\"columnIndex\":1,\"header\":\"管控要求\",\"targetField\":\"Specification\",\"confidence\":0.88,\"reason\":\"规格约束\"}]}");
+        var service = new LlmMatchingAssistService(
+            promptProvider,
+            selector,
+            new StubSemanticKernelServiceFactory(chatService),
+            NullLogger<LlmMatchingAssistService>.Instance);
+
+        var result = await service.RecallAsync(new LlmColumnSemanticRecallRequest
+        {
+            TableIndex = 2,
+            TableName = "验收表",
+            Headers = ["项目", "管控要求"],
+            UnmappedHeaders =
+            [
+                new ColumnSemanticRecallHeaderCandidate
+                {
+                    ColumnIndex = 1,
+                    Header = "管控要求"
+                }
+            ]
+        });
+
+        result.Should().NotBeNull();
+        result!.Suggestions.Should().ContainSingle();
+        promptProvider.LastScene.Should().Be(PromptTemplateScene.SmartConfigColumnSemanticRecall);
+        chatService.LastPrompt.Should().Contain("【输入 JSON】");
+        chatService.LastPrompt.Should().Contain("\"TableIndex\":2");
+        chatService.LastPrompt.Should().Contain("管控要求");
+        chatService.LastPrompt.Should().NotContain("{{inputJson}}");
     }
 
     private sealed class RecordingPromptTemplateProvider : IPromptTemplateProvider
@@ -168,6 +344,13 @@ public class LlmReviewPromptTests
 
     private sealed class RecordingChatCompletionService : IChatCompletionService
     {
+        private readonly string _response;
+
+        public RecordingChatCompletionService(string? response = null)
+        {
+            _response = response ?? "{\"score\":88,\"reason\":\"复核通过\",\"commentary\":\"已比较\"}";
+        }
+
         public IReadOnlyDictionary<string, object?> Attributes => new Dictionary<string, object?>();
 
         public string LastPrompt { get; private set; } = string.Empty;
@@ -181,7 +364,7 @@ public class LlmReviewPromptTests
             LastPrompt = chatHistory.Last().Content ?? string.Empty;
             IReadOnlyList<ChatMessageContent> result =
             [
-                new ChatMessageContent(AuthorRole.Assistant, "{\"score\":88,\"reason\":\"复核通过\",\"commentary\":\"已比较\"}")
+                new ChatMessageContent(AuthorRole.Assistant, _response)
             ];
             return Task.FromResult(result);
         }
@@ -193,8 +376,27 @@ public class LlmReviewPromptTests
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             LastPrompt = chatHistory.Last().Content ?? string.Empty;
-            yield return new StreamingChatMessageContent(AuthorRole.Assistant, "{\"score\":88,\"reason\":\"复核通过\",\"commentary\":\"已比较\"}");
+            yield return new StreamingChatMessageContent(AuthorRole.Assistant, _response);
             await Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Messages.Add(formatter(state, exception));
         }
     }
 }

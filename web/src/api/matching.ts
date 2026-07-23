@@ -1,11 +1,8 @@
-import {
-  createAuthorizedFetchInit,
-  ensureFetchResponseAuthHandled,
-  http
-} from "@/utils/http";
+import { authorizedFetch, http } from "@/utils/http";
 import type { PureHttpRequestConfig } from "@/utils/http/types.d";
 import type { ApiResponse } from "./customer";
 import type { TableData, TableInfo } from "./document";
+import type { UploadTransportOptions } from "@/utils/upload-request";
 
 export const DEFAULT_MIN_SCORE_THRESHOLD = 0.9;
 export const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.95;
@@ -235,6 +232,14 @@ export interface MatchCandidateOption {
 
 /** 匹配预览项 */
 export interface MatchPreviewItem {
+  /** 逻辑区域标识 */
+  regionId?: string;
+  /** 逻辑区域顺序 */
+  regionIndex?: number;
+  /** 当前逻辑区域的验收写回列 */
+  acceptanceColumnIndex?: number;
+  /** 当前逻辑区域的备注写回列 */
+  remarkColumnIndex?: number;
   /** 行索引 */
   rowIndex: number;
   /** 源项目名称 */
@@ -326,18 +331,30 @@ export const defaultMatchConfig: MatchConfig = {
 // ===== 批量填充 =====
 
 /** 批量表格配置 */
+export interface BatchTableRegionConfig {
+  regionId?: string;
+  regionIndex: number;
+  projectColumnIndex: number;
+  specificationColumnIndex: number;
+  acceptanceColumnIndex: number;
+  remarkColumnIndex?: number;
+  headerRowStart?: number;
+  headerRowCount?: number;
+  dataStartRow?: number;
+  dataEndRow?: number;
+}
 export interface BatchTableConfig {
   /** 表格索引 */
   tableIndex: number;
   /** 批量回复目标表对应的来源表索引（可选） */
   sourceTableIndex?: number;
-  /** 项目列索引 */
+  /** 项目列索引（表格已用区域内 0-based 相对索引） */
   projectColumnIndex: number;
-  /** 规格列索引 */
+  /** 规格列索引（表格已用区域内 0-based 相对索引） */
   specificationColumnIndex: number;
-  /** 验收列索引 */
+  /** 验收列索引（表格已用区域内 0-based 相对索引） */
   acceptanceColumnIndex: number;
-  /** 备注列索引（可选） */
+  /** 备注列索引（表格已用区域内 0-based 相对索引，可选） */
   remarkColumnIndex?: number;
   /** Excel 表头起始行（1-based，可选） */
   headerRowStart?: number;
@@ -345,6 +362,10 @@ export interface BatchTableConfig {
   headerRowCount?: number;
   /** Excel 数据起始行（1-based，可选） */
   dataStartRow?: number;
+  /** Excel 数据结束行（1-based，可选） */
+  dataEndRow?: number;
+  /** 同一工作表中的连续数据区域 */
+  regions?: BatchTableRegionConfig[];
   /** 是否过滤项目/规格均为空的行（表格级，可选；未传时走全局配置） */
   filterEmptySourceRows?: boolean;
   /** 重复项目/规格组合处理决议 */
@@ -442,6 +463,10 @@ export interface BatchTableFillMapping {
   headerRowCount?: number;
   /** Excel 数据起始行（1-based，可选） */
   dataStartRow?: number;
+  /** Excel 数据结束行（1-based，可选） */
+  dataEndRow?: number;
+  /** 同一工作表中的连续数据区域 */
+  regions?: BatchTableRegionConfig[];
   /** 是否过滤项目/规格均为空的行 */
   filterEmptySourceRows?: boolean;
   /** 填充映射列表 */
@@ -450,6 +475,8 @@ export interface BatchTableFillMapping {
 
 /** 批量执行填充请求 */
 export interface BatchExecuteFillRequest {
+  /** 页面内稳定的执行幂等键，用于超时后安全重试 */
+  executionRequestId?: string;
   /** 文件ID */
   fileId: number;
   /** 客户ID */
@@ -596,10 +623,14 @@ export const backfillSmartFillSpecs = (data: SmartFillSpecBackfillRequest) => {
   );
 };
 
-export const getBatchPreviewProgress = (requestId: string) => {
+export const getBatchPreviewProgress = (
+  requestId: string,
+  options: { signal?: AbortSignal } = {}
+) => {
   return http.request<ApiResponse<BatchPreviewProgressResponse>>(
     "get",
-    `${baseUrl}/batch-preview-progress/${requestId}`
+    `${baseUrl}/batch-preview-progress/${requestId}`,
+    options
   );
 };
 
@@ -619,7 +650,7 @@ export const requestMatchLlmStream = async (
   signal?: AbortSignal
 ) => {
   const url = `${baseUrl}/llm-stream`;
-  const init = await createAuthorizedFetchInit(url, {
+  return authorizedFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -627,9 +658,6 @@ export const requestMatchLlmStream = async (
     body: JSON.stringify(data),
     signal
   });
-  const response = await fetch(url, init);
-  await ensureFetchResponseAuthHandled(response, url);
-  return response;
 };
 
 export interface BatchReplySourceUploadResponse {
@@ -748,7 +776,10 @@ export interface BatchReplyTablePreviewResponse {
 
 const batchReplyBaseUrl = "/api/batch-reply";
 
-export const uploadBatchReplySource = (file: File) => {
+export const uploadBatchReplySource = (
+  file: File,
+  options?: UploadTransportOptions
+) => {
   const formData = new FormData();
   formData.append("file", file);
   return http.request<ApiResponse<BatchReplySourceUploadResponse>>(
@@ -758,7 +789,9 @@ export const uploadBatchReplySource = (file: File) => {
       data: formData,
       headers: {
         "Content-Type": "multipart/form-data"
-      }
+      },
+      signal: options?.signal,
+      onUploadProgress: options?.onUploadProgress
     }
   );
 };
@@ -789,7 +822,11 @@ export const getBatchReplyTablePreview = (
   );
 };
 
-export const uploadBatchReplyTargets = (sessionId: string, files: File[]) => {
+export const uploadBatchReplyTargets = (
+  sessionId: string,
+  files: File[],
+  options?: UploadTransportOptions
+) => {
   const formData = new FormData();
   formData.append("sessionId", sessionId);
   files.forEach(file => formData.append("targetFiles", file));
@@ -801,7 +838,9 @@ export const uploadBatchReplyTargets = (sessionId: string, files: File[]) => {
       data: formData,
       headers: {
         "Content-Type": "multipart/form-data"
-      }
+      },
+      signal: options?.signal,
+      onUploadProgress: options?.onUploadProgress
     }
   );
 };

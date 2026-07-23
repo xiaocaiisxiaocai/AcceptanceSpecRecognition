@@ -6,7 +6,9 @@ public enum PromptTemplateScene
     MatchingReview = 1,
     ImportDuplicateReview = 2,
     MatchingEquivalenceAdjudication = 6,
-    MatchingCandidateRerank = 7
+    MatchingCandidateRerank = 7,
+    SmartConfigStructureRecognition = 8,
+    SmartConfigColumnSemanticRecall = 9
 }
 
 public class PromptTemplateModel

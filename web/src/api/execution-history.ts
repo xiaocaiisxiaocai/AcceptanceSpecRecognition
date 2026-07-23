@@ -82,6 +82,10 @@ export interface ExecutionHistorySmartFillExecutionSnapshot {
 }
 
 export interface ExecutionHistorySmartFillRow {
+  regionId?: string;
+  regionIndex?: number;
+  acceptanceColumnIndex?: number;
+  remarkColumnIndex?: number;
   rowIndex: number;
   sourceProject: string;
   sourceSpecification: string;
@@ -129,12 +133,13 @@ export interface ExecutionHistoryDetail extends ExecutionHistoryListItem {
 const baseUrl = "/api/execution-history";
 
 export const getExecutionHistoryList = (
-  params?: ExecutionHistoryListRequest
+  params?: ExecutionHistoryListRequest,
+  signal?: AbortSignal
 ) => {
   return http.request<ApiResponse<PagedData<ExecutionHistoryListItem>>>(
     "get",
     baseUrl,
-    { params }
+    { params, signal }
   );
 };
 

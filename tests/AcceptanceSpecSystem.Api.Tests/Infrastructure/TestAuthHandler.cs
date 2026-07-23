@@ -39,7 +39,12 @@ public class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions
             role = "admin";
 
         var normalizedRole = role.Trim().ToLowerInvariant();
-        var userId = normalizedRole == "admin" ? "1" : "2";
+        var userId = Request.Headers.TryGetValue("X-Test-User-Id", out var userIdValues)
+            ? userIdValues.ToString()
+            : normalizedRole == "admin" ? "1" : "2";
+        var companyId = Request.Headers.TryGetValue("X-Test-Company-Id", out var companyIdValues)
+            ? companyIdValues.ToString()
+            : "1";
         var permissionsHeader = Request.Headers.TryGetValue("X-Test-Permissions", out var permissionValues)
             ? permissionValues.ToString()
             : string.Empty;
@@ -55,7 +60,7 @@ public class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions
             new(ClaimTypes.NameIdentifier, "integration-test-user"),
             new(ClaimTypes.Name, "integration-test-user"),
             new("user_id", userId),
-            new("company_id", "1"),
+            new("company_id", companyId),
             new("permission_version", "1"),
             new(ClaimTypes.Role, role),
         };

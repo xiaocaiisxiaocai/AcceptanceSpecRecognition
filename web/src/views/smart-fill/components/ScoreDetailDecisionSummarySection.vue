@@ -273,19 +273,23 @@ const getComparisonHtml = (
 
 .hero-card {
   padding: 16px;
-  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
-  border: 1px solid #e5e7eb;
+  background: linear-gradient(180deg, #fff 0%, var(--app-info-bg) 100%);
+  border: 1px solid var(--app-border);
   border-radius: 18px;
 }
 
 .hero-card--primary {
-  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
-  border-color: #bfdbfe;
+  background: linear-gradient(
+    135deg,
+    var(--app-info-bg) 0%,
+    var(--app-info-bg) 100%
+  );
+  border-color: var(--app-info-bg);
 }
 
 .hero-card__label {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .hero-card__title {
@@ -293,7 +297,7 @@ const getComparisonHtml = (
   font-size: 18px;
   font-weight: 700;
   line-height: 1.4;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .hero-card__title--normal {
@@ -305,13 +309,13 @@ const getComparisonHtml = (
   margin-top: 8px;
   font-size: 12px;
   line-height: 1.5;
-  color: #4b5563;
+  color: var(--app-text-secondary);
 }
 
 .panel {
   padding: 14px 16px;
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-border);
   border-radius: 16px;
 }
 
@@ -319,7 +323,7 @@ const getComparisonHtml = (
   margin-bottom: 12px;
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .plain-list {
@@ -332,14 +336,14 @@ const getComparisonHtml = (
   padding: 8px 12px;
   font-size: 13px;
   line-height: 1.5;
-  color: #374151;
-  background: #f8fafc;
+  color: var(--app-text-secondary);
+  background: var(--app-info-bg);
   border-radius: 12px;
 }
 
 .plain-item--focus {
-  color: #9a3412;
-  background: #fff7ed;
+  color: var(--app-danger);
+  background: var(--app-warning-bg);
 }
 
 .plain-item--hint {
@@ -347,15 +351,15 @@ const getComparisonHtml = (
   margin-bottom: 8px;
   font-size: 13px;
   line-height: 1.5;
-  color: #1e40af;
-  background: #f0f9ff;
+  color: var(--app-primary);
+  background: var(--app-primary-light);
   border-radius: 12px;
 }
 
 .comparison-rich-text {
   font-size: 13px;
   line-height: 1.8;
-  color: #111827;
+  color: var(--app-text-primary);
   word-break: break-word;
 }
 
@@ -364,8 +368,12 @@ const getComparisonHtml = (
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  background: linear-gradient(180deg, #eff6ff 0%, #f8fbff 100%);
-  border: 1px solid #bfdbfe;
+  background: linear-gradient(
+    180deg,
+    var(--app-info-bg) 0%,
+    var(--app-info-bg) 100%
+  );
+  border: 1px solid var(--app-info-bg);
   border-radius: 14px;
 }
 
@@ -378,13 +386,13 @@ const getComparisonHtml = (
 .equivalence-card__text {
   font-size: 13px;
   line-height: 1.6;
-  color: #1e3a8a;
+  color: var(--app-primary);
 }
 
 .equivalence-card__hint {
   font-size: 12px;
   line-height: 1.6;
-  color: #475569;
+  color: var(--app-text-secondary);
 }
 
 :deep(.inline-mark) {
@@ -393,18 +401,18 @@ const getComparisonHtml = (
 }
 
 :deep(.inline-mark-old) {
-  color: #b42318;
+  color: var(--app-danger);
   background: rgb(245 108 108 / 18%);
 }
 
 :deep(.inline-mark-new) {
-  color: #166534;
+  color: var(--app-success);
   background: rgb(103 194 58 / 18%);
 }
 
 :deep(.placeholder-text) {
   font-style: italic;
-  color: #9ca3af;
+  color: var(--app-text-disabled);
 }
 
 @media (width <= 900px) {

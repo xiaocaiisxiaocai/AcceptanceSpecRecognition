@@ -55,25 +55,33 @@ public class WordDocumentParser : IDocumentParser
     /// 从文件路径读取并解析文档中的表格信息列表。
     /// </summary>
     /// <param name="filePath">文件路径</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表格信息列表</returns>
-    public Task<IReadOnlyList<TableInfo>> GetTablesAsync(string filePath)
+    public async Task<IReadOnlyList<TableInfo>> GetTablesAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var stream = File.OpenRead(filePath);
-        return GetTablesAsync(stream);
+        return await GetTablesAsync(stream, cancellationToken);
     }
 
     /// <summary>
     /// 从输入流解析文档中的表格信息列表。
     /// </summary>
     /// <param name="stream">输入流</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表格信息列表</returns>
-    public Task<IReadOnlyList<TableInfo>> GetTablesAsync(Stream stream)
+    public Task<IReadOnlyList<TableInfo>> GetTablesAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
             var tables = new List<TableInfo>();
 
             using var doc = WordprocessingDocument.Open(stream, false);
+            cancellationToken.ThrowIfCancellationRequested();
             var body = GetDocumentBody(doc);
             if (body == null)
                 return (IReadOnlyList<TableInfo>)tables;
@@ -82,13 +90,14 @@ public class WordDocumentParser : IDocumentParser
 
             for (int i = 0; i < allTables.Count; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var table = allTables[i];
-                var tableInfo = ExtractTableInfo(table, i, allTables);
+                var tableInfo = ExtractTableInfo(table, i, allTables, cancellationToken);
                 tables.Add(tableInfo);
             }
 
             return (IReadOnlyList<TableInfo>)tables;
-        });
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -98,15 +107,18 @@ public class WordDocumentParser : IDocumentParser
     /// <param name="tableIndex">表格索引（从0开始，顶层表格）</param>
     /// <param name="mapping">列映射（可选）</param>
     /// <param name="maxDataRowCount">最大数据行数（可选，仅用于预览限流）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表格数据</returns>
-    public Task<TableData> ExtractTableDataAsync(
+    public async Task<TableData> ExtractTableDataAsync(
         string filePath,
         int tableIndex,
         ColumnMapping? mapping = null,
-        int? maxDataRowCount = null)
+        int? maxDataRowCount = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var stream = File.OpenRead(filePath);
-        return ExtractTableDataAsync(stream, tableIndex, mapping, maxDataRowCount);
+        return await ExtractTableDataAsync(stream, tableIndex, mapping, maxDataRowCount, cancellationToken);
     }
 
     /// <summary>
@@ -116,16 +128,19 @@ public class WordDocumentParser : IDocumentParser
     /// <param name="tableIndex">表格索引（从0开始，顶层表格）</param>
     /// <param name="mapping">列映射（可选）</param>
     /// <param name="maxDataRowCount">最大数据行数（可选，仅用于预览限流）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表格数据</returns>
     public Task<TableData> ExtractTableDataAsync(
         Stream stream,
         int tableIndex,
         ColumnMapping? mapping = null,
-        int? maxDataRowCount = null)
+        int? maxDataRowCount = null,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
             using var doc = WordprocessingDocument.Open(stream, false);
+            cancellationToken.ThrowIfCancellationRequested();
             var body = GetRequiredDocumentBody(doc);
 
             var tables = GetTopLevelTables(body);
@@ -133,22 +148,26 @@ public class WordDocumentParser : IDocumentParser
                 throw new ArgumentOutOfRangeException(nameof(tableIndex), $"表格索引超出范围。文档共有 {tables.Count} 个表格。");
 
             var table = tables[tableIndex];
-            return ExtractTableData(table, tableIndex, mapping, maxDataRowCount);
-        });
+            return ExtractTableData(table, tableIndex, mapping, maxDataRowCount, cancellationToken);
+        }, cancellationToken);
     }
 
     /// <summary>
     /// 提取文档中所有顶层表格的数据。
     /// </summary>
     /// <param name="stream">输入流</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表格数据列表</returns>
-    public Task<IReadOnlyList<TableData>> ExtractAllTablesDataAsync(Stream stream)
+    public Task<IReadOnlyList<TableData>> ExtractAllTablesDataAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
             var result = new List<TableData>();
 
             using var doc = WordprocessingDocument.Open(stream, false);
+            cancellationToken.ThrowIfCancellationRequested();
             var body = GetDocumentBody(doc);
             if (body == null)
                 return (IReadOnlyList<TableData>)result;
@@ -157,18 +176,23 @@ public class WordDocumentParser : IDocumentParser
 
             for (int i = 0; i < tables.Count; i++)
             {
-                var tableData = ExtractTableData(tables[i], i, null);
+                cancellationToken.ThrowIfCancellationRequested();
+                var tableData = ExtractTableData(tables[i], i, null, cancellationToken: cancellationToken);
                 result.Add(tableData);
             }
 
             return (IReadOnlyList<TableData>)result;
-        });
+        }, cancellationToken);
     }
 
     /// <summary>
     /// 提取表格基本信息
     /// </summary>
-    private TableInfo ExtractTableInfo(Table table, int index, List<Table> allTables)
+    private TableInfo ExtractTableInfo(
+        Table table,
+        int index,
+        List<Table> allTables,
+        CancellationToken cancellationToken)
     {
         var rows = table.Elements<TableRow>().ToList();
         var maxColumns = 0;
@@ -179,6 +203,7 @@ public class WordDocumentParser : IDocumentParser
         // 计算最大列数并检查合并单元格
         foreach (var row in rows)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var cells = row.Elements<TableCell>().ToList();
             var colCount = 0;
 
@@ -206,6 +231,7 @@ public class WordDocumentParser : IDocumentParser
 
             foreach (var cell in firstRowCells)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var text = NormalizeDisplayText(GetCellText(cell));
                 cellTexts.Add(text);
                 headers.Add(text);
@@ -275,16 +301,22 @@ public class WordDocumentParser : IDocumentParser
         Table table,
         int tableIndex,
         ColumnMapping? mapping,
-        int? maxDataRowCount = null)
+        int? maxDataRowCount = null,
+        CancellationToken cancellationToken = default)
     {
         var tableData = new TableData { TableIndex = tableIndex };
         var rows = table.Elements<TableRow>().ToList();
+        tableData.OriginalRowCount = rows.Count;
 
         if (rows.Count == 0)
             return tableData;
 
         // 构建合并单元格映射
-        var mergedCellsMap = BuildMergedCellsMap(rows, out var mergeStartValues, out var mergeStartStructuredValues);
+        var mergedCellsMap = BuildMergedCellsMap(
+            rows,
+            out var mergeStartValues,
+            out var mergeStartStructuredValues,
+            cancellationToken);
         tableData.MergedCells = mergedCellsMap.Values
             .Where(m => m.RowSpan > 1 || m.ColSpan > 1)
             .Distinct()
@@ -298,22 +330,50 @@ public class WordDocumentParser : IDocumentParser
         // 提取表头
         if (headerRowIndex < rows.Count)
         {
-            var headerRow = rows[headerRowIndex];
-            var headerCells = headerRow.Elements<TableCell>().ToList();
-            int colIndex = 0;
+            var headerRowCount = Math.Max(1, mapping?.HeaderRowCount ?? 1);
+            var headerPartsByColumn = new SortedDictionary<int, List<string>>();
+            var maxColumnIndex = -1;
 
-            foreach (var cell in headerCells)
+            for (var currentHeaderRowIndex = headerRowIndex;
+                 currentHeaderRowIndex < Math.Min(rows.Count, headerRowIndex + headerRowCount);
+                 currentHeaderRowIndex++)
             {
-                var text = GetCellText(cell);
-                tableData.Headers.Add(text);
+                cancellationToken.ThrowIfCancellationRequested();
+                var headerRow = rows[currentHeaderRowIndex];
+                var headerCells = headerRow.Elements<TableCell>().ToList();
+                var colIndex = 0;
 
-                var gridSpan = cell.TableCellProperties?.GridSpan?.Val?.Value ?? 1;
-                // 为水平合并的表头添加占位（保持列数一致）
-                for (int i = 1; i < gridSpan; i++)
+                foreach (var cell in headerCells)
                 {
-                    tableData.Headers.Add(text);
+                    var text = GetCellText(cell);
+                    var gridSpan = cell.TableCellProperties?.GridSpan?.Val?.Value ?? 1;
+                    for (var i = 0; i < gridSpan; i++)
+                    {
+                        var targetColumnIndex = colIndex + i;
+                        if (!headerPartsByColumn.TryGetValue(targetColumnIndex, out var parts))
+                        {
+                            parts = [];
+                            headerPartsByColumn[targetColumnIndex] = parts;
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            parts.Add(text.Trim());
+                        }
+
+                        maxColumnIndex = Math.Max(maxColumnIndex, targetColumnIndex);
+                    }
+
+                    colIndex += gridSpan;
                 }
-                colIndex += gridSpan;
+            }
+
+            for (var colIndex = 0; colIndex <= maxColumnIndex; colIndex++)
+            {
+                tableData.Headers.Add(
+                    headerPartsByColumn.TryGetValue(colIndex, out var parts) && parts.Count > 0
+                        ? string.Join(" / ", parts)
+                        : string.Empty);
             }
         }
 
@@ -328,8 +388,15 @@ public class WordDocumentParser : IDocumentParser
 
         for (int rowIndex = dataStartRowIndex; rowIndex < dataEndExclusive; rowIndex++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var row = rows[rowIndex];
-            var rowData = ExtractRowData(row, rowIndex, mergedCellsMap, mergeStartValues, mergeStartStructuredValues);
+            var rowData = ExtractRowData(
+                row,
+                rowIndex,
+                mergedCellsMap,
+                mergeStartValues,
+                mergeStartStructuredValues,
+                cancellationToken);
             tableData.Rows.Add(rowData);
         }
 
@@ -344,7 +411,8 @@ public class WordDocumentParser : IDocumentParser
         int rowIndex,
         Dictionary<(int, int), MergedCellInfo> mergedCellsMap,
         Dictionary<(int, int), string> mergeStartValues,
-        Dictionary<(int, int), StructuredCellValue> mergeStartStructuredValues)
+        Dictionary<(int, int), StructuredCellValue> mergeStartStructuredValues,
+        CancellationToken cancellationToken)
     {
         var rowData = new RowData { Index = rowIndex };
         var cells = row.Elements<TableCell>().ToList();
@@ -352,8 +420,9 @@ public class WordDocumentParser : IDocumentParser
 
         foreach (var cell in cells)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var text = GetCellText(cell);
-            var structured = GetCellStructuredValue(cell, MaxNestedTableDepth);
+            var structured = GetCellStructuredValue(cell, MaxNestedTableDepth, cancellationToken);
             var gridSpan = cell.TableCellProperties?.GridSpan?.Val?.Value ?? 1;
 
             // 检查垂直合并
@@ -430,7 +499,8 @@ public class WordDocumentParser : IDocumentParser
     private Dictionary<(int, int), MergedCellInfo> BuildMergedCellsMap(
         List<TableRow> rows,
         out Dictionary<(int, int), string> mergeStartValues,
-        out Dictionary<(int, int), StructuredCellValue> mergeStartStructuredValues)
+        out Dictionary<(int, int), StructuredCellValue> mergeStartStructuredValues,
+        CancellationToken cancellationToken)
     {
         var map = new Dictionary<(int, int), MergedCellInfo>();
         var verticalMergeStarts = new Dictionary<int, (int startRow, string value)>();
@@ -439,6 +509,7 @@ public class WordDocumentParser : IDocumentParser
 
         for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var row = rows[rowIndex];
             var cells = row.Elements<TableCell>().ToList();
             int colIndex = 0;
@@ -453,7 +524,7 @@ public class WordDocumentParser : IDocumentParser
                 {
                     // 开始新的垂直合并
                     var startValue = GetCellText(cell);
-                    var startStructured = GetCellStructuredValue(cell, MaxNestedTableDepth);
+                    var startStructured = GetCellStructuredValue(cell, MaxNestedTableDepth, cancellationToken);
                     verticalMergeStarts[colIndex] = (rowIndex, startValue);
                     // 记录起始值（按 span 展开到每一列，方便后续填充）
                     for (int c = colIndex; c < colIndex + gridSpan; c++)
@@ -519,7 +590,10 @@ public class WordDocumentParser : IDocumentParser
     /// <summary>
     /// 获取单元格结构化内容（文本片段 + 嵌套表格片段），用于前端 JSON 预览/后续对比。
     /// </summary>
-    private static StructuredCellValue GetCellStructuredValue(TableCell cell, int depthRemaining)
+    private static StructuredCellValue GetCellStructuredValue(
+        TableCell cell,
+        int depthRemaining,
+        CancellationToken cancellationToken)
     {
         var result = new StructuredCellValue();
 
@@ -538,12 +612,13 @@ public class WordDocumentParser : IDocumentParser
         // 2) 嵌套表格：递归提取（深度限制），避免爆炸
         foreach (var nested in cell.Elements<Table>())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (depthRemaining > 0)
             {
                 result.Parts.Add(new StructuredCellPart
                 {
                     Type = "table",
-                    Table = ExtractStructuredTableValue(nested, depthRemaining - 1)
+                    Table = ExtractStructuredTableValue(nested, depthRemaining - 1, cancellationToken)
                 });
             }
             else
@@ -560,12 +635,16 @@ public class WordDocumentParser : IDocumentParser
         return result;
     }
 
-    private static StructuredTableValue ExtractStructuredTableValue(Table table, int depthRemaining)
+    private static StructuredTableValue ExtractStructuredTableValue(
+        Table table,
+        int depthRemaining,
+        CancellationToken cancellationToken)
     {
         var rows = table.Elements<TableRow>().ToList();
         var maxColumns = 0;
         foreach (var r in rows)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var colCount = 0;
             foreach (var c in r.Elements<TableCell>())
             {
@@ -582,12 +661,13 @@ public class WordDocumentParser : IDocumentParser
 
         foreach (var row in rows)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var rowCells = new List<StructuredCellValue>();
             var cells = row.Elements<TableCell>().ToList();
             foreach (var cell in cells)
             {
                 var gridSpan = cell.TableCellProperties?.GridSpan?.Val?.Value ?? 1;
-                var cellValue = GetCellStructuredValue(cell, depthRemaining);
+                var cellValue = GetCellStructuredValue(cell, depthRemaining, cancellationToken);
                 rowCells.Add(cellValue);
                 for (int i = 1; i < gridSpan; i++)
                 {

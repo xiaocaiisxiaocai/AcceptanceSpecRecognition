@@ -8,17 +8,20 @@ namespace AcceptanceSpecSystem.Api.Services;
 /// <summary>
 /// 匹配结果写回协作组件。
 /// </summary>
-public sealed class MatchingResultWriteBackService
+public sealed class MatchingResultWriteBackService : IBatchReplyWriteBackPort, IMatchingResultWriteBackPort
 {
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly DocumentFileAccessService _documentFileAccessService;
+    private readonly IResourceBudgetGovernor _resourceBudgetGovernor;
 
     public MatchingResultWriteBackService(
         DocumentServiceFactory documentServiceFactory,
-        DocumentFileAccessService documentFileAccessService)
+        DocumentFileAccessService documentFileAccessService,
+        IResourceBudgetGovernor resourceBudgetGovernor)
     {
         _documentServiceFactory = documentServiceFactory;
         _documentFileAccessService = documentFileAccessService;
+        _resourceBudgetGovernor = resourceBudgetGovernor;
     }
 
     internal async Task<WriteBackSummary> ApplyFillResultToSourceFileAsync(
@@ -39,14 +42,19 @@ public sealed class MatchingResultWriteBackService
         return rendered.Summary;
     }
 
-    internal async Task<RenderedWriteBackFile> RenderFillResultToSourceFileAsync(
+    public async Task<RenderedWriteBackFile> RenderFillResultToSourceFileAsync(
         WordFile wordFile,
         FillTaskResult taskResult,
         CancellationToken cancellationToken = default)
     {
+        _resourceBudgetGovernor.ValidateWriteOperations(CountWriteOperations(taskResult));
+        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+            ResourceWorkload.DocumentWriting,
+            cancellationToken);
         using var resultStream = new MemoryStream();
         await using (var sourceStream = _documentFileAccessService.OpenReadStream(wordFile))
         {
+            ValidateDocumentStreamSize(sourceStream);
             await sourceStream.CopyToAsync(resultStream, cancellationToken);
         }
 
@@ -54,35 +62,55 @@ public sealed class MatchingResultWriteBackService
         var (requestedCells, writtenCells) = await WriteOperationsAsync(
             resultStream,
             taskResult,
-            GetRequiredWriter(wordFile.FileType));
+            GetRequiredWriter(wordFile.FileType),
+            cancellationToken);
 
         return new RenderedWriteBackFile(resultStream.ToArray(), new WriteBackSummary(requestedCells, writtenCells));
     }
 
-    internal async Task<byte[]> RenderFilledContentAsync(
+    public async Task<byte[]> RenderFilledContentAsync(
         WordFile wordFile,
         FillTaskResult taskResult,
         CancellationToken cancellationToken = default)
     {
+        _resourceBudgetGovernor.ValidateWriteOperations(CountWriteOperations(taskResult));
+        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+            ResourceWorkload.DocumentWriting,
+            cancellationToken);
         using var resultStream = new MemoryStream();
         await using (var sourceStream = _documentFileAccessService.OpenReadStream(wordFile))
         {
+            ValidateDocumentStreamSize(sourceStream);
             await sourceStream.CopyToAsync(resultStream, cancellationToken);
         }
 
         resultStream.Position = 0;
-        await WriteOperationsAsync(resultStream, taskResult, GetRequiredWriter(wordFile.FileType));
+        await WriteOperationsAsync(
+            resultStream,
+            taskResult,
+            GetRequiredWriter(wordFile.FileType),
+            cancellationToken);
         return resultStream.ToArray();
     }
 
-    internal async Task<GeneratedArtifactFile> GenerateBatchReplyTargetFileAsync(
+    public async Task<GeneratedArtifactFile> GenerateTargetFileAsync(
         WordFile targetFile,
         IReadOnlyCollection<BatchReplyWriteTable> writeTables,
         CancellationToken cancellationToken = default)
     {
+        var writeOperationCount = writeTables.Sum(table =>
+            table.Rows.Count * (table.RemarkColumnIndex.HasValue &&
+                                table.RemarkColumnIndex.Value != table.AcceptanceColumnIndex
+                ? 2
+                : 1));
+        _resourceBudgetGovernor.ValidateWriteOperations(writeOperationCount);
+        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+            ResourceWorkload.DocumentWriting,
+            cancellationToken);
         using var resultStream = new MemoryStream();
         await using (var sourceStream = _documentFileAccessService.OpenReadStream(targetFile))
         {
+            ValidateDocumentStreamSize(sourceStream);
             await sourceStream.CopyToAsync(resultStream, cancellationToken);
         }
 
@@ -103,7 +131,7 @@ public sealed class MatchingResultWriteBackService
 
         var requestedCells = tableOperations.Sum(item => item.Value.Count);
         var writtenCells = await GetRequiredWriter(targetFile.FileType)
-            .WriteMultipleTablesAsync(resultStream, tableOperations);
+            .WriteMultipleTablesAsync(resultStream, tableOperations, cancellationToken);
         if (writtenCells != requestedCells)
         {
             throw new InvalidOperationException($"目标文件写回不完整，期望写入{requestedCells}个单元格，实际写入{writtenCells}个");
@@ -128,7 +156,8 @@ public sealed class MatchingResultWriteBackService
     private async Task<(int RequestedCells, int WrittenCells)> WriteOperationsAsync(
         MemoryStream resultStream,
         FillTaskResult taskResult,
-        IDocumentWriter writer)
+        IDocumentWriter writer,
+        CancellationToken cancellationToken)
     {
         var requestedCells = 0;
         var writtenCells = 0;
@@ -140,6 +169,7 @@ public sealed class MatchingResultWriteBackService
             var tableOperations = new Dictionary<int, List<CellWriteOperation>>();
             foreach (var entry in taskResult.TableEntries)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var operations = BuildCellWriteOperations(
                     entry.FillResults,
                     entry.AcceptanceColumnIndex,
@@ -150,12 +180,22 @@ public sealed class MatchingResultWriteBackService
                 }
 
                 requestedCells += operations.Count;
-                tableOperations[entry.TableIndex] = operations;
+                if (!tableOperations.TryGetValue(entry.TableIndex, out var existingOperations))
+                {
+                    tableOperations[entry.TableIndex] = operations;
+                }
+                else
+                {
+                    existingOperations.AddRange(operations);
+                }
             }
 
             if (tableOperations.Count > 0)
             {
-                writtenCells = await writer.WriteMultipleTablesAsync(resultStream, tableOperations);
+                writtenCells = await writer.WriteMultipleTablesAsync(
+                    resultStream,
+                    tableOperations,
+                    cancellationToken);
             }
         }
         else
@@ -167,7 +207,11 @@ public sealed class MatchingResultWriteBackService
             if (operations.Count > 0)
             {
                 requestedCells = operations.Count;
-                writtenCells = await writer.WriteTableDataAsync(resultStream, taskResult.SourceTableIndex, operations);
+                writtenCells = await writer.WriteTableDataAsync(
+                    resultStream,
+                    taskResult.SourceTableIndex,
+                    operations,
+                    cancellationToken);
             }
         }
 
@@ -189,6 +233,31 @@ public sealed class MatchingResultWriteBackService
         return writer;
     }
 
+    private int CountWriteOperations(FillTaskResult taskResult)
+    {
+        if (taskResult.IsBatchMode)
+        {
+            return taskResult.TableEntries.Sum(entry =>
+                CountFillResultOperations(
+                    entry.FillResults,
+                    entry.AcceptanceColumnIndex,
+                    entry.RemarkColumnIndex));
+        }
+
+        return taskResult.FillResults.Count * (taskResult.RemarkColumnIndex.HasValue &&
+                                                taskResult.RemarkColumnIndex.Value != taskResult.AcceptanceColumnIndex
+            ? 2
+            : 1);
+    }
+
+    private void ValidateDocumentStreamSize(Stream stream)
+    {
+        if (stream.CanSeek)
+        {
+            _resourceBudgetGovernor.ValidateDocumentSize(stream.Length);
+        }
+    }
+
     private static List<CellWriteOperation> BuildCellWriteOperations(
         List<FillResult> fillResults,
         int acceptanceColumnIndex,
@@ -197,21 +266,25 @@ public sealed class MatchingResultWriteBackService
         var operations = new List<CellWriteOperation>();
         foreach (var fillResult in fillResults)
         {
+            var effectiveAcceptanceColumnIndex =
+                fillResult.AcceptanceColumnIndex ?? acceptanceColumnIndex;
+            var effectiveRemarkColumnIndex =
+                fillResult.RemarkColumnIndex ?? remarkColumnIndex;
             operations.Add(new CellWriteOperation
             {
                 RowIndex = fillResult.RowIndex,
-                ColumnIndex = acceptanceColumnIndex,
+                ColumnIndex = effectiveAcceptanceColumnIndex,
                 Value = fillResult.Acceptance,
                 PreserveFormatting = true
             });
 
-            if (remarkColumnIndex.HasValue &&
-                remarkColumnIndex.Value != acceptanceColumnIndex)
+            if (effectiveRemarkColumnIndex.HasValue &&
+                effectiveRemarkColumnIndex.Value != effectiveAcceptanceColumnIndex)
             {
                 operations.Add(new CellWriteOperation
                 {
                     RowIndex = fillResult.RowIndex,
-                    ColumnIndex = remarkColumnIndex.Value,
+                    ColumnIndex = effectiveRemarkColumnIndex.Value,
                     Value = fillResult.Remark ?? string.Empty,
                     PreserveFormatting = true
                 });
@@ -219,6 +292,19 @@ public sealed class MatchingResultWriteBackService
         }
 
         return operations;
+    }
+
+    private static int CountFillResultOperations(
+        IEnumerable<FillResult> fillResults,
+        int acceptanceColumnIndex,
+        int? remarkColumnIndex)
+    {
+        return fillResults.Sum(fillResult =>
+        {
+            var effectiveAcceptance = fillResult.AcceptanceColumnIndex ?? acceptanceColumnIndex;
+            var effectiveRemark = fillResult.RemarkColumnIndex ?? remarkColumnIndex;
+            return effectiveRemark.HasValue && effectiveRemark.Value != effectiveAcceptance ? 2 : 1;
+        });
     }
 
     private static List<CellWriteOperation> BuildReplyCellWriteOperations(
@@ -253,5 +339,3 @@ public sealed class MatchingResultWriteBackService
         return operations;
     }
 }
-
-internal readonly record struct RenderedWriteBackFile(byte[] Content, WriteBackSummary Summary);

@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using AcceptanceSpecSystem.Api.Controllers;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authorization;
@@ -75,7 +75,7 @@ public class ReviewRegressionTests
     {
         var sourceFiles = new[]
         {
-            "src/AcceptanceSpecSystem.Api/Services/AuthUserSeedService.cs",
+            "src/AcceptanceSpecSystem.Application/Services/AuthUserSeedAppService.cs",
             "web/src/views/login/index.vue"
         };
 
@@ -503,16 +503,32 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void BatchReplyPage_ShouldBatchTargetUploadsInsteadOfPostingEachFileSeparately()
+    public void BatchReplyPage_ShouldDelegateTargetUploadQueueAndPreventConcurrentRequests()
     {
-        var content = File.ReadAllText(Path.Combine(
+        var pageContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/batch-reply/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var composableContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/batch-reply/composables/useBatchReplyTargetUploads.ts"
+                .Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("pendingTargetUploadFiles",
-            "目标文件上传应显式维护待上传队列，避免 on-change 命中时逐文件并发请求");
-        content.Should().Contain("uploadBatchReplyTargets(sourceSessionId.value, pendingFiles)",
-            "目标文件应合并为一次上传请求，避免同一会话清单被逐文件并发写入");
+        pageContent.Should().Contain("useBatchReplyTargetUploads",
+            "页面应把目标文件上传状态交给专用组合式管理");
+        pageContent.Should().Contain("onUploadTargets: (sessionId, pendingFiles, options)",
+            "页面只应注入一次批量上传适配器，而不是在 on-change 中逐文件直调 API");
+        pageContent.Should().Contain("uploadBatchReplyTargets(sessionId, pendingFiles, options)",
+            "批量上传适配器必须把同一上传任务的文件列表一次交给 API");
+
+        composableContent.Should().MatchRegex(
+            @"pendingTargetUploadFiles\s*=\s*ref<File\[\]>\(\[\]\)",
+            "组合式必须显式持有当前上传任务队列");
+        composableContent.Should().Contain("if (targetUploading.value) throw",
+            "同一会话已有上传任务时必须拒绝并发请求");
+        composableContent.Should().Contain("pendingTargetUploadFiles.value = [rawFile]",
+            "当前单文件选择任务也必须先进入统一队列再提交");
+        composableContent.Should().Contain("const res = await (params.onUploadTargets",
+            "每个上传任务应通过单个受等待的批量 API 调用完成");
     }
 
     [Fact]
@@ -526,11 +542,15 @@ public class ReviewRegressionTests
         documentsContent.Should().Contain("UploadFileAsync(",
             "上传接口应委派给独立应用服务，而不是重新内联文件处理逻辑");
 
+        documentsContent.Should().Contain("await file.CopyToAsync(memoryStream, HttpContext.RequestAborted);",
+            "HTTP 适配器应把请求取消令牌透传到上传文件拷贝");
         var documentFileAppServiceContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/DocumentFileAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
-        documentFileAppServiceContent.Should().Contain("await file.CopyToAsync(memoryStream, cancellationToken);",
-            "应用服务应继续把请求取消令牌透传到文件拷贝");
+            "src/AcceptanceSpecSystem.Application/Services/DocumentFileAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        documentFileAppServiceContent.Should().Contain("SaveUploadedFileAsync(",
+            "应用服务应继续委派可取消的文件保存端口");
+        documentFileAppServiceContent.Should().Contain("cancellationToken);",
+            "应用服务应把请求取消令牌透传到文件保存端口");
 
         var documentFileAccessServiceContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
@@ -543,11 +563,14 @@ public class ReviewRegressionTests
         var compareContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Controllers/FileCompareController.cs".Replace('/', Path.DirectorySeparatorChar)));
-        compareContent.Should().Contain("await file.CopyToAsync(memoryStream, cancellationToken);");
-        compareContent.Should().Contain("SaveUploadedExcelAsync(existingFile.FileName, fileContent, cancellationToken)");
-        compareContent.Should().Contain("SaveUploadedWordAsync(existingFile.FileName, fileContent, cancellationToken)");
-        compareContent.Should().Contain("SaveUploadedExcelAsync(file.FileName, fileContent, cancellationToken)");
-        compareContent.Should().Contain("SaveUploadedWordAsync(file.FileName, fileContent, cancellationToken)");
+        compareContent.Should().Contain("await file.CopyToAsync(stream, cancellationToken);");
+        compareContent.Should().Contain("_appService.UploadAsync(scope.ToAccessContext(), uploadA, uploadB, cancellationToken)");
+
+        var compareAppServiceContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Application/Services/FileCompareAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        compareAppServiceContent.Should().Contain("SaveUploadedFileAsync(scope, fileA, cancellationToken)");
+        compareAppServiceContent.Should().Contain("SaveUploadedFileAsync(scope, fileB, cancellationToken)");
     }
 
     [Fact]
@@ -625,7 +648,7 @@ public class ReviewRegressionTests
     public void LlmAssistLogs_ShouldNotWriteRawModelOutputAtProductionLevels()
     {
         var coreContent = ReadFileText("src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs");
-        var streamContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowSupportService.LlmStream.cs");
+        var streamContent = ReadFileText("src/AcceptanceSpecSystem.Application/Services/MatchingWorkflowSupportService.LlmStream.cs");
 
         coreContent.Should().NotContain("LLM原始输出", "生产级日志不应输出 LLM 原文");
         coreContent.Should().NotContain("原始输出: {Raw}", "生产级日志不应输出 LLM 原文");
@@ -651,7 +674,7 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void MatchingAndFileCompareControllers_ShouldDeclareAuthorizeAttributes()
+    public void SensitiveWorkflowControllers_ShouldDeclareAuthorizeAttributes()
     {
         typeof(MatchingApiControllerBase)
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
@@ -662,6 +685,11 @@ public class ReviewRegressionTests
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
             .Should()
             .NotBeEmpty("文件对比控制器应显式声明鉴权，避免后续调整中间件时意外裸露");
+
+        typeof(SmartConfigController)
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
+            .Should()
+            .NotBeEmpty("智能结构识别会读取上传文档并沉淀客户模板，必须显式声明鉴权");
     }
 
     [Fact]
@@ -681,16 +709,17 @@ public class ReviewRegressionTests
     {
         var workflowContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/MatchingWorkflowSupportService.cs".Replace('/', Path.DirectorySeparatorChar)));
         var snapshotContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/MatchingTaskSnapshotService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/MatchingTaskSnapshotService.cs".Replace('/', Path.DirectorySeparatorChar)));
         var taskContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/MatchingTaskAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/MatchingTaskAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
         workflowContent.Should().Contain("PayloadVersion", "任务快照应带版本元数据，便于未来兼容迁移");
         snapshotContent.Should().Contain("EnsureTaskOwnership", "任务快照服务应统一校验任务归属");
-        taskContent.Should().Contain("DownloadAsync(ClaimsPrincipal user, string taskId)", "下载接口应结合当前用户校验任务归属");
+        taskContent.Should().Contain("MatchingUserContext user", "下载接口应结合显式用户上下文校验任务归属");
+        taskContent.Should().Contain("CancellationToken cancellationToken = default", "下载接口应传播客户端取消信号");
         taskContent.Should().Contain("MatchingTaskSnapshotService", "下载应用服务应通过共享快照服务读取任务归属");
         File.Exists(Path.Combine(
                 GetRepositoryRoot(),
@@ -707,7 +736,7 @@ public class ReviewRegressionTests
             "src/AcceptanceSpecSystem.Data/Repositories/PromptTemplateRepository.cs".Replace('/', Path.DirectorySeparatorChar)));
         var dtoContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/DTOs/PromptTemplateDtos.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Contracts/ConfigurationDtos.cs".Replace('/', Path.DirectorySeparatorChar)));
 
         repositoryContent.Should().NotContain("SetDefaultAsync", "Prompt 模板不应继续保留设默认模板仓储能力");
         dtoContent.Should().NotContain("IsDefault", "Prompt 模板 DTO 不应继续暴露默认模板语义");
@@ -718,7 +747,7 @@ public class ReviewRegressionTests
     {
         var files = new[]
         {
-            "src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs",
+            "src/AcceptanceSpecSystem.Application/Services/MatchingCandidateProvider.cs",
             "src/AcceptanceSpecSystem.Api/Services/SpecEmbeddingCacheService.cs",
             "src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs",
             "src/AcceptanceSpecSystem.Core/Matching/Services/SemanticKernelEmbeddingService.cs"
@@ -770,12 +799,12 @@ public class ReviewRegressionTests
     {
         var authRoleAppServiceContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/AuthRoleAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/AuthRoleAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
         authRoleAppServiceContent.Should().Contain("ExecuteUpdateAsync", "角色变更触达用户权限版本应使用集合更新，而不是先拉全量用户到内存");
 
         var seedContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/AuthUserSeedService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/AuthUserSeedAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
         seedContent.Should().Contain("ExecuteUpdateAsync", "初始化角色修正权限版本时也应使用集合更新");
         seedContent.Should().Contain("BeginTransactionAsync", "根组织路径初始化应通过事务保证原子性");
     }
@@ -809,7 +838,8 @@ public class ReviewRegressionTests
         var userStoreContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/store/modules/user.ts".Replace('/', Path.DirectorySeparatorChar)));
-        userStoreContent.Should().Contain("logOut(redirectPath?: string)", "登出逻辑应支持接收回跳地址");
+        userStoreContent.Should().Contain("logOut(redirectPath?: string, broadcast = true)",
+            "登出逻辑应支持接收回跳地址，并允许跨标签事件处理时避免重复广播");
         userStoreContent.Should().Contain("query: { redirect: redirectPath }", "跳登录页时应保留会话失效前的页面地址");
 
         var loginContent = File.ReadAllText(Path.Combine(
@@ -864,19 +894,23 @@ public class ReviewRegressionTests
         var aiServiceConfigContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/config/ai-services/index.vue".Replace('/', Path.DirectorySeparatorChar)));
-        aiServiceConfigContent.Should().Contain("证据裁决");
-        aiServiceConfigContent.Should().NotContain("defaultMatchingStrategy");
-        aiServiceConfigContent.Should().NotContain("单阶段");
-        aiServiceConfigContent.Should().NotContain("多阶段");
+        var aiServiceSummaryContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/ai-services/components/AiServiceSummaryCard.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var aiServiceUiContent = aiServiceConfigContent + aiServiceSummaryContent;
+        aiServiceUiContent.Should().Contain("证据裁决");
+        aiServiceUiContent.Should().NotContain("defaultMatchingStrategy");
+        aiServiceUiContent.Should().NotContain("单阶段");
+        aiServiceUiContent.Should().NotContain("多阶段");
 
         var apiDtoContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/DTOs/AiServiceDtos.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Contracts/AiServiceDtos.cs".Replace('/', Path.DirectorySeparatorChar)));
         apiDtoContent.Should().NotContain("DefaultMatchingStrategy");
 
         var matchingDtoContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/DTOs/MatchingDtos.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Contracts/MatchingDtos.cs".Replace('/', Path.DirectorySeparatorChar)));
         matchingDtoContent.Should().NotContain("MatchingStrategy");
 
         var matchingServiceContent = File.ReadAllText(Path.Combine(
@@ -907,15 +941,37 @@ public class ReviewRegressionTests
 
         var providerContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Data/Providers/CoreProviderAdapters.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Providers/CoreProviderAdapters.cs".Replace('/', Path.DirectorySeparatorChar)));
         providerContent.Should().NotContain("PromptTemplateScene.MatchingEntityResolution");
         providerContent.Should().NotContain("Entities.PromptTemplateScene.MatchingEntityResolution");
 
-        var controllerContent = File.ReadAllText(Path.Combine(
+        var appServiceContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Controllers/PromptTemplatesController.cs".Replace('/', Path.DirectorySeparatorChar)));
-        controllerContent.Should().NotContain("CorePromptTemplateScene.MatchingEntityResolution");
-        controllerContent.Should().NotContain("PromptTemplateScene.MatchingEntityResolution");
+            "src/AcceptanceSpecSystem.Application/Services/PromptTemplateAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        appServiceContent.Should().NotContain("CorePromptTemplateScene.MatchingEntityResolution");
+        appServiceContent.Should().NotContain("PromptTemplateScene.MatchingEntityResolution");
+    }
+
+    [Fact]
+    public void PromptTemplateSceneMappings_ShouldIncludeColumnSemanticRecall()
+    {
+        var providerContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Application/Providers/CoreProviderAdapters.cs".Replace('/', Path.DirectorySeparatorChar)));
+        providerContent.Should().Contain(
+            "PromptTemplateScene.SmartConfigColumnSemanticRecall => Entities.PromptTemplateScene.SmartConfigColumnSemanticRecall");
+
+        var appServiceContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Application/Services/PromptTemplateAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        appServiceContent.Should().Contain(
+            "CorePromptTemplateScene.SmartConfigColumnSemanticRecall => PromptTemplateScene.SmartConfigColumnSemanticRecall");
+
+        var initializerContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "src/AcceptanceSpecSystem.Application/Services/PromptTemplateAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+        initializerContent.Should().Contain(
+            "CorePromptTemplateScene.SmartConfigColumnSemanticRecall => PromptTemplateScene.SmartConfigColumnSemanticRecall");
     }
 
     [Fact]
@@ -963,6 +1019,18 @@ public class ReviewRegressionTests
 
         content.Should().NotContain("\"AllowedOrigins\": [ \"*\" ]",
             "Production 配置必须给出显式 CORS 白名单，不能与启动期校验相冲突");
+    }
+
+    [Fact]
+    public void BaseConfig_ShouldNotLeakDevelopmentCorsOriginsIntoProductionArrayMerge()
+    {
+        var baseConfig = ReadFileText("src/AcceptanceSpecSystem.Api/appsettings.json");
+        var developmentConfig = ReadFileText("src/AcceptanceSpecSystem.Api/appsettings.Development.json");
+
+        baseConfig.Should().NotContain("\"Cors\"",
+            "基础数组配置会与 Production 按索引合并，导致开发 HTTP 来源残留在生产环境");
+        developmentConfig.Should().Contain("http://localhost:5173",
+            "本地开发来源应只存在于 Development 配置");
     }
 
     [Fact]
@@ -1108,9 +1176,14 @@ public class ReviewRegressionTests
 
         content.Should().Contain("内置角色只读，不可保存",
             "内置角色允许打开编辑弹窗时，应明确提示当前为只读模式");
-        content.Should().Contain(":disabled=\"editForm.isBuiltIn\"",
+        var dialogContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/auth-roles/components/RoleFormDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
+        dialogContent.Should().Contain("props.modelValue.isBuiltIn",
+            "编辑弹窗应从当前角色模型推导只读状态");
+        dialogContent.Should().Contain(":disabled=\"readOnly\"",
             "编辑弹窗中的输入控件应随内置角色状态进入只读态");
-        content.Should().Contain("{{ editForm.isBuiltIn ? \"不可保存\" : \"保存\" }}",
+        dialogContent.Should().Contain("{{ readOnly ? \"不可保存\"",
             "内置角色弹窗底部按钮文案应明确告知不可保存");
     }
 
@@ -1179,7 +1252,7 @@ public class ReviewRegressionTests
     {
         var content = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Data/Providers/CoreProviderAdapters.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Providers/CoreProviderAdapters.cs".Replace('/', Path.DirectorySeparatorChar)));
 
         content.Should().NotContain("private readonly AppDbContext", "PromptTemplateProvider 不应再直接依赖具体 DbContext");
         content.Should().Contain("IUnitOfWork", "PromptTemplateProvider 至少应通过 UoW 抽象提交变更");
@@ -1190,7 +1263,7 @@ public class ReviewRegressionTests
     {
         var content = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/AuthAccessService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/AuthAccessService.cs".Replace('/', Path.DirectorySeparatorChar)));
 
         content.Should().NotContain("private readonly AppDbContext", "鉴权访问服务不应再直接持有 AppDbContext");
         content.Should().Contain("ISystemUserRepository", "用户访问应通过专用仓储抽象完成");
@@ -1201,7 +1274,7 @@ public class ReviewRegressionTests
     {
         var content = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/AuthDataScopeService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/AuthDataScopeService.cs".Replace('/', Path.DirectorySeparatorChar)));
 
         content.Should().Contain("IMemoryCache", "数据范围服务应通过内存缓存复用组织树计算结果");
         content.Should().Contain("_memoryCache", "数据范围服务应持有缓存实例");
@@ -1233,7 +1306,7 @@ public class ReviewRegressionTests
     {
         var content = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/MatchingTaskSnapshotService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/MatchingTaskSnapshotService.cs".Replace('/', Path.DirectorySeparatorChar)));
 
         content.Should().Contain("!entity.CreatedByUserId.HasValue", "缺少用户归属的任务应被显式拒绝");
         content.Should().Contain("!entity.CompanyId.HasValue", "缺少公司归属的任务应被显式拒绝");
@@ -1247,7 +1320,7 @@ public class ReviewRegressionTests
             "src/AcceptanceSpecSystem.Api/Authorization/PermissionConventions.cs".Replace('/', Path.DirectorySeparatorChar)));
         var authSeedContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/AuthUserSeedService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/AuthUserSeedAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
 
         permissionConventionContent.Should().NotContain("return \"similarity\"",
             "legacy /api/matching/similarity 已移除，不应继续保留专用动作映射");
@@ -1327,9 +1400,16 @@ public class ReviewRegressionTests
     public void SmartFill_OnUnmount_ShouldAbortPreviewRequestsToo()
     {
         var smartFillContent = ReadFileText("web/src/views/smart-fill/index.vue");
-        smartFillContent.Should().Contain(
-            "onBeforeUnmount(() => {\n  invalidatePendingPreview();\n  stopLlmStream();\n});",
-            "页面卸载时应同时取消未完成的批量预览请求和流式请求，避免离页后仍占用后端算力");
+        var hookStart = smartFillContent.IndexOf("onBeforeUnmount(() => {", StringComparison.Ordinal);
+        hookStart.Should().BeGreaterThanOrEqualTo(0);
+        var hookEnd = smartFillContent.IndexOf("\n});", hookStart, StringComparison.Ordinal);
+        hookEnd.Should().BeGreaterThan(hookStart);
+        var unmountHook = smartFillContent[hookStart..(hookEnd + 4)];
+
+        unmountHook.Should().Contain("invalidatePendingPreview();",
+            "页面卸载时应取消未完成的批量预览请求，避免离页后仍占用后端算力");
+        unmountHook.Should().Contain("stopLlmStream();",
+            "页面卸载时应停止流式请求，避免离页后仍占用后端算力");
     }
 
     [Fact]
@@ -1362,10 +1442,8 @@ public class ReviewRegressionTests
             "web/src/api/matching.ts".Replace('/', Path.DirectorySeparatorChar)));
         matchingApiContent.Should().Contain("export const requestMatchLlmStream = async",
             "智能填充流式请求应收敛到匹配 API 模块，避免页面直接拼装原生请求");
-        matchingApiContent.Should().Contain("createAuthorizedFetchInit(url, {",
-            "匹配 API 模块应复用共享鉴权初始化");
-        matchingApiContent.Should().Contain("ensureFetchResponseAuthHandled(response, url)",
-            "匹配 API 模块应复用统一的认证失败处理");
+        matchingApiContent.Should().Contain("return authorizedFetch(url, {",
+            "匹配 API 模块应复用带单次刷新重放和统一认证失败处理的共享 fetch 封装");
 
         var smartFillContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
@@ -1403,13 +1481,13 @@ public class ReviewRegressionTests
     {
         var previewContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/MatchingPreviewAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/MatchingPreviewAppService.cs".Replace('/', Path.DirectorySeparatorChar)));
         var workflowContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/MatchingWorkflowService.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/MatchingWorkflowSupportService.cs".Replace('/', Path.DirectorySeparatorChar)));
         var candidateProviderContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs".Replace('/', Path.DirectorySeparatorChar)));
+            "src/AcceptanceSpecSystem.Application/Services/MatchingCandidateProvider.cs".Replace('/', Path.DirectorySeparatorChar)));
         var cacheServiceContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Services/SpecEmbeddingCacheService.cs".Replace('/', Path.DirectorySeparatorChar)));

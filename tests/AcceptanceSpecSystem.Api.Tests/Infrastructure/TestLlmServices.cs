@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using System.Text.RegularExpressions;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
@@ -219,6 +220,26 @@ public class TestLlmCandidateRerankService : ILlmCandidateRerankService
     }
 }
 
+public class TestLlmDocumentStructureAdjudicationService : ILlmDocumentStructureAdjudicationService
+{
+    public Task<LlmDocumentStructureAdjudicationResult?> AdjudicateAsync(
+        LlmDocumentStructureAdjudicationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<LlmDocumentStructureAdjudicationResult?>(null);
+    }
+}
+
+public class TestLlmColumnSemanticRecallService : ILlmColumnSemanticRecallService
+{
+    public Task<LlmColumnSemanticRecallResult?> RecallAsync(
+        LlmColumnSemanticRecallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<LlmColumnSemanticRecallResult?>(new LlmColumnSemanticRecallResult());
+    }
+}
+
 public class TestEmbeddingService : IEmbeddingService
 {
     public bool IsAvailable => true;
@@ -279,4 +300,3 @@ public class TestEmbeddingService : IEmbeddingService
         return vector;
     }
 }
-

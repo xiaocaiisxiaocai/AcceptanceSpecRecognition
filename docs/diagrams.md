@@ -239,7 +239,7 @@ sequenceDiagram
     participant Seed as AuthUserSeedService
 
     User->>FE: 输入用户名/密码
-    FE->>Auth: POST /api/auth/login
+    FE->>Auth: POST /login
     Auth->>DB: FindAsync(userId, hashedPassword)
     DB-->>Auth: SystemUser?
     Auth->>Auth: VerifyPassword(user, password)
@@ -340,7 +340,7 @@ sequenceDiagram
     FE->>Vite: 请求静态资源
     Vite-->>Browser: index.html + bundle.js
     Browser->>FE: 用户登录
-    FE->>API: POST /api/auth/login
+    FE->>API: POST /login
     API->>DB: 验证用户
     DB-->>API: SystemUser
     API-->>FE: JWT tokens

@@ -30,7 +30,7 @@ public class PromptTemplateApiTests : IClassFixture<ApiWebApplicationFactory>
         json.Code.Should().Be(0);
 
         var items = json.Data.GetProperty("items");
-        items.GetArrayLength().Should().Be(4);
+        items.GetArrayLength().Should().Be(6);
 
         var names = items.EnumerateArray()
             .Select(item => item.GetProperty("name").GetString())
@@ -40,6 +40,8 @@ public class PromptTemplateApiTests : IClassFixture<ApiWebApplicationFactory>
         names.Should().Contain("import-duplicate-review");
         names.Should().Contain("matching-equivalence-adjudication");
         names.Should().Contain("matching-candidate-rerank");
+        names.Should().Contain("smart-config-structure-recognition");
+        names.Should().Contain("smart-config-column-semantic-recall");
         names.Should().NotContain("matching-entity-resolution");
         names.Should().NotContain("matching-generate");
 
@@ -53,6 +55,20 @@ public class PromptTemplateApiTests : IClassFixture<ApiWebApplicationFactory>
         matchingReview.GetProperty("availableVariables").EnumerateArray()
             .Select(item => item.GetString())
             .Should().Contain("workflowScene");
+
+        var columnSemanticRecall = items.EnumerateArray()
+            .First(item => item.GetProperty("name").GetString() == "smart-config-column-semantic-recall");
+        columnSemanticRecall.GetProperty("availableVariables").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().Contain("inputJson");
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var storedScene = await db.PromptTemplates
+            .Where(item => item.Name == "smart-config-column-semantic-recall")
+            .Select(item => item.Scene)
+            .SingleAsync();
+        storedScene.Should().Be(PromptTemplateScene.SmartConfigColumnSemanticRecall);
     }
 
     [Fact]

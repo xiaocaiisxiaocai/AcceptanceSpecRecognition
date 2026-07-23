@@ -10,7 +10,8 @@ import type {
 } from "@/api/matching";
 import {
   applyExcelBatchTableRowFieldChange,
-  normalizeExcelBatchTableRows
+  normalizeExcelBatchTableRows,
+  syncPrimaryBatchTableRegion
 } from "./batchTableConfig.helpers";
 import type { BatchTableConfigItem } from "./batchTableConfig.types";
 
@@ -115,12 +116,12 @@ const applyPrimaryExcelConfigToOthers = (
       dataStartRow: primary.dataStartRow
     });
 
-    return {
+    return syncPrimaryBatchTableRegion({
       ...next,
       headerRowStart: normalized.headerRowStart,
       headerRowCount: normalized.headerRowCount,
       dataStartRow: normalized.dataStartRow
-    };
+    });
   });
 };
 
@@ -156,7 +157,17 @@ const updateField = (
   markExcelTableAsCustomized(index);
 
   const updated = [...items.value];
-  updated[index] = { ...updated[index], [field]: value };
+  const mappingFields: Array<keyof BatchTableConfig> = [
+    "projectColumnIndex",
+    "specificationColumnIndex",
+    "acceptanceColumnIndex",
+    "remarkColumnIndex"
+  ];
+  updated[index] = syncPrimaryBatchTableRegion({
+    ...updated[index],
+    [field]: value,
+    ...(mappingFields.includes(field) ? { mappingAutoDetected: false } : {})
+  });
 
   if (props.isExcel && index === 0) {
     items.value = applyPrimaryExcelConfigToOthers(updated);
@@ -190,12 +201,12 @@ const updateExcelRowField = (
   if (!changed) return;
 
   const updated = [...items.value];
-  updated[index] = {
+  updated[index] = syncPrimaryBatchTableRegion({
     ...old,
     headerRowStart: normalized.headerRowStart,
     headerRowCount: normalized.headerRowCount,
     dataStartRow: normalized.dataStartRow
-  };
+  });
 
   const nextItems =
     props.isExcel && index === 0
@@ -695,15 +706,15 @@ const getPreviewResult = (tableIndex: number) => {
   padding: 12px 14px;
   margin-bottom: 16px;
   font-size: 14px;
-  color: #5d6d7e;
-  background: #f8fafc;
-  border: 1px solid #dbe3ec;
+  color: var(--app-text-secondary);
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-border);
   border-radius: 12px;
 }
 
 .sync-tip {
   font-size: 12px;
-  color: #8a6408;
+  color: var(--app-warning);
 }
 
 .sheet-tabs {
@@ -712,21 +723,21 @@ const getPreviewResult = (tableIndex: number) => {
 
 .sheet-tabs :deep(.el-tabs__nav-wrap::after) {
   height: 1px;
-  background: #d9e1ea;
+  background: var(--app-border);
 }
 
 .sheet-tabs :deep(.el-tabs__item) {
   height: 38px;
-  color: #60707f;
+  color: var(--app-text-secondary);
 }
 
 .sheet-tabs :deep(.el-tabs__item.is-active) {
   font-weight: 600;
-  color: #173d73;
+  color: var(--app-primary);
 }
 
 .sheet-tabs :deep(.el-tabs__active-bar) {
-  background: #2f6bb2;
+  background: var(--app-primary);
 }
 
 .sheet-tab-label {
@@ -737,18 +748,18 @@ const getPreviewResult = (tableIndex: number) => {
 
 .sheet-card {
   padding: 18px;
-  background: #fff;
-  border: 1px solid #d9e2eb;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
   border-radius: 16px;
-  box-shadow: 0 6px 18px rgb(15 23 42 / 3%);
+  box-shadow: var(--app-shadow-card);
   transition:
     border-color 0.2s,
     box-shadow 0.2s;
 }
 
 .sheet-card.selected {
-  border-color: #9fb7d6;
-  box-shadow: 0 8px 22px rgb(47 107 178 / 8%);
+  border-color: var(--app-primary);
+  box-shadow: var(--app-shadow-overlay);
 }
 
 .card-header {
@@ -778,7 +789,7 @@ const getPreviewResult = (tableIndex: number) => {
 
 .headers-preview .label {
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-disabled);
 }
 
 .header-tag {
@@ -787,7 +798,7 @@ const getPreviewResult = (tableIndex: number) => {
 
 .more {
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-disabled);
 }
 
 .column-config {
@@ -799,8 +810,8 @@ const getPreviewResult = (tableIndex: number) => {
 
 .config-section {
   padding: 14px 16px;
-  background: #fbfcfd;
-  border: 1px solid #e0e7ef;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-bg);
   border-radius: 12px;
 }
 
@@ -808,24 +819,24 @@ const getPreviewResult = (tableIndex: number) => {
   margin-bottom: 10px;
   font-size: 13px;
   font-weight: 700;
-  color: #1f3349;
+  color: var(--app-text-primary);
 }
 
 .row-config-title {
   margin-bottom: 8px;
   font-size: 12px;
-  color: #606266;
+  color: var(--app-text-secondary);
 }
 
 .row-config-hint {
   margin-bottom: 10px;
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-disabled);
 }
 
 .row-config-hint--sync {
   margin-bottom: 12px;
-  color: #b45309;
+  color: var(--app-warning);
 }
 
 .table-preview-wrap {
@@ -835,15 +846,15 @@ const getPreviewResult = (tableIndex: number) => {
   max-width: 100%;
   padding: 14px 16px;
   margin: 0;
-  background: #fbfcfd;
-  border: 1px solid #e0e7ef;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-bg);
   border-radius: 12px;
 }
 
 .inline-preview {
   padding-top: 18px;
   margin-top: 20px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--app-border);
 }
 
 .preview-errors {
@@ -860,7 +871,7 @@ const getPreviewResult = (tableIndex: number) => {
 .preview-title {
   margin-bottom: 8px;
   font-size: 13px;
-  color: #606266;
+  color: var(--app-text-secondary);
 }
 
 .config-narrow {

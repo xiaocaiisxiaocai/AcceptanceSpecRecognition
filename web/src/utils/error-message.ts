@@ -46,6 +46,14 @@ export function getRequestErrorMessage(
   return fallback;
 }
 
+/** 401/403 已由 HTTP 层统一提示或引导登录，页面不应再次弹出错误。 */
+export function isGloballyHandledAuthError(error: unknown): boolean {
+  return (
+    isAxiosError(error) &&
+    (error.response?.status === 401 || error.response?.status === 403)
+  );
+}
+
 /**
  * 判断是否为 Axios 错误
  */

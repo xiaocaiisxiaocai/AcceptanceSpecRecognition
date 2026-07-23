@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
@@ -27,8 +27,8 @@ public class EmbeddingCacheInvalidationTests : IClassFixture<ApiWebApplicationFa
         var entityContent = ReadFileText("src/AcceptanceSpecSystem.Data/Entities/EmbeddingCache.cs");
         var repositoryContent = ReadFileText("src/AcceptanceSpecSystem.Data/Repositories/EmbeddingCacheRepository.cs");
         var cacheServiceContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/SpecEmbeddingCacheService.cs");
-        var semanticSearchContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/SpecSemanticSearchService.cs");
-        var matchingCandidateProviderContent = ReadFileText("src/AcceptanceSpecSystem.Api/Services/MatchingCandidateProvider.cs");
+        var semanticSearchContent = ReadFileText("src/AcceptanceSpecSystem.Application/Services/SpecSemanticSearchService.cs");
+        var matchingCandidateProviderContent = ReadFileText("src/AcceptanceSpecSystem.Application/Services/MatchingCandidateProvider.cs");
 
         entityContent.Should().Contain(
             "Usage",

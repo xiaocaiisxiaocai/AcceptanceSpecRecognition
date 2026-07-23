@@ -1,3 +1,5 @@
+/// <reference types="vitest/config" />
+
 import { getPluginsList } from "./build/plugins";
 import { include, exclude } from "./build/optimize";
 import { type UserConfigExport, type ConfigEnv, loadEnv } from "vite";
@@ -9,7 +11,10 @@ import {
   __APP_INFO__
 } from "./build/utils";
 
-export default async ({ mode, command }: ConfigEnv): Promise<UserConfigExport> => {
+export default async ({
+  mode,
+  command
+}: ConfigEnv): Promise<UserConfigExport> => {
   const {
     VITE_CDN,
     VITE_PORT,
@@ -35,18 +40,22 @@ export default async ({ mode, command }: ConfigEnv): Promise<UserConfigExport> =
       // 本地跨域代理 https://cn.vitejs.dev/config/server-options.html#server-proxy
       proxy: {
         "/api": {
-          target: VITE_API_PROXY_TARGET || "http://localhost:5843",
+          target: VITE_API_PROXY_TARGET || "http://localhost:5291",
           changeOrigin: true,
           rewrite: path => path,
           // SSE 长连接需要禁用代理超时，否则 LLM 流式输出会被提前断开
           timeout: 0
         },
         "/login": {
-          target: VITE_API_PROXY_TARGET || "http://localhost:5843",
+          target: VITE_API_PROXY_TARGET || "http://localhost:5291",
           changeOrigin: true
         },
         "/refresh-token": {
-          target: VITE_API_PROXY_TARGET || "http://localhost:5843",
+          target: VITE_API_PROXY_TARGET || "http://localhost:5291",
+          changeOrigin: true
+        },
+        "/logout": {
+          target: VITE_API_PROXY_TARGET || "http://localhost:5291",
           changeOrigin: true
         }
       },
@@ -76,12 +85,18 @@ export default async ({ mode, command }: ConfigEnv): Promise<UserConfigExport> =
       include,
       exclude
     },
+    test: {
+      include: ["src/**/*.test.ts"],
+      exclude: ["node_modules/**", "dist/**"]
+    },
     build: {
       // https://cn.vitejs.dev/guide/build.html#browser-compatibility
       target: "es2015",
       sourcemap: false,
-      // 消除打包大小超过500kb警告
-      chunkSizeWarningLimit: 4000,
+      // 包体积门禁通过稳定的源模块键定位主入口和关键异步页面，避免依赖 hash 文件名。
+      manifest: true,
+      // 让异常的大块重新可见；CI 另以 gzip 预算做阻断校验。
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
         input: {
           index: pathResolve("./index.html", import.meta.url)

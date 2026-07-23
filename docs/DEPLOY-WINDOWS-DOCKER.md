@@ -6,13 +6,11 @@
 - 后端 `api`
 - 数据库 `mysql`
 
-本文默认基于当前功能分支：
+本文默认部署主分支：
 
 ```text
-feat/add-ai-equivalence-adjudication
+main
 ```
-
-不是 `main` 分支。
 
 ## 1. 前置条件
 
@@ -40,8 +38,8 @@ cd D:\
 git clone https://github.com/xiaocaiisxiaocai/AcceptanceSpecRecognition.git
 cd .\AcceptanceSpecRecognition
 git fetch origin
-git checkout feat/add-ai-equivalence-adjudication
-git pull origin feat/add-ai-equivalence-adjudication
+git switch main
+git pull --ff-only origin main
 git branch --show-current
 ```
 
@@ -50,15 +48,15 @@ git branch --show-current
 ```powershell
 cd D:\你的项目目录\AcceptanceSpecRecognition
 git fetch origin
-git checkout feat/add-ai-equivalence-adjudication
-git pull origin feat/add-ai-equivalence-adjudication
+git switch main
+git pull --ff-only origin main
 git branch --show-current
 ```
 
 确认输出为：
 
 ```text
-feat/add-ai-equivalence-adjudication
+main
 ```
 
 ## 3. 启动项目
@@ -93,14 +91,28 @@ docker compose logs -f mysql
 启动成功后可访问：
 
 - 前端：`http://localhost`
-- 前端局域网访问：`http://192.168.132.68`
-- API 健康检查：`http://localhost:5290/health`
-- API 局域网访问：`http://192.168.132.68:5290/health`
+- API 接流量就绪检查：`http://localhost:5290/health/ready`
+
+当前支持无 SSO 的内网同站 HTTP 部署。局域网用户应始终通过一个固定的 Web 主机名或 IP 访问，由 Nginx 同站代理 API，并把该 HTTP 入口的精确来源写入 CORS/BrowserAuth。必须显式开启受控内网 HTTP 模式；不要把 `5290` API 端口直接开放给局域网用户或公网。
+
+`.env.docker` 至少应包含以下浏览器认证组合，并将来源替换为用户实际访问的固定入口：
+
+```env
+CORS_ORIGIN_0=http://acceptance.internal
+CORS_ORIGIN_1=
+BROWSER_AUTH_ALLOW_INSECURE_HTTP=true
+BROWSER_AUTH_REFRESH_COOKIE_NAME=acceptance-refresh
+BROWSER_AUTH_COOKIE_SECURE=false
+BROWSER_AUTH_COOKIE_SAME_SITE=Strict
+BROWSER_AUTH_COOKIE_DOMAIN=
+```
+
+HTTP 是明文传输。HttpOnly、SameSite、CSRF 和精确 Origin 不能阻止内网监听或中间人读取登录口令、AccessToken 或 Cookie。仅可在受信任的隔离网段/VLAN中使用，并以 Windows 防火墙限制来源；不得用于互联网或不可信无线网络。无法保证链路可信时应改用内部 HTTPS。
 
 在 PowerShell 中也可以直接验证：
 
 ```powershell
-Invoke-WebRequest http://localhost:5290/health
+Invoke-WebRequest http://localhost:5290/health/ready
 ```
 
 ## 6. 默认容器说明
@@ -117,20 +129,18 @@ Invoke-WebRequest http://localhost:5290/health
 - API：`5290`
 - MySQL：仅容器内访问，不映射到宿主机
 
-## 7. 默认配置说明
+## 7. 配置说明
 
 当前部署配置由 `docker-compose.yml` 和 `.env.docker` 共同提供，不需要额外改 `appsettings.Production.json`。
 
-关键点如下：
+非敏感默认配置如下：
 
-- 数据库名：`acceptance_spec_ai_equivalence_adjudication_db`
+- 数据库名：`acceptance_spec_db`
 - 数据库用户：`acceptance`
-- 数据库密码：`acceptance123`
-- JWT 密钥：`AcceptanceSpec_DockerJwtKey_2026_ReplaceWithLongRandom`
-- 默认管理员密码：`Admin@20260403`
-- 默认普通用户密码：`Common@20260403`
 - API 端口：`5290`
 - 前端端口：`80`
+
+从 `.env.docker.example` 创建 `.env.docker` 后，必须填写数据库 root/应用用户密码、JWT 密钥、管理员密码和普通用户密码。敏感值为空时不得部署。
 
 启动命令必须带 `--env-file .env.docker`，否则 Docker Compose 会把未设置变量解析为空，导致 MySQL 或 API 启动失败。
 
@@ -142,8 +152,9 @@ Invoke-WebRequest http://localhost:5290/health
 
 ```powershell
 New-NetFirewallRule -DisplayName "Acceptance Web 80" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 80
-New-NetFirewallRule -DisplayName "Acceptance API 5290" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5290
 ```
+
+API 的 `5290` 端口只绑定 `127.0.0.1`，不得创建局域网入站规则。
 
 ## 9. 常用维护命令
 
@@ -165,7 +176,7 @@ docker compose down -v
 docker compose down -v
 ```
 
-会清空数据库和上传文件，只在确认无需保留数据时使用。
+会清空数据库、上传文件、DataProtection 密钥和本机数据库备份，只在确认无需保留数据时使用。生产环境应先完成可验证的离机备份，并避免执行该命令。
 
 重新构建并启动：
 
@@ -216,11 +227,11 @@ netstat -ano | findstr :5290
 建议按以下顺序执行：
 
 1. 确认 Docker 和 Git 已安装
-2. 切换到 `feat/add-ai-equivalence-adjudication`
+2. 切换到 `main` 并使用 `git pull --ff-only origin main` 更新代码
 3. 执行 `docker compose --env-file .env.docker up -d --build`
 4. 执行 `docker compose ps`
-5. 执行 `Invoke-WebRequest http://localhost:5290/health`
-6. 浏览器打开 `http://192.168.132.68`
+5. 执行 `Invoke-WebRequest http://localhost:5290/health/ready`
+6. 浏览器使用配置好的固定内网 HTTP 主机名或 IP 验收，并确认所有 API 请求都经同站 Web 入口代理
 
 ## 12. 相关文件
 

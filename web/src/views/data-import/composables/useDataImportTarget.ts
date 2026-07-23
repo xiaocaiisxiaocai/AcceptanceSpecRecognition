@@ -1,16 +1,23 @@
-import { ref, computed } from "vue";
+import { ref, computed, onDeactivated, onScopeDispose } from "vue";
 import type { Ref } from "vue";
 import { ElMessage } from "element-plus";
 import { getCustomerList, type Customer } from "@/api/customer";
 import { getProcessList, type Process } from "@/api/process";
 import { getMachineModelList, type MachineModel } from "@/api/machine-model";
-import {
-  getAiServiceList,
-  AiServicePurpose,
-  sortAiServicesByPriority,
-  type AiServiceConfig
-} from "@/api/ai-service";
+import type { AiServiceSelection } from "@/api/ai-service";
 import type { ImportDuplicateAiConfig } from "../dataImport.types";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
+import { loadAllPagedItems } from "@/utils/paged-options";
+import { createAiSelectionRetryController } from "@/utils/ai-selection-retry";
+import {
+  getRuntimeAiPurposeResult,
+  loadRuntimeAiSelectionsSettled,
+  type RuntimeAiSelectionRefreshResult
+} from "@/utils/runtime-ai-selection-loader";
+import { applyDataImportRuntimeAiSelections } from "./data-import-ai-selection";
 
 type DataImportTargetSelectionRefs = {
   selectedCustomerId: Ref<number | undefined>;
@@ -41,8 +48,14 @@ export function useDataImportTarget(
   const loadingProcesses = ref(false);
   const loadingMachineModels = ref(false);
   const loadingAiServices = ref(false);
-  const embeddingServices = ref<AiServiceConfig[]>([]);
-  const llmServices = ref<AiServiceConfig[]>([]);
+  let customerOptionsController: AbortController | undefined;
+  let processOptionsController: AbortController | undefined;
+  let machineModelOptionsController: AbortController | undefined;
+  let aiSelectionController: AbortController | undefined;
+  let aiSelectionVersion = 0;
+  let aiSelectionRequest: Promise<RuntimeAiSelectionRefreshResult> | undefined;
+  const embeddingSelection = ref<AiServiceSelection>({ status: "checking" });
+  const llmSelection = ref<AiServiceSelection>({ status: "checking" });
 
   const selectedMachineModelName = computed(() => {
     if (!selectedMachineModelId.value) return "-";
@@ -54,106 +67,144 @@ export function useDataImportTarget(
   });
 
   const loadCustomers = async () => {
+    customerOptionsController?.abort();
+    const controller = new AbortController();
+    customerOptionsController = controller;
     loadingCustomers.value = true;
     try {
-      const res = await getCustomerList({ page: 1, pageSize: 100 });
-      if (res.code === 0) {
-        customers.value = res.data.items;
+      const items = await loadAllPagedItems(
+        (page, pageSize, signal) =>
+          getCustomerList({ page, pageSize }, { signal }),
+        { getKey: item => item.id, signal: controller.signal }
+      );
+      if (customerOptionsController === controller) customers.value = items;
+    } catch (error) {
+      if (!controller.signal.aborted && !isGloballyHandledAuthError(error)) {
+        ElMessage.error(getRequestErrorMessage(error, "加载客户列表失败"));
       }
-    } catch {
-      ElMessage.error("加载客户列表失败");
     } finally {
-      loadingCustomers.value = false;
+      if (customerOptionsController === controller) {
+        customerOptionsController = undefined;
+        loadingCustomers.value = false;
+      }
     }
   };
 
   const loadProcesses = async () => {
+    processOptionsController?.abort();
+    const controller = new AbortController();
+    processOptionsController = controller;
     loadingProcesses.value = true;
     try {
-      const res = await getProcessList({ page: 1, pageSize: 1000 });
-      if (res.code === 0) {
-        processes.value = res.data.items;
+      const items = await loadAllPagedItems(
+        (page, pageSize, signal) =>
+          getProcessList({ page, pageSize }, { signal }),
+        { getKey: item => item.id, signal: controller.signal }
+      );
+      if (processOptionsController === controller) processes.value = items;
+    } catch (error) {
+      if (!controller.signal.aborted && !isGloballyHandledAuthError(error)) {
+        ElMessage.error(getRequestErrorMessage(error, "加载制程列表失败"));
       }
-    } catch {
-      ElMessage.error("加载制程列表失败");
     } finally {
-      loadingProcesses.value = false;
+      if (processOptionsController === controller) {
+        processOptionsController = undefined;
+        loadingProcesses.value = false;
+      }
     }
   };
 
   const loadMachineModels = async () => {
+    machineModelOptionsController?.abort();
+    const controller = new AbortController();
+    machineModelOptionsController = controller;
     loadingMachineModels.value = true;
     try {
-      const res = await getMachineModelList({ page: 1, pageSize: 1000 });
-      if (res.code === 0) {
-        machineModels.value = res.data.items;
+      const items = await loadAllPagedItems(
+        (page, pageSize, signal) =>
+          getMachineModelList({ page, pageSize }, { signal }),
+        { getKey: item => item.id, signal: controller.signal }
+      );
+      if (machineModelOptionsController === controller) {
+        machineModels.value = items;
       }
-    } catch {
-      ElMessage.error("加载机型列表失败");
+    } catch (error) {
+      if (!controller.signal.aborted && !isGloballyHandledAuthError(error)) {
+        ElMessage.error(getRequestErrorMessage(error, "加载机型列表失败"));
+      }
     } finally {
-      loadingMachineModels.value = false;
+      if (machineModelOptionsController === controller) {
+        machineModelOptionsController = undefined;
+        loadingMachineModels.value = false;
+      }
     }
   };
 
-  const loadAiServices = async () => {
+  const loadAiServicesOnce = async () => {
+    aiSelectionController?.abort();
+    const controller = new AbortController();
+    const version = ++aiSelectionVersion;
+    aiSelectionController = controller;
     loadingAiServices.value = true;
-    try {
-      const res = await getAiServiceList({ page: 1, pageSize: 200 });
-      if (res.code === 0) {
-        const items = res.data.items || [];
-        const enabledItems = items.filter(item => !item.isDisabled);
-        embeddingServices.value = sortAiServicesByPriority(
-          enabledItems.filter(
-            item =>
-              (item.purpose & AiServicePurpose.Embedding) ===
-                AiServicePurpose.Embedding && !!item.embeddingModel
-          )
-        );
-        llmServices.value = sortAiServicesByPriority(
-          enabledItems.filter(
-            item =>
-              (item.purpose & AiServicePurpose.Llm) === AiServicePurpose.Llm &&
-              !!item.llmModel
-          )
-        );
 
-        if (
-          importDuplicateAiConfig.value.embeddingServiceId &&
-          !embeddingServices.value.some(
-            s => s.id === importDuplicateAiConfig.value.embeddingServiceId
-          )
-        ) {
-          importDuplicateAiConfig.value.embeddingServiceId = undefined;
-        }
-        if (
-          importDuplicateAiConfig.value.llmServiceId &&
-          !llmServices.value.some(
-            s => s.id === importDuplicateAiConfig.value.llmServiceId
-          )
-        ) {
-          importDuplicateAiConfig.value.llmServiceId = undefined;
-        }
-        if (
-          !importDuplicateAiConfig.value.embeddingServiceId &&
-          embeddingServices.value.length > 0
-        ) {
-          importDuplicateAiConfig.value.embeddingServiceId =
-            embeddingServices.value[0].id;
-        }
-        if (
-          !importDuplicateAiConfig.value.llmServiceId &&
-          llmServices.value.length > 0
-        ) {
-          importDuplicateAiConfig.value.llmServiceId = llmServices.value[0].id;
-        }
-        return;
+    try {
+      const results = await loadRuntimeAiSelectionsSettled(
+        ["embedding", "llm"],
+        controller.signal
+      );
+      if (
+        aiSelectionController !== controller ||
+        version !== aiSelectionVersion ||
+        controller.signal.aborted
+      ) {
+        return { current: false, version };
       }
-      ElMessage.error(res.message || "加载 AI 服务失败");
-    } catch {
-      ElMessage.error("加载 AI 服务失败");
+
+      const embeddingResult = getRuntimeAiPurposeResult(results, "embedding");
+      const llmResult = getRuntimeAiPurposeResult(results, "llm");
+      if (!embeddingResult || !llmResult) {
+        return { current: false, version };
+      }
+
+      embeddingSelection.value = embeddingResult.selection;
+      llmSelection.value = llmResult.selection;
+      applyDataImportRuntimeAiSelections(
+        importDuplicateAiConfig.value,
+        embeddingResult.selection,
+        llmResult.selection
+      );
+      aiSelectionRetry.schedule([
+        embeddingResult.selection,
+        llmResult.selection
+      ]);
+
+      return {
+        current: true,
+        version,
+        embedding: embeddingResult.selection,
+        llm: llmResult.selection
+      };
     } finally {
-      loadingAiServices.value = false;
+      if (aiSelectionController === controller) {
+        aiSelectionController = undefined;
+        loadingAiServices.value = false;
+      }
     }
+  };
+
+  const aiSelectionRetry = createAiSelectionRetryController({
+    refresh: () => void loadAiServices(false)
+  });
+  const loadAiServices = (resetRetry = true) => {
+    if (resetRetry) aiSelectionRetry.cancel();
+    if (aiSelectionRequest) return aiSelectionRequest;
+
+    const request = loadAiServicesOnce();
+    aiSelectionRequest = request;
+    void request.finally(() => {
+      if (aiSelectionRequest === request) aiSelectionRequest = undefined;
+    });
+    return request;
   };
 
   /** 重置目标选择状态 */
@@ -162,6 +213,21 @@ export function useDataImportTarget(
     selectedProcessId.value = undefined;
     selectedMachineModelId.value = undefined;
   };
+
+  const stopAiSelectionRequests = () => {
+    aiSelectionVersion += 1;
+    aiSelectionController?.abort();
+    aiSelectionRequest = undefined;
+    aiSelectionRetry.cancel();
+  };
+
+  onDeactivated(stopAiSelectionRequests);
+  onScopeDispose(() => {
+    customerOptionsController?.abort();
+    processOptionsController?.abort();
+    machineModelOptionsController?.abort();
+    stopAiSelectionRequests();
+  });
 
   return {
     customers,
@@ -175,8 +241,8 @@ export function useDataImportTarget(
     loadingProcesses,
     loadingMachineModels,
     loadingAiServices,
-    embeddingServices,
-    llmServices,
+    embeddingSelection,
+    llmSelection,
     loadCustomers,
     loadProcesses,
     loadMachineModels,

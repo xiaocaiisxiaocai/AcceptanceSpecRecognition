@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import {
   handleTopMenuCandidate,
@@ -48,4 +50,14 @@ test("只有单个子菜单时保留当前菜单作为跳转目标", () => {
       }
     ]
   });
+});
+
+test("欢迎页不应再渲染独立跳转页面", () => {
+  const homeRouteSource = readFileSync(
+    resolve(process.cwd(), "web/src/router/modules/home.ts"),
+    "utf8"
+  );
+
+  assert.doesNotMatch(homeRouteSource, /path: "\/welcome"/);
+  assert.doesNotMatch(homeRouteSource, /name: "Welcome"/);
 });

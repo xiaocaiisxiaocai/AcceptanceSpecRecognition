@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
@@ -13,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using CoreAiServiceConfigModel = AcceptanceSpecSystem.Core.AI.Models.AiServiceConfigModel;
+using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -39,6 +41,9 @@ public class AiServiceDefaultModeApiTests : IClassFixture<AiServiceDefaultModeAp
         result.Code.Should().Be(0);
         result.Data.GetProperty("success").GetBoolean().Should().BeTrue();
         result.Data.GetProperty("message").GetString().Should().Be("LLM: OK");
+        _factory.Services.GetRequiredService<AiServiceReadinessRegistry>()
+            .GetSnapshot(configId, CoreAiServicePurpose.Llm)
+            .State.Should().Be(AiServiceReadinessState.Available);
     }
 
     private async Task<int> CreateConfigAsync(AiServicePurpose purpose)

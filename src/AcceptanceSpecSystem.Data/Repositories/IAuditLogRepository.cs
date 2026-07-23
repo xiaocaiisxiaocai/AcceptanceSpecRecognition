@@ -27,7 +27,15 @@ public interface IAuditLogRepository : IRepository<AuditLog>
     /// <summary>
     /// 删除指定时间点之前的审计日志
     /// </summary>
-    Task<int> DeleteBeforeAsync(DateTime beforeTime, CancellationToken cancellationToken = default);
+    Task<int> DeleteBeforeAsync(
+        DateTime beforeTime,
+        CancellationToken cancellationToken = default,
+        int batchSize = 1000);
+
+    Task<int> DeleteOverflowAsync(
+        int maxRecordCount,
+        int batchSize,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 按时间范围删除审计日志

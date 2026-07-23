@@ -9,6 +9,8 @@ namespace AcceptanceSpecSystem.Data.Repositories;
 /// </summary>
 public class ExecutionHistoryRecordRepository : Repository<ExecutionHistoryRecord>, IExecutionHistoryRecordRepository
 {
+    public const int MaxPageSize = 200;
+
     public ExecutionHistoryRecordRepository(AppDbContext context) : base(context)
     {
     }
@@ -21,8 +23,8 @@ public class ExecutionHistoryRecordRepository : Repository<ExecutionHistoryRecor
         string? keyword = null,
         string? taskType = null)
     {
-        if (page <= 0) page = 1;
-        if (pageSize <= 0) pageSize = 20;
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, MaxPageSize);
 
         var query = _dbSet.AsNoTracking()
             .Where(item => item.CompanyId == companyId && item.CreatedByUserId == userId);
@@ -66,5 +68,46 @@ public class ExecutionHistoryRecordRepository : Repository<ExecutionHistoryRecor
                 item.TaskId == taskId &&
                 item.CompanyId == companyId &&
                 item.CreatedByUserId == userId);
+    }
+
+    public async Task<int> DeleteBeforeAsync(
+        DateTime beforeTime,
+        int batchSize,
+        CancellationToken cancellationToken = default)
+    {
+        batchSize = Math.Clamp(batchSize, 1, 1000);
+        var expired = await _dbSet
+            .Where(item => item.CreatedAt < beforeTime)
+            .OrderBy(item => item.Id)
+            .Take(batchSize)
+            .ToListAsync(cancellationToken);
+
+        if (expired.Count == 0)
+            return 0;
+
+        _dbSet.RemoveRange(expired);
+        await _context.SaveChangesAsync(cancellationToken);
+        return expired.Count;
+    }
+
+    public async Task<int> DeleteOverflowAsync(
+        int maxRecordCount,
+        int batchSize,
+        CancellationToken cancellationToken = default)
+    {
+        maxRecordCount = Math.Max(1, maxRecordCount);
+        batchSize = Math.Clamp(batchSize, 1, 1000);
+        var total = await _dbSet.CountAsync(cancellationToken);
+        if (total <= maxRecordCount)
+            return 0;
+
+        var overflow = await _dbSet
+            .OrderBy(item => item.CreatedAt)
+            .ThenBy(item => item.Id)
+            .Take(Math.Min(batchSize, total - maxRecordCount))
+            .ToListAsync(cancellationToken);
+        _dbSet.RemoveRange(overflow);
+        await _context.SaveChangesAsync(cancellationToken);
+        return overflow.Count;
     }
 }

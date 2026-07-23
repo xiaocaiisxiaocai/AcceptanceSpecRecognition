@@ -241,6 +241,97 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
     }
 
     [Fact]
+    public async Task Execute_ForExcel_With1431Rows_ShouldKeepPlaybackRows()
+    {
+        const int rowCount = 1431;
+        var excelBytes = ExcelFillFlowTests.CreateExcelBytes(BuildExcelRows(rowCount));
+
+        using var uploadContent = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(excelBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        uploadContent.Add(fileContent, "file", "packet-limit-1431-rows.xlsx");
+
+        var uploadResp = await _client.PostAsync("/api/documents/upload", uploadContent);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
+
+        var customerId = (await (await _client.PostAsync("/api/customers", ApiClientJson.ToJsonContent(new { name = "PacketLimit-1431-C" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+        var processId = (await (await _client.PostAsync("/api/processes", ApiClientJson.ToJsonContent(new { name = "PacketLimit-1431-P" })))
+            .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+        {
+            customerId,
+            processId,
+            project = "P1",
+            specification = "S1",
+            acceptance = "OK",
+            remark = "通过"
+        }));
+        specResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var specId = (await specResp.ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
+
+        var executeResp = await _client.PostAsync("/api/matching/batch-execute", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            customerId,
+            processId,
+            config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.95 },
+            previewTables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    items = Enumerable.Range(1, rowCount)
+                        .Select(rowIndex => BuildHeavyExactPreviewItem(rowIndex, specId, "OK", "通过"))
+                        .ToArray()
+                }
+            },
+            tables = new[]
+            {
+                new
+                {
+                    tableIndex = 0,
+                    projectColumnIndex = 0,
+                    specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3,
+                    mappings = Enumerable.Range(1, rowCount)
+                        .Select(rowIndex => new
+                        {
+                            rowIndex,
+                            specId
+                        })
+                        .ToArray()
+                }
+            }
+        }));
+
+        var executeBody = await executeResp.Content.ReadAsStringAsync();
+        executeResp.StatusCode.Should().Be(HttpStatusCode.OK, executeBody);
+        var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var taskId = executeJson.Data.GetProperty("taskId").GetString();
+
+        var listResp = await _client.GetAsync("/api/execution-history?page=1&pageSize=20");
+        listResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listJson = await listResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var record = listJson.Data.GetProperty("items").EnumerateArray()
+            .First(item => item.GetProperty("taskId").GetString() == taskId);
+
+        var detailResp = await _client.GetAsync($"/api/execution-history/{record.GetProperty("id").GetInt32()}");
+        detailResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detailJson = await detailResp.ReadAsAsync<ApiResponse<JsonElement>>();
+
+        var playback = detailJson.Data.GetProperty("smartFillPlayback");
+        playback.GetProperty("isLegacy").GetBoolean().Should().BeFalse("1431 行仍应进入可回放视图");
+        playback.GetProperty("files")[0].GetProperty("sheets")[0].GetProperty("rows")
+            .GetArrayLength()
+            .Should().Be(rowCount);
+    }
+
+    [Fact]
     public async Task Execute_ForExcel_WithLargePreviewArchive_ShouldLoadFullPlaybackRowDetail()
     {
         const int rowCount = 180;
@@ -345,8 +436,14 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         fullRow.GetProperty("executionSnapshot").GetProperty("finalAcceptance").GetString().Should().Be(longAcceptance);
         var fullBest = fullRow.GetProperty("previewSnapshot").GetProperty("bestMatch");
         fullBest.GetProperty("topCandidates").GetArrayLength().Should().Be(1, "完整归档行详情必须保留候选明细");
-        fullBest.GetProperty("evidenceSummary")[0].GetString().Should().Contain("证据1");
-        fullBest.GetProperty("issues")[0].GetProperty("message").GetString().Should().Contain("问题1");
+        fullBest.GetProperty("evidenceSummary").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().NotContain(item => item != null && item.Contains("证据1", StringComparison.Ordinal),
+                "执行历史不得归档客户端伪造的匹配证据");
+        fullBest.GetProperty("issues").EnumerateArray()
+            .Select(item => item.GetProperty("message").GetString())
+            .Should().NotContain(item => item != null && item.Contains("问题1", StringComparison.Ordinal),
+                "执行历史不得归档客户端伪造的问题说明");
     }
 
     private static string[][] BuildExcelRows(int rowCount)
@@ -530,6 +627,8 @@ internal sealed class ThrowOnLargePendingJsonUnitOfWork : IUnitOfWork
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;
     public IPromptTemplateRepository PromptTemplates => _inner.PromptTemplates;
     public IColumnMappingRuleRepository ColumnMappingRules => _inner.ColumnMappingRules;
+    public ISmartStructureRoutingRuleRepository SmartStructureRoutingRules => _inner.SmartStructureRoutingRules;
+    public IDocumentTemplateRepository DocumentTemplates => _inner.DocumentTemplates;
     public ISystemUserRepository SystemUsers => _inner.SystemUsers;
     public IAuditLogRepository AuditLogs => _inner.AuditLogs;
     public IMatchingFillTaskRepository MatchingFillTasks => _inner.MatchingFillTasks;

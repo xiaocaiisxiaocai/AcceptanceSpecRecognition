@@ -1,5 +1,10 @@
 import { http } from "@/utils/http";
-import type { ApiResponse, PagedData, PagedRequest } from "./customer";
+import type {
+  ApiResponse,
+  PagedData,
+  PagedListRequestOptions,
+  PagedRequest
+} from "./customer";
 
 /** 机型类型 */
 export interface MachineModel {
@@ -25,9 +30,13 @@ export type MachineModelListRequest = PagedRequest;
 const baseUrl = "/api/machine-models";
 
 /** 获取机型列表 */
-export const getMachineModelList = (params?: MachineModelListRequest) => {
+export const getMachineModelList = (
+  params?: MachineModelListRequest,
+  options?: PagedListRequestOptions
+) => {
   return http.request<ApiResponse<PagedData<MachineModel>>>("get", baseUrl, {
-    params
+    params,
+    signal: options?.signal
   });
 };
 

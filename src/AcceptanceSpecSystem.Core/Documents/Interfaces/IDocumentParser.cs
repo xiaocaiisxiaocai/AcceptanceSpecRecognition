@@ -23,15 +23,21 @@ public interface IDocumentParser
     /// 获取文档中所有表格的信息
     /// </summary>
     /// <param name="stream">文档流</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表格信息列表</returns>
-    Task<IReadOnlyList<TableInfo>> GetTablesAsync(Stream stream);
+    Task<IReadOnlyList<TableInfo>> GetTablesAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 从文件路径获取文档中所有表格的信息
     /// </summary>
     /// <param name="filePath">文件路径</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表格信息列表</returns>
-    Task<IReadOnlyList<TableInfo>> GetTablesAsync(string filePath);
+    Task<IReadOnlyList<TableInfo>> GetTablesAsync(
+        string filePath,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 提取指定表格的数据
@@ -40,12 +46,14 @@ public interface IDocumentParser
     /// <param name="tableIndex">表格索引（从0开始）</param>
     /// <param name="mapping">列映射配置（可选）</param>
     /// <param name="maxDataRowCount">最大数据行数（可选，仅用于预览限流）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表格数据</returns>
     Task<TableData> ExtractTableDataAsync(
         Stream stream,
         int tableIndex,
         ColumnMapping? mapping = null,
-        int? maxDataRowCount = null);
+        int? maxDataRowCount = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 从文件路径提取指定表格的数据
@@ -54,17 +62,22 @@ public interface IDocumentParser
     /// <param name="tableIndex">表格索引（从0开始）</param>
     /// <param name="mapping">列映射配置（可选）</param>
     /// <param name="maxDataRowCount">最大数据行数（可选，仅用于预览限流）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表格数据</returns>
     Task<TableData> ExtractTableDataAsync(
         string filePath,
         int tableIndex,
         ColumnMapping? mapping = null,
-        int? maxDataRowCount = null);
+        int? maxDataRowCount = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 提取所有表格的数据
     /// </summary>
     /// <param name="stream">文档流</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>所有表格数据列表</returns>
-    Task<IReadOnlyList<TableData>> ExtractAllTablesDataAsync(Stream stream);
+    Task<IReadOnlyList<TableData>> ExtractAllTablesDataAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default);
 }

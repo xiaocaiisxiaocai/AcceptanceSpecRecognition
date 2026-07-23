@@ -31,5 +31,5 @@ test("智能填充 LLM 并行提示应给出本地 Ollama 建议范围", () => {
     "utf8"
   );
 
-  assert.match(source, /本地 Ollama 建议 1-4/);
+  assert.match(source, /本地 Ollama 建议\s*1-4/);
 });

@@ -13,29 +13,29 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
     {
     }
 
-    public async Task<SystemUser?> GetByUsernameAsync(string username)
+    public async Task<SystemUser?> GetByUsernameAsync(string username, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(username))
             return null;
 
-        return await _dbSet.FirstOrDefaultAsync(u => u.Username == username);
+        return await _dbSet.FirstOrDefaultAsync(u => u.Username == username, cancellationToken);
     }
 
-    public async Task<SystemUser?> GetByUsernameWithAccessAsync(string username)
+    public async Task<SystemUser?> GetByUsernameWithAccessAsync(string username, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(username))
             return null;
 
         var now = DateTime.UtcNow;
         return await BuildAccessQuery(now)
-            .FirstOrDefaultAsync(u => u.Username == username);
+            .FirstOrDefaultAsync(u => u.Username == username, cancellationToken);
     }
 
-    public async Task<SystemUser?> GetByIdWithAccessAsync(int userId)
+    public async Task<SystemUser?> GetByIdWithAccessAsync(int userId, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         return await BuildAccessQuery(now)
-            .FirstOrDefaultAsync(u => u.Id == userId);
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
     }
 
     private IQueryable<SystemUser> BuildAccessQuery(DateTime now)
@@ -66,7 +66,8 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
         int pageSize,
         int? companyId = null,
         string? keyword = null,
-        bool? isActive = null)
+        bool? isActive = null,
+        CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
@@ -94,7 +95,7 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
             .OrderByDescending(u => u.IsActive)
             .ThenBy(u => u.Username);
 
-        var total = await query.CountAsync();
+        var total = await query.CountAsync(cancellationToken);
         var items = await query
             .AsSplitQuery()
             .Include(u => u.UserRoles)
@@ -105,12 +106,12 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
                 .ThenInclude(uo => uo.OrgUnit)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return (items, total);
     }
 
-    public async Task<int> CountActiveAdminUsersAsync(int companyId)
+    public async Task<int> CountActiveAdminUsersAsync(int companyId, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         return await _dbSet
@@ -122,6 +123,6 @@ public class SystemUserRepository : Repository<SystemUser>, ISystemUserRepositor
                     (!ur.StartAt.HasValue || ur.StartAt <= now) &&
                     (!ur.EndAt.HasValue || ur.EndAt >= now) &&
                     ur.Role.IsActive &&
-                    ur.Role.Code == "admin"));
+                    ur.Role.Code == "admin"), cancellationToken);
     }
 }

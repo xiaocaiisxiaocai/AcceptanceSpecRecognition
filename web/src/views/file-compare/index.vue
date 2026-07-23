@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onBeforeUnmount, onDeactivated } from "vue";
 import { ElMessage } from "element-plus";
 import type { UploadFile, UploadFiles } from "element-plus";
 import {
@@ -20,11 +20,19 @@ import CompareTableGrid from "./components/CompareTableGrid.vue";
 import UnifiedDiffView from "./components/UnifiedDiffView.vue";
 import { hasPerms } from "@/utils/auth";
 import { ensurePermission } from "@/utils/permission-guard";
+import {
+  createLatestRequestGate,
+  isCancelledRequest,
+  type LatestRequestTicket
+} from "./file-compare-request-gate";
 
 defineOptions({ name: "FileComparePage" });
 
 type CompareViewMode = "document" | "unified";
 type WordPaneSide = "left" | "right";
+
+const ROW_WINDOW_SIZE = 200;
+const COLUMN_WINDOW_SIZE = 60;
 
 const fileA = ref<File | null>(null);
 const fileB = ref<File | null>(null);
@@ -51,6 +59,13 @@ const leftPaneRef = ref<HTMLElement | null>(null);
 const rightPaneRef = ref<HTMLElement | null>(null);
 const leftTableRef = ref<InstanceType<typeof CompareTableGrid> | null>(null);
 const rightTableRef = ref<InstanceType<typeof CompareTableGrid> | null>(null);
+const tablePreviewLoading = ref(false);
+const rowOffset = ref(0);
+const columnOffset = ref(0);
+const diffCursor = ref(-1);
+const totalItemCount = ref(0);
+const workflowRequestGate = createLatestRequestGate();
+const tablePreviewRequestGate = createLatestRequestGate();
 let syncing = false;
 
 const isExcel = computed(() => fileType.value === 1);
@@ -63,7 +78,7 @@ const canStartCompare = computed(
   () => canUploadCompare.value && canPreviewCompare.value
 );
 
-const totalCount = computed(() => diffItems.value.length);
+const totalCount = computed(() => totalItemCount.value);
 const wordItems = computed(() => {
   if (!onlyDiff.value) return diffItems.value;
   return diffItems.value.filter(item => item.diffType !== "Unchanged");
@@ -92,6 +107,68 @@ const currentTableInfoB = computed(
     tableInfosB.value.find(item => item.index === selectedTableIndex.value) ??
     null
 );
+
+const totalPreviewRows = computed(() =>
+  Math.max(tableDataA.value?.totalRows ?? 0, tableDataB.value?.totalRows ?? 0)
+);
+const totalPreviewColumns = computed(() =>
+  Math.max(
+    tableDataA.value?.totalColumns ?? tableDataA.value?.columnCount ?? 0,
+    tableDataB.value?.totalColumns ?? tableDataB.value?.columnCount ?? 0
+  )
+);
+const loadedPreviewRows = computed(() =>
+  Math.max(
+    tableDataA.value?.rows.length ?? 0,
+    tableDataB.value?.rows.length ?? 0
+  )
+);
+const loadedPreviewColumns = computed(() =>
+  Math.max(
+    tableDataA.value?.columnCount ?? 0,
+    tableDataB.value?.columnCount ?? 0
+  )
+);
+const rowRangeText = computed(() => {
+  if (totalPreviewRows.value === 0 || loadedPreviewRows.value === 0)
+    return `行 0 / ${totalPreviewRows.value}`;
+  return `行 ${rowOffset.value + 1}-${Math.min(
+    rowOffset.value + loadedPreviewRows.value,
+    totalPreviewRows.value
+  )} / ${totalPreviewRows.value}`;
+});
+const columnRangeText = computed(() => {
+  if (totalPreviewColumns.value === 0 || loadedPreviewColumns.value === 0)
+    return `列 0 / ${totalPreviewColumns.value}`;
+  return `列 ${columnOffset.value + 1}-${Math.min(
+    columnOffset.value + loadedPreviewColumns.value,
+    totalPreviewColumns.value
+  )} / ${totalPreviewColumns.value}`;
+});
+const hasPreviousRows = computed(() => rowOffset.value > 0);
+const hasNextRows = computed(
+  () => rowOffset.value + loadedPreviewRows.value < totalPreviewRows.value
+);
+const hasPreviousColumns = computed(() => columnOffset.value > 0);
+const hasNextColumns = computed(
+  () =>
+    columnOffset.value + loadedPreviewColumns.value < totalPreviewColumns.value
+);
+const currentSheetDiffs = computed(() => {
+  if (selectedTableIndex.value === null) return [];
+  return diffItems.value
+    .filter(
+      item =>
+        item.location?.tableIndex === selectedTableIndex.value &&
+        typeof item.location?.rowIndex === "number" &&
+        typeof item.location?.columnIndex === "number"
+    )
+    .sort((a, b) =>
+      (a.location.rowIndex ?? 0) === (b.location.rowIndex ?? 0)
+        ? (a.location.columnIndex ?? 0) - (b.location.columnIndex ?? 0)
+        : (a.location.rowIndex ?? 0) - (b.location.rowIndex ?? 0)
+    );
+});
 
 const diffMap = computed(() => {
   const map = new Map<string, FileCompareDiffItem>();
@@ -123,6 +200,7 @@ const resetResult = () => {
   removedCount.value = 0;
   modifiedCount.value = 0;
   unchangedCount.value = 0;
+  totalItemCount.value = 0;
   activeView.value = "document";
   onlyDiff.value = false;
   fileType.value = null;
@@ -131,15 +209,27 @@ const resetResult = () => {
   selectedTableIndex.value = null;
   tableDataA.value = null;
   tableDataB.value = null;
+  rowOffset.value = 0;
+  columnOffset.value = 0;
+  diffCursor.value = -1;
+};
+
+const invalidateRequests = () => {
+  workflowRequestGate.invalidate();
+  tablePreviewRequestGate.invalidate();
+  loading.value = false;
+  tablePreviewLoading.value = false;
 };
 
 const handleFileAChange = (uploadFile: UploadFile, _files: UploadFiles) => {
+  invalidateRequests();
   fileA.value = uploadFile.raw ?? null;
   uploadedA.value = null;
   resetResult();
 };
 
 const handleFileBChange = (uploadFile: UploadFile, _files: UploadFiles) => {
+  invalidateRequests();
   fileB.value = uploadFile.raw ?? null;
   uploadedB.value = null;
   resetResult();
@@ -178,9 +268,22 @@ const startCompare = async () => {
   }
   if (!validateFiles()) return;
 
+  resetResult();
+  const sourceFileA = fileA.value!;
+  const sourceFileB = fileB.value!;
+  const ticket = workflowRequestGate.begin();
+  tablePreviewRequestGate.invalidate();
   loading.value = true;
   try {
-    const uploadRes = await uploadCompareFiles(fileA.value!, fileB.value!);
+    const uploadRes = await uploadCompareFiles(sourceFileA, sourceFileB, {
+      signal: ticket.controller.signal
+    });
+    if (
+      !workflowRequestGate.isCurrent(ticket) ||
+      fileA.value !== sourceFileA ||
+      fileB.value !== sourceFileB
+    )
+      return;
     if (uploadRes.code !== 0) {
       ElMessage.error(uploadRes.message || "上传失败");
       return;
@@ -189,10 +292,22 @@ const startCompare = async () => {
     uploadedA.value = uploadRes.data.fileA;
     uploadedB.value = uploadRes.data.fileB;
 
-    const previewRes = await previewCompare({
-      fileIdA: uploadRes.data.fileA.fileId,
-      fileIdB: uploadRes.data.fileB.fileId
-    });
+    const previewRes = await previewCompare(
+      {
+        fileIdA: uploadRes.data.fileA.fileId,
+        fileIdB: uploadRes.data.fileB.fileId,
+        includeUnchanged: false
+      },
+      {
+        signal: ticket.controller.signal
+      }
+    );
+    if (
+      !workflowRequestGate.isCurrent(ticket) ||
+      uploadedA.value?.fileId !== uploadRes.data.fileA.fileId ||
+      uploadedB.value?.fileId !== uploadRes.data.fileB.fileId
+    )
+      return;
     if (previewRes.code !== 0) {
       ElMessage.error(previewRes.message || "对比失败");
       return;
@@ -204,21 +319,26 @@ const startCompare = async () => {
     removedCount.value = previewRes.data.removedCount;
     modifiedCount.value = previewRes.data.modifiedCount;
     unchangedCount.value = previewRes.data.unchangedCount ?? 0;
+    totalItemCount.value = previewRes.data.totalCount ?? 0;
     activeView.value = "document";
     onlyDiff.value = false;
     fileType.value = previewRes.data.fileType ?? null;
 
-    await loadTableInfos();
+    await loadTableInfos(ticket);
+
+    if (!workflowRequestGate.isCurrent(ticket)) return;
 
     if (diffItems.value.length === 0) {
       ElMessage.success("未发现差异");
     } else {
       ElMessage.success("对比完成");
     }
-  } catch {
-    ElMessage.error("对比失败，请重试");
+  } catch (error) {
+    if (workflowRequestGate.isCurrent(ticket) && !isCancelledRequest(error)) {
+      ElMessage.error("对比失败，请重试");
+    }
   } finally {
-    loading.value = false;
+    if (workflowRequestGate.isCurrent(ticket)) loading.value = false;
   }
 };
 
@@ -251,7 +371,7 @@ const downloadResult = async () => {
   }
 };
 
-const loadTableInfos = async () => {
+const loadTableInfos = async (ticket: LatestRequestTicket) => {
   if (!uploadedA.value || !uploadedB.value) return;
   if (!isExcel.value) {
     tableInfosA.value = [];
@@ -263,12 +383,17 @@ const loadTableInfos = async () => {
   }
 
   const [resA, resB] = await Promise.all([
-    getFileTables(uploadedA.value.fileId),
-    getFileTables(uploadedB.value.fileId)
+    getFileTables(uploadedA.value.fileId, { signal: ticket.controller.signal }),
+    getFileTables(uploadedB.value.fileId, { signal: ticket.controller.signal })
   ]);
 
-  tableInfosA.value = resA.code === 0 ? resA.data : [];
-  tableInfosB.value = resB.code === 0 ? resB.data : [];
+  if (!workflowRequestGate.isCurrent(ticket)) return;
+  if (resA.code !== 0 || resB.code !== 0) {
+    throw new Error(resA.message || resB.message || "加载表格列表失败");
+  }
+
+  tableInfosA.value = resA.data;
+  tableInfosB.value = resB.data;
 
   const firstDiffIndex = diffItems.value.find(
     item => item.location?.tableIndex !== undefined
@@ -284,28 +409,115 @@ const loadTablePreviews = async () => {
   if (selectedTableIndex.value === null) return;
   if (!isExcel.value) return;
 
+  const currentFileIdA = uploadedA.value.fileId;
+  const currentFileIdB = uploadedB.value.fileId;
+  const currentTableIndex = selectedTableIndex.value;
+  const currentRowOffset = rowOffset.value;
+  const currentColumnOffset = columnOffset.value;
+  const ticket = tablePreviewRequestGate.begin();
   const options = {
-    previewRows: 0,
+    previewRows: ROW_WINDOW_SIZE,
     headerRowIndex: 0,
     headerRowCount: 1,
-    dataStartRowIndex: 0
+    dataStartRowIndex: 0,
+    rowOffset: currentRowOffset,
+    columnOffset: currentColumnOffset,
+    previewColumns: COLUMN_WINDOW_SIZE
   };
 
+  tablePreviewLoading.value = true;
   try {
     const [resA, resB] = await Promise.all([
-      getTablePreview(
-        uploadedA.value.fileId,
-        selectedTableIndex.value,
-        options
-      ),
-      getTablePreview(uploadedB.value.fileId, selectedTableIndex.value, options)
+      getTablePreview(currentFileIdA, currentTableIndex, options, {
+        signal: ticket.controller.signal
+      }),
+      getTablePreview(currentFileIdB, currentTableIndex, options, {
+        signal: ticket.controller.signal
+      })
     ]);
 
-    tableDataA.value = resA.code === 0 ? resA.data : null;
-    tableDataB.value = resB.code === 0 ? resB.data : null;
-  } catch {
-    ElMessage.error("加载表格预览失败");
+    if (
+      !tablePreviewRequestGate.isCurrent(ticket) ||
+      uploadedA.value?.fileId !== currentFileIdA ||
+      uploadedB.value?.fileId !== currentFileIdB ||
+      selectedTableIndex.value !== currentTableIndex ||
+      rowOffset.value !== currentRowOffset ||
+      columnOffset.value !== currentColumnOffset
+    )
+      return;
+
+    if (resA.code !== 0 || resB.code !== 0) {
+      throw new Error(resA.message || resB.message || "加载表格预览失败");
+    }
+
+    tableDataA.value = resA.data;
+    tableDataB.value = resB.data;
+  } catch (error) {
+    if (
+      tablePreviewRequestGate.isCurrent(ticket) &&
+      !isCancelledRequest(error)
+    ) {
+      rowOffset.value =
+        tableDataA.value?.rowOffset ?? tableDataB.value?.rowOffset ?? 0;
+      columnOffset.value =
+        tableDataA.value?.columnOffset ?? tableDataB.value?.columnOffset ?? 0;
+      ElMessage.error("加载表格预览失败，请重试");
+    }
+  } finally {
+    if (tablePreviewRequestGate.isCurrent(ticket)) {
+      tablePreviewLoading.value = false;
+    }
   }
+};
+
+const changeRowWindow = (direction: -1 | 1) => {
+  rowOffset.value = Math.max(0, rowOffset.value + direction * ROW_WINDOW_SIZE);
+  void loadTablePreviews();
+};
+
+const changeColumnWindow = (direction: -1 | 1) => {
+  columnOffset.value = Math.max(
+    0,
+    columnOffset.value + direction * COLUMN_WINDOW_SIZE
+  );
+  void loadTablePreviews();
+};
+
+const jumpToDiff = (direction: -1 | 1) => {
+  if (currentSheetDiffs.value.length === 0) return;
+  diffCursor.value =
+    diffCursor.value < 0
+      ? direction === 1
+        ? 0
+        : currentSheetDiffs.value.length - 1
+      : (diffCursor.value + direction + currentSheetDiffs.value.length) %
+        currentSheetDiffs.value.length;
+  const target = currentSheetDiffs.value[diffCursor.value];
+  const tableStartRow = Math.min(
+    currentTableInfoA.value?.usedRangeStartRow ?? Number.MAX_SAFE_INTEGER,
+    currentTableInfoB.value?.usedRangeStartRow ?? Number.MAX_SAFE_INTEGER
+  );
+  const tableStartColumn = Math.min(
+    currentTableInfoA.value?.usedRangeStartColumn ?? Number.MAX_SAFE_INTEGER,
+    currentTableInfoB.value?.usedRangeStartColumn ?? Number.MAX_SAFE_INTEGER
+  );
+  const normalizedStartRow = Number.isFinite(tableStartRow) ? tableStartRow : 1;
+  const normalizedStartColumn = Number.isFinite(tableStartColumn)
+    ? tableStartColumn
+    : 1;
+  const relativeRow = Math.max(
+    0,
+    (target.location.rowIndex ?? normalizedStartRow) - normalizedStartRow
+  );
+  const relativeColumn = Math.max(
+    0,
+    (target.location.columnIndex ?? normalizedStartColumn) -
+      normalizedStartColumn
+  );
+  rowOffset.value = Math.floor(relativeRow / ROW_WINDOW_SIZE) * ROW_WINDOW_SIZE;
+  columnOffset.value =
+    Math.floor(relativeColumn / COLUMN_WINDOW_SIZE) * COLUMN_WINDOW_SIZE;
+  void loadTablePreviews();
 };
 
 const formatDiffType = (type: FileCompareDiffItem["diffType"]) => {
@@ -424,8 +636,14 @@ const syncTableScroll = (
 watch(
   () => selectedTableIndex.value,
   () => {
+    tablePreviewRequestGate.invalidate();
+    rowOffset.value = 0;
+    columnOffset.value = 0;
+    diffCursor.value = -1;
+    tableDataA.value = null;
+    tableDataB.value = null;
     if (isExcel.value) {
-      loadTablePreviews();
+      void loadTablePreviews();
     }
   }
 );
@@ -438,10 +656,13 @@ watch(
     }
   }
 );
+
+onDeactivated(invalidateRequests);
+onBeforeUnmount(invalidateRequests);
 </script>
 
 <template>
-  <div class="compare-page">
+  <div class="page page--fill file-compare-page">
     <el-card class="compare-card">
       <template #header>
         <div class="card-title">文件对比</div>
@@ -530,24 +751,81 @@ watch(
         v-if="activeView === 'document' && tableOptions.length"
         class="table-controls"
       >
-        <span class="control-label">
-          {{ isExcel ? "选择工作表" : "选择表格" }}
-        </span>
-        <el-select
-          v-model="selectedTableIndex"
-          placeholder="请选择"
-          class="table-select"
+        <div class="table-selector">
+          <span class="control-label">
+            {{ isExcel ? "选择工作表" : "选择表格" }}
+          </span>
+          <el-select
+            v-model="selectedTableIndex"
+            placeholder="请选择"
+            class="table-select"
+          >
+            <el-option
+              v-for="item in tableOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </div>
+        <div
+          v-if="isExcel"
+          class="window-controls"
+          role="group"
+          aria-label="表格预览范围"
         >
-          <el-option
-            v-for="item in tableOptions"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value"
-          />
-        </el-select>
+          <span class="window-range">{{ rowRangeText }}</span>
+          <span class="window-range">{{ columnRangeText }}</span>
+          <el-button
+            size="small"
+            :disabled="tablePreviewLoading || !hasPreviousRows"
+            @click="changeRowWindow(-1)"
+          >
+            上一批行
+          </el-button>
+          <el-button
+            size="small"
+            :disabled="tablePreviewLoading || !hasNextRows"
+            @click="changeRowWindow(1)"
+          >
+            下一批行
+          </el-button>
+          <el-button
+            size="small"
+            :disabled="tablePreviewLoading || !hasPreviousColumns"
+            @click="changeColumnWindow(-1)"
+          >
+            左移列
+          </el-button>
+          <el-button
+            size="small"
+            :disabled="tablePreviewLoading || !hasNextColumns"
+            @click="changeColumnWindow(1)"
+          >
+            右移列
+          </el-button>
+          <el-button
+            size="small"
+            :disabled="tablePreviewLoading || currentSheetDiffs.length === 0"
+            @click="jumpToDiff(-1)"
+          >
+            上一处差异
+          </el-button>
+          <el-button
+            size="small"
+            :disabled="tablePreviewLoading || currentSheetDiffs.length === 0"
+            @click="jumpToDiff(1)"
+          >
+            下一处差异
+          </el-button>
+        </div>
       </div>
 
-      <div v-if="activeView === 'document'" class="compare-grid">
+      <div
+        v-if="activeView === 'document'"
+        v-loading="tablePreviewLoading"
+        class="compare-grid"
+      >
         <div class="compare-pane">
           <div class="pane-title">
             <span>文件 A（原文）</span>
@@ -677,14 +955,28 @@ watch(
 </template>
 
 <style scoped>
-.compare-page {
+.file-compare-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  min-height: 0;
 }
 
 .compare-card {
   width: 100%;
+}
+
+.compare-card:last-child {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.compare-card:last-child :deep(.el-card__body) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .card-title {
@@ -694,7 +986,7 @@ watch(
 
 .upload-text {
   font-size: 14px;
-  color: #606266;
+  color: var(--app-text-secondary);
 }
 
 .actions {
@@ -709,7 +1001,7 @@ watch(
   gap: 16px;
   align-items: center;
   margin-bottom: 12px;
-  color: #606266;
+  color: var(--app-text-secondary);
 }
 
 .diff-toggle {
@@ -722,14 +1014,30 @@ watch(
 
 .table-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.table-selector,
+.window-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.window-range {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
 }
 
 .control-label {
   font-size: 14px;
-  color: #4b5563;
+  color: var(--app-text-secondary);
 }
 
 .table-select {
@@ -738,15 +1046,20 @@ watch(
 
 .compare-grid {
   display: grid;
+  flex: 1;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  min-height: 0;
 }
 
 .compare-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   overflow: hidden;
-  background: #fff;
-  border: 1px solid #eef0f3;
-  border-radius: 8px;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
 }
 
 .pane-title {
@@ -756,8 +1069,8 @@ watch(
   justify-content: space-between;
   padding: 10px 12px;
   font-weight: 600;
-  background: #f9fafb;
-  border-bottom: 1px solid #eef0f3;
+  background: var(--app-info-bg);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .pane-file {
@@ -766,14 +1079,16 @@ watch(
   text-overflow: ellipsis;
   font-size: 12px;
   font-weight: 400;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   white-space: nowrap;
 }
 
 .pane-body {
-  height: min(62vh, 640px);
+  flex: 1;
+  height: 100%;
+  min-height: 0;
   overflow: auto;
-  background: #fff;
+  background: var(--app-bg-card);
 }
 
 .pane-empty {
@@ -785,14 +1100,14 @@ watch(
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  background: #f8fafc;
+  background: var(--app-info-bg);
 }
 
 .paragraph-card {
   padding: 10px 12px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
 }
 
 .paragraph-head {
@@ -806,59 +1121,55 @@ watch(
 .paragraph-no {
   font-size: 13px;
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text-primary);
 }
 
 .paragraph-location {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 
 .paragraph-text {
   margin: 0;
   line-height: 1.65;
-  color: #1f2937;
+  color: var(--app-text-primary);
   word-break: break-word;
   white-space: pre-wrap;
 }
 
 .paragraph-text.is-placeholder {
   font-style: italic;
-  color: #94a3b8;
+  color: var(--app-text-disabled);
 }
 
 .paragraph-card.is-added {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
+  background: var(--app-diff-add-bg);
+  border-color: var(--app-diff-add-emphasis);
 }
 
 .paragraph-card.is-removed {
-  background: #fef2f2;
-  border-color: #fecaca;
+  background: var(--app-diff-del-bg);
+  border-color: var(--app-diff-del-emphasis);
 }
 
 .paragraph-card.is-modified-old {
-  background: #fff7f7;
-  border-color: #fca5a5;
+  background: var(--app-diff-del-bg);
+  border-color: var(--app-diff-del-emphasis);
 }
 
 .paragraph-card.is-modified-new {
-  background: #f7fff8;
-  border-color: #86efac;
+  background: var(--app-diff-add-bg);
+  border-color: var(--app-diff-add-emphasis);
 }
 
 .paragraph-card.is-missing {
-  background: #f8fafc;
+  background: var(--app-info-bg);
   border-style: dashed;
 }
 
 @media (width <= 1200px) {
   .compare-grid {
     grid-template-columns: 1fr;
-  }
-
-  .pane-body {
-    height: 520px;
   }
 }
 </style>

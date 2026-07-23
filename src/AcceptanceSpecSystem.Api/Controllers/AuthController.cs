@@ -1,10 +1,11 @@
 ﻿using System.Security.Claims;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Services;
-using AcceptanceSpecSystem.Data.Repositories;
+using AcceptanceSpecSystem.Api.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -16,20 +17,26 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthTokenService _authTokenService;
-    private readonly IAuthPasswordService _authPasswordService;
+    private readonly IAuthLoginAppService _loginAppService;
     private readonly IAuthAccessService _authAccessService;
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly IAuthRefreshSessionService _refreshSessions;
+    private readonly IBrowserAuthSecurityService _browserSecurity;
+    private readonly BrowserAuthOptions _browserOptions;
 
     public AuthController(
         IAuthTokenService authTokenService,
-        IAuthPasswordService authPasswordService,
+        IAuthLoginAppService loginAppService,
         IAuthAccessService authAccessService,
-        IUnitOfWork unitOfWork)
+        IAuthRefreshSessionService refreshSessions,
+        IBrowserAuthSecurityService browserSecurity,
+        IOptions<BrowserAuthOptions> browserOptions)
     {
         _authTokenService = authTokenService;
-        _authPasswordService = authPasswordService;
+        _loginAppService = loginAppService;
         _authAccessService = authAccessService;
-        _unitOfWork = unitOfWork;
+        _refreshSessions = refreshSessions;
+        _browserSecurity = browserSecurity;
+        _browserOptions = browserOptions.Value;
     }
 
     /// <summary>
@@ -47,6 +54,9 @@ public class AuthController : ControllerBase
         var password = request?.Password ?? string.Empty;
         HttpContext.Items["AuditUsername"] = username;
 
+        if (!_browserSecurity.ValidateTrustedOrigin(Request, out var originError))
+            return StatusCode(StatusCodes.Status403Forbidden, AuthFailure<LoginSuccessData>(originError));
+
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
         {
             return Unauthorized(new FrontendAuthResponse<LoginSuccessData>
@@ -57,8 +67,8 @@ public class AuthController : ControllerBase
             });
         }
 
-        var user = await _unitOfWork.SystemUsers.GetByUsernameAsync(username);
-        if (user == null || !user.IsActive || !_authPasswordService.VerifyPassword(user.PasswordHash, password))
+        var login = await _loginAppService.AuthenticateAsync(username, password, cancellationToken);
+        if (login.Status == AuthLoginStatus.InvalidCredentials)
         {
             return Unauthorized(new FrontendAuthResponse<LoginSuccessData>
             {
@@ -68,8 +78,8 @@ public class AuthController : ControllerBase
             });
         }
 
-        var access = await _authAccessService.GetByUsernameAsync(username, cancellationToken);
-        if (access == null || !access.IsActive)
+        var access = login.Access;
+        if (login.Status != AuthLoginStatus.Success || access == null)
         {
             return Unauthorized(new FrontendAuthResponse<LoginSuccessData>
             {
@@ -84,24 +94,31 @@ public class AuthController : ControllerBase
         {
             UserId = access.UserId,
             CompanyId = access.CompanyId,
-            Username = user.Username,
+            Username = access.Username,
             PermissionVersion = access.PermissionVersion,
             RoleCode = access.RoleCode,
-            Permissions = permissions
+            Permissions = permissions,
+            AuthorizationValidUntil = access.AuthorizationValidUntil
         };
         var pair = _authTokenService.CreateTokenPair(tokenUser);
+        await _refreshSessions.CreateAsync(
+            tokenUser.UserId,
+            tokenUser.PermissionVersion,
+            pair.RefreshToken,
+            pair.RefreshTokenExpiresAt,
+            cancellationToken);
+        _browserSecurity.WriteSessionCookies(Response, pair.RefreshToken, pair.RefreshTokenExpiresAt);
         return Ok(new FrontendAuthResponse<LoginSuccessData>
         {
             Success = true,
             Data = new LoginSuccessData
             {
-                Avatar = user.Avatar,
-                Username = user.Username,
-                Nickname = string.IsNullOrWhiteSpace(user.Nickname) ? user.Username : user.Nickname,
+                Avatar = access.Avatar,
+                Username = access.Username,
+                Nickname = string.IsNullOrWhiteSpace(access.Nickname) ? access.Username : access.Nickname,
                 RoleCode = access.RoleCode,
                 Permissions = permissions,
                 AccessToken = pair.AccessToken,
-                RefreshToken = pair.RefreshToken,
                 Expires = pair.AccessTokenExpiresAt
             }
         });
@@ -115,57 +132,35 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     [EnableRateLimiting("refresh-token")]
     public async Task<ActionResult<FrontendAuthResponse<RefreshTokenSuccessData>>> RefreshToken(
-        [FromBody] RefreshTokenRequest? request,
         CancellationToken cancellationToken = default)
     {
-        var refreshToken = request?.RefreshToken?.Trim() ?? string.Empty;
-        var principal = _authTokenService.ValidateRefreshToken(refreshToken);
-        if (principal == null)
+        if (!_browserSecurity.ValidateStateChangingRequest(Request, out var csrfError))
+            return StatusCode(StatusCodes.Status403Forbidden, AuthFailure<RefreshTokenSuccessData>(csrfError));
+
+        var refreshToken = Request.Cookies[_browserOptions.RefreshCookieName]?.Trim() ?? string.Empty;
+
+        var rotation = await _refreshSessions.RotateAsync(refreshToken, cancellationToken);
+        if (rotation.Status != RefreshSessionRotationStatus.Success || rotation.UserId == null ||
+            string.IsNullOrWhiteSpace(rotation.ReplacementToken) || rotation.ReplacementExpiresAt == null)
         {
-            return Unauthorized(new FrontendAuthResponse<RefreshTokenSuccessData>
-            {
-                Success = false,
-                Data = null,
-                Message = "RefreshToken 无效或已过期"
-            });
+            _browserSecurity.ClearSessionCookies(Response);
+            var message = rotation.Status == RefreshSessionRotationStatus.ReplayDetected
+                ? "检测到异常会话重放，请重新登录"
+                : "RefreshToken 无效或已过期";
+            return Unauthorized(AuthFailure<RefreshTokenSuccessData>(message));
         }
 
-        var userIdClaim = principal.FindFirstValue("user_id");
-        var username = principal.FindFirstValue(ClaimTypes.NameIdentifier)
-                       ?? principal.FindFirstValue(ClaimTypes.Name)
-                       ?? principal.FindFirstValue("sub");
-        HttpContext.Items["AuditUsername"] = username;
+        var access = await _authAccessService.GetByUserIdAsync(rotation.UserId.Value, cancellationToken);
+        HttpContext.Items["AuditUsername"] = access?.Username;
 
-        AuthAccessContext? access = null;
-        if (int.TryParse(userIdClaim, out var userId))
+        if (access == null || !access.IsActive ||
+            string.IsNullOrWhiteSpace(access.RoleCode) || !access.OrgUnitId.HasValue ||
+            (access.AuthorizationValidUntil.HasValue &&
+             access.AuthorizationValidUntil.Value <= DateTime.UtcNow))
         {
-            access = await _authAccessService.GetByUserIdAsync(userId, cancellationToken);
-        }
-
-        if (access == null && !string.IsNullOrWhiteSpace(username))
-        {
-            access = await _authAccessService.GetByUsernameAsync(username, cancellationToken);
-        }
-
-        if (access == null || !access.IsActive)
-        {
-            return Unauthorized(new FrontendAuthResponse<RefreshTokenSuccessData>
-            {
-                Success = false,
-                Data = null,
-                Message = "用户不存在或已停用"
-            });
-        }
-
-        if (!int.TryParse(principal.FindFirstValue("permission_version"), out var tokenPermissionVersion) ||
-            tokenPermissionVersion != access.PermissionVersion)
-        {
-            return Unauthorized(new FrontendAuthResponse<RefreshTokenSuccessData>
-            {
-                Success = false,
-                Data = null,
-                Message = "当前登录状态已失效，请重新登录"
-            });
+            await _refreshSessions.RevokeByTokenAsync(rotation.ReplacementToken, "access-context-invalid", cancellationToken);
+            _browserSecurity.ClearSessionCookies(Response);
+            return Unauthorized(AuthFailure<RefreshTokenSuccessData>("用户不存在或已停用"));
         }
 
         var pair = _authTokenService.CreateTokenPair(new AuthTokenUser
@@ -175,8 +170,10 @@ public class AuthController : ControllerBase
             Username = access.Username,
             PermissionVersion = access.PermissionVersion,
             RoleCode = access.RoleCode,
-            Permissions = access.Permissions.ToList()
+            Permissions = access.Permissions.ToList(),
+            AuthorizationValidUntil = access.AuthorizationValidUntil
         });
+        _browserSecurity.WriteSessionCookies(Response, rotation.ReplacementToken, rotation.ReplacementExpiresAt.Value);
         return Ok(new FrontendAuthResponse<RefreshTokenSuccessData>
         {
             Success = true,
@@ -188,9 +185,32 @@ public class AuthController : ControllerBase
                 RoleCode = access.RoleCode,
                 Permissions = access.Permissions.ToList(),
                 AccessToken = pair.AccessToken,
-                RefreshToken = pair.RefreshToken,
                 Expires = pair.AccessTokenExpiresAt
             }
         });
     }
+
+    /// <summary>
+    /// 退出当前浏览器会话。
+    /// </summary>
+    [HttpPost("logout")]
+    [AuditOperation("logout", "auth")]
+    [AllowAnonymous]
+    public async Task<ActionResult<FrontendAuthResponse<object>>> Logout(CancellationToken cancellationToken = default)
+    {
+        if (!_browserSecurity.ValidateStateChangingRequest(Request, out var csrfError))
+            return StatusCode(StatusCodes.Status403Forbidden, AuthFailure<object>(csrfError));
+
+        var refreshToken = Request.Cookies[_browserOptions.RefreshCookieName]?.Trim() ?? string.Empty;
+        await _refreshSessions.RevokeByTokenAsync(refreshToken, "user-logout", cancellationToken);
+        _browserSecurity.ClearSessionCookies(Response);
+        return Ok(new FrontendAuthResponse<object> { Success = true, Data = new { } });
+    }
+
+    private static FrontendAuthResponse<T> AuthFailure<T>(string message) => new()
+    {
+        Success = false,
+        Data = default,
+        Message = message
+    };
 }

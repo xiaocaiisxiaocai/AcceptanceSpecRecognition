@@ -7,14 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="DTOs\AuthRoleDtos.cs" />
-    <Compile Remove="DTOs\OrgUnitDtos.cs" />
-    <Compile Remove="DTOs\SystemUserDtos.cs" />
-    <Compile Remove="DTOs\DocumentDtos.cs" />
-    <Compile Remove="DTOs\ExcelImportDtos.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.22" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.22" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.22" />
@@ -29,6 +21,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AcceptanceSpecSystem.Application\AcceptanceSpecSystem.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AcceptanceSpecSystem.Api.Tests" />
   </ItemGroup>
 
 </Project>

@@ -52,10 +52,16 @@ onMounted(() => {
 
 <template>
   <div v-loading="wholeMenus.length === 0" class="horizontal-header">
-    <div v-if="showLogo" class="horizontal-header-left" @click="backTopMenu">
-      <img :src="getLogo()" alt="logo" />
+    <button
+      v-if="showLogo"
+      type="button"
+      class="horizontal-header-left"
+      :aria-label="`返回${title}首页`"
+      @click="backTopMenu"
+    >
+      <img :src="getLogo()" alt="" />
       <span>{{ title }}</span>
-    </div>
+    </button>
     <el-menu
       ref="menuRef"
       mode="horizontal"
@@ -77,10 +83,19 @@ onMounted(() => {
       <LaySidebarFullScreen id="full-screen" />
       <!-- 退出登录 -->
       <el-dropdown trigger="click">
-        <span class="el-dropdown-link navbar-bg-hover">
-          <img :src="userAvatar" :style="avatarsStyle" />
+        <button
+          type="button"
+          class="el-dropdown-link navbar-bg-hover"
+          aria-haspopup="menu"
+          :aria-label="`${username || '当前用户'}账户菜单`"
+        >
+          <img
+            :src="userAvatar"
+            :style="avatarsStyle"
+            :alt="`${username || '当前用户'}头像`"
+          />
           <p v-if="username" class="dark:text-white">{{ username }}</p>
-        </span>
+        </button>
         <template #dropdown>
           <el-dropdown-menu class="logout">
             <el-dropdown-item @click="logout">
@@ -93,13 +108,14 @@ onMounted(() => {
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-      <span
+      <button
+        type="button"
         class="set-icon navbar-bg-hover"
-        title="打开系统配置"
+        aria-label="打开系统配置"
         @click="onPanel"
       >
-        <IconifyIconOffline :icon="Setting" />
-      </span>
+        <IconifyIconOffline :icon="Setting" aria-hidden="true" />
+      </button>
     </div>
   </div>
 </template>

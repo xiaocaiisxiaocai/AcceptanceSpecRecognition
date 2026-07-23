@@ -26,7 +26,6 @@ export function useDataImportExecution() {
   const importResult = ref<CombinedImportResult | null>(null);
   const pendingImportAggregate = ref<CombinedImportResult | null>(null);
   const committedImportAggregate = ref<CombinedImportResult | null>(null);
-  const previewSkippedRows = ref(false);
   const differenceDecisionMap = ref<
     Record<string, DifferenceDecision | undefined>
   >({});
@@ -37,7 +36,6 @@ export function useDataImportExecution() {
     importResult,
     pendingImportAggregate,
     committedImportAggregate,
-    previewSkippedRows,
     differenceDecisionMap,
     differenceConfirmDialogVisible
   };

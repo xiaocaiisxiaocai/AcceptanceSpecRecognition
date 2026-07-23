@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import {
   getSpecList,
   detectSpecDuplicateGroups,
@@ -14,6 +19,12 @@ import {
   type SpecDuplicateDetectionResult
 } from "@/api/spec";
 import { hasPerms } from "@/utils/auth";
+import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
+import {
+  getRequestErrorMessage,
+  isGloballyHandledAuthError
+} from "@/utils/error-message";
+import { isMessageBoxCancel } from "@/utils/message-box";
 import SpecDuplicateDialog from "./SpecDuplicateDialog.vue";
 import SpecSemanticSearchDialog from "./SpecSemanticSearchDialog.vue";
 
@@ -37,7 +48,7 @@ const selectedRows = ref<AcceptanceSpec[]>([]);
 
 const queryParams = reactive({
   page: 1,
-  pageSize: 500,
+  pageSize: 100,
   keyword: "",
   globalSearch: props.customerId == null
 });
@@ -52,6 +63,11 @@ const formData = reactive({
   acceptance: "",
   remark: ""
 });
+const formRef = ref<FormInstance>();
+const formRules: FormRules<typeof formData> = {
+  project: [requiredTrimmedRule("请输入项目名称")],
+  specification: [requiredTrimmedRule("请输入规格内容")]
+};
 
 const detailDialogVisible = ref(false);
 const detailData = ref<AcceptanceSpec | null>(null);
@@ -276,8 +292,9 @@ const handleDelete = async (row: AcceptanceSpec) => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "删除失败"));
   }
 };
 
@@ -309,8 +326,9 @@ const handleBatchDelete = async () => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (isMessageBoxCancel(error) || isGloballyHandledAuthError(error)) return;
+    ElMessage.error(getRequestErrorMessage(error, "批量删除失败"));
   }
 };
 
@@ -380,14 +398,7 @@ const handleSubmit = async () => {
     ElMessage.error("权限不足，无法提交当前操作");
     return;
   }
-  if (!formData.project.trim()) {
-    ElMessage.warning("请输入项目名称");
-    return;
-  }
-  if (!formData.specification.trim()) {
-    ElMessage.warning("请输入规格内容");
-    return;
-  }
+  if (!(await validateForm(formRef.value))) return;
 
   try {
     const res = isEdit.value
@@ -505,7 +516,8 @@ const groupLabel = () => {
           v-if="queryParams.globalSearch"
           prop="customerName"
           label="客户"
-          min-width="120"
+          min-width="160"
+          show-overflow-tooltip
         >
           <template #default="{ row }">
             <span class="line-clamp-1" :title="row.customerName">{{
@@ -545,14 +557,24 @@ const groupLabel = () => {
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="project" label="项目" min-width="150">
+        <el-table-column
+          prop="project"
+          label="项目"
+          min-width="180"
+          show-overflow-tooltip
+        >
           <template #default="{ row }">
             <span class="line-clamp-1" :title="row.project">{{
               row.project
             }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="specification" label="规格内容" min-width="200">
+        <el-table-column
+          prop="specification"
+          label="规格内容"
+          min-width="260"
+          show-overflow-tooltip
+        >
           <template #default="{ row }">
             <span class="line-clamp-1" :title="row.specification">{{
               row.specification
@@ -616,16 +638,26 @@ const groupLabel = () => {
       />
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="600">
-      <el-form label-width="100px">
-        <el-form-item label="项目名称" required>
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="min(640px, calc(100vw - 32px))"
+    >
+      <el-form
+        ref="formRef"
+        :model="formData"
+        :rules="formRules"
+        label-width="100px"
+        status-icon
+      >
+        <el-form-item label="项目名称" prop="project">
           <el-input
             v-model="formData.project"
             placeholder="请输入项目名称"
             maxlength="500"
           />
         </el-form-item>
-        <el-form-item label="规格内容" required>
+        <el-form-item label="规格内容" prop="specification">
           <el-input
             v-model="formData.specification"
             type="textarea"
@@ -658,7 +690,11 @@ const groupLabel = () => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="detailDialogVisible" title="规格详情" width="600">
+    <el-dialog
+      v-model="detailDialogVisible"
+      title="规格详情"
+      width="min(640px, calc(100vw - 32px))"
+    >
       <el-descriptions v-if="detailData" :column="1" border>
         <el-descriptions-item label="ID">{{
           detailData.id

@@ -15,11 +15,28 @@ public class ColumnMappingRuleRepository : Repository<ColumnMappingRule>, IColum
 
     public async Task<IReadOnlyList<ColumnMappingRule>> GetEnabledOrderedAsync()
     {
-        return await _dbSet
+        var rules = await _dbSet
             .Where(rule => rule.Enabled)
+            .Where(rule => rule.CustomerId == null)
             .OrderBy(rule => rule.TargetField)
             .ThenByDescending(rule => rule.Priority)
             .ThenBy(rule => rule.Id)
             .ToListAsync();
+
+        return ColumnMappingRuleDeduplicator.ForConfigurationList(rules);
+    }
+
+    public async Task<IReadOnlyList<ColumnMappingRule>> GetEffectiveForCustomerAsync(int? customerId)
+    {
+        var rules = await _dbSet
+            .Where(rule => rule.Enabled)
+            .Where(rule => rule.CustomerId == null || rule.CustomerId == customerId)
+            .OrderBy(rule => rule.TargetField)
+            .ThenByDescending(rule => customerId.HasValue && rule.CustomerId == customerId.Value)
+            .ThenByDescending(rule => rule.Priority)
+            .ThenBy(rule => rule.Id)
+            .ToListAsync();
+
+        return ColumnMappingRuleDeduplicator.ForEffectiveRules(rules, customerId);
     }
 }

@@ -6,6 +6,7 @@ using AcceptanceSpecSystem.Data.Context;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -15,7 +16,7 @@ public class AuthSessionValidationTests
     public async Task AccessToken_WhenPermissionVersionChanged_ShouldReturnUnauthorized()
     {
         using var factory = new RealJwtApiWebApplicationFactory();
-        using var client = factory.CreateClient();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
         var (accessToken, _) = await LoginAsAdminAsync(client);
 
@@ -46,7 +47,7 @@ public class AuthSessionValidationTests
     public async Task RefreshToken_WhenUsedAsAccessToken_ShouldReturnUnauthorized()
     {
         using var factory = new RealJwtApiWebApplicationFactory();
-        using var client = factory.CreateClient();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
         var (_, refreshToken) = await LoginAsAdminAsync(client);
 
@@ -59,19 +60,16 @@ public class AuthSessionValidationTests
 
     private static async Task<(string AccessToken, string RefreshToken)> LoginAsAdminAsync(HttpClient client)
     {
-        var response = await client.PostAsync(
-            "/login",
-            ApiClientJson.ToJsonContent(new
-            {
-                username = "admin",
-                password = ApiWebApplicationFactory.TestAdminPassword
-            }));
+        using var loginRequest = AuthCookieTestHelper.CreateLoginRequest(
+            "admin", ApiWebApplicationFactory.TestAdminPassword);
+        var response = await client.SendAsync(loginRequest);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var body = await response.ReadAsAsync<JsonElement>();
         var data = body.GetProperty("data");
+        var (refreshToken, _) = AuthCookieTestHelper.ReadSessionCookies(response);
         return (
             data.GetProperty("accessToken").GetString()!,
-            data.GetProperty("refreshToken").GetString()!);
+            refreshToken);
     }
 }

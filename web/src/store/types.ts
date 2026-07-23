@@ -58,8 +58,4 @@ export type LoginRequestPayload = {
   password: string;
 };
 
-export type RefreshTokenPayload = {
-  refreshToken: string;
-};
-
 export type LoginRouteTarget = RouteLocationRaw;
