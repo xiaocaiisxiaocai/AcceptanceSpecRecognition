@@ -240,3 +240,20 @@ export const reconcileMatchPreviewSelectionCache = (
     );
   });
 };
+
+export const reconcileBatchPreviewSelectionCache = (
+  results: BatchTablePreviewResult[],
+  selectionCache: Map<number, PersistedSelection[]>
+) => {
+  const currentTableIndexes = new Set(
+    results.map(tableResult => tableResult.tableIndex)
+  );
+
+  for (const tableIndex of selectionCache.keys()) {
+    if (!currentTableIndexes.has(tableIndex)) {
+      selectionCache.delete(tableIndex);
+    }
+  }
+
+  reconcileMatchPreviewSelectionCache(results, selectionCache);
+};

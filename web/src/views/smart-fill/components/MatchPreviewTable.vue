@@ -66,6 +66,7 @@ const emit = defineEmits<{
     spec: MatchPreviewItem["bestMatch"] | null
   ): void;
   (e: "showDetail", item: MatchPreviewItem): void;
+  (e: "selectionChange", selections: PersistedSelection[]): void;
 }>();
 
 export type { EditedBackfillItem } from "./matchPreviewTable.types";
@@ -129,6 +130,18 @@ const initSelections = () => {
 };
 
 const hasOverrideValue = hasMatchPreviewOverrideValue;
+
+const getCurrentSelections = (): PersistedSelection[] =>
+  collectMatchPreviewSelections(
+    props.items,
+    selectedSpecs.value,
+    editedOverrides.value,
+    manualClearedRows.value
+  );
+
+const emitSelectionChange = () => {
+  emit("selectionChange", getCurrentSelections());
+};
 
 const persistedStateMap = computed(
   () =>
@@ -263,6 +276,7 @@ const handleSaveEditedSelection = () => {
     reviewApprovalToken: item.bestMatch?.reviewApprovalToken
   });
   manualClearedRows.value.delete(item.rowIndex);
+  emitSelectionChange();
   emit("select", item.rowIndex, item.bestMatch ?? null);
   closeEditDialog();
 };
@@ -376,18 +390,21 @@ const handleSelectBest = (item: MatchPreviewItem) => {
     reviewApprovalToken: item.bestMatch?.reviewApprovalToken
   });
   manualClearedRows.value.delete(item.rowIndex);
+  emitSelectionChange();
   emit("select", item.rowIndex, item.bestMatch ?? null);
 };
 
 const handleClearSelection = (item: MatchPreviewItem) => {
   selectedSpecs.value.set(item.rowIndex, null);
   manualClearedRows.value.add(item.rowIndex);
+  emitSelectionChange();
   emit("select", item.rowIndex, null);
 };
 
 const clearSelectionByRow = (rowIndex: number) => {
   selectedSpecs.value.set(rowIndex, null);
   manualClearedRows.value.add(rowIndex);
+  emitSelectionChange();
 };
 
 const getConfidenceClass = getPreviewConfidenceClass;
@@ -487,13 +504,7 @@ const handlePageSizeChange = (size: number) => {
 };
 
 defineExpose({
-  getSelections: () =>
-    collectMatchPreviewSelections(
-      props.items,
-      selectedSpecs.value,
-      editedOverrides.value,
-      manualClearedRows.value
-    ),
+  getSelections: getCurrentSelections,
   getEditedBackfillItems: (): EditedBackfillItem[] =>
     collectEditedBackfillItems(
       props.items,
