@@ -1383,6 +1383,22 @@ test("智能填充前端应清理旧的 llmScore 及相关展示字段，统一�
   assert.doesNotMatch(smartFillPageSource, /isLlmReviewed\s*=/);
 });
 
+test("AI 已确认等价时应突出 AI 裁决置信度，并把综合分明确标注为规则基础分", () => {
+  const bestMatchCellSource = readProjectFile(
+    "web/src/views/smart-fill/components/MatchPreviewBestMatchCell.vue"
+  );
+  const bestMatchSectionSource = readProjectFile(
+    "web/src/views/smart-fill/components/ScoreDetailBestMatchSection.vue"
+  );
+
+  assert.match(bestMatchCellSource, /AI确认等价/);
+  assert.match(bestMatchCellSource, /规则基础/);
+  assert.match(bestMatchCellSource, /llmEquivalence\.value\?\.confidence/);
+  assert.match(bestMatchSectionSource, /AI确认等价/);
+  assert.match(bestMatchSectionSource, /规则基础分/);
+  assert.doesNotMatch(bestMatchSectionSource, /label:\s*"最终得分"/);
+});
+
 test("智能填充页在浏览器离线时应主动收口 streaming 复核行", () => {
   const smartFillPageSource = readProjectFile(
     "web/src/views/smart-fill/index.vue"

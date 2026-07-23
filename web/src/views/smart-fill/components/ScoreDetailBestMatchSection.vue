@@ -27,6 +27,22 @@ const props = defineProps<{
 
 const bestMatch = computed(() => props.item.bestMatch);
 const bestMatchIssues = computed(() => bestMatch.value?.issues ?? []);
+const isAiConfirmedEquivalent = computed(
+  () =>
+    bestMatch.value?.decision === "autoApply" &&
+    bestMatch.value?.selectionMode !== "exactShortcut" &&
+    bestMatch.value?.llmEquivalence?.verdict === "equivalent"
+);
+const overviewScore = computed(() =>
+  isAiConfirmedEquivalent.value
+    ? (bestMatch.value?.llmEquivalence?.confidence ??
+      bestMatch.value?.score ??
+      0)
+    : (bestMatch.value?.score ?? 0)
+);
+const overviewScoreLabel = computed(() =>
+  isAiConfirmedEquivalent.value ? "AI确认等价" : "规则基础分"
+);
 const effectiveAmbiguityMargin = computed(
   () => props.ambiguityMargin ?? DEFAULT_AMBIGUITY_MARGIN
 );
@@ -42,9 +58,9 @@ type TagType = "success" | "info" | "warning" | "danger";
 const metricCards = computed(() => {
   if (!bestMatch.value) return [];
 
-  return [
+  const metrics = [
     {
-      label: "最终得分",
+      label: "规则基础分",
       value: formatScore(bestMatch.value.score)
     },
     {
@@ -64,12 +80,36 @@ const metricCards = computed(() => {
       value: bestMatch.value.recalledCandidateCount?.toString() || "-"
     }
   ];
+
+  if (bestMatch.value.llmEquivalence) {
+    metrics.splice(1, 0, {
+      label:
+        bestMatch.value.llmEquivalence.verdict === "equivalent"
+          ? "AI等价置信度"
+          : "AI裁决置信度",
+      value: formatScore(bestMatch.value.llmEquivalence.confidence)
+    });
+  }
+
+  return metrics;
 });
 
 const explanationRows = computed(() => {
   if (!bestMatch.value) return [];
 
   const rows = [];
+  if (bestMatch.value.llmEquivalence) {
+    const equivalence = bestMatch.value.llmEquivalence;
+    rows.push({
+      label: "判定口径",
+      value:
+        equivalence.verdict === "equivalent"
+          ? `规则基础分为 ${formatScore(bestMatch.value.score)}；AI 以 ${formatScore(equivalence.confidence)} 的置信度确认语义等价，最终按系统决策采用。`
+          : `规则基础分为 ${formatScore(bestMatch.value.score)}；AI 裁决为${equivalence.verdict === "different" ? "不同" : "不确定"}，裁决置信度 ${formatScore(equivalence.confidence)}，最终以系统决策为准。`
+    });
+    return rows;
+  }
+
   const thresholdReached =
     bestMatch.value.score >= effectiveHighConfidenceThreshold.value;
 
@@ -195,8 +235,8 @@ const summaryRows = computed(() => {
             <div class="overview-spec">{{ bestMatch.specification }}</div>
           </div>
           <div class="overview-score">
-            <strong>{{ formatScore(bestMatch.score) }}</strong>
-            <span>当前最佳</span>
+            <strong>{{ formatScore(overviewScore) }}</strong>
+            <span>{{ overviewScoreLabel }}</span>
           </div>
         </div>
 

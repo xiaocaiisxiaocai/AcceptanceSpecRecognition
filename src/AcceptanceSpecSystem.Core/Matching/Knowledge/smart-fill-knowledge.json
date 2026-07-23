@@ -211,7 +211,7 @@
     {
       "dimension": "piece_rate_per_min",
       "factor": 1,
-      "tokens": [ "件/min", "件/分钟", "个/min", "个/分钟", "片/min", "片/分钟", "pcs/分钟", "pc/分钟" ]
+      "tokens": [ "件/min", "件/分钟", "个/min", "个/分钟", "片/min", "片/分钟", "pcs/分钟", "pc/分钟", "pnl/min", "pnl/分钟" ]
     },
     {
       "dimension": "piece_rate_per_min",

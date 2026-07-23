@@ -110,6 +110,7 @@ public class MatchingKnowledgeDrivenNormalizationTests
     [InlineData("贴标能力为2pcs/s", "贴标能力为120pcs/min")]
     [InlineData("循环能力为3cycle/s", "循环能力为180cycle/min")]
     [InlineData("工站产能为12站/min", "工站产能为720站/h")]
+    [InlineData("产能为4pnl/分钟", "产能为4pnl/min")]
     [InlineData("处理能力为0.3kqps", "处理能力为300qps")]
     [InlineData("制动电阻为2kΩ", "制动电阻为2000Ω")]
     [InlineData("滤波电容为1mF", "滤波电容为1000μF")]

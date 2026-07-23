@@ -30,6 +30,20 @@ const ambiguityHint = computed(() =>
   getAmbiguityHint(props.item, props.ambiguityMargin)
 );
 const llmEquivalence = computed(() => props.item.bestMatch?.llmEquivalence);
+const isAiConfirmedEquivalent = computed(
+  () =>
+    props.item.bestMatch?.decision === "autoApply" &&
+    props.item.bestMatch?.selectionMode !== "exactShortcut" &&
+    llmEquivalence.value?.verdict === "equivalent"
+);
+const primaryScore = computed(() =>
+  isAiConfirmedEquivalent.value
+    ? (llmEquivalence.value?.confidence ?? props.item.bestMatch?.score ?? 0)
+    : (props.item.bestMatch?.score ?? 0)
+);
+const primaryScoreLabel = computed(() =>
+  isAiConfirmedEquivalent.value ? "AI确认等价" : "规则基础分"
+);
 const shouldShowLlmEquivalence = computed(
   () =>
     !!llmEquivalence.value &&
@@ -72,6 +86,14 @@ const basisTagType = computed(() =>
         <el-tag size="small" type="info" effect="plain">
           Emb {{ formatPreviewScore(item.bestMatch.embeddingScore) }}
         </el-tag>
+        <el-tag
+          v-if="isAiConfirmedEquivalent"
+          size="small"
+          type="info"
+          effect="plain"
+        >
+          规则基础 {{ formatPreviewScore(item.bestMatch.score) }}
+        </el-tag>
         <el-tag size="small" type="info" effect="plain">
           召回 {{ item.bestMatch.recalledCandidateCount }}
         </el-tag>
@@ -94,7 +116,8 @@ const basisTagType = computed(() =>
       </div>
     </div>
     <div class="match-score">
-      {{ formatPreviewScore(item.bestMatch.score) }}
+      <span class="match-score__label">{{ primaryScoreLabel }}</span>
+      <span>{{ formatPreviewScore(primaryScore) }}</span>
     </div>
     <div v-if="item.bestMatch.isAmbiguous" class="ambiguity-reason">
       {{ ambiguityHint }}
